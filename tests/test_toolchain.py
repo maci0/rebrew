@@ -759,7 +759,7 @@ class TestSwapToolchainImage:
         from rebrew.toolchain import swap_toolchain_image
 
         state, _calls = self._fake_docker(monkeypatch, "sha256:OLD")
-        toolchain_mod._image_presence[self.TAG] = False
+        toolchain_mod._image_presence[self.TAG] = True
         toolchain_mod._toolchain_digest_cache[self.TAG] = "deadbeef0000"
 
         def _ok_op() -> None:

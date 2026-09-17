@@ -624,6 +624,10 @@ def metadata_write_lock(directory: Path, filename: str) -> Iterator[None]:
 #: workers while ``rebrew test`` / match / GA writers pop after STATUS
 #: promotion — unguarded clear/pop vs fill races the shared dict.
 _METADATA_DOC_CACHE_LOCK = threading.Lock()
+#: Cap entries so a long-lived process that walks many project roots (or a
+#: large pytest session with unique tmp_path TOMLs) cannot retain every
+#: parsed table until exit.  Eviction is FIFO on insertion order.
+_METADATA_DOC_CACHE_MAX = 64
 
 
 def pop_metadata_doc_cache(
@@ -697,6 +701,9 @@ def load_metadata_doc(
         cached = cache.get(path)
         if cached is not None and cached[0] == current_mtime:
             return copy.deepcopy(cached[1]) if deepcopy else cached[1]
+        if len(cache) >= _METADATA_DOC_CACHE_MAX and path not in cache:
+            oldest = next(iter(cache))
+            cache.pop(oldest, None)
         cache[path] = (current_mtime, result)
     # Deep copy for the same reason as the cache-hit path above.
     return copy.deepcopy(result) if deepcopy else result

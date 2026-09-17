@@ -76,8 +76,11 @@ TargetOption: str | None = typer.Option(
 #: todo both decode .rebrew/verify_cache.json every run — sometimes twice per
 #: command — and the decode is linear in cache size.  At most one entry per
 #: path: a rewrite changes mtime/size, and keeping the old key would retain
-#: the previous full JSON payload for the process lifetime.
+#: the previous full JSON payload for the process lifetime.  Cap distinct
+#: paths so a long-lived process that touches many project roots cannot
+#: retain every decoded payload.
 _VERIFY_CACHE_MEMO: dict[tuple[str, int, int], dict[str, Any] | None] = {}
+_VERIFY_CACHE_MEMO_MAX = 8
 
 
 def load_verify_cache_raw(cfg: Any) -> dict[str, Any] | None:
@@ -110,6 +113,10 @@ def load_verify_cache_raw(cfg: Any) -> dict[str, Any] | None:
     stale = [k for k in _VERIFY_CACHE_MEMO if k[0] == path_key]
     for old in stale:
         del _VERIFY_CACHE_MEMO[old]
+    # Evict another path's entry when at capacity (FIFO on insertion order).
+    while len(_VERIFY_CACHE_MEMO) >= _VERIFY_CACHE_MEMO_MAX:
+        oldest = next(iter(_VERIFY_CACHE_MEMO))
+        del _VERIFY_CACHE_MEMO[oldest]
     _VERIFY_CACHE_MEMO[key] = raw
     return copy.deepcopy(raw) if raw is not None else None
 

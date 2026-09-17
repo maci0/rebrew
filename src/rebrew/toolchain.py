@@ -280,12 +280,20 @@ def docker_available() -> bool:
     return _docker_available_cache
 
 
+#: Positive-only presence memo (tag → True).  Misses and inspect failures are
+#: never stored: caching ``False`` after a transient daemon blip / external
+#: ``docker pull`` would keep reporting absent until process exit.
 _image_presence: dict[str, bool] = {}
+_IMAGE_PRESENCE_MAX = 64
 
 #: Cached short docker content ids for compile-cache keys (image tag → digest).
 #: Cleared by :func:`invalidate_toolchain_digest` after a tag swap/rebuild so
 #: objects compiled against the previous image are never served under the new one.
+#: Empty digests (inspect failure / missing image) are never stored — a
+#: transient docker outage must not pin compile keys to the bare tag for the
+#: rest of the process.
 _toolchain_digest_cache: dict[str, str] = {}
+_TOOLCHAIN_DIGEST_CACHE_MAX = 64
 
 
 def invalidate_toolchain_digest(image: str | None = None) -> None:
@@ -306,21 +314,30 @@ def cached_image_digest(image: str) -> str:
 
     Used by compile-cache keys.  Falls back to empty when docker is
     unavailable or inspect fails — the bare image tag remains a usable key.
+    Failures are not memoized: the next call retries inspect.
     """
     digest = _toolchain_digest_cache.get(image)
-    if digest is None:
+    if digest is not None:
+        return digest
+    digest = ""
+    try:
+        r = subprocess.run(
+            [container_runtime(), "image", "inspect", "--format", "{{.Id}}", image],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        if r.returncode == 0 and r.stdout.strip():
+            digest = r.stdout.strip().removeprefix("sha256:")[:12]
+    except (OSError, subprocess.TimeoutExpired):
         digest = ""
-        try:
-            r = subprocess.run(
-                [container_runtime(), "image", "inspect", "--format", "{{.Id}}", image],
-                capture_output=True,
-                text=True,
-                timeout=15,
-            )
-            if r.returncode == 0 and r.stdout.strip():
-                digest = r.stdout.strip().removeprefix("sha256:")[:12]
-        except (OSError, subprocess.TimeoutExpired):
-            digest = ""
+    if digest:
+        if (
+            len(_toolchain_digest_cache) >= _TOOLCHAIN_DIGEST_CACHE_MAX
+            and image not in _toolchain_digest_cache
+        ):
+            oldest = next(iter(_toolchain_digest_cache))
+            _toolchain_digest_cache.pop(oldest, None)
         _toolchain_digest_cache[image] = digest
     return digest
 
@@ -337,9 +354,14 @@ def kill_container(name: str, timeout: int = 30) -> None:
 
 
 def image_present(tag: str, use_cache: bool = True) -> bool:
-    """True when a docker image for *tag* is present locally (cached)."""
-    if use_cache and tag in _image_presence:
-        return _image_presence[tag]
+    """True when a docker image for *tag* is present locally (cached).
+
+    Only positive hits are memoized.  A miss / inspect failure is rechecked
+    on the next call so an external ``docker pull`` (or a daemon that was
+    briefly down) is not frozen as absent for the process lifetime.
+    """
+    if use_cache and _image_presence.get(tag):
+        return True
     if not docker_available():
         return False
     try:
@@ -355,8 +377,16 @@ def image_present(tag: str, use_cache: bool = True) -> bool:
         # not a silent False, which would misreport a present image as
         # "not built".
         raise ToolchainError(f"docker image inspect {tag} failed: {exc}") from exc
-    _image_presence[tag] = r.returncode == 0
-    return _image_presence[tag]
+    present = r.returncode == 0
+    if present:
+        if len(_image_presence) >= _IMAGE_PRESENCE_MAX and tag not in _image_presence:
+            oldest = next(iter(_image_presence))
+            _image_presence.pop(oldest, None)
+        _image_presence[tag] = True
+    else:
+        # Drop a stale positive if the image vanished under us.
+        _image_presence.pop(tag, None)
+    return present
 
 
 def _image_id(tag: str) -> str | None:

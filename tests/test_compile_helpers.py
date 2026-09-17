@@ -209,7 +209,11 @@ class TestNativeToolchainId:
         assert _native_toolchain_id(self._spec("no-such-compiler")) == "native:no-such-compiler"
 
     def test_binary_upgrade_changes_id(self, tmp_path: Path, monkeypatch) -> None:
-        """Two different binaries under the same name must not share an id."""
+        """Two different binaries under the same name must not share an id.
+
+        The memo is keyed on (path, mtime, size): an in-process upgrade that
+        changes those must invalidate without an explicit cache clear.
+        """
         import os
 
         from rebrew.compile import _native_binary_cache, _native_toolchain_id
@@ -221,12 +225,12 @@ class TestNativeToolchainId:
         monkeypatch.setattr("rebrew.compile.shutil.which", lambda name: str(gcc))
         _native_binary_cache.clear()
         id_old = _native_toolchain_id(self._spec("mingw-16.2.0"))
-        # "Upgrade": same path, new content + a later mtime.
+        # "Upgrade": same path, new content + a later mtime — no clear.
         gcc.write_bytes(b"#!/bin/sh\nexit 0\n# newer compiler\n")
         os.utime(gcc, (1767226000, 1767226000))
-        _native_binary_cache.clear()
         id_new = _native_toolchain_id(self._spec("mingw-16.2.0"))
         assert id_old != id_new
+        assert _native_binary_cache["mingw-16.2.0"][3] == id_new
 
     def test_same_stat_different_bytes_changes_id(self, tmp_path: Path, monkeypatch) -> None:
         """A swapped compiler that preserves (mtime, size) still invalidates
@@ -266,6 +270,66 @@ class TestInvalidateToolchainDigest:
         assert _toolchain_digest_cache["rebrew/gcc:14.2.0-linux-x64"] == "bbbbbbbbbbbb"
         invalidate_toolchain_digest()
         assert _toolchain_digest_cache == {}
+
+    def test_cached_image_digest_skips_empty_failures(self, monkeypatch) -> None:
+        """A failed inspect must not pin the bare-tag key for the process life."""
+        import rebrew.toolchain as toolchain_mod
+        from rebrew.toolchain import cached_image_digest
+
+        toolchain_mod._toolchain_digest_cache.clear()
+        calls = {"n": 0}
+
+        def _fail(*_a, **_k):
+            calls["n"] += 1
+            return SimpleNamespace(returncode=1, stdout="", stderr="missing")
+
+        monkeypatch.setattr(toolchain_mod.subprocess, "run", _fail)
+        assert cached_image_digest("rebrew/msvc:6.0-win32") == ""
+        assert "rebrew/msvc:6.0-win32" not in toolchain_mod._toolchain_digest_cache
+        assert cached_image_digest("rebrew/msvc:6.0-win32") == ""
+        assert calls["n"] == 2  # retried — not memoized
+
+    def test_cached_image_digest_stores_success(self, monkeypatch) -> None:
+        import rebrew.toolchain as toolchain_mod
+        from rebrew.toolchain import cached_image_digest
+
+        toolchain_mod._toolchain_digest_cache.clear()
+        calls = {"n": 0}
+
+        def _ok(*_a, **_k):
+            calls["n"] += 1
+            return SimpleNamespace(
+                returncode=0,
+                stdout="sha256:abcdef0123456789deadbeef\n",
+                stderr="",
+            )
+
+        monkeypatch.setattr(toolchain_mod.subprocess, "run", _ok)
+        assert cached_image_digest("rebrew/msvc:6.0-win32") == "abcdef012345"
+        assert cached_image_digest("rebrew/msvc:6.0-win32") == "abcdef012345"
+        assert calls["n"] == 1
+
+    def test_image_present_does_not_cache_misses(self, monkeypatch) -> None:
+        """A miss must re-inspect so an external pull is visible mid-process."""
+        import rebrew.toolchain as toolchain_mod
+        from rebrew.toolchain import image_present
+
+        toolchain_mod._image_presence.clear()
+        monkeypatch.setattr(toolchain_mod, "docker_available", lambda: True)
+        results = [1, 0]  # miss then hit
+        calls = {"n": 0}
+
+        def _inspect(*_a, **_k):
+            calls["n"] += 1
+            code = results.pop(0)
+            return SimpleNamespace(returncode=code, stdout="", stderr="")
+
+        monkeypatch.setattr(toolchain_mod.subprocess, "run", _inspect)
+        assert image_present("rebrew/msvc:6.0-win32") is False
+        assert "rebrew/msvc:6.0-win32" not in toolchain_mod._image_presence
+        assert image_present("rebrew/msvc:6.0-win32") is True
+        assert toolchain_mod._image_presence["rebrew/msvc:6.0-win32"] is True
+        assert calls["n"] == 2
 
 
 class TestCompilerCmdRoundTrip:

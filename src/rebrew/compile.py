@@ -750,7 +750,12 @@ def _docker_include_rewrite(
     return out, mounts
 
 
-_native_binary_cache: dict[str, str] = {}
+# name → (resolved_path, mtime_ns, size, toolchain_id).  Re-stat on each
+# call so a mid-process compiler upgrade (same PATH name, new bytes) does
+# not keep serving objects keyed under the old content digest.  Content is
+# re-hashed only when path/mtime/size change.
+_native_binary_cache: dict[str, tuple[str, int, int, str]] = {}
+_NATIVE_BINARY_CACHE_MAX = 32
 
 
 def _native_toolchain_id(spec: "ToolchainSpec") -> str:
@@ -762,29 +767,48 @@ def _native_toolchain_id(spec: "ToolchainSpec") -> str:
     changes the bytes, and objects cached from the OLD binary are never
     served under the new one.  Falls back to the bare ``native:<name>`` when
     the binary is missing or unresolvable (the compile itself fails with a
-    clear error).  Cached per process, mirroring toolchain digest memos.
+    clear error).  Memoized per ``(path, mtime, size)`` so an in-process
+    upgrade invalidates without a full restart.
     """
     name = spec.binary
-    cached = _native_binary_cache.get(name)
-    if cached is None:
-        cached = f"native:{name}"
-        # Resolve the binary the runner will actually execute, in the same
-        # order as toolchain._resolve_binary: the VENDORED tree first, then
-        # PATH.  Hashing only `shutil.which` misses a spec whose binary
-        # resolves out of a vendored tree, so replacing that tree kept
-        # serving objects built by the old compiler.
-        from rebrew.toolchain import vendored_binary
+    # Resolve the binary the runner will actually execute, in the same
+    # order as toolchain._resolve_binary: the VENDORED tree first, then
+    # PATH.  Hashing only `shutil.which` misses a spec whose binary
+    # resolves out of a vendored tree, so replacing that tree kept
+    # serving objects built by the old compiler.
+    from rebrew.toolchain import vendored_binary
 
-        resolved = vendored_binary(spec)
-        if resolved is None:
-            found = shutil.which(name)
-            resolved = Path(found) if found else None
-        if resolved is not None:
-            digest = _native_binary_digest(Path(resolved).resolve())
-            if digest is not None:
-                cached = f"native:{name}@{digest}"
-        _native_binary_cache[name] = cached
-    return cached
+    resolved = vendored_binary(spec)
+    if resolved is None:
+        found = shutil.which(name)
+        resolved = Path(found) if found else None
+    if resolved is None:
+        return f"native:{name}"
+
+    try:
+        resolved_path = str(Path(resolved).resolve())
+        st = Path(resolved_path).stat()
+        mtime_ns = st.st_mtime_ns
+        fsize = st.st_size
+    except OSError:
+        return f"native:{name}"
+
+    cached = _native_binary_cache.get(name)
+    if (
+        cached is not None
+        and cached[0] == resolved_path
+        and cached[1] == mtime_ns
+        and cached[2] == fsize
+    ):
+        return cached[3]
+
+    digest = _native_binary_digest(Path(resolved_path))
+    toolchain_id = f"native:{name}@{digest}" if digest is not None else f"native:{name}"
+    if len(_native_binary_cache) >= _NATIVE_BINARY_CACHE_MAX and name not in _native_binary_cache:
+        oldest = next(iter(_native_binary_cache))
+        _native_binary_cache.pop(oldest, None)
+    _native_binary_cache[name] = (resolved_path, mtime_ns, fsize, toolchain_id)
+    return toolchain_id
 
 
 def _native_binary_digest(path: Path) -> str | None:
