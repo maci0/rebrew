@@ -109,21 +109,34 @@ def toolchain_from_toml(name: str, table: dict[str, Any], source: str) -> Toolch
     unknown = set(table) - known
     if unknown:
         raise RegistryError(
-            f"bad toolchain {name!r} in {source}: unknown field(s) {sorted(unknown)}"
+            f"bad toolchain {name!r} in {source}: unknown field(s) {sorted(unknown)}",
+            group="rebrew.toolchains",
+            name=name,
+            origin=source,
         )
     host_path = table.get("host_path")
     bits_raw = table.get("bits")
     try:
         flags_style = flags_style_from_str(table.get("flags_style"))
     except ValueError as exc:
-        raise RegistryError(f"bad toolchain {name!r} in {source}: {exc}") from None
+        raise RegistryError(
+            f"bad toolchain {name!r} in {source}: {exc}",
+            group="rebrew.toolchains",
+            name=name,
+            origin=source,
+        ) from None
     raw_arg_style = table.get("arg_style")
     arg_style = None
     if raw_arg_style is not None:
         try:
             arg_style = arg_style_from_str(raw_arg_style)
         except ValueError as exc:
-            raise RegistryError(f"bad toolchain {name!r} in {source}: {exc}") from None
+            raise RegistryError(
+                f"bad toolchain {name!r} in {source}: {exc}",
+                group="rebrew.toolchains",
+                name=name,
+                origin=source,
+            ) from None
     return ToolchainSpec(
         name=name,
         image=table.get("image"),

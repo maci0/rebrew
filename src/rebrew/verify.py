@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from rebrew.compile import CompareResult
+    from rebrew.compile import CompareResult, CompareStatus
     from rebrew.compile_cache import CacheBackend
     from rebrew.context import CompileContext
 
@@ -78,7 +78,7 @@ log = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 
-def _failed_result(status: str, message: str = "") -> "CompareResult":
+def _failed_result(status: "CompareStatus", message: str = "") -> "CompareResult":
     """Create a failed CompareResult with default zero values."""
     from rebrew.compile import CompareResult
 

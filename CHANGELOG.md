@@ -1,5 +1,11 @@
 ## [Unreleased]
 ### Fixed
+- **Recompile / registry errors are programmatically recoverable** —
+  ``RecompileError`` carries ``kind`` / ``status_code`` / ``retryable``;
+  ``RegistryError`` carries ``group`` / ``name`` / ``origin``.  Callers no
+  longer need to string-match messages to decide retry vs abort.
+- **Remote compile reuses one HTTP client** for the compile POST and the
+  artifact GET (optional ``client=`` injection for tests and pooling).
 - **sdist no longer packs egg-info residue** — with a ``src/`` layout
   setuptools wrote ``src/rebrew.egg-info/`` (PKG-INFO, entry_points,
   requires.txt) into the tarball.  ``egg_base = "."`` plus ``MANIFEST.in``
@@ -8,6 +14,9 @@
   declares ``**/py.typed``; project URLs add Issues and Changelog.
 
 ### Changed
+- **``CompareResult.status`` is ``CompareStatus``** — a ``Literal`` of the
+  known STATUS vocabulary (annotation + machine outcomes), so typed
+  consumers get completion and exhaustiveness checks instead of bare ``str``.
 - **Dashboard cold start is one API round trip** — ``GET /api/bootstrap`` returns
   targets plus the first target's summary/functions; the HTML shell shows a
   loading line until that lands.  Static index HTML is gzip-precompressed at

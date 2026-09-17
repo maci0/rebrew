@@ -43,7 +43,28 @@ from typing import Any
 
 
 class RegistryError(RuntimeError):
-    """A plugin registration is malformed, conflicts, or fails to load."""
+    """A plugin registration is malformed, conflicts, or fails to load.
+
+    Structured fields (when known) let plugin authors recover without
+    string-matching the message:
+
+    - ``group`` — entry-point / registry group (e.g. ``rebrew.toolchains``)
+    - ``name`` — the colliding or unloadable registration name
+    - ``origin`` — where the failing registration came from
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        group: str = "",
+        name: str = "",
+        origin: str = "",
+    ) -> None:
+        super().__init__(message)
+        self.group = group
+        self.name = name
+        self.origin = origin
 
 
 @dataclass(frozen=True)
@@ -109,7 +130,10 @@ def import_registration(reg: Registration) -> Any:
     except Exception as exc:
         raise RegistryError(
             f"cannot load {reg.group} registration {reg.name!r} from {reg.origin}: "
-            f"module {reg.module!r} not importable ({type(exc).__name__}: {exc})"
+            f"module {reg.module!r} not importable ({type(exc).__name__}: {exc})",
+            group=reg.group,
+            name=reg.name,
+            origin=reg.origin,
         ) from exc
     if not reg.attr:
         return mod
@@ -119,7 +143,10 @@ def import_registration(reg: Registration) -> Any:
         raise RegistryError(
             f"cannot load {reg.group} registration {reg.name!r} from {reg.origin}: "
             f"{reg.module!r} has no usable attribute {reg.attr!r} "
-            f"({type(exc).__name__}: {exc})"
+            f"({type(exc).__name__}: {exc})",
+            group=reg.group,
+            name=reg.name,
+            origin=reg.origin,
         ) from exc
 
 
@@ -154,7 +181,10 @@ def merge_into(
     if name in registry:
         raise RegistryError(
             f"duplicate {group or 'registry'} registration {name!r}: {origin} "
-            f"conflicts with an existing registration (single-source discipline)"
+            f"conflicts with an existing registration (single-source discipline)",
+            group=group,
+            name=name,
+            origin=origin,
         )
     registry[name] = value
 
@@ -174,12 +204,16 @@ def merge_provider_dict(
         provided = provider()
     except Exception as exc:
         raise RegistryError(
-            f"bad {group} provider from {origin}: {type(exc).__name__}: {exc}"
+            f"bad {group} provider from {origin}: {type(exc).__name__}: {exc}",
+            group=group,
+            origin=origin,
         ) from exc
     if not isinstance(provided, dict):
         raise RegistryError(
             f"bad {group} provider from {origin}: expected dict[str, component], "
-            f"got {type(provided).__name__}"
+            f"got {type(provided).__name__}",
+            group=group,
+            origin=origin,
         )
     for name, value in provided.items():
         merge_into(registry, name, value, origin, group=group)

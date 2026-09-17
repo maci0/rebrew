@@ -143,22 +143,31 @@ class TestImportRegistration:
         reg = SimpleNamespace(
             name="x", module="rebrew.no_such_module", attr="", group="g", origin="entry-point"
         )
-        with pytest.raises(RegistryError, match="module 'rebrew.no_such_module' not importable"):
+        with pytest.raises(
+            RegistryError, match="module 'rebrew.no_such_module' not importable"
+        ) as ei:
             import_registration(reg)
+        assert ei.value.group == "g"
+        assert ei.value.name == "x"
+        assert ei.value.origin == "entry-point"
 
     def test_missing_attr_raises(self) -> None:
         reg = SimpleNamespace(
             name="x", module="rebrew.diagnose", attr="nope", group="g", origin="entry-point"
         )
-        with pytest.raises(RegistryError, match="has no attribute 'nope'"):
+        with pytest.raises(RegistryError, match="has no attribute 'nope'") as ei:
             import_registration(reg)
+        assert ei.value.group == "g" and ei.value.name == "x"
 
 
 class TestMerge:
     def test_merge_into_conflict_raises(self) -> None:
         registry = {"a": 1}
-        with pytest.raises(RegistryError, match="duplicate"):
+        with pytest.raises(RegistryError, match="duplicate") as ei:
             merge_into(registry, "a", 2, "data-file x.toml", group="toolchains")
+        assert ei.value.group == "toolchains"
+        assert ei.value.name == "a"
+        assert ei.value.origin == "data-file x.toml"
 
     def test_merge_provider_dict_ok(self) -> None:
         registry: dict[str, int] = {}

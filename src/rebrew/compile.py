@@ -59,7 +59,7 @@ import uuid
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 
@@ -84,6 +84,25 @@ from rebrew.utils import config_path, container_runtime, safe_shlex_split
 # ---------------------------------------------------------------------------
 # Shared result type
 # ---------------------------------------------------------------------------
+
+#: Status strings :class:`CompareResult` may carry.  Superset of the
+#: annotation vocabulary — includes machine outcomes (``COMPILE_ERROR``,
+#: ``SIZE_MISMATCH``, …) that ``rebrew test`` / ``rebrew verify`` persist.
+CompareStatus = Literal[
+    "STUB",
+    "EXACT",
+    "RELOC",
+    "PROVEN",
+    "NEAR_MATCHING",
+    "SKIP",
+    "SIZE_MISMATCH",
+    "COMPILE_ERROR",
+    "EXTRACT_ERROR",
+    "MISSING_SIZE",
+    "MISSING_FILE",
+    "INVALID_VA",
+    "INTERNAL_ERROR",
+]
 
 
 @dataclass
@@ -122,7 +141,7 @@ class CompareResult:
     """
 
     matched: bool
-    status: str
+    status: CompareStatus
     match_percent: float
     delta: int
     obj_bytes: bytes | None
@@ -267,10 +286,9 @@ def classify_compare_result(
     relocs = reloc_offsets or []
 
     if matched:
-        status = "RELOC" if relocs else "EXACT"
         return CompareResult(
             matched=True,
-            status=status,
+            status="RELOC" if relocs else "EXACT",
             match_percent=100.0,
             delta=0,
             obj_bytes=obj_bytes,
@@ -368,6 +386,7 @@ def classify_compare_result(
             orig_tgt = len(target_bytes or b"") + size_delta
         else:
             orig_tgt = len(target_bytes or b"")
+        status: CompareStatus
         if (
             obj_bytes is not None
             and orig_cand <= _STUB_BODY_MAX_BYTES

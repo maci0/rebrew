@@ -92,19 +92,54 @@ class TestCompileSource:
 
     def test_http_error_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _patch(monkeypatch, _Resp(500, text="boom"))
-        with pytest.raises(RecompileError, match="HTTP 500"):
+        with pytest.raises(RecompileError, match="HTTP 500") as ei:
             compile_source("http://svc", "msvc-6.0", "int f(void){}", [])
+        assert ei.value.kind == "http"
+        assert ei.value.status_code == 500
+        assert ei.value.retryable is True
+
+    def test_http_4xx_is_not_retryable(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _patch(monkeypatch, _Resp(422, text="bad flags"))
+        with pytest.raises(RecompileError) as ei:
+            compile_source("http://svc", "msvc-6.0", "int f(void){}", [])
+        assert ei.value.kind == "http"
+        assert ei.value.status_code == 422
+        assert ei.value.retryable is False
 
     def test_unreachable_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
         _patch(monkeypatch, httpx.ConnectError("refused"))
-        with pytest.raises(RecompileError, match="unreachable"):
+        with pytest.raises(RecompileError, match="unreachable") as ei:
             compile_source("http://svc", "msvc-6.0", "int f(void){}", [])
+        assert ei.value.kind == "network"
+        assert ei.value.status_code is None
+        assert ei.value.retryable is True
 
     def test_flag_caps_are_enforced(self) -> None:
-        with pytest.raises(RecompileError, match="too many flags"):
+        with pytest.raises(RecompileError, match="too many flags") as ei:
             compile_source("http://svc", "msvc-6.0", "x", ["/c"] * 65)
-        with pytest.raises(RecompileError, match="flag too long"):
+        assert ei.value.kind == "validation"
+        assert ei.value.retryable is False
+        with pytest.raises(RecompileError, match="flag too long") as ei2:
             compile_source("http://svc", "msvc-6.0", "x", ["/" + "a" * 300])
+        assert ei2.value.kind == "validation"
+
+    def test_injected_client_is_reused(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        body = {
+            "status": "ok",
+            "artifact_url": "/api/v1/artifacts/x.obj",
+            "compiler_version": "12.0",
+        }
+        client = _FakeClient(_Resp(200, json_body=body), _Resp(200, content=b"OBJ"))
+        # Must not construct a fresh httpx.Client when one is supplied.
+        monkeypatch.setattr(
+            httpx, "Client", lambda **kwargs: (_ for _ in ()).throw(AssertionError("no Client"))
+        )
+        res = compile_source("http://svc/", "msvc-6.0", "int f(void){}", ["/c"], client=client)
+        assert res.ok and res.obj_bytes == b"OBJ"
+        assert client.calls == [
+            ("post", "http://svc/api/v1/compile"),
+            ("get", "http://svc/api/v1/artifacts/x.obj"),
+        ]
 
     def test_off_origin_artifact_url_is_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
         body = {
