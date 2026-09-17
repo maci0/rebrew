@@ -13,14 +13,26 @@ cannot proceed without a workspace.
 
 from __future__ import annotations
 
+import os
 import re
 import tomllib
 from pathlib import Path
 from typing import Any
 
-from rebrew.utils import config_path
-
 CONFIG_NAME = "rebrew-project.toml"
+
+
+def _config_path(rel: str | Path) -> Path:
+    """Build a :class:`~pathlib.Path` from a config path string.
+
+    Local copy of the ``rebrew.utils.config_path`` one-liner: project files
+    may use Windows separators, and on POSIX ``Path("src\\\\foo.c")`` is a
+    single component with a literal backslash.  Kept here (not imported) so
+    ``rebrew.workspace`` stays free of the metadata / utils / registry stack
+    (see ``test_submodules_import_without_rebrew_stack``).
+    """
+    return Path(os.fspath(rel).replace("\\", "/"))
+
 
 #: Directory used when ``[project].db_dir`` is absent or empty.
 DEFAULT_DB_DIR = "db"
@@ -129,7 +141,7 @@ def target_reversed_dir(root: Path, name: str, entry: dict[str, Any]) -> Path:
     """Reversed-source directory: ``reversed_dir``, else ``root/src/<name>``."""
     configured = entry.get("reversed_dir")
     if isinstance(configured, str) and configured.strip():
-        return root / config_path(configured)
+        return root / _config_path(configured)
     return root / DEFAULT_REVERSED_ROOT / name
 
 
@@ -142,7 +154,7 @@ def target_binary(root: Path, entry: dict[str, Any]) -> Path | None:
     configured = entry.get("binary")
     if not isinstance(configured, str) or not configured.strip():
         return None
-    path = config_path(configured)
+    path = _config_path(configured)
     return path if path.is_absolute() else root / path
 
 
@@ -150,7 +162,7 @@ def db_dir(root: Path) -> Path:
     """Directory holding coverage.db: ``[project].db_dir``, else ``root/db``."""
     configured = project_table(read_config(root)).get("db_dir")
     if isinstance(configured, str) and configured.strip():
-        return (root / config_path(configured.strip())).resolve()
+        return (root / _config_path(configured.strip())).resolve()
     return (root / DEFAULT_DB_DIR).resolve()
 
 
