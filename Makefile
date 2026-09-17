@@ -84,31 +84,31 @@ ensure-nasm:
 # Setup the development environment
 setup: ensure-resembl
 	uv sync $(UV_SYNC_FLAGS)
-	uv run pre-commit install
+	uv run --frozen pre-commit install
 
 # Run tests
 test: ensure-nasm
-	uv run pytest tests/ -v --tb=short
+	uv run --frozen pytest tests/ -v --tb=short
 
 # Fast edit-test loop: one file or pytest node id
 test-one: ensure-nasm
-	uv run pytest $(T) -v --tb=short
+	uv run --frozen pytest $(T) -v --tb=short
 
 # Run linting
 lint:
-	uv run ruff check src/ tests/ tools/
+	uv run --frozen ruff check src/ tests/ tools/
 
 # Run formatting
 format:
-	uv run ruff format src/ tests/ tools/
+	uv run --frozen ruff format src/ tests/ tools/
 
 # Verify formatting without mutating the source tree
 format-check:
-	uv run ruff format --check src/ tests/ tools/
+	uv run --frozen ruff format --check src/ tests/ tools/
 
 # Run pre-commit checks on all files
 check:
-	uv run pre-commit run --all-files
+	uv run --frozen pre-commit run --all-files
 
 # Build sdist + wheel under a pinned locale/timezone for deterministic wheels
 build:
@@ -118,7 +118,7 @@ build:
 # dist/rebrew.cdx.json so package CI / release consumers share one inventory.
 sbom:
 	@mkdir -p dist
-	uv run python tools/generate_sbom.py -o dist/rebrew.cdx.json
+	uv run --frozen python tools/generate_sbom.py -o dist/rebrew.cdx.json
 
 # Run all non-mutating verification gates (mirrors CI lint + test jobs:
 # ruff, mypy, uv audit, pytest, fixture freshness, idempotency sweep, plus the
@@ -128,23 +128,23 @@ all: format-check lint mypy audit test gen-fixtures-check cycles-check idempoten
 
 # Regenerate checked-in binary fixtures (run after editing tools/gen_fixtures.py).
 gen-fixtures:
-	uv run python tools/gen_fixtures.py
+	uv run --frozen python tools/gen_fixtures.py
 
 # Fixture freshness: checked-in fixtures match the generator (CI test job).
 gen-fixtures-check:
-	uv run python tools/gen_fixtures.py --check
+	uv run --frozen python tools/gen_fixtures.py --check
 
 # Module-level import cycles (pre-commit import-cycles hook / CI pre-commit job).
 cycles-check:
-	uv run python tools/detect_cycles.py
+	uv run --frozen python tools/detect_cycles.py
 
 # Idempotency sweep: every --json command, run twice (CI test job).
 idempotency-check:
-	uv run python tools/check_idempotency.py --fixture-dir .scratch/rebrew-idem
+	uv run --frozen python tools/check_idempotency.py --fixture-dir .scratch/rebrew-idem
 
-# Type check (CI lint job runs plain `uv run mypy`).
+# Type check (CI lint job runs plain `uv run --frozen mypy`).
 mypy:
-	uv run mypy
+	uv run --frozen mypy
 
 # Dependency advisory gate (CI lint job).
 audit:
@@ -159,7 +159,7 @@ audit:
 # tag during normal development. Run `make release-check` before tagging.
 release-check:
 	@set -eu; \
-	V=$$(uv run python -c "from rebrew import __version__; print(__version__)"); \
+	V=$$(uv run --frozen python -c "from rebrew import __version__; print(__version__)"); \
 	LAST=$$(git describe --tags --abbrev=0 2>/dev/null || echo v0.0.0); \
 	LASTV=$${LAST#v}; \
 	if [ "$$V" = "$$LASTV" ]; then \

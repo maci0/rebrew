@@ -11,6 +11,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 CI_YML = ROOT / ".github" / "workflows" / "ci.yml"
 SYNC_YML = ROOT / ".github" / "workflows" / "toolchain-sync.yml"
@@ -74,4 +76,17 @@ class TestCiPins:
                     unpinned.append(f"{path.relative_to(ROOT)}: {uses}")
         assert unpinned == [], (
             f"third-party Actions must be commit-SHA pinned (got floating refs: {unpinned})"
+        )
+
+    @pytest.mark.parametrize("path", [CI_YML, SYNC_YML, MAKEFILE, ROOT / ".pre-commit-config.yaml"])
+    def test_uv_run_preserves_lockfile(self, path: Path) -> None:
+        commands = [
+            match.group(1)
+            for line in path.read_text(encoding="utf-8").splitlines()
+            if not line.lstrip().startswith("#")
+            for match in re.finditer(r"\buv run\s+(\S+)", line)
+        ]
+        assert commands, path
+        assert all(command in {"--frozen", "--locked", "--no-sync"} for command in commands), (
+            f"{path.relative_to(ROOT)} has uv run commands that can rewrite uv.lock"
         )

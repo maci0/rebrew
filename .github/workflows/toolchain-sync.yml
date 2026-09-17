@@ -49,5 +49,5 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          uv run rebrew toolchain check-updates
-          uv run rebrew toolchain check-updates --json | uv run python -c "import json,sys; d=json.load(sys.stdin); print('drifted:', d['drifted']); sys.exit(1 if d['drifted'] else 0)"
+          uv run --frozen rebrew toolchain check-updates
+          uv run --frozen rebrew toolchain check-updates --json | uv run --frozen python -c "import json,sys; d=json.load(sys.stdin); print('drifted:', d['drifted']); sys.exit(1 if d['drifted'] else 0)"

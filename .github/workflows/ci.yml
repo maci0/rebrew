@@ -58,11 +58,11 @@ jobs:
         # PyPI extra — see pyproject.toml [dependency-groups]).
         run: uv sync --frozen --all-extras --group similarity
       - name: Ruff lint
-        run: uv run ruff check src/ tests/ tools/
+        run: uv run --frozen ruff check src/ tests/ tools/
       - name: Ruff format check
-        run: uv run ruff format --check src/ tests/ tools/
+        run: uv run --frozen ruff format --check src/ tests/ tools/
       - name: Mypy type check
-        run: uv run mypy
+        run: uv run --frozen mypy
       - name: Dependency vulnerability audit
         # Advisory gate: `uv audit` exits 1 on known-vulnerable packages
         # (deps-review F1 — the lock previously pinned 35 CVEs and --frozen
@@ -116,11 +116,11 @@ jobs:
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends nasm
           nasm -v
       - name: Run tests
-        run: uv run pytest tests/ -v --tb=short
+        run: uv run --frozen pytest tests/ -v --tb=short
       - name: Fixture freshness (checked-in fixtures match the generator)
-        run: uv run python tools/gen_fixtures.py --check
+        run: uv run --frozen python tools/gen_fixtures.py --check
       - name: Idempotency sweep (every --json command, run twice)
-        run: uv run python tools/check_idempotency.py --fixture-dir .scratch/rebrew-idem
+        run: uv run --frozen python tools/check_idempotency.py --fixture-dir .scratch/rebrew-idem
 
   # Pre-commit hook parity: run the repo's own hook set (hygiene + ruff + mypy,
   # plus import-cycle and skills checks) against a clean checkout. The pytest
@@ -145,7 +145,7 @@ jobs:
       - name: Install dependencies
         run: uv sync --frozen --all-extras --group similarity
       - name: Run pre-commit hooks
-        run: uv run pre-commit run --all-files
+        run: uv run --frozen pre-commit run --all-files
 
   # Package build: prove sdist/wheel build from a clean tree, install the wheel
   # (not the editable src tree), and smoke-import. SOURCE_DATE_EPOCH + C/UTC
@@ -252,6 +252,6 @@ jobs:
           set -euo pipefail
           # grep -q closes the pipe on match → SIGPIPE → pipefail fails even on
           # success; consume all input and discard output instead.
-          uv run rebrew round-trip --help | grep -- '--strict-catalog' >/dev/null
-          uv run rebrew verify --help | grep -- '--compare' >/dev/null
-          uv run rebrew prove --help | grep 'NEAR_MATCHING' >/dev/null
+          uv run --frozen rebrew round-trip --help | grep -- '--strict-catalog' >/dev/null
+          uv run --frozen rebrew verify --help | grep -- '--compare' >/dev/null
+          uv run --frozen rebrew prove --help | grep 'NEAR_MATCHING' >/dev/null
