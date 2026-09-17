@@ -1,5 +1,14 @@
 ## [Unreleased]
 ### Fixed
+- **Sectionless ELFs are analysable again** — ``sstrip``'d binaries (every
+  OpenWrt package, and most stripped firmware) carry no section headers at
+  all, so the loader produced an empty section map and ``rebrew flirt``
+  exited with ``Could not find .text section``.  ``_load_elf`` now falls back
+  to the executable ``PT_LOAD`` segments when no section is flagged as code:
+  each becomes a ``SEG<n>`` code region, plus the usual ``.text`` alias for
+  consumers that ask by name.  Verified on a built ``ubusd`` and on the same
+  binary with its section header table zeroed — both resolve the same four
+  signatures, so no scanner behaviour depends on how the image was stripped.
 - **FLIRT scans every executable section, not just ``.text``** — linkers run
   with ``-ffunction-sections`` (every firmware and bootloader build) put the
   code in ``.text.<name>`` and leave ``.text`` nearly empty: U-Boot's own

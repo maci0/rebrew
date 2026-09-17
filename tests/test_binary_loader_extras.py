@@ -28,13 +28,16 @@ def _mock_section(
     )
 
 
-def _mock_elf_section(name: str, va: int, size: int, offset: int) -> SimpleNamespace:
+def _mock_elf_section(
+    name: str, va: int, size: int, offset: int, flags: int = 0x4  # SHF_EXECINSTR
+) -> SimpleNamespace:
     return SimpleNamespace(
         name=name,
         virtual_address=va,
         size=size,
         original_size=size,
         offset=offset,
+        flags=flags,
     )
 
 
@@ -91,6 +94,60 @@ class TestLoadElf:
         assert info.image_base == 0x1000  # lowest PT_LOAD VA
         assert info.text_va == 0x1000
         assert info.text_size == 0x200
+
+    def test_sectionless_exec_segment_becomes_code(self) -> None:
+        """sstrip'd ELFs (every OpenWrt package) have PT_LOAD and no sections."""
+        elf = SimpleNamespace(
+            header=_mock_elf_header(),
+            segments=[
+                SimpleNamespace(
+                    type=1,
+                    virtual_address=0x2000,
+                    flags=1,  # X
+                    physical_size=0x400,
+                    virtual_size=0x400,
+                    file_offset=0x1000,
+                ),
+                SimpleNamespace(
+                    type=1,
+                    virtual_address=0x3000,
+                    flags=6,  # R|W, not executable
+                    physical_size=0x200,
+                    virtual_size=0x200,
+                    file_offset=0x1400,
+                ),
+            ],
+            sections=[],
+        )
+        info = bl._load_elf(elf, Path("/tmp/x"))
+        assert "SEG0" in info.sections
+        assert info.sections["SEG0"].is_code
+        assert info.sections["SEG0"].raw_size == 0x400
+        assert "SEG1" not in info.sections  # data segment stays out of the scan
+        # `.text` alias for consumers that ask by name; not flagged code, so the
+        # scanner does not visit the same bytes twice.
+        assert ".text" in info.sections
+        assert not info.sections[".text"].is_code
+        assert info.text_va == 0x2000
+        assert info.text_size == 0x400
+
+    def test_sectionless_zero_size_segment_skipped(self) -> None:
+        elf = SimpleNamespace(
+            header=_mock_elf_header(),
+            segments=[
+                SimpleNamespace(
+                    type=1,
+                    virtual_address=0x1000,
+                    flags=1,
+                    physical_size=0,
+                    virtual_size=0x100,
+                    file_offset=0x400,
+                )
+            ],
+            sections=[],
+        )
+        info = bl._load_elf(elf, Path("/tmp/x"))
+        assert not [name for name in info.sections if name.startswith("SEG")]
 
     def test_load_segment_image_base(self) -> None:
         elf = SimpleNamespace(
