@@ -862,12 +862,24 @@ def _host_allowed(host_header: str, allowed: frozenset[str]) -> bool:
 
 
 def _accepts_gzip(accept_encoding: str) -> bool:
-    """True when *accept_encoding* lists ``gzip`` (or ``*``) as a coding."""
+    """Honor gzip quality weights, with explicit gzip overriding the wildcard."""
+    accepted: dict[str, bool] = {}
     for part in accept_encoding.lower().split(","):
-        coding = part.split(";", 1)[0].strip()
-        if coding == "gzip" or coding == "*":
-            return True
-    return False
+        coding, *parameters = part.split(";")
+        coding = coding.strip()
+        if coding not in ("gzip", "*"):
+            continue
+        weight = 1.0
+        for parameter in parameters:
+            name, _, value = parameter.partition("=")
+            if name.strip() == "q":
+                try:
+                    weight = float(value.strip())
+                except ValueError:
+                    weight = 0.0
+                break
+        accepted[coding] = 0 < weight <= 1
+    return accepted.get("gzip", accepted.get("*", False))
 
 
 def _maybe_gzip(body: bytes, accept_encoding: str) -> tuple[bytes, str | None]:

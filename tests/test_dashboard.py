@@ -494,6 +494,60 @@ class TestEscapeLike:
         assert _escape_like("plain") == "plain"
 
 
+class TestGzipNegotiation:
+    @pytest.mark.parametrize(
+        ("accept", "compressed"),
+        [
+            ("", False),
+            ("br, zstd", False),
+            ("gzip", True),
+            ("identity;q=0, gzip", True),
+            ("GZIP; Q=0.5", True),
+            ("gzip;q=0", False),
+            ("gzip; q=0.000", False),
+            ("*", True),
+            ("*;q=0", False),
+            ("gzip;q=0, *", False),
+            ("*, gzip;q=0", False),
+            ("*;q=0, gzip;q=0.5", True),
+            ("gzip;q=invalid", False),
+            ("gzip;q=nan", False),
+            ("gzip;q=2", False),
+            ("gzip;q=-1", False),
+        ],
+    )
+    @pytest.mark.parametrize("path", ["/", "/api/bootstrap"])
+    def test_response_encoding(
+        self, dashboard: Dashboard, accept: str, compressed: bool, path: str
+    ) -> None:
+        import gzip
+        from io import BytesIO
+        from unittest.mock import Mock
+
+        from rebrew.dashboard import _Handler, allowed_hosts_for
+
+        handler = _Handler.__new__(_Handler)
+        handler.headers = {"Host": "127.0.0.1:8000", "Accept-Encoding": accept}
+        handler.path = path
+        handler.allowed_hosts = allowed_hosts_for("127.0.0.1", 8000)
+        handler.dashboard = dashboard
+        handler.send_response = Mock()
+        handler.send_header = Mock()
+        handler.end_headers = Mock()
+        handler.wfile = BytesIO()
+
+        handler._respond("GET")
+
+        handler.send_response.assert_called_once_with(200)
+        headers = dict(call.args for call in handler.send_header.call_args_list)
+        body = handler.wfile.getvalue()
+        assert headers.get("Content-Encoding") == ("gzip" if compressed else None)
+        assert headers["Vary"] == "Accept-Encoding"
+        assert int(headers["Content-Length"]) == len(body)
+        expected = dashboard.handle("GET", path, {})[2].encode("utf-8")
+        assert (gzip.decompress(body) if compressed else body) == expected
+
+
 class TestHostValidation:
     """Requests with a foreign Host header must be rejected (DNS rebinding)."""
 
