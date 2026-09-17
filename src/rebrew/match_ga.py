@@ -749,7 +749,7 @@ class BinaryMatchingGA:
                         )
                     scored_pop.append((self._compute_fitness(res, src_hash, src), src))
 
-                scored_pop.sort(key=lambda x: x[0])
+                scored_pop.sort()
                 if not scored_pop:
                     continue
                 best_score, best_src = scored_pop[0]

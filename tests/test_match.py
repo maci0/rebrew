@@ -313,6 +313,46 @@ class TestComputeFitness:
         assert best_src in ga.population
 
 
+class TestGAReplay:
+    def test_completion_order_does_not_change_seeded_run(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.compile_cache import source_digest
+        from rebrew.matcher import BuildResult
+
+        snapshots = []
+        for reverse, warm_cache in ((False, False), (True, False), (False, True), (True, True)):
+            ga = _make_ga(tmp_path / f"{reverse}-{warm_cache}", num_jobs=4, num_generations=5)
+            ga.population = [f"int f(void) {{ return {i}; }}" for i in range(8)]
+            monkeypatch.setattr(
+                ga,
+                "_compile_source",
+                lambda src: BuildResult(ok=True, obj_bytes=b"\x90", fitness=100.0),
+            )
+            monkeypatch.setattr(
+                "rebrew.match_ga.as_completed",
+                lambda futures, reverse=reverse: iter(
+                    list(futures)[::-1] if reverse else list(futures)
+                ),
+            )
+            if warm_cache:
+                ga._fitness_memo[source_digest(ga.population[-1])] = 100.0
+
+            with ga:
+                result = ga.run()
+                snapshots.append(
+                    (
+                        result,
+                        list(ga.population),
+                        ga.rng.getstate(),
+                        (ga.out_dir / "best.c").read_bytes(),
+                        (ga.out_dir / "checkpoints" / "_f.json").read_bytes(),
+                    )
+                )
+
+        assert snapshots[0] == snapshots[1] == snapshots[2] == snapshots[3]
+
+
 class TestGATournamentSelection:
     """Parents are chosen by tournament over the whole scored population,
     not uniformly among the elite — elite-only breeding collapses the gene
