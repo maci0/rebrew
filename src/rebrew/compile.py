@@ -1527,9 +1527,7 @@ def precompile_batch(
             # Resolve relative /I against the project root (single-file
             # resolves against src_parent; the batch workdir has no
             # tree-relative meaning) before the container rewrite.
-            base_flags = safe_shlex_split(getattr(cfg, "base_cflags", ""))
-            flags = _dedupe_flags(base_flags + flags)
-            flags = resolve_include_flags(flags, Path(cfg.root), Path(cfg.root))
+            flags = _effective_compile_flags(cfg, spec, flags, Path(cfg.root))
             # Same container setup as the single-file path: project root
             # same-path mounted (relative ../../ includes resolve), unioned
             # /I rewritten for the container, global compiler_includes

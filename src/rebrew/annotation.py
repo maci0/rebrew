@@ -973,6 +973,7 @@ def parse_new_format_multi(lines: list[str]) -> list[Annotation]:
     seen_code_after_marker: bool = False
     in_block_comment: bool = False
     current_line: int = 0  # 1-based line number of the current marker
+    stack_start = 0
 
     def _flush() -> None:
         nonlocal current_marker_type, current_va, current_module, current_kv, pending_kv
@@ -1011,6 +1012,12 @@ def parse_new_format_multi(lines: list[str]) -> list[Annotation]:
             # Save pending KV before flush (flush clears pending_kv)
             saved_pending = dict(pending_kv)
             _flush()
+            if (
+                seen_code_after_marker
+                or current_marker_type != "FUNCTION"
+                or m.group("type") != "FUNCTION"
+            ):
+                stack_start = len(results)
             current_marker_type = m.group("type")
             current_va = int(m.group("va"), 16)
             current_module = m.group("module")
@@ -1070,6 +1077,11 @@ def parse_new_format_multi(lines: list[str]) -> list[Annotation]:
             if func_result:
                 current_kv["_C_FUNC_NAME"] = func_result[0]
                 current_kv["_C_FUNC_PROTO"] = func_result[1]
+                if current_marker_type == "FUNCTION":
+                    for ann in results[stack_start:]:
+                        if not ann.name:
+                            ann.name, ann.prototype = func_result
+                            ann.symbol = _derive_c_symbol(ann.name, ann.prototype)
 
         # Non-annotation line: mark that we've seen code, but keep pending_kv
         # so annotations survive through #include/extern/typedef lines until
@@ -1080,24 +1092,6 @@ def parse_new_format_multi(lines: list[str]) -> list[Annotation]:
     _flush()
     if pending_kv:
         logger.debug("Discarding orphaned KV annotations: %s", pending_kv)
-
-    # Shared-source fallback: a file with stacked markers (one per target,
-    # e.g. ``// FUNCTION: V1 0x...`` then ``// FUNCTION: V2 0x...`` above one
-    # implementation) annotates ONE function — only the LAST marker's block
-    # sees the C definition, so earlier blocks parse without a name.  When
-    # the file has exactly one distinct C-definition name, apply it to every
-    # nameless FUNCTION block and re-derive its symbol, so each target's
-    # verify can extract the object symbol.  Restricted to FUNCTION blocks:
-    # a bodyless LIBRARY/STUB entry (CRT import, asm stub) must not inherit
-    # the file's function name.
-    named = [(r.name, r.prototype) for r in results if r.name and r.marker_type == "FUNCTION"]
-    if named and len({n for n, _ in named}) == 1:
-        name, proto = named[0]
-        for r in results:
-            if not r.name and r.marker_type == "FUNCTION":
-                r.name = name
-                r.prototype = proto
-                r.symbol = _derive_c_symbol(name, proto)
 
     return results
 
