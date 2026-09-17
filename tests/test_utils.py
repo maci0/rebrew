@@ -96,6 +96,32 @@ class TestAtomicWriteLocked:
         with pytest.raises(PermissionError):
             f.write_text('status = "STUB"\n')
 
+    def test_failed_rewrite_re_locks_readonly(self, tmp_path: Path, monkeypatch) -> None:
+        """A write failure after chmod-writable must re-lock the existing file.
+
+        Without the re-lock, a disk-full or interrupt left tool-owned metadata
+        world-writable and broke the hand-edit guard.
+        """
+        import os
+
+        if os.name != "posix":
+            pytest.skip("permission semantics are POSIX-specific")
+        from rebrew import utils as utils_mod
+        from rebrew.utils import atomic_write_locked
+
+        f = tmp_path / "meta.toml"
+        atomic_write_locked(f, 'status = "EXACT"\n')
+        assert (f.stat().st_mode & 0o777) == 0o444
+
+        def _boom(filepath: Path, text: str, encoding: str = "utf-8") -> None:
+            raise OSError("simulated write failure")
+
+        monkeypatch.setattr(utils_mod, "atomic_write_text", _boom)
+        with pytest.raises(OSError, match="simulated write failure"):
+            atomic_write_locked(f, 'status = "STUB"\n')
+        assert f.read_text() == 'status = "EXACT"\n'
+        assert (f.stat().st_mode & 0o777) == 0o444
+
 
 # ---------------------------------------------------------------------------
 # filter_wine_stderr (canonical implementation in rebrew.compile)

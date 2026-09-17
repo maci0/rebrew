@@ -174,6 +174,7 @@ def _live_mutation_weights(params: _BuildParams) -> dict[str, float] | None:
         return dict.fromkeys(mutations, _MUTATION_FOCUS_WEIGHT)
     except Exception:
         # Best-effort: a live classification failure degrades to uniform.
+        log.debug("mutation-focus classification failed; using uniform weights", exc_info=True)
         return None
 
 

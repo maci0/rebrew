@@ -447,11 +447,23 @@ def atomic_write_locked(filepath: Path | str, text: str, encoding: str = "utf-8"
     The chmod-before is also required on Windows, where ``os.replace`` over
     a read-only target fails — un-readonlying first keeps the atomic
     replace working.
+
+    If the write fails after the chmod-writable step, the existing file is
+    re-locked to 0444 before the exception propagates — otherwise a disk-full
+    or interrupt would leave the tool-owned store world-writable.
     """
     filepath = Path(filepath)
     with contextlib.suppress(OSError):
         os.chmod(filepath, 0o644)  # chmod before touching the file
-    atomic_write_text(filepath, text, encoding=encoding)
+    try:
+        atomic_write_text(filepath, text, encoding=encoding)
+    except BaseException:
+        # Re-lock whatever is still at the path (the pre-write content when
+        # atomic_write_text rolled back the temp file).  Missing path is fine
+        # on a first-write failure — suppress covers that.
+        with contextlib.suppress(OSError):
+            os.chmod(filepath, 0o444)
+        raise
     with contextlib.suppress(OSError):
         os.chmod(filepath, 0o444)  # chmod after touching — direct edits now fail
 

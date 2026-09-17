@@ -29,7 +29,7 @@ from typing import Any
 import typer
 from rich.console import Console
 
-from rebrew.cli import TargetOption, json_print, require_config
+from rebrew.cli import TargetOption, error_exit, json_print, require_config
 
 console = Console(stderr=True)
 
@@ -335,13 +335,14 @@ def _existing_vas(cfg: Any) -> set[int]:
     be appended over an already-decompiled function.  ``naming.load_existing_vas``
     keeps every FUNCTION/LIBRARY marker (only GLOBAL/DATA are skipped) and
     scans the same trees.
+
+    Fail closed: a scan error must propagate.  Swallowing it as ``set()`` made
+    every candidate look uncovered, so ``write_candidates`` appended LIBRARY
+    markers over already-decompiled functions.
     """
     from rebrew.naming import load_existing_vas
 
-    try:
-        return set(load_existing_vas(cfg.reversed_dir, cfg))
-    except Exception:
-        return set()
+    return set(load_existing_vas(cfg.reversed_dir, cfg))
 
 
 def collect_candidates(cfg: Any, default_module: str | None = None) -> list[LibCandidate]:
@@ -542,7 +543,15 @@ def main(
         sigs_written = build_flirt_sigs(cfg, lib_dir)
 
     candidates = collect_candidates(cfg, module)
-    existing = _existing_vas(cfg)
+    try:
+        existing = _existing_vas(cfg)
+    except Exception as exc:
+        # Fail closed: an empty existing-set would write LIBRARY markers over
+        # already-decompiled functions.  Surface the scan error and refuse.
+        error_exit(
+            f"cannot scan existing annotations (refusing to write LIBRARY markers): {exc}",
+            json_mode=json_output,
+        )
 
     fresh = [c for c in candidates if c.va not in existing]
 

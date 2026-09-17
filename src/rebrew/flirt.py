@@ -118,6 +118,13 @@ def _detect_crt_linkage(cfg: Any) -> str:
         info = detect_toolchain(Path(cfg.target_binary))
         return str(info.crt_linkage or "")
     except Exception:
+        # Unknown linkage keeps every CRT-ish sig (see ``_matched_sig_names``);
+        # log so a real detection failure is not mistaken for "no CRT".
+        logging.getLogger(__name__).debug(
+            "CRT linkage detection failed for %s",
+            getattr(cfg, "target_binary", "?"),
+            exc_info=True,
+        )
         return ""
 
 

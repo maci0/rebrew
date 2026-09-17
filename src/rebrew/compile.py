@@ -1366,6 +1366,9 @@ def precompile_batch(
         spec_profile = getattr(cfg, "compiler_profile", "")
         base_spec = TOOLCHAINS.get(spec_profile) if spec_profile else None
     except Exception:
+        # Batch is an optimization; degrade to the per-function path, but
+        # never silently — a broken profile lookup used to vanish here.
+        log.debug("batch precompile skipped: toolchain lookup failed", exc_info=True)
         return {}
     if base_spec is not None and base_spec.effective_arg_style not in ("posix", "msvc"):
         return {}

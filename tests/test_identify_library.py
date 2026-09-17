@@ -226,6 +226,24 @@ class TestExistingVas:
         )
         assert 0x401000 in il._existing_vas(cfg)
 
+    def test_scan_failure_propagates(self, tmp_path: Path, monkeypatch) -> None:
+        """A failed existing-VA scan must not degrade to an empty set.
+
+        Returning ``set()`` made every candidate look uncovered and caused
+        LIBRARY markers to be written over already-decompiled functions.
+        """
+        import rebrew.identify_library as il
+
+        cfg = _cfg(tmp_path)
+        cfg.reversed_dir.mkdir(parents=True)
+
+        def _boom(*_args: object, **_kwargs: object) -> dict[int, str]:
+            raise OSError("scan failed")
+
+        monkeypatch.setattr("rebrew.naming.load_existing_vas", _boom)
+        with pytest.raises(OSError, match="scan failed"):
+            il._existing_vas(cfg)
+
 
 class TestDefaultModuleDeterminism:
     def test_default_module_is_sorted_first(self, tmp_path: Path, monkeypatch) -> None:

@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import copy
 import json
+import logging
 from pathlib import Path
 from typing import Any, NoReturn
 
@@ -103,10 +104,12 @@ def load_verify_cache_raw(cfg: Any) -> dict[str, Any] | None:
         return copy.deepcopy(cached) if cached is not None else None
     try:
         raw: dict[str, Any] | None = json.loads(cache_path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError, UnicodeDecodeError):
+    except (json.JSONDecodeError, OSError, UnicodeDecodeError) as exc:
         # UnicodeDecodeError is a ValueError, not an OSError: a cache holding
         # non-UTF-8 bytes (truncated/tampered) used to escape this guard and
         # crash `status`/`todo` instead of degrading to "no cache".
+        # Log so a corrupt cache is not mistaken for a cold start.
+        logging.getLogger(__name__).warning("Ignoring corrupt verify cache %s: %s", cache_path, exc)
         raw = None
     # Drop prior fingerprints for this path before storing — otherwise each
     # verify rewrite orphans a full decoded dict under the old mtime key.
