@@ -1,7 +1,10 @@
 """Unit tests for tools/validate_skill_commands.py — command extraction."""
 
+import subprocess
 import sys
 from pathlib import Path
+
+import pytest
 
 TOOLS = Path(__file__).resolve().parent.parent / "tools"
 sys.path.insert(0, str(TOOLS))
@@ -58,6 +61,17 @@ class TestExtractCommands:
 
 
 class TestRunHelp:
+    @pytest.mark.parametrize("returncode", [0, 1, 2])
+    def test_exit_status_is_checked(self, monkeypatch: pytest.MonkeyPatch, returncode: int) -> None:
+        result = subprocess.CompletedProcess(
+            args=["rebrew", "missing", "--help"],
+            returncode=returncode,
+            stdout="\x1b[1mUsage\x1b[0m",
+            stderr="diagnostic",
+        )
+        monkeypatch.setattr(subprocess, "run", lambda *args, **kwargs: result)
+        assert vsc._run_help("missing") == (returncode == 0, "Usagediagnostic")
+
     def test_timeout_returns_false(self, monkeypatch) -> None:
         import subprocess
 

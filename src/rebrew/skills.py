@@ -54,17 +54,32 @@ _missing_dir_warned = False
 def _parse_frontmatter(text: str) -> dict[str, str]:
     """Extract YAML-style frontmatter from a SKILL.md string.
 
-    Only handles simple ``key: value`` lines (no nested YAML needed).
+    Handles flat ``key: value`` fields and folded/literal block strings.
+    Block strings are stripped of trailing whitespace for display.
     """
     m = _FRONTMATTER_RE.match(text)
     if not m:
         return {}
     result: dict[str, str] = {}
+    block_key: str | None = None
+    separator = " "
     for line in m.group(1).splitlines():
+        if block_key is not None and (not line.strip() or line[0].isspace()):
+            if result[block_key]:
+                result[block_key] += separator
+            result[block_key] += line.strip()
+            continue
+        block_key = None
         if ":" in line:
             key, _, val = line.partition(":")
-            result[key.strip()] = val.strip()
-    return result
+            key, val = key.strip(), val.strip()
+            if val in {">", ">-", ">+", "|", "|-", "|+"}:
+                block_key = key
+                separator = " " if val.startswith(">") else "\n"
+                result[key] = ""
+            else:
+                result[key] = val
+    return {key: value.rstrip() for key, value in result.items()}
 
 
 def _safe_skill_name(name: str) -> str:

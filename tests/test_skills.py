@@ -24,6 +24,22 @@ class TestParseFrontmatter:
         assert fm["description"] == "A test skill."
         assert fm["license"] == "MIT"
 
+    def test_folded_description(self) -> None:
+        text = (
+            "---\nname: my-skill\ndescription: >-\n"
+            "  Use for matching: test and verify.\n"
+            "  Hand off to rebrew-matching.\nlicense: MIT\n---\n"
+        )
+        assert _parse_frontmatter(text) == {
+            "name": "my-skill",
+            "description": "Use for matching: test and verify. Hand off to rebrew-matching.",
+            "license": "MIT",
+        }
+
+    def test_literal_description(self) -> None:
+        text = "---\nname: my-skill\ndescription: |-\n  First line.\n  Second line.\n---\n"
+        assert _parse_frontmatter(text)["description"] == "First line.\nSecond line."
+
     def test_no_frontmatter(self) -> None:
         text = "# Just a markdown file\nNo frontmatter here.\n"
         fm = _parse_frontmatter(text)
@@ -102,6 +118,15 @@ class TestCLISkillsList:
         names = [s["name"] for s in data["skills"]]
         assert "rebrew-workflow" in names
         assert "rebrew-intake" in names
+
+    def test_workflow_description_contains_triggers(self) -> None:
+        result = runner.invoke(skills_app, ["list", "--json"])
+        assert result.exit_code == 0
+        skills = {s["name"]: s for s in json.loads(result.output)["skills"]}
+        description = skills["rebrew-workflow"]["description"]
+        for trigger in ("todo", "skeleton", "verify", "rebrew-matching"):
+            assert trigger in description
+        assert len(description) <= 1024
 
     def test_list_json_has_description(self) -> None:
         result = runner.invoke(skills_app, ["list", "--json"])

@@ -150,9 +150,8 @@ def _run_help(subcommand: str) -> tuple[bool, str]:
             cwd=_REPO_ROOT,
             env=env,
         )
-        # rebrew --help exits 0; some subcommands exit non-zero on --help
         combined = _ANSI_RE.sub("", result.stdout + result.stderr)
-        return True, combined
+        return result.returncode == 0, combined
     except subprocess.TimeoutExpired:
         return False, "<timeout>"
     except FileNotFoundError:
