@@ -354,7 +354,11 @@ def include_fingerprint(include_dir: str) -> str:
             st = path.stat()
         except OSError:
             continue
-        h.update(f"{path.relative_to(root)}\0{st.st_size}\0{st.st_mtime_ns}\0".encode())
+        h.update(
+            f"{path.relative_to(root)}\0{st.st_size}\0{st.st_mtime_ns}\0".encode(
+                "utf-8", errors="surrogateescape"
+            )
+        )
     return h.hexdigest()
 
 
@@ -697,7 +701,9 @@ def header_dependency_hash(
         return _NO_DEPS_HASH
     h = hashlib.sha256()
     for anchor_idx, rel, size, mtime_ns in _header_key_entries(paths, source_dir, include_dirs):
-        h.update(f"{anchor_idx}\0{rel}\0{size}\0{mtime_ns}\0".encode())
+        h.update(
+            f"{anchor_idx}\0{rel}\0{size}\0{mtime_ns}\0".encode("utf-8", errors="surrogateescape")
+        )
     return h.hexdigest()
 
 
@@ -747,16 +753,20 @@ def compile_cache_key(
     # Source digest memoized per string (see source_digest) — the running
     # hash consumes the digest's hex form, not the raw source.
     h.update(source_digest(source_content).encode())
-    h.update(f"\0filename={source_filename}\0".encode())
-    h.update(f"\0ext={source_ext}\0".encode())
+    h.update(f"\0filename={source_filename}\0".encode("utf-8", errors="surrogateescape"))
+    h.update(f"\0ext={source_ext}\0".encode("utf-8", errors="surrogateescape"))
     # Flags are canonicalized first (see canonicalize_cflags): the hash sees
     # the equivalence class, not the raw list.  Flags and include dirs are
     # separated by \0 to prevent collisions (e.g. "flag1 flag2" !=
     # "flag1flag2").  This assumes none of the inputs contain embedded NUL
     # bytes, which is safe because MSVC flags, filenames, and C source are
     # NUL-free text.
-    h.update(f"\0cflags={chr(0).join(canonicalize_cflags(cflags))}\0".encode())
-    h.update(f"\0includes={chr(0).join(include_dirs)}\0".encode())
+    h.update(
+        f"\0cflags={chr(0).join(canonicalize_cflags(cflags))}\0".encode(
+            "utf-8", errors="surrogateescape"
+        )
+    )
+    h.update(f"\0includes={chr(0).join(include_dirs)}\0".encode("utf-8", errors="surrogateescape"))
     # A /FI/-include force-include pulls a header's content into every
     # compile regardless of the source's directives — resolution cannot see
     # it, so fall back to conservative per-directory fingerprints.
@@ -767,7 +777,7 @@ def compile_cache_key(
         else _dir_fingerprint_hash(include_dirs)
     )
     h.update(f"\0headers={headers}\0".encode())
-    h.update(f"\0toolchain={toolchain_id}\0".encode())
+    h.update(f"\0toolchain={toolchain_id}\0".encode("utf-8", errors="surrogateescape"))
     return h.hexdigest()
 
 

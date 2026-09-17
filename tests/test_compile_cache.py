@@ -1,5 +1,6 @@
 """Tests for rebrew.compile_cache — CompileCache, key builder, module-level registry."""
 
+import os
 import sqlite3
 from pathlib import Path
 from types import SimpleNamespace
@@ -67,6 +68,25 @@ class TestCompileCache:
 
 
 class TestCompileCacheKey:
+    @pytest.mark.parametrize(
+        "field", ["source_filename", "source_ext", "cflags", "include_dirs", "toolchain_id"]
+    )
+    def test_surrogateescaped_inputs_remain_distinct(self, field: str) -> None:
+        inputs: dict[str, Any] = {
+            "source_content": "int f(void){return 1;}",
+            "source_filename": "f.c",
+            "cflags": [],
+            "include_dirs": [],
+            "toolchain_id": "cc",
+        }
+        keys = []
+        for name in ["legacy_\udce9", "legacy_\udcea", "legacy_é", "legacy_�"]:
+            inputs[field] = [name] if field in {"cflags", "include_dirs"} else name
+            key = compile_cache_key(**inputs)
+            assert compile_cache_key(**inputs) == key
+            keys.append(key)
+        assert len(set(keys)) == len(keys)
+
     def test_deterministic(self) -> None:
         k1 = compile_cache_key("int f(){return 1;}", "f.c", ["/O2"], ["/inc"], "wine CL")
         k2 = compile_cache_key("int f(){return 1;}", "f.c", ["/O2"], ["/inc"], "wine CL")
@@ -182,6 +202,20 @@ class TestCompileCacheKey:
 
 
 class TestIncludeFingerprint:
+    @pytest.mark.parametrize("name", ["café.h", "cafe\u0301.h", "legacy_\udce9.h"])
+    def test_non_ascii_filename_is_stable(self, tmp_path: Path, name: str) -> None:
+        if os.name != "posix" and "\udce9" in name:
+            pytest.skip("Byte filenames require a POSIX filesystem")
+        header = tmp_path / name
+        header.write_bytes(b"#define N 1\n")
+        first = include_fingerprint(str(tmp_path))
+        include_fingerprint.cache_clear()
+        assert len(first) == 64
+        assert include_fingerprint(str(tmp_path)) == first
+        header.rename(tmp_path / "other.h")
+        include_fingerprint.cache_clear()
+        assert include_fingerprint(str(tmp_path)) != first
+
     def test_missing_dir_is_empty(self, tmp_path: Path) -> None:
         assert include_fingerprint(str(tmp_path / "nope")) == ""
 
@@ -217,6 +251,18 @@ class TestHeaderDependencyHash:
     whole-directory fingerprint: editing a header invalidates exactly the
     entries that include it, and an edit to an unreached header is a hit.
     """
+
+    @pytest.mark.skipif(os.name != "posix", reason="Byte filenames require a POSIX filesystem")
+    @pytest.mark.parametrize("directive", ['#include "legacy_\udce9.h"', "#include LIB_H"])
+    def test_byte_filename_dependency_changes_key(self, tmp_path: Path, directive: str) -> None:
+        header = tmp_path / "legacy_\udce9.h"
+        header.write_bytes(b"#define N 1\n")
+        source = directive + "\nint f(void){return N;}\n"
+        first = compile_cache_key(source, "f.c", [], [str(tmp_path)], "cc")
+        assert compile_cache_key(source, "f.c", [], [str(tmp_path)], "cc") == first
+        header.write_bytes(b"#define N 22222\n")
+        include_fingerprint.cache_clear()
+        assert compile_cache_key(source, "f.c", [], [str(tmp_path)], "cc") != first
 
     def test_no_includes_is_fixed_digest(self) -> None:
         """A unit with no header deps gets a stable, non-empty digest ("" is
