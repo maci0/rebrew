@@ -901,8 +901,8 @@ def _import_type_definitions(
     reversed_dir = Path(cfg.reversed_dir)
     header = reversed_dir / "binsync_types.h"
     try:
-        existing = header.read_text(encoding="utf-8") if header.exists() else ""
-    except OSError:
+        existing = header.read_text(encoding="utf-8")
+    except FileNotFoundError:
         existing = ""
     blocks = [existing]
     if not blocks[0]:

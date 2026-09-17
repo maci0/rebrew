@@ -80,6 +80,56 @@ class TestBuilders:
         assert ops[0]["args"]["address"] == "0x00001000"
 
 
+class TestTypeImport:
+    @pytest.mark.parametrize("error_type", [PermissionError, OSError])
+    def test_unreadable_header_is_preserved(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, error_type: type[OSError]
+    ) -> None:
+        from rebrew.binsync.importer import _import_type_definitions
+
+        cfg = _cfg(tmp_path)
+        header = cfg.reversed_dir / "binsync_types.h"
+        original = b"typedef int ExistingType;\n"
+        header.write_bytes(original)
+        read_text = Path.read_text
+        failure = error_type("cannot read existing types")
+
+        def _read(path: Path, *args: object, **kwargs: object) -> str:
+            if path == header:
+                raise failure
+            return read_text(path, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "read_text", _read)
+        with pytest.raises(error_type) as caught:
+            _import_type_definitions(
+                cfg,
+                {"NewType": {"type": "int", "definition": "typedef int NewType;"}},
+                dry_run=False,
+                proposed=[],
+            )
+        assert caught.value is failure
+        assert header.read_bytes() == original
+
+    @pytest.mark.parametrize("existing", ["", "typedef int ExistingType;\n"])
+    def test_import_creates_or_extends_header(self, tmp_path: Path, existing: str) -> None:
+        from rebrew.binsync.importer import _import_type_definitions
+
+        cfg = _cfg(tmp_path)
+        header = cfg.reversed_dir / "binsync_types.h"
+        if existing:
+            header.write_text(existing, encoding="utf-8")
+        applied = _import_type_definitions(
+            cfg,
+            {"NewType": {"type": "int", "definition": "typedef int NewType;"}},
+            dry_run=False,
+            proposed=[],
+        )
+        assert applied == 1
+        text = header.read_text(encoding="utf-8")
+        assert existing in text
+        assert "typedef int NewType;" in text
+
+
 class TestSyncCli:
     def test_no_action_errors(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         _patch_cfg(tmp_path, monkeypatch)
