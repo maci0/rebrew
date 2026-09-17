@@ -98,6 +98,7 @@ import tomlkit
 from rebrew.utils import (
     atomic_write_locked,
     build_metadata_doc,
+    build_metadata_key_index,
     clear_metadata_doc_cache,
     load_metadata_doc,
     load_toml_for_write,
@@ -303,7 +304,10 @@ def save_metadata(
 def get_entry(directory: Path, va: int, module: str) -> dict[str, Any]:
     """Return metadata fields for *(module, va)* in *directory*.
 
-    Returns an empty dict if not found.
+    Returns an empty dict if not found.  Loads with ``deepcopy=False`` and
+    returns a shallow copy of the one entry so callers cannot corrupt the
+    process cache — previously this deep-copied the entire table on every
+    single-VA lookup (annotation merge, blocker, match, lint --fix).
 
     Args:
         directory: The metadata root directory (``cfg.metadata_dir``).
@@ -311,7 +315,8 @@ def get_entry(directory: Path, va: int, module: str) -> dict[str, Any]:
         module: Target module name (e.g. ``"SERVER"``).
 
     """
-    return load_metadata(directory).get((module, va), {})
+    entry = load_metadata(directory, deepcopy=False).get((module, va))
+    return dict(entry) if entry else {}
 
 
 def _require_module(module: str) -> None:
@@ -473,6 +478,7 @@ def set_fields_batch(metadata_dir: Path, updates: list[dict[str, Any]]) -> int:
     with metadata_write_lock(metadata_dir, METADATA_FILENAME):
         doc = load_toml_for_write(path, "metadata")
         doc_dict = typing.cast(dict[str, Any], doc)
+        key_index = build_metadata_key_index(doc_dict)
         for u in updates:
             module = u.get("module") or ""
             if not module:
@@ -480,9 +486,11 @@ def set_fields_batch(metadata_dir: Path, updates: list[dict[str, Any]]) -> int:
             va = u.get("va")
             if va is None:
                 continue
-            toml_key = resolve_metadata_key(doc_dict, module, int(va))
+            va_int = int(va)
+            toml_key = resolve_metadata_key(doc_dict, module, va_int, index=key_index)
             if toml_key not in doc_dict:
                 doc_dict[toml_key] = tomlkit.table()
+                key_index[(module, va_int)] = toml_key
             entry = typing.cast(dict[str, Any], doc_dict[toml_key])
             changed = False
             for key, value in (u.get("fields") or {}).items():
@@ -516,6 +524,7 @@ def remove_fields_batch(metadata_dir: Path, updates: list[dict[str, Any]]) -> in
     with metadata_write_lock(metadata_dir, METADATA_FILENAME):
         doc = load_toml_for_write(path, "metadata")
         doc_dict = typing.cast(dict[str, Any], doc)
+        key_index = build_metadata_key_index(doc_dict)
         for u in updates:
             module = u.get("module") or ""
             if not module:
@@ -526,7 +535,7 @@ def remove_fields_batch(metadata_dir: Path, updates: list[dict[str, Any]]) -> in
             keys = u.get("keys") or ()
             if not keys:
                 continue
-            toml_key = resolve_metadata_key(doc_dict, str(module), int(va))
+            toml_key = resolve_metadata_key(doc_dict, str(module), int(va), index=key_index)
             if toml_key not in doc_dict:
                 continue
             entry = typing.cast(dict[str, Any], doc_dict[toml_key])
@@ -562,13 +571,16 @@ def delete_entries_batch(metadata_dir: Path, targets: list[tuple[str, int]]) -> 
     with metadata_write_lock(metadata_dir, METADATA_FILENAME):
         doc = load_toml_for_write(path, "metadata")
         doc_dict = typing.cast(dict[str, Any], doc)
+        key_index = build_metadata_key_index(doc_dict)
         for module, va in targets:
             if not module:
                 continue
-            toml_key = resolve_metadata_key(doc_dict, str(module), int(va))
+            va_int = int(va)
+            toml_key = resolve_metadata_key(doc_dict, str(module), va_int, index=key_index)
             if toml_key not in doc_dict:
                 continue
             del doc_dict[toml_key]
+            key_index.pop((str(module), va_int), None)
             removed += 1
         if removed:
             atomic_write_locked(path, tomlkit.dumps(doc))
@@ -862,6 +874,7 @@ def update_statuses_batch(metadata_dir: Path, updates: list[dict[str, Any]]) -> 
         # Single read for the whole batch
         doc = load_toml_for_write(path, "metadata")
         doc_dict = typing.cast(dict[str, Any], doc)
+        key_index = build_metadata_key_index(doc_dict)
 
         for u in updates:
             module = u.get("module") or ""
@@ -885,9 +898,11 @@ def update_statuses_batch(metadata_dir: Path, updates: list[dict[str, Any]]) -> 
                 raise ValueError(
                     f"unknown STATUS {new_status!r} (expected one of {sorted(KNOWN_STATUSES)})"
                 )
-            toml_key = resolve_metadata_key(doc_dict, module, int(va))
+            va_int = int(va)
+            toml_key = resolve_metadata_key(doc_dict, module, va_int, index=key_index)
             if toml_key not in doc_dict:
                 doc_dict[toml_key] = tomlkit.table()
+                key_index[(module, va_int)] = toml_key
             entry = typing.cast(dict[str, Any], doc_dict[toml_key])
 
             clear_blockers = u.get("clear_blockers", True)

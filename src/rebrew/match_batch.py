@@ -18,6 +18,7 @@ from typing import Any
 from rich.console import Console
 
 from rebrew.annotation import (
+    NEW_FUNC_RE,
     has_skip_annotation,
     min_valid_va_for,
     parse_c_file_multi,
@@ -447,9 +448,7 @@ def update_stub_to_matched(
         # The stub's span ends at the NEXT function marker comment (or EOF) —
         # the splice must not drop sibling functions that follow this stub's
         # block in a multi-function file.
-        next_fn = re.compile(
-            r"(?://|/\*)\s*(?:FUNCTION|STUB|LIBRARY|DATA|GLOBAL):\s*\S+\s+0x[0-9a-fA-F]+"
-        ).search(updated, body_start.end())
+        next_fn = NEW_FUNC_RE.search(updated, body_start.end())
         body_end = next_fn.start() if next_fn else len(updated)
         header = updated[: body_start.start()]
         tail = updated[body_end:]

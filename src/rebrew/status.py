@@ -517,7 +517,7 @@ def _count_inline_metadata_files(src_dir: Path, cfg: ProjectConfig) -> int:
     from rebrew.metadata import load_metadata
     from rebrew.sources import iter_sources
 
-    fn_entries = load_metadata(cfg.metadata_dir)
+    fn_entries = load_metadata(cfg.metadata_dir, deepcopy=False)
     data_entries = load_data_metadata(cfg.metadata_dir)
     count = 0
     for src in iter_sources(src_dir, cfg):

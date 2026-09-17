@@ -55,6 +55,7 @@ import tomlkit
 
 from rebrew.utils import (
     atomic_write_locked,
+    build_metadata_key_index,
     load_metadata_doc,
     load_toml_for_write,
     metadata_write_lock,
@@ -271,13 +272,16 @@ def delete_data_entries_batch(directory: Path, targets: list[tuple[str, int]]) -
     removed = 0
     with metadata_write_lock(directory, DATA_METADATA_FILENAME):
         doc = load_toml_for_write(path, "data metadata")
+        key_index = build_metadata_key_index(doc)
         for module, va in targets:
             if not module:
                 continue
-            toml_key = resolve_metadata_key(doc, str(module), int(va))
+            va_int = int(va)
+            toml_key = resolve_metadata_key(doc, str(module), va_int, index=key_index)
             if toml_key not in doc:
                 continue
             del doc[toml_key]
+            key_index.pop((str(module), va_int), None)
             removed += 1
         if removed:
             atomic_write_locked(path, tomlkit.dumps(doc))

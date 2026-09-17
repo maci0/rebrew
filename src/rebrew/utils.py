@@ -766,7 +766,32 @@ def parse_metadata_key(key: str) -> tuple[str, int] | None:
     return None
 
 
-def resolve_metadata_key(doc: dict[str, Any], module: str, va: int) -> str:
+def build_metadata_key_index(doc: dict[str, Any]) -> dict[tuple[str, int], str]:
+    """Map ``(module, va)`` → existing key spelling for *doc*.
+
+    Built once per batch write so :func:`resolve_metadata_key` is O(1) per
+    update instead of O(n) (intake / verify STATUS sync grow as O(n²) without
+    this when every new entry misses the canonical spelling and rescans).
+    Prefers the canonical spelling when both forms are present.
+    """
+    index: dict[tuple[str, int], str] = {}
+    for existing in doc:
+        parsed = parse_metadata_key(str(existing))
+        if parsed is None:
+            continue
+        key = str(existing)
+        if parsed not in index or key == qualified_key(*parsed):
+            index[parsed] = key
+    return index
+
+
+def resolve_metadata_key(
+    doc: dict[str, Any],
+    module: str,
+    va: int,
+    *,
+    index: dict[tuple[str, int], str] | None = None,
+) -> str:
     """Return the key naming *(module, va)* in the raw *doc*.
 
     :func:`parse_metadata_key` reads the VA with ``int(hex, 16)``, so a store
@@ -778,11 +803,25 @@ def resolve_metadata_key(doc: dict[str, Any], module: str, va: int) -> str:
     Prefers the canonical spelling, falls back to whatever spelling the store
     already uses, and returns the canonical key when the entry is absent so
     callers can create it.  Shared by ``metadata.py`` and ``data_metadata.py``.
+
+    Pass *index* (from :func:`build_metadata_key_index`) on batch writers so
+    each resolve stays O(1); without it, a missing canonical key falls back
+    to a linear scan (fine for single-entry writers).
     """
     canonical = qualified_key(module, va)
     if canonical in doc:
         return canonical
     want = (module, va)
+    if index is not None:
+        existing = index.get(want)
+        if existing is not None and existing in doc:
+            return existing
+        return canonical
+    # Common alternate: unpadded hex (SERVER.0x24000 vs SERVER.0x00024000).
+    if module:
+        alt = f"{module}.0x{va:x}"
+        if alt in doc:
+            return alt
     for existing in doc:
         if parse_metadata_key(str(existing)) == want:
             return str(existing)

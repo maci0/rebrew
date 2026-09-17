@@ -214,22 +214,23 @@ def define_remaining_strings(
             ln for ln in text.splitlines() if not ln.strip().startswith(("//", "*", "/*", "extern"))
         ]
 
-    def real_uses(text: str) -> set[str]:
-        uses: set[str] = set()
-        for ln in real_use_lines(text):
-            uses.update(m.group(0) for m in token_re.finditer(ln))
-        return uses
-
     owner: dict[str, Path] = {}
     use_lines = {f: real_use_lines(text) for f, text in texts.items()}
-    for tok in sorted({t for text in texts.values() for t in real_uses(text)}):
-        tok_re = re.compile(r"\b" + re.escape(tok) + r"\b")
-        counts: dict[Path, int] = defaultdict(int)
-        for other, lines in use_lines.items():
-            # Count only real uses: the docstring says "the most non-extern
-            # uses", but counting the whole text let extern lines and comment
-            # mentions pick the owner (and therefore the string's .data slot).
-            counts[other] += sum(len(tok_re.findall(ln)) for ln in lines)
+    # One pass over every file's real-use lines: count token hits per file.
+    # The previous loop compiled a fresh ``\\b{tok}\\b`` regex per token and
+    # rescanned every file (O(tokens × files × lines)); projects with hundreds
+    # of string placeholders paid that on every ``rebrew inline-strings`` run.
+    tok_counts: dict[str, dict[Path, int]] = defaultdict(lambda: defaultdict(int))
+    for f, lines in use_lines.items():
+        for ln in lines:
+            for tok_m in token_re.finditer(ln):
+                tok_counts[tok_m.group(0)][f] += 1
+    for tok in sorted(tok_counts):
+        counts = tok_counts[tok]
+        # Zero-fill so tie-breaks follow use_lines insertion order (same as
+        # the old per-token scan that always counted every file).
+        for f in use_lines:
+            counts.setdefault(f, 0)
         owner[tok] = max(counts, key=counts.__getitem__)
 
     extern_re = re.compile(r"^(\s*)extern\s+(?:char|unsigned char)\s+")

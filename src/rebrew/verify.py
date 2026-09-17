@@ -1797,33 +1797,35 @@ def apply_proven_overlay(
             and r["va"] not in overlaid_vas
             and r["status"] not in ("EXACT", "RELOC", "INTERNAL_ERROR")
         )
-        if stale_proven and cfg is not None and not dry_run:
-            from rebrew.metadata import update_statuses_batch
-
+        if stale_proven:
             by_va = {r["va"]: r for r in results}
-            by_entry = {f"0x{e.va:08x}": e for e in unique_entries}
-            update_statuses_batch(
-                cfg.metadata_dir,
-                [
-                    {
-                        "module": getattr(by_entry[va], "module", "") or "",
-                        "va": by_entry[va].va,
-                        "new_status": by_va[va]["status"],
-                        "clear_blockers": False,
-                        "force": True,
-                        "updated_by": "verify",
-                    }
-                    for va in stale_proven
-                    if getattr(by_entry.get(va), "module", "") and by_va[va]["status"] != "PROVEN"
-                ],
-            )
-        for va in stale_proven:
-            status = next(r["status"] for r in results if r["va"] == va)
-            console.print(
-                f"  [yellow]metadata: warning:[/yellow] PROVEN claim for {va} not "
-                f"backed by a byte-match (compiled: {status}) — demoted to the "
-                "real byte result; re-run rebrew verify once the code byte-matches"
-            )
+            if cfg is not None and not dry_run:
+                from rebrew.metadata import update_statuses_batch
+
+                by_entry = {f"0x{e.va:08x}": e for e in unique_entries}
+                update_statuses_batch(
+                    cfg.metadata_dir,
+                    [
+                        {
+                            "module": getattr(by_entry[va], "module", "") or "",
+                            "va": by_entry[va].va,
+                            "new_status": by_va[va]["status"],
+                            "clear_blockers": False,
+                            "force": True,
+                            "updated_by": "verify",
+                        }
+                        for va in stale_proven
+                        if getattr(by_entry.get(va), "module", "")
+                        and by_va[va]["status"] != "PROVEN"
+                    ],
+                )
+            for va in stale_proven:
+                status = by_va[va]["status"]
+                console.print(
+                    f"  [yellow]metadata: warning:[/yellow] PROVEN claim for {va} not "
+                    f"backed by a byte-match (compiled: {status}) — demoted to the "
+                    "real byte result; re-run rebrew verify once the code byte-matches"
+                )
     return fail_details, raw_statuses, stale_proven, [passed, failed]
 
 

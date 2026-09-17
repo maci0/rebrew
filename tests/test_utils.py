@@ -213,6 +213,15 @@ class TestResolveMetadataKey:
         doc = {"SERVER.0x24000": {"name": "g_iat_region"}}
         assert resolve_metadata_key(doc, "SERVER", 0x24000) == "SERVER.0x24000"
 
+    def test_index_avoids_scan_for_absent_keys(self) -> None:
+        from rebrew.utils import build_metadata_key_index, resolve_metadata_key
+
+        doc = {"SERVER.0x24000": {"name": "g_iat_region"}}
+        index = build_metadata_key_index(doc)
+        assert resolve_metadata_key(doc, "SERVER", 0x24000, index=index) == "SERVER.0x24000"
+        # New VA: indexed miss returns canonical without requiring a doc scan.
+        assert resolve_metadata_key(doc, "SERVER", 0x25000, index=index) == "SERVER.0x00025000"
+
     def test_other_module_ignored(self) -> None:
         from rebrew.utils import resolve_metadata_key
 

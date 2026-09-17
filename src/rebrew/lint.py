@@ -1115,6 +1115,13 @@ def _check_W023_default_func_names(result: LintResult, lines: list[str], pedanti
                 break
 
 
+_FUNC_DEF_STYLE_RE = re.compile(
+    r"([a-zA-Z_][a-zA-Z0-9_]*)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\([^)]*\)\s*\{"
+)
+_SNAKE_CASE_RE = re.compile(r"[a-z_][a-z0-9_]*")
+_CAMEL_CASE_RE = re.compile(r"[a-z][a-zA-Z0-9]*")
+
+
 def _check_style_rules(result: LintResult, cfg: ProjectConfig | None) -> None:
     """Check code style rules from project config (W024-W027).
 
@@ -1131,17 +1138,14 @@ def _check_style_rules(result: LintResult, cfg: ProjectConfig | None) -> None:
     # Naming convention (W024): function definitions should follow the rule.
     naming = getattr(cfg, "lint_naming_convention", "none")
     if naming != "none":
-        func_pat = re.compile(
-            r"([a-zA-Z_][a-zA-Z0-9_]*)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\([^)]*\)\s*\{"
-        )
         for i, line in enumerate(lines, start=1):
-            m = func_pat.search(line)
+            m = _FUNC_DEF_STYLE_RE.search(line)
             if not m:
                 continue
             func_name = m.group(2)
-            if naming == "snake_case" and not re.fullmatch(r"[a-z_][a-z0-9_]*", func_name):
+            if naming == "snake_case" and not _SNAKE_CASE_RE.fullmatch(func_name):
                 result.warning(i, "W024", f"Function '{func_name}' should be snake_case")
-            elif naming == "camelCase" and not re.fullmatch(r"[a-z][a-zA-Z0-9]*", func_name):
+            elif naming == "camelCase" and not _CAMEL_CASE_RE.fullmatch(func_name):
                 result.warning(i, "W024", f"Function '{func_name}' should be camelCase")
 
     # Brace style (W025).

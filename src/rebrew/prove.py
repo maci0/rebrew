@@ -1262,7 +1262,7 @@ def main(
     if effective_status == "STUB" and not (blocker or blocker_delta):
         from rebrew.metadata import load_metadata
 
-        stored = load_metadata(cfg.metadata_dir).get((ann.module, ann.va), {})
+        stored = load_metadata(cfg.metadata_dir, deepcopy=False).get((ann.module, ann.va), {})
         blocker = stored.get("blocker", "") or ""
         blocker_delta = stored.get("blocker_delta", 0) or 0
     blocker_documented = effective_status == "STUB" and bool(blocker or blocker_delta)
@@ -1711,7 +1711,7 @@ def _clear_prove_counterexample(cfg: Any, ann: Any) -> None:
     try:
         from rebrew.metadata import load_metadata, remove_field
 
-        existing = load_metadata(cfg.metadata_dir).get((ann.module, ann.va), {})
+        existing = load_metadata(cfg.metadata_dir, deepcopy=False).get((ann.module, ann.va), {})
         if str(existing.get("note", "")).startswith("prove: "):
             remove_field(cfg.metadata_dir, ann.va, "note", module=ann.module)
     except Exception:  # best-effort; never fail the prove flow
@@ -1734,7 +1734,7 @@ def _record_prove_counterexample(cfg: Any, ann: Any, message: str) -> None:
     try:
         from rebrew.metadata import load_metadata, update_field
 
-        existing = load_metadata(cfg.metadata_dir).get((ann.module, ann.va), {})
+        existing = load_metadata(cfg.metadata_dir, deepcopy=False).get((ann.module, ann.va), {})
         if existing.get("note"):
             return
         update_field(cfg.metadata_dir, ann.va, "note", f"prove: {message}", module=ann.module)

@@ -292,7 +292,7 @@ def _collect_near_match(cfg: Any) -> list[dict[str, Any]] | None:
 
     items: list[dict[str, Any]] = []
     try:
-        for (_module, va), entry in load_metadata(metadata_dir).items():
+        for (_module, va), entry in load_metadata(metadata_dir, deepcopy=False).items():
             # Canonicalize so legacy NEAR_MATCH (and mixed case) still lands
             # in the NEAR_MATCHING dossier section.
             if canonical_status(str(entry.get("status") or "")) == "NEAR_MATCHING":

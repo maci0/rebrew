@@ -590,7 +590,7 @@ def main(
         if mutation_focus == "auto":
             from rebrew.metadata import load_metadata
 
-            for (_module, va), entry in load_metadata(cfg.metadata_dir).items():
+            for (_module, va), entry in load_metadata(cfg.metadata_dir, deepcopy=False).items():
                 if va == params.va_int and entry.get("blocker"):
                     blocker_text = entry["blocker"]
                     break

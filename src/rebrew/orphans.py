@@ -91,7 +91,7 @@ def find_orphans(cfg: Any) -> tuple[list[tuple[str, int, str]], list[tuple[str, 
     marker = target_marker(cfg)
     fn_orphans = [
         (module, va, "rebrew-functions.toml")
-        for (module, va) in sorted(load_metadata(cfg.metadata_dir))
+        for (module, va) in sorted(load_metadata(cfg.metadata_dir, deepcopy=False))
         if (not marker or module == marker) and (module, va) not in live and va not in known_vas
     ]
     data_entries = load_data_metadata(cfg.metadata_dir)
