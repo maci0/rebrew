@@ -29,6 +29,45 @@ class TestSanitizeTokens:
         assert "stderr" in out
         assert changes  # the qualification change was recorded
 
+    @pytest.mark.parametrize(
+        "src",
+        [
+            'const char *label = "std::chrono::steady_clock";\n',
+            'const char *label = "éλ日本 std::chrono::steady_clock";\n',
+            'const char *label = "\\"std::chrono::steady_clock\\"";\n',
+            "int c = 'a::b';\n",
+        ],
+    )
+    def test_qualified_names_in_literals_untouched(self, src: str) -> None:
+        out, changes = sanitize_tokens(src)
+        assert out == src
+        assert changes == []
+
+    def test_nested_qualified_symbols_converge(self) -> None:
+        src = 'const char *s = "é std::chrono::steady_clock";\nstd::chrono::now();\n'
+        expected = 'const char *s = "é std::chrono::steady_clock";\nnow();\n'
+        once, changes = sanitize_tokens(src)
+        assert once == expected
+        assert changes == ["qualified name 'std::chrono::now' -> 'now'"]
+        assert sanitize_tokens(once) == (expected, [])
+
+    def test_sanitize_is_idempotent(self) -> None:
+        """fixup output re-fed through fixup must not change again: the CLI
+        can be rerun on its own output (source_file == --output), so every
+        rewrite must converge."""
+        src = (
+            'const char *label = "std::chrono::steady_clock";\n'
+            "int r = (int)GLIBC_2.2.5::stderr;\n"
+            "undefined4 x = dword y;\n"
+            "__unaligned int *p;\n"
+            "    * FUN_00401000(q);\n"
+        )
+        once, changes1 = sanitize_tokens(src)
+        twice, changes2 = sanitize_tokens(once)
+        assert changes1
+        assert twice == once
+        assert changes2 == []
+
     def test_junk_specifiers(self) -> None:
         out, _ = sanitize_tokens("__unaligned int *p;\n__ptr32 int *q;")
         assert "__unaligned" not in out
@@ -91,6 +130,26 @@ class TestFixupCli:
         fixed = tmp_path / "out.c.fixed.c"
         assert fixed.exists()
         assert "int x;" in fixed.read_text(encoding="utf-8")
+
+    def test_in_place_rerun_preserves_literals(self, tmp_path: Path) -> None:
+        src = (
+            'const char *label = "é std::chrono::steady_clock";\n'
+            "int f(void) { return std::chrono::now(); }\n"
+        )
+        expected = (
+            'const char *label = "é std::chrono::steady_clock";\nint f(void) { return now(); }\n'
+        )
+        p = self._write(tmp_path, src)
+        runner = CliRunner()
+        args = ["--output", str(p), "--json", str(p)]
+        first = runner.invoke(app, args)
+        assert first.exit_code == 0, first.output
+        assert p.read_text(encoding="utf-8") == expected
+        assert json.loads(first.output)["changed"] is True
+        second = runner.invoke(app, args)
+        assert second.exit_code == 0, second.output
+        assert p.read_text(encoding="utf-8") == expected
+        assert json.loads(second.output)["changed"] is False
 
     def test_dry_run_prints_source(self, tmp_path: Path) -> None:
         p = self._write(tmp_path, "undefined4 x;\n")

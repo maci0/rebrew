@@ -28,6 +28,7 @@ Usage::
 from __future__ import annotations
 
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -75,12 +76,31 @@ _PSEUDO_TYPE_MAP: dict[str, str] = {
 #: Qualified symbol names ``GLIBC_2.2.5::stderr`` / ``std::X::Y`` → last
 #: component (the compiler cannot see library internals from decompiler
 #: symbol tables).
-_QUALIFIED_NAME_RE = re.compile(r"\b[A-Za-z_][A-Za-z0-9_.]*::[A-Za-z_][A-Za-z0-9_]*")
+_QUALIFIED_NAME_RE = re.compile(r"\b(?:[A-Za-z_][A-Za-z0-9_.]*::)+[A-Za-z_][A-Za-z0-9_]*")
 
 #: MSVC decoration artifacts ``__cdecl``/``__fastcall`` are fine; strip the
 #: Borland/Ghidra ``__based`` and ``_near``/``_far``-adjacent oddities that
 #: block C89 parsing.
 _JUNK_SPECIFIER_RE = re.compile(r"\b(?:__based|__unaligned|__ptr32|__ptr64|__restrict)\b")
+
+
+def _sub_outside_literals(
+    text: str, pattern: re.Pattern[str], repl: Callable[[re.Match[str]], str]
+) -> str:
+    """Substitute tokens while preserving literals and macro names at byte offsets."""
+    from rebrew.c_parser import protected_spans
+
+    spans = protected_spans(text)
+    data = text.encode("utf-8", errors="surrogateescape")
+    out: list[str] = []
+    pos = 0
+    for start, end in spans:
+        out.append(pattern.sub(repl, data[pos:start].decode("utf-8", errors="surrogateescape")))
+        out.append(data[start:end].decode("utf-8", errors="surrogateescape"))
+        pos = end
+    out.append(pattern.sub(repl, data[pos:].decode("utf-8", errors="surrogateescape")))
+    return "".join(out)
+
 
 #: Leading ``*``/``&`` on function-returning decls that break declarations
 #: (``* FUN_00401000(...)`` at statement level is a Ghidra cast idiom).
@@ -109,7 +129,7 @@ def sanitize_tokens(source: str) -> tuple[str, list[str]]:
         changes.append(f"qualified name '{m.group(0)}' -> '{name}'")
         return name
 
-    out = _QUALIFIED_NAME_RE.sub(_sub_qualified, out)
+    out = _sub_outside_literals(out, _QUALIFIED_NAME_RE, _sub_qualified)
 
     def _sub_junk(m: re.Match[str]) -> str:
         changes.append(f"removed specifier '{m.group(0)}'")
