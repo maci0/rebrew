@@ -41,10 +41,10 @@ make check                                # pre-commit hook parity (before a PR:
 make gen-fixtures                         # regenerate tests/fixtures/ after editing the generator
 # or: uv sync --frozen --all-extras --group similarity
 
-uv run pytest tests/ -v --tb=short        # ~6800 tests (needs nasm)
-uv run pytest tests/test_annotation.py -v # or ::TestClass / -k name
-uv run pre-commit run --all-files
-uv run python -m slipcover --fail-under 80 -m pytest
+uv run --frozen pytest tests/ -v --tb=short # needs nasm
+uv run --frozen pytest tests/test_annotation.py -v # or ::TestClass / -k name
+uv run --frozen pre-commit run --all-files
+uv run --frozen python -m slipcover --fail-under 80 -m pytest
 ```
 
 **pytest** (`pyproject.toml`): `testpaths = ["tests"]`, `pythonpath = ["src", "."]` (`.` exposes `tools/`). No `conftest.py` — use `tmp_path` + inline helpers.

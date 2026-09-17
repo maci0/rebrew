@@ -529,14 +529,11 @@ def _write_struct_toml(
     path: Path,
     name: str,
     fields: list[dict[str, Any]] | None = None,
-    raw_definition: str | None = None,
 ) -> None:
     """Write one declib ``Struct`` artifact (members keyed by byte offset).
 
-    *raw_definition* is accepted for the placeholder path (a ``STRUCT:`` name
-    with no scanned body); it is not stored because declib's Struct carries no
-    definition text.  Missing member offsets/sizes are filled from the field
-    order and :func:`rebrew.types.type_size`.
+    Missing member offsets/sizes are filled from the field order and
+    :func:`rebrew.types.type_size`.
     """
     from rebrew.types import type_size
 
@@ -1082,12 +1079,10 @@ def export_state(
 
     written_structs: list[str] = []
     for sname in sorted(struct_defs):
-        raw_def, fields = struct_defs[sname]
+        fields = struct_defs[sname][1]
         spath = outdir / "structs" / f"{serial.sanitize_name(sname)}.toml"
         if not dry_run:
-            _write_struct_toml(
-                spath, sname, fields=fields or None, raw_definition=raw_def if fields else None
-            )
+            _write_struct_toml(spath, sname, fields=fields or None)
         written_structs.append(str(spath))
 
     written_enums = ""
