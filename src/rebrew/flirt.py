@@ -186,24 +186,6 @@ def load_signatures(sig_dir: str) -> list[Any]:
     return _parse_sig_files(_sig_files([sig_path]))
 
 
-def load_signatures_merged(project_dir: Path, repo_dir: Path) -> list[Any]:
-    """Load signatures from the project dir merged with the rebrew-flirt-sigs repo.
-
-    Project-specific sigs win on name conflicts (deduped by filename);
-    missing dirs are skipped.  The repo dir may be overridden via
-    ``REBREW_FLIRT_SIGS_DIR`` (resolved by :func:`_flirt_sigs_repo`).
-    """
-    files = _sig_files([project_dir, repo_dir])
-    if not files:
-        console.print(
-            f"No signature files in {project_dir} or {repo_dir} — "
-            "clone the rebrew-flirt-sigs checkout next to this repo "
-            "(or set REBREW_FLIRT_SIGS_DIR)."
-        )
-        return []
-    return _parse_sig_files(files)
-
-
 #: BinaryInfo.arch -> the signature index's architecture vocabulary.
 _ARCH_FAMILIES: dict[str, str] = {
     "x86_16": "x86",

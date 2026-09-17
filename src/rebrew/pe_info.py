@@ -46,7 +46,15 @@ from rich.table import Table
 
 from rebrew.binary_loader import detect_format_and_arch
 from rebrew.cli import EXIT_ERROR, TargetOption, error_exit, json_print, require_config
-from rebrew.pe_symbols import PeDirectories, pe_directories
+from rebrew.pe_symbols import (
+    PeDirectories,
+    _export_table,
+    _forwarder_target,
+    pe_directories,
+)
+from rebrew.pe_symbols import (
+    _as_list as _safe_list,
+)
 
 console = Console(stderr=True)
 
@@ -245,20 +253,6 @@ def _text(value: Any) -> str:
     if isinstance(name, str):
         return name
     return str(value)
-
-
-def _safe_list(obj: Any, attr: str) -> list[Any]:
-    """``obj.attr`` as a list, or ``[]`` when it is missing or not iterable."""
-    try:
-        value = getattr(obj, attr, None)
-    except (AttributeError, TypeError, ValueError, RuntimeError):
-        return []
-    if value is None:
-        return []
-    try:
-        return list(value)
-    except TypeError:
-        return []
 
 
 def _flag(value: Any) -> bool:
@@ -679,36 +673,6 @@ def _exports(pe: Any) -> list[dict[str, object]]:
             }
         )
     return entries
-
-
-def _export_table(pe: Any) -> Any | None:
-    """The PE export table, or ``None`` when LIEF cannot expose one.
-
-    A binary without exports still yields an empty table object, which is a
-    real "no exports" answer; only a missing or failing ``get_export`` is
-    unknown.
-    """
-    get_export = getattr(pe, "get_export", None)
-    if get_export is None:
-        return None
-    try:
-        return get_export()
-    except (AttributeError, TypeError, ValueError, RuntimeError):
-        return None
-
-
-def _forwarder_target(entry: Any) -> str | None:
-    """The ``DLL.Function`` an export forwards to, or ``None`` for code."""
-    if not _flag(getattr(entry, "is_forwarded", None)):
-        return None
-    info = getattr(entry, "forward_information", None)
-    if info is None:
-        return None
-    library = getattr(info, "library", None)
-    function = getattr(info, "function", None)
-    if isinstance(library, str) and isinstance(function, str) and library and function:
-        return f"{library}.{function}"
-    return None
 
 
 def _resource_count(pe: Any) -> int:
