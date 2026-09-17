@@ -8,6 +8,7 @@ rejected with 405.
 Endpoints
 ---------
 ``GET /``                      → minimal HTML app (vanilla JS, no build step)
+``GET /api/bootstrap``         → targets + first target's summary/functions (one RTT)
 ``GET /api/targets``           → list of targets (includes count/total)
 ``GET /api/summary?target=``   → function stats + coverage % (target required)
 ``GET /api/functions?target=`` → function rows (filters: status, module, q, limit)
@@ -24,6 +25,8 @@ List endpoints expose ``count`` (rows in this page) and ``total`` (matching rows
 Successful 200 responses negotiate ``gzip`` when the client accepts it, carry an
 ``ETag`` (HTML content hash or DB mtime), and use ``Cache-Control: private,
 no-cache`` so browsers can 304 without serving a stale body after ``build-db``.
+The static HTML shell is gzip-precompressed at import time so the entry document
+skips per-request compression CPU.  JSON uses compact separators.
 
 The query layer (``Dashboard``) is separated from the HTTP plumbing so tests
 exercise it without opening a socket.
@@ -59,8 +62,10 @@ _DEFAULT_LIMIT = 500
 _MAX_LIMIT = 5000
 # Below this size gzip's framing usually costs more than it saves on a LAN.
 _MIN_GZIP_BYTES = 256
-# Per-request dynamic bodies: cheap level; HTML is tiny and already one-shot.
+# Per-request dynamic JSON: mid effort (bodies are rebuilt every request).
 _GZIP_LEVEL = 5
+# Static HTML shell: max effort once at import; served precompressed thereafter.
+_GZIP_PRECOMPRESS_LEVEL = 9
 
 
 _INDEX_HTML = """<!doctype html>
@@ -111,6 +116,7 @@ _INDEX_HTML = """<!doctype html>
 <a class="skip-link" href="#main">Skip to content</a>
 <main id="main">
 <h1>Rebrew coverage</h1>
+<p id="boot-status">Loading coverage…</p>
 <p id="no-targets" hidden>No targets found in coverage.db. Run
   <code>rebrew build-db</code> for this project, then reload.</p>
 <div id="controls" class="filters" hidden>
@@ -248,6 +254,19 @@ function setResultsMessage(count, total) {
 function resetPaging() {
   pageLimit = 500;
 }
+function renderFunctions(data) {
+  const body = $("rows").querySelector("tbody");
+  // One write avoids layout thrash on the default 500-row page.
+  body.innerHTML = data.functions.map(f =>
+    "<tr><td class=va>" + esc(f.va) + "</td><td>" + esc(f.name || "")
+      + "</td><td>" + esc(f.symbol || "") + "</td><td>" + esc(f.size ?? "")
+      + "</td><td>" + esc(f.status || "") + "</td><td>" + esc(f.module || "")
+      + "</td><td>" + esc(f.files || "") + "</td></tr>").join("");
+  const total = data.total ?? data.count;
+  setResultsMessage(data.count, total);
+  $("empty-state").hidden = data.count !== 0;
+  $("results").hidden = data.count === 0;
+}
 async function loadFunctions() {
   const t = $("target").value; if (!t) return;
   const seq = ++functionsSeq;
@@ -263,17 +282,7 @@ async function loadFunctions() {
     const data = await whileBusy("results", () => get("/api/functions?" + params));
     if (seq !== functionsSeq) return;
     setLoadError("functions", "");
-    const body = $("rows").querySelector("tbody");
-    // One write avoids layout thrash on the default 500-row page.
-    body.innerHTML = data.functions.map(f =>
-      "<tr><td class=va>" + esc(f.va) + "</td><td>" + esc(f.name || "")
-        + "</td><td>" + esc(f.symbol || "") + "</td><td>" + esc(f.size ?? "")
-        + "</td><td>" + esc(f.status || "") + "</td><td>" + esc(f.module || "")
-        + "</td><td>" + esc(f.files || "") + "</td></tr>").join("");
-    const total = data.total ?? data.count;
-    setResultsMessage(data.count, total);
-    $("empty-state").hidden = data.count !== 0;
-    $("results").hidden = data.count === 0;
+    renderFunctions(data);
   } catch (error) {
     if (seq !== functionsSeq) return;
     $("rows").querySelector("tbody").innerHTML = "";
@@ -284,33 +293,36 @@ async function loadFunctions() {
     setLoadError("functions", "Failed to load functions: " + error.message);
   }
 }
+function renderSummary(s) {
+  const byStatus = s.function_stats.by_status || {};
+  setStatusOptions(byStatus);
+  const cards = [
+    ["Functions", s.function_stats.total, null],
+    ["Matched", (s.coverage_pct ?? 0).toFixed(1) + "%", null],
+    ["Identified", (s.identified_pct ?? 0).toFixed(1) + "%", null],
+  ];
+  for (const [k, v] of Object.entries(byStatus)) cards.push([k, v, k]);
+  $("cards").innerHTML = cards.map(([k, v, status]) => {
+    if (status) {
+      const active = $("status").value === status ? " active" : "";
+      return "<button type=button class='card" + active + "' data-status='" + esc(status)
+        + "' title='Filter by " + esc(status) + "'>"
+        + "<span class=value>" + esc(v) + "</span>"
+        + "<span class=label>" + esc(k) + "</span></button>";
+    }
+    return "<div class=card><span class=value>" + esc(v) + "</span>"
+      + "<span class=label>" + esc(k) + "</span></div>";
+  }).join("");
+  $("summary").hidden = false;
+  updateFilterActions();
+}
 async function loadSummary() {
   const t = $("target").value; if (!t) return;
   try {
     const s = await whileBusy("summary", () =>
       get("/api/summary?target=" + encodeURIComponent(t)));
     setLoadError("summary", "");
-    const byStatus = s.function_stats.by_status || {};
-    setStatusOptions(byStatus);
-    const cards = [
-      ["Functions", s.function_stats.total, null],
-      ["Matched", (s.coverage_pct ?? 0).toFixed(1) + "%", null],
-      ["Identified", (s.identified_pct ?? 0).toFixed(1) + "%", null],
-    ];
-    for (const [k, v] of Object.entries(byStatus)) cards.push([k, v, k]);
-    $("cards").innerHTML = cards.map(([k, v, status]) => {
-      if (status) {
-        const active = $("status").value === status ? " active" : "";
-        return "<button type=button class='card" + active + "' data-status='" + esc(status)
-          + "' title='Filter by " + esc(status) + "'>"
-          + "<span class=value>" + esc(v) + "</span>"
-          + "<span class=label>" + esc(k) + "</span></button>";
-      }
-      return "<div class=card><span class=value>" + esc(v) + "</span>"
-        + "<span class=label>" + esc(k) + "</span></div>";
-    }).join("");
-    $("summary").hidden = false;
-    updateFilterActions();
+    renderSummary(s);
   } catch (error) {
     setLoadError("summary", "Failed to load summary: " + error.message);
   }
@@ -328,16 +340,7 @@ function onStatusChange() {
   updateFilterActions();
   loadFunctions();
 }
-async function init() {
-  targets = (await get("/api/targets")).targets;
-  if (!targets.length) {
-    $("no-targets").hidden = false;
-    $("results-status").textContent = "No targets in coverage.db";
-    return;
-  }
-  $("controls").hidden = false;
-  $("target").innerHTML = targets.map(t =>
-    "<option value='" + esc(t) + "'>" + esc(t) + "</option>").join("");
+function bindControls() {
   $("target").onchange = () => {
     $("status").value = "";
     $("q").value = "";
@@ -368,9 +371,37 @@ async function init() {
     $("status").value = ($("status").value === status) ? "" : status;
     onStatusChange();
   };
-  await Promise.all([loadSummary(), loadFunctions()]);
+}
+async function init() {
+  // One round-trip: targets + first target's summary/functions (no waterfall).
+  const boot = await get("/api/bootstrap");
+  $("boot-status").hidden = true;
+  targets = boot.targets || [];
+  if (!targets.length) {
+    $("no-targets").hidden = false;
+    $("results-status").textContent = "No targets in coverage.db";
+    return;
+  }
+  $("controls").hidden = false;
+  $("target").innerHTML = targets.map(t =>
+    "<option value='" + esc(t) + "'>" + esc(t) + "</option>").join("");
+  bindControls();
+  if (boot.summary) {
+    setLoadError("summary", "");
+    renderSummary(boot.summary);
+  } else {
+    await loadSummary();
+  }
+  if (boot.functions) {
+    setLoadError("functions", "");
+    $("results").hidden = false;
+    renderFunctions(boot.functions);
+  } else {
+    await loadFunctions();
+  }
 }
 init().catch(error => {
+  $("boot-status").hidden = true;
   setLoadError("summary", "Dashboard failed to load: " + error.message);
 });
 </script>
@@ -378,7 +409,12 @@ init().catch(error => {
 </html>
 """
 
-_INDEX_ETAG = '"' + hashlib.sha256(_INDEX_HTML.encode("utf-8")).hexdigest()[:16] + '"'
+_INDEX_HTML_BYTES = _INDEX_HTML.encode("utf-8")
+_INDEX_ETAG = '"' + hashlib.sha256(_INDEX_HTML_BYTES).hexdigest()[:16] + '"'
+_precompressed = gzip.compress(_INDEX_HTML_BYTES, compresslevel=_GZIP_PRECOMPRESS_LEVEL)
+_INDEX_HTML_GZIP: bytes | None = (
+    _precompressed if len(_precompressed) < len(_INDEX_HTML_BYTES) else None
+)
 
 
 def _int_param(params: dict[str, list[str]], name: str, default: int) -> int:
@@ -448,6 +484,31 @@ class Dashboard:
         with self._conn() as conn:
             rows = conn.execute("SELECT DISTINCT target FROM functions ORDER BY target").fetchall()
         return [r[0] for r in rows]
+
+    def bootstrap(self) -> dict[str, Any]:
+        """Targets plus the first target's summary/functions in one payload.
+
+        Collapses the HTML app's cold-start waterfall (targets → summary +
+        functions) into a single round trip.  Filter/paging still use the
+        dedicated endpoints after the first paint.
+        """
+        targets = self.targets()
+        payload: dict[str, Any] = {
+            "targets": targets,
+            "count": len(targets),
+            "total": len(targets),
+            "target": None,
+            "summary": None,
+            "functions": None,
+        }
+        if not targets:
+            return payload
+        target = targets[0]
+        payload["target"] = target
+        if self.target_known(target):
+            payload["summary"] = self.summary(target)
+            payload["functions"] = self.functions(target, limit=_DEFAULT_LIMIT)
+        return payload
 
     def summary(self, target: str) -> dict[str, Any] | None:
         with self._conn() as conn:
@@ -668,6 +729,8 @@ class Dashboard:
         parsed = urlparse(path)
         if parsed.path == "/":
             return 200, "text/html; charset=utf-8", _INDEX_HTML
+        if parsed.path == "/api/bootstrap":
+            return self._json(200, self.bootstrap())
         if parsed.path == "/api/targets":
             targets = self.targets()
             return self._json(
@@ -727,7 +790,11 @@ class Dashboard:
 
     @staticmethod
     def _json(status: int, payload: dict[str, Any]) -> tuple[int, str, str]:
-        return status, "application/json; charset=utf-8", json.dumps(payload)
+        return (
+            status,
+            "application/json; charset=utf-8",
+            json.dumps(payload, separators=(",", ":")),
+        )
 
 
 def _load_list(raw: str | None) -> list[str]:
@@ -892,7 +959,14 @@ class _Handler(BaseHTTPRequestHandler):
         body_bytes = body.encode("utf-8")
         encoding: str | None = None
         if status == 200:
-            body_bytes, encoding = _maybe_gzip(body_bytes, self.headers.get("Accept-Encoding", ""))
+            # Entry document is immutable for a given process: serve the
+            # import-time gzip blob instead of recompressing every request.
+            accept = self.headers.get("Accept-Encoding", "")
+            if body is _INDEX_HTML and _INDEX_HTML_GZIP is not None and _accepts_gzip(accept):
+                body_bytes = _INDEX_HTML_GZIP
+                encoding = "gzip"
+            else:
+                body_bytes, encoding = _maybe_gzip(body_bytes, accept)
 
         self.send_response(status)
         self.send_header("Content-Type", content_type)
@@ -974,6 +1048,7 @@ app = typer.Typer(
         "  rebrew dashboard --port 9000 · Custom port\n\n"
         "[bold]Endpoints:[/bold]\n\n"
         "  / · · · · · · · · · · · · HTML app (targets, summary, function search)\n\n"
+        "  /api/bootstrap · · · · · · Targets + first target summary/functions\n\n"
         "  /api/targets · · · · · · List targets\n\n"
         "  /api/summary?target= · · Coverage stats (target required)\n\n"
         "  /api/functions?target= · Function rows (status/module/q/limit)\n\n"

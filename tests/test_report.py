@@ -108,7 +108,9 @@ class TestReportCli:
 
         graph = (site / "graph.html").read_text(encoding="utf-8")
         assert "graph LR" in graph  # mermaid block
-        assert "2 nodes" in graph  # plain-text adjacency fallback
+        assert "adjacency.txt" in graph  # sidecar link, not inlined
+        adjacency = (site / "adjacency.txt").read_text(encoding="utf-8")
+        assert "2 nodes" in adjacency  # plain-text adjacency fallback
 
     def test_default_out_dir_under_output_dir(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

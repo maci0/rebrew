@@ -10,7 +10,8 @@ output directory with four pages:
 - ``imports.html`` — PE import table (dll, API, IAT slot) and detected
   ``jmp [IAT]`` import stubs.
 - ``graph.html``   — the function call graph as embedded Mermaid source
-  (from :mod:`rebrew.depgraph`) plus a plain-text adjacency fallback.
+  (from :mod:`rebrew.depgraph`); the plain-text adjacency list ships as a
+  sibling ``adjacency.txt`` so the HTML page stays small for first paint.
 
 Every page degrades gracefully: missing binaries, missing data sections,
 or call-graph failures produce a note inside the page instead of aborting
@@ -119,7 +120,7 @@ td.blocker { max-width: 28rem; overflow-wrap: anywhere; }
 }
 .note { background: #fff7ed; border: 1px solid #fed7aa; border-radius: 8px;
         padding: 0.9rem 1.1rem; color: #9a3412; margin-bottom: 1.5rem; }
-pre.mermaid, pre.adjacency { background: #fff; border: 1px solid #e2e8f0;
+pre.mermaid { background: #fff; border: 1px solid #e2e8f0;
         border-radius: 8px; padding: 1rem; overflow-x: auto;
         font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
         font-size: 0.8rem; line-height: 1.4; }
@@ -519,21 +520,26 @@ def _render_imports(cfg: ProjectConfig) -> str:
     return _page("Imports", target, "imports.html", "".join(parts))
 
 
-def _render_graph(cfg: ProjectConfig) -> str:
-    """Render graph.html: mermaid call graph + plain-text adjacency fallback.
+def _render_graph(cfg: ProjectConfig) -> tuple[str, str | None]:
+    """Render graph.html and optional adjacency.txt body.
 
-    Call-graph generation is best-effort: any failure (malformed annotation
-    blocks, unreadable sources, rendering errors) degrades to a note inside
-    the page rather than aborting the whole report.
+    Returns ``(html_page, adjacency_text_or_none)``.  Call-graph generation is
+    best-effort: any failure (malformed annotation blocks, unreadable sources,
+    rendering errors) degrades to a note inside the page rather than aborting
+    the whole report.  The adjacency list is a separate download so the HTML
+    critical path only carries the Mermaid source.
     """
     target = _target_name(cfg)
     reversed_dir = getattr(cfg, "reversed_dir", None)
     if reversed_dir is None:
-        return _page(
-            "Call graph",
-            target,
-            "graph.html",
-            "<p class='note'>No reversed source directory configured - call graph is empty.</p>",
+        return (
+            _page(
+                "Call graph",
+                target,
+                "graph.html",
+                "<p class='note'>No reversed source directory configured - call graph is empty.</p>",
+            ),
+            None,
         )
     try:
         nodes, edges, dispatch_edges = build_graph(Path(reversed_dir), cfg=cfg)
@@ -555,27 +561,30 @@ def _render_graph(cfg: ProjectConfig) -> str:
                     logging.getLogger(__name__).debug("NE edge augmentation failed: %s", exc)
                     pass
         mermaid = render_mermaid(nodes, edges, dispatch_edges)
+        adjacency = _adjacency_list(nodes, edges, dispatch_edges)
     except Exception:  # best-effort graph; the report must not crash
         console.print(
             "[yellow]report:[/yellow] call graph generation failed - writing a placeholder graph.html"
         )
-        return _page(
-            "Call graph",
-            target,
-            "graph.html",
-            "<p class='note'>Call graph generation failed. The other pages of this report are "
-            "complete.</p>",
+        return (
+            _page(
+                "Call graph",
+                target,
+                "graph.html",
+                "<p class='note'>Call graph generation failed. The other pages of this report are "
+                "complete.</p>",
+            ),
+            None,
         )
 
     body = (
         "<p>Call graph over reversed functions. The mermaid source below renders in any "
-        "mermaid-compatible viewer; the plain-text adjacency list is a fallback.</p>"
+        "mermaid-compatible viewer. A <a href='adjacency.txt'>plain-text adjacency list</a> "
+        "is available as a separate download.</p>"
         "<h3>Mermaid</h3>"
         f"<pre class='mermaid'>{html.escape(mermaid)}</pre>"
-        "<h3>Adjacency list</h3>"
-        f"<pre class='adjacency'>{html.escape(_adjacency_list(nodes, edges, dispatch_edges))}</pre>"
     )
-    return _page("Call graph", target, "graph.html", body)
+    return _page("Call graph", target, "graph.html", body), adjacency
 
 
 def _ne_ranges(info: Any) -> list[tuple[int, int, str]]:
@@ -649,14 +658,17 @@ def generate_report(cfg: ProjectConfig, out: Path) -> dict[str, Any]:
     functions = _collect_functions(cfg)
     target = _target_name(cfg)
 
+    graph_html, adjacency = _render_graph(cfg)
     pages = [
         ("index.html", _render_index(target, report, functions, ne=_ne_summary(cfg))),
         ("strings.html", _render_strings(cfg)),
         ("imports.html", _render_imports(cfg)),
-        ("graph.html", _render_graph(cfg)),
+        ("graph.html", graph_html),
     ]
     for name, content in pages:
         atomic_write_text(out / name, content, encoding="utf-8")
+    if adjacency is not None:
+        atomic_write_text(out / "adjacency.txt", adjacency, encoding="utf-8")
 
     summary = {
         "total_functions": report.total_functions,

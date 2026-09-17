@@ -8,6 +8,12 @@
   declares ``**/py.typed``; project URLs add Issues and Changelog.
 
 ### Changed
+- **Dashboard cold start is one API round trip** — ``GET /api/bootstrap`` returns
+  targets plus the first target's summary/functions; the HTML shell shows a
+  loading line until that lands.  Static index HTML is gzip-precompressed at
+  import (served as-is when the client accepts gzip); JSON responses use
+  compact separators.  Report ``graph.html`` links ``adjacency.txt`` instead of
+  inlining the adjacency list so the HTML page stays on the Mermaid source.
 - **Ruff rule set widened** — PLE (after the mutator `__all__` extend fix),
   more clean stable RUF codes (incl. RUF019), S704, and the zero-finding
   stable subsets of bandit / tryceratops / refurb / perf / ret / pie /

@@ -279,6 +279,7 @@ class TestHandle:
         assert 'name="viewport"' in body
         assert "setStatusOptions" in body
         assert 'id="no-targets"' in body
+        assert 'id="boot-status"' in body
         assert 'id="empty-state"' in body
         assert "Showing " in body and "of " in body  # truncation copy in JS
         assert "Loading functions" in body
@@ -288,6 +289,23 @@ class TestHandle:
         assert "setLoadError" in body
         assert "data-status" in body
         assert "Use Show more" in body
+        assert "/api/bootstrap" in body
+
+    def test_api_bootstrap(self, dashboard: Dashboard) -> None:
+        """Cold start packs targets + first target summary/functions in one response."""
+        status, content_type, body = dashboard.handle("GET", "/api/bootstrap", {})
+        assert status == 200
+        assert "application/json" in content_type
+        payload = json.loads(body)
+        assert payload["targets"] == ["server_dll"]
+        assert payload["target"] == "server_dll"
+        assert payload["count"] == 1
+        assert payload["summary"] is not None
+        assert payload["summary"]["target"] == "server_dll"
+        assert payload["functions"] is not None
+        assert payload["functions"]["count"] >= 1
+        # Compact JSON: no space after colon/comma in the wire body.
+        assert body == json.dumps(payload, separators=(",", ":"))
 
     def test_api_targets(self, dashboard: Dashboard) -> None:
         status, content_type, body = dashboard.handle("GET", "/api/targets", {})
@@ -617,11 +635,54 @@ class TestHostValidation:
         row = dashboard.functions("server_dll")["functions"][0]
         assert "markerType" not in row
 
-    def test_index_html_fetches_summary_and_functions_in_parallel(
-        self, dashboard: Dashboard
-    ) -> None:
+    def test_index_html_bootstraps_in_one_round_trip(self, dashboard: Dashboard) -> None:
+        """Cold start uses /api/bootstrap; target changes still parallel-fetch."""
         _, _, body = dashboard.handle("GET", "/", {})
+        assert 'get("/api/bootstrap")' in body
         assert "Promise.all([loadSummary(), loadFunctions()])" in body
+        assert "renderSummary" in body
+        assert "renderFunctions" in body
+
+    def test_handler_serves_precompressed_index(self, dashboard: Dashboard) -> None:
+        """The static HTML shell is gzipped once at import, not per request."""
+        import gzip
+
+        from rebrew.dashboard import (
+            _INDEX_HTML_BYTES,
+            _INDEX_HTML_GZIP,
+            _Handler,
+            allowed_hosts_for,
+        )
+
+        assert _INDEX_HTML_GZIP is not None
+        assert len(_INDEX_HTML_GZIP) < len(_INDEX_HTML_BYTES)
+
+        handler = _Handler.__new__(_Handler)
+        handler.headers = {
+            "Host": "127.0.0.1:8000",
+            "Accept-Encoding": "gzip",
+        }
+        handler.path = "/"
+        handler.allowed_hosts = allowed_hosts_for("127.0.0.1", 8000)
+        handler.dashboard = dashboard
+        sent: list[tuple] = []
+        written: list[bytes] = []
+
+        handler.send_response = lambda status: sent.append(("status", status))  # type: ignore[method-assign]
+        handler.send_header = lambda name, value: sent.append((name, value))  # type: ignore[method-assign]
+        handler.end_headers = lambda: sent.append(("end", None))  # type: ignore[method-assign]
+
+        class _FakeWFile:
+            def write(self, data: bytes) -> int:
+                written.append(data)
+                return len(data)
+
+        handler.wfile = _FakeWFile()
+        handler._respond("GET")
+        raw = b"".join(written)
+        assert ("Content-Encoding", "gzip") in sent
+        assert raw == _INDEX_HTML_GZIP
+        assert gzip.decompress(raw) == _INDEX_HTML_BYTES
 
     def test_handler_unexpected_error_answers_500(self) -> None:
         """An unexpected route error must answer 500 JSON, not reset the connection."""
