@@ -1,13 +1,15 @@
 """Tests for rebrew dashboard — read-only web dashboard over coverage.db."""
 
 import json
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
 from typer.testing import CliRunner
 
 from rebrew.build_db import build_db
-from rebrew.dashboard import Dashboard
+from rebrew.dashboard import _INDEX_HTML, Dashboard
 
 
 def _write_data(db_dir: Path, target: str = "server_dll") -> Path:
@@ -255,6 +257,22 @@ class TestQueryLayer:
         data = dash.functions("server_dll")
         assert data["count"] == 2
         assert data["total"] == 2  # not 3
+
+
+class TestSummaryRequests:
+    def test_latest_summary_wins(self) -> None:
+        node = shutil.which("node")
+        if node is None:
+            pytest.skip("Node.js is required for dashboard interaction tests")
+        result = subprocess.run(
+            [node, str(Path(__file__).with_name("dashboard_summary.mjs"))],
+            input=_INDEX_HTML.split("<script>", 1)[1].split("</script>", 1)[0],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
 
 
 class TestHandle:

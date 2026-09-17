@@ -161,6 +161,7 @@ const $ = (id) => document.getElementById(id);
 let targets = [];
 let searchTimer = null;
 let functionsSeq = 0;
+let summarySeq = 0;
 let pageLimit = 500;
 const PAGE_STEP = 500;
 const PAGE_MAX = 5000;
@@ -318,12 +319,15 @@ function renderSummary(s) {
 }
 async function loadSummary() {
   const t = $("target").value; if (!t) return;
+  const seq = ++summarySeq;
   try {
     const s = await whileBusy("summary", () =>
       get("/api/summary?target=" + encodeURIComponent(t)));
+    if (seq !== summarySeq) return;
     setLoadError("summary", "");
     renderSummary(s);
   } catch (error) {
+    if (seq !== summarySeq) return;
     setLoadError("summary", "Failed to load summary: " + error.message);
   }
 }
