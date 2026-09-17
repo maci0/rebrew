@@ -302,6 +302,7 @@ async function loadFunctions() {
 function renderSummary(s) {
   const byStatus = s.function_stats.by_status || {};
   setStatusOptions(byStatus);
+  $("status").disabled = false;
   const cards = [
     ["Functions", s.function_stats.total, null],
     ["Matched", (s.coverage_pct ?? 0).toFixed(1) + "%", null],
@@ -328,6 +329,11 @@ async function loadSummary() {
   if (summaryController) summaryController.abort();
   summaryController = new AbortController();
   const { signal } = summaryController;
+  setStatusOptions({});
+  $("status").disabled = true;
+  $("cards").innerHTML = "<p>Loading coverage summary…</p>";
+  $("summary").hidden = false;
+  updateFilterActions();
   try {
     const s = await whileBusy("summary", () =>
       get("/api/summary?target=" + encodeURIComponent(t), signal));
@@ -336,7 +342,9 @@ async function loadSummary() {
     renderSummary(s);
   } catch (error) {
     if (seq !== summarySeq || signal.aborted) return;
-    setLoadError("summary", "Failed to load summary: " + error.message);
+    $("cards").innerHTML = "";
+    $("summary").hidden = true;
+    setLoadError("summary", "Coverage summary could not be loaded. Reload the page to try again.");
   }
 }
 function scheduleSearch() {

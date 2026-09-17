@@ -56,12 +56,17 @@ for (const staleFailure of [false, true]) {
   const newRequest = loadSummary();
   assert.equal(oldResponse.aborted, true, "superseded request must be aborted");
   const newResponse = pending.shift();
+  assert.equal(element("status").disabled, true);
+  assert.doesNotMatch(element("status").innerHTML, /EXACT|STUB/);
+  assert.match(element("cards").innerHTML, /Loading coverage summary/);
+  assert.doesNotMatch(element("cards").innerHTML, /data-status/);
   assert.match(oldResponse.path, /target=old_target$/);
   assert.match(newResponse.path, /target=new_target$/);
   assert.equal(newResponse.aborted, false);
   newResponse.resolve({ ok: true, json: async () => summary("EXACT") });
   await newRequest;
   assert.match(element("status").innerHTML, /EXACT/);
+  assert.equal(element("status").disabled, false);
   assert.match(element("cards").innerHTML, /EXACT/);
   const options = element("status").innerHTML;
   const cards = element("cards").innerHTML;
@@ -72,3 +77,20 @@ for (const staleFailure of [false, true]) {
   assert.equal(element("cards").innerHTML, cards);
   assert.equal(element("dashboard-error").hidden, true);
 }
+
+const failedRequest = loadSummary();
+pending.shift().reject(new Error("Connection lost"));
+await failedRequest;
+assert.equal(element("summary").hidden, true);
+assert.equal(element("cards").innerHTML, "");
+assert.equal(element("status").disabled, true);
+assert.equal(element("dashboard-error").hidden, false);
+assert.match(element("dashboard-error").textContent, /Reload the page/);
+
+const recoveredRequest = loadSummary();
+pending.shift().resolve({ ok: true, json: async () => summary("STUB") });
+await recoveredRequest;
+assert.equal(element("summary").hidden, false);
+assert.equal(element("status").disabled, false);
+assert.match(element("cards").innerHTML, /STUB/);
+assert.equal(element("dashboard-error").hidden, true);
