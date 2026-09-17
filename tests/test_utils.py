@@ -601,6 +601,41 @@ class TestRemoveTempDir:
         remove_temp_dir(d)
         assert not d.exists()
 
+    def test_repeated_cleanup(self, tmp_path: Path) -> None:
+        from rebrew.utils import remove_temp_dir
+
+        d = tmp_path / "sandbox"
+        d.mkdir()
+        (d / "t.c").write_text("int x;\n")
+        remove_temp_dir(d, delay=0)
+        remove_temp_dir(d, delay=0)
+        assert not d.exists()
+
+    def test_retry_after_directory_removed(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import errno
+        import shutil
+
+        from rebrew.utils import remove_temp_dir
+
+        d = tmp_path / "sandbox"
+        d.mkdir()
+        (d / "t.c").write_text("int x;\n")
+        rmtree = shutil.rmtree
+        calls = 0
+
+        def remove_then_fail(path: Path) -> None:
+            nonlocal calls
+            calls += 1
+            rmtree(path)
+            raise OSError(errno.EBUSY, "Device or resource busy")
+
+        monkeypatch.setattr(shutil, "rmtree", remove_then_fail)
+        remove_temp_dir(d, retries=2, delay=0)
+        assert calls == 2
+        assert not d.exists()
+
     def test_raises_when_never_removable(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

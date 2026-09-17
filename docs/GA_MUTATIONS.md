@@ -352,11 +352,19 @@ inspired it.
 ## Mutation Selection
 
 By default, `mutate_code()` picks uniformly at random from `ALL_MUTATIONS`.
-You can bias selection via the `mutation_weights` parameter:
+You can bias selection via the `mutation_weights` parameter. Set
+`track_mutation=True` to return both the source and mutation name; otherwise
+`mutate_code()` returns only the source string.
 
 ```python
+from random import Random
+
+from rebrew.matcher import mutate_code
+
+source = "int choose(int x) { if (x) return 1; else return 2; }"
+rng = Random(0)
 weights = {"mut_swap_if_else": 3.0, "mut_for_to_while": 2.0}
-mutated, name = mutate_code(source, rng, mutation_weights=weights)
+mutated, name = mutate_code(source, rng, track_mutation=True, mutation_weights=weights)
 ```
 
 ### Multi-Mutation

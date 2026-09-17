@@ -120,6 +120,23 @@ def _rng() -> random.Random:
     return random.Random(_RNG_SEED)
 
 
+def test_documented_mutation_selection() -> None:
+    from random import Random
+
+    from rebrew.matcher import mutate_code
+
+    source = "int choose(int x) { if (x) return 1; else return 2; }"
+    rng = Random(0)
+    weights = {"mut_swap_if_else": 3.0, "mut_for_to_while": 2.0}
+    mutated, name = mutate_code(source, rng, track_mutation=True, mutation_weights=weights)
+
+    assert isinstance(mutated, str)
+    assert isinstance(name, str)
+    assert quick_validate(mutated)
+    assert mutated != source
+    assert name.startswith("mut_")
+
+
 class TestPragmaMutations:
     """#pragma optimize / intrinsic / check_stack — codegen levers that
     compiler flags cannot reach (researched MSVC6 pragma set)."""

@@ -12,8 +12,6 @@ import json
 import sqlite3
 from pathlib import Path
 
-import zstandard
-
 #: ``metadata.target`` value carrying database-level (not per-target) rows.
 SCHEMA_TARGET = "__schema__"
 
@@ -82,6 +80,8 @@ _CELLS_ZSTD_LEVEL = 3
 
 def encode_section_cells(cells_json: str) -> bytes:
     """Compress one section's cell JSON for :data:`SECTION_CELLS_TABLE`."""
+    import zstandard
+
     return zstandard.ZstdCompressor(level=_CELLS_ZSTD_LEVEL).compress(cells_json.encode("utf-8"))
 
 
@@ -96,6 +96,8 @@ def decode_section_cells(blob: bytes) -> str:
     bug.  ``encode_section_cells`` writes the content size into the frame
     header, so no ``max_output_size`` is needed here.
     """
+    import zstandard
+
     return zstandard.ZstdDecompressor().decompress(blob).decode("utf-8")
 
 

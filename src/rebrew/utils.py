@@ -1135,6 +1135,8 @@ def remove_temp_dir(path: Path, retries: int = 5, delay: float = 0.2) -> None:
         try:
             shutil.rmtree(path)
             return
+        except FileNotFoundError:
+            return
         except OSError:
             if attempt == retries - 1:
                 raise
