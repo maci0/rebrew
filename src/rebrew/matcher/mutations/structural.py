@@ -1440,11 +1440,11 @@ def mut_home_byte_in_param_slot(s: str, rng: random.Random) -> str | None:
         # The slot must belong to a parameter the body no longer reads, so the
         # home cannot change an observable value.
         param_list = _parameter_list_of(func)
-        dead = [
+        dead = sorted(
             name
             for name in _parameter_names(func, b_source)
             if not _identifier_uses(func, name, b_source, skip=param_list)
-        ]
+        )
         if not dead:
             continue
         candidates.append((declaration, cap.get("init"), local_name, rng.choice(dead), uses))

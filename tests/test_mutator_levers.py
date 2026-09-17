@@ -6,8 +6,13 @@ the shape changes codegen without changing what the C computes.
 
 from __future__ import annotations
 
+import os
 import random
+import subprocess
+import sys
+import textwrap
 from collections.abc import Callable, Iterable
+from pathlib import Path
 
 from rebrew.matcher.mutations.structural import (
     mut_call_prototype_view,
@@ -176,6 +181,51 @@ class TestHomeByteInParamSlot:
             "}\n"
         )
         assert _first(mut_home_byte_in_param_slot, src) is None
+
+    def test_seed_replays_across_hash_seeds(self) -> None:
+        """Replay seeded mutations independently of interpreter hash ordering."""
+        src = (
+            "int f(char *cmd, void *arg1, void *arg2, int i) {\n"
+            "    unsigned char holder = cmd[6];\n"
+            "    i = holder;\n"
+            "    return i;\n"
+            "}\n"
+        )
+        script = textwrap.dedent(
+            """
+            import random
+            import sys
+            from rebrew.matcher.mutations.structural import mut_home_byte_in_param_slot
+            from rebrew.matcher.mutator import quick_validate
+            src = sys.stdin.read()
+            rng = random.Random(42)
+            outs = []
+            for _ in range(30):
+                out = mut_home_byte_in_param_slot(src, rng)
+                assert out is not None and out != src
+                assert quick_validate(out)
+                outs.append(out)
+            sys.stdout.write("\\n".join(outs))
+        """
+        ).strip()
+        outputs = [
+            subprocess.run(
+                [sys.executable, "-c", script],
+                input=src,
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=30,
+                env={
+                    **os.environ,
+                    "PYTHONHASHSEED": str(seed),
+                    "PYTHONPATH": str(Path(__file__).resolve().parents[1] / "src"),
+                },
+            ).stdout
+            for seed in ("1", "2")
+        ]
+        assert outputs[0]
+        assert outputs[0] == outputs[1]
 
 
 class TestCallPrototypeView:
