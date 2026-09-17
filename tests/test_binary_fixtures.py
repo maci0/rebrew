@@ -212,3 +212,23 @@ class TestRelocSpanClamp:
     def test_garbage_size_is_clamped(self) -> None:
         assert _reloc_span(2**40) == _MAX_RELOC_SPAN
         assert _reloc_span(-1) == 1
+
+
+class TestThumbSymbolStart:
+    """An ARM ELF marks a Thumb function by setting bit 0 of st_value.
+
+    Slicing from the raw value started one byte late, so every Thumb signature
+    generation produced (devkitARM's newlib, the NDK ARM runtimes, agbcc) came
+    out shifted by a byte and one byte short — it could never match linked
+    code.  `tests/fixtures/thumb_arm.o` is that shape: st_value 0x1, size 8,
+    code `0f b5 00 20 01 30 0f bd`.
+    """
+
+    def test_code_starts_at_the_even_address(self) -> None:
+        from rebrew.gen_flirt_pat import parse_elf_obj
+
+        fixture = Path(__file__).parent / "fixtures" / "thumb_arm.o"
+        functions = list(parse_elf_obj(fixture.read_bytes()))
+        assert [name for name, _code, _relocs in functions] == ["thumb_probe"]
+        _name, code, _relocs = functions[0]
+        assert code == bytes.fromhex("0fb500200130 0fbd".replace(" ", ""))

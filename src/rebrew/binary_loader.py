@@ -265,6 +265,33 @@ def _load_elf(binary: lief.ELF.Binary, path: Path) -> BinaryInfo:
             text_size = vsize
             text_raw_offset = raw_offset
 
+    if ".text" not in sections:
+        # Bare-metal toolchains rarely call it .text: devkitARM links an NDS
+        # ARM9 image with the code in `.main` (plus `.itcm`, `.crt0`, …), and
+        # the ELF also carries .debug_* sections larger than any of them, so
+        # the section *flags* have to decide.  Aliasing the largest executable
+        # section as `.text` keeps every consumer working instead of teaching
+        # each one about another section name.
+        code_sections = [
+            section
+            for section in binary.sections
+            if section.name and int(section.flags) & int(lief.ELF.Section.FLAGS.EXECINSTR)
+        ]
+        if code_sections:
+            best = max(code_sections, key=lambda section: section.size)
+            alias = sections.get(_decode_lief_name(best.name))
+            if alias is not None:
+                sections[".text"] = SectionInfo(
+                    name=".text",
+                    va=alias.va,
+                    size=alias.size,
+                    file_offset=alias.file_offset,
+                    raw_size=alias.raw_size,
+                )
+                text_va = alias.va
+                text_size = alias.size
+                text_raw_offset = alias.file_offset
+
     return BinaryInfo(
         path=path,
         format="elf",

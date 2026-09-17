@@ -214,6 +214,7 @@ def parse_elf_obj(obj_data: bytes) -> Iterator[tuple[str, bytes, set[int]]]:
         return
 
     is_mips = elf.header.machine_type in (lief.ELF.ARCH.MIPS, lief.ELF.ARCH.MIPS_X)
+    is_arm = elf.header.machine_type == lief.ELF.ARCH.ARM
 
     for sym in elf.symbols:
         if sym.type != lief.ELF.Symbol.TYPE.FUNC:
@@ -227,7 +228,15 @@ def parse_elf_obj(obj_data: bytes) -> Iterator[tuple[str, bytes, set[int]]]:
             continue
 
         content = bytes(section.content)
-        func_start = sym.value
+        func_start = int(sym.value)
+        if is_arm:
+            # An ARM ELF marks a Thumb function by setting bit 0 of st_value.
+            # Slicing from the raw value starts one byte late, so every Thumb
+            # signature came out shifted by a byte and one byte short — it
+            # could never match the linked code.  Verified on devkitARM's
+            # newlib `printf` (st_value 0x1): the correct bytes are
+            # 0fb430b5…, the shifted ones b430b583….
+            func_start &= ~1
         func_end = func_start + sym.size
         if func_start >= func_end or func_end > len(content):
             continue
