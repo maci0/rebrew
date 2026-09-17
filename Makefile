@@ -158,7 +158,7 @@ audit:
 # push except the release commit, since __version__ stays equal to the last
 # tag during normal development. Run `make release-check` before tagging.
 release-check:
-	@set -euo pipefail; \
+	@set -eu; \
 	V=$$(uv run python -c "from rebrew import __version__; print(__version__)"); \
 	LAST=$$(git describe --tags --abbrev=0 2>/dev/null || echo v0.0.0); \
 	LASTV=$${LAST#v}; \
