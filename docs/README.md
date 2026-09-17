@@ -31,6 +31,9 @@
 | [CI.md](CI.md) | CI pipeline: lint/test/package/cli-contract jobs, gates, reproducibility |
 | [DEVELOPMENT.md](DEVELOPMENT.md) | Developer workflow |
 | [PERFORMANCE.md](PERFORMANCE.md) | Performance notes and hot paths |
+| [STYLE.md](STYLE.md) | Documentation style: one-home-per-fact, slop checklist |
+| [ADDING_A_COMMAND.md](ADDING_A_COMMAND.md) | Checklist for adding a `rebrew` command |
+| [DEFENSIVE_PATTERNS.md](DEFENSIVE_PATTERNS.md) | Bug classes that bit this repo, as prevention rules |
 
 ## Integration
 

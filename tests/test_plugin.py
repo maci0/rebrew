@@ -400,3 +400,53 @@ class TestMidApplyFailure:
         assert not ctx.has("half")
         assert ctx._effects == []
         assert scope._entries[0].effects is None
+
+
+class TestEntryPointComponents:
+    def test_third_party_mounts_and_disposer_removes_it(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Entry-point-provided component: full mount → dispose → unmounted.
+
+        DSH testing.md requires one dispose test per registration repaired or
+        added; builtins have theirs (TestCliComponent), third-party plugins
+        did not until now.
+        """
+        from types import SimpleNamespace
+
+        import rebrew.plugin as plugin_mod
+
+        fake_ep = SimpleNamespace(name="third", value="rebrew.diagnose", group="rebrew.commands")
+
+        class _FakeEntryPoints:
+            def select(self, *, group: str) -> list[Any]:
+                return [fake_ep] if group == "rebrew.commands" else []
+
+        monkeypatch.setattr("rebrew.registry.entry_points", lambda: _FakeEntryPoints())
+        components, warnings = plugin_mod.entry_point_components(set())
+        assert warnings == []
+        assert [(c.name, c.origin) for c in components] == [("third", "entry-point")]
+        app = typer.Typer()
+        ctx = Context()
+        ctx.provide(CLI_SERVICE, app)
+        ctx.provide(CONSOLE_SERVICE, Console(stderr=True))
+        activate(components, ctx)
+        assert [c.name for c in app.registered_commands] == ["third"]
+        ctx.dispose()
+        assert app.registered_commands == []
+
+    def test_duplicate_name_warns_and_keeps_builtin(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from types import SimpleNamespace
+
+        import rebrew.plugin as plugin_mod
+
+        fake_ep = SimpleNamespace(name="status", value="rebrew.status", group="rebrew.commands")
+
+        class _FakeEntryPoints:
+            def select(self, *, group: str) -> list[Any]:
+                return [fake_ep] if group == "rebrew.commands" else []
+
+        monkeypatch.setattr("rebrew.registry.entry_points", lambda: _FakeEntryPoints())
+        components, warnings = plugin_mod.entry_point_components({"status"})
+        assert components == []
+        assert len(warnings) == 1 and "status" in warnings[0]
