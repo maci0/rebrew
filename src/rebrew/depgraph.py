@@ -146,7 +146,9 @@ def _extract_callees(c_path: Path, text: str | None = None) -> list[str]:
     """
     if text is None:
         try:
-            text = c_path.read_text(encoding="utf-8", errors="replace")
+            from rebrew.utils import read_source_text
+
+            text = read_source_text(c_path)[0]
         except OSError:
             return []
 
@@ -235,7 +237,9 @@ def build_graph(
         # Read file once and cache for both annotation parsing and callee extraction
         if cfile not in _file_text_cache:
             try:
-                _file_text_cache[cfile] = cfile.read_text(encoding="utf-8", errors="replace")
+                from rebrew.utils import read_source_text
+
+                _file_text_cache[cfile] = read_source_text(cfile)[0]
             except OSError:
                 continue
         text = _file_text_cache[cfile]

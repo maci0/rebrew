@@ -65,7 +65,9 @@ def main(
     declared: dict[str, Any] = {}
     for src in iter_sources(cfg.reversed_dir, cfg):
         try:
-            text = src.read_text(encoding="utf-8", errors="replace")
+            from rebrew.utils import read_source_text
+
+            text = read_source_text(src)[0]
         except OSError:
             continue
         for name, struct in parse_structs(text).items():

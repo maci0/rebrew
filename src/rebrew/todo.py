@@ -886,7 +886,9 @@ def _caller_counts(cfg: ProjectConfig, matched_files: set[str] | None = None) ->
         if matched_files and rel_display_path(path, cfg.reversed_dir) in matched_files:
             continue
         try:
-            text = path.read_text(encoding="utf-8", errors="replace")
+            from rebrew.utils import read_source_text
+
+            text = read_source_text(path)[0]
         except OSError:
             continue
         for callee in find_extern_function_names(text):

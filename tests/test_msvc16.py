@@ -140,3 +140,26 @@ class TestStaleOutputIsNotSuccess:
         (workdir / "SRC.OBJ").write_bytes(b"stale")
         with pytest.raises(Msvc16Error, match="no object"):
             compile_c(src, workdir)
+
+    def test_stages_legacy_bytes_verbatim(self, tmp_path: Path, monkeypatch) -> None:
+        """A CP1252 source must reach SRC.C byte-identical — UTF-8 replace
+        would turn 0xE9 into U+FFFD and the DOS compiler would see wrong
+        string-literal bytes."""
+        tree = tmp_path / "vc152"
+        for sub in ("BIN", "INCLUDE", "LIB"):
+            (tree / sub).mkdir(parents=True)
+        monkeypatch.setattr("rebrew.msvc16._find_vc152", lambda version: tree)
+
+        staged: dict[str, bytes] = {}
+
+        def _capture(sandbox: Path, *_a, **_k) -> None:
+            staged["src"] = (sandbox / "SRC.C").read_bytes()
+            (sandbox / "SRC.OBJ").write_bytes(b"\x80\x08")
+
+        monkeypatch.setattr("rebrew.msvc16.run_dosbox", _capture)
+        raw = b'char *s = "Caf\xe9";\nint f(void) { return 0; }\n'
+        src = tmp_path / "cafe.c"
+        src.write_bytes(raw)
+        workdir = tmp_path / "sandbox"
+        compile_c(src, workdir)
+        assert staged["src"] == raw

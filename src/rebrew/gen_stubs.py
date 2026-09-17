@@ -234,7 +234,7 @@ def collect_extern_info(src_dir: Path) -> dict[str, dict[str, typing.Any]]:
     externs: dict[str, dict[str, typing.Any]] = {}
     deferred: dict[str, dict[str, typing.Any]] = {}
     for src_file in sorted(src_dir.rglob("*.c")):
-        text = _strip_comments(src_file.read_text(encoding="utf-8", errors="replace"))
+        text = _strip_comments(read_source_text(src_file)[0])
         depth = 0
         for raw in text.splitlines():
             line = raw.strip()
@@ -287,7 +287,7 @@ def collect_called_symbols(src_dir: Path) -> set[str]:
     called: set[str] = set()
     call_re = re.compile(r"\b([A-Za-z_]\w*)\s*\(")
     for src_file in sorted(src_dir.rglob("*.c")):
-        text = _strip_comments(src_file.read_text(encoding="utf-8", errors="replace"))
+        text = _strip_comments(read_source_text(src_file)[0])
         for m in call_re.finditer(text):
             name = m.group(1)
             if name not in _NON_CALL_KEYWORDS:

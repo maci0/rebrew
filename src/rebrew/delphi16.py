@@ -107,13 +107,15 @@ def compile_ne(
     """
     dcc = find_dcc()
 
+    # Stage by raw bytes so legacy-encoded units reach DCC unchanged
+    # (UTF-8 errors="replace" → write_text would inject U+FFFD).
     src_path = Path(dpr_source) if Path(dpr_source).exists() else None
     if src_path is not None:
-        src_text = src_path.read_text(encoding="utf-8", errors="replace")
         src_name = src_path.name
+        staged_bytes = src_path.read_bytes()
     else:
-        src_text = str(dpr_source)
         src_name = "probe.dpr"
+        staged_bytes = str(dpr_source).encode("utf-8")
 
     # DCC.EXE is a 16-bit DOS program — it cannot open long filenames
     # inside DOSBox (8.3-truncated, "Error 15: File not found").  Stage a
@@ -126,7 +128,7 @@ def compile_ne(
     # Stage the compiler trio + source into the sandbox (the DOSBox C:).
     for fname in _DCC_FILES:
         shutil.copy2(dcc.parent / fname, sandbox / fname)
-    (sandbox / staged_name).write_text(src_text, encoding="utf-8")
+    (sandbox / staged_name).write_bytes(staged_bytes)
 
     # Stage the RTL/VCL units + a DCC.CFG that points at them, when found.
     # The mission (rebrew-toolchains/delphi/1.0-win16 tree) established

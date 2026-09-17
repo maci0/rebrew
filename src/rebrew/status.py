@@ -522,7 +522,9 @@ def _count_inline_metadata_files(src_dir: Path, cfg: ProjectConfig) -> int:
     count = 0
     for src in iter_sources(src_dir, cfg):
         try:
-            lines = src.read_text(encoding="utf-8", errors="replace").splitlines()
+            from rebrew.utils import read_source_text
+
+            lines = read_source_text(src)[0].splitlines()
         except OSError:
             continue
         if _has_migratable_inline_metadata(lines, fn_entries, data_entries):

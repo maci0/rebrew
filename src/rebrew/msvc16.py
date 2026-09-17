@@ -68,13 +68,18 @@ def compile_c(
     """
     vc = _find_vc152(version)
 
+    # Stage by raw bytes: a UTF-8 errors="replace" → write_text round-trip
+    # permanently turns legacy bytes (Shift-JIS / CP1252 string literals in
+    # Japanese-era TUs) into U+FFFD, so the DOS compiler never sees the
+    # original encoding.  Path sources are copied byte-for-byte; in-memory
+    # text is written as UTF-8.
     src_path = Path(c_source) if Path(c_source).exists() else None
     if src_path is not None:
-        src_text = src_path.read_text(encoding="utf-8", errors="replace")
         src_name = src_path.name
+        staged_bytes = src_path.read_bytes()
     else:
-        src_text = str(c_source)
         src_name = "probe.c"
+        staged_bytes = str(c_source).encode("utf-8")
 
     # CL.EXE 1.52 is a 16-bit Phar Lap DOS program — it cannot open long
     # filenames (DOSBox 8.3-truncates them, C1083).  Stage the source under
@@ -96,7 +101,7 @@ def compile_c(
             link.unlink()
         if not link.exists():
             link.symlink_to(target, target_is_directory=True)
-    (sandbox / staged_name).write_text(src_text, encoding="utf-8")
+    (sandbox / staged_name).write_bytes(staged_bytes)
 
     flags = cflags if cflags is not None else ["/c", "/nologo"]
     cmd = "C:\\BIN\\CL.EXE " + " ".join(flags) + f" {staged_name} > C:\\clout.txt"

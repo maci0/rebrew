@@ -93,13 +93,15 @@ def compile_c(
     """
     tree = _find_tc16(version)
 
+    # Stage by raw bytes so Shift-JIS / CP1252 sources reach TCC unchanged
+    # (UTF-8 errors="replace" → write_text would inject U+FFFD).
     src_path = Path(c_source) if Path(c_source).exists() else None
     if src_path is not None:
-        src_text = src_path.read_text(encoding="utf-8", errors="replace")
         src_name = src_path.name
+        staged_bytes = src_path.read_bytes()
     else:
-        src_text = str(c_source)
         src_name = "probe.c"
+        staged_bytes = str(c_source).encode("utf-8")
 
     # DOSBox 8.3-truncates long names — stage under a fixed short name.
     staged_name = "SRC.C"
@@ -115,7 +117,7 @@ def compile_c(
             link.unlink()
         if not link.exists():
             link.symlink_to(target, target_is_directory=True)
-    (sandbox / staged_name).write_text(src_text, encoding="utf-8")
+    (sandbox / staged_name).write_bytes(staged_bytes)
 
     flags = cflags if cflags is not None else ["-c"]
     cmd = (

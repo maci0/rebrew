@@ -107,14 +107,13 @@ def _parse(source: str | bytes) -> Any:
     """Parse C source and return (tree, source_bytes) as a tuple."""
     parser, _ = _get_parser()
     if isinstance(source, str):
-        source = source.encode("utf-8", errors="replace")
-    elif isinstance(source, bytes):
-        # Tree-sitter expects UTF-8; replace invalid sequences so a latin-1
-        # source file does not produce a garbled tree with ERROR nodes.
-        try:
-            source.decode("utf-8")
-        except UnicodeDecodeError:
-            source = source.decode("utf-8", errors="replace").encode("utf-8")
+        # surrogateescape keeps compile-path lossless round-trips intact;
+        # clean Unicode (read_source_text) encodes as ordinary UTF-8.
+        source = source.encode("utf-8", errors="surrogateescape")
+    # bytes pass through unchanged.  tree-sitter is byte-oriented; the old
+    # UTF-8 errors="replace" re-encode turned each invalid byte into the
+    # three-byte U+FFFD sequence and shifted every later node offset — a
+    # cp1252 0xE9 before a string literal made protected_spans miss it.
     return parser.parse(source), source
 
 

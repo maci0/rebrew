@@ -463,7 +463,9 @@ def _source_is_naked_fenced(path: str | Path) -> bool:
     ``-DREBREW_ALLOW_NAKED=1``).
     """
     try:
-        text = Path(path).read_text(encoding="utf-8", errors="replace")
+        from rebrew.utils import read_source_text
+
+        text = read_source_text(Path(path))[0]
     except OSError:
         return False
     return "#ifdef REBREW_ALLOW_NAKED" in text

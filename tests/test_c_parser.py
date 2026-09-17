@@ -301,3 +301,17 @@ class TestDefinitionsAndDllimport:
         ):
             assert find_extern_variables(src) == [], src
             assert find_extern_variables(src, include_definitions=True) == [], src
+
+
+class TestParsePreservesLegacyBytes:
+    def test_cp1252_bytes_do_not_shift_string_spans(self) -> None:
+        """Invalid-as-UTF-8 bytes must not be expanded to U+FFFD (3 bytes)
+        before parsing — that shifted every later offset and made
+        protected_spans miss the string literal after a CP1252 comment."""
+        from rebrew.c_parser import protected_spans
+
+        # 0xE9 is 'é' in cp1252; not a valid UTF-8 lead byte.
+        raw = b'// Caf\xe9\nchar *s = "keep";\n'
+        spans = protected_spans(raw)
+        assert spans, "expected a protected string span"
+        assert raw[spans[0][0] : spans[0][1]] == b'"keep"'

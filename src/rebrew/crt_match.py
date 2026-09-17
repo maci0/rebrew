@@ -179,7 +179,9 @@ def build_crt_index(source_dir: Path, module: str) -> list[CrtSourceEntry]:
         rel_file = file_path.relative_to(source_dir).as_posix()
 
         try:
-            text = file_path.read_text(encoding="utf-8", errors="replace")
+            from rebrew.utils import read_source_text
+
+            text = read_source_text(file_path)[0]
         except OSError:
             continue
 

@@ -365,3 +365,25 @@ class TestStaleOutputIsNotSuccess:
         (workdir / "SRC.OBJ").write_bytes(b"stale")
         with pytest.raises(Tc16Error, match="no object"):
             compile_c(src, workdir)
+
+    def test_stages_legacy_bytes_verbatim(self, tmp_path: Path, monkeypatch) -> None:
+        """CP1252 source bytes must reach SRC.C unchanged (no UTF-8 replace)."""
+        from rebrew.tc16 import compile_c
+
+        tree = tmp_path / "borland-3.1"
+        for sub in ("BIN", "INCLUDE", "LIB"):
+            (tree / sub).mkdir(parents=True)
+        monkeypatch.setattr("rebrew.tc16._find_tc16", lambda version="3.1": tree)
+        staged: dict[str, bytes] = {}
+
+        def _capture(sandbox: Path, *_a, **_k) -> None:
+            staged["src"] = (sandbox / "SRC.C").read_bytes()
+            (sandbox / "SRC.OBJ").write_bytes(b"\x80\x08")
+
+        monkeypatch.setattr("rebrew.tc16.run_dosbox", _capture)
+        raw = b'char *s = "Caf\xe9";\nint f(void) { return 0; }\n'
+        src = tmp_path / "cafe.c"
+        src.write_bytes(raw)
+        workdir = tmp_path / "sandbox"
+        compile_c(src, workdir)
+        assert staged["src"] == raw
