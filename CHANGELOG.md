@@ -1,4 +1,31 @@
 ## [Unreleased]
+
+## [2.6.0] - 2026-09-18
+### Added
+- **`docs/JEV.md`** — TypeSafe Jev (System One) research: typed Choice /
+  Score / Noul decisions over rebrew JSON, not codegen. Indexed from
+  `docs/README.md`. Stage-by-stage map of where a cheap typed call earns
+  a turn, plus an out-of-tree guild-rebrew experiment. Not a shipped
+  feature.
+
+### Changed
+- **Dashboard function list is paged.** Extra pages append; a failed extra
+  page keeps already-shown rows and retries only the failed page. Target
+  changes abort superseded fetches so a stale summary or filter cannot
+  land on the new target. Load failures get a retry action. Compression
+  quality weights are honoured. Log lines strip terminal controls.
+- **Nightly `toolchain-sync` fails closed** on incomplete results (empty
+  inventory, unpinned sources, failed checks), not only on drift.
+- **Package builds pin Python 3.13.15** (`.python-version` / package CI).
+- **HTTP clients take explicit timeouts** (recompile, MCP, wibo). Host and
+  port validation is consistent across config knobs.
+- **Mutation plugin selection is deterministic** (stable load order).
+- **Import-cycle detection is independent of checkout layout.**
+- **`uv run --frozen`** is used across verification commands so a
+  lock-free resolve cannot sneak past `make` / CI.
+- **`make test` disables Rich/typer ANSI** (`NO_COLOR`, `TERM=dumb`,
+  `_TYPER_FORCE_DISABLE_TERMINAL`) so a TTY local run matches CI.
+
 ### Fixed
 - **Splat-import fixtures no longer live in the package tree.**  An
   ``import-splat --write`` against this checkout wrote fixture C/H files
@@ -27,6 +54,34 @@
   the relocation type (``_RISCV_FIXUP_WIDTHS``) or, failing that, the target's
   instruction word.  Inert for the validated architectures (x86-64, AArch64,
   ARM, MIPS), whose sizes are sane.
+- **64-bit PE import table addresses** are preserved; Windows DLL paths in
+  PE symbol names stay normalized.
+- **Intake no longer recreates renamed function stubs** on rerun. Temporary
+  sources from a failed stub validation are cleaned up.
+- **GA search state survives checkpoint resume.** Selection no longer
+  depends on compile completion order. Elapsed time counts terminating
+  generations. History displays keep timezone offsets. Seeded
+  parameter-slot mutations are stable. Malformed C seeds, refused or
+  incomplete completions, and non-string text parts are rejected before
+  they enter the population or a buffer.
+- **Config load** validates `cflags_presets`, compiler paths, non-finite
+  numbers, and NE segment size boundaries; `includes=""` no longer crashes.
+- **Compile cache keys** hash surrogate-escaped filenames; the parse memo
+  keys on source content, not file stat.
+- **`coverage.db` is preserved** when schema inspection fails.
+- **BinSync** keeps type headers on read failure; `doctor` tolerates
+  corrupt commit timestamps.
+- **Verify** orders unknown STATUS correctly, counts size delta when a
+  compare side is empty, and serializes concurrent cache updates.
+- **Shared sources / batch builds** keep per-target behavior.
+- **Import headers** keep their encoding on append; source-list offsets
+  and C declarator structure survive rewrite.
+- **`get_entry` isolates nested metadata values**; recovery failure no
+  longer drops the rest of the store; qualified-name sanitization is
+  safe to rerun.
+- **Skills** keep their descriptions; failed command checks are rejected.
+- **Remote compiler** surfaces malformed responses instead of guessing.
+- **Header include traversal** stops on non-literal includes.
 
 ## [2.5.0] - 2026-09-17
 ### Added

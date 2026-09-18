@@ -369,8 +369,9 @@ Leftovers:
 - **Type-conflict triage** (`rebrew lint` W016 etc.): Choice of
   which TU's declaration wins, confidence-gate to a human.
 
-Sync itself (`rebrew sync --push/--pull`) stays BinSync. Jev does
-not pick a name.
+Sync itself (`rebrew sync --push/--pull`) stays BinSync. Apply a
+chosen name with `rebrew rename`, never by editing strings. See
+[§5.10](#510-naming-and-folders-llm-proposes-jev-picks).
 
 ### 5.7 Verify / lint / round-trip / link
 
@@ -403,13 +404,110 @@ than 13 calls, answers unchanged.
 
 ### 5.9 What still never fits
 
-- Any stage whose output is C, ASM, a name, a comment, a commit,
-  or a VA / offset / CFLAGS literal.
+- Any stage whose output is C, ASM, a fresh identifier, a comment,
+  a commit, or a VA / offset / CFLAGS literal. A small LLM may
+  *propose* identifiers; Jev only *picks* among a closed candidate
+  list — [§5.10](#510-naming-and-folders-llm-proposes-jev-picks).
 - Any stage whose output is already a number from the compiler
   (`test`, `residue`, `near-diag` category, FLIRT hit, ROI).
 - Autoresearch-style "let an LLM invent new questions, train
   CatBoost on Jev answers" — interesting once there is a labeled
   NEAR_MATCHING slice, not before. YAGNI until §6 has data.
+
+### 5.10 Naming and folders (LLM proposes, Jev picks)
+
+Jev still cannot emit `gm_AllocSpieler`. Open vocabulary is the
+LLM's job. The SDE-cascade cookbook is the whole pattern: small
+model extracts, Jev verifies / selects, code applies, escalate
+when confidence is low.
+
+guild-rebrew already has the closed sets this needs
+(`docs/naming_conventions.md`):
+
+- **Tree** attested from `__FILE__` / PDB: `DieGildeAddOn/{command,game,loadsave,auxillary}/…`, `Units/{Error,m_alloc,net,vfs}/…`.
+- **Module prefixes**: `cm_ gm_ lb_ ahm_ gv_ sim_ amt_ ls_ plt_ m_ vfs_ srv_`.
+- **Shape**: `prefix_VerbNoun`, German nouns (`Objekt`, `Spieler`, `Aemter`), English verbs. `cm_Chk*` / `cm_Ex*` are a two-phase pair.
+- **CU clusters** from `rebrew graph --cu-map` (contiguous `.text` + calls). The map does not name files.
+
+A project without `__FILE__` strings has a weaker tree (CU clusters
+only). Do not invent folders; stop at "this cluster is one TU".
+
+#### Function / file names
+
+1. **Candidates from evidence, not from the model.** Debug strings,
+   log format strings, PDB, Ghidra labels, already-renamed callees,
+   the prefix table, `rebrew similar` siblings. Regex over those
+   spans (pre-parsed extraction). The small LLM may *add* 3–5
+   `prefix_VerbNoun` guesses constrained to attested prefixes and
+   the German/English lexicon in that doc — it does not get a blank
+   page.
+2. **Jev Choice** over that shortlist, plus `none` / `human`.
+   Companion Nouls: does the prefix match the CU's attested module?
+   Does a `cm_ChkX` exist without `cm_ExX` (or the reverse)?
+   Entity-alignment Score if Ghidra and local already disagree:
+   merge / leave / curator. Merge is the expensive mistake.
+3. **Confidence-gate.** High → `rebrew rename`. Low → leave
+   `FUN_…` / the skeleton name. Classification-with-confidence:
+   if the leaf name is unsure, keep the prefix (`gm_*`) and stop.
+4. **Never** let Jev or the LLM write the identifier into a `.c`
+   file. `rebrew rename` is the only mutator (xrefs, metadata,
+   filename).
+
+Locals, struct fields, globals: same cascade, smaller lexicon.
+Candidates = debug strings + `rebrew data` labels + field names
+already used in this CU + Ghidra. Jev picks among those. A
+plausible English local (`playerCount`) that appears in no
+evidence stays `i` / `p` until evidence shows up. German
+attested nouns beat English guesses (`nSpieler` over
+`playerCount` if the CU already uses `Spieler`).
+
+#### Folder / TU reconstruction
+
+Two layers. Do not mix them.
+
+**Layer A — which functions share a `.c` (deterministic).**
+`rebrew graph --cu-map` + `rebrew merge-sweep`. Jev does not
+split or merge TUs; a wrong merge moves every later symbol.
+
+**Layer B — what to call that TU / which attested directory it
+lives in (semantic).** Hierarchical classification's codebase
+tree is this: beam of Choice down
+`D:\Develop\` → `DieGildeAddOn` vs `Units` → `game` vs `command`
+→ `spiel.c` vs `aemter.c`. Options at each node are the attested
+paths plus `unknown`. Low confidence → stop at the parent
+(`game/`, not a guessed `inventory.c`).
+
+Semantic-find over `__FILE__` strings: Choice of which debug
+path this cluster belongs to, plus an `exists` Noul for "no
+string names this TU". Entity-alignment if two clusters both
+want `spiel.c`: merge / leave / curator.
+
+Apply with `rebrew rename` / a move of the `.c` onto the
+attested relative path. Do not create directories that
+`naming_conventions.md` does not list.
+
+#### What the small LLM is for
+
+| LLM writes | Jev decides | Code does |
+| ---------- | ----------- | --------- |
+| 3–5 `prefix_VerbNoun` guesses from strings + prefix table | pick one or `none` | `rebrew rename` |
+| "this CU feels like inventory" | Choice among attested files (`spiel.c`, `aemter.c`, …) | move the file |
+| local-name guesses from a Ghidra dump | pick among spans the dump / `data` already contains | edit via rename / a structured locals field |
+| nothing (no evidence) | `none` / human | leave `FUN_` / `i` |
+
+The LLM never sees a blank "name this function" prompt. Every
+guess is grounded in a retrieved string or an attested prefix.
+That is [PRINCIPLES.md](PRINCIPLES.md) §9 (RAG over hallucination)
+applied to identifiers. Jev is the verifier that the guess is in
+the closed set and fits the CU.
+
+If the small LLM is already Ghidra/`--seed-llm` for the body,
+reuse that call: ask it for a candidate *list* in the same
+response, then one `system_one` over those names. Do not add a
+second LLM just for naming.
+
+Skip this cascade when the name is already attested (FLIRT,
+export, PDB, `__FILE__` leaf). Those are facts, not guesses.
 
 ## 6. Lazy experiment (guild-rebrew only)
 

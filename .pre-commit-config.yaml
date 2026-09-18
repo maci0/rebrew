@@ -66,7 +66,7 @@ repos:
 
       - id: pytest
         name: pytest (fast)
-        entry: uv run --frozen pytest tests/ -q --tb=short
+        entry: env NO_COLOR=1 TERM=dumb _TYPER_FORCE_DISABLE_TERMINAL=1 uv run --frozen pytest tests/ -q --tb=short
         language: system
         pass_filenames: false
         always_run: true
