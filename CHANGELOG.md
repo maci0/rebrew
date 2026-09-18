@@ -1,5 +1,10 @@
 ## [Unreleased]
 ### Fixed
+- **Splat-import fixtures no longer live in the package tree.**  An
+  ``import-splat --write`` against this checkout wrote fixture C/H files
+  into ``src/rebrew/``, pointed ``rebrew-project.toml`` at a host pytest
+  cache binary, and added layout/metadata sidecars.  Restore ``dummy.bin``
+  and drop the leaked files so CI ``end-of-file-fixer`` passes.
 - **FLIRT patterns are deduped by line, not by symbol name** — ``generate_pat``
   kept only the first definition of each symbol, so an archive that ships
   several members defining the same function contributed one pattern and the

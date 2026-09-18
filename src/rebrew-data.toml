@@ -1,8 +1,0 @@
-["TEST.0x00402000"]
-section = ".data"
-name = "g_table"
-size = 16
-
-["TEST.0x00402010"]
-section = ".data"
-name = "imp_KERNEL32_dll_GetTickCount"

@@ -1,3 +1,0 @@
-// LIBRARY: OTHER 0x00401020
-// imp_OTHER_dll_FarProc
-
