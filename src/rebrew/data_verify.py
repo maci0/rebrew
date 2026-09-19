@@ -31,6 +31,14 @@ def verify_data_bytes(
     present-but-different bytes are ``mismatched`` with the first differing
     offset.  Symbols with no name in metadata are skipped (unnamed inventory
     cannot be attributed).
+    **Coverage is reported, because the summary is otherwise misleading.** A
+    symbol is comparable only when its ``section`` is in *sections* *and*
+    ``section_symbol_bytes`` could read bytes for it -- anything running past a
+    section's ``raw_size`` lives in the zero-fill tail and has no file bytes.
+    Those VAs never reach *sizes*, so ``matched`` can be a small fraction of the
+    metadata while reading as a whole-tree pass.  ``total`` counts every named
+    symbol, ``not_comparable`` the difference, and ``coverage`` is the fraction
+    compared, so a caller can tell "122 matched" from "122 of 329 matched".
     """
     import tomllib
 
@@ -58,12 +66,14 @@ def verify_data_bytes(
     matched = 0
     mismatched: list[dict[str, Any]] = []
     missing: list[str] = []
+    compared = 0
     for va, size in sizes.items():
         if va not in kept:
             continue
         name = names.get(va)
         if name is None:
             continue
+        compared += 1
         exp = expected.get(va)
         got = actual.get(va)
         if exp is None or got is None:
@@ -79,7 +89,16 @@ def verify_data_bytes(
             min(len(exp_slice), len(got_slice)),
         )
         mismatched.append({"name": name, "va": f"0x{va:x}", "size": size, "first_diff": first_diff})
-    return {"matched": matched, "mismatched": mismatched, "missing": missing}
+    total = len(names)
+    return {
+        "matched": matched,
+        "mismatched": mismatched,
+        "missing": missing,
+        "total": total,
+        "compared": compared,
+        "not_comparable": total - compared,
+        "coverage": (compared / total) if total else 0.0,
+    }
 
 
 def section_symbol_bytes(

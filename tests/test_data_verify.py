@@ -8,6 +8,100 @@ def _write(path: Path, text: str) -> None:
     path.write_text(text, encoding="utf-8")
 
 
+class TestCoverageReporting:
+    """A count of matches is meaningless without the denominator.
+
+    Regression for the guild-rebrew case: verify --data printed "122
+    matched, 0 mismatched, 0 missing" over metadata holding 329 symbols,
+    because symbols with no file bytes (the zero-fill tail) never reach
+    `sizes` and so were invisible rather than reported as skipped.
+    """
+
+    def test_full_coverage(self, tmp_path: Path) -> None:
+        from rebrew.data_verify import verify_data_bytes
+
+        meta = tmp_path / "rebrew-data.toml"
+        _write(
+            meta,
+            '["SERVER.0x1000"]\nname = "g_a"\nsize = 4\nsection = ".data"\n'
+            '["SERVER.0x2000"]\nname = "g_b"\nsize = 4\nsection = ".data"\n',
+        )
+        res = verify_data_bytes(
+            metadata_path=meta,
+            expected={0x1000: b"\x01\x02\x03\x04", 0x2000: b"\x05\x06\x07\x08"},
+            actual={0x1000: b"\x01\x02\x03\x04", 0x2000: b"\x05\x06\x07\x08"},
+            sizes={0x1000: 4, 0x2000: 4},
+        )
+        assert res["matched"] == 2
+        assert (res["compared"], res["total"], res["not_comparable"]) == (2, 2, 0)
+        assert res["coverage"] == 1.0
+
+    def test_symbol_with_no_file_bytes_is_counted_not_hidden(self, tmp_path: Path) -> None:
+        """The guild-rebrew case: 2 named, 1 comparable, so coverage is 50%."""
+        from rebrew.data_verify import verify_data_bytes
+
+        meta = tmp_path / "rebrew-data.toml"
+        _write(
+            meta,
+            '["SERVER.0x1000"]\nname = "g_a"\nsize = 4\nsection = ".data"\n'
+            '["SERVER.0x2000"]\nname = "g_bss"\nsize = 4\nsection = ".data"\n',
+        )
+        res = verify_data_bytes(
+            metadata_path=meta,
+            expected={0x1000: b"\x01\x02\x03\x04"},
+            actual={0x1000: b"\x01\x02\x03\x04"},
+            sizes={0x1000: 4},  # 0x2000 absent: zero-fill tail, no file bytes
+        )
+        assert res["matched"] == 1
+        assert res["mismatched"] == []
+        assert (res["compared"], res["total"], res["not_comparable"]) == (1, 2, 1)
+        assert res["coverage"] == 0.5
+
+    def test_out_of_scope_section_counted_in_total(self, tmp_path: Path) -> None:
+        """A .rdata symbol under sections=('.data',) is not comparable either."""
+        from rebrew.data_verify import verify_data_bytes
+
+        meta = tmp_path / "rebrew-data.toml"
+        _write(
+            meta,
+            '["SERVER.0x1000"]\nname = "g_a"\nsize = 2\nsection = ".data"\n'
+            '["SERVER.0x3000"]\nname = "g_r"\nsize = 2\nsection = ".rdata"\n',
+        )
+        res = verify_data_bytes(
+            metadata_path=meta,
+            expected={0x1000: b"\x01\x02", 0x3000: b"\x03\x04"},
+            actual={0x1000: b"\x01\x02", 0x3000: b"\x03\x04"},
+            sizes={0x1000: 2, 0x3000: 2},
+            sections=(".data",),
+        )
+        assert res["matched"] == 1
+        assert (res["compared"], res["total"], res["not_comparable"]) == (1, 2, 1)
+
+    def test_empty_metadata_does_not_divide_by_zero(self, tmp_path: Path) -> None:
+        from rebrew.data_verify import verify_data_bytes
+
+        meta = tmp_path / "rebrew-data.toml"
+        _write(meta, "")
+        res = verify_data_bytes(metadata_path=meta, expected={}, actual={}, sizes={})
+        assert res["coverage"] == 0.0
+        assert (res["compared"], res["total"]) == (0, 0)
+
+    def test_unnamed_symbol_not_counted(self, tmp_path: Path) -> None:
+        """Unnamed inventory cannot be attributed, so it is not in the total."""
+        from rebrew.data_verify import verify_data_bytes
+
+        meta = tmp_path / "rebrew-data.toml"
+        _write(meta, '["SERVER.0x1000"]\nsize = 2\nsection = ".data"\n')
+        res = verify_data_bytes(
+            metadata_path=meta,
+            expected={0x1000: b"\x01\x02"},
+            actual={0x1000: b"\x01\x02"},
+            sizes={0x1000: 2},
+        )
+        assert res["total"] == 0
+        assert res["coverage"] == 0.0
+
+
 class TestVerifyDataBytes:
     def test_matching_symbols_verify(self, tmp_path: Path) -> None:
         from rebrew.data_verify import verify_data_bytes
@@ -81,7 +175,10 @@ class TestSectionFilter:
             sizes={0x1000: 2},
             sections=(".data",),
         )
-        assert res == {"matched": 0, "mismatched": [], "missing": []}
+        assert res["matched"] == 0
+        assert res["mismatched"] == []
+        assert res["missing"] == []
+        assert (res["compared"], res["total"]) == (0, 1)
 
     def test_unsectioned_symbol_skipped(self, tmp_path: Path) -> None:
         from rebrew.data_verify import verify_data_bytes
@@ -94,7 +191,10 @@ class TestSectionFilter:
             actual={0x1000: b"\x01\x02"},
             sizes={0x1000: 2},
         )
-        assert res == {"matched": 0, "mismatched": [], "missing": []}
+        assert res["matched"] == 0
+        assert res["mismatched"] == []
+        assert res["missing"] == []
+        assert (res["compared"], res["total"]) == (0, 1)
 
 
 class TestSectionSymbolBytesBounds:

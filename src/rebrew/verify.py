@@ -886,8 +886,16 @@ def main(
             console.print(
                 f"data: {data_report['matched']} matched, "
                 f"{len(data_report['mismatched'])} mismatched, "
-                f"{len(data_report['missing'])} missing"
+                f"{len(data_report['missing'])} missing "
+                f"({data_report['compared']} of {data_report['total']} symbols compared, "
+                f"{data_report['coverage']:.0%})"
             )
+            if data_report["not_comparable"]:
+                console.print(
+                    f"  [dim]{data_report['not_comparable']} symbol(s) not comparable: no file bytes "
+                    f"(zero-fill tail) or outside {'.data/.rdata'} — a zero above bounds only what "
+                    f"was compared[/dim]"
+                )
             for m in data_report["mismatched"][:15]:
                 console.print(
                     f"  [red]FAIL[/red] {m['name']} ({m['va']}): first diff at +{m['first_diff']}"
