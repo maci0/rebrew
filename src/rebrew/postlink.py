@@ -315,10 +315,22 @@ def _fix_imports(built: bytearray, meta: LayoutMetadata, info_b: BinaryInfo) -> 
         prefix_lo = _rva_to_offset(info_b, iat_rva + iat_size)
         prefix_hi = _rva_to_offset(info_b, imp_rva)
         if prefix_hi - prefix_lo != len(meta.prefix):
+            # Report the measurement, not only a hypothesis.  The previous
+            # message named just the /debug cause, which sent the reader after a
+            # debug directory that is usually absent: measured on guild-rebrew
+            # (round 1053) the built .rdata was 0x40 bytes LONGER than the
+            # reference with DataDirectory[6] == 0 in BOTH images, and the
+            # message still said "check the debug directory".
             raise ValueError(
-                "built .rdata prefix size does not match the reference — "
-                "check the debug directory: builds with /debug carry an extra "
-                "0x1c-byte directory that shifts everything"
+                "built .rdata prefix size does not match the reference: built "
+                f"{prefix_hi - prefix_lo} byte(s) between the IAT "
+                f"({iat_rva:#x}, size {iat_size:#x}) and the import directory "
+                f"({imp_rva:#x}); the reference has {len(meta.prefix)}. "
+                "Exactly 0x1c short means the /debug directory is present -- "
+                "/debug adds a 0x1c-byte entry that shifts the import "
+                "directory.  Any other value means the built .rdata is itself a "
+                "different length: compare its VirtualSize against the "
+                "reference's and find what added or dropped those bytes."
             )
         if bytes(built[prefix_lo:prefix_hi]) != meta.prefix:
             raise ValueError(

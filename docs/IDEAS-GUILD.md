@@ -132,6 +132,25 @@ Status `open` unless noted. Promote to ROADMAP when scoped.
   metadata write. Evidence: guild-rebrew `docs/measure-traps.md` §6e,
   `docs/TODO.md` rounds 842 / 877.
 
+## Build hygiene
+
+- [ ] **`postlink_residual.py` should refuse a build whose split state is stale
+  instead of printing a number.** Pain: `cmake --build` deletes the deliverable
+  and leaves `build/split_poc/` from the previous run, so residue reads 58,614
+  or 116,814 when the truth is 8,634 -- a 13x error that looks like a
+  catastrophic regression and survives a `git checkout` of the sources.
+  `split_link.sh` already computes the tell, `exactly at their reference VA: N`,
+  and `linktest.sh` already refuses to measure when it is 0, but
+  `postlink_residual.py` has no such guard. Feature: have it compare the build
+  artifact's mtime against the newest source, and if the artifact is missing or
+  older, exit non-zero with "residue not measured" rather than printing a
+  number. Evidence: guild-rebrew round 889, `docs/measure-traps.md` section 9.
+- [ ] **`gate.sh` should print the split-alignment count next to the residue.**
+  Pain: the residue line and the composition-collapse signal are produced by
+  different tools, so a collapsed run reads as a normal regression line.
+  Evidence: guild-rebrew round 889 -- the false readings above were only
+  diagnosed after `linktest.sh` printed the collapse warning.
+
 ## Data
 
 - [ ] **`lint --fix` W016 writes `section` but not `name`, so `verify --data`
@@ -178,3 +197,37 @@ Status `open` unless noted. Promote to ROADMAP when scoped.
   Feature: prompt for category on note capture, append with call-site and
   delta template, lint for missing evidence fields. Evidence: goal.md
   codegen section.
+
+- **Build-tree integrity check belongs in rebrew, not in every consumer.**
+  Pain: `build/` is gitignored, so a hand-edited `build.make` (or `flags.make`)
+  is invisible to `git status`, to `rebrew lint`, to `rebrew verify --full`, and
+  to `cmake --build`, while silently redefining what any consumer's measurement
+  means. `rebrew postlink` and `rebrew cmake-flags` both read that tree. A round
+  sweeping per-file toolchain pins hit this and left a tree reporting 58% residue
+  with a 290,816-byte deliverable against the correct 286,720 / 8628.
+  Feature: `rebrew build-check` (and a `rebrew doctor` clause) comparing
+  `build.make`'s compile lines against CMake's own `flags.make` records —
+  already prototyped in-tree as `scripts/build_tree_check.py`, ~60 lines.
+  Evidence: guild-rebrew `docs/workflow-traps.md` §20.
+
+- **Post-link failure messages should report the measurement, not one hypothesis.**
+  Pain: `postlink._fix_imports` refused a build with "built .rdata prefix size
+  does not match the reference — check the debug directory: builds with /debug
+  carry an extra 0x1c-byte directory". The real discrepancy was +64 bytes with
+  `DataDirectory[6] == 0` in both images. The message cost a wrong lead on a
+  check every composition round hits.
+  Feature: state *measured* vs *expected*, and give the test that separates the
+  candidate causes (`== 0x1c` means /debug; anything else means the section
+  length itself). Applied — see the diff to `src/rebrew/postlink.py`.
+  Evidence: guild-rebrew `docs/workflow-traps.md` §21.
+
+- **`rebrew verify`'s denominator should not be the annotation count alone.**
+  Pain: `function_structure.json` (the discoverer's partition) is coarser than the
+  annotations — 543 entries against 283 annotated functions — and its entry sizes
+  are gaps to the *next inventory entry*. Reading a size divergence as "missing
+  functions" produced a four-round false lead in guild-rebrew, including a
+  proposed tool fix for a defect that does not exist.
+  Feature: have `verify` report the annotation count beside the inventory count,
+  and label a size divergence as an inventory-coarseness fact rather than a
+  coverage gap.
+  Evidence: guild-rebrew `docs/workflow-traps.md` §17.
