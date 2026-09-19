@@ -1002,16 +1002,31 @@ def _run_cfg_mode(va_int: int, size: int | None, cfg: ProjectConfig, json_output
 
 
 def _cfg_extent(cfg: ProjectConfig, va_int: int) -> int | None:
-    """The function's byte extent: the larger of the function-list size and
-    the disassembly walk's extent, or ``None`` when neither resolves."""
+    """The function's byte extent: the disassembly walk, else the function-list size.
+
+    The walk is preferred rather than the larger of the two.  A function-list
+    size is a gap to the *next* entry, so it can overrun the function into
+    inter-function padding -- on guild-rebrew, ``CrashDumpUnhandledExceptionFilter``
+    is declared 2128 bytes but its code ends 116 bytes earlier, and the padding
+    is ``0x09``, which decodes as ``or dword ptr [ecx], ecx`` instead of being
+    skipped.  Taking ``max`` therefore selected the padded span and fabricated
+    about 50 instructions (724 counted against the real 673), which reads as a
+    different calling convention and sent an analysis after that for a round.
+
+    The walk stays conservative -- it stops at the first terminator, so a
+    loop-branch ``jmp`` yields a smaller extent than the truth -- hence the
+    fallback to the declared size only when the walk does not resolve at all.
+    A caller passing an explicit ``--size`` is unaffected: it stated its own.
+    """
     declared = _list_size_for(cfg, va_int)
     walked: int | None = None
     if cfg.target_binary.exists():
         from rebrew.binary_loader import function_extent_from_disasm
 
         walked = function_extent_from_disasm(cfg.target_binary, va_int)
-    candidates = [v for v in (declared, walked) if v]
-    return max(candidates) if candidates else None
+    if walked:
+        return walked
+    return declared
 
 
 def _cfg_payload(
@@ -1644,7 +1659,11 @@ def main(
     if va_int is not None and getattr(cfg, "arch", "") == "x86_32" and cfg.target_binary.exists():
         from rebrew.binary_loader import function_extent_from_disasm
 
-        disasm_extent = function_extent_from_disasm(cfg.target_binary, va_int)
+        walked = function_extent_from_disasm(cfg.target_binary, va_int, with_kind=True)
+        if walked is not None:
+            disasm_extent, stale_kind = walked
+        else:
+            disasm_extent, stale_kind = None, None
         if disasm_extent is not None and effective_size < disasm_extent:
             if size is None:
                 console.print(
@@ -1659,6 +1678,28 @@ def main(
                     f"disassembly continues to at least {disasm_extent}B (re-run with --size "
                     f"{disasm_extent} to see it)"
                 )
+        elif (
+            stale_kind == "ret"
+            and disasm_extent is not None
+            and effective_size > disasm_extent
+            and size is None
+        ):
+            # The other direction, and the more damaging one: a function-list
+            # size is a gap to the NEXT entry, so it can run past this
+            # function's end into inter-function padding.  Decoding it is not
+            # harmless -- on guild-rebrew the padding is 0x09, which disassembles
+            # as `or dword ptr [ecx], ecx`, and a dump of
+            # CrashDumpUnhandledExceptionFilter (declared 2128B, real end 116B
+            # earlier) reported 724 instructions against the real 673, making
+            # the function look like it used a different calling convention.
+            # Truncate to the walked extent so the dump is instructions only.
+            console.print(
+                f"[yellow]warning:[/yellow] function-list size {effective_size}B runs "
+                f"{effective_size - disasm_extent}B past the code (padding); truncating to "
+                f"{disasm_extent}B"
+            )
+            effective_size = disasm_extent
+            stale_size = True
 
     # --- hex format ---
     if fmt == "hex":

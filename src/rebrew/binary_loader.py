@@ -763,18 +763,18 @@ def extract_raw_bytes(binary_path: Path, va: int, size: int) -> bytes:
 
 @overload
 def function_extent_from_disasm(
-    binary_path: Path | str, va: int, max_size: int = 512
+    binary_path: Path | str, va: int, max_size: int = 65536
 ) -> int | None: ...
 @overload
 def function_extent_from_disasm(
-    binary_path: Path | str, va: int, max_size: int = 512, *, with_kind: Literal[True]
+    binary_path: Path | str, va: int, max_size: int = 65536, *, with_kind: Literal[True]
 ) -> tuple[int, str] | None: ...
 
 
 def function_extent_from_disasm(
     binary_path: Path | str,
     va: int,
-    max_size: int = 512,
+    max_size: int = 65536,
     *,
     with_kind: bool = False,
 ) -> int | tuple[int, str] | None:
@@ -797,6 +797,16 @@ def function_extent_from_disasm(
     must treat ``extent != compiled size`` as "cannot confirm", not as a
     contradiction.  Returns ``None`` when the region cannot be cleanly
     decoded (malformed opcode, hits the section end).
+
+    *max_size* must cover the function, or the walk runs out of buffer and
+    returns ``None`` — which callers read as "no evidence", so they fall back
+    to the declared size.  The default was 512 until round 1084, and on
+    guild-rebrew ``CrashDumpUnhandledExceptionFilter`` is 2115 bytes: the walk
+    gave up, the caller trusted the function-list size, and that size runs 116
+    bytes past the code into ``0x09`` padding, which disassembles as
+    ``or dword ptr [ecx], ecx`` and inflated the instruction count from 673 to
+    724.  The walk stops at the first terminator regardless, so a generous
+    default costs only the bytes read, never a wrong answer.
     """
     path = Path(binary_path)
     if not path.exists():

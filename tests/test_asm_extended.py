@@ -460,7 +460,11 @@ timeout = 60
 
         root = self._project(tmp_path)
         # The real function runs past the declared size.
-        monkeypatch.setattr("rebrew.binary_loader.function_extent_from_disasm", lambda *a, **k: 60)
+        monkeypatch.setattr(
+            "rebrew.binary_loader.function_extent_from_disasm",
+            # Mirror the real signature: with_kind=True returns (extent, kind).
+            lambda *a, **k: (60, "ret") if k.get("with_kind") else 60,
+        )
         monkeypatch.chdir(root)
         result = CliRunner().invoke(app, ["asm", "0x401000", "--json"])
         assert result.exit_code == 0, result.stdout
@@ -480,7 +484,11 @@ timeout = 60
         from rebrew.main import app
 
         root = self._project(tmp_path)
-        monkeypatch.setattr("rebrew.binary_loader.function_extent_from_disasm", lambda *a, **k: 60)
+        monkeypatch.setattr(
+            "rebrew.binary_loader.function_extent_from_disasm",
+            # Mirror the real signature: with_kind=True returns (extent, kind).
+            lambda *a, **k: (60, "ret") if k.get("with_kind") else 60,
+        )
         monkeypatch.chdir(root)
         result = CliRunner().invoke(app, ["asm", "0x401000", "--size", "10", "--json"])
         assert result.exit_code == 0, result.stdout
@@ -517,14 +525,74 @@ timeout = 60
         from rebrew.main import app
 
         root = self._project(tmp_path)
-        # Extent smaller than the default window → nothing stale.
-        monkeypatch.setattr("rebrew.binary_loader.function_extent_from_disasm", lambda *a, **k: 16)
+        # Extent EQUAL to the declared size → nothing stale.
+        monkeypatch.setattr(
+            "rebrew.binary_loader.function_extent_from_disasm",
+            lambda *a, **k: (32, "ret") if k.get("with_kind") else 32,
+        )
         monkeypatch.chdir(root)
         result = CliRunner().invoke(app, ["asm", "0x401000", "--json"])
         assert result.exit_code == 0, result.stdout
         payload = json.loads(result.stdout)
         assert payload["stale_size"] is False
         assert "stale" not in result.stderr
+
+    def test_declared_size_past_code_is_truncated(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A declared size larger than the walked extent is padding, not code.
+
+        Regression for guild-rebrew round 1084: a function-list size is a gap to
+        the NEXT entry, so it can overrun into inter-function padding.  Decoding
+        that padding is not harmless when it is 0x09, which disassembles as
+        ``or dword ptr [ecx], ecx`` -- it inflated
+        CrashDumpUnhandledExceptionFilter from 673 instructions to 724 and made
+        the function look like it used a different calling convention.
+        """
+        import json
+
+        from typer.testing import CliRunner
+
+        from rebrew.main import app
+
+        root = self._project(tmp_path)
+        # Declared window is 32; the code really ends at 16.
+        monkeypatch.setattr(
+            "rebrew.binary_loader.function_extent_from_disasm",
+            lambda *a, **k: (16, "ret") if k.get("with_kind") else 16,
+        )
+        monkeypatch.chdir(root)
+        result = CliRunner().invoke(app, ["asm", "0x401000", "--json"])
+        assert result.exit_code == 0, result.stdout
+        payload = json.loads(result.stdout)
+        assert payload["size"] == 16
+        assert payload["stale_size"] is True
+
+    def test_jmp_terminated_walk_does_not_truncate(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A `jmp` terminator may be a loop branch, so it must NOT truncate.
+
+        The walk stops at the first terminator, so a mid-function `jmp` yields a
+        smaller extent than the truth.  Truncating to it would cut the dump
+        short, which is worse than the padding it was meant to remove.
+        """
+        import json
+
+        from typer.testing import CliRunner
+
+        from rebrew.main import app
+
+        root = self._project(tmp_path)
+        monkeypatch.setattr(
+            "rebrew.binary_loader.function_extent_from_disasm",
+            lambda *a, **k: (16, "jmp") if k.get("with_kind") else 16,
+        )
+        monkeypatch.chdir(root)
+        result = CliRunner().invoke(app, ["asm", "0x401000", "--json"])
+        assert result.exit_code == 0, result.stdout
+        payload = json.loads(result.stdout)
+        assert payload["size"] == 32  # declared size kept
 
     def test_non_x86_skips_extent_check(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

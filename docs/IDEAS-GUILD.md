@@ -209,6 +209,23 @@ Status `open` unless noted. Promote to ROADMAP when scoped.
   "(122 of 329 symbols compared, 37%)" plus a line naming why the rest are
   not comparable, and `--json` passes all four fields through.
 
+- [ ] **`function_extent_from_disasm` stops at the first `jmp`, so it cannot
+  bound a function that branches internally.**
+  Pain: the walk is conservative by design -- it stops at `ret`/`jmp`/`int3` --
+  and that is correct for a thunk, but a large `switch`-heavy function ends on
+  an inner `jmp` long before its real epilogue. On guild-rebrew,
+  `CrashDumpUnhandledExceptionFilter` (`0x10002770`) is 2115 bytes and returns
+  with `ret 4` at `0x10002e99`, but the walk stops at `0x10002a56` -- 742 bytes
+  in, 35% of the function -- so callers that prefer the walk over the declared
+  size (added in round 1084 to stop the dump swallowing `0x09` padding) cannot
+  use it here and still over-report 724 instructions against the real 673.
+  Feature: when the walk ends on `jmp`, follow the branch target and continue,
+  or fall back to "keep walking until a `ret` in the same basic-block region",
+  and return the extent with a distinct kind (`jmp-tail` vs `jmp-inner`) so
+  callers can decide. A cheaper option: report both bounds and let the caller
+  choose the smaller *credible* one.
+  Evidence: guild-rebrew `docs/measure-traps.md` section 52, round 1084.
+
 ## Knowledge capture
 
 - [ ] **Jev as a typed decision layer over `todo` / `near-diag` (out of tree).**
