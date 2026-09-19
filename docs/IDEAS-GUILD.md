@@ -187,7 +187,7 @@ Status `open` unless noted. Promote to ROADMAP when scoped.
   confirmed already byte-correct (5 with file bytes identical, 111 in the
   zero-fill tail, 84 import slots, 7 sizeless).
 
-- [ ] **`verify --data` reports a pass over a subset and does not say so.**
+- [x] **`verify --data` reports a pass over a subset and does not say so.**
   Pain: `rebrew verify --data` printed "data: 122 matched, 0 mismatched,
   0 missing" while the metadata held 329 symbols -- it had compared 122, or
   37%, and reported no coverage figure, so the summary read as "all data
@@ -204,6 +204,10 @@ Status `open` unless noted. Promote to ROADMAP when scoped.
   `verify --data --json`'s `data` block carries `matched`/`mismatched`/
   `missing` but no total and no per-symbol list; `ref_sizes` was measured at
   exactly 122 across both images.
+  Applied (round 1079, commit `3f7cefea`): the report now carries `total`,
+  `compared`, `not_comparable` and `coverage`; the human summary prints
+  "(122 of 329 symbols compared, 37%)" plus a line naming why the rest are
+  not comparable, and `--json` passes all four fields through.
 
 ## Knowledge capture
 
