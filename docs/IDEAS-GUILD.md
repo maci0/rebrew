@@ -168,7 +168,7 @@ Status `open` unless noted. Promote to ROADMAP when scoped.
   Evidence: guild-rebrew `src/rebrew-data.toml` `0x1002944c` / `0x100294a4`
   (section only, from TODO round 559), `docs/measure-traps.md` §9, round 882.
 
-- [ ] **`todo`'s `start-data` lane should exclude link-produced data.**
+- [x] **`todo`'s `start-data` lane should exclude link-produced data.**
   Pain: a fresh project opens with the lane dominated by `__imp__*` IAT
   slots, which are linker output and can never be attributed to a source
   symbol no matter how much naming is done, so the lane can never empty and
@@ -179,6 +179,31 @@ Status `open` unless noted. Promote to ROADMAP when scoped.
   224 of 226 remaining items are `start-data`, 18 of them `__imp__*`;
   IAT bytes confirmed identical to the reference at
   `0x10024000..0x10024044`; `docs/measure-traps.md` section 9, round 883.
+  Applied (round 1078): `_collect_start_data` skips `__imp_` names,
+  `section = ".idata"`, `section = ".bss"`, and any symbol whose extent runs
+  past its section's `raw_size`. The lane went from 123 items to 0 on
+  guild-rebrew, leaving only its 2 real `.text` carriers. Measured there:
+  207 UNCHECKED entries, all 207 un-clearable, and all 207 independently
+  confirmed already byte-correct (5 with file bytes identical, 111 in the
+  zero-fill tail, 84 import slots, 7 sizeless).
+
+- [ ] **`verify --data` reports a pass over a subset and does not say so.**
+  Pain: `rebrew verify --data` printed "data: 122 matched, 0 mismatched,
+  0 missing" while the metadata held 329 symbols -- it had compared 122, or
+  37%, and reported no coverage figure, so the summary read as "all data
+  verified". Everything it cannot compare is invisible by design:
+  `section_symbol_bytes` skips any symbol running past its section's
+  `raw_size` (the zero-fill tail, no file bytes) and any symbol outside
+  `.data`/`.rdata`. Those VAs never enter `ref_sizes`, so they can never be
+  written back as VERIFIED, and they are exactly the entries that pile up in
+  the `start-data` lane. Feature: report the denominator -- "122 of 329
+  symbols compared (207 not comparable: N in the zero-fill tail, M outside
+  .data/.rdata)" -- and either mark non-comparable entries with a distinct
+  terminal status (`SYNTHETIC` / `NO_FILE_BYTES`) or list them as such, so
+  the lane and the summary agree. Evidence: guild-rebrew round 1078 --
+  `verify --data --json`'s `data` block carries `matched`/`mismatched`/
+  `missing` but no total and no per-symbol list; `ref_sizes` was measured at
+  exactly 122 across both images.
 
 ## Knowledge capture
 
