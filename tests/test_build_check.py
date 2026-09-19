@@ -100,6 +100,56 @@ def test_missing_build_dir_is_not_configured(tmp_path):
     assert result["drift"] == []
 
 
+def test_not_configured_names_the_missing_file(tmp_path):
+    """The message must say WHAT is absent, so a typo is diagnosable."""
+    result = check(tmp_path / "typo-dir")
+    assert "build.make" in result["message"]
+    assert "typo-dir" in result["message"]
+
+
+def test_not_configured_is_not_ok(tmp_path):
+    """Regression guard: a mistyped --build-dir must not read as clean.
+
+    ``check`` returning ``not-configured`` and the CLI exiting 0 on it would
+    reproduce exactly the silent-pass failure this command exists to catch.
+    Pin the distinction at the data level, because ``main`` calls
+    ``typer.Exit`` and cannot be asserted on directly here.
+    """
+    assert check(tmp_path / "typo")["status"] != "ok"
+
+
+def test_cli_exits_nonzero_when_not_configured(tmp_path, monkeypatch):
+    """The CLI must fail when there is nothing to check, not report success."""
+    from typer.testing import CliRunner
+
+    from rebrew.build_check import app
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["--build-dir", str(tmp_path / "nope")])
+    assert result.exit_code == 1, result.output
+
+
+def test_cli_exits_zero_on_a_clean_tree(tmp_path):
+    from typer.testing import CliRunner
+
+    from rebrew.build_check import app
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["--build-dir", str(_tree(tmp_path, BUILD_MAKE))])
+    assert result.exit_code == 0, result.output
+
+
+def test_cli_exits_nonzero_on_drift(tmp_path):
+    from typer.testing import CliRunner
+
+    from rebrew.build_check import app
+
+    edited = BUILD_MAKE.replace("/Ox /Gd", "/Ox /Gd /Ob1")
+    runner = CliRunner()
+    result = runner.invoke(app, ["--build-dir", str(_tree(tmp_path, edited))])
+    assert result.exit_code == 1, result.output
+
+
 @pytest.mark.parametrize("token", ["/O2", "/Gd", "/REBREW_TOOLCHAIN:msvc-6.0-sp5-pp"])
 def test_recorded_tokens_are_not_drift(tmp_path, token):
     result = check(_tree(tmp_path, BUILD_MAKE))

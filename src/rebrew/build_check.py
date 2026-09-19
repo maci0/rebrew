@@ -97,15 +97,22 @@ def parse_compile_lines(build_text: str) -> list[tuple[str, str]]:
 
 
 def check(build_dir: Path = DEFAULT_BUILD_DIR) -> dict[str, Any]:
-    """Return ``{"status", "checked", "drift", "message"}``."""
+    """Return ``{"status", "checked", "drift", "message"}``.
+
+    ``status`` is one of ``ok``, ``drift`` or ``not-configured``.  The last is a
+    distinct state and callers must not read it as success: a mistyped
+    ``--build-dir`` yields it, and treating that as clean would reproduce exactly
+    the silent-pass failure this command exists to catch.
+    """
     bm_dir = build_dir / "CMakeFiles" / "server_dll.dir"
     build_make, flags_make = bm_dir / "build.make", bm_dir / "flags.make"
     if not build_make.exists() or not flags_make.exists():
+        missing = build_make if not build_make.exists() else flags_make
         return {
             "status": "not-configured",
             "checked": 0,
             "drift": [],
-            "message": f"{build_dir} is not configured -- nothing to check",
+            "message": f"{missing} does not exist -- {build_dir} is not configured",
         }
 
     recorded = parse_recorded(flags_make.read_text(errors="replace"))
@@ -157,7 +164,9 @@ def main(
 
     Exits non-zero when build.make has been hand-edited, because every
     measurement taken from a drifted tree describes a build no fresh clone can
-    reproduce.
+    reproduce.  Also exits non-zero when there is nothing to check: a mistyped
+    ``--build-dir`` must not read as clean, or the command reproduces the very
+    silent-pass failure it exists to catch.
     """
     result = check(build_dir)
     if as_json:
@@ -172,7 +181,7 @@ def main(
                 "--toolchain cmake/toolchain-<compiler>-docker.cmake "
                 "-DCMAKE_BUILD_TYPE=Release -DREBREW_DEBUG_INFO=OFF"
             )
-    if result["status"] == "drift":
+    if result["status"] != "ok":
         raise typer.Exit(1)
 
 
