@@ -152,6 +152,13 @@ BUILTIN_COMPONENTS: tuple[CliComponent, ...] = (
         is_group=False,
     ),
     CliComponent(
+        name="build-check",
+        module="rebrew.build_check",
+        help="Verify build/ still matches what CMake generated (guards hand-edited build.make).",
+        panel=Panel.PROJECT_SETUP,
+        is_group=False,
+    ),
+    CliComponent(
         name="order-sources",
         module="rebrew.order_sources",
         help="Order source files by their first function's original VA (position-aligned .text).",

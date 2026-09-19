@@ -385,20 +385,14 @@ class CoeffectScope:
 def activate(components: Iterable[Component], ctx: Context) -> CoeffectScope:
     """Activate every component whose declared services are available.
 
-    The startup composition: registers each component on a
-    :class:`CoeffectScope` and raises when a specification is never satisfied,
-    naming the missing services and the components left waiting.  The returned
-    scope stays reactive, so a service provided later still activates its
-    dependents, and disposing it reverts every component.
+    The startup composition registers each component on a
+    :class:`CoeffectScope`. Components with unavailable declared services stay
+    inactive; a later provision activates them. The returned scope remains
+    reactive, and closing it reverts every active component.
     """
     scope = CoeffectScope(ctx)
     for component in components:
         scope.add(component)
-    unresolved = scope.unresolved()
-    if unresolved:
-        missing = sorted({key for c in unresolved for key in c.needs if not ctx.has(key)})
-        waiting = ", ".join(_component_name(c) for c in unresolved)
-        raise ComponentError(f"unresolved service dependencies {missing} for components: {waiting}")
     return scope
 
 

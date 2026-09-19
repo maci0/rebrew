@@ -1,0 +1,106 @@
+"""Tests for rebrew build-check.
+
+``build/`` is gitignored in every rebrew project, so a hand-edited ``build.make``
+is invisible to ``git status``, ``rebrew lint`` and ``rebrew verify`` -- while
+silently redefining what every measurement taken from the tree means.  These
+tests pin both directions: the checker must stay quiet on a tree CMake wrote and
+must fire on one a human edited.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from rebrew.build_check import check, parse_compile_lines, parse_recorded
+
+FLAGS_MAKE = """\
+# Custom flags: CMakeFiles/server_dll.dir/src/a/one.c.obj_FLAGS = /O2 /Gd
+# Custom options: CMakeFiles/server_dll.dir/src/a/one.c.obj_OPTIONS = /REBREW_TOOLCHAIN:msvc-6.0-sp5-pp
+# Custom flags: CMakeFiles/server_dll.dir/src/b/two.c.obj_FLAGS = /Ox /Gd
+"""
+
+BUILD_MAKE = """\
+CMakeFiles/server_dll.dir/src/a/one.c.obj: flags.make
+\tcl /nologo /O2 /Gd /REBREW_TOOLCHAIN:msvc-6.0-sp5-pp /FoCMakeFiles/server_dll.dir/src/a/one.c.obj /FdCMakeFiles/server_dll.dir/ -c /abs/src/a/one.c
+CMakeFiles/server_dll.dir/src/b/two.c.obj: flags.make
+\tcl /nologo /Ox /Gd /FoCMakeFiles/server_dll.dir/src/b/two.c.obj /FdCMakeFiles/server_dll.dir/ -c /abs/src/b/two.c
+CMakeFiles/server_dll.dir/src/c/three.c.obj: flags.make
+\tcl /nologo /FoCMakeFiles/server_dll.dir/src/c/three.c.obj /FdCMakeFiles/server_dll.dir/ -c /abs/src/c/three.c
+"""
+
+
+def test_parse_recorded_reads_multiline_flags_make():
+    """re.M is required -- without it the pattern matches nothing at all.
+
+    Regression guard: an early version compiled the pattern without ``re.M``, so
+    ``$`` anchored to end-of-string and a ``flags.make`` with hundreds of Custom
+    comments yielded zero objects, making the checker report "clean" while
+    comparing nothing.
+    """
+    recorded = parse_recorded(FLAGS_MAKE)
+    assert len(recorded) == 2
+    assert recorded["CMakeFiles/server_dll.dir/src/a/one.c.obj"] == {
+        "/O2",
+        "/Gd",
+        "/REBREW_TOOLCHAIN:msvc-6.0-sp5-pp",
+    }
+
+
+def test_parse_compile_lines_skips_listing_rules():
+    text = BUILD_MAKE + (
+        "CMakeFiles/server_dll.dir/src/a/one.c.s: flags.make\n"
+        "\tcl /nologo /FAs /FaCMakeFiles/server_dll.dir/src/a/one.c.s /c /abs/src/a/one.c\n"
+    )
+    objs = [o for o, _ in parse_compile_lines(text)]
+    assert "CMakeFiles/server_dll.dir/src/a/one.c.s" not in objs
+    assert len(objs) == 3
+
+
+def _tree(tmp_path: Path, build_make: str) -> Path:
+    d = tmp_path / "build" / "CMakeFiles" / "server_dll.dir"
+    d.mkdir(parents=True)
+    (d / "build.make").write_text(build_make)
+    (d / "flags.make").write_text(FLAGS_MAKE)
+    return tmp_path / "build"
+
+
+def test_clean_tree_is_ok(tmp_path):
+    result = check(_tree(tmp_path, BUILD_MAKE))
+    assert result["status"] == "ok"
+    # two of the three objects have a Custom comment; the third uses global flags
+    assert result["checked"] == 2
+    assert result["drift"] == []
+
+
+def test_hand_edited_build_make_is_drift(tmp_path):
+    """A flag in build.make that flags.make does not record was added by hand."""
+    edited = BUILD_MAKE.replace("/Ox /Gd", "/Ox /Gd /Ob1")
+    result = check(_tree(tmp_path, edited))
+    assert result["status"] == "drift"
+    assert [(d["flag"]) for d in result["drift"]] == ["/Ob1"]
+
+
+def test_object_without_custom_comment_is_not_drift(tmp_path):
+    """No Custom comment means no per-file flags -- the global C_FLAGS apply.
+
+    Treating that as drift would flag most of a normal tree, because most files
+    have no per-file entry.
+    """
+    result = check(_tree(tmp_path, BUILD_MAKE))
+    assert all("three.c.obj" not in d["obj"] for d in result["drift"]), (
+        "an object with no recorded flags must not be reported"
+    )
+
+
+def test_missing_build_dir_is_not_configured(tmp_path):
+    result = check(tmp_path / "build")
+    assert result["status"] == "not-configured"
+    assert result["drift"] == []
+
+
+@pytest.mark.parametrize("token", ["/O2", "/Gd", "/REBREW_TOOLCHAIN:msvc-6.0-sp5-pp"])
+def test_recorded_tokens_are_not_drift(tmp_path, token):
+    result = check(_tree(tmp_path, BUILD_MAKE))
+    assert all(d["flag"] != token for d in result["drift"])

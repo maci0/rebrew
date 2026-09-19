@@ -115,18 +115,22 @@ class TestActivate:
         assert provider.log == ["provider"]
         assert consumer.log == ["consumer"]
 
-    def test_unsatisfied_needs_report_missing_services(self) -> None:
+    def test_unsatisfied_needs_stay_inactive_until_provided(self) -> None:
         ctx = Context()
         comp = _Component(name="lonely", needs=("missing",))
-        with pytest.raises(ComponentError, match="missing"):
-            activate([comp], ctx)
+        scope = activate([comp], ctx)
+        assert scope.unresolved() == [comp]
+        ctx.provide("missing", 42)
+        assert comp.log == ["lonely"]
+        ctx.unprovide("missing")
+        assert scope.unresolved() == [comp]
 
-    def test_dependency_cycle_reports_waiting_components(self) -> None:
+    def test_dependency_cycle_stays_inactive(self) -> None:
         ctx = Context()
         a = _Component(name="a", needs=("b_svc",))
         b = _Component(name="b", needs=("a_svc",))
-        with pytest.raises(ComponentError, match="unresolved service dependencies"):
-            activate([a, b], ctx)
+        scope = activate([a, b], ctx)
+        assert scope.unresolved() == [a, b]
 
 
 @dataclass

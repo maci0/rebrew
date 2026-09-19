@@ -107,6 +107,7 @@ for `--compare` (not “better than EXACT”).
 | `rebrew orphans` | `orphans.py` | List or prune metadata blocks whose VA has no source marker (`--prune`, `--include-matched`, `drop 0xVA`; `--dry-run`, `--json`) — every delete via `rebrew.metadata` batch helpers (locked + atomic) |
 | `rebrew types` | `types_cli.py` | Check declared struct layouts vs decompiler evidence; `apply-type` rewrites one param type in source (`--param N --type T`, `--dry-run`, `--json`) |
 | `rebrew analyze` | `analyze.py` | One-shot binary dossier (toolchain, strings, imports, dispatch, FLIRT, blockers) |
+| `rebrew build-check` | `build_check.py` | Verify `build/` still matches what CMake generated |
 | `rebrew calibrate-bss` | `calibrate_bss.py` | Size the BSS tail pad so raw-link `.data` VirtualSize matches |
 | `rebrew cmake-toolchain` | `cmake_tc.py` | Generate a CMake toolchain file running the image's tools via docker |
 | `rebrew cmake-flags` | `cmake_flags.py` | Write the per-file CFLAGS from `rebrew-functions.toml` as a CMake include |
@@ -740,6 +741,26 @@ header flags. `--output DIR` (conventionally
 files (`sections.txt`, `gaps.txt`, `iat.txt`, `exports.txt`), mirroring the
 `gen-layout` package style. `--json` (the default shape) emits the full
 manifest including per-gap rows.
+
+### `rebrew build-check`
+
+`rebrew build-check [--build-dir build] [--json]`
+
+Verify that `build/` still says what CMake wrote. `build/` is gitignored in every
+rebrew project, so a hand-edited `build.make` is invisible to `git status`, to
+`rebrew lint` and to `rebrew verify --full` — while silently redefining what any
+measurement taken from that tree means. Measured on guild-rebrew: a toolchain-pin
+sweep left the tree reporting 58% residue and a 290,816-byte deliverable against
+the correct 286,720 / 8628, with `cmake --build` still nominally succeeding.
+
+CMake regenerates `flags.make` beside `build.make` and records each object's
+per-file flags there as `# Custom flags: <obj>_FLAGS = ...` and
+`# Custom options: <obj>_OPTIONS = ...`. Every codegen flag token in
+`build.make`'s compile line must appear in the corresponding comment; one that
+does not was added by hand. Objects with no `Custom` comment have no per-file
+flags (they compile with the global `C_FLAGS`) and are not drift.
+
+Exits 1 on drift, and prints the restore command.
 
 ### `rebrew cmake-flags`
 

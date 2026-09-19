@@ -22,6 +22,7 @@ Manual inspection and linkage tools outside the main reverse loop. Run
 | `rebrew link-sweep` | Sweep LINK options to reproduce the reference PE header (find stamp-only fields). |
 | `rebrew cmake-toolchain` | Write a CMake toolchain file that drives a docker toolchain via `rebrew-cmake-*`. |
 | `rebrew cmake-flags` | Write per-file CFLAGS from `rebrew-functions.toml` as a CMake include. |
+| `rebrew build-check` | Verify `build/` still matches what CMake generated (catches a hand-edited `build.make`). |
 | `rebrew binsync-init` | Initialize a BinSync git repo (root and user branches) for a target. |
 | `rebrew binsync-export` | Export annotations to an experimental BinSync state directory. |
 | `rebrew binsync-import` | Import a BinSync state directory into rebrew metadata. |
