@@ -1502,6 +1502,122 @@ class TestDataDrift:
         cfg = _make_cfg(tmp_path)
         assert _collect_data_drift(cfg) == []
 
+    def test_import_slots_are_not_start_data(self, tmp_path: Path) -> None:
+        """A __imp__ slot is never undone work -- the linker supplies it."""
+        from rebrew.data_metadata import set_data_field
+        from rebrew.todo import _collect_start_data
+
+        cfg = _make_cfg(tmp_path)
+        for va, name, section in (
+            (0x10024000, "__imp__GetLocalTime@4", ".idata"),
+            (0x10024004, "__imp__CreateFileA@28", ".idata"),
+            (0x10027000, "g_real_global", ".data"),
+        ):
+            set_data_field(tmp_path, va, "name", name, "SERVER")
+            set_data_field(tmp_path, va, "section", section, "SERVER")
+            set_data_field(tmp_path, va, "status", "UNCHECKED", "SERVER")
+        items = _collect_start_data(cfg)
+        assert [i.name for i in items] == ["g_real_global"]
+        assert [i.va for i in items] == [0x10027000]
+
+    def test_import_slot_skipped_by_section_alone(self, tmp_path: Path) -> None:
+        """The section label alone is enough; the name may be a placeholder."""
+        from rebrew.data_metadata import set_data_field
+        from rebrew.todo import _collect_start_data
+
+        cfg = _make_cfg(tmp_path)
+        set_data_field(tmp_path, 0x10024008, "section", ".idata", "SERVER")
+        set_data_field(tmp_path, 0x10024008, "status", "UNCHECKED", "SERVER")
+        assert _collect_start_data(cfg) == []
+
+    def test_verified_symbol_not_start_data(self, tmp_path: Path) -> None:
+        """The lane is UNCHECKED-only; a VERIFIED global must not reappear."""
+        from rebrew.data_metadata import set_data_field
+        from rebrew.todo import _collect_start_data
+
+        cfg = _make_cfg(tmp_path)
+        set_data_field(tmp_path, 0x10027000, "name", "g_done", "SERVER")
+        set_data_field(tmp_path, 0x10027000, "section", ".data", "SERVER")
+        set_data_field(tmp_path, 0x10027000, "status", "VERIFIED", "SERVER")
+        assert _collect_start_data(cfg) == []
+
+    def test_bss_label_skipped(self, tmp_path: Path) -> None:
+        """A .bss symbol has no file bytes, so --data can never clear it."""
+        from rebrew.data_metadata import set_data_field
+        from rebrew.todo import _collect_start_data
+
+        cfg = _make_cfg(tmp_path)
+        set_data_field(tmp_path, 0x10035000, "name", "g_bss", "SERVER")
+        set_data_field(tmp_path, 0x10035000, "section", ".bss", "SERVER")
+        set_data_field(tmp_path, 0x10035000, "status", "UNCHECKED", "SERVER")
+        set_data_field(tmp_path, 0x10035000, "size", "4", "SERVER")
+        assert _collect_start_data(cfg) == []
+
+    def test_symbol_past_raw_size_is_skipped(self, tmp_path: Path) -> None:
+        """Declared .data but sitting in the zero-fill tail -- same thing."""
+        from rebrew.todo import _zero_fill_tail_checker
+
+        cfg = _make_cfg(tmp_path)
+        cfg.target_binary = tmp_path / "ref.dll"
+        sections = {
+            ".data": SimpleNamespace(va=0x10027000, size=0x174059C, raw_size=0xE000),
+        }
+        cfg_blob = SimpleNamespace(sections=sections)
+        monkey = pytest.MonkeyPatch()
+        monkey.setattr("rebrew.binary_loader.load_binary", lambda _p: cfg_blob, raising=True)
+        try:
+            check = _zero_fill_tail_checker(cfg)
+            # inside the raw region: verifiable, keep it
+            assert check({"section": ".data", "size": 4, "va": 0x10028000}) is False
+            # past raw_size: zero-fill tail, unverifiable, skip it
+            assert check({"section": ".data", "size": 4, "va": 0x10300000}) is True
+            # unknown section: conservative, keep it
+            assert check({"section": ".weird", "size": 4, "va": 0x10028000}) is False
+        finally:
+            monkey.undo()
+
+    def test_zero_fill_checker_survives_missing_binary(self, tmp_path: Path) -> None:
+        """A failed load must not crash, and must not hide real work."""
+        from rebrew.todo import _zero_fill_tail_checker
+
+        cfg = _make_cfg(tmp_path)
+        cfg.target_binary = tmp_path / "absent.dll"
+
+        def boom(_p: object) -> object:
+            raise OSError("no such file")
+
+        monkey = pytest.MonkeyPatch()
+        monkey.setattr("rebrew.binary_loader.load_binary", boom, raising=True)
+        try:
+            check = _zero_fill_tail_checker(cfg)
+            assert check({"section": ".data", "size": 4, "va": 0x10028000}) is False
+        finally:
+            monkey.undo()
+
+    def test_data_labelled_tail_symbol_is_filtered_end_to_end(self, tmp_path: Path) -> None:
+        """The lane must drop a .data symbol that lives in the zero-fill tail."""
+        from rebrew.data_metadata import set_data_field
+        from rebrew.todo import _collect_start_data
+
+        cfg = _make_cfg(tmp_path)
+        cfg.target_binary = tmp_path / "ref.dll"
+        for va, name in ((0x10028000, "g_raw"), (0x10300000, "g_tail")):
+            set_data_field(tmp_path, va, "name", name, "SERVER")
+            set_data_field(tmp_path, va, "section", ".data", "SERVER")
+            set_data_field(tmp_path, va, "status", "UNCHECKED", "SERVER")
+            set_data_field(tmp_path, va, "size", "4", "SERVER")
+
+        blob = SimpleNamespace(
+            sections={".data": SimpleNamespace(va=0x10027000, size=0x174059C, raw_size=0xE000)}
+        )
+        monkey = pytest.MonkeyPatch()
+        monkey.setattr("rebrew.binary_loader.load_binary", lambda _p: blob, raising=True)
+        try:
+            items = _collect_start_data(cfg)
+        finally:
+            monkey.undo()
+        assert [i.name for i in items] == ["g_raw"]
+
 
 class TestCallerBoost:
     def test_unblocks_suffix_and_boost(self, tmp_path: Path) -> None:

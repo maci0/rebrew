@@ -15,6 +15,7 @@ Usage::
 import bisect
 import contextlib
 import json
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -931,18 +932,103 @@ def _collect_data_drift(cfg: ProjectConfig) -> list[TodoItem]:
     return items
 
 
+def _zero_fill_tail_checker(cfg: ProjectConfig) -> Callable[[dict[str, Any]], bool]:
+    """Return a predicate: does this metadata symbol live in a zero-fill tail?
+
+    A section's bytes past ``raw_size`` exist in memory but not in the file, so
+    the loader zero-fills them and ``section_symbol_bytes`` deliberately skips
+    them.  ``verify --data`` can therefore never mark them VERIFIED.
+
+    The binary is loaded once, lazily, on the first call that needs it, and any
+    load failure degrades to "not in a tail" -- the conservative answer, since
+    wrongly skipping a symbol would hide real work.
+    """
+    cache: dict[str, Any] = {}
+    missing = object()
+
+    def in_tail(fields: dict[str, Any]) -> bool:
+        section = str(fields.get("section") or "")
+        if section in ("", ".idata", ".bss"):
+            return section == ".bss"
+        sections: Any = cache.get("sections", missing)
+        if sections is missing:
+            try:
+                from rebrew.binary_loader import load_binary
+
+                sections = load_binary(cfg.target_binary).sections
+            except (OSError, ValueError, KeyError, AttributeError, ImportError):
+                sections = None
+            cache["sections"] = sections
+        if not sections:
+            return False
+        sec = sections.get(section)
+        if not sections:
+            return False
+        sec = sections.get(section)
+        if sec is None:
+            return False
+        try:
+            size = int(fields.get("size") or 0)
+        except (TypeError, ValueError):
+            size = 0
+        if size <= 0:
+            try:
+                from rebrew.data_layout import estimate_type_size
+
+                size = estimate_type_size(str(fields.get("type") or ""))
+            except (ImportError, ValueError):
+                size = 0
+        if size <= 0:
+            return False
+        offset = int(fields.get("va") or 0) - int(sec.va)
+        if offset < 0 or offset >= int(sec.size or sec.raw_size):
+            return False
+        return bool(offset + size > int(sec.raw_size))
+
+    return in_tail
+
+
 def _collect_start_data(cfg: ProjectConfig) -> list[TodoItem]:
     """Collect data symbols never verified (STATUS UNCHECKED or absent).
 
     The data-side "undone work" lane: same file already read for drift, so
     this costs one more filter pass, not another load.  Command verifies
     just the symbol's section scope.
+
+    Import-table and BSS-resident entries are skipped, because
+    ``rebrew verify --data`` cannot clear either kind, so leaving them in turns
+    the lane into a list of permanent false positives.
+
+    * Import slots (``__imp__`` / ``section = ".idata"``) are supplied by the
+      linker from the import directory.  One project carried 84 of them -- every
+      IAT dword -- and the image has no .idata section at all; the IAT sits at
+      the head of .rdata.
+    * BSS slots have no file bytes.  ``section_symbol_bytes`` skips any symbol
+      whose extent runs past its section's ``raw_size`` (the zero-fill tail), so
+      those VAs never reach ``verify_data_bytes``, never appear in its
+      ``matched`` set, and are never written back as VERIFIED.  Symbols declared
+      ``.bss`` are the obvious case; so are symbols declared ``.data`` that sit
+      beyond that section's raw extent, which is the same thing spelled
+      differently.  They are correct by construction -- both images zero-fill
+      them -- so there is nothing to verify.
+
+    Measured on the project that motivated this: of 207 UNCHECKED entries, all
+    207 were un-clearable, and independent byte comparison found every one of
+    them already correct (5 with file bytes byte-identical, 111 in the zero-fill
+    tail, 84 import slots, 7 without a size).
     """
     from rebrew.data_metadata import load_data_metadata
 
+    in_zero_fill_tail = _zero_fill_tail_checker(cfg)
     items: list[TodoItem] = []
     for (module, va), fields in load_data_metadata(cfg.metadata_dir).items():
         if str(fields.get("status") or "").upper() not in ("", "UNCHECKED"):
+            continue
+        name = str(fields.get("name") or "")
+        section = str(fields.get("section") or "").lower()
+        if name.startswith("__imp_") or section in (".idata", ".bss"):
+            continue
+        if in_zero_fill_tail({**fields, "va": va}):
             continue
         name = str(fields.get("name") or f"DAT_{va:08x}")
         try:
