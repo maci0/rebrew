@@ -225,6 +225,19 @@ Status `open` unless noted. Promote to ROADMAP when scoped.
   callers can decide. A cheaper option: report both bounds and let the caller
   choose the smaller *credible* one.
   Evidence: guild-rebrew `docs/measure-traps.md` section 52, round 1084.
+  **Attempted and reverted (round 1085).** A worklist walk that follows a
+  forward `jmp` target and keeps going fixes this carrier (742 -> 1836) but
+  breaks the contract the other five callers depend on, in three ways measured
+  with the suite: a thunk that legitimately IS a tail jump is now followed out
+  of the function (10 -> 3988), an unterminated buffer returns 4 instead of
+  `None` because "walked some bytes" was conflated with "found an end", and the
+  MIPS/16-bit walkers inherit both. It also overshoots this very function: the
+  real epilogue is `ret 4` at `0x10002e99` (extent 1835) and the walk reported
+  1836, having decoded a jump table as code. The distinguishing signal a fix
+  needs is "is this `jmp` a tail call or an intra-function branch", which is
+  exactly what the current conservative walk refuses to guess at -- and the six
+  callers were written against that refusal. Fixing it means auditing all six
+  and deciding the answer per caller, not changing the shared walker.
 
 ## Knowledge capture
 
