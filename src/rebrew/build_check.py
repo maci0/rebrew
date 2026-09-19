@@ -28,6 +28,16 @@ So every codegen flag token in ``build.make``'s compile line must appear in the
 corresponding ``Custom`` comment.  A token in one and not the other was added by
 hand.  Objects with no ``Custom`` comment have no per-file flags -- they compile
 with the global ``C_FLAGS`` -- and are not drift.
+
+**A flag comparison cannot see a wrong object list.**  ``rebrew rename`` rewrites
+the source and its cross-references but not the gitignored ``build/``, so
+``build.make`` keeps naming the old ``.obj``.  Every flag still agrees, because
+the stale objects are simply never looked at: the loop skips any object without a
+``Custom`` comment.  Measured on guild-rebrew (round 1080): a rename left
+``split_link.sh`` dying at exit 157 while this check reported clean.  So the
+check also verifies that every source ``build.make`` compiles still exists, which
+is what a rename or delete breaks.  ``build/`` is generator output and cannot be
+trusted to describe the source tree it was generated from.
 """
 
 from __future__ import annotations
@@ -61,6 +71,12 @@ _FLAG = re.compile(r"^/[A-Z]")
 _RECORDED = re.compile(r"Custom (?:flags|options): \S*?(\S+\.obj)_(?:FLAGS|OPTIONS) = (.*)$", re.M)
 
 _OBJ_IN_LINE = re.compile(r"(CMakeFiles/[^ ]*?\.obj)\b")
+
+#: The source CMake compiles: the path following ``-c``.  Taking a bare ``*.c``
+#: token instead also matches the ``/Fo....c.obj`` output path and the dependency
+#: files, which is how the first version of this check reported 398 missing
+#: sources on a healthy tree.
+_SOURCE_IN_LINE = re.compile(r"(?:^|\s)-c\s+(\S+\.(?:c|cc|cpp|cxx))(?:\s|$)")
 
 
 def parse_recorded(flags_text: str) -> dict[str, set[str]]:
@@ -96,7 +112,29 @@ def parse_compile_lines(build_text: str) -> list[tuple[str, str]]:
     return out
 
 
-def check(build_dir: Path = DEFAULT_BUILD_DIR) -> dict[str, Any]:
+def parse_sources(build_text: str) -> list[str]:
+    """Every source path a compile rule names, in first-seen order.
+
+    Paths are returned as written: CMake spells them absolute for the sources in
+    this project, and the existence test resolves a relative one against the
+    project root.
+    """
+    out: list[str] = []
+    seen: set[str] = set()
+    for line in build_text.splitlines():
+        if "cl " not in line.lower() and "cl.exe" not in line.lower():
+            continue
+        if "/FAs" in line or "cl  /nologo /E " in line:
+            continue
+        for match in _SOURCE_IN_LINE.finditer(line):
+            src = match.group(1)
+            if src not in seen:
+                seen.add(src)
+                out.append(src)
+    return out
+
+
+def check(build_dir: Path = DEFAULT_BUILD_DIR, project_root: Path | None = None) -> dict[str, Any]:
     """Return ``{"status", "checked", "drift", "message"}``.
 
     ``status`` is one of ``ok``, ``drift`` or ``not-configured``.  The last is a
@@ -115,10 +153,35 @@ def check(build_dir: Path = DEFAULT_BUILD_DIR) -> dict[str, Any]:
             "message": f"{missing} does not exist -- {build_dir} is not configured",
         }
 
+    build_text = build_make.read_text(errors="replace")
+    root = project_root if project_root is not None else build_dir.parent
+
+    # A source the build compiles but the tree no longer has means the build
+    # system describes a tree that does not exist -- a rename or delete since the
+    # last configure.  Checked before the flags, because it makes every flag
+    # comparison below meaningless: the stale objects are not in `recorded` and
+    # so are skipped rather than flagged.
+    def _resolves(src: str) -> bool:
+        path = Path(src)
+        return (path if path.is_absolute() else root / path).exists()
+
+    absent = [s for s in parse_sources(build_text) if not _resolves(s)]
+    if absent:
+        first = ", ".join(absent[:4])
+        return {
+            "status": "drift",
+            "checked": 0,
+            "drift": [{"obj": s, "flag": "MISSING SOURCE"} for s in absent],
+            "message": (
+                f"{len(absent)} source(s) in build.make no longer exist (first: {first}) -- "
+                f"{build_dir} is stale; re-run the configure step"
+            ),
+        }
+
     recorded = parse_recorded(flags_make.read_text(errors="replace"))
     drift: list[dict[str, str]] = []
     checked = 0
-    for obj, line in parse_compile_lines(build_make.read_text(errors="replace")):
+    for obj, line in parse_compile_lines(build_text):
         # No Custom comment means no per-file flags: the object compiles with the
         # global C_FLAGS.  That is the normal case for most of a tree, and
         # comparing it would report every global flag as drift.
@@ -185,4 +248,4 @@ def main(
         raise typer.Exit(1)
 
 
-__all__ = ["app", "main", "check", "parse_compile_lines", "parse_recorded"]
+__all__ = ["app", "main", "check", "parse_compile_lines", "parse_recorded", "parse_sources"]

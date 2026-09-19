@@ -23,11 +23,11 @@ FLAGS_MAKE = """\
 
 BUILD_MAKE = """\
 CMakeFiles/server_dll.dir/src/a/one.c.obj: flags.make
-\tcl /nologo /O2 /Gd /REBREW_TOOLCHAIN:msvc-6.0-sp5-pp /FoCMakeFiles/server_dll.dir/src/a/one.c.obj /FdCMakeFiles/server_dll.dir/ -c /abs/src/a/one.c
+\tcl /nologo /O2 /Gd /REBREW_TOOLCHAIN:msvc-6.0-sp5-pp /FoCMakeFiles/server_dll.dir/src/a/one.c.obj /FdCMakeFiles/server_dll.dir/ -c src/a/one.c
 CMakeFiles/server_dll.dir/src/b/two.c.obj: flags.make
-\tcl /nologo /Ox /Gd /FoCMakeFiles/server_dll.dir/src/b/two.c.obj /FdCMakeFiles/server_dll.dir/ -c /abs/src/b/two.c
+\tcl /nologo /Ox /Gd /FoCMakeFiles/server_dll.dir/src/b/two.c.obj /FdCMakeFiles/server_dll.dir/ -c src/b/two.c
 CMakeFiles/server_dll.dir/src/c/three.c.obj: flags.make
-\tcl /nologo /FoCMakeFiles/server_dll.dir/src/c/three.c.obj /FdCMakeFiles/server_dll.dir/ -c /abs/src/c/three.c
+\tcl /nologo /FoCMakeFiles/server_dll.dir/src/c/three.c.obj /FdCMakeFiles/server_dll.dir/ -c src/c/three.c
 """
 
 
@@ -51,18 +51,31 @@ def test_parse_recorded_reads_multiline_flags_make():
 def test_parse_compile_lines_skips_listing_rules():
     text = BUILD_MAKE + (
         "CMakeFiles/server_dll.dir/src/a/one.c.s: flags.make\n"
-        "\tcl /nologo /FAs /FaCMakeFiles/server_dll.dir/src/a/one.c.s /c /abs/src/a/one.c\n"
+        "\tcl /nologo /FAs /FaCMakeFiles/server_dll.dir/src/a/one.c.s /c src/a/one.c\n"
     )
     objs = [o for o, _ in parse_compile_lines(text)]
     assert "CMakeFiles/server_dll.dir/src/a/one.c.s" not in objs
     assert len(objs) == 3
 
 
-def _tree(tmp_path: Path, build_make: str) -> Path:
+def _tree(tmp_path: Path, build_make: str, *, sources: bool = True) -> Path:
+    """A minimal build tree.  ``sources`` creates the .c files build.make names.
+
+    The checker verifies those exist, so a fixture that omits them is not a
+    clean tree -- it is a stale one, and `sources=False` is how the stale case is
+    built.
+    """
     d = tmp_path / "build" / "CMakeFiles" / "server_dll.dir"
     d.mkdir(parents=True)
     (d / "build.make").write_text(build_make)
     (d / "flags.make").write_text(FLAGS_MAKE)
+    # Paths in build.make are relative to the project root, which is the
+    # build dir's parent.
+    if sources:
+        for src in ("src/a/one.c", "src/b/two.c", "src/c/three.c"):
+            path = tmp_path / src
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("int x;\n")
     return tmp_path / "build"
 
 
@@ -154,3 +167,43 @@ def test_cli_exits_nonzero_on_drift(tmp_path):
 def test_recorded_tokens_are_not_drift(tmp_path, token):
     result = check(_tree(tmp_path, BUILD_MAKE))
     assert all(d["flag"] != token for d in result["drift"])
+
+
+def test_missing_source_is_drift(tmp_path):
+    """A rename leaves build.make naming an object that no longer exists.
+
+    Regression for guild-rebrew round 1080: `rebrew rename` rewrote the source
+    but not the gitignored build/, so split_link.sh died at exit 157 while this
+    check reported clean.  Flags on the stale object all still agreed, and the
+    object was skipped rather than flagged, because the flag loop only inspects
+    objects carrying a Custom comment.
+    """
+    result = check(_tree(tmp_path, BUILD_MAKE, sources=False))
+    assert result["status"] == "drift"
+    assert "no longer exist" in result["message"]
+    assert any(d["flag"] == "MISSING SOURCE" for d in result["drift"])
+
+
+def test_missing_source_names_the_file(tmp_path):
+    result = check(_tree(tmp_path, BUILD_MAKE, sources=False))
+    named = " ".join(d["obj"] for d in result["drift"])
+    assert "one.c" in named
+
+
+def test_stale_source_reported_before_flags(tmp_path):
+    """A stale tree makes every flag comparison meaningless, so it wins."""
+    edited = BUILD_MAKE.replace("/Ox /Gd", "/Ox /Gd /Ob1")
+    result = check(_tree(tmp_path, edited, sources=False))
+    assert result["status"] == "drift"
+    assert "no longer exist" in result["message"]
+    assert result["checked"] == 0
+
+
+def test_cli_exits_nonzero_on_missing_source(tmp_path):
+    from typer.testing import CliRunner
+
+    from rebrew.build_check import app
+
+    runner = CliRunner()
+    result = runner.invoke(app, ["--build-dir", str(_tree(tmp_path, BUILD_MAKE, sources=False))])
+    assert result.exit_code == 1, result.output
