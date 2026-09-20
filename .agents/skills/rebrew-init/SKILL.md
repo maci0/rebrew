@@ -1,6 +1,12 @@
 ---
 name: rebrew-init
-description: Use when starting a reversing project from scratch — bare directory + binary, choose target name and compiler profile, run rebrew init, verify with rebrew doctor, hand off to rebrew-intake. Triggers on 'new project', 'scaffold', 'set up rebrew', 'rebrew init', or 'guess-compiler'. Not for onboarding a binary into an existing project (rebrew-intake) or day-to-day reversing (rebrew-workflow).
+description: >-
+  Use when scaffolding with `rebrew init` — bare directory, target naming,
+  `--guess-compiler` vs `--toolchain`, doctor done-gate, then hand off to
+  rebrew-intake. Triggers on 'new project', 'scaffold', 'bare directory',
+  'create project', 'set up rebrew', 'rebrew init', or 'guess-compiler'. If the
+  user hands you a binary to onboard in one shot, use rebrew-intake
+  (`rebrew intake`) instead. Not for day-to-day reversing (rebrew-workflow).
 license: MIT
 ---
 
@@ -20,11 +26,13 @@ Scaffold a new rebrew project from an empty directory and a target binary.
 
 ## When NOT to use this skill
 
-- Binary onboarding into an existing project → use `rebrew-intake`
+- One-shot binary onboard (`rebrew intake <binary>`) → use `rebrew-intake`
 - Day-to-day reversing → use `rebrew-workflow`
 - Deep matching → use `rebrew-matching`
 
-Use this skill exactly once per new project. Re-run `rebrew init --refresh-agents` later to re-render the scaffold after template changes.
+Use when the user needs scaffold decisions (name, profile). Prefer `rebrew intake`
+for "here's a binary, set it up". Re-run `rebrew init --refresh-agents` to
+re-render the scaffold after template changes.
 
 ## Scaffold
 

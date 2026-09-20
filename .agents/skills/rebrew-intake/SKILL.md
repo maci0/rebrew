@@ -1,11 +1,20 @@
 ---
 name: rebrew-intake
-description: Onboards a new binary into an existing rebrew project — doctor, FLIRT, catalog, coverage DB, first triage/skeletons. Use once per new target (or when re-running initial recon). Triggers on 'intake', 'onboard', 'new binary', 'new target', 'first triage', 'catalog', 'build-db', 'detect-crt', or 'gen-layout'. Not for day-to-day flirt/todo/test on an already-onboarded target (use rebrew-workflow). Fresh empty directory → rebrew-init first.
+description: >-
+  Onboard a binary into rebrew — one-shot `rebrew intake` (init + enumerate +
+  STUB document) and/or first recon (doctor, FLIRT, catalog, build-db, triage,
+  first skeletons). Triggers on 'intake', 'onboard', 'new binary', 'new target',
+  'FLIRT scan', 'first triage', 'catalog', 'build-db', 'detect-crt', or
+  'gen-layout'. Prefer this over rebrew-init when the user hands you a binary
+  to onboard; use rebrew-init only when teaching `rebrew init` / profile /
+  target naming. Not for day-to-day flirt/todo/test on an already-onboarded
+  target (rebrew-workflow).
 license: MIT
 ---
 
 ```mermaid
 graph TD
+    OneShot[One-shot optional<br/>rebrew intake binary] --> Doctor
     Doctor{Doctor passes?<br/>rebrew doctor} -->|fail| Fix[Repair from doctor report<br/>rebrew toolchain build <profile>]
     Fix --> Doctor
     Doctor -->|pass| Flirt[FLIRT library scan<br/>rebrew cfg detect-crt --write<br/>rebrew flirt --json]
@@ -15,77 +24,69 @@ graph TD
     BuildDb --> Triage[Initial triage<br/>rebrew status --json / rebrew todo --json]
     Triage --> CuMap[Infer compilation units<br/>rebrew graph --cu-map]
     CuMap --> Skeleton[Generate first skeletons<br/>rebrew skeleton --batch 10]
-    Skeleton --> Dashboard[Dashboard handoff<br/>rebrew dashboard]
     Catalog -.-> Layout[Linker-script scaffolding<br/>rebrew gen-layout]
 ```
 
 # Rebrew Intake
 
-Onboard a new binary into a rebrew project and produce an initial assessment.
+Onboard a binary and run the first recon pass (library ID → catalog → triage).
 
 ## When NOT to use this skill
 
+- Teaching bare-dir `rebrew init` / profile / target naming only → use `rebrew-init`
 - Day-to-day reversing on an already-onboarded target → use `rebrew-workflow`
-- Adding a new function inside an existing target → use `rebrew-workflow`
 - Deep matching for a single function → use `rebrew-matching`
 
-Use this skill exactly once per new target. Re-run individual steps later if needed.
+Use once per new target (or when re-running initial recon). Re-run individual
+steps later if needed.
 
 ## Prerequisites
 
-A `rebrew-project.toml` must exist with the new target configured. If starting from scratch:
+Need a `rebrew-project.toml` and the binary at the configured path (default
+`original/<filename>`). Two ways to get there:
 
 ```bash
-rebrew init --target <name> --binary <filename> --guess-compiler   # auto-selects the profile from the binary
-rebrew toolchain build <profile>      # fetch the profile's docker image (wibo/host-wine are gone: docker-only)
+# A) One-shot (preferred when the user hands you a binary):
+rebrew intake <path-to-binary>            # detect profile → init (if needed) → enumerate → STUB+BLOCKER every function
+rebrew intake <path-to-binary> --toolchain <profile>   # pin profile; --dry-run to preview
+
+# B) Explicit scaffold (when teaching init / overriding guess):
+rebrew init --target <name> --binary <filename> --guess-compiler
+rebrew toolchain build <profile>          # docker image for the profile (required; no host wine/wibo)
 ```
 
-## Linker-script scaffolding (optional, after the catalog)
+`rebrew intake` does **not** run FLIRT, catalog, or `build-db` — continue with
+§1–§8 below after it (or after a manual `rebrew init`). Shipped toolchains are
+docker-only; `--install-wibo` is ignored for image-backed profiles.
+
+### Multi-target file layout
+
+Shared code across targets: add a second `// FUNCTION: BETA10 0x...` marker
+above the same body — do not duplicate `.c` files.
+
+### Linker-script scaffolding (optional, after the catalog)
 
 ```bash
 rebrew gen-layout --target <name>
 ```
 
 Writes `src/bench/bench.def`, `src/bench/crt_region/crt_imports.c`, and
-`layout/bench/` (text-only `rebrew-layout.toml` + hex dumps). Then
+`layout/bench/` (`rebrew-layout.toml` + hex dumps). Then
 `rebrew postlink <built.dll> --layout layout/bench` can converge without the
-original DLL present. Keep `layout/` in VCS.
-
-Place the binary at the configured path (default `original/<filename>`).
-`rebrew init` creates project dirs + empty metadata TOMLs. Shipped toolchains
-are docker-only (`rebrew toolchain build <profile>`); `--install-wibo` is ignored
-for image-backed profiles.
-
-### Multi-Target File Layout
-When adding a target that shares code with an existing one, add a second
-`// FUNCTION: BETA10 0x...` marker above the same body — do not duplicate `.c` files.
+original DLL. Keep `layout/` in VCS.
 
 ## Intake Procedure
 
-### 0. Fast Path — `rebrew intake`
+### 0. Toolchain ID + optional recon
 
-For a brand-new project directory, `rebrew intake <binary>` performs the whole
-onboarding in one shot: toolchain detection → `rebrew init` with a matching
-profile → copy binary → optional symlink of the vendored toolchain tree into
-`tools/` (build-source nicety; compile still uses the docker image) →
-discoverer-plugin enumeration → document every function (STUB .c + metadata
-blocker).
-The result is a lint-clean project where every function is matched or
-blocker-documented.  Use `--toolchain` to override the auto-detected profile,
-`--dry-run` to preview.  Use the manual procedure below when you need to
-customize a step.
+Before FLIRT/catalog, confirm the compiler family (MSVC vs MinGW vs DOS MZ vs NE).
+Decision tree / packing: `references/toolchain-id.md`. Prefer `rebrew intake` or
+`rebrew init --guess-compiler`; override with `--toolchain` when headers lie.
 
-### 0b. Identify the Toolchain First
+Optional fingerprints / `pe-info` / crypto-scan / `security-scan`:
+`references/binary-recon.md`.
 
-Before FLIRT/catalog, determine the compiler family (MSVC vs MinGW vs DOS MZ vs NE).
-Decision tree, packing (LZEXE/PKLITE), and profile picks:
-`references/toolchain-id.md`. Prefer `rebrew init --guess-compiler` /
-`rebrew intake`; override with `--toolchain` when headers lie.
-
-### 0c–0d. Optional recon
-
-Fingerprints, `pe-info`, crypto-scan, and source `security-scan` are optional
-before triage — see `references/binary-recon.md`.
+### 1. Doctor
 
 ```bash
 rebrew doctor                           # validate config, binary, toolchain, metadata
@@ -95,8 +96,8 @@ rebrew cfg list-targets                 # confirm target is configured
 ```
 
 Exit 1 on any `fail`. `--json` → `checks[].fix` repair commands. Missing image →
-`rebrew toolchain build <profile>`. Config fail → `rebrew init`. Missing binary →
-place at configured path. Missing FLIRT →:
+`rebrew toolchain build <profile>`. Config fail → `rebrew init` or `rebrew intake`.
+Missing binary → place at configured path. Missing FLIRT →:
 
 ```bash
 rebrew gen-flirt-pat toolchain/msvc/6.0-win32/source/VC98/Lib/msvcrt.lib --output flirt_sigs/msvcrt_vc6.pat
@@ -206,20 +207,21 @@ rebrew sync --push --state-dir <dir>      # export annotations to the BinSync st
 (conflicts via `--accept-binsync` / `--accept-local`). MCP structural ops
 (`--create-functions`, `--bookmarks`, `--pull-data`) still need ReVa.
 
-### 10. Coverage Dashboard — the handoff
+### 10. Coverage Dashboard (optional — ask first)
 
 ```bash
 rebrew build-db                         # refresh db/coverage.db after any changes
-rebrew dashboard                        # read-only coverage UI (http://127.0.0.1:8000)
+rebrew dashboard                        # read-only UI at http://127.0.0.1:8000 (blocks the shell)
 ```
 
-`rebrew dashboard` serves the coverage DB (targets, status counts, search, globals,
-history). It blocks the shell until stopped — run it only when the user wants the
-UI handoff; do not leave it running unattended. `--port` changes the bind port.
+Only start `dashboard` when the user asks for the UI. It blocks until stopped; do
+not leave it running. `--port` changes the bind. Default handoff is
+`rebrew status --json` / `rebrew todo --json`, then `rebrew-workflow`.
 
 ## Summary Checklist
 
-Binary placed → `doctor` pass → `cfg detect-crt --write` → `flirt --json` →
-`catalog --data-json` + `--export-ghidra-labels` + `--fix-sizes` → `build-db` →
-`status`/`todo` → `graph --cu-map` → first skeletons → optional Ghidra sync →
-optional `dashboard` handoff. Then switch to `rebrew-workflow`.
+Optional `rebrew intake <binary>` (stubs only) → `doctor` pass →
+`cfg detect-crt --write` → `flirt --json` → `catalog --data-json` +
+`--export-ghidra-labels` + `--fix-sizes` → `build-db` → `status`/`todo` →
+`graph --cu-map` → first skeletons → optional Ghidra sync. Then
+`rebrew-workflow`.
