@@ -322,5 +322,6 @@ rebrew todo
 - `rebrew split` and `rebrew merge` are textual operations driven by
   `// FUNCTION:` markers; arbitrary C constructs between functions (e.g.
   file-scope statics that span declarations) may need manual fix-up.
-- `rebrew todo` does not yet have a "blocked" category for items waiting on
-  external decisions; users currently encode that in BLOCKER metadata.
+- `rebrew todo -c blocked` lists functions with non-empty `BLOCKER` text
+  (ADR-019); the category is a read-time lens over existing metadata, not a
+  separate writer.

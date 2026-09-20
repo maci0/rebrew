@@ -246,10 +246,9 @@ rebrew skills show <name> --json  # name/description/path + raw content
 - The `rebrew-ghidra-sync` skill and all CLI tools share a single canonical
   default endpoint of `http://localhost:8080/mcp/message`. (Resolved — was
   a dual-default between 8089 and 8080; see gap report for history.)
-- Skills do not yet ship a "scaffolding" skill for `rebrew init` itself;
-  initial onboarding is documented inside `rebrew-intake`.
-  (Resolved — `rebrew-init` ships; see ADR-020. Intake keeps in-project
-  scope; init owns the empty-directory case.)
+- `rebrew-init` ships bare-directory scaffolding for `rebrew init`
+  (ADR-020). Intake keeps in-project scope; init owns the empty-directory
+  case.
 - `rebrew skills list` / `rebrew skills show` provide built-in discovery
   (`--json` for machine-readable output). (Resolved — was missing; agents no
   longer need to scan the directory.)

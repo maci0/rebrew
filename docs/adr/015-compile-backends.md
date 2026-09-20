@@ -10,22 +10,26 @@ below are resolved; every shipped profile is image-backed now.
 The compile path had one backend, the local docker image for the profile's
 toolchain. A second backend exists over HTTP, served by the sibling
 `recompile` service with the same pinned images (`POST /api/v1/compile`
-plus artifact download). A branch (`fix/remote-compile-backend`) also made
-every toolchain image-backed and deleted the host/native, wibo and
-headless paths.
+plus artifact download). At acceptance, a branch
+(`fix/remote-compile-backend`) also made every toolchain image-backed and
+deleted the host/native, wibo and headless paths — but that migration could
+not land yet with the artifacts then at hand:
 
-That deletion cannot land with the artifacts at hand:
-
-- `rebrew-toolchains` has no build source for the replacement images
+- `rebrew-toolchains` had no build source for the replacement images
   (`rebrew/gcc:pe-win32`, `rebrew/gcc:linux-x64`, `rebrew/clang:linux-x64`,
-  `rebrew/watcom:2.0-win16`), and `sources.json` pins no compiler media for
+  `rebrew/watcom:2.0-win16`), and `sources.json` pinned no compiler media for
   them;
-- the one local MinGW image, `rebrew/mingw:2.0`, contains GCC 14-win32
-  while the native `mingw-16.2.0` resolves GCC 16.2.0 on this host;
+- the one local MinGW image, `rebrew/mingw:2.0`, contained GCC 14-win32
+  while the native `mingw-16.2.0` resolved GCC 16.2.0 on the host;
 - byte-exact matching requires the author's exact compiler
   (`docs/TOOLCHAIN.md`, MinGW GCC caveat), so pointing `mingw-16.2.0` at that
-  image would silently change every match result;
-- `watcom-2.0-win16` needs the 16-bit media, which is user-supplied and absent.
+  image would have silently changed every match result;
+- `watcom-2.0-win16` needed the 16-bit media, which was user-supplied and
+  absent.
+
+Those blockers were cleared in
+[ADR-016](016-image-backed-native-profiles.md); the Decision below reflects
+the backends that remain in force.
 
 ## Decision
 

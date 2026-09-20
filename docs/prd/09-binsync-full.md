@@ -205,25 +205,25 @@ rebrew binsync-diff <state-dir>                  # read-only divergence report (
 Common flags on all three: `--target NAME`, `--json`; `--dry-run` on
 export/import (`binsync-diff` is read-only and needs no dry-run).
 
-Planned (PRD target — umbrella not yet shipped):
+Shipped (umbrella; flat commands above remain peers):
 
 ```bash
 rebrew binsync init <state-dir>                  # git init + skeleton
 rebrew binsync summary <state-dir>               # dry-run preview
 rebrew binsync push <state-dir>                  # write + git commit
 rebrew binsync push <state-dir> --git-push       # write + commit + push
-rebrew binsync push <state-dir> --no-git         # write only (current binsync-export behaviour)
+rebrew binsync push <state-dir> --no-git         # write only (binsync-export behaviour)
 rebrew binsync pull <state-dir>                  # git pull + apply
 rebrew binsync pull <state-dir> --accept-binsync # accept all conflicts
 rebrew binsync pull <state-dir> --accept-local   # keep local on all conflicts
 rebrew binsync pull <state-dir> --no-git         # skip git pull
 rebrew binsync pull <state-dir> --module MSVCRT  # restrict to one module
 rebrew binsync diff <state-dir>                  # show divergences without writing
+rebrew binsync overlay <state-dir>               # overlay a related target's BinSync data
 ```
 
-Common flags across all (planned): `--target NAME`, `--json`, `--dry-run`.
-The existing `binsync-export` stays as a back-compat alias for
-`binsync push --no-git`.
+Common flags across all: `--target NAME`, `--json`, `--dry-run`.
+The existing `binsync-export` stays as a peer of `binsync push --no-git`.
 
 ## User Stories
 
