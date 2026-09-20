@@ -1,6 +1,10 @@
 """Tests for rebrew.pe_headers — PE header field read/patch/parity."""
 
+import random
 from pathlib import Path
+
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from rebrew.pe_headers import (
     PATCHABLE,
@@ -167,3 +171,132 @@ class TestPeLayout:
         # stops there instead of reading past the image.
         truncated = _fixture()[: layout.section_table_offset + SECTION_ENTRY_SIZE]
         assert len(sections_at(truncated, layout.section_table_offset, 5)) == 1
+
+
+# ---------------------------------------------------------------------------
+# Hypothesis fuzz — PE header read/patch on untrusted binary bytes
+# ---------------------------------------------------------------------------
+
+
+def _assert_pe_layout_shape(layout: object) -> None:
+    """Invariants on a successfully decoded PeLayout."""
+    from rebrew.pe_headers import PeLayout, PeSection
+
+    assert isinstance(layout, PeLayout)
+    assert layout.e_lfanew >= 0
+    assert layout.number_of_sections >= 0
+    assert layout.size_of_optional_header >= 0
+    assert layout.optional_header_offset >= 0
+    assert layout.section_table_offset >= 0
+    assert isinstance(layout.sections, tuple)
+    assert len(layout.sections) <= layout.number_of_sections
+    for section in layout.sections:
+        assert isinstance(section, PeSection)
+        assert isinstance(section.name, str)
+        assert section.header_offset >= 0
+        assert section.virtual_size >= 0
+        assert section.virtual_address >= 0
+        assert section.size_of_raw_data >= 0
+        assert section.pointer_to_raw_data >= 0
+
+
+def _exercise_pe_headers(blob: bytes) -> None:
+    """Run every public pe_headers entry point; assert shaped output or None."""
+    from rebrew.pe_headers import (
+        _pe_checksum,
+        find_section,
+        pe_layout,
+        pe_lfanew,
+        sections_at,
+    )
+
+    e_lfanew = pe_lfanew(blob)
+    assert e_lfanew is None or e_lfanew >= 0
+
+    layout = pe_layout(blob)
+    if layout is not None:
+        _assert_pe_layout_shape(layout)
+        # pe_layout clips to NumberOfSections; asking for that count again
+        # must reproduce the same table (pair assertion on the section reader).
+        again = sections_at(blob, layout.section_table_offset, layout.number_of_sections)
+        assert again == layout.sections
+        find_section(blob, ".text")
+        find_section(blob, "")
+
+    fields = read_pe_header_fields(blob)
+    if fields is not None:
+        assert isinstance(fields.values, dict)
+        for label, value in fields.values.items():
+            assert isinstance(label, str)
+            assert isinstance(value, int)
+
+    # Patch must never raise and must preserve length.
+    patch_labels = [lab for lab in sorted(PATCHABLE) if lab != "checksum"]
+    patch_map = dict.fromkeys(patch_labels[:4], 0x11)
+    patched = patch_pe_headers(blob, patch_map)
+    assert len(patched) == len(blob)
+    if fields is not None and pe_lfanew(blob) is not None:
+        again_fields = read_pe_header_fields(patched)
+        assert again_fields is not None
+        for label in patch_map:
+            written = again_fields.get(label)
+            assert written is None or isinstance(written, int)
+
+    assert isinstance(_pe_checksum(blob), int)
+    rows = header_parity(blob, patched)
+    assert isinstance(rows, list)
+    for row in rows:
+        assert "field" in row and "match" in row
+        assert isinstance(row["match"], bool)
+
+
+@settings(max_examples=200, deadline=None)
+@given(st.binary(min_size=0, max_size=768))
+def test_pe_headers_random_bytes_no_crash(blob: bytes) -> None:
+    """Arbitrary bytes: pe_headers returns shaped data or None — never
+    IndexError/struct.error/UnicodeDecodeError."""
+    _exercise_pe_headers(blob)
+
+
+@settings(max_examples=100, deadline=None)
+@given(st.binary(min_size=1, max_size=64))
+def test_pe_headers_fixture_mutation_no_crash(noise: bytes) -> None:
+    """Byte-flip / splice mutations of mini_pe.exe must degrade cleanly."""
+    base = bytearray(_fixture())
+    rng = random.Random(len(noise) * 31 + noise[0])
+    at = rng.randrange(0, max(1, len(base)))
+    end = min(len(base), at + len(noise))
+    base[at:end] = noise[: end - at]
+    for _ in range(rng.randint(1, 8)):
+        base[rng.randrange(len(base))] ^= rng.randrange(1, 256)
+    _exercise_pe_headers(bytes(base))
+
+
+@settings(max_examples=80, deadline=None)
+@given(
+    st.sampled_from(sorted(lab for lab in PATCHABLE if lab != "checksum")),
+    st.integers(min_value=0, max_value=0xFFFFFFFF),
+)
+def test_pe_headers_patch_read_roundtrip(label: str, value: int) -> None:
+    """On a valid PE, patching a PATCHABLE field then re-reading must see the
+    written value (persistence-boundary pair assertion).
+
+    ``checksum`` is excluded: ``patch_pe_headers`` always recomputes it last.
+    """
+    data = _fixture()
+    before = read_pe_header_fields(data)
+    assert before is not None and before.get(label) is not None
+    patched = patch_pe_headers(data, {label: value})
+    after = read_pe_header_fields(patched)
+    assert after is not None
+    # Writers mask to the field width; compare the masked form.
+    from rebrew.pe_headers import _FIELD_SPECS
+
+    size = next(s for _o, s, lab in _FIELD_SPECS if lab == label)
+    expected = value & ((1 << (8 * size)) - 1)
+    assert after.get(label) == expected
+    # Unrelated non-checksum fields stay put (checksum is always rewritten).
+    for other in before.values:
+        if other in (label, "checksum"):
+            continue
+        assert after.get(other) == before.get(other)

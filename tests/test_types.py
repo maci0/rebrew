@@ -2,6 +2,9 @@
 
 from pathlib import Path
 
+from hypothesis import given, settings
+from hypothesis import strategies as st
+
 from rebrew.types import StructDef, parse_structs
 
 
@@ -37,6 +40,83 @@ class TestParseStructs:
     def test_unknown_returns_empty(self) -> None:
         assert parse_structs("int x;") == {}
         assert parse_structs("") == {}
+
+
+# ---------------------------------------------------------------------------
+# Hypothesis fuzz — parse_structs on untrusted C text
+# ---------------------------------------------------------------------------
+
+_C_ID = st.from_regex(r"[A-Za-z_][A-Za-z0-9_]{0,12}", fullmatch=True)
+_C_TYPE = st.sampled_from(
+    ["char", "short", "int", "long", "float", "double", "void *", "int *", "char *"]
+)
+
+
+@st.composite
+def _struct_source(draw: st.DrawFn) -> str:
+    """Near-valid typedef/struct soup so tree-sitter + layout paths run."""
+    n = draw(st.integers(min_value=0, max_value=4))
+    chunks: list[str] = []
+    for _ in range(n):
+        name = draw(_C_ID)
+        nfields = draw(st.integers(min_value=0, max_value=5))
+        fields: list[str] = []
+        for _ in range(nfields):
+            kind = draw(st.sampled_from(["scalar", "array", "ptr", "junk"]))
+            fname = draw(_C_ID)
+            if kind == "scalar":
+                fields.append(f"{draw(_C_TYPE)} {fname};")
+            elif kind == "array":
+                n_el = draw(st.integers(min_value=-2, max_value=16))
+                fields.append(f"char {fname}[{n_el}];")
+            elif kind == "ptr":
+                fields.append(f"int *{fname};")
+            else:
+                fields.append(draw(st.text(max_size=24)))
+        body = " ".join(fields)
+        if draw(st.booleans()):
+            chunks.append(f"typedef struct {{ {body} }} {name};")
+        else:
+            chunks.append(f"struct {name} {{ {body} }};")
+        if draw(st.booleans()):
+            chunks.append(draw(st.text(max_size=40)))
+    if not chunks:
+        return draw(st.text(max_size=200))
+    return "\n".join(chunks)
+
+
+def _assert_struct_map_shape(structs: dict[str, StructDef]) -> None:
+    for name, sdef in structs.items():
+        assert isinstance(name, str) and name
+        assert isinstance(sdef, StructDef)
+        assert sdef.name == name
+        assert sdef.size >= 0
+        assert isinstance(sdef.complete, bool)
+        prev_offset = -1
+        for field_name, spelling, offset in sdef.fields:
+            assert isinstance(field_name, str) and field_name
+            assert isinstance(spelling, str) and spelling
+            assert isinstance(offset, int) and offset >= 0
+            # Offsets are non-decreasing; zero-width fields (e.g. ``T x[0]``)
+            # may share an offset with the next field.
+            assert offset >= prev_offset
+            assert offset <= sdef.size
+            prev_offset = offset
+
+
+@settings(max_examples=150, deadline=None)
+@given(st.text(max_size=400))
+def test_parse_structs_random_text_no_crash(text: str) -> None:
+    """Arbitrary text: parse_structs returns a shaped map — never raises."""
+    _assert_struct_map_shape(parse_structs(text))
+
+
+@settings(max_examples=150, deadline=None)
+@given(_struct_source())
+def test_parse_structs_structured_source_invariants(src: str) -> None:
+    """Structure-aware C fragments exercise typedef/tag/array/pointer layout
+    without crashing; successful defs keep monotonic non-overlapping offsets."""
+    _assert_struct_map_shape(parse_structs(src))
 
 
 class TestStructSizes:
