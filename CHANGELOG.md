@@ -6,6 +6,14 @@
   Matched/Identified cards carry titles that explain the percentages.
 
 ### Fixed
+- **Wheel METADATA classifiers match the shipped artifact.** ``Typing :: Typed``
+  (``py.typed`` already packaged), ``Environment :: Console``, and
+  ``Intended Audience :: Developers`` are declared so PyPI / type-checkers
+  do not treat the distribution as an untyped library.
+- **README long-description links are absolute** so PyPI-rendered wheel
+  METADATA does not 404 on ``docs/…`` / ``CONTRIBUTING.md`` hrefs.
+- **Package-data ships every ``agent-skills/**`` asset** (not only ``*.md``),
+  so a non-markdown skill reference cannot drop out of the wheel.
 - **``[project.lint]`` enum typos no longer silently disable style rules.**
   Unknown ``naming_convention`` / ``brace_style`` / ``indent_style`` values
   warn and fall back to ``none``; unrecognized lint keys warn like other

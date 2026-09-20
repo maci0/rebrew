@@ -108,7 +108,7 @@ Six bundled skills for AI coding agent integration:
 > **Host requirements:** Linux x86_64 with Docker. Every Windows/DOS compiler
 > profile executes inside its toolchain image (wine/DOSBox live in the image;
 > there is no host wine path) — build or pull it with
-> `rebrew toolchain build <name>` (see [docs/TOOLCHAIN.md](docs/TOOLCHAIN.md)).
+> `rebrew toolchain build <name>` (see [docs/TOOLCHAIN.md](https://github.com/maci0/rebrew/blob/main/docs/TOOLCHAIN.md)).
 > Shipped compiler images are `*-linux-x64` / `*-win32` / `*-win16`; CI runs on
 > `ubuntu-latest` (x86_64). Analysis-only commands (`asm`, `analyze`, `flirt`,
 > `catalog`, …) are pure Python 3.13+ and avoid host-OS assumptions in path and
@@ -243,7 +243,7 @@ Typical progress runs `STUB` → `NEAR_MATCHING` → `EXACT` / `RELOC`, with
 `PROVEN` for code that is semantically correct but structurally different.
 `EXACT`, `RELOC`, and `PROVEN` count as matched work (`rebrew status` and
 `rebrew todo` summarize the rest).  Source-marker mechanics live in
-[docs/ANNOTATIONS.md](docs/ANNOTATIONS.md).
+[docs/ANNOTATIONS.md](https://github.com/maci0/rebrew/blob/main/docs/ANNOTATIONS.md).
 
 ## Supported Platforms
 
@@ -294,7 +294,7 @@ codegen differences.  Profile selection happens automatically on
 Clean clone needs **uv**, **Python 3.13+** (`.python-version`), **nasm** on
 `PATH`, and a sibling [`resembl`](https://github.com/maci0/resembl) checkout at
 `../resembl` (tag `v2.0.0`, matching CI `RESEMBL_REF` / `uv.lock`).  See
-[`CONTRIBUTING.md`](CONTRIBUTING.md); `make help` lists targets.
+[`CONTRIBUTING.md`](https://github.com/maci0/rebrew/blob/main/CONTRIBUTING.md); `make help` lists targets.
 Run the following from the directory that will hold both checkouts:
 
 ```bash
@@ -314,7 +314,7 @@ uv run python tools/sync_decomp_flags.py  # sync compiler flags from decomp.me
 
 ### Flag Sweep Tiers
 
-The flag sweep uses compiler flag definitions synced from [decomp.me](https://github.com/decompme/decomp.me). The `generate_flag_combinations(tier)` function supports five effort levels: `quick` (192 combos), `targeted` (~1.2K combos), `normal` (~5.4K combos), `thorough` (~258K combos), and `full` (~6.2M combos; stride-sampled down to a 100K memory bound). The `msvc-6.0` compiler profile automatically excludes incompatible MSVC 7.x+ flags. See [docs/FLAG_SWEEP_TIERS.md](docs/FLAG_SWEEP_TIERS.md).
+The flag sweep uses compiler flag definitions synced from [decomp.me](https://github.com/decompme/decomp.me). The `generate_flag_combinations(tier)` function supports five effort levels: `quick` (192 combos), `targeted` (~1.2K combos), `normal` (~5.4K combos), `thorough` (~258K combos), and `full` (~6.2M combos; stride-sampled down to a 100K memory bound). The `msvc-6.0` compiler profile automatically excludes incompatible MSVC 7.x+ flags. See [docs/FLAG_SWEEP_TIERS.md](https://github.com/maci0/rebrew/blob/main/docs/FLAG_SWEEP_TIERS.md).
 
 ## Ecosystem & Related Tools
 

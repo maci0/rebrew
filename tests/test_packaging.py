@@ -105,6 +105,19 @@ class TestPackagingMetadata:
         assert (ROOT / "LICENSE").is_file()
         assert "LICENSE" in proj.get("license-files", ["LICENSE"])
 
+    def test_classifiers_declare_typed_console_package(self) -> None:
+        """Wheel METADATA must advertise PEP 561 + CLI audience honestly.
+
+        ``py.typed`` already ships via package-data; without ``Typing :: Typed``
+        PyPI / type-checkers treat the distribution as untyped at the index
+        level.  Console + Developers match the installed artifact (73 console
+        scripts, no GUI).
+        """
+        classifiers = set(_project()["classifiers"])
+        assert "Typing :: Typed" in classifiers
+        assert "Environment :: Console" in classifiers
+        assert "Intended Audience :: Developers" in classifiers
+
     def test_optional_dependencies_are_pypi_safe(self) -> None:
         """Wheel Requires-Dist must not carry git/path/direct-URL pins.
 
@@ -203,16 +216,28 @@ class TestPackagedDataFiles:
     def test_package_data_globs_cover_skills(self) -> None:
         data = tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))
         pkg_data = data["tool"]["setuptools"]["package-data"]["rebrew"]
-        assert any("agent-skills" in g for g in pkg_data)
+        assert any(g.startswith("agent-skills/") for g in pkg_data)
         assert "PRINCIPLES.md" in pkg_data
         assert any(g.endswith("py.typed") or g == "py.typed" for g in pkg_data)
         assert "**/py.typed" in pkg_data
+        # All skill assets (not only *.md) so a non-markdown reference ships.
+        assert "agent-skills/**/*" in pkg_data
 
     def test_project_urls_include_issues_and_changelog(self) -> None:
         urls = _project()["urls"]
         assert urls["Homepage"].startswith("https://github.com/")
         assert urls["Issues"].endswith("/issues")
         assert "CHANGELOG" in urls["Changelog"]
+
+    def test_readme_long_description_links_are_absolute(self) -> None:
+        """PyPI renders README.md as the long description; relative links 404.
+
+        Keep markdown hrefs absolute (``https://github.com/maci0/rebrew/...``)
+        so the wheel METADATA description stays navigable off-repo.
+        """
+        text = (ROOT / "README.md").read_text(encoding="utf-8")
+        relative = re.findall(r"\[[^\]]*\]\((?!https?://|mailto:|#)([^)]+)\)", text)
+        assert relative == [], f"README has relative markdown links: {relative}"
 
 
 class TestSdistManifest:
@@ -280,3 +305,57 @@ class TestSdistManifest:
         ]
         assert bad == [], f"sdist contains egg-info residue: {bad}"
         assert any(n.endswith("SOURCES.txt") for n in egg_files), egg_files
+        # setuptools force-writes an empty egg_info stub into the sdist after
+        # MANIFEST processing (same class as SOURCES.txt) — accept only that
+        # harmless form, never a real setuptools config.
+        setup_cfgs = [n for n in names if n.endswith("/setup.cfg") or n.endswith("setup.cfg")]
+        if setup_cfgs:
+            assert len(setup_cfgs) == 1, setup_cfgs
+            with tarfile.open(sdists[0]) as tf:
+                raw = tf.extractfile(setup_cfgs[0])
+                assert raw is not None
+                body = raw.read().decode()
+            assert body.strip() == "[egg_info]\ntag_build = \ntag_date = 0"
+
+    def test_built_wheel_ships_skill_tree_and_typing_marker(self, tmp_path: Path) -> None:
+        """Wheel must carry every on-disk skill asset plus Typing :: Typed."""
+        import os
+        import subprocess
+        import zipfile
+
+        out = tmp_path / "dist"
+        out.mkdir()
+        env = os.environ.copy()
+        env.update(
+            {
+                "SOURCE_DATE_EPOCH": "0",
+                "TZ": "UTC",
+                "LC_ALL": "C",
+                "PYTHONHASHSEED": "0",
+            }
+        )
+        proc = subprocess.run(
+            ["uv", "build", "--wheel", "--out-dir", str(out)],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+        assert proc.returncode == 0, proc.stderr or proc.stdout
+        wheels = list(out.glob("*.whl"))
+        assert len(wheels) == 1, wheels
+        with zipfile.ZipFile(wheels[0]) as zf:
+            names = set(zf.namelist())
+            meta = zf.read(next(n for n in names if n.endswith(".dist-info/METADATA"))).decode()
+        skills_root = PKG / "agent-skills"
+        missing = [
+            f"rebrew/agent-skills/{p.relative_to(skills_root).as_posix()}"
+            for p in skills_root.rglob("*")
+            if p.is_file()
+            and f"rebrew/agent-skills/{p.relative_to(skills_root).as_posix()}" not in names
+        ]
+        assert missing == [], f"wheel missing skill assets: {missing}"
+        assert "rebrew/py.typed" in names
+        assert "Typing :: Typed" in meta
+        assert "Environment :: Console" in meta
