@@ -1504,3 +1504,22 @@ command = "wine toolchain/msvc/6.0-win32/VC98/Bin/CL.EXE"
             cfg.compiler_includes
             == tmp_path / "toolchain" / "msvc" / "6.0-win32" / "source" / "VC98" / "Include"
         )
+
+
+class TestConfigPublicExports:
+    """Documented ``from rebrew.config import load_config`` stays star-import safe."""
+
+    def test_all_lists_documented_entry_points(self) -> None:
+        import rebrew.config as config
+
+        required = {"ProjectConfig", "find_root", "load_config", "validate_http_url"}
+        assert required <= set(config.__all__)
+        for name in config.__all__:
+            assert getattr(config, name, None) is not None, name
+
+    def test_star_import_excludes_stdlib(self) -> None:
+        ns: dict[str, object] = {}
+        exec("from rebrew.config import *", ns)  # noqa: S102
+        exported = {k for k in ns if not k.startswith("_")}
+        assert "load_config" in exported
+        assert not {"os", "re", "sys", "Path", "Any"} & exported

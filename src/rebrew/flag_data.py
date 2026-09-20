@@ -236,3 +236,17 @@ GCC_SWEEP_TIERS: dict[str, list[str] | None] = {
     "thorough": ["gcc_opt", "gcc_fomit_frame_pointer", "gcc_fno_builtin"],
     "full": None,
 }
+
+__all__ = [
+    "BORLAND_FLAGS",
+    "BORLAND_SWEEP_TIERS",
+    "COMMON_MSVC_FLAGS",
+    "GCC_FLAGS",
+    "GCC_SWEEP_TIERS",
+    "MSVC152_FLAGS",
+    "MSVC152_SWEEP_TIERS",
+    "MSVC6_FLAGS",
+    "MSVC_SWEEP_TIERS",
+    "WATCOM_FLAGS",
+    "WATCOM_SWEEP_TIERS",
+]

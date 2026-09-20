@@ -242,3 +242,11 @@ def compile_source(
                 )
             return _download_artifact(http, url, body, artifact_url)
         return RecompileResult(ok=False, log=str(body.get("log", "")))
+
+
+__all__ = [
+    "RecompileError",
+    "RecompileErrorKind",
+    "RecompileResult",
+    "compile_source",
+]

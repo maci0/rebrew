@@ -56,16 +56,30 @@ def min_valid_va_for(cfg: Any) -> int:
 
 
 __all__ = [
+    "ALL_KNOWN_KEYS",
     "Annotation",
-    "MIN_VALID_VA",
-    "VALID_MARKERS",
+    "DATA_MARKERS",
+    "FUNCTION_MARKERS",
     "METADATA_KEYS",
+    "MIN_VALID_VA",
+    "OPTIONAL_KEYS",
+    "VALID_MARKERS",
     "has_skip_annotation",
+    "make_func_entry",
+    "marker_for_module",
     "min_valid_va_for",
     "module_for_va",
     "parse_c_file_multi",
+    "parse_c_file_text",
+    "parse_library_header",
+    "parse_new_format",
+    "parse_new_format_multi",
     "parse_source_metadata",
+    "remove_annotation_key",
+    "remove_inline_annotation_key",
     "resolve_symbol",
+    "split_annotation_sections",
+    "update_annotation_key",
     "update_size_annotation",
 ]
 

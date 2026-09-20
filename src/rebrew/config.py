@@ -1377,3 +1377,15 @@ def load_config(
     cfg.cache_backend = _as_str(cache_raw.get("backend"), "diskcache", "cache.backend")
 
     return cfg
+
+
+__all__ = [
+    "FUNCTION_STRUCTURE_JSON",
+    "LinkConfig",
+    "ProjectConfig",
+    "detect_crt_sources",
+    "find_root",
+    "load_config",
+    "profile_flags_style",
+    "validate_http_url",
+]

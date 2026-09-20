@@ -123,7 +123,13 @@ def _rng() -> random.Random:
 def test_documented_mutation_selection() -> None:
     from random import Random
 
+    import rebrew.matcher as matcher
     from rebrew.matcher import mutate_code
+
+    # Documented ``from rebrew.matcher import mutate_code`` must stay in __all__
+    # so star-imports and API listings match the GA_MUTATIONS quickstart.
+    assert "mutate_code" in matcher.__all__
+    assert "ALL_MUTATIONS" in matcher.__all__
 
     source = "int choose(int x) { if (x) return 1; else return 2; }"
     rng = Random(0)

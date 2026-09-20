@@ -354,7 +354,13 @@ class TestAnnotationAllExports:
         """Critical public names must appear in __all__."""
         required = {
             "Annotation",
+            "FUNCTION_MARKERS",
+            "DATA_MARKERS",
             "parse_c_file_multi",
+            "parse_library_header",
+            "parse_new_format_multi",
+            "remove_annotation_key",
+            "update_annotation_key",
             "update_size_annotation",
         }
         missing = required - set(annotation_all)

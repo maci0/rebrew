@@ -48,6 +48,7 @@ from .core import (
 )
 from .mutations.runtime import set_target_range as set_target_range
 from .mutator import *  # noqa: F403 — mutator.py defines __all__
+from .mutator import __all__ as _MUTATOR_ALL
 from .parsers import (
     extract_function_from_binary as extract_function_from_binary,
 )
@@ -140,3 +141,7 @@ __all__ = [
     "set_target_range",
     "structural_similarity",
 ]
+# Packaged mut_* ops + mutate_code / ALL_MUTATIONS arrive via ``import *``
+# above; fold mutator's __all__ so ``from rebrew.matcher import *`` and
+# static re-export lists match the documented public GA surface.
+__all__ += [name for name in _MUTATOR_ALL if name not in __all__]

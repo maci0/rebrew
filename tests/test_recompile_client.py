@@ -13,6 +13,24 @@ from rebrew.compile import _compile_via_recompile, recompile_url
 from rebrew.recompile_client import RecompileError, _same_origin_artifact_url, compile_source
 
 
+def test_recompile_client_public_all() -> None:
+    """Star-imports must not leak typing/stdlib names into consumer namespaces."""
+    import rebrew.recompile_client as rc
+
+    assert rc.__all__ == [
+        "RecompileError",
+        "RecompileErrorKind",
+        "RecompileResult",
+        "compile_source",
+    ]
+    for name in rc.__all__:
+        assert getattr(rc, name, None) is not None, name
+    ns: dict[str, Any] = {}
+    exec("from rebrew.recompile_client import *", ns)  # noqa: S102
+    exported = {k for k in ns if not k.startswith("_")}
+    assert exported == set(rc.__all__)
+
+
 class _Resp:
     def __init__(
         self,

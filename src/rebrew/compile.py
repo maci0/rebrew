@@ -2248,3 +2248,32 @@ def compile_and_compare_linked(
 
             with contextlib.suppress(OSError):
                 remove_temp_dir(workdir)
+
+
+__all__ = [
+    "CompareResult",
+    "CompareStatus",
+    "NEAR_MATCH_THRESHOLD",
+    "build_linked_link_cmd",
+    "classify_compare_result",
+    "classify_match_status",
+    "cleanup_batch_obj_dirs",
+    "compile_and_compare",
+    "compile_and_compare_linked",
+    "compile_batch_objs",
+    "compile_to_obj",
+    "contextualized_source",
+    "extract_include_dirs",
+    "extract_linked_slice",
+    "filter_wine_stderr",
+    "is_matched",
+    "linked_pad_size",
+    "linked_shell_source",
+    "matched_byte_count",
+    "maybe_headless_wine",
+    "precompile_batch",
+    "recompile_url",
+    "resolve_cl_command",
+    "resolve_compiler_env",
+    "resolve_include_flags",
+]

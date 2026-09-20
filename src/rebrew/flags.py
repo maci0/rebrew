@@ -27,3 +27,9 @@ class Checkbox:
 
 
 type Flags = list[FlagSet | Checkbox]
+
+__all__ = [
+    "Checkbox",
+    "FlagSet",
+    "Flags",
+]
