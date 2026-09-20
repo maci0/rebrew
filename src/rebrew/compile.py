@@ -1362,13 +1362,22 @@ def cleanup_batch_obj_dirs() -> None:
     Safe to call when none exist.  Verify invokes this after extracting
     symbol bytes so long-lived processes do not accumulate one dir per
     ``--full`` run; an atexit registration is the crash backstop.
+
+    A path is dropped from the tracking list only after a successful remove
+    (or when it is already gone).  A busy mount that raises leaves the entry
+    for the next cleanup / atexit pass instead of orphaning it on disk with
+    no retry handle.
     """
     from rebrew.utils import remove_temp_dir
 
+    remaining: list[Path] = []
     while _BATCH_OBJ_DIRS:
         path = _BATCH_OBJ_DIRS.pop()
-        with contextlib.suppress(OSError):
+        try:
             remove_temp_dir(path)
+        except OSError:
+            remaining.append(path)
+    _BATCH_OBJ_DIRS.extend(remaining)
 
 
 def _register_batch_obj_atexit() -> None:

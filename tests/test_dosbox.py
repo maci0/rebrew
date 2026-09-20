@@ -30,6 +30,7 @@ class TestSandboxLifecycle:
         # Fresh process state for the once-guard (module may already be armed).
         monkeypatch.setattr(dosbox, "_SANDBOX_ATEXIT_REGISTERED", False)
         monkeypatch.setattr(dosbox, "_SANDBOXES", [])
+        monkeypatch.setattr(dosbox, "_SANDBOX_BY_PREFIX", {})
         sandbox = make_sandbox_dir("rebrew-test-sandbox-")
         second = make_sandbox_dir("rebrew-test-sandbox2-")
         assert sandbox.is_dir() and second.is_dir()
@@ -40,6 +41,25 @@ class TestSandboxLifecycle:
         assert not sandbox.exists(), "sandbox must be removed by the exit hook"
         assert not second.exists()
         assert dosbox._SANDBOXES == []
+        assert dosbox._SANDBOX_BY_PREFIX == {}
+
+    def test_same_prefix_reuses_sandbox(self, monkeypatch) -> None:
+        """Repeated default compiles must not accumulate one dir per call."""
+        import rebrew.dosbox as dosbox
+
+        monkeypatch.setattr(dosbox, "_SANDBOX_ATEXIT_REGISTERED", True)
+        monkeypatch.setattr(dosbox, "_SANDBOXES", [])
+        monkeypatch.setattr(dosbox, "_SANDBOX_BY_PREFIX", {})
+        first = make_sandbox_dir("rebrew-test-reuse-")
+        second = make_sandbox_dir("rebrew-test-reuse-")
+        assert first == second
+        assert [first] == dosbox._SANDBOXES
+        from rebrew.dosbox import release_sandbox
+
+        release_sandbox(first)
+        assert not first.exists()
+        assert dosbox._SANDBOXES == []
+        assert dosbox._SANDBOX_BY_PREFIX == {}
 
     def test_sandbox_gone_after_process_exit(self) -> None:
         """End-to-end: a child process creating a default sandbox leaves no

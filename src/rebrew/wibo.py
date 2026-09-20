@@ -75,18 +75,33 @@ def _trusted_wibo_download_url(url: str) -> str:
     return url
 
 
+def _close_response(resp: Any) -> None:
+    """Close an httpx response when the stand-in exposes ``.close`` (tests do)."""
+    close = getattr(resp, "close", None)
+    if callable(close):
+        with contextlib.suppress(Exception):
+            close()
+
+
 def _get_with_trusted_redirects(url: str) -> httpx.Response:
-    """GET *url*, following redirects only while each hop stays on the allow-list."""
+    """GET *url*, following redirects only while each hop stays on the allow-list.
+
+    Intermediate 3xx responses are closed before the next hop so a multi-redirect
+    download does not pin one connection (and its pool slot) per hop until GC.
+    The final response is owned by the caller.
+    """
     current = _trusted_wibo_download_url(url)
     for _ in range(10):
         resp = httpx.get(current, timeout=_NETWORK_TIMEOUT_S, follow_redirects=False)
-        if resp.status_code in {301, 302, 303, 307, 308}:
+        if resp.status_code not in {301, 302, 303, 307, 308}:
+            return resp
+        try:
             location = resp.headers.get("location")
             if not location:
                 raise RuntimeError(f"wibo download redirect missing Location from {current!r}")
             current = _trusted_wibo_download_url(urljoin(current, location))
-            continue
-        return resp
+        finally:
+            _close_response(resp)
     raise RuntimeError(f"wibo download exceeded redirect limit from {url!r}")
 
 
@@ -94,17 +109,20 @@ def _read_release_metadata() -> dict[str, Any]:
     """Fetch and parse latest release metadata from GitHub."""
     try:
         resp = httpx.get(_WIBO_API_URL, timeout=_NETWORK_TIMEOUT_S, follow_redirects=True)
-        resp.raise_for_status()
     except httpx.HTTPError as exc:
         raise RuntimeError(
             f"Failed to fetch wibo release metadata from {_WIBO_API_URL}: {exc}"
         ) from exc
     try:
-        data = resp.json()
-    except ValueError as exc:
-        raise RuntimeError(
-            f"Invalid JSON in wibo release metadata from {_WIBO_API_URL}: {exc}"
-        ) from exc
+        resp.raise_for_status()
+        try:
+            data = resp.json()
+        except ValueError as exc:
+            raise RuntimeError(
+                f"Invalid JSON in wibo release metadata from {_WIBO_API_URL}: {exc}"
+            ) from exc
+    finally:
+        _close_response(resp)
     if not isinstance(data, dict):
         raise RuntimeError("Invalid wibo release metadata response")
     return data
@@ -146,13 +164,17 @@ def download_wibo(dest: Path) -> str:
     dest.parent.mkdir(parents=True, exist_ok=True)
     try:
         resp = _get_with_trusted_redirects(download_url)
-        resp.raise_for_status()
+        try:
+            resp.raise_for_status()
+            body = resp.content
+        finally:
+            _close_response(resp)
     except httpx.HTTPError as exc:
         raise RuntimeError(
             f"Failed to download wibo asset {asset_name} from {download_url}: {exc}"
         ) from exc
 
-    actual_sha256 = hashlib.sha256(resp.content).hexdigest()
+    actual_sha256 = hashlib.sha256(body).hexdigest()
     if actual_sha256 != expected_sha256:
         raise RuntimeError(
             f"SHA256 mismatch for downloaded wibo: expected {expected_sha256}, got {actual_sha256}"
@@ -164,7 +186,7 @@ def download_wibo(dest: Path) -> str:
         f = os.fdopen(fd, "wb")
         fd = -1
         with f:
-            f.write(resp.content)
+            f.write(body)
         os.chmod(tmp_path, stat.S_IRUSR | stat.S_IXUSR)
         os.replace(tmp_path, str(dest))
     except BaseException:

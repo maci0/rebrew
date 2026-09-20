@@ -50,6 +50,11 @@ class DosboxError(RuntimeError):
 #: One atexit hook sweeps the list — registering ``rmtree`` per call would
 #: accumulate one callback (and leave every dir live) until process exit.
 _SANDBOXES: list[Path] = []
+#: Reuse one live sandbox per *prefix* so a long-lived process that compiles
+#: many 16-bit TUs (msvc16/tc16/delphi16 default workdirs) does not accumulate
+#: one dir + staged tree per call until atexit.  Callers that need an isolated
+#: tree pass their own *workdir* and own its lifetime.
+_SANDBOX_BY_PREFIX: dict[str, Path] = {}
 _SANDBOX_ATEXIT_REGISTERED = False
 
 
@@ -61,19 +66,25 @@ def make_sandbox_dir(prefix: str) -> Path:
     /work, so the user's home is preferred when writable; read-only homes
     (sandboxed / CI) fall back to the workspace ``.cache`` and TMPDIR.
 
-    The sandbox is removed when the process exits — each 16-bit compile stages
-    compiler trees and RTL units into its sandbox, so without the hook one
-    dir leaks into ``~/.cache/rebrew/tmp`` per invocation.  Callers that must
-    keep a sandbox for post-mortem inspection pass their own *workdir*
-    instead and own its lifetime.
+    Repeated calls with the same *prefix* reuse the same directory (stale
+    ``.OBJ``/``.EXE`` cleanup in the 16-bit compilers already assumes reuse).
+    Distinct prefixes still get distinct dirs.  Every tracked sandbox is
+    removed at process exit; :func:`release_sandbox` reclaims one earlier.
+    Callers that must keep a sandbox for post-mortem inspection pass their
+    own *workdir* instead and own its lifetime.
 
     Raises :class:`DosboxError` when no candidate is writable."""
     from rebrew.utils import writable_temp_dir
+
+    existing = _SANDBOX_BY_PREFIX.get(prefix)
+    if existing is not None and existing.is_dir():
+        return existing
 
     try:
         sandbox = writable_temp_dir(prefix)
     except OSError as exc:
         raise DosboxError(str(exc)) from exc
+    _SANDBOX_BY_PREFIX[prefix] = sandbox
     _SANDBOXES.append(sandbox)
     global _SANDBOX_ATEXIT_REGISTERED
     if not _SANDBOX_ATEXIT_REGISTERED:
@@ -84,8 +95,29 @@ def make_sandbox_dir(prefix: str) -> Path:
     return sandbox
 
 
+def release_sandbox(path: Path) -> None:
+    """Remove a sandbox previously returned by :func:`make_sandbox_dir`.
+
+    Idempotent: unknown or already-removed paths are ignored.  Prefer this
+    over waiting for atexit when the caller no longer needs the staged tree.
+    """
+    resolved = path.resolve()
+    stale_prefixes = [p for p, s in _SANDBOX_BY_PREFIX.items() if s.resolve() == resolved]
+    for p in stale_prefixes:
+        _SANDBOX_BY_PREFIX.pop(p, None)
+    try:
+        _SANDBOXES.remove(path)
+    except ValueError:
+        for i, s in enumerate(_SANDBOXES):
+            if s.resolve() == resolved:
+                del _SANDBOXES[i]
+                break
+    shutil.rmtree(path, ignore_errors=True)
+
+
 def _cleanup_sandboxes() -> None:
     """atexit: remove every sandbox created by :func:`make_sandbox_dir`."""
+    _SANDBOX_BY_PREFIX.clear()
     while _SANDBOXES:
         shutil.rmtree(_SANDBOXES.pop(), ignore_errors=True)
 
@@ -151,4 +183,10 @@ def read_uppercase(sandbox: Path, name: str) -> str:
     return ""
 
 
-__all__ = ["DosboxError", "make_sandbox_dir", "read_uppercase", "run_dosbox"]
+__all__ = [
+    "DosboxError",
+    "make_sandbox_dir",
+    "read_uppercase",
+    "release_sandbox",
+    "run_dosbox",
+]

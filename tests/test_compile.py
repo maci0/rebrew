@@ -1188,6 +1188,29 @@ class TestPrecompileBatchCleanup:
         for ld in lasting_dirs:
             assert not ld.exists(), f"lasting obj dir leaked: {ld}"
 
+    def test_cleanup_retains_busy_dirs_for_retry(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A failed remove must leave the path tracked for the next cleanup."""
+        import rebrew.compile as compile_mod
+
+        busy = tmp_path / "busy_objs"
+        busy.mkdir()
+        gone = tmp_path / "gone_objs"
+        gone.mkdir()
+        monkeypatch.setattr(compile_mod, "_BATCH_OBJ_DIRS", [busy, gone])
+
+        def _remove(path: Path, retries: int = 5, delay: float = 0.2) -> None:
+            if path == busy:
+                raise OSError("Device or resource busy")
+            path.rmdir()
+
+        monkeypatch.setattr("rebrew.utils.remove_temp_dir", _remove)
+        compile_mod.cleanup_batch_obj_dirs()
+        assert [busy] == compile_mod._BATCH_OBJ_DIRS
+        assert busy.is_dir()
+        assert not gone.exists()
+
 
 class TestEffectiveCompileFlags:
     def test_includes_base_cflags_and_defines(self, tmp_path: Path) -> None:

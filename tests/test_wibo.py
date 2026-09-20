@@ -26,6 +26,7 @@ class _FakeHTTPResponse:
             self.text = payload.decode("utf-8", errors="replace")
         self.status_code = status_code
         self.headers: dict[str, str] = {}
+        self.closed = False
 
     def json(self) -> dict:  # type: ignore[type-arg]
         return json.loads(self.text)
@@ -33,6 +34,9 @@ class _FakeHTTPResponse:
     def raise_for_status(self) -> None:
         if self.status_code >= 400:
             raise RuntimeError(f"HTTP {self.status_code}")
+
+    def close(self) -> None:
+        self.closed = True
 
 
 def _release_payload(digest: str) -> str:
@@ -233,7 +237,9 @@ class TestDoctorCheckRunner:
 
 class TestDownloadWiboErrors:
     def _meta(self, payload: object) -> SimpleNamespace:
-        return SimpleNamespace(raise_for_status=lambda: None, json=lambda: payload)
+        return SimpleNamespace(
+            raise_for_status=lambda: None, json=lambda: payload, close=lambda: None
+        )
 
     def test_metadata_fetch_failure(self, monkeypatch: pytest.MonkeyPatch) -> None:
         import httpx
@@ -349,3 +355,30 @@ class TestDownloadWiboErrors:
         monkeypatch.setattr("rebrew.wibo.httpx.get", get)
         with pytest.raises(RuntimeError, match="Failed to download wibo asset"):
             wibo_mod.download_wibo(Path("/tmp/wibo"))
+
+
+class TestTrustedRedirects:
+    def test_intermediate_redirects_are_closed(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Each 3xx hop must release its response before the next GET."""
+        hops = [
+            "https://github.com/decompals/wibo/releases/download/v1/wibo",
+            "https://objects.githubusercontent.com/github-production-release-asset/1/wibo",
+        ]
+        responses: list[_FakeHTTPResponse] = []
+
+        def _fake_httpx_get(url: str, **kwargs: object) -> _FakeHTTPResponse:
+            if url == hops[0]:
+                r = _FakeHTTPResponse(b"", status_code=302)
+                r.headers["location"] = hops[1]
+                responses.append(r)
+                return r
+            r = _FakeHTTPResponse(b"binary", status_code=200)
+            responses.append(r)
+            return r
+
+        monkeypatch.setattr("rebrew.wibo.httpx.get", _fake_httpx_get)
+        final = wibo_mod._get_with_trusted_redirects(hops[0])
+        assert final is responses[1]
+        assert responses[0].closed is True
+        assert responses[1].closed is False
+        final.close()
