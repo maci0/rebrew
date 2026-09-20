@@ -80,6 +80,63 @@ class TestPackagingMetadata:
         text = (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
         assert f"Rebrew is {major}.x." in text
 
+    def test_coverage_db_bump_since_last_tag_is_breaking_in_unreleased(self) -> None:
+        """CONTRIBUTING: coverage.db version bumps need ``**Breaking:**`` notes.
+
+        Between tags ``__version__`` stays pinned; schema bumps land under
+        ``## [Unreleased]`` and must be labeled Breaking (``--force`` rebuild
+        migration), matching schema ``"7"`` in 2.4.0.
+        """
+        import subprocess
+
+        from rebrew.build_db import _CURRENT_DB_VERSION
+
+        tag_proc = subprocess.run(
+            ["git", "describe", "--tags", "--abbrev=0"],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if tag_proc.returncode != 0 or not tag_proc.stdout.strip():
+            if os.environ.get("GITHUB_ACTIONS"):
+                pytest.fail("expected a v* tag in CI (test job must fetch tags)")
+            pytest.skip("no git tags in this checkout")
+        last_tag = tag_proc.stdout.strip()
+        show = subprocess.run(
+            ["git", "show", f"{last_tag}:src/rebrew/build_db.py"],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if show.returncode != 0:
+            pytest.skip(f"cannot read build_db.py at {last_tag}")
+        tagged = re.search(r'_CURRENT_DB_VERSION\s*=\s*"([^"]+)"', show.stdout)
+        if tagged is None:
+            pytest.skip(f"no _CURRENT_DB_VERSION at {last_tag}")
+        if tagged.group(1) == _CURRENT_DB_VERSION:
+            return
+
+        text = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+        first = next(line for line in text.splitlines() if line.startswith("## "))
+        assert first == "## [Unreleased]", (
+            f"coverage.db bumped {_CURRENT_DB_VERSION!r} past {last_tag} "
+            f"({tagged.group(1)!r}) but CHANGELOG does not open with [Unreleased]"
+        )
+        unreleased = text.split("## [Unreleased]", 1)[1]
+        next_hdr = unreleased.find("\n## [")
+        if next_hdr != -1:
+            unreleased = unreleased[:next_hdr]
+        assert "**Breaking:**" in unreleased, (
+            f"coverage.db {_CURRENT_DB_VERSION!r} (was {tagged.group(1)!r} at "
+            f"{last_tag}) must have a **Breaking:** entry under [Unreleased]"
+        )
+        assert _CURRENT_DB_VERSION in unreleased, (
+            f"[Unreleased] Breaking notes must name db_version {_CURRENT_DB_VERSION!r}"
+        )
+        assert "coverage.db" in unreleased or "db_version" in unreleased
+
     def test_requires_python_matches_ci_floor(self) -> None:
         assert _project()["requires-python"] == ">=3.13"
         python_version = (ROOT / ".python-version").read_text(encoding="utf-8").strip()

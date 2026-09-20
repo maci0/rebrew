@@ -24,6 +24,11 @@
 - **``make cli-contract``** mirrors the CI ``cli-contract`` help greps; ``make
   all`` runs it. Older-than-pin ``uv`` warns instead of blocking ``make setup``.
 - **Wheel METADATA ``Security`` project URL** points at ``SECURITY.md``.
+- **Structured MCP / recompile transport errors** — ``McpError`` carries
+  ``kind`` / ``status_code`` / ``retryable`` (same shape as
+  ``RecompileError``); remote compile optionally retries on retryable
+  failures. Public modules pin ``__all__`` so star-imports match the
+  documented integrator surface.
 
 ### Fixed
 - **``rebrew cfg set`` refuses non-empty secret keys** (e.g. ``llm.api_key``)
@@ -55,17 +60,6 @@
 - **LLM seed validation also rejects any preprocessor line, top-level
   non-function decls (globals/typedefs/structs), and prototype mismatches**
   so model output cannot widen the TU or change arity before entering the GA.
-- **Coverage DB schema v10: cell states track ``KNOWN_STATUSES``.**
-  ``cells.state`` is derived from lowercased annotation statuses plus
-  gap/data verdicts, so ``extract_error`` / ``invalid_va`` (and future
-  STATUS values) stay CHECK-valid instead of coercing to ``unknown``.
-  ``globals.status`` CHECK/sanitizer use the same ``DATA_STATUS_*``
-  constants. Rebuild with ``rebrew build-db --force``.
-- **Coverage DB schema v9: ``cells.state`` is CHECK-constrained** to the known
-  cell-state set; out-of-set values coerce to ``unknown`` on insert (matching
-  the ``functions.status`` pattern). ``idx_metadata_key`` covers key-first
-  metadata lookups. Section ``va``/``size``/``fileOffset`` clamp on insert so
-  a stray negative no longer aborts ``build-db``.
 - **Wheel METADATA classifiers match the shipped artifact.** ``Typing :: Typed``
   (``py.typed`` already packaged), ``Environment :: Console``, and
   ``Intended Audience :: Developers`` are declared so PyPI / type-checkers
@@ -123,6 +117,16 @@
   once; ``scan_globals`` / ``annotate_globals`` use name indexes instead of
   nested linear scans; GA ``mut_if_chain_to_switch`` joins case chunks
   instead of quadratic ``bytes +=``.
+- **Breaking:** **`coverage.db` `db_version` is now `"10"`** (was `"8"` at
+  2.6.0). Schema `"9"` CHECK-constrains ``cells.state`` to the known
+  cell-state set (unknowns coerce to ``unknown`` on insert) and adds
+  ``idx_metadata_key`` for key-first metadata lookups; section
+  ``va``/``size``/``fileOffset`` clamp on insert. Schema `"10"` derives the
+  ``cells.state`` known set from lowercased ``KNOWN_STATUSES`` plus gap/data
+  verdicts so ``extract_error`` / ``invalid_va`` (and future STATUS values)
+  stay CHECK-valid; ``globals.status`` uses the same ``DATA_STATUS_*``
+  constants. Existing databases refuse writes until
+  ``rebrew build-db --force`` (DROP+rebuild), same as prior schema bumps.
 - **Breaking:** **`activate()` no longer raises on unmet coeffects** (2.6.0
   raised ``ComponentError`` naming the missing services). Components whose
   ``needs`` are missing stay inactive; a later ``provide`` mounts them, and
@@ -342,13 +346,15 @@
   `TargetOption` wiring).  `rebrew cmake-flags` takes `--target` via the
   shared option; conflict exits use `EXIT_ERROR`.
 - Classifier **Development Status** is Beta (was Alpha).
+- **Breaking:** **`coverage.db` `db_version` is now `"8"`** (was `"7"`).
+  `functions.status` is CHECK-constrained to `KNOWN_STATUSES` ∪ `{UNKNOWN}`;
+  `build-db` canonicalizes case/`NEAR_MATCH` and coerces unknowns to
+  `UNKNOWN` (mirroring `globals.status`).  Unparseable VA warnings name the
+  target (not a leaked `json_path`); bool/`non-int` sizes no longer land as
+  `1` under the integer CHECKs. Existing databases refuse writes until
+  `rebrew build-db --force` (DROP+rebuild), same as prior schema bumps.
 
 ### Fixed
-- **`coverage.db` schema v8**: `functions.status` is CHECK-constrained to
-  `KNOWN_STATUSES` ∪ `{UNKNOWN}`; `build-db` canonicalizes case/`NEAR_MATCH`
-  and coerces unknowns to `UNKNOWN` (mirroring `globals.status`).  Unparseable
-  VA warnings name the target (not a leaked `json_path`); bool/`non-int`
-  sizes no longer land as `1` under the integer CHECKs.
 - **`rebrew verify --no-promote`** honours its “write NOTHING to
   `rebrew-functions.toml`” contract for `--fix-sizes` and `--prune-orphans`
   (STATUS was already gated; SIZE writes and orphan deletes were not).
