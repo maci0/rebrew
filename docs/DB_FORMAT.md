@@ -195,7 +195,7 @@ only, and `db/verify_results.json` is gone).
 | `verified_at` | `TEXT` | ISO 8601 timestamp of verification. |
 | `byte_delta` | `INTEGER` | Number of differing bytes. CHECK `>= 0` when not NULL. |
 | `diff_lines` | `INTEGER` | Number of **structural** differing disassembly lines (the register-aware diff's `structural` class; register-encoding-only diffs are *not* counted here — see `reg_delta`). Computed only for unmatched functions with compiled bytes; `NULL` when no diff was computed (matched or cached rows, no object bytes, or a diff failure). CHECK `>= 0` when not NULL. |
-| `similarity` | `REAL` | Structural code-similarity score (0.0–1.0), when computable. CHECK in `[0.0, 1.0]` when not NULL. |
+| `similarity` | `REAL` | Structural code-similarity score (0.0–1.0), when computable. CHECK in `[0.0, 1.0]` when not NULL. Imported from the verify cache's 0–100 ``Sim %`` (``code_similarity``) by dividing by 100; already-normalized unit-interval values pass through. |
 | `reg_delta` | `INTEGER` | Number of register-encoding-only differing instructions (`RR` class). `0` when the register-aware classification was skipped (non-x86-32 targets); `NULL` when no diff was computed. CHECK `>= 0` when not NULL. |
 | `effective_match` | `INTEGER` | `1` when the function is an effective match — the entire byte delta is register allocation (reccmp's 100% effective-match class; same instructions, different registers, not byte-identical). Only computable on x86-32 (register masking is x86-32 specific). CHECK `IN (0, 1)` when not NULL. |
 

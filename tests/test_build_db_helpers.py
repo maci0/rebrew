@@ -10,6 +10,9 @@ import pytest
 import typer
 
 from rebrew.build_db import (
+    _clamp_nonneg_int,
+    _clamp_unit_interval,
+    _clamp_verify_similarity,
     _function_stats,
     _normalize_cell_row,
     _parse_int,
@@ -28,6 +31,56 @@ class TestParseInt:
     def test_invalid_uses_default(self) -> None:
         assert _parse_int("zzz", default=7) == 7
         assert _parse_int(None, default=3) == 3
+
+
+class TestClampNonnegInt:
+    def test_rejects_nonfinite_floats(self) -> None:
+        """NaN/±inf must not become deltas (int(inf) raises; NaN→bound invents)."""
+        assert _clamp_nonneg_int(float("nan")) is None
+        assert _clamp_nonneg_int(float("inf")) is None
+        assert _clamp_nonneg_int(float("-inf")) is None
+
+    def test_clamps_negative(self) -> None:
+        assert _clamp_nonneg_int(-3) == 0
+        assert _clamp_nonneg_int(-1.5) == 0
+
+
+class TestClampUnitInterval:
+    def test_rejects_nonfinite(self) -> None:
+        """NaN must not become 1.0 via max/min unordered-comparison quirk."""
+        assert _clamp_unit_interval(float("nan")) is None
+        assert _clamp_unit_interval(float("inf")) is None
+        assert _clamp_unit_interval(float("-inf")) is None
+        assert _clamp_unit_interval("nan") is None
+        assert _clamp_unit_interval("NaN") is None
+        assert _clamp_unit_interval("inf") is None
+        assert _clamp_unit_interval("-inf") is None
+
+    def test_clamps_finite_out_of_range(self) -> None:
+        assert _clamp_unit_interval(1.5) == 1.0
+        assert _clamp_unit_interval(-0.1) == 0.0
+        assert _clamp_unit_interval("1.25") == 1.0
+        assert _clamp_unit_interval(0.42) == 0.42
+
+
+class TestClampVerifySimilarity:
+    def test_scales_percent_scores(self) -> None:
+        """Verify writes 0–100; DB stores 0–1 — 85.5 must not become 1.0."""
+        assert _clamp_verify_similarity(85.5) == pytest.approx(0.855)
+        assert _clamp_verify_similarity(100.0) == 1.0
+        assert _clamp_verify_similarity(50) == 0.5
+        assert _clamp_verify_similarity("72.5") == pytest.approx(0.725)
+
+    def test_keeps_unit_interval(self) -> None:
+        assert _clamp_verify_similarity(0.85) == 0.85
+        assert _clamp_verify_similarity(0.0) == 0.0
+        assert _clamp_verify_similarity(1.0) == 1.0
+
+    def test_rejects_nonfinite_and_above_100(self) -> None:
+        assert _clamp_verify_similarity(float("nan")) is None
+        assert _clamp_verify_similarity(float("inf")) is None
+        assert _clamp_verify_similarity(101.0) is None
+        assert _clamp_verify_similarity(-0.1) == 0.0
 
 
 class TestNormalizeCellRow:

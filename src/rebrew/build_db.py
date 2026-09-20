@@ -7,6 +7,7 @@ into a single SQLite database for querying and reporting.
 import contextlib
 import json
 import logging
+import math
 import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
@@ -146,13 +147,18 @@ def _parse_int(value: Any, default: int = 0) -> int:
 
 
 def _clamp_nonneg_int(value: Any) -> int | None:
-    """Return a non-negative int, or ``None`` when *value* is absent/unusable."""
+    """Return a non-negative int, or ``None`` when *value* is absent/unusable.
+
+    Non-finite floats (``NaN``, ``±inf``) are rejected: ``int(inf)`` raises,
+    and on Python 3.13+ ``max``/``min`` with ``NaN`` can silently pick a
+    bound (``max(0, min(1, nan))`` → ``1``), which would invent a delta.
+    """
     if value is None or isinstance(value, bool):
         return None
     if isinstance(value, int):
         return max(0, value)
     if isinstance(value, float):
-        if value != value:  # NaN
+        if not math.isfinite(value):
             return None
         return max(0, int(value))
     if isinstance(value, str):
@@ -167,11 +173,16 @@ def _clamp_nonneg_int(value: Any) -> int | None:
 
 
 def _clamp_unit_interval(value: Any) -> float | None:
-    """Return a float in ``[0.0, 1.0]``, or ``None`` when *value* is absent/unusable."""
+    """Return a float in ``[0.0, 1.0]``, or ``None`` when *value* is absent/unusable.
+
+    Non-finite inputs are rejected.  ``max(0.0, min(1.0, nan))`` returns
+    ``1.0`` on Python 3.13+ (unordered comparison keeps the finite bound),
+    which would store a perfect similarity for a corrupt/NaN score.
+    """
     if value is None or isinstance(value, bool):
         return None
     if isinstance(value, int | float):
-        if isinstance(value, float) and value != value:  # NaN
+        if isinstance(value, float) and not math.isfinite(value):
             return None
         return max(0.0, min(1.0, float(value)))
     if isinstance(value, str):
@@ -179,10 +190,49 @@ def _clamp_unit_interval(value: Any) -> float | None:
         if not s:
             return None
         try:
-            return max(0.0, min(1.0, float(s)))
+            parsed = float(s)
         except ValueError:
             return None
+        if not math.isfinite(parsed):
+            return None
+        return max(0.0, min(1.0, parsed))
     return None
+
+
+def _clamp_verify_similarity(value: Any) -> float | None:
+    """Normalize verify-cache similarity into the DB's ``[0.0, 1.0]`` column.
+
+    ``rebrew verify`` stores ``code_similarity`` on a 0–100 percent scale
+    (``Sim %`` in the summary table).  The coverage DB CHECK and
+    ``docs/DB_FORMAT.md`` use the unit interval.  A plain unit-interval clamp
+    therefore turns every real score above 1% into ``1.0`` (e.g. ``85.5`` →
+    perfect match).  Values in ``(1, 100]`` are treated as percents and
+    divided by 100; already-normalized ``[0, 1]`` values pass through;
+    non-finite and ``> 100`` inputs are rejected.
+    """
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, int | float):
+        if isinstance(value, float) and not math.isfinite(value):
+            return None
+        parsed = float(value)
+    elif isinstance(value, str):
+        s = value.strip()
+        if not s:
+            return None
+        try:
+            parsed = float(s)
+        except ValueError:
+            return None
+        if not math.isfinite(parsed):
+            return None
+    else:
+        return None
+    if parsed > 100.0:
+        return None
+    if parsed > 1.0:
+        parsed /= 100.0
+    return max(0.0, min(1.0, parsed))
 
 
 def _clamp_effective_match(value: Any) -> int | None:
@@ -883,9 +933,20 @@ def build_db(
                     CASE
                         WHEN similarity IS NULL THEN NULL
                         WHEN typeof(similarity) NOT IN ('integer', 'real') THEN NULL
-                        WHEN similarity < 0.0 THEN 0.0
-                        WHEN similarity > 1.0 THEN 1.0
-                        ELSE similarity
+                        -- Keep finite in-range unit-interval values.  ``x = x``
+                        -- rejects NaN; percents from verify (``(1, 100]``) are
+                        -- scaled down — a plain ``> 1 → 1.0`` clamp used to
+                        -- store every real Sim% as a perfect match.
+                        WHEN similarity = similarity
+                             AND similarity >= 0.0 AND similarity <= 1.0
+                            THEN similarity
+                        WHEN similarity = similarity
+                             AND similarity > 1.0 AND similarity <= 100.0
+                            THEN similarity / 100.0
+                        WHEN similarity = similarity
+                             AND similarity < 0.0 AND abs(similarity) < 1e300
+                            THEN 0.0
+                        ELSE NULL
                     END,
                     CASE
                         WHEN reg_delta IS NOT NULL AND typeof(reg_delta) = 'integer'
@@ -1063,10 +1124,7 @@ def build_db(
                 fn_status = canonical_status(str(fn.get("status") or "UNKNOWN"))
                 if fn_status not in _FUNCTION_DB_STATUSES:
                     fn_status = "UNKNOWN"
-                if isinstance(fn_similarity, (int, float)) and not isinstance(fn_similarity, bool):
-                    fn_similarity = max(0.0, min(1.0, float(fn_similarity)))
-                else:
-                    fn_similarity = None
+                fn_similarity = _clamp_unit_interval(fn_similarity)
                 fn_rows.append(
                     (
                         target_name,
@@ -1423,7 +1481,7 @@ def build_db(
                             vr_time,
                             _clamp_nonneg_int(item.get("delta")),
                             _clamp_nonneg_int(item.get("diff_lines")),
-                            _clamp_unit_interval(item.get("similarity")),
+                            _clamp_verify_similarity(item.get("similarity")),
                             _clamp_nonneg_int(item.get("reg_delta")),
                             _clamp_effective_match(item.get("effective_match")),
                         )

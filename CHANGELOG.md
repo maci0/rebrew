@@ -35,6 +35,13 @@
   documented integrator surface.
 
 ### Fixed
+- **``build_db`` no longer stores every verify ``Sim %`` as a perfect match** —
+  ``code_similarity`` is 0–100 in the verify cache, while
+  ``verify_results.similarity`` is the unit interval.  Import (and pre-CHECK
+  migration) now scales ``(1, 100]`` down by 100 instead of clamping to
+  ``1.0``.  Non-finite similarity/delta inputs are rejected rather than
+  becoming ``1.0`` / crashing on ``int(inf)`` via Python 3.13+ ``min``/``max``
+  NaN quirks.
 - **Dashboard `/api/globals` and `/api/history` honor `offset`** like
   `/api/functions` (they previously always returned the first page and
   reported ``offset: 0``). The HTML show-more path appends via

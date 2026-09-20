@@ -443,6 +443,32 @@ binary = "test.exe"
         assert c.fetchone()[0] == 1  # row survived the rebuild
         conn.close()
 
+    def test_verify_results_scales_percent_similarity(self, project_root: Path) -> None:
+        """Verify cache stores code_similarity on 0–100; DB column is 0–1.
+
+        A unit-interval clamp would store 85.5 as 1.0 (perfect match).
+        """
+        _write_cache(
+            project_root,
+            "testbin",
+            {
+                "0x00001000": {
+                    "va": "0x00001000",
+                    "status": "NEAR_MATCHING",
+                    "delta": 12,
+                    "similarity": 85.5,
+                }
+            },
+        )
+        build_db(project_root)
+        conn = sqlite3.connect(project_root / "db" / "coverage.db")
+        c = conn.cursor()
+        c.execute("SELECT similarity FROM verify_results WHERE target = 'testbin' AND va = 4096")
+        row = c.fetchone()
+        conn.close()
+        assert row is not None
+        assert row[0] == pytest.approx(0.855)
+
     def test_verify_results_unparseable_va_does_not_wipe(self, project_root: Path) -> None:
         """A cache whose every `va` fails to parse must NOT delete the
         target's history — the old prune built `va NOT IN ()`, which SQLite
@@ -609,7 +635,9 @@ binary = "test.exe"
         build_db(project_root)
         conn = sqlite3.connect(project_root / "db" / "coverage.db")
         c = conn.cursor()
-        # Simulate a pre-CHECK table with an out-of-range similarity.
+        # Simulate a pre-CHECK table with a percent-scale similarity (85.5)
+        # and negative deltas — migration must scale Sim% into [0,1] and
+        # clamp the deltas rather than promoting 85.5 → 1.0.
         c.execute("DROP TABLE verify_results")
         c.execute(
             """
@@ -626,7 +654,7 @@ binary = "test.exe"
             )
             """
         )
-        c.execute("INSERT INTO verify_results VALUES ('testbin', 4096, 't', -3, NULL, 1.5, -1, 7)")
+        c.execute("INSERT INTO verify_results VALUES ('testbin', 4096, 't', -3, NULL, 85.5, -1, 7)")
         conn.commit()
         conn.close()
 
@@ -635,13 +663,13 @@ binary = "test.exe"
         c = conn.cursor()
         c.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='verify_results'")
         assert "effective_match IN (0, 1)" in c.fetchone()[0]
-        # No verify cache in the fixture → the clamped legacy row is kept.
+        # No verify cache in the fixture → the scaled legacy row is kept.
         c.execute(
             "SELECT byte_delta, similarity, reg_delta, effective_match "
             "FROM verify_results WHERE target = 'testbin' AND va = 4096"
         )
         row = c.fetchone()
-        assert row == (0, 1.0, 0, None)
+        assert row == (0, pytest.approx(0.855), 0, None)
         conn.close()
 
     def test_history_has_range_and_status_checks(self, project_root: Path) -> None:
