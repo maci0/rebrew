@@ -673,13 +673,13 @@ class TestHandle:
         """A rogue query cannot mutate the database (mode=ro)."""
         import sqlite3
 
-        from rebrew.workspace import sqlite_ro_uri
+        from rebrew.workspace import open_sqlite_ro
 
         status, _, _ = dashboard.handle("GET", "/api/targets", {})
         assert status == 200
         # Attempt a write through a fresh ro connection must fail.
         with pytest.raises(sqlite3.OperationalError):
-            conn = sqlite3.connect(sqlite_ro_uri(dashboard.db_path), uri=True)
+            conn = open_sqlite_ro(dashboard.db_path)
             with conn:
                 conn.execute("CREATE TABLE evil (x)")
 

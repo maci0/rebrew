@@ -39,6 +39,15 @@
   documented integrator surface.
 
 ### Fixed
+- **Coverage cell JSON is ordered by ``start``** via shared
+  ``SECTION_CELLS_AGG_SQL`` (``json_group_array(… ORDER BY start)``), so the
+  grid no longer depends on rowid/insertion order.  Readers also open the DB
+  through ``open_sqlite_ro`` (``mode=ro`` + ``query_only``).
+- **``idx_functions_list``** partial index on ``functions(target, va) WHERE
+  markerType NOT IN ('GLOBAL', 'DATA')`` serves the dashboard /
+  ``_function_stats`` list path.
+- **``verify_results.verified_at``** rejects empty strings (CHECK + in-place
+  migrate), matching ``history.changed_at``.
 - **Dashboard `/api/summary` returns 500 for corrupt `function_stats`** instead
   of 404 ``unknown target`` when the metadata row exists but is unreadable
   (invalid JSON or a non-object). Missing targets stay 404; the happy path

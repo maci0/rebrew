@@ -61,7 +61,7 @@ from rich.markup import escape
 
 from rebrew.build_db import resolve_db_dir
 from rebrew.cli import error_exit, json_print
-from rebrew.workspace import sqlite_ro_uri
+from rebrew.workspace import open_sqlite_ro
 
 console = Console(stderr=True)
 log = logging.getLogger(__name__)
@@ -69,7 +69,6 @@ log = logging.getLogger(__name__)
 _LOG_CONTROL_CHARS = {code: f"\\x{code:02x}" for code in (*range(0x20), *range(0x7F, 0xA0))}
 _LOG_CONTROL_CHARS[ord("\\")] = "\\\\"
 
-_SQLITE_TIMEOUT_SECONDS = 30.0
 _DEFAULT_LIMIT = 100
 _MAX_LIMIT = 5000
 _FUNCTION_COLS = ("va", "name", "symbol", "size", "status", "module", "files")
@@ -1085,11 +1084,10 @@ class Dashboard:
         if existing is not None:
             yield existing
             return
-        # Percent-encode the path (``sqlite_ro_uri``): a raw ``file:{p}?mode=ro``
-        # truncates or rewrites names that contain ``?`` / ``#`` / ``%``.
-        conn = sqlite3.connect(
-            sqlite_ro_uri(self.db_path), uri=True, timeout=_SQLITE_TIMEOUT_SECONDS
-        )
+        # Percent-encode the path (``open_sqlite_ro`` / ``sqlite_ro_uri``): a
+        # raw ``file:{p}?mode=ro`` truncates or rewrites names that contain
+        # ``?`` / ``#`` / ``%``.  ``query_only`` is a second write gate.
+        conn = open_sqlite_ro(self.db_path)
         token = _CURRENT_CONN.set(conn)
         try:
             yield conn

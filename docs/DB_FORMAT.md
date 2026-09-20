@@ -82,6 +82,7 @@ Stores details regarding decompiled and original functions.
 - `idx_functions_status` on `(target, status)`
 - `idx_functions_module` on `(target, module)`
 - `idx_functions_marker` on `(target, markerType)`
+- `idx_functions_list` on `(target, va) WHERE markerType NOT IN ('GLOBAL', 'DATA')` — serves the dashboard / `_function_stats` list path (`WHERE target = ? AND markerType NOT IN (…) ORDER BY va`)
 
 ### `globals` Table
 Tracks global variables mapped during the decompilation effort.
@@ -192,7 +193,7 @@ only, and `db/verify_results.json` is gone).
 |---|---|---|
 | `target` | `TEXT` | Binary target. Part of primary key. |
 | `va` | `INTEGER` | Function VA. Part of primary key. CHECK `va >= 0`. |
-| `verified_at` | `TEXT` | ISO 8601 timestamp of verification. |
+| `verified_at` | `TEXT` | ISO 8601 timestamp of verification. CHECK non-empty. |
 | `byte_delta` | `INTEGER` | Number of differing bytes. CHECK `>= 0` when not NULL. |
 | `diff_lines` | `INTEGER` | Number of **structural** differing disassembly lines (the register-aware diff's `structural` class; register-encoding-only diffs are *not* counted here — see `reg_delta`). Computed only for unmatched functions with compiled bytes; `NULL` when no diff was computed (matched or cached rows, no object bytes, or a diff failure). CHECK `>= 0` when not NULL. |
 | `similarity` | `REAL` | Structural code-similarity score (0.0–1.0), when computable. CHECK in `[0.0, 1.0]` when not NULL. Imported from the verify cache's 0–100 ``Sim %`` (``code_similarity``) by always dividing by 100 (a ``[0, 1]`` pass-through used to treat ``1.0`` Sim% as a perfect match). |
@@ -270,14 +271,16 @@ explicit schema on every build (not `CREATE TABLE AS SELECT`), so the serving
 
 ### `section_cells_json` Table
 One row per target+section holding that section's cells already aggregated to
-JSON (`json_group_array` of the cell projection) and zstd-compressed.
+JSON (`json_group_array(… ORDER BY start)` via `SECTION_CELLS_AGG_SQL`) and
+zstd-compressed. The `ORDER BY start` is load-bearing: the coverage grid needs
+spatial order, and without it SQLite may emit cells in rowid/insertion order.
 
 Serving a grid otherwise re-runs `json_group_array` over every cell on each
 cold request: measured 10.7 ms of SQLite per 39k-cell section versus 0.3 ms to
-read this row, for ~176 KB stored across a whole database. The projection is
-`CELLS_JSON_OBJECT_SQL` in `rebrew.workspace`, shared by this writer and the
-dashboards that read it — the same constant the fallback query uses, so the two
-cannot drift into serving different cell shapes.
+read this row, for ~176 KB stored across a whole database. The cell projection
+is `CELLS_JSON_OBJECT_SQL` in `rebrew.workspace`; the ordered aggregate is
+`SECTION_CELLS_AGG_SQL` — both shared by this writer and the live fallback so
+the two cannot drift into serving different cell shapes or cell orders.
 
 | Column | Type | Description |
 |---|---|---|

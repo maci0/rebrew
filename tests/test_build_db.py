@@ -632,6 +632,7 @@ binary = "test.exe"
         ddl = c.fetchone()[0]
         assert "effective_match IN (0, 1)" in ddl
         assert "similarity >= 0.0" in ddl
+        assert "verified_at != ''" in ddl
         with pytest.raises(sqlite3.IntegrityError):
             c.execute(
                 "INSERT INTO verify_results "
@@ -649,6 +650,10 @@ binary = "test.exe"
                 "INSERT INTO verify_results "
                 "(target, va, verified_at, effective_match) "
                 "VALUES ('testbin', 3, 't', 2)"
+            )
+        with pytest.raises(sqlite3.IntegrityError):
+            c.execute(
+                "INSERT INTO verify_results (target, va, verified_at) VALUES ('testbin', 4, '')"
             )
         conn.close()
 
@@ -685,7 +690,9 @@ binary = "test.exe"
         conn = sqlite3.connect(project_root / "db" / "coverage.db")
         c = conn.cursor()
         c.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='verify_results'")
-        assert "effective_match IN (0, 1)" in c.fetchone()[0]
+        ddl = c.fetchone()[0]
+        assert "effective_match IN (0, 1)" in ddl
+        assert "verified_at != ''" in ddl
         # No verify cache in the fixture → the scaled legacy row is kept.
         c.execute(
             "SELECT byte_delta, similarity, reg_delta, effective_match "
@@ -693,6 +700,41 @@ binary = "test.exe"
         )
         row = c.fetchone()
         assert row == (0, pytest.approx(0.855), 0, None)
+        conn.close()
+
+    def test_functions_list_partial_index_exists(self, project_root: Path) -> None:
+        """Dashboard / _function_stats exclude GLOBAL/DATA and ORDER BY va —
+        idx_functions_list is the partial index that serves that path."""
+        build_db(project_root)
+        conn = sqlite3.connect(project_root / "db" / "coverage.db")
+        c = conn.cursor()
+        c.execute("SELECT sql FROM sqlite_master WHERE type='index' AND name='idx_functions_list'")
+        row = c.fetchone()
+        assert row is not None
+        assert "markerType NOT IN ('GLOBAL', 'DATA')" in row[0]
+        conn.close()
+
+    def test_section_cells_agg_orders_by_start(self, project_root: Path) -> None:
+        """SECTION_CELLS_AGG_SQL must emit cells in spatial order, not rowid."""
+        from rebrew.workspace import SECTION_CELLS_AGG_SQL
+
+        build_db(project_root)
+        conn = sqlite3.connect(project_root / "db" / "coverage.db")
+        c = conn.cursor()
+        c.execute("DELETE FROM cells WHERE target = 'testbin' AND section_name = '.text'")
+        for start in (300, 100, 200):
+            c.execute(
+                "INSERT INTO cells "
+                "(target, section_name, start, end, span, state, functions) "
+                "VALUES ('testbin', '.text', ?, ?, 1, 'none', '[]')",
+                (start, start + 10),
+            )
+        ordered = c.execute(
+            f"SELECT {SECTION_CELLS_AGG_SQL} FROM cells "
+            "WHERE target = 'testbin' AND section_name = '.text'"
+        ).fetchone()[0]
+        starts = [cell["start"] for cell in json.loads(ordered)]
+        assert starts == [100, 200, 300]
         conn.close()
 
     def test_history_has_range_and_status_checks(self, project_root: Path) -> None:

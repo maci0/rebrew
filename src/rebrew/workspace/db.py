@@ -74,6 +74,14 @@ CELLS_JSON_OBJECT_SQL = (
     "'parent_function', parent_function))"
 )
 
+#: One section's cells as a JSON array in spatial order.  Shared by
+#: ``build_db`` (materializes into :data:`SECTION_CELLS_TABLE`) and every
+#: live ``cells`` fallback so the grid never depends on rowid/insertion
+#: order.  Without ``ORDER BY start``, ``json_group_array`` follows the
+#: plan's row order — which is *usually* the UNIQUE
+#: ``(target, section_name, start)`` index, but is not a contract.
+SECTION_CELLS_AGG_SQL = f"json_group_array({CELLS_JSON_OBJECT_SQL} ORDER BY start)"
+
 #: zstd level for :data:`SECTION_CELLS_TABLE` blobs.  Measured over a database
 #: holding 8.4 MB of cell JSON: level 3 gives 176 KB in 3 ms, levels 9 and 15
 #: give *more* bytes (205 KB / 210 KB), and level 19 reaches 141 KB only by
@@ -118,6 +126,19 @@ def sqlite_ro_uri(path: Path) -> str:
     return f"{p.as_uri()}?mode=ro"
 
 
+def open_sqlite_ro(path: Path) -> sqlite3.Connection:
+    """Open *path* read-only with ``query_only`` defense-in-depth.
+
+    ``mode=ro`` already rejects writes at the VFS layer; ``PRAGMA query_only=ON``
+    is a second gate so a caller that somehow received a writable handle still
+    cannot mutate the file.  Callers must close the connection (prefer
+    ``contextlib.closing``).
+    """
+    conn = sqlite3.connect(sqlite_ro_uri(path), uri=True, timeout=_SQLITE_TIMEOUT_SECONDS)
+    conn.execute("PRAGMA query_only=ON")
+    return conn
+
+
 def read_db_version(db_path: Path) -> int | str | None:
     """The schema version stamped in *db_path*, or ``None`` when unstamped.
 
@@ -128,9 +149,7 @@ def read_db_version(db_path: Path) -> int | str | None:
     """
     row: tuple[object, ...] | None = None
     try:
-        with contextlib.closing(
-            sqlite3.connect(sqlite_ro_uri(db_path), uri=True, timeout=_SQLITE_TIMEOUT_SECONDS)
-        ) as conn:
+        with contextlib.closing(open_sqlite_ro(db_path)) as conn:
             cursor = conn.cursor()
             cursor.execute(
                 "SELECT value FROM metadata WHERE target = ? AND key = ? LIMIT 1",

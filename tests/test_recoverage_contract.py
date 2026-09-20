@@ -25,7 +25,7 @@ from typer.testing import CliRunner
 
 from rebrew.build_db import _CURRENT_DB_VERSION, build_db
 from rebrew.main import app
-from rebrew.workspace import CELLS_JSON_OBJECT_SQL, SECTION_CELLS_COLUMN, SECTION_CELLS_TABLE
+from rebrew.workspace import SECTION_CELLS_AGG_SQL, SECTION_CELLS_COLUMN, SECTION_CELLS_TABLE
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -269,7 +269,7 @@ class TestRecoverageContract:
         Recoverage serves ``section_cells_json`` instead of re-aggregating
         ``cells``, so the cache is only sound while the two are byte-identical.
         Equality is what lets the dashboard serve the blob with no runtime
-        cross-check; if the shared CELLS_JSON_OBJECT_SQL ever diverges between
+        cross-check; if the shared SECTION_CELLS_AGG_SQL ever diverges between
         the two call sites, this fails.
         """
         root = _run_pipeline(tmp_path, monkeypatch)
@@ -278,7 +278,7 @@ class TestRecoverageContract:
         live = {
             (t, s): cells_json
             for t, s, cells_json in c.execute(
-                f"SELECT target, section_name, json_group_array({CELLS_JSON_OBJECT_SQL})"
+                f"SELECT target, section_name, {SECTION_CELLS_AGG_SQL}"
                 " FROM cells GROUP BY target, section_name"
             )
         }

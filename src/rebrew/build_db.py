@@ -31,13 +31,13 @@ from rebrew.data_metadata import (
 )
 from rebrew.metadata import KNOWN_STATUSES, MATCHED_STATUSES, canonical_status
 from rebrew.workspace import (
-    CELLS_JSON_OBJECT_SQL,
     SCHEMA_TARGET,
+    SECTION_CELLS_AGG_SQL,
     SECTION_CELLS_COLUMN,
     SECTION_CELLS_TABLE,
     db_dir,
     encode_section_cells,
-    sqlite_ro_uri,
+    open_sqlite_ro,
 )
 
 console = Console(stderr=True)
@@ -377,9 +377,7 @@ def _check_db_version(db_path: Path, *, force: bool = False, json_output: bool =
     if not db_path.exists():
         return
     try:
-        with contextlib.closing(
-            sqlite3.connect(sqlite_ro_uri(db_path), uri=True, timeout=_SQLITE_TIMEOUT_SECONDS)
-        ) as conn:
+        with contextlib.closing(open_sqlite_ro(db_path)) as conn:
             c = conn.cursor()
             objects = c.execute(
                 "SELECT name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'"
@@ -559,9 +557,7 @@ def _missing_required_objects(db_path: Path) -> set[str]:
         },
         SECTION_CELLS_TABLE: {"target", "section_name", SECTION_CELLS_COLUMN},
     }
-    with contextlib.closing(
-        sqlite3.connect(sqlite_ro_uri(db_path), uri=True, timeout=_SQLITE_TIMEOUT_SECONDS)
-    ) as conn:
+    with contextlib.closing(open_sqlite_ro(db_path)) as conn:
         c = conn.cursor()
         c.execute(
             "SELECT type, name FROM sqlite_master"
@@ -762,7 +758,7 @@ def build_db(
         #
         # It is a derived cache: `cells` remains the source of truth and is the
         # only thing other queries read, so a reader without this table still
-        # works (see rebrew.workspace.CELLS_JSON_OBJECT_SQL).
+        # works (see rebrew.workspace.SECTION_CELLS_AGG_SQL).
         c.execute(f"""
             CREATE TABLE IF NOT EXISTS {SECTION_CELLS_TABLE} (
                 target TEXT NOT NULL,
@@ -777,6 +773,13 @@ def build_db(
         c.execute("CREATE INDEX IF NOT EXISTS idx_functions_module ON functions(target, module)")
         c.execute(
             "CREATE INDEX IF NOT EXISTS idx_functions_marker ON functions(target, markerType)"
+        )
+        # Dashboard + _function_stats always exclude GLOBAL/DATA and ORDER BY
+        # va: a partial (target, va) index matches that filter+sort without
+        # scanning markerType rows that the UI never lists.
+        c.execute(
+            "CREATE INDEX IF NOT EXISTS idx_functions_list ON functions(target, va) "
+            "WHERE markerType NOT IN ('GLOBAL', 'DATA')"
         )
         c.execute("CREATE INDEX IF NOT EXISTS idx_globals_name ON globals(target, name)")
         # idx_cells_section is deliberately NOT created: the
@@ -872,7 +875,7 @@ def build_db(
             CREATE TABLE IF NOT EXISTS verify_results (
                 target TEXT NOT NULL,
                 va INTEGER NOT NULL CHECK (va >= 0),
-                verified_at TEXT NOT NULL,
+                verified_at TEXT NOT NULL CHECK (verified_at != ''),
                 byte_delta INTEGER CHECK (byte_delta IS NULL OR byte_delta >= 0),
                 diff_lines INTEGER CHECK (diff_lines IS NULL OR diff_lines >= 0),
                 similarity REAL CHECK (similarity IS NULL OR (similarity >= 0.0 AND similarity <= 1.0)),
@@ -888,13 +891,15 @@ def build_db(
             "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'verify_results'"
         ).fetchone()
         vr_sql = vr_sql_row[0] if vr_sql_row else ""
-        if vr_sql and "effective_match IN (0, 1)" not in vr_sql:
+        if vr_sql and (
+            "effective_match IN (0, 1)" not in vr_sql or "verified_at != ''" not in vr_sql
+        ):
             c.execute("ALTER TABLE verify_results RENAME TO _verify_results_migrate")
             c.execute("""
                 CREATE TABLE verify_results (
                     target TEXT NOT NULL,
                     va INTEGER NOT NULL CHECK (va >= 0),
-                    verified_at TEXT NOT NULL,
+                    verified_at TEXT NOT NULL CHECK (verified_at != ''),
                     byte_delta INTEGER CHECK (byte_delta IS NULL OR byte_delta >= 0),
                     diff_lines INTEGER CHECK (diff_lines IS NULL OR diff_lines >= 0),
                     similarity REAL CHECK (
@@ -916,7 +921,11 @@ def build_db(
                 SELECT
                     target,
                     CASE WHEN va < 0 THEN 0 ELSE va END,
-                    verified_at,
+                    CASE
+                        WHEN verified_at IS NULL OR verified_at = ''
+                            THEN '1970-01-01T00:00:00+00:00'
+                        ELSE verified_at
+                    END,
                     CASE
                         WHEN byte_delta IS NOT NULL AND typeof(byte_delta) = 'integer'
                              AND byte_delta < 0 THEN 0
@@ -1545,7 +1554,7 @@ def build_db(
             [
                 (tgt, sec, encode_section_cells(cells_json))
                 for tgt, sec, cells_json in c.execute(
-                    f"SELECT target, section_name, json_group_array({CELLS_JSON_OBJECT_SQL}) "
+                    f"SELECT target, section_name, {SECTION_CELLS_AGG_SQL} "
                     "FROM cells GROUP BY target, section_name"
                 ).fetchall()
             ],
