@@ -396,7 +396,8 @@ class TestCorruptInventoryFailClosed:
         (src / FUNCTION_STRUCTURE_JSON).write_text("[{broken", encoding="utf-8")
         res = CliRunner().invoke(app, [])
         assert res.exit_code != 0
-        assert "function inventory" in res.output.lower() or "Refusing" in res.output
+        assert "function inventory" in res.output.lower()
+        assert "Refusing" in res.output
 
     def test_corrupt_structure_refuses_to_prune(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

@@ -787,10 +787,27 @@ class TestVerifyCli:
         from rebrew.verify import app
 
         cfg = _cfg(tmp_path)
-        self._patch_flow(monkeypatch, cfg, results=[])
+        self._patch_flow(
+            monkeypatch,
+            cfg,
+            results=[
+                {
+                    "va": "0x00001000",
+                    "name": "my_func",
+                    "size": 8,
+                    "status": "EXACT",
+                    "match_percent": 100.0,
+                    "delta": 0,
+                    "passed": True,
+                }
+            ],
+        )
         result = CliRunner().invoke(app, ["--summary"])
         assert result.exit_code == 0
-        assert "EXACT" in result.output or "STUB" in result.output or "Summary" in result.output
+        assert "Verification Summary" in result.output
+        assert "STATUS Breakdown" in result.output
+        assert "EXACT" in result.output
+        assert "1/1 passed" in result.output
 
     def test_compare_regression_exits_mismatch(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -1145,7 +1162,7 @@ class TestPrintResults:
 
     def test_plain(self, monkeypatch: pytest.MonkeyPatch) -> None:
         out = self._call(monkeypatch)
-        assert "1/1 passed" in out or "passed" in out.lower()
+        assert "Verification: 1/1 passed" in out
 
     def test_diff_sections(self, monkeypatch: pytest.MonkeyPatch) -> None:
         diff = {
@@ -1223,7 +1240,8 @@ class TestPrintResults:
         out = self._call(monkeypatch, results=results, fail_details=fail_details)
         assert "9B diff" in out
         assert "cl crashed" in out
-        assert "COMPILE_ERROR" in out or "80.0%" in out
+        assert "[COMPILE_ERROR]" in out
+        assert "80.0%" in out
 
 
 class TestVerifyWatch:

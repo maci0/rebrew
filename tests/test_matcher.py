@@ -309,7 +309,8 @@ class TestDiffFunctionsEdges:
         diff_functions(b"\x55\xc3", b"\x55\xc3")
         out = capsys.readouterr().out
         assert "Target" in out
-        assert "exact match" in out or "==" in out
+        assert "== : exact match" in out
+        assert "2 exact match(es)" in out
 
     def test_mismatches_only_filters(self, capsys) -> None:
         from rebrew.matcher.scoring import diff_functions

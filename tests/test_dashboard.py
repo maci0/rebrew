@@ -788,8 +788,11 @@ class TestHttpMethods:
         assert raw.count(b"HTTP/1.1 200 ") == 2
         # Persistent framing: no Connection: close on either response.
         assert b"Connection: close" not in raw
-        assert b"Rebrew coverage" in raw or b"Content-Encoding: gzip" in raw
-        assert b'"targets"' in raw or b"application/json" in raw
+        # Shell HTML + bootstrap JSON on one connection (no Accept-Encoding → uncompressed).
+        assert b"Rebrew coverage" in raw
+        assert b"Content-Type: text/html" in raw
+        assert b'"targets"' in raw
+        assert b"Content-Type: application/json" in raw
 
 
 class TestEncodingNegotiation:

@@ -67,8 +67,7 @@ class TestClassifyBlockers:
             ]
         }
         result = classify_blockers(summary)
-        assert len(result) >= 2
-        assert result == sorted(result)
+        assert result == ["jump condition swap", "register allocation"]
 
     def test_deduplicates_same_type(self) -> None:
         summary = {

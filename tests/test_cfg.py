@@ -1374,7 +1374,8 @@ class TestCfgCli:
         (tools / "MALLOC.C").write_text("int malloc(void);\n", encoding="utf-8")
         result = self._invoke(tmp_path, monkeypatch, ["detect-crt"])
         assert result.exit_code == 0
-        assert "MSVCRT" in result.output or "detected" in result.output
+        assert "MSVCRT" in result.output
+        assert "toolchain/msvc/6.0-win32/VC98/CRT/SRC" in result.output
 
 
 class TestCLISetCflagsDryRun:

@@ -695,7 +695,9 @@ class TestLintCli:
         )
         result = self._invoke(tmp_path, monkeypatch, ["--summary", str(src / "ok.c")])
         assert result.exit_code == 0
-        assert "EXACT" in result.output or "Summary" in result.output
+        assert "Summary" in result.output
+        assert "MARKER" in result.output
+        assert "FUNCTION" in result.output
 
 
 class TestLintFix:
@@ -1439,8 +1441,8 @@ class TestW029RedundantCflags:
         with patch("rebrew.lint.load_config", return_value=cfg):
             result = CliRunner().invoke(app, [])
         assert result.exit_code == 0, result.output
-        # W029 should appear either via the attributed file or synthetic entry
-        assert "W029" in result.output or "redundant cflags" in result.output.lower()
+        assert "W029" in result.output
+        assert "redundant cflags" in result.output.lower()
 
     def test_passed_never_exceeds_total(self, tmp_path: Path) -> None:
         """The synthetic W029 entries carry no file: counting them as passed
