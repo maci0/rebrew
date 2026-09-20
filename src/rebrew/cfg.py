@@ -495,8 +495,8 @@ def add_target(
     ``--force`` is passed (in which case a stanza with default format/arch is
     written and a warning is emitted).
     """
-    root = _find_root()
-    doc, toml_path = load_toml(root)
+    root = _find_root(json_mode=json_output)
+    doc, toml_path = load_toml(root, json_mode=json_output)
 
     # Ensure [targets] exists
     targets = doc.get("targets")
@@ -506,9 +506,12 @@ def add_target(
 
     # Idempotent: if target already exists, just ensure dirs exist and return
     if name in targets:
-        console.print(f"[yellow]Target '{name}' already exists (no changes made).[/yellow]")
         (root / "src" / name).mkdir(parents=True, exist_ok=True)
         (root / "bin" / name).mkdir(parents=True, exist_ok=True)
+        if json_output:
+            json_print({"target": name, "added": False, "existed": True})
+        else:
+            console.print(f"[yellow]Target '{name}' already exists (no changes made).[/yellow]")
         return
 
     binary_path = Path(binary)
@@ -517,17 +520,21 @@ def add_target(
     resolved = (root / binary_path) if not binary_path.is_absolute() else binary_path
 
     # Guard: refuse when the binary is missing unless --force
+    forced_missing = False
     if not resolved.exists():
         if not force:
             error_exit(
                 f"Binary '{resolved}' does not exist.\n"
                 "Place the binary first, then re-run — or pass --force to skip detection\n"
-                "and write a stanza with default format (pe) and arch (x86_32)."
+                "and write a stanza with default format (pe) and arch (x86_32).",
+                json_mode=json_output,
             )
-        console.print(
-            f"[yellow]warning:[/yellow] binary '{resolved}' not found; "
-            "writing stanza with default format=pe arch=x86_32 (--force)."
-        )
+        forced_missing = True
+        if not json_output:
+            console.print(
+                f"[yellow]warning:[/yellow] binary '{resolved}' not found; "
+                "writing stanza with default format=pe arch=x86_32 (--force)."
+            )
 
     # Auto-detect format and arch from binary headers.  The LIEF-based
     # detector covers PE/ELF/Mach-O only — probe NE/MZ natively so a
@@ -572,7 +579,8 @@ def add_target(
         dest = original_dir / binary_path.name
         if not dest.exists():
             shutil.copy2(binary_path, dest)
-            console.print(f"  [green]Copied {binary_path.name} → original/[/green]")
+            if not json_output:
+                console.print(f"  [green]Copied {binary_path.name} → original/[/green]")
         binary = f"original/{binary_path.name}"
 
     src_dir = root / "src" / name
@@ -592,19 +600,21 @@ def add_target(
     tgt.add("origins", origin_list)
 
     targets[name] = tgt
+    payload = {
+        "target": name,
+        "binary": binary,
+        "format": fmt,
+        "arch": arch,
+        "source_ext": source_ext,
+        "origins": origin_list,
+        "added": True,
+        "existed": False,
+        "dry_run": dry_run,
+        "forced_missing_binary": forced_missing,
+    }
     if dry_run:
         if json_output:
-            json_print(
-                {
-                    "target": name,
-                    "binary": binary,
-                    "format": fmt,
-                    "arch": arch,
-                    "source_ext": source_ext,
-                    "origins": origin_list,
-                    "dry_run": True,
-                }
-            )
+            json_print(payload)
         else:
             console.print(f'[cyan]dry-run:[/cyan] would add [targets."{name}"]')
             console.print(f"  Format: {fmt}, Arch: {arch}")
@@ -612,6 +622,9 @@ def add_target(
         return
     save_toml(doc, toml_path)
 
+    if json_output:
+        json_print(payload)
+        return
     console.print(f'[green]Added [targets."{name}"] to rebrew-project.toml[/green]')
     console.print(f"[green]  Format: {fmt}, Arch: {arch} (auto-detected)[/green]")
     console.print(f"[green]  Language: {detected_lang} ({source_ext})[/green]")
@@ -630,7 +643,10 @@ def remove_target(
     doc, toml_path = load_toml(json_mode=json_output)
     targets = doc.get("targets", {})
     if name not in targets:
-        console.print(f"[yellow]Target '{name}' not found (already removed).[/yellow]")
+        if json_output:
+            json_print({"removed": False, "target": name, "already_removed": True})
+        else:
+            console.print(f"[yellow]Target '{name}' not found (already removed).[/yellow]")
         return
 
     if dry_run:
@@ -640,9 +656,19 @@ def remove_target(
             console.print(f'[cyan]dry-run:[/cyan] would remove [targets."{name}"]')
         return
     if not force:
+        # Interactive confirm breaks scripted --json; require --force instead.
+        if json_output:
+            error_exit(
+                f"refusing to remove target '{name}' without --force under --json "
+                "(no interactive confirm)",
+                json_mode=True,
+            )
         typer.confirm(f"Remove target '{name}' from rebrew-project.toml?", abort=True)
     del targets[name]
     save_toml(doc, toml_path)
+    if json_output:
+        json_print({"removed": True, "target": name})
+        return
     console.print(f'[green]Removed [targets."{name}"] from rebrew-project.toml[/green]')
     console.print("  [dim]Note: src/ and bin/ directories were NOT deleted.[/dim]")
 

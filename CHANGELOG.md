@@ -35,6 +35,12 @@
   documented integrator surface.
 
 ### Fixed
+- **``rebrew cfg add-target`` / ``remove-target --json``** emit a single JSON
+  document on every path (success, idempotent, missing-binary error). Missing
+  binary errors pass ``json_mode`` so scripts get ``{"error","code"}`` on
+  stdout with exit 2; ``remove-target --json`` requires ``--force`` instead of
+  hanging on an interactive confirm. ``build-db`` / ``refactor`` / ``init``
+  keep ``--json`` (and ``--dry-run``) last in help order per CLI convention.
 - **``rebrew cfg set`` refuses non-empty secret keys** (e.g. ``llm.api_key``)
   so credentials never land in argv/history; clear with an empty value or
   set ``REBREW_LLM_API_KEY``.  URL knobs (``recompile_url``, ``llm.endpoint``)

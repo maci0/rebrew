@@ -617,6 +617,80 @@ class TestCLIAddRemoveTarget:
         assert result.exit_code == 0
         assert "already removed" in result.output
 
+    def test_add_target_json_missing_binary(self, tmp_path: Path, monkeypatch) -> None:
+        """--json missing-binary path must be pure JSON on stdout with exit 2."""
+        _make_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(
+            cfg_app,
+            ["add-target", "ghost", "--binary", "original/ghost.exe", "--json"],
+        )
+        assert result.exit_code == 2
+        data = json.loads(result.stdout)
+        assert data["code"] == 2
+        assert "does not exist" in data["error"]
+
+    def test_add_target_json_success(self, tmp_path: Path, monkeypatch) -> None:
+        """Successful --json add-target emits one JSON document on stdout."""
+        _make_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(
+            cfg_app,
+            [
+                "add-target",
+                "client.exe",
+                "--binary",
+                "original/client.exe",
+                "--arch",
+                "x86_32",
+                "--force",
+                "--json",
+            ],
+        )
+        assert result.exit_code == 0
+        data = json.loads(result.stdout)
+        assert data["added"] is True
+        assert data["target"] == "client.exe"
+        assert data["forced_missing_binary"] is True
+        doc, _ = load_toml(tmp_path)
+        assert "client.exe" in doc["targets"]
+
+    def test_add_target_json_idempotent(self, tmp_path: Path, monkeypatch) -> None:
+        _make_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(
+            cfg_app,
+            [
+                "add-target",
+                "server.dll",
+                "--binary",
+                "original/server.dll",
+                "--json",
+            ],
+        )
+        assert result.exit_code == 0
+        data = json.loads(result.stdout)
+        assert data == {"target": "server.dll", "added": False, "existed": True}
+
+    def test_remove_target_json_requires_force(self, tmp_path: Path, monkeypatch) -> None:
+        """--json without --force must not hang on an interactive confirm."""
+        _make_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(cfg_app, ["remove-target", "server.dll", "--json"])
+        assert result.exit_code == 2
+        data = json.loads(result.stdout)
+        assert "--force" in data["error"]
+
+    def test_remove_target_json_success(self, tmp_path: Path, monkeypatch) -> None:
+        _make_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(cfg_app, ["remove-target", "server.dll", "--force", "--json"])
+        assert result.exit_code == 0
+        data = json.loads(result.stdout)
+        assert data == {"removed": True, "target": "server.dll"}
+        doc, _ = load_toml(tmp_path)
+        assert "server.dll" not in doc.get("targets", {})
+
 
 class TestCLISet:
     def test_set_string(self, tmp_path: Path, monkeypatch) -> None:

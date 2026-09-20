@@ -1473,14 +1473,14 @@ def main(
         "--force",
         help="Delete and recreate the database if its schema version is incompatible.",
     ),
-    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
-    target: str | None = TargetOption,
     regen: bool = typer.Option(
         False,
         "--regen",
         help="Generate coverage data in-process per target instead of reading "
         "db/data_*.json files (no intermediate files)",
     ),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    target: str | None = TargetOption,
 ) -> None:
     """CLI entry point for rebrew build-db."""
     build_db(root, target=target, json_output=json_output, force=force, regen=regen)

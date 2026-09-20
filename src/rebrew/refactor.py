@@ -105,17 +105,17 @@ def main(
         "--root",
         help="Project root directory (auto‑detected from rebrew-project.toml if omitted)",
     ),
+    min_lines: int = typer.Option(
+        200,
+        "--min-lines",
+        help="Only report files longer than this many lines",
+    ),
     json_output: bool = typer.Option(
         False,
         "--json",
         help="Output results as JSON",
     ),
     target: str | None = TargetOption,
-    min_lines: int = typer.Option(
-        200,
-        "--min-lines",
-        help="Only report files longer than this many lines",
-    ),
 ) -> None:
     """Scan the source tree and print refactoring recommendations."""
     cfg = require_config(target=target, json_mode=json_output, root=root)

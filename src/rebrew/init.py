@@ -795,8 +795,6 @@ def main(
             "(gcc-14.2.0/mingw-16.2.0/clang-18.1.8 run from their docker images)."
         ),
     ),
-    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
-    dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     refresh_agents: bool = typer.Option(
         False,
         "--refresh-agents",
@@ -822,6 +820,8 @@ def main(
             "--json).  Only parameters not passed on the CLI are prompted."
         ),
     ),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     # typer injects the real Context on CLI runs; direct Python calls get None
     # (a union annotation would defeat typer's Context detection).
     ctx: typer.Context = None,  # type: ignore[assignment]
