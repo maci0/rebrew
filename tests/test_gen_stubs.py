@@ -1,5 +1,6 @@
 """Tests for rebrew gen-stubs (unresolved linker symbol stub TU generation)."""
 
+import sys
 from pathlib import Path
 
 import pytest
@@ -364,12 +365,19 @@ class TestCli:
             "add_library(x SHARED ${SOURCES} ${LINK_STUBS})\n",
             encoding="utf-8",
         )
-        # Build command that proves the stub var was blanked: echo a resolved
-        # link if LINK_STUBS was emptied, unresolved otherwise.
-        build_cmd = (
-            "grep -q 'set(LINK_STUBS \"\")' CMakeLists.txt && "
-            "echo 'error LNK2019: unresolved external symbol _g_counter' || echo clean"
+        # Argv-only build helper: proves the stub var was blanked without shell.
+        helper = tmp_path / "_gen_stubs_build.py"
+        helper.write_text(
+            "from pathlib import Path\n"
+            "text = Path('CMakeLists.txt').read_text(encoding='utf-8')\n"
+            "print(\n"
+            "    'error LNK2019: unresolved external symbol _g_counter'\n"
+            "    if 'set(LINK_STUBS \"\")' in text\n"
+            "    else 'clean'\n"
+            ")\n",
+            encoding="utf-8",
         )
+        build_cmd = f"{sys.executable} {helper.name}"
         out = tmp_path / "stubs.c"
         result = CliRunner().invoke(
             app,
@@ -397,10 +405,17 @@ class TestCli:
         _write_src(tmp_path, "extern int g_counter;\nextern int __cdecl write_log(char*);\n")
         stub = tmp_path / "link_stubs.c"
         stub.write_text("int something = 1;\n", encoding="utf-8")
-        build_cmd = (
-            "test ! -e link_stubs.c && "
-            "echo 'error LNK2019: unresolved external symbol _g_counter' || echo clean"
+        helper = tmp_path / "_gen_stubs_build.py"
+        helper.write_text(
+            "from pathlib import Path\n"
+            "print(\n"
+            "    'error LNK2019: unresolved external symbol _g_counter'\n"
+            "    if not Path('link_stubs.c').exists()\n"
+            "    else 'clean'\n"
+            ")\n",
+            encoding="utf-8",
         )
+        build_cmd = f"{sys.executable} {helper.name}"
         out = tmp_path / "stubs.c"
         result = CliRunner().invoke(
             app,

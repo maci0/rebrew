@@ -35,6 +35,7 @@ Usage:
 from __future__ import annotations
 
 import re
+import shlex
 import subprocess
 import sys
 import typing
@@ -615,49 +616,61 @@ def _run_build(
     afterwards; *cmake_stub_var* temporarily blanks a ``set(NAME "path")``
     line in ``CMakeLists.txt`` so the stub TU drops out of the link.  Both
     restore in ``finally`` so a failed build never leaves the tree broken.
+
+    *build_cmd* is argv-split (no shell): operators who need pipes or
+    redirection should ``2>&1 | rebrew gen-stubs`` instead of embedding
+    shell metacharacters in ``--build-cmd``.
     """
+    try:
+        argv = shlex.split(build_cmd)
+    except ValueError as exc:
+        error_exit(f"invalid --build-cmd: {exc}", json_mode=False)
+    if not argv:
+        error_exit("--build-cmd is empty", json_mode=False)
+
     cmake_path = root / "CMakeLists.txt"
     original_cmake = cmake_path.read_text(encoding="utf-8") if cmake_path.exists() else None
     patched_cmake: str | None = None
     renamed: tuple[Path, Path] | None = None
 
-    if exclude_file is not None and exclude_file.exists():
-        renamed = (exclude_file, exclude_file.with_suffix(".c.off"))
-        exclude_file.rename(renamed[1])
-
-    if cmake_stub_var and original_cmake is not None:
-        patched = re.sub(
-            rf'^(\s*set\(\s*{re.escape(cmake_stub_var)}\s+)"[^"]*"',
-            r'\1""',
-            original_cmake,
-            count=1,
-            flags=re.M,
-        )
-        if patched != original_cmake:
-            patched_cmake = patched
-            cmake_path.write_text(patched, encoding="utf-8")
-        else:
-            error_exit(
-                f"--cmake-stub-var {cmake_stub_var}: no 'set({cmake_stub_var} \"...\")' "
-                f"line found in {cmake_path}"
-            )
-
     try:
-        result = subprocess.run(
-            build_cmd,
-            shell=True,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=600,
-            cwd=root,
-        )
+        if exclude_file is not None and exclude_file.exists():
+            renamed = (exclude_file, exclude_file.with_suffix(".c.off"))
+            exclude_file.rename(renamed[1])
+
+        if cmake_stub_var and original_cmake is not None:
+            patched = re.sub(
+                rf'^(\s*set\(\s*{re.escape(cmake_stub_var)}\s+)"[^"]*"',
+                r'\1""',
+                original_cmake,
+                count=1,
+                flags=re.M,
+            )
+            if patched != original_cmake:
+                patched_cmake = patched
+                cmake_path.write_text(patched, encoding="utf-8")
+            else:
+                error_exit(
+                    f"--cmake-stub-var {cmake_stub_var}: no 'set({cmake_stub_var} \"...\")' "
+                    f"line found in {cmake_path}"
+                )
+
+        try:
+            result = subprocess.run(
+                argv,
+                shell=False,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=600,
+                cwd=root,
+            )
+        except subprocess.TimeoutExpired:
+            # A hung build must surface as a clean error, not a raw traceback
+            # (link-review F5).
+            error_exit(f"build timed out after 600s: {build_cmd}", json_mode=False)
         return result.stdout + result.stderr
-    except subprocess.TimeoutExpired:
-        # A hung build must surface as a clean error, not a raw traceback
-        # (link-review F5).
-        error_exit(f"build timed out after 600s: {build_cmd}", json_mode=False)
     finally:
         if patched_cmake is not None and original_cmake is not None:
             cmake_path.write_text(original_cmake, encoding="utf-8")
@@ -679,7 +692,9 @@ def main(
         None, "--library-csv", help="Functions CSV to filter CRT library symbols"
     ),
     build_cmd: str | None = typer.Option(
-        None, "--build-cmd", help="Build command whose output is parsed for LNK2001/2019"
+        None,
+        "--build-cmd",
+        help="Build argv to run for LNK2001/2019 output (no shell; pipe for redirects)",
     ),
     exclude_file: Path | None = typer.Option(
         None,

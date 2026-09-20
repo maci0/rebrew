@@ -1319,6 +1319,24 @@ class TestSafeArchiveExtract:
             _safe_extract_zip(archive, dest)
         assert not (tmp_path / "evil.txt").exists()
 
+    def test_zip_rejects_symlink_member(self, tmp_path: Path) -> None:
+        import zipfile
+
+        from rebrew.toolchain import ToolchainError
+        from rebrew.toolchain_cli import _safe_extract_zip
+
+        archive = tmp_path / "link.zip"
+        with zipfile.ZipFile(archive, "w") as zf:
+            info = zipfile.ZipInfo("escape")
+            info.create_system = 3  # Unix
+            info.external_attr = 0o120777 << 16  # symlink
+            zf.writestr(info, b"/tmp/outside")
+        dest = tmp_path / "out"
+        dest.mkdir()
+        with pytest.raises(ToolchainError, match="non-regular"):
+            _safe_extract_zip(archive, dest)
+        assert not (dest / "escape").exists()
+
     def test_tar_extracts_safe_member(self, tmp_path: Path) -> None:
         import io
         import tarfile

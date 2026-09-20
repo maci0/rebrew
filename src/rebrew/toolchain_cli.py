@@ -343,6 +343,14 @@ def _safe_extract_zip(archive: Path, dest: Path) -> None:
             parts = Path(name).parts
             if Path(name).is_absolute() or ".." in parts:
                 raise ToolchainError(f"refusing unsafe zip member: {name!r}")
+            # Unix create_system=3 encodes the file type in external_attr.
+            # Allow regular files / directories / unset; refuse symlinks (0o120000)
+            # and other special types so a compromised pin cannot plant a link
+            # that later resolves outside *dest*.
+            if info.create_system == 3:
+                unix_mode = (info.external_attr >> 16) & 0o170000
+                if unix_mode not in (0, 0o100000, 0o040000):
+                    raise ToolchainError(f"refusing non-regular zip member: {name!r}")
             target = (dest_root / name).resolve()
             if not target.is_relative_to(dest_root):
                 raise ToolchainError(f"refusing path escape in zip member: {name!r}")

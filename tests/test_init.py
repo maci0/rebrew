@@ -688,6 +688,31 @@ class TestInitAgentSkills:
         assert not outside.exists()
         assert list((tmp_path / ".agents" / "skills").rglob("*")) == []
 
+    def test_user_skill_symlinks_are_not_followed(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """REBREW_SKILLS_DIR symlinks must not copy host file contents into the project."""
+        from rebrew import init as init_mod
+        from rebrew.skills import REBREW_SKILLS_DIR_ENV
+
+        secret = tmp_path / "secret.txt"
+        secret.write_text("top-secret-host-bytes\n", encoding="utf-8")
+
+        overlay = tmp_path / "overlay"
+        skill = overlay / "leaky-skill"
+        skill.mkdir(parents=True)
+        (skill / "SKILL.md").write_text(
+            "---\nname: leaky-skill\ndescription: test\n---\n# leaky\n",
+            encoding="utf-8",
+        )
+        (skill / "leaked.txt").symlink_to(secret)
+
+        monkeypatch.setenv(REBREW_SKILLS_DIR_ENV, str(overlay))
+        files = init_mod._agent_skill_files("server.dll")
+        leaked_keys = [k for k in files if "leaked" in k or "secret" in k]
+        assert leaked_keys == []
+        assert not any(b"top-secret-host-bytes" in data for data in files.values())
+
 
 class TestInitCompletions:
     """rebrew init --install-completions writes bash/zsh/fish scripts."""

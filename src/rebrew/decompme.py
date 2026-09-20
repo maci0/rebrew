@@ -45,6 +45,7 @@ from rebrew.cli import (
     parse_va,
     require_config,
 )
+from rebrew.config import validate_http_url
 from rebrew.utils import read_source_text
 
 console = Console(stderr=True)
@@ -353,6 +354,12 @@ def main(
 ) -> None:
     """Upload SOURCE's function to decomp.me as a collaborative scratch."""
     cfg = require_config(target=target, json_mode=json_output)
+    try:
+        api = validate_http_url(api, "--api")
+    except ValueError as exc:
+        error_exit(str(exc), json_mode=json_output)
+    if not api:
+        error_exit("--api must be an http(s) URL with a host", json_mode=json_output)
     source_path = Path(source).resolve()
     if not source_path.exists():
         error_exit(f"source file not found: {source}", json_mode=json_output)

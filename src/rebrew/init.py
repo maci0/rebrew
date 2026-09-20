@@ -162,6 +162,31 @@ def _detect_binary_format(path: Path) -> tuple[str, str] | None:
     return None
 
 
+def _iter_skill_tree_files(root: Path) -> list[Path]:
+    """Regular files under *root*, never following symlinks out of the tree.
+
+    Community skills (``REBREW_SKILLS_DIR``) are untrusted overlays: a symlink
+    to ``/etc/passwd`` or a directory junction outside the skill tree must not
+    be read into ``.agents/skills`` (content exfiltration via ``rebrew init``).
+    """
+    try:
+        root_resolved = root.resolve()
+    except OSError:
+        return []
+    found: list[Path] = []
+    for src in sorted(root.rglob("*")):
+        # Skip the symlink inode itself; is_file() follows and would leak.
+        if src.is_symlink() or not src.is_file():
+            continue
+        try:
+            if not src.resolve().is_relative_to(root_resolved):
+                continue
+        except OSError:
+            continue
+        found.append(src)
+    return found
+
+
 def _agent_skill_files(target_name: str) -> dict[str, bytes]:
     """Expected ``.agents/skills`` contents: relative path -> bytes.
 
@@ -172,17 +197,20 @@ def _agent_skill_files(target_name: str) -> dict[str, bytes]:
     for the initial copy and a later refresh/check."""
     files: dict[str, bytes] = {}
     if _AGENT_SKILLS_SRC.is_dir():
-        for src in sorted(_AGENT_SKILLS_SRC.rglob("*")):
-            if src.is_file():
-                files[src.relative_to(_AGENT_SKILLS_SRC).as_posix()] = src.read_bytes()
+        for src in _iter_skill_tree_files(_AGENT_SKILLS_SRC):
+            files[src.relative_to(_AGENT_SKILLS_SRC).as_posix()] = src.read_bytes()
 
     from rebrew.skills import _parse_frontmatter, _safe_skill_name, _user_skills_dir
 
     user_skills = _user_skills_dir()
     if user_skills is not None and user_skills.is_dir():
         for skill_dir in sorted(user_skills.iterdir()):
+            # A skill directory that is itself a symlink would let rglob walk
+            # an arbitrary host tree after the name is sanitized for writes.
+            if skill_dir.is_symlink() or not skill_dir.is_dir():
+                continue
             skill_md = skill_dir / "SKILL.md"
-            if not skill_md.is_file():
+            if skill_md.is_symlink() or not skill_md.is_file():
                 continue
             # Merge by canonical skill name (frontmatter name or dir name) —
             # the same key `rebrew skills list` uses, so a user skill named
@@ -191,9 +219,11 @@ def _agent_skill_files(target_name: str) -> dict[str, bytes]:
             name = _safe_skill_name(fm.get("name") or skill_dir.name)
             if not name:
                 continue
-            for src in sorted(skill_dir.rglob("*")):
-                if src.is_file():
-                    files[f"{name}/{src.relative_to(skill_dir).as_posix()}"] = src.read_bytes()
+            for src in _iter_skill_tree_files(skill_dir):
+                rel = src.relative_to(skill_dir).as_posix()
+                if Path(rel).is_absolute() or ".." in Path(rel).parts:
+                    continue
+                files[f"{name}/{rel}"] = src.read_bytes()
 
     marker = b"<target>"
     replacement = target_name.encode("utf-8")
