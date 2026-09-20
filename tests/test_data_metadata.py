@@ -104,6 +104,16 @@ class TestSetDataField:
         assert get_data_entry(tmp_path, 0x10025000, "SERVER")["size"] == 512
         assert (path.stat().st_mode & 0o777) == 0o444
 
+    def test_same_value_is_noop(self, tmp_path: Path) -> None:
+        """Re-setting an unchanged field must not rewrite rebrew-data.toml."""
+        set_data_field(tmp_path, 0x10025000, "size", 256, "SERVER")
+        path = tmp_path / "rebrew-data.toml"
+        before = path.read_bytes()
+        before_mtime = path.stat().st_mtime_ns
+        set_data_field(tmp_path, 0x10025000, "size", 256, "SERVER")
+        assert path.read_bytes() == before
+        assert path.stat().st_mtime_ns == before_mtime
+
     def test_overwrites_field(self, tmp_path: Path) -> None:
         set_data_field(tmp_path, 0x10025000, "size", 128, "SERVER")
         set_data_field(tmp_path, 0x10025000, "size", 256, "SERVER")

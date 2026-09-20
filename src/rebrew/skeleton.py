@@ -1218,6 +1218,7 @@ def _run_single_va_mode(
     json_output: bool,
     dry_run: bool = False,
     decomp_body: bool = False,
+    force: bool = False,
 ) -> None:
     """Create a new single-function .c skeleton file."""
     root = cfg.root
@@ -1225,6 +1226,19 @@ def _run_single_va_mode(
     filename_val = make_filename(ghidra_name, name, cfg=cfg)
     filepath_val = Path(output) if output else src_dir / filename_val
     rel_path_val = rel_display_path(filepath_val, root)
+
+    # Batch mode already refuses an existing path without --force; single-VA
+    # must match — otherwise a re-run (or a name collision with an uncovered
+    # VA) silently overwrites a hand-edited skeleton.
+    if filepath_val.exists() and not force:
+        if dry_run:
+            console.print(f"[dim]Would skip[/dim] {rel_path_val} (already exists)")
+            return
+        error_exit(
+            f"{rel_path_val} already exists — re-run with --force to overwrite "
+            "(nothing was written)",
+            json_mode=json_output,
+        )
 
     decomp_code_val, decomp_backend_name, xref_context_val = _fetch_extras(
         cfg,
@@ -1501,6 +1515,7 @@ def main(
         json_output,
         dry_run=dry_run,
         decomp_body=decomp_body,
+        force=force,
     )
 
 

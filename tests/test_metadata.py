@@ -397,6 +397,18 @@ class TestUpdateField:
         update_field(tmp_path, 0x1000, "size", "0x2A", module="SERVER")
         assert get_entry(tmp_path, 0x1000, "SERVER").get("size") == 42
 
+    def test_same_value_is_noop(self, tmp_path: Path) -> None:
+        """Re-setting an unchanged field must not rewrite rebrew-functions.toml."""
+        from rebrew.metadata import METADATA_FILENAME
+
+        update_field(tmp_path, 0x1000, "blocker", "1B diff", module="SERVER")
+        path = tmp_path / METADATA_FILENAME
+        before = path.read_bytes()
+        before_mtime = path.stat().st_mtime_ns
+        update_field(tmp_path, 0x1000, "blocker", "1B diff", module="SERVER")
+        assert path.read_bytes() == before
+        assert path.stat().st_mtime_ns == before_mtime
+
     def test_unknown_key_rejected_on_remove(self, tmp_path: Path) -> None:
         with pytest.raises(ValueError, match="unknown metadata field"):
             remove_field(tmp_path, 0x1000, "author", module="SERVER")

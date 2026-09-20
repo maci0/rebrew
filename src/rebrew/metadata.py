@@ -422,7 +422,14 @@ def _set_field(directory: Path, va: int, key: str, value: Any, module: str) -> N
         if toml_key not in doc:
             doc[toml_key] = tomlkit.table()
 
-        doc[toml_key][key] = toml_safe(value)
+        # Same-value short-circuit (mirrors set_fields / update_statuses_batch):
+        # a retry that re-sets the stored value must not rewrite the TOML.
+        safe = toml_safe(value)
+        entry = doc[toml_key]
+        if isinstance(entry, dict) and entry.get(key) == safe:
+            return
+
+        entry[key] = safe
         atomic_write_locked(path, tomlkit.dumps(doc))
         pop_metadata_doc_cache(_metadata_cache, path)
 

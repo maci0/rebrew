@@ -374,6 +374,34 @@ class TestSplitExtractVA:
         assert result.exit_code == 0
         assert (tmp_path / "single_c" / "only.c").exists()
         assert not src.exists()  # source deleted when no blocks remain
+        bak = tmp_path / "single.c.bak"
+        assert bak.exists()
+        assert "int only(void)" in bak.read_text(encoding="utf-8")
+
+    def test_va_extract_preserves_existing_bak(self, tmp_path: Path, monkeypatch: Any) -> None:
+        """A second last-block extract must not overwrite an existing .bak."""
+        original = (
+            "#include <stdio.h>\n"
+            "\n"
+            "// FUNCTION: SERVER 0x10001000\n"
+            "// STATUS: EXACT\n"
+            "// ORIGIN: GAME\n"
+            "// SIZE: 1\n"
+            "// CFLAGS: /O2\n"
+            "// SYMBOL: _only\n"
+            "\n"
+            "int only(void) { return 0; }\n"
+        )
+        bak = tmp_path / "single.c.bak"
+        bak.write_text("ORIGINAL BACKUP\n", encoding="utf-8")
+        _write(tmp_path / "single.c", original)
+
+        result, src = _invoke(
+            tmp_path, monkeypatch, "--va", "0x10001000", "--force", name="single.c"
+        )
+        assert result.exit_code == 0
+        assert not src.exists()
+        assert bak.read_text(encoding="utf-8") == "ORIGINAL BACKUP\n"
 
     def test_va_json_output(self, tmp_path: Path, monkeypatch: Any) -> None:
         """--va --json should produce correct structured output."""

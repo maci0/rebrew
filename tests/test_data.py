@@ -362,11 +362,14 @@ class TestBssFix:
         assert "char gap_00001010[16];" in second
         assert "char gap_00001030[32];" in second
 
-        # Third run with NO new gaps: file unchanged (up-to-date message).
+        # Third run with NO new gaps: file content and mtime unchanged
+        # (a no-op rewrite would invalidate verify caches via mtime).
         report3 = BssReport(bss_va=0x1000, bss_size=0x200, gaps=[])
+        before_mtime = fix_file.stat().st_mtime_ns
         _generate_bss_fix(report3, tmp_path, "GAME")
         third = fix_file.read_text(encoding="utf-8")
         assert third == second
+        assert fix_file.stat().st_mtime_ns == before_mtime
 
 
 def test_verify_bss_layout_clamps_coverage(tmp_path: Path) -> None:

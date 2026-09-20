@@ -248,9 +248,14 @@ def main(
                 if remaining:
                     atomic_write_text(source_path, preamble + "".join(remaining), encoding=encoding)
                 else:
-                    # Back up the original before removing (recoverable via .bak)
+                    # Back up the original before removing (recoverable via .bak).
+                    # Only when absent: a retry after a partial failure, or a
+                    # later extract that again empties the source, must not
+                    # overwrite the first-run stub/source backup (same rule as
+                    # match_batch.update_stub_to_matched).
                     bak_path = source_path.with_suffix(source_path.suffix + ".bak")
-                    shutil.copy2(source_path, bak_path)
+                    if not bak_path.exists():
+                        shutil.copy2(source_path, bak_path)
                     source_path.unlink()
                     if not json_output:
                         console.print(

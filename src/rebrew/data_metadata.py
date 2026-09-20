@@ -251,7 +251,15 @@ def set_data_field(directory: Path, va: int, key: str, value: Any, module: str) 
 
         from rebrew.metadata import toml_safe
 
-        doc[toml_key][key] = toml_safe(value)
+        # Same-value short-circuit: a re-run that sets the field to what is
+        # already stored must not rewrite the TOML (mtime churn would invalidate
+        # verify caches and make an idempotent `--fix-bss` look dirty).
+        entry = doc[toml_key]
+        safe = toml_safe(value)
+        if isinstance(entry, dict) and entry.get(key) == safe:
+            return
+
+        entry[key] = safe
         atomic_write_locked(path, tomlkit.dumps(doc))
         _invalidate_data_cache(path)
 

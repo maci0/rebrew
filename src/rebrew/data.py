@@ -920,7 +920,11 @@ def _generate_bss_fix(
 
     # File FIRST, then metadata: a crash in between must not leave
     # rebrew-data.toml claiming coverage the .c does not declare.
-    atomic_write_text(out_file, "\n".join(lines), encoding="utf-8")
+    # Skip the rewrite when the generated body is byte-identical — a
+    # no-op re-run must not bump mtime (verify cache / git dirty).
+    new_text = "\n".join(lines)
+    if not out_file.exists() or out_file.read_text(encoding="utf-8") != new_text:
+        atomic_write_text(out_file, new_text, encoding="utf-8")
     for gap in new_gaps:
         # Write metadata to data metadata (the metadata root, not src_dir).
         set_data_field(meta_dir, gap.offset, "size", gap.size, origin)

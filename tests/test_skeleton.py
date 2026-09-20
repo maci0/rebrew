@@ -559,6 +559,29 @@ class TestSkeletonDryRun:
         assert "Would create" in result.output
         assert not list((tmp_path / "src").glob("*.c"))
 
+    def test_single_refuses_existing_file_without_force(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A path that already exists must not be overwritten without --force."""
+        from typer.testing import CliRunner
+
+        import rebrew.skeleton as sk
+
+        cfg = self._cfg(tmp_path)
+        # Pre-create a colliding filename for the VA's default skeleton name
+        # (matches function_structure.json's "fcn.10001000").
+        from rebrew.skeleton import make_filename
+
+        name = make_filename("fcn.10001000", cfg=cfg)
+        existing = cfg.reversed_dir / name
+        existing.write_text("/* hand-edited */\nint keep(void) { return 1; }\n", encoding="utf-8")
+        before = existing.read_text(encoding="utf-8")
+        monkeypatch.setattr(sk, "require_config", lambda target=None, json_mode=False: cfg)
+        result = CliRunner().invoke(sk.app, ["0x10001000"])
+        assert result.exit_code != 0
+        assert "already exists" in result.output
+        assert existing.read_text(encoding="utf-8") == before
+
     def test_batch_dry_run_creates_nothing(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
