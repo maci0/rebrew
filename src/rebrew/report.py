@@ -97,10 +97,10 @@ header { background: #1a1a1a; color: #fff; padding: 0.75rem 1.5rem;
          display: flex; flex-wrap: wrap; align-items: baseline; gap: 1rem 2rem; }
 header h1 { font-size: 1.05rem; margin: 0; }
 nav { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; }
-nav a { color: #c8c8c8; text-decoration: none; min-height: 2.75rem; padding: 0.5rem 0.35rem;
+nav a { color: #c8c8c8; text-decoration: underline; min-height: 2.75rem; padding: 0.5rem 0.35rem;
         display: inline-flex; align-items: center; }
 nav a:hover { color: #fff; }
-nav a.active { color: #fff; font-weight: 600; text-decoration: underline; }
+nav a.active { color: #fff; font-weight: 600; text-decoration-thickness: 2px; }
 :focus-visible { outline: 3px solid #005fcc; outline-offset: 2px; }
 nav a:focus-visible { outline-color: #9dc4f5; }
 main { max-width: 1100px; margin: 1.5rem auto; padding: 0 1.5rem; }
@@ -171,14 +171,20 @@ def _pager_nav(stem: str, page: int, total_pages: int, total_rows: int, noun: st
     end = min(page * _TABLE_PAGE_SIZE, total_rows)
     links: list[str] = []
     if page > 1:
-        links.append(f"<a href='{_paged_href(stem, page - 1)}'>Previous</a>")
+        links.append(
+            f"<a href='{_paged_href(stem, page - 1)}' "
+            f"aria-label='Previous page of {html.escape(noun, quote=True)}'>Previous</a>"
+        )
     links.append(f"Page {page} of {total_pages}")
     if page < total_pages:
-        links.append(f"<a href='{_paged_href(stem, page + 1)}'>Next</a>")
+        links.append(
+            f"<a href='{_paged_href(stem, page + 1)}' "
+            f"aria-label='Next page of {html.escape(noun, quote=True)}'>Next</a>"
+        )
     return (
-        f"<p class='pager' role='navigation' aria-label='Table pages'>"
+        f"<nav class='pager' aria-label='Table pages'>"
         f"Showing {start}\u2013{end} of {total_rows} {html.escape(noun)}. "
-        f"{' · '.join(links)}</p>"
+        f"{' · '.join(links)}</nav>"
     )
 
 
@@ -492,6 +498,7 @@ def _render_strings(cfg: ProjectConfig) -> list[tuple[str, str]]:
                     "Strings",
                     target,
                     "strings.html",
+                    "<h2>Strings</h2>"
                     "<p class='note'>Target binary not found. Check the binary path in "
                     "rebrew-project.toml, then regenerate this report.</p>",
                 ),
@@ -508,6 +515,7 @@ def _render_strings(cfg: ProjectConfig) -> list[tuple[str, str]]:
                     "Strings",
                     target,
                     "strings.html",
+                    "<h2>Strings</h2>"
                     "<p class='note'>Failed to parse the target binary. Confirm the file is a "
                     "supported PE/ELF/NE binary, then regenerate this report.</p>",
                 ),
@@ -524,7 +532,12 @@ def _render_strings(cfg: ProjectConfig) -> list[tuple[str, str]]:
         return [
             (
                 "strings.html",
-                _page("Strings", target, "strings.html", f"<p class='note'>{note}</p>"),
+                _page(
+                    "Strings",
+                    target,
+                    "strings.html",
+                    f"<h2>Strings</h2><p class='note'>{note}</p>",
+                ),
             )
         ]
 
@@ -548,7 +561,7 @@ def _render_strings(cfg: ProjectConfig) -> list[tuple[str, str]]:
         )
         pager = _pager_nav("strings", page_num, total_pages, total, "strings")
         if page_num == 1:
-            body = f"{intro}{pager}{table}"
+            body = f"<h2>Strings</h2>{intro}{pager}{table}"
             title = "Strings"
         else:
             body = f"<h2>Strings (continued)</h2>{pager}{table}"
@@ -568,12 +581,15 @@ def _string_row(s: StringEntry, xrefs: list[Xref]) -> str:
     if len(xrefs) > 5:
         first += f" (+{len(xrefs) - 5} more)"
         refs_title = f' title="{html.escape(all_refs, quote=True)}"'
+    text_attrs = text_title
+    if truncated:
+        text_attrs += f' aria-label="{html.escape(s.text, quote=True)}"'
     return (
         "<tr>"
         f"<td class='mono'>0x{s.va:08x}</td>"
         f"<td>{html.escape(s.section)}</td>"
         f"<td>{html.escape(s.kind)}</td>"
-        f"<td class='mono'{text_title}>{html.escape(text)}</td>"
+        f"<td class='mono'{text_attrs}>{html.escape(text)}</td>"
         f"<td>{len(xrefs)}</td>"
         f"<td class='mono'{refs_title}>{html.escape(first) or '&mdash;'}</td>"
         "</tr>"
@@ -589,6 +605,7 @@ def _render_imports(cfg: ProjectConfig) -> str:
             "Imports",
             target,
             "imports.html",
+            "<h2>Imports</h2>"
             "<p class='note'>Target binary not found. Check the binary path in "
             "rebrew-project.toml, then regenerate this report.</p>",
         )
@@ -599,6 +616,7 @@ def _render_imports(cfg: ProjectConfig) -> str:
             "Imports",
             target,
             "imports.html",
+            "<h2>Imports</h2>"
             "<p class='note'>Failed to parse imports from the target binary. Confirm "
             "the file is a supported PE binary, then regenerate this report.</p>",
         )
@@ -611,6 +629,7 @@ def _render_imports(cfg: ProjectConfig) -> str:
             "Imports",
             target,
             "imports.html",
+            "<h2>Imports</h2>"
             "<p class='note'>No import table found in the target binary - nothing to report.</p>",
         )
 
@@ -623,6 +642,7 @@ def _render_imports(cfg: ProjectConfig) -> str:
         for rec in sorted(imports, key=lambda r: r["iat_va"])
     )
     parts = [
+        "<h2>Imports</h2>",
         f"<p>{len(imports)} imported APIs.</p>",
         _data_table("Imported APIs", ["DLL", "Function", "IAT slot"], rows),
     ]
@@ -633,7 +653,7 @@ def _render_imports(cfg: ProjectConfig) -> str:
         )
         parts.extend(
             [
-                "<h3>Import stubs (jmp [IAT])</h3>",
+                "<h2>Import stubs (jmp [IAT])</h2>",
                 _data_table("Import stubs (jmp [IAT])", ["VA", "API"], stub_rows),
             ]
         )
@@ -657,6 +677,7 @@ def _render_graph(cfg: ProjectConfig) -> tuple[str, str | None]:
                 "Call graph",
                 target,
                 "graph.html",
+                "<h2>Call graph</h2>"
                 "<p class='note'>No reversed source directory configured - call graph is empty.</p>",
             ),
             None,
@@ -695,6 +716,7 @@ def _render_graph(cfg: ProjectConfig) -> tuple[str, str | None]:
                 "Call graph",
                 target,
                 "graph.html",
+                "<h2>Call graph</h2>"
                 "<p class='note'>Call graph generation failed. The other pages of this report are "
                 "complete.</p>",
             ),
@@ -702,11 +724,13 @@ def _render_graph(cfg: ProjectConfig) -> tuple[str, str | None]:
         )
 
     body = (
+        "<h2>Call graph</h2>"
         "<p>Call graph over reversed functions. The mermaid source below renders in any "
         "mermaid-compatible viewer. A <a href='adjacency.txt'>plain-text adjacency list</a> "
-        "is available as a separate download.</p>"
-        "<h3>Mermaid</h3>"
-        f"<pre class='mermaid'>{html.escape(mermaid)}</pre>"
+        "(screen-reader accessible) is available as a separate download.</p>"
+        "<h2>Mermaid source</h2>"
+        f"<pre class='mermaid' aria-label='Mermaid call-graph source'>"
+        f"{html.escape(mermaid)}</pre>"
     )
     return _page("Call graph", target, "graph.html", body), adjacency
 

@@ -336,8 +336,12 @@ class TestHandle:
         assert 'aria-label="Global results"' in body
         assert 'aria-label="History results"' in body
         assert body.count('aria-busy="false"') == 5
-        assert 'aria-current="true"' in body
+        assert 'aria-selected="true"' in body
+        assert 'role="tablist"' in body
+        assert 'role="tabpanel"' in body
         assert "aria-pressed" in body
+        assert "ArrowRight" in body  # tablist keyboard nav
+        assert 'aria-label="Retry failed loads"' in body
         assert "border: 1px solid #767676" in body  # WCAG 1.4.11 non-text contrast
         assert "#ccc" not in body
         assert "forced-colors" in body

@@ -94,6 +94,15 @@ class TestReportCli:
         assert "text-transform: uppercase" not in index
         assert "prefers-reduced-motion" in index
         assert "forced-colors" in index
+        assert "text-decoration: underline" in index  # nav links not color-only (1.4.1)
+        graph = (site / "graph.html").read_text(encoding="utf-8")
+        assert "<h2>Call graph</h2>" in graph
+        assert "<h3>" not in graph
+        imports_html = (site / "imports.html").read_text(encoding="utf-8")
+        assert "<h2>Imports</h2>" in imports_html
+        assert "<h3>" not in imports_html
+        strings_html = (site / "strings.html").read_text(encoding="utf-8")
+        assert "<h2>Strings</h2>" in strings_html
 
     def test_index_shows_blockers(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """The function table's Blocker column surfaces near-diag blockers."""
@@ -405,6 +414,9 @@ class TestReportPayloadShape:
         assert "Showing 1–" in index or "Showing 1\u2013" in index
         assert "Next" in index
         assert "Previous" in page2
+        assert "<nav class='pager' aria-label='Table pages'>" in index
+        assert "aria-label='Next page of functions'" in index
+        assert "aria-label='Previous page of functions'" in page2
         assert "index-p2.html" in result["pages"]
         # Page 1 must not embed every row (first-paint budget).
         assert index.count("<tr>") < _TABLE_PAGE_SIZE + 5

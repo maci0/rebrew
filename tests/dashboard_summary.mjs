@@ -14,6 +14,7 @@ globalThis.document = {
         attributes: {},
         setAttribute(name, value) { this.attributes[name] = value; },
         querySelector() { return this; },
+        querySelectorAll() { return []; },
         insertAdjacentHTML(position, html) { this.innerHTML += html; },
       });
     }

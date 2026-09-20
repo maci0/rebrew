@@ -190,24 +190,28 @@ _INDEX_HTML = """<!doctype html>
 <div id="filter-actions" hidden>
 <button type="button" id="clear-filters">Clear filters</button>
 </div>
-<nav id="views" class="views" hidden aria-label="Coverage views">
-<button type="button" data-view="functions" class="active" aria-current="true">Functions</button>
-<button type="button" data-view="sections">Sections</button>
-<button type="button" data-view="globals">Globals</button>
-<button type="button" data-view="history">History</button>
-</nav>
+<div id="views" class="views" hidden role="tablist" aria-label="Coverage views">
+<button type="button" role="tab" id="tab-functions" data-view="functions"
+  aria-controls="view-functions" class="active" aria-selected="true" tabindex="0">Functions</button>
+<button type="button" role="tab" id="tab-sections" data-view="sections"
+  aria-controls="view-sections" aria-selected="false" tabindex="-1">Sections</button>
+<button type="button" role="tab" id="tab-globals" data-view="globals"
+  aria-controls="view-globals" aria-selected="false" tabindex="-1">Globals</button>
+<button type="button" role="tab" id="tab-history" data-view="history"
+  aria-controls="view-history" aria-selected="false" tabindex="-1">History</button>
+</div>
 <section id="summary" aria-labelledby="summary-heading" aria-busy="false" hidden>
 <h2 class="visually-hidden" id="summary-heading">Coverage summary</h2>
 <div class="cards" id="cards"></div>
 </section>
 <p class="visually-hidden" id="results-status" role="status" aria-live="polite"></p>
 <p id="dashboard-error" role="alert" hidden></p>
-<div id="retry-bar">
+<div id="retry-bar" role="group" aria-label="Retry failed loads">
 <button type="button" id="retry-summary" hidden>Retry summary</button>
 <button type="button" id="retry-functions" hidden>Retry functions</button>
 <button type="button" id="retry-view" hidden>Retry</button>
 </div>
-<div id="view-functions" class="view-panel">
+<div id="view-functions" class="view-panel" role="tabpanel" aria-labelledby="tab-functions">
 <p id="results-hint" hidden></p>
 <p id="empty-state" hidden></p>
 <div id="show-more-wrap" hidden>
@@ -222,7 +226,7 @@ _INDEX_HTML = """<!doctype html>
 </tr></thead><tbody></tbody></table>
 </div>
 </div>
-<div id="view-sections" class="view-panel" hidden>
+<div id="view-sections" class="view-panel" role="tabpanel" aria-labelledby="tab-sections" hidden>
 <p id="sections-empty" hidden>No section stats for this target. Run
   <code>rebrew build-db</code> for this project, then reload.</p>
 <div id="sections-results" class="table-scroll" tabindex="0" role="region"
@@ -234,7 +238,7 @@ _INDEX_HTML = """<!doctype html>
 </tr></thead><tbody></tbody></table>
 </div>
 </div>
-<div id="view-globals" class="view-panel" hidden>
+<div id="view-globals" class="view-panel" role="tabpanel" aria-labelledby="tab-globals" hidden>
 <p id="globals-hint" hidden></p>
 <p id="globals-empty" hidden></p>
 <div id="globals-show-more-wrap" hidden>
@@ -248,7 +252,7 @@ _INDEX_HTML = """<!doctype html>
 </tr></thead><tbody></tbody></table>
 </div>
 </div>
-<div id="view-history" class="view-panel" hidden>
+<div id="view-history" class="view-panel" role="tabpanel" aria-labelledby="tab-history" hidden>
 <p id="history-hint" hidden></p>
 <p id="history-empty" hidden>No status changes recorded yet. History appears after
   <code>rebrew build-db</code> when function statuses change.</p>
@@ -380,8 +384,8 @@ function syncViewChrome() {
   document.querySelectorAll("#views button[data-view]").forEach(btn => {
     const on = btn.getAttribute("data-view") === currentView;
     btn.classList.toggle("active", on);
-    if (on) btn.setAttribute("aria-current", "true");
-    else btn.removeAttribute("aria-current");
+    btn.setAttribute("aria-selected", on ? "true" : "false");
+    btn.tabIndex = on ? 0 : -1;
   });
   updateFilterActions();
   syncError();
@@ -570,7 +574,8 @@ function renderSummary(s) {
       const pressed = $("status").value === status;
       const active = pressed ? " active" : "";
       return "<button type=button class='card" + active + "' data-status='" + esc(status)
-        + "' title='" + esc(title) + "' aria-pressed='" + (pressed ? "true" : "false") + "'>"
+        + "' title='" + esc(title) + "' aria-label='" + esc(title + ": " + v)
+        + "' aria-pressed='" + (pressed ? "true" : "false") + "'>"
         + "<span class=value>" + esc(v) + "</span>"
         + "<span class=label>" + esc(k) + "</span></button>";
     }
@@ -915,6 +920,21 @@ function bindControls() {
     const btn = ev.target.closest("button[data-view]");
     if (!btn) return;
     setView(btn.getAttribute("data-view"));
+  };
+  $("views").onkeydown = (ev) => {
+    const tabs = Array.from($("views").querySelectorAll("button[data-view]"));
+    const current = tabs.findIndex((tab) => tab.getAttribute("data-view") === currentView);
+    if (current < 0) return;
+    let next = -1;
+    if (ev.key === "ArrowRight" || ev.key === "ArrowDown") next = (current + 1) % tabs.length;
+    else if (ev.key === "ArrowLeft" || ev.key === "ArrowUp") next = (current - 1 + tabs.length) % tabs.length;
+    else if (ev.key === "Home") next = 0;
+    else if (ev.key === "End") next = tabs.length - 1;
+    else return;
+    ev.preventDefault();
+    const tab = tabs[next];
+    setView(tab.getAttribute("data-view"));
+    tab.focus();
   };
 }
 async function init() {
