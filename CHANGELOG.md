@@ -4,6 +4,13 @@
   Module filter fed by ``by_module_counts``. Summary failures offer Retry
   summary (same pattern as functions) instead of forcing a full reload;
   Matched/Identified cards carry titles that explain the percentages.
+- **``rebrew build-check``** verifies ``build/`` still matches what CMake
+  generated (hand-edited ``build.make`` / stale objects). Exits non-zero on
+  drift and on ``not-configured`` so a mistyped ``--build-dir`` cannot read
+  as clean.
+- **``rebrew verify --data`` reports coverage**, not only match counts:
+  ``total`` / ``compared`` / ``not_comparable`` / ``coverage`` in human and
+  ``--json`` output, so a partial compare cannot look like a whole-tree pass.
 - **``make cli-contract``** mirrors the CI ``cli-contract`` help greps; ``make
   all`` runs it. Older-than-pin ``uv`` warns instead of blocking ``make setup``.
 
@@ -43,11 +50,41 @@
   ~2 KiB.
 - **``estimate_type_size`` treats ``T[0]`` as one element.** A zero count made
   coverage and data_verify walk a zero-length symbol.
+- **PE/NE parsers reject forged bounds** (export walks, corrupt-slot salvage)
+  instead of reading past the image.
+- **Pinned toolchain downloads harden against SSRF and zip-slip.**
+- **Include-fingerprint memos bust on directory mtime**, so a header created
+  mid-run is visible without a process restart.
+- **Make recipes stay POSIX ``sh``** and honor ``XDG_CACHE_HOME``.
+- **``rebrew asm`` no longer swallows inter-function padding** in the dump.
+- **``rebrew todo`` drops data symbols** that ``verify --data`` can never clear.
+- **``build-check`` detects a stale object set**, not only edited flags.
+- **DOSBox sandboxes are reused** and leaked temp/HTTP handles are closed.
+- **Probe and gap-trace share compile overrides** with the rest of the
+  compile path.
+- **``postlink`` reports the measured ``.rdata`` prefix mismatch**, not a
+  single hypothesis.
 
 ### Changed
-- **`activate()` no longer fail-fasts on unmet coeffects.** A component whose
-  `needs` are missing stays inactive; a later `provide` mounts it, and
-  `unprovide` reverts it. ADR 014 records the current contract.
+- **Breaking:** **`activate()` no longer raises on unmet coeffects** (2.6.0
+  raised ``ComponentError`` naming the missing services). Components whose
+  ``needs`` are missing stay inactive; a later ``provide`` mounts them, and
+  ``unprovide`` reverts them. Catch ``ComponentError`` at startup only for
+  import/registration failures — not for deferred ``needs``. ADR 014 records
+  the current contract.
+- **Breaking:** **Dashboard ``/api/functions`` (and bootstrap ``functions``)
+  rows are compact arrays** keyed by ``cols``, not dicts. Before: each row was
+  ``{"va", "name", "symbol", "size", "status", "module", "files"}``. After:
+  ``{"cols": [...], "functions": [[...], ...]}`` — zip ``cols`` with each
+  array. Built-in HTML follows the new shape; external dashboard clients must
+  update.
+- **Breaking:** **Dashboard default page size is 100** (was 500). Pass
+  ``limit=500`` (Show more still steps by 500) to keep the previous first-page
+  width.
+- **Breaking:** **``rebrew.matcher.flags`` / ``rebrew.matcher.flag_data``
+  modules moved** to ``rebrew.flags`` / ``rebrew.flag_data``. Import from the
+  new paths (or from ``rebrew.matcher``, which still re-exports the symbols);
+  ``from rebrew.matcher.flags import …`` raises ``ModuleNotFoundError``.
 - **Effect inverses fire at most once.** `_Effect.revert` is armed; overlapping
   `Context.dispose` and `CoeffectScope.close` cannot run the same inverse
   twice. Disposing the context closes every attached scope.
@@ -57,10 +94,9 @@
   skip `COUNT(*)` on a short first page.
 - **Dashboard list payloads echo `limit`/`offset`.** `/api/summary` uses the
   stats row as the existence check instead of a second `target_known` query.
-- **Dashboard `/api/functions` rows are compact arrays** keyed by `cols`.
-  500-row JSON drops from 59 KB dicts to 32 KB arrays.
-- **Dashboard first page is 100 rows.** Bootstrap and the default
-  `/api/functions` limit drop from 500; Show more still fetches 500.
+- **Cross-module binsync helpers drop the leading underscore**
+  (``is_meaningful``, ``normalize_prototype``, ``print_import_result``,
+  ``one_line``, ``run_git``). Call sites inside the package already updated.
 
 ## [2.6.0] - 2026-09-18
 ### Added
