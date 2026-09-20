@@ -767,6 +767,46 @@ class TestIdempotentSuccess:
         op = {"tool": "create-label", "args": {"addressOrSymbol": "0x1000"}}
         assert _is_idempotent_success(op, "connection reset") is False
 
+    def test_parse_c_structure_duplicate_name_counts(self) -> None:
+        """A sync re-push / dependency retry that hits Ghidra's typed
+        DuplicateNameException must count as success (type already present)."""
+        from rebrew.ghidra.client import _is_idempotent_success
+
+        op = {
+            "tool": "parse-c-structure",
+            "args": {"cDefinition": "struct A { int x; };"},
+        }
+        assert _is_idempotent_success(op, "DuplicateNameException: already exists") is True
+
+    def test_parse_c_structure_structure_noun_counts(self) -> None:
+        from rebrew.ghidra.client import _is_idempotent_success
+
+        op = {
+            "tool": "parse-c-structure",
+            "args": {"cDefinition": "struct A { int x; };"},
+        }
+        assert _is_idempotent_success(op, "structure A already exists") is True
+
+    def test_set_comment_noun_counts(self) -> None:
+        from rebrew.ghidra.client import _is_idempotent_success
+
+        op = {"tool": "set-comment", "args": {"addressOrSymbol": "0x1000"}}
+        assert _is_idempotent_success(op, "comment already exists at 0x1000") is True
+
+    def test_set_bookmark_noun_counts(self) -> None:
+        from rebrew.ghidra.client import _is_idempotent_success
+
+        op = {"tool": "set-bookmark", "args": {"addressOrSymbol": "0x1000"}}
+        assert _is_idempotent_success(op, "bookmark already exists") is True
+
+    def test_prototype_does_not_false_reject_create_function(self) -> None:
+        """``set-function-prototype`` shares the substring ``function`` with
+        ``create-function`` — a valid create-function re-apply must still count."""
+        from rebrew.ghidra.client import _is_idempotent_success
+
+        op = {"tool": "create-function", "args": {"address": "0x1000"}}
+        assert _is_idempotent_success(op, "function 0x1000 already exists") is True
+
 
 class TestApplyAbort:
     """A transport failure after ops landed raises McpApplyAborted (partial

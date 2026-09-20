@@ -419,8 +419,24 @@ _ALREADY_EXISTS_PATTERNS: tuple[re.Pattern[str], ...] = (
 )
 
 #: Ops whose re-application is idempotent (the CLI backend counts their
-#: "already exists" failures as success, same as the MCP path).
-_IDEMPOTENT_OPS = frozenset({"create-function", "create-label"})
+#: "already exists" failures as success, same as the MCP path).  Includes
+#: the structural push/retry set: a second ``rebrew sync`` (or a
+#: ``parse-c-structure`` dependency retry after the type already landed)
+#: must not treat Ghidra's duplicate-name reply as a hard failure.
+_IDEMPOTENT_OPS = frozenset(
+    {
+        "create-function",
+        "create-label",
+        "parse-c-structure",
+        "set-comment",
+        "set-bookmark",
+        "set-function-prototype",
+    }
+)
+
+#: Verb prefixes stripped when deriving a bare noun from an op slug
+#: (``set-comment`` → ``comment``, ``parse-c-structure`` → ``c-structure``).
+_OP_VERB_PREFIXES = ("create-", "set-", "parse-")
 
 
 def _is_idempotent_success(op: dict[str, Any] | None, error_msg: str) -> bool:
@@ -459,11 +475,23 @@ def _is_idempotent_success(op: dict[str, Any] | None, error_msg: str) -> bool:
     def _op_spellings(name: str) -> set[str]:
         return {name, name.replace("-", " "), name.replace("-", "_")}
 
-    def _op_nouns(name: str) -> set[str]:
+    def _op_nouns(name: str, *, segments: bool = False) -> set[str]:
         """Every way a server may name this op: the slug, its spaced/underscored
-        spellings, and the bare noun (``create-label`` -> ``label``)."""
-        bare = name.removeprefix("create-")
-        return {
+        spellings, and the bare noun after a verb prefix
+        (``create-label`` → ``label``, ``set-comment`` → ``comment``).
+
+        With *segments*, also add each hyphen/underscore piece of the bare
+        noun (``parse-c-structure`` → ``structure``) so THIS op can match
+        short server wordings.  Cross-op rejection must leave *segments*
+        off — otherwise ``function`` shared by ``create-function`` and
+        ``set-function-prototype`` would false-reject a valid re-apply.
+        """
+        bare = name
+        for prefix in _OP_VERB_PREFIXES:
+            if name.startswith(prefix):
+                bare = name[len(prefix) :]
+                break
+        nouns = {
             name,
             bare,
             name.replace("-", " "),
@@ -471,6 +499,11 @@ def _is_idempotent_success(op: dict[str, Any] | None, error_msg: str) -> bool:
             bare.replace("-", " "),
             bare.replace("-", "_"),
         }
+        if segments:
+            for part in re.split(r"[-_]", bare):
+                if len(part) > 2:
+                    nouns.add(part)
+        return nouns
 
     # A different create-op named → the error is about something else.  Check
     # every spelling: a "create function ..." payload must not be accepted for
@@ -484,10 +517,15 @@ def _is_idempotent_success(op: dict[str, Any] | None, error_msg: str) -> bool:
     if any(n in text for n in other_nouns if n):
         return False
 
-    nouns = _op_nouns(tool)
+    nouns = _op_nouns(tool, segments=True)
     named_op = any(noun in text for noun in nouns if noun)
     named_addr = bool(text_addrs)
     if tool in _IDEMPOTENT_OPS and (named_op or named_addr):
+        return True
+    # Ghidra's typed DuplicateNameException pins a name collision without
+    # always echoing the op slug — the tools/call context already names
+    # which op, and this exception is not a generic "file exists" log line.
+    if tool in _IDEMPOTENT_OPS and "duplicatenameexception" in text:
         return True
     # Generic patterns (op + address in either order) cover server wordings
     # that echo both without the exact tool slug.

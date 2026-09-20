@@ -75,6 +75,17 @@ def test_atomic_write_text_overwrite(tmp_path: Path) -> None:
     assert f.read_text() == "new"
 
 
+def test_atomic_write_text_identical_is_noop(tmp_path: Path) -> None:
+    """A second write of the same bytes must not bump mtime (verify cache /
+    git dirty).  Re-runs of catalog/gen-stubs/exports hit this path."""
+    f = tmp_path / "same.txt"
+    atomic_write_text(f, "stable\n")
+    before = f.stat().st_mtime_ns
+    atomic_write_text(f, "stable\n")
+    assert f.read_text(encoding="utf-8") == "stable\n"
+    assert f.stat().st_mtime_ns == before
+
+
 def test_atomic_write_text_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     f = tmp_path / "test.txt"
 

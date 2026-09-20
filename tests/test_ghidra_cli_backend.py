@@ -120,7 +120,7 @@ class TestApplyCommandsViaCli:
     def test_success_and_error_counts(self, monkeypatch) -> None:
         calls: list[list[str]] = []
 
-        def fake_run(argv, capture_output, text, timeout):
+        def fake_run(argv, capture_output=False, text=False, timeout=None, **_kwargs):
             calls.append(argv)
             rc = 0 if "set-signature" not in argv else 1
             return type("P", (), {"returncode": rc, "stdout": "", "stderr": "boom" if rc else ""})()
@@ -142,7 +142,7 @@ class TestApplyCommandsViaCli:
         """Re-applying an existing label is an error for Ghidra but a success
         for the idempotent MCP path — the cli backend must match."""
 
-        def fake_run(argv, capture_output, text, timeout):
+        def fake_run(argv, capture_output=False, text=False, timeout=None, **_kwargs):
             return type(
                 "P",
                 (),
@@ -158,7 +158,7 @@ class TestApplyCommandsViaCli:
         assert errs == 0
 
     def test_subprocess_error_counts_as_failure(self, monkeypatch) -> None:
-        def fake_run(argv, capture_output, text, timeout):
+        def fake_run(argv, capture_output=False, text=False, timeout=None, **_kwargs):
             raise OSError("no binary")
 
         monkeypatch.setattr("rebrew.ghidra.cli_backend.subprocess.run", fake_run)
@@ -208,7 +208,7 @@ class TestFetchPullDataViaCli:
         }
         calls: list[list[str]] = []
 
-        def fake_run(argv, capture_output, text, timeout):
+        def fake_run(argv, capture_output=False, text=False, timeout=None, **_kwargs):
             calls.append(argv)
             key = "function" if "function" in argv else "symbol" if "symbol" in argv else "comment"
             return type("P", (), {"returncode": 0, "stdout": outputs[key], "stderr": ""})()
@@ -224,7 +224,7 @@ class TestFetchPullDataViaCli:
     def test_nonzero_exit_returns_empty(self, monkeypatch) -> None:
         from rebrew.ghidra.cli_backend import fetch_pull_data_via_cli
 
-        def fake_run(argv, capture_output, text, timeout):
+        def fake_run(argv, capture_output=False, text=False, timeout=None, **_kwargs):
             return type("P", (), {"returncode": 1, "stdout": "", "stderr": "no program"})
 
         monkeypatch.setattr("rebrew.ghidra.cli_backend.subprocess.run", fake_run)
@@ -251,7 +251,7 @@ class TestSymbolFilter:
             '], "count": 3}\n'
         )
 
-        def fake_run(argv, capture_output, text, timeout):
+        def fake_run(argv, capture_output=False, text=False, timeout=None, **_kwargs):
             return type("P", (), {"returncode": 0, "stdout": output, "stderr": ""})()
 
         monkeypatch.setattr("rebrew.ghidra.cli_backend.subprocess.run", fake_run)

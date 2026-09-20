@@ -442,15 +442,32 @@ def atomic_write_text(filepath: Path, text: str, encoding: str = "utf-8") -> Non
     each write self-contained; it does not serialise read-modify-write
     cycles, so a genuine last-writer-wins update is still possible.
 
+    When the on-disk bytes already match what this call would write, the
+    replace is skipped so a no-op re-run does not bump mtime (verify cache
+    keys and ``git status`` dirty checks).  Encode failures fall through to
+    the write path so the same ``UnicodeEncodeError`` surfaces as before.
+
     The ``contextlib.suppress(OSError)`` in the except path is safe because
     it only guards the cleanup unlink: if the temp file was already removed
     (race, OS cleanup) the unlink would raise, but we don't care — the
     original exception is re-raised regardless.
     """
-    tmp_path = filepath.with_name(f"{filepath.name}.{os.getpid()}.{threading.get_ident()}.tmp")
     # Ensure the target directory exists (metadata roots are often created
     # lazily on first write).
     filepath.parent.mkdir(parents=True, exist_ok=True)
+    # Byte-identical short-circuit: re-runs of catalog/gen-stubs/exports must
+    # not invalidate mtime-keyed caches when nothing changed.
+    try:
+        new_bytes = text.encode(encoding)
+    except UnicodeError:
+        new_bytes = None
+    if new_bytes is not None and filepath.is_file():
+        try:
+            if filepath.read_bytes() == new_bytes:
+                return
+        except OSError:
+            pass
+    tmp_path = filepath.with_name(f"{filepath.name}.{os.getpid()}.{threading.get_ident()}.tmp")
     try:
         # newline="" keeps the caller's line endings byte-exact.  Path.write_text
         # defaults to newline=None, which on Windows translates ``\n`` to
