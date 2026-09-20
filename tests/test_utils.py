@@ -860,3 +860,19 @@ class TestPreserveCorrupt:
         assert backup == tmp_path / "meta.toml.101.corrupt"
         assert taken.read_text(encoding="utf-8") == "earlier"
         assert backup is not None and backup.read_text(encoding="utf-8") == "newest"
+
+    def test_exhausted_corrupt_slots_raises(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Every free-slot candidate occupied must raise, not hang forever."""
+        from rebrew.utils import preserve_corrupt
+
+        plain = tmp_path / "meta.toml.corrupt"
+        plain.write_text("kept", encoding="utf-8")
+        monkeypatch.setattr("rebrew.utils.time.time_ns", lambda: 1)
+        # Path.exists is True for every candidate (plain + ns bumps).
+        monkeypatch.setattr(Path, "exists", lambda self: True)
+        path = tmp_path / "meta.toml"
+        path.write_text("newest", encoding="utf-8")
+        with pytest.raises(OSError, match="no free .corrupt slot"):
+            preserve_corrupt(path)

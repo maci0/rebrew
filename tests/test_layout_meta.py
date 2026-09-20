@@ -251,6 +251,16 @@ class TestExportNameOffsets:
         assert [ex["name"] for ex in meta.exports] == ["StraightName"]
         assert meta.exports[0]["va"] == _IMAGE_BASE + 0x1000
 
+    def test_gen_layout_unterminated_export_name_read_to_eof(self) -> None:
+        """gen_layout.parse_pe must match layout_meta on unterminated names."""
+        from rebrew.gen_layout import parse_pe
+
+        _sections, exports, _imports, pe = parse_pe(
+            self._pe_with_one_export(0x1000, b"StraightName")
+        )
+        assert [ex["name"] for ex in exports] == ["StraightName"]
+        assert exports[0]["va"] == pe["image_base"] + 0x1000
+
     def test_forwarder_export_is_dropped(self) -> None:
         """An export whose RVA points inside the export directory is a
         forwarder string, not code — gen_layout.parse_pe drops those, and

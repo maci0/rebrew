@@ -560,12 +560,20 @@ def preserve_corrupt(path: Path) -> Path:
         # overwrite the earlier salvage.  Nanoseconds plus a free-slot
         # bump stay unique across both events.
         suffix = time.time_ns()
-        while True:
+        # Bound the free-slot search: an unbounded ``exists()`` loop would
+        # hang if every candidate is somehow occupied (full directory /
+        # adversarial stubs).  A few thousand bumps past the ns stamp is
+        # already impossible under normal FS conditions.
+        for _ in range(10_000):
             candidate = path.with_name(f"{path.name}.{suffix}.corrupt")
             if not candidate.exists():
                 backup = candidate
                 break
             suffix += 1
+        else:
+            raise OSError(
+                f"cannot preserve corrupt store {path}: no free .corrupt slot after 10000 attempts"
+            )
     os.replace(path, backup)
     return backup
 

@@ -179,6 +179,16 @@ class TestParseImports:
         mods = parse_imports(raw, 0x100, hdr)
         assert [m.module for m in mods] == ["KERNEL", "USER"]
 
+    def test_forged_module_count_raises(self) -> None:
+        """A module_reference_count past the remaining file bytes must raise
+        NeParseError — same contract as the segment_count cap."""
+        raw = bytearray(_build_ne(segments=[(_CODE, 0x01)], modules=["KERNEL"]))
+        # Forge module_reference_count to 0xFFFF at NE+0x1E.
+        struct.pack_into("<H", raw, 0x100 + 0x1E, 0xFFFF)
+        hdr = parse_ne_header(bytes(raw), 0x100)
+        with pytest.raises(NeParseError, match="module reference table"):
+            parse_imports(bytes(raw), 0x100, hdr)
+
     def test_garbage_import_table_degrades_to_modules(self) -> None:
         """Regression: a misplaced/absent import table (MSVC-built NEs like
         the 1991 SkiFree put the non-resident name table where the classic

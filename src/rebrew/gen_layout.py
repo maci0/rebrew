@@ -238,6 +238,10 @@ def parse_pe(
         if off is None or off >= len(data):
             return None
         end = data.find(b"\0", off)
+        if end < 0:
+            # Unterminated — read to EOF.  ``data[off:-1]`` would drop the
+            # last byte (same trap layout_meta already guards against).
+            end = len(data)
         return data[off:end].decode("latin1", "replace")
 
     # ---- exports ----

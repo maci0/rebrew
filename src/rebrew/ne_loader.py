@@ -460,6 +460,15 @@ def parse_imports(data: bytes, ne_offset: int, header: NeHeader) -> list[NeImpor
     modtab = h + header.module_ref_table_offset
     impnames_end = h + header.entry_table_offset  # names table ends at the entry table
 
+    # Cap like parse_segments: a forged module_reference_count of 0xFFFF
+    # must not walk past EOF or allocate tens of thousands of modules.
+    max_by_bytes = max(0, (len(data) - modtab) // 2)
+    if header.module_reference_count > max_by_bytes:
+        raise NeParseError(
+            f"corrupt NE module reference table: count {header.module_reference_count} "
+            f"exceeds {max_by_bytes} entries remaining in file"
+        )
+
     modules: list[NeImportModule] = []
     try:
         for i in range(header.module_reference_count):
