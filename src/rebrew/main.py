@@ -185,7 +185,7 @@ def compose() -> tuple[Context, CoeffectScope]:
     return ctx, activate(components, ctx)
 
 
-_CONTEXT = compose()
+compose()
 
 
 def _json_requested(argv: list[str] | None = None) -> bool:

@@ -41,7 +41,6 @@ from rich.table import Table
 
 from rebrew.binsync.importer import (
     _apply_binsync_func_name,
-    _import_structs,
     _import_type_definitions,
     _is_meaningful,
     _normalize_prototype,
@@ -672,7 +671,7 @@ def overlay_state(
     applied_structs = 0
     structs = load_binsync_structs(state_dir)
     if structs:
-        applied_structs = _import_structs(cfg, structs, dry_run=dry_run, proposed=proposed)
+        applied_structs = _import_type_definitions(cfg, structs, dry_run=dry_run, proposed=proposed)
 
     applied_enums = 0
     enums = load_binsync_enums(state_dir)

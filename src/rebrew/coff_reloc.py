@@ -313,11 +313,6 @@ def _resolve_exact_then_stripped(name_to_va: dict[str, int], sym_name: str) -> i
     return None
 
 
-def _lookup_symbol_va(name_to_va: dict[str, int], sym_name: str) -> int | None:
-    """Resolve *sym_name* in *name_to_va*, tolerating a leading underscore."""
-    return _resolve_exact_then_stripped(name_to_va, sym_name)
-
-
 def _validate_dir32(
     obj_bytes: bytes,
     target_bytes: bytes,
@@ -328,7 +323,7 @@ def _validate_dir32(
     iat_region: set[int] | None = None,
 ) -> bool:
     """Return True if the DIR32 slot is valid (or uncatalogued)."""
-    target_va = _lookup_symbol_va(name_to_va, symbol)
+    target_va = _resolve_exact_then_stripped(name_to_va, symbol)
     try:
         addend = struct.unpack_from("<I", obj_bytes, offset)[0]
         actual = struct.unpack_from("<I", target_bytes, offset)[0]
@@ -361,7 +356,7 @@ def _validate_rel32(
     section_va: int,
 ) -> bool:
     """Return True if the REL32 slot matches ``symbol_va + addend - pc``."""
-    target_va = _lookup_symbol_va(name_to_va, symbol)
+    target_va = _resolve_exact_then_stripped(name_to_va, symbol)
     if target_va is None:
         return True  # uncatalogued — mask only
     try:

@@ -9,14 +9,13 @@ and for previewing an import (the same ``--module`` / ``--target`` filter).
 from __future__ import annotations
 
 import logging
-import re
 from pathlib import Path
 
 import typer
 from rich.console import Console
 from rich.table import Table
 
-from rebrew.binsync.importer import _normalize_prototype
+from rebrew.binsync.importer import _is_meaningful, _normalize_prototype
 from rebrew.binsync.state import index_local_and_catalog, load_binsync_state, load_manifest
 from rebrew.cli import EXIT_MISMATCH, TargetOption, error_exit, json_print, require_config
 from rebrew.utils import strip_body
@@ -37,19 +36,6 @@ app = typer.Typer(
 )
 
 console = Console(stderr=True)
-
-# Mirrors importer — single source of "meaningful" would be a new shared
-# module, but duplicating the 3-line predicate keeps these CLIs independently
-# importable (and ruff F401-clean for the non-imported one).
-_GENERIC_RE = re.compile(r"^_?(func_|FUN_)[0-9a-fA-F]+(@\d+)?$")
-_GHIDRA_GENERIC_RE = re.compile(r"^(FUN_|DAT_|switchdata|thunk_)")
-_PLACEHOLDER_RE = re.compile(r"^g_[0-9a-fA-F]{4,8}$")
-
-
-def _is_meaningful(name: str) -> bool:
-    return bool(name) and not (
-        _GENERIC_RE.match(name) or _GHIDRA_GENERIC_RE.match(name) or _PLACEHOLDER_RE.match(name)
-    )
 
 
 @app.callback(invoke_without_command=True)

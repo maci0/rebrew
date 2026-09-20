@@ -24,9 +24,6 @@ from rebrew.utils import atomic_write_text, parse_int_literal
 
 console = Console(stderr=True)
 
-# Pattern matching generic auto-names that shouldn't overwrite Ghidra renames
-_GENERIC_NAME_RE = re.compile(r"^_?(func_|FUN_)[0-9a-fA-F]+(@\d+)?$")
-
 # Matches non-identifier characters to remove from symbol names.
 _NORMALIZE_NAME_RE = re.compile(r"[^A-Za-z0-9_]")
 

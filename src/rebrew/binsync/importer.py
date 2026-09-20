@@ -61,7 +61,7 @@ app = typer.Typer(
 
 console = Console(stderr=True)
 
-# Mirrors rebrew.ghidra.commands._GENERIC_NAME_RE, plus our own placeholder globals
+# Generic auto-names that should not overwrite a meaningful rename.
 _GENERIC_NAME_RE = re.compile(r"^_?(func_|FUN_)[0-9a-fA-F]+(@\d+)?$")
 _GHIDRA_GENERIC_RE = re.compile(r"^(FUN_|DAT_|switchdata|thunk_)")
 # Our own synthetic placeholder for DATA/GLOBAL entries with missing declarations
@@ -646,7 +646,9 @@ def import_state(
 
     # --- Structs / enums / typedefs: unknown definitions into a local header ---
     if structs_by_name:
-        applied_structs = _import_structs(cfg, structs_by_name, dry_run=dry_run, proposed=proposed)
+        applied_structs = _import_type_definitions(
+            cfg, structs_by_name, dry_run=dry_run, proposed=proposed
+        )
     if enums_by_name:
         applied_enums = _import_type_definitions(
             cfg, enums_by_name, dry_run=dry_run, proposed=proposed
@@ -922,17 +924,6 @@ def _import_type_definitions(
 
     atomic_write_text(header, "".join(blocks), encoding="utf-8")
     return len(new)
-
-
-def _import_structs(
-    cfg: ProjectConfig,
-    structs_by_name: dict[str, dict[str, object]],
-    *,
-    dry_run: bool,
-    proposed: list[dict[str, str]],
-) -> int:
-    """Write unknown BinSync struct definitions into ``binsync_types.h``."""
-    return _import_type_definitions(cfg, structs_by_name, dry_run=dry_run, proposed=proposed)
 
 
 def _print_import_result(result: dict[str, object], *, json_output: bool, dry_run: bool) -> None:

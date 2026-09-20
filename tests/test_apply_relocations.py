@@ -71,24 +71,24 @@ def test_build_symbol_resolver_function_wins_on_collision() -> None:
 def test_build_symbol_resolver_prefers_exact_spelling() -> None:
     # Both spellings catalogued with different VAs: the exact name (the COFF
     # spelling MSVC actually emits) must win over the stripped form, and
-    # round-trip must agree with test/verify (see _lookup_symbol_va).
+    # round-trip must agree with test/verify (see _resolve_exact_then_stripped).
     funcs = {0x10001000: "_foo", 0x10002000: "foo"}
     resolve = build_symbol_resolver(funcs, {})
     assert resolve("_foo") == 0x10001000
     assert resolve("foo") == 0x10002000
 
 
-def test_lookup_symbol_va_prefers_exact_spelling() -> None:
+def test_resolve_exact_then_stripped_prefers_exact_spelling() -> None:
     # Same precedence as build_symbol_resolver: exact before stripped.  This
     # is the resolver used by rebrew test/verify DIR32/REL32 validation.
-    from rebrew.coff_reloc import _lookup_symbol_va
+    from rebrew.coff_reloc import _resolve_exact_then_stripped
 
     name_to_va = {"_foo": 0x10001000, "foo": 0x10002000}
-    assert _lookup_symbol_va(name_to_va, "_foo") == 0x10001000
-    assert _lookup_symbol_va(name_to_va, "foo") == 0x10002000
+    assert _resolve_exact_then_stripped(name_to_va, "_foo") == 0x10001000
+    assert _resolve_exact_then_stripped(name_to_va, "foo") == 0x10002000
     # Tolerant lookup still works when only the stripped form exists.
-    assert _lookup_symbol_va({"bar": 0x10003000}, "_bar") == 0x10003000
-    assert _lookup_symbol_va({}, "nope") is None
+    assert _resolve_exact_then_stripped({"bar": 0x10003000}, "_bar") == 0x10003000
+    assert _resolve_exact_then_stripped({}, "nope") is None
 
 
 def test_absolute_reloc_is_skipped_in_patch() -> None:
