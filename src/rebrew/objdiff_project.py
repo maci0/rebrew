@@ -148,13 +148,19 @@ def _synthesize_target_objects(cfg: Any, out_dir: Path) -> list[dict[str, Any]]:
                 continue
             try:
                 raw = extract_raw_bytes(cfg.target_binary, va, size)
-            except Exception:
+            except Exception as exc:
                 console.print(
                     f"[yellow]warning:[/yellow] skipping 0x{va:08x} "
-                    f"({a.symbol or a.name or 'unnamed'}): failed to extract bytes"
+                    f"({a.symbol or a.name or 'unnamed'}): failed to extract bytes "
+                    f"({exc.__class__.__name__}: {exc})"
                 )
                 continue
             if not raw:
+                console.print(
+                    f"[yellow]warning:[/yellow] skipping 0x{va:08x} "
+                    f"({a.symbol or a.name or 'unnamed'}): empty extract "
+                    f"(VA/size outside the binary?)"
+                )
                 continue
             fns.append((a.symbol or a.name or f"func_{va:08x}", va, raw))
         if not fns:

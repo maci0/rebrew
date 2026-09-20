@@ -168,9 +168,12 @@ class TestCompileSource:
 
         client = _SeqClient(None)
         monkeypatch.setattr(httpx, "Client", lambda **kwargs: client)
+        sleeps: list[float] = []
+        monkeypatch.setattr("rebrew.recompile_client.time.sleep", lambda s: sleeps.append(s))
         res = compile_source("http://svc/", "msvc-6.0", "int f(void){}", ["/c"], retries=1)
         assert res.ok and res.obj_bytes == b"OBJ"
         assert len([c for c in client.calls if c[0] == "post"]) == 2
+        assert sleeps == [0.25]  # first retry: base * 2**0
 
     def test_retries_do_not_retry_validation(self) -> None:
         with pytest.raises(RecompileError, match="too many flags") as ei:
@@ -313,6 +316,7 @@ class TestCompileViaRecompile:
         assert seen["compiler"] == "msvc-6.0"
         assert seen["emit_assembly"] is True
         assert seen["filename"] == "f.c"
+        assert seen["retries"] == 2
 
     def test_service_failure_returns_the_log(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

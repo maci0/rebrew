@@ -882,7 +882,11 @@ class BinaryMatchingGA:
             # warn once so the user knows resume will restart from scratch.
             if not self._checkpoint_warned:
                 self._checkpoint_warned = True
-                log.warning("Checkpoint save failed for %s — --resume unavailable", self.symbol)
+                log.warning(
+                    "Checkpoint save failed for %s — --resume unavailable",
+                    self.symbol,
+                    exc_info=True,
+                )
 
     def close(self) -> None:
         """Release per-run state (kept for call-site compat; the memo is in-memory)."""

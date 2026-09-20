@@ -179,7 +179,9 @@ def _iter_run_records(path: Path) -> Any:
     try:
         fh = path.open(encoding="utf-8")
     except OSError:
+        log.warning("Cannot read GA run log %s — solution seeding disabled", path, exc_info=True)
         return
+    bad_lines = 0
     with fh:
         for line in fh:
             line = line.strip()
@@ -188,9 +190,18 @@ def _iter_run_records(path: Path) -> Any:
             try:
                 record = json.loads(line)
             except json.JSONDecodeError:
+                bad_lines += 1
                 continue
             if isinstance(record, dict):
                 yield record
+    if bad_lines:
+        # One corrupt line must not kill seeding, but zero signal would hide
+        # a truncated write that drops every subsequent win record.
+        log.warning(
+            "Skipped %d malformed line(s) in GA run log %s — check for truncated writes",
+            bad_lines,
+            path,
+        )
 
 
 def load_solutions_file(path: Path) -> list[SolutionEntry]:
@@ -404,7 +415,9 @@ def load_ga_runs(
     try:
         fh = p.open(encoding="utf-8")
     except OSError:
+        log.warning("Cannot read GA run log %s", p, exc_info=True)
         return []
+    bad_lines = 0
     with fh:
         for line in fh:
             line = line.strip()
@@ -413,12 +426,19 @@ def load_ga_runs(
             try:
                 record = json.loads(line)
             except json.JSONDecodeError:
+                bad_lines += 1
                 continue
             if not isinstance(record, dict):
                 continue
             if target and record.get("target") != target:
                 continue
             records.append(record)
+    if bad_lines:
+        log.warning(
+            "Skipped %d malformed line(s) in GA run log %s — check for truncated writes",
+            bad_lines,
+            p,
+        )
     out = list(records)
     out.reverse()  # newest first
     return out

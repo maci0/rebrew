@@ -176,6 +176,20 @@ class TestResolveWatchedDir32:
         assert out == {}
         assert called == []
 
+    def test_name_resolution_failure_logs_warning(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A failed name map must not silently disable watched DIR32 patches."""
+
+        def boom(_cfg: Any) -> dict[str, int]:
+            raise RuntimeError("catalog missing")
+
+        monkeypatch.setattr(prove_mod, "build_name_to_va", boom)
+        with caplog.at_level("WARNING", logger="rebrew.prove"):
+            out = prove_mod._resolve_watched_dir32("f.obj", "_f", object(), {0x10123456})
+        assert out == {}
+        assert any("watched-VA name resolution failed" in r.message for r in caplog.records)
+
 
 @pytest.mark.skipif(not has_claripy, reason="claripy not installed")
 class TestCompareStatePairsRealClaripy:

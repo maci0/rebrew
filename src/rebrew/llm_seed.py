@@ -227,6 +227,10 @@ def _expected_signature(source: str) -> tuple[str, str] | None:
     try:
         result = extract_function_name_and_proto(source)
     except Exception:
+        logging.getLogger(__name__).debug(
+            "seed signature extract failed",
+            exc_info=True,
+        )
         return None
     return result if result else None
 

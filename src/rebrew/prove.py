@@ -1452,11 +1452,23 @@ def _resolve_watched_dir32(
     try:
         name_to_va = build_name_to_va(cfg)
     except Exception:  # best-effort; no resolution → no watching
+        # User asked to watch VAs: a silent empty map would let prove run
+        # without the memory check they requested.
+        log.warning(
+            "prove watched-VA name resolution failed for %s — DIR32 patches skipped",
+            symbol,
+            exc_info=True,
+        )
         return {}
     out: dict[int, int] = {}
     try:
         records = parse_obj_relocs_full(obj_path, symbol)
     except Exception:  # best-effort
+        log.warning(
+            "prove watched-VA reloc parse failed for %s — DIR32 patches skipped",
+            symbol,
+            exc_info=True,
+        )
         return {}
     for rec in records:
         if rec.type != 0x06:  # IMAGE_REL_I386_DIR32
@@ -1713,6 +1725,11 @@ def _clear_prove_counterexample(cfg: Any, ann: Any) -> None:
         if str(existing.get("note", "")).startswith("prove: "):
             remove_field(cfg.metadata_dir, ann.va, "note", module=ann.module)
     except Exception:  # best-effort; never fail the prove flow
+        log.warning(
+            "Could not clear prove counterexample NOTE for 0x%x",
+            getattr(ann, "va", 0),
+            exc_info=True,
+        )
         return
 
 
@@ -1737,6 +1754,13 @@ def _record_prove_counterexample(cfg: Any, ann: Any, message: str) -> None:
             return
         update_field(cfg.metadata_dir, ann.va, "note", f"prove: {message}", module=ann.module)
     except Exception:  # best-effort; never fail the prove flow
+        # Counterexample NOTE is the actionable signal for the next edit —
+        # losing it without a log looks like prove produced nothing.
+        log.warning(
+            "Could not persist prove counterexample NOTE for 0x%x",
+            getattr(ann, "va", 0),
+            exc_info=True,
+        )
         return
 
 

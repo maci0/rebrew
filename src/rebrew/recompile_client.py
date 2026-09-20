@@ -17,6 +17,7 @@ training.  rebrew passes it through only when the caller asks (the GA's
 
 from __future__ import annotations
 
+import time
 from contextlib import nullcontext
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol, runtime_checkable
@@ -40,6 +41,11 @@ RecompileErrorKind = Literal[
 
 #: Transient HTTP statuses that are safe to retry after a backoff.
 _RETRYABLE_HTTP = frozenset({408, 425, 429, 500, 502, 503, 504})
+
+#: Base delay (seconds) for exponential backoff between retryable attempts.
+#: ``delay = min(_RETRY_BACKOFF_BASE * 2**attempt, _RETRY_BACKOFF_CAP)``.
+_RETRY_BACKOFF_BASE = 0.25
+_RETRY_BACKOFF_CAP = 8.0
 
 
 @runtime_checkable
@@ -187,6 +193,9 @@ def compile_source(
     :class:`RecompileError` with ``retryable=True``.  Non-retryable errors
     (validation, 4xx other than the transient set) fail immediately.
     ``retries=0`` (default) preserves prior single-shot behaviour.
+    Between attempts, sleeps with exponential backoff
+    (``0.25 * 2**attempt`` seconds, capped at 8s) so a recovering 503 is
+    not immediately re-hammered.
     """
     import httpx
 
@@ -282,6 +291,10 @@ def compile_source(
             last_exc = exc
             if not exc.retryable or attempt + 1 >= attempts:
                 raise
+            # Immediate re-POST of a 503/timeout hammers a recovering service;
+            # exponential backoff (capped) gives it room without unbounded wait.
+            delay = min(_RETRY_BACKOFF_BASE * (2**attempt), _RETRY_BACKOFF_CAP)
+            time.sleep(delay)
             continue
     assert last_exc is not None  # attempts >= 1
     raise last_exc

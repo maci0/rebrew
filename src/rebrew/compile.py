@@ -986,6 +986,10 @@ def _compile_via_recompile(
             filename=source_path.name,
             timeout=float(getattr(cfg, "compile_timeout", 60) or 60) + 120.0,
             emit_assembly=emit_assembly,
+            # Transient 503/timeout on the compile service is common under
+            # load; two retries with backoff beat a hard COMPILE_ERROR that
+            # would demote STATUS for a healthy source.
+            retries=2,
         )
     except RecompileError as exc:
         return None, f"recompile service error: {exc}"

@@ -682,9 +682,13 @@ def _render_graph(cfg: ProjectConfig) -> tuple[str, str | None]:
                     pass
         mermaid = render_mermaid(nodes, edges, dispatch_edges)
         adjacency = _adjacency_list(nodes, edges, dispatch_edges)
-    except Exception:  # best-effort graph; the report must not crash
+    except Exception as exc:  # best-effort graph; the report must not crash
+        logging.getLogger(__name__).warning(
+            "Call graph generation failed for %s", target, exc_info=True
+        )
         console.print(
-            "[yellow]report:[/yellow] call graph generation failed - writing a placeholder graph.html"
+            f"[yellow]report:[/yellow] call graph generation failed ({exc.__class__.__name__}: "
+            f"{exc}) - writing a placeholder graph.html"
         )
         return (
             _page(
