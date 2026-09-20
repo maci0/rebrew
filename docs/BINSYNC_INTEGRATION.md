@@ -9,8 +9,8 @@ prototypes, and global labels; `binsync-diff` reports divergence read-only.
 > BinSync state I/O goes through [declib](https://github.com/binsync/declib), BinSync's
 > artifact layer (the `declib>=4.5` dependency of the `binsync` extra). Install it with
 > `uv sync --extra binsync`. Stack vars, per-instruction comments, enums, and typedefs
-> all round-trip; the `rebrew binsync` push/pull umbrella is still planned
-> ([prd/09-binsync-full.md](prd/09-binsync-full.md)).
+> all round-trip; the `rebrew binsync` push/pull umbrella ships alongside the flat
+> commands ([prd/09-binsync-full.md](prd/09-binsync-full.md)).
 
 ---
 

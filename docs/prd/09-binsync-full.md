@@ -3,10 +3,14 @@
 > **Correction (2026-09):** `rebrew sync --push/--pull --state-dir` now uses
 > the same BinSync state (conflicts via `--accept-binsync` / `--accept-local`),
 > and the `rebrew binsync` umbrella (`push`/`pull`/`summary`/`init`/`diff`/
-> `overlay`) ships alongside the flat commands. What remains: git-backed
-> state and libbs. PRDs are historical records, kept as written.
+> `overlay`) ships alongside the flat commands. State I/O is **declib**
+> (the `binsync` extra) — stack vars, per-instruction comments, enums, and
+> typedefs round-trip. What remains: divergent git merge as the default
+> sync substrate (today: export `--git` commit, pull `--ff-only`, push
+> `--git-push`). PRDs are historical records; shipped-status lines below
+> track the CHANGELOG.
 
-**Feature name:** Bidirectional BinSync ↔ Rebrew Sync (git-backed state, libbs format)
+**Feature name:** Bidirectional BinSync ↔ Rebrew Sync (git-backed state, declib format)
 **One-line value:** Turn rebrew into a first-class BinSync peer so reverse-engineering knowledge round-trips losslessly between IDA Pro, Binary Ninja, Ghidra, and rebrew's C source — collaborators on different decompilers share names, types, comments, and stack vars without conversion friction.
 
 ## Problem It Solves
@@ -30,20 +34,17 @@ reports divergences read-only (exit 1 on any, for CI). Gaps that remain
 - **Struct fields — resolved.** `structs/<name>.toml` is now emitted with real
   `[fields.<name>]` entries (types parsed from `*.h` headers / sources via
   tree-sitter; the raw `definition` is preserved). Placeholders remain only for
-  `STRUCT:` names with no scanned definition. (Resolved — was an empty
-  `# (libbs-compatible struct field entries)` comment that BinSync clients
-  skipped.)
-- **No enum, typedef, stack-var, or local-var concept.** Rebrew's annotation
-  surface stops at functions + globals + structs. BinSync covers enums,
-  typedefs, stack frames (named local vars + types), and per-instruction
-  comments; none of those are exported/imported today.
-- **`libbs` library not used.** Rebrew hand-rolls the TOML serialization, so
-  any format evolution upstream (libbs is BinSync's format crate) breaks
-  silently.
+  `STRUCT:` names with no scanned definition.
+- **Enums, typedefs, stack vars, per-instruction comments — resolved.**
+  Export/import/overlay round-trip `enums.toml`, `typedefs.toml`, `LOCALS`
+  (stack vars), and `COMMENTS` via declib artifacts (see CHANGELOG /
+  [BINSYNC_INTEGRATION.md](../BINSYNC_INTEGRATION.md)).
+- **Hand-rolled TOML — resolved.** State I/O goes through declib
+  (`rebrew[binsync]` → `declib>=4.5`); the earlier `libbs` name in this PRD
+  refers to that same upstream artifact layer.
 
-PRD 09 closes the remaining loop: full `libbs` serialization, git-backed
-upstream merge as the default substrate, and new annotation surfaces for
-enums, typedefs, and locals (the umbrella command itself already ships).
+PRD 09's remaining open loop is divergent git merge as the default
+substrate (ff-only pull + local commit / optional `--git-push` ship today).
 
 ## Users
 
@@ -58,12 +59,12 @@ enums, typedefs, and locals (the umbrella command itself already ships).
   `summary`, `init` subcommands. Mirrors `rebrew sync`'s shape for
   muscle-memory. (Shipped — umbrella plus flat commands coexist; `diff`
   and `overlay` also ship under the umbrella.)
-- True bidirectional sync via git: `rebrew binsync pull` does `git pull` on the state directory before reading; `push` does `git commit` + optional `git push` after writing. (Export's `--git` commit and pull's optional fast-forward are the git steps shipped so far.)
-- Real `libbs`-compatible struct fields, enums, typedefs. (Struct fields ship today via hand-rolled TOML; enums/typedefs and libbs remain.)
-- New annotation surface for stack vars / local vars (see "Annotation Surface" below).
+- True bidirectional sync via git: `rebrew binsync pull` does `git pull` on the state directory before reading; `push` does `git commit` + optional `git push` after writing. (Shipped: export/`push` commit, pull `--ff-only`, `--git-push`. Open: divergent upstream merge as the primary path.)
+- Real declib-compatible struct fields, enums, typedefs. (Shipped via declib artifacts.)
+- Annotation surface for stack vars / local vars (see "Annotation Surface" below). (Shipped: `LOCALS` metadata ↔ `Function.stack_vars`.)
 - Conflict detection on pull: when both rebrew and BinSync have meaningful (non-generic) names for the same VA, report and let the user pick via `--accept-binsync` / `--accept-local` (same pattern as `rebrew sync`). (Shipped on umbrella `pull` and flat `binsync-import`.)
-- Per-instruction comments — both directions.
-- `libbs` as an optional dependency (under `[project.optional-dependencies].binsync`) so users who don't need this feature aren't forced to install it.
+- Per-instruction comments — both directions. (Shipped: `COMMENTS` metadata + `// ANALYSIS @ 0xADDR:` source markers.)
+- Declib as an optional dependency (under `[project.optional-dependencies].binsync`, `declib>=4.5`) so users who don't need this feature aren't forced to install it. (Shipped; this PRD originally named the layer `libbs`.)
 
 ## Non-Goals
 
@@ -78,11 +79,11 @@ enums, typedefs, and locals (the umbrella command itself already ships).
 `summary` / `init` / `diff` / `overlay`) alongside the flat
 `binsync-export` / `binsync-import` / `binsync-diff` / `binsync-init` /
 `binsync-overlay` commands.  Conflict accept-flags
-(`--accept-binsync` / `--accept-local`) ship on pull/import.  Still open:
-full `libbs` serialization, stack vars / enums / typedefs / per-instruction
-comments, and git-backed upstream pull/push as the default sync substrate
-(export's `--git` local commit and pull's optional fast-forward are the
-git steps today).
+(`--accept-binsync` / `--accept-local`) ship on pull/import.  Declib
+serialization ships (`rebrew[binsync]`), including structs with fields,
+enums, typedefs, `LOCALS`, and per-instruction `COMMENTS`.  Still open:
+divergent git merge as the default sync substrate (export/`push` local
+commit, pull `--ff-only`, and `--git-push` are the git steps today).
 
 ### F1 — `rebrew binsync` umbrella
 
@@ -102,13 +103,17 @@ Flat commands remain as peers (not only aliases): `binsync-export`,
 
 Shared flags: `--target`, `--json`, `--dry-run`, `--module FILTER` (mirroring `rebrew sync --module`).
 
-### F2 — `push` writes via `libbs`
+### F2 — `push` writes via declib
 
-All artifact writing goes through the `libbs` package's serializers (struct field, enum, typedef, function header, stack frame). No more hand-rolled TOML for these. Rebrew's existing `[rebrew]` / `[rebrew:note]` synthetic comments stay — they're orthogonal and BinSync-clients ignore them.
+All artifact writing goes through declib serializers (struct field, enum,
+typedef, function header, stack frame). No more hand-rolled TOML for these.
+Rebrew's existing `[rebrew]` / `[rebrew:note]` synthetic comments stay —
+they're orthogonal and BinSync-clients ignore them. *(This PRD originally
+named the layer `libbs`; the shipped dependency is `declib>=4.5`.)*
 
 `push` adds an auto-commit step after writing: `git -C <state-dir> add -A && git commit -m "rebrew push: <target> @ <utc>"`. With `--git-push`, also `git push`. With `--no-git`, skip git entirely (current `binsync-export` behaviour).
 
-### F3 — `pull` reads via `libbs`, applies to rebrew metadata
+### F3 — `pull` reads via declib, applies to rebrew metadata
 
 For each function in the BinSync state:
 
@@ -122,29 +127,30 @@ For each function in the BinSync state:
 
 `pull` does `git pull` on the state directory first unless `--no-git`. On merge conflicts (in git itself), abort with a helpful error pointing the user at the state dir.
 
-### F4 — New annotation surface: locals + stack vars
+### F4 — Annotation surface: locals + stack vars
 
-Today rebrew has no local-variable annotation concept. To round-trip with BinSync, add the smallest possible surface:
+Shipped: `[locals]` in `rebrew-functions.toml` (offset-keyed
+`{name, type, size}`), round-tripped via declib `Function.stack_vars`:
 
-- A new `[locals]` block in `rebrew-functions.toml`:
-  ```toml
-  ["SERVER.0x10008880"]
-  status = "EXACT"
-  [SERVER.0x10008880.locals]
-  ebp_minus_4  = { name = "ret_val",   type = "int" }
-  ebp_minus_8  = { name = "tmp",       type = "char *" }
-  esp_plus_0   = { name = "arg_count", type = "size_t" }
-  ```
-- The metadata is informational only at v1 — rebrew doesn't lint local-var names against the C source or use them for matching. Pure pass-through field for BinSync round-trip.
-- Optional future enhancement: validate against tree-sitter-extracted local declarations in the C source and surface mismatches as lint warnings (W020+).
+```toml
+["SERVER.0x10008880"]
+status = "EXACT"
+[SERVER.0x10008880.locals]
+ebp_minus_4  = { name = "ret_val",   type = "int" }
+ebp_minus_8  = { name = "tmp",       type = "char *" }
+esp_plus_0   = { name = "arg_count", type = "size_t" }
+```
 
-### F5 — New annotation surface: enums + typedefs
+Informational at v1 — rebrew doesn't lint local-var names against the C
+source or use them for matching. Optional future: validate against
+tree-sitter-extracted locals (W020+).
 
-Today rebrew extracts struct definitions from C source via tree-sitter (`struct_parser.py`). Extend the same path:
+### F5 — Annotation surface: enums + typedefs
 
-- Parse `enum FOO { A = 1, B, C };` and `typedef int my_int_t;` declarations from `types.h` (or any header under `cfg.reversed_dir`).
-- Emit them in `rebrew binsync push` via libbs's enum/typedef serializers.
-- Pull writes new enums/typedefs into `types.h` (append or overwrite — `--types-out PATH` from E16 applies).
+Shipped: tree-sitter extraction of `enum` / standalone `typedef` from
+headers and sources; `binsync push`/`export` emit `enums.toml` /
+`typedefs.toml` via declib; pull/import write unknown definitions into
+`binsync_types.h` without overwriting known names.
 
 ### F6 — Conflict resolution
 
@@ -165,16 +171,19 @@ Resolution flags:
 
 `binsync pull --no-git` reads the state directory as-is without pulling. Useful in CI where the state-dir is a checked-out artifact, or for users with credentials issues.
 
-### F8 — `libbs` dependency
+### F8 — `declib` dependency
 
-Add to `pyproject.toml`:
+Shipped in `pyproject.toml`:
 
 ```toml
 [project.optional-dependencies]
-binsync = ["libbs>=2.0"]
+binsync = ["declib>=4.5.0"]
 ```
 
-`rebrew binsync` raises a clear error if libbs isn't installed, with the install command (`uv pip install -e ".[binsync]"`). Existing `binsync-export` continues to work without libbs (back-compat), only the new `binsync push/pull` modes require it.
+Every BinSync state command (flat and umbrella) goes through
+`rebrew.binsync.serial`; missing declib raises an actionable
+"install rebrew[binsync]" error. *(This PRD originally named the layer
+`libbs>=2.0`.)*
 
 ## CLI Surface
 
@@ -269,39 +278,53 @@ rebrew binsync diff git@team:binsync-state.git --json > diff.json
 - A function reversed in rebrew, pushed to BinSync, pulled into IDA Pro, then re-renamed in IDA Pro, pushed back from IDA Pro, pulled into rebrew — round-trips losslessly. Same for stack vars, structs, enums.
 - A 100-function project with all four artifact types (names, prototypes, locals, structs) pushes in <5s on a warm git tree; pulls in <5s after a `git pull` no-op.
 - Conflict report on pull lists every divergent VA + field with one-line provenance. JSON parseable.
-- libbs-format outputs validate via libbs's own loader (`libbs.api.State(...)` should accept the rebrew-written state directory and return a fully-populated `State` object).
+- Declib-format outputs validate via declib's own loaders (a
+  BinSync/IDA/Ghidra/Binary Ninja state dir rebrew wrote must parse, and
+  rebrew must parse theirs).
 
 ## Known Limitations / Open Questions
 
 - **Patch tracking is out of scope.** If rebrew ever grows a patch annotation type, revisit.
-- **libbs version pinning.** v1 pins `libbs>=2.0` (current as of 2026-05). When libbs evolves, rebrew may need migration code on `pull` for old state dirs.
-- **Per-instruction comments.** Today rebrew has `// ANALYSIS:` for Ghidra's EOL/POST. The mapping from BinSync's per-address comments to source-line annotation is straightforward but needs care for inlined / reordered code where instruction addresses don't align with source lines. v1: pull writes comments as `// ANALYSIS: @ 0x<addr> — <text>` and accepts that they may end up on a sibling line.
-- **Locals annotation discipline.** Without lint validation against tree-sitter-extracted locals, the `[locals]` block can drift from the actual C source. Cheap mitigation: in v1, just pass through. v2: add W020 ("local name in metadata doesn't match any local in the C function body").
-- **Multi-target state directories.** Today `rebrew binsync-export` is per-target. The new umbrella stays per-target by default; multi-target is doable by passing `--target` and using separate state dirs, since BinSync expects one binary per state directory.
+- **declib version pinning.** v1 pins `declib>=4.5` (the `binsync` extra).
+  When declib evolves, rebrew may need migration code on `pull` for old
+  state dirs. *(This PRD originally named the pin `libbs>=2.0`.)*
+- **Per-instruction comments.** Source markers are
+  `// ANALYSIS @ 0xADDR: text` in a trailing block; comments outside any
+  known function range stay metadata-only. Address↔line alignment can
+  drift for inlined/reordered code.
+- **Locals annotation discipline.** Without lint validation against
+  tree-sitter-extracted locals, the `[locals]` block can drift from the
+  actual C source. Cheap mitigation: pass through. Future: W020.
+- **Multi-target state directories.** Per-target by default; multi-target
+  uses `--target` and separate state dirs (BinSync expects one binary per
+  state directory).
 
 ## Implementation Phasing
 
-| Phase | Scope | Effort |
-|-------|-------|--------|
-| **P1** — Foundation | Add `libbs` optional dep; rewrite struct export via libbs; replace existing `binsync-export` internals (no behavioural change for users yet). | ~1 day |
-| **P2** — Bidirectional core | `binsync push` (with optional git commit), `binsync pull` (with git pull + name/prototype application), `binsync summary`, `binsync diff`. Function + struct names only — no locals, no enums. | ~2 days |
-| **P3** — Type-system depth | Real struct field serialization, enum export + import, typedef export + import. | ~1 day |
-| **P4** — Locals | New `[locals]` block in `rebrew-functions.toml`. Pull writes; push reads. No source-level validation yet. | ~1.5 days |
-| **P5** — Conflict + comments | Conflict detection on pull; `--accept-binsync` / `--accept-local`; per-instruction comments round-trip. | ~1 day |
-| **P6** — Polish | `binsync init`, `--module` filter, JSON-mode improvements, retry on network failures, docs + skill updates. | ~1 day |
+| Phase | Scope | Effort | Status |
+|-------|-------|--------|--------|
+| **P1** — Foundation | Optional `declib` dep; rewrite struct export via declib | ~1 day | Shipped |
+| **P2** — Bidirectional core | `binsync push`/`pull`/`summary`/`diff` (+ git commit / ff-only) | ~2 days | Shipped |
+| **P3** — Type-system depth | Struct fields, enum + typedef export/import | ~1 day | Shipped |
+| **P4** — Locals | `[locals]` ↔ `Function.stack_vars` | ~1.5 days | Shipped |
+| **P5** — Conflict + comments | Accept-flags; per-instruction comments round-trip | ~1 day | Shipped |
+| **P6** — Polish | `binsync init`, `--module`, JSON, docs | ~1 day | Shipped |
 
-Total v1 scope: ~7 days of focused work. Each phase ships independently and is useful on its own.
+Open beyond this table: divergent git merge as the default substrate
+(ff-only + local commit / `--git-push` ship today).
 
-Status: parts of P1–P3 (struct export with real fields — hand-rolled TOML,
-libbs itself not shipped), P2 (name/prototype/global import + conflict flags),
-and P6 (read-only `binsync-diff`, `--clean`) have already landed in the flat
-commands; the remaining work is the git-backed umbrella, libbs, enums/typedefs,
-locals, and per-instruction comments.
+Total v1 scope was ~7 days of focused work; each phase shipped
+independently.
+
+Status: P1–P6 core shipped (umbrella + declib I/O + structs/enums/typedefs +
+`LOCALS`/`COMMENTS` + conflict flags + `binsync-diff`/`--clean`). Remaining:
+divergent git merge as the default sync substrate (ff-only + local commit /
+`--git-push` ship today).
 
 ## Related
 
-- [`rebrew binsync-export` / `binsync-import` / `binsync-diff`](../BINSYNC_INTEGRATION.md) — the one-way bridge shipping today; `binsync-export` becomes the back-compat alias under the umbrella.
+- [`rebrew binsync-export` / `binsync-import` / `binsync-diff`](../BINSYNC_INTEGRATION.md) — the bridge shipping today; flat commands remain peers of the umbrella.
 - [`rebrew sync`](07-ghidra-sync.md) — Ghidra ReVa sync; complementary, not replaced.
 - [BinSync](https://github.com/binsync/binsync) — the upstream plugin.
-- [libbs](https://github.com/binsync/libbs) — the serialization library this PRD depends on.
+- [declib](https://github.com/binsync/declib) — BinSync's artifact layer (this PRD originally named it `libbs`).
 - IDEAS.md entry #24 — ghidra-cli alternative (orthogonal; addresses ReVa-MCP dependency).

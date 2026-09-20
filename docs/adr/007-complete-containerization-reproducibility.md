@@ -55,7 +55,9 @@ invariants:
    it exec'd Windows PEs directly).  COFF goldens are path-independent,
    so image and host runs hash identically; `toolchain smoke
    --print-goldens` regenerates the masked hashes when a pinned source
-   changes.
+   changes.  *(After ADR-008/016 every shipped profile is image-backed, so
+   the default smoke run is docker-only; the host branch remains for an
+   image-less plugin spec.)*
 
 Enforcement: a test asserts every image-backed spec's Dockerfile is
 git-tracked in the rebrew-toolchains checkout (`git ls-files` against the
@@ -70,7 +72,8 @@ per ADR-011 and is no longer xfail).
   for every registry toolchain (image and host paths alike). *(Written
   when the registry held eleven toolchains; the MSVC matrix has since
   expanded to the full 1.0–11.0 set — all entries remain smoke-gated via
-  `_SMOKE_GOLDEN`.)*
+  `_SMOKE_GOLDEN`.  After ADR-016 the default smoke path is the image;
+  host-path smoke remains only for image-less plugin specs.)*
 - The msvc line (4.0/4.2/5.0/6.0-sp3/sp6/7.0) is now a first-class,
   gated, roundtrip-tested set (compile → parse → compare → EXACT), with
   `--sweep-toolchain` covering the full range.

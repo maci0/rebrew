@@ -32,12 +32,13 @@ vendor`) live in the standalone **rebrew-toolchains** checkout —
 `github.com/maci0/rebrew-toolchains`, expected as a sibling directory,
 overridable via `REBREW_TOOLCHAINS_DIR`.
 
-- `rebrew.toolchain._toolchains_repo()` resolves the checkout; a missing
-  checkout is a hard, actionable `ToolchainError` telling the user to clone
-  it or set `REBREW_TOOLCHAINS_DIR` (`_require_toolchains_repo`, called
-  only by commands that consume the build source — `toolchain
-  build`/`vendor`/`update`).  Plain registry/status commands never touch
-  the checkout.
+- `rebrew.toolchain_paths.toolchains_repo()` resolves the checkout (returns a
+  non-existent sentinel when absent, so registry assembly still works);
+  commands that consume the build source call
+  `rebrew.toolchain.require_toolchains_repo()`, which raises a hard,
+  actionable `ToolchainError` telling the user to clone it or set
+  `REBREW_TOOLCHAINS_DIR` (`toolchain build`/`vendor`/`update`).  Plain
+  registry/status commands never require the checkout.
 - The rebrew repo keeps the `ToolchainSpec` registry, the docker/native
   runner, the byte-reproducibility smoke gate, and the tests that pin the
   external layout (every image-backed spec must have a **git-tracked**

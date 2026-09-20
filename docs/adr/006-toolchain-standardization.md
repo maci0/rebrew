@@ -80,4 +80,6 @@ finicky installer — build once, share).
   PR-16BIT-OMF.md); 16-bit MSVC/Borland/Watcom objects parse via the
   custom `omf16` decoder (docs/OMF_NOTES.md has the mapped layout).
 - Borland 16-bit (Turbo C++ 3.1) and 32-bit (bcc32) installs are both
-  vendored in-repo (archive.org `turboc3.1_202112` / `BorlandC55` items).
+  vendored *(Superseded: the vendored trees and media live in the sibling
+  rebrew-toolchains checkout — ADR-011; archive.org `turboc3.1_202112` /
+  `BorlandC55` items remain the pinned sources there).*
