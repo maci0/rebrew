@@ -353,6 +353,16 @@ class TestHandle:
         assert "class=value" in body
         assert 'id="clear-filters"' in body
         assert 'id="show-more"' in body
+        assert 'id="show-more-globals"' in body
+        assert 'id="show-more-history"' in body
+        assert 'id="globals-hint"' in body
+        assert 'id="history-hint"' in body
+        assert "formatWhen" in body
+        assert "Reload dashboard" in body
+        assert "No status changes recorded yet" in body
+        assert "No section stats for this target" in body
+        assert "setGlobalsEmptyMessage" in body
+        assert "setFunctionsEmptyMessage" in body
         assert 'id="retry-summary"' in body
         assert 'id="views"' in body
         assert 'data-view="sections"' in body

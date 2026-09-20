@@ -121,8 +121,10 @@ _INDEX_HTML = """<!doctype html>
     border-radius: 6px; padding: .6rem .8rem; margin: .75rem 0; }
   #empty-state, #no-targets { color: #555; margin: 1rem 0; }
   #results-hint { color: #555; font-size: .9rem; margin: .25rem 0 0; }
-  #filter-actions, #show-more-wrap, #retry-bar { margin: .35rem 0 .75rem; }
-  #clear-filters, #show-more, #retry-functions, #retry-summary, #retry-view {
+  #filter-actions, #show-more-wrap, #globals-show-more-wrap, #history-show-more-wrap,
+  #retry-bar { margin: .35rem 0 .75rem; }
+  #clear-filters, #show-more, #show-more-globals, #show-more-history,
+  #retry-functions, #retry-summary, #retry-view {
     min-height: 2.75rem; padding: .3rem .75rem; border: 1px solid #767676; background: #fff; color: inherit; }
   .views { display: flex; flex-wrap: wrap; gap: .35rem; margin: .75rem 0 .25rem; }
   .views button { min-height: 2.75rem; padding: .3rem .85rem; font: inherit; cursor: pointer;
@@ -199,7 +201,7 @@ _INDEX_HTML = """<!doctype html>
 </div>
 <div id="view-functions" class="view-panel">
 <p id="results-hint" hidden></p>
-<p id="empty-state" hidden>No functions match these filters. Use Clear filters, or set Status and Module to any.</p>
+<p id="empty-state" hidden></p>
 <div id="show-more-wrap" hidden>
 <button type="button" id="show-more">Show more functions</button>
 </div>
@@ -213,7 +215,8 @@ _INDEX_HTML = """<!doctype html>
 </div>
 </div>
 <div id="view-sections" class="view-panel" hidden>
-<p id="sections-empty" hidden>No section stats for this target.</p>
+<p id="sections-empty" hidden>No section stats for this target. Run
+  <code>rebrew build-db</code> for this project, then reload.</p>
 <div id="sections-results" class="table-scroll" tabindex="0" role="region"
   aria-label="Section results" aria-busy="false" hidden>
 <table id="sections-rows"><caption class="visually-hidden">Per-section cell stats</caption><thead><tr>
@@ -224,7 +227,11 @@ _INDEX_HTML = """<!doctype html>
 </div>
 </div>
 <div id="view-globals" class="view-panel" hidden>
-<p id="globals-empty" hidden>No globals match this search. Clear the search or try another name.</p>
+<p id="globals-hint" hidden></p>
+<p id="globals-empty" hidden></p>
+<div id="globals-show-more-wrap" hidden>
+<button type="button" id="show-more-globals">Show more globals</button>
+</div>
 <div id="globals-results" class="table-scroll" tabindex="0" role="region"
   aria-label="Global results" aria-busy="false" hidden>
 <table id="globals-rows"><caption class="visually-hidden">Global data symbols</caption><thead><tr>
@@ -234,7 +241,12 @@ _INDEX_HTML = """<!doctype html>
 </div>
 </div>
 <div id="view-history" class="view-panel" hidden>
-<p id="history-empty" hidden>No status-change history for this target yet.</p>
+<p id="history-hint" hidden></p>
+<p id="history-empty" hidden>No status changes recorded yet. History appears after
+  <code>rebrew build-db</code> when function statuses change.</p>
+<div id="history-show-more-wrap" hidden>
+<button type="button" id="show-more-history">Show more history</button>
+</div>
 <div id="history-results" class="table-scroll" tabindex="0" role="region"
   aria-label="History results" aria-busy="false" hidden>
 <table id="history-rows"><caption class="visually-hidden">Recent status changes</caption><thead><tr>
@@ -258,6 +270,8 @@ let viewController = null;
 let loadedCount = 0;
 let retryAppend = false;
 let pageLimit = 100;
+let globalsLimit = 100;
+let historyLimit = 100;
 let currentView = "functions";
 const PAGE_STEP = 500;
 const PAGE_MAX = 5000;
@@ -286,6 +300,34 @@ function esc(s) {
   return String(s).replace(/[&<>"']/g, c => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
   })[c]);
+}
+function formatWhen(value) {
+  if (!value) return "";
+  const parsed = Date.parse(value);
+  if (Number.isNaN(parsed)) return String(value);
+  try {
+    return new Date(parsed).toLocaleString(undefined, {
+      dateStyle: "medium", timeStyle: "short",
+    });
+  } catch (error) {
+    return String(value);
+  }
+}
+function setFunctionsEmptyMessage() {
+  const el = $("empty-state");
+  if (filtersActive()) {
+    el.textContent = "No functions match these filters. Use Clear filters, or set Status and Module to any.";
+  } else {
+    el.innerHTML = "No functions for this target yet. Match work, run <code>rebrew build-db</code>, then reload.";
+  }
+}
+function setGlobalsEmptyMessage() {
+  const el = $("globals-empty");
+  if ($("gq").value.trim()) {
+    el.textContent = "No globals match this search. Clear the search or try another name.";
+  } else {
+    el.innerHTML = "No globals recorded for this target. Annotate globals, run <code>rebrew build-db</code>, then reload.";
+  }
 }
 function syncError() {
   const message = loadErrors.summary
@@ -389,11 +431,39 @@ function setResultsMessage(count, total) {
     more.hidden = true;
   }
 }
+function setListPageMessage(opts) {
+  const { count, total, noun, hintId, moreWrapId, moreBtnId, tip } = opts;
+  const hint = $(hintId);
+  const more = $(moreWrapId);
+  if (!total) {
+    $("results-status").textContent = "No " + noun + " match";
+    hint.hidden = true;
+    hint.textContent = "";
+    more.hidden = true;
+    return;
+  }
+  if (count < total) {
+    const msg = "Showing " + count + " of " + total + " " + noun;
+    $("results-status").textContent = msg;
+    hint.textContent = msg + ". " + tip;
+    hint.hidden = false;
+    const next = Math.min(count + PAGE_STEP, total, PAGE_MAX);
+    more.hidden = count >= PAGE_MAX || count >= total;
+    $(moreBtnId).textContent = "Show more (up to " + next + ")";
+  } else {
+    $("results-status").textContent = count + " " + noun + " shown";
+    hint.hidden = true;
+    hint.textContent = "";
+    more.hidden = true;
+  }
+}
 function resetPaging() {
   pageLimit = 100;
   loadedCount = 0;
   retryAppend = false;
 }
+function resetGlobalsPaging() { globalsLimit = 100; }
+function resetHistoryPaging() { historyLimit = 100; }
 const rowHtml = (f) => {
   const r = Array.isArray(f)
     ? f
@@ -416,6 +486,7 @@ function renderFunctions(data, options) {
   const total = data.total ?? data.count;
   const shown = append ? loadedCount : data.count;
   setResultsMessage(shown, total);
+  setFunctionsEmptyMessage();
   $("empty-state").hidden = shown !== 0;
   $("results").hidden = shown === 0;
 }
@@ -528,7 +599,10 @@ function scheduleSearch() {
 }
 function scheduleGlobalsSearch() {
   clearTimeout(globalsSearchTimer);
-  globalsSearchTimer = setTimeout(() => loadGlobals(), 200);
+  globalsSearchTimer = setTimeout(() => {
+    resetGlobalsPaging();
+    loadGlobals();
+  }, 200);
 }
 function onStatusChange() {
   resetPaging();
@@ -562,11 +636,18 @@ function renderGlobals(data) {
     + esc(g.name || "") + "</td><td>" + esc(g.decl || "") + "</td><td>"
     + esc(g.size ?? "") + "</td><td>" + esc(g.module || "") + "</td></tr>").join("");
   const total = data.total ?? rows.length;
+  setGlobalsEmptyMessage();
   $("globals-empty").hidden = rows.length !== 0;
   $("globals-results").hidden = rows.length === 0;
-  $("results-status").textContent = total
-    ? "Showing " + rows.length + " of " + total + " globals"
-    : "No globals match";
+  setListPageMessage({
+    count: rows.length,
+    total,
+    noun: "globals",
+    hintId: "globals-hint",
+    moreWrapId: "globals-show-more-wrap",
+    moreBtnId: "show-more-globals",
+    tip: "Use Show more, or narrow the search.",
+  });
   updateFilterActions();
 }
 function renderHistory(data) {
@@ -574,13 +655,19 @@ function renderHistory(data) {
   const body = $("history-rows").querySelector("tbody");
   body.innerHTML = rows.map(h => "<tr><td class=va>" + esc(h.va || "") + "</td><td>"
     + esc(h.old_status || "") + "</td><td>" + esc(h.new_status || "") + "</td><td>"
-    + esc(h.changed_at || "") + "</td></tr>").join("");
+    + esc(formatWhen(h.changed_at)) + "</td></tr>").join("");
   $("history-empty").hidden = rows.length !== 0;
   $("history-results").hidden = rows.length === 0;
   const total = data.total ?? rows.length;
-  $("results-status").textContent = total
-    ? "Showing " + rows.length + " of " + total + " history entries"
-    : "No history";
+  setListPageMessage({
+    count: rows.length,
+    total,
+    noun: "history entries",
+    hintId: "history-hint",
+    moreWrapId: "history-show-more-wrap",
+    moreBtnId: "show-more-history",
+    tip: "Use Show more to load older entries.",
+  });
 }
 async function loadSections() {
   const t = $("target").value; if (!t) return;
@@ -611,10 +698,15 @@ async function loadGlobals() {
   if (viewController) viewController.abort();
   viewController = new AbortController();
   const { signal } = viewController;
-  const params = new URLSearchParams({ target: t });
+  const params = new URLSearchParams({
+    target: t,
+    limit: String(globalsLimit),
+  });
   if ($("gq").value.trim()) params.set("q", $("gq").value.trim());
   updateFilterActions();
   $("globals-empty").hidden = true;
+  $("globals-hint").hidden = true;
+  $("globals-show-more-wrap").hidden = true;
   $("globals-results").hidden = false;
   $("results-status").textContent = "Loading globals…";
   try {
@@ -628,6 +720,8 @@ async function loadGlobals() {
     if (seq !== viewSeq || signal.aborted) return;
     $("globals-results").hidden = true;
     $("globals-empty").hidden = true;
+    $("globals-hint").hidden = true;
+    $("globals-show-more-wrap").hidden = true;
     setLoadError("view", "Globals could not be loaded. Use Retry to try again.");
   }
 }
@@ -637,13 +731,19 @@ async function loadHistory() {
   if (viewController) viewController.abort();
   viewController = new AbortController();
   const { signal } = viewController;
+  const params = new URLSearchParams({
+    target: t,
+    limit: String(historyLimit),
+  });
   $("history-empty").hidden = true;
+  $("history-hint").hidden = true;
+  $("history-show-more-wrap").hidden = true;
   $("history-results").hidden = false;
   $("results-status").textContent = "Loading history…";
   try {
     setLoadError("view", "");
     const data = await whileBusy("history-results", () =>
-      get("/api/history?target=" + encodeURIComponent(t), signal));
+      get("/api/history?" + params, signal));
     if (seq !== viewSeq || signal.aborted) return;
     viewLoaded.history = true;
     renderHistory(data);
@@ -651,6 +751,8 @@ async function loadHistory() {
     if (seq !== viewSeq || signal.aborted) return;
     $("history-results").hidden = true;
     $("history-empty").hidden = true;
+    $("history-hint").hidden = true;
+    $("history-show-more-wrap").hidden = true;
     setLoadError("view", "History could not be loaded. Use Retry to try again.");
   }
 }
@@ -680,6 +782,8 @@ function bindControls() {
     viewLoaded.globals = false;
     viewLoaded.history = false;
     resetPaging();
+    resetGlobalsPaging();
+    resetHistoryPaging();
     updateFilterActions();
     clearTimeout(searchTimer);
     clearTimeout(globalsSearchTimer);
@@ -696,6 +800,7 @@ function bindControls() {
     if (currentView === "globals") {
       $("gq").value = "";
       clearTimeout(globalsSearchTimer);
+      resetGlobalsPaging();
       loadGlobals();
       updateFilterActions();
       return;
@@ -715,6 +820,14 @@ function bindControls() {
   $("show-more").onclick = () => {
     retryAppend = true;
     loadFunctions({ append: true });
+  };
+  $("show-more-globals").onclick = () => {
+    globalsLimit = Math.min(globalsLimit + PAGE_STEP, PAGE_MAX);
+    loadGlobals();
+  };
+  $("show-more-history").onclick = () => {
+    historyLimit = Math.min(historyLimit + PAGE_STEP, PAGE_MAX);
+    loadHistory();
   };
   $("cards").onclick = (ev) => {
     const btn = ev.target.closest("button[data-status]");
@@ -762,10 +875,12 @@ async function init() {
 function start() {
   init().catch(error => {
     $("boot-status").hidden = true;
+    $("retry-summary").textContent = "Reload dashboard";
     setLoadError("summary", "Dashboard failed to load: " + error.message
-      + ". Use Retry summary to try again.");
+      + ". Use Reload dashboard to try again.");
     $("retry-summary").onclick = () => {
       setLoadError("summary", "");
+      $("retry-summary").textContent = "Retry summary";
       $("boot-status").hidden = false;
       $("boot-status").textContent = "Loading coverage…";
       start();
