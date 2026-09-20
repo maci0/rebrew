@@ -17,7 +17,8 @@ fence breakouts if copied from elsewhere); the model response is never executed
 definition (comments allowed), matching name *and* prototype, with no
 preprocessor directives, and size caps.  Request cost is bounded by source
 truncation, ``max_tokens``, ``n=1``, an HTTP body ceiling before JSON parse,
-and a process-wide request budget (``REBREW_LLM_MAX_REQUESTS``, default 32)
+and a process-wide request budget (``REBREW_LLM_MAX_REQUESTS``, default 32;
+``0`` disables further calls; a set-but-invalid value raises ``ValueError``)
 so ``--seed-llm --watch`` cannot bill unboundedly.  Rate limits / overload
 (429/503/529) are never retried — empty seeds, GA continues.
 ``--seed-llm --dry-run`` previews the prompt without calling the endpoint.
@@ -127,23 +128,36 @@ def llm_config(cfg: Any) -> dict[str, str] | None:
     if not endpoint:
         return None
     endpoint = validate_http_url(endpoint, "LLM endpoint")
+    # Validate the process ceiling while resolving config so a bad
+    # REBREW_LLM_MAX_REQUESTS fails before the first HTTP call.
+    _max_requests()
     return {"endpoint": endpoint, "api_key": api_key}
 
 
 def _max_requests() -> int:
-    """Process-wide LLM call ceiling (env override, clamped)."""
+    """Process-wide LLM call ceiling (env override, clamped at 10_000).
+
+    Unset / empty keeps the default.  A set-but-invalid or negative value
+    raises ``ValueError`` so a typo cannot silently restore the default and
+    burn through a paid endpoint (or disable seeding via an accidental ``0``
+    without the operator noticing a parse failure).
+    """
     raw = os.environ.get("REBREW_LLM_MAX_REQUESTS", "").strip()
     if not raw:
         return _DEFAULT_MAX_REQUESTS
     try:
-        return max(0, min(int(raw), 10_000))
-    except ValueError:
+        value = int(raw)
+    except ValueError as exc:
+        raise ValueError(f"REBREW_LLM_MAX_REQUESTS={raw!r} is not an int") from exc
+    if value < 0:
+        raise ValueError(f"REBREW_LLM_MAX_REQUESTS={raw!r} must be >= 0")
+    if value > 10_000:
         logging.warning(
-            "REBREW_LLM_MAX_REQUESTS=%r is not an int; using %s",
+            "REBREW_LLM_MAX_REQUESTS=%r exceeds 10000; clamping to 10000",
             raw,
-            _DEFAULT_MAX_REQUESTS,
         )
-        return _DEFAULT_MAX_REQUESTS
+        return 10_000
+    return value
 
 
 def _consume_request_slot() -> bool:

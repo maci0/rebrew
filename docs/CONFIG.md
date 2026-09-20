@@ -251,7 +251,8 @@ The **keying** is deliberately NOT pluggable: what makes a cache hit valid
 (source/flags/toolchain/include digests) is shared semantics every backend
 must respect — a backend stores and retrieves bytes; it never reinterprets
 the keys.  `rebrew cache stats` / `clear` operate on the configured backend.
-An unknown `backend` name is a `ValueError` where the cache is opened.
+An unknown `backend` name is a `ValueError` at config load (and again where
+the cache is opened, for programmatic callers that skip the loader).
 
 ## Environment Variables
 
@@ -282,6 +283,11 @@ by the CLI layer and win for that invocation.
   for LLM seeding when `[llm]` is unset. The key is sent only as a `Bearer`
   header to the configured endpoint, never logged. Prefer these env vars over
   `[llm] api_key` in TOML. Endpoint must be an `http(s)` URL with a host.
+- `REBREW_LLM_MAX_REQUESTS` — process-wide ceiling on LLM HTTP calls
+  (default `32`). Stops `--watch` / batch seeding from burning a paid
+  endpoint. `0` disables further calls for the process. A set-but-non-integer
+  or negative value is a `ValueError` (not silently reset to the default).
+  Values above `10000` clamp to `10000` with a warning.
 - `REBREW_RECOMPILE_URL` — base URL of the recompile compile service
   (e.g. `http://localhost:8000`). Same effect as `[compiler] recompile_url`;
   when the variable is present it wins (empty forces local docker for the
@@ -347,6 +353,7 @@ The config loader fail-fasts on missing/invalid structure:
   profile (these otherwise resolve to the project root or fail only when a compiler
   subprocess is launched). `includes`/`libs` may be empty — that means "no extra
   dir" (e.g. `mingw-16.2.0` ships its own headers).
+- Empty or unregistered `[cache].backend` (must name a `rebrew.cache_backends` member).
 
 It emits warnings (and applies safe defaults) if:
 - Unrecognized keys are found in top-level, project, global compiler, target,
@@ -370,7 +377,8 @@ non-empty values must use `http(s)`, have a hostname, and use a numeric port in
 1–65535 if specified. Malformed IPv6 addresses, embedded whitespace, and control
 characters are rejected. Surrounding whitespace is trimmed; empty values remain
 unset. TOML values are validated at load; environment values are validated when
-resolved, before any HTTP request.
+resolved, before any HTTP request. `REBREW_LLM_MAX_REQUESTS`, when set, must be
+a non-negative integer (validated when LLM config is resolved).
 
 `cflags` are user-facing defaults (e.g. `/O2 /Gd`). `base_cflags` are always-on
 flags prepended by the compile helpers (default `/nologo /c /MT`) and must not be

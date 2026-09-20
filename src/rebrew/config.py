@@ -1379,13 +1379,27 @@ def load_config(
     # --- [cache] section: compile-cache backend selection ---
     # The store is a pluggable component (rebrew.cache_backends entry-point
     # group); the keying semantics are shared and fixed.  Unknown cache
-    # keys warn like the other sections; an unknown *backend name* is
-    # reported where the cache is opened (get_compile_cache), not here.
+    # keys warn like the other sections.  An unknown or empty *backend*
+    # name fails here so a typo does not wait until the first compile.
     cache_raw = _as_table(raw.get("cache", {}), "cache")
     unknown_cache = set(cache_raw) - _KNOWN_CACHE_KEYS
     if unknown_cache:
         _config_warn(f"rebrew-project.toml [cache]: unrecognized keys: {sorted(unknown_cache)}")
-    cfg.cache_backend = _as_str(cache_raw.get("backend"), "diskcache", "cache.backend")
+    if "backend" in cache_raw:
+        backend = _as_str(cache_raw.get("backend"), "", "cache.backend").strip()
+        if not backend:
+            raise ValueError("rebrew-project.toml [cache].backend must not be empty")
+    else:
+        backend = "diskcache"
+    from rebrew.compile_cache import available_cache_backends
+
+    known_backends = available_cache_backends()
+    if backend not in known_backends:
+        raise ValueError(
+            f"rebrew-project.toml [cache].backend = {backend!r} is not a "
+            f"registered backend (known: {', '.join(known_backends)})"
+        )
+    cfg.cache_backend = backend
 
     return cfg
 

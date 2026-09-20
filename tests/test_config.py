@@ -944,6 +944,36 @@ format = "coff"
             cfg = load_config(root)
         assert cfg.binary_format == "pe"
 
+    def test_unknown_cache_backend_raises(self, tmp_path: Path) -> None:
+        toml = """\
+[project]
+default_target = "main"
+
+[targets.main]
+binary = "test.exe"
+
+[cache]
+backend = "disk-cache"
+"""
+        root = _make_project(tmp_path, toml)
+        with pytest.raises(ValueError, match=r"\[cache\]\.backend = 'disk-cache'"):
+            load_config(root)
+
+    def test_empty_cache_backend_raises(self, tmp_path: Path) -> None:
+        toml = """\
+[project]
+default_target = "main"
+
+[targets.main]
+binary = "test.exe"
+
+[cache]
+backend = ""
+"""
+        root = _make_project(tmp_path, toml)
+        with pytest.raises(ValueError, match=r"\[cache\]\.backend must not be empty"):
+            load_config(root)
+
     def test_ne_format_accepted(self, tmp_path: Path) -> None:
         """format = "ne" (written by intake for 16-bit NE targets) must load
         without the unknown-format fallback warning."""

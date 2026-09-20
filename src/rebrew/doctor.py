@@ -666,8 +666,9 @@ def check_toolchain_backed(cfg: ProjectConfig) -> CheckResult:
 def check_cache_backend(cfg: ProjectConfig) -> CheckResult:
     """The configured compile-cache backend must be a registered backend.
 
-    An unknown ``[cache] backend`` only surfaces when the cache is opened
-    (compile time); doctor reports it up front, before the first compile."""
+    ``load_config`` already rejects an unknown ``[cache] backend``; this
+    check still catches a programmatic ``ProjectConfig`` / doctor probe that
+    bypassed the loader."""
     backend = str(getattr(cfg, "cache_backend", "diskcache"))
     from rebrew.compile_cache import available_cache_backends
 

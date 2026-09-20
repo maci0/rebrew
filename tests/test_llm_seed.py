@@ -100,6 +100,24 @@ class TestLlmConfig:
         with pytest.raises(ValueError, match=r"LLM endpoint must be an http\(s\) URL"):
             llm_config(_cfg(endpoint="ftp://evil.example/v1"))
 
+    def test_invalid_max_requests_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("REBREW_LLM_ENDPOINT", "https://env.example/v1")
+        monkeypatch.setenv("REBREW_LLM_MAX_REQUESTS", "plenty")
+        with pytest.raises(ValueError, match=r"REBREW_LLM_MAX_REQUESTS='plenty' is not an int"):
+            llm_config(_cfg())
+
+    def test_negative_max_requests_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("REBREW_LLM_ENDPOINT", "https://env.example/v1")
+        monkeypatch.setenv("REBREW_LLM_MAX_REQUESTS", "-1")
+        with pytest.raises(ValueError, match=r"REBREW_LLM_MAX_REQUESTS='-1' must be >= 0"):
+            llm_config(_cfg())
+
+    def test_zero_max_requests_allowed(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """0 is an intentional kill switch, not a parse failure."""
+        monkeypatch.setenv("REBREW_LLM_ENDPOINT", "https://env.example/v1")
+        monkeypatch.setenv("REBREW_LLM_MAX_REQUESTS", "0")
+        assert llm_config(_cfg()) == {"endpoint": "https://env.example/v1", "api_key": ""}
+
 
 class TestExtractSeeds:
     def test_fenced_c_blocks(self) -> None:

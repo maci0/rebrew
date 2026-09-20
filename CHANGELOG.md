@@ -1,4 +1,10 @@
 ## [Unreleased]
+### Fixed
+- **``[cache].backend`` typos fail at config load** — an empty or unregistered
+  name raises ``ValueError`` instead of waiting for the first compile.
+- **``REBREW_LLM_MAX_REQUESTS`` rejects non-integers and negatives** instead of
+  silently restoring the default; documented in ``docs/CONFIG.md``.
+
 ### Added
 - **Ruff/mypy ratchets** — ``S602``, ``PLR0124``, ``PIE790``, ``ANN205``,
   ``ANN206`` join the select (zero findings on the current tree);
