@@ -1192,3 +1192,91 @@ def test_build_cells_preserve_segment_state(
     cells = _build_cells(_contiguous_segments(lengths, [state] * len(lengths)), unit_bytes, columns)
     assert cells
     assert all(c["state"] == state for c in cells)
+
+
+# ---------------------------------------------------------------------------
+# symbol_addrs.parse_symbol_addrs — fuzz splat-style symbol interchange text
+# ---------------------------------------------------------------------------
+
+
+def _assert_symbol_row_shape(row: Any) -> None:
+    from rebrew.symbol_addrs import SymbolRow
+
+    assert isinstance(row, SymbolRow)
+    assert row.va is None or (isinstance(row.va, int) and row.va >= 0)
+    assert isinstance(row.name, str) and row.name
+    assert isinstance(row.kind, str) and row.kind
+    if row.size is not None:
+        assert isinstance(row.size, int) and row.size >= 0
+    assert isinstance(row.detail, str)
+
+
+@settings(max_examples=200, deadline=None)
+@given(st.text(max_size=400))
+def test_parse_symbol_addrs_random_text_no_crash(text: str) -> None:
+    """Arbitrary text (Unicode, truncations, control chars) must never raise;
+    every accepted row has a well-typed shape."""
+    from rebrew.symbol_addrs import parse_symbol_addrs
+
+    rows = parse_symbol_addrs(text)
+    assert isinstance(rows, list)
+    for row in rows:
+        _assert_symbol_row_shape(row)
+
+
+@st.composite
+def _symbol_addrs_row(draw: st.DrawFn) -> Any:
+    """A SymbolRow whose format_symbol output round-trips through the parser."""
+    from rebrew.symbol_addrs import SymbolRow
+
+    va = draw(st.integers(min_value=0, max_value=0xFFFFFFFF))
+    name = draw(st.from_regex(r"[A-Za-z_][A-Za-z0-9_]{0,24}", fullmatch=True))
+    kind = draw(st.sampled_from(["func", "u32", "u8", "u16", "ptr", "ascii"]))
+    size = draw(st.one_of(st.none(), st.integers(min_value=0, max_value=0x10000)))
+    # Detail must not embed the `` -- `` separator (parser truncates) and must
+    # be strip-stable (``_row_from_comment`` calls ``tail.strip()``).
+    detail = draw(
+        st.text(
+            alphabet=st.characters(
+                min_codepoint=33,
+                max_codepoint=126,
+                blacklist_characters="-",
+            ),
+            max_size=32,
+        )
+    )
+    return SymbolRow(va=va, name=name, kind=kind, size=size, detail=detail)
+
+
+@settings(max_examples=150, deadline=None)
+@given(st.lists(_symbol_addrs_row(), min_size=0, max_size=12))
+def test_parse_symbol_addrs_format_roundtrip(rows: list[Any]) -> None:
+    """format_symbol → parse_symbol_addrs is identity for well-formed rows
+    (pair assertion across the write/read boundary)."""
+    from rebrew.symbol_addrs import format_symbol, parse_symbol_addrs
+
+    text = "\n".join(format_symbol(row) for row in rows)
+    if text:
+        text += "\n"
+    assert parse_symbol_addrs(text) == rows
+
+
+@settings(max_examples=150, deadline=None)
+@given(
+    st.lists(
+        st.tuples(
+            st.integers(min_value=0, max_value=0xFFFFFFFF),
+            st.from_regex(r"[A-Za-z_][A-Za-z0-9_]{0,24}", fullmatch=True),
+        ),
+        min_size=0,
+        max_size=16,
+    )
+)
+def test_parse_symbol_addrs_csv_roundtrip(pairs: list[tuple[int, str]]) -> None:
+    """Bare ``0xVA,name`` CSV lines (``--csv`` output) parse back with
+    matching VA and name."""
+    from rebrew.symbol_addrs import SymbolRow, parse_symbol_addrs
+
+    text = "".join(f"0x{va:08X},{name}\n" for va, name in pairs)
+    parsed = parse_symbol_addrs(text)
+    assert parsed == [SymbolRow(va=va, name=name) for va, name in pairs]

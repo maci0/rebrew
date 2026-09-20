@@ -456,3 +456,77 @@ class TestHexArrayBound:
         info = parse_extern_decl("extern unsigned char g_table[0x400];")
         assert info["is_array"] is True
         assert int(info["array_size"], 0) == 1024
+
+
+# ---------------------------------------------------------------------------
+# parse_extern_decl — Hypothesis fuzz on untrusted C extern lines
+# ---------------------------------------------------------------------------
+
+
+def _assert_extern_info_shape(info: dict) -> None:
+    assert set(info) >= {
+        "name",
+        "type",
+        "is_func",
+        "calling_conv",
+        "params",
+        "full_decl",
+        "is_array",
+        "array_size",
+    }
+    assert isinstance(info["name"], str) and info["name"]
+    assert isinstance(info["type"], str)
+    assert isinstance(info["is_func"], bool)
+    assert isinstance(info["is_array"], bool)
+    assert info["calling_conv"] is None or isinstance(info["calling_conv"], str)
+    assert info["params"] is None or isinstance(info["params"], str)
+    assert info["array_size"] is None or isinstance(info["array_size"], str)
+
+
+def test_parse_extern_decl_random_text_no_crash() -> None:
+    """Malformed / non-UTF-ideal C text must not raise; accepted rows keep shape."""
+    from hypothesis import given, settings
+    from hypothesis import strategies as st
+
+    @settings(max_examples=200, deadline=None)
+    @given(st.text(max_size=200))
+    def _probe(text: str) -> None:
+        info = parse_extern_decl(text)
+        if info is not None:
+            _assert_extern_info_shape(info)
+
+    _probe()
+
+
+def test_parse_extern_decl_structured_no_crash() -> None:
+    """Near-real ``extern …`` lines: calling-conv / array / scalar shapes."""
+    from hypothesis import given, settings
+    from hypothesis import strategies as st
+
+    ident = st.from_regex(r"[A-Za-z_][A-Za-z0-9_]{0,16}", fullmatch=True)
+    ctype = st.sampled_from(
+        ["int", "void", "char", "unsigned int", "unsigned char", "short", "float"]
+    )
+    cc = st.sampled_from(["__cdecl", "__stdcall", ""])
+    params = st.sampled_from(["()", "(void)", "(int)", "(int, char*)", "(unsigned int)"])
+    arr = st.one_of(
+        st.just(""),
+        st.from_regex(r"\[(?:0[xX][0-9a-fA-F]{1,4}|\d{1,4})\]", fullmatch=True),
+    )
+
+    @settings(max_examples=150, deadline=None)
+    @given(ctype, cc, ident, params, arr)
+    def _probe(ret: str, conv: str, name: str, par: str, bracket: str) -> None:
+        if bracket:
+            decl = f"extern {ret} {name}{bracket};"
+        elif conv:
+            decl = f"extern {ret} {conv} {name}{par};"
+        else:
+            decl = f"extern {ret} {name}{par};"
+        info = parse_extern_decl(decl)
+        if info is not None:
+            _assert_extern_info_shape(info)
+            assert info["name"] == name
+            assert info["full_decl"] == decl
+
+    _probe()
