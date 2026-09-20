@@ -22,6 +22,12 @@
   all`` runs it. Older-than-pin ``uv`` warns instead of blocking ``make setup``.
 
 ### Fixed
+- **Coverage DB schema v10: cell states track ``KNOWN_STATUSES``.**
+  ``cells.state`` is derived from lowercased annotation statuses plus
+  gap/data verdicts, so ``extract_error`` / ``invalid_va`` (and future
+  STATUS values) stay CHECK-valid instead of coercing to ``unknown``.
+  ``globals.status`` CHECK/sanitizer use the same ``DATA_STATUS_*``
+  constants. Rebuild with ``rebrew build-db --force``.
 - **Coverage DB schema v9: ``cells.state`` is CHECK-constrained** to the known
   cell-state set; out-of-set values coerce to ``unknown`` on insert (matching
   the ``functions.status`` pattern). ``idx_metadata_key`` covers key-first

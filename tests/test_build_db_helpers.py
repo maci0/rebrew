@@ -48,6 +48,14 @@ class TestNormalizeCellRow:
         assert row[5] == "unknown"
         assert any("not in known set" in r.message for r in caplog.records)
 
+    @pytest.mark.parametrize("state", ["extract_error", "invalid_va"])
+    def test_persisted_function_statuses_are_known(self, state: str) -> None:
+        """grid.py lowercases annotation STATUS into cell state; every
+        KNOWN_STATUSES value (incl. EXTRACT_ERROR / INVALID_VA) must pass
+        the sanitizer rather than being coerced to ``unknown``."""
+        row = _normalize_cell_row("T", ".text", {"state": state})
+        assert row[5] == state
+
     def test_clamping(self) -> None:
         row = _normalize_cell_row("T", ".text", {"start": -5, "end": -1})
         assert row[2] == 0  # start clamped

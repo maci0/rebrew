@@ -23,6 +23,11 @@ from rebrew.cli import (
     json_print,
 )
 from rebrew.config import load_config
+from rebrew.data_metadata import (
+    DATA_STATUS_DRIFT,
+    DATA_STATUS_UNCHECKED,
+    DATA_STATUS_VERIFIED,
+)
 from rebrew.metadata import KNOWN_STATUSES, MATCHED_STATUSES, canonical_status
 from rebrew.workspace import (
     CELLS_JSON_OBJECT_SQL,
@@ -37,13 +42,27 @@ from rebrew.workspace import (
 console = Console(stderr=True)
 
 
-_CURRENT_DB_VERSION = "9"
+_CURRENT_DB_VERSION = "10"
 
 #: Statuses allowed in ``functions.status``.  ``KNOWN_STATUSES`` plus
 #: ``UNKNOWN`` (the DEFAULT when a catalog row omits STATUS).  Kept in one
 #: place so the CREATE TABLE CHECK and the insert-time sanitizer cannot drift.
 _FUNCTION_DB_STATUSES: frozenset[str] = frozenset({*KNOWN_STATUSES, "UNKNOWN"})
 _FUNCTION_STATUS_CHECK_SQL: str = ", ".join(repr(s) for s in sorted(_FUNCTION_DB_STATUSES))
+
+#: Statuses allowed in ``globals.status``.  Empty string (no verdict yet)
+#: plus the three data-metadata verdicts — derived from the same constants
+#: ``data_metadata`` / the grid emit so the CHECK and the insert sanitizer
+#: cannot drift from the annotation vocabulary.
+_GLOBAL_DB_STATUSES: frozenset[str] = frozenset(
+    {
+        "",
+        DATA_STATUS_VERIFIED,
+        DATA_STATUS_DRIFT,
+        DATA_STATUS_UNCHECKED,
+    }
+)
+_GLOBAL_STATUS_CHECK_SQL: str = ", ".join(repr(s) for s in sorted(_GLOBAL_DB_STATUSES))
 
 # Per-section coverage buckets, as ONE select used both to declare the
 # ``section_cell_stats`` table and to refill it — the bucket definitions
@@ -77,11 +96,12 @@ _SECTION_CELL_STATS_SELECT = """
         SUM(CASE WHEN state = 'proven' THEN 1 ELSE 0 END) as proven_count,
         SUM(CASE WHEN state = 'size_mismatch' THEN 1 ELSE 0 END) as size_mismatch_count,
         -- Catch-all for every other state (compile_error,
-        -- missing_file, missing_size, skip, unknown, plus the data
-        -- drift/unchecked verdicts): without it total_cells never
-        -- equals the sum of the counted columns and per-section stats
-        -- silently undercount (db-review F4).  `verified` is excluded
-        -- here because it is counted as exact_count above.
+        -- extract_error, invalid_va, missing_file, missing_size,
+        -- skip, unknown, plus the data drift/unchecked verdicts):
+        -- without it total_cells never equals the sum of the counted
+        -- columns and per-section stats silently undercount
+        -- (db-review F4).  `verified` is excluded here because it is
+        -- counted as exact_count above.
         SUM(CASE WHEN state NOT IN (
             'exact', 'verified', 'reloc', 'near_match', 'near_matching',
             'stub', 'padding', 'data', 'thunk', 'none', 'proven',
@@ -182,40 +202,29 @@ def _clamp_effective_match(value: Any) -> int | None:
     return None
 
 
-#: Known cell states emitted by catalog/grid.py (grid.py sets
-#: `state = item["status"].lower()` for function cells plus the gap states
-#: none/padding/data/thunk and Ghidra label states).  Used to WARN and coerce
-#: out-of-set states from hand-edited JSON — an unknown state otherwise
-#: would abort on the ``cells.state`` CHECK (or, before that CHECK, vanish
-#: into ``section_cell_stats.other_count`` with no signal).  ``near_match``
-#: is the accepted alias for ``near_matching`` (canonical spelling:
-#: metadata.KNOWN_STATUSES); both read identically everywhere below.
-_KNOWN_CELL_STATES = frozenset(
+#: Known cell states emitted by catalog/grid.py.  Function cells set
+#: ``state = item["status"].lower()``, so every ``KNOWN_STATUSES`` value can
+#: appear lowercased (including ``extract_error`` / ``invalid_va``).  Deriving
+#: those from ``KNOWN_STATUSES`` keeps the CHECK and the sanitizer in lockstep
+#: with the annotation vocabulary — a hand-maintained subset previously
+#: dropped EXTRACT_ERROR/INVALID_VA into ``unknown``.  Gap/label states and
+#: data-metadata verdicts are not function STATUSes, so they are unioned in
+#: explicitly.  ``near_match`` is the accepted alias for ``near_matching``.
+_GAP_AND_DATA_CELL_STATES: frozenset[str] = frozenset(
     {
-        "exact",
-        "reloc",
-        "proven",
-        "near_matching",
         "near_match",
-        "stub",
-        "size_mismatch",
-        "compile_error",
-        "missing_file",
-        "missing_size",
-        "skip",
         "unknown",
         "none",
         "padding",
         "data",
         "thunk",
-        # Data verdicts (data_metadata.py DATA_STATUS_*): the grid emits the
-        # lowercased rebrew-data.toml STATUS for a global's covering cell, so
-        # without these every data cell warned "not in known set" and a VERIFIED
-        # global fell out of the section's exact_count into other_count.
-        "verified",
-        "drift",
-        "unchecked",
+        DATA_STATUS_VERIFIED.lower(),
+        DATA_STATUS_DRIFT.lower(),
+        DATA_STATUS_UNCHECKED.lower(),
     }
+)
+_KNOWN_CELL_STATES: frozenset[str] = (
+    frozenset(s.lower() for s in KNOWN_STATUSES) | _GAP_AND_DATA_CELL_STATES
 )
 _CELL_STATE_CHECK_SQL: str = ", ".join(repr(s) for s in sorted(_KNOWN_CELL_STATES))
 
@@ -632,7 +641,7 @@ def build_db(
             )
         """)
 
-        c.execute("""
+        c.execute(f"""
             CREATE TABLE IF NOT EXISTS globals (
                 target TEXT NOT NULL,
                 va INTEGER NOT NULL CHECK (va >= 0),
@@ -642,7 +651,7 @@ def build_db(
                 module TEXT NOT NULL DEFAULT '',
                 size INTEGER NOT NULL DEFAULT 4 CHECK (size >= 0),
                 status TEXT NOT NULL DEFAULT ''
-                    CHECK (status IN ('', 'VERIFIED', 'DRIFT', 'UNCHECKED')),
+                    CHECK (status IN ({_GLOBAL_STATUS_CHECK_SQL})),
                 PRIMARY KEY (target, va)
             )
         """)
@@ -1086,7 +1095,7 @@ def build_db(
                 elif g_size < 0:
                     g_size = 0
                 g_status = str(g.get("status") or "").strip().upper()
-                if g_status and g_status not in ("VERIFIED", "DRIFT", "UNCHECKED"):
+                if g_status not in _GLOBAL_DB_STATUSES:
                     g_status = ""
                 g_rows.append(
                     (
