@@ -114,6 +114,12 @@
   single hypothesis.
 
 ### Changed
+- **Data/verify I/O batching and scan indexes**: ``set_data_fields_batch``
+  collapses many ``rebrew-data.toml`` RMWs (verify ``--data`` statuses,
+  ``fix-bss`` gaps); batch compile stages/reads each multi-function ``.c``
+  once; ``scan_globals`` / ``annotate_globals`` use name indexes instead of
+  nested linear scans; GA ``mut_if_chain_to_switch`` joins case chunks
+  instead of quadratic ``bytes +=``.
 - **Breaking:** **`activate()` no longer raises on unmet coeffects** (2.6.0
   raised ``ComponentError`` naming the missing services). Components whose
   ``needs`` are missing stay inactive; a later ``provide`` mounts them, and

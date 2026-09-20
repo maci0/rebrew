@@ -908,23 +908,26 @@ def mut_if_chain_to_switch(s: str, rng: random.Random) -> str | None:
 
     target_if, chain_var, cases, default_body = rng.choice(valid_chains)
 
-    out = b"switch (" + chain_var + b") {\n"
+    parts: list[bytes] = [b"switch (" + chain_var + b") {\n"]
     for val, body_node in cases:
         body_text = b_source[body_node.start_byte : body_node.end_byte]
         if body_node.type == "compound_statement":
             inner = body_text[1:-1].strip()
-            out += b"    case " + val + b": {\n        " + inner + b"\n        break;\n    }\n"
+            parts.append(
+                b"    case " + val + b": {\n        " + inner + b"\n        break;\n    }\n"
+            )
         else:
-            out += b"    case " + val + b":\n        " + body_text + b"\n        break;\n"
+            parts.append(b"    case " + val + b":\n        " + body_text + b"\n        break;\n")
 
     if default_body:
         if default_body.startswith(b"{"):
             inner = default_body[1:-1].strip()
-            out += b"    default: {\n        " + inner + b"\n        break;\n    }\n"
+            parts.append(b"    default: {\n        " + inner + b"\n        break;\n    }\n")
         else:
-            out += b"    default:\n        " + default_body + b"\n        break;\n"
+            parts.append(b"    default:\n        " + default_body + b"\n        break;\n")
 
-    out += b"}"
+    parts.append(b"}")
+    out = b"".join(parts)
 
     end_byte = target_if.end_byte
     start = target_if.start_byte

@@ -1494,6 +1494,9 @@ def precompile_batch(
     out: dict[int, str] = {}
     lasting_root: Path | None = None
     groups: dict[tuple[str, str], list[Any]] = {}
+    # Multi-function .c files share one source body: read once per path for
+    # the cache-key probe instead of once per annotation.
+    _text_by_path: dict[Path, str] = {}
     for e in entries:
         try:
             cfile = Path(cfg.reversed_dir) / e.filepath
@@ -1519,7 +1522,10 @@ def precompile_batch(
                 # compiling.  Key inputs mirror compile_to_obj exactly.
                 spec = TOOLCHAINS.get(toolchain) if toolchain else base_spec
                 try:
-                    text = cfile.read_bytes().decode("utf-8", errors="surrogateescape")
+                    text = _text_by_path.get(cfile)
+                    if text is None:
+                        text = cfile.read_bytes().decode("utf-8", errors="surrogateescape")
+                        _text_by_path[cfile] = text
                     src_parent = cfile.resolve().parent
                     flags = _effective_compile_flags(cfg, spec, cflags, src_parent)
                     key = _cache_key_for(
@@ -1579,14 +1585,18 @@ def precompile_batch(
                 # built object fanned out below.
                 rel = src.relative_to(cfg.reversed_dir)
                 dest = workdir / rel
-                with contextlib.suppress(OSError):
-                    dest.parent.mkdir(parents=True, exist_ok=True)
-                    # Unlink first: dest may be a tree copy from above and
-                    # write_bytes must replace it, not merge.
-                    if dest.is_symlink() or dest.exists():
-                        dest.unlink()
-                    dest.write_bytes(src.read_bytes())
-                    staged.setdefault(str(rel), []).append(e)
+                rel_s = str(rel)
+                if rel_s in staged:
+                    staged[rel_s].append(e)
+                else:
+                    with contextlib.suppress(OSError):
+                        dest.parent.mkdir(parents=True, exist_ok=True)
+                        # Unlink first: dest may be a tree copy from above and
+                        # write_bytes must replace it, not merge.
+                        if dest.is_symlink() or dest.exists():
+                            dest.unlink()
+                        dest.write_bytes(src.read_bytes())
+                        staged[rel_s] = [e]
                 # Collect this member's own /I flags for the union below.
                 _, own_cflags = resolve_compile_overrides(
                     cfg,

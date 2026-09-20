@@ -16,6 +16,7 @@ regression (suitable for CI / pre-commit hooks).
 
 import concurrent.futures
 import contextlib
+import functools
 import json
 import logging
 from dataclasses import dataclass
@@ -94,21 +95,13 @@ def _failed_result(status: "CompareStatus", message: str = "") -> "CompareResult
     )
 
 
-def _fenced_naked_note(cfile: Path) -> str:
-    """Return an explanatory note when *cfile* guards its body behind the
-    ``REBREW_ALLOW_NAKED`` fence.
-
-    A fenced naked source compiles its ``#else`` fallback in the comparison
-    build — for byte-identity the ``#ifdef`` branch must be active.  When
-    such a function fails to byte-match, the bare mismatch hides the real
-    cause (the build lacks the define), so name it: the caller can then use
-    ``rebrew round-trip --allow-naked`` (or build the reccmp recomp binary
-    with ``-DREBREW_ALLOW_NAKED=1``) instead of chasing a phantom source bug.
-    """
+@functools.lru_cache(maxsize=256)
+def _fenced_naked_note_cached(path_key: str) -> str:
+    """Fence probe keyed by path string (bounded memo for multi-function TUs)."""
     try:
         from rebrew.utils import read_source_text
 
-        text, _ = read_source_text(cfile)
+        text, _ = read_source_text(Path(path_key))
     except OSError:
         return ""
     if "#ifdef REBREW_ALLOW_NAKED" not in text:
@@ -120,6 +113,20 @@ def _fenced_naked_note(cfile: Path) -> str:
         "(`rebrew round-trip --allow-naked`; for reccmp, build the recomp "
         "binary with -DREBREW_ALLOW_NAKED=1)"
     )
+
+
+def _fenced_naked_note(cfile: Path) -> str:
+    """Return an explanatory note when *cfile* guards its body behind the
+    ``REBREW_ALLOW_NAKED`` fence.
+
+    A fenced naked source compiles its ``#else`` fallback in the comparison
+    build — for byte-identity the ``#ifdef`` branch must be active.  When
+    such a function fails to byte-match, the bare mismatch hides the real
+    cause (the build lacks the define), so name it: the caller can then use
+    ``rebrew round-trip --allow-naked`` (or build the reccmp recomp binary
+    with ``-DREBREW_ALLOW_NAKED=1``) instead of chasing a phantom source bug.
+    """
+    return _fenced_naked_note_cached(str(cfile))
 
 
 def verify_entry(
@@ -866,7 +873,7 @@ def main(
                 DATA_STATUS_UNCHECKED,
                 DATA_STATUS_VERIFIED,
                 load_data_metadata,
-                set_data_field,
+                set_data_fields_batch,
             )
 
             entries = load_data_metadata(cfg.metadata_dir)
@@ -880,6 +887,7 @@ def main(
             matched_names = {
                 names_by_va[va][1] for va in ref_sizes if va in names_by_va
             } - drift_names
+            status_updates: list[dict[str, Any]] = []
             for va, (module, name) in names_by_va.items():
                 if name in drift_names or name in missing_names:
                     status = DATA_STATUS_DRIFT
@@ -888,7 +896,11 @@ def main(
                 else:
                     status = DATA_STATUS_UNCHECKED
                 if entries[(module, va)].get("status") != status:
-                    set_data_field(cfg.metadata_dir, va, "status", status, module)
+                    status_updates.append(
+                        {"module": module, "va": va, "fields": {"status": status}}
+                    )
+            if status_updates:
+                set_data_fields_batch(cfg.metadata_dir, status_updates)
         if not json_output:
             console.print(
                 f"data: {data_report['matched']} matched, "

@@ -144,6 +144,52 @@ class TestSetDataField:
         }
 
 
+class TestSetDataFieldsBatch:
+    def test_batch_writes_many_entries_once(self, tmp_path: Path) -> None:
+        from rebrew.data_metadata import set_data_fields_batch
+
+        n = set_data_fields_batch(
+            tmp_path,
+            [
+                {
+                    "module": "SERVER",
+                    "va": 0x1000,
+                    "fields": {"size": 4, "section": ".data", "status": "VERIFIED"},
+                },
+                {
+                    "module": "SERVER",
+                    "va": 0x2000,
+                    "fields": {"size": 8, "section": ".bss"},
+                },
+            ],
+        )
+        assert n == 2
+        assert get_data_entry(tmp_path, 0x1000, "SERVER") == {
+            "size": 4,
+            "section": ".data",
+            "status": "VERIFIED",
+        }
+        assert get_data_entry(tmp_path, 0x2000, "SERVER") == {
+            "size": 8,
+            "section": ".bss",
+        }
+
+    def test_batch_same_value_is_noop(self, tmp_path: Path) -> None:
+        from rebrew.data_metadata import set_data_fields_batch
+
+        set_data_field(tmp_path, 0x1000, "size", 16, "SERVER")
+        path = tmp_path / DATA_METADATA_FILENAME
+        before = path.read_bytes()
+        before_mtime = path.stat().st_mtime_ns
+        n = set_data_fields_batch(
+            tmp_path,
+            [{"module": "SERVER", "va": 0x1000, "fields": {"size": 16}}],
+        )
+        assert n == 0
+        assert path.read_bytes() == before
+        assert path.stat().st_mtime_ns == before_mtime
+
+
 # ---------------------------------------------------------------------------
 # delete_data_field
 # ---------------------------------------------------------------------------

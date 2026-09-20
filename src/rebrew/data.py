@@ -249,9 +249,20 @@ def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
     # files is two globals (a TU-local collision), not one entry whose
     # second annotation is skipped.
     by_key: dict[tuple[str, int], GlobalEntry] = {}
+    # Name → one entry with that name (same as former linear scan over values).
+    by_name: dict[str, GlobalEntry] = {}
+    # Name → every entry (for conflict marking without rescanning by_key).
+    entries_by_name: dict[str, list[GlobalEntry]] = defaultdict(list)
 
     if not src_dir.exists():
         return result
+
+    def _remember(entry: GlobalEntry, key: tuple[str, int]) -> None:
+        by_key[key] = entry
+        by_name[entry.name] = entry
+        bucket = entries_by_name[entry.name]
+        if not any(e is entry for e in bucket):
+            bucket.append(entry)
 
     for cfile in iter_sources(src_dir, cfg):
         try:
@@ -272,8 +283,8 @@ def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
         # in one file against `extern short g;` in another.
         extern_vars = {v.name: v for v in find_extern_variables(text, include_definitions=True)}
 
-        # Track which (name, va) pairs are already handled via GLOBAL annotation
-        annotated_keys: set[tuple[str, int]] = set()
+        # Track which names are already handled via GLOBAL annotation
+        annotated_names: set[str] = set()
 
         for i, line in enumerate(lines):
             # 1. Check for // GLOBAL: annotation
@@ -325,7 +336,7 @@ def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
                     )
 
                 key = (name, va)
-                annotated_keys.add(key)
+                annotated_names.add(name)
 
                 entry = by_key.get(key)
                 if entry is None:
@@ -336,10 +347,10 @@ def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
                     if entry is not None:
                         entry.va = va
                         entry.annotated = True
-                        by_key[key] = entry
+                        _remember(entry, key)
                     else:
                         entry = GlobalEntry(name=name, va=va, type_str=type_str, annotated=True)
-                        by_key[key] = entry
+                        _remember(entry, key)
                 else:
                     entry.annotated = True
 
@@ -353,7 +364,7 @@ def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
 
         # 2. Add unannotated extern variables from tree-sitter
         for ev_name, ev in extern_vars.items():
-            if any(k[0] == ev_name for k in annotated_keys):
+            if ev_name in annotated_names:
                 continue  # Already handled via GLOBAL annotation
 
             key = (ev_name, 0)
@@ -364,10 +375,10 @@ def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
                 # ``(name, 0)`` key would make the final pass overwrite the
                 # annotated entry with the valueless one (order-dependent —
                 # an extern-only file sorted after the annotated one lost it).
-                entry = next((e for e in by_key.values() if e.name == ev_name), None)
+                entry = by_name.get(ev_name)
             if entry is None:
                 entry = GlobalEntry(name=ev_name, type_str=ev.type_str)
-                by_key[key] = entry
+                _remember(entry, key)
 
             if fname not in entry.declared_in:
                 entry.declared_in.append(fname)
@@ -396,9 +407,8 @@ def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
                 "types": dict(types),
             }
             result.type_conflicts.append(conflict)
-            for entry in by_key.values():
-                if entry.name == name:
-                    entry.type_str += " ⚠ CONFLICT"
+            for entry in entries_by_name.get(name, ()):
+                entry.type_str += " ⚠ CONFLICT"
 
     return result
 
@@ -820,7 +830,7 @@ def _generate_bss_fix(
     between the two can never leave metadata claiming coverage the source
     does not declare.
     """
-    from rebrew.data_metadata import set_data_field
+    from rebrew.data_metadata import set_data_fields_batch
 
     meta_dir = metadata_dir if metadata_dir is not None else src_dir
     out_file = src_dir / "bss_padding.c"
@@ -917,14 +927,24 @@ def _generate_bss_fix(
     new_text = "\n".join(lines)
     if not out_file.exists() or out_file.read_text(encoding="utf-8") != new_text:
         atomic_write_text(out_file, new_text, encoding="utf-8")
-    for gap in new_gaps:
-        # Write metadata to data metadata (the metadata root, not src_dir).
-        set_data_field(meta_dir, gap.offset, "size", gap.size, origin)
-        set_data_field(meta_dir, gap.offset, "section", ".bss", origin)
-        set_data_field(
-            meta_dir, gap.offset, "note", f"gap between {gap.before} and {gap.after}", origin
-        )
     if new_gaps:
+        # Write metadata to data metadata (the metadata root, not src_dir).
+        # Batched: one TOML RMW for all new gaps instead of three writes each.
+        set_data_fields_batch(
+            meta_dir,
+            [
+                {
+                    "module": origin,
+                    "va": gap.offset,
+                    "fields": {
+                        "size": gap.size,
+                        "section": ".bss",
+                        "note": f"gap between {gap.before} and {gap.after}",
+                    },
+                }
+                for gap in new_gaps
+            ],
+        )
         console.print(
             f"Updated {out_file.name}: {len(existing_decls)} existing + "
             f"{len(new_gaps)} new padding array(s)."

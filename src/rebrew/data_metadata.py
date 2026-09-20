@@ -111,6 +111,7 @@ __all__ = [
     "iter_data_symbols",
     "get_data_entry",
     "set_data_field",
+    "set_data_fields_batch",
     "merge_into_data_annotation",
 ]
 
@@ -262,6 +263,63 @@ def set_data_field(directory: Path, va: int, key: str, value: Any, module: str) 
         entry[key] = safe
         atomic_write_locked(path, tomlkit.dumps(doc))
         _invalidate_data_cache(path)
+
+
+def set_data_fields_batch(directory: Path, updates: list[dict[str, Any]]) -> int:
+    """Set fields for many ``(module, va)`` entries in one TOML read-modify-write.
+
+    Sibling of :func:`rebrew.metadata.set_fields_batch` for the data store.
+    Each update is ``{"module", "va", "fields": {key: value, ...}}``.  Same-value
+    short-circuit is preserved per field.  Returns the number of entries that
+    changed at least one field.
+    """
+    if not updates:
+        return 0
+    path = directory / DATA_METADATA_FILENAME
+    changed_entries = 0
+    with metadata_write_lock(directory, DATA_METADATA_FILENAME):
+        doc = load_toml_for_write(path, "data metadata")
+        key_index = build_metadata_key_index(doc)
+        from rebrew.metadata import toml_safe
+
+        for u in updates:
+            module = str(u.get("module") or "")
+            if not module:
+                raise ValueError("data metadata writes require a non-empty module")
+            va = u.get("va")
+            if va is None:
+                continue
+            va_int = int(va)
+            if va_int < 0:
+                raise ValueError(f"VA must be non-negative, got {va_int:#x}")
+            fields = u.get("fields") or {}
+            if not fields:
+                continue
+            toml_key = resolve_metadata_key(doc, module, va_int, index=key_index)
+            if toml_key not in doc:
+                doc[toml_key] = tomlkit.table()
+                key_index[(module, va_int)] = toml_key
+            elif not isinstance(doc[toml_key], dict):
+                raise ValueError(
+                    f"data metadata entry {toml_key!r} is not a table "
+                    f"({type(doc[toml_key]).__name__}); repair or remove it first"
+                )
+            entry = doc[toml_key]
+            changed = False
+            for key, value in fields.items():
+                if not key or not str(key).isidentifier():
+                    raise ValueError(f"invalid data metadata key {key!r}")
+                safe = toml_safe(value)
+                if isinstance(entry, dict) and entry.get(key) == safe:
+                    continue
+                entry[key] = safe
+                changed = True
+            if changed:
+                changed_entries += 1
+        if changed_entries:
+            atomic_write_locked(path, tomlkit.dumps(doc))
+            _invalidate_data_cache(path)
+    return changed_entries
 
 
 def delete_data_entries_batch(directory: Path, targets: list[tuple[str, int]]) -> int:

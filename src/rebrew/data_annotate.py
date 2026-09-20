@@ -64,36 +64,38 @@ def annotate_globals(
         symbols[str(val["name"])] = (module, addr)
 
     marker_re = re.compile(r"^\s*//\s*GLOBAL:\s*\S+\s+0x([0-9a-fA-F]+)")
-    decl_cache: dict[str, re.Pattern[str]] = {}
+    # One regex for all decl lines: extract the identifier, then O(1) look up
+    # in the pending-symbol map (avoids per-symbol full-file rescans).
+    decl_line_re = re.compile(
+        r"^\s*(?:extern\s+)?[\w\s\*]+\s+([A-Za-z_]\w*)(?:\[\d*\])?\s*(?:=\s*[^;]*|\s*;)"
+    )
     total = 0
     per_file: dict[str, int] = {}
     for f in iter_sources(src_dir, cfg):
         text, encoding = read_source_text(f)
         lines = text.splitlines()
         existing = {int(m.group(1), 16) for m in (marker_re.match(ln) for ln in lines) if m}
+        pending = {
+            name: (mod, addr) for name, (mod, addr) in symbols.items() if addr not in existing
+        }
         insertions: list[tuple[int, str]] = []
         used: set[int] = set()
-        for name, (_mod, sym_addr) in sorted(symbols.items(), key=lambda kv: kv[1][1]):
-            if sym_addr in existing:
+        for i, ln in enumerate(lines):
+            if not pending:
+                break
+            m = decl_line_re.match(ln)
+            if not m:
                 continue
-            pat = decl_cache.get(name)
-            if pat is None:
-                pat = re.compile(
-                    r"^\s*(?:extern\s+)?[\w\s\*]+\s+"
-                    + re.escape(name)
-                    + r"(\[\d*\])?\s*(?:=\s*[^;]*|\s*;)"
-                )
-                decl_cache[name] = pat
-            hit = next(
-                (i for i, ln in enumerate(lines) if i not in used and pat.match(ln)),
-                None,
-            )
-            if hit is None:
+            name = m.group(1)
+            if name not in pending:
                 continue
-            if hit > 0 and re.match(r"^\s*//\s*DATA:", lines[hit - 1]):
+            if i in used:
                 continue
-            used.add(hit)
-            insertions.append((hit, f"// GLOBAL: {marker} 0x{sym_addr:08x}"))
+            if i > 0 and re.match(r"^\s*//\s*DATA:", lines[i - 1]):
+                continue
+            _mod, sym_addr = pending.pop(name)
+            used.add(i)
+            insertions.append((i, f"// GLOBAL: {marker} 0x{sym_addr:08x}"))
         if not insertions:
             continue
         insertions.sort(key=lambda x: x[0])
