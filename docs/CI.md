@@ -8,9 +8,11 @@ GitHub Actions (`.github/workflows/ci.yml`) runs lint, the full unit test suite
 across the supported Python versions (3.13–3.14) — including a fixture-freshness
 check (`tools/gen_fixtures.py --check`) and an idempotency sweep over the
 offline `--json` CLI surface — a pre-commit hook-parity job, a package job
-that builds the sdist/wheel under `SOURCE_DATE_EPOCH`, emits a CycloneDX 1.5
-SBOM (`dist/rebrew.cdx.json` from `uv.lock` via `tools/generate_sbom.py`), writes
-`dist/rebrew.buildinfo` (uv/python/setuptools + epoch knobs), and installs the
+that builds the sdist/wheel via `make build` (SOURCE_DATE_EPOCH, C/UTC,
+`PYTHONHASHSEED=0`), emits a CycloneDX 1.5 SBOM (`dist/rebrew.cdx.json` from
+`uv.lock` via `tools/generate_sbom.py`), writes `dist/rebrew.buildinfo`
+(uv/python/`.python-version`/setuptools parsed from `pyproject.toml` + epoch
+knobs), and installs the
 wheel into a clean venv for a smoke import — runtime deps come from
 `uv sync --frozen --no-install-project`, then the wheel is overlaid with
 `--no-deps` so the smoke cannot drift past `uv.lock` — and a `cli-contract`

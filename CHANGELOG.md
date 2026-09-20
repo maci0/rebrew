@@ -1,8 +1,9 @@
 ## [Unreleased]
 ### Added
-- **``dist/rebrew.buildinfo``** records uv/python/setuptools and
-  ``SOURCE_DATE_EPOCH`` / locale knobs next to ``make build`` / package-CI
-  artifacts so a rebuild can reuse the same environment pins.
+- **``dist/rebrew.buildinfo``** records uv/python/``.python-version``/setuptools
+  (setuptools parsed from ``pyproject.toml``) and ``SOURCE_DATE_EPOCH`` /
+  locale knobs next to ``make build`` / package-CI artifacts so a rebuild can
+  reuse the same environment pins.
 - **Ruff rule set widened** — zero-finding stable pylint (PLW/PLC/PLR),
   flake8-type-checking (TC004/005/007/010), bandit S201/S202/S702,
   tryceratops TRY203, refurb FURB122/162, perf PERF203, pie PIE796/808,
@@ -35,6 +36,11 @@
   documented integrator surface.
 
 ### Fixed
+- **Package CI builds via ``make build``** — no longer duplicates the
+  SOURCE_DATE_EPOCH / buildinfo recipe; ``setuptools=`` in
+  ``dist/rebrew.buildinfo`` is parsed from ``pyproject.toml`` (was a
+  hardcoded ``80.10.2`` that could lie after a pin bump).  Manifest also
+  records ``python-version`` from ``.python-version``.
 - **``build_db`` no longer stores every verify ``Sim %`` as a perfect match** —
   ``code_similarity`` is 0–100 in the verify cache, while
   ``verify_results.similarity`` is the unit interval.  Import (and pre-CHECK

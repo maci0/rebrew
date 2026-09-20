@@ -179,29 +179,16 @@ jobs:
           # runner image if the checkout file is ever absent.
           python-version: "3.13.15"
       - name: Build sdist and wheel
-        env:
-          TZ: UTC
-          LC_ALL: C
-          PYTHONHASHSEED: "0"
+        # Single source of truth with the local contributor path: `make build`
+        # owns locale knobs, egg-info cleanup, and dist/rebrew.buildinfo
+        # (setuptools pin parsed from pyproject.toml).  Export SOURCE_DATE_EPOCH
+        # here so the wheel-repro step below reuses the exact same epoch.
+        # Do not re-inline the build recipe — it has drifted before.
         run: |
           set -euo pipefail
           SOURCE_DATE_EPOCH="$(git log -1 --pretty=%ct)"
           export SOURCE_DATE_EPOCH
-          mkdir -p dist
-          rm -f dist/*.whl dist/*.tar.gz dist/*.buildinfo
-          uv build
-          # setuptools parks egg-info / build/ in the tree (egg_base = ".");
-          # drop them so later steps cannot read stale local build residue.
-          rm -rf build rebrew.egg-info
-          {
-            echo "SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH}"
-            echo "TZ=UTC"
-            echo "LC_ALL=C"
-            echo "PYTHONHASHSEED=0"
-            echo "uv=$(uv --version)"
-            echo "python=$(uv python find)"
-            echo "setuptools=80.10.2"
-          } > dist/rebrew.buildinfo
+          make build
           shopt -s nullglob
           wheels=(dist/*.whl)
           sdists=(dist/*.tar.gz)
@@ -210,6 +197,9 @@ jobs:
             ls -la dist/ || true
             exit 1
           fi
+          test -f dist/rebrew.buildinfo
+          grep -q "^SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH}$" dist/rebrew.buildinfo
+          grep -q '^setuptools=' dist/rebrew.buildinfo
           ls -la dist/
       - name: Generate CycloneDX SBOM from uv.lock
         # Offline inventory for consumers/scanners.  tools/generate_sbom.py is

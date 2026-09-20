@@ -161,10 +161,14 @@ class TestCiPins:
 
         ``uv pip install dist/*.whl`` ignores ``uv.lock``; the package job
         syncs locked deps with ``--no-install-project`` then overlays the
-        wheel with ``--no-deps``.
+        wheel with ``--no-deps``.  The build itself must go through
+        ``make build`` so buildinfo / locale knobs cannot drift from the
+        Makefile.
         """
         text = CI_YML.read_text(encoding="utf-8")
         package_job = text.split("\n  package:\n", 1)[1].split("\n  cli-contract:\n", 1)[0]
+        assert "make build" in package_job
+        assert "setuptools=80.10.2" not in package_job
         assert "uv sync --frozen --no-dev --no-default-groups --no-install-project" in package_job
         assert "uv pip install --python .venv-pkg --no-deps" in package_job
         assert 'uv pip install --python .venv-pkg "${wheels[0]}"' not in package_job
@@ -177,6 +181,35 @@ class TestCiPins:
         text = MAKEFILE.read_text(encoding="utf-8")
         assert "dist/rebrew.buildinfo" in text
         assert "rm -rf build rebrew.egg-info" in text
+        # setuptools pin must be read from pyproject.toml, not hardcoded —
+        # otherwise bumping build-system.requires leaves a lying buildinfo.
+        assert "setuptools=80.10.2" not in text
+        assert r"setuptools==\(" in text or "setuptools==" in text
+        assert "python-version=" in text
+
+    def test_buildinfo_setuptools_matches_pyproject_pin(self) -> None:
+        """Static contract: Makefile sed pattern matches the exact pyproject pin."""
+        import tomllib
+
+        requires = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))[
+            "build-system"
+        ]["requires"]
+        assert len(requires) == 1
+        assert requires[0].startswith("setuptools==")
+        pin = requires[0].removeprefix("setuptools==")
+        # The recipe must be able to extract that pin (same sed as make build).
+        extracted = subprocess.run(
+            [
+                "sed",
+                "-n",
+                r's/^requires = \["setuptools==\([0-9.][0-9.]*\)"\]/\1/p',
+                str(ROOT / "pyproject.toml"),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        assert extracted == pin, (extracted, pin)
 
     def test_pytest_loads_ansi_env_plugin(self) -> None:
         """Bare ``uv run pytest`` must disable typer/Rich ANSI like ``make test``.
