@@ -178,7 +178,9 @@ def read_layout_geometry(root: Path, target: str) -> tuple[int, int, int]:
     try:
         raw = tomllib.loads(txt.read_text(encoding="utf-8-sig"))
     except (OSError, tomllib.TOMLDecodeError) as exc:
-        raise ValueError(f"no layout package at {txt} (run rebrew gen-layout first): {exc}")
+        raise ValueError(
+            f"no layout package at {txt} (run rebrew gen-layout first): {exc}"
+        ) from exc
     lay = raw.get("layout", {})
     base = int(lay.get("image_base", 0) or 0)
     for s in lay.get("sections", []):

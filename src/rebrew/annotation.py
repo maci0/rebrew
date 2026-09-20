@@ -416,7 +416,7 @@ class Annotation:
         try:
             return getattr(self, attr)
         except AttributeError:
-            raise KeyError(key)
+            raise KeyError(key) from None
 
     def __setitem__(self, key: str, value: Any) -> None:
         """Set the field *key* to *value* (supports field aliases)."""

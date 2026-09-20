@@ -17,7 +17,7 @@ def _parse_int(value: Any) -> int:
     try:
         return int(s, 0)  # auto-detect base: 0x prefix → hex, plain digits → decimal
     except (ValueError, TypeError) as e:
-        raise ValueError(f"Cannot parse integer from {value!r}: {e}")
+        raise ValueError(f"Cannot parse integer from {value!r}: {e}") from e
 
 
 @dataclass

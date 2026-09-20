@@ -82,8 +82,8 @@ def _coerce(key: str, value: Any) -> Any:
             try:
                 # Accept "42" and "0x2A" (hex) string spellings.
                 return int(value, 0) if isinstance(value, str) else int(value)
-            except (TypeError, ValueError):
-                raise MetadataValidationError(f"{key} must be an int, got {value!r}")
+            except (TypeError, ValueError) as exc:
+                raise MetadataValidationError(f"{key} must be an int, got {value!r}") from exc
         return value
     if key in _JSON_FIELDS and not isinstance(value, dict):
         raise MetadataValidationError(f"{key} must be a table, got {value!r}")

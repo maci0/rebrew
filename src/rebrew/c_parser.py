@@ -79,11 +79,11 @@ def _get_parser() -> tuple[Any, Any]:
                 try:
                     import tree_sitter_c
                     from tree_sitter import Language
-                except ImportError:
+                except ImportError as exc:
                     raise ImportError(
                         "tree-sitter and tree-sitter-c are required.  "
                         "Install with: pip install tree-sitter tree-sitter-c"
-                    )
+                    ) from exc
                 _language = Language(tree_sitter_c.language())
 
     tls_parser = getattr(_tls, "parser", None)

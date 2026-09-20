@@ -82,8 +82,8 @@ def _require_angr() -> None:
     """Raise a clear error if angr is not installed."""
     try:
         import angr  # noqa: F401
-    except ImportError:
-        raise ImportError(_ANGR_MISSING_MSG)
+    except ImportError as exc:
+        raise ImportError(_ANGR_MISSING_MSG) from exc
 
 
 # ---------------------------------------------------------------------------
@@ -1318,7 +1318,7 @@ def main(
                 f"[bold]{new_status}[/bold] (not PROVEN). "
                 f"Symbolic prove not needed."
             )
-        raise typer.Exit(code=EXIT_OK)
+        raise typer.Exit(code=EXIT_OK) from None
     except _ProveError as e:
         error_exit(str(e), json_mode=json_output)
 
@@ -1546,11 +1546,11 @@ def _prepare_prove_inputs(
         for _v in meta_vas:
             try:
                 _va = int(_v, 0) if not isinstance(_v, int) else _v
-            except (ValueError, TypeError):
+            except (ValueError, TypeError) as exc:
                 raise _ProveError(
                     f"Invalid prove_constraints.watched_vas metadata value {_v!r} in "
                     f"{source_path} — fix or remove it (expected int or hex/decimal string)"
-                )
+                ) from exc
             if not (0 <= _va <= 0xFFFFFFFF):
                 raise _ProveError(
                     f"prove_constraints.watched_vas value {_va!r} in {source_path} is "

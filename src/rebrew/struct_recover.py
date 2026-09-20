@@ -739,7 +739,7 @@ def main(
             json_print({"error": str(exc), "code": EXIT_ERROR, "decompiled": 0})
         else:
             console.print(f"[red]error:[/red] {exc}")
-        raise typer.Exit(code=EXIT_ERROR)
+        raise typer.Exit(code=EXIT_ERROR) from None
 
     if json_output:
         json_print(payload)

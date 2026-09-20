@@ -10,6 +10,10 @@
   subset), and ISC003 join the select as ratchets.  Debt siblings,
   preview-only codes, formatter-conflicting ISC001/002, and TID* (no
   banned-api list yet) stay off.
+- **Ruff enforces B904** (exception chaining) and ratchets on T100/T203
+  plus the zero-finding ``PTH*`` pathlib subset — codes the tree already
+  passes.  ``B904`` is dropped from ``ignore`` after the raise sites
+  gained ``from`` clauses; remaining PTH debt stays off until clean.
 - **Coverage dashboard views for sections, globals, and history**, plus a
   Module filter fed by ``by_module_counts``. Summary failures offer Retry
   summary (same pattern as functions) instead of forcing a full reload;

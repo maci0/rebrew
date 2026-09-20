@@ -228,9 +228,15 @@ line-length = 100
 # flake8-pytest-style (PT), and ISC003 are the same ratchet: only codes the
 # tree already passes.  ISC001/ISC002 stay off (formatter conflict); TID*
 # stays off until a banned-api list exists (empty config would be a no-op).
+# T100/T203 (debugger/pprint) and the zero-finding PTH subset join as
+# ratchets; B904 is enforced after exception-chain fixes (do not re-add
+# it to ignore).  PTH debt (PTH101/105/108/110/118/120/123/201/202) stays
+# off until clean.  Do not list remapped aliases (PLR1701→SIM101,
+# RUF011→B035, RUF035→S704): those families/codes are already selected.
 select = [
     "E", "F", "W", "I", "UP", "B", "SIM", "C4", "DTZ", "RSE", "EXE", "Q",
     "NPY", "ICN", "G", "PGH", "YTT", "ASYNC", "FA", "SLOT", "PLE",
+    "T100", "T203",
     "PLW0120", "PLW0127", "PLW0128", "PLW0129", "PLW0131", "PLW0133", "PLW0177",
     "PLW0211", "PLW0245", "PLW0406", "PLW0602", "PLW0604", "PLW0642", "PLW0711",
     "PLW1501", "PLW1507", "PLW1508", "PLW1509", "PLW1641", "PLW2101", "PLW3301",
@@ -261,11 +267,17 @@ select = [
     "ARG003", "ARG004",
     "TC004", "TC005", "TC007", "TC010",
     "ISC003", "EM103",
+    "PTH100", "PTH102", "PTH103", "PTH104", "PTH106", "PTH107", "PTH109",
+    "PTH111", "PTH112", "PTH113", "PTH114", "PTH115", "PTH116", "PTH117",
+    "PTH119", "PTH121", "PTH122", "PTH124", "PTH203", "PTH204", "PTH205",
+    "PTH206", "PTH207", "PTH208", "PTH210", "PTH211",
     "PT002", "PT003", "PT007", "PT008", "PT009", "PT010", "PT015", "PT016",
     "PT020", "PT021", "PT022", "PT023", "PT024", "PT025", "PT026", "PT027",
     "PT028", "PT031",
 ]
-ignore = ["E501", "B008", "B904"]
+# E501: formatter owns wrapping (line-length=100).  B008: Typer Option/Argument
+# defaults are intentional function calls in signatures.
+ignore = ["E501", "B008"]
 
 [tool.uv]
 package = true

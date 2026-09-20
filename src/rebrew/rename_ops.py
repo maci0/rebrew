@@ -117,7 +117,7 @@ def rename_function_everywhere(
                 > 1
             )
         except Exception as exc:  # abort before mutating anything
-            raise ValueError(f"cannot rename {filepath}: annotation parse failed: {exc}")
+            raise ValueError(f"cannot rename {filepath}: annotation parse failed: {exc}") from exc
         if multi_function_file and not new_filename:
             rename_file = False  # auto-rename unsafe for multi-function files
         if rename_file:  # re-check: the multi-function guard may have disabled renaming
@@ -129,8 +129,10 @@ def rename_function_everywhere(
                     candidate = (cfg.reversed_dir / new_filename).resolve()
                     try:
                         candidate.relative_to(cfg.reversed_dir.resolve())
-                    except ValueError:
-                        raise ValueError(f"new filename escapes reversed_dir: {new_filename!r}")
+                    except ValueError as exc:
+                        raise ValueError(
+                            f"new filename escapes reversed_dir: {new_filename!r}"
+                        ) from exc
                     target_file = candidate
                 else:
                     target_file = filepath.with_name(new_filename)
