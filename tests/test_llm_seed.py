@@ -118,6 +118,19 @@ class TestValidCSource:
         assert valid_c_source("int f(void) { return 0; }", expect_name="f")
         assert not valid_c_source("int g(void) { return 0; }", expect_name="f")
 
+    def test_expect_name_rejects_extra_definition(self) -> None:
+        src = "int f(void) { return 0; }\nint evil(void) { return 1; }\n"
+        assert not valid_c_source(src, expect_name="f")
+
+    def test_include_rejected(self) -> None:
+        src = "#include <stdio.h>\nint f(void) { return 0; }\n"
+        assert not valid_c_source(src)
+        assert not valid_c_source(src, expect_name="f")
+
+    def test_extra_definition_rejected_without_expect(self) -> None:
+        src = "int f(void) { return 0; }\nint g(void) { return 1; }\n"
+        assert not valid_c_source(src)
+
 
 class TestSanitizeSource:
     def test_fence_breakout_neutralized(self) -> None:
@@ -307,6 +320,18 @@ class TestRequestSeeds:
         seeds = request_seeds(_cfg("https://llm/v1", "k"), "int f(void){return 0;}", client=client)
         assert seeds == []
 
+    def test_extra_definition_seed_dropped(self) -> None:
+        content = "```c\nint f(void) { return 0; }\nint evil(void) { return 1; }\n```\n"
+        client = _FakeClient({"choices": [{"message": {"content": content}}]})
+        seeds = request_seeds(_cfg("https://llm/v1", "k"), "int f(void){return 0;}", client=client)
+        assert seeds == []
+
+    def test_include_seed_dropped(self) -> None:
+        content = "```c\n#include <stdio.h>\nint f(void) { return 0; }\n```\n"
+        client = _FakeClient({"choices": [{"message": {"content": content}}]})
+        seeds = request_seeds(_cfg("https://llm/v1", "k"), "int f(void){return 0;}", client=client)
+        assert seeds == []
+
     @pytest.mark.parametrize(
         "snippet",
         [
@@ -349,14 +374,17 @@ class TestRequestSeeds:
             request_seeds(_cfg("https://llm/v1"), "int f(void){return 0;}", client=_Broken()) == []
         )
 
-    def test_rate_limit_returns_empty_without_retry(self, caplog: pytest.LogCaptureFixture) -> None:
+    @pytest.mark.parametrize("status", [429, 503, 529])
+    def test_rate_limit_returns_empty_without_retry(
+        self, status: int, caplog: pytest.LogCaptureFixture
+    ) -> None:
         class _RateLimited:
             def __init__(self) -> None:
                 self.calls = 0
 
             def stream(self, *a: object, **k: object) -> None:
                 self.calls += 1
-                resp = _FakeResponse({}, status_code=429)
+                resp = _FakeResponse({}, status_code=status)
                 resp.raise_for_status()
 
         client = _RateLimited()
@@ -364,7 +392,7 @@ class TestRequestSeeds:
             seeds = request_seeds(_cfg("https://llm/v1"), "int f(void){return 0;}", client=client)
         assert seeds == []
         assert client.calls == 1  # no retry storm
-        assert "429" in caplog.text
+        assert str(status) in caplog.text
 
     def test_oversized_body_rejected(self) -> None:
         huge = b"x" * (_MAX_HTTP_BODY_BYTES + 1)
@@ -579,6 +607,7 @@ class TestLlmSeedDryRun:
         from rebrew import match_run as match_mod
 
         calls: list[object] = []
+        llm_calls: list[object] = []
 
         class _FakeGA:
             def __init__(self, *a, **k):  # type: ignore[no-untyped-def]
@@ -591,10 +620,12 @@ class TestLlmSeedDryRun:
                 return None
 
         monkeypatch.setattr(match_mod, "BinaryMatchingGA", _FakeGA)
-        monkeypatch.setattr(
-            "rebrew.llm_seed.request_seeds",
-            lambda cfg, source: ["int f(void) { return 42; }"],
-        )
+
+        def _should_not_call(cfg: object, source: str) -> list[str]:
+            llm_calls.append(source)
+            raise AssertionError("dry-run must not call the LLM endpoint")
+
+        monkeypatch.setattr("rebrew.llm_seed.request_seeds", _should_not_call)
         p = NS(
             cfg=NS(
                 root=tmp_path,
@@ -633,9 +664,10 @@ class TestLlmSeedDryRun:
             dry_run=True,
         )
         assert calls == []  # GA never constructed
+        assert llm_calls == []  # endpoint never billed
         out = capsys.readouterr().err
         assert "LLM seed prompt (dry-run)" in out
-        assert "1 validated seed(s) would be added" in out
+        assert "no LLM request" in out
 
     def test_dry_run_without_llm_seed_still_rejected(self, tmp_path: Path, monkeypatch) -> None:
         """--dry-run alone in single mode keeps its batch-only error."""

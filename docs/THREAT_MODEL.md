@@ -169,7 +169,7 @@ Concrete blast radius of a dashboard leak: function names, virtual addresses, ma
 | List `limit` max 5000 | Unbounded list DoS | `_MAX_LIMIT` in [`dashboard.py`](../src/rebrew/dashboard.py) |
 | Binary size 512 MiB | Trivial memory DoS via huge files | `_MAX_BINARY_SIZE` in [`binary_loader.py`](../src/rebrew/binary_loader.py) |
 | Compile cache dir `0o700` | Cross-user pickle plant | [`compile_cache.py`](../src/rebrew/compile_cache.py), [`matcher/core.py`](../src/rebrew/matcher/core.py) |
-| LLM fence sanitize + tree-sitter seed gate + size caps | Prompt breakout → arbitrary seed text; huge responses | [`llm_seed.py`](../src/rebrew/llm_seed.py) |
+| LLM fence sanitize + tree-sitter seed gate + size caps | Prompt breakout → arbitrary seed text; huge responses; `#include` / multi-def ride-alongs | [`llm_seed.py`](../src/rebrew/llm_seed.py) |
 | Warn on TOML-embedded LLM API key | Accidental secret commit | [`config.py`](../src/rebrew/config.py) |
 | Metadata `0444` + lock writes | Casual hand-edit / races on STATUS store | [`utils.py`](../src/rebrew/utils.py) `atomic_write_locked` |
 | Registry duplicate-name errors | Silent plugin clobber of toolchains/commands | [`registry.py`](../src/rebrew/registry.py) |

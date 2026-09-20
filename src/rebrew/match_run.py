@@ -106,6 +106,12 @@ def _run_single_ga(
                 )
                 return
         else:
+            if dry_run:
+                # Prompt preview only — never bill the endpoint or run the GA.
+                console.print("\n[bold]LLM seed prompt (dry-run):[/bold]\n")
+                console.print(build_prompt(p.seed_src))
+                console.print("\n[dim]Dry run: prompt only — no LLM request and no GA run.[/dim]")
+                return
             llm_snippets = request_seeds(p.cfg, p.seed_src)
             if llm_snippets:
                 console.print(
@@ -113,15 +119,6 @@ def _run_single_ga(
                     "implementation(s) added to the initial population"
                 )
                 loaded_seeds.extend(llm_snippets)
-            if dry_run:
-                # Preview the exact prompt + what would be seeded, no GA run.
-                console.print("\n[bold]LLM seed prompt (dry-run):[/bold]\n")
-                console.print(build_prompt(p.seed_src))
-                console.print(
-                    f"\n[dim]{len(llm_snippets)} validated seed(s) would be added "
-                    "to the initial population.[/dim]"
-                )
-                return
 
     # Optional Kuna-assisted seeding: decompile the target function with the
     # Kuna decompiler (agent-first Ghidra port), fix it up so it compiles

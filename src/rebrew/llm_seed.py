@@ -13,10 +13,12 @@ environment variables.
 
 Untrusted boundaries: the seed source is project C (may contain adversarial
 fence breakouts if copied from elsewhere); the model response is never executed
-— only tree-sitter-valid snippets with a matching function name and size caps
-are returned.  Request cost is bounded by source truncation, ``max_tokens``,
-and an HTTP body ceiling before JSON parse.  Rate limits (429) are never
-retried — empty seeds, GA continues.
+— only tree-sitter-valid snippets with a matching function name, no
+``#include``, a single definition, and size caps are returned.  Request cost
+is bounded by source truncation, ``max_tokens``, and an HTTP body ceiling
+before JSON parse.  Rate limits / overload (429/503/529) are never retried —
+empty seeds, GA continues.  ``--seed-llm --dry-run`` previews the prompt
+without calling the endpoint.
 """
 
 from __future__ import annotations
@@ -38,6 +40,11 @@ _DEFAULT_MAX_TOKENS = 2_048
 _DEFAULT_COUNT = 3
 _DEFAULT_MODEL = "gpt-4o-mini"
 _UNPINNED_MODELS = frozenset({"latest", "auto", "default"})
+# Provider overload / rate-limit statuses: never retry (retry storms = spend).
+_NO_RETRY_HTTP = frozenset({429, 503, 529})
+# Seeds must be self-contained; an #include lets model output pull arbitrary
+# headers into the GA compile and change the trust boundary of the TU.
+_INCLUDE_RE = re.compile(r"^\s*#\s*include\b", re.MULTILINE)
 
 _SYSTEM_PROMPT = """\
 You are helping byte-match a C function in an old MSVC binary.  The current
@@ -150,12 +157,21 @@ def valid_c_source(src: str, *, expect_name: str | None = None) -> bool:
     """True when *src* parses without recovery and defines a function.
 
     Known calling conventions are stripped only for syntax validation.
-    When *expect_name* is set, the first defined function must use that name
-    so a hallucinated unrelated function cannot enter the GA population.
+    Snippets must define exactly one function.  When *expect_name* is set,
+    that name must match — so a hallucinated helper or Trojan second
+    definition cannot ride into the GA population beside a matching name.
+    ``#include`` is always rejected: seeds must be self-contained.
     """
-    from rebrew.c_parser import _strip_cc, extract_function_name_and_proto, get_ts_parser
+    from rebrew.c_parser import (
+        _strip_cc,
+        extract_function_name_and_proto,
+        find_c_function_definitions,
+        get_ts_parser,
+    )
 
     if len(src) > _MAX_SEED_CHARS:
+        return False
+    if _INCLUDE_RE.search(src):
         return False
     try:
         parser_pair = get_ts_parser()
@@ -172,7 +188,10 @@ def valid_c_source(src: str, *, expect_name: str | None = None) -> bool:
     if result is None:
         return False
     name, _proto = result
-    return expect_name is None or name == expect_name
+    defined = find_c_function_definitions(src)
+    if len(defined) != 1:
+        return False
+    return expect_name is None or (name == expect_name and defined[0][0] == expect_name)
 
 
 def _expected_name(source: str) -> str | None:
@@ -324,7 +343,7 @@ def request_seeds(
     Returns only tree-sitter-valid snippets.  Empty list when no endpoint is
     configured, the request fails, or the response carries no valid C.
     Never raises (the GA must run unchanged when the LLM is unavailable).
-    Never retries on 429 — a retry storm would multiply spend.
+    Never retries on 429/503/529 — a retry storm would multiply spend.
     """
     conf = llm_config(cfg)
     if conf is None:
@@ -343,9 +362,11 @@ def request_seeds(
         # misconfigured endpoint/key.  Warn so the user knows seeds were asked
         # for but never arrived (still return [] — the GA must run unchanged).
         status = _http_status(exc)
-        if status == 429:
+        if status in _NO_RETRY_HTTP:
             logging.warning(
-                "LLM seeding rate-limited (429); not retrying — GA continues without seeds: %s",
+                "LLM seeding HTTP %s (rate-limit/overload); not retrying — "
+                "GA continues without seeds: %s",
+                status,
                 exc,
             )
         else:

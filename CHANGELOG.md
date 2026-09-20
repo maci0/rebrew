@@ -22,6 +22,11 @@
   all`` runs it. Older-than-pin ``uv`` warns instead of blocking ``make setup``.
 
 ### Fixed
+- **``--seed-llm --dry-run`` no longer calls the LLM endpoint** — it prints the
+  sanitized prompt and exits without billing or running the GA.
+- **LLM / kuna seed validation rejects ``#include`` and multi-function
+  snippets** so model output cannot pull headers or ride a Trojan definition
+  into the GA population; HTTP 503/529 are treated like 429 (no retry).
 - **Coverage DB schema v10: cell states track ``KNOWN_STATUSES``.**
   ``cells.state`` is derived from lowercased annotation statuses plus
   gap/data verdicts, so ``extract_error`` / ``invalid_va`` (and future
