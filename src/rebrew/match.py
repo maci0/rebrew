@@ -322,12 +322,6 @@ def main(
         help="--all: only process functions matching substring",
         rich_help_panel="Batch Mode",
     ),
-    dry_run: bool = typer.Option(
-        False,
-        "--dry-run",
-        help="Preview changes without writing",
-        rich_help_panel="Batch Mode",
-    ),
     timeout_min: int = typer.Option(
         30,
         "--timeout-min",
@@ -355,6 +349,7 @@ def main(
     watch: bool = typer.Option(
         False, "--watch", help="Watch the seed source and re-run the GA on every change"
     ),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:

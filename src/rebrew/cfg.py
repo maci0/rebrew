@@ -237,10 +237,18 @@ def load_toml(
     return doc, toml_path
 
 
-def save_toml(doc: tomlkit.TOMLDocument, path: Path, *, dry_run: bool = False) -> None:
+def save_toml(
+    doc: tomlkit.TOMLDocument,
+    path: Path,
+    *,
+    dry_run: bool = False,
+    json_mode: bool = False,
+) -> None:
     """Write tomlkit document back, preserving formatting.
 
     With *dry_run*, prints what would change without touching the disk.
+    Write failures honor *json_mode* so ``--json`` callers still get a
+    ``{"error","code"}`` envelope on stdout instead of a bare stderr line.
     """
     if dry_run:
         console.print(f"[cyan]dry-run:[/cyan] would update {path}")
@@ -250,7 +258,7 @@ def save_toml(doc: tomlkit.TOMLDocument, path: Path, *, dry_run: bool = False) -
     except OSError as exc:
         error_exit(
             f"Failed to write {path}: {exc}",
-            json_mode=False,
+            json_mode=json_mode,
             code=EXIT_ERROR,
         )
 
@@ -620,7 +628,7 @@ def add_target(
             console.print(f"  Format: {fmt}, Arch: {arch}")
             console.print(f"  Language: {detected_lang} ({source_ext})")
         return
-    save_toml(doc, toml_path)
+    save_toml(doc, toml_path, json_mode=json_output)
 
     if json_output:
         json_print(payload)
@@ -665,7 +673,7 @@ def remove_target(
             )
         typer.confirm(f"Remove target '{name}' from rebrew-project.toml?", abort=True)
     del targets[name]
-    save_toml(doc, toml_path)
+    save_toml(doc, toml_path, json_mode=json_output)
     if json_output:
         json_print({"removed": True, "target": name})
         return
@@ -746,11 +754,12 @@ def set_value(
 def add_module(
     module: str = typer.Argument(..., help="Module name to add (e.g. 'ZLIB')."),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
     """Add a module to a target's origins list."""
-    doc, toml_path = load_toml()
-    target = _resolve_target(doc, target)
+    doc, toml_path = load_toml(json_mode=json_output)
+    target = _resolve_target(doc, target, json_mode=json_output)
     targets_table: Any = doc["targets"]
     tgt: Any = targets_table[target]
 
@@ -761,20 +770,53 @@ def add_module(
 
     module_upper = module.upper()
     if module_upper in origins:
-        console.print(f"[yellow]Module '{module_upper}' already exists in {target}.[/yellow]")
+        if json_output:
+            json_print(
+                {
+                    "added": False,
+                    "module": module_upper,
+                    "target": target,
+                    "origins": list(origins),
+                    "already_present": True,
+                }
+            )
+        else:
+            console.print(f"[yellow]Module '{module_upper}' already exists in {target}.[/yellow]")
         return
 
+    new_origins = list(origins) + [module_upper]
     if dry_run:
-        console.print(
-            f"[cyan]dry-run:[/cyan] would add module '{module_upper}' to {target} "
-            f"(Modules: {list(origins) + [module_upper]})"
-        )
+        if json_output:
+            json_print(
+                {
+                    "added": False,
+                    "module": module_upper,
+                    "target": target,
+                    "origins": new_origins,
+                    "dry_run": True,
+                }
+            )
+        else:
+            console.print(
+                f"[cyan]dry-run:[/cyan] would add module '{module_upper}' to {target} "
+                f"(Modules: {new_origins})"
+            )
         return
     origins.append(module_upper)
     # tomlkit copies plain lists on assignment — re-assign so the mutation
     # is visible to the document that save_toml serializes.
     tgt["origins"] = origins
-    save_toml(doc, toml_path)
+    save_toml(doc, toml_path, json_mode=json_output)
+    if json_output:
+        json_print(
+            {
+                "added": True,
+                "module": module_upper,
+                "target": target,
+                "origins": list(origins),
+            }
+        )
+        return
     console.print(
         f"[green]Added module '{module_upper}' to {target}. Modules: {list(origins)}[/green]"
     )
@@ -785,33 +827,74 @@ def remove_module(
     module: str = typer.Argument(..., help="Module name to remove."),
     force: bool = typer.Option(False, "--force", help="Skip confirmation prompt"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
     """Remove a module from a target's origins list (idempotent)."""
-    doc, toml_path = load_toml()
-    target = _resolve_target(doc, target)
+    doc, toml_path = load_toml(json_mode=json_output)
+    target = _resolve_target(doc, target, json_mode=json_output)
     targets_table: Any = doc["targets"]
     tgt: Any = targets_table[target]
 
+    module_upper = module.upper()
     origins = tgt.get("origins")
-    if origins is None or module.upper() not in origins:
-        console.print(
-            f"[yellow]Module '{module.upper()}' not in {target} (already removed).[/yellow]"
-        )
+    if origins is None or module_upper not in origins:
+        if json_output:
+            json_print(
+                {
+                    "removed": False,
+                    "module": module_upper,
+                    "target": target,
+                    "already_removed": True,
+                }
+            )
+        else:
+            console.print(
+                f"[yellow]Module '{module_upper}' not in {target} (already removed).[/yellow]"
+            )
         return
 
+    remaining = [o for o in origins if o != module_upper]
     if dry_run:
-        console.print(
-            f"[cyan]dry-run:[/cyan] would remove module '{module.upper()}' from {target} "
-            f"(Modules: {[o for o in origins if o != module.upper()]})"
-        )
+        if json_output:
+            json_print(
+                {
+                    "removed": False,
+                    "module": module_upper,
+                    "target": target,
+                    "origins": remaining,
+                    "dry_run": True,
+                }
+            )
+        else:
+            console.print(
+                f"[cyan]dry-run:[/cyan] would remove module '{module_upper}' from {target} "
+                f"(Modules: {remaining})"
+            )
         return
     if not force:
-        typer.confirm(f"Remove module '{module.upper()}' from target '{target}'?", abort=True)
-    origins.remove(module.upper())
-    save_toml(doc, toml_path)
+        # Interactive confirm breaks scripted --json; require --force instead.
+        if json_output:
+            error_exit(
+                f"refusing to remove module '{module_upper}' without --force under --json "
+                "(no interactive confirm)",
+                json_mode=True,
+            )
+        typer.confirm(f"Remove module '{module_upper}' from target '{target}'?", abort=True)
+    origins.remove(module_upper)
+    save_toml(doc, toml_path, json_mode=json_output)
+    if json_output:
+        json_print(
+            {
+                "removed": True,
+                "module": module_upper,
+                "target": target,
+                "origins": list(origins),
+            }
+        )
+        return
     console.print(
-        f"[green]Removed module '{module.upper()}' from {target}. Modules: {list(origins)}[/green]"
+        f"[green]Removed module '{module_upper}' from {target}. Modules: {list(origins)}[/green]"
     )
 
 
@@ -981,7 +1064,7 @@ def detect_crt(
                         crt_sources[origin] = rel_path
                     written += 1
             if written and not dry_run:
-                save_toml(doc, toml_path)
+                save_toml(doc, toml_path, json_mode=True)
             result["target"] = target_name
             result["written"] = written
             result["dry_run"] = dry_run

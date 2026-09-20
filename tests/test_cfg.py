@@ -691,6 +691,63 @@ class TestCLIAddRemoveTarget:
         doc, _ = load_toml(tmp_path)
         assert "server.dll" not in doc.get("targets", {})
 
+    def test_remove_module_json_requires_force(self, tmp_path: Path, monkeypatch) -> None:
+        """--json without --force must not hang on an interactive confirm."""
+        _make_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(
+            cfg_app, ["remove-module", "ZLIB", "--target", "server.dll", "--json"]
+        )
+        assert result.exit_code == 2
+        data = json.loads(result.stdout)
+        assert "--force" in data["error"]
+
+    def test_remove_module_json_success(self, tmp_path: Path, monkeypatch) -> None:
+        _make_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(
+            cfg_app,
+            ["remove-module", "ZLIB", "--target", "server.dll", "--force", "--json"],
+        )
+        assert result.exit_code == 0
+        data = json.loads(result.stdout)
+        assert data["removed"] is True
+        assert data["module"] == "ZLIB"
+        assert data["target"] == "server.dll"
+        assert "ZLIB" not in data["origins"]
+        doc, _ = load_toml(tmp_path)
+        assert "ZLIB" not in doc["targets"]["server.dll"]["origins"]
+
+    def test_remove_module_json_idempotent(self, tmp_path: Path, monkeypatch) -> None:
+        _make_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(
+            cfg_app,
+            ["remove-module", "MISSING", "--target", "server.dll", "--json"],
+        )
+        assert result.exit_code == 0
+        data = json.loads(result.stdout)
+        assert data == {
+            "removed": False,
+            "module": "MISSING",
+            "target": "server.dll",
+            "already_removed": True,
+        }
+
+    def test_add_module_json_success(self, tmp_path: Path, monkeypatch) -> None:
+        _make_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(
+            cfg_app, ["add-module", "CRYPTO", "--target", "server.dll", "--json"]
+        )
+        assert result.exit_code == 0
+        data = json.loads(result.stdout)
+        assert data["added"] is True
+        assert data["module"] == "CRYPTO"
+        assert "CRYPTO" in data["origins"]
+        doc, _ = load_toml(tmp_path)
+        assert "CRYPTO" in doc["targets"]["server.dll"]["origins"]
+
 
 class TestCLISet:
     def test_set_string(self, tmp_path: Path, monkeypatch) -> None:
