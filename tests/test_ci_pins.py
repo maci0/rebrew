@@ -124,6 +124,46 @@ class TestCiPins:
             assert "contents: read" in head, path.name
             assert "actions: write" in head, path.name
 
+    def test_gh_token_scoped_to_needing_steps(self) -> None:
+        """Do not expose secrets.GITHUB_TOKEN to pytest/ruff/mypy via workflow env.
+
+        Map GH_TOKEN only onto resembl-clone steps (and toolchain check-updates).
+        The package job never needs it.
+        """
+        for path in (CI_YML, SYNC_YML):
+            head = path.read_text(encoding="utf-8").split("\njobs:", 1)[0]
+            assert "GH_TOKEN:" not in head, (
+                f"{path.name}: GH_TOKEN must not be workflow-wide "
+                "(scope it to clone / API steps only)"
+            )
+        ci = CI_YML.read_text(encoding="utf-8")
+        package_job = ci.split("\n  package:\n", 1)[1].split("\n  cli-contract:\n", 1)[0]
+        assert "GH_TOKEN:" not in package_job
+        # Every clone invocation must carry step-level GH_TOKEN in the
+        # preceding step block (env: then run: on consecutive non-empty lines).
+        for path in (CI_YML, SYNC_YML):
+            text = path.read_text(encoding="utf-8")
+            for m in re.finditer(
+                r"(?m)^(?P<block>(?:^      .*\n)*?)^        run: bash tools/ci_clone_resembl\.sh",
+                text,
+            ):
+                block = m.group("block")
+                assert "GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}" in block, (
+                    f"{path.name}: clone step missing step-level GH_TOKEN"
+                )
+        sync = SYNC_YML.read_text(encoding="utf-8")
+        drift = sync.rsplit("name: Check toolchain source drift\n", 1)[1]
+        assert "GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}" in drift.split("run: |", 1)[0]
+
+    def test_package_job_uploads_dist_artifacts(self) -> None:
+        """Verified wheel/sdist/SBOM/buildinfo must be retained after smoke."""
+        text = CI_YML.read_text(encoding="utf-8")
+        package_job = text.split("\n  package:\n", 1)[1].split("\n  cli-contract:\n", 1)[0]
+        assert "actions/upload-artifact@" in package_job
+        assert "dist/rebrew.cdx.json" in package_job
+        assert "retention-days: 14" in package_job
+        assert "if-no-files-found: error" in package_job
+
     def test_resembl_clone_uses_retry_helper(self) -> None:
         """Network flakes cloning resembl must retry (same posture as apt-get)."""
         helper = ROOT / "tools" / "ci_clone_resembl.sh"

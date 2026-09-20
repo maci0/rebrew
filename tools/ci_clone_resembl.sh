@@ -7,7 +7,8 @@
 # job on the first transient error.
 #
 # Requires RESEMBL_REF in the environment (workflow env / Makefile pin).
-# When GH_TOKEN or GITHUB_TOKEN is set (workflows map secrets.GITHUB_TOKEN),
+# When GH_TOKEN or GITHUB_TOKEN is set (workflows map secrets.GITHUB_TOKEN
+# onto this step only — not workflow-wide),
 # clone with an Authorization header so the token never lands in the remote
 # URL and GitHub applies authenticated git rate limits.  The header is written
 # to a mode-0600 temp gitconfig (GIT_CONFIG_GLOBAL) so the secret does not

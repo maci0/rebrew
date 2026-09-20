@@ -31,14 +31,18 @@ require a target binary or MSVC toolchain.
 Every job that runs `uv sync` first clones the sibling `resembl` repo
 (`maci0/resembl`, tag from workflow `RESEMBL_REF`, currently `v2.0.0`) into the
 directory above the workspace via `tools/ci_clone_resembl.sh` (retries on
-network flake; uses `GH_TOKEN` header auth when mapped from
-`secrets.GITHUB_TOKEN`): `pyproject.toml`'s `[tool.uv.sources]` resolves
+network flake; maps `secrets.GITHUB_TOKEN` to `GH_TOKEN` on that step only —
+header auth in the script — so lint/test steps never see the token):
+`pyproject.toml`'s `[tool.uv.sources]` resolves
 the `similarity` group's `resembl` from `../resembl`, so a default
 `uv sync --frozen` fails to build the installation plan when that checkout is
 absent. Keep `RESEMBL_REF` in step with the `resembl` version in `uv.lock`.
 The package job skips the sibling clone: its lockfile sync uses
 `--no-default-groups --no-install-project` (no path dep needed) before the
-`--no-deps` wheel overlay. The test job sets `fetch-tags: true` so
+`--no-deps` wheel overlay. After the smoke import it uploads the verified
+`dist/` wheel, sdist, `rebrew.buildinfo`, and CycloneDX SBOM as a workflow
+artifact (`rebrew-dist-<sha>`, 14-day retention). The test job sets
+`fetch-tags: true` so
 the packaging CHANGELOG↔tag contract runs under the default shallow checkout.
 Dev installs use `uv sync --frozen --all-extras --group similarity` (Makefile
 `make setup`); the `m2c` git dep is a separate `--group m2c` opt-in.
@@ -62,7 +66,9 @@ uv flow (`uv sync --frozen`) and the same `RESEMBL_REF` / `UV_VERSION` pins,
 so scheduled runs can never silently resolve newer dependency versions than
 the audited lockfile. It checks sources once, prints that JSON result, and
 fails on drift, failed checks, unpinned sources, or an empty source inventory.
-The result gate uses `jq`, included in the Ubuntu runner image.
+`GH_TOKEN` is mapped onto the resembl-clone and `check-updates` steps only
+(authenticated git + GitHub API rate limits). The result gate uses `jq`,
+included in the Ubuntu runner image.
 
 ## Project / workspace CI
 

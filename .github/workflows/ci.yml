@@ -24,15 +24,14 @@ concurrency:
 env:
   UV_VERSION: "0.12.14"
   RESEMBL_REF: "v2.0.0"
-  # Authenticated clone for tools/ci_clone_resembl.sh (higher GitHub git
-  # limits; token never lands in the remote URL — header auth in the script).
-  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   # typer renders every --help with ANSI codes whenever GITHUB_ACTIONS is set
   # (it treats the GitHub log renderer as a color terminal), which splits
   # option names across escape sequences and breaks every assertion on help
   # text: the help-listing tests, the SKILL.md validator, and the
   # cli-contract grep.  This is typer's own switch for turning that off.
   _TYPER_FORCE_DISABLE_TERMINAL: "1"
+  # GH_TOKEN is NOT workflow-wide: map secrets.GITHUB_TOKEN only onto the
+  # resembl-clone steps below so pytest/ruff/mypy never see the token.
 
 jobs:
   lint:
@@ -49,6 +48,10 @@ jobs:
         # actions/checkout refuses to write outside the workspace, so clone
         # RESEMBL_REF (must match uv.lock) into the parent directory — the
         # same layout a developer's checkout has.  Retries on network flake.
+        # GH_TOKEN: authenticated git rate limits; header auth in the script
+        # (token never lands in the remote URL or on git argv).
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: bash tools/ci_clone_resembl.sh ../resembl
       - name: Set up uv
         uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
@@ -96,6 +99,8 @@ jobs:
           fetch-tags: true
       - name: Check out sibling resembl (path dependency of the `similarity` group)
         # See the lint job: [tool.uv.sources] resolves `resembl` from ../resembl.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: bash tools/ci_clone_resembl.sh ../resembl
       - name: Set up uv
         uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
@@ -145,6 +150,8 @@ jobs:
           persist-credentials: false
       - name: Check out sibling resembl (path dependency of the `similarity` group)
         # See the lint job: [tool.uv.sources] resolves `resembl` from ../resembl.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: bash tools/ci_clone_resembl.sh ../resembl
       - name: Set up uv
         uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
@@ -253,6 +260,19 @@ jobs:
           .venv-pkg/bin/python -c "from importlib.metadata import version; import rebrew; print(version('rebrew'))"
           .venv-pkg/bin/rebrew --help >/dev/null
           .venv-pkg/bin/python -c "from pathlib import Path; import rebrew; p=Path(rebrew.__file__).parent; assert (p/'agent-skills').is_dir(), p; assert (p/'AGENTS.md.template').is_file(); assert (p/'PRINCIPLES.md').is_file()"
+      - name: Upload package artifacts
+        # Retain the verified wheel/sdist/SBOM/buildinfo for the commit (short
+        # retention so Actions storage does not accumulate stale builds).
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: rebrew-dist-${{ github.sha }}
+          path: |
+            dist/*.whl
+            dist/*.tar.gz
+            dist/rebrew.buildinfo
+            dist/rebrew.cdx.json
+          if-no-files-found: error
+          retention-days: 14
 
   # Contract smoke: CLI surfaces for the high-value gates documented in docs/CI.md.
   # These do not require a target binary: only that the options exist and help text
@@ -267,6 +287,8 @@ jobs:
           persist-credentials: false
       - name: Check out sibling resembl (path dependency of the `similarity` group)
         # See the lint job: [tool.uv.sources] resolves `resembl` from ../resembl.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: bash tools/ci_clone_resembl.sh ../resembl
       - name: Set up uv
         uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0

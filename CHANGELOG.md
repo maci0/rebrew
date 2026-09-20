@@ -1,5 +1,8 @@
 ## [Unreleased]
 ### Added
+- **Package CI uploads verified ``dist/`` artifacts** (wheel, sdist,
+  ``rebrew.buildinfo``, CycloneDX SBOM) with 14-day retention after the
+  smoke-import step.
 - **``dist/rebrew.buildinfo``** records uv/python/``.python-version``/setuptools
   (setuptools parsed from ``pyproject.toml``) and ``SOURCE_DATE_EPOCH`` /
   locale knobs next to ``make build`` / package-CI artifacts so a rebuild can
@@ -36,6 +39,9 @@
   documented integrator surface.
 
 ### Fixed
+- **CI maps ``GH_TOKEN`` only onto resembl-clone and toolchain ``check-updates``
+  steps** — no longer workflow-wide — so pytest/ruff/mypy never see
+  ``secrets.GITHUB_TOKEN``.
 - **Package CI builds via ``make build``** — no longer duplicates the
   SOURCE_DATE_EPOCH / buildinfo recipe; ``setuptools=`` in
   ``dist/rebrew.buildinfo`` is parsed from ``pyproject.toml`` (was a

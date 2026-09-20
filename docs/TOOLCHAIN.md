@@ -246,8 +246,8 @@ ahead of the image.  A pin that can move (a `refs/heads/...` branch
 tarball) is re-downloaded and re-hashed; release assets (the dated Open
 Watcom snapshots, decomp.me / archive.org payloads) and the pinned 16-bit
 media in the rebrew-toolchains checkout are immutable and reported as
-static.  Runs on a schedule (or ad-hoc) with `GH_TOKEN` set for
-generous API limits.
+static.  Runs on a schedule (or ad-hoc) with `GH_TOKEN` mapped onto the
+resembl-clone and `check-updates` steps for generous API limits.
 
 > **Headless by construction:** every Windows/DOS compile runs inside a
 > docker container — wine runs headless inside the image (no desktop
