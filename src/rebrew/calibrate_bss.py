@@ -33,7 +33,7 @@ from rich.console import Console
 
 from rebrew.cli import error_exit, json_print
 from rebrew.pe_headers import find_section
-from rebrew.utils import atomic_write_text, load_tomllib
+from rebrew.utils import atomic_write_text, load_tomllib, read_source_text
 from rebrew.workspace import walk_up_to_root
 
 console = Console(stderr=True)
@@ -135,7 +135,10 @@ def main(
         error_exit("--max-iters must be at least 1", json_mode=json_output)
 
     tail_re = re.compile(rf"{symbol}\[\s*0x([0-9A-Fa-f]+)\s*\]")
-    if not tail_re.search(stub.read_text(encoding="utf-8")):
+    # Stub is a C source: use the shared detector so a CP1252/Shift-JIS comment
+    # survives the calibrate rewrite (utf-8-only read+write would U+FFFD it).
+    stub_text, stub_encoding = read_source_text(stub)
+    if not tail_re.search(stub_text):
         error_exit(f"{symbol}[0x..] not found in {stub}", json_mode=json_output)
 
     if dry_run:
@@ -167,7 +170,7 @@ def main(
     iters: list[dict[str, int]] = []
     # The loop rewrites the stub tail in place before each relink; a failed
     # calibration must not leave a wrong pad behind, so snapshot and restore.
-    original_stub = stub.read_text(encoding="utf-8")
+    original_stub = stub_text
     try:
         for it in range(max_iters):
             # Quote the scratch path before shlex.split so a space-bearing
@@ -203,7 +206,7 @@ def main(
             iters.append({"iter": it, "vs": vs, "delta": delta})
             if delta == 0:
                 break
-            text = stub.read_text(encoding="utf-8")
+            text, stub_encoding = read_source_text(stub)
             m = tail_re.search(text)
             if m is None:
                 error_exit(f"{symbol}[0x..] not found in {stub}", json_mode=json_output)
@@ -214,7 +217,9 @@ def main(
                     json_mode=json_output,
                 )
             atomic_write_text(
-                stub, text[: m.start(1)] + f"{new_tail:x}" + text[m.end(1) :], encoding="utf-8"
+                stub,
+                text[: m.start(1)] + f"{new_tail:x}" + text[m.end(1) :],
+                encoding=stub_encoding,
             )
             obj = target_dir / stub.relative_to(root).with_suffix(".obj")
             try:
@@ -244,7 +249,7 @@ def main(
                 json_mode=json_output,
             )
     except BaseException:
-        atomic_write_text(stub, original_stub, encoding="utf-8")
+        atomic_write_text(stub, original_stub, encoding=stub_encoding)
         raise
     finally:
         scratch.unlink(missing_ok=True)

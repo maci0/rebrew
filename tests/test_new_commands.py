@@ -73,6 +73,26 @@ class TestResidueHelpers:
         report = residue_report(ref, ref, [], 0)
         assert report["text_differing"] == 0
 
+    def test_sections_accepts_non_utf8_name(self) -> None:
+        """PE section names are 8 raw bytes — a high byte must not crash.
+
+        Concrete input: name bytes ``b'.xyz\\xff\\x00...'``.  Bare
+        ``.decode()`` (UTF-8 strict) raises; latin1 matches pe_headers.
+        """
+        import struct
+
+        from rebrew.residue import _sections
+
+        raw = bytearray(0x400)
+        raw[0x3C:0x40] = struct.pack("<I", 0x80)
+        raw[0x80 + 6 : 0x80 + 8] = struct.pack("<H", 1)
+        raw[0x80 + 20 : 0x80 + 22] = struct.pack("<H", 0xE0)
+        off = 0x80 + 24 + 0xE0
+        raw[off : off + 8] = b".xyz\xff\x00\x00"
+        raw[off + 8 : off + 24] = struct.pack("<IIII", 0x10, 0x1000, 0x10, 0x200)
+        sections = _sections(bytes(raw))
+        assert ".xyz\xff" in sections
+
     @pytest.mark.parametrize("first_size", [4, 8, 12])
     def test_residue_report_attributes_until_next_start(
         self, monkeypatch: pytest.MonkeyPatch, first_size: int

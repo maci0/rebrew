@@ -112,6 +112,44 @@ class TestCalibrateLoop:
         assert result.exit_code != 0
         assert stub.read_text(encoding="utf-8") == original
 
+    def test_failed_compile_restores_cp1252_stub(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A CP1252 comment in the stub must survive a failed calibrate restore.
+
+        Concrete bytes: ``Caf\\xe9`` (é in CP1252).  An utf-8-only
+        read/write path would replace it with U+FFFD and rewrite UTF-8.
+        """
+        import subprocess
+
+        from rebrew import calibrate_bss as cb
+
+        (tmp_path / "rebrew-project.toml").write_text(
+            '[project]\ndefault_target = "A"\n[targets.A]\n', encoding="utf-8"
+        )
+        stub = tmp_path / "src" / "link_stubs.c"
+        stub.parent.mkdir(parents=True)
+        original = b"// Caf\xe9\nchar g_bss_tail[0x10];\n"
+        stub.write_bytes(original)
+
+        monkeypatch.setattr(
+            cb, "find_link_cmd", lambda root, json_mode=False: (tmp_path, "true {out}", tmp_path)
+        )
+        monkeypatch.setattr(cb, "read_data_vs", lambda path: 0x10)
+
+        def fake_run(cmd: object, **kwargs: object) -> None:
+            if isinstance(cmd, list):
+                raise subprocess.CalledProcessError(1, cmd, stderr=b"boom")
+            return None
+
+        monkeypatch.setattr(cb.subprocess, "run", fake_run)
+
+        result = self._invoke(
+            tmp_path, monkeypatch, "--stub", str(stub), "--target-vs", "0x20", "--json"
+        )
+        assert result.exit_code != 0
+        assert stub.read_bytes() == original
+
     def test_max_iters_must_be_positive(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

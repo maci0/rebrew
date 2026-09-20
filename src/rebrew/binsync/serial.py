@@ -159,7 +159,9 @@ def load_artifact(path: Path, kind: str) -> Any | None:
     if not path.exists():
         return None
     try:
-        text = path.read_text(encoding="utf-8")
+        # utf-8-sig: Windows editors may prefix EF BB BF; plain utf-8 leaves
+        # U+FEFF and declib's TOML loader then rejects the file.
+        text = path.read_text(encoding="utf-8-sig")
     except OSError:
         # Same visibility as the unparseable path: an I/O failure must not
         # look like a missing artifact on import/pull.
@@ -187,7 +189,7 @@ def load_many(path: Path, kind: str) -> list[Any]:
     if not path.exists():
         return []
     try:
-        text = path.read_text(encoding="utf-8")
+        text = path.read_text(encoding="utf-8-sig")
     except OSError:
         log.warning("unreadable BinSync %s at %s", kind, path, exc_info=True)
         return []

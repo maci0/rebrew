@@ -905,12 +905,14 @@ def _import_type_definitions(
                 {kind: name, "field": f"{kind}_definition", "local": "", "binsync": name}
             )
         return len(new)
+    from rebrew.utils import atomic_write_text, read_source_text
+
     reversed_dir = Path(cfg.reversed_dir)
     header = reversed_dir / "binsync_types.h"
     try:
-        existing = header.read_text(encoding="utf-8")
+        existing, header_encoding = read_source_text(header)
     except FileNotFoundError:
-        existing = ""
+        existing, header_encoding = "", "utf-8"
     blocks = [existing]
     if not blocks[0]:
         blocks = [
@@ -925,9 +927,8 @@ def _import_type_definitions(
             definition = f"/* UNPARSED from BinSync (no known layout):\n{definition}\n*/"
         if name not in existing:
             blocks.append(definition + "\n\n")
-    from rebrew.utils import atomic_write_text
 
-    atomic_write_text(header, "".join(blocks), encoding="utf-8")
+    atomic_write_text(header, "".join(blocks), encoding=header_encoding)
     return len(new)
 
 

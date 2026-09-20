@@ -676,7 +676,7 @@ def build_candidate(
             )[:400]
             return BuildResult(ok=False, error_msg=err_output)
 
-        map_text = map_path.read_text(encoding="utf-8")
+        map_text = map_path.read_text(encoding="utf-8", errors="replace")
 
         # MSVC MAP format: "  SSSS:OOOOOOOO  _symbol  VVVVVVVV  f  obj"
         m = _map_symbol_re(symbol).search(map_text)

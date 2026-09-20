@@ -512,6 +512,33 @@ class TestStructImport:
         header = tmp_path / "src" / "binsync_types.h"
         assert "Player" in header.read_text(encoding="utf-8")
 
+    def test_existing_cp1252_header_survives_append(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Appending a struct must not UTF-8-rewrite a legacy-encoded header.
+
+        Concrete bytes: existing header starts with ``/* Caf\\xe9 */`` (CP1252).
+        """
+        _make_project(tmp_path, {"foo.c": "// FUNCTION: SERVER 0x1000\nint foo(void){return 0;}\n"})
+        header = tmp_path / "src" / "binsync_types.h"
+        prefix = b"/* Caf\xe9 */\n"
+        header.write_bytes(prefix)
+        state = tmp_path / "state"
+        (state / "functions").mkdir(parents=True, exist_ok=True)
+        structs = state / "structs"
+        structs.mkdir(parents=True, exist_ok=True)
+        doc = tomlkit.document()
+        info = tomlkit.table()
+        info["name"] = "Player"
+        doc["info"] = info
+        doc["definition"] = "typedef struct Player_s {\n\tint x;\n} Player;"
+        (structs / "Player.toml").write_text(tomlkit.dumps(doc), encoding="utf-8")
+        result = _invoke_import(tmp_path, state, monkeypatch, "--json")
+        assert result.exit_code == 0, result.output
+        raw = header.read_bytes()
+        assert raw.startswith(prefix)
+        assert b"Player" in raw
+
     def test_known_struct_skipped(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         _make_project(
             tmp_path,

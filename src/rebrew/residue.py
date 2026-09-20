@@ -52,7 +52,10 @@ def _sections(raw: bytes) -> dict[str, tuple[int, int, int, int]]:
     out = {}
     for i in range(nsec):
         off = pe + 24 + opt + i * 40
-        name = raw[off : off + 8].rstrip(b"\0").decode()
+        # latin1 matches pe_headers.parse_pe: PE section names are 8 raw bytes
+        # (often padded, rarely UTF-8). Bare .decode() is UTF-8-strict and
+        # raises UnicodeDecodeError on any high byte (e.g. b".xyz\xff").
+        name = raw[off : off + 8].rstrip(b"\0").decode("latin1")
         vs, va, rs, rp = struct.unpack_from("<IIII", raw, off + 8)
         out[name] = (va, vs, rp, rs)
     return out

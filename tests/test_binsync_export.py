@@ -29,6 +29,36 @@ def _load_artifacts(path: Path, kind: str) -> list[Any]:
     return load_many(path, kind)
 
 
+class TestSerialBom:
+    def test_load_artifact_strips_utf8_bom(self, tmp_path: Path) -> None:
+        """Notepad-style EF BB BF must not make a valid artifact unreadable."""
+        from declib.artifacts import Function
+
+        from rebrew.binsync.serial import load_artifact
+
+        path = tmp_path / "fn.toml"
+        # Write unlocked: dump_artifact locks 0444; we need to prefix a BOM.
+        body = Function(addr=0x1000, name="foo").dumps()
+        path.write_bytes(b"\xef\xbb\xbf" + body.encode("utf-8"))
+        loaded = load_artifact(path, "function")
+        assert loaded is not None
+        assert loaded.name == "foo"
+
+    def test_load_many_strips_utf8_bom(self, tmp_path: Path) -> None:
+        from declib.artifacts import Comment
+
+        from rebrew.binsync.serial import load_many
+
+        path = tmp_path / "comments.toml"
+        body = Comment.dumps_many(
+            [Comment(addr=0x1001, func_addr=0x1000, comment="hi")], key_attr="addr"
+        )
+        path.write_bytes(b"\xef\xbb\xbf" + body.encode("utf-8"))
+        loaded = load_many(path, "comment")
+        assert len(loaded) == 1
+        assert loaded[0].comment == "hi"
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
