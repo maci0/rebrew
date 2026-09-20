@@ -67,15 +67,15 @@ def _tree(tmp_path: Path, build_make: str, *, sources: bool = True) -> Path:
     """
     d = tmp_path / "build" / "CMakeFiles" / "server_dll.dir"
     d.mkdir(parents=True)
-    (d / "build.make").write_text(build_make)
-    (d / "flags.make").write_text(FLAGS_MAKE)
+    (d / "build.make").write_text(build_make, encoding="utf-8")
+    (d / "flags.make").write_text(FLAGS_MAKE, encoding="utf-8")
     # Paths in build.make are relative to the project root, which is the
     # build dir's parent.
     if sources:
         for src in ("src/a/one.c", "src/b/two.c", "src/c/three.c"):
             path = tmp_path / src
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text("int x;\n")
+            path.write_text("int x;\n", encoding="utf-8")
     return tmp_path / "build"
 
 
@@ -84,6 +84,31 @@ def test_clean_tree_is_ok(tmp_path):
     assert result["status"] == "ok"
     # two of the three objects have a Custom comment; the third uses global flags
     assert result["checked"] == 2
+    assert result["drift"] == []
+
+
+def test_non_ascii_source_path_decodes_as_utf8(tmp_path: Path) -> None:
+    """build.make may name a UTF-8 path; platform-default decode must not be used.
+
+    Concrete input: ``src/a/café.c`` (U+00E9).  Without ``encoding="utf-8"``,
+    a cp1252 locale would mis-decode the path bytes and report a false MISSING
+    SOURCE drift.
+    """
+    cafe = "caf\u00e9"
+    build = BUILD_MAKE.replace("src/a/one.c", f"src/a/{cafe}.c").replace(
+        "one.c.obj", f"{cafe}.c.obj"
+    )
+    flags = FLAGS_MAKE.replace("one.c.obj", f"{cafe}.c.obj")
+    d = tmp_path / "build" / "CMakeFiles" / "server_dll.dir"
+    d.mkdir(parents=True)
+    (d / "build.make").write_text(build, encoding="utf-8")
+    (d / "flags.make").write_text(flags, encoding="utf-8")
+    for src in (f"src/a/{cafe}.c", "src/b/two.c", "src/c/three.c"):
+        path = tmp_path / src
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("int x;\n", encoding="utf-8")
+    result = check(tmp_path / "build", project_root=tmp_path)
+    assert result["status"] == "ok"
     assert result["drift"] == []
 
 

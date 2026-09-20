@@ -38,7 +38,7 @@ from rich.console import Console
 
 from rebrew.cli import error_exit, json_print
 from rebrew.toolchain import TOOLCHAINS, ToolchainSpec, kill_container
-from rebrew.utils import container_runtime
+from rebrew.utils import container_runtime, load_tomllib
 from rebrew.workspace import walk_up_to_root
 
 try:
@@ -134,8 +134,7 @@ def _docker_user_args() -> list[str]:
 
 def _load_profile(root: Path) -> str:
     try:
-        with open(root / "rebrew-project.toml", "rb") as f:
-            cfg = tomllib.load(f)
+        cfg = load_tomllib(root / "rebrew-project.toml")
     except (OSError, tomllib.TOMLDecodeError) as exc:
         error_exit(f"cannot read {root}/rebrew-project.toml: {exc}")
     return str(cfg.get("compiler", {}).get("profile", "msvc-6.0"))
@@ -361,7 +360,14 @@ def _docker_run(spec: ToolchainSpec, mode: str, args: list[str]) -> int:
 
     try:
         with _exclusive_lock(prefix / ".run.lock"):
-            r = subprocess.run(cmd, capture_output=True, text=True, timeout=3600)
+            r = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=3600,
+            )
     except subprocess.TimeoutExpired:
         # Killing the CLI leaves the wine container running under dockerd —
         # kill it by name so a hung compile does not outlive the timeout.

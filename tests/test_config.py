@@ -231,6 +231,19 @@ binary = "test.exe"
         assert not hasattr(cfg, "function_list")
         assert cfg.bin_dir == root / "bin" / "main"
 
+    def test_utf8_bom_prefixed_toml_loads(self, tmp_path: Path) -> None:
+        """Notepad-style UTF-8 BOM must not make load_config raise.
+
+        Concrete input: ``EF BB BF`` before ``[project]``.  Plain ``utf-8`` /
+        ``tomllib.load`` on bytes leaves U+FEFF as the first character and
+        both tomllib and tomlkit reject the file.
+        """
+        body = '[project]\ndefault_target = "main"\n\n[targets.main]\nbinary = "test.exe"\n'
+        root = tmp_path
+        (root / "rebrew-project.toml").write_bytes(b"\xef\xbb\xbf" + body.encode("utf-8"))
+        cfg = load_config(root)
+        assert cfg.target_name == "main"
+
     def test_link_file_align_warns_informational(self, tmp_path: Path) -> None:
         """link.file_align is parsed but no patch path applies it (FileAlignment
         needs a relink); the loader must warn instead of accepting a silent

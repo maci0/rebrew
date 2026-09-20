@@ -1257,7 +1257,7 @@ def parse_library_metadata(path: Path) -> dict[str, Any]:
         if cached is not None and cached[0] == fp:
             return dict(cached[1])
     try:
-        raw = tomllib.loads(path.read_text(encoding="utf-8"))
+        raw = tomllib.loads(path.read_text(encoding="utf-8-sig"))
     except (OSError, tomllib.TOMLDecodeError) as exc:
         raise LibraryOverrideError(f"bad {LIBRARY_METADATA_FILE} at {path}: {exc}") from exc
     if not isinstance(raw, dict):

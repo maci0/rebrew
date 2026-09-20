@@ -493,6 +493,8 @@ def _run_diec(path: Path, diec: Path | None = None) -> list[dict[str, object]] |
             [str(diec), "-j", "--heuristicscan", str(path)],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=60,
             env=_diec_env(diec),
         )
@@ -875,6 +877,8 @@ def _pdb_compile_record(path: Path) -> dict[str, str] | None:
             ["llvm-pdbutil", "dump", "-symbols", str(pdb)],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=30,
         )
     except (OSError, subprocess.TimeoutExpired):
@@ -906,6 +910,8 @@ def _pdb_zig_modules(pdb: Path) -> dict[str, str] | None:
             ["llvm-pdbutil", "dump", "-modules", str(pdb)],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=30,
         )
     except (OSError, subprocess.TimeoutExpired):

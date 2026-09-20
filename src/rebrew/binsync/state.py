@@ -187,7 +187,7 @@ def load_manifest(state_dir: Path) -> dict[str, str]:
     if not manifest.exists():
         return {}
     try:
-        doc = tomlkit.parse(manifest.read_text(encoding="utf-8"))
+        doc = tomlkit.parse(manifest.read_text(encoding="utf-8-sig"))
     except Exception as exc:
         log.warning("unparseable BinSync manifest.toml: %s", exc)
         return {}

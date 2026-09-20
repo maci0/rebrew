@@ -141,7 +141,7 @@ def _drop_redundant_presets(
     import tomlkit
 
     try:
-        doc = tomlkit.parse(toml_path.read_text(encoding="utf-8"))
+        doc = tomlkit.parse(toml_path.read_text(encoding="utf-8-sig"))
     except (OSError, ValueError) as exc:
         console.print(f"[yellow]warning:[/yellow] could not update {toml_path}: {exc}")
         return 0

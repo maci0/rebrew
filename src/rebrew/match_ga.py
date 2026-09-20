@@ -249,20 +249,26 @@ def _ga_cache_key(
     default for every image-backed toolchain, which all compile through
     docker).
     """
+
     # Incremental hashing — the old code built a full material buffer per
     # candidate (src.encode() + joins), and the source hash was recomputed
     # every call despite being constant within a GA run (perf-review F3).
+    # Path-like fields use surrogateescape so a non-UTF-8 include dir from
+    # the filesystem (Linux surrogate filenames) does not raise here.
+    def _enc(s: str) -> bytes:
+        return s.encode("utf-8", errors="surrogateescape")
+
     h = hashlib.sha256()
-    h.update(source_digest(src).encode())
-    h.update(b"\x00cflags=" + cflags.encode())
-    h.update(b"\x00cmd=" + cl_cmd.encode())
-    h.update(b"\x00inc=" + inc_dir.encode())
-    h.update(b"\x00sym=" + symbol.encode())
-    h.update(b"\x00profile=" + profile.encode())
+    h.update(source_digest(src).encode("ascii"))
+    h.update(b"\x00cflags=" + _enc(cflags))
+    h.update(b"\x00cmd=" + _enc(cl_cmd))
+    h.update(b"\x00inc=" + _enc(inc_dir))
+    h.update(b"\x00sym=" + _enc(symbol))
+    h.update(b"\x00profile=" + _enc(profile))
     for d in sorted(extra_include_dirs or []):
-        h.update(b"\x00" + d.encode())
+        h.update(b"\x00" + _enc(d))
     for d in sorted(defines or []):
-        h.update(b"\x00defines=" + d.encode())
+        h.update(b"\x00defines=" + _enc(d))
     return h.hexdigest()[:16]
 
 
@@ -926,8 +932,8 @@ def _ga_args_hash(
     h = hashlib.sha256()
     h.update(seed_source.encode("utf-8", errors="replace"))
     h.update(target_bytes)
-    h.update(symbol.encode())
-    h.update(cflags.encode())
+    h.update(symbol.encode("utf-8", errors="surrogateescape"))
+    h.update(cflags.encode("utf-8", errors="surrogateescape"))
     h.update(
         json.dumps(
             {
@@ -953,7 +959,7 @@ def _ga_args_hash(
             },
             sort_keys=True,
             separators=(",", ":"),
-        ).encode()
+        ).encode("utf-8")
     )
     return h.hexdigest()
 

@@ -76,6 +76,8 @@ def _rizin_functions(binary: Path, cmds: list[str]) -> list[tuple[int, int, str]
             ["rizin", "-q", "-c", "; ".join(cmds) + "; afl", str(binary)],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=300,
         )
     except (OSError, subprocess.TimeoutExpired):

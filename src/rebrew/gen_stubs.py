@@ -37,7 +37,6 @@ from __future__ import annotations
 import re
 import subprocess
 import sys
-import tomllib
 import typing
 from collections.abc import Iterable
 from pathlib import Path
@@ -46,7 +45,7 @@ import typer
 from rich.console import Console
 
 from rebrew.cli import error_exit, json_print
-from rebrew.utils import atomic_write_text, read_source_text
+from rebrew.utils import atomic_write_text, load_tomllib, read_source_text
 
 console = Console(stderr=True)
 
@@ -649,6 +648,8 @@ def _run_build(
             shell=True,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=600,
             cwd=root,
         )
@@ -665,8 +666,7 @@ def _run_build(
 
 
 def _load_specials(path: Path) -> dict[str, typing.Any]:
-    with open(path, "rb") as f:
-        return tomllib.load(f)
+    return typing.cast(dict[str, typing.Any], load_tomllib(path))
 
 
 @app.callback(invoke_without_command=True)

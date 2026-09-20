@@ -40,10 +40,9 @@ def verify_data_bytes(
     symbol, ``not_comparable`` the difference, and ``coverage`` is the fraction
     compared, so a caller can tell "122 matched" from "122 of 329 matched".
     """
-    import tomllib
+    from rebrew.utils import load_tomllib
 
-    with open(metadata_path, "rb") as fh:
-        db = tomllib.load(fh)
+    db = load_tomllib(metadata_path)
     names: dict[int, str] = {}
     kept: set[int] = set()
     for key, val in db.items():
@@ -114,13 +113,11 @@ def section_symbol_bytes(
     section data.  Symbols outside the section bounds or without a size are
     skipped (the caller reports them as missing).
     """
-    import tomllib
-
     from rebrew.binary_loader import load_binary
     from rebrew.data_layout import estimate_type_size
+    from rebrew.utils import load_tomllib
 
-    with open(metadata_path, "rb") as fh:
-        db = tomllib.load(fh)
+    db = load_tomllib(metadata_path)
     info = load_binary(binary_path)
     by_va: dict[int, bytes] = {}
     sizes: dict[int, int] = {}

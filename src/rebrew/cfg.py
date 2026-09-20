@@ -183,7 +183,7 @@ def load_toml(
     if not toml_path.exists():
         error_exit(f"{toml_path} not found.", json_mode=json_mode)
     try:
-        doc = tomlkit.parse(toml_path.read_text(encoding="utf-8"))
+        doc = tomlkit.parse(toml_path.read_text(encoding="utf-8-sig"))
     except (OSError, ValueError) as exc:
         error_exit(
             f"Failed to parse {toml_path}: {exc}",

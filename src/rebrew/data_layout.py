@@ -25,7 +25,6 @@ import math
 import re
 import struct
 import subprocess
-import tomllib
 from collections import defaultdict
 from collections.abc import Iterator, Sequence
 from pathlib import Path
@@ -33,7 +32,7 @@ from typing import Any
 
 from rebrew.binary_loader import load_binary
 from rebrew.data_metadata import iter_data_symbols
-from rebrew.utils import atomic_write_text, read_source_text
+from rebrew.utils import atomic_write_text, load_tomllib, read_source_text
 
 # ---------------------------------------------------------------------------
 # Link order + per-TU symbol inventory (objdump-based)
@@ -57,6 +56,8 @@ def _run_objdump(obj: Path, flag: str) -> str:
             ["objdump", flag, str(obj)],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=_OBJDUMP_TIMEOUT_S,
         )
     except FileNotFoundError as exc:
@@ -187,8 +188,7 @@ def data_symbols(metadata: Path, section: str | Sequence[str] | None = ".data") 
     ``section=".bss"`` (``rebrew data --set-type`` / the Ghidra import), so a
     ``.data``-only read silently drops them.
     """
-    with open(metadata, "rb") as fh:
-        db = tomllib.load(fh)
+    db = load_tomllib(metadata)
     wanted = None if section is None else {section} if isinstance(section, str) else set(section)
     return {
         str(val["name"]): va
@@ -213,10 +213,8 @@ def layout_geometry(project_toml: Path, target: str | None = None) -> tuple[int,
     root = project_toml.parent
     if target:
         return read_layout_geometry(root, target)
-    import tomllib
 
-    with open(project_toml, "rb") as fh:
-        cfg = tomllib.load(fh)
+    cfg = load_tomllib(project_toml)
     default = str(cfg.get("project", {}).get("default_target") or "")
     if default and (root / "layout" / default / "rebrew-layout.toml").exists():
         return read_layout_geometry(root, default)
@@ -901,8 +899,7 @@ def _merged_definition_line(dtyp: str, dsize: int | None, name: str, def_line: s
 
 def _data_symbol_types(metadata: Path) -> dict[str, tuple[int, str]]:
     """``{name: (full VA, type)}`` for the .data symbols in the metadata."""
-    with open(metadata, "rb") as fh:
-        db = tomllib.load(fh)
+    db = load_tomllib(metadata)
     return {
         str(val["name"]): (va, str(val.get("type", "int")))
         for _, va, val in iter_data_symbols(db)
@@ -1038,8 +1035,7 @@ def _converge_target(root: Path, target: str | None) -> str:
     """
     if target:
         return target
-    with open(root / "rebrew-project.toml", "rb") as fh:
-        cfg = tomllib.load(fh)
+    cfg = load_tomllib(root / "rebrew-project.toml")
     project = cfg.get("project", {})
     default = project.get("default_target")
     if isinstance(default, str) and default:

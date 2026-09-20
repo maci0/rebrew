@@ -185,7 +185,7 @@ def _merge_toolchain_overlay(registry: dict[str, ToolchainSpec]) -> None:
         return
     for path in sorted(overlay.glob("*.toml")):
         try:
-            raw = tomllib.loads(path.read_text(encoding="utf-8"))
+            raw = tomllib.loads(path.read_text(encoding="utf-8-sig"))
         except (OSError, tomllib.TOMLDecodeError) as exc:
             raise ToolchainError(f"bad toolchain overlay {path}: {exc}") from exc
         if not isinstance(raw, dict):
@@ -291,6 +291,8 @@ def docker_available() -> bool:
             [container_runtime(), "info"],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=15,
         )
         ok = r.returncode == 0
@@ -346,6 +348,8 @@ def cached_image_digest(image: str) -> str:
             [container_runtime(), "image", "inspect", "--format", "{{.Id}}", image],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=15,
         )
         if r.returncode == 0 and r.stdout.strip():
@@ -390,6 +394,8 @@ def image_present(tag: str, use_cache: bool = True) -> bool:
             [container_runtime(), "image", "inspect", tag],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=30,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
@@ -421,6 +427,8 @@ def _image_id(tag: str) -> str | None:
             [container_runtime(), "image", "inspect", "--format", "{{.Id}}", tag],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=30,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
@@ -433,7 +441,12 @@ def _image_id(tag: str) -> str | None:
 def _retag_image(src: str, dst: str) -> None:
     """Point the *dst* tag at *src* (an image id or tag)."""
     r = subprocess.run(
-        [container_runtime(), "tag", src, dst], capture_output=True, text=True, timeout=60
+        [container_runtime(), "tag", src, dst],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=60,
     )
     if r.returncode != 0:
         raise ToolchainError(f"docker tag {src} -> {dst} failed: {r.stderr[-300:]}")
@@ -673,7 +686,14 @@ def run_toolchain(
         cmd.append(spec.image)
         cmd.extend(args)
         try:
-            r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+            r = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=timeout,
+            )
         except subprocess.TimeoutExpired as exc:
             kill_container(str(cmd[cmd.index("--name") + 1]))
             raise ToolchainError(f"docker invocation failed: {exc}") from exc
@@ -691,6 +711,8 @@ def run_toolchain(
                 [binary, *args],
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=timeout,
                 env=env,
                 cwd=str(workdir),
@@ -752,6 +774,8 @@ def pull_toolchain(name: str, timeout: int = 1200) -> tuple[str, bool]:
             [container_runtime(), "pull", image],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=timeout,
         )
         if r.returncode != 0:

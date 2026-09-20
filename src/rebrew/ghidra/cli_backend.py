@@ -97,7 +97,14 @@ def apply_commands_via_cli(
         if project:
             full += ["--project", project]
         try:
-            proc = subprocess.run(full, capture_output=True, text=True, timeout=timeout)
+            proc = subprocess.run(
+                full,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=timeout,
+            )
         except (subprocess.TimeoutExpired, OSError) as exc:
             console.print(
                 f"[yellow]warning:[/yellow] ghidra-cli failed for {op.get('tool')}: {exc}"
@@ -153,7 +160,14 @@ def _run_json_cli(
     if project:
         full += ["--project", project]
     try:
-        proc = subprocess.run(full, capture_output=True, text=True, timeout=timeout)
+        proc = subprocess.run(
+            full,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout,
+        )
     except (subprocess.TimeoutExpired, OSError) as exc:
         console.print(
             f"[yellow]warning:[/yellow] ghidra-cli {args[0]} {args[1] if len(args) > 1 else ''} failed: {exc}"

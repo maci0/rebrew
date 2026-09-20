@@ -51,6 +51,8 @@ def run_git(directory: Path, *args: str) -> subprocess.CompletedProcess[str]:
             ["git", "-C", str(directory), *args],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=_GIT_TIMEOUT,
         )
     except FileNotFoundError:

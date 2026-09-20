@@ -410,6 +410,8 @@ def _import_lib_symbols_from_image(dll_stem: str) -> set[str]:
             ],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=60,
         )
     except subprocess.TimeoutExpired:

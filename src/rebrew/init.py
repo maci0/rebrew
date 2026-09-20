@@ -343,7 +343,7 @@ def _rewrite_compiler_paths(toml_path: Path, layout: tuple[str, str, str]) -> No
     includes, libs) — used after ``--link-tools-from`` may have surfaced a
     better toolchain layout than the pre-write resolution saw."""
     cmd, inc, lib = layout
-    doc = tomlkit.parse(toml_path.read_text(encoding="utf-8"))
+    doc = tomlkit.parse(toml_path.read_text(encoding="utf-8-sig"))
     compiler = doc.get("compiler", tomlkit.table())
     compiler["command"] = cmd
     if inc:
@@ -639,7 +639,7 @@ def _refresh_agents(cwd: Path, toml_path: Path, *, json_output: bool, check: boo
 
     if not toml_path.exists():
         error_exit(f"no rebrew-project.toml in {cwd}", json_mode=json_output)
-    data = tomllib.loads(toml_path.read_text(encoding="utf-8"))
+    data = tomllib.loads(toml_path.read_text(encoding="utf-8-sig"))
     compiler_profile = str(data.get("compiler", {}).get("profile", "")).strip()
     if not compiler_profile:
         error_exit("rebrew-project.toml has no [compiler] profile", json_mode=json_output)

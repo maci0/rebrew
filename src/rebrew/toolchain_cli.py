@@ -125,6 +125,8 @@ def status_cmd(
             [container_runtime(), "image", "inspect", spec.image],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=30,
         )
         image_ok = r.returncode == 0
@@ -983,6 +985,8 @@ def smoke_cmd(
                         ],
                         capture_output=True,
                         text=True,
+                        encoding="utf-8",
+                        errors="replace",
                         timeout=300,
                     )
                 except subprocess.TimeoutExpired:
@@ -1094,6 +1098,8 @@ def build_cmd(
                 [container_runtime(), "build", "-t", base_tag, str(base_dir)],
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=3600,
             )
             if r.returncode != 0:
@@ -1108,6 +1114,8 @@ def build_cmd(
             [container_runtime(), "build", "-t", image, str(build_dir)],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=3600,
         )
         if r.returncode != 0:
@@ -1180,6 +1188,8 @@ def _image_smoke_hash(tool: str, workdir: Path) -> str | None:
             ],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=300,
         )
     except subprocess.TimeoutExpired:

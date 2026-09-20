@@ -266,6 +266,8 @@ def _omf_to_coff(obj_path: str | Path, out_path: str | Path) -> None:
         [str(objconv), "-fcoff", str(obj_path), "-o", str(out_path)],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         timeout=60,
     )
     # The caller pre-creates the output tempfile, so mere existence is not

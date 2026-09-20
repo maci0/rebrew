@@ -10,13 +10,23 @@ from rebrew.utils import (
     atomic_write_text,
     container_runtime,
     detect_source_encoding,
+    load_tomllib,
     read_source_text,
+    read_toml_text,
 )
 
 
 def test_container_runtime_defaults_to_docker(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("REBREW_CONTAINER_RUNTIME", raising=False)
     assert container_runtime() == "docker"
+
+
+def test_load_tomllib_strips_utf8_bom(tmp_path: Path) -> None:
+    """BOM-prefixed TOML must parse (Notepad / some IDEs write EF BB BF)."""
+    path = tmp_path / "x.toml"
+    path.write_bytes(b'\xef\xbb\xbfname = "ok"\n')
+    assert read_toml_text(path) == 'name = "ok"\n'
+    assert load_tomllib(path) == {"name": "ok"}
 
 
 def test_container_runtime_empty_treated_as_unset(monkeypatch: pytest.MonkeyPatch) -> None:

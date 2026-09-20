@@ -229,7 +229,13 @@ def main(
             cmd = cmd_tpl.format(options=" ".join(cand.options), out=shlex.quote(str(out)))
             try:
                 proc = subprocess.run(
-                    shlex.split(cmd), cwd=workdir, capture_output=True, text=True, timeout=300
+                    shlex.split(cmd),
+                    cwd=workdir,
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    timeout=300,
                 )
             except subprocess.TimeoutExpired:
                 # One hung link must not kill the sweep — record it and move on.

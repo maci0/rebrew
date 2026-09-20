@@ -16,7 +16,6 @@ Usage:
 
 from __future__ import annotations
 
-import tomllib
 from pathlib import Path
 
 import typer
@@ -25,6 +24,7 @@ from rich.console import Console
 from rebrew.cli import error_exit, json_print
 from rebrew.data_metadata import iter_data_symbols
 from rebrew.gen_stubs import is_safe_c_ident
+from rebrew.utils import load_tomllib
 
 console = Console(stderr=True)
 
@@ -38,8 +38,7 @@ _TAIL_DEFAULT = 0x400000  # generous; `rebrew calibrate-bss` fixes it
 
 def load_data_symbols(metadata: Path) -> list[tuple[int, str, str]]:
     """Sorted ``(address, name, type)`` of the ``.data`` symbols in *metadata*."""
-    with open(metadata, "rb") as f:
-        doc = tomllib.load(f)
+    doc = load_tomllib(metadata)
     out = [
         (va, str(val.get("name") or f"g_data_{va:x}"), str(val.get("type", "int")))
         for _, va, val in iter_data_symbols(doc)

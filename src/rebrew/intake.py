@@ -297,7 +297,7 @@ def _set_target_arch(project: Path, target_name: str, arch: str, fmt: str) -> No
     import tomlkit
 
     toml_path = project / "rebrew-project.toml"
-    doc = tomlkit.parse(toml_path.read_text(encoding="utf-8"))
+    doc = tomlkit.parse(toml_path.read_text(encoding="utf-8-sig"))
     targets = doc.get("targets")
     if targets is not None and target_name in targets:
         targets[target_name]["arch"] = arch

@@ -89,6 +89,8 @@ def _run_pdbutil(args: list[str], pdb: Path, timeout: int = 30) -> str:
             ["llvm-pdbutil", *args, str(pdb)],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=timeout,
         )
     except (OSError, subprocess.TimeoutExpired):

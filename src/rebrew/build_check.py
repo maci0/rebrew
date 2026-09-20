@@ -153,7 +153,9 @@ def check(build_dir: Path = DEFAULT_BUILD_DIR, project_root: Path | None = None)
             "message": f"{missing} does not exist -- {build_dir} is not configured",
         }
 
-    build_text = build_make.read_text(errors="replace")
+    # CMake writes UTF-8; never decode with the platform default (cp1252 on
+    # Windows, etc.) — a non-ASCII path in build.make would mojibake or raise.
+    build_text = build_make.read_text(encoding="utf-8", errors="replace")
     root = project_root if project_root is not None else build_dir.parent
 
     # A source the build compiles but the tree no longer has means the build
@@ -178,7 +180,7 @@ def check(build_dir: Path = DEFAULT_BUILD_DIR, project_root: Path | None = None)
             ),
         }
 
-    recorded = parse_recorded(flags_make.read_text(errors="replace"))
+    recorded = parse_recorded(flags_make.read_text(encoding="utf-8", errors="replace"))
     drift: list[dict[str, str]] = []
     checked = 0
     for obj, line in parse_compile_lines(build_text):

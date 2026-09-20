@@ -1346,6 +1346,19 @@ class TestGABuildCacheKey:
             src, "/O2", "", "inc", profile="borland-5.5"
         )
 
+    def test_key_tolerates_surrogate_include_path(self) -> None:
+        """Linux non-UTF-8 path bytes arrive as surrogateescape code points.
+
+        Concrete input: ``inc_dir`` containing U+DC80 (lone surrogate from a
+        0x80 filename byte).  Bare ``str.encode()`` raises UnicodeEncodeError;
+        the cache key must still hash.
+        """
+        from rebrew.match_ga import _ga_cache_key
+
+        weird = "inc/\udc80"
+        key = _ga_cache_key("int f(void){return 0;}", "/O2", "cl", weird, [weird])
+        assert isinstance(key, str) and len(key) == 16
+
     def test_same_instance_recompile_only_on_flag_change(
         self, tmp_path: Path, monkeypatch: Any
     ) -> None:

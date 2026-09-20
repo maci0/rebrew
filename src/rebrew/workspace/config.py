@@ -97,7 +97,7 @@ def read_config(root: Path) -> dict[str, Any]:
     valid TOML.  Never raises.
     """
     try:
-        return tomllib.loads((root / CONFIG_NAME).read_text(encoding="utf-8"))
+        return tomllib.loads((root / CONFIG_NAME).read_text(encoding="utf-8-sig"))
     except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError):
         return {}
 

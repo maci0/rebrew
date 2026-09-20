@@ -1505,7 +1505,7 @@ def _write_target_metadata(plan: ImportPlan, root: Path) -> bool:
     compiler = entry.setdefault("compiler", tomlkit.table())
     compiler["profile"] = plan.profile
     rendered = tomlkit.dumps(doc)
-    if not toml_path.is_file() or toml_path.read_text(encoding="utf-8") != rendered:
+    if not toml_path.is_file() or toml_path.read_text(encoding="utf-8-sig") != rendered:
         atomic_write_text(toml_path, rendered, encoding="utf-8")
         changed = True
 

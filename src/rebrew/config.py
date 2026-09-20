@@ -27,7 +27,6 @@ import os
 import re
 import shlex
 import sys
-import tomllib
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -35,7 +34,7 @@ from typing import Any, TypedDict
 from urllib.parse import urlparse
 
 from rebrew.toolchain_spec import FlagsStyle
-from rebrew.utils import config_path, parse_int_literal
+from rebrew.utils import config_path, load_tomllib, parse_int_literal
 from rebrew.workspace import walk_up_to_root
 
 
@@ -1003,8 +1002,7 @@ def load_config(
     if not toml_path.exists():
         raise FileNotFoundError(f"Config not found: {toml_path}")
 
-    with toml_path.open("rb") as f:
-        raw = tomllib.load(f)
+    raw = load_tomllib(toml_path)
 
     project_raw = _as_table(raw.get("project", {}), "project")
     targets_dict = _as_table(raw.get("targets", {}), "targets")

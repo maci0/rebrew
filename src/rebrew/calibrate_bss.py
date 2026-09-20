@@ -33,7 +33,7 @@ from rich.console import Console
 
 from rebrew.cli import error_exit, json_print
 from rebrew.pe_headers import find_section
-from rebrew.utils import atomic_write_text
+from rebrew.utils import atomic_write_text, load_tomllib
 from rebrew.workspace import walk_up_to_root
 
 console = Console(stderr=True)
@@ -49,11 +49,11 @@ def _layout_data_vs(root: Path) -> int | None:
     from rebrew.layout_meta import read_layout_geometry
 
     default = ""
-    with (
-        contextlib.suppress(OSError, tomllib.TOMLDecodeError),
-        open(root / "rebrew-project.toml", "rb") as f,
-    ):
-        default = str(tomllib.load(f).get("project", {}).get("default_target") or "")
+    with contextlib.suppress(OSError, tomllib.TOMLDecodeError):
+        default = str(
+            load_tomllib(root / "rebrew-project.toml").get("project", {}).get("default_target")
+            or ""
+        )
     targets = [default] if default else []
     targets += [
         p.parent.name

@@ -406,6 +406,27 @@ def read_source_text(filepath: Path) -> tuple[str, str]:
     return text, encoding
 
 
+def read_toml_text(path: Path) -> str:
+    """Read a TOML file as text, tolerating a leading UTF-8 BOM.
+
+    Windows editors (Notepad, some IDEs) write ``EF BB BF``; decoding with
+    plain ``utf-8`` leaves U+FEFF as the first character, and both
+    ``tomllib`` and ``tomlkit`` then reject the file.  ``utf-8-sig`` strips
+    the BOM so a BOM-prefixed ``rebrew-project.toml`` still loads.
+    """
+    return path.read_text(encoding="utf-8-sig")
+
+
+def load_tomllib(path: Path) -> Any:
+    """Parse *path* with :mod:`tomllib`, tolerating a UTF-8 BOM.
+
+    Prefer this over ``tomllib.load`` on a binary handle: CPython's tomllib
+    does not strip a BOM from bytes either, so ``open(..., \"rb\")`` alone
+    still fails on Notepad-saved configs.
+    """
+    return tomllib.loads(read_toml_text(path))
+
+
 def atomic_write_text(filepath: Path, text: str, encoding: str = "utf-8") -> None:
     """Write text to a file atomically to prevent corruption on crash.
 
@@ -591,7 +612,7 @@ def load_toml_for_write(path: Path, description: str) -> TOMLDocument:
     *description* names the store in the warning (e.g. ``"metadata"``).
     """
     try:
-        return tomlkit.parse(path.read_text(encoding="utf-8"))
+        return tomlkit.parse(read_toml_text(path))
     except FileNotFoundError:
         return tomlkit.document()
     except InternalParserError:
@@ -759,7 +780,7 @@ def load_metadata_doc(
             return copy.deepcopy(cached[1]) if deepcopy else cached[1]
 
     try:
-        doc = tomllib.loads(path.read_text(encoding="utf-8"))
+        doc = load_tomllib(path)
     except Exception as exc:  # parser raises various types
         logger.warning("Failed to parse %s %s: %s", description, path, exc)
         return {}

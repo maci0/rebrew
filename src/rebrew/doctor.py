@@ -1121,7 +1121,7 @@ def main(
 
             from rebrew.utils import atomic_write_text
 
-            content = toml_path.read_text(encoding="utf-8")
+            content = toml_path.read_text(encoding="utf-8-sig")
             new_content = re.sub(
                 r'(?m)^(\s*runner\s*=\s*)"[^"]*"',
                 r'\1"tools/wibo"',
@@ -1430,6 +1430,8 @@ def check_binsync_state(cfg: ProjectConfig) -> CheckResult:
             ["git", "-C", str(state_path), "log", "-1", "--format=%ct"],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=10,
         )
         if proc.returncode == 0 and proc.stdout.strip():

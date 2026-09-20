@@ -136,6 +136,8 @@ def _re_init_project(binary: Path, tool: str, root: Path) -> str | None:
             ],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             cwd=root,
             timeout=300,
         )
@@ -258,6 +260,8 @@ def _run_re(binary: Path, va: int, cmd: str, root: Path) -> str | None:
             [tool, "-q", "-p", proj_dir, "-c", f"s 0x{va:08x}; af; {cmd}", str(binary)],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             cwd=root,
             timeout=120,
         )
@@ -387,6 +391,8 @@ def fetch_kuna(binary: Path, va: int, root: Path, **_kwargs: Any) -> str | None:
             [kuna, "decompile", str(binary), f"0x{va:x}", "--addr"],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             cwd=root,
             timeout=180,
             env=env,
@@ -731,6 +737,8 @@ def fetch_m2c(binary: Path, va: int, root: Path, **_kwargs: Any) -> str | None:
             input=asm,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             cwd=root,
             timeout=180,
         )

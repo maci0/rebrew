@@ -176,7 +176,7 @@ def read_layout_geometry(root: Path, target: str) -> tuple[int, int, int]:
 
     txt = Path(root) / "layout" / target / "rebrew-layout.toml"
     try:
-        raw = tomllib.loads(txt.read_text(encoding="utf-8"))
+        raw = tomllib.loads(txt.read_text(encoding="utf-8-sig"))
     except (OSError, tomllib.TOMLDecodeError) as exc:
         raise ValueError(f"no layout package at {txt} (run rebrew gen-layout first): {exc}")
     lay = raw.get("layout", {})
@@ -544,7 +544,7 @@ def load_package(pkg_dir: Path) -> LayoutMetadata:
             raise ValueError(f"layout package missing {name} (run 'rebrew gen-layout')")
         return _from_hex(p.read_text(encoding="utf-8"))
 
-    structured: Any = tomlkit.parse((pkg / "rebrew-layout.toml").read_text(encoding="utf-8"))
+    structured: Any = tomlkit.parse((pkg / "rebrew-layout.toml").read_text(encoding="utf-8-sig"))
     lay: Any = structured["layout"]
 
     sections = [

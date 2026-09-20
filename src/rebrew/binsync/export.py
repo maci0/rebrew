@@ -769,6 +769,8 @@ def _git_commit_state_dir(state_dir: Path, target: str) -> str | None:
         ["git", "-C", str(state_dir), "add", "-A"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         timeout=15,
     )
     if result.returncode != 0:
@@ -779,6 +781,8 @@ def _git_commit_state_dir(state_dir: Path, target: str) -> str | None:
         ["git", "-C", str(state_dir), "status", "--porcelain"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         timeout=10,
     )
     if status.returncode == 0 and not status.stdout.strip():
@@ -791,6 +795,8 @@ def _git_commit_state_dir(state_dir: Path, target: str) -> str | None:
         ["git", "-C", str(state_dir), "commit", "-m", msg],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         timeout=15,
     )
     if commit.returncode != 0:
@@ -809,6 +815,8 @@ def _git_commit_state_dir(state_dir: Path, target: str) -> str | None:
         ["git", "-C", str(state_dir), "rev-parse", "HEAD"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         timeout=10,
     )
     commit_hash = rev.stdout.strip() if rev.returncode == 0 else None

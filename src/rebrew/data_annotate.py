@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import logging
 import re
-import tomllib
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -19,7 +18,7 @@ from rich.console import Console
 from rebrew.cli import error_exit, json_print
 from rebrew.config import ProjectConfig
 from rebrew.data_metadata import iter_data_symbols
-from rebrew.utils import atomic_write_text, read_source_text
+from rebrew.utils import atomic_write_text, load_tomllib, read_source_text
 
 console = Console(stderr=True)
 
@@ -52,8 +51,7 @@ def annotate_globals(
     from rebrew.sources import iter_sources
     from rebrew.utils import rel_display_path
 
-    with open(metadata, "rb") as fh:
-        db = tomllib.load(fh)
+    db = load_tomllib(metadata)
     skipped_unnamed = 0
     symbols: dict[str, tuple[str, int]] = {}
     for module, addr, val in iter_data_symbols(db, section=None):
