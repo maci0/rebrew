@@ -33,6 +33,7 @@ document is:
 Operators should treat project source, configured HTTP endpoints
 (recompile, LLM, ReVa MCP, decomp.me), GitHub release and toolchain-media
 downloads (wibo, SDK tarballs), docker/podman images (`REBREW_CONTAINER_RUNTIME`),
+cmake bridge wineprefix / profile pins (`REBREW_WINEPREFIX`, `REBREW_TOOLCHAIN`),
 and installed Python entry-point plugins as part of the trust boundary.
 
 ## Claims this policy does **not** make
@@ -40,8 +41,9 @@ and installed Python entry-point plugins as part of the trust boundary.
 - No claim of authentication or authorization on `rebrew dashboard` (default
   bind is loopback; binding to non-loopback addresses exposes a read-only
   HTTP API without credentials).
-- No claim that docker toolchain execution is a hardened sandbox against a
-  hostile project tree or malicious image.
+- No claim that docker toolchain or cmake-bridge execution is a hardened
+  sandbox against a hostile project tree or malicious image. Local container
+  runs use `--network=none` (no egress); that does not imply escape resistance.
 - No claim that optional wibo / toolchain-media downloads are attested beyond
   the in-code host allow-list and hash checks described in
   [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md). Wibo integrity uses the live
