@@ -7,7 +7,7 @@ rejected with 405.
 
 Endpoints
 ---------
-``GET /``                      → minimal HTML app (vanilla JS, no build step)
+``GET /``                      → HTML app (functions, sections, globals, history)
 ``GET /api/bootstrap``         → targets + first target's summary/functions (one RTT)
 ``GET /api/targets``           → list of targets (includes count/total)
 ``GET /api/summary?target=``   → function stats + coverage % (target required)
@@ -118,8 +118,20 @@ _INDEX_HTML = """<!doctype html>
     border-radius: 6px; padding: .6rem .8rem; margin: .75rem 0; }
   #empty-state, #no-targets { color: #555; margin: 1rem 0; }
   #results-hint { color: #555; font-size: .9rem; margin: .25rem 0 0; }
-  #filter-actions, #show-more-wrap { margin: .35rem 0 .75rem; }
-  #clear-filters, #show-more, #retry-functions { min-height: 2.75rem; padding: .3rem .75rem; }
+  #filter-actions, #show-more-wrap, #retry-bar { margin: .35rem 0 .75rem; }
+  #clear-filters, #show-more, #retry-functions, #retry-summary, #retry-view {
+    min-height: 2.75rem; padding: .3rem .75rem; }
+  .views { display: flex; flex-wrap: wrap; gap: .35rem; margin: .75rem 0 .25rem; }
+  .views button { min-height: 2.75rem; padding: .3rem .85rem; font: inherit; cursor: pointer;
+    border: 1px solid #ccc; border-radius: 6px; background: #fff; color: inherit; }
+  .views button:hover { border-color: #888; }
+  .views button.active { border-color: #005fcc; box-shadow: 0 0 0 2px rgba(0,95,204,.25); }
+  .view-panel[hidden] { display: none; }
+  @media (max-width: 40rem) {
+    body { margin: 1rem; }
+    select, input { min-width: 0; width: 100%; }
+    .filters > div { flex: 1 1 100%; }
+  }
 </style>
 </head>
 <body>
@@ -134,27 +146,46 @@ _INDEX_HTML = """<!doctype html>
 <label for="target">Target</label>
 <select id="target"></select>
 </div>
-<div>
+<div id="filter-status">
 <label for="status">Status</label>
 <select id="status"><option value="">any</option></select>
 </div>
-<div>
+<div id="filter-module">
+<label for="module">Module</label>
+<select id="module"><option value="">any</option></select>
+</div>
+<div id="filter-q">
 <label for="q">Search name or symbol</label>
 <input id="q" type="search" size="24" placeholder="e.g. WinMain" autocomplete="off">
+</div>
+<div id="filter-gq" hidden>
+<label for="gq">Search global name</label>
+<input id="gq" type="search" size="24" placeholder="e.g. g_flag" autocomplete="off">
 </div>
 </div>
 <div id="filter-actions" hidden>
 <button type="button" id="clear-filters">Clear filters</button>
 </div>
+<nav id="views" class="views" hidden aria-label="Coverage views">
+<button type="button" data-view="functions" class="active">Functions</button>
+<button type="button" data-view="sections">Sections</button>
+<button type="button" data-view="globals">Globals</button>
+<button type="button" data-view="history">History</button>
+</nav>
 <section id="summary" aria-labelledby="summary-heading" aria-busy="false" hidden>
 <h2 class="visually-hidden" id="summary-heading">Coverage summary</h2>
 <div class="cards" id="cards"></div>
 </section>
 <p class="visually-hidden" id="results-status" role="status" aria-live="polite"></p>
 <p id="dashboard-error" role="alert" hidden></p>
+<div id="retry-bar">
+<button type="button" id="retry-summary" hidden>Retry summary</button>
 <button type="button" id="retry-functions" hidden>Retry functions</button>
+<button type="button" id="retry-view" hidden>Retry</button>
+</div>
+<div id="view-functions" class="view-panel">
 <p id="results-hint" hidden></p>
-<p id="empty-state" hidden>No functions match these filters. Use Clear filters, or set Status to any.</p>
+<p id="empty-state" hidden>No functions match these filters. Use Clear filters, or set Status and Module to any.</p>
 <div id="show-more-wrap" hidden>
 <button type="button" id="show-more">Show more functions</button>
 </div>
@@ -166,22 +197,59 @@ _INDEX_HTML = """<!doctype html>
   <th scope="col">Module</th><th scope="col">Files</th>
 </tr></thead><tbody></tbody></table>
 </div>
+</div>
+<div id="view-sections" class="view-panel" hidden>
+<p id="sections-empty" hidden>No section stats for this target.</p>
+<div id="sections-results" class="table-scroll" tabindex="0" role="region"
+  aria-label="Section results" aria-busy="false" hidden>
+<table id="sections-rows"><caption class="visually-hidden">Per-section cell stats</caption><thead><tr>
+  <th scope="col">Section</th><th scope="col">Size</th><th scope="col">Cells</th>
+  <th scope="col">Exact</th><th scope="col">Reloc</th><th scope="col">Near</th>
+  <th scope="col">Stub</th><th scope="col">Proven</th><th scope="col">Other</th>
+</tr></thead><tbody></tbody></table>
+</div>
+</div>
+<div id="view-globals" class="view-panel" hidden>
+<p id="globals-empty" hidden>No globals match this search. Clear the search or try another name.</p>
+<div id="globals-results" class="table-scroll" tabindex="0" role="region"
+  aria-label="Global results" aria-busy="false" hidden>
+<table id="globals-rows"><caption class="visually-hidden">Global data symbols</caption><thead><tr>
+  <th scope="col">VA</th><th scope="col">Name</th><th scope="col">Decl</th>
+  <th scope="col">Size</th><th scope="col">Module</th>
+</tr></thead><tbody></tbody></table>
+</div>
+</div>
+<div id="view-history" class="view-panel" hidden>
+<p id="history-empty" hidden>No status-change history for this target yet.</p>
+<div id="history-results" class="table-scroll" tabindex="0" role="region"
+  aria-label="History results" aria-busy="false" hidden>
+<table id="history-rows"><caption class="visually-hidden">Recent status changes</caption><thead><tr>
+  <th scope="col">VA</th><th scope="col">Old</th><th scope="col">New</th>
+  <th scope="col">When</th>
+</tr></thead><tbody></tbody></table>
+</div>
+</div>
 </main>
 <script>
 const $ = (id) => document.getElementById(id);
 let targets = [];
 let searchTimer = null;
+let globalsSearchTimer = null;
 let functionsSeq = 0;
 let summarySeq = 0;
+let viewSeq = 0;
 let functionsController = null;
 let summaryController = null;
+let viewController = null;
 let loadedCount = 0;
 let retryAppend = false;
 let pageLimit = 100;
+let currentView = "functions";
 const PAGE_STEP = 500;
 const PAGE_MAX = 5000;
-const loadErrors = { summary: "", functions: "" };
+const loadErrors = { summary: "", functions: "", view: "" };
 const busyCounts = new Map();
+const viewLoaded = { sections: false, globals: false, history: false };
 async function get(path, signal) {
   const r = await fetch(path, { signal });
   if (!r.ok) throw new Error(path + " -> " + r.status);
@@ -206,7 +274,9 @@ function esc(s) {
   })[c]);
 }
 function syncError() {
-  const message = loadErrors.summary || loadErrors.functions;
+  const message = loadErrors.summary
+    || (currentView === "functions" ? loadErrors.functions : "")
+    || (currentView !== "functions" ? loadErrors.view : "");
   if (message) {
     $("results-status").textContent = message;
     $("dashboard-error").textContent = message;
@@ -215,16 +285,37 @@ function syncError() {
     $("dashboard-error").textContent = "";
     $("dashboard-error").hidden = true;
   }
+  $("retry-summary").hidden = !loadErrors.summary;
+  $("retry-functions").hidden = !(loadErrors.functions && currentView === "functions");
+  $("retry-view").hidden = !(loadErrors.view && currentView !== "functions");
 }
 function setLoadError(source, message) {
   loadErrors[source] = message || "";
   syncError();
 }
 function filtersActive() {
-  return !!($("status").value || $("q").value.trim());
+  if (currentView === "globals") return !!$("gq").value.trim();
+  if (currentView !== "functions") return false;
+  return !!($("status").value || $("module").value || $("q").value.trim());
 }
 function updateFilterActions() {
   $("filter-actions").hidden = !filtersActive();
+}
+function syncViewChrome() {
+  const isFunctions = currentView === "functions";
+  const isGlobals = currentView === "globals";
+  $("filter-status").hidden = !isFunctions;
+  $("filter-module").hidden = !isFunctions;
+  $("filter-q").hidden = !isFunctions;
+  $("filter-gq").hidden = !isGlobals;
+  ["functions", "sections", "globals", "history"].forEach(name => {
+    $("view-" + name).hidden = name !== currentView;
+  });
+  document.querySelectorAll("#views button[data-view]").forEach(btn => {
+    btn.classList.toggle("active", btn.getAttribute("data-view") === currentView);
+  });
+  updateFilterActions();
+  syncError();
 }
 function syncCardActive() {
   const current = $("status").value;
@@ -241,6 +332,18 @@ function setStatusOptions(byStatus) {
   if (previous && names.includes(previous)) select.value = previous;
   else select.value = "";
 }
+function setModuleOptions(byModule) {
+  const select = $("module");
+  const previous = select.value;
+  const names = Object.keys(byModule || {}).filter((m) => m !== "").sort();
+  select.innerHTML = "<option value=''>any</option>"
+    + names.map(m => {
+      const label = m || "(unnamed)";
+      return "<option value='" + esc(m) + "'>" + esc(label) + "</option>";
+    }).join("");
+  if (previous && names.includes(previous)) select.value = previous;
+  else select.value = "";
+}
 function setResultsMessage(count, total) {
   const hint = $("results-hint");
   const more = $("show-more-wrap");
@@ -254,7 +357,7 @@ function setResultsMessage(count, total) {
   if (count < total) {
     const msg = "Showing " + count + " of " + total + " matching functions (page limit)";
     $("results-status").textContent = msg;
-    hint.textContent = msg + ". Use Show more, or narrow Status or Search.";
+    hint.textContent = msg + ". Use Show more, or narrow Status, Module, or Search.";
     hint.hidden = false;
     const next = Math.min(count + PAGE_STEP, total, PAGE_MAX);
     more.hidden = count >= PAGE_MAX || count >= total;
@@ -285,13 +388,10 @@ function renderFunctions(data, options) {
   const append = !!(options && options.append);
   const body = $("rows").querySelector("tbody");
   if (append) {
-    // Grew the page: keep painted rows, append only the delta (no re-render,
-    // no scrolling reset, no repeated network payload for rows already shown).
     body.insertAdjacentHTML("beforeend", data.functions.map(rowHtml).join(""));
     loadedCount += data.functions.length;
   } else {
     loadedCount = data.functions.length;
-    // One write avoids layout thrash on the default first page.
     body.innerHTML = data.functions.map(rowHtml).join("");
   }
   const total = data.total ?? data.count;
@@ -314,17 +414,17 @@ async function loadFunctions(options) {
     offset: String(offset),
   });
   if ($("status").value) params.set("status", $("status").value);
+  if ($("module").value) params.set("module", $("module").value);
   if ($("q").value.trim()) params.set("q", $("q").value.trim());
   updateFilterActions();
   try {
+    setLoadError("functions", "");
     $("results").hidden = false;
     $("empty-state").hidden = true;
     $("show-more-wrap").hidden = true;
-    $("retry-functions").hidden = true;
     $("results-status").textContent = "Loading functions…";
     const data = await whileBusy("results", () => get("/api/functions?" + params, signal));
     if (seq !== functionsSeq || signal.aborted) return;
-    setLoadError("functions", "");
     renderFunctions(data, { append: grow });
   } catch (error) {
     if (seq !== functionsSeq || signal.aborted) return;
@@ -337,7 +437,6 @@ async function loadFunctions(options) {
     $("empty-state").hidden = true;
     $("show-more-wrap").hidden = true;
     $("results-hint").hidden = true;
-    $("retry-functions").hidden = false;
     if (grow && loadedCount > 0) {
       setLoadError("functions", "Could not load more functions. The rows already shown are unchanged; use Retry functions to fetch the next page again.");
     } else {
@@ -348,22 +447,27 @@ async function loadFunctions(options) {
 function renderSummary(s) {
   const byStatus = s.function_stats.by_status || {};
   setStatusOptions(byStatus);
+  setModuleOptions(s.function_stats.by_module_counts || {});
   $("status").disabled = false;
+  $("module").disabled = false;
   const cards = [
-    ["Functions", s.function_stats.total, null],
-    ["Matched", (s.coverage_pct ?? 0).toFixed(1) + "%", null],
-    ["Identified", (s.identified_pct ?? 0).toFixed(1) + "%", null],
+    ["Functions", s.function_stats.total, null,
+      "Total functions for this target"],
+    ["Matched", (s.coverage_pct ?? 0).toFixed(1) + "%", null,
+      "Share of .text bytes at EXACT, RELOC, or PROVEN"],
+    ["Identified", (s.identified_pct ?? 0).toFixed(1) + "%", null,
+      "Share of .text bytes covered by any known function, including stubs"],
   ];
-  for (const [k, v] of Object.entries(byStatus)) cards.push([k, v, k]);
-  $("cards").innerHTML = cards.map(([k, v, status]) => {
+  for (const [k, v] of Object.entries(byStatus)) cards.push([k, v, k, "Filter by " + k]);
+  $("cards").innerHTML = cards.map(([k, v, status, title]) => {
     if (status) {
       const active = $("status").value === status ? " active" : "";
       return "<button type=button class='card" + active + "' data-status='" + esc(status)
-        + "' title='Filter by " + esc(status) + "'>"
+        + "' title='" + esc(title) + "'>"
         + "<span class=value>" + esc(v) + "</span>"
         + "<span class=label>" + esc(k) + "</span></button>";
     }
-    return "<div class=card><span class=value>" + esc(v) + "</span>"
+    return "<div class=card title='" + esc(title) + "'><span class=value>" + esc(v) + "</span>"
       + "<span class=label>" + esc(k) + "</span></div>";
   }).join("");
   $("summary").hidden = false;
@@ -376,21 +480,23 @@ async function loadSummary() {
   summaryController = new AbortController();
   const { signal } = summaryController;
   setStatusOptions({});
+  setModuleOptions({});
   $("status").disabled = true;
+  $("module").disabled = true;
   $("cards").innerHTML = "<p>Loading coverage summary…</p>";
   $("summary").hidden = false;
   updateFilterActions();
   try {
+    setLoadError("summary", "");
     const s = await whileBusy("summary", () =>
       get("/api/summary?target=" + encodeURIComponent(t), signal));
     if (seq !== summarySeq || signal.aborted) return;
-    setLoadError("summary", "");
     renderSummary(s);
   } catch (error) {
     if (seq !== summarySeq || signal.aborted) return;
     $("cards").innerHTML = "";
     $("summary").hidden = true;
-    setLoadError("summary", "Coverage summary could not be loaded. Reload the page to try again.");
+    setLoadError("summary", "Coverage summary could not be loaded. Use Retry summary to try again.");
   }
 }
 function scheduleSearch() {
@@ -400,25 +506,182 @@ function scheduleSearch() {
     loadFunctions();
   }, 200);
 }
+function scheduleGlobalsSearch() {
+  clearTimeout(globalsSearchTimer);
+  globalsSearchTimer = setTimeout(() => loadGlobals(), 200);
+}
 function onStatusChange() {
   resetPaging();
   syncCardActive();
   updateFilterActions();
   loadFunctions();
 }
+function onModuleChange() {
+  resetPaging();
+  updateFilterActions();
+  loadFunctions();
+}
+function renderSections(data) {
+  const rows = data.sections || [];
+  const body = $("sections-rows").querySelector("tbody");
+  body.innerHTML = rows.map(s => "<tr><td>" + esc(s.name || "") + "</td><td>"
+    + esc(s.size ?? "") + "</td><td>" + esc(s.total_cells ?? "") + "</td><td>"
+    + esc(s.exact ?? 0) + "</td><td>" + esc(s.reloc ?? 0) + "</td><td>"
+    + esc(s.near_match ?? 0) + "</td><td>" + esc(s.stub ?? 0) + "</td><td>"
+    + esc(s.proven ?? 0) + "</td><td>" + esc(s.other ?? 0) + "</td></tr>").join("");
+  $("sections-empty").hidden = rows.length !== 0;
+  $("sections-results").hidden = rows.length === 0;
+  $("results-status").textContent = rows.length
+    ? rows.length + " section" + (rows.length === 1 ? "" : "s")
+    : "No sections";
+}
+function renderGlobals(data) {
+  const rows = data.globals || [];
+  const body = $("globals-rows").querySelector("tbody");
+  body.innerHTML = rows.map(g => "<tr><td class=va>" + esc(g.va || "") + "</td><td>"
+    + esc(g.name || "") + "</td><td>" + esc(g.decl || "") + "</td><td>"
+    + esc(g.size ?? "") + "</td><td>" + esc(g.module || "") + "</td></tr>").join("");
+  const total = data.total ?? rows.length;
+  $("globals-empty").hidden = rows.length !== 0;
+  $("globals-results").hidden = rows.length === 0;
+  $("results-status").textContent = total
+    ? "Showing " + rows.length + " of " + total + " globals"
+    : "No globals match";
+  updateFilterActions();
+}
+function renderHistory(data) {
+  const rows = data.history || [];
+  const body = $("history-rows").querySelector("tbody");
+  body.innerHTML = rows.map(h => "<tr><td class=va>" + esc(h.va || "") + "</td><td>"
+    + esc(h.old_status || "") + "</td><td>" + esc(h.new_status || "") + "</td><td>"
+    + esc(h.changed_at || "") + "</td></tr>").join("");
+  $("history-empty").hidden = rows.length !== 0;
+  $("history-results").hidden = rows.length === 0;
+  const total = data.total ?? rows.length;
+  $("results-status").textContent = total
+    ? "Showing " + rows.length + " of " + total + " history entries"
+    : "No history";
+}
+async function loadSections() {
+  const t = $("target").value; if (!t) return;
+  const seq = ++viewSeq;
+  if (viewController) viewController.abort();
+  viewController = new AbortController();
+  const { signal } = viewController;
+  $("sections-empty").hidden = true;
+  $("sections-results").hidden = false;
+  $("results-status").textContent = "Loading sections…";
+  try {
+    setLoadError("view", "");
+    const data = await whileBusy("sections-results", () =>
+      get("/api/sections?target=" + encodeURIComponent(t), signal));
+    if (seq !== viewSeq || signal.aborted) return;
+    viewLoaded.sections = true;
+    renderSections(data);
+  } catch (error) {
+    if (seq !== viewSeq || signal.aborted) return;
+    $("sections-results").hidden = true;
+    $("sections-empty").hidden = true;
+    setLoadError("view", "Sections could not be loaded. Use Retry to try again.");
+  }
+}
+async function loadGlobals() {
+  const t = $("target").value; if (!t) return;
+  const seq = ++viewSeq;
+  if (viewController) viewController.abort();
+  viewController = new AbortController();
+  const { signal } = viewController;
+  const params = new URLSearchParams({ target: t });
+  if ($("gq").value.trim()) params.set("q", $("gq").value.trim());
+  updateFilterActions();
+  $("globals-empty").hidden = true;
+  $("globals-results").hidden = false;
+  $("results-status").textContent = "Loading globals…";
+  try {
+    setLoadError("view", "");
+    const data = await whileBusy("globals-results", () =>
+      get("/api/globals?" + params, signal));
+    if (seq !== viewSeq || signal.aborted) return;
+    viewLoaded.globals = true;
+    renderGlobals(data);
+  } catch (error) {
+    if (seq !== viewSeq || signal.aborted) return;
+    $("globals-results").hidden = true;
+    $("globals-empty").hidden = true;
+    setLoadError("view", "Globals could not be loaded. Use Retry to try again.");
+  }
+}
+async function loadHistory() {
+  const t = $("target").value; if (!t) return;
+  const seq = ++viewSeq;
+  if (viewController) viewController.abort();
+  viewController = new AbortController();
+  const { signal } = viewController;
+  $("history-empty").hidden = true;
+  $("history-results").hidden = false;
+  $("results-status").textContent = "Loading history…";
+  try {
+    setLoadError("view", "");
+    const data = await whileBusy("history-results", () =>
+      get("/api/history?target=" + encodeURIComponent(t), signal));
+    if (seq !== viewSeq || signal.aborted) return;
+    viewLoaded.history = true;
+    renderHistory(data);
+  } catch (error) {
+    if (seq !== viewSeq || signal.aborted) return;
+    $("history-results").hidden = true;
+    $("history-empty").hidden = true;
+    setLoadError("view", "History could not be loaded. Use Retry to try again.");
+  }
+}
+function loadCurrentView(force) {
+  if (currentView === "functions") {
+    if (force) { resetPaging(); loadFunctions(); }
+    return;
+  }
+  if (currentView === "sections" && (force || !viewLoaded.sections)) return loadSections();
+  if (currentView === "globals" && (force || !viewLoaded.globals)) return loadGlobals();
+  if (currentView === "history" && (force || !viewLoaded.history)) return loadHistory();
+}
+function setView(name) {
+  if (!["functions", "sections", "globals", "history"].includes(name)) return;
+  currentView = name;
+  setLoadError("view", "");
+  syncViewChrome();
+  loadCurrentView(false);
+}
 function bindControls() {
   $("target").onchange = () => {
     $("status").value = "";
+    $("module").value = "";
     $("q").value = "";
+    $("gq").value = "";
+    viewLoaded.sections = false;
+    viewLoaded.globals = false;
+    viewLoaded.history = false;
     resetPaging();
     updateFilterActions();
     clearTimeout(searchTimer);
-    void Promise.all([loadSummary(), loadFunctions()]);
+    clearTimeout(globalsSearchTimer);
+    void Promise.all([loadSummary(), (async () => {
+      if (currentView === "functions") await loadFunctions();
+      else await loadCurrentView(true);
+    })()]);
   };
   $("status").onchange = onStatusChange;
+  $("module").onchange = onModuleChange;
   $("q").oninput = scheduleSearch;
+  $("gq").oninput = scheduleGlobalsSearch;
   $("clear-filters").onclick = () => {
+    if (currentView === "globals") {
+      $("gq").value = "";
+      clearTimeout(globalsSearchTimer);
+      loadGlobals();
+      updateFilterActions();
+      return;
+    }
     $("status").value = "";
+    $("module").value = "";
     $("q").value = "";
     resetPaging();
     syncCardActive();
@@ -426,7 +689,9 @@ function bindControls() {
     clearTimeout(searchTimer);
     loadFunctions();
   };
+  $("retry-summary").onclick = () => loadSummary();
   $("retry-functions").onclick = () => loadFunctions({ append: retryAppend });
+  $("retry-view").onclick = () => loadCurrentView(true);
   $("show-more").onclick = () => {
     retryAppend = true;
     loadFunctions({ append: true });
@@ -434,13 +699,18 @@ function bindControls() {
   $("cards").onclick = (ev) => {
     const btn = ev.target.closest("button[data-status]");
     if (!btn) return;
+    if (currentView !== "functions") setView("functions");
     const status = btn.getAttribute("data-status");
     $("status").value = ($("status").value === status) ? "" : status;
     onStatusChange();
   };
+  $("views").onclick = (ev) => {
+    const btn = ev.target.closest("button[data-view]");
+    if (!btn) return;
+    setView(btn.getAttribute("data-view"));
+  };
 }
 async function init() {
-  // One round-trip: targets + first target's summary/functions (no waterfall).
   const boot = await get("/api/bootstrap");
   $("boot-status").hidden = true;
   targets = boot.targets || [];
@@ -450,9 +720,11 @@ async function init() {
     return;
   }
   $("controls").hidden = false;
+  $("views").hidden = false;
   $("target").innerHTML = targets.map(t =>
     "<option value='" + esc(t) + "'>" + esc(t) + "</option>").join("");
   bindControls();
+  syncViewChrome();
   if (boot.summary) {
     setLoadError("summary", "");
     renderSummary(boot.summary);
@@ -467,10 +739,20 @@ async function init() {
     await loadFunctions();
   }
 }
-init().catch(error => {
-  $("boot-status").hidden = true;
-  setLoadError("summary", "Dashboard failed to load: " + error.message);
-});
+function start() {
+  init().catch(error => {
+    $("boot-status").hidden = true;
+    setLoadError("summary", "Dashboard failed to load: " + error.message
+      + ". Use Retry summary to try again.");
+    $("retry-summary").onclick = () => {
+      setLoadError("summary", "");
+      $("boot-status").hidden = false;
+      $("boot-status").textContent = "Loading coverage…";
+      start();
+    };
+  });
+}
+start();
 </script>
 </body>
 </html>

@@ -1,4 +1,10 @@
 ## [Unreleased]
+### Added
+- **Coverage dashboard views for sections, globals, and history**, plus a
+  Module filter fed by ``by_module_counts``. Summary failures offer Retry
+  summary (same pattern as functions) instead of forcing a full reload;
+  Matched/Identified cards carry titles that explain the percentages.
+
 ### Fixed
 - **Negative array bounds no longer collapse struct layouts.** ``type_size``
   rejects ``T[-N]`` and bare ``void`` as field types, and ``_align_up`` ignores

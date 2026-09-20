@@ -19,6 +19,7 @@ globalThis.document = {
     }
     return elements.get(id);
   },
+  querySelectorAll() { return []; },
 };
 const pending = [];
 globalThis.fetch = (path, options) => {
@@ -86,7 +87,8 @@ assert.equal(element("summary").hidden, true);
 assert.equal(element("cards").innerHTML, "");
 assert.equal(element("status").disabled, true);
 assert.equal(element("dashboard-error").hidden, false);
-assert.match(element("dashboard-error").textContent, /Reload the page/);
+assert.match(element("dashboard-error").textContent, /Retry summary/);
+assert.equal(element("retry-summary").hidden, false);
 
 const recoveredRequest = loadSummary();
 pending.shift().resolve({ ok: true, json: async () => summary("STUB") });

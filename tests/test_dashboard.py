@@ -322,14 +322,20 @@ class TestHandle:
         assert 'href="#main"' in body
         assert "Skip to content" in body
         assert '<label for="q">Search name or symbol</label>' in body
+        assert '<label for="module">Module</label>' in body
+        assert '<label for="gq">Search global name</label>' in body
         assert 'role="status" aria-live="polite"' in body
         assert 'id="dashboard-error" role="alert" hidden' in body
         assert '<caption class="visually-hidden">' in body
-        assert body.count('scope="col"') == 7
+        assert body.count('scope="col"') >= 7
         assert 'aria-label="Function results"' in body
-        assert body.count('aria-busy="false"') == 2
+        assert 'aria-label="Section results"' in body
+        assert 'aria-label="Global results"' in body
+        assert 'aria-label="History results"' in body
+        assert body.count('aria-busy="false"') == 5
         assert 'name="viewport"' in body
         assert "setStatusOptions" in body
+        assert "setModuleOptions" in body
         assert 'id="no-targets"' in body
         assert 'id="boot-status"' in body
         assert 'id="empty-state"' in body
@@ -338,10 +344,20 @@ class TestHandle:
         assert "class=value" in body
         assert 'id="clear-filters"' in body
         assert 'id="show-more"' in body
+        assert 'id="retry-summary"' in body
+        assert 'id="views"' in body
+        assert 'data-view="sections"' in body
+        assert 'data-view="globals"' in body
+        assert 'data-view="history"' in body
         assert "setLoadError" in body
         assert "data-status" in body
         assert "Use Show more" in body
+        assert "Share of .text bytes at EXACT" in body
         assert "/api/bootstrap" in body
+        assert "/api/sections" in body
+        assert "/api/globals" in body
+        assert "/api/history" in body
+        assert "Retry summary" in body
 
     def test_api_bootstrap(self, dashboard: Dashboard) -> None:
         """Cold start packs targets + first target summary/functions in one response."""
@@ -893,9 +909,14 @@ class TestHostValidation:
         """Cold start uses /api/bootstrap; target changes still parallel-fetch."""
         _, _, body = dashboard.handle("GET", "/", {})
         assert 'get("/api/bootstrap")' in body
-        assert "Promise.all([loadSummary(), loadFunctions()])" in body
+        assert "Promise.all([loadSummary()," in body
+        assert "loadFunctions()" in body
+        assert "loadCurrentView(true)" in body
         assert "renderSummary" in body
         assert "renderFunctions" in body
+        assert "renderSections" in body
+        assert "renderGlobals" in body
+        assert "renderHistory" in body
 
     def test_handler_serves_precompressed_index(self, dashboard: Dashboard) -> None:
         """The static HTML shell is gzipped once at import, not per request."""
