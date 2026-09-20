@@ -15,6 +15,7 @@ import contextlib
 import hashlib
 import json
 import logging
+import math
 import threading
 from dataclasses import asdict, dataclass, fields
 from pathlib import Path
@@ -328,7 +329,10 @@ def patch_verify_cache_entries(cfg: ProjectConfig, patches: list[dict[str, Any]]
                 continue  # No cached entry to patch
             total = p["total"]
             if p.get("match_percent") is not None:
-                match_pct = round(float(p["match_percent"]), 1)
+                raw_pct = float(p["match_percent"])
+                # Reject NaN/inf so a corrupt patch cannot poison status/todo
+                # ranking (NaN sorts break; isfinite comparisons are always false).
+                match_pct = round(raw_pct, 1) if math.isfinite(raw_pct) else 0.0
             else:
                 match_pct = round(100.0 * p["match_count"] / total, 1) if total > 0 else 0.0
             passed = p["status"] in MATCHED_STATUSES

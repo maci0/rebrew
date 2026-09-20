@@ -40,9 +40,18 @@ class TestClampNonnegInt:
         assert _clamp_nonneg_int(float("inf")) is None
         assert _clamp_nonneg_int(float("-inf")) is None
 
+    def test_rejects_nonintegral_floats(self) -> None:
+        """Truncating 12.9→12 (or -1.5→0) would store a wrong byte_delta."""
+        assert _clamp_nonneg_int(12.9) is None
+        assert _clamp_nonneg_int(-1.5) is None
+
+    def test_accepts_integral_floats(self) -> None:
+        assert _clamp_nonneg_int(12.0) == 12
+        assert _clamp_nonneg_int(0.0) == 0
+
     def test_clamps_negative(self) -> None:
         assert _clamp_nonneg_int(-3) == 0
-        assert _clamp_nonneg_int(-1.5) == 0
+        assert _clamp_nonneg_int(-4.0) == 0
 
 
 class TestClampUnitInterval:
@@ -71,10 +80,11 @@ class TestClampVerifySimilarity:
         assert _clamp_verify_similarity(50) == 0.5
         assert _clamp_verify_similarity("72.5") == pytest.approx(0.725)
 
-    def test_keeps_unit_interval(self) -> None:
-        assert _clamp_verify_similarity(0.85) == 0.85
+    def test_scales_sub_one_percent(self) -> None:
+        """Verify cache is always 0–100; 1.0 means 1%, not a perfect match."""
+        assert _clamp_verify_similarity(1.0) == pytest.approx(0.01)
+        assert _clamp_verify_similarity(0.85) == pytest.approx(0.0085)
         assert _clamp_verify_similarity(0.0) == 0.0
-        assert _clamp_verify_similarity(1.0) == 1.0
 
     def test_rejects_nonfinite_and_above_100(self) -> None:
         assert _clamp_verify_similarity(float("nan")) is None

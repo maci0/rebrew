@@ -469,6 +469,29 @@ binary = "test.exe"
         assert row is not None
         assert row[0] == pytest.approx(0.855)
 
+    def test_verify_results_scales_one_percent_similarity(self, project_root: Path) -> None:
+        """1.0 on the verify-cache percent scale is 1%, not a perfect match."""
+        _write_cache(
+            project_root,
+            "testbin",
+            {
+                "0x00001000": {
+                    "va": "0x00001000",
+                    "status": "STUB",
+                    "delta": 40,
+                    "similarity": 1.0,
+                }
+            },
+        )
+        build_db(project_root)
+        conn = sqlite3.connect(project_root / "db" / "coverage.db")
+        c = conn.cursor()
+        c.execute("SELECT similarity FROM verify_results WHERE target = 'testbin' AND va = 4096")
+        row = c.fetchone()
+        conn.close()
+        assert row is not None
+        assert row[0] == pytest.approx(0.01)
+
     def test_verify_results_unparseable_va_does_not_wipe(self, project_root: Path) -> None:
         """A cache whose every `va` fails to parse must NOT delete the
         target's history — the old prune built `va NOT IN ()`, which SQLite

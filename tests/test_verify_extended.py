@@ -1727,6 +1727,28 @@ class TestStatusOrderDiffing:
         }
         diff = diff_reports(previous, current)
         assert diff["regressions"] == []
+
+    def test_nan_match_percent_not_regression(self) -> None:
+        """NaN comparisons are always false — must not invent a regression."""
+        from rebrew.verify import diff_reports
+
+        previous = {
+            "results": [
+                {"va": "0x1000", "name": "a", "status": "NEAR_MATCHING", "match_percent": 95.0}
+            ]
+        }
+        current = {
+            "results": [
+                {
+                    "va": "0x1000",
+                    "name": "a",
+                    "status": "NEAR_MATCHING",
+                    "match_percent": float("nan"),
+                }
+            ]
+        }
+        diff = diff_reports(previous, current)
+        assert diff["regressions"] == []
         assert diff["unchanged_count"] == 1
 
     def test_mixed_int_str_va_keys_no_crash(self) -> None:

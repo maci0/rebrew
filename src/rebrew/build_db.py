@@ -152,13 +152,16 @@ def _clamp_nonneg_int(value: Any) -> int | None:
     Non-finite floats (``NaN``, ``±inf``) are rejected: ``int(inf)`` raises,
     and on Python 3.13+ ``max``/``min`` with ``NaN`` can silently pick a
     bound (``max(0, min(1, nan))`` → ``1``), which would invent a delta.
+    Non-integral floats (``12.9``, ``-1.5``) are also rejected: ``int()``
+    truncates toward zero and would store a wrong byte_delta (``12`` for
+    ``12.9``, or ``0`` after clamping a truncated ``-1``).
     """
     if value is None or isinstance(value, bool):
         return None
     if isinstance(value, int):
         return max(0, value)
     if isinstance(value, float):
-        if not math.isfinite(value):
+        if not math.isfinite(value) or not value.is_integer():
             return None
         return max(0, int(value))
     if isinstance(value, str):
@@ -204,11 +207,11 @@ def _clamp_verify_similarity(value: Any) -> float | None:
 
     ``rebrew verify`` stores ``code_similarity`` on a 0–100 percent scale
     (``Sim %`` in the summary table).  The coverage DB CHECK and
-    ``docs/DB_FORMAT.md`` use the unit interval.  A plain unit-interval clamp
-    therefore turns every real score above 1% into ``1.0`` (e.g. ``85.5`` →
-    perfect match).  Values in ``(1, 100]`` are treated as percents and
-    divided by 100; already-normalized ``[0, 1]`` values pass through;
-    non-finite and ``> 100`` inputs are rejected.
+    ``docs/DB_FORMAT.md`` use the unit interval.  Always divide by 100:
+    a pass-through for ``[0, 1]`` treated ``1.0`` (1% Sim) as a perfect
+    match and ``0.5`` (0.5%) as 50%.  This helper is only used for the
+    verify-cache import path, which is always percent-scale.  Non-finite
+    and ``> 100`` inputs are rejected; negatives clamp to ``0.0``.
     """
     if value is None or isinstance(value, bool):
         return None
@@ -230,9 +233,7 @@ def _clamp_verify_similarity(value: Any) -> float | None:
         return None
     if parsed > 100.0:
         return None
-    if parsed > 1.0:
-        parsed /= 100.0
-    return max(0.0, min(1.0, parsed))
+    return max(0.0, min(1.0, parsed / 100.0))
 
 
 def _clamp_effective_match(value: Any) -> int | None:

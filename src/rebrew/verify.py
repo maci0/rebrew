@@ -19,6 +19,7 @@ import contextlib
 import functools
 import json
 import logging
+import math
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -531,6 +532,8 @@ def diff_reports(previous: dict[str, Any], current: dict[str, Any]) -> dict[str,
             if (
                 isinstance(prev_pct, (int, float))
                 and isinstance(curr_pct, (int, float))
+                and math.isfinite(prev_pct)
+                and math.isfinite(curr_pct)
                 and curr_pct < prev_pct - _COMPARE_DROP_PCT
             ):
                 regressions.append(
