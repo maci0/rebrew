@@ -1,5 +1,12 @@
 ## [Unreleased]
 ### Added
+- **Ruff rule set widened** — zero-finding stable pylint (PLW/PLC/PLR),
+  flake8-type-checking (TC004/005/007/010), bandit S201/S202/S702,
+  tryceratops TRY203, refurb FURB122/162, perf PERF203, pie PIE796/808,
+  logging LOG004/014, flake8-errmsg EM103, flake8-pytest-style PT (clean
+  subset), and ISC003 join the select as ratchets.  Debt siblings,
+  preview-only codes, formatter-conflicting ISC001/002, and TID* (no
+  banned-api list yet) stay off.
 - **Coverage dashboard views for sections, globals, and history**, plus a
   Module filter fed by ``by_module_counts``. Summary failures offer Retry
   summary (same pattern as functions) instead of forcing a full reload;
