@@ -254,6 +254,48 @@ class TestNativeToolchainId:
         id_new = _native_toolchain_id(self._spec("mingw-16.2.0"))
         assert id_old != id_new
 
+    def test_native_binary_cache_is_thread_safe(self, tmp_path: Path, monkeypatch) -> None:
+        """Concurrent cache-key builds must not race the eviction mutation."""
+        import threading
+
+        from rebrew.compile import (
+            _NATIVE_BINARY_CACHE_MAX,
+            _native_binary_cache,
+            _native_toolchain_id,
+        )
+
+        bins = tmp_path / "bins"
+        bins.mkdir()
+        paths: list[Path] = []
+        for i in range(_NATIVE_BINARY_CACHE_MAX + 16):
+            p = bins / f"cc{i}"
+            p.write_bytes(b"compiler-" + bytes([i % 256]))
+            paths.append(p)
+
+        def _which(name: str) -> str | None:
+            # name is the binary field (cc0, cc1, ...); map to the fixture path.
+            candidate = bins / name
+            return str(candidate) if candidate.is_file() else None
+
+        monkeypatch.setattr("rebrew.compile.shutil.which", _which)
+        _native_binary_cache.clear()
+        errors: list[BaseException] = []
+
+        def _worker(i: int) -> None:
+            try:
+                tid = _native_toolchain_id(self._spec(f"cc{i % len(paths)}"))
+                assert tid.startswith("native:cc")
+            except BaseException as exc:
+                errors.append(exc)
+
+        threads = [threading.Thread(target=_worker, args=(i,)) for i in range(64)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        assert errors == []
+        assert len(_native_binary_cache) <= _NATIVE_BINARY_CACHE_MAX
+
 
 class TestInvalidateToolchainDigest:
     def test_pops_one_or_clears_all(self) -> None:
@@ -330,6 +372,51 @@ class TestInvalidateToolchainDigest:
         assert image_present("rebrew/msvc:6.0-win32") is True
         assert toolchain_mod._image_presence["rebrew/msvc:6.0-win32"] is True
         assert calls["n"] == 2
+
+    def test_digest_and_presence_memos_are_thread_safe(self, monkeypatch) -> None:
+        """Concurrent fill/evict must not raise or corrupt the memo dicts.
+
+        ``rebrew verify -j N`` and GA workers hit these memos on every cache-key
+        build; an unlocked check-then-evict used to race under load.
+        """
+        import threading
+
+        import rebrew.toolchain as toolchain_mod
+        from rebrew.toolchain import cached_image_digest, image_present
+
+        toolchain_mod._toolchain_digest_cache.clear()
+        toolchain_mod._image_presence.clear()
+        monkeypatch.setattr(toolchain_mod, "docker_available", lambda: True)
+
+        def _ok(*_a, **_k):
+            return SimpleNamespace(
+                returncode=0,
+                stdout="sha256:abcdef0123456789deadbeef\n",
+                stderr="",
+            )
+
+        monkeypatch.setattr(toolchain_mod.subprocess, "run", _ok)
+        errors: list[BaseException] = []
+
+        def _worker(i: int) -> None:
+            try:
+                tag = f"rebrew/msvc:6.0-win32-{i % 80}"
+                assert cached_image_digest(tag) == "abcdef012345"
+                assert image_present(tag) is True
+            except BaseException as exc:  # collect; fail outside threads
+                errors.append(exc)
+
+        threads = [threading.Thread(target=_worker, args=(i,)) for i in range(64)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        assert errors == []
+        # Bounded eviction must leave at most the configured caps.
+        assert (
+            len(toolchain_mod._toolchain_digest_cache) <= toolchain_mod._TOOLCHAIN_DIGEST_CACHE_MAX
+        )
+        assert len(toolchain_mod._image_presence) <= toolchain_mod._IMAGE_PRESENCE_MAX
 
 
 class TestCompilerCmdRoundTrip:

@@ -30,6 +30,7 @@ import logging
 import os
 import shutil
 import subprocess
+import threading
 import tomllib
 import uuid
 from collections.abc import Callable
@@ -48,6 +49,13 @@ from rebrew.toolchain_spec import (
 from rebrew.utils import container_runtime
 
 _RUN_TIMEOUT = 300
+
+# Guards the docker presence / digest memos below.  ``rebrew verify -j N``,
+# flag sweeps, and the GA compile workers all call ``cached_image_digest`` /
+# ``image_present`` concurrently; the compound check-then-evict-then-store on
+# a plain dict is not atomic under the GIL and can raise
+# ``RuntimeError: dictionary changed size during iteration`` or drop an entry.
+_DOCKER_MEMO_LOCK = threading.Lock()
 
 _docker_available_cache: bool | None = None
 
@@ -285,8 +293,9 @@ def docker_available() -> bool:
     for the process lifetime (same discipline as :func:`image_present`).
     """
     global _docker_available_cache
-    if _docker_available_cache is True:
-        return True
+    with _DOCKER_MEMO_LOCK:
+        if _docker_available_cache is True:
+            return True
     try:
         r = subprocess.run(
             [container_runtime(), "info"],
@@ -300,13 +309,15 @@ def docker_available() -> bool:
     except (OSError, subprocess.TimeoutExpired):
         ok = False
     if ok:
-        _docker_available_cache = True
+        with _DOCKER_MEMO_LOCK:
+            _docker_available_cache = True
     return ok
 
 
 #: Positive-only presence memo (tag → True).  Misses and inspect failures are
 #: never stored: caching ``False`` after a transient daemon blip / external
 #: ``docker pull`` would keep reporting absent until process exit.
+#: Mutated under :data:`_DOCKER_MEMO_LOCK` (verify/GA workers share it).
 _image_presence: dict[str, bool] = {}
 _IMAGE_PRESENCE_MAX = 64
 
@@ -316,6 +327,7 @@ _IMAGE_PRESENCE_MAX = 64
 #: Empty digests (inspect failure / missing image) are never stored — a
 #: transient docker outage must not pin compile keys to the bare tag for the
 #: rest of the process.
+#: Mutated under :data:`_DOCKER_MEMO_LOCK` (verify/GA workers share it).
 _toolchain_digest_cache: dict[str, str] = {}
 _TOOLCHAIN_DIGEST_CACHE_MAX = 64
 
@@ -327,10 +339,17 @@ def invalidate_toolchain_digest(image: str | None = None) -> None:
     ``pull_toolchain``) so the next compile inspects the live image id
     instead of serving objects keyed under the pre-swap digest.
     """
-    if image is None:
-        _toolchain_digest_cache.clear()
-    else:
-        _toolchain_digest_cache.pop(image, None)
+    with _DOCKER_MEMO_LOCK:
+        if image is None:
+            _toolchain_digest_cache.clear()
+        else:
+            _toolchain_digest_cache.pop(image, None)
+
+
+def _drop_image_presence(tag: str) -> None:
+    """Drop a positive presence memo for *tag* (locked)."""
+    with _DOCKER_MEMO_LOCK:
+        _image_presence.pop(tag, None)
 
 
 def cached_image_digest(image: str) -> str:
@@ -340,9 +359,10 @@ def cached_image_digest(image: str) -> str:
     unavailable or inspect fails — the bare image tag remains a usable key.
     Failures are not memoized: the next call retries inspect.
     """
-    digest = _toolchain_digest_cache.get(image)
-    if digest is not None:
-        return digest
+    with _DOCKER_MEMO_LOCK:
+        digest = _toolchain_digest_cache.get(image)
+        if digest is not None:
+            return digest
     digest = ""
     try:
         r = subprocess.run(
@@ -358,13 +378,15 @@ def cached_image_digest(image: str) -> str:
     except (OSError, subprocess.TimeoutExpired):
         digest = ""
     if digest:
-        if (
-            len(_toolchain_digest_cache) >= _TOOLCHAIN_DIGEST_CACHE_MAX
-            and image not in _toolchain_digest_cache
-        ):
-            oldest = next(iter(_toolchain_digest_cache))
-            _toolchain_digest_cache.pop(oldest, None)
-        _toolchain_digest_cache[image] = digest
+        with _DOCKER_MEMO_LOCK:
+            # Another worker may have filled it while we inspected.
+            if image not in _toolchain_digest_cache:
+                if len(_toolchain_digest_cache) >= _TOOLCHAIN_DIGEST_CACHE_MAX:
+                    oldest = next(iter(_toolchain_digest_cache))
+                    _toolchain_digest_cache.pop(oldest, None)
+                _toolchain_digest_cache[image] = digest
+            else:
+                digest = _toolchain_digest_cache[image]
     return digest
 
 
@@ -393,8 +415,10 @@ def image_present(tag: str, use_cache: bool = True) -> bool:
     on the next call so an external ``docker pull`` (or a daemon that was
     briefly down) is not frozen as absent for the process lifetime.
     """
-    if use_cache and _image_presence.get(tag):
-        return True
+    if use_cache:
+        with _DOCKER_MEMO_LOCK:
+            if _image_presence.get(tag):
+                return True
     if not docker_available():
         return False
     try:
@@ -413,14 +437,15 @@ def image_present(tag: str, use_cache: bool = True) -> bool:
         # "not built".
         raise ToolchainError(f"docker image inspect {tag} failed: {exc}") from exc
     present = r.returncode == 0
-    if present:
-        if len(_image_presence) >= _IMAGE_PRESENCE_MAX and tag not in _image_presence:
-            oldest = next(iter(_image_presence))
-            _image_presence.pop(oldest, None)
-        _image_presence[tag] = True
-    else:
-        # Drop a stale positive if the image vanished under us.
-        _image_presence.pop(tag, None)
+    with _DOCKER_MEMO_LOCK:
+        if present:
+            if len(_image_presence) >= _IMAGE_PRESENCE_MAX and tag not in _image_presence:
+                oldest = next(iter(_image_presence))
+                _image_presence.pop(oldest, None)
+            _image_presence[tag] = True
+        else:
+            # Drop a stale positive if the image vanished under us.
+            _image_presence.pop(tag, None)
     return present
 
 
@@ -479,7 +504,7 @@ def swap_toolchain_image(tag: str, op: Callable[[], None]) -> str:
     """
     # Presence + digest before the swap: callers may have memoized a miss
     # (or an old content id) that must not outlive the tag mutation.
-    _image_presence.pop(tag, None)
+    _drop_image_presence(tag)
     invalidate_toolchain_digest(tag)
     backup = _image_id(tag)
     try:
@@ -495,7 +520,7 @@ def swap_toolchain_image(tag: str, op: Callable[[], None]) -> str:
                     _retag_image(backup, tag)
         # Presence/digest may have been observed mid-failure; drop again so
         # the restored (or still-old) tag is re-inspected.
-        _image_presence.pop(tag, None)
+        _drop_image_presence(tag)
         invalidate_toolchain_digest(tag)
         raise
     current = _image_id(tag)
@@ -503,13 +528,13 @@ def swap_toolchain_image(tag: str, op: Callable[[], None]) -> str:
         if backup is not None:
             with contextlib.suppress(ToolchainError):
                 _retag_image(backup, tag)
-        _image_presence.pop(tag, None)
+        _drop_image_presence(tag)
         invalidate_toolchain_digest(tag)
         raise ToolchainError(
             f"image tag {tag!r} does not resolve after the swap"
             + (" — previous image restored" if backup is not None else " (no previous image)")
         )
-    _image_presence.pop(tag, None)
+    _drop_image_presence(tag)
     invalidate_toolchain_digest(tag)
     return current
 
@@ -773,7 +798,7 @@ def pull_toolchain(name: str, timeout: int = 1200) -> tuple[str, bool]:
     image = spec.image  # narrowed local — mypy does not narrow into the closure
     if not docker_available():
         raise ToolchainError("docker is not available — cannot pull images")
-    _image_presence.pop(image, None)
+    _drop_image_presence(image)
     if image_present(image):
         return image, True
 

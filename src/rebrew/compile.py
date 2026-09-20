@@ -55,6 +55,7 @@ import re
 import shlex
 import shutil
 import subprocess
+import threading
 import uuid
 from collections.abc import Iterator
 from dataclasses import dataclass, field
@@ -798,8 +799,11 @@ def _docker_include_rewrite(
 # call so a mid-process compiler upgrade (same PATH name, new bytes) does
 # not keep serving objects keyed under the old content digest.  Content is
 # re-hashed only when path/mtime/size change.
+# Guarded: verify -j N / GA workers call ``_native_toolchain_id`` concurrently
+# while building cache keys; the eviction path is a multi-step mutation.
 _native_binary_cache: dict[str, tuple[str, int, int, str]] = {}
 _NATIVE_BINARY_CACHE_MAX = 32
+_NATIVE_BINARY_CACHE_LOCK = threading.Lock()
 
 
 def _native_toolchain_id(spec: "ToolchainSpec") -> str:
@@ -837,21 +841,35 @@ def _native_toolchain_id(spec: "ToolchainSpec") -> str:
     except OSError:
         return f"native:{name}"
 
-    cached = _native_binary_cache.get(name)
-    if (
-        cached is not None
-        and cached[0] == resolved_path
-        and cached[1] == mtime_ns
-        and cached[2] == fsize
-    ):
-        return cached[3]
+    with _NATIVE_BINARY_CACHE_LOCK:
+        cached = _native_binary_cache.get(name)
+        if (
+            cached is not None
+            and cached[0] == resolved_path
+            and cached[1] == mtime_ns
+            and cached[2] == fsize
+        ):
+            return cached[3]
 
     digest = _native_binary_digest(Path(resolved_path))
     toolchain_id = f"native:{name}@{digest}" if digest is not None else f"native:{name}"
-    if len(_native_binary_cache) >= _NATIVE_BINARY_CACHE_MAX and name not in _native_binary_cache:
-        oldest = next(iter(_native_binary_cache))
-        _native_binary_cache.pop(oldest, None)
-    _native_binary_cache[name] = (resolved_path, mtime_ns, fsize, toolchain_id)
+    with _NATIVE_BINARY_CACHE_LOCK:
+        # Re-check: another worker may have filled it while we hashed.
+        cached = _native_binary_cache.get(name)
+        if (
+            cached is not None
+            and cached[0] == resolved_path
+            and cached[1] == mtime_ns
+            and cached[2] == fsize
+        ):
+            return cached[3]
+        if (
+            len(_native_binary_cache) >= _NATIVE_BINARY_CACHE_MAX
+            and name not in _native_binary_cache
+        ):
+            oldest = next(iter(_native_binary_cache))
+            _native_binary_cache.pop(oldest, None)
+        _native_binary_cache[name] = (resolved_path, mtime_ns, fsize, toolchain_id)
     return toolchain_id
 
 
@@ -1352,8 +1370,11 @@ def compile_batch_objs(
 
 #: Lasting temp dirs holding batch-published ``.obj`` files (see
 #: :func:`precompile_batch`).  Cleared by :func:`cleanup_batch_obj_dirs`.
+#: Guarded: append (precompile) and pop (cleanup/atexit) share the list;
+#: two overlapping batch runs must not lose a dir handle.
 _BATCH_OBJ_DIRS: list[Path] = []
 _BATCH_ATEXIT_REGISTERED = False
+_BATCH_OBJ_DIRS_LOCK = threading.Lock()
 
 
 def cleanup_batch_obj_dirs() -> None:
@@ -1370,22 +1391,27 @@ def cleanup_batch_obj_dirs() -> None:
     """
     from rebrew.utils import remove_temp_dir
 
+    with _BATCH_OBJ_DIRS_LOCK:
+        pending = list(_BATCH_OBJ_DIRS)
+        _BATCH_OBJ_DIRS.clear()
     remaining: list[Path] = []
-    while _BATCH_OBJ_DIRS:
-        path = _BATCH_OBJ_DIRS.pop()
+    for path in pending:
         try:
             remove_temp_dir(path)
         except OSError:
             remaining.append(path)
-    _BATCH_OBJ_DIRS.extend(remaining)
+    if remaining:
+        with _BATCH_OBJ_DIRS_LOCK:
+            _BATCH_OBJ_DIRS.extend(remaining)
 
 
 def _register_batch_obj_atexit() -> None:
     """Register :func:`cleanup_batch_obj_dirs` once per process."""
     global _BATCH_ATEXIT_REGISTERED
-    if not _BATCH_ATEXIT_REGISTERED:
-        atexit.register(cleanup_batch_obj_dirs)
-        _BATCH_ATEXIT_REGISTERED = True
+    with _BATCH_OBJ_DIRS_LOCK:
+        if not _BATCH_ATEXIT_REGISTERED:
+            atexit.register(cleanup_batch_obj_dirs)
+            _BATCH_ATEXIT_REGISTERED = True
 
 
 def precompile_batch(
@@ -1654,7 +1680,8 @@ def precompile_batch(
     # so survivors are copied here (small).  Swept by :func:`cleanup_batch_obj_dirs`
     # (verify calls it after extracting) and by atexit as a backstop.
     lasting_root = writable_temp_dir("rebrew_batch_objs_")
-    _BATCH_OBJ_DIRS.append(lasting_root)
+    with _BATCH_OBJ_DIRS_LOCK:
+        _BATCH_OBJ_DIRS.append(lasting_root)
     _register_batch_obj_atexit()
     batch_jobs = max(1, min(getattr(cfg, "default_jobs", 4) or 4, len(batchable)))
     with _futures.ThreadPoolExecutor(max_workers=batch_jobs) as pool:
