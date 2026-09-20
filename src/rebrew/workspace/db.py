@@ -12,6 +12,9 @@ import json
 import sqlite3
 from pathlib import Path
 
+#: Busy-wait budget for read-only opens (matches build_db / dashboard).
+_SQLITE_TIMEOUT_SECONDS = 30.0
+
 #: ``metadata.target`` value carrying database-level (not per-target) rows.
 SCHEMA_TARGET = "__schema__"
 
@@ -125,7 +128,9 @@ def read_db_version(db_path: Path) -> int | str | None:
     """
     row: tuple[object, ...] | None = None
     try:
-        with contextlib.closing(sqlite3.connect(sqlite_ro_uri(db_path), uri=True)) as conn:
+        with contextlib.closing(
+            sqlite3.connect(sqlite_ro_uri(db_path), uri=True, timeout=_SQLITE_TIMEOUT_SECONDS)
+        ) as conn:
             cursor = conn.cursor()
             cursor.execute(
                 "SELECT value FROM metadata WHERE target = ? AND key = ? LIMIT 1",

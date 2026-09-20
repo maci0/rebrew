@@ -35,6 +35,10 @@
   documented integrator surface.
 
 ### Fixed
+- **`coverage.db` `history` table** gained `va` / status / `changed_at` CHECKs
+  with in-place migration for pre-CHECK tables (rows kept, outliers clamped),
+  matching the `verify_results` guard path.  Workspace coverage.db readers
+  use the same 30s busy timeout as `build-db` / the dashboard.
 - **``rebrew cfg add-target`` / ``remove-target --json``** emit a single JSON
   document on every path (success, idempotent, missing-binary error). Missing
   binary errors pass ``json_mode`` so scripts get ``{"error","code"}`` on

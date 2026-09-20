@@ -737,17 +737,77 @@ def build_db(
         # builds explicitly or it survives every rebuild.
         c.execute("DROP INDEX IF EXISTS idx_cells_section")
 
-        c.execute("""
+        c.execute(f"""
             CREATE TABLE IF NOT EXISTS history (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 target TEXT NOT NULL,
-                va INTEGER NOT NULL,
-                old_status TEXT,
-                new_status TEXT,
-                changed_at TEXT NOT NULL,
+                va INTEGER NOT NULL CHECK (va >= 0),
+                old_status TEXT
+                    CHECK (old_status IS NULL OR old_status IN ({_FUNCTION_STATUS_CHECK_SQL})),
+                new_status TEXT
+                    CHECK (new_status IS NULL OR new_status IN ({_FUNCTION_STATUS_CHECK_SQL})),
+                changed_at TEXT NOT NULL CHECK (changed_at != ''),
                 updated_by TEXT NOT NULL DEFAULT ''
             )
         """)
+        # history is never dropped on rebuild, so CREATE IF NOT EXISTS leaves a
+        # pre-CHECK table alone.  Recreate in place (preserving rows, clamping
+        # outliers) when the stored DDL lacks the range/status guards.
+        hist_sql_row = c.execute(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'history'"
+        ).fetchone()
+        hist_sql = hist_sql_row[0] if hist_sql_row else ""
+        if hist_sql and "old_status IS NULL OR old_status IN" not in hist_sql:
+            c.execute("ALTER TABLE history RENAME TO _history_migrate")
+            c.execute(f"""
+                CREATE TABLE history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    target TEXT NOT NULL,
+                    va INTEGER NOT NULL CHECK (va >= 0),
+                    old_status TEXT
+                        CHECK (old_status IS NULL OR old_status IN ({_FUNCTION_STATUS_CHECK_SQL})),
+                    new_status TEXT
+                        CHECK (new_status IS NULL OR new_status IN ({_FUNCTION_STATUS_CHECK_SQL})),
+                    changed_at TEXT NOT NULL CHECK (changed_at != ''),
+                    updated_by TEXT NOT NULL DEFAULT ''
+                )
+            """)
+            # Preserve id so ORDER BY id DESC / retention stay stable across
+            # the recreate.  Statuses outside the functions vocabulary become
+            # UNKNOWN (same coercion the functions insert path uses).
+            c.execute(
+                f"""
+                INSERT INTO history (
+                    id, target, va, old_status, new_status, changed_at, updated_by
+                )
+                SELECT
+                    id,
+                    target,
+                    CASE
+                        WHEN typeof(va) = 'integer' AND va >= 0 THEN va
+                        WHEN typeof(va) = 'integer' THEN 0
+                        ELSE 0
+                    END,
+                    CASE
+                        WHEN old_status IS NULL THEN NULL
+                        WHEN old_status IN ({_FUNCTION_STATUS_CHECK_SQL}) THEN old_status
+                        ELSE 'UNKNOWN'
+                    END,
+                    CASE
+                        WHEN new_status IS NULL THEN NULL
+                        WHEN new_status IN ({_FUNCTION_STATUS_CHECK_SQL}) THEN new_status
+                        ELSE 'UNKNOWN'
+                    END,
+                    CASE
+                        WHEN changed_at IS NULL OR changed_at = ''
+                            THEN '1970-01-01T00:00:00+00:00'
+                        ELSE changed_at
+                    END,
+                    COALESCE(updated_by, '')
+                FROM _history_migrate
+                """
+            )
+            c.execute("DROP TABLE _history_migrate")
         # history rows are appended on every rebuild; the dashboard pages them
         # with WHERE target = ? ORDER BY id DESC LIMIT ?, so (target, id) is
         # the serving index (a plain (target, va) index would not serve the
@@ -1286,8 +1346,23 @@ def build_db(
                 key = (target_name, new_va)
                 old_status = old_statuses.get(key)
                 if old_status is not None and old_status != new_status:
+                    # Clamp/coerce so a pre-CHECK snapshot or negative VA
+                    # cannot abort the rebuild on the history CHECKs.
+                    old_s = canonical_status(str(old_status or "UNKNOWN"))
+                    if old_s not in _FUNCTION_DB_STATUSES:
+                        old_s = "UNKNOWN"
+                    new_s = canonical_status(str(new_status or "UNKNOWN"))
+                    if new_s not in _FUNCTION_DB_STATUSES:
+                        new_s = "UNKNOWN"
                     history_rows.append(
-                        (target_name, new_va, old_status, new_status, now_iso, updated_by or "")
+                        (
+                            target_name,
+                            max(0, _parse_int(new_va, 0)),
+                            old_s,
+                            new_s,
+                            now_iso,
+                            updated_by or "",
+                        )
                     )
             if history_rows:
                 c.executemany(

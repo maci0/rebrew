@@ -644,6 +644,72 @@ binary = "test.exe"
         assert row == (0, 1.0, 0, None)
         conn.close()
 
+    def test_history_has_range_and_status_checks(self, project_root: Path) -> None:
+        """history.va / status columns must reject out-of-range values."""
+        build_db(project_root)
+        conn = sqlite3.connect(project_root / "db" / "coverage.db")
+        c = conn.cursor()
+        c.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='history'")
+        ddl = c.fetchone()[0]
+        assert "old_status IS NULL OR old_status IN" in ddl
+        assert "CHECK (va >= 0)" in ddl
+        with pytest.raises(sqlite3.IntegrityError):
+            c.execute(
+                "INSERT INTO history (target, va, old_status, new_status, changed_at) "
+                "VALUES ('testbin', -1, 'EXACT', 'RELOC', 't')"
+            )
+        with pytest.raises(sqlite3.IntegrityError):
+            c.execute(
+                "INSERT INTO history (target, va, old_status, new_status, changed_at) "
+                "VALUES ('testbin', 1, 'NOT_A_STATUS', 'EXACT', 't')"
+            )
+        with pytest.raises(sqlite3.IntegrityError):
+            c.execute(
+                "INSERT INTO history (target, va, old_status, new_status, changed_at) "
+                "VALUES ('testbin', 2, 'EXACT', 'RELOC', '')"
+            )
+        conn.close()
+
+    def test_history_migrates_pre_check_ddl(self, project_root: Path) -> None:
+        """A persistent history table built without CHECKs is recreated in
+        place on the next rebuild (rows preserved, outliers clamped)."""
+        build_db(project_root)
+        conn = sqlite3.connect(project_root / "db" / "coverage.db")
+        c = conn.cursor()
+        c.execute("DROP TABLE history")
+        c.execute(
+            """
+            CREATE TABLE history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                target TEXT NOT NULL,
+                va INTEGER NOT NULL,
+                old_status TEXT,
+                new_status TEXT,
+                changed_at TEXT NOT NULL,
+                updated_by TEXT NOT NULL DEFAULT ''
+            )
+            """
+        )
+        c.execute(
+            "INSERT INTO history (id, target, va, old_status, new_status, changed_at) "
+            "VALUES (42, 'testbin', -7, 'BOGUS', 'EXACT', '')"
+        )
+        conn.commit()
+        conn.close()
+
+        build_db(project_root)
+        conn = sqlite3.connect(project_root / "db" / "coverage.db")
+        c = conn.cursor()
+        c.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='history'")
+        assert "old_status IS NULL OR old_status IN" in c.fetchone()[0]
+        c.execute(
+            "SELECT id, va, old_status, new_status, changed_at FROM history "
+            "WHERE target = 'testbin' AND id = 42"
+        )
+        row = c.fetchone()
+        assert row == (42, 0, "UNKNOWN", "EXACT", "1970-01-01T00:00:00+00:00")
+        conn.close()
+
     def test_history_persists_across_rebuilds(self, project_root: Path) -> None:
         build_db(project_root)
         build_db(project_root)

@@ -215,17 +215,20 @@ Tracks function status changes over time.
 |---|---|---|
 | `id` | `INTEGER` | Auto-increment primary key. |
 | `target` | `TEXT` | Binary target. |
-| `va` | `INTEGER` | Function virtual address. |
-| `old_status` | `TEXT` | Previous status before change. |
-| `new_status` | `TEXT` | New status after change. |
-| `changed_at` | `TEXT` | ISO 8601 timestamp of the change. |
+| `va` | `INTEGER` | Function virtual address. CHECK `va >= 0`. |
+| `old_status` | `TEXT` | Previous status before change. CHECK NULL or `KNOWN_STATUSES` ∪ `{UNKNOWN}`. |
+| `new_status` | `TEXT` | New status after change. CHECK NULL or `KNOWN_STATUSES` ∪ `{UNKNOWN}`. |
+| `changed_at` | `TEXT` | ISO 8601 timestamp of the change. CHECK non-empty. |
 | `updated_by` | `TEXT` | Provenance tag of the write that caused the change. |
 
 > [!NOTE]
 > This table is persistent — never dropped on rebuild, but retention-capped:
 > only the newest 10,000 rows per target survive each rebuild
 > (`_HISTORY_RETENTION` in `build_db`), so long-lived projects that
-> regenerate often do not accumulate rows forever (db-review F7).
+> regenerate often do not accumulate rows forever (db-review F7).  A rebuild
+> that finds a pre-CHECK DDL recreates the table in place (preserving `id`,
+> clamping negative VAs and unknown statuses) so the guards apply without
+> `--force`.
 
 ### `section_cell_stats` Table
 Aggregated matching metrics per section: total/exact/stub cell counts, so a
