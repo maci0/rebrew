@@ -9,6 +9,7 @@ invoked (docker image vs vendored path vs PATH binary).
 
 from __future__ import annotations
 
+import logging
 import shutil
 from dataclasses import replace
 from pathlib import Path
@@ -1490,7 +1491,14 @@ def update_cmd(
         if m:
             try:
                 live_commit = _live_commit_sha(m.group(1), m.group(2), m.group(3))
-            except Exception:
+            except Exception as exc:
+                # Pin still advances by sha256; an empty commit string must not
+                # look like "upstream has no commit" when the lookup just failed.
+                logging.getLogger(__name__).warning(
+                    "Could not resolve live commit for %s — pinning sha256 only: %s",
+                    name,
+                    exc,
+                )
                 live_commit = ""
         old_pin = f"sha256={src.sha256[:12]}…" + (
             f" commit={src.commit[:12]}" if src.commit else ""

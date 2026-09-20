@@ -182,6 +182,21 @@ class TestQueryLayer:
     def test_summary_unknown_target(self, dashboard: Dashboard) -> None:
         assert dashboard.summary("nope") is None
 
+    def test_summary_corrupt_function_stats_returns_none(self, tmp_path: Path) -> None:
+        """Corrupt metadata must not present as a real empty/0% summary."""
+        import sqlite3
+
+        db = tmp_path / "coverage.db"
+        with sqlite3.connect(db) as conn:
+            conn.execute(
+                "CREATE TABLE functions (target TEXT, va INT, name TEXT, symbol TEXT, "
+                "size INT, status TEXT, module TEXT, files TEXT, markerType TEXT)"
+            )
+            conn.execute("CREATE TABLE metadata (target TEXT, key TEXT, value TEXT)")
+            conn.execute("INSERT INTO metadata VALUES ('broken', 'function_stats', '{not-json')")
+        dashboard = Dashboard(db)
+        assert dashboard.summary("broken") is None
+
     def test_functions_all(self, dashboard: Dashboard) -> None:
         data = dashboard.functions("server_dll")
         assert data["total"] == 2

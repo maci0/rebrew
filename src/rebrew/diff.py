@@ -14,6 +14,7 @@ Usage:
 from __future__ import annotations
 
 import csv
+import logging
 import sys
 from pathlib import Path
 from typing import Any
@@ -105,6 +106,13 @@ def _global_name_map(cfg: Any) -> dict[int, str]:
     try:
         return {v: n for n, v in build_name_to_va(cfg).items() if v}
     except Exception:  # best-effort name resolution
+        # Diffs still render without names; a silent empty map used to hide
+        # CatalogScanError / config bugs that made every absolute address
+        # look unresolved.
+        logging.getLogger(__name__).debug(
+            "global name map unavailable for diff; addresses stay numeric",
+            exc_info=True,
+        )
         return {}
 
 

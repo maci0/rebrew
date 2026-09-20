@@ -1387,10 +1387,10 @@ def _save_report(
                 batch.raw_statuses,
                 preserve_keys=batch.excluded_keys,
             )
-        except (OSError, TypeError):
+        except (OSError, TypeError) as exc:
             # Warn on stderr regardless of json mode — silent cache-I/O
             # failures degrade performance invisibly.
-            logging.warning("Could not write verify cache to %s", cache_path)
+            logging.warning("Could not write verify cache to %s: %s", cache_path, exc)
 
     # The --compare baseline lives in .rebrew next to the cache (both are
     # local, gitignored run state — db/verify_results.json was never
@@ -1400,7 +1400,13 @@ def _save_report(
     if not dry_run and not (diff_mode and gate_failed):
         from rebrew.verify_cache import save_baseline
 
-        save_baseline(cfg, report)
+        try:
+            save_baseline(cfg, report)
+        except (OSError, TypeError, ValueError) as exc:
+            # Baseline I/O must not abort after a successful verify — the
+            # report was already earned; losing the baseline only weakens
+            # the next --compare gate.
+            logging.warning("Could not write verify baseline: %s", exc)
         if output_path:
             out_file = Path(output_path)
             out_file.parent.mkdir(parents=True, exist_ok=True)

@@ -1141,14 +1141,22 @@ class Dashboard:
             return None
         try:
             stats = json.loads(row[0])
-        except (json.JSONDecodeError, TypeError):
-            stats = {
-                "total": 0,
-                "covered_bytes": 0,
-                "matched_bytes": 0,
-                "total_bytes": 0,
-                "by_status": {},
-            }
+        except (json.JSONDecodeError, TypeError) as exc:
+            # Corrupt metadata must not present as a real 0% summary — that
+            # looks like an empty target and hides the broken row.
+            log.warning(
+                "Ignoring corrupt function_stats for target %r: %s",
+                target,
+                exc,
+            )
+            return None
+        if not isinstance(stats, dict):
+            log.warning(
+                "Ignoring non-object function_stats for target %r (%s)",
+                target,
+                type(stats).__name__,
+            )
+            return None
         # Headline coverage = reversed bytes (EXACT/RELOC/PROVEN) / text size.
         # Not byte-identity: PROVEN bytes differ from the target (verify's
         # _STATUS_RANK puts PROVEN below RELOC for that reason). —

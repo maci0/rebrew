@@ -404,7 +404,11 @@ def _load_verify_cache(cache_path: Path, cfg: ProjectConfig) -> VerifyCache | No
         return None
     try:
         data = VerifyCache.from_dict(json.loads(cache_path.read_text(encoding="utf-8")))
-    except (json.JSONDecodeError, OSError, TypeError, ValueError, AttributeError):
+    except (json.JSONDecodeError, OSError, TypeError, ValueError, AttributeError) as exc:
+        # A corrupt cache must not look like a cold start: status/todo would
+        # silently fall back to metadata and the next verify would recompile
+        # everything without explaining why the on-disk cache was ignored.
+        logging.warning("Ignoring corrupt verify cache %s: %s", cache_path, exc)
         return None
     if data.version != CACHE_VERSION:
         return None
@@ -488,19 +492,37 @@ def _save_verify_cache(
     # for every library function (`status`/`todo` then fall back to metadata
     # and the next plain run recompiles them all).  Copy them from the file
     # being replaced; a VA this run did produce always wins.
+    #
+    # If the prior cache exists but cannot be read (corrupt JSON, I/O error,
+    # wrong shape), refuse to overwrite: falling back to `previous = {}` and
+    # writing anyway used to wipe every preserved VA with no signal.
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     with _verify_cache_write_lock(cache_path):
-        if preserve_keys:
+        if preserve_keys and cache_path.exists():
             try:
                 previous = json.loads(cache_path.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError, TypeError, ValueError):
-                previous = {}
+            except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
+                logging.warning(
+                    "Could not read verify cache %s to preserve %d excluded "
+                    "entries — refusing to overwrite (would erase them): %s",
+                    cache_path,
+                    len(preserve_keys),
+                    exc,
+                )
+                return
             prev_entries = previous.get("entries") if isinstance(previous, dict) else None
-            if isinstance(prev_entries, dict):
-                for key in preserve_keys:
-                    kept = prev_entries.get(key)
-                    if key not in cache_entries and isinstance(kept, dict):
-                        cache_entries[key] = kept
+            if not isinstance(prev_entries, dict):
+                logging.warning(
+                    "Verify cache %s has no usable entries map — refusing to "
+                    "overwrite while preserving %d excluded VAs",
+                    cache_path,
+                    len(preserve_keys),
+                )
+                return
+            for key in preserve_keys:
+                kept = prev_entries.get(key)
+                if key not in cache_entries and isinstance(kept, dict):
+                    cache_entries[key] = kept
 
         cache_data = VerifyCache(
             version=CACHE_VERSION,

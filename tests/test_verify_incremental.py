@@ -568,6 +568,99 @@ class TestPatchVerifyCacheEntries:
         assert preserved.delta == 0
         assert loaded.entries["0x00002000"].status == "EXACT"
 
+    def test_filtered_save_refuses_overwrite_when_prior_unreadable(self, tmp_path: Path) -> None:
+        """A --nolib save must not wipe preserved VAs when the prior cache is corrupt."""
+        cfg = _make_cfg(tmp_path)
+        cache_path = tmp_path / ".rebrew" / "verify_cache.json"
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        prior = '{"version":2,"entries":{"0x00001000":{"status":"EXACT"}},'
+        cache_path.write_text(prior, encoding="utf-8")
+
+        source = cfg.reversed_dir / "func_b.c"
+        source.write_text("int func_b(void) { return 2; }\n", encoding="utf-8")
+        entries = [
+            SimpleNamespace(
+                va=0x2000,
+                name="func_b",
+                filepath="func_b.c",
+                size=8,
+                origin="GAME",
+                cflags="",
+                symbol="",
+            )
+        ]
+        results = [
+            {
+                "va": "0x00002000",
+                "name": "func_b",
+                "filepath": "func_b.c",
+                "size": 8,
+                "status": "EXACT",
+                "passed": True,
+                "match_percent": 100.0,
+                "delta": 0,
+            }
+        ]
+        _save_verify_cache(
+            cache_path,
+            cfg,
+            results,
+            entries,
+            preserve_keys={"0x00001000"},
+        )
+        # Prior bytes must survive — writing a truncated cache would erase the
+        # library VA that preserve_keys was meant to keep.
+        assert cache_path.read_text(encoding="utf-8") == prior
+
+    def test_filtered_save_refuses_overwrite_when_entries_missing(self, tmp_path: Path) -> None:
+        """Wrong-shape prior cache must not be replaced under preserve_keys."""
+        cfg = _make_cfg(tmp_path)
+        cache_path = tmp_path / ".rebrew" / "verify_cache.json"
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        prior = json.dumps(
+            {
+                "version": 2,
+                "compiler_hash": _compiler_config_hash(cfg),
+                "target": cfg.target_name,
+                "entries": None,
+            }
+        )
+        cache_path.write_text(prior, encoding="utf-8")
+
+        source = cfg.reversed_dir / "func_b.c"
+        source.write_text("int func_b(void) { return 2; }\n", encoding="utf-8")
+        entries = [
+            SimpleNamespace(
+                va=0x2000,
+                name="func_b",
+                filepath="func_b.c",
+                size=8,
+                origin="GAME",
+                cflags="",
+                symbol="",
+            )
+        ]
+        results = [
+            {
+                "va": "0x00002000",
+                "name": "func_b",
+                "filepath": "func_b.c",
+                "size": 8,
+                "status": "EXACT",
+                "passed": True,
+                "match_percent": 100.0,
+                "delta": 0,
+            }
+        ]
+        _save_verify_cache(
+            cache_path,
+            cfg,
+            results,
+            entries,
+            preserve_keys={"0x00001000"},
+        )
+        assert cache_path.read_text(encoding="utf-8") == prior
+
     def test_save_and_round_trip(self, tmp_path: Path) -> None:
         cfg = _make_cfg(tmp_path)
         source_path = cfg.reversed_dir / "func_a.c"
