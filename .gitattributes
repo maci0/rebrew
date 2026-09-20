@@ -2,6 +2,11 @@
 # contributors on CRLF checkouts get conversion on commit, not churn).
 * text=auto
 
+# Shell and Make recipes must stay LF: a CRLF checkout breaks `#!/usr/bin/env`
+# shebangs and Make's recipe parser on the Linux host this project targets.
+*.sh text eol=lf
+Makefile text eol=lf
+
 # Binary fixtures and assets — never line-ending converted, regardless of
 # git's content heuristic.
 *.exe binary

@@ -1086,7 +1086,7 @@ def _check_W023_default_func_names(result: LintResult, lines: list[str], pedanti
         code = code[:start] + code[end + 2 :]
     # Remove // comments
     code_lines = []
-    for line in code.split("\n"):
+    for line in code.splitlines():
         comment_pos = line.find("//")
         if comment_pos != -1:
             line = line[:comment_pos]

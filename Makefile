@@ -59,13 +59,14 @@ help:
 		'  Before a PR: make all && make check'
 
 ensure-uv:
-	@set -euo pipefail; \
+	@set -eu; \
 	if ! command -v uv >/dev/null 2>&1; then \
 	  echo "ERROR: uv not on PATH (required for setup/test/lint; CI pins UV_VERSION=$(UV_VERSION))."; \
 	  echo "Install from https://docs.astral.sh/uv/ then re-run make setup."; \
 	  exit 1; \
 	fi; \
-	uv_ver=$$(uv --version | awk '{print $$2}'); \
+	uv_out=$$(uv --version); \
+	uv_ver=$$(printf '%s\n' "$$uv_out" | awk '{print $$2}'); \
 	lowest=$$(printf '%s\n%s\n' "$$uv_ver" "$(UV_VERSION)" | sort -V | head -1); \
 	if [ "$$lowest" != "$(UV_VERSION)" ]; then \
 	  echo "WARNING: uv $$uv_ver is older than CI pin UV_VERSION=$(UV_VERSION)."; \
@@ -74,7 +75,7 @@ ensure-uv:
 	fi
 
 ensure-resembl: ensure-uv
-	@set -euo pipefail; \
+	@set -eu; \
 	if [ ! -e "$(RESEMBL_DIR)/pyproject.toml" ]; then \
 	  echo "ERROR: sibling resembl checkout missing at $(RESEMBL_DIR)"; \
 	  echo "uv sync needs it even when you are not using the similarity group"; \
@@ -93,7 +94,7 @@ ensure-resembl: ensure-uv
 	fi
 
 ensure-nasm:
-	@set -euo pipefail; \
+	@set -eu; \
 	if ! command -v nasm >/dev/null 2>&1; then \
 	  echo "ERROR: nasm not on PATH (required for asm round-trip tests, same as CI)."; \
 	  echo "Install it, then re-run: e.g. apt install nasm / pacman -S nasm / dnf install nasm"; \
@@ -139,13 +140,16 @@ check:
 # High-value CLI --help contract (CI cli-contract job).  Same ANSI guards as
 # make test so a local TTY / GITHUB_ACTIONS export cannot break the greps.
 cli-contract:
-	@set -euo pipefail; \
-	NO_COLOR=1 TERM=dumb _TYPER_FORCE_DISABLE_TERMINAL=1 \
-		uv run --frozen rebrew round-trip --help | grep -- '--strict-catalog' >/dev/null; \
-	NO_COLOR=1 TERM=dumb _TYPER_FORCE_DISABLE_TERMINAL=1 \
-		uv run --frozen rebrew verify --help | grep -- '--compare' >/dev/null; \
-	NO_COLOR=1 TERM=dumb _TYPER_FORCE_DISABLE_TERMINAL=1 \
-		uv run --frozen rebrew prove --help | grep 'NEAR_MATCHING' >/dev/null; \
+	@set -eu; \
+	help=$$(NO_COLOR=1 TERM=dumb _TYPER_FORCE_DISABLE_TERMINAL=1 \
+		uv run --frozen rebrew round-trip --help); \
+	printf '%s\n' "$$help" | grep -- '--strict-catalog' >/dev/null; \
+	help=$$(NO_COLOR=1 TERM=dumb _TYPER_FORCE_DISABLE_TERMINAL=1 \
+		uv run --frozen rebrew verify --help); \
+	printf '%s\n' "$$help" | grep -- '--compare' >/dev/null; \
+	help=$$(NO_COLOR=1 TERM=dumb _TYPER_FORCE_DISABLE_TERMINAL=1 \
+		uv run --frozen rebrew prove --help); \
+	printf '%s\n' "$$help" | grep 'NEAR_MATCHING' >/dev/null; \
 	echo 'cli-contract OK'
 
 # Build sdist + wheel under a pinned locale/timezone for deterministic wheels.
@@ -201,7 +205,7 @@ audit:
 # push except the release commit, since __version__ stays equal to the last
 # tag during normal development. Run `make release-check` before tagging.
 release-check:
-	@set -euo pipefail; \
+	@set -eu; \
 	V=$$(uv run --frozen python -c "from rebrew import __version__; print(__version__)"); \
 	LAST=$$(git describe --tags --abbrev=0 2>/dev/null || echo v0.0.0); \
 	LASTV=$${LAST#v}; \

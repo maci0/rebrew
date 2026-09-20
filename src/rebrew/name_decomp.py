@@ -342,7 +342,7 @@ def apply_known_names(
     code = _ACCESS_RE.sub(
         lambda m: _rewrite_access(m, var_structs, layouts, elem_widths, pointer_vars), text
     )
-    lines = code.split("\n")
+    lines = code.splitlines()
     if lines:
         lines[0] = _SIG_TYPE_RE.sub(lambda m: _rewrite_sig_type(m, var_structs), lines[0], count=0)
     return NamingResult(code="\n".join(lines), applied=applied)

@@ -126,6 +126,15 @@ class TestCiPins:
         test_job = text.split("\n  test:\n", 1)[1].split("\n  pre-commit:\n", 1)[0]
         assert "fetch-tags: true" in test_job
 
+    def test_makefile_recipes_are_posix_sh(self) -> None:
+        """Make invokes /bin/sh; on Debian/Ubuntu that is dash (no pipefail)."""
+        text = MAKEFILE.read_text(encoding="utf-8")
+        assert "pipefail" not in text, (
+            "Makefile recipes must stay POSIX sh (set -eu); pipefail is bash-only "
+            "and breaks make on stock Debian/Ubuntu where /bin/sh is dash"
+        )
+        assert "set -eu" in text
+
     @pytest.mark.parametrize("path", [CI_YML, SYNC_YML, MAKEFILE, ROOT / ".pre-commit-config.yaml"])
     def test_uv_run_preserves_lockfile(self, path: Path) -> None:
         commands = [

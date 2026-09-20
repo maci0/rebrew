@@ -1142,19 +1142,22 @@ def writable_temp_dir(prefix: str) -> Path:
     mounts, and the docker runner mounts the workdir at /work, so a
     sandbox under the system temp dir (often tmpfs, and invisible to
     docker in sandboxed environments) silently breaks the compile.  The
-    user's home is preferred when writable; when it is read-only
+    user's cache dir is preferred when writable; when it is read-only
     (sandboxed homes / CI) fall back to the rebrew workspace ``.cache``
     (a real disk, visible to docker) and then the system temp dir.
 
-    Home sandboxes live under ``~/.cache/rebrew/tmp`` (not directly in the
-    home directory) so that a straggler left behind by a hard-killed run
-    stays out of ``~`` and is trivially sweepable.
+    Cache sandboxes live under ``$XDG_CACHE_HOME/rebrew/tmp`` when that
+    variable is set, otherwise ``~/.cache/rebrew/tmp``, so that a straggler
+    left behind by a hard-killed run stays out of ``~`` and is trivially
+    sweepable.
 
     Raises :class:`OSError` when no candidate is writable."""
     import tempfile
 
     workspace = Path(__file__).resolve().parents[2] / ".cache"
-    home_tmp = Path.home() / ".cache" / "rebrew" / "tmp"
+    xdg = os.environ.get("XDG_CACHE_HOME", "").strip()
+    cache_root = Path(xdg) if xdg else Path.home() / ".cache"
+    home_tmp = cache_root / "rebrew" / "tmp"
     candidates = [home_tmp, workspace]
     with contextlib.suppress(Exception):
         candidates.append(Path(tempfile.gettempdir()))

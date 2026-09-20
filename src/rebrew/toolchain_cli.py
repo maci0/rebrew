@@ -443,7 +443,8 @@ def vendor_cmd(
             console.print(f"[green]Extracted[/green] {src.in_repo} -> {src.host_dir}")
         else:
             with tempfile.TemporaryDirectory(prefix="rebrew_vendor_") as td:
-                archive = Path(td) / "src.bin"
+                td_path = Path(td)
+                archive = td_path / "src.bin"
                 try:
                     _download_pinned_url(src.url, archive, timeout=1800)
                 except ToolchainError as exc:
@@ -453,21 +454,22 @@ def vendor_cmd(
                     msg = f"sha256 mismatch for {name}: expected {src.sha256}, got {actual}"
                     error_exit(msg, json_mode=json_output)
                 if src.layout == "zip-installshield":
+                    zip_dir = td_path / "zip"
                     subprocess.run(
-                        ["unzip", "-q", str(archive), "-d", td + "/zip"],
+                        ["unzip", "-q", str(archive), "-d", str(zip_dir)],
                         check=True,
                         capture_output=True,
                         stdin=subprocess.DEVNULL,
                         timeout=_EXTRACT_TIMEOUT_S,
                     )
-                    installer = next(Path(td + "/zip").iterdir())
+                    installer = next(zip_dir.iterdir())
+                    payload = td_path / "pay"
                     subprocess.run(
-                        ["7z", "x", "-y", str(installer), f"-o{td}/pay"],
+                        ["7z", "x", "-y", str(installer), f"-o{payload}"],
                         capture_output=True,
                         stdin=subprocess.DEVNULL,
                         timeout=_EXTRACT_TIMEOUT_S,
                     )  # warning exits tolerated — the final check below guards
-                    payload = Path(td + "/pay")
                     for sub in ("Bin", "Include", "Lib"):
                         src_sub = payload / sub
                         if src_sub.is_symlink() or not src_sub.is_dir():
@@ -479,25 +481,27 @@ def vendor_cmd(
                     # A zip with a single top-level wrapper dir (e.g. TC/) —
                     # strip the wrapper so BIN/INCLUDE/LIB sit at the top of
                     # the host tree like the other toolchains.
+                    zip_dir = td_path / "zip"
                     subprocess.run(
-                        ["unzip", "-q", str(archive), "-d", td + "/zip"],
+                        ["unzip", "-q", str(archive), "-d", str(zip_dir)],
                         check=True,
                         capture_output=True,
                         stdin=subprocess.DEVNULL,
                         timeout=_EXTRACT_TIMEOUT_S,
                     )
-                    _flatten_wrapper_dir(Path(td + "/zip"), extract_dir)
+                    _flatten_wrapper_dir(zip_dir, extract_dir)
                 elif src.layout == "7z-strip1":
                     # A .7z with the same single top-level wrapper dir
                     # (mingw-builds archives carry mingw32/).
+                    extract_tmp = td_path / "7z"
                     subprocess.run(
-                        ["7z", "x", "-y", str(archive), f"-o{td}/7z"],
+                        ["7z", "x", "-y", str(archive), f"-o{extract_tmp}"],
                         check=True,
                         capture_output=True,
                         stdin=subprocess.DEVNULL,
                         timeout=_EXTRACT_TIMEOUT_S,
                     )
-                    _flatten_wrapper_dir(Path(td + "/7z"), extract_dir)
+                    _flatten_wrapper_dir(extract_tmp, extract_dir)
                 elif src.layout == "tar-strip1":
                     subprocess.run(
                         # Auto-detect compression (no -z/-J): the pinned

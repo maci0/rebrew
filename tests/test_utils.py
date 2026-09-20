@@ -566,8 +566,9 @@ class TestSourceEncoding:
 
 class TestWritableTempDir:
     """Sandbox dirs must live on a real-disk, container-visible location —
-    and never directly in the home directory (home sandboxes go under
-    ~/.cache/rebrew/tmp so stragglers stay out of ~)."""
+    and never directly in the home directory (cache sandboxes go under
+    $XDG_CACHE_HOME/rebrew/tmp or ~/.cache/rebrew/tmp so stragglers stay
+    out of ~)."""
 
     def test_creates_prefixed_dir(self) -> None:
         from rebrew.utils import writable_temp_dir
@@ -586,14 +587,29 @@ class TestWritableTempDir:
 
         from rebrew.utils import writable_temp_dir
 
+        xdg = os.environ.get("XDG_CACHE_HOME", "").strip()
+        cache_root = Path(xdg) if xdg else Path.home() / ".cache"
         allowed = {
-            Path.home() / ".cache" / "rebrew" / "tmp",
+            cache_root / "rebrew" / "tmp",
             Path(__file__).resolve().parents[1] / ".cache",
             Path(tempfile.gettempdir()),
         }
         d = writable_temp_dir("rebrew_test_")
         try:
             assert d.parent in allowed, f"temp dir escaped to {d.parent}"
+        finally:
+            import shutil
+
+            shutil.rmtree(d, ignore_errors=True)
+
+    def test_honors_xdg_cache_home(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        from rebrew.utils import writable_temp_dir
+
+        xdg = tmp_path / "xdg-cache"
+        monkeypatch.setenv("XDG_CACHE_HOME", str(xdg))
+        d = writable_temp_dir("rebrew_test_")
+        try:
+            assert d.parent == xdg / "rebrew" / "tmp"
         finally:
             import shutil
 

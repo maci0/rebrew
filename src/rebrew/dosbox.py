@@ -63,7 +63,7 @@ def make_sandbox_dir(prefix: str) -> Path:
     container-visible location (see :func:`rebrew.utils.writable_temp_dir`).
 
     DOSBox breaks on tmpfs mounts and the docker runner mounts the workdir at
-    /work, so the user's home is preferred when writable; read-only homes
+    /work, so the user cache dir is preferred when writable; read-only homes
     (sandboxed / CI) fall back to the workspace ``.cache`` and TMPDIR.
 
     Repeated calls with the same *prefix* reuse the same directory (stale

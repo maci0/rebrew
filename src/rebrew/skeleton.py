@@ -127,7 +127,7 @@ def _render_annotation_block(
         if convention_stub is not None and convention_stub.startswith("#ifdef REBREW_ALLOW_NAKED"):
             # Fenced naked/fallback stub: each branch needs its own body —
             # a naked function cannot contain C statements.
-            _parts = convention_stub.split("\n")
+            _parts = convention_stub.splitlines()
             _naked_sig, _fallback_sig = _parts[1], _parts[3]
             lines.append("#ifdef REBREW_ALLOW_NAKED\n")
             lines.append(f"{_naked_sig}\n{{\n")
