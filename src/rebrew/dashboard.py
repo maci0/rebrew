@@ -27,7 +27,9 @@ Successful 200 responses negotiate ``gzip`` when the client accepts it, carry an
 ``ETag`` (HTML content hash or DB mtime), and use ``Cache-Control: private,
 no-cache`` so browsers can 304 without serving a stale body after ``build-db``.
 The static HTML shell is gzip-precompressed at import time so the entry document
-skips per-request compression CPU.  JSON uses compact separators.
+skips per-request compression CPU.  JSON uses compact separators.  The handler
+speaks HTTP/1.1 so browsers reuse one TCP connection for the shell, bootstrap
+payload, and later filter fetches.
 
 The query layer (``Dashboard``) is separated from the HTTP plumbing so tests
 exercise it without opening a socket.
@@ -1365,6 +1367,11 @@ class _Handler(BaseHTTPRequestHandler):
     dashboard: Dashboard
     #: Host headers this server must answer; everything else gets 403.
     allowed_hosts: frozenset[str] = frozenset()
+    # Browsers speak HTTP/1.1; keep the TCP connection open across the HTML
+    # shell plus /api/bootstrap (and later filter fetches) instead of a fresh
+    # handshake per request.  Content-Length is set on every response so
+    # persistent connections stay framed correctly.
+    protocol_version = "HTTP/1.1"
 
     def _respond(self, method: str) -> None:
         if not _host_allowed(self.headers.get("Host", ""), self.allowed_hosts):

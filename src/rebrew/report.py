@@ -3,19 +3,23 @@
 Generates a self-contained (no external JS/CSS/CDN) static site into an
 output directory with four pages:
 
-- ``index.html``   — summary cards + full function table (name, VA, status,
-  size, cflags), sorted by VA.
+- ``index.html``   — summary cards + function table (name, VA, status,
+  size, cflags), sorted by VA.  Large tables split across ``index-pN.html``
+  so the first paint stays within a few hundred rows.
 - ``strings.html`` — printable strings extracted from the binary's data
-  sections (via :mod:`rebrew.analysis`) with per-string reference counts.
+  sections (via :mod:`rebrew.analysis`) with per-string reference counts;
+  likewise paginated when the list is long.
 - ``imports.html`` — PE import table (dll, API, IAT slot) and detected
   ``jmp [IAT]`` import stubs.
 - ``graph.html``   — the function call graph as embedded Mermaid source
   (from :mod:`rebrew.depgraph`); the plain-text adjacency list ships as a
   sibling ``adjacency.txt`` so the HTML page stays small for first paint.
 
-Every page degrades gracefully: missing binaries, missing data sections,
-or call-graph failures produce a note inside the page instead of aborting
-the whole report.
+Every HTML/text page also writes a max-effort ``.gz`` sidecar (when smaller)
+so static servers with precompressed-asset support can skip per-request
+compression.  Every page degrades gracefully: missing binaries, missing data
+sections, or call-graph failures produce a note inside the page instead of
+aborting the whole report.
 
 Usage:
     rebrew report                       # Write site to <output_dir>/report
@@ -23,6 +27,7 @@ Usage:
     rebrew report --json                # Machine-readable summary
 """
 
+import gzip
 import html
 import json
 import logging
@@ -52,6 +57,7 @@ from rebrew.sources import (
 )
 from rebrew.status import StatusReport, collect_status
 from rebrew.utils import (
+    atomic_write_bytes,
     atomic_write_text,
     rel_display_path,
 )
@@ -69,6 +75,13 @@ _PAGES: list[tuple[str, str]] = [
     ("imports.html", "Imports"),
     ("graph.html", "Call graph"),
 ]
+
+# Rows per HTML page for index/strings tables.  Keeps the entry document's
+# HTML parse budget small on large projects (thousands of functions/strings);
+# extra pages are linked via a no-JS pager.
+_TABLE_PAGE_SIZE = 250
+# Max-effort gzip for build-once static assets (mirrors dashboard precompress).
+_GZIP_PRECOMPRESS_LEVEL = 9
 
 _CSS = """
 body { font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -123,6 +136,9 @@ td.blocker { max-width: 28rem; overflow-wrap: anywhere; }
 }
 .note { background: #fff7ed; border: 1px solid #9a3412; border-radius: 8px;
         padding: 0.9rem 1.1rem; color: #9a3412; margin-bottom: 1.5rem; }
+.pager { color: #334155; font-size: 0.9rem; margin: 0.75rem 0 1rem; }
+.pager a { color: #1e40af; min-height: 2.75rem; padding: 0.35rem 0.5rem;
+           display: inline-flex; align-items: center; }
 pre.mermaid { background: #fff; border: 1px solid #64748b;
         border-radius: 8px; padding: 1rem; overflow-x: auto;
         font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
@@ -138,6 +154,43 @@ def _nav_link(href: str, label: str, active: bool) -> str:
     cls = " class='active'" if active else ""
     current = " aria-current='page'" if active else ""
     return f"<a href='{href}'{cls}{current}>{html.escape(label)}</a>"
+
+
+def _paged_href(stem: str, page: int) -> str:
+    """Filename for page *page* (1-based) of a paginated report table."""
+    return f"{stem}.html" if page <= 1 else f"{stem}-p{page}.html"
+
+
+def _pager_nav(stem: str, page: int, total_pages: int, total_rows: int, noun: str) -> str:
+    """No-JS prev/next pager for multi-page report tables."""
+    if total_pages <= 1:
+        return ""
+    start = (page - 1) * _TABLE_PAGE_SIZE + 1
+    end = min(page * _TABLE_PAGE_SIZE, total_rows)
+    links: list[str] = []
+    if page > 1:
+        links.append(f"<a href='{_paged_href(stem, page - 1)}'>Previous</a>")
+    links.append(f"Page {page} of {total_pages}")
+    if page < total_pages:
+        links.append(f"<a href='{_paged_href(stem, page + 1)}'>Next</a>")
+    return (
+        f"<p class='pager' role='navigation' aria-label='Table pages'>"
+        f"Showing {start}\u2013{end} of {total_rows} {html.escape(noun)}. "
+        f"{' · '.join(links)}</p>"
+    )
+
+
+def _write_static(path: Path, content: str | bytes, *, encoding: str = "utf-8") -> None:
+    """Write *content* and a max-effort ``.gz`` sidecar when compression shrinks it."""
+    if isinstance(content, str):
+        atomic_write_text(path, content, encoding=encoding)
+        raw = content.encode(encoding)
+    else:
+        atomic_write_bytes(path, content)
+        raw = content
+    compressed = gzip.compress(raw, compresslevel=_GZIP_PRECOMPRESS_LEVEL)
+    if len(compressed) < len(raw):
+        atomic_write_bytes(Path(str(path) + ".gz"), compressed)
 
 
 def _table_scroll(table_html: str, aria_label: str = "Scrollable table") -> str:
@@ -319,13 +372,28 @@ def _ne_summary(cfg: ProjectConfig) -> dict[str, Any] | None:
         return None
 
 
+def _function_rows_html(functions: list[dict[str, Any]]) -> str:
+    """Render ``<tr>…</tr>`` rows for a slice of the function index table."""
+    return "".join(
+        "<tr>"
+        f"<td class='mono'>{html.escape(fn['name'])}</td>"
+        f"<td class='mono'>0x{fn['va']:08x}</td>"
+        f"<td class='status-{html.escape(fn['status'])}'>{html.escape(fn['status'])}</td>"
+        f"<td class='mono'>{fn['size']}</td>"
+        f"<td class='mono'>{html.escape(fn['cflags'])}</td>"
+        f"<td class='blocker'>{html.escape(fn['blocker'])}</td>"
+        "</tr>"
+        for fn in functions
+    )
+
+
 def _render_index(
     target: str,
     report: StatusReport,
     functions: list[dict[str, Any]],
     ne: dict[str, Any] | None = None,
-) -> str:
-    """Render index.html: summary cards + full function table."""
+) -> list[tuple[str, str]]:
+    """Render index.html (+ ``index-pN.html`` when the table exceeds one page)."""
     sc = report.status_counts
     matched = sc.get("EXACT", 0) + sc.get("RELOC", 0) + sc.get("PROVEN", 0)
     cards: list[tuple[str, str]] = [
@@ -350,29 +418,6 @@ def _render_index(
         for label, value in cards
     )
 
-    if functions:
-        rows = "".join(
-            "<tr>"
-            f"<td class='mono'>{html.escape(fn['name'])}</td>"
-            f"<td class='mono'>0x{fn['va']:08x}</td>"
-            f"<td class='status-{html.escape(fn['status'])}'>{html.escape(fn['status'])}</td>"
-            f"<td class='mono'>{fn['size']}</td>"
-            f"<td class='mono'>{html.escape(fn['cflags'])}</td>"
-            f"<td class='blocker'>{html.escape(fn['blocker'])}</td>"
-            "</tr>"
-            for fn in functions
-        )
-        table = _data_table(
-            "Reversed functions",
-            ["Name", "VA", "Status", "Size", "CFLAGS", "Blocker"],
-            rows,
-        )
-    else:
-        table = (
-            "<p class='note'>No reversed functions found. Add annotated sources under "
-            "the project's reversed directory, then regenerate this report.</p>"
-        )
-
     # 16-bit NE targets get their own card set (segments, VMTs).
     ne_html = ""
     if ne:
@@ -393,32 +438,72 @@ def _render_index(
         )
         ne_html = f"<h2>16-bit NE target</h2><div class='cards'>{ne_cards}</div>"
 
-    body = f"<h2>Function index</h2><div class='cards'>{card_html}</div>{ne_html}{table}"
-    return _page("Function index", target, "index.html", body)
+    if not functions:
+        table = (
+            "<p class='note'>No reversed functions found. Add annotated sources under "
+            "the project's reversed directory, then regenerate this report.</p>"
+        )
+        body = f"<h2>Function index</h2><div class='cards'>{card_html}</div>{ne_html}{table}"
+        return [("index.html", _page("Function index", target, "index.html", body))]
+
+    total = len(functions)
+    total_pages = max(1, (total + _TABLE_PAGE_SIZE - 1) // _TABLE_PAGE_SIZE)
+    pages: list[tuple[str, str]] = []
+    for page_num in range(1, total_pages + 1):
+        start = (page_num - 1) * _TABLE_PAGE_SIZE
+        chunk = functions[start : start + _TABLE_PAGE_SIZE]
+        table = _data_table(
+            "Reversed functions",
+            ["Name", "VA", "Status", "Size", "CFLAGS", "Blocker"],
+            _function_rows_html(chunk),
+        )
+        pager = _pager_nav("index", page_num, total_pages, total, "functions")
+        if page_num == 1:
+            body = (
+                f"<h2>Function index</h2><div class='cards'>{card_html}</div>"
+                f"{ne_html}{pager}{table}"
+            )
+            title = "Function index"
+        else:
+            body = f"<h2>Function index (continued)</h2>{pager}{table}"
+            title = f"Function index ({page_num}/{total_pages})"
+        pages.append((_paged_href("index", page_num), _page(title, target, "index.html", body)))
+    return pages
 
 
-def _render_strings(cfg: ProjectConfig) -> str:
-    """Render strings.html: printable strings from data sections + refs."""
+def _render_strings(cfg: ProjectConfig) -> list[tuple[str, str]]:
+    """Render strings.html (+ ``strings-pN.html`` when the table exceeds one page)."""
+    target = _target_name(cfg)
     binary = _target_binary(cfg)
     if binary is None:
-        return _page(
-            "Strings",
-            _target_name(cfg),
-            "strings.html",
-            "<p class='note'>Target binary not found. Check the binary path in "
-            "rebrew-project.toml, then regenerate this report.</p>",
-        )
+        return [
+            (
+                "strings.html",
+                _page(
+                    "Strings",
+                    target,
+                    "strings.html",
+                    "<p class='note'>Target binary not found. Check the binary path in "
+                    "rebrew-project.toml, then regenerate this report.</p>",
+                ),
+            )
+        ]
     try:
         info = load_binary(binary)
         strings = iter_strings(info, min_len=4)
     except (OSError, ValueError, RuntimeError):
-        return _page(
-            "Strings",
-            _target_name(cfg),
-            "strings.html",
-            "<p class='note'>Failed to parse the target binary. Confirm the file is a "
-            "supported PE/ELF/NE binary, then regenerate this report.</p>",
-        )
+        return [
+            (
+                "strings.html",
+                _page(
+                    "Strings",
+                    target,
+                    "strings.html",
+                    "<p class='note'>Failed to parse the target binary. Confirm the file is a "
+                    "supported PE/ELF/NE binary, then regenerate this report.</p>",
+                ),
+            )
+        ]
     if not strings:
         data_sections = [n for n in (".rdata", ".data", ".rodata") if n in info.sections]
         if not data_sections:
@@ -427,20 +512,40 @@ def _render_strings(cfg: ProjectConfig) -> str:
             )
         else:
             note = f"No printable strings (min length 4) found in {', '.join(data_sections)}."
-        return _page("Strings", _target_name(cfg), "strings.html", f"<p class='note'>{note}</p>")
+        return [
+            (
+                "strings.html",
+                _page("Strings", target, "strings.html", f"<p class='note'>{note}</p>"),
+            )
+        ]
 
     try:
         refs = string_refs(info, strings)
     except (OSError, ValueError, RuntimeError):
         refs = {}
 
-    rows = "".join(_string_row(s, refs.get(s.va) or []) for s in strings)
-    body = "<p>Strings extracted from the binary's data sections (min length 4).</p>" + _data_table(
-        "Strings from data sections",
-        ["VA", "Section", "Kind", "Text", "Refs", "Referenced from"],
-        rows,
-    )
-    return _page("Strings", _target_name(cfg), "strings.html", body)
+    total = len(strings)
+    total_pages = max(1, (total + _TABLE_PAGE_SIZE - 1) // _TABLE_PAGE_SIZE)
+    pages: list[tuple[str, str]] = []
+    intro = "<p>Strings extracted from the binary's data sections (min length 4).</p>"
+    for page_num in range(1, total_pages + 1):
+        start = (page_num - 1) * _TABLE_PAGE_SIZE
+        chunk = strings[start : start + _TABLE_PAGE_SIZE]
+        rows = "".join(_string_row(s, refs.get(s.va) or []) for s in chunk)
+        table = _data_table(
+            "Strings from data sections",
+            ["VA", "Section", "Kind", "Text", "Refs", "Referenced from"],
+            rows,
+        )
+        pager = _pager_nav("strings", page_num, total_pages, total, "strings")
+        if page_num == 1:
+            body = f"{intro}{pager}{table}"
+            title = "Strings"
+        else:
+            body = f"<h2>Strings (continued)</h2>{pager}{table}"
+            title = f"Strings ({page_num}/{total_pages})"
+        pages.append((_paged_href("strings", page_num), _page(title, target, "strings.html", body)))
+    return pages
 
 
 def _string_row(s: StringEntry, xrefs: list[Xref]) -> str:
@@ -657,7 +762,9 @@ def generate_report(cfg: ProjectConfig, out: Path) -> dict[str, Any]:
         {"out": str, "pages": [...], "summary": {totals...}}
 
     Every page is written even when its data source is missing or broken —
-    such pages degrade to an explanatory note instead.
+    such pages degrade to an explanatory note instead.  Oversized index/strings
+    tables spill into ``*-pN.html`` companions; each text asset also gets a
+    ``.gz`` sidecar when gzip shrinks it.
     """
     out.mkdir(parents=True, exist_ok=True)
     report = collect_status(cfg)
@@ -665,16 +772,15 @@ def generate_report(cfg: ProjectConfig, out: Path) -> dict[str, Any]:
     target = _target_name(cfg)
 
     graph_html, adjacency = _render_graph(cfg)
-    pages = [
-        ("index.html", _render_index(target, report, functions, ne=_ne_summary(cfg))),
-        ("strings.html", _render_strings(cfg)),
-        ("imports.html", _render_imports(cfg)),
-        ("graph.html", graph_html),
-    ]
-    for name, content in pages:
-        atomic_write_text(out / name, content, encoding="utf-8")
+    page_files: list[tuple[str, str]] = []
+    page_files.extend(_render_index(target, report, functions, ne=_ne_summary(cfg)))
+    page_files.extend(_render_strings(cfg))
+    page_files.append(("imports.html", _render_imports(cfg)))
+    page_files.append(("graph.html", graph_html))
+    for name, content in page_files:
+        _write_static(out / name, content)
     if adjacency is not None:
-        atomic_write_text(out / "adjacency.txt", adjacency, encoding="utf-8")
+        _write_static(out / "adjacency.txt", adjacency)
 
     summary = {
         "total_functions": report.total_functions,
@@ -684,7 +790,12 @@ def generate_report(cfg: ProjectConfig, out: Path) -> dict[str, Any]:
         "byte_coverage_pct": report.byte_coverage_pct,
         "status_counts": report.status_counts,
     }
-    return {"out": str(out), "pages": [name for name, _ in pages], "summary": summary}
+    # Primary nav pages stay first and stable for --json consumers; extras
+    # (index-p2.html, …) follow in write order.
+    primary_names = ["index.html", "strings.html", "imports.html", "graph.html"]
+    written = [name for name, _ in page_files]
+    extra = [n for n in written if n not in primary_names]
+    return {"out": str(out), "pages": primary_names + extra, "summary": summary}
 
 
 def generate_decomp_dev_report(cfg: ProjectConfig, out_path: Path) -> dict[str, Any]:

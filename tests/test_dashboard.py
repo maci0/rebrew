@@ -704,11 +704,37 @@ class TestHttpMethods:
         handler.handle_one_request()
 
         headers, body = handler.wfile.getvalue().split(b"\r\n\r\n", 1)
-        assert headers.startswith(b"HTTP/1.0 405 ")
+        assert headers.startswith(b"HTTP/1.1 405 ")
         assert b"Content-Type: application/json; charset=utf-8\r\n" in headers
         assert b"Allow: GET, HEAD" in headers
         assert b"Cache-Control: no-store\r\n" in headers
         assert json.loads(body) == {"error": "method not allowed (read-only; GET, HEAD only)"}
+
+    def test_http11_keeps_connection_for_pipelined_gets(self, dashboard: Dashboard) -> None:
+        """HTTP/1.1 responses leave the socket open so shell + bootstrap share one TCP."""
+        from io import BytesIO
+        from unittest.mock import Mock
+
+        from rebrew.dashboard import _Handler, allowed_hosts_for
+
+        handler = _Handler.__new__(_Handler)
+        assert _Handler.protocol_version == "HTTP/1.1"
+        # Two GETs on one connection (browser: document, then /api/bootstrap).
+        handler.rfile = BytesIO(
+            b"GET / HTTP/1.1\r\nHost: 127.0.0.1:8000\r\n\r\n"
+            b"GET /api/bootstrap HTTP/1.1\r\nHost: 127.0.0.1:8000\r\n\r\n"
+        )
+        handler.wfile = BytesIO()
+        handler.allowed_hosts = allowed_hosts_for("127.0.0.1", 8000)
+        handler.dashboard = dashboard
+        handler.log_message = Mock()
+        handler.handle()
+        raw = handler.wfile.getvalue()
+        assert raw.count(b"HTTP/1.1 200 ") == 2
+        # Persistent framing: no Connection: close on either response.
+        assert b"Connection: close" not in raw
+        assert b"Rebrew coverage" in raw or b"Content-Encoding: gzip" in raw
+        assert b'"targets"' in raw or b"application/json" in raw
 
 
 class TestGzipNegotiation:

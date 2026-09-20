@@ -340,3 +340,64 @@ class TestLibraryHeaderRows:
         nodes, _edges, _dispatch = build_graph(src, cfg=cfg)
         assert "va:0x00002000" in nodes
         assert nodes["va:0x00002000"]["file"] == "library_msvcrt.h"
+
+
+class TestReportPayloadShape:
+    def test_writes_precompressed_gzip_sidecars(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Static pages ship a .gz sidecar so servers can skip per-request compression."""
+        import gzip
+
+        _write_project(tmp_path, pe_bytes=make_pe(b"\x90" * 32))
+        monkeypatch.chdir(tmp_path)
+        site = tmp_path / "site"
+        result = runner.invoke(app, ["--output", str(site)])
+        assert result.exit_code == 0, result.output
+        for name in ("index.html", "strings.html", "imports.html", "graph.html"):
+            plain = site / name
+            gz_path = Path(str(plain) + ".gz")
+            assert gz_path.is_file(), name
+            raw = plain.read_bytes()
+            compressed = gz_path.read_bytes()
+            assert len(compressed) < len(raw)
+            assert gzip.decompress(compressed) == raw
+
+    def test_large_function_table_paginates(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Index pages beyond _TABLE_PAGE_SIZE spill to index-pN.html for first paint."""
+        from rebrew.config import load_config
+        from rebrew.report import _TABLE_PAGE_SIZE, generate_report
+
+        _write_project(tmp_path, pe_bytes=make_pe(b"\x90" * 32))
+        src = tmp_path / "src"
+        meta_lines = [
+            '["SERVER.0x10001000"]\nstatus = "EXACT"\n',
+            '["SERVER.0x10002000"]\nstatus = "NEAR_MATCHING"\n',
+        ]
+        # Enough extras that page 1 is full and page 2 exists.
+        for i in range(_TABLE_PAGE_SIZE):
+            va = 0x10003000 + i * 0x10
+            (src / f"extra_{i:04d}.c").write_text(
+                f"// FUNCTION: SERVER 0x{va:08x}\n// SIZE: 16\nint extra_{i}(void) {{ return 0; }}\n",
+                encoding="utf-8",
+            )
+            meta_lines.append(f'["SERVER.0x{va:08x}"]\nstatus = "STUB"\n')
+        (tmp_path / "rebrew-functions.toml").write_text("".join(meta_lines), encoding="utf-8")
+        monkeypatch.chdir(tmp_path)
+        site = tmp_path / "site"
+        cfg = load_config(tmp_path)
+        result = generate_report(cfg, site)
+        assert (site / "index.html").is_file()
+        assert (site / "index-p2.html").is_file()
+        index = (site / "index.html").read_text(encoding="utf-8")
+        page2 = (site / "index-p2.html").read_text(encoding="utf-8")
+        assert "Showing 1–" in index or "Showing 1\u2013" in index
+        assert "Next" in index
+        assert "Previous" in page2
+        assert "index-p2.html" in result["pages"]
+        # Page 1 must not embed every row (first-paint budget).
+        assert index.count("<tr>") < _TABLE_PAGE_SIZE + 5
+        assert "extra_0" in index
+        assert "extra_249" in page2
