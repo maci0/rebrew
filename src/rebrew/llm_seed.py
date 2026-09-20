@@ -13,12 +13,13 @@ environment variables.
 
 Untrusted boundaries: the seed source is project C (may contain adversarial
 fence breakouts if copied from elsewhere); the model response is never executed
-— only tree-sitter-valid snippets with a matching function name, no
-``#include``, a single definition, and size caps are returned.  Request cost
-is bounded by source truncation, ``max_tokens``, and an HTTP body ceiling
-before JSON parse.  Rate limits / overload (429/503/529) are never retried —
-empty seeds, GA continues.  ``--seed-llm --dry-run`` previews the prompt
-without calling the endpoint.
+— only tree-sitter-valid snippets that are a single top-level function
+definition (comments allowed), matching name *and* prototype, with no
+preprocessor directives, and size caps.  Request cost is bounded by source
+truncation, ``max_tokens``, and an HTTP body ceiling before JSON parse.
+Rate limits / overload (429/503/529) are never retried — empty seeds, GA
+continues.  ``--seed-llm --dry-run`` previews the prompt without calling the
+endpoint.
 """
 
 from __future__ import annotations
@@ -42,9 +43,11 @@ _DEFAULT_MODEL = "gpt-4o-mini"
 _UNPINNED_MODELS = frozenset({"latest", "auto", "default"})
 # Provider overload / rate-limit statuses: never retry (retry storms = spend).
 _NO_RETRY_HTTP = frozenset({429, 503, 529})
-# Seeds must be self-contained; an #include lets model output pull arbitrary
-# headers into the GA compile and change the trust boundary of the TU.
-_INCLUDE_RE = re.compile(r"^\s*#\s*include\b", re.MULTILINE)
+# Seeds must be self-contained; any preprocessor line (#include, #define,
+# pragma, #line, …) lets model output change the TU trust boundary.
+_PREPROC_RE = re.compile(r"^\s*#", re.MULTILINE)
+# Root children allowed beside the single function_definition.
+_ALLOWED_TOP_LEVEL = frozenset({"function_definition", "comment"})
 
 _SYSTEM_PROMPT = """\
 You are helping byte-match a C function in an old MSVC binary.  The current
@@ -155,14 +158,26 @@ def extract_seeds(text: str) -> list[str]:
     return [b.strip() for b in blocks if b.strip() and len(b.strip()) <= _MAX_SEED_CHARS]
 
 
-def valid_c_source(src: str, *, expect_name: str | None = None) -> bool:
-    """True when *src* parses without recovery and defines a function.
+def _normalize_proto(proto: str) -> str:
+    """Collapse insignificant prototype whitespace for equality checks."""
+    text = " ".join(proto.split())
+    return re.sub(r"\s*([(),*])\s*", r"\1", text)
+
+
+def valid_c_source(
+    src: str,
+    *,
+    expect_name: str | None = None,
+    expect_proto: str | None = None,
+) -> bool:
+    """True when *src* parses without recovery and is a lone function def.
 
     Known calling conventions are stripped only for syntax validation.
-    Snippets must define exactly one function.  When *expect_name* is set,
-    that name must match — so a hallucinated helper or Trojan second
-    definition cannot ride into the GA population beside a matching name.
-    ``#include`` is always rejected: seeds must be self-contained.
+    Snippets must contain exactly one ``function_definition`` at the
+    translation-unit root (comments allowed; no globals, typedefs, structs,
+    or preprocessor).  When *expect_name* / *expect_proto* are set, both must
+    match — so a hallucinated helper, wrong arity, or Trojan second
+    definition cannot ride into the GA population.
     """
     from rebrew.c_parser import (
         _strip_cc,
@@ -173,7 +188,7 @@ def valid_c_source(src: str, *, expect_name: str | None = None) -> bool:
 
     if len(src) > _MAX_SEED_CHARS:
         return False
-    if _INCLUDE_RE.search(src):
+    if _PREPROC_RE.search(src):
         return False
     try:
         parser_pair = get_ts_parser()
@@ -183,28 +198,37 @@ def valid_c_source(src: str, *, expect_name: str | None = None) -> bool:
         tree = parser.parse(_strip_cc(src).encode("utf-8"))
         if tree.root_node.has_error:
             return False
+        top = list(tree.root_node.children)
+        if any(c.type not in _ALLOWED_TOP_LEVEL for c in top):
+            return False
+        if sum(1 for c in top if c.type == "function_definition") != 1:
+            return False
         result = extract_function_name_and_proto(src)
     except Exception as exc:  # garbage must never break seeding
         logging.getLogger(__name__).debug("seed parse failed: %s", exc)
         return False
     if result is None:
         return False
-    name, _proto = result
+    name, proto = result
     defined = find_c_function_definitions(src)
     if len(defined) != 1:
         return False
-    return expect_name is None or (name == expect_name and defined[0][0] == expect_name)
+    if expect_name is not None and not (name == expect_name and defined[0][0] == expect_name):
+        return False
+    if expect_proto is None:
+        return True
+    return _normalize_proto(proto) == _normalize_proto(expect_proto)
 
 
-def _expected_name(source: str) -> str | None:
-    """Function name from the seed source, or None when unparseable."""
+def _expected_signature(source: str) -> tuple[str, str] | None:
+    """``(name, prototype)`` from the seed source, or None when unparseable."""
     from rebrew.c_parser import extract_function_name_and_proto
 
     try:
         result = extract_function_name_and_proto(source)
     except Exception:
         return None
-    return result[0] if result else None
+    return result if result else None
 
 
 def _parse_response(data: Any) -> str:
@@ -312,7 +336,9 @@ def _request(
     if conf.get("api_key"):
         headers["Authorization"] = f"Bearer {conf['api_key']}"
     safe = _sanitize_source(source)
-    expect = _expected_name(source)
+    expect = _expected_signature(source)
+    expect_name = expect[0] if expect else None
+    expect_proto = expect[1] if expect else None
     # Cap completion size: ~count seeds × a modest function body.
     max_tokens = min(_DEFAULT_MAX_TOKENS, max(256, count * 512))
     payload = {
@@ -329,7 +355,11 @@ def _request(
         data = _load_response_json(resp)
     _log_usage(data, model)
     text = _parse_response(data)
-    seeds = [s for s in extract_seeds(text) if valid_c_source(s, expect_name=expect)]
+    seeds = [
+        s
+        for s in extract_seeds(text)
+        if valid_c_source(s, expect_name=expect_name, expect_proto=expect_proto)
+    ]
     return seeds[:count]
 
 

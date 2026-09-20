@@ -135,6 +135,56 @@ class TestValidCSource:
         assert not valid_c_source(src)
         assert not valid_c_source(src, expect_name="f")
 
+    @pytest.mark.parametrize(
+        "preamble",
+        [
+            "#define EVIL 1\n",
+            '#pragma comment(lib, "x")\n',
+            '#line 1 "x.c"\n',
+            "#error no\n",
+        ],
+    )
+    def test_any_preprocessor_rejected(self, preamble: str) -> None:
+        src = f"{preamble}int f(void) {{ return 0; }}\n"
+        assert not valid_c_source(src, expect_name="f")
+
+    @pytest.mark.parametrize(
+        "extra",
+        [
+            "int g;\n",
+            "typedef int I;\n",
+            "struct S { int x; };\n",
+            "enum E { A };\n",
+            "int f(void);\n",
+        ],
+    )
+    def test_top_level_non_function_rejected(self, extra: str) -> None:
+        src = f"{extra}int f(void) {{ return 0; }}\n"
+        assert not valid_c_source(src, expect_name="f")
+
+    def test_expect_proto_rejects_arity_mismatch(self) -> None:
+        assert valid_c_source(
+            "int f(void) { return 0; }",
+            expect_name="f",
+            expect_proto="int f(void)",
+        )
+        assert not valid_c_source(
+            "int f(int x) { return x; }",
+            expect_name="f",
+            expect_proto="int f(void)",
+        )
+
+    def test_expect_proto_ignores_whitespace(self) -> None:
+        assert valid_c_source(
+            "int f(int x, char *p) { return x; }",
+            expect_name="f",
+            expect_proto="int f(int x,char* p)",
+        )
+
+    def test_comment_before_function_allowed(self) -> None:
+        src = "/* alt form */\nint f(void) { return 1; }\n"
+        assert valid_c_source(src, expect_name="f", expect_proto="int f(void)")
+
     def test_extra_definition_rejected_without_expect(self) -> None:
         src = "int f(void) { return 0; }\nint g(void) { return 1; }\n"
         assert not valid_c_source(src)
@@ -328,6 +378,13 @@ class TestRequestSeeds:
         seeds = request_seeds(_cfg("https://llm/v1", "k"), "int f(void){return 0;}", client=client)
         assert seeds == []
 
+    def test_wrong_proto_seed_dropped(self) -> None:
+        client = _FakeClient(
+            {"choices": [{"message": {"content": "```c\nint f(int x) { return x; }\n```\n"}}]}
+        )
+        seeds = request_seeds(_cfg("https://llm/v1", "k"), "int f(void){return 0;}", client=client)
+        assert seeds == []
+
     def test_extra_definition_seed_dropped(self) -> None:
         content = "```c\nint f(void) { return 0; }\nint evil(void) { return 1; }\n```\n"
         client = _FakeClient({"choices": [{"message": {"content": content}}]})
@@ -336,6 +393,15 @@ class TestRequestSeeds:
 
     def test_include_seed_dropped(self) -> None:
         content = "```c\n#include <stdio.h>\nint f(void) { return 0; }\n```\n"
+        client = _FakeClient({"choices": [{"message": {"content": content}}]})
+        seeds = request_seeds(_cfg("https://llm/v1", "k"), "int f(void){return 0;}", client=client)
+        assert seeds == []
+
+    def test_global_and_pragma_seed_dropped(self) -> None:
+        content = (
+            "```c\nint g;\nint f(void) { return 0; }\n```\n"
+            "```c\n#pragma once\nint f(void) { return 1; }\n```\n"
+        )
         client = _FakeClient({"choices": [{"message": {"content": content}}]})
         seeds = request_seeds(_cfg("https://llm/v1", "k"), "int f(void){return 0;}", client=client)
         assert seeds == []
