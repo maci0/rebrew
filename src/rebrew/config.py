@@ -23,7 +23,6 @@ To load a specific target::
     cfg = load_config(target="client_exe")
 """
 
-import os
 import re
 import shlex
 import sys
@@ -260,7 +259,7 @@ class ProjectConfig:
 
     # --- project-level defaults ---
     project_name: str = ""
-    default_jobs: int = os.cpu_count() or 4  # Default parallelism for batch operations
+    default_jobs: int = 4  # Default parallelism for batch operations (matches [project] jobs)
     db_dir: Path = field(default_factory=lambda: Path())
     output_dir: Path = field(default_factory=lambda: Path())
 
@@ -314,8 +313,8 @@ class ProjectConfig:
     """
 
     # --- [llm] section: optional LLM-assisted GA seeding ---
-    # ``[llm] endpoint``/``api_key``/``model`` in rebrew-project.toml; env
-    # vars REBREW_LLM_ENDPOINT/REBREW_LLM_API_KEY/REBREW_LLM_MODEL fall back.
+    # ``[llm] endpoint``/``model`` in rebrew-project.toml win over env;
+    # ``REBREW_LLM_API_KEY`` wins when present (including empty) over TOML.
     llm_endpoint: str = ""
     llm_api_key: str = ""
     llm_model: str = ""
@@ -1318,11 +1317,23 @@ def load_config(
         v = link_raw.get(key)
         return v if isinstance(v, str) else None
 
+    tsaware_raw = link_raw.get("tsaware")
+    if tsaware_raw is None:
+        tsaware_val: bool | None = None
+    elif isinstance(tsaware_raw, bool):
+        tsaware_val = tsaware_raw
+    else:
+        # Match _as_bool: reject stringy "false" (bool("false") is True).
+        _config_warn(
+            f"Expected boolean for link.tsaware, got {tsaware_raw!r}; ignoring",
+        )
+        tsaware_val = None
+
     cfg.link = LinkConfig(
         file_align=_parse_optional_int(link_raw.get("file_align"), "link.file_align"),
         stack_reserve=_parse_optional_int(link_raw.get("stack_reserve"), "link.stack_reserve"),
         stack_commit=_parse_optional_int(link_raw.get("stack_commit"), "link.stack_commit"),
-        tsaware=link_raw.get("tsaware") if isinstance(link_raw.get("tsaware"), bool) else None,
+        tsaware=tsaware_val,
         linker_version=_opt_str("linker_version"),
         os_version=_opt_str("os_version"),
         subsystem_version=_opt_str("subsystem_version"),

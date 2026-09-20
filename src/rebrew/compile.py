@@ -928,16 +928,20 @@ def _toolchain_cache_id(spec: "ToolchainSpec") -> str:
 def recompile_url(cfg: ProjectConfig) -> str | None:
     """The recompile service base URL, or None when the local backend applies.
 
-    Precedence: ``REBREW_RECOMPILE_URL`` env first (per-run override without
-    editing the TOML), then ``[compiler] recompile_url``.  Empty/unset means
-    local docker images.  A non-empty value that is not http(s) with a host
-    raises ``ValueError`` so a typo does not turn into a cryptic HTTP failure.
+    Precedence: when ``REBREW_RECOMPILE_URL`` is **present** in the environment
+    it wins (even if empty — empty forces the local docker backend for one
+    run without editing TOML); otherwise ``[compiler] recompile_url``.
+    A non-empty value that is not http(s) with a host raises ``ValueError``
+    so a typo does not turn into a cryptic HTTP failure.
     """
-    env = os.environ.get("REBREW_RECOMPILE_URL", "").strip()
-    candidate = env or (getattr(cfg, "recompile_url", "") or "").strip()
+    if "REBREW_RECOMPILE_URL" in os.environ:
+        candidate = os.environ["REBREW_RECOMPILE_URL"].strip()
+        label = "REBREW_RECOMPILE_URL"
+    else:
+        candidate = (getattr(cfg, "recompile_url", "") or "").strip()
+        label = "compiler.recompile_url"
     if not candidate:
         return None
-    label = "REBREW_RECOMPILE_URL" if env else "compiler.recompile_url"
     return validate_http_url(candidate, label)
 
 

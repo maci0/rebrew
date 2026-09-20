@@ -59,6 +59,14 @@ class TestLlmConfig:
         conf = llm_config(cfg)
         assert conf == {"endpoint": "https://cfg.example/v1", "api_key": "env-key"}
 
+    def test_api_key_empty_env_clears_toml(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Present-but-empty REBREW_LLM_API_KEY overrides a committed TOML key."""
+        monkeypatch.delenv("REBREW_LLM_ENDPOINT", raising=False)
+        monkeypatch.setenv("REBREW_LLM_API_KEY", "")
+        cfg = _cfg(endpoint="https://cfg.example/v1", api_key="cfg-key")
+        conf = llm_config(cfg)
+        assert conf == {"endpoint": "https://cfg.example/v1", "api_key": ""}
+
     def test_env_fallback(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("REBREW_LLM_ENDPOINT", "https://env.example/v1")
         monkeypatch.setenv("REBREW_LLM_API_KEY", "env-key")

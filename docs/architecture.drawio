@@ -819,7 +819,7 @@
         <mxCell id="e2" value="&lt;b&gt;Plugin overlays&lt;/b&gt;&lt;br&gt;REBREW_TOOLCHAIN_OVERLAY_DIR&lt;br&gt;TOML extra ToolchainSpecs&lt;br&gt;REBREW_SKILLS_DIR&lt;br&gt;community SKILL.md" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#16a34a;fontColor=#14532d;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="330" y="926" width="250" height="110" as="geometry"/>
         </mxCell>
-        <mxCell id="e3" value="&lt;b&gt;LLM (never in argv)&lt;/b&gt;&lt;br&gt;REBREW_LLM_ENDPOINT&lt;br&gt;REBREW_LLM_API_KEY&lt;br&gt;[llm] keys win if set&lt;br&gt;Bearer header only, never logged" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#16a34a;fontColor=#14532d;align=center;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="e3" value="&lt;b&gt;LLM (never in argv)&lt;/b&gt;&lt;br&gt;REBREW_LLM_ENDPOINT&lt;br&gt;REBREW_LLM_API_KEY (env wins)&lt;br&gt;[llm] endpoint/model: TOML then env&lt;br&gt;Bearer header only, never logged" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#16a34a;fontColor=#14532d;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="600" y="926" width="250" height="110" as="geometry"/>
         </mxCell>
         <mxCell id="e4" value="&lt;b&gt;Remote backend&lt;/b&gt;&lt;br&gt;REBREW_RECOMPILE_URL&lt;br&gt;or [compiler] recompile_url&lt;br&gt;recompile_emit_assembly&lt;br&gt;(training tap, default off)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#16a34a;fontColor=#14532d;align=center;fontSize=11;" vertex="1" parent="1">

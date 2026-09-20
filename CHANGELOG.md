@@ -26,6 +26,12 @@
 - **Wheel METADATA ``Security`` project URL** points at ``SECURITY.md``.
 
 ### Fixed
+- **``rebrew cfg set`` refuses non-empty secret keys** (e.g. ``llm.api_key``)
+  so credentials never land in argv/history; clear with an empty value or
+  set ``REBREW_LLM_API_KEY``.  URL knobs (``recompile_url``, ``llm.endpoint``)
+  are validated on set.  Present-but-empty ``REBREW_RECOMPILE_URL`` /
+  ``REBREW_LLM_API_KEY`` override TOML (force local / clear key for the run).
+  Non-bool ``link.tsaware`` warns instead of silent ignore.
 - **Bare ``uv run pytest`` survives ``FORCE_COLOR`` / ``GITHUB_ACTIONS``** —
   the ``pytest_ansi_env`` plugin applies the same ``NO_COLOR`` / ``TERM=dumb`` /
   ``_TYPER_FORCE_DISABLE_TERMINAL`` trio as ``make test``, so CliRunner

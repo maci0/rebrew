@@ -34,6 +34,7 @@ from rich.console import Console
 
 from rebrew.cli import EXIT_ERROR, TargetOption, error_exit, json_print
 from rebrew.config import find_root as _config_find_root
+from rebrew.config import validate_http_url
 from rebrew.utils import atomic_write_text
 
 console = Console(stderr=True)
@@ -56,6 +57,17 @@ def _display_config_value(key: str, value: Any) -> Any:
     if _is_secret_key(key) and value not in (None, ""):
         return "***"
     return value
+
+
+def _url_config_label(key: str) -> str | None:
+    """Return a validate_http_url label when *key* is a known HTTP URL field."""
+    leaf = key.rsplit(".", 1)[-1]
+    parts = key.split(".")
+    if leaf == "recompile_url":
+        return key
+    if leaf == "endpoint" and (key == "endpoint" or "llm" in parts):
+        return key
+    return None
 
 
 def _redact_secrets(obj: Any) -> Any:
@@ -663,6 +675,17 @@ def set_value(
         console.print(f"[dim]note: {key} is project-scoped → setting {routed}[/dim]")
         key = routed
 
+    # Secrets on argv land in process listings / shell history.  Refuse any
+    # non-empty credential write via CLI; empty clears a committed TOML key
+    # without putting a secret on argv.  Prefer REBREW_LLM_API_KEY (etc.).
+    if _is_secret_key(key) and value != "":
+        error_exit(
+            f"refusing to set {key} via CLI (secret would appear in argv/history) — "
+            "set REBREW_LLM_API_KEY in the environment, or clear with "
+            f"`rebrew cfg set {key} ''`",
+            code=EXIT_ERROR,
+        )
+
     # Resolve dotted key path (creates intermediate tables as needed)
     parent, final_key, _ = _resolve_dotted_key(doc, key, create_missing=True)
 
@@ -677,18 +700,17 @@ def set_value(
             with contextlib.suppress(ValueError):
                 parsed_value = float(value)
 
+    url_label = _url_config_label(key)
+    if url_label is not None:
+        try:
+            parsed_value = validate_http_url(str(parsed_value), url_label)
+        except ValueError as exc:
+            error_exit(str(exc), code=EXIT_ERROR)
+
     shown = _display_config_value(key, parsed_value)
     if dry_run:
         console.print(f"[cyan]dry-run:[/cyan] would set {key} = {shown!r}")
         return
-    # Secrets on argv land in process listings / shell history.  Still write
-    # (cfg is the documented editor) but steer users at REBREW_LLM_API_KEY, and
-    # never echo the secret back on the confirmation line.
-    if _is_secret_key(key):
-        console.print(
-            "[yellow]warning:[/yellow] writing api_key via CLI puts the secret in "
-            "argv/history — prefer REBREW_LLM_API_KEY in the environment"
-        )
     parent[final_key] = parsed_value
     save_toml(doc, toml_path)
     console.print(f"[green]Set {key} = {shown!r}[/green]")

@@ -250,6 +250,11 @@ class TestRecompileUrl:
         monkeypatch.delenv("REBREW_RECOMPILE_URL")
         assert recompile_url(cfg) == "http://cfg"
 
+    def test_empty_env_forces_local_over_toml(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Present-but-empty REBREW_RECOMPILE_URL disables a TOML remote URL."""
+        monkeypatch.setenv("REBREW_RECOMPILE_URL", "")
+        assert recompile_url(SimpleNamespace(recompile_url="http://cfg")) is None
+
     def test_empty_means_local_backend(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("REBREW_RECOMPILE_URL", raising=False)
         assert recompile_url(SimpleNamespace(recompile_url="")) is None

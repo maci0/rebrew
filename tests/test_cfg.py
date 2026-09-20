@@ -643,23 +643,44 @@ class TestCLISet:
         doc, _ = load_toml(tmp_path)
         assert doc["compiler"]["image_base"] == 0x10000000
 
-    def test_set_api_key_confirmation_redacts_secret(self, tmp_path: Path, monkeypatch) -> None:
-        """Confirmation / dry-run lines must not echo the credential."""
+    def test_set_api_key_refused(self, tmp_path: Path, monkeypatch) -> None:
+        """Non-empty secrets must not ride on argv via cfg set."""
         _make_project(tmp_path)
         monkeypatch.chdir(tmp_path)
         secret = "sk-live-super-secret-value"
         result = runner.invoke(cfg_app, ["set", "llm.api_key", secret])
-        assert result.exit_code == 0
+        assert result.exit_code != 0
         assert secret not in result.output
-        assert "***" in result.output
+        assert "refusing" in result.output.lower() or "REBREW_LLM_API_KEY" in result.output
         doc, _ = load_toml(tmp_path)
-        assert doc["llm"]["api_key"] == secret
+        assert "llm" not in doc or doc.get("llm", {}).get("api_key") in (None, "")
+
+    def test_set_api_key_empty_clears(self, tmp_path: Path, monkeypatch) -> None:
+        """Empty value clears a committed key without putting a secret on argv."""
+        _make_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        doc, path = load_toml(tmp_path)
+        doc["llm"] = {"api_key": "sk-already-committed"}
+        save_toml(doc, path)
+        result = runner.invoke(cfg_app, ["set", "llm.api_key", ""])
+        assert result.exit_code == 0
+        doc, _ = load_toml(tmp_path)
+        assert doc["llm"]["api_key"] == ""
+
+    def test_set_recompile_url_rejects_invalid(self, tmp_path: Path, monkeypatch) -> None:
+        _make_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(cfg_app, ["set", "compiler.recompile_url", "ftp://evil"])
+        assert result.exit_code != 0
+        assert "http" in result.output.lower()
 
     def test_show_api_key_redacts_secret(self, tmp_path: Path, monkeypatch) -> None:
         _make_project(tmp_path)
         monkeypatch.chdir(tmp_path)
         secret = "sk-show-must-not-print"
-        runner.invoke(cfg_app, ["set", "llm.api_key", secret])
+        doc, path = load_toml(tmp_path)
+        doc["llm"] = {"api_key": secret}
+        save_toml(doc, path)
         result = runner.invoke(cfg_app, ["show", "llm.api_key"])
         assert result.exit_code == 0
         assert secret not in result.stdout
@@ -669,7 +690,9 @@ class TestCLISet:
         _make_project(tmp_path)
         monkeypatch.chdir(tmp_path)
         secret = "sk-raw-dump-secret"
-        runner.invoke(cfg_app, ["set", "llm.api_key", secret])
+        doc, path = load_toml(tmp_path)
+        doc["llm"] = {"api_key": secret}
+        save_toml(doc, path)
         result = runner.invoke(cfg_app, ["raw", "--format", "json"])
         assert result.exit_code == 0
         assert secret not in result.stdout

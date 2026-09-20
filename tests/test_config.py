@@ -263,6 +263,23 @@ file_align = 512
             cfg = load_config(root)
         assert cfg.link.file_align == 512
 
+    def test_link_tsaware_non_bool_warns(self, tmp_path: Path) -> None:
+        """Stringy link.tsaware must not be silently ignored (bool("false") is True)."""
+        toml = """\
+[project]
+default_target = "main"
+
+[targets.main]
+binary = "test.exe"
+
+[link]
+tsaware = "false"
+"""
+        root = _make_project(tmp_path, toml)
+        with pytest.warns(UserWarning, match="link.tsaware"):
+            cfg = load_config(root)
+        assert cfg.link.tsaware is None
+
     def test_unknown_arch_falls_back(self, tmp_path: Path) -> None:
         toml = """\
 [project]

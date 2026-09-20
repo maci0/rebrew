@@ -263,10 +263,12 @@ they do **not** all share one global precedence over the TOML.
 
 | Setting | Winner |
 |---------|--------|
-| `[compiler] recompile_url` / `REBREW_RECOMPILE_URL` | env (per-run override without editing TOML) |
+| `[compiler] recompile_url` / `REBREW_RECOMPILE_URL` | env **when the variable is present** (even if empty — empty forces local docker for the run); else TOML |
 | `[llm] endpoint` / `REBREW_LLM_ENDPOINT` | TOML, then env |
-| `[llm] api_key` / `REBREW_LLM_API_KEY` | **env when set**, else TOML — prefer the env var; do not commit keys |
+| `[llm] api_key` / `REBREW_LLM_API_KEY` | env **when present** (even if empty — clears a committed TOML key for the run); else TOML — prefer the env var; do not commit keys |
 | `[llm] model` / `REBREW_LLM_MODEL` | TOML, then env (default `gpt-4o-mini`) |
+
+Unset vs empty: for the two env-wins settings above, an unset variable falls through to TOML; an empty value is intentional and overrides TOML. `rebrew cfg set` refuses non-empty secret keys (they would appear in argv/history); clear with `rebrew cfg set llm.api_key ''` or set `REBREW_LLM_API_KEY`.
 
 Within a project file, compiler settings still merge as: built-in defaults →
 `[compiler]` → `[targets.<name>.compiler]` → library/metadata overrides
@@ -282,8 +284,9 @@ by the CLI layer and win for that invocation.
   `[llm] api_key` in TOML. Endpoint must be an `http(s)` URL with a host.
 - `REBREW_RECOMPILE_URL` — base URL of the recompile compile service
   (e.g. `http://localhost:8000`). Same effect as `[compiler] recompile_url`;
-  the env var wins when both are set. When set, every compile routes through
-  the service instead of local docker images. Must be an `http(s)` URL with a
+  when the variable is present it wins (empty forces local docker for the
+  run). When set to a non-empty URL, every compile routes through the
+  service instead of local docker images. Must be an `http(s)` URL with a
   host (invalid values fail at load / resolve time).
 
 ### Paths / overlays
@@ -314,6 +317,8 @@ by the CLI layer and win for that invocation.
 
 ### Other
 
+- `REBREW_PROJECTS_ROOT` — root directory scanned by `tools/audit_projects.py`
+  (default: parent of this install).
 - `_REBREW_COMPLETE` — shell-completion mode marker (probed during `rebrew init` shell-completion scaffolding; there is no `rebrew completion` command).
 - `GH_TOKEN` / `GITHUB_TOKEN` — optional GitHub auth for `rebrew toolchain`
   downloads that need a token (not a rebrew-prefixed name; standard gh env).
@@ -422,7 +427,7 @@ resolves through the `server.dll` key.
 |------------|-------------|---------|
 | `list-targets` | List all defined targets | `rebrew cfg list-targets` |
 | `show [KEY]` | Print config or a dot-separated key | `rebrew cfg show compiler.cflags` |
-| `set KEY VALUE` | Set a scalar config key | `rebrew cfg set compiler.cflags "/O1"` |
+| `set KEY VALUE` | Set a scalar config key (refuses non-empty secret keys such as `llm.api_key` — use `REBREW_LLM_API_KEY`; URL fields are validated) | `rebrew cfg set compiler.cflags "/O1"` |
 | `raw` | Dump entire config as JSON (default) or TOML (`--format toml`) | `rebrew cfg raw` |
 | `path` | Print absolute path to `rebrew-project.toml` | `rebrew cfg path` |
 | `add-target NAME` | Add a target section + create dirs | `rebrew cfg add-target client.exe -b original/client.exe` |
