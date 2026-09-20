@@ -138,9 +138,10 @@ rebrew flirt flirt_sigs/              # identify library functions via FLIRT
 rebrew crt-match --all --fix-source   # auto-annotate MSVCRT functions
 ```
 
-The agent skills in `.agents/skills/` (`rebrew-intake`, `rebrew-workflow`,
-`rebrew-matching`, `rebrew-data-analysis`) walk the same loop with
-step-by-step instructions for AI agents.
+The agent skills in `.agents/skills/` (`rebrew-init`, `rebrew-intake`,
+`rebrew-workflow`, `rebrew-matching`, `rebrew-data-analysis`,
+`rebrew-ghidra-sync`) walk the same loop with step-by-step instructions for
+AI agents.
 
 ```mermaid
 graph TD

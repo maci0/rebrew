@@ -22,8 +22,10 @@ options) or a `Checkbox` (on/off), so total combinations multiply.
 
 `thorough` and `full` are too large to materialize as a full set (~400 MB):
 `generate_flag_combinations` stride-samples the product stream down to a
-100,000-combination memory bound (86,016 and 99,890 respectively), so the
-columns above are the full product counts, not what actually compiles.
+100,000-combination memory bound (51,610 and 95,280 respectively — the
+stride is bumped until it is coprime to every axis length so no flag value
+is silently dropped), so the columns above are the full product counts, not
+what actually compiles.
 
 ## Axes per Tier
 

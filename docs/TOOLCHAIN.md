@@ -1034,7 +1034,7 @@ yara /tmp/test.yar target.dll
 | Library | Use in Project |
 |---------|----------------|
 | **capstone** | x86 disassembly in matcher scoring |
-| **diskcache** | Persistent caching for GA compilation results (`matcher/core.py`) |
+| **diskcache** | Persistent shared compile cache (`.rebrew/compile_cache/` via `compile_cache.py`; GA same-run memo is in-memory) |
 | **httpx** | HTTP client for Ghidra/ReVa MCP communication (`ghidra/cli.py`, `skeleton.py`, `decompiler.py`) |
 | **lief** | PE/ELF/Mach-O parsing — core dependency for `binary_loader.py`, `matcher/parsers.py`, `test.py` |
 | **numpy** | Numeric computation |

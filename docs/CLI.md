@@ -617,9 +617,11 @@ files.  `rebrew doctor` is environment health only — source-corpus checks
 (annotation markers, VA-vs-function-list consistency) live in
 `rebrew lint`.  16-bit-only checks (e.g. Delphi 1.0) only appear on
 x86_16 targets.
-The **Runner** check also flags a `wine`-configured project that has wibo
-available, with the exact config switch (`runner = "tools/wibo"` + strip
-the `wine ` prefix) for faster headless compiles.
+The **Runner** check treats wine as the compatible default. When wibo is
+also present it notes that fact on a passing check — it does **not**
+recommend switching (`runner = "tools/wibo"`), because wibo fails on some
+tools. For image-backed profiles the host runner config is obsolete;
+`--install-wibo` downloads only and leaves `compiler.runner` untouched.
 
 ### `rebrew data`
 

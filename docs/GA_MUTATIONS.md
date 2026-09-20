@@ -8,8 +8,9 @@ and scores the resulting binary against the target function's bytes.
 Operators live in [`mutations/`](../src/rebrew/matcher/mutations/) (`basic`,
 `structural`, `advanced`, `enhancements`, `pragmas`) and are assembled into
 `ALL_MUTATIONS` by [`mutator.py`](../src/rebrew/matcher/mutator.py); they are
-driven by [tree-sitter](https://tree-sitter.github.io/) AST queries, with
-regex fallback for complex multi-statement patterns.
+driven by [tree-sitter](https://tree-sitter.github.io/) AST queries (new
+operators must stay tree-sitter-only); a few older ops still use regex for
+multi-statement patterns that predate the query migration.
 
 ---
 
@@ -23,8 +24,8 @@ Source (.c) ──→ mutate_code(source, rng)
                   └─ Return (mutated_source, mutation_name) or None
                         │
                         ▼
-                  build_candidate(source, ...)
-                  ├─ SHA-256 hash → check compile cache
+                  build_candidate_obj_only(source, ...)   # default; linked-exe uses build_candidate
+                  ├─ SHA-256 hash → in-memory same-run memo, then shared compile cache
                   ├─ Run CL.EXE inside the docker image (60s timeout)
                   ├─ parse_obj_symbol_bytes() → extract function bytes + relocs
                   └─ Return BuildResult {ok, obj_bytes, reloc_offsets}
@@ -46,7 +47,7 @@ Source (.c) ──→ mutate_code(source, rng)
 - **Mutation**: One random mutation per child (35% chance of 2–3 chained mutations); the per-child rate rises 0.05 per generation without a new best, up to +0.25 and never past 0.95
 - **Crossover**: Line-level crossover between two parents
 - **Stagnation**: After half the stagnation budget (20 generations by default) without improvement, a quarter of the population is reseeded from the seed, at most twice per run; the run stops after 40 flat generations
-- **Caching**: SQLite-backed `BuildCache` prevents recompiling identical source
+- **Caching**: Same-run memo is an in-memory dict; cross-run persistence is the shared compile cache (`.rebrew/compile_cache/`). `BuildCache` in `matcher/core.py` is import-compat only
 
 ---
 

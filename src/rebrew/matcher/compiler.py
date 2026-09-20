@@ -385,10 +385,11 @@ def generate_flag_combinations(tier: str = "targeted", profile: str = "msvc-6.0"
     tier_ids = tiers[tier]  # None = all axes
     axes = _flags_to_axes(flags, tier_ids)
 
-    # The Cartesian product of all axes can be enormous (full ≈ 2.5M combos,
-    # ~400MB materialized as a set).  Deterministically stride-sample the
-    # product stream down to the cap instead of building the whole set first;
-    # under the cap the behavior is identical to before (full set + sort).
+    # The Cartesian product of all axes can be enormous (MSVC6 full ≈ 6.2M
+    # combos, ~400MB materialized as a set).  Deterministically stride-sample
+    # the product stream down to the cap instead of building the whole set
+    # first; under the cap the behavior is identical to before (full set +
+    # sort).
     total = math.prod(len(a) for a in axes)
     if total > _MAX_SWEEP_COMBOS:
         step = max(1, math.ceil(total / _MAX_SWEEP_COMBOS))
