@@ -262,6 +262,30 @@ def hex_list(data: bytes) -> str:
     return "{\n" + "\n".join(out) + "\n}"
 
 
+def _replace_matching_line(
+    lines: list[str],
+    pattern: re.Pattern[str],
+    def_line: str,
+    path: Path,
+    encoding: str,
+    dry_run: bool,
+) -> bool:
+    """Replace the first line matching *pattern* with indented *def_line*.
+
+    Returns True when a match was found (whether or not the text changed).
+    """
+    for i, ln in enumerate(lines):
+        m = pattern.match(ln)
+        if m:
+            new_ln = m.group(1) + def_line
+            if new_ln != ln:
+                lines[i] = new_ln
+                if not dry_run:
+                    atomic_write_text(path, "\n".join(lines) + "\n", encoding=encoding)
+            return True
+    return False
+
+
 def insert_definition(
     f: Path,
     name: str,
@@ -299,16 +323,8 @@ def insert_definition(
     if init_text:
         def_line += f" = {init_text}"
     def_line += ";"
-    for i, ln in enumerate(lines):
-        m = extern_re.match(ln)
-        if m:
-            new_ln = m.group(1) + def_line
-            if new_ln == ln:
-                return True
-            lines[i] = new_ln
-            if not dry_run:
-                atomic_write_text(f, "\n".join(lines) + "\n", encoding=encoding)
-            return True
+    if _replace_matching_line(lines, extern_re, def_line, f, encoding, dry_run):
+        return True
 
     # Idempotent re-run: an existing definition (with initializer) must be
     # replaced in place — appending would leave two definitions of *name*.
@@ -339,16 +355,8 @@ def insert_definition(
         existing_re = re.compile(
             r"^(\s*)(?!extern\b)([A-Za-z_][\w\s]*\**)\s+" + re.escape(name) + r"\s*;\s*$"
         )
-    for i, ln in enumerate(lines):
-        m = existing_re.match(ln)
-        if m:
-            new_ln = m.group(1) + def_line
-            if new_ln == ln:
-                return True
-            lines[i] = new_ln
-            if not dry_run:
-                atomic_write_text(f, "\n".join(lines) + "\n", encoding=encoding)
-            return True
+    if _replace_matching_line(lines, existing_re, def_line, f, encoding, dry_run):
+        return True
 
     lines.append(def_line)
     if not dry_run:

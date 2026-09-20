@@ -103,10 +103,6 @@ def _cursor(query: ts.Query | _LazyQuery) -> ts.QueryCursor:
     return cursor
 
 
-# --- Query Definitions ---
-# We define tree-sitter queries here for performance
-
-
 def _find_function_body_insert_pos(source: bytes, ref_byte: int) -> int | None:
     """Find the insert position for a declaration at the top of the enclosing function body.
 

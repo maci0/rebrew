@@ -140,7 +140,6 @@ class BinaryInfo:
     arch: str = ""  # "x86_32", "mips32", "ppc32", ... (multi-arch P0)
     endian: str = ""  # "little" / "big" / "" = unknown (multi-arch P0)
 
-    # Base address
     image_base: int = 0
 
     # .text section shortcuts (most-used for rebrew)
@@ -148,13 +147,12 @@ class BinaryInfo:
     text_size: int = 0
     text_raw_offset: int = 0
 
-    # All sections
     sections: dict[str, SectionInfo] = field(default_factory=dict)
 
-    # Raw file bytes (lazy-loaded)
+    # Lazy-loaded; shared across workers via ``_load_binary_cache``.
     _data: bytes | None = field(default=None, repr=False)
 
-    # Cache validation (set by load_binary)
+    # Filled by ``load_binary`` for cache invalidation.
     _cache_mtime_ns: int = field(default=0, repr=False)
     _cache_fsize: int = field(default=0, repr=False)
 
@@ -1032,7 +1030,6 @@ def detect_source_language(binary_path: Path) -> tuple[str, str]:
     if parsed is None:
         return ("C", ".c")
 
-    # Collect section names
     section_names: list[str] = []
     try:
         for sec in parsed.sections:
@@ -1044,14 +1041,12 @@ def detect_source_language(binary_path: Path) -> tuple[str, str]:
     except (AttributeError, TypeError):
         pass
 
-    # Check sections for language-specific markers
     for name in section_names:
         if name == ".gopclntab" or name == ".gosymtab":
             return ("Go", ".go")
         if name in ("__objc_methnames", "__objc_classlist", "__objc_selrefs"):
             return ("Objective-C", ".m")
 
-    # Collect symbol names
     symbols: list[str] = []
     try:
         if hasattr(parsed, "symbols"):
@@ -1068,7 +1063,6 @@ def detect_source_language(binary_path: Path) -> tuple[str, str]:
     except (AttributeError, TypeError):
         pass
 
-    # Count mangling scheme hits
     go_count = 0
     rust_count = 0
     d_count = 0
@@ -1087,7 +1081,7 @@ def detect_source_language(binary_path: Path) -> tuple[str, str]:
         if sym_name.startswith("_Z"):
             cpp_itanium_count += 1
 
-    # Return first language exceeding threshold (most specific first)
+    # Most specific language whose mangling/section hits exceed the threshold.
     if go_count >= _THRESHOLD:
         return ("Go", ".go")
     if rust_count >= _THRESHOLD:

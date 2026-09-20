@@ -397,7 +397,6 @@ def find_neighbor_file(
     best_file = None
     best_gap = max_gap + 1
 
-    # Check left neighbor
     if idx > 0:
         left_va = covered[idx - 1]
         gap = va - left_va
@@ -405,7 +404,6 @@ def find_neighbor_file(
             best_gap = gap
             best_file = existing_vas[left_va]
 
-    # Check right neighbor
     if idx < len(covered):
         right_va = covered[idx]
         gap = right_va - va
@@ -425,22 +423,16 @@ def sanitize_name(ghidra_name: str) -> str:
     - No consecutive underscores
     - Maximum 64 characters
     """
-    # Strip FUN_ prefix
     if ghidra_name.startswith("FUN_"):
         # Convert FUN_<hex> prefix to func_<hex>, then fall through to the
         # shared pipeline so the remainder gets the same guarantees (no
         # consecutive underscores, leading-digit guard, 64-char cap).
         ghidra_name = "func_" + ghidra_name[4:].lower()
-    # Clean up special chars
     name = _SANITIZE_NON_ALNUM_RE.sub("_", ghidra_name)
-    # Collapse consecutive underscores
     name = _SANITIZE_MULTI_UNDERSCORE_RE.sub("_", name)
-    # Strip leading/trailing underscores
     name = name.strip("_")
-    # Ensure no leading digit (invalid C identifier)
     if name and name[0].isdigit():
         name = "_" + name
-    # Limit length
     if len(name) > 64:
         name = name[:64]
     return name or "unnamed"

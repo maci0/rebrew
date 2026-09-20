@@ -268,10 +268,8 @@ def _extract_array_suffix(declarator: Any, source_bytes: bytes) -> str:
     parts = []
     node = declarator
     while node.type == "array_declarator":
-        # Find the bracketed size
         for child in node.children:
             if child.type == "[":
-                # Grab from [ to ]
                 bracket_start = child.start_byte
                 for sibling in node.children:
                     if sibling.type == "]":
@@ -283,7 +281,6 @@ def _extract_array_suffix(declarator: Any, source_bytes: bytes) -> str:
                         )
                         break
                 break
-        # Recurse into nested array
         inner = _find_child(node, "array_declarator", "identifier", "pointer_declarator")
         if inner and inner.type == "array_declarator":
             node = inner
@@ -538,12 +535,11 @@ def find_extern_variables(source: str, *, include_definitions: bool = False) -> 
                     walk(child)
                 return
 
-            # Skip if any declarator in this declaration is a function declarator
+            # Skip function declarators — those are not variable declarations
             for child in node.children:
                 if _has_function_declarator(child):
-                    return  # This is a function declaration, not a variable
+                    return
 
-            # Extract type specifiers
             type_parts: list[str] = [
                 _node_text(child, src_bytes)
                 for child in node.children
@@ -561,7 +557,6 @@ def find_extern_variables(source: str, *, include_definitions: bool = False) -> 
 
             type_str = " ".join(type_parts) if type_parts else ""
 
-            # Extract declarator(s) — each is a variable
             for child in node.children:
                 if child.type in (
                     "init_declarator",

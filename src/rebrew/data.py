@@ -1259,10 +1259,8 @@ def main(
                 console.print(f"  {f}: {n}")
         return
 
-    # Scan source files
     scan = scan_globals(src_dir, cfg=cfg)
 
-    # Enrich with binary section info
     sections: dict[str, dict[str, Any]] = {}
     bin_info: Any = None  # single lazy binary parse, shared with --dispatch
     if bin_path and bin_path.exists():
@@ -1298,11 +1296,9 @@ def main(
                 + ", ".join(f"{n}@0x{va:x}" for n, va in out_of_range[:8])
             )
 
-    # Collect // DATA: annotations
     data_anns = scan_data_annotations(src_dir, cfg=cfg)
     scan.data_annotations = data_anns
 
-    # BSS layout mode
     if bss or fix_bss:
         bss_report = verify_bss_layout(scan, sections)
         if fix_bss:
@@ -1325,7 +1321,6 @@ def main(
             render_bss(console, bss_report)
         return
 
-    # Dispatch table mode
     if dispatch:
         if not bin_path or not bin_path.exists():
             error_exit("target binary not found (needed for --dispatch)", json_mode=json_output)
@@ -1358,7 +1353,6 @@ def main(
             render_dispatch(console, tables)
         return
 
-    # JSON output
     if json_output:
         data = scan.to_dict()
         if conflicts:
@@ -1387,7 +1381,6 @@ def main(
         json_print(data)
         return
 
-    # Rich output
     console.print()
 
     if summary:

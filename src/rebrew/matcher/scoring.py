@@ -475,7 +475,6 @@ def score_candidate(
             total=prologue_bonus,
         )
 
-    # Convert to numpy arrays for vectorized comparison
     if min_len > 0:
         t_arr = np.frombuffer(target_bytes[:min_len], dtype=np.uint8)
         c_arr = np.frombuffer(candidate_bytes[:min_len], dtype=np.uint8)
@@ -885,7 +884,6 @@ def diff_functions(
             payload["mnemonics"] = {"target": target_mnems, "candidate": cand_mnems}
         return payload
 
-    # Print header
     print(f"\nTarget ({len(target_bytes)}B) vs Candidate ({len(candidate_bytes)}B)")
     if mismatches_only:
         print(f"Showing {mismatch_count} structural differences only (** lines)")
@@ -1036,12 +1034,8 @@ def structural_similarity(
 
     structural_ratio = structural / total if total > 0 else 0.0
 
-    # Flag-sensitive heuristic: Why do we care about flag sensitivity?
-    # We want to avoid running a full 20-minute GA flag sweep if the issue is a
-    # genuine source code structural mismatch (like a missing 'if' statement).
-    # If the only differences are register allocation choices (RR), flags won't help.
-    # If the code is wildly different (low mnemonic ratio), flags won't help.
-    # We only run sweeps when the structure is close, but has small fixable differences.
+    # Sweep only when structure is close but not identical: register-only or
+    # wildly different mnemonics won't be fixed by flags alone.
     flag_sensitive = structural > 0 and structural_ratio < 0.5 and mnemonic_ratio > 0.80
 
     return StructuralSimilarity(
