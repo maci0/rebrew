@@ -58,7 +58,7 @@ BLOCKER writes
 auto-classified cases).  The Python gate is :func:`update_field` /
 :func:`remove_field` with *key* ``"blocker"`` / ``"blocker_delta"``.
 No hand-edits to ``rebrew-functions.toml`` — every write goes through the
-lock + ``atomic_write_text``.
+lock + ``atomic_write_locked`` (chmod writable → atomic replace → mode 0444).
 
 Merge semantics
 ---------------
@@ -69,8 +69,8 @@ field is mapped to ``note`` when the annotation has no explicit note.
 
 Atomicity
 ---------
-Writes use ``tomlkit`` for round-trip-safe serialisation and the standard
-``atomic_write_text`` helper (write to ``.tmp``, ``os.replace``).
+Writes use ``tomlkit`` for round-trip-safe serialisation and
+``atomic_write_locked`` (``.tmp`` + ``os.replace``, then re-lock to 0444).
 
 Thread safety
 -------------
@@ -827,15 +827,16 @@ def update_source_status(
 ) -> None:
     """Write STATUS for (module, va) to the metadata; never touches the .c file.
 
-    This is the single canonical place to promote a function's STATUS.  Both
-    ``rebrew test`` and ``rebrew verify`` call this function (always-on).
+    This is the single canonical place to promote a function's STATUS.
+    ``rebrew test`` calls it directly; ``rebrew verify`` goes through
+    :func:`update_statuses_batch` (same promotion rules, batched).
 
     PROVEN is a post-verify promotion from ``rebrew prove`` and is never
     silently demoted.  Callers that need to override this must pass
     ``force=True``.
 
     Uses a single read-modify-write cycle instead of separate get/set/delete
-    calls to minimise I/O.  Atomicity is provided by ``atomic_write_text``.
+    calls to minimise I/O.  Atomicity is provided by ``atomic_write_locked``.
 
     Args:
         metadata_dir: The metadata root directory (``cfg.metadata_dir``).

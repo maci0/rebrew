@@ -72,9 +72,10 @@ Single-source rules enforced by code where cheap:
 - Volatile metadata (`STATUS`/`BLOCKER`/`NOTE`/…) is not parsed from
   inline `.c` comments (`_kv_to_annotation` defaults STATUS to `STUB`);
   values live in `rebrew-functions.toml`, migrated by `lint --fix` /
-  W019.  Still read inline: `SIZE`/`CFLAGS` (reccmp contract) and
-  file-borne `TOOLCHAIN`/`SOURCE`/`SECTION`/`STRUCT`/`CALLERS`.  The
-  `library_*.h` extended KV parser remains the exception.
+  W019.  Still read inline: `SIZE`/`CFLAGS` (reccmp contract; co-read),
+  `TOOLCHAIN` and non-naked `SOURCE` (until migrated; metadata wins on
+  merge), `// SOURCE: naked` (file-borne), and structural `STRUCT`/
+  `CALLERS`.  The `library_*.h` extended KV parser remains the exception.
 
 ## Consequences
 

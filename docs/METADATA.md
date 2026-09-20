@@ -98,13 +98,14 @@ whenever the reference binary changes — the layout files carry
    for BLOCKER), `set_data_field` (data metadata), `rebrew library set`
    (library overrides).  **Do not hand-edit `rebrew-functions.toml` or
    `rebrew-data.toml`** — every write goes through `metadata_write_lock` +
-   `atomic_write_text` (see `rebrew/metadata.py`, `rebrew/data_metadata.py`).
+   `atomic_write_locked` (see `rebrew/metadata.py`, `rebrew/data_metadata.py`).
    No module-less metadata keys: the writers reject an empty module (a bare
    `0xVA` key was once writable but never readable — the guard now raises
    instead).
 4. Caches must be invalidation-correct: mtime-keyed or content-keyed, and
    written with the shared `atomic_write_text` / `metadata_write_lock`
-   machinery.
+   machinery (tool-owned TOML uses `atomic_write_locked` so the file stays
+   mode 0444).
 5. Generated scaffolding that must survive without `original/` (layout
    package, `.def`, `crt_region/`, `link_stubs.c`, toolchain files) is
    **VCS-intended** — derive it once, commit it, rebuild only on binary

@@ -59,4 +59,9 @@ Volatile, frequently-changing metadata (`STATUS`, `BLOCKER`, `NOTE`, `GHIDRA`, e
 
 ## Atomicity
 
-All tools that modify the source file system (like `rebrew lint --fix`, `rebrew skeleton`, `rebrew test`, and `rebrew rename`) use atomic file replacement (`atomic_write_text`). This ensures that if the process is killed midway or a power failure occurs, neither the source files nor the `rebrew-functions.toml` metadata files are ever left in an incomplete or corrupted state.
+Source-file rewrites (`rebrew lint --fix`, `rebrew skeleton`, `rebrew rename`,
+…) use atomic file replacement (`atomic_write_text`). Tool-owned metadata
+(`rebrew-functions.toml`, `rebrew-data.toml`, BinSync state TOML) uses
+`atomic_write_locked` — chmod writable, atomic replace, then mode 0444 — so a
+crash never leaves a torn file and casual hand-edits fail with Permission
+denied.

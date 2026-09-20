@@ -83,8 +83,12 @@ live in the `rebrew-functions.toml` file at `cfg.metadata_dir` — the parent of
 (e.g. `src/` for sources under `src/<module>/`). Inline `// STATUS:` etc. in
 `.c` files are NOT parsed (`_kv_to_annotation` hardcodes `STUB`) — they are
 migration debt that `lint --fix` (W019) moves to the TOML. Co-read exceptions:
-`SIZE`/`CFLAGS` (reccmp contract, read from the `.c`) and file-borne
-`TOOLCHAIN`/`SOURCE`/`SECTION`/`STRUCT`/`CALLERS`. There is no walk-up: callers must
+`SIZE`/`CFLAGS` (reccmp contract, read from the `.c`). File-borne /
+structural keys that stay inline: `// SOURCE: naked`, plus `STRUCT` /
+`CALLERS`. `SECTION` on DATA/GLOBAL migrates to `rebrew-data.toml`; on
+functions it is a legacy key that `--fix` strips. `TOOLCHAIN` and other
+`SOURCE` values are metadata-owned — W019 migrates them. There is no walk-up:
+callers must
 pass the correct metadata root. Metadata is managed automatically by the CLI tools.
 
 > [!CAUTION]

@@ -1,7 +1,7 @@
 """blocker.py – Programmatic BLOCKER management for rebrew-functions.toml.
 
 Every BLOCKER/BLOCKER_DELTA write must go through the metadata store
-(``rebrew.metadata``) under ``metadata_write_lock`` + ``atomic_write_text`` —
+(``rebrew.metadata``) under ``metadata_write_lock`` + ``atomic_write_locked`` —
 never by hand-editing the TOML.  This CLI is that gate.
 
 Other writers exist: ``rebrew diff --fix-blocker``, ``rebrew near-diag

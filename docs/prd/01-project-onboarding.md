@@ -61,10 +61,13 @@ Project Onboarding solves all of this with `rebrew init`, `rebrew doctor`, and t
 
 - Onboarding is not responsible for **finding** the binary; the user must drop it
   into `original/<filename>` themselves.
-- `rebrew init` does not download or build the toolchain. Windows/DOS compilers
-  run through docker images built from the sibling rebrew-toolchains checkout
-  (`rebrew toolchain build <name>`); native compilers are PATH/vendored binaries.
-  The legacy `--install-wibo` host runner is ignored for image-backed profiles.
+- `rebrew init` does not download or build the toolchain. Every shipped
+  compiler profile (`msvc-*`, `borland-*`, `watcom-*`, `delphi-1.0`, `ido-*`,
+  `gcc-*`, `clang-*`, `mingw-*`) runs docker-only — build or pull the image
+  with `rebrew toolchain build <name>` / `rebrew toolchain pull <name>`.
+  Only a plugin/overlay toolchain registered without an `image` may exec a
+  host PATH/vendored binary. The legacy `--install-wibo` host runner is
+  ignored for image-backed profiles.
 - Doctor does not attempt to **fix** problems. It diagnoses and exits non-zero;
   fixes are left to the user / `rebrew cfg set ...`.
 - No GUI; CLI only.

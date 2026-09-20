@@ -35,12 +35,14 @@ updated in place, never shadowed by an appended twin.
 
 Owned fields per entry::
 
-    name, size, section, note
+    name, type, size, section, note, status
+
+(``status`` is the data-verify verdict: ``VERIFIED`` / ``DRIFT`` / ``UNCHECKED``.)
 
 Atomicity
 ---------
-Writes use ``tomlkit`` for round-trip-safe serialisation and the standard
-``atomic_write_text`` helper (write to ``.tmp``, ``os.replace``).
+Writes use ``tomlkit`` for round-trip-safe serialisation and
+``atomic_write_locked`` (``.tmp`` + ``os.replace``, then re-lock to 0444).
 """
 
 from __future__ import annotations

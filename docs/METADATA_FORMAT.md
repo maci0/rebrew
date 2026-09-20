@@ -83,7 +83,7 @@ note = "register allocation differs in inner loop"
 ```
 
 **Managed exclusively** by `rebrew.metadata` (every write under
-`metadata_write_lock` + `atomic_write_text` — never hand-edited):
+`metadata_write_lock` + `atomic_write_locked` — never hand-edited):
 
 | Function / CLI | Purpose |
 |----------------|---------|
@@ -154,11 +154,14 @@ rebrew lint --fix
 ```
 
 This will:
-1. Remove `// STATUS:`, `// BLOCKER:`, etc. from `.c` files (leaving co-read
-   `// SIZE:`/`// CFLAGS:` and file-borne `// TOOLCHAIN:`/`// SOURCE:`/
-   `// SECTION:`/`// STRUCT:`/`// CALLERS:` in place).
+1. Remove `// STATUS:`, `// BLOCKER:`, `// TOOLCHAIN:`, etc. from `.c` files
+   (leaving co-read `// SIZE:`/`// CFLAGS:`, file-borne `// SOURCE: naked`,
+   and structural `// STRUCT:`/`// CALLERS:` in place; other `// SOURCE:`
+   values migrate into the TOML; `// SECTION:` on DATA/GLOBAL migrates to
+   `rebrew-data.toml`, and on functions is a legacy key that `--fix` strips).
 2. Write the values to the appropriate TOML (`rebrew-functions.toml`, or
    `rebrew-data.toml` for DATA/GLOBAL markers).
-3. Leave only the reccmp marker line (`// FUNCTION: MODULE 0xVA`) inline.
+3. Leave the reccmp marker line (`// FUNCTION: MODULE 0xVA`) plus any
+   co-read / file-borne / structural keys that were not migrated.
 4. Drop W029-redundant per-function `cflags` (and matching
    `compiler.cflags_presets` keys that only repeat project `cflags`).

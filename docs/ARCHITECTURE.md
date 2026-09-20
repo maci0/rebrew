@@ -136,13 +136,15 @@ would be a second answer to that question. See
 
 ## The compile → compare → STATUS/BLOCKER loop
 
-1. `parse_c_file_multi()` reads the marker line + co-read inline keys
-   (`SIZE`/`CFLAGS` reccmp contract, file-borne `TOOLCHAIN`/`SOURCE`/
-   `SECTION`/`STRUCT`/`CALLERS`) from a `.c` file. Inline `STATUS` etc.
-   are NOT parsed (`_kv_to_annotation` hardcodes `STUB`).
+1. `parse_c_file_multi()` reads the marker line plus inline keys still
+   used from the `.c`: co-read `SIZE`/`CFLAGS` (reccmp contract),
+   `TOOLCHAIN`/`SOURCE` (until migrated — metadata wins on merge),
+   `// SOURCE: naked` (file-borne), and structural `STRUCT`/`CALLERS`
+   (`SECTION` on DATA/GLOBAL is data-metadata-owned). Inline `STATUS`
+   etc. are NOT parsed (`_kv_to_annotation` hardcodes `STUB`).
 2. `merge_into_annotation()` overlays `rebrew-functions.toml` values (metadata
-   wins for owned fields: STATUS, BLOCKER, NOTE, GHIDRA, …; SIZE/CFLAGS are
-   co-read with metadata as override).
+   wins for owned fields: STATUS, TOOLCHAIN, BLOCKER, NOTE, GHIDRA, …;
+   SIZE/CFLAGS are co-read with metadata as override).
 3. `compile_and_compare()` compiles the source in the pinned toolchain
    image (`toolchain.py` — docker-only for every shipped profile, including
    gcc/clang/mingw; images built from the `rebrew-toolchains` checkout) and

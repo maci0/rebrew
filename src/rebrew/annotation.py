@@ -98,10 +98,10 @@ FUNCTION_MARKERS: frozenset[str] = frozenset({"FUNCTION", "LIBRARY", "STUB"})
 #: parser produces — dead defense that has since been removed).
 DATA_MARKERS: frozenset[str] = frozenset({"GLOBAL", "DATA"})
 
-# OPTIONAL_KEYS: only reccmp-compatible keys that are permitted inline.
-# All rebrew-specific keys (ORIGIN, CFLAGS, SKIP, GLOBALS, BLOCKER, SOURCE,
-# NOTE, SECTION, GHIDRA, BLOCKER_DELTA) must live in rebrew-functions.toml
-# see METADATA_KEYS.
+# OPTIONAL_KEYS: only reccmp-compatible keys that are permitted inline
+# without W019.  Rebrew-specific keys live in rebrew-functions.toml —
+# see METADATA_KEYS.  SIZE/CFLAGS are listed there too but are co-read
+# (W019 warns on disagreement; does not migrate).
 OPTIONAL_KEYS = {
     "ANALYSIS",  # reccmp compatibility (structural analysis note)
 }
@@ -816,15 +816,20 @@ def _kv_to_annotation(
     ``// SYMBOL:`` and ``// PROTOTYPE:`` inline annotations are not supported;
     they are ignored during parsing and will trigger W010 (unknown key) in lint.
 
-    Volatile metadata (STATUS, BLOCKER, NOTE, GHIDRA, ...) is likewise NOT
-    read inline — it lives in rebrew-functions.toml (overlay via
-    merge_into_annotation) and inline copies are migration debt (lint W019
-    + ``lint --fix`` move them).  Only the reccmp-native contract keys
-    (SIZE, CFLAGS) plus structural/file-borne keys (SECTION, STRUCT,
-    CALLERS, TOOLCHAIN, SOURCE) are read from the source: an external build
-    reads the .c directly (SIZE/CFLAGS), the toolchain override and the
-    naked-reconstruction marker (``// SOURCE: naked``, which self-clears
-    when the C body replaces it) must travel with the file.
+    Volatile metadata that is *not* read from inline comments (STATUS,
+    BLOCKER, NOTE, GHIDRA, …) lives only in rebrew-functions.toml and is
+    overlaid by merge_into_annotation; any inline copies are migration debt
+    (lint W019 + ``lint --fix``).  Still parsed from the ``.c``:
+
+    - reccmp-native contract keys (SIZE, CFLAGS) — TOML is an override;
+      W019 warns on disagreement, does not migrate
+    - TOOLCHAIN and non-naked SOURCE — read inline until migrated; metadata
+      wins on merge; W019 + ``lint --fix`` move them into the TOML
+    - ``// SOURCE: naked`` — file-borne (self-clears when the C body replaces
+      it); W019 exempt
+    - structural keys not in METADATA_FIELDS (STRUCT, CALLERS) — stay
+      inline; SECTION on DATA/GLOBAL is data-metadata-owned, on functions
+      it is a legacy key stripped by ``lint --fix``
     """
     c_func_name = kv.get("_C_FUNC_NAME", "")
     c_func_proto = kv.get("_C_FUNC_PROTO", "")
