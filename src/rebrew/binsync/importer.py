@@ -81,20 +81,33 @@ def is_meaningful(name: str) -> bool:
     )
 
 
-def _global_type_size_drift(local: Any, bs_entry: dict[str, str]) -> bool:
-    """True when BinSync's global type/size/section differs from the local entry."""
+def _global_field_updates(local: Any, bs_entry: dict[str, str]) -> list[tuple[str, str | int]]:
+    """Return ``(field, value)`` pairs where BinSync differs from *local*.
+
+    Shared by the drift probe and the writer so a new field cannot be checked
+    on one side and missed on the other.
+    """
+    updates: list[tuple[str, str | int]] = []
     bs_type = (bs_entry.get("type") or "").strip()
     if bs_type and bs_type != str(getattr(local, "type", "") or "").strip():
-        return True
+        updates.append(("type", bs_type))
     bs_size = (bs_entry.get("size") or "").strip()
     if bs_size:
         try:
-            if int(bs_size, 0) != int(getattr(local, "size", 0) or 0):
-                return True
+            size_val = int(bs_size, 0)
+            if size_val != int(getattr(local, "size", 0) or 0):
+                updates.append(("size", size_val))
         except (TypeError, ValueError):
             pass
     bs_section = (bs_entry.get("section") or "").strip()
-    return bool(bs_section and bs_section != str(getattr(local, "section", "") or "").strip())
+    if bs_section and bs_section != str(getattr(local, "section", "") or "").strip():
+        updates.append(("section", bs_section))
+    return updates
+
+
+def _global_type_size_drift(local: Any, bs_entry: dict[str, str]) -> bool:
+    """True when BinSync's global type/size/section differs from the local entry."""
+    return bool(_global_field_updates(local, bs_entry))
 
 
 def _apply_global_type_size(
@@ -103,19 +116,8 @@ def _apply_global_type_size(
     """Write BinSync global type/size/section into rebrew-data.toml when they differ."""
     from rebrew.data_metadata import set_data_field
 
-    bs_type = (bs_entry.get("type") or "").strip()
-    if bs_type and bs_type != str(getattr(local, "type", "") or "").strip():
-        set_data_field(metadata_dir, va, "type", bs_type, module)
-    bs_size = (bs_entry.get("size") or "").strip()
-    if bs_size:
-        try:
-            if int(bs_size, 0) != int(getattr(local, "size", 0) or 0):
-                set_data_field(metadata_dir, va, "size", int(bs_size, 0), module)
-        except (TypeError, ValueError):
-            pass
-    bs_section = (bs_entry.get("section") or "").strip()
-    if bs_section and bs_section != str(getattr(local, "section", "") or "").strip():
-        set_data_field(metadata_dir, va, "section", bs_section, module)
+    for field, value in _global_field_updates(local, bs_entry):
+        set_data_field(metadata_dir, va, field, value, module)
 
 
 def _strip_cdecl_prefix(name: str) -> str:

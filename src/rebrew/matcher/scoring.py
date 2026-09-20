@@ -122,6 +122,13 @@ def _build_invalid_reloc_mask(
     return mask
 
 
+def _zero_u32_at(out: bytearray, addr: int, start: int) -> None:
+    """Zero four little-endian bytes of *out* starting at *addr + start*."""
+    for i in range(start, start + 4):
+        if addr + i < len(out):
+            out[addr + i] = 0
+
+
 def _zero_reloc_fields(insn: capstone.CsInsn, out: bytearray) -> None:
     """Zero the relocatable fields of one detail-disassembled x86-32 insn.
 
@@ -133,6 +140,11 @@ def _zero_reloc_fields(insn: capstone.CsInsn, out: bytearray) -> None:
     field is a 32-bit immediate/displacement, so an instruction shorter than
     5 bytes can never carry one — those return before any attribute access
     (capstone attribute reads are the per-instruction cost).
+
+    All payload indexes are relative to :func:`_opcode_index` so a legacy
+    prefix (segment override, ``66``, ``F2``/``F3``, ``F0``) does not make the
+    matcher read the opcode byte as ModR/M, miss a near ``jcc``, or clobber
+    the opcode when zeroing a ``push imm32``.
     """
     if not insn.opcode:
         return
@@ -140,41 +152,39 @@ def _zero_reloc_fields(insn: capstone.CsInsn, out: bytearray) -> None:
     if size < 5:
         return  # no room for a 32-bit relocatable field
     addr = insn.address
+    b = insn.bytes
+    opi = _opcode_index(b)
+    op0 = insn.opcode[0]
+    # Byte immediately after the (first) opcode byte — ModR/M or 0F secondary.
+    after = opi + 1
     # call rel32 / jmp rel32 / MOV abs32 (A0-A3)
-    if insn.opcode[0] in (0xE8, 0xE9, 0xA0, 0xA1, 0xA2, 0xA3):
-        if size >= 5:
-            # The field starts after the opcode byte: with a legacy prefix
-            # (66 A1 …) that is not offset 1, and zeroing from 1 also clobbered
-            # the opcode itself.
-            start = _opcode_index(insn.bytes) + 1
-            for i in range(start, start + 4):
-                if addr + i < len(out):
-                    out[addr + i] = 0
-    # cmp [abs32], imm8 / conditional jmp near
-    elif (insn.opcode[0] == 0x83 and len(insn.bytes) >= 2 and insn.bytes[1] == 0x3D) or (
-        insn.opcode[0] == 0x0F and len(insn.bytes) >= 2 and (insn.bytes[1] & 0xF0) == 0x80
+    if op0 in (0xE8, 0xE9, 0xA0, 0xA1, 0xA2, 0xA3):
+        # The field starts after the opcode byte: with a legacy prefix
+        # (66 A1 …) that is not offset 1, and zeroing from 1 also clobbered
+        # the opcode itself.
+        _zero_u32_at(out, addr, after)
+    # cmp [abs32], imm8 / conditional jmp near (0F 8x rel32)
+    elif (op0 == 0x83 and after < len(b) and b[after] == 0x3D) or (
+        op0 == 0x0F and after < len(b) and (b[after] & 0xF0) == 0x80
     ):
-        if size >= 6:
-            for i in range(2, 6):
-                if addr + i < len(out):
-                    out[addr + i] = 0
+        # 83 3D: disp32 at after+1; 0F 8x: rel32 at after+1 (after the 0F secondary).
+        if size >= after + 5:
+            _zero_u32_at(out, addr, after + 1)
     # push imm32 (if it looks like an address)
-    elif insn.opcode[0] == 0x68 or 0xB8 <= insn.opcode[0] <= 0xBF:
-        if size >= 5:
-            imm = int.from_bytes(insn.bytes[1:5], byteorder="little")
+    elif op0 == 0x68 or 0xB8 <= op0 <= 0xBF:
+        if after + 4 <= len(b):
+            imm = int.from_bytes(b[after : after + 4], byteorder="little")
             if imm > 0x10000000:
-                for i in range(1, 5):
-                    if addr + i < len(out):
-                        out[addr + i] = 0
+                _zero_u32_at(out, addr, after)
     # call/jmp dword ptr [abs32] (FF 15/25) or mov reg,[abs32] / mov [abs32],reg
     elif (
-        size >= 6
-        and len(insn.bytes) >= 2
+        size >= after + 5
+        and after < len(b)
         and (
-            (insn.opcode[0] == 0xFF and insn.bytes[1] in (0x15, 0x25))
+            (op0 == 0xFF and b[after] in (0x15, 0x25))
             or (
-                insn.opcode[0] in (0x8B, 0x89)
-                and insn.bytes[1]
+                op0 in (0x8B, 0x89)
+                and b[after]
                 in (
                     0x05,
                     0x0D,
@@ -188,9 +198,7 @@ def _zero_reloc_fields(insn: capstone.CsInsn, out: bytearray) -> None:
             )
         )
     ):
-        for i in range(2, 6):
-            if addr + i < len(out):
-                out[addr + i] = 0
+        _zero_u32_at(out, addr, after + 1)
 
     # General fallback: Any instruction with a 32-bit displacement that looks like an address (> 0x10000)
     # Handles SIB+disp32, lea reg, [reg*scale + disp32], and other indirect addressing modes.
@@ -201,10 +209,7 @@ def _zero_reloc_fields(insn: capstone.CsInsn, out: bytearray) -> None:
             if op.type == capstone.x86.X86_OP_MEM:
                 disp = op.mem.disp
                 if disp > 0x10000 or disp < -0x10000:
-                    offset = addr + insn.disp_offset
-                    for i in range(4):
-                        if offset + i < len(out):
-                            out[offset + i] = 0
+                    _zero_u32_at(out, addr, insn.disp_offset)
 
 
 def _normalize_reloc_x86_32(
@@ -328,47 +333,47 @@ def _zero_reloc_fields_raw(
     fallback) are re-disassembled with *md_det* and delegated to
     :func:`_zero_reloc_fields` — identical semantics, detail work limited to
     the rare cases.
+
+    Payload indexes are relative to :func:`_opcode_index` (same contract as
+    the detail path) so prefixed near ``jcc`` / ``push imm32`` / ``FF 15``
+    zero the field rather than the opcode byte.
     """
     if size < 5:
         return  # no room for a 32-bit relocatable field
+    opi = _opcode_index(b)
     op0 = _first_opcode_byte(b)
+    after = opi + 1
     # call rel32 / jmp rel32 / MOV abs32 (A0-A3)
     if op0 in (0xE8, 0xE9, 0xA0, 0xA1, 0xA2, 0xA3):
         # The relocatable field starts right after the opcode byte; with a
         # legacy prefix (66 A1 …) that is not offset 1.  Zeroing from offset 1
         # also clobbered the opcode and left the top displacement byte, so the
         # raw and detail normalizations disagreed on the same instruction.
-        start = _opcode_index(b) + 1
-        for i in range(start, start + 4):
-            if addr + i < len(out):
-                out[addr + i] = 0
+        _zero_u32_at(out, addr, after)
         return
-    # cmp [abs32], imm8 / conditional jmp near
-    if (op0 == 0x83 and len(b) >= 2 and b[1] == 0x3D) or (
-        op0 == 0x0F and len(b) >= 2 and (b[1] & 0xF0) == 0x80
+    # cmp [abs32], imm8 / conditional jmp near (0F 8x rel32)
+    if (op0 == 0x83 and after < len(b) and b[after] == 0x3D) or (
+        op0 == 0x0F and after < len(b) and (b[after] & 0xF0) == 0x80
     ):
-        if size >= 6:
-            for i in range(2, 6):
-                if addr + i < len(out):
-                    out[addr + i] = 0
+        if size >= after + 5:
+            _zero_u32_at(out, addr, after + 1)
         return
     # push imm32 (if it looks like an address)
     if op0 == 0x68 or 0xB8 <= op0 <= 0xBF:
-        imm = int.from_bytes(b[1:5], byteorder="little")
-        if imm > 0x10000000:
-            for i in range(1, 5):
-                if addr + i < len(out):
-                    out[addr + i] = 0
+        if after + 4 <= len(b):
+            imm = int.from_bytes(b[after : after + 4], byteorder="little")
+            if imm > 0x10000000:
+                _zero_u32_at(out, addr, after)
         return
     # call/jmp dword ptr [abs32] (FF 15/25) or mov reg,[abs32] / mov [abs32],reg
     if (
-        size >= 6
-        and len(b) >= 2
+        size >= after + 5
+        and after < len(b)
         and (
-            (op0 == 0xFF and b[1] in (0x15, 0x25))
+            (op0 == 0xFF and b[after] in (0x15, 0x25))
             or (
                 op0 in (0x8B, 0x89)
-                and b[1]
+                and b[after]
                 in (
                     0x05,
                     0x0D,
@@ -382,9 +387,7 @@ def _zero_reloc_fields_raw(
             )
         )
     ):
-        for i in range(2, 6):
-            if addr + i < len(out):
-                out[addr + i] = 0
+        _zero_u32_at(out, addr, after + 1)
         return
 
     # Rare SIB/disp32 fallback — needs detail attributes; re-disassemble just

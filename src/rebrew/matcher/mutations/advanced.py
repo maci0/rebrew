@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import random
 import re
+from typing import Any
 
 from rebrew.matcher.ast_engine import _C_LANGUAGE, parse_c_ast
 from rebrew.matcher.mutations.queries import (
@@ -30,15 +31,17 @@ from rebrew.matcher.mutations.runtime import (
 # --- Phase 3: Advanced Logical & Evaluation Mutations ---
 
 
-def mut_split_and_condition(s: str, rng: random.Random) -> str | None:
-    """Split an if(a && b) into nested if(a) { if(b) ... } blocks."""
-    b_source = s.encode("utf-8")
+def _bin_cond_if_ops(b_source: bytes, op: bytes) -> list[tuple[Any, Any, Any, Any]]:
+    """Collect ``if (a OP b)`` (no else) as ``(stmt, left, right, body)``.
 
+    Shared by the ``&&``/``||`` splitters so both walk the same query and
+    apply the same capture/else rules; only the operator filter differs.
+    """
     tree = parse_c_ast(b_source)
     cursor = _cursor(_QUERY_BIN_COND_IF)
     matches = cursor.matches(tree.root_node)
 
-    valid_ifs = []
+    valid_ifs: list[tuple[Any, Any, Any, Any]] = []
     for match in matches:
         stmt = _capture(match, "stmt")
         if isinstance(stmt, list):
@@ -46,13 +49,8 @@ def mut_split_and_condition(s: str, rng: random.Random) -> str | None:
         if not stmt:
             continue
 
-        # Must not have else clause for simple split
         if stmt.child_by_field_name("alternative"):
             continue
-
-        bin_node = _capture(match, "bin")
-        if isinstance(bin_node, list):
-            bin_node = bin_node[0]
 
         left = _capture(match, "left")
         if isinstance(left, list):
@@ -64,7 +62,7 @@ def mut_split_and_condition(s: str, rng: random.Random) -> str | None:
         if not left or not right:
             continue
         op_text = b_source[left.end_byte : right.start_byte].strip()
-        if op_text != b"&&":
+        if op_text != op:
             continue
 
         body = _capture(match, "body")
@@ -72,7 +70,13 @@ def mut_split_and_condition(s: str, rng: random.Random) -> str | None:
             body = body[-1]
 
         valid_ifs.append((stmt, left, right, body))
+    return valid_ifs
 
+
+def mut_split_and_condition(s: str, rng: random.Random) -> str | None:
+    """Split an if(a && b) into nested if(a) { if(b) ... } blocks."""
+    b_source = s.encode("utf-8")
+    valid_ifs = _bin_cond_if_ops(b_source, b"&&")
     if not valid_ifs:
         return None
 
@@ -90,45 +94,7 @@ def mut_split_and_condition(s: str, rng: random.Random) -> str | None:
 def mut_split_or_condition(s: str, rng: random.Random) -> str | None:
     """Split if(a || b) into separate if(a) ... else if(b) ... blocks."""
     b_source = s.encode("utf-8")
-
-    tree = parse_c_ast(b_source)
-    cursor = _cursor(_QUERY_BIN_COND_IF)
-    matches = cursor.matches(tree.root_node)
-
-    valid_ifs = []
-    for match in matches:
-        stmt = _capture(match, "stmt")
-        if isinstance(stmt, list):
-            stmt = stmt[0]
-        if not stmt:
-            continue
-
-        if stmt.child_by_field_name("alternative"):
-            continue
-
-        bin_node = _capture(match, "bin")
-        if isinstance(bin_node, list):
-            bin_node = bin_node[0]
-
-        left = _capture(match, "left")
-        if isinstance(left, list):
-            left = left[0]
-        right = _capture(match, "right")
-        if isinstance(right, list):
-            right = right[0]
-
-        if not left or not right:
-            continue
-        op_text = b_source[left.end_byte : right.start_byte].strip()
-        if op_text != b"||":
-            continue
-
-        body = _capture(match, "body")
-        if isinstance(body, list):
-            body = body[-1]
-
-        valid_ifs.append((stmt, left, right, body))
-
+    valid_ifs = _bin_cond_if_ops(b_source, b"||")
     if not valid_ifs:
         return None
 

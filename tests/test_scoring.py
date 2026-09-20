@@ -97,12 +97,33 @@ class TestNormalizeReloc:
             b"\x66\xa1\x34\x12\x00\x10\xc3",  # mov ax,[abs32] (prefixed moffs)
             b"\xf0\x08\x14\xf5\xab\xc2\x65\x8f",  # lock or [esi*8+disp32], dl
             b"\x55\x8b\xec\x83\xec\x10",  # non-reloc unchanged
+            # Legacy prefixes must not hide the reloc field or clobber the opcode.
+            b"\x2e\x0f\x85\x10\x00\x00\x00\xc3",  # cs: jnz rel32
+            b"\xf2\x0f\x85\x10\x00\x00\x00\xc3",  # bnd jnz rel32
+            b"\x2e\x68\x78\x56\x34\x10\xc3",  # cs: push imm32 (address-like)
+            b"\x66\x83\x3d\x34\x12\x00\x10\x00\xc3",  # cmp word [abs], imm8
+            b"\x66\xff\x15\x34\x12\x00\x10\xc3",  # call word [abs]
         ]
         for code in cases:
             detail = _normalize_reloc_x86_32(code)
             fast, mnems = _normalize_and_mnems_x86_32(code)
             assert fast == detail, f"parity mismatch for {code.hex()}"
             assert mnems, f"no mnemonics extracted for {code.hex()}"
+
+    def test_prefixed_near_jcc_zeros_rel32(self) -> None:
+        """A segment/bnd prefix before 0F 8x must still zero the rel32 field."""
+        # cs: jnz rel32 — MSVC often emits branch-hint/segment prefixes here.
+        code = b"\x2e\x0f\x85\x10\x00\x00\x00"
+        result = _normalize_reloc_x86_32(code)
+        assert result[:3] == b"\x2e\x0f\x85"
+        assert result[3:7] == b"\x00\x00\x00\x00"
+
+    def test_prefixed_push_imm_zeros_imm_not_opcode(self) -> None:
+        """push imm32 with a segment prefix must zero the imm, not the 0x68."""
+        code = b"\x2e\x68\x78\x56\x34\x10"
+        result = _normalize_reloc_x86_32(code)
+        assert result[0:2] == b"\x2e\x68"
+        assert result[2:6] == b"\x00\x00\x00\x00"
 
     def test_negative_reloc_offsets_skipped(self) -> None:
         """Negative offsets are nonsensical for zeroing — they must leave the
