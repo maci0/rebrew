@@ -23,10 +23,11 @@ alias) are rejected with 403, so a web page the analyst visits cannot reach
 the server via DNS rebinding.
 List endpoints expose ``count`` (rows in this page), ``total`` (matching rows),
 and the applied ``limit`` / ``offset`` (offset is 0 when the endpoint has no page).
-Successful 200 responses negotiate ``gzip`` when the client accepts it, carry an
-``ETag`` (HTML content hash or DB mtime), and use ``Cache-Control: private,
-no-cache`` so browsers can 304 without serving a stale body after ``build-db``.
-The static HTML shell is gzip-precompressed at import time so the entry document
+Successful 200 responses negotiate ``zstd`` then ``gzip`` (``Accept-Encoding``
+quality weights; explicit ``coding;q=0`` beats ``*``), carry an ``ETag`` (HTML
+content hash or DB mtime), and use ``Cache-Control: private, no-cache`` so
+browsers can 304 without serving a stale body after ``build-db``.  The static
+HTML shell is zstd- and gzip-precompressed at import time so the entry document
 skips per-request compression CPU.  JSON uses compact separators.  The handler
 speaks HTTP/1.1 so browsers reuse one TCP connection for the shell, bootstrap
 payload, and later filter fetches.
@@ -47,10 +48,11 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import parse_qs, urlparse
 
 import typer
+import zstandard
 from rich.console import Console
 from rich.markup import escape
 
@@ -68,12 +70,17 @@ _SQLITE_TIMEOUT_SECONDS = 30.0
 _DEFAULT_LIMIT = 100
 _MAX_LIMIT = 5000
 _FUNCTION_COLS = ("va", "name", "symbol", "size", "status", "module", "files")
-# Below this size gzip's framing usually costs more than it saves on a LAN.
-_MIN_GZIP_BYTES = 256
+# Below this size framing usually costs more than it saves on a LAN.
+_MIN_COMPRESS_BYTES = 256
 # Per-request dynamic JSON: mid effort (bodies are rebuilt every request).
 _GZIP_LEVEL = 5
+_ZSTD_LEVEL = 5
 # Static HTML shell: max effort once at import; served precompressed thereafter.
 _GZIP_PRECOMPRESS_LEVEL = 9
+_ZSTD_PRECOMPRESS_LEVEL = 19
+_WireEncoding = Literal["zstd", "gzip"]
+# Preference when several encodings share the same positive q-value.
+_ENCODING_PREFERENCE: tuple[_WireEncoding, ...] = ("zstd", "gzip")
 #: Request-scoped connection so nested query methods share one SQLite handle.
 _CURRENT_CONN: ContextVar[sqlite3.Connection | None] = ContextVar(
     "rebrew_dashboard_conn", default=None
@@ -895,10 +902,19 @@ start();
 
 _INDEX_HTML_BYTES = _INDEX_HTML.encode("utf-8")
 _INDEX_ETAG = '"' + hashlib.sha256(_INDEX_HTML_BYTES).hexdigest()[:16] + '"'
-_precompressed = gzip.compress(_INDEX_HTML_BYTES, compresslevel=_GZIP_PRECOMPRESS_LEVEL)
-_INDEX_HTML_GZIP: bytes | None = (
-    _precompressed if len(_precompressed) < len(_INDEX_HTML_BYTES) else None
-)
+
+
+def _precompress(raw: bytes, encoding: _WireEncoding) -> bytes | None:
+    """Return a max-effort blob when it shrinks *raw*, else ``None``."""
+    if encoding == "zstd":
+        compressed = zstandard.ZstdCompressor(level=_ZSTD_PRECOMPRESS_LEVEL).compress(raw)
+    else:
+        compressed = gzip.compress(raw, compresslevel=_GZIP_PRECOMPRESS_LEVEL)
+    return compressed if len(compressed) < len(raw) else None
+
+
+_INDEX_HTML_ZSTD = _precompress(_INDEX_HTML_BYTES, "zstd")
+_INDEX_HTML_GZIP = _precompress(_INDEX_HTML_BYTES, "gzip")
 
 
 def _int_param(params: dict[str, list[str]], name: str, default: int) -> int:
@@ -1424,13 +1440,13 @@ def _host_allowed(host_header: str, allowed: frozenset[str]) -> bool:
     return host_header.strip().lower() in allowed
 
 
-def _accepts_gzip(accept_encoding: str) -> bool:
-    """Honor gzip quality weights, with explicit gzip overriding the wildcard."""
-    accepted: dict[str, bool] = {}
+def _parse_accept_encoding(accept_encoding: str) -> dict[str, float]:
+    """Map coding → q-value (missing codings are absent; invalid q → 0)."""
+    accepted: dict[str, float] = {}
     for part in accept_encoding.lower().split(","):
         coding, *parameters = part.split(";")
         coding = coding.strip()
-        if coding not in ("gzip", "*"):
+        if coding not in ("gzip", "zstd", "*"):
             continue
         weight = 1.0
         for parameter in parameters:
@@ -1441,18 +1457,63 @@ def _accepts_gzip(accept_encoding: str) -> bool:
                 except ValueError:
                     weight = 0.0
                 break
-        accepted[coding] = 0 < weight <= 1
-    return accepted.get("gzip", accepted.get("*", False))
+        if not (0 <= weight <= 1):
+            weight = 0.0
+        accepted[coding] = weight
+    return accepted
 
 
-def _maybe_gzip(body: bytes, accept_encoding: str) -> tuple[bytes, str | None]:
+def _encoding_q(accepted: dict[str, float], coding: str) -> float:
+    """Effective q for *coding*; an explicit ``coding;q=0`` beats ``*``."""
+    if coding in accepted:
+        return accepted[coding]
+    return accepted.get("*", 0.0)
+
+
+def _negotiate_encoding(accept_encoding: str) -> _WireEncoding | None:
+    """Pick ``zstd`` or ``gzip`` by q-value; zstd wins ties."""
+    accepted = _parse_accept_encoding(accept_encoding)
+    best: _WireEncoding | None = None
+    best_q = 0.0
+    for coding in _ENCODING_PREFERENCE:
+        weight = _encoding_q(accepted, coding)
+        if weight <= 0:
+            continue
+        # Strictly higher q wins; equal q keeps the earlier preference entry.
+        if best is None or weight > best_q:
+            best = coding
+            best_q = weight
+    return best
+
+
+def _compress(body: bytes, encoding: _WireEncoding) -> bytes:
+    """Compress *body* at the per-request effort for *encoding*."""
+    if encoding == "zstd":
+        return zstandard.ZstdCompressor(level=_ZSTD_LEVEL).compress(body)
+    return gzip.compress(body, compresslevel=_GZIP_LEVEL)
+
+
+def _maybe_compress(body: bytes, accept_encoding: str) -> tuple[bytes, _WireEncoding | None]:
     """Return ``(body, encoding)``; compress only when it shrinks the wire bytes."""
-    if len(body) < _MIN_GZIP_BYTES or not _accepts_gzip(accept_encoding):
+    if len(body) < _MIN_COMPRESS_BYTES:
         return body, None
-    compressed = gzip.compress(body, compresslevel=_GZIP_LEVEL)
+    encoding = _negotiate_encoding(accept_encoding)
+    if encoding is None:
+        return body, None
+    compressed = _compress(body, encoding)
     if len(compressed) >= len(body):
         return body, None
-    return compressed, "gzip"
+    return compressed, encoding
+
+
+def _precompressed_index(accept_encoding: str) -> tuple[bytes, _WireEncoding | None]:
+    """Serve the import-time shell blob for the negotiated encoding."""
+    encoding = _negotiate_encoding(accept_encoding)
+    if encoding == "zstd" and _INDEX_HTML_ZSTD is not None:
+        return _INDEX_HTML_ZSTD, "zstd"
+    if encoding == "gzip" and _INDEX_HTML_GZIP is not None:
+        return _INDEX_HTML_GZIP, "gzip"
+    return _INDEX_HTML_BYTES, None
 
 
 def _if_none_match(header: str, etag: str) -> bool:
@@ -1543,16 +1604,15 @@ class _Handler(BaseHTTPRequestHandler):
                 return
 
         body_bytes = body.encode("utf-8")
-        encoding: str | None = None
+        encoding: _WireEncoding | None = None
         if status == 200:
             # Entry document is immutable for a given process: serve the
-            # import-time gzip blob instead of recompressing every request.
+            # import-time zstd/gzip blob instead of recompressing every request.
             accept = self.headers.get("Accept-Encoding", "")
-            if body is _INDEX_HTML and _INDEX_HTML_GZIP is not None and _accepts_gzip(accept):
-                body_bytes = _INDEX_HTML_GZIP
-                encoding = "gzip"
+            if body is _INDEX_HTML:
+                body_bytes, encoding = _precompressed_index(accept)
             else:
-                body_bytes, encoding = _maybe_gzip(body_bytes, accept)
+                body_bytes, encoding = _maybe_compress(body_bytes, accept)
 
         self.send_response(status)
         self.send_header("Content-Type", content_type)

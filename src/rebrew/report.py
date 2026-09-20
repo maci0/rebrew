@@ -15,11 +15,11 @@ output directory with four pages:
   (from :mod:`rebrew.depgraph`); the plain-text adjacency list ships as a
   sibling ``adjacency.txt`` so the HTML page stays small for first paint.
 
-Every HTML/text page also writes a max-effort ``.gz`` sidecar (when smaller)
-so static servers with precompressed-asset support can skip per-request
-compression.  Every page degrades gracefully: missing binaries, missing data
-sections, or call-graph failures produce a note inside the page instead of
-aborting the whole report.
+Every HTML/text page also writes max-effort ``.gz`` and ``.zst`` sidecars
+(when smaller) so static servers with precompressed-asset support can skip
+per-request compression.  Every page degrades gracefully: missing binaries,
+missing data sections, or call-graph failures produce a note inside the page
+instead of aborting the whole report.
 
 Usage:
     rebrew report                       # Write site to <output_dir>/report
@@ -80,8 +80,9 @@ _PAGES: list[tuple[str, str]] = [
 # HTML parse budget small on large projects (thousands of functions/strings);
 # extra pages are linked via a no-JS pager.
 _TABLE_PAGE_SIZE = 250
-# Max-effort gzip for build-once static assets (mirrors dashboard precompress).
+# Max-effort gzip/zstd for build-once static assets (mirrors dashboard precompress).
 _GZIP_PRECOMPRESS_LEVEL = 9
+_ZSTD_PRECOMPRESS_LEVEL = 19
 
 # Shared with the coverage dashboard: plain tool chrome (system-ui, #005fcc
 # focus, #767676 borders) — not a Tailwind slate/blue demo palette.
@@ -182,16 +183,23 @@ def _pager_nav(stem: str, page: int, total_pages: int, total_rows: int, noun: st
 
 
 def _write_static(path: Path, content: str | bytes, *, encoding: str = "utf-8") -> None:
-    """Write *content* and a max-effort ``.gz`` sidecar when compression shrinks it."""
+    """Write *content* and max-effort ``.gz`` / ``.zst`` sidecars when smaller."""
     if isinstance(content, str):
         atomic_write_text(path, content, encoding=encoding)
         raw = content.encode(encoding)
     else:
         atomic_write_bytes(path, content)
         raw = content
-    compressed = gzip.compress(raw, compresslevel=_GZIP_PRECOMPRESS_LEVEL)
-    if len(compressed) < len(raw):
-        atomic_write_bytes(Path(str(path) + ".gz"), compressed)
+    gzipped = gzip.compress(raw, compresslevel=_GZIP_PRECOMPRESS_LEVEL)
+    if len(gzipped) < len(raw):
+        atomic_write_bytes(Path(str(path) + ".gz"), gzipped)
+    # Deferred import: report is a CLI component; keep zstandard off the
+    # cold path of unrelated commands that never call generate_report.
+    import zstandard
+
+    zstd = zstandard.ZstdCompressor(level=_ZSTD_PRECOMPRESS_LEVEL).compress(raw)
+    if len(zstd) < len(raw):
+        atomic_write_bytes(Path(str(path) + ".zst"), zstd)
 
 
 def _table_scroll(table_html: str, aria_label: str = "Scrollable table") -> str:
@@ -764,8 +772,8 @@ def generate_report(cfg: ProjectConfig, out: Path) -> dict[str, Any]:
 
     Every page is written even when its data source is missing or broken —
     such pages degrade to an explanatory note instead.  Oversized index/strings
-    tables spill into ``*-pN.html`` companions; each text asset also gets a
-    ``.gz`` sidecar when gzip shrinks it.
+    tables spill into ``*-pN.html`` companions; each text asset also gets
+    ``.gz`` / ``.zst`` sidecars when compression shrinks it.
     """
     out.mkdir(parents=True, exist_ok=True)
     report = collect_status(cfg)

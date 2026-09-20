@@ -115,6 +115,10 @@
   single hypothesis.
 
 ### Changed
+- **Dashboard and report wire compression negotiate ``zstd``** (then ``gzip``)
+  from ``Accept-Encoding`` q-values; the HTML shell is zstd+gzip precompressed
+  at import, and ``rebrew report`` writes ``.zst`` sidecars beside ``.gz``.
+  On a 500-row functions JSON body: gzip-5 4728 → zstd-5 2912 bytes.
 - **Data/verify I/O batching and scan indexes**: ``set_data_fields_batch``
   collapses many ``rebrew-data.toml`` RMWs (verify ``--data`` statuses,
   ``fix-bss`` gaps); batch compile stages/reads each multi-function ``.c``
@@ -300,9 +304,6 @@
   declares ``**/py.typed``; project URLs add Issues and Changelog.
 
 ### Changed
-- **``CompareResult.status`` is ``CompareStatus``** — a ``Literal`` of the
-  known STATUS vocabulary (annotation + machine outcomes), so typed
-  consumers get completion and exhaustiveness checks instead of bare ``str``.
 - **Dashboard cold start is one API round trip** — ``GET /api/bootstrap`` returns
   targets plus the first target's summary/functions; the HTML shell shows a
   loading line until that lands.  Static index HTML is gzip-precompressed at

@@ -747,35 +747,45 @@ class TestHttpMethods:
         assert b'"targets"' in raw or b"application/json" in raw
 
 
-class TestGzipNegotiation:
+class TestEncodingNegotiation:
     @pytest.mark.parametrize(
-        ("accept", "compressed"),
+        ("accept", "encoding"),
         [
-            ("", False),
-            ("br, zstd", False),
-            ("gzip", True),
-            ("identity;q=0, gzip", True),
-            ("GZIP; Q=0.5", True),
-            ("gzip;q=0", False),
-            ("gzip; q=0.000", False),
-            ("*", True),
-            ("*;q=0", False),
-            ("gzip;q=0, *", False),
-            ("*, gzip;q=0", False),
-            ("*;q=0, gzip;q=0.5", True),
-            ("gzip;q=invalid", False),
-            ("gzip;q=nan", False),
-            ("gzip;q=2", False),
-            ("gzip;q=-1", False),
+            ("", None),
+            ("br", None),
+            ("br, zstd", "zstd"),
+            ("gzip", "gzip"),
+            ("identity;q=0, gzip", "gzip"),
+            ("GZIP; Q=0.5", "gzip"),
+            ("gzip;q=0", None),
+            ("gzip; q=0.000", None),
+            ("zstd;q=0", None),
+            ("*", "zstd"),
+            ("*;q=0", None),
+            # Explicit gzip;q=0 still allows zstd via *.
+            ("gzip;q=0, *", "zstd"),
+            ("*, gzip;q=0", "zstd"),
+            ("*;q=0, gzip;q=0.5", "gzip"),
+            ("*;q=0, zstd;q=0.5", "zstd"),
+            ("gzip, zstd", "zstd"),
+            ("gzip;q=1, zstd;q=0.5", "gzip"),
+            ("zstd;q=0.8, gzip;q=0.9", "gzip"),
+            ("gzip;q=invalid", None),
+            ("gzip;q=nan", None),
+            ("gzip;q=2", None),
+            ("gzip;q=-1", None),
+            ("zstd;q=invalid", None),
         ],
     )
     @pytest.mark.parametrize("path", ["/", "/api/bootstrap"])
     def test_response_encoding(
-        self, dashboard: Dashboard, accept: str, compressed: bool, path: str
+        self, dashboard: Dashboard, accept: str, encoding: str | None, path: str
     ) -> None:
         import gzip
         from io import BytesIO
         from unittest.mock import Mock
+
+        import zstandard
 
         from rebrew.dashboard import _Handler, allowed_hosts_for
 
@@ -794,11 +804,51 @@ class TestGzipNegotiation:
         handler.send_response.assert_called_once_with(200)
         headers = dict(call.args for call in handler.send_header.call_args_list)
         body = handler.wfile.getvalue()
-        assert headers.get("Content-Encoding") == ("gzip" if compressed else None)
+        assert headers.get("Content-Encoding") == encoding
         assert headers["Vary"] == "Accept-Encoding"
         assert int(headers["Content-Length"]) == len(body)
         expected = dashboard.handle("GET", path, {})[2].encode("utf-8")
-        assert (gzip.decompress(body) if compressed else body) == expected
+        if encoding == "gzip":
+            assert gzip.decompress(body) == expected
+        elif encoding == "zstd":
+            assert zstandard.ZstdDecompressor().decompress(body) == expected
+        else:
+            assert body == expected
+
+    def test_zstd_preferred_over_gzip_when_both_listed(self, dashboard: Dashboard) -> None:
+        """Modern browsers list zstd; prefer it for the smaller wire body."""
+        from io import BytesIO
+        from unittest.mock import Mock
+
+        import zstandard
+
+        from rebrew.dashboard import (
+            _INDEX_HTML_BYTES,
+            _INDEX_HTML_ZSTD,
+            _Handler,
+            allowed_hosts_for,
+        )
+
+        assert _INDEX_HTML_ZSTD is not None
+        handler = _Handler.__new__(_Handler)
+        handler.headers = {
+            "Host": "127.0.0.1:8000",
+            "Accept-Encoding": "gzip, deflate, br, zstd",
+        }
+        handler.path = "/"
+        handler.allowed_hosts = allowed_hosts_for("127.0.0.1", 8000)
+        handler.dashboard = dashboard
+        handler.send_response = Mock()
+        handler.send_header = Mock()
+        handler.end_headers = Mock()
+        handler.wfile = BytesIO()
+        handler._respond("GET")
+        headers = dict(call.args for call in handler.send_header.call_args_list)
+        body = handler.wfile.getvalue()
+        assert headers["Content-Encoding"] == "zstd"
+        assert body == _INDEX_HTML_ZSTD
+        assert zstandard.ZstdDecompressor().decompress(body) == _INDEX_HTML_BYTES
+        assert len(body) < len(_INDEX_HTML_BYTES)
 
 
 class TestHostValidation:
@@ -965,24 +1015,35 @@ class TestHostValidation:
         assert "renderGlobals" in body
         assert "renderHistory" in body
 
-    def test_handler_serves_precompressed_index(self, dashboard: Dashboard) -> None:
-        """The static HTML shell is gzipped once at import, not per request."""
+    @pytest.mark.parametrize(
+        ("accept", "encoding", "blob_attr"),
+        [
+            ("gzip", "gzip", "_INDEX_HTML_GZIP"),
+            ("zstd", "zstd", "_INDEX_HTML_ZSTD"),
+        ],
+    )
+    def test_handler_serves_precompressed_index(
+        self, dashboard: Dashboard, accept: str, encoding: str, blob_attr: str
+    ) -> None:
+        """The static HTML shell is compressed once at import, not per request."""
         import gzip
 
-        from rebrew.dashboard import (
-            _INDEX_HTML_BYTES,
-            _INDEX_HTML_GZIP,
-            _Handler,
-            allowed_hosts_for,
-        )
+        import zstandard
 
-        assert _INDEX_HTML_GZIP is not None
-        assert len(_INDEX_HTML_GZIP) < len(_INDEX_HTML_BYTES)
+        import rebrew.dashboard as dash
+        from rebrew.dashboard import _INDEX_HTML_BYTES, _Handler, allowed_hosts_for
+
+        blob = getattr(dash, blob_attr)
+        assert blob is not None
+        assert len(blob) < len(_INDEX_HTML_BYTES)
+        if blob_attr == "_INDEX_HTML_ZSTD":
+            assert dash._INDEX_HTML_GZIP is not None
+            assert len(blob) <= len(dash._INDEX_HTML_GZIP)
 
         handler = _Handler.__new__(_Handler)
         handler.headers = {
             "Host": "127.0.0.1:8000",
-            "Accept-Encoding": "gzip",
+            "Accept-Encoding": accept,
         }
         handler.path = "/"
         handler.allowed_hosts = allowed_hosts_for("127.0.0.1", 8000)
@@ -1002,9 +1063,12 @@ class TestHostValidation:
         handler.wfile = _FakeWFile()
         handler._respond("GET")
         raw = b"".join(written)
-        assert ("Content-Encoding", "gzip") in sent
-        assert raw == _INDEX_HTML_GZIP
-        assert gzip.decompress(raw) == _INDEX_HTML_BYTES
+        assert ("Content-Encoding", encoding) in sent
+        assert raw == blob
+        if encoding == "gzip":
+            assert gzip.decompress(raw) == _INDEX_HTML_BYTES
+        else:
+            assert zstandard.ZstdDecompressor().decompress(raw) == _INDEX_HTML_BYTES
 
     @pytest.mark.parametrize("control", ["\x1b", "\n", "\r", "\x7f", "\x9b"])
     def test_handler_log_escapes_controls(
