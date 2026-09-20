@@ -47,9 +47,9 @@ make all                      # local mirror of CI lint+test+cli-contract gates
 make check                    # pre-commit hook parity (CI pre-commit job)
 make cli-contract             # high-value --help greps (CI cli-contract job)
 make gen-fixtures             # regenerate tests/fixtures/ after editing tools/gen_fixtures.py
-uv run ruff check src/ tests/ tools/
-uv run mypy
-uv run pre-commit run --all-files
+uv run --frozen ruff check src/ tests/ tools/
+uv run --frozen mypy
+uv run --frozen pre-commit run --all-files
 make build                    # reproducible sdist+wheel + dist/rebrew.buildinfo (SOURCE_DATE_EPOCH, TZ=UTC)
 ```
 

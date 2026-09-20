@@ -176,7 +176,11 @@ egg_base = "."
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = ["src", "."]
+# ``tests`` is on the path so ``-p pytest_ansi_env`` loads without a conftest.
+pythonpath = ["src", ".", "tests"]
+# Force the same ANSI-off env as ``make test`` / CI so bare ``uv run pytest``
+# stays green when FORCE_COLOR or GITHUB_ACTIONS is set in the developer shell.
+addopts = ["-p", "pytest_ansi_env"]
 filterwarnings = [
     # LIEF C extension emits this when parsing minimal Mach-O stubs with zeroed headers
     "ignore:0 is not a valid CPU_TYPE:RuntimeWarning",

@@ -174,6 +174,55 @@ class TestCiPins:
         assert "dist/rebrew.buildinfo" in text
         assert "rm -rf build rebrew.egg-info" in text
 
+    def test_pytest_loads_ansi_env_plugin(self) -> None:
+        """Bare ``uv run pytest`` must disable typer/Rich ANSI like ``make test``.
+
+        ``FORCE_COLOR`` / ``GITHUB_ACTIONS`` otherwise split version digits and
+        option names across escape sequences and fail CliRunner assertions.
+        """
+        import tomllib
+
+        plugin = ROOT / "tests" / "pytest_ansi_env.py"
+        assert plugin.is_file()
+        text = plugin.read_text(encoding="utf-8")
+        assert 'os.environ["NO_COLOR"]' in text
+        assert 'os.environ["TERM"]' in text
+        assert 'os.environ["_TYPER_FORCE_DISABLE_TERMINAL"]' in text
+        ini = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+        pytest_ini = ini["tool"]["pytest"]["ini_options"]
+        assert "tests" in pytest_ini["pythonpath"]
+        assert pytest_ini["addopts"] == ["-p", "pytest_ansi_env"]
+
+    def test_bare_pytest_survives_force_color(self) -> None:
+        """Regression: FORCE_COLOR alone used to break --version / skills show."""
+        env = {
+            **os.environ,
+            "FORCE_COLOR": "1",
+            "GITHUB_ACTIONS": "true",
+        }
+        # Drop recipe-level guards so only the pytest plugin can save us.
+        for key in ("NO_COLOR", "TERM", "_TYPER_FORCE_DISABLE_TERMINAL"):
+            env.pop(key, None)
+        result = subprocess.run(
+            [
+                "uv",
+                "run",
+                "--frozen",
+                "pytest",
+                "tests/test_main.py::TestUmbrellaCli::test_version_matches_module",
+                "tests/test_skills.py::TestCLISkillsShow::test_show_unknown_skill_fails",
+                "-q",
+                "--tb=line",
+            ],
+            cwd=ROOT,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+
     @pytest.mark.parametrize("path", [CI_YML, SYNC_YML, MAKEFILE, ROOT / ".pre-commit-config.yaml"])
     def test_uv_run_preserves_lockfile(self, path: Path) -> None:
         commands = [

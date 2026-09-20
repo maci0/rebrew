@@ -102,18 +102,19 @@ lists every contributor target.
 make setup                              # frozen lock + pre-commit install
 make test-one T=tests/test_annotation.py  # single file / pytest nodeid
 make test                               # full suite (ANSI-safe; same as CI)
-uv run ruff check src/ tests/ tools/    # lint
-uv run ruff format --check src/ tests/ tools/
-uv run mypy                             # type check (0 issues expected; strict,
+uv run --frozen ruff check src/ tests/ tools/    # lint
+uv run --frozen ruff format --check src/ tests/ tools/
+uv run --frozen mypy                             # type check (0 issues expected; strict,
                                         # covers src/rebrew + tools)
-uv run pre-commit run --all-files       # 13 of 15 hooks — pytest (pre-push) and
+uv run --frozen pre-commit run --all-files       # 13 of 15 hooks — pytest (pre-push) and
                                         # validate-skill-commands (manual) are stage-gated
 make all                                # local mirror of CI lint + test + cli-contract
 make check                              # pre-commit hook parity (CI pre-commit job)
 make cli-contract                       # high-value --help greps (CI cli-contract job)
 make gen-fixtures                       # regenerate tests/fixtures/ (then commit)
 make build                              # sdist+wheel (deterministic wheels)
-uv run python -m slipcover -m pytest tests/ -q   # coverage (summary line)
+uv run --frozen python -m slipcover --fail-under 80 -m pytest tests/ -q   # coverage
+# Bare pytest is also ANSI-safe (pytest_ansi_env plugin); prefer make test-one.
 ```
 
 ## Performance notes (GA scoring hot loop)

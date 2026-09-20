@@ -49,7 +49,11 @@ assertion on help output (the help-listing tests and the cli-contract grep).
 `TERM=dumb` / `_TYPER_FORCE_DISABLE_TERMINAL`, because Rich Consoles
 created at import inspect the real stderr TTY and would otherwise color
 status text on a local terminal (and typer's CI ANSI mode splits option
-names across escape sequences).  `make all` includes `cli-contract`.
+names across escape sequences).  The pytest plugin `pytest_ansi_env`
+(loaded via `pyproject.toml` `addopts`) applies the same trio for a bare
+`uv run --frozen pytest`, so `FORCE_COLOR` / `GITHUB_ACTIONS` in a
+developer shell cannot break CliRunner assertions that `make test`
+would have passed.  `make all` includes `cli-contract`.
 
 The nightly `toolchain-sync.yml` drift check installs through the same pinned
 uv flow (`uv sync --frozen`) and the same `RESEMBL_REF` / `UV_VERSION` pins,

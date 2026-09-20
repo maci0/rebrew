@@ -47,7 +47,7 @@ uv run --frozen pre-commit run --all-files
 uv run --frozen python -m slipcover --fail-under 80 -m pytest
 ```
 
-**pytest** (`pyproject.toml`): `testpaths = ["tests"]`, `pythonpath = ["src", "."]` (`.` exposes `tools/`). No `conftest.py` — use `tmp_path` + inline helpers.
+**pytest** (`pyproject.toml`): `testpaths = ["tests"]`, `pythonpath = ["src", ".", "tests"]` (`.` exposes `tools/`; `tests` loads `-p pytest_ansi_env` so bare `uv run pytest` matches `make test` under `FORCE_COLOR`/`GITHUB_ACTIONS`). No fixture `conftest.py` — use `tmp_path` + inline helpers.
 
 ## Code Style
 

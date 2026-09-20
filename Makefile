@@ -106,10 +106,11 @@ setup: ensure-resembl
 	uv sync $(UV_SYNC_FLAGS)
 	uv run --frozen pre-commit install
 
-# Run tests.  Match CI: a TTY makes Rich/typer emit ANSI, which splits
-# numbers and option names and breaks assertions on help/status text.
-# `_TYPER_FORCE_DISABLE_TERMINAL` is the workflow env; `NO_COLOR` covers
-# Rich Consoles that inspect the real stderr TTY at import.
+# Run tests.  Match CI: a TTY / FORCE_COLOR / GITHUB_ACTIONS makes Rich/typer
+# emit ANSI, which splits numbers and option names and breaks assertions on
+# help/status text.  The pytest plugin ``pytest_ansi_env`` sets the same
+# trio for bare ``uv run pytest``; export here too so the recipe stays
+# self-documenting and covers any non-pytest child processes.
 test: ensure-nasm
 	NO_COLOR=1 TERM=dumb _TYPER_FORCE_DISABLE_TERMINAL=1 \
 		uv run --frozen pytest tests/ -v --tb=short

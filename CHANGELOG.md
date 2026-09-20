@@ -26,6 +26,10 @@
 - **Wheel METADATA ``Security`` project URL** points at ``SECURITY.md``.
 
 ### Fixed
+- **Bare ``uv run pytest`` survives ``FORCE_COLOR`` / ``GITHUB_ACTIONS``** —
+  the ``pytest_ansi_env`` plugin applies the same ``NO_COLOR`` / ``TERM=dumb`` /
+  ``_TYPER_FORCE_DISABLE_TERMINAL`` trio as ``make test``, so CliRunner
+  assertions on ``--version`` and error text no longer fail only outside Make.
 - **Package CI smoke-install honors ``uv.lock``** — sync locked runtime deps
   with ``--no-install-project``, then ``uv pip install --no-deps`` the wheel
   (a plain wheel install was resolving live PyPI).  Setuptools ``build/`` /
