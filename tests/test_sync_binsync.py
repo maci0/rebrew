@@ -219,7 +219,7 @@ class TestSyncCli:
         monkeypatch.setattr(
             "rebrew.binsync.importer._print_import_result", lambda result, **kw: None
         )
-        monkeypatch.setattr("rebrew.ghidra.cli._probe_program_path", lambda cfg, ep, pp, j: pp)
+        monkeypatch.setattr("rebrew.ghidra.cli._probe_program_path", lambda ep, pp, j: pp)
         applied: list[dict] = []
 
         def _fake_apply(ops, endpoint):
@@ -238,7 +238,7 @@ class TestSyncCli:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         _patch_cfg(tmp_path, monkeypatch)
-        monkeypatch.setattr("rebrew.ghidra.cli._probe_program_path", lambda cfg, ep, pp, j: pp)
+        monkeypatch.setattr("rebrew.ghidra.cli._probe_program_path", lambda ep, pp, j: pp)
         monkeypatch.setattr("rebrew.catalog.cached_function_list", lambda _cfg: [])
         monkeypatch.setattr(
             "rebrew.catalog.build_function_registry",

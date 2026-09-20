@@ -474,8 +474,7 @@ class TestCheckOptionalTools:
 
         monkeypatch.setitem(sys.modules, "angr", None)  # import fails
         monkeypatch.setitem(sys.modules, "claripy", None)  # import fails
-        cfg = SimpleNamespace(root=tmp_path)
-        result = check_optional_tools(cfg)  # type: ignore[arg-type]
+        result = check_optional_tools()
         assert result.status == _WARN
         assert "angr" in result.message
         assert "claripy" in result.message
@@ -488,8 +487,7 @@ class TestCheckOptionalTools:
 
         monkeypatch.setitem(sys.modules, "angr", ModuleType("angr"))
         monkeypatch.setitem(sys.modules, "claripy", ModuleType("claripy"))
-        cfg = SimpleNamespace(root=tmp_path)
-        result = check_optional_tools(cfg)  # type: ignore[arg-type]
+        result = check_optional_tools()
         assert result.status == _PASS
 
     def test_registered_in_run_doctor(
@@ -542,7 +540,7 @@ class TestCheckOptionalTools:
         report = run_doctor(target="SERVER")
         assert any(c.name == "Optional tools" for c in report.checks)
         # And the real check_optional_tools is still what produces that name.
-        assert check_optional_tools(cfg).name == "Optional tools"  # type: ignore[arg-type]
+        assert check_optional_tools().name == "Optional tools"
 
 
 class TestCheckToolchainAlignment:

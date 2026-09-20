@@ -525,17 +525,12 @@ def load_binary(path: Path, fmt: str = "auto") -> BinaryInfo:
     with _load_binary_lock:
         cached = _load_binary_cache.get(cache_key)
         if cached is not None:
-            # Check if cached entry is still valid (compare mtime via path stat cache)
-            # We store mtime alongside; if file changed, treat as miss
             cached_mtime = getattr(cached, "_cache_mtime_ns", None)
             cached_fsize = getattr(cached, "_cache_fsize", None)
             if cached_mtime == mtime_ns and cached_fsize == fsize:
-                # LRU refresh
                 _load_binary_cache[cache_key] = _load_binary_cache.pop(cache_key)
                 return cached
-            else:
-                # Stale entry — remove it
-                _load_binary_cache.pop(cache_key, None)
+            _load_binary_cache.pop(cache_key, None)
 
     # 16-bit Windows NE executables are parsed natively (Borland Delphi /
     # Turbo Pascal Windows targets) — segments become sections with synthetic

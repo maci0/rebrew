@@ -131,7 +131,6 @@ def push(
             cfg,
             state_dir,
             dry_run=dry_run,
-            json_output=json_output,
             module=module,
             git_commit=(not no_git and not dry_run),
         )
@@ -217,7 +216,6 @@ def summary(
         cfg,
         resolved,
         dry_run=True,
-        json_output=False,
         module=module,
         git_commit=False,
     )

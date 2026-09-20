@@ -518,7 +518,7 @@ class TestCheckOptionalToolsClaripy:
 
         for name in ("angr", "claripy"):
             monkeypatch.setitem(sys.modules, name, ModuleType(name))
-        result = check_optional_tools(self._cfg(tmp_path))
+        result = check_optional_tools()
         assert result.status == _PASS
 
     def test_angr_without_claripy_warns(
@@ -531,7 +531,7 @@ class TestCheckOptionalToolsClaripy:
 
         monkeypatch.setitem(sys.modules, "angr", ModuleType("angr"))
         monkeypatch.setitem(sys.modules, "claripy", None)
-        result = check_optional_tools(self._cfg(tmp_path))
+        result = check_optional_tools()
         assert result.status == _WARN
         assert "claripy" in result.message
 
@@ -545,7 +545,7 @@ class TestCheckOptionalToolsClaripy:
 
         monkeypatch.setitem(sys.modules, "claripy", ModuleType("claripy"))
         monkeypatch.setitem(sys.modules, "angr", None)
-        result = check_optional_tools(self._cfg(tmp_path))
+        result = check_optional_tools()
         assert result.status == _WARN
         assert "both" in result.message
 
@@ -556,7 +556,7 @@ class TestCheckOptionalToolsClaripy:
 
         monkeypatch.setitem(sys.modules, "angr", None)
         monkeypatch.setitem(sys.modules, "claripy", None)
-        result = check_optional_tools(self._cfg(tmp_path))
+        result = check_optional_tools()
         assert result.status == _WARN
         assert "missing" in result.message
 

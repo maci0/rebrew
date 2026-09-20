@@ -1459,7 +1459,7 @@ def main(
                 json_mode=json_output,
             )
 
-    # Check if already covered
+    # Already covered by an existing source — refuse unless --force/--append
     if va_int in existing_vas and not force and not append:
         covered_by = existing_vas[va_int]
         if json_output:

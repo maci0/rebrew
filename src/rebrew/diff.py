@@ -230,7 +230,6 @@ def _write_blocker(
 
 
 def run_diff(
-    seed_c: str,
     mismatches_only: bool,
     register_aware: bool,
     csv_output: bool,
@@ -536,7 +535,6 @@ def main(
         return
 
     run_diff(
-        seed_c,
         mismatches_only,
         register_aware,
         csv_output,

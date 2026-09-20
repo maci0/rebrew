@@ -62,7 +62,7 @@ def _require_state_dir(state_dir: Path | None, json_output: bool) -> Path:
     return state_dir
 
 
-def _probe_program_path(cfg: Any, endpoint: str, program_path: str, json_output: bool) -> str:
+def _probe_program_path(endpoint: str, program_path: str, json_output: bool) -> str:
     """Validate the MCP program path (best-effort) — refuse when MCP is down."""
     import httpx
 
@@ -218,7 +218,7 @@ def main(
         from rebrew.binsync.export import _print_export_result, export_state
 
         preview = dry_run or summary
-        result = export_state(cfg, out, dry_run=preview, json_output=json_output)
+        result = export_state(cfg, out, dry_run=preview)
         _print_export_result(result, json_output=json_output, dry_run=preview)
         if watch and not dry_run:
             from rebrew.utils import watch_files
@@ -228,7 +228,7 @@ def main(
             ]
 
             def _re_export() -> None:
-                fresh = export_state(cfg, out, dry_run=False, json_output=False)
+                fresh = export_state(cfg, out, dry_run=False)
                 _print_export_result(fresh, json_output=False, dry_run=False)
 
             watch_files(watch_paths, _re_export)
@@ -254,7 +254,7 @@ def main(
             touched = sorted(int(v) for v in cast(list[Any], result.get("touched_vas") or []))
             if touched:
                 program_path = resolve_program_path(cfg)
-                program_path = _probe_program_path(cfg, endpoint, program_path, json_output)
+                program_path = _probe_program_path(endpoint, program_path, json_output)
                 ops = [
                     {
                         "tool": "create-function",
@@ -273,7 +273,7 @@ def main(
     # A dry run only previews the ops: it must not POST them, and it must not
     # require Ghidra to be reachable.
     if not dry_run:
-        program_path = _probe_program_path(cfg, endpoint, program_path, json_output)
+        program_path = _probe_program_path(endpoint, program_path, json_output)
 
     if create_functions:
         from rebrew.catalog import build_function_registry, cached_function_list

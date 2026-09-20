@@ -49,6 +49,21 @@ _DOS_STUB_SCAN = 0x400
 _RICH_PADDING = 12
 
 
+def _parse_pe(path: Path) -> Any | None:
+    """Parse *path* as a PE via LIEF, or ``None`` on any failure."""
+    if not path.exists():
+        return None
+    import lief
+
+    try:
+        if not lief.is_pe(str(path)):
+            return None
+        pe = lief.PE.parse(str(path))
+    except Exception:
+        return None
+    return pe
+
+
 def file_hashes(path: str | Path) -> dict[str, str]:
     """Return the streamed file digests for *path*.
 
@@ -117,17 +132,7 @@ def imphash(path: str | Path) -> str | None:
     ``dll.ord<N>``.  Returns ``None`` for a missing, non-PE, unparseable,
     or import-less binary.
     """
-    p = Path(path)
-    if not p.exists():
-        return None
-    import lief
-
-    try:
-        if not lief.is_pe(str(p)):
-            return None
-        pe = lief.PE.parse(str(p))
-    except Exception:
-        return None
+    pe = _parse_pe(Path(path))
     if pe is None:
         return None
     pairs: list[tuple[str, str]] = []
@@ -168,17 +173,7 @@ def export_hash(path: str | Path) -> str | None:
     export keeps its record too, since the entry identifies the export
     regardless of the address resolving in another module.
     """
-    p = Path(path)
-    if not p.exists():
-        return None
-    import lief
-
-    try:
-        if not lief.is_pe(str(p)):
-            return None
-        pe = lief.PE.parse(str(p))
-    except Exception:
-        return None
+    pe = _parse_pe(Path(path))
     if pe is None:
         return None
     try:

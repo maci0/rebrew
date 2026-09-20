@@ -149,26 +149,22 @@ def _resolve_canonical_size(
     if not extra:
         return ghidra_size, "ghidra (no extra bytes)"
 
-    # Check if extra bytes are NOP/INT3 padding
     if trim_trailing_padding(extra) == 0:
         return list_size, "list (includes tail padding)"
 
-    # Check if extra bytes are a jump table (array of .text pointers)
     if is_jump_table(extra, text_va, text_size):
         return list_size, "list (includes jump table)"
 
-    # Check if extra bytes contain jumps back into the function body
-    # (out-of-line code pattern: jmp/jcc targeting func_start..ghidra_end)
+    # Out-of-line code: jmp/jcc in the extra bytes targeting func_start..ghidra_end
     func_start_off = va - text_va
     if has_back_jumps(extra, func_start_off, ghidra_end, base_offset=ghidra_end):
         return list_size, "list (includes out-of-line code)"
 
-    # Check for a function terminator (ret / ret imm16).  A region with no
-    # ret and no padding is straight-line code of the SAME function — Ghidra
-    # truncated the size (out-of-line tails, string-pointer arrays, etc.).
-    # Trust the list size there: a truncated canonical size silently drops
-    # real code from comparisons, while an over-count at worst makes the
-    # byte comparison visibly mismatch.
+    # A region with no ret and no padding is straight-line code of the SAME
+    # function — Ghidra truncated the size (out-of-line tails, string-pointer
+    # arrays, etc.).  Trust the list size there: a truncated canonical size
+    # silently drops real code from comparisons, while an over-count at worst
+    # makes the byte comparison visibly mismatch.
     if 0xC3 not in extra and 0xC2 not in extra:
         return list_size, "list (code tail, no terminator)"
 

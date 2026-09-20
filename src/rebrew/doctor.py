@@ -1032,7 +1032,7 @@ def run_doctor(target: str | None = None) -> DoctorReport:
     report.checks.append(check_bin_dir(cfg))
     report.checks.append(check_metadata_files(cfg))
     report.checks.append(check_layout_package(cfg))
-    report.checks.append(check_optional_tools(cfg))
+    report.checks.append(check_optional_tools())
     report.checks.append(check_flirt_sigs(cfg))
     report.checks.append(check_ghidra_sync(cfg))
     report.checks.append(check_binsync_state(cfg))
@@ -1191,7 +1191,7 @@ def main_entry() -> None:
     run_standalone(main)
 
 
-def check_optional_tools(cfg: ProjectConfig) -> CheckResult:
+def check_optional_tools() -> CheckResult:
     """Check availability of optional symbolic-proving tools (angr + claripy).
 
     ``rebrew prove`` needs both; a half-installed pair (angr without claripy,

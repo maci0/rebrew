@@ -1252,9 +1252,7 @@ def parse_source_metadata(
     meta: dict[str, str] = {}
     # Map Annotation fields → the uppercase keys callers look up
     if anno.marker_type:
-        # e.g. meta["FUNCTION"] = "SERVER 0x10001a60"
-        va_hex = f"0x{anno.va:08x}"
-        meta[anno.marker_type] = va_hex
+        meta[anno.marker_type] = f"0x{anno.va:08x}"
     if anno.status:
         meta["STATUS"] = anno.status
     if anno.size > 0:

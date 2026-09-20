@@ -87,7 +87,6 @@ def _call_run_diff(
 
     _patch_matcher(monkeypatch, obj=obj, summary=summary, sim=sim)
     run_diff(
-        "f.c",
         mismatches_only,
         register_aware,
         csv_output,
@@ -110,7 +109,7 @@ class TestRunDiff:
             lambda *a, **kw: SimpleNamespace(ok=False, obj_bytes=None, error_msg="cl crashed"),
         )
         with pytest.raises(typer.Exit) as exc:
-            run_diff("f.c", False, False, False, False, False, _params())
+            run_diff(False, False, False, False, False, _params())
         assert exc.value.exit_code == EXIT_ERROR
 
     def test_obj_truncated_to_target(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -145,7 +144,7 @@ class TestRunDiff:
                 flag_sensitive=False,
             ),
         )
-        run_diff("f.c", False, False, False, False, False, _params(target_bytes=b"\x00" * 8))
+        run_diff(False, False, False, False, False, _params(target_bytes=b"\x00" * 8))
         assert seen["obj_len"] == 8
 
     def test_json_output_with_blockers(
@@ -270,7 +269,7 @@ class TestRunDiff:
             ]
         )
         _patch_matcher(monkeypatch, summary=summary, obj=b"\x90\x8b\xec\x5d\xc3")
-        run_diff("f.c", False, False, False, True, False, p)
+        run_diff(False, False, False, True, False, p)
         entry = get_entry(meta_dir, 0x1000, "SERVER")
         assert "register allocation" in entry.get("blocker", "")
         assert entry.get("blocker_delta", 0) > 0
@@ -289,7 +288,7 @@ class TestRunDiff:
         update_field(meta_dir, 0x1000, "blocker_delta", 7, "SERVER")
         p = _params(seed_c=seed, cfg=SimpleNamespace(metadata_dir=meta_dir, compile_timeout=30))
         _patch_matcher(monkeypatch, summary=_summary())
-        run_diff("f.c", False, False, False, True, False, p)
+        run_diff(False, False, False, True, False, p)
         entry = get_entry(meta_dir, 0x1000, "SERVER")
         assert entry.get("blocker", "") == ""
         assert entry.get("blocker_delta") is None
@@ -316,7 +315,7 @@ class TestRunDiff:
             ]
         )
         _patch_matcher(monkeypatch, summary=summary, obj=b"\x90\x8b\xec\x5d\xc3")
-        run_diff("f.c", False, False, False, True, False, p, dry_run=True)
+        run_diff(False, False, False, True, False, p, dry_run=True)
         # Blockers were classified but nothing was written.
         entry = get_entry(meta_dir, 0x1000, "SERVER")
         assert not entry.get("blocker")
@@ -370,13 +369,12 @@ class TestDiffCli:
             lambda *a, **k: _params(),
         )
 
-        def _run_diff(seed_c, mm, rr, csv, fix, json_out, p, **kwargs):
-            seen.update(seed_c=seed_c, mm=mm, csv=csv)
+        def _run_diff(mm, rr, csv, fix, json_out, p, **kwargs):
+            seen.update(mm=mm, csv=csv)
 
         monkeypatch.setattr("rebrew.diff.run_diff", _run_diff)
         result = CliRunner().invoke(app, ["--mismatches-only", "--format", "csv", "f.c"])
         assert result.exit_code == 0
-        assert seen["seed_c"] == "f.c"
         assert seen["mm"] is True
         assert seen["csv"] is True
 
@@ -396,8 +394,8 @@ class TestDiffCli:
 
         seen: dict = {}
 
-        def _run_diff(seed_c, mm, rr, csv, fix, json_out, p, **kwargs):
-            seen.update(seed_c=seed_c, csv=csv, json_out=json_out)
+        def _run_diff(mm, rr, csv, fix, json_out, p, **kwargs):
+            seen.update(csv=csv, json_out=json_out)
 
         monkeypatch.setattr("rebrew.diff.run_diff", _run_diff)
         captured: dict = {}
@@ -413,8 +411,8 @@ class TestDiffCli:
         assert watched == Path("f.c").resolve()
         # Re-invoking the retest re-enters main() with watch=False.
         captured["retest"]()
-        assert seen["seed_c"] == "f.c"
         assert seen["json_out"] is False
+        assert seen["csv"] is False
 
     def test_watch_va_reentry_keeps_va_targeting(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -544,6 +542,6 @@ class TestFixBlockerTargetsDiffedVa:
             ]
         )
         _patch_matcher(monkeypatch, summary=summary, obj=b"\x90\x8b\xec\x5d\xc3")
-        run_diff("f.c", False, False, False, True, False, p)
+        run_diff(False, False, False, True, False, p)
         assert "register allocation" in get_entry(meta_dir, 0x2000, "SERVER").get("blocker", "")
         assert get_entry(meta_dir, 0x1000, "SERVER").get("blocker", "") == ""
