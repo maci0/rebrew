@@ -416,8 +416,17 @@ class TestHandle:
         assert 'data-view="history"' in body
         assert "setLoadError" in body
         assert "data-status" in body
-        assert "Use Show more" in body
+        assert "Use Show more below" in body
+        assert "display stops at" in body
+        assert "Old status" in body and "New status" in body
+        assert body.index('id="results"') < body.index('id="show-more-wrap"')
+        assert body.index('id="globals-results"') < body.index('id="globals-show-more-wrap"')
+        assert body.index('id="history-results"') < body.index('id="history-show-more-wrap"')
+        assert 'clear-filters").disabled' in body
         assert "Share of .text bytes at EXACT" in body
+        assert "Retry sections" in body
+        assert "Retry globals" in body
+        assert "Retry history" in body
         assert "/api/bootstrap" in body
         assert "/api/sections" in body
         assert "/api/globals" in body

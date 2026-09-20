@@ -141,6 +141,7 @@ _INDEX_HTML = """<!doctype html>
   #clear-filters, #show-more, #show-more-globals, #show-more-history,
   #retry-functions, #retry-summary, #retry-view {
     min-height: 2.75rem; padding: .3rem .75rem; border: 1px solid #767676; background: #fff; color: inherit; }
+  #clear-filters:disabled { opacity: .55; cursor: not-allowed; }
   .views { display: flex; flex-wrap: wrap; gap: .35rem; margin: .75rem 0 .25rem; }
   .views button { min-height: 2.75rem; padding: .3rem .85rem; font: inherit; cursor: pointer;
     border: 1px solid #767676; border-radius: 6px; background: #fff; color: inherit; }
@@ -221,9 +222,6 @@ _INDEX_HTML = """<!doctype html>
 <div id="view-functions" class="view-panel" role="tabpanel" aria-labelledby="tab-functions">
 <p id="results-hint" hidden></p>
 <p id="empty-state" hidden></p>
-<div id="show-more-wrap" hidden>
-<button type="button" id="show-more">Show more functions</button>
-</div>
 <div id="results" class="table-scroll" tabindex="0" role="region"
   aria-label="Function results" aria-busy="false" hidden>
 <table id="rows"><caption class="visually-hidden">Functions matching the selected filters</caption><thead><tr>
@@ -231,6 +229,9 @@ _INDEX_HTML = """<!doctype html>
   <th scope="col">Size</th><th scope="col">Status</th>
   <th scope="col">Module</th><th scope="col">Files</th>
 </tr></thead><tbody></tbody></table>
+</div>
+<div id="show-more-wrap" hidden>
+<button type="button" id="show-more">Show more functions</button>
 </div>
 </div>
 <div id="view-sections" class="view-panel" role="tabpanel" aria-labelledby="tab-sections" hidden>
@@ -248,9 +249,6 @@ _INDEX_HTML = """<!doctype html>
 <div id="view-globals" class="view-panel" role="tabpanel" aria-labelledby="tab-globals" hidden>
 <p id="globals-hint" hidden></p>
 <p id="globals-empty" hidden></p>
-<div id="globals-show-more-wrap" hidden>
-<button type="button" id="show-more-globals">Show more globals</button>
-</div>
 <div id="globals-results" class="table-scroll" tabindex="0" role="region"
   aria-label="Global results" aria-busy="false" hidden>
 <table id="globals-rows"><caption class="visually-hidden">Global data symbols</caption><thead><tr>
@@ -258,20 +256,23 @@ _INDEX_HTML = """<!doctype html>
   <th scope="col">Size</th><th scope="col">Module</th>
 </tr></thead><tbody></tbody></table>
 </div>
+<div id="globals-show-more-wrap" hidden>
+<button type="button" id="show-more-globals">Show more globals</button>
+</div>
 </div>
 <div id="view-history" class="view-panel" role="tabpanel" aria-labelledby="tab-history" hidden>
 <p id="history-hint" hidden></p>
 <p id="history-empty" hidden>No status changes recorded yet. History appears after
   <code>rebrew build-db</code> when function statuses change.</p>
-<div id="history-show-more-wrap" hidden>
-<button type="button" id="show-more-history">Show more history</button>
-</div>
 <div id="history-results" class="table-scroll" tabindex="0" role="region"
   aria-label="History results" aria-busy="false" hidden>
 <table id="history-rows"><caption class="visually-hidden">Recent status changes</caption><thead><tr>
-  <th scope="col">VA</th><th scope="col">Old</th><th scope="col">New</th>
+  <th scope="col">VA</th><th scope="col">Old status</th><th scope="col">New status</th>
   <th scope="col">When</th>
 </tr></thead><tbody></tbody></table>
+</div>
+<div id="history-show-more-wrap" hidden>
+<button type="button" id="show-more-history">Show more history</button>
 </div>
 </div>
 </main>
@@ -366,7 +367,12 @@ function syncError() {
   }
   $("retry-summary").hidden = !loadErrors.summary;
   $("retry-functions").hidden = !(loadErrors.functions && currentView === "functions");
-  $("retry-view").hidden = !(loadErrors.view && currentView !== "functions");
+  const showViewRetry = !!(loadErrors.view && currentView !== "functions");
+  $("retry-view").hidden = !showViewRetry;
+  if (currentView === "sections") $("retry-view").textContent = "Retry sections";
+  else if (currentView === "globals") $("retry-view").textContent = "Retry globals";
+  else if (currentView === "history") $("retry-view").textContent = "Retry history";
+  else $("retry-view").textContent = "Retry";
 }
 function setLoadError(source, message) {
   loadErrors[source] = message || "";
@@ -378,7 +384,11 @@ function filtersActive() {
   return !!($("status").value || $("module").value || $("q").value.trim());
 }
 function updateFilterActions() {
-  $("filter-actions").hidden = !filtersActive();
+  // Keep the control mounted on filterable views so enabling Clear does not
+  // shove the tablist down when the first filter is applied.
+  const canFilter = currentView === "functions" || currentView === "globals";
+  $("filter-actions").hidden = !canFilter;
+  $("clear-filters").disabled = !filtersActive();
 }
 function syncViewChrome() {
   const isFunctions = currentView === "functions";
@@ -440,11 +450,15 @@ function setResultsMessage(count, total) {
   }
   if (count < total) {
     const msg = "Showing " + count + " of " + total + " matching functions (page limit)";
+    const capped = count >= PAGE_MAX;
     $("results-status").textContent = msg;
-    hint.textContent = msg + ". Use Show more, or narrow Status, Module, or Search.";
+    hint.textContent = capped
+      ? msg + ". Narrow Status, Module, or Search — display stops at "
+        + PAGE_MAX + " rows."
+      : msg + ". Use Show more below, or narrow Status, Module, or Search.";
     hint.hidden = false;
     const next = Math.min(count + PAGE_STEP, total, PAGE_MAX);
-    more.hidden = count >= PAGE_MAX || count >= total;
+    more.hidden = capped;
     $("show-more").textContent = "Show more (up to " + next + ")";
   } else {
     const msg = count + " function" + (count === 1 ? "" : "s") + " shown";
@@ -455,7 +469,7 @@ function setResultsMessage(count, total) {
   }
 }
 function setListPageMessage(opts) {
-  const { count, total, noun, hintId, moreWrapId, moreBtnId, tip } = opts;
+  const { count, total, noun, hintId, moreWrapId, moreBtnId, tip, tipCapped } = opts;
   const hint = $(hintId);
   const more = $(moreWrapId);
   if (!total) {
@@ -467,11 +481,12 @@ function setListPageMessage(opts) {
   }
   if (count < total) {
     const msg = "Showing " + count + " of " + total + " " + noun;
+    const capped = count >= PAGE_MAX;
     $("results-status").textContent = msg;
-    hint.textContent = msg + ". " + tip;
+    hint.textContent = msg + ". " + (capped ? tipCapped : tip);
     hint.hidden = false;
     const next = Math.min(count + PAGE_STEP, total, PAGE_MAX);
-    more.hidden = count >= PAGE_MAX || count >= total;
+    more.hidden = capped;
     $(moreBtnId).textContent = "Show more (up to " + next + ")";
   } else {
     $("results-status").textContent = count + " " + noun + " shown";
@@ -689,7 +704,8 @@ function renderGlobals(data, options) {
     hintId: "globals-hint",
     moreWrapId: "globals-show-more-wrap",
     moreBtnId: "show-more-globals",
-    tip: "Use Show more, or narrow the search.",
+    tip: "Use Show more below, or narrow the search.",
+    tipCapped: "Narrow the search — display stops at " + PAGE_MAX + " rows.",
   });
   updateFilterActions();
 }
@@ -722,7 +738,8 @@ function renderHistory(data, options) {
     hintId: "history-hint",
     moreWrapId: "history-show-more-wrap",
     moreBtnId: "show-more-history",
-    tip: "Use Show more to load older entries.",
+    tip: "Use Show more below to load older entries.",
+    tipCapped: "Display stops at " + PAGE_MAX + " rows.",
   });
 }
 async function loadSections() {
@@ -745,7 +762,7 @@ async function loadSections() {
     if (seq !== viewSeq || signal.aborted) return;
     $("sections-results").hidden = true;
     $("sections-empty").hidden = true;
-    setLoadError("view", "Sections could not be loaded. Use Retry to try again.");
+    setLoadError("view", "Sections could not be loaded. Use Retry sections to try again.");
   }
 }
 async function loadGlobals(options) {
@@ -787,9 +804,9 @@ async function loadGlobals(options) {
     $("globals-hint").hidden = true;
     $("globals-show-more-wrap").hidden = true;
     if (grow && loadedGlobalsCount > 0) {
-      setLoadError("view", "Could not load more globals. The rows already shown are unchanged; use Retry to fetch the next page again.");
+      setLoadError("view", "Could not load more globals. The rows already shown are unchanged; use Retry globals to fetch the next page again.");
     } else {
-      setLoadError("view", "Globals could not be loaded. Use Retry to try again.");
+      setLoadError("view", "Globals could not be loaded. Use Retry globals to try again.");
     }
   }
 }
@@ -830,9 +847,9 @@ async function loadHistory(options) {
     $("history-hint").hidden = true;
     $("history-show-more-wrap").hidden = true;
     if (grow && loadedHistoryCount > 0) {
-      setLoadError("view", "Could not load more history. The rows already shown are unchanged; use Retry to fetch the next page again.");
+      setLoadError("view", "Could not load more history. The rows already shown are unchanged; use Retry history to fetch the next page again.");
     } else {
-      setLoadError("view", "History could not be loaded. Use Retry to try again.");
+      setLoadError("view", "History could not be loaded. Use Retry history to try again.");
     }
   }
 }
