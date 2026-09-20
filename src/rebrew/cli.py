@@ -354,7 +354,7 @@ def angr_available() -> bool:
 
     with contextlib.suppress(ImportError):
         logging.getLogger("angr").setLevel(logging.CRITICAL)
-        import angr  # noqa: F401
+        import angr  # noqa: F401  # presence probe; name unused
 
         return True
     return False

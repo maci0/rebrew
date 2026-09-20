@@ -232,7 +232,10 @@ line-length = 100
 # ratchets; B904 is enforced after exception-chain fixes (do not re-add
 # it to ignore).  PTH debt (PTH101/105/108/110/118/120/123/201/202) stays
 # off until clean.  Do not list remapped aliases (PLR1701→SIM101,
-# RUF011→B035, RUF035→S704): those families/codes are already selected.
+# RUF011→B035, RUF035→S704, TRY200→B904): those families/codes are already
+# selected.  S602/PLR0124/PIE790/ANN205/ANN206 join as zero-finding
+# ratchets (shell=True subprocess, self-compare, useless pass, typed
+# class/static method returns).
 select = [
     "E", "F", "W", "I", "UP", "B", "SIM", "C4", "DTZ", "RSE", "EXE", "Q",
     "NPY", "ICN", "G", "PGH", "YTT", "ASYNC", "FA", "SLOT", "PLE",
@@ -242,8 +245,8 @@ select = [
     "PLW1501", "PLW1507", "PLW1508", "PLW1509", "PLW1641", "PLW2101", "PLW3301",
     "PLC0105", "PLC0131", "PLC0132", "PLC0205", "PLC0207", "PLC0208", "PLC1802",
     "PLC2401", "PLC2403", "PLC3002",
-    "PLR0133", "PLR0206", "PLR1704", "PLR1708", "PLR1716", "PLR1722", "PLR1733",
-    "PLR1736", "PLR2044",
+    "PLR0124", "PLR0133", "PLR0206", "PLR1704", "PLR1708", "PLR1716", "PLR1722",
+    "PLR1733", "PLR1736", "PLR2044",
     "RUF006", "RUF008", "RUF009", "RUF013", "RUF015", "RUF016", "RUF017",
     "RUF018", "RUF019", "RUF020", "RUF024", "RUF026", "RUF028", "RUF030",
     "RUF032", "RUF033", "RUF034", "RUF036", "RUF037", "RUF040", "RUF041",
@@ -254,15 +257,16 @@ select = [
     "S302", "S303", "S304", "S305", "S306", "S307", "S308", "S310", "S312",
     "S313", "S314", "S315", "S316", "S317", "S318", "S319", "S321", "S323",
     "S501", "S502", "S503", "S504", "S505", "S506", "S507", "S508", "S509",
-    "S601", "S604", "S605", "S606", "S609", "S610", "S611", "S612", "S701",
-    "S702", "S704",
+    "S601", "S602", "S604", "S605", "S606", "S609", "S610", "S611", "S612",
+    "S701", "S702", "S704",
     "TRY002", "TRY201", "TRY203", "TRY401",
     "FURB105", "FURB116", "FURB122", "FURB129", "FURB132", "FURB157", "FURB161",
     "FURB162", "FURB163", "FURB164", "FURB166", "FURB168", "FURB169", "FURB177",
     "FURB181", "FURB187",
     "PERF101", "PERF203", "RET502", "RET503", "RET507",
-    "PIE794", "PIE796", "PIE800", "PIE804", "PIE808",
+    "PIE790", "PIE794", "PIE796", "PIE800", "PIE804", "PIE808",
     "A001", "A003", "A004", "A005", "A006",
+    "ANN205", "ANN206",
     "LOG001", "LOG002", "LOG004", "LOG007", "LOG009", "LOG014",
     "ARG003", "ARG004",
     "TC004", "TC005", "TC007", "TC010",
@@ -318,6 +322,15 @@ m2c = [
 
 [tool.mypy]
 strict = true
+# Zero-finding extras beyond --strict: keep enabled so regressions fail CI.
+extra_checks = true
+enable_error_code = [
+    "ignore-without-code",
+    "unused-awaitable",
+    "mutable-override",
+    "exhaustive-match",
+    "unimported-reveal",
+]
 # src/ is the shipped library; tools/ are the repo's own dev scripts (CI and
 # the pre-commit hook both run plain `uv run mypy`, which checks both).
 files = ["src/rebrew", "tools"]

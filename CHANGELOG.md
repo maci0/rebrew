@@ -1,5 +1,10 @@
 ## [Unreleased]
 ### Added
+- **Ruff/mypy ratchets** — ``S602``, ``PLR0124``, ``PIE790``, ``ANN205``,
+  ``ANN206`` join the select (zero findings on the current tree);
+  mypy enables ``extra_checks`` plus ``ignore-without-code``,
+  ``unused-awaitable``, ``mutable-override``, ``exhaustive-match``, and
+  ``unimported-reveal``.
 - **Package CI uploads verified ``dist/`` artifacts** (wheel, sdist,
   ``rebrew.buildinfo``, CycloneDX SBOM) with 14-day retention after the
   smoke-import step.
@@ -39,6 +44,9 @@
   documented integrator surface.
 
 ### Fixed
+- **Stale ``noqa: F401`` on unused ``source_auto_writable`` import** in
+  ``tests/test_crt_match.py``; presence-probe imports document why F401 is
+  suppressed.
 - **Coverage cell JSON is ordered by ``start``** via shared
   ``SECTION_CELLS_AGG_SQL`` (``json_group_array(… ORDER BY start)``), so the
   grid no longer depends on rowid/insertion order.  Readers also open the DB

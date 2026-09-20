@@ -9,8 +9,8 @@ from rebrew.signature_parser import extract_function_signatures
 
 def _tree_sitter_available() -> bool:
     try:
-        import tree_sitter  # noqa: F401
-        import tree_sitter_c  # noqa: F401
+        import tree_sitter  # noqa: F401  # presence probe; name unused
+        import tree_sitter_c  # noqa: F401  # presence probe; name unused
 
         return True
     except ImportError:

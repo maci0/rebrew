@@ -1203,7 +1203,7 @@ def check_optional_tools() -> CheckResult:
     import contextlib
 
     with contextlib.suppress(ImportError):
-        import claripy  # noqa: F401
+        import claripy  # noqa: F401  # presence probe; name unused
 
         claripy_available = True
 

@@ -933,7 +933,7 @@ class TestSourceAutoWritable:
     auto-write threshold)."""
 
     def _match(self, line: int, confidence: float = 0.85) -> object:
-        from rebrew.crt_match import CrtMatch, source_auto_writable  # noqa: F401
+        from rebrew.crt_match import CrtMatch
 
         entry = CrtSourceEntry(
             name="qsort", file="QSORT.C", line=line, is_asm=False, module="MSVCRT"

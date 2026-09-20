@@ -82,7 +82,7 @@ _ANGR_MISSING_MSG = (
 def _require_angr() -> None:
     """Raise a clear error if angr is not installed."""
     try:
-        import angr  # noqa: F401
+        import angr  # noqa: F401  # presence probe; name unused
     except ImportError as exc:
         raise ImportError(_ANGR_MISSING_MSG) from exc
 
