@@ -638,6 +638,13 @@ def set_value(
     if dry_run:
         console.print(f"[cyan]dry-run:[/cyan] would set {key} = {parsed_value!r}")
         return
+    # Secrets on argv land in process listings / shell history.  Still write
+    # (cfg is the documented editor) but steer users at REBREW_LLM_API_KEY.
+    if key in {"llm.api_key", "api_key"} or key.endswith(".api_key"):
+        console.print(
+            "[yellow]warning:[/yellow] writing api_key via CLI puts the secret in "
+            "argv/history — prefer REBREW_LLM_API_KEY in the environment"
+        )
     parent[final_key] = parsed_value
     save_toml(doc, toml_path)
     console.print(f"[green]Set {key} = {parsed_value!r}[/green]")

@@ -91,16 +91,19 @@ def build_prompt(source: str, count: int = _DEFAULT_COUNT) -> str:
 def llm_config(cfg: Any) -> dict[str, str] | None:
     """Return ``{"endpoint": ..., "api_key": ...}`` or None when not configured.
 
-    Config ``[llm]`` keys win over environment variables.  A non-empty
-    endpoint that is not http(s) with a host and a valid port raises
-    ``ValueError`` (same rule as ``compiler.recompile_url``).
+    Endpoint / model: ``[llm]`` TOML wins, then the matching ``REBREW_LLM_*``
+    env var.  API key: ``REBREW_LLM_API_KEY`` wins when set so a committed
+    TOML key cannot block rotation or override the preferred secret carrier.
+    A non-empty endpoint that is not http(s) with a host and a valid port
+    raises ``ValueError`` (same rule as ``compiler.recompile_url``).
     """
     endpoint = str(getattr(cfg, "llm_endpoint", "") or "").strip()
-    api_key = str(getattr(cfg, "llm_api_key", "") or "").strip()
     if not endpoint:
         endpoint = os.environ.get("REBREW_LLM_ENDPOINT", "").strip()
+    # Secret: env first so REBREW_LLM_API_KEY always overrides a TOML value.
+    api_key = os.environ.get("REBREW_LLM_API_KEY", "").strip()
     if not api_key:
-        api_key = os.environ.get("REBREW_LLM_API_KEY", "").strip()
+        api_key = str(getattr(cfg, "llm_api_key", "") or "").strip()
     if not endpoint:
         return None
     endpoint = validate_http_url(endpoint, "LLM endpoint")

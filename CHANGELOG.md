@@ -6,6 +6,15 @@
   Matched/Identified cards carry titles that explain the percentages.
 
 ### Fixed
+- **``[project.lint]`` enum typos no longer silently disable style rules.**
+  Unknown ``naming_convention`` / ``brace_style`` / ``indent_style`` values
+  warn and fall back to ``none``; unrecognized lint keys warn like other
+  sections.
+- **``REBREW_LLM_API_KEY`` overrides a committed ``[llm].api_key``** so key
+  rotation works without editing TOML; ``rebrew cfg set llm.api_key`` warns
+  that the secret lands in argv/history.
+- **Empty ``REBREW_CONTAINER_RUNTIME`` falls back to ``docker``** instead of
+  invoking a blank command.
 - **CI packaging CHANGELOG↔tag contract runs under shallow clones.** The test
   job sets ``fetch-tags: true``; missing tags fail in ``GITHUB_ACTIONS``
   instead of silently skipping.

@@ -38,9 +38,11 @@ def container_runtime() -> str:
 
     Configurable via ``REBREW_CONTAINER_RUNTIME`` so podman (crun-backed,
     daemonless) or nerdctl can be used instead of dockerd — same knob the Go
-    port honors.  Defaults to ``docker``.
+    port honors.  Defaults to ``docker``.  Empty / whitespace-only values
+    are treated as unset (``os.environ.get`` alone would return ``""`` and
+    break every ``docker``/``podman`` invocation).
     """
-    return os.environ.get("REBREW_CONTAINER_RUNTIME", "docker")
+    return os.environ.get("REBREW_CONTAINER_RUNTIME", "docker").strip() or "docker"
 
 
 def find_install_tool(rel: str | Path) -> Path | None:

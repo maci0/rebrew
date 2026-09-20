@@ -6,7 +6,27 @@ from typing import Any
 
 import pytest
 
-from rebrew.utils import atomic_write_text, detect_source_encoding, read_source_text
+from rebrew.utils import (
+    atomic_write_text,
+    container_runtime,
+    detect_source_encoding,
+    read_source_text,
+)
+
+
+def test_container_runtime_defaults_to_docker(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("REBREW_CONTAINER_RUNTIME", raising=False)
+    assert container_runtime() == "docker"
+
+
+def test_container_runtime_empty_treated_as_unset(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("REBREW_CONTAINER_RUNTIME", "   ")
+    assert container_runtime() == "docker"
+
+
+def test_container_runtime_honors_podman(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("REBREW_CONTAINER_RUNTIME", "podman")
+    assert container_runtime() == "podman"
 
 
 def test_atomic_write_text_success(tmp_path: Path) -> None:

@@ -544,6 +544,60 @@ temperature = 0.2
         with pytest.warns(UserWarning, match=r"\[llm\].*unrecognized keys.*temperature"):
             load_config(root)
 
+    def test_lint_unknown_key_warns(self, tmp_path: Path) -> None:
+        toml = """\
+[project]
+default_target = "main"
+[project.lint]
+indent_size = 4
+
+[targets.main]
+binary = "test.exe"
+"""
+        root = _make_project(tmp_path, toml)
+        with pytest.warns(UserWarning, match=r"\[project\.lint\].*unrecognized keys.*indent_size"):
+            load_config(root)
+
+    def test_lint_typo_enum_falls_back(self, tmp_path: Path) -> None:
+        """A typo'd naming_convention must not silently disable the style rule."""
+        toml = """\
+[project]
+default_target = "main"
+[project.lint]
+naming_convention = "snake-case"
+brace_style = "same-line"
+indent_style = "space"
+
+[targets.main]
+binary = "test.exe"
+"""
+        root = _make_project(tmp_path, toml)
+        with pytest.warns(UserWarning, match=r"project\.lint\.naming_convention"):
+            cfg = load_config(root)
+        assert cfg.lint_naming_convention == "none"
+        assert cfg.lint_brace_style == "none"
+        assert cfg.lint_indent_style == "none"
+
+    def test_lint_valid_enums(self, tmp_path: Path) -> None:
+        toml = """\
+[project]
+default_target = "main"
+[project.lint]
+naming_convention = "snake_case"
+brace_style = "new_line"
+indent_style = "tabs"
+max_line_length = 120
+
+[targets.main]
+binary = "test.exe"
+"""
+        root = _make_project(tmp_path, toml)
+        cfg = load_config(root)
+        assert cfg.lint_naming_convention == "snake_case"
+        assert cfg.lint_brace_style == "new_line"
+        assert cfg.lint_indent_style == "tabs"
+        assert cfg.lint_max_line_length == 120
+
     def test_llm_invalid_endpoint_raises(self, tmp_path: Path) -> None:
         toml = """\
 [project]

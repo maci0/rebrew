@@ -1126,10 +1126,11 @@ def _check_style_rules(result: LintResult, cfg: ProjectConfig | None) -> None:
     """Check code style rules from project config (W024-W027).
 
     Config keys (all optional, from ``rebrew-project.toml [project.lint]``):
-    ``naming_convention`` (snake_case|camelCase), ``brace_style``
-    (same_line|new_line), ``indent_style`` (spaces|tabs), ``indent_size``,
+    ``naming_convention`` (snake_case|camelCase|none), ``brace_style``
+    (same_line|new_line|none), ``indent_style`` (spaces|tabs|none),
     ``max_line_length``.  Read defensively via ``getattr`` so mocks and
     configs without a ``[project.lint]`` section default to "no rule".
+    Unknown enum values are rejected at config load (fall back to ``none``).
     """
     if cfg is None:
         return

@@ -46,9 +46,18 @@ class TestLlmConfig:
 
     def test_config_wins_over_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("REBREW_LLM_ENDPOINT", "https://env.example/v1")
+        monkeypatch.delenv("REBREW_LLM_API_KEY", raising=False)
         cfg = _cfg(endpoint="https://cfg.example/v1", api_key="cfg-key")
         conf = llm_config(cfg)
         assert conf == {"endpoint": "https://cfg.example/v1", "api_key": "cfg-key"}
+
+    def test_api_key_env_wins_over_toml(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """REBREW_LLM_API_KEY must override a committed TOML key (rotation)."""
+        monkeypatch.delenv("REBREW_LLM_ENDPOINT", raising=False)
+        monkeypatch.setenv("REBREW_LLM_API_KEY", "env-key")
+        cfg = _cfg(endpoint="https://cfg.example/v1", api_key="cfg-key")
+        conf = llm_config(cfg)
+        assert conf == {"endpoint": "https://cfg.example/v1", "api_key": "env-key"}
 
     def test_env_fallback(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("REBREW_LLM_ENDPOINT", "https://env.example/v1")

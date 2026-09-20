@@ -265,7 +265,7 @@ they do **not** all share one global precedence over the TOML.
 |---------|--------|
 | `[compiler] recompile_url` / `REBREW_RECOMPILE_URL` | env (per-run override without editing TOML) |
 | `[llm] endpoint` / `REBREW_LLM_ENDPOINT` | TOML, then env |
-| `[llm] api_key` / `REBREW_LLM_API_KEY` | TOML, then env — **prefer the env var**; do not commit keys |
+| `[llm] api_key` / `REBREW_LLM_API_KEY` | **env when set**, else TOML — prefer the env var; do not commit keys |
 | `[llm] model` / `REBREW_LLM_MODEL` | TOML, then env (default `gpt-4o-mini`) |
 
 Within a project file, compiler settings still merge as: built-in defaults →
@@ -309,12 +309,28 @@ by the CLI layer and win for that invocation.
 - `REBREW_WINEPREFIX` — Wine prefix for cmake toolchain bridge scripts.
 - `REBREW_TOOLCHAIN` — cmake bridge pin for the active profile name.
 - `REBREW_COMPILER_RUNNER` — host PE runner path/name (set by `msvc_env`).
+- `REBREW_RUNNER` — PE runner **inside** docker toolchain images
+  (`wine` default, `wibo` opt-in).  Not read by the host Python process.
 
 ### Other
 
 - `_REBREW_COMPLETE` — shell-completion mode marker (probed during `rebrew init` shell-completion scaffolding; there is no `rebrew completion` command).
 - `GH_TOKEN` / `GITHUB_TOKEN` — optional GitHub auth for `rebrew toolchain`
   downloads that need a token (not a rebrew-prefixed name; standard gh env).
+
+## Lint style (`[project.lint]`)
+
+Optional style rules consumed by `rebrew lint` (W024–W027).  All default to
+off (`none` / `200`).  Unknown keys warn at load; unknown enum values warn
+and fall back to `none` (a typo must not silently disable the rule).
+
+```toml
+[project.lint]
+naming_convention = "snake_case"   # snake_case | camelCase | none
+brace_style = "same_line"          # same_line | new_line | none
+indent_style = "spaces"            # spaces | tabs | none
+max_line_length = 200
+```
 
 ## Validation
 
@@ -329,7 +345,7 @@ The config loader fail-fasts on missing/invalid structure:
 
 It emits warnings (and applies safe defaults) if:
 - Unrecognized keys are found in top-level, project, global compiler, target,
-  per-target compiler, `[llm]`, or `[cache]` tables (likely typos).
+  per-target compiler, `[llm]`, `[cache]`, or `[project.lint]` tables (likely typos).
 - `[llm].api_key` is set in the TOML (prefer `REBREW_LLM_API_KEY`) or is set
   without an endpoint.
 - A legacy `[targets.<name>.cflags_presets]` table is present (wrong place —
@@ -337,6 +353,7 @@ It emits warnings (and applies safe defaults) if:
 - `format` is not one of `pe`, `elf`, `macho`, `ne`, `mz` (falls back to `pe` — never stores the bad value).
 - `arch` is not one of the known presets (falls back to `x86_32`).
 - `profile` is not a known compiler profile (falls back to `msvc-6.0`).
+- `[project.lint]` enum fields are not in their known set (falls back to `none`).
 - String/bool fields have non-string/non-bool types (e.g. `recompile_emit_assembly = "false"`
   would otherwise become `True` via Python `bool()`).
 - The target binary is missing — `image_base`/`text_va` auto-detection is skipped

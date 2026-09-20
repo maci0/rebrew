@@ -925,7 +925,65 @@ _KNOWN_PROJECT_KEYS = {
     "lint",
 }
 
+_KNOWN_LINT_KEYS = {
+    "naming_convention",
+    "brace_style",
+    "indent_style",
+    "max_line_length",
+}
+
+_KNOWN_LINT_NAMING = frozenset({"none", "snake_case", "camelCase"})
+_KNOWN_LINT_BRACE = frozenset({"none", "same_line", "new_line"})
+_KNOWN_LINT_INDENT = frozenset({"none", "spaces", "tabs"})
+
 _KNOWN_FORMATS = {"pe", "elf", "macho", "ne", "mz"}
+
+
+def _lint_enum(value: Any, allowed: frozenset[str], field_name: str, default: str = "none") -> str:
+    """Return a known lint enum value, warning and falling back on typos.
+
+    A misspelled ``naming_convention = "snake-case"`` used to pass load and
+    then silently disable the style rule (``!= "none"`` but matches no branch).
+    """
+    text = _as_str(value, default, field_name)
+    if text in allowed:
+        return text
+    _config_warn(
+        f"{field_name} = {text!r} is not one of {sorted(allowed)}; using {default!r}",
+    )
+    return default
+
+
+def _load_lint_settings(project_raw: Mapping[str, Any]) -> dict[str, Any]:
+    """Parse ``[project.lint]`` into ProjectConfig field kwargs."""
+    lint_raw = _as_table(project_raw.get("lint", {}), "project.lint")
+    unknown_lint = set(lint_raw) - _KNOWN_LINT_KEYS
+    if unknown_lint:
+        _config_warn(
+            f"rebrew-project.toml [project.lint]: unrecognized keys: {sorted(unknown_lint)}"
+        )
+    return {
+        "lint_naming_convention": _lint_enum(
+            lint_raw.get("naming_convention"),
+            _KNOWN_LINT_NAMING,
+            "project.lint.naming_convention",
+        ),
+        "lint_brace_style": _lint_enum(
+            lint_raw.get("brace_style"),
+            _KNOWN_LINT_BRACE,
+            "project.lint.brace_style",
+        ),
+        "lint_indent_style": _lint_enum(
+            lint_raw.get("indent_style"),
+            _KNOWN_LINT_INDENT,
+            "project.lint.indent_style",
+        ),
+        "lint_max_line_length": _positive_int(
+            lint_raw.get("max_line_length"),
+            200,
+            "project.lint.max_line_length",
+        ),
+    }
 
 
 def load_config(
@@ -1234,27 +1292,8 @@ def load_config(
             tgt.get("binsync_state_dir"), "", f"targets.{target}.binsync_state_dir"
         ),
         all_targets=all_target_names,
-        # lint configuration
-        lint_naming_convention=_as_str(
-            (_as_table(project_raw.get("lint", {}), "project.lint")).get("naming_convention"),
-            "none",
-            "project.lint.naming_convention",
-        ),
-        lint_brace_style=_as_str(
-            (_as_table(project_raw.get("lint", {}), "project.lint")).get("brace_style"),
-            "none",
-            "project.lint.brace_style",
-        ),
-        lint_indent_style=_as_str(
-            (_as_table(project_raw.get("lint", {}), "project.lint")).get("indent_style"),
-            "none",
-            "project.lint.indent_style",
-        ),
-        lint_max_line_length=_positive_int(
-            (_as_table(project_raw.get("lint", {}), "project.lint")).get("max_line_length"),
-            200,
-            "project.lint.max_line_length",
-        ),
+        # lint configuration — validated enums; unknown keys warn like other sections
+        **_load_lint_settings(project_raw),
     )
 
     # Auto-detect CRT sources if not explicitly configured
