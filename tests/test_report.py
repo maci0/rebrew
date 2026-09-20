@@ -88,8 +88,10 @@ class TestReportCli:
         assert "#475569" in index  # STUB text meets WCAG AA contrast on white
         assert "#94a3b8" not in index
         assert "min-height: 2.75rem" in index  # nav link touch target (WCAG 2.5.8)
-        assert "border: 1px solid #64748b" in index  # WCAG 1.4.11 non-text contrast
+        assert "border: 1px solid #767676" in index  # WCAG 1.4.11 non-text contrast
         assert "#e2e8f0" not in index
+        assert "#64748b" not in index  # no raw Tailwind slate chrome
+        assert "text-transform: uppercase" not in index
         assert "prefers-reduced-motion" in index
         assert "forced-colors" in index
 
