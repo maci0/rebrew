@@ -1421,12 +1421,7 @@ def main(
 
     va_int = parse_va(va_str, json_mode=json_output)
 
-    # Find in Ghidra functions
-    ghidra_entry = None
-    for func in ghidra_funcs:
-        if func.va == va_int:
-            ghidra_entry = func
-            break
+    ghidra_entry = next((func for func in ghidra_funcs if func.va == va_int), None)
 
     size: int
     ghidra_name: str

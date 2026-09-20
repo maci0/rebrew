@@ -699,13 +699,11 @@ def main(
     """
     cfg = require_config(target=target, json_mode=json_output)
 
-    # Load binary
     bin_path = cfg.target_binary
     if not bin_path.exists():
         error_exit(f"Target binary not found: {bin_path}", json_mode=json_output)
     info = load_binary(bin_path)
 
-    # Build function registry
     from rebrew.catalog import cached_function_list
 
     funcs = cached_function_list(cfg)
@@ -719,10 +717,8 @@ def main(
 
     registry = build_function_registry(funcs, cfg, ghidra_path=ghidra_path, bin_path=bin_path)
 
-    # Cluster
     clusters = cluster_functions(registry, info, cfg)
 
-    # Count unclustered
     clustered_vas: set[int] = set()
     for c in clusters:
         clustered_vas.update(c.functions)

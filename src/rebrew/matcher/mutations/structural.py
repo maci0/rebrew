@@ -621,29 +621,27 @@ def mut_switch_to_if_chain(s: str, rng: random.Random) -> str | None:
     cond_node = caps["cond"][0]
     body_node = caps["body"][0]
 
-    # Extract the condition expression (strip parens)
     cond_text = b_source[cond_node.start_byte + 1 : cond_node.end_byte - 1].strip()
 
-    # Collect case statements with their values and bodies
+    def _case_body(case_node: ts.Node) -> bytes:
+        body_parts = []
+        past_colon = False
+        for sub in case_node.children:
+            if sub.type == ":":
+                past_colon = True
+                continue
+            if past_colon and sub.type != "break_statement":
+                body_parts.append(b_source[sub.start_byte : sub.end_byte])
+        return b"\n        ".join(body_parts) if body_parts else b"/* empty */"
+
     branches: list[tuple[bytes | None, bytes]] = []  # (value_or_None_for_default, body)
     for child in body_node.children:
         if child.type != "case_statement":
             continue
         is_default = child.children and child.children[0].type == "default"
         if is_default:
-            # Collect body statements after the colon
-            body_parts = []
-            past_colon = False
-            for sub in child.children:
-                if sub.type == ":":
-                    past_colon = True
-                    continue
-                if past_colon and sub.type != "break_statement":
-                    body_parts.append(b_source[sub.start_byte : sub.end_byte])
-            body_text = b"\n        ".join(body_parts) if body_parts else b"/* empty */"
-            branches.append((None, body_text))
+            branches.append((None, _case_body(child)))
         else:
-            # Extract case value (between 'case' and ':')
             value_node = None
             for sub in child.children:
                 if sub.type == "case":
@@ -654,22 +652,11 @@ def mut_switch_to_if_chain(s: str, rng: random.Random) -> str | None:
             if value_node is None:
                 continue
             case_val = b_source[value_node.start_byte : value_node.end_byte].strip()
-            # Collect body statements after the colon
-            body_parts = []
-            past_colon = False
-            for sub in child.children:
-                if sub.type == ":":
-                    past_colon = True
-                    continue
-                if past_colon and sub.type != "break_statement":
-                    body_parts.append(b_source[sub.start_byte : sub.end_byte])
-            body_text = b"\n        ".join(body_parts) if body_parts else b"/* empty */"
-            branches.append((case_val, body_text))
+            branches.append((case_val, _case_body(child)))
 
     if not branches:
         return None
 
-    # Build if/else if chain
     parts: list[bytes] = []
     default_body: bytes | None = None
     first = True

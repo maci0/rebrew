@@ -394,7 +394,6 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
     report.total_functions = len(ghidra_vas | covered_vas_set)
     report.covered_functions = len(existing)
 
-    # Count source files
     src_dir = Path(cfg.reversed_dir)
     report.source_files = len(iter_sources(src_dir, cfg))
 

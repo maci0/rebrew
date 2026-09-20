@@ -315,7 +315,6 @@ def iter_function_name_and_proto(source: str) -> list[tuple[str, str]]:
 
     def walk(node: Any) -> None:
         if node.type == "function_definition":
-            # Find the compound_statement (body) to extract prototype
             compound = _find_child(node, "compound_statement")
             if compound:
                 proto_bytes = src_bytes[node.start_byte : compound.start_byte].strip()
@@ -326,7 +325,6 @@ def iter_function_name_and_proto(source: str) -> list[tuple[str, str]]:
             else:
                 proto = _node_text(node, src_bytes)
 
-            # Find function name from the declarator
             declarator = _find_child(node, "function_declarator", "pointer_declarator")
             name: str | None = None
             if declarator is not None:

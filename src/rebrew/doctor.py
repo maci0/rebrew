@@ -358,7 +358,6 @@ def check_compiler(cfg: ProjectConfig) -> CheckResult:
     except ValueError:
         parts = cmd_str.split()
 
-    # Check if the first token (e.g. "wine"/"wibo") is available
     exe = parts[0] if parts else ""
     exe_path = shutil.which(exe)
     is_wibo_runner = Path(exe).name == "wibo"

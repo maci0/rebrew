@@ -545,7 +545,6 @@ def generate_data_json(
                         boundary_starts[bis_idx] if bis_idx < len(boundary_starts) else sec_size
                     )
 
-                    # Check what's in the gap
                     gap_bytes = text_data[func_end_off:next_func_off]
                     if not gap_bytes:
                         continue
@@ -556,7 +555,6 @@ def generate_data_json(
                     # gap and reuse (was recomputed up to 4x on the same slice).
                     pad_len = trim_trailing_padding(gap_bytes)
 
-                    # Check Ghidra data labels at gap start
                     dl_result = _find_ghidra_data_label(sec_va + func_end_off, label_index)
                     is_switch_data = False
                     if dl_result is not None:
@@ -572,7 +570,7 @@ def generate_data_json(
                         # both pointer arrays and index/lookup tables)
                         absorb_size = pad_len
 
-                    # Check for out-of-line code (jumps back into function body)
+                    # Out-of-line code jumps back into the function body.
                     if absorb_size == 0 and pad_len > 0:
                         func_start_off = name_end_to_start.get(
                             (func_end_to_name[func_end_off], func_end_off)

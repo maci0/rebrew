@@ -700,7 +700,6 @@ def _render_graph(cfg: ProjectConfig) -> tuple[str, str | None]:
                         edges.extend(binary_call_edges(info, ranges))
                 except Exception as exc:  # best-effort augmentation
                     logging.getLogger(__name__).debug("NE edge augmentation failed: %s", exc)
-                    pass
         mermaid = render_mermaid(nodes, edges, dispatch_edges)
         adjacency = _adjacency_list(nodes, edges, dispatch_edges)
     except Exception as exc:  # best-effort graph; the report must not crash

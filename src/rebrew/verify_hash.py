@@ -123,7 +123,7 @@ def _compare_logic_hash() -> str:
     The ``lru_cache`` lives on THIS function (not a nested helper): the old
     version decorated an inner ``_hash()`` re-created on every call, so the
     full-package source hash was recomputed on every verify run despite the
-    "once per process" claim (slop-review).
+    "once per process" claim.
     """
     import rebrew
 

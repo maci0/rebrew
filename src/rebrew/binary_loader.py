@@ -572,7 +572,6 @@ def load_binary(path: Path, fmt: str = "auto") -> BinaryInfo:
     # Tag with mtime for stale-check on next lookup
     result._cache_mtime_ns = mtime_ns
     result._cache_fsize = fsize
-    # Store in cache under the lock
     with _load_binary_lock:
         if cache_key not in _load_binary_cache:
             # Evict oldest entry when cache is full.
