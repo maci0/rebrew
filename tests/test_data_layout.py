@@ -607,6 +607,36 @@ def test_link_objects_cmake_rsp(tmp_path: Path) -> None:
     ]
 
 
+def test_link_objects_cmake_rsp_backslash_paths(tmp_path: Path) -> None:
+    """Wine/MSVC CMake rsp lines may use ``\\``; POSIX Path must still join."""
+    from rebrew.data_layout import link_objects
+
+    rsp_dir = tmp_path / "build/CMakeFiles/game.dir"
+    rsp_dir.mkdir(parents=True)
+    (rsp_dir / "objects1.rsp").write_text(
+        r"CMakeFiles\game.dir\src\zed.c.obj CMakeFiles\game.dir\src\alpha.c.obj" + "\n",
+        encoding="utf-8",
+    )
+    objs = link_objects(tmp_path)
+    assert objs == [
+        tmp_path / "build" / "CMakeFiles" / "game.dir" / "src" / "zed.c.obj",
+        tmp_path / "build" / "CMakeFiles" / "game.dir" / "src" / "alpha.c.obj",
+    ]
+
+
+def test_obj_to_source_backslash_cmake_path(tmp_path: Path) -> None:
+    """Object paths with embedded ``\\`` still resolve to the owning ``.c``."""
+    from rebrew.data_layout import _obj_to_source
+
+    src = tmp_path / "src" / "zed.c"
+    src.parent.mkdir(parents=True)
+    src.write_text("int zed(void) { return 0; }\n", encoding="utf-8")
+    # Simulate a Path whose as_posix/str still carries backslashes from an rsp.
+    obj = tmp_path / "build" / r"CMakeFiles\game.dir\src\zed.c.obj"
+    got = _obj_to_source(obj, tmp_path, tmp_path / "src")
+    assert got == src
+
+
 def test_link_objects_makefile_out_fallback(tmp_path: Path) -> None:
     """Makefile builds (no rsp) fall back to out/*.obj in make's sorted order.
 

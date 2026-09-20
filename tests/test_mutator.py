@@ -238,6 +238,27 @@ class TestPragmaMutations:
         assert "int f(void)" in removed
         assert mut_remove_auto_inline_pragma(self.SRC, _rng()) is None  # no-op when absent
 
+    def test_pragma_ops_recognize_crlf_wrappers(self) -> None:
+        """MULTILINE ``$`` sits before ``\\n`` but after ``\\r``; without ``\\r?``
+        every add/remove pragma op missed an existing CRLF wrapper."""
+        body = "int f(void){\r\n    return 0;\r\n}\r\n"
+        optimize = f'#pragma optimize("", off)\r\n{body}#pragma optimize("", on)\r\n'
+        assert mut_add_optimize_pragma(optimize, _rng()) is None
+        stripped = mut_remove_optimize_pragma(optimize, _rng())
+        assert stripped is not None and "pragma" not in stripped
+
+        intrinsic = f"#pragma intrinsic(memcpy)\r\n{body}"
+        assert mut_add_intrinsic_pragma(intrinsic, _rng()) is None
+        assert mut_remove_intrinsic_pragma(intrinsic, _rng()) is not None
+
+        check = f"#pragma check_stack(off)\r\n{body}"
+        toggled = mut_toggle_check_stack_pragma(check, _rng())
+        assert toggled is not None and "pragma" not in toggled
+
+        auto = f"#pragma auto_inline(off)\r\n{body}#pragma auto_inline(on)\r\n"
+        assert mut_add_auto_inline_pragma(auto, _rng()) is None
+        assert mut_remove_auto_inline_pragma(auto, _rng()) is not None
+
     def test_auto_inline_stays_with_body_across_split(self) -> None:
         src = (
             f"#include <windows.h>\n#pragma auto_inline(off)\n{self.SRC}\n#pragma auto_inline(on)\n"
@@ -844,6 +865,15 @@ class TestReturnGoto:
         result = mut_goto_to_return(src, _rng())
         assert result is not None
         assert "return" in result
+
+    def test_goto_to_return_crlf(self) -> None:
+        """Label+newline strip must match CRLF or the label line is left behind."""
+        src = "int f() {\r\n  goto ret_false;\r\nret_false:\r\n  return FALSE;\r\n}"
+        result = mut_goto_to_return(src, _rng())
+        assert result is not None
+        assert "goto" not in result
+        assert "ret_false:" not in result
+        assert "return 0;" in result
 
     def test_nonzero_return_not_matched(self) -> None:
         """`return 0x100;` must not become `goto ret_false;` (whose tail is 0)."""

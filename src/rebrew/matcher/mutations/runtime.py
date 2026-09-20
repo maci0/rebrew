@@ -37,7 +37,9 @@ def _capture(match_or_captures: Any, name: str) -> Any:
 _MUTATION_ATTEMPTS = 10
 
 # Pre-compiled regex for ret_false label removal (used in GA hot path).
-_RE_RET_FALSE_LABEL_NL = re.compile(r"^[ \t]*ret_false:[ \t]*\n", flags=re.MULTILINE)
+# ``\r?`` so CRLF sources strip the label line the same as LF (bare ``\n``
+# left the CR behind and failed to match the label+newline form entirely).
+_RE_RET_FALSE_LABEL_NL = re.compile(r"^[ \t]*ret_false:[ \t]*\r?\n", flags=re.MULTILINE)
 _RE_RET_FALSE_LABEL = re.compile(r"^[ \t]*ret_false:[ \t]*", flags=re.MULTILINE)
 
 # Pre-compiled regex for mut_return_to_goto (GA hot path).

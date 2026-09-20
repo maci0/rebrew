@@ -14,8 +14,12 @@ import re
 #: aliasing, g = global optimizations, s/t = favor size/speed, y = frame-pointer
 #: omission; the empty string turns everything off (or resets to the /O
 #: baseline with on).
+# ``\r?`` before ``$``: with MULTILINE, ``$`` sits between ``\r`` and ``\n`` on
+# CRLF sources, and ``[ \t]*`` cannot consume the CR — same trap fixed in
+# ``cross_import._MARKER_RE``.  Without it, add/remove pragma ops miss an
+# existing wrapper and double-insert or leave stale lines.
 _OPTIMIZE_PRAGMA_RE = re.compile(
-    r'^[ \t]*#pragma[ \t]+optimize\(\s*"[agsty]*"\s*,\s*(?:on|off)\s*\)[ \t]*$',
+    r'^[ \t]*#pragma[ \t]+optimize\(\s*"[agsty]*"\s*,\s*(?:on|off)\s*\)[ \t]*\r?$',
     re.MULTILINE,
 )
 
@@ -33,10 +37,10 @@ _INTRINSIC_PRAGMA_SET = (
     "fabs",
 )
 
-_INTRINSIC_PRAGMA_RE = re.compile(r"^[ \t]*#pragma[ \t]+intrinsic\([^)]*\)[ \t]*$", re.MULTILINE)
+_INTRINSIC_PRAGMA_RE = re.compile(r"^[ \t]*#pragma[ \t]+intrinsic\([^)]*\)[ \t]*\r?$", re.MULTILINE)
 
 _CHECK_STACK_PRAGMA_RE = re.compile(
-    r"^[ \t]*#pragma[ \t]+check_stack\(\s*off\s*\)[ \t]*$", re.MULTILINE
+    r"^[ \t]*#pragma[ \t]+check_stack\(\s*off\s*\)[ \t]*\r?$", re.MULTILINE
 )
 
 
@@ -101,7 +105,7 @@ def mut_toggle_check_stack_pragma(s: str, rng: random.Random) -> str | None:
 
 
 _AUTO_INLINE_PRAGMA_RE = re.compile(
-    r"^[ \t]*#pragma[ \t]+auto_inline\(\s*(?:on|off)\s*\)[ \t]*$",
+    r"^[ \t]*#pragma[ \t]+auto_inline\(\s*(?:on|off)\s*\)[ \t]*\r?$",
     re.MULTILINE,
 )
 

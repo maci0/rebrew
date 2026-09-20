@@ -32,7 +32,7 @@ from typing import Any
 
 from rebrew.binary_loader import load_binary
 from rebrew.data_metadata import iter_data_symbols
-from rebrew.utils import atomic_write_text, load_tomllib, read_source_text
+from rebrew.utils import atomic_write_text, config_path, load_tomllib, read_source_text
 
 # ---------------------------------------------------------------------------
 # Link order + per-TU symbol inventory (objdump-based)
@@ -83,7 +83,9 @@ def link_objects(root: Path) -> list[Path]:
     rsps = sorted((root / "build/CMakeFiles").glob("*/objects*.rsp"))
     if rsps:
         text = rsps[0].read_text(encoding="utf-8")
-        return [Path(root / "build") / (a or b) for a, b in _OBJ_RE.findall(text)]
+        # Wine/MSVC CMake rsp lines may use ``\\`` separators; on POSIX that
+        # would become a single literal path component without normalization.
+        return [Path(root / "build") / config_path(a or b) for a, b in _OBJ_RE.findall(text)]
     for obj_dir in ("out", "build"):
         obj_path = root / obj_dir
         if not obj_path.is_dir():
@@ -806,10 +808,15 @@ def own_data_globals(
 
 def _obj_to_source(obj: Path, root: Path, src_dir: Path) -> Path | None:
     """The source file behind a link-order object, or None."""
-    s = re.sub(r"^.*?CMakeFiles/[^/]+\.dir/", "", str(obj))
+    # Normalize separators first: wine-produced rsp paths embed ``\\``, and
+    # ``str(Path)`` on POSIX keeps them as one component so the CMakeFiles
+    # strip never matches.
+    s = config_path(obj).as_posix()
+    s = re.sub(r"^.*?CMakeFiles/[^/]+\.dir/", "", s)
     if s.endswith(".obj"):
         s = s[:-4]
-    for cand in (root / s, src_dir / s, src_dir / Path(s).name):
+    rel = config_path(s)
+    for cand in (root / rel, src_dir / rel, src_dir / rel.name):
         if cand.exists():
             return cand
     return None
