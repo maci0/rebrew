@@ -8,17 +8,6 @@ import pytest
 from rebrew.doctor import _FAIL, _PASS, _WARN, check_compiler, check_runner
 
 
-def _vendored_ok(profile: str) -> bool:
-    """True when the profile's vendored host compiler is actually present
-    (binaries are gitignored, so a fresh clone has the tree but not them)."""
-    from rebrew.toolchain import get_toolchain, vendored_binary
-
-    try:
-        return vendored_binary(get_toolchain(profile)) is not None
-    except Exception:
-        return False
-
-
 def _cfg(**overrides: object) -> SimpleNamespace:
     defaults: dict = {
         "compiler_command": "gcc",

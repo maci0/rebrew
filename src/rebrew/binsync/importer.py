@@ -68,10 +68,6 @@ _GHIDRA_GENERIC_RE = re.compile(r"^(FUN_|DAT_|switchdata|thunk_)")
 _PLACEHOLDER_GLOBAL_RE = re.compile(r"^g_[0-9a-fA-F]{4,8}$")
 
 
-def _is_generic(name: str) -> bool:
-    return bool(_GENERIC_NAME_RE.match(name))
-
-
 def is_meaningful(name: str) -> bool:
     """Return True when *name* looks user-assigned rather than an auto-label.
 
@@ -79,7 +75,9 @@ def is_meaningful(name: str) -> bool:
     (``func_``/``FUN_``/``DAT_``/``g_<hex>``) are treated consistently.
     """
     return bool(name) and not (
-        _is_generic(name) or _GHIDRA_GENERIC_RE.match(name) or _PLACEHOLDER_GLOBAL_RE.match(name)
+        _GENERIC_NAME_RE.match(name)
+        or _GHIDRA_GENERIC_RE.match(name)
+        or _PLACEHOLDER_GLOBAL_RE.match(name)
     )
 
 

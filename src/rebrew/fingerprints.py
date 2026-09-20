@@ -461,7 +461,13 @@ def main(
     for key, value in bundle.items():
         if key == "section_entropies":
             continue
-        table.add_row(key, _format_value(value))
+        if value is None:
+            rendered = "-"
+        elif isinstance(value, int) and not isinstance(value, bool):
+            rendered = f"{value:,}"
+        else:
+            rendered = str(value)
+        table.add_row(key, rendered)
     console.print(table)
 
     sections = cast(list[dict[str, object]], bundle["section_entropies"])
@@ -483,15 +489,6 @@ def main(
                 f"{float(cast(float, section['entropy'])):.4f}",
             )
         console.print(section_table)
-
-
-def _format_value(value: object) -> str:
-    """Render a bundle value for the human table (``None`` as ``-``)."""
-    if value is None:
-        return "-"
-    if isinstance(value, int) and not isinstance(value, bool):
-        return f"{value:,}"
-    return str(value)
 
 
 def main_entry() -> None:

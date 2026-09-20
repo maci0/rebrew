@@ -96,12 +96,6 @@ def link_objects(root: Path) -> list[Path]:
     )
 
 
-def _obj_sections(obj: Path) -> tuple[dict[int, str], int, int]:
-    """``(section index → name, .data size, .bss size)`` from ``objdump -h``."""
-    secname, sizes = _obj_section_sizes(obj)
-    return secname, sizes.get(".data", 0), sizes.get(".bss", 0)
-
-
 def _obj_section_sizes(obj: Path) -> tuple[dict[int, str], dict[str, int]]:
     """``(section index → name, {section name: size})`` from ``objdump -h``."""
     h = _run_objdump(obj, "-h")
@@ -152,7 +146,8 @@ def obj_section_symbols(obj: Path, *sections: str) -> tuple[dict[str, int], dict
 
 def obj_data_symbol_offsets(obj: Path) -> tuple[int, dict[str, int]]:
     """(obj .data size, {symbol: offset within the obj's .data})."""
-    secname, dsize, _bsize = _obj_sections(obj)
+    secname, sizes = _obj_section_sizes(obj)
+    dsize = sizes.get(".data", 0)
     syms: dict[str, int] = {}
     for sec_idx, value, raw_sym in _iter_obj_symbols(obj):
         if secname.get(sec_idx - 1) == ".data":

@@ -6,7 +6,6 @@ from __future__ import annotations
 import argparse
 import logging
 import os
-import re
 import sys
 import tomllib
 import warnings
@@ -33,8 +32,6 @@ def _default_root() -> Path:
 
 
 ROOT = _default_root()
-
-_VA_RE = re.compile(r"^0x[0-9a-fA-F]+$")
 
 
 def check_functions_txt(ft: Path) -> list[str]:

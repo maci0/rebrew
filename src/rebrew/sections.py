@@ -17,12 +17,6 @@ from rebrew.sources import iter_sources
 logger = logging.getLogger(__name__)
 
 
-def _default_padding() -> tuple[int, ...]:
-    from rebrew.binary_loader import PADDING_BYTES
-
-    return PADDING_BYTES
-
-
 def trim_trailing_padding(data: bytes, padding: tuple[int, ...] | None = None) -> int:
     r"""Return the length of *data* after stripping trailing padding bytes.
 
@@ -32,7 +26,9 @@ def trim_trailing_padding(data: bytes, padding: tuple[int, ...] | None = None) -
     0
     """
     if padding is None:
-        padding = _default_padding()
+        from rebrew.binary_loader import PADDING_BYTES
+
+        padding = PADDING_BYTES
     end = len(data)
     while end > 0 and data[end - 1] in padding:
         end -= 1

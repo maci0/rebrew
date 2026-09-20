@@ -93,11 +93,6 @@ def read_data_vs(path: Path) -> int:
     return section.virtual_size
 
 
-def _stub_obj(target_dir: Path, stub: Path, root: Path) -> Path:
-    rel = stub.relative_to(root).with_suffix(".obj")
-    return target_dir / rel
-
-
 @app.callback(invoke_without_command=True)
 def main(
     stub: Path = typer.Option(Path("src/link_stubs.c"), "--stub", help="Stub TU holding the tail"),
@@ -221,7 +216,7 @@ def main(
             atomic_write_text(
                 stub, text[: m.start(1)] + f"{new_tail:x}" + text[m.end(1) :], encoding="utf-8"
             )
-            obj = _stub_obj(target_dir, stub, root)
+            obj = target_dir / stub.relative_to(root).with_suffix(".obj")
             try:
                 subprocess.run(
                     [compile_cmd, "/nologo", "/c", *cflags.split(), f"/Fo{obj}", str(stub)],

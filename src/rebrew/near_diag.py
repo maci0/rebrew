@@ -144,10 +144,6 @@ def normalized_operands(insn: _OperandCarrier) -> str:
     return _REGISTER_RE.sub("R", insn.op_str)
 
 
-def _equiv_class(mnemonic: str) -> tuple[str, ...]:
-    return _EQUIV_FAMILIES.get(mnemonic, (mnemonic,))
-
-
 def classify_pair(target: Insn, compiled: Insn) -> str:
     """Classify one aligned (target, compiled) instruction pair."""
     if target.raw == compiled.raw:
@@ -162,7 +158,7 @@ def classify_pair(target: Insn, compiled: Insn) -> str:
         if normalized_operands(target) == normalized_operands(compiled):
             return "register"
         return "structural"
-    if compiled.mnemonic in _equiv_class(target.mnemonic):
+    if compiled.mnemonic in _EQUIV_FAMILIES.get(target.mnemonic, (target.mnemonic,)):
         return "equivalent"
     return "structural"
 

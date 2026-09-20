@@ -69,7 +69,7 @@ from rebrew.coff_reloc import build_iat_region, smart_reloc_compare
 from rebrew.compile_cache import CacheBackend, compile_cache_key, get_compile_cache
 from rebrew.config import ProjectConfig, validate_http_url
 from rebrew.context import CONTEXT_UNIT_NAME, CompileContext
-from rebrew.headless import ensure_xvfb
+from rebrew.headless import _XVFB_RUN_SERVER_ARGS, ensure_xvfb
 from rebrew.matcher import parse_obj_symbol_and_relocs
 from rebrew.metadata import MATCHED_STATUSES
 from rebrew.msvc_env import msvc_env_from_config, resolve_runner_path
@@ -493,7 +493,6 @@ _STUB_TARGET_MIN_BYTES = 12
 # CI with no DISPLAY.  We point wine at a persistent Xvfb (headless.py) -
 # invisible AND cheap: xvfb-run's wrapper costs ~3 s per invocation, a
 # persistent server pays ~200 ms once and amortizes over a whole batch.
-_XVFB_SERVER_ARGS = "-screen 0 1280x1024x24"
 
 
 def maybe_headless_wine(
@@ -524,7 +523,7 @@ def maybe_headless_wine(
         env["DISPLAY"] = display
         return cmd, env
     if shutil.which("xvfb-run") is not None:
-        return ["xvfb-run", "-a", "-s", _XVFB_SERVER_ARGS, *cmd], env
+        return ["xvfb-run", "-a", "-s", _XVFB_RUN_SERVER_ARGS, *cmd], env
     return cmd, env
 
 

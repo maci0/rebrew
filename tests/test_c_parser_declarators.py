@@ -23,11 +23,6 @@ def _ident(name: str, offset: int = 0) -> Node:
     return Node("identifier", start=offset, end=offset + len(name))
 
 
-def _text(node: Node) -> str:
-    # _node_text reads source_bytes[start_byte:end_byte]
-    return node.type  # pragma: no cover — not used with real bytes here
-
-
 class TestFindFunctionName:
     def test_identifier_direct(self) -> None:
         node = _ident("foo")

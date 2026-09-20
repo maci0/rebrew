@@ -53,9 +53,7 @@ class PeHeaderFields:
         return self.values.get(label)
 
 
-#: COFF header size (the fixed part between the PE signature and the optional
-#: header) and section-table entry size, both fixed by the PE/COFF spec.
-COFF_HEADER_SIZE = 20
+#: Section-table entry size, fixed by the PE/COFF spec.
 SECTION_ENTRY_SIZE = 40
 
 #: COFF field offsets, relative to e_lfanew.
