@@ -799,7 +799,12 @@ class BinaryMatchingGA:
                     self.best_score = best_score
                     self.best_source = best_src
                     self.stagnant_gens = 0
-                    atomic_write_text(self.out_dir / "best.c", best_src, encoding="utf-8")
+                    atomic_write_text(
+                        self.out_dir / "best.c",
+                        best_src,
+                        encoding="utf-8",
+                        errors="surrogateescape",
+                    )
                 else:
                     self.stagnant_gens += 1
 
@@ -962,7 +967,7 @@ def _ga_args_hash(
     built in different orders hashed differently (and any repr change across
     versions silently invalidated every checkpoint)."""
     h = hashlib.sha256()
-    h.update(seed_source.encode("utf-8", errors="replace"))
+    h.update(seed_source.encode("utf-8", errors="surrogateescape"))
     h.update(target_bytes)
     h.update(symbol.encode("utf-8", errors="surrogateescape"))
     h.update(cflags.encode("utf-8", errors="surrogateescape"))

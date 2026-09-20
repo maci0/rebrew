@@ -386,7 +386,7 @@ class _PartitionScorer:
         """Merged TU text for *cluster*, or None when no source covers it."""
         from rebrew.annotation import split_annotation_sections
         from rebrew.merge import _block_metadata, _merge_preambles
-        from rebrew.utils import read_source_text
+        from rebrew.utils import read_compile_source
 
         preambles: list[str] = []
         blocks: list[tuple[int, str]] = []
@@ -403,7 +403,7 @@ class _PartitionScorer:
             if key not in seen_files:
                 seen_files.add(key)
                 try:
-                    text, _ = read_source_text(path)
+                    text = read_compile_source(path)
                 except OSError:
                     continue
                 preamble, file_blocks = split_annotation_sections(text)
@@ -470,7 +470,7 @@ class _PartitionScorer:
         if text is None:
             return 0, 0
         tu_path = workdir / f"tu_{cluster[0]:08x}.c"
-        tu_path.write_text(text, encoding="utf-8")
+        tu_path.write_text(text, encoding="utf-8", errors="surrogateescape")
         members = [
             va for va in cluster if (ann := self._annotations.get(va)) is not None and ann.size > 0
         ]

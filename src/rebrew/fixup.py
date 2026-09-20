@@ -283,7 +283,7 @@ def _compile_check(cfg: Any, source_text: str, src_hint: Path) -> str | None:
     workdir = writable_temp_dir("rebrew_fixup_")
     try:
         tmp_src = workdir / src_hint.name
-        tmp_src.write_text(source_text, encoding="utf-8")
+        tmp_src.write_text(source_text, encoding="utf-8", errors="surrogateescape")
         obj_path, err = compile_to_obj(
             cfg,
             tmp_src,

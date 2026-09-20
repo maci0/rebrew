@@ -37,7 +37,7 @@ from rebrew.matcher import (
 )
 from rebrew.sources import target_marker
 from rebrew.toolchain import TOOLCHAINS
-from rebrew.utils import config_path, read_source_text
+from rebrew.utils import config_path, read_compile_source
 
 log = logging.getLogger(__name__)
 console = Console(stderr=True)
@@ -141,7 +141,7 @@ def resolve_build_params(
     seed_c_path = Path(seed_c)
     if not seed_c_path.exists():
         # Run the existence check unconditionally — with an explicit --symbol
-        # the old guard below was skipped and read_source_text raised a raw
+        # the old guard below was skipped and read_compile_source raised a raw
         # FileNotFoundError traceback.
         error_exit(f"Source not found: {seed_c}", json_mode=json_output)
     annos = parse_c_file_multi(
@@ -309,7 +309,7 @@ def resolve_build_params(
     if not target_bytes:
         error_exit("Could not extract target bytes", json_mode=json_output)
 
-    seed_src, _ = read_source_text(seed_c_path)
+    seed_src = read_compile_source(seed_c_path)
 
     return BuildParams(
         cfg=compile_cfg,
@@ -471,7 +471,7 @@ def run_flag_sweep(
         getattr(stub, "module", ""),
     )
 
-    source, _ = read_source_text(filepath)
+    source = read_compile_source(filepath)
     target_bytes = extract_raw_bytes(cfg.target_binary, va_int, size)
     if not target_bytes:
         return float("inf"), "", []

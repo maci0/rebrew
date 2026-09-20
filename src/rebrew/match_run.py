@@ -42,7 +42,7 @@ from rebrew.match_sweep import (
     run_flag_sweep,
 )
 from rebrew.matcher import GACheckpoint, SolutionEntry, load_ga_runs
-from rebrew.utils import metadata_write_lock, read_source_text
+from rebrew.utils import metadata_write_lock, read_compile_source
 
 log = logging.getLogger(__name__)
 console = Console(stderr=True)
@@ -82,7 +82,7 @@ def _run_single_ga(
         for extra_path in extra_seed:
             ep = Path(extra_path)
             if ep.exists():
-                text, _ = read_source_text(ep)
+                text = read_compile_source(ep)
                 loaded_seeds.append(text)
 
     # Optional LLM-assisted seeding: ask the configured endpoint for
@@ -374,14 +374,14 @@ def _run_one_stub_ga(
         posix_style=bool(getattr(cfg, "posix_style", False)),
     )
 
-    seed_src, _ = read_source_text(filepath)
+    seed_src = read_compile_source(filepath)
 
     loaded_extra: list[str] = []
     if extra_seed_paths:
         for sp in extra_seed_paths:
             p = Path(sp)
             if p.exists():
-                text, _ = read_source_text(p)
+                text = read_compile_source(p)
                 loaded_extra.append(text)
 
     ga = BinaryMatchingGA(

@@ -11,6 +11,7 @@ from rebrew.utils import (
     container_runtime,
     detect_source_encoding,
     load_tomllib,
+    read_compile_source,
     read_source_text,
     read_toml_text,
 )
@@ -531,6 +532,30 @@ class TestSourceEncoding:
     def test_detect_shift_jis(self) -> None:
         data = "// 日本語コメント\n".encode("shift_jis")
         assert detect_source_encoding(data) == "shift_jis"
+
+    def test_read_compile_source_preserves_cp1252_bytes(self, tmp_path: Path) -> None:
+        """Compile-path read must keep 0xE9 as a surrogate, not Unicode é.
+
+        Concrete input: ``char *s = "Caf\\xe9";`` on disk as cp1252.  Decoding
+        via read_source_text then writing UTF-8 would turn the literal into
+        UTF-8 ``Caf\\xc3\\xa9`` and break byte-identical MSVC matching.
+        """
+        f = tmp_path / "legacy.c"
+        original = b'char *s = "Caf\xe9";\n'
+        f.write_bytes(original)
+        text = read_compile_source(f)
+        assert "\udce9" in text  # lone surrogate for byte 0xE9
+        assert "Café" not in text
+        out = tmp_path / "staged.c"
+        atomic_write_text(out, text, encoding="utf-8", errors="surrogateescape")
+        assert out.read_bytes() == original
+
+    def test_atomic_write_text_surrogateescape_roundtrip(self, tmp_path: Path) -> None:
+        """GA best.c writes must accept surrogateescaped compile seeds."""
+        f = tmp_path / "best.c"
+        text = b"void f(void){int x=\x93;}\n".decode("utf-8", "surrogateescape")
+        atomic_write_text(f, text, encoding="utf-8", errors="surrogateescape")
+        assert f.read_bytes() == b"void f(void){int x=\x93;}\n"
 
     def test_read_write_roundtrip_cp1252(self, tmp_path: Path) -> None:
         f = tmp_path / "legacy.c"

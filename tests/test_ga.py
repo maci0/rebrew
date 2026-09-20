@@ -2139,6 +2139,46 @@ class TestToolchainRoutedBuildCandidate:
         assert seen.get("cflags") == ["/O1"]
         assert res.ok is False  # fake obj isn't parseable — routing is what matters
 
+    def test_surrogateescaped_source_stages_losslessly(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """cp1252 byte 0xE9 must reach the staged .c unchanged.
+
+        Concrete input: ``\"Caf\\xe9\"`` decoded with surrogateescape (U+DCE9).
+        A strict UTF-8 write raised UnicodeEncodeError; a UTF-8 rewrite of a
+        read_source_text decode would emit C3 A9 and break byte matching.
+        """
+        from rebrew.matcher.compiler import build_candidate_obj_only
+
+        original = b'char *s = "Caf\xe9";\nint f(void){return 0;}\n'
+        source = original.decode("utf-8", "surrogateescape")
+        seen: dict = {}
+
+        def _fake_compile_to_obj(cfg, src_path, cflags, workdir, **kwargs):
+            seen["src_bytes"] = Path(src_path).read_bytes()
+            return None, "skip"
+
+        monkeypatch.setattr("rebrew.compile.compile_to_obj", _fake_compile_to_obj)
+        res = build_candidate_obj_only(
+            source,
+            "cl",
+            "/inc",
+            "/O2",
+            "f",
+            profile="msvc-6.0",
+            cfg=SimpleNamespace(
+                root=Path.cwd(),
+                compiler_profile="msvc-6.0",
+                compiler_command="cl",
+                compiler_includes="/inc",
+                base_cflags="",
+                compile_timeout=30,
+            ),
+        )
+        assert seen.get("src_bytes") == original
+        assert res.ok is False
+        assert "skip" in (res.error_msg or "")
+
     def test_watcom_profile_delegates(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from rebrew.matcher.compiler import build_candidate_obj_only
 

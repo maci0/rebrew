@@ -486,7 +486,7 @@ def build_candidate_obj_only(
             src_dir = base / "src"
             src_dir.mkdir()
             src_path = src_dir / f"cand{source_ext}"
-            src_path.write_text(source_code, encoding="utf-8")
+            src_path.write_text(source_code, encoding="utf-8", errors="surrogateescape")
             workdir = base / "work"
             workdir.mkdir()
             obj_file, err = compile_to_obj(
@@ -568,7 +568,7 @@ def build_candidate_obj_only(
     with tempfile.TemporaryDirectory(prefix="matcher_") as _td:
         workdir = Path(_td)
         obj_name = "cand.obj"
-        (workdir / src_name).write_text(source_code, encoding="utf-8")
+        (workdir / src_name).write_text(source_code, encoding="utf-8", errors="surrogateescape")
 
         cmd = (
             _compiler_cmd_parts(cl_cmd, env)
@@ -642,7 +642,7 @@ def build_candidate(
         src_name = f"cand{source_ext}"
         exe_name = "cand.exe"
         map_name = "cand.map"
-        (workdir / src_name).write_text(source_code, encoding="utf-8")
+        (workdir / src_name).write_text(source_code, encoding="utf-8", errors="surrogateescape")
 
         cmd = _compiler_cmd_parts(cl_cmd, env) + shlex.split(cflags) + [f"/I{inc_dir}", src_name]
         if extra_sources:

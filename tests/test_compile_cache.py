@@ -118,7 +118,7 @@ class TestCompileCacheKey:
 
     def test_legacy_encoded_source_does_not_crash(self) -> None:
         """A cp1252/shift_jis source (decoded with surrogateescape, as
-        read_source_text does) must hash losslessly — the strict utf-8
+        read_compile_source does) must hash losslessly — the strict utf-8
         encode previously raised UnicodeEncodeError, which compile_and_compare
         mislabeled as COMPILE_ERROR, making legacy-encoded sources
         permanently untestable."""

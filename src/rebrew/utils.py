@@ -367,6 +367,21 @@ def detect_source_encoding(data: bytes) -> str:
     return "cp1252"
 
 
+def read_compile_source(filepath: Path) -> str:
+    """Read *filepath* for a compile/GA round-trip (lossless byte identity).
+
+    Uses ``utf-8`` + ``surrogateescape`` so a cp1252/Shift-JIS source keeps
+    every on-disk byte as a code point that
+    ``Path.write_text(..., errors="surrogateescape")`` can write back
+    unchanged.  :func:`read_source_text` is for annotation/edit paths that
+    need a real Unicode decode (and must pass the detected encoding on
+    write-back); feeding its output into a UTF-8-only compile staging
+    rewrite turns ``Caf\\xe9`` into UTF-8 ``Caf\\xc3\\xa9`` and breaks
+    byte-identical string literals under MSVC.
+    """
+    return filepath.read_text(encoding="utf-8", errors="surrogateescape")
+
+
 def read_source_text(filepath: Path) -> tuple[str, str]:
     """Read *filepath* tolerantly, returning ``(text, detected_encoding)``.
 
@@ -427,7 +442,12 @@ def load_tomllib(path: Path) -> Any:
     return tomllib.loads(read_toml_text(path))
 
 
-def atomic_write_text(filepath: Path, text: str, encoding: str = "utf-8") -> None:
+def atomic_write_text(
+    filepath: Path,
+    text: str,
+    encoding: str = "utf-8",
+    errors: str = "strict",
+) -> None:
     """Write text to a file atomically to prevent corruption on crash.
 
     Strategy: write to a sibling .tmp file, then ``os.replace()`` (atomic
@@ -447,6 +467,10 @@ def atomic_write_text(filepath: Path, text: str, encoding: str = "utf-8") -> Non
     keys and ``git status`` dirty checks).  Encode failures fall through to
     the write path so the same ``UnicodeEncodeError`` surfaces as before.
 
+    *errors* mirrors :meth:`pathlib.Path.write_text`: use
+    ``\"surrogateescape\"`` when *text* came from :func:`read_compile_source`
+    so lone surrogates from legacy bytes round-trip instead of raising.
+
     The ``contextlib.suppress(OSError)`` in the except path is safe because
     it only guards the cleanup unlink: if the temp file was already removed
     (race, OS cleanup) the unlink would raise, but we don't care — the
@@ -458,7 +482,7 @@ def atomic_write_text(filepath: Path, text: str, encoding: str = "utf-8") -> Non
     # Byte-identical short-circuit: re-runs of catalog/gen-stubs/exports must
     # not invalidate mtime-keyed caches when nothing changed.
     try:
-        new_bytes = text.encode(encoding)
+        new_bytes = text.encode(encoding, errors=errors)
     except UnicodeError:
         new_bytes = None
     if new_bytes is not None and filepath.is_file():
@@ -472,7 +496,7 @@ def atomic_write_text(filepath: Path, text: str, encoding: str = "utf-8") -> Non
         # newline="" keeps the caller's line endings byte-exact.  Path.write_text
         # defaults to newline=None, which on Windows translates ``\n`` to
         # ``\r\n`` and would CRLF-corrupt every LF source/metadata rewrite.
-        tmp_path.write_text(text, encoding=encoding, newline="")
+        tmp_path.write_text(text, encoding=encoding, errors=errors, newline="")
         os.replace(tmp_path, filepath)
         # Drop any stale path+mtime entries so a same-ns rewrite cannot
         # serve pre-write content to a later reader in this process.

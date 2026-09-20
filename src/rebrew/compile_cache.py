@@ -466,8 +466,9 @@ def source_digest(source_content: str) -> str:
     strings cache their own ``hash()`` after the first call, so the
     lru_cache lookup is cheap once a source string has been seen.
 
-    Encodes with ``errors="surrogateescape"``: sources are read with
-    ``decode("utf-8", errors="surrogateescape")`` (lossless for legacy
+    Encodes with ``errors="surrogateescape"``: compile/GA paths read sources
+    via ``decode("utf-8", errors="surrogateescape")`` /
+    :func:`rebrew.utils.read_compile_source` (lossless for legacy
     cp1252/shift_jis bytes), so the strict ``encode("utf-8")`` round-trip
     raised ``UnicodeEncodeError`` for any non-UTF-8 source — which
     ``compile_and_compare`` then mislabeled as a COMPILE_ERROR, making
