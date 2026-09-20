@@ -9,12 +9,16 @@ unhandled ``StopIteration`` traceback instead of a clean error.
 
 from __future__ import annotations
 
+import random
 import struct
+from contextlib import suppress
 from pathlib import Path
 
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
-from rebrew.layout_meta import extract_layout, write_package
+from rebrew.layout_meta import extract_layout, parse_pe, write_package
 
 _IMAGE_BASE = 0x400000
 _SEC_ALIGN = 0x1000
@@ -279,3 +283,83 @@ class TestNoExportsBookkeeping:
         struct.pack_into("<II", raw, opt + 96, 0, 0)  # zero the export dir entry
         meta = extract_layout(bytes(raw), "t.dll")
         assert meta.bookkeeping == b""
+
+
+class TestExportTableCaps:
+    """Forged NumberOfNames/NumberOfFunctions must not hang or raise
+    ``struct.error`` — the same contract as the import-slot caps."""
+
+    def test_huge_export_counts_degrade_cleanly(self) -> None:
+        pe = bytearray(_make_pe(_SECTIONS))
+        exp_file, exp_rva = 0x200, 0x3000
+        e = struct.unpack_from("<I", pe, 0x3C)[0]
+        opt = e + 24
+        struct.pack_into("<II", pe, opt + 96, exp_rva, 0x40)
+        struct.pack_into("<I", pe, exp_file + 16, 1)  # Base
+        struct.pack_into("<I", pe, exp_file + 20, 0xFFFFFFFF)  # NumberOfFunctions
+        struct.pack_into("<I", pe, exp_file + 24, 0xFFFFFFFF)  # NumberOfNames
+        struct.pack_into("<I", pe, exp_file + 28, exp_rva + 0x40)
+        struct.pack_into("<I", pe, exp_file + 32, exp_rva + 0x50)
+        struct.pack_into("<I", pe, exp_file + 36, exp_rva + 0x60)
+        # Must return (possibly empty exports) — never hang / struct.error.
+        meta = extract_layout(bytes(pe), "t.dll")
+        assert isinstance(meta.exports, list)
+
+
+# ---------------------------------------------------------------------------
+# Hypothesis fuzz — PE layout parsers on untrusted binary bytes
+# ---------------------------------------------------------------------------
+
+
+def _assert_layout_shape(meta: object) -> None:
+    """Invariants on a successfully decoded LayoutMetadata."""
+    from rebrew.layout_meta import LayoutMetadata
+
+    assert isinstance(meta, LayoutMetadata)
+    assert isinstance(meta.header, (bytes, bytearray))
+    assert isinstance(meta.sections, list)
+    assert isinstance(meta.exports, list)
+    assert isinstance(meta.imports, list)
+    assert isinstance(meta.operands, dict)
+    assert isinstance(meta.calls, dict)
+    for ex in meta.exports:
+        assert isinstance(ex, dict)
+        assert "ordinal" in ex and "va" in ex
+
+
+@settings(max_examples=200, deadline=None)
+@given(st.binary(min_size=0, max_size=512))
+def test_parse_pe_random_bytes_no_crash(blob: bytes) -> None:
+    """Arbitrary bytes: parse_pe returns a 5-tuple or ValueError — never
+    IndexError/struct.error."""
+    with suppress(ValueError):
+        out = parse_pe(blob)
+        assert len(out) == 5
+        e, nsec, optsz, opt, image_base = out
+        assert e >= 0 and nsec >= 0 and optsz >= 0 and opt >= 0
+        assert image_base >= 0
+
+
+@settings(max_examples=150, deadline=None)
+@given(st.binary(min_size=0, max_size=768))
+def test_extract_layout_random_bytes_no_crash(blob: bytes) -> None:
+    """Arbitrary PE-ish bytes: extract_layout succeeds with a shaped
+    LayoutMetadata or raises ValueError — never an unexpected crash."""
+    with suppress(ValueError):
+        _assert_layout_shape(extract_layout(blob, "fuzz.dll"))
+
+
+@settings(max_examples=100, deadline=None)
+@given(st.binary(min_size=1, max_size=64))
+def test_extract_layout_fixture_mutation_no_crash(noise: bytes) -> None:
+    """Byte-flip / splice mutations of a minimal valid PE must degrade
+    cleanly (ValueError or shaped metadata)."""
+    base = bytearray(_make_pe(_SECTIONS))
+    rng = random.Random(len(noise) * 17 + noise[0])
+    at = rng.randrange(0, max(1, len(base)))
+    end = min(len(base), at + len(noise))
+    base[at:end] = noise[: end - at]
+    for _ in range(rng.randint(1, 8)):
+        base[rng.randrange(len(base))] = rng.randrange(256)
+    with suppress(ValueError):
+        _assert_layout_shape(extract_layout(bytes(base), "mut.dll"))

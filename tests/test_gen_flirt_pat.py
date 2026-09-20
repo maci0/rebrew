@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 from bin_util import make_coff_obj, make_lib_archive
+from hypothesis import strategies as st
 
 from rebrew.gen_flirt_pat import _crc16_flirt, bytes_to_pat_line, parse_archive
 
@@ -91,6 +92,91 @@ class TestParseArchive:
         lib.write_bytes(b"!<arch>\n")
         members = list(parse_archive(str(lib)))
         assert members == []
+
+
+# ---------------------------------------------------------------------------
+# Hypothesis fuzz — ar archive member-size parser on untrusted .lib bytes
+# ---------------------------------------------------------------------------
+
+
+@st.composite
+def _ar_archive_bytes(draw: st.DrawFn) -> bytes:
+    """Plausible ``!<arch>`` stream: typed member headers with LE/ASCII sizes,
+    occasionally truncated or with a lying size field."""
+    out = bytearray(b"!<arch>\n")
+    n = draw(st.integers(min_value=0, max_value=12))
+    for _ in range(n):
+        if len(out) % 2 == 1:
+            out.append(0x0A)
+        name = draw(st.sampled_from([b"obj.o/", b"foo.obj/", b"/", b"//", b"longname.obj/"]))
+        name_field = name.ljust(16, b" ")[:16]
+        body = draw(st.binary(min_size=0, max_size=48))
+        # Sometimes claim a size larger/smaller than the trailing bytes so the
+        # length gate and slice must degrade cleanly.
+        claimed = draw(
+            st.one_of(
+                st.just(len(body)),
+                st.integers(min_value=0, max_value=10_000),
+                st.sampled_from([b"notadigit  ", b"          "]),
+            )
+        )
+        if isinstance(claimed, bytes):
+            size_field = claimed[:10].ljust(10, b" ")
+        else:
+            size_field = str(claimed).ljust(10).encode("ascii")[:10]
+        header = name_field + b"0           0     0     100644  " + size_field + b"`\n"
+        assert len(header) == 60
+        out += header
+        out += body
+    if out and draw(st.booleans()):
+        cut = draw(st.integers(min_value=0, max_value=len(out)))
+        return bytes(out[:cut])
+    return bytes(out)
+
+
+def _consume_archive(path: Path) -> list[tuple[str, bytes]]:
+    """Run parse_archive and assert member shape on success."""
+    members = list(parse_archive(str(path)))
+    for name, data in members:
+        assert isinstance(name, str)
+        assert isinstance(data, (bytes, bytearray))
+    return members
+
+
+class TestParseArchiveFuzz:
+    def test_random_bytes_no_crash(self, tmp_path: Path) -> None:
+        """Arbitrary .lib bytes: parse yields members or ValueError — never
+        IndexError/struct.error/UnicodeDecodeError."""
+        from contextlib import suppress
+
+        from hypothesis import given, settings
+        from hypothesis import strategies as st
+
+        @given(st.binary(min_size=0, max_size=512))
+        @settings(max_examples=200, deadline=None)
+        def _check(blob: bytes) -> None:
+            p = tmp_path / f"fuzz_{len(blob)}.lib"
+            p.write_bytes(blob)
+            with suppress(ValueError):
+                _consume_archive(p)
+
+        _check()
+
+    def test_structured_ar_stream_no_crash(self, tmp_path: Path) -> None:
+        """Structure-aware ar member streams exercise the size/pad/skip paths."""
+        from contextlib import suppress
+
+        from hypothesis import given, settings
+
+        @given(_ar_archive_bytes())
+        @settings(max_examples=150, deadline=None)
+        def _check(blob: bytes) -> None:
+            p = tmp_path / f"ar_{len(blob)}.lib"
+            p.write_bytes(blob)
+            with suppress(ValueError):
+                _consume_archive(p)
+
+        _check()
 
 
 # ---------------------------------------------------------------------------

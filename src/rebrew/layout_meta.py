@@ -81,6 +81,11 @@ from rebrew.pe_headers import pe_lfanew, sections_at
 #: null terminator would otherwise walk past EOF into ``struct.error``.
 _MAX_IMPORT_SLOTS = 65536
 
+#: Cap on export AddressOfFunctions / AddressOfNames entries.  A forged
+#: NumberOfNames/NumberOfFunctions of ``0xFFFFFFFF`` would otherwise hang in
+#: ``range()`` or raise ``struct.error`` past EOF.
+_MAX_EXPORT_ENTRIES = 65536
+
 
 @dataclasses.dataclass
 class SectionMeta:
@@ -381,15 +386,21 @@ def extract_layout(data: bytes, target: str = "") -> LayoutMetadata:
     exports: list[dict[str, Any]] = []
     exp_rva_dir, exp_sz = _data_dir(data, opt, 0)
     eo = off(exp_rva_dir)
-    if eo is not None and exp_sz:
-        nfuncs = struct.unpack_from("<I", data, eo + 20)[0]
-        nnames = struct.unpack_from("<I", data, eo + 24)[0]
+    # IMAGE_EXPORT_DIRECTORY is 40 bytes; require the full header before
+    # reading counts / RVAs, and cap table walks like the import path.
+    if eo is not None and exp_sz and eo + 40 <= len(data):
+        nfuncs = min(struct.unpack_from("<I", data, eo + 20)[0], _MAX_EXPORT_ENTRIES)
+        nnames = min(struct.unpack_from("<I", data, eo + 24)[0], _MAX_EXPORT_ENTRIES)
         funcs_off = off(struct.unpack_from("<I", data, eo + 28)[0])
         names_off = off(struct.unpack_from("<I", data, eo + 32)[0])
         ords_off = off(struct.unpack_from("<I", data, eo + 36)[0])
         ordinal_base = struct.unpack_from("<I", data, eo + 16)[0]
         name_by_ord: dict[int, str] = {}
         for k in range(nnames):
+            if names_off is not None and names_off + 4 * (k + 1) > len(data):
+                break
+            if ords_off is not None and ords_off + 2 * (k + 1) > len(data):
+                break
             nrva = struct.unpack_from("<I", data, names_off + 4 * k)[0] if names_off else 0
             ord_idx = struct.unpack_from("<H", data, ords_off + 2 * k)[0] if ords_off else 0
             nm_off = off(nrva)
@@ -399,6 +410,8 @@ def extract_layout(data: bytes, target: str = "") -> LayoutMetadata:
                     end = len(data)  # unterminated — read to EOF, not to -1
                 name_by_ord[ordinal_base + ord_idx] = data[nm_off:end].decode("latin1", "replace")
         for k in range(nfuncs):
+            if funcs_off is not None and funcs_off + 4 * (k + 1) > len(data):
+                break
             addr = struct.unpack_from("<I", data, funcs_off + 4 * k)[0] if funcs_off else 0
             if addr == 0:
                 continue
