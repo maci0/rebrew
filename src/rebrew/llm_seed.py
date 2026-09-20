@@ -16,10 +16,11 @@ fence breakouts if copied from elsewhere); the model response is never executed
 — only tree-sitter-valid snippets that are a single top-level function
 definition (comments allowed), matching name *and* prototype, with no
 preprocessor directives, and size caps.  Request cost is bounded by source
-truncation, ``max_tokens``, and an HTTP body ceiling before JSON parse.
-Rate limits / overload (429/503/529) are never retried — empty seeds, GA
-continues.  ``--seed-llm --dry-run`` previews the prompt without calling the
-endpoint.
+truncation, ``max_tokens``, ``n=1``, an HTTP body ceiling before JSON parse,
+and a process-wide request budget (``REBREW_LLM_MAX_REQUESTS``, default 32)
+so ``--seed-llm --watch`` cannot bill unboundedly.  Rate limits / overload
+(429/503/529) are never retried — empty seeds, GA continues.
+``--seed-llm --dry-run`` previews the prompt without calling the endpoint.
 """
 
 from __future__ import annotations
@@ -28,6 +29,7 @@ import json
 import logging
 import os
 import re
+import threading
 from typing import Any
 
 from rebrew.config import validate_http_url
@@ -40,7 +42,10 @@ _MAX_HTTP_BODY_BYTES = 256_000  # reject before json.loads blows memory/budget
 _DEFAULT_MAX_TOKENS = 2_048
 _DEFAULT_COUNT = 3
 _DEFAULT_MODEL = "gpt-4o-mini"
+_DEFAULT_MAX_REQUESTS = 32  # process-wide; override via REBREW_LLM_MAX_REQUESTS
 _UNPINNED_MODELS = frozenset({"latest", "auto", "default"})
+# Model ids flow into the provider JSON; reject shells/newlines/path traversal.
+_MODEL_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$")
 # Provider overload / rate-limit statuses: never retry (retry storms = spend).
 _NO_RETRY_HTTP = frozenset({429, 503, 529})
 # Seeds must be self-contained; any preprocessor line (#include, #define,
@@ -48,6 +53,9 @@ _NO_RETRY_HTTP = frozenset({429, 503, 529})
 _PREPROC_RE = re.compile(r"^\s*#", re.MULTILINE)
 # Root children allowed beside the single function_definition.
 _ALLOWED_TOP_LEVEL = frozenset({"function_definition", "comment"})
+
+_request_count = 0
+_request_lock = threading.Lock()
 
 _SYSTEM_PROMPT = """\
 You are helping byte-match a C function in an old MSVC binary.  The current
@@ -122,12 +130,40 @@ def llm_config(cfg: Any) -> dict[str, str] | None:
     return {"endpoint": endpoint, "api_key": api_key}
 
 
+def _max_requests() -> int:
+    """Process-wide LLM call ceiling (env override, clamped)."""
+    raw = os.environ.get("REBREW_LLM_MAX_REQUESTS", "").strip()
+    if not raw:
+        return _DEFAULT_MAX_REQUESTS
+    try:
+        return max(0, min(int(raw), 10_000))
+    except ValueError:
+        logging.warning(
+            "REBREW_LLM_MAX_REQUESTS=%r is not an int; using %s",
+            raw,
+            _DEFAULT_MAX_REQUESTS,
+        )
+        return _DEFAULT_MAX_REQUESTS
+
+
+def _consume_request_slot() -> bool:
+    """True when this process may still bill the LLM; False when budget exhausted."""
+    global _request_count
+    limit = _max_requests()
+    with _request_lock:
+        if _request_count >= limit:
+            return False
+        _request_count += 1
+        return True
+
+
 def _resolve_model(cfg: Any) -> str:
     """Pinned model id for the chat-completions payload.
 
     ``REBREW_LLM_MODEL`` (or ``cfg.llm_model``) overrides the default.  Bare
     aliases like ``latest`` / ``auto`` are rejected so provider updates cannot
-    silently change seeding behaviour.
+    silently change seeding behaviour.  Ids must match a conservative charset
+    so an env typo cannot smuggle newlines or path segments into the JSON body.
     """
     model = str(getattr(cfg, "llm_model", "") or "").strip()
     if not model:
@@ -137,6 +173,13 @@ def _resolve_model(cfg: Any) -> str:
     if model.lower() in _UNPINNED_MODELS:
         logging.warning(
             "LLM model %r is unpinned; using %s instead",
+            model,
+            _DEFAULT_MODEL,
+        )
+        return _DEFAULT_MODEL
+    if not _MODEL_ID_RE.fullmatch(model):
+        logging.warning(
+            "LLM model %r has invalid characters or length; using %s instead",
             model,
             _DEFAULT_MODEL,
         )
@@ -242,30 +285,48 @@ def _expected_signature(source: str) -> tuple[str, str] | None:
     return result if result else None
 
 
+def _chat_choice_message(data: Any) -> dict[str, Any] | None:
+    """Return the first choice's message dict when the envelope is well-formed.
+
+    Schema gate for untrusted provider JSON: require ``choices`` to be a
+    non-empty list whose first element is a dict with a dict ``message`` (or
+    ``delta``).  Extra choices are ignored — we always request ``n=1``.
+    """
+    if not isinstance(data, dict):
+        return None
+    choices = data.get("choices")
+    if not isinstance(choices, list) or not choices:
+        return None
+    if len(choices) > 1:
+        logging.warning(
+            "LLM response has %d choices despite n=1; using the first only",
+            len(choices),
+        )
+    first = choices[0]
+    if not isinstance(first, dict):
+        return None
+    if first.get("finish_reason") not in (None, "stop"):
+        return None
+    msg = first.get("message") or first.get("delta")
+    return msg if isinstance(msg, dict) else None
+
+
 def _parse_response(data: Any) -> str:
     """Best-effort text extraction from common chat-completion shapes."""
-    if isinstance(data, dict):
-        choices = data.get("choices")
-        if isinstance(choices, list) and choices:
-            first = choices[0]
-            if isinstance(first, dict):
-                if first.get("finish_reason") not in (None, "stop"):
-                    return ""
-                msg = first.get("message") or first.get("delta") or {}
-                if not isinstance(msg, dict) or msg.get("refusal"):
-                    return ""
-                content = msg.get("content")
-                if isinstance(content, str):
-                    return content[:_MAX_RESPONSE_CHARS]
-                if isinstance(content, list):  # OpenAI-style content parts
-                    parts = "".join(
-                        p["text"]
-                        for p in content
-                        if isinstance(p, dict) and isinstance(p.get("text"), str)
-                    )
-                    return parts[:_MAX_RESPONSE_CHARS]
-        # Never stringify the whole JSON blob into the seed pipeline.
+    msg = _chat_choice_message(data)
+    if msg is not None:
+        if msg.get("refusal"):
+            return ""
+        content = msg.get("content")
+        if isinstance(content, str):
+            return content[:_MAX_RESPONSE_CHARS]
+        if isinstance(content, list):  # OpenAI-style content parts
+            parts = "".join(
+                p["text"] for p in content if isinstance(p, dict) and isinstance(p.get("text"), str)
+            )
+            return parts[:_MAX_RESPONSE_CHARS]
         return ""
+    # Plain-string bodies (some local stubs); never stringify arbitrary JSON.
     if isinstance(data, str):
         return data[:_MAX_RESPONSE_CHARS]
     return ""
@@ -360,6 +421,10 @@ def _request(
         ],
         "temperature": 0.8,
         "max_tokens": max_tokens,
+        # Pin n=1: extra completions multiply spend for no GA benefit.
+        "n": 1,
+        # Token SSE is off; client.stream only caps the HTTP body byte size.
+        "stream": False,
     }
     with client.stream("POST", conf["endpoint"], json=payload, headers=headers, timeout=90) as resp:
         resp.raise_for_status()
@@ -393,6 +458,13 @@ def request_seeds(
         return []
     count = max(1, min(int(count), 8))
     model = _resolve_model(cfg)
+    if not _consume_request_slot():
+        logging.warning(
+            "LLM seeding request budget exhausted (%s calls this process; "
+            "set REBREW_LLM_MAX_REQUESTS to raise) — GA continues without seeds",
+            _max_requests(),
+        )
+        return []
     try:
         if client is not None:
             return _request(client, conf, source, count, model=model)

@@ -34,6 +34,13 @@ from rebrew.llm_seed import (
 )
 
 
+@pytest.fixture(autouse=True)
+def _reset_llm_request_budget(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Each test gets a fresh process budget (production counter is process-wide)."""
+    monkeypatch.setattr("rebrew.llm_seed._request_count", 0)
+    monkeypatch.delenv("REBREW_LLM_MAX_REQUESTS", raising=False)
+
+
 def _cfg(endpoint: str = "", api_key: str = "", model: str = "") -> SimpleNamespace:
     return SimpleNamespace(llm_endpoint=endpoint, llm_api_key=api_key, llm_model=model)
 
@@ -329,6 +336,8 @@ class TestRequestSeeds:
         assert "f(void)" in msgs[1]["content"]
         assert client.last_payload["max_tokens"] > 0
         assert client.last_payload["model"] == _DEFAULT_MODEL
+        assert client.last_payload["n"] == 1
+        assert client.last_payload["stream"] is False
 
     @pytest.mark.parametrize("finish_reason", ["length", "content_filter", "tool_calls", "error"])
     def test_incomplete_completion_dropped(self, finish_reason: str) -> None:
@@ -479,6 +488,33 @@ class TestRequestSeeds:
         client = _FakeClient({"choices": []}, body=huge)
         assert request_seeds(_cfg("https://llm/v1"), "int f(void){return 0;}", client=client) == []
 
+    def test_request_budget_blocks_further_calls(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        monkeypatch.setenv("REBREW_LLM_MAX_REQUESTS", "1")
+        snippet = "int f(void) { return 0; }"
+        client = _FakeClient({"choices": [{"message": {"content": f"```c\n{snippet}\n```"}}]})
+        assert request_seeds(_cfg("https://llm/v1"), snippet, client=client) == [snippet]
+        with caplog.at_level(logging.WARNING):
+            assert request_seeds(_cfg("https://llm/v1"), snippet, client=client) == []
+        assert "request budget exhausted" in caplog.text
+
+    def test_extra_choices_ignored(self, caplog: pytest.LogCaptureFixture) -> None:
+        good = "int f(void) { return 0; }"
+        evil = "int f(void) { return 99; }"
+        client = _FakeClient(
+            {
+                "choices": [
+                    {"message": {"content": f"```c\n{good}\n```"}},
+                    {"message": {"content": f"```c\n{evil}\n```"}},
+                ]
+            }
+        )
+        with caplog.at_level(logging.WARNING):
+            seeds = request_seeds(_cfg("https://llm/v1"), good, client=client)
+        assert seeds == [good]
+        assert "choices despite n=1" in caplog.text
+
 
 class TestStreamingResponse:
     @pytest.mark.parametrize("declared_length", [None, "1", "invalid"])
@@ -538,6 +574,19 @@ class TestResolveModel:
     def test_rejects_unpinned_alias(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("REBREW_LLM_MODEL", "latest")
         assert _resolve_model(_cfg()) == _DEFAULT_MODEL
+
+    @pytest.mark.parametrize(
+        "bad",
+        [
+            "gpt-4o-mini\nignore",
+            "../evil",
+            "model with spaces",
+            "x" * 200,
+        ],
+    )
+    def test_rejects_invalid_model_id(self, monkeypatch: pytest.MonkeyPatch, bad: str) -> None:
+        monkeypatch.delenv("REBREW_LLM_MODEL", raising=False)
+        assert _resolve_model(_cfg(model=bad)) == _DEFAULT_MODEL
 
 
 class TestLoadResponseJson:
