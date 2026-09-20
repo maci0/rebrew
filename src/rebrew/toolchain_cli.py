@@ -1003,7 +1003,11 @@ def smoke_cmd(
             src_path.write_text(src, encoding="utf-8")
             os.utime(src_path, (_SDE, _SDE))
             if spec.image is not None:
-                container = f"rebrew-smoke-{spec.name}-{tool}"
+                # Unique name: a fixed ``rebrew-smoke-{tool}`` collided under
+                # parallel smoke / left an orphan that blocked the next run.
+                import uuid
+
+                container = f"rebrew-smoke-{spec.name}-{uuid.uuid4().hex[:12]}"
                 try:
                     r = subprocess.run(
                         [
@@ -1207,8 +1211,12 @@ def _image_smoke_hash(tool: str, workdir: Path) -> str | None:
     src_path.write_text(src, encoding="utf-8")
     os.utime(src_path, (_SDE, _SDE))
     # Named so the timeout path can kill it (a killed docker CLI leaves the
-    # container under dockerd) — same discipline as smoke_cmd above.
-    container = f"rebrew-smoke-hash-{tool}"
+    # container under dockerd) — same discipline as smoke_cmd above.  Unique
+    # suffix: a fixed ``rebrew-smoke-hash-{tool}`` collided under parallel
+    # update/smoke and blocked retries after a timed-out orphan.
+    import uuid
+
+    container = f"rebrew-smoke-hash-{tool}-{uuid.uuid4().hex[:12]}"
     try:
         subprocess.run(
             [
@@ -1271,9 +1279,15 @@ def _live_commit_sha(owner: str, repo: str, branch: str) -> str:
     url = f"https://api.github.com/repos/{owner}/{repo}/commits/{branch}"
     # No automatic redirects: an off-host Location would still receive the
     # optional GH_TOKEN Authorization header before httpx's strip runs.
+    # Close every exit path: check-updates loops this once per source, and an
+    # unclosed response pins the connection until GC (same discipline as
+    # wibo / decompme one-shot GETs).
     resp = httpx.get(url, headers=_github_auth_headers(), timeout=20, follow_redirects=False)
-    resp.raise_for_status()
-    return str(resp.json()["sha"])
+    try:
+        resp.raise_for_status()
+        return str(resp.json()["sha"])
+    finally:
+        resp.close()
 
 
 @app.command("check-updates")

@@ -49,6 +49,7 @@ from __future__ import annotations
 import re
 import struct
 import subprocess
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -390,7 +391,10 @@ def _import_lib_symbols_from_image(dll_stem: str) -> set[str]:
     if spec is None or spec.image is None or spec.tool_root is None:
         return set()
     lib_dir = str(Path(spec.tool_root).parent / "Lib")
-    name = f"rebrew-libgrep-{dll_stem}"
+    # Unique name: a fixed ``rebrew-libgrep-{dll}`` collided when two
+    # gen-layout runs hit the same DLL, and a timed-out orphan blocked the
+    # next attempt until manual ``docker rm``.
+    name = f"rebrew-libgrep-{dll_stem}-{uuid.uuid4().hex[:12]}"
     try:
         r = subprocess.run(
             [

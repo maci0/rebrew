@@ -509,16 +509,21 @@ def main(
                 return 0, 1
 
         # Parallel targets: split --jobs across targets so total wine
-        # concurrency stays bounded (~jobs).  Determinism is preserved — the
-        # GA is seeded per-stub from (--seed, va), and the metadata/solutions
-        # locks serialize cross-target writes.  Falls back to serial when
-        # jobs cannot be shared or there is a single target.
+        # concurrency stays bounded (~jobs).  Cap concurrent targets at
+        # *jobs* — when len(names) > jobs, ``jobs // len(names)`` underflows
+        # to 0→1 and ``max_workers=len(names)`` would run every target at
+        # once (one wine/docker compile each).  Determinism is preserved —
+        # the GA is seeded per-stub from (--seed, va), and the
+        # metadata/solutions locks serialize cross-target writes.  Falls
+        # back to serial when jobs cannot be shared or there is a single
+        # target.
         parallel = len(names) > 1 and jobs > 1
-        per_target_jobs = max(1, jobs // len(names)) if parallel else jobs
+        n_parallel = min(len(names), jobs) if parallel else 1
+        per_target_jobs = max(1, jobs // n_parallel) if parallel else jobs
         if parallel:
             from concurrent.futures import ThreadPoolExecutor
 
-            with ThreadPoolExecutor(max_workers=len(names)) as executor:
+            with ThreadPoolExecutor(max_workers=n_parallel) as executor:
                 for m, f in executor.map(_run_target, names):  # order preserved
                     total_matched += m
                     total_failed += f

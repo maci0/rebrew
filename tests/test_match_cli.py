@@ -474,6 +474,53 @@ class TestAllTargetsParallel:
         assert result.exit_code == 0
         assert job_args == [4]  # no split needed
 
+    def test_many_targets_capped_at_jobs(self, tmp_path: Path, monkeypatch) -> None:
+        """More targets than --jobs must not run every target at once."""
+        from concurrent.futures import ThreadPoolExecutor as RealPool
+
+        from rebrew.match import app
+
+        cfg = self._cfg(tmp_path)
+        cfg.all_targets = [f"t{i}" for i in range(8)]
+        cfg.default_jobs = 4
+        monkeypatch.setattr("rebrew.match.require_config", lambda **kw: cfg)
+        monkeypatch.setattr(
+            "rebrew.config.load_config",
+            lambda root, target=None: SimpleNamespace(
+                metadata_dir=tmp_path,
+                reversed_dir=tmp_path / "src",
+                marker="SERVER",
+                source_ext=".c",
+                ignored_symbols=[],
+                default_jobs=4,
+                root=root,
+                target_name=target or "t0",
+                all_targets=cfg.all_targets,
+            ),
+        )
+        job_args: list[int] = []
+        pool_sizes: list[int] = []
+
+        def _fake_run_all(cfg=None, **kwargs: object) -> tuple[int, int]:
+            job_args.append(int(kwargs.get("jobs", 0)))
+            return (1, 0)
+
+        class _CapturingPool(RealPool):
+            def __init__(self, *args: object, **kwargs: object) -> None:
+                pool_sizes.append(int(kwargs.get("max_workers") or args[0]))  # type: ignore[arg-type]
+                super().__init__(*args, **kwargs)
+
+        monkeypatch.setattr("rebrew.match._run_all", _fake_run_all)
+        # Patch where match imports it (inside the parallel branch).
+        import concurrent.futures as cf
+
+        monkeypatch.setattr(cf, "ThreadPoolExecutor", _CapturingPool)
+        result = CliRunner().invoke(app, ["--all-targets", "--json"])
+        assert result.exit_code == 0
+        # 4 jobs cap concurrent targets at 4; each gets jobs//4 = 1.
+        assert job_args == [1] * 8
+        assert pool_sizes == [4]
+
 
 class TestMatchCliLink:
     """PRD 04: rebrew match --link threads a linker command into the linked GA."""
