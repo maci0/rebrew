@@ -272,6 +272,7 @@ def run_diff(
         obj_bytes = obj_bytes[: len(p.target_bytes)]
 
     cs_mode = capstone_mode_for_arch(getattr(p.cfg, "arch", ""))
+    ptr_size = getattr(p.cfg, "pointer_size", 4)
     summary = diff_functions(
         p.target_bytes,
         obj_bytes,
@@ -280,6 +281,7 @@ def run_diff(
         register_aware=register_aware,
         as_dict=True,
         cs_mode=cs_mode,
+        pointer_size=ptr_size,
     )
     if not json_output and not csv_output and isinstance(summary, dict):
         from rebrew.matcher.scoring import print_diff_summary
@@ -303,6 +305,7 @@ def run_diff(
             obj_bytes,
             res.reloc_offsets,
             cs_mode=cs_mode,
+            pointer_size=ptr_size,
             _summary=summary if register_aware else None,
         )
 

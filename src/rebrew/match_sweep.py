@@ -390,9 +390,17 @@ def _run_single_flag_sweep(
         if len(obj_bytes) > len(p.target_bytes):
             obj_bytes = obj_bytes[: len(p.target_bytes)]
 
+        # Match the toolchain-sweep scoring path: 16-bit targets need
+        # 2-byte reloc slots; the default pointer_size=4 masks the bytes
+        # after every reloc and produces wrong mnemonics.
         sim_cs_mode = capstone_mode_for_arch(getattr(p.cfg, "arch", ""))
+        sim_ptr_size = getattr(p.cfg, "pointer_size", 4)
         sim_res = structural_similarity(
-            p.target_bytes, obj_bytes, res.reloc_offsets, cs_mode=sim_cs_mode
+            p.target_bytes,
+            obj_bytes,
+            res.reloc_offsets,
+            cs_mode=sim_cs_mode,
+            pointer_size=sim_ptr_size,
         )
 
     best_score = results[0][0] if results else float("inf")

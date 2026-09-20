@@ -194,7 +194,10 @@ def _pe_checksum(data: bytes) -> int:
     lfanew = pe_lfanew(data)
     cksum_off = (lfanew + 0x58) if lfanew is not None else -1
     tmp = bytearray(data)
-    if 0 <= cksum_off < len(tmp):
+    # Require the full 4-byte field: a short slice-assign would extend
+    # *tmp*, then the sum would use the grown length while the return
+    # still adds len(data) (see patch_pe_headers for the same guard).
+    if cksum_off >= 0 and cksum_off + 4 <= len(tmp):
         tmp[cksum_off : cksum_off + 4] = b"\x00\x00\x00\x00"
     # Pad to even length for 16-bit words (spec).
     if len(tmp) & 1:

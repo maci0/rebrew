@@ -266,6 +266,7 @@ def verify_entry(
         # but never produced, so every row was NULL).  Best-effort: any
         # disassembly failure leaves it None.
         try:
+            from rebrew.binary_loader import capstone_mode_for_arch
             from rebrew.matcher import diff_functions
 
             d = diff_functions(
@@ -282,6 +283,10 @@ def verify_entry(
                 # churn.  Register masking is x86-32 specific; other arches
                 # fall back to the plain structural diff.
                 register_aware=getattr(cfg, "arch", "") == "x86_32",
+                # Same arch wiring as diff.py / match_sweep: 16-bit targets
+                # need cs_mode + 2-byte reloc slots, not the 32-bit defaults.
+                cs_mode=capstone_mode_for_arch(getattr(cfg, "arch", "")),
+                pointer_size=getattr(cfg, "pointer_size", 4),
             )
             if d is not None:
                 result.diff_lines = int(d["summary"]["structural"])

@@ -380,7 +380,9 @@ def _rewrite_marker(text: str, module: str, va: int, size: int) -> str:
         block_end += 1
     for j in range(marker_idx + 1, block_end):
         if _SIZE_KV_RE.match(collapsed[j]):
-            collapsed[j] = _SIZE_KV_RE.sub(f"// SIZE: {size}", collapsed[j]) + eol
+            # keepends left the old ending on the line; strip before appending
+            # *eol* or the rewritten SIZE gets a blank line after it.
+            collapsed[j] = _SIZE_KV_RE.sub(f"// SIZE: {size}", collapsed[j].rstrip("\r\n")) + eol
             break
     else:
         collapsed.insert(marker_idx + 1, f"// SIZE: {size}{eol}")

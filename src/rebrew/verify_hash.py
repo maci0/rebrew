@@ -309,10 +309,9 @@ def _source_bytes(path_str: str, _mtime_ns: int, _size: int) -> bytes:
 
 
 def _source_hash(filepath: Path) -> str:
-    try:
-        st = filepath.stat()
-    except OSError:
-        return hashlib.sha256(filepath.read_bytes()).hexdigest()
+    # Callers already catch OSError.  A failed stat almost always means
+    # read_bytes would fail too — do not pretend a fallback hash exists.
+    st = filepath.stat()
     return hashlib.sha256(
         _source_bytes(str(filepath.resolve()), st.st_mtime_ns, st.st_size)
     ).hexdigest()
