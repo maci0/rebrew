@@ -58,24 +58,42 @@ help:
 		'  Before a PR: make all && make check'
 
 ensure-uv:
-	@if ! command -v uv >/dev/null 2>&1; then \
+	@set -euo pipefail; \
+	if ! command -v uv >/dev/null 2>&1; then \
 	  echo "ERROR: uv not on PATH (required for setup/test/lint; CI pins UV_VERSION=$(UV_VERSION))."; \
 	  echo "Install from https://docs.astral.sh/uv/ then re-run make setup."; \
+	  exit 1; \
+	fi; \
+	uv_ver=$$(uv --version | awk '{print $$2}'); \
+	lowest=$$(printf '%s\n%s\n' "$$uv_ver" "$(UV_VERSION)" | sort -V | head -1); \
+	if [ "$$lowest" != "$(UV_VERSION)" ]; then \
+	  echo "ERROR: uv $$uv_ver is older than required UV_VERSION=$(UV_VERSION) (CI pin)."; \
+	  echo "Upgrade uv (https://docs.astral.sh/uv/) then re-run make setup."; \
 	  exit 1; \
 	fi
 
 ensure-resembl: ensure-uv
-	@if [ ! -e "$(RESEMBL_DIR)/pyproject.toml" ]; then \
+	@set -euo pipefail; \
+	if [ ! -e "$(RESEMBL_DIR)/pyproject.toml" ]; then \
 	  echo "ERROR: sibling resembl checkout missing at $(RESEMBL_DIR)"; \
 	  echo "uv sync needs it even when you are not using the similarity group"; \
 	  echo "(pyproject.toml [tool.uv.sources] pins path = \"../resembl\")."; \
 	  echo "Clone the pin matching CI / uv.lock, then re-run make setup:"; \
 	  echo "  git clone --depth 1 --branch $(RESEMBL_REF) https://github.com/maci0/resembl.git $(RESEMBL_DIR)"; \
 	  exit 1; \
+	fi; \
+	resembl_ver=$$(sed -n 's/^version = "\([^"]*\)"/\1/p' "$(RESEMBL_DIR)/pyproject.toml" | head -1); \
+	want="$(RESEMBL_REF)"; want=$${want#v}; \
+	if [ -z "$$resembl_ver" ] || [ "$$resembl_ver" != "$$want" ]; then \
+	  echo "ERROR: $(RESEMBL_DIR) version '$$resembl_ver' does not match RESEMBL_REF=$(RESEMBL_REF)"; \
+	  echo "Re-clone the pin, then re-run make setup:"; \
+	  echo "  git clone --depth 1 --branch $(RESEMBL_REF) https://github.com/maci0/resembl.git $(RESEMBL_DIR)"; \
+	  exit 1; \
 	fi
 
 ensure-nasm:
-	@if ! command -v nasm >/dev/null 2>&1; then \
+	@set -euo pipefail; \
+	if ! command -v nasm >/dev/null 2>&1; then \
 	  echo "ERROR: nasm not on PATH (required for asm round-trip tests, same as CI)."; \
 	  echo "Install it, then re-run: e.g. apt install nasm / pacman -S nasm / dnf install nasm"; \
 	  exit 1; \
@@ -115,8 +133,12 @@ format-check:
 check:
 	uv run --frozen pre-commit run --all-files
 
-# Build sdist + wheel under a pinned locale/timezone for deterministic wheels
-build:
+# Build sdist + wheel under a pinned locale/timezone for deterministic wheels.
+# Drop prior package artifacts so a bumped version cannot leave multiple
+# wheels/sdists in dist/ (CI's package job expects exactly one of each).
+build: ensure-uv
+	@mkdir -p dist
+	@rm -f dist/*.whl dist/*.tar.gz
 	SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) TZ=UTC LC_ALL=C PYTHONHASHSEED=0 uv build
 
 # CycloneDX 1.5 SBOM from the committed lock (no network).  Writes
@@ -163,7 +185,7 @@ audit:
 # push except the release commit, since __version__ stays equal to the last
 # tag during normal development. Run `make release-check` before tagging.
 release-check:
-	@set -eu; \
+	@set -euo pipefail; \
 	V=$$(uv run --frozen python -c "from rebrew import __version__; print(__version__)"); \
 	LAST=$$(git describe --tags --abbrev=0 2>/dev/null || echo v0.0.0); \
 	LASTV=$${LAST#v}; \

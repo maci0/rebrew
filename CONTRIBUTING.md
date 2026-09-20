@@ -23,8 +23,8 @@ Needs **uv** (CI pins `UV_VERSION` in `.github/workflows/ci.yml`, currently
 [`resembl`](https://github.com/maci0/resembl) checkout at `../resembl` — the
 path pin in `pyproject.toml` / `uv.lock` (tag `v2.0.0`, same as CI
 `RESEMBL_REF`).  Without it, sync fails with a cryptic “Distribution not found”
-path error; `make setup` names the clone command instead (and fails closed if
-`uv` itself is missing).
+path error; `make setup` fails closed if `uv` is missing, older than
+`UV_VERSION`, or if `../resembl`'s `version` does not match `RESEMBL_REF`.
 
 ```bash
 # from the directory that will hold both checkouts:

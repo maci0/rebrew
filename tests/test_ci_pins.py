@@ -43,6 +43,13 @@ def _makefile_resembl_ref() -> str:
     return m.group(1)
 
 
+def _makefile_uv_version() -> str:
+    text = MAKEFILE.read_text(encoding="utf-8")
+    m = re.search(r"(?m)^UV_VERSION\s*\?=\s*(\S+)\s*$", text)
+    assert m is not None, "UV_VERSION missing from Makefile"
+    return m.group(1)
+
+
 def _lock_resembl_version() -> str:
     text = UV_LOCK.read_text(encoding="utf-8")
     m = re.search(
@@ -57,8 +64,9 @@ class TestCiPins:
     def test_uv_version_shared_across_workflows(self) -> None:
         ci = _workflow_env(CI_YML)
         sync = _workflow_env(SYNC_YML)
+        make_uv = _makefile_uv_version()
         assert "UV_VERSION" in ci and "UV_VERSION" in sync
-        assert ci["UV_VERSION"] == sync["UV_VERSION"]
+        assert ci["UV_VERSION"] == sync["UV_VERSION"] == make_uv
 
     def test_resembl_ref_aligned(self) -> None:
         ci = _workflow_env(CI_YML)
@@ -67,6 +75,25 @@ class TestCiPins:
         lock_ver = _lock_resembl_version()
         assert ci["RESEMBL_REF"] == sync["RESEMBL_REF"] == make_ref
         assert make_ref.lstrip("v") == lock_ver
+
+    def test_hermetic_jobs_pin_exact_python_patch(self) -> None:
+        """Lint / pre-commit / package / cli-contract / toolchain-sync use
+        the exact ``.python-version`` patch.  The test matrix may float on
+        the 3.13/3.14 minors for compatibility coverage.
+        """
+        python_version = (ROOT / ".python-version").read_text(encoding="utf-8").strip()
+        assert re.fullmatch(r"3\.13\.\d+", python_version), python_version
+        pin = f'python-version: "{python_version}"'
+        for path in (CI_YML, SYNC_YML):
+            text = path.read_text(encoding="utf-8")
+            assert pin in text, f"{path.relative_to(ROOT)} missing {pin}"
+        # setup-uv steps must not float on a bare "3.13" (matrix stays 3.13/3.14).
+        floating = re.findall(
+            r"(?m)^          python-version: \"3\.13\"\s*$",
+            CI_YML.read_text(encoding="utf-8"),
+        )
+        assert floating == [], f"hermetic CI jobs must pin {python_version}, not float on 3.13"
+        assert 'python-version: "3.13"' not in SYNC_YML.read_text(encoding="utf-8")
 
     def test_third_party_actions_are_sha_pinned(self) -> None:
         unpinned: list[str] = []
