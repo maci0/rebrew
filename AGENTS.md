@@ -8,26 +8,15 @@ Install editable (`uv pip install -e .`) inside a workspace containing binaries,
 
 ## Compiler Profiles
 
-Names are `"<image-family>-<version>"` (lowercase, version dots kept), e.g. `msvc-6.0`, `gcc-14.2.0`, `mingw-16.2.0`. Append a target suffix only when one family+version spans more than one target (`watcom-2.0-win32` / `watcom-2.0-win16`). See ADR 017; old names are gone, not aliased.
+Names are `"<image-family>-<version>"` (lowercase, version dots kept), e.g. `msvc-6.0`, `gcc-14.2.0`, `mingw-16.2.0`. Append a target suffix only when one family+version spans more than one target (`watcom-2.0-win32` / `watcom-2.0-win16`). See ADR 017; old names are gone, not aliased. Default profile: `msvc-6.0`.
 
-**Docker-only for every shipped toolchain** (`msvc-*`, `borland-*`, `watcom-*`, `delphi-1.0`, `ido-*`, `gcc-*`, `clang-*`, `mingw-*`): the image wraps wine / DOSBox / a native Linux compiler. No host wine/wibo/dosbox fallback. Missing image → hard error; run `rebrew toolchain build <name>` or `rebrew toolchain pull <name>`.
+**Docker-only for every shipped toolchain** (`msvc-*`, `borland-*`, `watcom-*`, `delphi-1.0`, `ido-*`, `gcc-*`, `clang-*`, `mingw-*`): the image wraps wine / DOSBox / a native Linux compiler. No host wine/wibo/dosbox fallback. Missing image → hard error; run `rebrew toolchain build <name>` or `rebrew toolchain pull <name>`. Inventory and image tags: `rebrew toolchain list` (pins/smoke: `docs/TOOLCHAIN.md`).
 
-Docker build source lives in the sibling **rebrew-toolchains** checkout (`REBREW_TOOLCHAINS_DIR` override). Resolve via `rebrew.toolchain_paths.toolchains_repo()`; commands that need it call `rebrew.toolchain.require_toolchains_repo()`. Details, pins, and smoke gates: `docs/TOOLCHAIN.md`.
-
-| Profile | Image | Notes |
-|---------|-------|-------|
-| `msvc-6.0` (default) | `rebrew/msvc:6.0-win32` | MSVC flags; C89 |
-| `msvc-6.0-sp5-pp` | `rebrew/msvc:6.0-sp5-pp-win32` | Processor Pack (`c2.dll` 13.00.9044); MMX/SSE intrinsics; no `/arch` |
-| `mingw-16.2.0` / `mingw-14.2.0` | `rebrew/mingw:*-win32` | PE/x86_32 MinGW; POSIX flags |
-| `gcc-14.2.0` / `gcc-12.3.0` | `rebrew/gcc:*-linux-x64` | ELF/x86_64 |
-| `clang-18.1.8` / `clang-16.0.4` | `rebrew/clang:*-linux-x64` | ELF/x86_64 |
-| `borland-5.5` | `rebrew/borland:5.5-win32` | PE/x86_32 |
-| `watcom-2.0-win16` / `watcom-2.0-win32` | `rebrew/watcom:2.0-*` | Watcom |
-| `borland-3.1` / `borland-2.0` / `msvc-1.52` / `delphi-1.0` | `rebrew/*:*-win16` | 16-bit (DOSBox); OMF via `rebrew.omf16` where applicable |
+Docker build source lives in the sibling **rebrew-toolchains** checkout (`REBREW_TOOLCHAINS_DIR` override). Resolve via `rebrew.toolchain_paths.toolchains_repo()`; commands that need it call `rebrew.toolchain.require_toolchains_repo()`.
 
 **CMake**: `rebrew cmake-toolchain --toolchain msvc-6.0 --output cmake/` then `cmake -B build --toolchain cmake/toolchain-msvc-6.0-docker.cmake`. Bridge scripts: `rebrew-cmake-{cl,link,lib}`.
 
-**Library overrides** (`rebrew-libraries.toml`, `rebrew library set/show/rm`): resolve most-specific-first — per-function `TOOLCHAIN`/`CFLAGS` → nearest `rebrew-libraries.toml` (walk-up) → project default. Presets fill missing fields (e.g. `msvcrt-static` = `/MT /O2 /Gd`).
+**Library overrides** (`rebrew-libraries.toml`, `rebrew library set/show/rm`): resolve most-specific-first — per-function `TOOLCHAIN`/`CFLAGS` → nearest `rebrew-libraries.toml` (walk-up) → project default. Presets fill missing fields (e.g. `msvcrt-static` = `/O2 /Gd /MT`).
 
 ## Build & Test Commands
 
@@ -36,7 +25,7 @@ make setup                                # frozen sync + pre-commit; checks uv 
 make test-one T=tests/test_annotation.py  # single-file edit-test loop
 make lint                                 # ruff check src/ tests/ tools/
 make format                               # ruff format src/ tests/ tools/
-make all                                  # format-check lint mypy audit test fixtures cycles idempotency cli-contract
+make all                                  # format-check lint mypy audit test gen-fixtures-check cycles-check idempotency-check cli-contract
 make check                                # pre-commit hook parity (before a PR: make all && make check)
 make gen-fixtures                         # regenerate tests/fixtures/ after editing the generator
 # or: uv sync --frozen --all-extras --group similarity
@@ -44,22 +33,19 @@ make gen-fixtures                         # regenerate tests/fixtures/ after edi
 uv run --frozen pytest tests/ -v --tb=short # needs nasm
 uv run --frozen pytest tests/test_annotation.py -v # or ::TestClass / -k name
 uv run --frozen pre-commit run --all-files
-uv run --frozen python -m slipcover --fail-under 80 -m pytest
+uv run --frozen python -m slipcover --fail-under 80 -m pytest  # coverage floor; ratchet up, never down
 ```
 
 **pytest** (`pyproject.toml`): `testpaths = ["tests"]`, `pythonpath = ["src", ".", "tests"]` (`.` exposes `tools/`; `tests` loads `-p pytest_ansi_env` so bare `uv run pytest` matches `make test` under `FORCE_COLOR`/`GITHUB_ACTIONS`). No fixture `conftest.py` — use `tmp_path` + inline helpers.
 
 ## Code Style
 
-- **Python 3.13+**, 4-space indent, 100-char lines (E501 ignored)
-- Ruff select/ignore: `[tool.ruff.lint]` in `pyproject.toml` (do not weaken the gate)
-- Naming: `snake_case` / `PascalCase` / `UPPER_CASE`; `_private`; `mut_` for GA mutations; **one name per function** (no aliases/shims)
-- Types: annotate all signatures; `T | None` not `Optional`; specific generics; config params as `ProjectConfig` (`getattr` defensively); prefer `Any` over bare `object`
-- Imports: stdlib → third-party → local (ruff `I`); blank line between groups
-- CLI errors: `error_exit(..., json_mode=...)` from `rebrew.cli`; library code raises specific exceptions; no bare `except`
-- JSON / VA / exits: `json_print`, `parse_va`, `EXIT_OK`/`EXIT_MISMATCH`/`EXIT_ERROR` from `rebrew.cli`
+- **Python 3.13+**; ruff/mypy gates in `pyproject.toml` — do not weaken them
+- Naming: `mut_` for GA mutations; **one name per function** (no aliases/shims)
+- Types: `T | None` not `Optional`; config as `ProjectConfig` (`getattr` defensively); prefer `Any` over bare `object`
+- CLI: `error_exit(..., json_mode=...)`, `json_print`, `parse_va`, `EXIT_*` from `rebrew.cli`; `Console(stderr=True)`; library code raises specific exceptions; no bare `except`
 - Docstrings on every module; section separators `# ---...---`
-- Use imported libs' APIs: LIEF for binary formats (never hand-unpack headers), httpx for MCP (never `urllib.request`), Typer + `Console(stderr=True)`, `pathlib.Path`, `TemporaryDirectory`, tree-sitter for C structure (never regex), angr only behind `[prove]`
+- Use imported libs' APIs: LIEF (never hand-unpack headers), httpx for MCP (never `urllib.request`), tree-sitter for C (never regex), angr only behind `[prove]`
 
 ## Layout
 
@@ -73,7 +59,7 @@ src/rebrew/          # package; discover modules there — do not rely on an inl
 tests/               # pytest; typically test_<module>.py
 ```
 
-Dockerfiles / wrappers / 16-bit media: sibling **rebrew-toolchains** (not vendored here). `rebrew init` renders `agent-skills/` into a project's `.agents/skills/` (`init._copy_agent_skills`); this repo's `.agents/skills/` is a rendered copy (target `bench`). Edit `src/rebrew/agent-skills/`, re-render; `tests/test_skills_sync.py` and `tools/validate_skill_commands.py` gate drift.
+Dockerfiles / wrappers / 16-bit media: sibling **rebrew-toolchains** (not vendored here). `rebrew init` renders `agent-skills/` into a project's `.agents/skills/`; this repo's `.agents/skills/` is a rendered copy (target `bench`). Edit `src/rebrew/agent-skills/`, re-render; `tests/test_skills_sync.py` and `tools/validate_skill_commands.py` gate drift.
 
 ## CLI Conventions
 
@@ -83,9 +69,7 @@ Multi-command (`is_group=True` in `builtins.py`): `blocker`, `orphans`, `types`,
 
 ## Adding a GA Mutation
 
-Operators live under `src/rebrew/matcher/mutations/` (`mut_*`, tree-sitter only — never regex). Register in the packaged list assembled by `mutator.py` → `ALL_MUTATIONS`. Test in `tests/test_mutator_p*.py`. Document in `docs/GA_MUTATIONS.md`. Entry-point group `rebrew.mutations` can add operators without editing host source; duplicate name → skipped with warning (packaged ops kept).
-
-Numeric constants need explicit operators (`mut_tweak_integer_literal` covers small ±deltas).
+See `matcher/AGENTS.md` and `docs/GA_MUTATIONS.md`. Ops are `mut_*` under `matcher/mutations/` (tree-sitter only — never regex) → `ALL_MUTATIONS` in `mutator.py`, or entry-point group `rebrew.mutations` (duplicate name skipped; packaged kept). Test in `tests/test_mutator_p*.py`. Numeric constants need explicit ops (`mut_tweak_integer_literal` covers small ±deltas).
 
 ## Test Patterns
 
@@ -102,6 +86,6 @@ No `conftest.py`. Group by class; helpers `_`-prefixed; annotate tests `-> None`
 - **CLI composition**: umbrella app is a component graph (`plugin.py` + `builtins.py`); see ADR 014
 - **No backward compat**: one name per function — no aliases/shims/wrappers
 - **Volatile metadata**: `STATUS`, `TOOLCHAIN`, `BLOCKER`, `BLOCKER_DELTA`, `NOTE`, `GHIDRA`, `LOCALS`, `COMMENTS`, … (`METADATA_FIELDS`) live in `rebrew-functions.toml` via `rebrew.metadata` — never hand-edit the TOML. `SIZE`/`CFLAGS` are co-read (`.c` + TOML override). STATUS via `update_source_status` / `update_statuses_batch`; BLOCKER via `update_field` / `remove_field` (`rebrew blocker` or auto-writers). Written **mode 0444** (`atomic_write_locked`); same lock for `rebrew-data.toml` and declib binsync artifacts
-- **STATUS is earned**: `rebrew verify` promotes/demotes from byte comparison; never write `STATUS` in `.c` files. Stale hand-claimed `PROVEN` is demoted with a `metadata: warning`
+- **STATUS is earned**: `rebrew test` / `rebrew verify` promote/demote from byte comparison; never write `STATUS` in `.c` files. Stale hand-claimed `PROVEN` is demoted with a `metadata: warning`
 - **Compile result**: `CompareResult` — use `.matched`, `.status`, `.delta`, `.match_percent`; never tuple-unpack
 - **Compile backends**: local docker image by default; `[compiler] recompile_url` / `REBREW_RECOMPILE_URL` → `rebrew.recompile_client`. Cache id pins the backend. Only a plugin toolchain without `image` runs as a host binary. See ADR 015
