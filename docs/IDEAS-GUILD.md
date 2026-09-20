@@ -290,3 +290,13 @@ Status `open` unless noted. Promote to ROADMAP when scoped.
   and label a size divergence as an inventory-coarseness fact rather than a
   coverage gap.
   Evidence: guild-rebrew `docs/workflow-traps.md` §17.
+
+- **`verify --data` should refuse to write statuses when `--built` is not the postlinked deliverable.**
+  Pain: running `rebrew verify --data --built build/split_poc.dll` (the raw link) to escape the
+  "tautological" warning flipped 30 symbols' `status` from `VERIFIED` to `DRIFT` in the tool-owned
+  `rebrew-data.toml`. The raw link's `.data` divergence is postlink-supplied (AMBIGUOUS-by-design), so the
+  statuses it wrote were wrong and persistent; recovery needed `git checkout` plus a deliverable re-run.
+  Feature: detect a raw-link artifact (e.g. `.data` differing above a threshold it can already measure, or
+  an explicit `--raw-link` ack write-gate) and suppress both the status write-back and the DRIFT flips —
+  report `mismatched` only.
+  Evidence: guild-rebrew `docs/measure-traps.md` §56, round 1102.
