@@ -20,8 +20,15 @@
   ``--json`` output, so a partial compare cannot look like a whole-tree pass.
 - **``make cli-contract``** mirrors the CI ``cli-contract`` help greps; ``make
   all`` runs it. Older-than-pin ``uv`` warns instead of blocking ``make setup``.
+- **Wheel METADATA ``Security`` project URL** points at ``SECURITY.md``.
 
 ### Fixed
+- **``rebrew init`` help and warnings name ``--toolchain``**, not the retired
+  ``--compiler`` flag — epilog examples and mismatch hints no longer tell
+  users to pass an option Typer rejects.
+- **sdist/wheel packaging hardens stray-file guards** — MANIFEST prunes tool
+  caches and excludes subpackage ``AGENTS.md``; ``exclude-package-data``
+  keeps contributor docs out of the wheel.
 - **``--seed-llm --dry-run`` no longer calls the LLM endpoint** — it prints the
   sanitized prompt and exits without billing or running the GA.
 - **LLM / kuna seed validation rejects ``#include`` and multi-function

@@ -228,6 +228,7 @@ class TestPackagedDataFiles:
         assert urls["Homepage"].startswith("https://github.com/")
         assert urls["Issues"].endswith("/issues")
         assert "CHANGELOG" in urls["Changelog"]
+        assert urls["Security"].endswith("/SECURITY.md")
 
     def test_readme_long_description_links_are_absolute(self) -> None:
         """PyPI renders README.md as the long description; relative links 404.
@@ -238,6 +239,14 @@ class TestPackagedDataFiles:
         text = (ROOT / "README.md").read_text(encoding="utf-8")
         relative = re.findall(r"\[[^\]]*\]\((?!https?://|mailto:|#)([^)]+)\)", text)
         assert relative == [], f"README has relative markdown links: {relative}"
+
+    def test_exclude_package_data_drops_subpackage_agents(self) -> None:
+        """matcher/catalog AGENTS.md are contributor docs, not runtime assets."""
+        data = tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))
+        excluded = data["tool"]["setuptools"]["exclude-package-data"]["rebrew"]
+        assert "**/AGENTS.md" in excluded
+        assert (PKG / "matcher" / "AGENTS.md").is_file()
+        assert (PKG / "catalog" / "AGENTS.md").is_file()
 
 
 class TestSdistManifest:
@@ -251,6 +260,10 @@ class TestSdistManifest:
             ".github",
             ".scratch",
             ".cache",
+            ".hypothesis",
+            ".mypy_cache",
+            ".pytest_cache",
+            ".ruff_cache",
             "build",
             "dist",
             ".venv",
@@ -259,6 +272,8 @@ class TestSdistManifest:
             "src/rebrew.egg-info",
         ):
             assert f"prune {tree}" in text, tree
+        assert "recursive-exclude src/rebrew AGENTS.md" in text
+        assert "global-exclude .coverage" in text
 
     def test_built_sdist_omits_egg_info_residue(self, tmp_path: Path) -> None:
         """setuptools egg-info bulk must not ship; SOURCES.txt alone is OK.
@@ -359,3 +374,7 @@ class TestSdistManifest:
         assert "rebrew/py.typed" in names
         assert "Typing :: Typed" in meta
         assert "Environment :: Console" in meta
+        assert "Project-URL: Security," in meta
+        assert any(n.endswith("/licenses/LICENSE") for n in names)
+        assert "rebrew/matcher/AGENTS.md" not in names
+        assert "rebrew/catalog/AGENTS.md" not in names

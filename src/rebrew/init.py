@@ -41,8 +41,8 @@ app = typer.Typer(
         "[bold]Examples:[/bold]\n\n"
         "  rebrew init · · · · · · · · · · · · · · · · · Defaults (msvc-6.0, program.exe)\n\n"
         "  rebrew init --target mygame --binary mygame.exe  Name the target and binary\n\n"
-        "  rebrew init --compiler msvc-7.0 · · · · · · · · · Use MSVC 7.x compiler profile\n\n"
-        "  rebrew init --compiler gcc-14.2.0 · · · · · Use GCC (ELF targets)\n\n"
+        "  rebrew init --toolchain msvc-7.0 · · · · · · · · Use MSVC 7.x compiler profile\n\n"
+        "  rebrew init --toolchain gcc-14.2.0 · · · · · Use GCC (ELF targets)\n\n"
         "[bold]What it creates:[/bold]\n\n"
         "  rebrew-project.toml · · · Project configuration (compiler, paths, targets)\n\n"
         "  AGENTS.md · · · · · · · · AI agent instructions for the project\n\n"
@@ -82,7 +82,7 @@ def _warn_profile_family_mismatch(profile: str, tc: ToolchainInfo) -> None:
         return
     hint = getattr(tc, "version_hint", "") or ""
     alt = FAMILY_COUNTERPART.get(family)
-    alt_msg = f" — use --compiler {alt}" if alt else ""
+    alt_msg = f" — use --toolchain {alt}" if alt else ""
     console.print(
         f"[yellow]warning:[/yellow] binary looks like {family}"
         f"{' ' + hint if hint else ''} (high confidence) but profile is "
@@ -107,7 +107,7 @@ def _warn_profile_mismatch(profile: str, binary_format: str, arch: str) -> None:
     if arch == "x86_16" and profile not in _bitness_16:
         msg = (
             f"detected a 16-bit binary ({binary_format}/{arch}) but profile "
-            f"'{profile}' is a 32-bit compiler — switch to --compiler "
+            f"'{profile}' is a 32-bit compiler — switch to --toolchain "
             f"{'/'.join(sorted(_bitness_16))} for byte matching (or document "
             "functions as blockers)"
         )
@@ -541,7 +541,7 @@ def _run_wizard(
     if not Confirm.ask("Create project with these settings?", default=True, console=console):
         console.print(
             "Aborted — nothing was written. Re-run with flags to skip the wizard:\n"
-            "  rebrew init --no-wizard --target <name> --binary <file> --compiler <profile>"
+            "  rebrew init --no-wizard --target <name> --binary <file> --toolchain <profile>"
         )
         raise typer.Exit(code=EXIT_OK)
 

@@ -16,6 +16,10 @@ prune .agents
 prune .github
 prune .scratch
 prune .cache
+prune .hypothesis
+prune .mypy_cache
+prune .pytest_cache
+prune .ruff_cache
 prune build
 prune dist
 prune .venv
@@ -24,3 +28,7 @@ prune rebrew.egg-info
 prune src/rebrew.egg-info
 global-exclude *.py[cod]
 global-exclude __pycache__
+global-exclude .coverage
+global-exclude *.cover
+# Subpackage contributor docs — runtime package-data is explicit in pyproject.
+recursive-exclude src/rebrew AGENTS.md

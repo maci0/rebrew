@@ -131,7 +131,7 @@ class TestWizardFlow:
         assert "msvc-8.0" in result.stderr  # detection summary surfaced
 
     def test_explicit_compiler_flag_skips_profile_prompt(self, tmp_path: Path, monkeypatch) -> None:
-        """--compiler counts as explicit: its prompt is skipped and the
+        """--toolchain counts as explicit: its prompt is skipped and the
         passed profile is kept despite a differing detection suggestion."""
         _place_mini_pe(tmp_path)
         _force_wizard(monkeypatch)

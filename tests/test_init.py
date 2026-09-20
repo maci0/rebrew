@@ -245,6 +245,24 @@ def mock_download_wibo(monkeypatch: pytest.MonkeyPatch) -> None:
 class TestInit:
     """Tests for the main() function using tmp_path."""
 
+    def test_help_advertises_toolchain_not_compiler_flag(self) -> None:
+        """Shipped --help must name the real --toolchain option.
+
+        The flag was renamed from --compiler; stale epilog examples made
+        ``rebrew init --compiler …`` fail with ``No such option``.
+        """
+        from typer.testing import CliRunner
+
+        from rebrew.init import app
+
+        result = CliRunner().invoke(app, ["--help"])
+        assert result.exit_code == 0, result.output
+        assert "--toolchain" in result.output
+        # --guess-compiler is a different, still-valid flag; strip it before
+        # checking that the old --compiler spelling is gone from examples.
+        scrubbed = result.output.replace("--guess-compiler", "")
+        assert "--compiler" not in scrubbed
+
     def test_creates_rebrew_toml(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """main() creates rebrew-project.toml in cwd."""
         monkeypatch.chdir(tmp_path)
@@ -568,6 +586,8 @@ class TestFamilyMismatchWarning:
         out = capsys.readouterr()
         assert "looks like zig" in out.err
         assert "mingw-16.2.0" in out.err  # suggests the counterpart profile
+        assert "--toolchain" in out.err
+        assert "--compiler" not in out.err
 
     def test_matching_family_silent(self, capsys: pytest.CaptureFixture[str]) -> None:
         from rebrew.init import _warn_profile_family_mismatch
@@ -837,6 +857,8 @@ class TestProfileMismatchWarning:
         # COMPILER_DEFAULTS, so borland-3.1/watcom-2.0-win16 are included too)
         assert "msvc-1.52" in out
         assert "borland-3.1" in out
+        assert "--toolchain" in out
+        assert "--compiler" not in out
 
     def test_ne_binary_silent_on_msvc152(self, capsys) -> None:
         from rebrew.init import _warn_profile_mismatch

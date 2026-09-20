@@ -147,6 +147,7 @@ Homepage = "https://github.com/maci0/rebrew"
 Repository = "https://github.com/maci0/rebrew"
 Issues = "https://github.com/maci0/rebrew/issues"
 Changelog = "https://github.com/maci0/rebrew/blob/main/CHANGELOG.md"
+Security = "https://github.com/maci0/rebrew/blob/main/SECURITY.md"
 
 [tool.setuptools.dynamic]
 version = { attr = "rebrew.__version__" }
@@ -157,6 +158,11 @@ version = { attr = "rebrew.__version__" }
 # ``agent-skills/**/*`` ships every skill asset (not only ``*.md``) so a
 # future non-markdown reference file cannot silently drop out of the wheel.
 rebrew = ["agent-skills/**/*", "*.template", "PRINCIPLES.md", "**/py.typed", "py.typed"]
+
+# Contributor-only AGENTS.md under subpackages (matcher/, catalog/) must not
+# ride into the wheel if include-package-data ever widens the sdist file set.
+[tool.setuptools.exclude-package-data]
+rebrew = ["**/AGENTS.md"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
