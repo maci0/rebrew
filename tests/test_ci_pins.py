@@ -132,6 +132,10 @@ class TestCiPins:
         assert "for attempt in 1 2 3" in text
         assert "GIT_TERMINAL_PROMPT=0" in text
         assert "basename is not 'resembl'" in text
+        # Token must live in a mode-0600 gitconfig, not on git argv (ps leak).
+        assert "GIT_CONFIG_GLOBAL" in text
+        assert "extraheader = AUTHORIZATION: basic" in text
+        assert 'auth_args=(-c "http.https://github.com/.extraheader=' not in text
         for path in (CI_YML, SYNC_YML):
             wf = path.read_text(encoding="utf-8")
             assert "bash tools/ci_clone_resembl.sh" in wf, path.name

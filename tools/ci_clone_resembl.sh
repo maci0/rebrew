@@ -9,7 +9,9 @@
 # Requires RESEMBL_REF in the environment (workflow env / Makefile pin).
 # When GH_TOKEN or GITHUB_TOKEN is set (workflows map secrets.GITHUB_TOKEN),
 # clone with an Authorization header so the token never lands in the remote
-# URL and GitHub applies authenticated git rate limits.
+# URL and GitHub applies authenticated git rate limits.  The header is written
+# to a mode-0600 temp gitconfig (GIT_CONFIG_GLOBAL) so the secret does not
+# appear on the git process argv (visible via ps / audit logs).
 set -euo pipefail
 
 ref="${RESEMBL_REF:?RESEMBL_REF is required (e.g. v2.0.0)}"
@@ -31,18 +33,32 @@ esac
 # Never block the job on an interactive credential prompt (no TTY in CI).
 export GIT_TERMINAL_PROMPT=0
 
-auth_args=()
+git_config_tmp=""
+cleanup() {
+  if [[ -n "${git_config_tmp}" && -f "${git_config_tmp}" ]]; then
+    rm -f "${git_config_tmp}"
+  fi
+}
+trap cleanup EXIT
+
 token="${GH_TOKEN:-${GITHUB_TOKEN:-}}"
 if [[ -n "${token}" ]]; then
   # basic = base64("x-access-token:<token>"); tr strips the 76-col wrap base64
   # may add on some platforms (no -w0 on macOS/BSD).
   basic="$(printf 'x-access-token:%s' "${token}" | base64 | tr -d '\n')"
-  auth_args=(-c "http.https://github.com/.extraheader=AUTHORIZATION: basic ${basic}")
+  git_config_tmp="$(mktemp)"
+  chmod 600 "${git_config_tmp}"
+  # GIT_CONFIG_GLOBAL points git at this file; argv stays free of the token.
+  printf '%s\n' \
+    '[http "https://github.com/"]' \
+    "	extraheader = AUTHORIZATION: basic ${basic}" \
+    >"${git_config_tmp}"
+  export GIT_CONFIG_GLOBAL="${git_config_tmp}"
 fi
 
 for attempt in 1 2 3; do
   rm -rf "${dest}"
-  if git "${auth_args[@]}" clone --depth 1 --branch "${ref}" \
+  if git clone --depth 1 --branch "${ref}" \
       https://github.com/maci0/resembl.git "${dest}"; then
     exit 0
   fi

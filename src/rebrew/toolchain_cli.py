@@ -301,6 +301,54 @@ def _trusted_toolchain_download_url(url: str) -> str:
     return url.strip()
 
 
+def _safe_extract_tar(archive: Path, dest: Path, *, strip_components: int = 0) -> None:
+    """Extract *archive* into *dest* with PEP 706 ``filter='data'`` containment.
+
+    Replaces ``tar xf`` so a compromised pin cannot write ``../`` or absolute
+    members outside *dest* (zip-slip).  *strip_components* mirrors
+    ``tar --strip-components``.
+    """
+    import tarfile
+
+    dest.mkdir(parents=True, exist_ok=True)
+    dest_root = dest.resolve()
+    with tarfile.open(archive) as tf:
+        if strip_components <= 0:
+            tf.extractall(dest, filter="data")
+            return
+        for member in tf.getmembers():
+            name = member.name.lstrip("/")
+            parts = Path(name).parts
+            if ".." in parts:
+                raise ToolchainError(f"refusing unsafe tar member: {member.name!r}")
+            if len(parts) <= strip_components:
+                continue
+            stripped = str(Path(*parts[strip_components:]))
+            member.name = stripped
+            target = (dest_root / stripped).resolve()
+            if not target.is_relative_to(dest_root):
+                raise ToolchainError(f"refusing path escape in tar member: {name!r}")
+            tf.extract(member, dest, filter="data")
+
+
+def _safe_extract_zip(archive: Path, dest: Path) -> None:
+    """Extract *archive* into *dest*, refusing absolute / ``..`` zip members."""
+    import zipfile
+
+    dest.mkdir(parents=True, exist_ok=True)
+    dest_root = dest.resolve()
+    with zipfile.ZipFile(archive) as zf:
+        for info in zf.infolist():
+            name = info.filename
+            parts = Path(name).parts
+            if Path(name).is_absolute() or ".." in parts:
+                raise ToolchainError(f"refusing unsafe zip member: {name!r}")
+            target = (dest_root / name).resolve()
+            if not target.is_relative_to(dest_root):
+                raise ToolchainError(f"refusing path escape in zip member: {name!r}")
+            zf.extract(info, dest)
+
+
 def _download_pinned_url(url: str, dest: Path, *, timeout: float = 1800) -> None:
     """Download *url* to *dest*, following redirects only while hosts stay trusted.
 
@@ -434,14 +482,10 @@ def vendor_cmd(
     try:
         if src.is_in_repo():
             tarball = REPO_TOOLS / src.in_repo
-            subprocess.run(
-                # No explicit -z/-J: GNU tar auto-detects gzip/xz compression,
-                # so in-repo .tar.xz and remote codeload .tar.gz both extract.
-                ["tar", "xf", str(tarball), "-C", str(extract_dir)],
-                check=True,
-                capture_output=True,
-                timeout=_EXTRACT_TIMEOUT_S,
-            )
+            # No explicit compression mode: tarfile auto-detects gzip/xz, so
+            # in-repo .tar.xz and remote codeload .tar.gz both extract.  PEP 706
+            # filter='data' blocks zip-slip even if the sha256 pin is wrong.
+            _safe_extract_tar(tarball, extract_dir)
             console.print(f"[green]Extracted[/green] {src.in_repo} -> {src.host_dir}")
         else:
             with tempfile.TemporaryDirectory(prefix="rebrew_vendor_") as td:
@@ -457,13 +501,7 @@ def vendor_cmd(
                     error_exit(msg, json_mode=json_output)
                 if src.layout == "zip-installshield":
                     zip_dir = td_path / "zip"
-                    subprocess.run(
-                        ["unzip", "-q", str(archive), "-d", str(zip_dir)],
-                        check=True,
-                        capture_output=True,
-                        stdin=subprocess.DEVNULL,
-                        timeout=_EXTRACT_TIMEOUT_S,
-                    )
+                    _safe_extract_zip(archive, zip_dir)
                     installer = next(zip_dir.iterdir())
                     payload = td_path / "pay"
                     subprocess.run(
@@ -484,13 +522,7 @@ def vendor_cmd(
                     # strip the wrapper so BIN/INCLUDE/LIB sit at the top of
                     # the host tree like the other toolchains.
                     zip_dir = td_path / "zip"
-                    subprocess.run(
-                        ["unzip", "-q", str(archive), "-d", str(zip_dir)],
-                        check=True,
-                        capture_output=True,
-                        stdin=subprocess.DEVNULL,
-                        timeout=_EXTRACT_TIMEOUT_S,
-                    )
+                    _safe_extract_zip(archive, zip_dir)
                     _flatten_wrapper_dir(zip_dir, extract_dir)
                 elif src.layout == "7z-strip1":
                     # A .7z with the same single top-level wrapper dir
@@ -505,26 +537,24 @@ def vendor_cmd(
                     )
                     _flatten_wrapper_dir(extract_tmp, extract_dir)
                 elif src.layout == "tar-strip1":
-                    subprocess.run(
-                        # Auto-detect compression (no -z/-J): the pinned
-                        # sources are gzip codeload tarballs (msvc-4.0/420/5)
-                        # and xz snapshots (watcom-2.0-win32) alike.
-                        ["tar", "xf", str(archive), "-C", str(extract_dir), "--strip-components=1"],
-                        check=True,
-                        capture_output=True,
-                        timeout=_EXTRACT_TIMEOUT_S,
-                    )
+                    # Auto-detect compression: gzip codeload (msvc-4.0/420/5)
+                    # and xz snapshots (watcom-2.0-win32) alike.
+                    _safe_extract_tar(archive, extract_dir, strip_components=1)
                 else:
-                    subprocess.run(
-                        ["tar", "xzf", str(archive), "-C", str(extract_dir)],
-                        check=True,
-                        capture_output=True,
-                        timeout=_EXTRACT_TIMEOUT_S,
-                    )
+                    _safe_extract_tar(archive, extract_dir)
                 console.print(f"[green]Downloaded + verified[/green] {src.url} -> {src.host_dir}")
     except ToolchainError as exc:
         _abort_incomplete_vendor(extract_dir, str(exc), json_mode=json_output)
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as exc:
+        _abort_incomplete_vendor(extract_dir, f"vendor {name} failed: {exc}", json_mode=json_output)
+    except Exception as exc:
+        # tarfile.ReadError / FilterError / zipfile.BadZipFile — keep the
+        # vendor tree retryable instead of leaving a partial extract.
+        import tarfile
+        import zipfile
+
+        if not isinstance(exc, (tarfile.TarError, zipfile.BadZipFile, zipfile.LargeZipFile)):
+            raise
         _abort_incomplete_vendor(extract_dir, f"vendor {name} failed: {exc}", json_mode=json_output)
 
     # MSVC 6.0's classic master layout wraps the tree in VC98/ (the decomp.me

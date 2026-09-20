@@ -38,6 +38,38 @@ from rebrew.utils import atomic_write_text
 
 console = Console(stderr=True)
 
+#: Config key suffixes whose values must never be echoed to the terminal /
+#: JSON dumps (shell history and CI logs already see argv; do not double-expose).
+_SECRET_KEY_SUFFIXES = ("api_key", "password", "secret", "token")
+
+
+def _is_secret_key(key: str) -> bool:
+    """True when *key* (dotted or bare) names a credential field."""
+    leaf = key.rsplit(".", 1)[-1].lower()
+    return leaf in _SECRET_KEY_SUFFIXES or any(
+        leaf.endswith(f"_{suffix}") for suffix in _SECRET_KEY_SUFFIXES
+    )
+
+
+def _display_config_value(key: str, value: Any) -> Any:
+    """Return *value*, or a redaction marker when *key* holds a secret."""
+    if _is_secret_key(key) and value not in (None, ""):
+        return "***"
+    return value
+
+
+def _redact_secrets(obj: Any) -> Any:
+    """Deep-copy *obj* with secret-named dict keys replaced by ``***``."""
+    if isinstance(obj, dict):
+        return {
+            k: ("***" if _is_secret_key(str(k)) and v not in (None, "") else _redact_secrets(v))
+            for k, v in obj.items()
+        }
+    if isinstance(obj, list):
+        return [_redact_secrets(v) for v in obj]
+    return obj
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -348,9 +380,14 @@ def show(
             import tomllib
 
             raw_doc = tomllib.loads(tomlkit.dumps(doc))
-            json_print(raw_doc)
+            json_print(_redact_secrets(raw_doc))
         else:
-            print(tomlkit.dumps(doc))
+            # tomlkit.dumps keeps comments; redact only after a plain round-trip
+            # so credential values never leave the process via stdout.
+            import tomllib
+
+            raw_doc = tomllib.loads(tomlkit.dumps(doc))
+            print(tomlkit.dumps(_redact_secrets(raw_doc)))
         return
 
     # Resolve dotted key path (handles keys containing dots like target names)
@@ -363,11 +400,16 @@ def show(
         import tomllib
 
         raw_val = tomllib.loads(tomlkit.dumps(current)) if isinstance(current, dict) else current
-        json_print({"key": key, "value": raw_val})
+        json_print({"key": key, "value": _display_config_value(key, _redact_secrets(raw_val))})
     elif isinstance(current, (dict, list)):
-        print(tomlkit.dumps(current) if isinstance(current, dict) else str(current))
+        if isinstance(current, dict):
+            import tomllib
+
+            print(tomlkit.dumps(_redact_secrets(tomllib.loads(tomlkit.dumps(current)))))
+        else:
+            print(str(current))
     else:
-        print(str(current))
+        print(str(_display_config_value(key, current)))
 
 
 @app.command("raw")
@@ -379,13 +421,13 @@ def raw(
     fmt = fmt.lower()
     if fmt not in {"json", "toml"}:
         error_exit(f"Unknown format: {fmt}. Use json or toml.")
-    if fmt == "toml":
-        print(tomlkit.dumps(doc))
-    else:
-        # Default: JSON — convert tomlkit doc to plain dict for serialization
-        import tomllib
+    import tomllib
 
-        raw_doc = tomllib.loads(tomlkit.dumps(doc))
+    raw_doc = _redact_secrets(tomllib.loads(tomlkit.dumps(doc)))
+    if fmt == "toml":
+        print(tomlkit.dumps(raw_doc))
+    else:
+        # Default: JSON — plain dict for serialization; secrets already redacted.
         print(json.dumps(raw_doc, indent=2, default=str))
 
 
@@ -635,19 +677,21 @@ def set_value(
             with contextlib.suppress(ValueError):
                 parsed_value = float(value)
 
+    shown = _display_config_value(key, parsed_value)
     if dry_run:
-        console.print(f"[cyan]dry-run:[/cyan] would set {key} = {parsed_value!r}")
+        console.print(f"[cyan]dry-run:[/cyan] would set {key} = {shown!r}")
         return
     # Secrets on argv land in process listings / shell history.  Still write
-    # (cfg is the documented editor) but steer users at REBREW_LLM_API_KEY.
-    if key in {"llm.api_key", "api_key"} or key.endswith(".api_key"):
+    # (cfg is the documented editor) but steer users at REBREW_LLM_API_KEY, and
+    # never echo the secret back on the confirmation line.
+    if _is_secret_key(key):
         console.print(
             "[yellow]warning:[/yellow] writing api_key via CLI puts the secret in "
             "argv/history — prefer REBREW_LLM_API_KEY in the environment"
         )
     parent[final_key] = parsed_value
     save_toml(doc, toml_path)
-    console.print(f"[green]Set {key} = {parsed_value!r}[/green]")
+    console.print(f"[green]Set {key} = {shown!r}[/green]")
 
 
 @app.command("add-module")

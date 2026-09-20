@@ -445,3 +445,34 @@ class TestCompilerCmdRoundTrip:
         )
         cl_cmd, _inc, _env, _cc = resolve_compiler_env(cfg)
         assert safe_shlex_split(cl_cmd) == ["/opt/My Tools/gcc", "-c"]
+
+
+class TestDockerIncludeRewriteMounts:
+    """Absolute /I outside the project must not become a docker bind mount."""
+
+    def test_mounts_under_allowed_root(self, tmp_path: Path) -> None:
+        from rebrew.compile import _docker_include_rewrite
+
+        work = tmp_path / "work"
+        work.mkdir()
+        inc = tmp_path / "inc"
+        inc.mkdir()
+        flags, mounts = _docker_include_rewrite([f"/I{inc}"], work, allowed_roots=[tmp_path, work])
+        assert flags == [f"/I{inc.resolve()}"]
+        assert mounts == [(str(inc.resolve()), str(inc.resolve()))]
+
+    def test_refuses_mount_outside_allowed_roots(self, tmp_path: Path) -> None:
+        from rebrew.compile import _docker_include_rewrite
+
+        work = tmp_path / "work"
+        work.mkdir()
+        outside = tmp_path.parent / f"rebrew-outside-{tmp_path.name}"
+        outside.mkdir(exist_ok=True)
+        try:
+            flags, mounts = _docker_include_rewrite(
+                [f"/I{outside}"], work, allowed_roots=[tmp_path, work]
+            )
+            assert mounts == []
+            assert flags == [f"/I{outside.resolve()}"]
+        finally:
+            outside.rmdir()

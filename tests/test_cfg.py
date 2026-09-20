@@ -643,6 +643,38 @@ class TestCLISet:
         doc, _ = load_toml(tmp_path)
         assert doc["compiler"]["image_base"] == 0x10000000
 
+    def test_set_api_key_confirmation_redacts_secret(self, tmp_path: Path, monkeypatch) -> None:
+        """Confirmation / dry-run lines must not echo the credential."""
+        _make_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        secret = "sk-live-super-secret-value"
+        result = runner.invoke(cfg_app, ["set", "llm.api_key", secret])
+        assert result.exit_code == 0
+        assert secret not in result.output
+        assert "***" in result.output
+        doc, _ = load_toml(tmp_path)
+        assert doc["llm"]["api_key"] == secret
+
+    def test_show_api_key_redacts_secret(self, tmp_path: Path, monkeypatch) -> None:
+        _make_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        secret = "sk-show-must-not-print"
+        runner.invoke(cfg_app, ["set", "llm.api_key", secret])
+        result = runner.invoke(cfg_app, ["show", "llm.api_key"])
+        assert result.exit_code == 0
+        assert secret not in result.stdout
+        assert "***" in result.stdout
+
+    def test_raw_json_redacts_api_key(self, tmp_path: Path, monkeypatch) -> None:
+        _make_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        secret = "sk-raw-dump-secret"
+        runner.invoke(cfg_app, ["set", "llm.api_key", secret])
+        result = runner.invoke(cfg_app, ["raw", "--format", "json"])
+        assert result.exit_code == 0
+        assert secret not in result.stdout
+        assert "***" in result.stdout
+
 
 class TestCLIModules:
     def test_add_module(self, tmp_path: Path, monkeypatch) -> None:

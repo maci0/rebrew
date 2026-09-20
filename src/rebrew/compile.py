@@ -765,18 +765,31 @@ def _is_vendored_toolchain_tree(p: Path) -> bool:
 
 
 def _docker_include_rewrite(
-    flags: list[str], workdir: Path
+    flags: list[str],
+    workdir: Path,
+    *,
+    allowed_roots: list[Path] | None = None,
 ) -> tuple[list[str], list[tuple[str, str]]]:
     """Rewrite /I and -I flags for a docker container invocation.
 
     The container only sees the workdir (mounted at /work) plus explicit
     bind mounts.  Include dirs under the workdir become relative paths
-    (they resolve inside /work).  Absolute host dirs are bind-mounted at
-    their **absolute host path** (same-path mount) and the flag is left
+    (they resolve inside /work).  Absolute host dirs under *allowed_roots*
+    (project root / workdir by default) are bind-mounted at their
+    **absolute host path** (same-path mount) and the flag is left
     untouched: a relative ``#include "../../x.h"`` then resolves exactly
     as it does on the host (wine's Z: mapping did this implicitly) - a
     container-root mount (``/incN``) would let ``../..`` escape to ``/``.
-    Returns ``(rewritten_flags, mounts)``."""
+
+    Absolute dirs **outside** *allowed_roots* keep their ``/I`` flag but
+    are **not** mounted: a hostile ``CFLAGS: /I/home/victim/.ssh`` must
+    not expose host secrets to the compiler container.  Returns
+    ``(rewritten_flags, mounts)``.
+    """
+    roots: list[Path] = []
+    for candidate in allowed_roots if allowed_roots is not None else [workdir]:
+        with contextlib.suppress(OSError):
+            roots.append(Path(candidate).resolve())
     mounts: list[tuple[str, str]] = []
     seen_mounts: set[str] = set()
     out: list[str] = []
@@ -789,6 +802,14 @@ def _docker_include_rewrite(
                 out.append(flag[:2] + str(rel))
             except ValueError:
                 host = str(p.resolve())
+                host_path = Path(host)
+                if roots and not any(
+                    host_path == root or host_path.is_relative_to(root) for root in roots
+                ):
+                    # Flag stays so the compiler reports a missing include;
+                    # do not bind-mount arbitrary host paths.
+                    out.append(flag)
+                    continue
                 if host not in seen_mounts:
                     seen_mounts.add(host)
                     mounts.append((host, host))
@@ -1248,11 +1269,15 @@ def compile_to_obj(
             # on the host (the source copy in /work is flat, so only /I
             # flags + the root mount can reach the original tree).
             root_dir = getattr(cfg, "root", None)
+            allowed: list[Path] = [workdir]
             if root_dir is not None:
                 root_p = Path(root_dir).resolve()
                 if root_p.exists():
                     mounts.append((str(root_p), str(root_p)))
-            all_flags, extra_mounts = _docker_include_rewrite(all_flags, workdir)
+                    allowed.append(root_p)
+            all_flags, extra_mounts = _docker_include_rewrite(
+                all_flags, workdir, allowed_roots=allowed
+            )
             mounts += extra_mounts
             # The source's own dir (../../ includes) and any custom include dir
             # outside the vendored toolchain trees are bind-mounted; the
@@ -1273,7 +1298,9 @@ def compile_to_obj(
                 extra_inc.extend(d for d in (extra_include_dirs or []) if d)
                 prefix = "/I" if spec.flags_style == "msvc" else "-I"
                 for d in extra_inc:
-                    rewritten, extra_mounts = _docker_include_rewrite([f"{prefix}{d}"], workdir)
+                    rewritten, extra_mounts = _docker_include_rewrite(
+                        [f"{prefix}{d}"], workdir, allowed_roots=allowed
+                    )
                     mounts += extra_mounts
                     all_flags += rewritten
                 # Same-path mounts may repeat across dirs - docker rejects
@@ -1591,15 +1618,17 @@ def precompile_batch(
             # /I rewritten for the container, global compiler_includes
             # added (it covers tree-root headers like rebrew_types.h).
             batch_mounts: list[tuple[str, str]] = []
+            allowed: list[Path] = [workdir]
             root_dir = getattr(cfg, "root", None)
             if root_dir is not None:
                 root_p = Path(root_dir).resolve()
                 if root_p.exists():
                     batch_mounts.append((str(root_p), str(root_p)))
+                    allowed.append(root_p)
             inc_path = str(getattr(cfg, "compiler_includes", ""))
             if inc_path:
                 flags = [f"/I{inc_path}"] + flags
-            flags, extra_mounts = _docker_include_rewrite(flags, workdir)
+            flags, extra_mounts = _docker_include_rewrite(flags, workdir, allowed_roots=allowed)
             batch_mounts += extra_mounts
             objs, err = compile_batch_objs(
                 spec, sorted(staged), flags, workdir, batch_mounts, cfg.compile_timeout

@@ -1280,6 +1280,64 @@ class TestVendorFlatten:
             _flatten_wrapper_dir(payload, dest)
 
 
+class TestSafeArchiveExtract:
+    """Pinned-media extract must refuse zip-slip members (defense past sha256)."""
+
+    def test_tar_rejects_dotdot_member(self, tmp_path: Path) -> None:
+        import io
+        import tarfile
+
+        from rebrew.toolchain import ToolchainError
+        from rebrew.toolchain_cli import _safe_extract_tar
+
+        buf = io.BytesIO()
+        with tarfile.open(fileobj=buf, mode="w") as tf:
+            info = tarfile.TarInfo(name="../evil.txt")
+            data = b"pwned"
+            info.size = len(data)
+            tf.addfile(info, io.BytesIO(data))
+        archive = tmp_path / "bad.tar"
+        archive.write_bytes(buf.getvalue())
+        dest = tmp_path / "out"
+        dest.mkdir()
+        with pytest.raises((ToolchainError, tarfile.OutsideDestinationError)):
+            _safe_extract_tar(archive, dest)
+        assert not (tmp_path / "evil.txt").exists()
+
+    def test_zip_rejects_dotdot_member(self, tmp_path: Path) -> None:
+        import zipfile
+
+        from rebrew.toolchain import ToolchainError
+        from rebrew.toolchain_cli import _safe_extract_zip
+
+        archive = tmp_path / "bad.zip"
+        with zipfile.ZipFile(archive, "w") as zf:
+            zf.writestr("../evil.txt", "pwned")
+        dest = tmp_path / "out"
+        dest.mkdir()
+        with pytest.raises(ToolchainError, match="unsafe zip|path escape"):
+            _safe_extract_zip(archive, dest)
+        assert not (tmp_path / "evil.txt").exists()
+
+    def test_tar_extracts_safe_member(self, tmp_path: Path) -> None:
+        import io
+        import tarfile
+
+        from rebrew.toolchain_cli import _safe_extract_tar
+
+        buf = io.BytesIO()
+        with tarfile.open(fileobj=buf, mode="w") as tf:
+            info = tarfile.TarInfo(name="Bin/CL.EXE")
+            data = b"mz"
+            info.size = len(data)
+            tf.addfile(info, io.BytesIO(data))
+        archive = tmp_path / "ok.tar"
+        archive.write_bytes(buf.getvalue())
+        dest = tmp_path / "out"
+        _safe_extract_tar(archive, dest)
+        assert (dest / "Bin" / "CL.EXE").read_bytes() == b"mz"
+
+
 class TestTrustedToolchainDownload:
     """Pinned media downloads must not follow redirects off the allow-list."""
 
