@@ -97,11 +97,47 @@ _HEADER_SUFFIXES = frozenset({".h", ".hpp", ".hxx", ".inl", ".hh"})
 _DEFAULT_SIZE_LIMIT = 500 * 1024 * 1024
 
 
+class NoPickleDisk(diskcache.Disk):  # type: ignore[misc]
+    """diskcache Disk that never pickle-deserializes keys or values.
+
+    Upstream diskcache (≤5.6.3, GHSA-w8v5-vhqr-4h9v) calls ``pickle.load`` on
+    any cache entry stored with ``MODE_PICKLE``.  An attacker who can write the
+    cache directory can plant such an entry and achieve RCE on the next read.
+    Compile caches only ever store ``(str key, bytes value)``, which Disk already
+    persists without pickling; this subclass refuses pickle modes so a poisoned
+    store degrades to a miss instead of executing attacker bytes.
+    """
+
+    def get(self, key: object, raw: bool) -> object:
+        if not raw:
+            raise ValueError("refusing pickled cache key")
+        return super().get(key, raw)
+
+    def store(
+        self, value: object, read: bool, key: object = diskcache.UNKNOWN
+    ) -> tuple[int, int, str | None, object]:
+        if not read and type(value) not in (bytes, str, int, float):
+            raise TypeError(
+                f"NoPickleDisk refuses non-primitive values ({type(value).__name__}); "
+                "encode to bytes before caching"
+            )
+        return super().store(value, read, key=key)  # type: ignore[no-any-return]
+
+    def fetch(self, mode: int, filename: str | None, value: object, read: bool) -> object:
+        # MODE_PICKLE == 4 in diskcache.core; compare by int to avoid importing
+        # a private constant that is not part of the public package API.
+        if mode == 4:
+            raise ValueError("refusing pickled cache value")
+        return super().fetch(mode, filename, value, read)
+
+
 class CompileCache:
     """Disk-backed cache mapping compile inputs to raw .obj bytes.
 
     Backed by ``diskcache.Cache`` (SQLite + filesystem), which is
-    thread-safe and supports concurrent readers/writers.
+    thread-safe and supports concurrent readers/writers.  Values are stored
+    through :class:`NoPickleDisk` so a poisoned cache cannot RCE on read
+    (GHSA-w8v5-vhqr-4h9v defense in depth; chmod 0o700 remains).
 
     In-process hit/miss counters (``hits``, ``misses``) are incremented on
     every ``get`` call so that ``rebrew cache stats`` can report a per-session
@@ -131,10 +167,9 @@ class CompileCache:
         # so callers keep compiling at full subprocess cost.
         self._cache: diskcache.Cache | None
         try:
-            self._cache = diskcache.Cache(str(cache_dir), size_limit=size_limit)
-            # diskcache stores pickled values: a world-writable cache dir lets
-            # another local user plant a pickle that executes on the next hit.
-            # Tighten the directory (and leave files alone — diskcache owns them).
+            self._cache = diskcache.Cache(str(cache_dir), size_limit=size_limit, disk=NoPickleDisk)
+            # Owner-only dir: even with NoPickleDisk, another local user should
+            # not be able to replace value files or the SQLite DB.
             with contextlib.suppress(OSError):
                 Path(cache_dir).chmod(0o700)
         except Exception as exc:  # any store failure must degrade, not raise

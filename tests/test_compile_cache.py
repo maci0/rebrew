@@ -823,3 +823,36 @@ class TestCacheDegradation:
             cache.put("k", b"\x01")  # must not raise
         assert any("Compile cache store failed" in r.message for r in caplog.records)
         cache.close()
+
+
+class TestNoPickleDisk:
+    """GHSA-w8v5-vhqr-4h9v: planted pickle entries must not execute on read."""
+
+    def test_poisoned_pickle_entry_is_a_miss(self, tmp_path: Path) -> None:
+        import diskcache
+
+        cache_dir = tmp_path / "cc"
+
+        # Plant a MODE_PICKLE value with the vulnerable default Disk.
+        class _Boom:
+            def __reduce__(self) -> tuple[object, ...]:
+                return (exec, ("raise RuntimeError('pwned')",))
+
+        with diskcache.Cache(str(cache_dir)) as raw:
+            raw.set("evil", _Boom())
+
+        cache = CompileCache(cache_dir)
+        # Must not raise RuntimeError('pwned') — NoPickleDisk refuses MODE_PICKLE.
+        assert cache.get("evil") is None
+        assert cache.misses == 1
+        # Honest bytes entries still work in the same store.
+        cache.put("ok", b"\x90\x90")
+        assert cache.get("ok") == b"\x90\x90"
+        cache.close()
+
+    def test_rejects_object_values_on_write(self, tmp_path: Path) -> None:
+        cache = CompileCache(tmp_path / "cc")
+        assert cache._cache is not None
+        with pytest.raises(TypeError, match="NoPickleDisk"):
+            cache._cache.set("x", {"not": "bytes"})
+        cache.close()

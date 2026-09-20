@@ -109,6 +109,51 @@ class TestBuildCacheDegradation:
         cache.close()
 
 
-# -------------------------------------------------------------------------
-# Save/load
-# -------------------------------------------------------------------------
+class TestBuildCacheNoPickle:
+    """BuildCache must not pickle-deserialize (GHSA-w8v5-vhqr-4h9v)."""
+
+    def test_round_trip_with_score_and_relocs(self, tmp_path: Path) -> None:
+        cache = BuildCache(db_path=str(tmp_path / "bc.db"))
+        score = Score(
+            length_diff=1,
+            byte_score=0.5,
+            reloc_score=0.0,
+            mnemonic_score=1.0,
+            prologue_bonus=0.0,
+            total=1.5,
+        )
+        result = BuildResult(
+            ok=True,
+            score=score,
+            obj_bytes=b"\x55\x8b\xec",
+            reloc_offsets={4: "target"},
+            error_msg="",
+            fitness=1.5,
+        )
+        cache.put("k", result)
+        got = cache.get("k")
+        assert got is not None
+        assert got.ok is True
+        assert got.obj_bytes == b"\x55\x8b\xec"
+        assert got.reloc_offsets == {4: "target"}
+        assert got.fitness == 1.5
+        assert got.score is not None
+        assert got.score.total == 1.5
+        cache.close()
+
+    def test_poisoned_pickle_entry_is_a_miss(self, tmp_path: Path) -> None:
+        import diskcache
+
+        db = str(tmp_path / "bc.db")
+        cache_dir = db.removesuffix(".db") + "_cache"
+
+        class _Boom:
+            def __reduce__(self) -> tuple[object, ...]:
+                return (exec, ("raise RuntimeError('pwned')",))
+
+        with diskcache.Cache(cache_dir) as raw:
+            raw.set("evil", _Boom())
+
+        cache = BuildCache(db_path=db)
+        assert cache.get("evil") is None  # must not raise
+        cache.close()

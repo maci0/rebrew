@@ -28,7 +28,7 @@ the cache layer importing the matcher package.
 - **Score**: lower is better; `byte_score` 0.0 = perfect; `total` is weighted.
 - **BuildResult**: check `ok` before using bytes; reported compiler failures use `ok=False`. Build helpers can still raise during argument parsing, filesystem operations, or backend calls.
 - **StructuralSimilarity**: `exact` / `reloc_only` / `register_only` / `structural`; `flag_sensitive` means flags alone may fix it.
-- **BuildCache**: legacy diskcache type (import/tests only). GA same-run memo is an in-memory dict; cross-run persistence is the shared compile cache.
+- **BuildCache**: legacy diskcache type (import/tests only; JSON bytes + ``NoPickleDisk``). GA same-run memo is an in-memory dict; cross-run persistence is the shared compile cache.
 - **GACheckpoint**: JSON resume state; `args_hash` rejects stale checkpoints.
 
 ## Mutations

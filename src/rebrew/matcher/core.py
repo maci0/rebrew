@@ -8,6 +8,8 @@ and GACheckpoint (serializable run state) for the GA matching engine.
 
 from __future__ import annotations
 
+import base64
+import json
 import logging
 from contextlib import suppress
 from dataclasses import dataclass, field
@@ -15,6 +17,8 @@ from pathlib import Path
 from typing import Any
 
 import diskcache
+
+from rebrew.compile_cache import NoPickleDisk
 
 
 @dataclass
@@ -64,12 +68,106 @@ class BuildResult:
     fitness: float | None = None
 
 
+def _encode_build_result(result: BuildResult) -> bytes:
+    """Serialize *result* to JSON bytes (no pickle)."""
+    score_obj: dict[str, float | int] | None = None
+    if result.score is not None:
+        s = result.score
+        score_obj = {
+            "length_diff": s.length_diff,
+            "byte_score": s.byte_score,
+            "reloc_score": s.reloc_score,
+            "mnemonic_score": s.mnemonic_score,
+            "prologue_bonus": s.prologue_bonus,
+            "total": s.total,
+        }
+    payload: dict[str, Any] = {
+        "v": 1,
+        "ok": result.ok,
+        "error_msg": result.error_msg,
+        "fitness": result.fitness,
+        "obj_bytes_b64": (
+            base64.b64encode(result.obj_bytes).decode("ascii")
+            if result.obj_bytes is not None
+            else None
+        ),
+        "reloc_offsets": (
+            {str(k): v for k, v in result.reloc_offsets.items()}
+            if result.reloc_offsets is not None
+            else None
+        ),
+        "score": score_obj,
+    }
+    return json.dumps(payload, separators=(",", ":")).encode("utf-8")
+
+
+def _decode_build_result(data: bytes) -> BuildResult | None:
+    """Decode JSON bytes from :func:`_encode_build_result`, or ``None`` if corrupt."""
+    try:
+        payload = json.loads(data.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError, AttributeError):
+        return None
+    if not isinstance(payload, dict) or payload.get("v") != 1:
+        return None
+    if not isinstance(payload.get("ok"), bool):
+        return None
+    score: Score | None = None
+    raw_score = payload.get("score")
+    if isinstance(raw_score, dict):
+        try:
+            score = Score(
+                length_diff=int(raw_score["length_diff"]),
+                byte_score=float(raw_score["byte_score"]),
+                reloc_score=float(raw_score["reloc_score"]),
+                mnemonic_score=float(raw_score["mnemonic_score"]),
+                prologue_bonus=float(raw_score["prologue_bonus"]),
+                total=float(raw_score["total"]),
+            )
+        except (KeyError, TypeError, ValueError):
+            return None
+    obj_bytes: bytes | None = None
+    b64 = payload.get("obj_bytes_b64")
+    if b64 is not None:
+        if not isinstance(b64, str):
+            return None
+        try:
+            obj_bytes = base64.b64decode(b64.encode("ascii"), validate=True)
+        except (ValueError, UnicodeEncodeError):
+            return None
+    reloc: dict[int, str] | None = None
+    raw_reloc = payload.get("reloc_offsets")
+    if raw_reloc is not None:
+        if not isinstance(raw_reloc, dict):
+            return None
+        try:
+            reloc = {int(k): str(v) for k, v in raw_reloc.items()}
+        except (TypeError, ValueError):
+            return None
+    fitness = payload.get("fitness")
+    if fitness is not None and not isinstance(fitness, (int, float)):
+        return None
+    error_msg = payload.get("error_msg", "")
+    if not isinstance(error_msg, str):
+        return None
+    return BuildResult(
+        ok=payload["ok"],
+        score=score,
+        obj_bytes=obj_bytes,
+        reloc_offsets=reloc,
+        error_msg=error_msg,
+        fitness=float(fitness) if fitness is not None else None,
+    )
+
+
 class BuildCache:
     """Disk-backed cache mapping source hashes to build results.
 
     Kept for import compatibility (tests, external callers); the GA engine
     no longer instantiates one per run — same-run compiles memoize in
     memory and cross-run persistence lives in the shared compile cache.
+
+    Entries are JSON-encoded bytes under :class:`~rebrew.compile_cache.NoPickleDisk`
+    so a poisoned store cannot RCE via pickle (GHSA-w8v5-vhqr-4h9v).
     """
 
     def __init__(self, db_path: str | Path = "build_cache.db") -> None:
@@ -83,9 +181,7 @@ class BuildCache:
         cache_dir = str(db_path).removesuffix(".db") + "_cache"
         self._cache: diskcache.Cache | None
         try:
-            self._cache = diskcache.Cache(cache_dir)
-            # Pickled BuildResult values: keep the store owner-only so another
-            # local user cannot plant a payload that executes on the next hit.
+            self._cache = diskcache.Cache(cache_dir, disk=NoPickleDisk)
             with suppress(OSError):
                 Path(cache_dir).chmod(0o700)
         except Exception as exc:  # any store failure must degrade, not raise
@@ -115,14 +211,16 @@ class BuildCache:
                 exc,
             )
             return None
-        return res if isinstance(res, BuildResult) else None
+        if not isinstance(res, bytes):
+            return None
+        return _decode_build_result(res)
 
     def put(self, key: str, result: BuildResult) -> None:
         """Store a build result in the cache under *key* (skipped when unusable)."""
         if self._cache is None:
             return
         try:
-            self._cache.set(key, result)
+            self._cache.set(key, _encode_build_result(result))
         except Exception as exc:  # a failed write only costs future hits
             logging.getLogger(__name__).warning(
                 "GA build cache write failed (%s: %s)",
