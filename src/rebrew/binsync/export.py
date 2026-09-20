@@ -74,7 +74,7 @@ _DECL_RE = re.compile(
 )
 
 
-def _type_from_declaration(decl: str, var_name: str) -> str | None:
+def type_from_declaration(decl: str, var_name: str) -> str | None:
     """Extract the C type string for *var_name* from a single declaration line."""
     decl = decl.strip().rstrip(";").strip()
     if not decl or var_name not in decl:
@@ -173,7 +173,7 @@ def _extract_global_name_and_type(
                         and decl_name != cand_decl
                         and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", decl_name)
                     ):
-                        t = _type_from_declaration(cand_decl, decl_name)
+                        t = type_from_declaration(cand_decl, decl_name)
                         if t:
                             return decl_name, t
                 break
@@ -855,7 +855,7 @@ def main(
         git_commit=git_commit,
         clean=clean,
     )
-    _print_export_result(result, json_output=json_output, dry_run=dry_run)
+    print_export_result(result, json_output=json_output, dry_run=dry_run)
     return
 
 
@@ -1232,7 +1232,7 @@ def _write_manifest(
     return content_hash
 
 
-def _print_export_result(result: dict[str, object], *, json_output: bool, dry_run: bool) -> None:
+def print_export_result(result: dict[str, object], *, json_output: bool, dry_run: bool) -> None:
     """Render an :func:`export_state` result (the CLI summary path)."""
     if bool(result.get("empty")):
         error_exit("No annotations found.", json_mode=json_output)

@@ -215,11 +215,11 @@ def main(
     # --- BinSync field sync ---
     if push or summary:
         out = _require_state_dir(state_dir, json_output)
-        from rebrew.binsync.export import _print_export_result, export_state
+        from rebrew.binsync.export import export_state, print_export_result
 
         preview = dry_run or summary
         result = export_state(cfg, out, dry_run=preview)
-        _print_export_result(result, json_output=json_output, dry_run=preview)
+        print_export_result(result, json_output=json_output, dry_run=preview)
         if watch and not dry_run:
             from rebrew.utils import watch_files
 
@@ -229,14 +229,14 @@ def main(
 
             def _re_export() -> None:
                 fresh = export_state(cfg, out, dry_run=False)
-                _print_export_result(fresh, json_output=False, dry_run=False)
+                print_export_result(fresh, json_output=False, dry_run=False)
 
             watch_files(watch_paths, _re_export)
         return
 
     if pull:
         src = _require_state_dir(state_dir, json_output)
-        from rebrew.binsync.importer import _print_import_result, import_state
+        from rebrew.binsync.importer import import_state, print_import_result
 
         result = import_state(
             cfg,
@@ -247,7 +247,7 @@ def main(
             accept_local=accept_local,
             create_missing=create_missing,
         )
-        _print_import_result(result, json_output=json_output, dry_run=dry_run)
+        print_import_result(result, json_output=json_output, dry_run=dry_run)
         if create_functions and not dry_run:
             from typing import cast
 

@@ -81,13 +81,13 @@ def _invoke_import(
 
 class TestBinsyncImportHelpers:
     def test_is_meaningful(self) -> None:
-        from rebrew.binsync.importer import _is_meaningful
+        from rebrew.binsync.importer import is_meaningful
 
-        assert _is_meaningful("Foo")
-        assert not _is_meaningful("func_10001000")
-        assert not _is_meaningful("FUN_00401000")
-        assert not _is_meaningful("")
-        assert not _is_meaningful("DAT_10002000")
+        assert is_meaningful("Foo")
+        assert not is_meaningful("func_10001000")
+        assert not is_meaningful("FUN_00401000")
+        assert not is_meaningful("")
+        assert not is_meaningful("DAT_10002000")
 
     def test_load_binsync_state(self, tmp_path: Path) -> None:
         from rebrew.binsync.state import load_binsync_state
@@ -537,16 +537,16 @@ class TestStructImport:
 
 class TestNormalizePrototype:
     def test_whitespace_only_difference_ignored(self) -> None:
-        from rebrew.binsync.importer import _normalize_prototype
+        from rebrew.binsync.importer import normalize_prototype
 
-        assert _normalize_prototype("int foo(int a, char *b);") == _normalize_prototype(
+        assert normalize_prototype("int foo(int a, char *b);") == normalize_prototype(
             "int  foo( int a,char*b )"
         )
 
     def test_real_difference_kept(self) -> None:
-        from rebrew.binsync.importer import _normalize_prototype
+        from rebrew.binsync.importer import normalize_prototype
 
-        assert _normalize_prototype("int foo(int a);") != _normalize_prototype("int foo(char a);")
+        assert normalize_prototype("int foo(int a);") != normalize_prototype("int foo(char a);")
 
 
 class TestNoteImport:

@@ -91,7 +91,7 @@ def _compile_cflags(cflags: str, base_cf: str, posix_style: bool = False) -> str
 
 
 @dataclass
-class _BuildParams:
+class BuildParams:
     """Resolved build parameters shared across all modes."""
 
     cfg: Any
@@ -136,7 +136,7 @@ def resolve_build_params(
     target_size: int | None,
     ignore_lint: bool,
     json_output: bool,
-) -> _BuildParams:
+) -> BuildParams:
     """Resolve config, annotations, compiler, and target bytes into build params."""
     seed_c_path = Path(seed_c)
     if not seed_c_path.exists():
@@ -303,7 +303,7 @@ def resolve_build_params(
 
     seed_src, _ = read_source_text(seed_c_path)
 
-    return _BuildParams(
+    return BuildParams(
         cfg=compile_cfg,
         seed_c=seed_c_path,
         seed_src=seed_src,
@@ -325,7 +325,7 @@ def resolve_build_params(
 
 
 def _run_single_flag_sweep(
-    p: _BuildParams,
+    p: BuildParams,
     tier: str,
     jobs: int,
     json_output: bool,
@@ -573,7 +573,7 @@ def _vendored_msvc_toolchains(
 
 
 def _run_single_toolchain_sweep(
-    p: _BuildParams, json_output: bool, only: str = "", exclude: str = ""
+    p: BuildParams, json_output: bool, only: str = "", exclude: str = ""
 ) -> None:
     """Compile the seed with each vendored MSVC toolchain and report the best."""
     toolchains = _vendored_msvc_toolchains(p.cfg, only, exclude)
@@ -656,7 +656,7 @@ def _run_single_toolchain_sweep(
 
 
 def _run_single_toolchain_flag_sweep(
-    p: _BuildParams,
+    p: BuildParams,
     tier: str,
     jobs: int,
     json_output: bool,

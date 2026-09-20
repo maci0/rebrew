@@ -176,7 +176,7 @@ class TestSyncCli:
             calls["printed"] = True
 
         monkeypatch.setattr("rebrew.binsync.export.export_state", _fake_export)
-        monkeypatch.setattr("rebrew.binsync.export._print_export_result", _fake_print)
+        monkeypatch.setattr("rebrew.binsync.export.print_export_result", _fake_print)
         state = tmp_path / "state"
         r = runner.invoke(sync_cli.app, ["--push", "--state-dir", str(state)])
         assert r.exit_code == 0
@@ -199,7 +199,7 @@ class TestSyncCli:
             calls["printed"] = True
 
         monkeypatch.setattr("rebrew.binsync.importer.import_state", _fake_import)
-        monkeypatch.setattr("rebrew.binsync.importer._print_import_result", _fake_print)
+        monkeypatch.setattr("rebrew.binsync.importer.print_import_result", _fake_print)
         state = tmp_path / "state"
         r = runner.invoke(sync_cli.app, ["--pull", "--state-dir", str(state), "--create-missing"])
         assert r.exit_code == 0
@@ -217,7 +217,7 @@ class TestSyncCli:
             lambda cfg_, src, **kw: {"touched_vas": [0x1000, 0x2000]},
         )
         monkeypatch.setattr(
-            "rebrew.binsync.importer._print_import_result", lambda result, **kw: None
+            "rebrew.binsync.importer.print_import_result", lambda result, **kw: None
         )
         monkeypatch.setattr("rebrew.ghidra.cli._probe_program_path", lambda ep, pp, j: pp)
         applied: list[dict] = []
@@ -323,7 +323,7 @@ class TestSyncCli:
 
         monkeypatch.setattr("rebrew.binsync.export.export_state", _fake_export)
         monkeypatch.setattr(
-            "rebrew.binsync.export._print_export_result",
+            "rebrew.binsync.export.print_export_result",
             lambda result, **kw: (_ for _ in ()).throw(SystemExit(0)),
         )
         state = tmp_path / "state"

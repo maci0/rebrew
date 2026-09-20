@@ -98,7 +98,7 @@ ELF profiles (posix flags, `.o` objects) backed by their own images
 defaults `gcc-14.2.0`/`clang-18.1.8` are the newest of each family.  The GNU images build
 GCC from the release tarball; the Clang images extract LLVM's prebuilt
 release.  Both carry a
-minimal posix flag-sweep axis set (`rebrew.matcher.flag_data.GCC_FLAGS`), so
+minimal posix flag-sweep axis set (`rebrew.flag_data.GCC_FLAGS`), so
 `rebrew match --flag-sweep` emits flags these compilers accept rather than
 the MSVC fallback.
 

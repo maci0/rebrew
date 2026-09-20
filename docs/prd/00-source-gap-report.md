@@ -222,9 +222,9 @@ workflows, and limitations.
 
 ### Gap: Flag-sweep tier descriptions are CLI-only
 
-- **Gap:** `quick|targeted|normal|thorough|full` tiers exist (`matcher/flag_data.py:74`)
+- **Gap:** `quick|targeted|normal|thorough|full` tiers exist (`flag_data.py:74`)
   but the meaning of each tier and the time/flag-count tradeoff is not surfaced.
-- **Evidence:** `src/rebrew/matcher/flag_data.py:74` sweep tiers; help text only
+- **Evidence:** `src/rebrew/flag_data.py:74` sweep tiers; help text only
   lists the tier names.
 - **Severity:** enhancement (fixed)
 - **Fixed:** `docs/FLAG_SWEEP_TIERS.md` exists and documents tier sizes / runtime

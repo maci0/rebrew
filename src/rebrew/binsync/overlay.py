@@ -42,9 +42,9 @@ from rich.table import Table
 from rebrew.binsync.importer import (
     _apply_binsync_func_name,
     _import_type_definitions,
-    _is_meaningful,
-    _normalize_prototype,
     _strip_cdecl_prefix,
+    is_meaningful,
+    normalize_prototype,
     normalize_stack_vars,
 )
 from rebrew.binsync.state import (
@@ -356,8 +356,8 @@ def overlay_state(
             local_stripped = (
                 _strip_cdecl_prefix(local_name) if local_name.startswith("_") else local_name
             )
-            if bs_name and _is_meaningful(bs_name) and bs_stripped != local_stripped:
-                if not _is_meaningful(local_name):
+            if bs_name and is_meaningful(bs_name) and bs_stripped != local_stripped:
+                if not is_meaningful(local_name):
                     if dry_run:
                         proposed.append(
                             _proposal(dst_va, src_va, "name", local_name, bs_name, "would rename")
@@ -433,7 +433,7 @@ def overlay_state(
             bs_proto = (remote.get("prototype") or "").strip()
             raw_local = getattr(local, "prototype", "") or ""
             local_proto = strip_body(raw_local) if raw_local else ""
-            if bs_proto and _normalize_prototype(bs_proto) != _normalize_prototype(local_proto):
+            if bs_proto and normalize_prototype(bs_proto) != normalize_prototype(local_proto):
                 if local_proto:
                     conflicts.append(_conflict(dst_va, src_va, "prototype", local_proto, bs_proto))
                 if not local_proto or accept_binsync:
@@ -607,7 +607,7 @@ def overlay_state(
             for src_va, (dst_va, section) in sorted(mapping.items()):
                 entry = globals_by_va.get(src_va, {})
                 bs_name = (entry.get("name") or "").strip()
-                if not bs_name or not _is_meaningful(bs_name):
+                if not bs_name or not is_meaningful(bs_name):
                     skipped += 1
                     continue
                 local_name = str(
@@ -615,7 +615,7 @@ def overlay_state(
                 ).strip()
                 if local_name == bs_name:
                     continue
-                if _is_meaningful(local_name):
+                if is_meaningful(local_name):
                     conflicts.append(_conflict(dst_va, src_va, "name", local_name, bs_name))
                     if accept_binsync:
                         if dry_run:

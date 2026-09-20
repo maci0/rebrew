@@ -12,9 +12,12 @@ GA engine for binary-matching decompilation. Compiles C through the docker-backe
 | `mutator.py` | `mutate_code` / `ALL_MUTATIONS` (128 packaged ops) + GA helpers |
 | `mutations/` | Operators by file (`basic` 65, `structural` 25, `advanced` 18, `enhancements` 13, `pragmas` 7) + `queries` / `runtime` |
 | `parsers.py` | Object/binary symbol extraction (LIEF) |
-| `flags.py` / `flag_data.py` | Flag axes per dialect + sweep tiers |
 | `solutions.py` | Solution-transfer DB (seed GA from solved lookalikes) |
 | `ast_engine.py` | tree-sitter C AST for mutations |
+
+Flag axes (`rebrew.flags` / `rebrew.flag_data`) live at the package root so
+compile-cache canonicalization and the GA sweep share one definition without
+the cache layer importing the matcher package.
 
 ## Data flow (GA path)
 

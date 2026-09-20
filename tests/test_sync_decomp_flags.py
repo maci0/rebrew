@@ -8,7 +8,7 @@ sys.path.insert(0, str(TOOLS))
 
 import sync_decomp_flags as sdf  # noqa: E402
 
-from rebrew.matcher.flags import Checkbox, FlagSet  # noqa: E402
+from rebrew.flags import Checkbox, FlagSet  # noqa: E402
 
 
 class LanguageFlagSet:

@@ -15,7 +15,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from rebrew.binsync.importer import _is_meaningful, _normalize_prototype
+from rebrew.binsync.importer import is_meaningful, normalize_prototype
 from rebrew.binsync.state import index_local_and_catalog, load_binsync_state, load_manifest
 from rebrew.cli import EXIT_MISMATCH, TargetOption, error_exit, json_print, require_config
 from rebrew.utils import strip_body
@@ -76,7 +76,7 @@ def main(
             continue
 
         if local is None:
-            if va in catalog_vas and _is_meaningful(bs_name):
+            if va in catalog_vas and is_meaningful(bs_name):
                 new_in_binsync.append(
                     {"va": f"0x{va:08x}", "binsync": bs_name, "status": "new_in_binsync"}
                 )
@@ -99,7 +99,7 @@ def main(
         local_proto = strip_body(raw_proto) if raw_proto else ""
         # prototype divergence (whitespace-normalized — formatting-only
         # differences are not divergence)
-        if bs_proto and _normalize_prototype(bs_proto) != _normalize_prototype(local_proto):
+        if bs_proto and normalize_prototype(bs_proto) != normalize_prototype(local_proto):
             # Local prototype with body stripped vs binsync header type
             # Report even though prototype import is orthogonal to name conflicts
             divergences.append(
@@ -112,14 +112,14 @@ def main(
                 }
             )
 
-        if not bs_name or not _is_meaningful(bs_name):
+        if not bs_name or not is_meaningful(bs_name):
             continue
         # same name ignoring cdecl prefix
         bs_stripped = bs_name[1:] if bs_name.startswith("_") else bs_name
         local_stripped = local_name[1:] if local_name.startswith("_") else local_name
         if bs_stripped == local_stripped:
             continue
-        if not _is_meaningful(local_name):
+        if not is_meaningful(local_name):
             divergences.append(
                 {
                     "va": f"0x{va:08x}",
@@ -144,7 +144,7 @@ def main(
     # --- Globals ---
     for va, bs_entry in sorted(globals_by_va.items()):
         bs_name = bs_entry.get("name", "")
-        if not bs_name or not _is_meaningful(bs_name):
+        if not bs_name or not is_meaningful(bs_name):
             continue
         if va in funcs_by_va:
             continue

@@ -2,7 +2,7 @@
 """Sync compiler flag definitions from decomp.me into rebrew.
 
 Clones the decomp.me repo (sparse, depth-1), reads their flags.py,
-and generates src/rebrew/matcher/flag_data.py using rebrew's own
+and generates src/rebrew/flag_data.py using rebrew's own
 FlagSet/Checkbox classes (same data structure as decomp.me).
 
 Usage:
@@ -21,7 +21,7 @@ from pathlib import Path
 from types import ModuleType
 from typing import Any
 
-from rebrew.matcher.flags import Checkbox, FlagSet
+from rebrew.flags import Checkbox, FlagSet
 
 REPO_URL = "https://github.com/decompme/decomp.me.git"
 FLAGS_PATH = "backend/coreapp/flags.py"
@@ -170,7 +170,7 @@ Synced: {timestamp}
 Do not edit manually — re-run tools/sync_decomp_flags.py to update.
 """
 
-from rebrew.matcher.flags import Checkbox, Flags, FlagSet
+from rebrew.flags import Checkbox, Flags, FlagSet
 
 '''
     body = format_flags_list("COMMON_MSVC_FLAGS", msvc_flags)
@@ -228,15 +228,13 @@ def main() -> None:
     parser.add_argument(
         "--output",
         default=None,
-        help="Output file (default: src/rebrew/matcher/flag_data.py)",
+        help="Output file (default: src/rebrew/flag_data.py)",
     )
     args = parser.parse_args()
 
     project_root = Path(__file__).resolve().parent.parent
     output_path = (
-        Path(args.output)
-        if args.output
-        else (project_root / "src" / "rebrew" / "matcher" / "flag_data.py")
+        Path(args.output) if args.output else (project_root / "src" / "rebrew" / "flag_data.py")
     )
 
     print("Cloning decomp.me (sparse, depth-1)...")

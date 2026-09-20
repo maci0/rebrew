@@ -3,6 +3,19 @@
 Re-exports the public API from all matcher submodules.
 """
 
+from rebrew.flag_data import (
+    COMMON_MSVC_FLAGS as COMMON_MSVC_FLAGS,
+)
+from rebrew.flag_data import (
+    MSVC6_FLAGS as MSVC6_FLAGS,
+)
+from rebrew.flag_data import (
+    MSVC_SWEEP_TIERS as MSVC_SWEEP_TIERS,
+)
+from rebrew.flags import Checkbox as Checkbox
+from rebrew.flags import Flags as Flags
+from rebrew.flags import FlagSet as FlagSet
+
 from .ast_engine import (
     parse_c_ast as parse_c_ast,
 )
@@ -33,18 +46,6 @@ from .core import (
 from .core import (
     StructuralSimilarity as StructuralSimilarity,
 )
-from .flag_data import (
-    COMMON_MSVC_FLAGS as COMMON_MSVC_FLAGS,
-)
-from .flag_data import (
-    MSVC6_FLAGS as MSVC6_FLAGS,
-)
-from .flag_data import (
-    MSVC_SWEEP_TIERS as MSVC_SWEEP_TIERS,
-)
-from .flags import Checkbox as Checkbox
-from .flags import Flags as Flags
-from .flags import FlagSet as FlagSet
 from .mutations.runtime import set_target_range as set_target_range
 from .mutator import *  # noqa: F403 — mutator.py defines __all__
 from .parsers import (

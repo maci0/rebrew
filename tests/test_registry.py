@@ -588,7 +588,7 @@ class TestCliRegistry:
 class TestFlagSetRegistry:
     def _patch(self, monkeypatch: pytest.MonkeyPatch) -> None:
         def _provider() -> dict[str, object]:
-            from rebrew.matcher.flags import FlagSet
+            from rebrew.flags import FlagSet
 
             return {
                 "mytc": (

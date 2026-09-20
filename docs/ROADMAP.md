@@ -44,7 +44,7 @@ and 1 together form the "MIPS works" milestone.
 | Function discovery | `discover.py::_capstone_sweep` | `e8 rel32` call targets, `CC/90` padding, `ret` ends |
 | Stack frames | `stack_cmp.py` | esp/ebp frame analysis (x86-32) |
 | Jump tables | `catalog/registry.py::is_jump_table` | `0x90/0xCC` prefix + `8BFF` check (x86) |
-| Flags | `matcher/flag_data.py` | GCC family exists; no MIPS/PPC axes (`-mabi`, `-march`) |
+| Flags | `flag_data.py` | GCC family exists; no MIPS/PPC axes (`-mabi`, `-march`) |
 | Toolchain specs | `toolchain.py::ToolchainSpec` | `bits` field only; add `arch` for alignment/detection |
 | Import/PE lane | `round_trip`, `gen_layout`, `postlink`, `link_sweep`, `imports.py`, `pe_headers.py` | PE-specific — N/A for ELF targets (gate or ELF equivalents later) |
 | Known arches | `doctor.py::_KNOWN_ARCHES` | extend alongside presets |

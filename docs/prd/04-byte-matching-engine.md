@@ -49,7 +49,7 @@ prover that promotes NEAR_MATCHING → PROVEN.
 
 - The GA is not an LLM; mutations are deterministic AST/text transforms
   drawn from the `matcher/mutator.py` library.
-- The flag sweep is bounded to flag presets defined in `matcher/flag_data.py`;
+- The flag sweep is bounded to flag presets defined in `flag_data.py`;
   it does not invent flags (non-MSVC axes exist: watcom opt/codegen/pack).
 - `rebrew prove` runs only when the function is already NEAR_MATCHING or
   SIZE_MISMATCH; it does not rewrite source to make it provable.
@@ -248,7 +248,7 @@ rebrew prove [SOURCE]
 - angr is a heavy optional dependency (~500 MB) and must be installed via
   the `prove` extra (`uv pip install -e ".[prove]"`).
 - The flag-sweep tier definitions are MSVC-specific
-  (`matcher/flag_data.py`; tier grid, axes and combinations are documented
+  (`flag_data.py`; tier grid, axes and combinations are documented
   in `docs/FLAG_SWEEP_TIERS.md`); GCC/Clang sweeps would require new flag
   presets.
 - `--no-compare-obj` (full link) is slow; default object-only comparison

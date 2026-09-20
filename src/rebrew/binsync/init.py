@@ -39,12 +39,12 @@ _ROOT_BRANCH = "binsync/__root__"
 _GITIGNORE_CONTENT = ".git/*\n"
 
 
-def _one_line(text: str) -> str:
+def one_line(text: str) -> str:
     """Collapse *text* to one sanitized line for an error message."""
     return " ".join(text.split())
 
 
-def _run_git(directory: Path, *args: str) -> subprocess.CompletedProcess[str]:
+def run_git(directory: Path, *args: str) -> subprocess.CompletedProcess[str]:
     """Run ``git -C directory <args>`` without raising on a non-zero exit."""
     try:
         return subprocess.run(
@@ -63,7 +63,7 @@ def _run_git(directory: Path, *args: str) -> subprocess.CompletedProcess[str]:
 def _checked(result: subprocess.CompletedProcess[str], *, json_mode: bool) -> None:
     """Exit with the sanitized git stderr when *result* failed."""
     if result.returncode != 0:
-        detail = _one_line(result.stderr or result.stdout) or f"git exited with {result.returncode}"
+        detail = one_line(result.stderr or result.stdout) or f"git exited with {result.returncode}"
         error_exit(f"git failed: {detail}", json_mode=json_mode)
 
 
@@ -71,13 +71,13 @@ def _is_binsync_repo(directory: Path) -> bool:
     """True when *directory* already has a ``binsync/__root__`` branch."""
     if not (directory / ".git").exists():
         return False
-    probe = _run_git(directory, "rev-parse", "--verify", "--quiet", _ROOT_BRANCH)
+    probe = run_git(directory, "rev-parse", "--verify", "--quiet", _ROOT_BRANCH)
     return probe.returncode == 0
 
 
 def _default_user(directory: Path) -> str:
     """``git config user.name`` when set, else ``"rebrew"``."""
-    result = _run_git(directory, "config", "user.name")
+    result = run_git(directory, "config", "user.name")
     name = result.stdout.strip()
     return name if result.returncode == 0 and name else "rebrew"
 
@@ -181,24 +181,24 @@ def main(
     resolved.mkdir(parents=True, exist_ok=True)
 
     if not (resolved / ".git").exists():
-        _checked(_run_git(resolved, "init", "-q"), json_mode=json_output)
+        _checked(run_git(resolved, "init", "-q"), json_mode=json_output)
 
-    existing_name = _run_git(resolved, "config", "user.name").stdout.strip()
-    existing_email = _run_git(resolved, "config", "user.email").stdout.strip()
+    existing_name = run_git(resolved, "config", "user.name").stdout.strip()
+    existing_email = run_git(resolved, "config", "user.email").stdout.strip()
     if not existing_name:
-        _checked(_run_git(resolved, "config", "user.name", user_name), json_mode=json_output)
+        _checked(run_git(resolved, "config", "user.name", user_name), json_mode=json_output)
     if not existing_email:
         _checked(
-            _run_git(resolved, "config", "user.email", f"{user_name}@binsync.local"),
+            run_git(resolved, "config", "user.email", f"{user_name}@binsync.local"),
             json_mode=json_output,
         )
 
-    _checked(_run_git(resolved, "checkout", "-q", "--orphan", _ROOT_BRANCH), json_mode=json_output)
+    _checked(run_git(resolved, "checkout", "-q", "--orphan", _ROOT_BRANCH), json_mode=json_output)
     _write_root_files(resolved, digest)
-    _checked(_run_git(resolved, "add", "--", ".gitignore", "binary_hash"), json_mode=json_output)
-    _checked(_run_git(resolved, "commit", "-q", "-m", "Root commit"), json_mode=json_output)
+    _checked(run_git(resolved, "add", "--", ".gitignore", "binary_hash"), json_mode=json_output)
+    _checked(run_git(resolved, "commit", "-q", "-m", "Root commit"), json_mode=json_output)
     _checked(
-        _run_git(resolved, "checkout", "-q", "-b", f"binsync/{user_name}"), json_mode=json_output
+        run_git(resolved, "checkout", "-q", "-b", f"binsync/{user_name}"), json_mode=json_output
     )
 
     _report(

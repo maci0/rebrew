@@ -36,7 +36,7 @@ from rebrew.match_ga import (
     read_ga_checkpoint,
 )
 from rebrew.match_sweep import (
-    _BuildParams,
+    BuildParams,
     _compile_cflags,
     _select_annotation,
     run_flag_sweep,
@@ -49,7 +49,7 @@ console = Console(stderr=True)
 
 
 def _run_single_ga(
-    p: _BuildParams,
+    p: BuildParams,
     out_dir: str,
     generations: int,
     pop_size: int,

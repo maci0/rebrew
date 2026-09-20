@@ -23,7 +23,7 @@ from rich.console import Console
 
 from rebrew.compile_cache import CacheBackend, source_digest
 from rebrew.config import ProjectConfig
-from rebrew.match_sweep import _BuildParams
+from rebrew.match_sweep import BuildParams
 from rebrew.matcher import (
     BuildResult,
     GACheckpoint,
@@ -130,7 +130,7 @@ def _mutation_focus_weights(
     return dict.fromkeys(ops, _MUTATION_FOCUS_WEIGHT)
 
 
-def _live_mutation_weights(params: _BuildParams) -> dict[str, float] | None:
+def _live_mutation_weights(params: BuildParams) -> dict[str, float] | None:
     """Near-diag category of the CURRENT implementation, for auto focus.
 
     ``--mutation-focus auto`` normally derives its category from a verdict

@@ -2527,8 +2527,7 @@ See [CI.md](CI.md) for workspace CI recipes (`verify --compare`,
 |--------|---------|
 | `matcher/scoring.py` | Multi-metric fitness scoring (byte, reloc, mnemonic, structural similarity) |
 | `matcher/compiler.py` | Compilation backend + `flag_sweep(tier=)` + `generate_flag_combinations(tier=)` |
-| `matcher/flags.py` | `FlagSet`/`Checkbox` primitives (compatible with decomp.me) |
-| `matcher/flag_data.py` | Auto-generated MSVC flags + sweep tiers (from `tools/sync_decomp_flags.py`) |
+| `flags.py` / `flag_data.py` | Package-root flag primitives + axes (shared by compile-cache and matcher) |
 | `matcher/parsers.py` | COFF `.obj` and PE byte extraction (LIEF-based) |
 | `matcher/mutator.py` | 128 C mutation operators for GA |
 | `matcher/core.py` | GA types (`Score`, `BuildResult`, `GACheckpoint`); `BuildCache` kept for import compatibility only (same-run compiles memoize in memory, cross-run persistence lives in the shared compile cache) |

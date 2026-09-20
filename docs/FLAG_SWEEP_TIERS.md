@@ -5,7 +5,7 @@ exhaustively compiles a function across a grid of MSVC6 flag combinations and
 reports the best-matching variant.  To keep runtimes manageable the grid is
 tiered by coverage vs. speed.
 
-Tier definitions live in `src/rebrew/matcher/flag_data.py` — the
+Tier definitions live in `src/rebrew/flag_data.py` — the
 `MSVC_SWEEP_TIERS` dict maps a tier name to a list of flag-axis IDs from
 `MSVC6_FLAGS`.  Each axis is either a `FlagSet` (one value chosen from N
 options) or a `Checkbox` (on/off), so total combinations multiply.

@@ -2,8 +2,8 @@
 
 import re
 
+from rebrew.flags import Checkbox, FlagSet
 from rebrew.matcher.compiler import _flags_to_axes, _map_symbol_re, generate_flag_combinations
-from rebrew.matcher.flags import Checkbox, FlagSet
 
 
 class TestFlagsToAxes:

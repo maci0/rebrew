@@ -84,7 +84,7 @@ This design allows:
 ## Detecting Auto-Generated vs User-Assigned Names
 
 A name is **not meaningful** (auto-generated / placeholder) when
-`_is_meaningful` in `binsync/importer.py` is false — shared by
+`is_meaningful` in `binsync/importer.py` is false — shared by
 `binsync/diff.py` and `binsync/overlay.py`. That helper rejects:
 
 1. `_GENERIC_NAME_RE` — `func_`/`FUN_` hex auto-names (optional leading `_`, optional stdcall `@N`):
@@ -138,7 +138,7 @@ registry[va]["size_by_tool"]["<tool>"] = entry["size"]
 
 ### 3. Name Normalization
 
-Extend `_is_meaningful` coverage in `binsync/importer.py` (imported by
+Extend `is_meaningful` coverage in `binsync/importer.py` (imported by
 `binsync/diff.py` / `overlay.py`). Hex-style auto-names usually go on
 `_GENERIC_NAME_RE`; Ghidra-style prefixes may belong on `_GHIDRA_GENERIC_RE`
 instead:

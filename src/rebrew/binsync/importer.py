@@ -72,7 +72,12 @@ def _is_generic(name: str) -> bool:
     return bool(_GENERIC_NAME_RE.match(name))
 
 
-def _is_meaningful(name: str) -> bool:
+def is_meaningful(name: str) -> bool:
+    """Return True when *name* looks user-assigned rather than an auto-label.
+
+    Shared by import, diff, and overlay so placeholder names
+    (``func_``/``FUN_``/``DAT_``/``g_<hex>``) are treated consistently.
+    """
     return bool(name) and not (
         _is_generic(name) or _GHIDRA_GENERIC_RE.match(name) or _PLACEHOLDER_GLOBAL_RE.match(name)
     )
@@ -119,7 +124,7 @@ def _strip_cdecl_prefix(name: str) -> str:
     return name[1:] if name.startswith("_") else name
 
 
-def _normalize_prototype(proto: str) -> str:
+def normalize_prototype(proto: str) -> str:
     """Canonicalize a prototype for comparison: collapse whitespace, drop trailing semicolon."""
     text = " ".join(proto.strip().split())
     if text.endswith(";"):
@@ -232,7 +237,7 @@ def main(
         create_missing=create_missing,
     )
 
-    _print_import_result(result, json_output=json_output, dry_run=dry_run)
+    print_import_result(result, json_output=json_output, dry_run=dry_run)
     return
 
 
@@ -304,7 +309,7 @@ def import_state(
         # truly unknown.  Catalog-known + BinSync-known can become stubs;
         # unknown is just skipped.
         if local is None:
-            if va in catalog_vas and _is_meaningful(bs_name) and bs_name.strip():
+            if va in catalog_vas and is_meaningful(bs_name) and bs_name.strip():
                 # Surface as proposed_missing; optionally create a stub
                 bs_stripped = _strip_cdecl_prefix(bs_name) if bs_name.startswith("_") else bs_name
                 if create_missing:
@@ -404,7 +409,7 @@ def import_state(
         # A differing local prototype is a conflict like a differing name:
         # --accept-binsync overwrites, --accept-local keeps local, otherwise
         # reported and skipped.  Empty local applies cleanly either way.
-        if bs_proto and _normalize_prototype(bs_proto) != _normalize_prototype(local_proto):
+        if bs_proto and normalize_prototype(bs_proto) != normalize_prototype(local_proto):
             if local_proto and not accept_binsync:
                 conflicts.append(
                     {
@@ -495,7 +500,7 @@ def import_state(
                         log.debug("note apply failed for VA 0x%x", va, exc_info=True)
                         skipped += 1
 
-        if not bs_name or not _is_meaningful(bs_name):
+        if not bs_name or not is_meaningful(bs_name):
             continue
 
         # If local already has same meaningful name (ignoring _ prefix), skip
@@ -503,7 +508,7 @@ def import_state(
             continue
 
         # If local is generic and BinSync is meaningful → safe to apply
-        if not _is_meaningful(local_name):
+        if not is_meaningful(local_name):
             if dry_run:
                 proposed.append(
                     {"va": f"0x{va:08x}", "field": "name", "local": local_name, "binsync": bs_name}
@@ -585,7 +590,7 @@ def import_state(
     # --- Global names ---
     for va, bs_entry in sorted(globals_by_va.items()):
         bs_name = bs_entry.get("name", "")
-        if not bs_name or not _is_meaningful(bs_name):
+        if not bs_name or not is_meaningful(bs_name):
             continue
         if va in funcs_by_va:
             continue  # already handled as function
@@ -926,7 +931,7 @@ def _import_type_definitions(
     return len(new)
 
 
-def _print_import_result(result: dict[str, object], *, json_output: bool, dry_run: bool) -> None:
+def print_import_result(result: dict[str, object], *, json_output: bool, dry_run: bool) -> None:
     """Render an :func:`import_state` result (the CLI summary/exit path)."""
     from typing import cast
 

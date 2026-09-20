@@ -7,7 +7,7 @@ Synced: 2026-08-10
 Do not edit manually — re-run tools/sync_decomp_flags.py to update.
 """
 
-from rebrew.matcher.flags import Checkbox, Flags, FlagSet
+from rebrew.flags import Checkbox, Flags, FlagSet
 
 COMMON_MSVC_FLAGS: Flags = [
     FlagSet(

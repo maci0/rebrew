@@ -24,11 +24,7 @@ from typing import Any
 
 from rebrew.compile_cache import CacheBackend, compile_cache_key
 from rebrew.config import profile_flags_style
-from rebrew.toolchain_spec import FlagsStyle
-from rebrew.utils import safe_shlex_split
-
-from .core import BuildResult
-from .flag_data import (
+from rebrew.flag_data import (
     BORLAND_FLAGS,
     BORLAND_SWEEP_TIERS,
     COMMON_MSVC_FLAGS,
@@ -41,7 +37,11 @@ from .flag_data import (
     WATCOM_FLAGS,
     WATCOM_SWEEP_TIERS,
 )
-from .flags import Checkbox, Flags, FlagSet
+from rebrew.flags import Checkbox, Flags, FlagSet
+from rebrew.toolchain_spec import FlagsStyle
+from rebrew.utils import safe_shlex_split
+
+from .core import BuildResult
 from .parsers import extract_function_from_binary, parse_obj_symbol_bytes
 
 log = logging.getLogger(__name__)

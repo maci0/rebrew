@@ -679,13 +679,13 @@ def _flag_group_ids() -> dict[str, str]:
     """Map each known flag token to its compiler-option group id.
 
     Derived from the auto-synced decomp.me flag definitions
-    (:mod:`rebrew.matcher.flag_data`): a ``FlagSet`` is one compiler option
+    (:mod:`rebrew.flag_data`): a ``FlagSet`` is one compiler option
     whose members are mutually exclusive, and a ``Checkbox`` an on/off toggle.
     Flags within one group are **last-wins** (MSVC uses the last occurrence);
     flags across groups set distinct options and commute.
     """
-    from rebrew.matcher.flag_data import COMMON_MSVC_FLAGS, MSVC6_FLAGS
-    from rebrew.matcher.flags import Checkbox
+    from rebrew.flag_data import COMMON_MSVC_FLAGS, MSVC6_FLAGS
+    from rebrew.flags import Checkbox
 
     lookup: dict[str, str] = {}
     for flags in (MSVC6_FLAGS, COMMON_MSVC_FLAGS):

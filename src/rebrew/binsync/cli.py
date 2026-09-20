@@ -26,7 +26,7 @@ import typer
 from rich.console import Console
 
 from rebrew.binsync import diff, export, importer, init, overlay
-from rebrew.binsync.init import _one_line, _run_git
+from rebrew.binsync.init import one_line, run_git
 from rebrew.cli import TargetOption, error_exit, json_print, require_config
 from rebrew.config import ProjectConfig
 
@@ -86,7 +86,7 @@ def _resolve_state_dir(state_dir: Path, *, json_mode: bool) -> Path:
 
 def _git_failure(action: str, result: subprocess.CompletedProcess[str]) -> str:
     """One-line error for a failed git *action*."""
-    detail = _one_line(result.stderr or result.stdout) or f"git exited with {result.returncode}"
+    detail = one_line(result.stderr or result.stdout) or f"git exited with {result.returncode}"
     return f"{action} failed: {detail}"
 
 
@@ -138,11 +138,11 @@ def push(
     if git_push and not no_git and not dry_run:
         _require_state_repo(state_dir, json_mode=json_output)
         for ref in ("binsync/__root__", "HEAD"):
-            pushed = _run_git(state_dir, "push", remote, ref)
+            pushed = run_git(state_dir, "push", remote, ref)
             if pushed.returncode != 0:
                 error_exit(_git_failure(f"git push {remote} {ref}", pushed), json_mode=json_output)
 
-    export._print_export_result(result, json_output=json_output, dry_run=dry_run)
+    export.print_export_result(result, json_output=json_output, dry_run=dry_run)
 
 
 @app.command()
@@ -180,7 +180,7 @@ def pull(
 
     if not no_git and not dry_run:
         _require_state_repo(resolved, json_mode=json_output)
-        pulled = _run_git(resolved, "pull", "--ff-only")
+        pulled = run_git(resolved, "pull", "--ff-only")
         if pulled.returncode != 0:
             error_exit(
                 _git_failure("git pull --ff-only", pulled)
@@ -198,7 +198,7 @@ def pull(
         accept_local=accept_local,
         create_missing=create_missing,
     )
-    importer._print_import_result(result, json_output=json_output, dry_run=dry_run)
+    importer.print_import_result(result, json_output=json_output, dry_run=dry_run)
 
 
 @app.command()
