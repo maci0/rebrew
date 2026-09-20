@@ -10,7 +10,7 @@ Install editable (`uv pip install -e .`) inside a workspace containing binaries,
 
 Names are `"<image-family>-<version>"` (lowercase, version dots kept), e.g. `msvc-6.0`, `gcc-14.2.0`, `mingw-16.2.0`. Append a target suffix only when one family+version spans more than one target (`watcom-2.0-win32` / `watcom-2.0-win16`). See ADR 017; old names are gone, not aliased.
 
-**Docker-only for every shipped toolchain** (`msvc-*`, `borland-*`, `watcom-*`, `delphi-1.0`, `gcc-*`, `clang-*`, `mingw-*`): the image wraps wine / DOSBox / a native Linux compiler. No host wine/wibo/dosbox fallback. Missing image → hard error; run `rebrew toolchain build <name>` or `rebrew toolchain pull <name>`.
+**Docker-only for every shipped toolchain** (`msvc-*`, `borland-*`, `watcom-*`, `delphi-1.0`, `ido-*`, `gcc-*`, `clang-*`, `mingw-*`): the image wraps wine / DOSBox / a native Linux compiler. No host wine/wibo/dosbox fallback. Missing image → hard error; run `rebrew toolchain build <name>` or `rebrew toolchain pull <name>`.
 
 Docker build source lives in the sibling **rebrew-toolchains** checkout (`REBREW_TOOLCHAINS_DIR` override). Resolve via `rebrew.toolchain_paths.toolchains_repo()`; commands that need it call `rebrew.toolchain.require_toolchains_repo()`. Details, pins, and smoke gates: `docs/TOOLCHAIN.md`.
 
@@ -36,7 +36,7 @@ make setup                                # frozen sync + pre-commit; checks uv 
 make test-one T=tests/test_annotation.py  # single-file edit-test loop
 make lint                                 # ruff check src/ tests/ tools/
 make format                               # ruff format src/ tests/ tools/
-make all                                  # local mirror of CI lint + test + cli-contract
+make all                                  # format-check lint mypy audit test fixtures cycles idempotency cli-contract
 make check                                # pre-commit hook parity (before a PR: make all && make check)
 make gen-fixtures                         # regenerate tests/fixtures/ after editing the generator
 # or: uv sync --frozen --all-extras --group similarity
@@ -98,10 +98,10 @@ No `conftest.py`. Group by class; helpers `_`-prefixed; annotate tests `-> None`
 - **Idempotent**: every tool safe to re-run
 - **Source discovery**: `iter_sources` / `iter_library_headers` / `source_glob` from `sources.py`; batch annotations via `iter_annotations` in `cli.py`
 - **Don't reimplement**: if an imported library provides it, use it
-- **Declarative registration**: toolchains, decompiler backends, CLI commands, mutations, flag sets, library presets, detectors, loaders, MSVC version tables, cache backends, discoverers via `rebrew.registry` entry-point groups (+ `REBREW_TOOLCHAIN_OVERLAY_DIR` / `REBREW_SKILLS_DIR`). Conflict policy: toolchains → `RegistryError` on duplicate; tuning groups (`flag_sets`, `library_presets`, `msvc_versions`) extend/override; other plugin groups skip broken/duplicate with a warning. `refresh_all()` for long-lived processes. Adding a component must not require editing host source
+- **Declarative registration**: toolchains, decompiler backends, CLI commands, mutations, flag sets, library presets, detectors, loaders, MSVC version tables, cache backends, discoverers via `rebrew.registry` entry-point groups (+ `REBREW_TOOLCHAIN_OVERLAY_DIR` / `REBREW_SKILLS_DIR`). Conflict policy: toolchains / CLI → `RegistryError` on duplicate; tuning groups (`flag_sets`, `library_presets`, `msvc_versions`) extend/override; other plugin groups skip broken/duplicate with a warning. `refresh_all()` for long-lived processes. Adding a component must not require editing host source
 - **CLI composition**: umbrella app is a component graph (`plugin.py` + `builtins.py`); see ADR 014
 - **No backward compat**: one name per function — no aliases/shims/wrappers
-- **Volatile metadata**: `STATUS`, `SIZE`, `CFLAGS`, `BLOCKER`, `BLOCKER_DELTA`, `NOTE`, `GHIDRA`, `LOCALS`, `COMMENTS` live only in `rebrew-functions.toml` via `rebrew.metadata` — never hand-edit. STATUS via `update_source_status` / `update_statuses_batch`; BLOCKER via `update_field` / `remove_field` (`rebrew blocker` or auto-writers). Written **mode 0444** (`atomic_write_locked`); same lock for `rebrew-data.toml` and declib binsync artifacts
+- **Volatile metadata**: `STATUS`, `TOOLCHAIN`, `BLOCKER`, `BLOCKER_DELTA`, `NOTE`, `GHIDRA`, `LOCALS`, `COMMENTS`, … (`METADATA_FIELDS`) live in `rebrew-functions.toml` via `rebrew.metadata` — never hand-edit the TOML. `SIZE`/`CFLAGS` are co-read (`.c` + TOML override). STATUS via `update_source_status` / `update_statuses_batch`; BLOCKER via `update_field` / `remove_field` (`rebrew blocker` or auto-writers). Written **mode 0444** (`atomic_write_locked`); same lock for `rebrew-data.toml` and declib binsync artifacts
 - **STATUS is earned**: `rebrew verify` promotes/demotes from byte comparison; never write `STATUS` in `.c` files. Stale hand-claimed `PROVEN` is demoted with a `metadata: warning`
 - **Compile result**: `CompareResult` — use `.matched`, `.status`, `.delta`, `.match_percent`; never tuple-unpack
 - **Compile backends**: local docker image by default; `[compiler] recompile_url` / `REBREW_RECOMPILE_URL` → `rebrew.recompile_client`. Cache id pins the backend. Only a plugin toolchain without `image` runs as a host binary. See ADR 015

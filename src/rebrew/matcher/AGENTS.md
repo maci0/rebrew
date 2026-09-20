@@ -6,7 +6,7 @@ GA engine for binary-matching decompilation. Compiles C through the docker-backe
 
 | Module | Role |
 |--------|------|
-| `core.py` | Types: `Score`, `BuildResult`, `BuildCache`, `GACheckpoint`, `StructuralSimilarity` |
+| `core.py` | Types: `Score`, `BuildResult`, `GACheckpoint`, `StructuralSimilarity`; `BuildCache` (compat only) |
 | `compiler.py` | `build_candidate_obj_only` (default timeout 60s), `build_candidate` (120s), `flag_sweep`, `generate_flag_combinations` |
 | `scoring.py` | `score_candidate`, `diff_functions`, `structural_similarity` (pure) |
 | `mutator.py` | `mutate_code` / `ALL_MUTATIONS` (128 packaged ops) + GA helpers |
@@ -28,12 +28,12 @@ the cache layer importing the matcher package.
 - **Score**: lower is better; `byte_score` 0.0 = perfect; `total` is weighted.
 - **BuildResult**: check `ok` before using bytes; reported compiler failures use `ok=False`. Build helpers can still raise during argument parsing, filesystem operations, or backend calls.
 - **StructuralSimilarity**: `exact` / `reloc_only` / `register_only` / `structural`; `flag_sensitive` means flags alone may fix it.
-- **BuildCache**: per-run diskcache instance (not global), thread-safe.
+- **BuildCache**: legacy diskcache type (import/tests only). GA same-run memo is an in-memory dict; cross-run persistence is the shared compile cache.
 - **GACheckpoint**: JSON resume state; `args_hash` rejects stale checkpoints.
 
 ## Mutations
 
-128 packaged `mut_*` ops under `mutations/` → `ALL_MUTATIONS` in `mutator.py`. Inventory: `docs/GA_MUTATIONS.md`. Optional weights via `mutate_code(..., mutation_weights=)`. Entry-point group `rebrew.mutations`; duplicate name skipped with warning.
+Packaged `mut_*` ops under `mutations/` → `ALL_MUTATIONS` in `mutator.py`. Inventory: `docs/GA_MUTATIONS.md`. Optional weights via `mutate_code(..., mutation_weights=)`. Entry-point group `rebrew.mutations`; duplicate name skipped with warning.
 
 ## Consumers
 
@@ -45,6 +45,6 @@ the cache layer importing the matcher package.
 
 - **Profile-parametrized sweep**: `generate_flag_combinations(tier=, profile=)` picks axes per profile (incl. `borland-2.0`); unknown profile falls back to registry `flags_style` (posix → GCC axes, not MSVC).
 - **Heuristic reloc/register detection**: pattern matching in `scoring.py`, not COFF metadata.
-- **Timeouts**: `build_candidate_obj_only` / `flag_sweep` default 60s; `build_candidate` (compile+link) defaults to 120s. Direct subprocess timeouts return `BuildResult(ok=False)`; the image-backed path uses `cfg.compile_timeout` when a config is supplied.
+- **Timeouts**: `build_candidate_obj_only` / `flag_sweep` default 60s; `build_candidate` (compile+link) defaults to 120s. Direct subprocess timeouts return `BuildResult(ok=False)`. Image-backed path: `timeout=` seeds a synthetic cfg when none is passed; a real `cfg` uses `cfg.compile_timeout`.
 - **Wine stderr**: lazy `rebrew.compile.filter_wine_stderr()` (avoids import cycle).
-- **No global state**: each run owns `BuildCache`, `Random`, temp dirs — safe to run concurrently.
+- **No global state**: each run owns its in-memory memo, `Random`, and temp dirs — safe to run concurrently.

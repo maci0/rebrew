@@ -1,6 +1,6 @@
 # AGENTS.md — catalog/
 
-Merges function sources (discovery inventory, Ghidra JSON, PE exports) into a unified registry, builds cell-level coverage grids, and exports reccmp CSV.
+Merges function sources (discovery inventory, Ghidra JSON, binary exports) into a unified registry, builds cell-level coverage grids, and exports reccmp CSV.
 
 ## Modules
 
@@ -17,7 +17,7 @@ PE section helpers live in `rebrew.sections` (outside this package). Externals: 
 
 ## Data flow
 
-Reversed `.c` + `library_*.h` → `scan_reversed_dir` → annotations; discovery/Ghidra JSON → `load_function_structure`; PE → `load_binary`. Then `build_function_registry` (merge by VA, canonical size) → `generate_data_json` → `db/data_{target}.json`; `generate_reccmp_csv` → `db/{target}_functions.csv`.
+Reversed `.c` + `library_*.h` → `scan_reversed_dir` → annotations; discovery/Ghidra JSON → `load_function_structure`; binary → `load_binary`. Then `build_function_registry` (merge by VA, canonical size) → `generate_data_json` → `db/data_{target}.json`; `generate_reccmp_csv` → `db/{target}_functions.csv`.
 
 ## Invariants
 
