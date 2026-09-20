@@ -1373,38 +1373,62 @@ def lint_file(
         va_str = found_keys.get("VA", "")
 
         # Overlay metadata fields into found_keys for this marker block.
-        # Metadata always wins for the fields it owns (STATUS, SIZE, CFLAGS, etc.),
-        # but we only overlay if the key is not already present inline — this lets
-        # any remaining inline marker (from files not yet fully migrated) take
-        # precedence so the check accurately reflects what the compiler will see.
-        # We also track which keys were supplied by the metadata (vs inline) so
-        # that W019 can distinguish between a key that must be migrated and one
-        # that is correctly metadata-only.
+        #
+        # SIZE / CFLAGS are co-read (reccmp contract): keep any inline value in
+        # found_keys so W019 can report disagreement with the store; equal
+        # CFLAGS copies are stripped below, SIZE is never auto-stripped.
+        #
+        # Every other metadata-owned key (STATUS, NOTE, BLOCKER, …) has the
+        # store as sole source of truth — annotation parsing ignores the
+        # inline form — so checks must see the TOML value.  Equal inline
+        # copies are stripped; disagreements warn (W019) and leave the inline
+        # text for the author (never migrate inline → store, which would
+        # clobber a promoted STATUS with a stale // STATUS: STUB).
+        #
+        # Track which keys the store supplied so W019 can tell a key that
+        # must be migrated from one that is correctly metadata-only.
         _metadata_sourced_keys: set[str] = set()
         _va_int: int | None = None
         _metadata_size: str | None = None
+        _metadata_override: dict[str, Any] = {}
+        # Keys co-read from the .c (inline kept in found_keys for W019).
+        _coread_keys = frozenset({"SIZE", "CFLAGS"})
         if mod and va_str:
             try:
                 _va_int = int(va_str, 16)
                 _metadata_override = _metadata_entries.get((mod, _va_int), {})
                 _metadata_size = str(_metadata_override.get("size", "")).strip() or None
                 for _toml_key, _found_key in _METADATA_TO_FOUND.items():
-                    if _toml_key in _metadata_override:
-                        if _found_key not in found_keys:
-                            found_keys[_found_key] = str(_metadata_override[_toml_key])
-                        elif _found_key != "SIZE" and _inline_equals_store(
-                            _found_key,
-                            found_keys[_found_key],
-                            str(_metadata_override[_toml_key]),
+                    if _toml_key not in _metadata_override:
+                        continue
+                    store_val = str(_metadata_override[_toml_key])
+                    if _found_key not in found_keys:
+                        found_keys[_found_key] = store_val
+                    elif _found_key in _coread_keys:
+                        # Co-read: leave inline in found_keys; W019 handles
+                        # disagreement.  Equal CFLAGS still strip below.
+                        if _found_key == "CFLAGS" and _inline_equals_store(
+                            _found_key, found_keys[_found_key], store_val
                         ):
-                            # Same value inline and in the store: the inline
-                            # copy is dead (parsing prefers it, but it changes
-                            # nothing) — no warning, but --fix strips it.
-                            # Without this, W019 never fires for
-                            # metadata-sourced keys and the copy survives
-                            # every --fix run.
                             result._inline_dup_strips.append((mod, _va_int, _found_key))
-                        _metadata_sourced_keys.add(_found_key)
+                    elif _inline_equals_store(_found_key, found_keys[_found_key], store_val):
+                        # Dead duplicate of the store value — strip on --fix.
+                        result._inline_dup_strips.append((mod, _va_int, _found_key))
+                        found_keys[_found_key] = store_val
+                    else:
+                        # Disagreement: store wins for E015/E017/…; warn and
+                        # leave the inline so --fix cannot clobber the store.
+                        inline_val = found_keys[_found_key].strip()
+                        result.warning(
+                            result.marker_line,
+                            "W019",
+                            f"Inline '// {_found_key}: {inline_val}' disagrees with "
+                            f"metadata {_found_key} '{store_val}' — "
+                            "rebrew-functions.toml is the source of truth; "
+                            "align or remove the inline copy",
+                        )
+                        found_keys[_found_key] = store_val
+                    _metadata_sourced_keys.add(_found_key)
             except (ValueError, KeyError):
                 pass
 
@@ -1439,34 +1463,51 @@ def lint_file(
                     mod,
                     cfg,
                     function_index,
-                    # Merged view (inline overlay + metadata): an inline
-                    # EXACT/RELOC/PROVEN must suppress W028 even when the
-                    # store has no status yet.
-                    status=str(found_keys.get("STATUS", "")),
+                    # Store-wins overlay (above): an EXACT/RELOC/PROVEN in
+                    # rebrew-functions.toml suppresses W028 even when a stale
+                    # inline // STATUS: STUB remains.
+                    status=canonical_status(str(found_keys.get("STATUS", ""))),
                 )
 
             if marker not in ("GLOBAL", "DATA"):
                 _check_W018_cflags(result, found_keys, cfg)
             else:
-                # For DATA/GLOBAL: overlay data metadata fields (size, section, note)
+                # For DATA/GLOBAL: overlay data metadata fields (size, section, note).
+                # SIZE is co-read; SECTION/NOTE follow the same store-wins rule
+                # as function metadata above.
                 if va_int is not None and mod:
                     _ds_override = _data_metadata_entries.get((mod, va_int), {})
                     _DS_TO_FOUND = {"size": "SIZE", "section": "SECTION", "note": "NOTE"}
                     for _ds_key, _ds_found_key in _DS_TO_FOUND.items():
-                        if _ds_key in _ds_override:
-                            if _ds_found_key not in found_keys:
-                                found_keys[_ds_found_key] = str(_ds_override[_ds_key])
-                            elif _ds_found_key != "SIZE" and _inline_equals_store(
-                                _ds_found_key,
-                                found_keys[_ds_found_key],
-                                str(_ds_override[_ds_key]),
-                            ):
-                                result._inline_dup_strips.append((mod, va_int, _ds_found_key))
-                            # Mark as metadata-sourced so W019 doesn't fire for these
-                            _metadata_sourced_keys.add(_ds_found_key)
+                        if _ds_key not in _ds_override:
+                            continue
+                        store_val = str(_ds_override[_ds_key])
+                        if _ds_found_key not in found_keys:
+                            found_keys[_ds_found_key] = store_val
+                        elif _ds_found_key == "SIZE":
+                            pass  # co-read; W019 reports disagreement
+                        elif _inline_equals_store(
+                            _ds_found_key, found_keys[_ds_found_key], store_val
+                        ):
+                            result._inline_dup_strips.append((mod, va_int, _ds_found_key))
+                            found_keys[_ds_found_key] = store_val
+                        else:
+                            inline_val = found_keys[_ds_found_key].strip()
+                            result.warning(
+                                result.marker_line,
+                                "W019",
+                                f"Inline '// {_ds_found_key}: {inline_val}' disagrees "
+                                f"with metadata {_ds_found_key} '{store_val}' — "
+                                "rebrew-data.toml is the source of truth; "
+                                "align or remove the inline copy",
+                            )
+                            found_keys[_ds_found_key] = store_val
+                        _metadata_sourced_keys.add(_ds_found_key)
 
             module = found_keys.get("MODULE", "")
-            status = found_keys.get("STATUS", "")
+            # Canonicalize so hand-edited `status = "exact"` / `// STATUS: stub`
+            # feed E015/E017/MATCHED_STATUSES the same way update_source_status does.
+            status = canonical_status(found_keys.get("STATUS", ""))
             _file_cflags.update(found_keys.get("CFLAGS", "").split())
             if found_keys.get("BLOCKER"):
                 _file_has_blocker = True

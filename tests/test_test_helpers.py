@@ -1248,3 +1248,26 @@ class TestMissingSizeHint:
         result = CliRunner().invoke(umbrella, ["test", "src/x/f.c"])
         assert result.exit_code == 2, result.output
         assert "inventory has SIZE" not in result.output
+
+
+class TestPrintTestSummary:
+    """Batch summary must mirror should_promote_status (PROVEN→EXACT upgrades)."""
+
+    def test_proven_to_exact_shows_upgrade(self, capsys: pytest.CaptureFixture[str]) -> None:
+        from types import SimpleNamespace as NS
+
+        from rebrew.test import print_test_summary
+
+        deferred = [
+            (NS(status="PROVEN"), "EXACT", 0),
+            (NS(status="PROVEN"), "NEAR_MATCHING", 4),
+            (NS(status="SKIP"), "EXACT", 0),
+            (NS(status="NEAR_MATCHING"), "RELOC", 0),
+        ]
+        print_test_summary(deferred, total_files=2)
+        out = capsys.readouterr().err
+        assert "PROVEN → EXACT" in out
+        assert "NEAR_MATCHING → RELOC" in out
+        # Parked SKIP and sticky PROVEN→NEAR stay put (no transition line).
+        assert "SKIP →" not in out
+        assert "PROVEN → NEAR" not in out

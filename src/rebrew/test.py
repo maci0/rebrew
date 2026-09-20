@@ -1735,12 +1735,12 @@ def print_test_summary(deferred: list[tuple[Annotation, str, int]], total_files:
     transitions: list[tuple[str, str]] = []
     for entry, status, _delta in deferred:
         old_status = getattr(entry, "status", "") or "STUB"
-        # Sticky (PROVEN) / parked (SKIP) statuses keep their status regardless
-        # of the byte-level result (same gate as should_promote_status).
-        if is_status_sticky(old_status) or is_status_parked(old_status):
-            transitions.append((old_status, old_status))
-        else:
+        # Mirror should_promote_status: parked SKIP never moves; sticky PROVEN
+        # stays put unless the byte result is EXACT/RELOC (a real upgrade).
+        if should_promote_status(old_status, status):
             transitions.append((old_status, status))
+        else:
+            transitions.append((old_status, old_status))
     if not transitions:
         console.print(
             f"\n[bold]Batch complete.[/bold] Tested {total_files} file(s), 0 functions compared."

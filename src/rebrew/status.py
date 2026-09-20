@@ -24,6 +24,7 @@ from rich.table import Table
 from rich.text import Text
 
 from rebrew.cli import (
+    DISPLAY_STATUSES,
     STATUS_COLORS,
     TargetOption,
     json_print,
@@ -57,7 +58,9 @@ console = Console(stderr=True)
 # Data model
 # ---------------------------------------------------------------------------
 
-_STATUS_ORDER = ["EXACT", "RELOC", "NEAR_MATCHING", "STUB", "PROVEN"]
+# Same display order as cli.DISPLAY_STATUSES (MATCHED then NEAR/STUB) so
+# PROVEN ranks with the other matched statuses, not below STUB.
+_STATUS_ORDER = list(DISPLAY_STATUSES)
 
 
 @dataclass

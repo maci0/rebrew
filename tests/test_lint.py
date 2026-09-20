@@ -1747,10 +1747,15 @@ class TestW029RedundantCflags:
     def test_fix_keeps_differing_metadata_duplicated_key(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Inline NOTE differing from the store's note is left alone."""
+        """Inline NOTE differing from the store's note is left alone.
+
+        --fix must not migrate the inline value into the store (that would
+        clobber the SoT).  W019 must still report the disagreement, and
+        checks must use the store value.
+        """
         from typer.testing import CliRunner
 
-        from rebrew.lint import app
+        from rebrew.lint import app, lint_file
 
         src = tmp_path / "reversed"
         src.mkdir()
@@ -1767,6 +1772,55 @@ class TestW029RedundantCflags:
         result = CliRunner().invoke(app, ["--fix", str(f)])
         assert result.exit_code == 0, result.output
         assert "inline words" in f.read_text(encoding="utf-8")
+        linted = lint_file(f, cfg=cfg)
+        assert any(c == "W019" and "disagrees" in m for _, c, m in linted.warnings)
+
+    def test_status_store_wins_over_disagreeing_inline(self, tmp_path: Path) -> None:
+        """Stale // STATUS: STUB must not shadow TOML EXACT for E017.
+
+        Annotation parsing ignores inline STATUS; lint checks must follow the
+        same SoT or a matched function with a leftover // STATUS: STUB falsely
+        fails E017 (matched + STUB marker).
+        """
+        from rebrew.lint import lint_file
+
+        src = tmp_path / "reversed"
+        src.mkdir()
+        f = src / "foo.c"
+        f.write_text(
+            "// FUNCTION: SERVER 0x1000\n// STATUS: STUB\nint foo(void){return 0;}\n",
+            encoding="utf-8",
+        )
+        (tmp_path / "rebrew-functions.toml").write_text(
+            '["SERVER.0x1000"]\nstatus = "EXACT"\n', encoding="utf-8"
+        )
+        cfg = self._lint_cfg(tmp_path, src)
+        result = lint_file(f, cfg=cfg)
+        e017 = [e for e in result.errors if e[1] == "E017"]
+        assert e017 == [], f"E017 must not fire when store says EXACT: {e017}"
+        assert any(c == "W019" and "disagrees" in m for _, c, m in result.warnings)
+        assert result._status_counts.get("EXACT") == 1
+        assert result._status_counts.get("STUB", 0) == 0
+
+    def test_status_checks_canonicalize_case(self, tmp_path: Path) -> None:
+        """Hand-edited lowercase status in TOML still feeds E015/E017 correctly."""
+        from rebrew.lint import lint_file
+
+        src = tmp_path / "reversed"
+        src.mkdir()
+        f = src / "foo.c"
+        # STUB marker + matched store status → E017
+        f.write_text(
+            "// STUB: SERVER 0x1000\nint foo(void){return 0;}\n",
+            encoding="utf-8",
+        )
+        (tmp_path / "rebrew-functions.toml").write_text(
+            '["SERVER.0x1000"]\nstatus = "exact"\n', encoding="utf-8"
+        )
+        cfg = self._lint_cfg(tmp_path, src)
+        result = lint_file(f, cfg=cfg)
+        assert any(e[1] == "E017" for e in result.errors)
+        assert result._status_counts.get("EXACT") == 1
 
 
 class TestSupportTu:

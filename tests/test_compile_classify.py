@@ -289,6 +289,12 @@ class TestIsMatched:
         for status in ("EXACT", "RELOC", "PROVEN"):
             assert is_matched(status) is True
 
+    def test_matched_statuses_canonicalized(self) -> None:
+        """Hand-edited lowercase / NEAR_MATCH alias still count as matched."""
+        assert is_matched("exact") is True
+        assert is_matched("reloc") is True
+        assert is_matched("proven") is True
+
     def test_unmatched_statuses(self) -> None:
         for status in ("STUB", "NEAR_MATCHING", "SIZE_MISMATCH", "", "COMPILE_ERROR"):
             assert is_matched(status) is False

@@ -71,7 +71,7 @@ from rebrew.config import ProjectConfig, validate_http_url
 from rebrew.context import CONTEXT_UNIT_NAME, CompileContext
 from rebrew.headless import _XVFB_RUN_SERVER_ARGS, ensure_xvfb
 from rebrew.matcher import parse_obj_symbol_and_relocs
-from rebrew.metadata import MATCHED_STATUSES
+from rebrew.metadata import MATCHED_STATUSES, canonical_status
 from rebrew.msvc_env import msvc_env_from_config, resolve_runner_path
 from rebrew.toolchain import (
     TOOLCHAINS,
@@ -227,8 +227,12 @@ def matched_byte_count(
 
 
 def is_matched(status: str) -> bool:
-    """True when *status* indicates a fully matched function (EXACT, RELOC, or PROVEN)."""
-    return status in MATCHED_STATUSES
+    """True when *status* indicates a fully matched function (EXACT, RELOC, or PROVEN).
+
+    Spelling is normalized via :func:`canonical_status` so hand-edited
+    ``exact`` / the ``NEAR_MATCH`` alias cannot miss the matched gate.
+    """
+    return canonical_status(status) in MATCHED_STATUSES
 
 
 def classify_match_status(
