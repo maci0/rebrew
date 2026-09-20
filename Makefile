@@ -2,6 +2,11 @@
 	gen-fixtures gen-fixtures-check cycles-check idempotency-check mypy audit \
 	cli-contract release-check ensure-uv ensure-resembl ensure-nasm
 
+# Force POSIX sh for recipes (ignore a caller-exported SHELL=bash).  Recipes
+# below use only POSIX constructs so Alpine/busybox ash and Debian dash work.
+# Version compares use ``sort -t. -k…n`` (POSIX), not GNU ``sort -V``.
+SHELL := /bin/sh
+
 .DEFAULT_GOAL := help
 
 # Prefer lockfile-pinned deps. Override with `make setup UV_SYNC_FLAGS=` if needed.
@@ -67,7 +72,7 @@ ensure-uv:
 	fi; \
 	uv_out=$$(uv --version); \
 	uv_ver=$$(printf '%s\n' "$$uv_out" | awk '{print $$2}'); \
-	lowest=$$(printf '%s\n%s\n' "$$uv_ver" "$(UV_VERSION)" | sort -V | head -1); \
+	lowest=$$(printf '%s\n%s\n' "$$uv_ver" "$(UV_VERSION)" | sort -t. -k1,1n -k2,2n -k3,3n | head -1); \
 	if [ "$$lowest" != "$(UV_VERSION)" ]; then \
 	  echo "WARNING: uv $$uv_ver is older than CI pin UV_VERSION=$(UV_VERSION)."; \
 	  echo "Sync usually still works; upgrade when you can (https://docs.astral.sh/uv/)."; \

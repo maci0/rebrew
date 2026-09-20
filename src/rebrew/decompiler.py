@@ -21,6 +21,7 @@ Usage (internal)::
 """
 
 import atexit
+import contextlib
 import hashlib
 import importlib
 import logging
@@ -305,22 +306,53 @@ def _uv_tool_roots() -> list[Path]:
     """Candidate ``uv tool`` install roots across host layouts.
 
     Prefer ``UV_TOOL_DIR`` when set; otherwise probe the default locations uv
-    uses on Linux, macOS, and Windows so a pypcode install under a tool env
-    is found without hard-coding one OS path.
+    uses on Linux (``$XDG_DATA_HOME/uv/tools`` or ``~/.local/share/uv/tools``),
+    macOS, and Windows so a pypcode install under a tool env is found without
+    hard-coding one OS path.  ``XDG_DATA_HOME`` must win over the ``~/.local``
+    fallback — uv honors it, and probing only the fallback misses the tree.
     """
     roots: list[Path] = []
     env = os.environ.get("UV_TOOL_DIR")
     if env:
         roots.append(Path(env))
     home = Path.home()
+    xdg_data = os.environ.get("XDG_DATA_HOME", "").strip()
+    linux_data = (
+        Path(xdg_data) / "uv" / "tools" if xdg_data else home / ".local" / "share" / "uv" / "tools"
+    )
     for candidate in (
-        home / ".local" / "share" / "uv" / "tools",
+        linux_data,
         home / "Library" / "Application Support" / "uv" / "tools",
         Path(os.environ["LOCALAPPDATA"]) / "uv" / "tools" if "LOCALAPPDATA" in os.environ else None,
     ):
         if candidate is not None and candidate not in roots:
             roots.append(candidate)
     return roots
+
+
+def _rizin_sleigh_dirs() -> list[Path]:
+    """Candidate rizin ``rz_ghidra_sleigh`` plugin dirs across Linux layouts.
+
+    Distros split plugins across ``lib`` / ``lib64`` / multiarch triplets;
+    also probe next to a ``rizin``/``rz`` binary so a non-FHS prefix works.
+    """
+    candidates: list[Path] = [
+        Path("/usr/lib/rizin/plugins/rz_ghidra_sleigh"),
+        Path("/usr/lib64/rizin/plugins/rz_ghidra_sleigh"),
+        Path("/usr/lib/x86_64-linux-gnu/rizin/plugins/rz_ghidra_sleigh"),
+    ]
+    for name in ("rizin", "rz"):
+        found = shutil.which(name)
+        if found is None:
+            continue
+        bindir = Path(found).resolve().parent
+        for rel in (
+            "../lib/rizin/plugins/rz_ghidra_sleigh",
+            "../lib64/rizin/plugins/rz_ghidra_sleigh",
+        ):
+            with contextlib.suppress(OSError):
+                candidates.append((bindir / rel).resolve())
+    return candidates
 
 
 def _kuna_spec_dirs() -> list[Path]:
@@ -356,8 +388,21 @@ def _kuna_spec_dirs() -> list[Path]:
     for root in _uv_tool_roots():
         for uv_tool in ("rebrew", "angr"):
             candidates.append(root / uv_tool / sla_tail)
-    candidates.append(Path("/usr/lib/rizin/plugins/rz_ghidra_sleigh"))
-    return [d for d in candidates if (d / "x86.sla").is_file()]
+    candidates.extend(_rizin_sleigh_dirs())
+    seen: set[Path] = set()
+    out: list[Path] = []
+    for d in candidates:
+        if not (d / "x86.sla").is_file():
+            continue
+        try:
+            key = d.resolve()
+        except OSError:
+            key = d
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(d)
+    return out
 
 
 def fetch_kuna(binary: Path, va: int, root: Path, **_kwargs: Any) -> str | None:
@@ -543,7 +588,7 @@ def kuna_seed_source(binary: Path, va: int, root: Path) -> str | None:
     declarations = _kuna_declarations(fixed)
     if declarations:
         fixed = "\n".join(declarations) + "\n\n" + fixed
-    return fixed if valid_c_source(fixed) else None
+    return fixed if valid_c_source(fixed, allow_declarations=True) else None
 
 
 # ---------------------------------------------------------------------------

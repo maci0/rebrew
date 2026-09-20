@@ -694,6 +694,27 @@ class TestKunaBackend:
         monkeypatch.setenv("UV_TOOL_DIR", str(tool_root))
         assert sla_dir in dc._kuna_spec_dirs()
 
+    def test_uv_tool_roots_honors_xdg_data_home(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """XDG_DATA_HOME/uv/tools wins over ~/.local/share when set (uv default)."""
+        import rebrew.decompiler as dc
+
+        xdg = tmp_path / "xdg-data"
+        monkeypatch.delenv("UV_TOOL_DIR", raising=False)
+        monkeypatch.setenv("XDG_DATA_HOME", str(xdg))
+        roots = dc._uv_tool_roots()
+        assert roots[0] == xdg / "uv" / "tools"
+        assert not any(p.as_posix().endswith(".local/share/uv/tools") for p in roots)
+
+    def test_rizin_sleigh_dirs_include_lib64(self) -> None:
+        """Multi-lib Linux layouts are probed, not only /usr/lib."""
+        import rebrew.decompiler as dc
+
+        dirs = dc._rizin_sleigh_dirs()
+        assert Path("/usr/lib/rizin/plugins/rz_ghidra_sleigh") in dirs
+        assert Path("/usr/lib64/rizin/plugins/rz_ghidra_sleigh") in dirs
+
     def test_fetch_kuna_injects_specs_env(self, tmp_path: Path, monkeypatch) -> None:
         """Without KUNA_SPECS, fetch_kuna injects the resolved spec dir."""
         import rebrew.decompiler as dc

@@ -169,6 +169,7 @@ def valid_c_source(
     *,
     expect_name: str | None = None,
     expect_proto: str | None = None,
+    allow_declarations: bool = False,
 ) -> bool:
     """True when *src* parses without recovery and is a lone function def.
 
@@ -178,6 +179,11 @@ def valid_c_source(
     or preprocessor).  When *expect_name* / *expect_proto* are set, both must
     match — so a hallucinated helper, wrong arity, or Trojan second
     definition cannot ride into the GA population.
+
+    *allow_declarations* opts in ``declaration`` root children (``extern``
+    labels / forward decls).  LLM seeds keep the default off; Kuna seeds
+    need it because ``kuna_seed_source`` injects address-label declarations
+    before the single function definition.
     """
     from rebrew.c_parser import (
         _strip_cc,
@@ -190,6 +196,7 @@ def valid_c_source(
         return False
     if _PREPROC_RE.search(src):
         return False
+    allowed = _ALLOWED_TOP_LEVEL | {"declaration"} if allow_declarations else _ALLOWED_TOP_LEVEL
     try:
         parser_pair = get_ts_parser()
         if parser_pair is None:
@@ -199,7 +206,7 @@ def valid_c_source(
         if tree.root_node.has_error:
             return False
         top = list(tree.root_node.children)
-        if any(c.type not in _ALLOWED_TOP_LEVEL for c in top):
+        if any(c.type not in allowed for c in top):
             return False
         if sum(1 for c in top if c.type == "function_definition") != 1:
             return False

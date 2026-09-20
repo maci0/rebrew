@@ -162,6 +162,12 @@ class TestValidCSource:
         src = f"{extra}int f(void) {{ return 0; }}\n"
         assert not valid_c_source(src, expect_name="f")
 
+    def test_allow_declarations_opts_in_forward_decls(self) -> None:
+        """Kuna seeds inject extern/forward decls; LLM seeds keep them off."""
+        src = "extern int dat_1;\nint f(void) { dat_1 = 1; return 0; }\n"
+        assert not valid_c_source(src, expect_name="f")
+        assert valid_c_source(src, expect_name="f", allow_declarations=True)
+
     def test_expect_proto_rejects_arity_mismatch(self) -> None:
         assert valid_c_source(
             "int f(void) { return 0; }",

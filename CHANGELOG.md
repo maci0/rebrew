@@ -39,6 +39,13 @@
   with in-place migration for pre-CHECK tables (rows kept, outliers clamped),
   matching the `verify_results` guard path.  Workspace coverage.db readers
   use the same 30s busy timeout as `build-db` / the dashboard.
+- **Kuna GA seeds accept injected ``extern``/forward decls** again
+  (``valid_c_source(..., allow_declarations=True)``) after the LLM-seed
+  top-level lockdown; LLM seeds stay declaration-free by default.
+- **``_uv_tool_roots`` honors ``XDG_DATA_HOME``** (uv's Linux default) and
+  ``_kuna_spec_dirs`` probes ``lib64``/multiarch rizin sleigh paths.
+- **Makefile forces ``SHELL=/bin/sh``** and compares uv versions with
+  POSIX ``sort -t. -k…n`` instead of GNU ``sort -V``.
 - **``rebrew cfg add-target`` / ``remove-target --json``** emit a single JSON
   document on every path (success, idempotent, missing-binary error). Missing
   binary errors pass ``json_mode`` so scripts get ``{"error","code"}`` on
