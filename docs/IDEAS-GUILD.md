@@ -300,3 +300,17 @@ Status `open` unless noted. Promote to ROADMAP when scoped.
   an explicit `--raw-link` ack write-gate) and suppress both the status write-back and the DRIFT flips —
   report `mismatched` only.
   Evidence: guild-rebrew `docs/measure-traps.md` §56, round 1102.
+
+- **`rebrew prove` should stub import thunks instead of failing with "No terminal states reached".**
+  Pain: any function that calls an import thunk (GetTickCount, Sleep and friends via
+  `call dword ptr [0x10024xxxx]`) cannot reach a terminal state in angr, because the thunk slot has
+  no resolvable target in the loaded image. Measured in guild-rebrew on `ServerMainThread`
+  (0x100093a0, 2434 B, 55 calls, 9 indirect): full function and every slice return "No terminal
+  states reached" at timeouts 60/600/900 and loop-bounds 1/2, while the call-free control
+  0x1001bdd0 proves in seconds and a 162-byte single-call function fails the same way despite
+  being 15x smaller. The blocker is the harness, not the C.
+  Feature: seed each import-thunk address with an unconstrained stub (return-symbolic or
+  skip-and-continue) so calls through `[0x10024xxx]` do not dead-end the CFG; expose a
+  `--stub-thunks` flag so runs that need real semantics can opt out.
+  Evidence: guild-rebrew `src/server.dll/DieGildeAddOnServer/server_c/ServerMainThread.c` header,
+  "PROVEN is NOT reachable for this function" block (rounds 6-9 probes).
