@@ -1,5 +1,8 @@
 ## [Unreleased]
 ### Added
+- **``dist/rebrew.buildinfo``** records uv/python/setuptools and
+  ``SOURCE_DATE_EPOCH`` / locale knobs next to ``make build`` / package-CI
+  artifacts so a rebuild can reuse the same environment pins.
 - **Ruff rule set widened** — zero-finding stable pylint (PLW/PLC/PLR),
   flake8-type-checking (TC004/005/007/010), bandit S201/S202/S702,
   tryceratops TRY203, refurb FURB122/162, perf PERF203, pie PIE796/808,
@@ -23,6 +26,11 @@
 - **Wheel METADATA ``Security`` project URL** points at ``SECURITY.md``.
 
 ### Fixed
+- **Package CI smoke-install honors ``uv.lock``** — sync locked runtime deps
+  with ``--no-install-project``, then ``uv pip install --no-deps`` the wheel
+  (a plain wheel install was resolving live PyPI).  Setuptools ``build/`` /
+  ``egg-info`` residue is removed after ``uv build``; the reproducibility
+  step no longer pipes through ``tail``.
 - **``rebrew init`` help and warnings name ``--toolchain``**, not the retired
   ``--compiler`` flag — epilog examples and mismatch hints no longer tell
   users to pass an option Typer rejects.

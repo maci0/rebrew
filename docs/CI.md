@@ -9,8 +9,11 @@ across the supported Python versions (3.13–3.14) — including a fixture-fresh
 check (`tools/gen_fixtures.py --check`) and an idempotency sweep over the
 offline `--json` CLI surface — a pre-commit hook-parity job, a package job
 that builds the sdist/wheel under `SOURCE_DATE_EPOCH`, emits a CycloneDX 1.5
-SBOM (`dist/rebrew.cdx.json` from `uv.lock` via `tools/generate_sbom.py`), and
-installs the wheel into a clean venv for a smoke import, and a `cli-contract`
+SBOM (`dist/rebrew.cdx.json` from `uv.lock` via `tools/generate_sbom.py`), writes
+`dist/rebrew.buildinfo` (uv/python/setuptools + epoch knobs), and installs the
+wheel into a clean venv for a smoke import — runtime deps come from
+`uv sync --frozen --no-install-project`, then the wheel is overlaid with
+`--no-deps` so the smoke cannot drift past `uv.lock` — and a `cli-contract`
 job that greps the high-value `--help` surfaces. The lint job also runs
 `uv audit --locked` (diskcache's unfixed pickle advisory is
 `--ignore-until-fixed` until upstream ships a fix). The uv installer is pinned
@@ -28,11 +31,12 @@ Every job that runs `uv sync` first clones the sibling `resembl` repo
 directory above the workspace via `tools/ci_clone_resembl.sh` (retries on
 network flake; uses `GH_TOKEN` header auth when mapped from
 `secrets.GITHUB_TOKEN`): `pyproject.toml`'s `[tool.uv.sources]` resolves
-the `similarity` group's `resembl` from `../resembl`, so uv fails to build the
-installation plan when that checkout is absent — even for a sync that does not
-install the group. Keep `RESEMBL_REF` in step with the `resembl` version in
-`uv.lock`. The package job only runs `uv build` / `uv pip install` of the
-wheel, so it skips the sibling clone. The test job sets `fetch-tags: true` so
+the `similarity` group's `resembl` from `../resembl`, so a default
+`uv sync --frozen` fails to build the installation plan when that checkout is
+absent. Keep `RESEMBL_REF` in step with the `resembl` version in `uv.lock`.
+The package job skips the sibling clone: its lockfile sync uses
+`--no-default-groups --no-install-project` (no path dep needed) before the
+`--no-deps` wheel overlay. The test job sets `fetch-tags: true` so
 the packaging CHANGELOG↔tag contract runs under the default shallow checkout.
 Dev installs use `uv sync --frozen --all-extras --group similarity` (Makefile
 `make setup`); the `m2c` git dep is a separate `--group m2c` opt-in.

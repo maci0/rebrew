@@ -152,6 +152,28 @@ class TestCiPins:
         )
         assert "set -eu" in text
 
+    def test_package_smoke_honors_lockfile(self) -> None:
+        """Wheel smoke-install must not resolve runtime deps from live PyPI.
+
+        ``uv pip install dist/*.whl`` ignores ``uv.lock``; the package job
+        syncs locked deps with ``--no-install-project`` then overlays the
+        wheel with ``--no-deps``.
+        """
+        text = CI_YML.read_text(encoding="utf-8")
+        package_job = text.split("\n  package:\n", 1)[1].split("\n  cli-contract:\n", 1)[0]
+        assert "uv sync --frozen --no-dev --no-default-groups --no-install-project" in package_job
+        assert "uv pip install --python .venv-pkg --no-deps" in package_job
+        assert 'uv pip install --python .venv-pkg "${wheels[0]}"' not in package_job
+        assert "dist/rebrew.buildinfo" in package_job
+        # Repro check must not hide a failing build behind `tail`.
+        assert "dist-repro" in package_job
+        assert "| tail" not in package_job
+
+    def test_makefile_build_writes_buildinfo_and_cleans_residue(self) -> None:
+        text = MAKEFILE.read_text(encoding="utf-8")
+        assert "dist/rebrew.buildinfo" in text
+        assert "rm -rf build rebrew.egg-info" in text
+
     @pytest.mark.parametrize("path", [CI_YML, SYNC_YML, MAKEFILE, ROOT / ".pre-commit-config.yaml"])
     def test_uv_run_preserves_lockfile(self, path: Path) -> None:
         commands = [

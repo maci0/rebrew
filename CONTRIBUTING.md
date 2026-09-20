@@ -50,7 +50,7 @@ make gen-fixtures             # regenerate tests/fixtures/ after editing tools/g
 uv run ruff check src/ tests/ tools/
 uv run mypy
 uv run pre-commit run --all-files
-make build                    # reproducible sdist+wheel (SOURCE_DATE_EPOCH, TZ=UTC)
+make build                    # reproducible sdist+wheel + dist/rebrew.buildinfo (SOURCE_DATE_EPOCH, TZ=UTC)
 ```
 
 ## What to work on

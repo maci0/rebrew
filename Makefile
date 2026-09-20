@@ -42,7 +42,7 @@ help:
 		'  make audit              # uv audit --locked (matches CI lint job)' \
 		'  make check              # pre-commit run --all-files (CI pre-commit job)' \
 		'  make cli-contract       # high-value --help greps (CI cli-contract job)' \
-		'  make build              # reproducible sdist+wheel' \
+		'  make build              # reproducible sdist+wheel + dist/rebrew.buildinfo' \
 		'  make sbom               # CycloneDX 1.5 JSON from uv.lock (offline)' \
 		'  make all                # local mirror of CI lint+test+cli-contract gates' \
 		'  make gen-fixtures       # regenerate tests/fixtures/ from tools/gen_fixtures.py' \
@@ -155,10 +155,24 @@ cli-contract:
 # Build sdist + wheel under a pinned locale/timezone for deterministic wheels.
 # Drop prior package artifacts so a bumped version cannot leave multiple
 # wheels/sdists in dist/ (CI's package job expects exactly one of each).
+# After the build, remove setuptools' in-tree egg-info / build/ residue and
+# record a buildinfo manifest (toolchain + SOURCE_DATE_EPOCH) next to the
+# artifacts so a rebuild can be attempted with the same environment knobs.
 build: ensure-uv
 	@mkdir -p dist
-	@rm -f dist/*.whl dist/*.tar.gz
+	@rm -f dist/*.whl dist/*.tar.gz dist/*.buildinfo
 	SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) TZ=UTC LC_ALL=C PYTHONHASHSEED=0 uv build
+	@rm -rf build rebrew.egg-info
+	@set -eu; \
+	{ \
+	  echo "SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH)"; \
+	  echo "TZ=UTC"; \
+	  echo "LC_ALL=C"; \
+	  echo "PYTHONHASHSEED=0"; \
+	  echo "uv=$$(uv --version)"; \
+	  echo "python=$$(uv python find)"; \
+	  echo "setuptools=80.10.2"; \
+	} > dist/rebrew.buildinfo
 
 # CycloneDX 1.5 SBOM from the committed lock (no network).  Writes
 # dist/rebrew.cdx.json so package CI / release consumers share one inventory.

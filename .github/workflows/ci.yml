@@ -160,7 +160,8 @@ jobs:
 
   # Package build: prove sdist/wheel build from a clean tree, install the wheel
   # (not the editable src tree), and smoke-import. SOURCE_DATE_EPOCH + C/UTC
-  # make wheels byte-reproducible for a given commit.
+  # make wheels byte-reproducible for a given commit. Smoke deps come from
+  # uv.lock (--no-install-project + --no-deps wheel overlay), not live PyPI.
   package:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -186,7 +187,21 @@ jobs:
           set -euo pipefail
           SOURCE_DATE_EPOCH="$(git log -1 --pretty=%ct)"
           export SOURCE_DATE_EPOCH
+          mkdir -p dist
+          rm -f dist/*.whl dist/*.tar.gz dist/*.buildinfo
           uv build
+          # setuptools parks egg-info / build/ in the tree (egg_base = ".");
+          # drop them so later steps cannot read stale local build residue.
+          rm -rf build rebrew.egg-info
+          {
+            echo "SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH}"
+            echo "TZ=UTC"
+            echo "LC_ALL=C"
+            echo "PYTHONHASHSEED=0"
+            echo "uv=$(uv --version)"
+            echo "python=$(uv python find)"
+            echo "setuptools=80.10.2"
+          } > dist/rebrew.buildinfo
           shopt -s nullglob
           wheels=(dist/*.whl)
           sdists=(dist/*.tar.gz)
@@ -223,7 +238,10 @@ jobs:
           SOURCE_DATE_EPOCH="$(git log -1 --pretty=%ct)"
           export SOURCE_DATE_EPOCH
           first_sha=$(sha256sum dist/*.whl | cut -d' ' -f1)
-          uv build --wheel --no-cache --out-dir dist-repro 2>&1 | tail -1
+          # Do not pipe through tail: under pipefail a failing uv build must
+          # surface its full log, not a truncated last line.
+          uv build --wheel --no-cache --out-dir dist-repro
+          rm -rf build rebrew.egg-info
           second_sha=$(sha256sum dist-repro/*.whl | cut -d' ' -f1)
           if [[ "$first_sha" != "$second_sha" ]]; then
             echo "::error::wheel is not reproducible (first=$first_sha second=$second_sha)" >&2
@@ -231,12 +249,17 @@ jobs:
           fi
           echo "wheel reproducible: $first_sha"
       - name: Install wheel into clean venv and smoke-import
+        # Hermetic: install runtime deps from uv.lock, then overlay the just-
+        # built wheel with --no-deps so a live PyPI resolve cannot drift past
+        # the audited lock (uv pip install of a wheel ignores uv.lock).
+        # --no-default-groups --no-install-project does not need ../resembl.
         run: |
           set -euo pipefail
           shopt -s nullglob
           wheels=(dist/*.whl)
           uv venv .venv-pkg
-          uv pip install --python .venv-pkg "${wheels[0]}"
+          UV_PROJECT_ENVIRONMENT=.venv-pkg uv sync --frozen --no-dev --no-default-groups --no-install-project
+          uv pip install --python .venv-pkg --no-deps "${wheels[0]}"
           .venv-pkg/bin/python -c "from importlib.metadata import version; import rebrew; print(version('rebrew'))"
           .venv-pkg/bin/rebrew --help >/dev/null
           .venv-pkg/bin/python -c "from pathlib import Path; import rebrew; p=Path(rebrew.__file__).parent; assert (p/'agent-skills').is_dir(), p; assert (p/'AGENTS.md.template').is_file(); assert (p/'PRINCIPLES.md').is_file()"
