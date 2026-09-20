@@ -1,4 +1,33 @@
 ## [Unreleased]
+### Fixed
+- **Negative array bounds no longer collapse struct layouts.** ``type_size``
+  rejects ``T[-N]`` and bare ``void`` as field types, and ``_align_up`` ignores
+  non-positive alignments — ``char pad[-2]; int x;`` used to place both fields
+  at offset 0.
+- **``CompareResult`` carries an integer ``match_count``.** Display and climb
+  scoring prefer it over reconstructing from ``match_percent``; a 1-decimal
+  rounded percent invents or drops a byte once the compared region exceeds
+  ~2 KiB.
+- **``estimate_type_size`` treats ``T[0]`` as one element.** A zero count made
+  coverage and data_verify walk a zero-length symbol.
+
+### Changed
+- **`activate()` no longer fail-fasts on unmet coeffects.** A component whose
+  `needs` are missing stays inactive; a later `provide` mounts it, and
+  `unprovide` reverts it. ADR 014 records the current contract.
+- **Effect inverses fire at most once.** `_Effect.revert` is armed; overlapping
+  `Context.dispose` and `CoeffectScope.close` cannot run the same inverse
+  twice. Disposing the context closes every attached scope.
+- **Dashboard nested queries share one SQLite connection.** Bootstrap and
+  target-scoped routes no longer open a handle per subquery (4→1 / 2→1).
+- **Dashboard function rows skip `json.loads` on the common files cell** and
+  skip `COUNT(*)` on a short first page.
+- **Dashboard list payloads echo `limit`/`offset`.** `/api/summary` uses the
+  stats row as the existence check instead of a second `target_known` query.
+- **Dashboard `/api/functions` rows are compact arrays** keyed by `cols`.
+  500-row JSON drops from 59 KB dicts to 32 KB arrays.
+- **Dashboard first page is 100 rows.** Bootstrap and the default
+  `/api/functions` limit drop from 500; Show more still fetches 500.
 
 ## [2.6.0] - 2026-09-18
 ### Added

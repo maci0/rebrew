@@ -507,6 +507,7 @@ def build_result_dict_from_compare(
         matched=cmp.matched,
         compared_len=len(obj_bytes),
         total=total,
+        match_count=cmp.match_count,
     )
     return _result_dict_body(
         source,
@@ -655,6 +656,7 @@ def _print_compare_result(cmp: CompareResult, target_bytes: bytes) -> None:
         matched=cmp.matched,
         compared_len=len(obj_bytes),
         total=total,
+        match_count=cmp.match_count,
     )
 
     if cmp.matched:
@@ -936,7 +938,7 @@ def _run_test_impl(
     obj_bytes = cmp.obj_bytes or b""
     # Reconstruct match_count/total for cache + display from CompareResult.
     # Prefer full_obj_size for total (SIZE_MISMATCH truncates obj_bytes) but
-    # always rebuild match_count from the compared length.
+    # take match_count from CompareResult when present (avoids float round-trip).
     obj_len = cmp.full_obj_size if cmp.full_obj_size is not None else len(obj_bytes)
     total = max(len(target_bytes), obj_len) if (obj_bytes or target_bytes) else 0
     match_count = matched_byte_count(
@@ -944,6 +946,7 @@ def _run_test_impl(
         matched=matched,
         compared_len=len(obj_bytes),
         total=total,
+        match_count=cmp.match_count,
     )
 
     if cmp.status == "COMPILE_ERROR":
@@ -1481,6 +1484,7 @@ def _test_multi(
                 matched=matched,
                 compared_len=total,
                 total=total,
+                match_count=cmp.match_count,
             )
             if not matched:
                 any_failed = True

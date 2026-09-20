@@ -22,10 +22,16 @@ Composability", arXiv:2608.25512):
   halves of the paradigm (the service table is the coeffect half, the inverse
   accumulator the effect half), the `Component` protocol (`needs` is the
   coeffect specification), `CoeffectScope` (reactive resolution),
-  `activate()` (fail-fast startup registration), and `CliComponent`.
+  `activate()` (startup registration onto a `CoeffectScope`), and
+  `CliComponent`. A missing declared service leaves the component inactive;
+  it does not raise.
 - A service provision is an effect whose inverse is the key's restriction, so
   `unprovide` or disposal withdraws it, and the binding is reverted with the
-  rest of the accumulator.
+  rest of the accumulator. Each inverse is armed: `_Effect.revert` fires it
+  at most once, so overlapping `Context.dispose` and `CoeffectScope.close`
+  cannot run it twice.
+- `CoeffectScope` is a fiber on its context (`ctx.effect(self.close)`).
+  Disposing the context closes the scope. `close` is idempotent.
 - `CoeffectScope` classifies every change to the service table against each
   component's specification: a component activates when its dependencies
   appear, and is deactivated, reverting exactly the effects that activation
@@ -50,6 +56,9 @@ Composability", arXiv:2608.25512):
 - Coeffects are reactive: a service published by one component (or a plugin
   loaded later) activates its dependents without a hand-maintained order, and
   a withdrawn service reverts exactly the dependents it had activated.
+  `activate()` itself does not fail on unmet `needs`; those components stay
+  inactive until a later provision. The CLI process provides `cli` and
+  `console` before activation, so packaged tools mount immediately.
   Three refinements landed after the initial composition: every scope on the
   chain classifies every change (not just the nearest), provision is
   single-source across forks (no shadowing), and `unprovide` deactivates

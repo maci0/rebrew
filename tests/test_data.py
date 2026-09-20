@@ -522,6 +522,13 @@ class TestEstimateTypeSize:
         assert estimate_type_size("int *") == 4
         assert estimate_type_size("char *[10]") == 40
 
+    def test_zero_array_counts_as_one_element(self) -> None:
+        from rebrew.data_layout import estimate_type_size
+
+        # Flexible ``T[0]`` must not report a zero-byte extent.
+        assert estimate_type_size("char[0]") == 1
+        assert estimate_type_size("int[0]") == 4
+
     def test_unknown_defaults_int(self) -> None:
         from rebrew.data_layout import estimate_type_size
 

@@ -64,9 +64,10 @@ flowchart LR
 
 | Package / module | Responsibility |
 |---|---|
-| `rebrew/` top-level tools | One CLI command each (`test`, `verify`, `diff`, `match`, `lint`, `data`, `status`, `todo`, …), registered in `main.py` |
+| `rebrew/` top-level tools | One CLI command each (`test`, `verify`, `diff`, `match`, `lint`, `data`, `status`, `todo`, …), declared as `CliComponent` rows in `builtins.py` |
+| `rebrew/plugin.py` | Cordis composition runtime: `Context`, `CoeffectScope`, `activate()`, `CliComponent`. Mounts are reversible effects; inverses fire at most once. Unmet `needs` stay inactive; disposing the context closes the scope. HMR/loader tier is not built (ADR 014) |
 | `rebrew/intake.py` | One-shot binary onboarding: init + toolchain detect (diec → PDB → heuristics) + plugin function discovery + STUB/blocker documentation |
-| `rebrew/main.py` | Umbrella CLI. Flat `app.command()` for single-command modules, `app.add_typer()` for multi-command (`blocker`, `orphans`, `types`, `cfg`, `cache`, `extract`, `skills`, `resource`, `library`, `toolchain`) |
+| `rebrew/main.py` | Umbrella CLI. Provides `cli`/`console`, then `activate()`s packaged `CliComponent`s plus `rebrew.commands` / `rebrew.multicommands` plugins |
 | `rebrew/cli.py` | Shared options/helpers: `TargetOption`, `require_config`, `iter_annotations`, `error_exit`, `json_print`, exit codes |
 | `rebrew/sources.py` | Source-tree discovery: `source_exts`, `source_glob`, `target_marker`, `iter_sources`, `iter_library_headers` (pure pathlib/config logic, importable by library modules) |
 | `rebrew/config.py` | `ProjectConfig` dataclass + `rebrew-project.toml` loader (multi-target) |

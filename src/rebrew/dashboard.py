@@ -11,7 +11,7 @@ Endpoints
 ``GET /api/bootstrap``         → targets + first target's summary/functions (one RTT)
 ``GET /api/targets``           → list of targets (includes count/total)
 ``GET /api/summary?target=``   → function stats + coverage % (target required)
-``GET /api/functions?target=`` → function rows (filters: status, module, q, limit)
+``GET /api/functions?target=`` → function rows as arrays under ``cols`` (filters: status, module, q, limit, offset)
 ``GET /api/sections?target=``  → per-section cell stats (includes count/total)
 ``GET /api/globals?target=``   → global data rows (filter: q, limit; includes total)
 ``GET /api/history?target=``   → status-change history (limit; includes total)
@@ -21,7 +21,8 @@ the target is unknown.  Non-GET/HEAD methods return 405 with ``Allow: GET, HEAD`
 Requests whose ``Host`` header does not match the bound host (or a loopback
 alias) are rejected with 403, so a web page the analyst visits cannot reach
 the server via DNS rebinding.
-List endpoints expose ``count`` (rows in this page) and ``total`` (matching rows).
+List endpoints expose ``count`` (rows in this page), ``total`` (matching rows),
+and the applied ``limit`` / ``offset`` (offset is 0 when the endpoint has no page).
 Successful 200 responses negotiate ``gzip`` when the client accepts it, carry an
 ``ETag`` (HTML content hash or DB mtime), and use ``Cache-Control: private,
 no-cache`` so browsers can 304 without serving a stale body after ``build-db``.
@@ -41,6 +42,7 @@ import logging
 import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
+from contextvars import ContextVar
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -61,14 +63,19 @@ _LOG_CONTROL_CHARS = {code: f"\\x{code:02x}" for code in (*range(0x20), *range(0
 _LOG_CONTROL_CHARS[ord("\\")] = "\\\\"
 
 _SQLITE_TIMEOUT_SECONDS = 30.0
-_DEFAULT_LIMIT = 500
+_DEFAULT_LIMIT = 100
 _MAX_LIMIT = 5000
+_FUNCTION_COLS = ("va", "name", "symbol", "size", "status", "module", "files")
 # Below this size gzip's framing usually costs more than it saves on a LAN.
 _MIN_GZIP_BYTES = 256
 # Per-request dynamic JSON: mid effort (bodies are rebuilt every request).
 _GZIP_LEVEL = 5
 # Static HTML shell: max effort once at import; served precompressed thereafter.
 _GZIP_PRECOMPRESS_LEVEL = 9
+#: Request-scoped connection so nested query methods share one SQLite handle.
+_CURRENT_CONN: ContextVar[sqlite3.Connection | None] = ContextVar(
+    "rebrew_dashboard_conn", default=None
+)
 
 
 _INDEX_HTML = """<!doctype html>
@@ -170,7 +177,7 @@ let functionsController = null;
 let summaryController = null;
 let loadedCount = 0;
 let retryAppend = false;
-let pageLimit = 500;
+let pageLimit = 100;
 const PAGE_STEP = 500;
 const PAGE_MAX = 5000;
 const loadErrors = { summary: "", functions: "" };
@@ -261,15 +268,19 @@ function setResultsMessage(count, total) {
   }
 }
 function resetPaging() {
-  pageLimit = 500;
+  pageLimit = 100;
   loadedCount = 0;
   retryAppend = false;
 }
-const rowHtml = (f) =>
-  "<tr><td class=va>" + esc(f.va) + "</td><td>" + esc(f.name || "")
-    + "</td><td>" + esc(f.symbol || "") + "</td><td>" + esc(f.size ?? "")
-    + "</td><td>" + esc(f.status || "") + "</td><td>" + esc(f.module || "")
-    + "</td><td>" + esc(f.files || "") + "</td></tr>";
+const rowHtml = (f) => {
+  const r = Array.isArray(f)
+    ? f
+    : [f.va, f.name, f.symbol, f.size, f.status, f.module, f.files];
+  return "<tr><td class=va>" + esc(r[0] ?? "") + "</td><td>" + esc(r[1] || "")
+    + "</td><td>" + esc(r[2] || "") + "</td><td>" + esc(r[3] ?? "")
+    + "</td><td>" + esc(r[4] || "") + "</td><td>" + esc(r[5] || "")
+    + "</td><td>" + esc(r[6] || "") + "</td></tr>";
+};
 function renderFunctions(data, options) {
   const append = !!(options && options.append);
   const body = $("rows").querySelector("tbody");
@@ -280,7 +291,7 @@ function renderFunctions(data, options) {
     loadedCount += data.functions.length;
   } else {
     loadedCount = data.functions.length;
-    // One write avoids layout thrash on the default 500-row page.
+    // One write avoids layout thrash on the default first page.
     body.innerHTML = data.functions.map(rowHtml).join("");
   }
   const total = data.total ?? data.count;
@@ -521,19 +532,26 @@ class Dashboard:
     def _conn(self) -> Iterator[sqlite3.Connection]:
         """Yield a read-only connection, closed on every exit path.
 
+        Nested callers reuse the same handle (one connect per request).
         ``sqlite3.Connection`` used directly as a context manager only
         commits/rolls back the transaction — it never closes.  Under the
         threaded HTTP server that would leave one GC-dependent connection
         per request; closing here releases the handle deterministically.
         """
+        existing = _CURRENT_CONN.get()
+        if existing is not None:
+            yield existing
+            return
         # Percent-encode the path (``sqlite_ro_uri``): a raw ``file:{p}?mode=ro``
         # truncates or rewrites names that contain ``?`` / ``#`` / ``%``.
         conn = sqlite3.connect(
             sqlite_ro_uri(self.db_path), uri=True, timeout=_SQLITE_TIMEOUT_SECONDS
         )
+        token = _CURRENT_CONN.set(conn)
         try:
             yield conn
         finally:
+            _CURRENT_CONN.reset(token)
             conn.close()
 
     def targets(self) -> list[str]:
@@ -548,25 +566,29 @@ class Dashboard:
 
         Collapses the HTML app's cold-start waterfall (targets → summary +
         functions) into a single round trip.  Filter/paging still use the
-        dedicated endpoints after the first paint.
+        dedicated endpoints after the first paint.  Nested queries share one
+        SQLite connection.
         """
-        targets = self.targets()
-        payload: dict[str, Any] = {
-            "targets": targets,
-            "count": len(targets),
-            "total": len(targets),
-            "target": None,
-            "summary": None,
-            "functions": None,
-        }
-        if not targets:
-            return payload
-        target = targets[0]
-        payload["target"] = target
-        if self.target_known(target):
+        with self._conn():
+            targets = self.targets()
+            payload: dict[str, Any] = {
+                "targets": targets,
+                "count": len(targets),
+                "total": len(targets),
+                "limit": len(targets),
+                "offset": 0,
+                "target": None,
+                "summary": None,
+                "functions": None,
+            }
+            if not targets:
+                return payload
+            target = targets[0]
+            payload["target"] = target
             payload["summary"] = self.summary(target)
-            payload["functions"] = self.functions(target, limit=_DEFAULT_LIMIT)
-        return payload
+            if payload["summary"] is not None:
+                payload["functions"] = self.functions(target, limit=_DEFAULT_LIMIT)
+            return payload
 
     def summary(self, target: str) -> dict[str, Any] | None:
         with self._conn() as conn:
@@ -635,24 +657,32 @@ class Dashboard:
         )
         with self._conn() as conn:
             rows = conn.execute(query, [*args, limit, offset]).fetchall()
-            total = conn.execute(
-                f"SELECT COUNT(*) FROM functions WHERE {where_sql}",
-                args,
-            ).fetchone()[0]
+            # Short first page: COUNT equals len(rows). Skip the second scan.
+            # A later empty/short page still needs COUNT (offset past the end).
+            if offset == 0 and len(rows) < limit:
+                total = len(rows)
+            else:
+                total = conn.execute(
+                    f"SELECT COUNT(*) FROM functions WHERE {where_sql}",
+                    args,
+                ).fetchone()[0]
         return {
             "target": target,
             "count": len(rows),
             "total": total,
+            "limit": limit,
+            "offset": offset,
+            "cols": list(_FUNCTION_COLS),
             "functions": [
-                {
-                    "va": f"0x{r[0]:08x}" if r[0] else "???",
-                    "name": r[1] or "",
-                    "symbol": r[2] or "",
-                    "size": r[3],
-                    "status": r[4] or "",
-                    "module": r[5] or "",
-                    "files": ", ".join(_load_list(r[6])),
-                }
+                [
+                    f"0x{r[0]:08x}" if r[0] else "???",
+                    r[1] or "",
+                    r[2] or "",
+                    r[3],
+                    r[4] or "",
+                    r[5] or "",
+                    _files_display(r[6]),
+                ]
                 for r in rows
             ],
         }
@@ -695,6 +725,8 @@ class Dashboard:
             "target": target,
             "count": len(sections),
             "total": len(sections),
+            "limit": len(sections),
+            "offset": 0,
             "sections": sections,
         }
 
@@ -713,14 +745,19 @@ class Dashboard:
                 f"{where_sql} ORDER BY va LIMIT ?",
                 [*args, limit],
             ).fetchall()
-            total = conn.execute(
-                f"SELECT COUNT(*) FROM globals WHERE {where_sql}",
-                args,
-            ).fetchone()[0]
+            if len(rows) < limit:
+                total = len(rows)
+            else:
+                total = conn.execute(
+                    f"SELECT COUNT(*) FROM globals WHERE {where_sql}",
+                    args,
+                ).fetchone()[0]
         return {
             "target": target,
             "count": len(rows),
             "total": total,
+            "limit": limit,
+            "offset": 0,
             "globals": [
                 {
                     "va": f"0x{r[0]:08x}" if r[0] else "???",
@@ -740,14 +777,19 @@ class Dashboard:
                 "WHERE target = ? ORDER BY id DESC LIMIT ?",
                 (target, limit),
             ).fetchall()
-            total = conn.execute(
-                "SELECT COUNT(*) FROM history WHERE target = ?",
-                (target,),
-            ).fetchone()[0]
+            if len(rows) < limit:
+                total = len(rows)
+            else:
+                total = conn.execute(
+                    "SELECT COUNT(*) FROM history WHERE target = ?",
+                    (target,),
+                ).fetchone()[0]
         return {
             "target": target,
             "count": len(rows),
             "total": total,
+            "limit": limit,
+            "offset": 0,
             "history": [
                 {
                     "va": f"0x{r[0]:08x}" if r[0] else "???",
@@ -794,7 +836,13 @@ class Dashboard:
             targets = self.targets()
             return self._json(
                 200,
-                {"targets": targets, "count": len(targets), "total": len(targets)},
+                {
+                    "targets": targets,
+                    "count": len(targets),
+                    "total": len(targets),
+                    "limit": len(targets),
+                    "offset": 0,
+                },
             )
 
         # All remaining endpoints require ?target=
@@ -808,44 +856,44 @@ class Dashboard:
             target = _opt_query(query, "target") or ""
             if not target:
                 return self._json(400, {"error": "missing required query parameter 'target'"})
-            if not self.target_known(target):
-                return self._json(404, {"error": f"unknown target {target!r}"})
-            if parsed.path == "/api/summary":
-                result = self.summary(target)
-                # target_known guarantees function_stats; summary still guards None.
-                if result is None:
+            with self._conn():
+                if parsed.path == "/api/summary":
+                    result = self.summary(target)
+                    if result is None:
+                        return self._json(404, {"error": f"unknown target {target!r}"})
+                    return self._json(200, result)
+                if not self.target_known(target):
                     return self._json(404, {"error": f"unknown target {target!r}"})
-                return self._json(200, result)
-            if parsed.path == "/api/functions":
+                if parsed.path == "/api/functions":
+                    return self._json(
+                        200,
+                        self.functions(
+                            target,
+                            status=_opt_query(query, "status"),
+                            module=_opt_query(query, "module"),
+                            q=_opt_query(query, "q"),
+                            limit=_int_param(query, "limit", _DEFAULT_LIMIT),
+                            offset=_int_param(query, "offset", 0),
+                        ),
+                    )
+                if parsed.path == "/api/sections":
+                    return self._json(200, self.sections(target))
+                if parsed.path == "/api/globals":
+                    return self._json(
+                        200,
+                        self.globals(
+                            target,
+                            q=_opt_query(query, "q"),
+                            limit=_int_param(query, "limit", _DEFAULT_LIMIT),
+                        ),
+                    )
                 return self._json(
                     200,
-                    self.functions(
+                    self.history(
                         target,
-                        status=_opt_query(query, "status"),
-                        module=_opt_query(query, "module"),
-                        q=_opt_query(query, "q"),
-                        limit=_int_param(query, "limit", _DEFAULT_LIMIT),
-                        offset=_int_param(query, "offset", 0),
+                        limit=_int_param(query, "limit", 100),
                     ),
                 )
-            if parsed.path == "/api/sections":
-                return self._json(200, self.sections(target))
-            if parsed.path == "/api/globals":
-                return self._json(
-                    200,
-                    self.globals(
-                        target,
-                        q=_opt_query(query, "q"),
-                        limit=_int_param(query, "limit", _DEFAULT_LIMIT),
-                    ),
-                )
-            return self._json(
-                200,
-                self.history(
-                    target,
-                    limit=_int_param(query, "limit", 100),
-                ),
-            )
         return self._json(404, {"error": f"no such endpoint {parsed.path!r}"})
 
     @staticmethod
@@ -865,6 +913,23 @@ def _load_list(raw: str | None) -> list[str]:
     except (json.JSONDecodeError, TypeError):
         return []
     return [str(v) for v in value] if isinstance(value, list) else []
+
+
+def _files_display(raw: str | None) -> str:
+    """Join the stored JSON files list for the table cell.
+
+    ``build_db`` writes ``json.dumps(files)``. The common cell is ``[]``,
+    ``["a.c"]``, or ``["a.c", "b.h"]`` — slice that; ``json.loads`` only for
+    escaped or odd payloads.
+    """
+    if not raw or raw == "[]":
+        return ""
+    if raw.startswith('["') and raw.endswith('"]') and "\\" not in raw:
+        inner = raw[2:-2]
+        if '",' not in inner:
+            return inner
+        return inner.replace('", "', ", ").replace('","', ", ")
+    return ", ".join(_load_list(raw))
 
 
 def _local_interface_ips() -> set[str]:

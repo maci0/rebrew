@@ -28,6 +28,8 @@ Two places, both required:
 
 - `src/rebrew/builtins.py`: append a `CliComponent` (name, module, help,
   panel, group). The `help` string shows in `--help`; keep it one line.
+  Default `needs` are `cli` and `console`; `apply()` mounts only while
+  those services are provided. Unmount is a tracked inverse (ADR 014).
 - `pyproject.toml` `[project.scripts]`: add
   `rebrew-<name> = "rebrew.<module>:main_entry"` for the standalone script.
 

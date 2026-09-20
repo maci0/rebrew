@@ -9,7 +9,7 @@ import pytest
 from typer.testing import CliRunner
 
 from rebrew.build_db import build_db
-from rebrew.dashboard import _INDEX_HTML, Dashboard
+from rebrew.dashboard import _INDEX_HTML, Dashboard, _files_display
 
 
 def _write_data(db_dir: Path, target: str = "server_dll") -> Path:
@@ -141,6 +141,31 @@ class TestQueryLayer:
         with pytest.raises(sqlite3.ProgrammingError):
             conn2.execute("SELECT 1")
 
+    def test_nested_queries_share_one_connection(self, dashboard: Dashboard) -> None:
+        """First paint and target-scoped routes must not open a handle per query."""
+        import sqlite3
+        from unittest.mock import patch
+
+        orig = sqlite3.connect
+        counts = {"n": 0}
+
+        def counting(*args: object, **kwargs: object) -> sqlite3.Connection:
+            counts["n"] += 1
+            return orig(*args, **kwargs)
+
+        with patch("sqlite3.connect", counting):
+            counts["n"] = 0
+            dashboard.bootstrap()
+            assert counts["n"] == 1
+
+            counts["n"] = 0
+            dashboard.handle("GET", "/api/functions", {"target": ["server_dll"]})
+            assert counts["n"] == 1
+
+            counts["n"] = 0
+            dashboard.handle("GET", "/api/summary", {"target": ["server_dll"]})
+            assert counts["n"] == 1
+
     def test_summary(self, dashboard: Dashboard) -> None:
         s = dashboard.summary("server_dll")
         assert s is not None
@@ -160,21 +185,30 @@ class TestQueryLayer:
     def test_functions_all(self, dashboard: Dashboard) -> None:
         data = dashboard.functions("server_dll")
         assert data["total"] == 2
-        assert data["functions"][0]["va"] == "0x10001000"
-        assert data["functions"][0]["files"] == "a.c"
+        assert data["cols"] == ["va", "name", "symbol", "size", "status", "module", "files"]
+        assert data["functions"][0][0] == "0x10001000"
+        assert data["functions"][0][6] == "a.c"
+
+    def test_files_display_skips_json_loads_for_common_cells(self) -> None:
+        assert _files_display(None) == ""
+        assert _files_display("[]") == ""
+        assert _files_display('["a.c"]') == "a.c"
+        assert _files_display('["a.c", "b.h"]') == "a.c, b.h"
+        assert _files_display('["a.c","b.h"]') == "a.c, b.h"
+        assert _files_display(r'["dir\\file.c"]') == r"dir\file.c"
 
     def test_functions_status_filter(self, dashboard: Dashboard) -> None:
         data = dashboard.functions("server_dll", status="STUB")
         assert data["count"] == 1
         assert data["total"] == 1
-        assert data["functions"][0]["name"] == "func_b"
-        assert data["functions"][0]["status"] == "STUB"
+        assert data["functions"][0][1] == "func_b"
+        assert data["functions"][0][4] == "STUB"
 
     def test_functions_module_filter(self, dashboard: Dashboard) -> None:
         data = dashboard.functions("server_dll", module="SERVER")
         assert data["count"] == 2
         assert data["total"] == 2
-        assert {row["module"] for row in data["functions"]} == {"SERVER"}
+        assert {row[5] for row in data["functions"]} == {"SERVER"}
         empty = dashboard.functions("server_dll", module="NOPE")
         assert empty["count"] == 0
         assert empty["total"] == 0
@@ -183,7 +217,7 @@ class TestQueryLayer:
     def test_functions_search(self, dashboard: Dashboard) -> None:
         data = dashboard.functions("server_dll", q="func_a")
         assert data["count"] == 1
-        assert data["functions"][0]["symbol"] == "_func_a"
+        assert data["functions"][0][2] == "_func_a"
 
     def test_sections(self, dashboard: Dashboard) -> None:
         payload = dashboard.sections("server_dll")
@@ -322,6 +356,7 @@ class TestHandle:
         assert payload["summary"]["target"] == "server_dll"
         assert payload["functions"] is not None
         assert payload["functions"]["count"] >= 1
+        assert payload["functions"]["limit"] == 100
         # Compact JSON: no space after colon/comma in the wire body.
         assert body == json.dumps(payload, separators=(",", ":"))
 
@@ -339,7 +374,13 @@ class TestHandle:
 
         status, _, body = dashboard.handle("GET", "/api/targets", {})
         assert status == 200
-        assert json.loads(body) == {"targets": ["empty"], "count": 1, "total": 1}
+        assert json.loads(body) == {
+            "targets": ["empty"],
+            "count": 1,
+            "total": 1,
+            "limit": 1,
+            "offset": 0,
+        }
 
         status, _, body = dashboard.handle("GET", "/api/bootstrap", {})
         assert status == 200
@@ -358,6 +399,8 @@ class TestHandle:
         assert payload["targets"] == ["server_dll"]
         assert payload["count"] == 1
         assert payload["total"] == 1
+        assert payload["limit"] == 1
+        assert payload["offset"] == 0
 
     def test_api_summary_missing_target_404(self, dashboard: Dashboard) -> None:
         status, _, body = dashboard.handle("GET", "/api/summary", {"target": ["nope"]})
@@ -403,8 +446,8 @@ class TestHandle:
         payload = json.loads(body)
         assert payload["count"] == 1
         assert payload["total"] == 1
-        assert payload["functions"][0]["name"] == "func_b"
-        assert payload["functions"][0]["status"] == "STUB"
+        assert payload["functions"][0][1] == "func_b"
+        assert payload["functions"][0][4] == "STUB"
 
     def test_functions_pages_do_not_repeat_rows(self, dashboard: Dashboard) -> None:
         pages = []
@@ -418,8 +461,16 @@ class TestHandle:
             page = json.loads(body)
             assert page["count"] == 1
             assert page["total"] == 2
+            assert page["limit"] == 1
+            assert page["offset"] == offset
             pages.extend(page["functions"])
         assert pages == dashboard.functions("server_dll")["functions"]
+
+    def test_functions_offset_past_end_keeps_total(self, dashboard: Dashboard) -> None:
+        data = dashboard.functions("server_dll", limit=1, offset=50)
+        assert data["count"] == 0
+        assert data["total"] == 2
+        assert data["offset"] == 50
 
     def test_api_functions_nonpositive_limit_uses_default(self, dashboard: Dashboard) -> None:
         status, _, body = dashboard.handle(
@@ -429,6 +480,8 @@ class TestHandle:
         payload = json.loads(body)
         assert payload["count"] == 2
         assert payload["total"] == 2
+        assert payload["limit"] == 100
+        assert payload["offset"] == 0
 
     def test_api_sections_includes_count_total(self, dashboard: Dashboard) -> None:
         status, _, body = dashboard.handle("GET", "/api/sections", {"target": ["server_dll"]})
@@ -788,7 +841,17 @@ class TestHostValidation:
     def test_functions_omit_unused_marker_type(self, dashboard: Dashboard) -> None:
         """The table never reads markerType; keep it off the JSON wire."""
         row = dashboard.functions("server_dll")["functions"][0]
-        assert "markerType" not in row
+        assert dashboard.functions("server_dll")["cols"] == [
+            "va",
+            "name",
+            "symbol",
+            "size",
+            "status",
+            "module",
+            "files",
+        ]
+        assert isinstance(row, list)
+        assert len(row) == 7
 
     def test_index_html_bootstraps_in_one_round_trip(self, dashboard: Dashboard) -> None:
         """Cold start uses /api/bootstrap; target changes still parallel-fetch."""

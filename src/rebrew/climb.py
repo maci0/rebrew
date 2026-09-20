@@ -228,9 +228,9 @@ def _score(
         return -1.0, 0
     # The longer side is truncated before comparison, so ``obj_bytes`` is not
     # the object's real length on a size mismatch; ``full_obj_size`` is.
-    # match_percent's denominator is that truncated common length — reconstruct
-    # against it, not against max(original target, common), or a perfect 5B
-    # prefix of a 100B target scores 100.
+    # Prefer ``result.match_count`` (integer from classify) over reconstructing
+    # from the float percent — a rounded percent invents/drops a byte on
+    # multi-KiB functions.
     obj_len = result.full_obj_size if result.full_obj_size is not None else len(result.obj_bytes)
     compared = len(result.obj_bytes)
     total = max(len(target_bytes), compared)
@@ -241,6 +241,7 @@ def _score(
                 matched=result.matched,
                 compared_len=compared,
                 total=total,
+                match_count=result.match_count,
             )
         ),
         obj_len,

@@ -166,6 +166,15 @@ a component name has exactly one provider).
 | MSVC version table | `rebrew.msvc_versions` | `module:attr` — zero-arg callable returning `dict["build:<n>" \| "linker:<M>.<m>", list[profile]]`; a plugin MSVC-derivative declares which exact builds it byte-matches, joining the version-exact `suggested_profiles` (union per key) |
 | Compile-cache backend | `rebrew.cache_backends` | `module:attr` — factory `(cache_dir, size_limit) -> CacheBackend` (get/put/volume/count/clear/close/stats); selected via `[cache] backend` in `rebrew-project.toml`; the keying semantics are shared and not pluggable |
 
+CLI tools (packaged and third-party) mount through `rebrew.plugin`.
+`main.compose()` provides the `cli` and `console` services, then
+`activate()` registers every `CliComponent` on a `CoeffectScope`.
+A component whose `needs` are missing stays inactive until those
+services appear; withdrawing a service unmounts its dependents.
+Disposing the context closes the scope; inverses fire at most once.
+A CLI process composes once; there is no hot-reload. See
+[ADR 014](adr/014-component-composition.md).
+
 A CLI plugin whose module cannot be imported degrades to a stub command that
 reports the missing dependency (exit 2) — the same fallback built-ins get
 when an optional dependency is absent.  A non-CLI registration that fails to

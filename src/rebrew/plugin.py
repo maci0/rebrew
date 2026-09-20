@@ -84,10 +84,20 @@ class _Effect:
     ``key`` is set for a service provision, whose inverse is the restriction of
     that key (Definition 20: ``set(k, v)`` has inverse ``σ ↦ σ ∖ k``), so the
     provision can be undone on its own while the other effects are retained.
+    ``armed`` is the once-guard: ``revert`` fires the inverse at most once, so
+    overlapping teardown paths (context dispose and scope close) cannot run it
+    twice.
     """
 
     dispose: Disposer
     key: str | None = None
+    armed: bool = True
+
+    def revert(self) -> None:
+        if not self.armed:
+            return
+        self.armed = False
+        self.dispose()
 
 
 class Context:
@@ -155,7 +165,7 @@ class Context:
             if effect.key == key:
                 del self._effects[index]
                 # The inverse (restriction) notifies the scope itself.
-                effect.dispose()
+                effect.revert()
                 break
 
     def _restrict(self, key: str) -> Disposer:
@@ -222,7 +232,7 @@ class Context:
         # must not reclassify anything during teardown.
         self._on_change.clear()
         while self._effects:
-            self._effects.pop().dispose()
+            self._effects.pop().revert()
 
     def _changed(self) -> None:
         """A service table change: hand it to every attached scope.
@@ -285,10 +295,15 @@ class CoeffectScope:
         self._ctx = ctx
         self._entries: list[_Entry] = []
         self._settling = False
+        self._closed = False
         ctx._on_change.append(self._classify)
+        # The scope is a fiber: disposing the context must close it.
+        ctx.effect(self.close)
 
     def add(self, component: Component) -> None:
         """Register *component*; it activates as soon as its needs are met."""
+        if self._closed:
+            return
         self._entries.append(_Entry(component=component, needs=tuple(component.needs)))
         self._classify()
 
@@ -298,6 +313,9 @@ class CoeffectScope:
 
     def close(self) -> None:
         """Deactivate every entry, newest first."""
+        if self._closed:
+            return
+        self._closed = True
         with contextlib.suppress(ValueError):
             self._ctx._on_change.remove(self._classify)
         self._settling = True
@@ -317,7 +335,7 @@ class CoeffectScope:
         Called by ``unprovide`` before the binding is withdrawn, so each
         dependent reverts while the service is still resolvable.
         """
-        if self._settling:
+        if self._closed or self._settling:
             return
         self._settling = True
         try:
@@ -338,7 +356,7 @@ class CoeffectScope:
         processed, so no component ever resolves against a half-withdrawn
         table (the relied-upon-before-dependent order of Theorem 70).
         """
-        if self._settling:
+        if self._closed or self._settling:
             return
         self._settling = True
         try:
@@ -368,7 +386,7 @@ class CoeffectScope:
             # None), so no later deactivation would revert them. Revert here.
             for effect in reversed(owned):
                 self._ctx._forget(effect)
-                effect.dispose()
+                effect.revert()
             raise
         finally:
             self._ctx._owners.pop()
@@ -379,7 +397,7 @@ class CoeffectScope:
         entry.effects = None
         for effect in reversed(effects):
             self._ctx._forget(effect)
-            effect.dispose()
+            effect.revert()
 
 
 def activate(components: Iterable[Component], ctx: Context) -> CoeffectScope:
@@ -394,11 +412,6 @@ def activate(components: Iterable[Component], ctx: Context) -> CoeffectScope:
     for component in components:
         scope.add(component)
     return scope
-
-
-def _component_name(component: Component) -> str:
-    name = getattr(component, "name", None)
-    return name if isinstance(name, str) else type(component).__name__
 
 
 def _remove_identity(items: list[Any], item: Any) -> None:

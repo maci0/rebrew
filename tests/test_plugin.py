@@ -201,6 +201,34 @@ class TestReactiveCoeffects:
         assert comp.log == ["on", "off"]
         assert scope.unresolved() == []
 
+    def test_dispose_closes_scope_and_reverts_once(self) -> None:
+        ctx = Context()
+        scope = CoeffectScope(ctx)
+        comp = _RevertibleComponent()
+        scope.add(comp)
+        ctx.dispose()
+        assert comp.log == ["on", "off"]
+        scope.close()
+        ctx.dispose()
+        assert comp.log == ["on", "off"]
+
+    def test_close_then_dispose_reverts_once(self) -> None:
+        ctx = Context()
+        scope = CoeffectScope(ctx)
+        comp = _RevertibleComponent()
+        scope.add(comp)
+        scope.close()
+        ctx.dispose()
+        assert comp.log == ["on", "off"]
+
+    def test_add_after_close_does_not_activate(self) -> None:
+        ctx = Context()
+        scope = CoeffectScope(ctx)
+        scope.close()
+        late = _RevertibleComponent()
+        scope.add(late)
+        assert late.log == []
+
 
 class TestCliComponent:
     def _context(self, app: typer.Typer) -> Context:
@@ -402,7 +430,7 @@ class TestMidApplyFailure:
         with pytest.raises(RuntimeError, match="mid-apply failure"):
             scope.add(_Boom())
         assert not ctx.has("half")
-        assert ctx._effects == []
+        assert [effect.key for effect in ctx._effects] == [None]
         assert scope._entries[0].effects is None
 
 

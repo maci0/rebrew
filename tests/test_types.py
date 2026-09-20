@@ -59,6 +59,25 @@ class TestStructSizes:
         assert type_size("struct Unknown") is None
         assert type_size("") is None
 
+    def test_negative_array_size_is_none(self) -> None:
+        # ``char pad[-2]; int x;`` used to lay both fields at offset 0.
+        from rebrew.types import type_size
+
+        assert type_size("char[-2]") is None
+        assert type_size("int[-1]") is None
+
+    def test_void_field_type_is_none(self) -> None:
+        from rebrew.types import type_size
+
+        assert type_size("void") is None
+        assert type_size("void *") == 4  # pointers still size
+
+    def test_negative_array_does_not_overlap_next_field(self) -> None:
+        structs = parse_structs("typedef struct { char pad[-2]; int x; } Bad;")
+        bad = structs["Bad"]
+        assert bad.complete is False
+        assert bad.fields == []  # parse stops before the invalid field
+
     def test_array_of_double_aligns_to_eight(self) -> None:
         """An array aligns by its element: ``double arr[2]`` is 8-aligned."""
         s = parse_structs("typedef struct { char c; double arr[2]; } S;")["S"]

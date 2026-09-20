@@ -118,7 +118,11 @@ class CompareResult:
         status: One of ``EXACT``, ``RELOC``, ``NEAR_MATCHING``, ``STUB``,
             ``SIZE_MISMATCH``, ``COMPILE_ERROR``, ``MISSING_SIZE``, ``MISSING_FILE``.
         match_percent: Percentage of bytes that match (0-100).  On mismatch,
-            computed as a raw byte-by-byte comparison without reloc masking.
+            computed as matching / target_len * 100 with reloc slots masked.
+        match_count: Matching bytes in the compared (common-prefix) region,
+            or ``None`` on compile/extract failure.  Prefer this over
+            reconstructing from ``match_percent`` — a 1-decimal rounded
+            percent round-trips off-by-one on functions of a few KiB.
         delta: Absolute byte difference (mismatch count + size delta).
         obj_bytes: Compiled bytes extracted from the ``.obj`` file, or ``None``
             on compile/extract failure.
@@ -150,6 +154,9 @@ class CompareResult:
     inv_reloc_offsets: list[int] = field(default_factory=list)
     full_obj_size: int | None = None
     full_obj_bytes: bytes | None = None
+    #: Matching bytes in the compared region (see ``match_count`` attribute).
+    #: ``None`` when classification never reached a byte compare.
+    match_count: int | None = None
     #: Number of differing disassembly lines between the compiled and target
     #: bytes (``None`` when not computed).  Populated by ``rebrew verify`` for
     #: unmatched functions so the recoverage-consumed ``verify_results``
@@ -190,12 +197,20 @@ def matched_byte_count(
     matched: bool,
     compared_len: int,
     total: int,
+    match_count: int | None = None,
 ) -> int:
-    """Reconstruct matching bytes from ``match_percent``.
+    """Reconstruct matching bytes from ``match_percent``, or pass through *match_count*.
 
-    :func:`classify_compare_result` defines ``match_percent`` as
-    ``matching / compared_len * 100`` where *compared_len* is the common
-    (possibly truncated) length. Reconstruct against that denominator.
+    Prefer *match_count* from :class:`CompareResult` when available —
+    :func:`classify_compare_result` records the integer matching-byte count
+    before it is folded into a float percent.  Reconstructing from a
+    percent (especially one rounded to one decimal for the verify cache)
+    invents or drops a byte once *compared_len* exceeds ~2 KiB.
+
+    When *match_count* is absent, :func:`classify_compare_result` defines
+    ``match_percent`` as ``matching / target_len * 100`` where *target_len*
+    equals *compared_len* after the SIZE_MISMATCH path truncates both sides
+    to the common prefix. Reconstruct against that denominator.
 
     Scaling by ``total = max(target, full_obj)`` instead invents matches when
     the object is longer (50% of a 10B target → 6 of 13) and treats a perfect
@@ -203,6 +218,8 @@ def matched_byte_count(
     """
     if matched:
         return total
+    if match_count is not None:
+        return match_count
     if compared_len <= 0:
         return 0
     return int(round(match_percent / 100.0 * compared_len))
@@ -286,6 +303,7 @@ def classify_compare_result(
     relocs = reloc_offsets or []
 
     if matched:
+        n = len(target_bytes) if target_bytes is not None else 0
         return CompareResult(
             matched=True,
             status="RELOC" if relocs else "EXACT",
@@ -295,6 +313,7 @@ def classify_compare_result(
             reloc_offsets=relocs,
             message=msg,
             inv_reloc_offsets=inv,
+            match_count=n,
             # Thread through for --fix-sizes reclassification: the caller
             # rebuilds a matched result from a truncated SIZE_MISMATCH view
             # and needs the full size preserved for reporting.
@@ -311,6 +330,7 @@ def classify_compare_result(
             obj_bytes=None,
             reloc_offsets=None,
             message=msg,
+            match_count=0,
         )
 
     if "COMPILE_ERROR" in msg or obj_bytes is None:
@@ -322,6 +342,7 @@ def classify_compare_result(
             obj_bytes=None,
             reloc_offsets=None,
             message=msg,
+            match_count=0,
         )
 
     if "MISSING" in msg:
@@ -333,6 +354,7 @@ def classify_compare_result(
             obj_bytes=obj_bytes,
             reloc_offsets=relocs,
             message=msg,
+            match_count=0,
         )
 
     # Compute delta and match_percent for partial matches.
@@ -342,6 +364,7 @@ def classify_compare_result(
     # behavior and treats reloc bytes as matches.
     match_percent = 0.0
     delta = 0
+    matching_bytes = 0
     if target_bytes is not None:
         target_len = len(target_bytes)
         cmp_len = min(target_len, len(obj_bytes))
@@ -358,10 +381,11 @@ def classify_compare_result(
                     reloc_mask[r:end] = True
             diff_mask = diff_mask & ~reloc_mask
         mismatches = int(np.count_nonzero(diff_mask))
+        matching_bytes = cmp_len - mismatches
         # abs(len diff) already counts every missing/extra byte - adding
         # `missing` again would double-count short objects (skewing delta,
         # and with it verify/status/todo metrics).
-        match_percent = ((cmp_len - mismatches) / target_len) * 100 if target_len else 0.0
+        match_percent = (matching_bytes / target_len) * 100 if target_len else 0.0
         # abs(len diff) counts every missing/extra byte at THIS call's lengths.
         # The SIZE_MISMATCH caller truncates both sides before classifying, so
         # it passes the pre-truncation length difference via size_delta -
@@ -416,6 +440,7 @@ def classify_compare_result(
         reloc_offsets=relocs,
         message=msg,
         inv_reloc_offsets=inv,
+        match_count=matching_bytes,
         full_obj_size=full_obj_size,
         full_obj_bytes=full_obj_bytes,
     )
@@ -2189,6 +2214,7 @@ def compile_and_compare_linked(
                 delta=abs(len(linked_bytes) - len(target_bytes)) + mismatches,
                 obj_bytes=linked_bytes,
                 reloc_offsets=None,
+                match_count=common - mismatches,
                 message=(
                     f"SIZE_MISMATCH: linked slice {len(linked_bytes)}B vs target "
                     f"{len(target_bytes)}B (linked .text too short at pad 0x{pad:x})"

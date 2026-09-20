@@ -57,6 +57,49 @@ mitigates), not by the numpy/capstone scoring path. Future perf work on
 the GA should target compile throughput (cache hit rate, parallel
 compiles), not `score_candidate`.
 
+## Dashboard first paint (`bootstrap` / `/api/functions`)
+
+Nested query methods each opened their own read-only SQLite connection.
+Cold-start `bootstrap()` therefore connected four times (targets, known-target
+check, summary, functions); `/api/functions` and `/api/summary` connected twice
+(`target_known` then the query).
+
+Nested `_conn()` now reuses the request handle. Connects per call: bootstrap
+4→1, functions/summary 2→1. Gate:
+`TestQueryLayer.test_nested_queries_share_one_connection`.
+
+Measured 50 warmed calls on 500 synthetic functions (CPU time, `getrusage`):
+
+| Path | before connects | after connects | CPU / 50 |
+|---|---|---|---|
+| `bootstrap()` | 4 | 1 | 0.047 s → 0.036 s |
+| `/api/functions` | 2 | 1 | 0.050 s → 0.044 s |
+| `/api/summary` | 2 | 1 | 0.008 s → 0.004 s |
+
+`_load_list` used `json.loads` once per function row (55 % of `/api/functions`
+CPU on 500 rows). `_files_display` now slices the common `["a.c"]` cell.
+`COUNT(*)` is skipped when the page is already short. Gate:
+`test_files_display_skips_json_loads_for_common_cells`.
+
+Measured 100 warmed `/api/functions` calls on 500 synthetic functions
+(CPU time, `getrusage` / `cProfile`):
+
+| | calls | CPU / 100 | `json.loads` |
+|---|---|---|---|
+| after connect reuse | 660 920 | 0.185 s | 50 000 |
+| after files/COUNT skip | 361 001 | 0.067 s | 0 |
+
+`/api/functions` now emits compact arrays under `cols` instead of per-row
+dicts. 500-row JSON 58 915 → 31 978 bytes (0.54×). `json.dumps` CPU / 200:
+0.033 s → 0.020 s. Gate: `test_functions_omit_unused_marker_type`.
+
+First page default is 100 rows (Show more still 500). On 2000 synthetic
+functions, `/api/functions` CPU / 100: 500 rows 0.059 s / 32 KB → 100 rows
+0.026 s / 6 KB. Bootstrap follows the same first-page limit.
+
+Remaining: 100-row HTML join. Table virtualization and cross-request pooling
+were not measured.
+
 ## Idempotency
 
 Every offline `--json` command is deterministic across runs — enforced by

@@ -17,11 +17,14 @@ _PRIMITIVE_SIZES: dict[str, int] = {
     "long": 4,
     "float": 4,
     "double": 8,
-    "void": 0,
 }
 
 
 def _align_up(offset: int, align: int) -> int:
+    # align <= 0 is not a valid natural alignment (negative field sizes used
+    # to reach here and ``offset % align`` then moved the cursor backwards).
+    if align <= 1:
+        return offset
     remainder = offset % align
     return offset if remainder == 0 else offset + (align - remainder)
 
@@ -57,6 +60,10 @@ def type_size(spelling: str, known_structs: dict[str, StructDef] | None = None) 
         if known_structs and struct_name in known_structs:
             return known_structs[struct_name].size
         return None
+    if text == "void":
+        # Incomplete type — never a struct field.  Size 0 previously let the
+        # next field share offset 0 (``typedef struct { void v; int x; }``).
+        return None
     if text in _PRIMITIVE_SIZES:
         return _PRIMITIVE_SIZES[text]
     if text.endswith("]"):
@@ -64,6 +71,10 @@ def type_size(spelling: str, known_structs: dict[str, StructDef] | None = None) 
         try:
             count = int(count_text.strip())
         except ValueError:
+            return None
+        # Negative bounds are not valid C array sizes; accepting them made
+        # ``char pad[-2]; int x;`` lay both fields at offset 0.
+        if count < 0:
             return None
         base_size = type_size(base.strip(), known_structs)
         return None if base_size is None else base_size * count
@@ -216,7 +227,9 @@ def _field_align(spelling: str, size: int, known: dict[str, StructDef] | None) -
         return _field_align(base, base_size, known)
     if text == "double":
         return 8
-    return min(size, 4) if size else 1
+    # size <= 0 (flexible ``T[0]``, or a caller that slipped past type_size)
+    # must not yield a negative align for ``_align_up``.
+    return min(size, 4) if size > 0 else 1
 
 
 def check_struct(

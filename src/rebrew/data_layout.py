@@ -632,6 +632,11 @@ def estimate_type_size(type_str: str) -> int:
     """Byte size of a declared C type string (pointer- and array-aware)."""
     arr = _ARRAY_SUFFIX_RE.search(type_str)
     elem_count = int(arr.group(1), 0) if arr else 1
+    # ``T[0]`` is a flexible-array extension; treat it as a single element so
+    # coverage / extent math never sees a zero-length symbol (catalog cells
+    # and data_verify walks both assume a positive size).
+    if elem_count <= 0:
+        elem_count = 1
     return c_type_size(type_str) * elem_count
 
 

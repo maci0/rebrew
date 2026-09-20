@@ -26,6 +26,37 @@ class TestMatchedByteCount:
     def test_empty_compared(self) -> None:
         assert matched_byte_count(100.0, matched=False, compared_len=0, total=10) == 0
 
+    def test_explicit_match_count_wins_over_percent(self) -> None:
+        # A 1-decimal rounded percent of a 1500B body round-trips off-by-one;
+        # the integer from classify must win.
+        assert (
+            matched_byte_count(
+                0.1,
+                matched=False,
+                compared_len=1500,
+                total=1500,
+                match_count=1,
+            )
+            == 1
+        )
+
+    def test_classify_stores_match_count(self) -> None:
+        # 4 of 5 bytes match → match_count 4, not a float reconstruction.
+        r = classify_compare_result(
+            False, "diff", b"\x55\x89\xe5\x90\x90", b"\x55\x89\xe5\x91\x90", None
+        )
+        assert r.match_count == 4
+        assert (
+            matched_byte_count(
+                r.match_percent,
+                matched=False,
+                compared_len=5,
+                total=5,
+                match_count=r.match_count,
+            )
+            == 4
+        )
+
 
 class TestClassifyCompareResult:
     def test_matched_no_relocs_exact(self) -> None:

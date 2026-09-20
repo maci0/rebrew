@@ -90,6 +90,7 @@ def _failed_result(status: "CompareStatus", message: str = "") -> "CompareResult
         obj_bytes=None,
         reloc_offsets=None,
         message=message or status,
+        match_count=0,
     )
 
 
