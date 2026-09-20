@@ -34,6 +34,18 @@ console = Console(stderr=True)
 #: an unzip prompting for an encrypted-archive password hangs forever.
 _EXTRACT_TIMEOUT_S = 1800
 
+#: Host suffixes pinned toolchain media may resolve to (and redirect through).
+#: A compromised CDN Location must not pivot ``httpx`` at link-local /
+#: intranet listeners (same SSRF class as :mod:`rebrew.wibo`).
+_TOOLCHAIN_DOWNLOAD_HOST_SUFFIXES = frozenset(
+    {
+        "github.com",
+        "githubusercontent.com",
+        "gnu.org",
+        "archive.org",
+    }
+)
+
 app = typer.Typer(
     help="Standardized toolchain management (Windows/DOS profiles run in docker).",
     rich_markup_mode="rich",
@@ -260,14 +272,81 @@ def pull_cmd(
             console.print(f"[green]Pulled[/green] {tag}")
 
 
+def _trusted_toolchain_download_host(hostname: str | None) -> bool:
+    """True when *hostname* is exactly an allow-listed suffix or a subdomain."""
+    if not hostname:
+        return False
+    host = hostname.lower().rstrip(".")
+    return any(
+        host == suffix or host.endswith("." + suffix)
+        for suffix in _TOOLCHAIN_DOWNLOAD_HOST_SUFFIXES
+    )
+
+
+def _trusted_toolchain_download_url(url: str) -> str:
+    """Return *url* when it is https on an allow-listed download host; else raise.
+
+    Mirrors :func:`rebrew.wibo._trusted_wibo_download_url`: pinned SOURCES URLs
+    and their CDN redirects stay on known publishers; off-list hosts are refused
+    before bytes are fetched.
+    """
+    from urllib.parse import urlparse
+
+    parsed = urlparse(url.strip())
+    host = (parsed.hostname or "").lower()
+    if parsed.scheme != "https" or not _trusted_toolchain_download_host(host) or not parsed.path:
+        raise ToolchainError(f"toolchain download URL is not a trusted https host: {url!r}")
+    return url.strip()
+
+
+def _download_pinned_url(url: str, dest: Path, *, timeout: float = 1800) -> None:
+    """Download *url* to *dest*, following redirects only while hosts stay trusted.
+
+    Replaces ``curl -sL`` so a poisoned ``Location`` cannot SSRF the workstation
+    (metadata endpoints, intranet) before the sha256 pin check runs.
+    """
+    from urllib.parse import urljoin
+
+    import httpx
+
+    current = _trusted_toolchain_download_url(url)
+    for _ in range(10):
+        try:
+            with httpx.stream("GET", current, timeout=timeout, follow_redirects=False) as resp:
+                if resp.status_code in {301, 302, 303, 307, 308}:
+                    location = resp.headers.get("location")
+                    if not location:
+                        raise ToolchainError(
+                            f"toolchain download redirect missing Location from {current!r}"
+                        )
+                    current = _trusted_toolchain_download_url(urljoin(current, location))
+                    continue
+                resp.raise_for_status()
+                with dest.open("wb") as fh:
+                    for chunk in resp.iter_bytes():
+                        fh.write(chunk)
+                return
+        except httpx.HTTPError as exc:
+            raise ToolchainError(f"toolchain download failed from {current!r}: {exc}") from exc
+    raise ToolchainError(f"toolchain download exceeded redirect limit from {url!r}")
+
+
 def _flatten_wrapper_dir(payload: Path, extract_dir: Path) -> None:
     """Move *payload*'s children into *extract_dir*, unwrapping a single
     top-level directory first (``TC/``, ``mingw32/``) so the host tree has
     the same flat shape as every other toolchain."""
-    contents = [p for p in payload.iterdir() if p.is_dir()]
-    if len(contents) == 1 and not any(p.is_file() for p in payload.iterdir()):
+    contents = [p for p in payload.iterdir() if p.is_dir() and not p.is_symlink()]
+    if len(contents) == 1 and not any(p.is_file() or p.is_symlink() for p in payload.iterdir()):
         payload = contents[0]
+    extract_root = extract_dir.resolve()
     for child in payload.iterdir():
+        # Symlink / ``..`` members would let a hostile archive escape *extract_dir*
+        # (zip-slip class) after the sha256 pin check of a compromised pin.
+        if child.is_symlink() or child.name in {".", ".."}:
+            raise ToolchainError(f"refusing unsafe path in toolchain archive: {child.name!r}")
+        dest = (extract_dir / child.name).resolve()
+        if not dest.is_relative_to(extract_root):
+            raise ToolchainError(f"refusing path escape in toolchain archive: {child.name!r}")
         child.rename(extract_dir / child.name)
 
 
@@ -365,12 +444,10 @@ def vendor_cmd(
         else:
             with tempfile.TemporaryDirectory(prefix="rebrew_vendor_") as td:
                 archive = Path(td) / "src.bin"
-                subprocess.run(
-                    ["curl", "-sL", "-o", str(archive), src.url],
-                    check=True,
-                    timeout=1800,
-                    capture_output=True,
-                )
+                try:
+                    _download_pinned_url(src.url, archive, timeout=1800)
+                except ToolchainError as exc:
+                    _abort_incomplete_vendor(extract_dir, str(exc), json_mode=json_output)
                 actual = hashlib.sha256(archive.read_bytes()).hexdigest()
                 if actual != src.sha256:
                     msg = f"sha256 mismatch for {name}: expected {src.sha256}, got {actual}"
@@ -392,7 +469,12 @@ def vendor_cmd(
                     )  # warning exits tolerated — the final check below guards
                     payload = Path(td + "/pay")
                     for sub in ("Bin", "Include", "Lib"):
-                        (payload / sub).rename(extract_dir / sub)
+                        src_sub = payload / sub
+                        if src_sub.is_symlink() or not src_sub.is_dir():
+                            raise ToolchainError(
+                                f"refusing unsafe InstallShield payload entry: {sub!r}"
+                            )
+                        src_sub.rename(extract_dir / sub)
                 elif src.layout == "zip-strip1":
                     # A zip with a single top-level wrapper dir (e.g. TC/) —
                     # strip the wrapper so BIN/INCLUDE/LIB sit at the top of
@@ -434,6 +516,8 @@ def vendor_cmd(
                         timeout=_EXTRACT_TIMEOUT_S,
                     )
                 console.print(f"[green]Downloaded + verified[/green] {src.url} -> {src.host_dir}")
+    except ToolchainError as exc:
+        _abort_incomplete_vendor(extract_dir, str(exc), json_mode=json_output)
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired, OSError) as exc:
         _abort_incomplete_vendor(extract_dir, f"vendor {name} failed: {exc}", json_mode=json_output)
 
@@ -1132,7 +1216,9 @@ def _live_commit_sha(owner: str, repo: str, branch: str) -> str:
     import httpx
 
     url = f"https://api.github.com/repos/{owner}/{repo}/commits/{branch}"
-    resp = httpx.get(url, headers=_github_auth_headers(), timeout=20, follow_redirects=True)
+    # No automatic redirects: an off-host Location would still receive the
+    # optional GH_TOKEN Authorization header before httpx's strip runs.
+    resp = httpx.get(url, headers=_github_auth_headers(), timeout=20, follow_redirects=False)
     resp.raise_for_status()
     return str(resp.json()["sha"])
 
@@ -1153,8 +1239,6 @@ def check_updates_cmd(
     import hashlib
     import re
     import tempfile
-
-    import httpx
 
     from rebrew.toolchain_data import SOURCES
 
@@ -1186,11 +1270,7 @@ def check_updates_cmd(
             try:
                 with tempfile.TemporaryDirectory() as td:
                     path = Path(td) / "src.bin"
-                    with httpx.stream("GET", url, timeout=60, follow_redirects=True) as resp:
-                        resp.raise_for_status()
-                        with path.open("wb") as fh:
-                            for chunk in resp.iter_bytes():
-                                fh.write(chunk)
+                    _download_pinned_url(url, path, timeout=60)
                     actual = hashlib.sha256(path.read_bytes()).hexdigest()
                 if actual == src.sha256:
                     rows[name] = "current"
@@ -1323,7 +1403,6 @@ def update_cmd(
     import hashlib
     import re
     import shutil
-    import subprocess
     import tempfile
     from dataclasses import replace
 
@@ -1342,9 +1421,10 @@ def update_cmd(
     url = src.url
     with tempfile.TemporaryDirectory(prefix="rebrew_update_") as td:
         archive = Path(td) / "src.bin"
-        subprocess.run(
-            ["curl", "-sL", "-o", str(archive), url], check=True, timeout=1800, capture_output=True
-        )
+        try:
+            _download_pinned_url(url, archive, timeout=1800)
+        except ToolchainError as exc:
+            error_exit(str(exc), json_mode=json_output)
         actual_sha = hashlib.sha256(archive.read_bytes()).hexdigest()
         if actual_sha == src.sha256:
             msg = f"toolchain {name!r} is already current (sha256 {src.sha256[:16]}…)"

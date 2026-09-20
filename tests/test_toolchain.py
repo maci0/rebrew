@@ -1265,6 +1265,91 @@ class TestVendorFlatten:
         assert (dest / "bin").is_dir()
         assert (dest / "README").is_file()
 
+    def test_refuses_symlink_members(self, tmp_path: Path) -> None:
+        from rebrew.toolchain import ToolchainError
+        from rebrew.toolchain_cli import _flatten_wrapper_dir
+
+        payload = tmp_path / "payload"
+        payload.mkdir()
+        (payload / "real").write_text("x", encoding="utf-8")
+        (payload / "link").symlink_to("/etc/passwd")
+        dest = tmp_path / "dest"
+        dest.mkdir()
+
+        with pytest.raises(ToolchainError, match="unsafe path"):
+            _flatten_wrapper_dir(payload, dest)
+
+
+class TestTrustedToolchainDownload:
+    """Pinned media downloads must not follow redirects off the allow-list."""
+
+    def test_rejects_http_and_offlist_hosts(self) -> None:
+        from rebrew.toolchain import ToolchainError
+        from rebrew.toolchain_cli import _trusted_toolchain_download_url
+
+        with pytest.raises(ToolchainError, match="trusted https"):
+            _trusted_toolchain_download_url("http://github.com/x/y/z")
+        with pytest.raises(ToolchainError, match="trusted https"):
+            _trusted_toolchain_download_url("https://evil.example/payload")
+        with pytest.raises(ToolchainError, match="trusted https"):
+            _trusted_toolchain_download_url("https://169.254.169.254/latest/meta-data")
+
+    def test_accepts_pinned_publisher_hosts(self) -> None:
+        from rebrew.toolchain_cli import _trusted_toolchain_download_url
+
+        gh = _trusted_toolchain_download_url(
+            "https://codeload.github.com/archaic-msvc/msvc600/tar.gz/refs/heads/master"
+        )
+        assert gh.endswith("/master")
+        gnu = _trusted_toolchain_download_url(
+            "https://ftp.gnu.org/gnu/gcc/gcc-14.2.0/gcc-14.2.0.tar.xz"
+        )
+        assert gnu.startswith("https://ftp.gnu.org/")
+        ia = _trusted_toolchain_download_url(
+            "https://ia801234.us.archive.org/0/items/BorlandC55/file.zip"
+        )
+        assert ia.startswith("https://ia801234.us.archive.org/")
+
+    def test_redirect_off_list_is_refused(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import httpx
+
+        from rebrew.toolchain import ToolchainError
+        from rebrew.toolchain_cli import _download_pinned_url
+
+        class _Resp:
+            def __init__(self, status: int, location: str | None = None) -> None:
+                self.status_code = status
+                self.headers = {"location": location} if location else {}
+
+            def __enter__(self) -> _Resp:
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                return None
+
+            def raise_for_status(self) -> None:
+                return None
+
+            def iter_bytes(self):  # type: ignore[no-untyped-def]
+                yield b"unused"
+
+        def _stream(method: str, url: str, **kwargs: object) -> _Resp:
+            assert method == "GET"
+            if "github.com" in url:
+                return _Resp(302, "http://169.254.169.254/latest/meta-data")
+            return _Resp(200)
+
+        monkeypatch.setattr(httpx, "stream", _stream)
+        dest = tmp_path / "out.bin"
+        with pytest.raises(ToolchainError, match="trusted https"):
+            _download_pinned_url(
+                "https://github.com/niXman/mingw-builds-binaries/releases/download/x/y.7z",
+                dest,
+            )
+        assert not dest.exists()
+
 
 class TestVendorRetryAfterPartialFailure:
     """A crashed/failed ``vendor`` must leave the tree retryable — empty or
