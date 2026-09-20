@@ -43,6 +43,15 @@
   failures. Public modules pin ``__all__`` so star-imports match the
   documented integrator surface.
 
+### Changed
+- **Breaking:** **Dashboard ``/api/globals`` and ``/api/history`` rows are
+  compact arrays** under ``cols`` (same shape as ``/api/functions``). Zip
+  ``cols`` with each array; built-in HTML accepts both arrays and legacy
+  dicts. External clients must update.
+- **Dashboard HTML preloads ``/api/bootstrap``** (``as=fetch`` + ``crossorigin``)
+  and fetches with ``credentials: omit`` so the cold-start JSON can overlap
+  the shell download on a second connection.
+
 ### Fixed
 - **Stale ``noqa: F401`` on unused ``source_auto_writable`` import** in
   ``tests/test_crt_match.py``; presence-probe imports document why F401 is

@@ -293,8 +293,9 @@ class TestQueryLayer:
         data = dashboard.globals("server_dll")
         assert data["count"] == 1
         assert data["total"] == 1
-        assert data["globals"][0]["name"] == "g_flag"
-        assert data["globals"][0]["va"] == "0x50001000"
+        assert data["globals"][0][1] == "g_flag"
+        assert data["globals"][0][0] == "0x50001000"
+        assert data["cols"] == ["va", "name", "decl", "size", "module"]
 
     def test_history_empty(self, dashboard: Dashboard) -> None:
         hist = dashboard.history("server_dll")
@@ -605,7 +606,7 @@ class TestHandle:
         assert first["count"] == 1
         assert first["total"] == 1
         assert first["offset"] == 0
-        assert first["globals"][0]["name"] == "g_flag"
+        assert first["globals"][0][1] == "g_flag"
 
         status, _, body = dashboard.handle(
             "GET",
@@ -1096,11 +1097,26 @@ class TestHostValidation:
         ]
         assert isinstance(row, list)
         assert len(row) == 7
+        assert dashboard.globals("server_dll")["cols"] == [
+            "va",
+            "name",
+            "decl",
+            "size",
+            "module",
+        ]
+        assert dashboard.history("server_dll")["cols"] == [
+            "va",
+            "old_status",
+            "new_status",
+            "changed_at",
+        ]
 
     def test_index_html_bootstraps_in_one_round_trip(self, dashboard: Dashboard) -> None:
         """Cold start uses /api/bootstrap; target changes still parallel-fetch."""
         _, _, body = dashboard.handle("GET", "/", {})
         assert 'get("/api/bootstrap")' in body
+        assert 'rel="preload" href="/api/bootstrap" as="fetch" crossorigin' in body
+        assert 'credentials: "omit"' in body
         assert "Promise.all([loadSummary()," in body
         assert "loadFunctions()" in body
         assert "loadCurrentView(true)" in body

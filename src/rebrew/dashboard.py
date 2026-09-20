@@ -31,9 +31,12 @@ quality weights; explicit ``coding;q=0`` beats ``*``), carry an ``ETag`` (HTML
 content hash or DB mtime), and use ``Cache-Control: private, no-cache`` so
 browsers can 304 without serving a stale body after ``build-db``.  The static
 HTML shell is zstd- and gzip-precompressed at import time so the entry document
-skips per-request compression CPU.  JSON uses compact separators.  The handler
-speaks HTTP/1.1 so browsers reuse one TCP connection for the shell, bootstrap
-payload, and later filter fetches.
+skips per-request compression CPU.  The shell ``<head>`` preloads
+``/api/bootstrap`` (``as=fetch`` + ``crossorigin``); the inline client fetches
+with ``credentials: omit`` so the cold-start payload can reuse that preload.
+JSON uses compact separators; function/global/history rows are arrays under
+``cols``.  The handler speaks HTTP/1.1 so browsers reuse one TCP connection for
+the shell, bootstrap payload, and later filter fetches.
 
 The query layer (``Dashboard``) is separated from the HTTP plumbing so tests
 exercise it without opening a socket.
@@ -72,6 +75,8 @@ _LOG_CONTROL_CHARS[ord("\\")] = "\\\\"
 _DEFAULT_LIMIT = 100
 _MAX_LIMIT = 5000
 _FUNCTION_COLS = ("va", "name", "symbol", "size", "status", "module", "files")
+_GLOBAL_COLS = ("va", "name", "decl", "size", "module")
+_HISTORY_COLS = ("va", "old_status", "new_status", "changed_at")
 # Below this size framing usually costs more than it saves on a LAN.
 _MIN_COMPRESS_BYTES = 256
 # Per-request dynamic JSON: mid effort (bodies are rebuilt every request).
@@ -95,6 +100,7 @@ _INDEX_HTML = """<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Rebrew coverage dashboard</title>
+<link rel="preload" href="/api/bootstrap" as="fetch" crossorigin>
 <style>
   body { font-family: system-ui, sans-serif; margin: 1.5rem; color: #1a1a1a; }
   .skip-link { position: absolute; left: -9999px; top: 0; z-index: 100;
@@ -294,7 +300,9 @@ const loadErrors = { summary: "", functions: "", view: "" };
 const busyCounts = new Map();
 const viewLoaded = { sections: false, globals: false, history: false };
 async function get(path, signal) {
-  const r = await fetch(path, { signal });
+  // credentials:omit matches <link rel=preload as=fetch crossorigin> so the
+  // cold-start bootstrap fetch can reuse the preload cache.
+  const r = await fetch(path, { signal, credentials: "omit" });
   if (!r.ok) throw new Error(path + " -> " + r.status);
   return r.json();
 }
@@ -651,20 +659,24 @@ function renderSections(data) {
     ? rows.length + " section" + (rows.length === 1 ? "" : "s")
     : "No sections";
 }
+const globalRowHtml = (g) => {
+  const r = Array.isArray(g)
+    ? g
+    : [g.va, g.name, g.decl, g.size, g.module];
+  return "<tr><td class=va>" + esc(r[0] ?? "") + "</td><td>" + esc(r[1] || "")
+    + "</td><td>" + esc(r[2] || "") + "</td><td>" + esc(r[3] ?? "")
+    + "</td><td>" + esc(r[4] || "") + "</td></tr>";
+};
 function renderGlobals(data, options) {
   const append = !!(options && options.append);
   const body = $("globals-rows").querySelector("tbody");
   const rows = data.globals || [];
   if (append) {
-    body.insertAdjacentHTML("beforeend", rows.map(g => "<tr><td class=va>" + esc(g.va || "")
-      + "</td><td>" + esc(g.name || "") + "</td><td>" + esc(g.decl || "") + "</td><td>"
-      + esc(g.size ?? "") + "</td><td>" + esc(g.module || "") + "</td></tr>").join(""));
+    body.insertAdjacentHTML("beforeend", rows.map(globalRowHtml).join(""));
     loadedGlobalsCount += rows.length;
   } else {
     loadedGlobalsCount = rows.length;
-    body.innerHTML = rows.map(g => "<tr><td class=va>" + esc(g.va || "") + "</td><td>"
-      + esc(g.name || "") + "</td><td>" + esc(g.decl || "") + "</td><td>"
-      + esc(g.size ?? "") + "</td><td>" + esc(g.module || "") + "</td></tr>").join("");
+    body.innerHTML = rows.map(globalRowHtml).join("");
   }
   const total = data.total ?? loadedGlobalsCount;
   setGlobalsEmptyMessage();
@@ -681,20 +693,24 @@ function renderGlobals(data, options) {
   });
   updateFilterActions();
 }
+const historyRowHtml = (h) => {
+  const r = Array.isArray(h)
+    ? h
+    : [h.va, h.old_status, h.new_status, h.changed_at];
+  return "<tr><td class=va>" + esc(r[0] ?? "") + "</td><td>" + esc(r[1] || "")
+    + "</td><td>" + esc(r[2] || "") + "</td><td>"
+    + esc(formatWhen(r[3])) + "</td></tr>";
+};
 function renderHistory(data, options) {
   const append = !!(options && options.append);
   const body = $("history-rows").querySelector("tbody");
   const rows = data.history || [];
   if (append) {
-    body.insertAdjacentHTML("beforeend", rows.map(h => "<tr><td class=va>" + esc(h.va || "")
-      + "</td><td>" + esc(h.old_status || "") + "</td><td>" + esc(h.new_status || "")
-      + "</td><td>" + esc(formatWhen(h.changed_at)) + "</td></tr>").join(""));
+    body.insertAdjacentHTML("beforeend", rows.map(historyRowHtml).join(""));
     loadedHistoryCount += rows.length;
   } else {
     loadedHistoryCount = rows.length;
-    body.innerHTML = rows.map(h => "<tr><td class=va>" + esc(h.va || "") + "</td><td>"
-      + esc(h.old_status || "") + "</td><td>" + esc(h.new_status || "") + "</td><td>"
-      + esc(formatWhen(h.changed_at)) + "</td></tr>").join("");
+    body.innerHTML = rows.map(historyRowHtml).join("");
   }
   $("history-empty").hidden = loadedHistoryCount !== 0;
   $("history-results").hidden = loadedHistoryCount === 0;
@@ -1325,14 +1341,15 @@ class Dashboard:
             "total": total,
             "limit": limit,
             "offset": offset,
+            "cols": list(_GLOBAL_COLS),
             "globals": [
-                {
-                    "va": f"0x{r[0]:08x}" if r[0] else "???",
-                    "name": r[1] or "",
-                    "decl": r[2] or "",
-                    "size": r[3],
-                    "module": r[4] or "",
-                }
+                [
+                    f"0x{r[0]:08x}" if r[0] else "???",
+                    r[1] or "",
+                    r[2] or "",
+                    r[3],
+                    r[4] or "",
+                ]
                 for r in rows
             ],
         }
@@ -1359,13 +1376,14 @@ class Dashboard:
             "total": total,
             "limit": limit,
             "offset": offset,
+            "cols": list(_HISTORY_COLS),
             "history": [
-                {
-                    "va": f"0x{r[0]:08x}" if r[0] else "???",
-                    "old_status": r[1],
-                    "new_status": r[2],
-                    "changed_at": r[3],
-                }
+                [
+                    f"0x{r[0]:08x}" if r[0] else "???",
+                    r[1],
+                    r[2],
+                    r[3],
+                ]
                 for r in rows
             ],
         }

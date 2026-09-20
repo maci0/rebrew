@@ -396,7 +396,8 @@ The `recoverage` server exposes the following endpoints. All data endpoints retu
 > `/api/functions?target=` with `status`/`module`/`q`/`limit`/`offset`,
 > `/api/sections?target=`, `/api/globals?target=` with `q`/`limit`/`offset`,
 > `/api/history?target=` with `limit`/`offset`, plus `/api/bootstrap` and
-> `/api/targets`). Missing `target` → 400; unknown target → 404; corrupt
+> `/api/targets`). Function, global, and history list rows are compact arrays
+> under `cols`. Missing `target` → 400; unknown target → 404; corrupt
 > `function_stats` on `/api/summary` → 500. It does **not** implement the
 > path-style recoverage endpoints above, `/api/regen`, or `/api/health`. See
 > [`dashboard.py`](../src/rebrew/dashboard.py).

@@ -2332,8 +2332,10 @@ Read-only stdlib `ThreadingHTTPServer` dashboard over `db/coverage.db` for
 triaging large binaries. GET/HEAD only; bind defaults to `127.0.0.1`.
 
 Endpoints: `/`, `/api/bootstrap`, `/api/targets`, `/api/summary?target=`,
-`/api/functions?target=` (status/module/q/limit/offset), `/api/sections?target=`,
-`/api/globals?target=` (q/limit/offset), `/api/history?target=` (limit/offset).
+`/api/functions?target=` (status/module/q/limit/offset; compact row arrays
+under `cols`), `/api/sections?target=`, `/api/globals?target=`
+(q/limit/offset; compact arrays under `cols`), `/api/history?target=`
+(limit/offset; compact arrays under `cols`).
 Missing `target` → 400; unknown target → 404. Corrupt `function_stats` on
 `/api/summary` → 500 (not 404).
 
