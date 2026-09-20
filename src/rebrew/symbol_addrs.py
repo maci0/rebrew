@@ -49,7 +49,14 @@ from pathlib import Path
 import typer
 from rich.console import Console
 
-from rebrew.cli import TargetOption, error_exit, iter_annotations, json_print, require_config
+from rebrew.cli import (
+    EXIT_ERROR,
+    TargetOption,
+    error_exit,
+    iter_annotations,
+    json_print,
+    require_config,
+)
 from rebrew.pe_symbols import KIND_FUNC, PeSymbolTable, pe_symbols
 from rebrew.sources import iter_sources, target_marker
 from rebrew.utils import atomic_write_text
@@ -321,7 +328,7 @@ def main(
         error_exit(
             "--csv and --references select different output formats; pass one.",
             json_mode=json_output,
-            code=2,
+            code=EXIT_ERROR,
         )
 
     va_floor = min_valid_va_for(cfg)
@@ -348,7 +355,7 @@ def main(
     pe_count = 0
     binary = Path(cfg.target_binary)
     if (pe_symbol_output or references) and not binary.exists():
-        error_exit(f"target binary missing: {binary}", json_mode=json_output, code=2)
+        error_exit(f"target binary missing: {binary}", json_mode=json_output, code=EXIT_ERROR)
     if pe_symbol_output:
         table = pe_symbols(binary)
         pe_count = len(table.symbols)

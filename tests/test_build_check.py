@@ -161,10 +161,11 @@ def test_cli_exits_nonzero_when_not_configured(tmp_path, monkeypatch):
     from typer.testing import CliRunner
 
     from rebrew.build_check import app
+    from rebrew.cli import EXIT_ERROR
 
     runner = CliRunner()
     result = runner.invoke(app, ["--build-dir", str(tmp_path / "nope")])
-    assert result.exit_code == 1, result.output
+    assert result.exit_code == EXIT_ERROR, result.output
 
 
 def test_cli_exits_zero_on_a_clean_tree(tmp_path):
@@ -181,11 +182,12 @@ def test_cli_exits_nonzero_on_drift(tmp_path):
     from typer.testing import CliRunner
 
     from rebrew.build_check import app
+    from rebrew.cli import EXIT_MISMATCH
 
     edited = BUILD_MAKE.replace("/Ox /Gd", "/Ox /Gd /Ob1")
     runner = CliRunner()
     result = runner.invoke(app, ["--build-dir", str(_tree(tmp_path, edited))])
-    assert result.exit_code == 1, result.output
+    assert result.exit_code == EXIT_MISMATCH, result.output
 
 
 @pytest.mark.parametrize("token", ["/O2", "/Gd", "/REBREW_TOOLCHAIN:msvc-6.0-sp5-pp"])
@@ -228,7 +230,30 @@ def test_cli_exits_nonzero_on_missing_source(tmp_path):
     from typer.testing import CliRunner
 
     from rebrew.build_check import app
+    from rebrew.cli import EXIT_MISMATCH
 
     runner = CliRunner()
     result = runner.invoke(app, ["--build-dir", str(_tree(tmp_path, BUILD_MAKE, sources=False))])
-    assert result.exit_code == 1, result.output
+    assert result.exit_code == EXIT_MISMATCH, result.output
+
+
+def test_cli_json_goes_to_stdout_status_to_stderr(tmp_path) -> None:
+    """Human status stays on stderr so ``--json`` can be piped cleanly."""
+    import json
+
+    from typer.testing import CliRunner
+
+    from rebrew.build_check import app
+
+    runner = CliRunner()
+    build = _tree(tmp_path, BUILD_MAKE)
+    human = runner.invoke(app, ["--build-dir", str(build)])
+    assert human.exit_code == 0, human.stdout + human.stderr
+    assert human.stdout == ""
+    assert "build-check:" in human.stderr
+
+    coded = runner.invoke(app, ["--build-dir", str(build), "--json"])
+    assert coded.exit_code == 0, coded.stdout + coded.stderr
+    assert coded.stderr == ""
+    payload = json.loads(coded.stdout)
+    assert payload["status"] == "ok"

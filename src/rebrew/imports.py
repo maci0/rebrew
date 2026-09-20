@@ -328,7 +328,7 @@ def main(
     if binary is None:
         binary = cfg.target_binary
         if not binary.exists():
-            error_exit(f"target binary missing: {binary}", json_mode=json_output, code=2)
+            error_exit(f"target binary missing: {binary}", json_mode=json_output, code=EXIT_ERROR)
     if not binary.exists():
         error_exit(f"binary not found: {binary}", json_mode=json_output)
 

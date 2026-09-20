@@ -28,7 +28,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from rebrew.cli import TargetOption, error_exit, json_print, require_config
+from rebrew.cli import EXIT_OK, TargetOption, error_exit, json_print, require_config
 from rebrew.utils import parse_int_literal
 
 console = Console(stderr=True)
@@ -360,7 +360,7 @@ def main(
             f"[yellow]No jump-table dispatch found in the first {window} bytes "
             f"at 0x{va_int:08x}.[/]"
         )
-        raise typer.Exit(0)
+        raise typer.Exit(code=EXIT_OK)
 
     # One shared lookup for every handler row — a tree scan per row would
     # dominate the command's runtime on large projects.
@@ -440,7 +440,7 @@ def _scan_all(cfg: Any, window: int, json_output: bool) -> None:
 
     if not found:
         console.print("[yellow]No function-list entry has a jump-table dispatch.[/]")
-        raise typer.Exit(0)
+        raise typer.Exit(code=EXIT_OK)
     console.print(f"[bold]{len(found)} function(s) with jump-table dispatches:[/]")
     for f in sorted(found, key=lambda x: -x["dispatches"]):
         console.print(

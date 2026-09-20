@@ -299,7 +299,7 @@ overrun but cannot pad a gap).
 | `--symbol NAME` | Override the COFF symbol |
 | `--rounds N` | Sweep rounds, stopping early on convergence (default 4) |
 | `--jobs N` | Parallel compile workers (default 4) |
-| `--dry-run` | List candidates without compiling |
+| `--dry-run` | Preview changes without writing |
 | `--json` | Output results as JSON |
 
 ### `rebrew probe`
@@ -769,7 +769,8 @@ per-file flags there as `# Custom flags: <obj>_FLAGS = ...` and
 does not was added by hand. Objects with no `Custom` comment have no per-file
 flags (they compile with the global `C_FLAGS`) and are not drift.
 
-Exits 1 on drift, and prints the restore command.
+Exits 1 on drift, 2 when `build/` is missing or incomplete, and prints the
+restore command.
 
 ### `rebrew cmake-flags`
 

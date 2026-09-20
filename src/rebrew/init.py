@@ -684,7 +684,7 @@ def _refresh_agents(cwd: Path, toml_path: Path, *, json_output: bool, check: boo
                 console.print(f"  {item['path']} ({item['reason']})")
         else:
             console.print("[green]Generated scaffold matches the packaged sources.[/green]")
-        raise typer.Exit(code=EXIT_MISMATCH if drift else 0)
+        raise typer.Exit(code=EXIT_MISMATCH if drift else EXIT_OK)
 
     written = 0
     for rel, data_bytes in expected.items():

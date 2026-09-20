@@ -169,11 +169,11 @@ def detect_cmd(
 
     binary_path = Path(binary)
     if not binary_path.is_file():
-        error_exit(f"Binary not found: {binary}", json_mode=json_output, code=2)
+        error_exit(f"Binary not found: {binary}", json_mode=json_output, code=EXIT_ERROR)
     try:
         info = detect_toolchain(binary_path)
     except Exception as exc:  # detection is best-effort
-        error_exit(f"Detection failed: {exc}", json_mode=json_output, code=2)
+        error_exit(f"Detection failed: {exc}", json_mode=json_output, code=EXIT_ERROR)
 
     compat: set[str] | None = _PROFILE_COMPAT.get(info.family)
     data: dict[str, Any] = {

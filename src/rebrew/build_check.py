@@ -42,7 +42,6 @@ trusted to describe the source tree it was generated from.
 
 from __future__ import annotations
 
-import json
 import re
 from pathlib import Path
 from typing import Any
@@ -50,7 +49,9 @@ from typing import Any
 import typer
 from rich.console import Console
 
-console = Console()
+from rebrew.cli import EXIT_ERROR, EXIT_MISMATCH, json_print
+
+console = Console(stderr=True)
 
 #: Where CMake puts the generated build system, relative to the project root.
 DEFAULT_BUILD_DIR = Path("build")
@@ -223,7 +224,7 @@ def main(
     build_dir: Path = typer.Option(
         DEFAULT_BUILD_DIR, "--build-dir", help="CMake build directory to inspect."
     ),
-    as_json: bool = typer.Option(False, "--json", help="Emit the result as JSON."),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
     """Verify build/ still matches what CMake generated.
 
@@ -234,8 +235,8 @@ def main(
     silent-pass failure it exists to catch.
     """
     result = check(build_dir)
-    if as_json:
-        console.print_json(json.dumps(result))
+    if json_output:
+        json_print(result)
     else:
         style = {"ok": "green", "drift": "red", "not-configured": "yellow"}[result["status"]]
         console.print(f"[{style}]build-check:[/] {result['message']}")
@@ -246,8 +247,10 @@ def main(
                 "--toolchain cmake/toolchain-<compiler>-docker.cmake "
                 "-DCMAKE_BUILD_TYPE=Release -DREBREW_DEBUG_INFO=OFF"
             )
+    if result["status"] == "drift":
+        raise typer.Exit(code=EXIT_MISMATCH)
     if result["status"] != "ok":
-        raise typer.Exit(1)
+        raise typer.Exit(code=EXIT_ERROR)
 
 
 __all__ = ["app", "main", "check", "parse_compile_lines", "parse_recorded", "parse_sources"]

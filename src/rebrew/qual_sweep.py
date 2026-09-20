@@ -114,7 +114,7 @@ def main(
     ),
     rounds: int = typer.Option(4, "--rounds", help="Sweep rounds (stops early on convergence)"),
     jobs: int = typer.Option(4, "--jobs", help="Parallel compile workers"),
-    dry_run: bool = typer.Option(False, "--dry-run", help="List candidates without compiling"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
