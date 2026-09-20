@@ -18,6 +18,7 @@ def test_recompile_client_public_all() -> None:
     import rebrew.recompile_client as rc
 
     assert rc.__all__ == [
+        "HttpClient",
         "RecompileError",
         "RecompileErrorKind",
         "RecompileResult",
@@ -140,6 +141,41 @@ class TestCompileSource:
         with pytest.raises(RecompileError, match="flag too long") as ei2:
             compile_source("http://svc", "msvc-6.0", "x", ["/" + "a" * 300])
         assert ei2.value.kind == "validation"
+
+    def test_invalid_base_url_fails_fast(self) -> None:
+        with pytest.raises(RecompileError, match="http\\(s\\)") as ei:
+            compile_source("ftp://svc", "msvc-6.0", "x", [])
+        assert ei.value.kind == "validation"
+        assert ei.value.retryable is False
+
+    def test_retries_retryable_http_then_succeeds(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        body = {
+            "status": "ok",
+            "artifact_url": "/api/v1/artifacts/x.obj",
+            "compiler_version": "12.0",
+        }
+        posts = [_Resp(503, text="busy"), _Resp(200, json_body=body)]
+        gets = [_Resp(200, content=b"OBJ")]
+
+        class _SeqClient(_FakeClient):
+            def post(self, url: str, json: Any = None) -> Any:
+                self.calls.append(("post", url))
+                return posts.pop(0)
+
+            def get(self, url: str) -> Any:
+                self.calls.append(("get", url))
+                return gets.pop(0)
+
+        client = _SeqClient(None)
+        monkeypatch.setattr(httpx, "Client", lambda **kwargs: client)
+        res = compile_source("http://svc/", "msvc-6.0", "int f(void){}", ["/c"], retries=1)
+        assert res.ok and res.obj_bytes == b"OBJ"
+        assert len([c for c in client.calls if c[0] == "post"]) == 2
+
+    def test_retries_do_not_retry_validation(self) -> None:
+        with pytest.raises(RecompileError, match="too many flags") as ei:
+            compile_source("http://svc", "msvc-6.0", "x", ["/c"] * 65, retries=3)
+        assert ei.value.kind == "validation"
 
     def test_injected_client_is_reused(self, monkeypatch: pytest.MonkeyPatch) -> None:
         body = {

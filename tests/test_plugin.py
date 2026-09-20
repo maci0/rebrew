@@ -21,6 +21,35 @@ from rebrew.plugin import (
 )
 
 
+def test_plugin_public_all() -> None:
+    """Star-imports must not leak typing/stdlib names into consumer namespaces."""
+    import rebrew.plugin as plug
+
+    assert plug.__all__ == [
+        "CLI_SERVICE",
+        "COMMANDS_GROUP",
+        "CONSOLE_SERVICE",
+        "CliComponent",
+        "CoeffectScope",
+        "Component",
+        "ComponentError",
+        "Context",
+        "Disposer",
+        "MULTI_COMMANDS_GROUP",
+        "Panel",
+        "activate",
+        "entry_point_components",
+        "make_stub_app",
+        "make_stub_command",
+    ]
+    for name in plug.__all__:
+        assert getattr(plug, name, None) is not None, name
+    ns: dict[str, Any] = {}
+    exec("from rebrew.plugin import *", ns)  # noqa: S102
+    exported = {k for k in ns if not k.startswith("_")}
+    assert exported == set(plug.__all__)
+
+
 class TestContext:
     def test_provide_twice_raises(self) -> None:
         ctx = Context()

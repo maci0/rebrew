@@ -633,3 +633,22 @@ def entry_point_components(existing: set[str]) -> tuple[list[CliComponent], list
             )
             existing.add(registration.name)
     return components, warnings
+
+
+__all__ = [
+    "CLI_SERVICE",
+    "COMMANDS_GROUP",
+    "CONSOLE_SERVICE",
+    "CliComponent",
+    "CoeffectScope",
+    "Component",
+    "ComponentError",
+    "Context",
+    "Disposer",
+    "MULTI_COMMANDS_GROUP",
+    "Panel",
+    "activate",
+    "entry_point_components",
+    "make_stub_app",
+    "make_stub_command",
+]

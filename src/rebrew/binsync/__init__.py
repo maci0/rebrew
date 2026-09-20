@@ -5,4 +5,9 @@ dump/load layer, `export.py` and `importer.py` move annotations between rebrew
 metadata and a BinSync state dir, `diff.py` reports divergence, `init.py`
 creates the git envelope, `overlay.py` maps a related target's names across
 VAs, and `cli.py` is the `rebrew binsync` umbrella.
+
+Import submodules by name (``rebrew.binsync.export``, …); this package
+exports no public names of its own.
 """
+
+__all__: list[str] = []

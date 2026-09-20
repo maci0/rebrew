@@ -28,6 +28,28 @@ from rebrew.registry import (
 )
 
 
+def test_registry_public_all() -> None:
+    """Star-imports must not leak typing/stdlib names into consumer namespaces."""
+    import rebrew.registry as reg
+
+    assert reg.__all__ == [
+        "Registration",
+        "RegistryError",
+        "entry_point_registrations",
+        "import_registration",
+        "load_registration_optional",
+        "merge_into",
+        "merge_provider_dict",
+        "refresh_all",
+    ]
+    for name in reg.__all__:
+        assert getattr(reg, name, None) is not None, name
+    ns: dict[str, Any] = {}
+    exec("from rebrew.registry import *", ns)  # noqa: S102
+    exported = {k for k in ns if not k.startswith("_")}
+    assert exported == set(reg.__all__)
+
+
 def _fake_entry_points(**groups: list[tuple[str, str]]) -> Any:
     """A stand-in for ``importlib.metadata.entry_points()`` (a callable).
 

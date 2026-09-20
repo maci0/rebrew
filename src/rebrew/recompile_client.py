@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from contextlib import nullcontext
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any, Literal, Protocol, runtime_checkable
 from urllib.parse import urljoin, urlparse
 
 #: Request cap mirrored from the service (recompile ``_MAX_FLAGS``): longer
@@ -40,6 +40,19 @@ RecompileErrorKind = Literal[
 
 #: Transient HTTP statuses that are safe to retry after a backoff.
 _RETRYABLE_HTTP = frozenset({408, 425, 429, 500, 502, 503, 504})
+
+
+@runtime_checkable
+class HttpClient(Protocol):
+    """Minimal HTTP client surface used by :func:`compile_source`.
+
+    Matches ``httpx.Client`` (``.post`` / ``.get``).  Inject a fake that
+    implements this protocol in consumer tests — no live service required.
+    """
+
+    def post(self, url: str, *, json: Any = None) -> Any: ...
+
+    def get(self, url: str) -> Any: ...
 
 
 @dataclass(frozen=True)
@@ -153,7 +166,8 @@ def compile_source(
     filename: str = "input.c",
     timeout: float = 180.0,
     emit_assembly: bool = False,
-    client: Any | None = None,
+    client: HttpClient | None = None,
+    retries: int = 0,
 ) -> RecompileResult:
     """Compile *source* via ``POST <base_url>/api/v1/compile``.
 
@@ -168,9 +182,19 @@ def compile_source(
     with ``.post`` / ``.get``).  The caller owns its lifetime; the function
     does not close it.  When omitted, one short-lived client covers both the
     compile POST and the artifact GET.
+
+    *retries* re-attempts the compile POST (and artifact GET) after a
+    :class:`RecompileError` with ``retryable=True``.  Non-retryable errors
+    (validation, 4xx other than the transient set) fail immediately.
+    ``retries=0`` (default) preserves prior single-shot behaviour.
     """
     import httpx
 
+    if retries < 0:
+        raise RecompileError(
+            f"retries must be >= 0, got {retries}",
+            kind="validation",
+        )
     if len(flags) > _MAX_FLAGS:
         raise RecompileError(
             f"too many flags ({len(flags)} > {_MAX_FLAGS})",
@@ -183,6 +207,14 @@ def compile_source(
                 kind="validation",
             )
 
+    # Fail fast on a mistyped base URL before opening a client / posting.
+    parsed = urlparse(base_url.strip())
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        raise RecompileError(
+            f"recompile base URL must be http(s) with a host: {base_url!r}",
+            kind="validation",
+        )
+
     url = base_url.rstrip("/")
     payload = {
         "compiler": compiler,
@@ -192,59 +224,71 @@ def compile_source(
         "emit_assembly": emit_assembly,
     }
 
-    # One client for POST + GET.  Injected clients are not closed here.
-    cm: Any = nullcontext(client) if client is not None else httpx.Client(timeout=timeout)
-    with cm as http:
+    attempts = retries + 1
+    last_exc: RecompileError | None = None
+    for attempt in range(attempts):
+        # One client for POST + GET.  Injected clients are not closed here.
+        cm: Any = nullcontext(client) if client is not None else httpx.Client(timeout=timeout)
         try:
-            resp = http.post(f"{url}/api/v1/compile", json=payload)
-        except Exception as exc:
-            raise RecompileError(
-                f"recompile service at {url} unreachable: {exc}",
-                kind="network",
-                retryable=True,
-            ) from exc
-        if resp.status_code != 200:
-            raise RecompileError(
-                f"recompile service returned HTTP {resp.status_code}: {resp.text[:300]}",
-                kind="http",
-                status_code=resp.status_code,
-                retryable=resp.status_code in _RETRYABLE_HTTP,
-            )
-        try:
-            body = resp.json()
-        except Exception as exc:
-            raise RecompileError(
-                f"recompile service returned non-JSON: {exc}",
-                kind="protocol",
-            ) from exc
-        if not isinstance(body, dict):
-            raise RecompileError(
-                f"recompile service returned {type(body).__name__}, expected a JSON object",
-                kind="protocol",
-            )
-        status = body.get("status")
-        if status not in ("ok", "error"):
-            raise RecompileError(
-                f"recompile service returned unknown status {status!r}",
-                kind="protocol",
-            )
-        artifact_url = body.get("artifact_url")
-        if status == "ok":
-            if not artifact_url:
-                raise RecompileError(
-                    'recompile service returned status "ok" with no artifact_url',
-                    kind="protocol",
-                )
-            if not isinstance(artifact_url, str):
-                raise RecompileError(
-                    f"recompile service returned non-string artifact_url: {artifact_url!r}",
-                    kind="protocol",
-                )
-            return _download_artifact(http, url, body, artifact_url)
-        return RecompileResult(ok=False, log=str(body.get("log", "")))
+            with cm as http:
+                try:
+                    resp = http.post(f"{url}/api/v1/compile", json=payload)
+                except Exception as exc:
+                    raise RecompileError(
+                        f"recompile service at {url} unreachable: {exc}",
+                        kind="network",
+                        retryable=True,
+                    ) from exc
+                if resp.status_code != 200:
+                    raise RecompileError(
+                        f"recompile service returned HTTP {resp.status_code}: {resp.text[:300]}",
+                        kind="http",
+                        status_code=resp.status_code,
+                        retryable=resp.status_code in _RETRYABLE_HTTP,
+                    )
+                try:
+                    body = resp.json()
+                except Exception as exc:
+                    raise RecompileError(
+                        f"recompile service returned non-JSON: {exc}",
+                        kind="protocol",
+                    ) from exc
+                if not isinstance(body, dict):
+                    raise RecompileError(
+                        f"recompile service returned {type(body).__name__}, expected a JSON object",
+                        kind="protocol",
+                    )
+                status = body.get("status")
+                if status not in ("ok", "error"):
+                    raise RecompileError(
+                        f"recompile service returned unknown status {status!r}",
+                        kind="protocol",
+                    )
+                artifact_url = body.get("artifact_url")
+                if status == "ok":
+                    if not artifact_url:
+                        raise RecompileError(
+                            'recompile service returned status "ok" with no artifact_url',
+                            kind="protocol",
+                        )
+                    if not isinstance(artifact_url, str):
+                        raise RecompileError(
+                            f"recompile service returned non-string artifact_url: {artifact_url!r}",
+                            kind="protocol",
+                        )
+                    return _download_artifact(http, url, body, artifact_url)
+                return RecompileResult(ok=False, log=str(body.get("log", "")))
+        except RecompileError as exc:
+            last_exc = exc
+            if not exc.retryable or attempt + 1 >= attempts:
+                raise
+            continue
+    assert last_exc is not None  # attempts >= 1
+    raise last_exc
 
 
 __all__ = [
+    "HttpClient",
     "RecompileError",
     "RecompileErrorKind",
     "RecompileResult",

@@ -10,6 +10,42 @@ import pytest
 from rebrew.ghidra.client import _call_mcp_tool, _parse_sse_response
 
 
+def test_ghidra_client_public_all() -> None:
+    """Star-imports must not leak typing/stdlib names into consumer namespaces."""
+    import rebrew.ghidra.client as client
+
+    assert client.__all__ == [
+        "MAX_MCP_PAGES",
+        "MCP_HEADERS",
+        "MCP_REQUEST_TIMEOUT_S",
+        "McpApplyAborted",
+        "McpError",
+        "McpErrorKind",
+        "apply_commands_via_mcp",
+        "fetch_all_functions",
+        "fetch_all_symbols",
+        "fetch_mcp_tool",
+        "fetch_mcp_tool_raw",
+        "init_mcp_session",
+    ]
+    for name in client.__all__:
+        assert getattr(client, name, None) is not None, name
+    ns: dict[str, Any] = {}
+    exec("from rebrew.ghidra.client import *", ns)  # noqa: S102
+    exported = {k for k in ns if not k.startswith("_")}
+    assert exported == set(client.__all__)
+
+
+def test_ghidra_package_exports_mcp_errors() -> None:
+    """Integrators catch MCP failures from ``rebrew.ghidra``, not a submodule."""
+    import rebrew.ghidra as ghidra
+
+    assert "McpError" in ghidra.__all__
+    assert "McpApplyAborted" in ghidra.__all__
+    assert ghidra.McpError is not None
+    assert issubclass(ghidra.McpError, RuntimeError)
+
+
 class TestParseSseResponse:
     def test_valid_data_line(self) -> None:
         payload = {"jsonrpc": "2.0", "id": 1, "result": {"ok": True}}
@@ -459,12 +495,15 @@ class TestApplyCommandsViaMcp:
     def test_session_init_failure_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
         import httpx
 
-        from rebrew.ghidra.client import apply_commands_via_mcp
+        from rebrew.ghidra.client import McpError, apply_commands_via_mcp
 
         script: list[object] = [httpx.ConnectError("conn refused")]
         monkeypatch.setattr("rebrew.ghidra.client.httpx.Client", lambda **kw: _FakeClient(script))
-        with pytest.raises(RuntimeError, match="Failed to initialize MCP session"):
+        with pytest.raises(McpError, match="Failed to initialize MCP session") as ei:
             apply_commands_via_mcp([self._cmd("create-function", address="0x1000")])
+        assert ei.value.kind == "network"
+        assert ei.value.retryable is True
+        assert ei.value.status_code is None
 
     def test_no_session_id_warns_and_succeeds(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from rebrew.ghidra.client import apply_commands_via_mcp

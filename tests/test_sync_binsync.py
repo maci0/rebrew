@@ -85,21 +85,22 @@ class TestTypeImport:
     def test_unreadable_header_is_preserved(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, error_type: type[OSError]
     ) -> None:
+        import rebrew.utils as utils
         from rebrew.binsync.importer import _import_type_definitions
 
         cfg = _cfg(tmp_path)
         header = cfg.reversed_dir / "binsync_types.h"
         original = b"typedef int ExistingType;\n"
         header.write_bytes(original)
-        read_text = Path.read_text
+        real_read = utils.read_source_text
         failure = error_type("cannot read existing types")
 
-        def _read(path: Path, *args: object, **kwargs: object) -> str:
+        def _read(path: Path) -> tuple[str, str]:
             if path == header:
                 raise failure
-            return read_text(path, *args, **kwargs)
+            return real_read(path)
 
-        monkeypatch.setattr(Path, "read_text", _read)
+        monkeypatch.setattr(utils, "read_source_text", _read)
         with pytest.raises(error_type) as caught:
             _import_type_definitions(
                 cfg,

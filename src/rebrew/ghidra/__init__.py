@@ -10,6 +10,12 @@ from rebrew.ghidra.cli_backend import (
     resolve_ghidra_cli as resolve_ghidra_cli,
 )
 from rebrew.ghidra.client import (
+    McpApplyAborted as McpApplyAborted,
+)
+from rebrew.ghidra.client import (
+    McpError as McpError,
+)
+from rebrew.ghidra.client import (
     apply_commands_via_mcp as apply_commands_via_mcp,
 )
 from rebrew.ghidra.commands import (
@@ -20,6 +26,8 @@ from rebrew.ghidra.commands import (
 )
 
 __all__ = [
+    "McpApplyAborted",
+    "McpError",
     "app",
     "apply_commands_via_mcp",
     "build_bookmark_commands",

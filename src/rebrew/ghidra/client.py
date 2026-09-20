@@ -9,7 +9,7 @@ import json
 import logging
 import re
 import time
-from typing import Any
+from typing import Any, Literal
 
 import httpx
 from rich.console import Console
@@ -18,6 +18,34 @@ from rebrew.ghidra.models import JsonRpcResponse, McpToolResult
 
 console = Console(stderr=True)
 logger = logging.getLogger(__name__)
+
+#: How a :class:`McpError` arose — callers branch on this instead of
+#: matching message substrings.
+McpErrorKind = Literal["network", "http", "protocol"]
+
+
+class McpError(RuntimeError):
+    """ReVa MCP transport or protocol failure before/outside an apply loop.
+
+    Structured fields let callers recover without string-matching ``str(exc)``:
+
+    - ``kind`` — ``"network"`` / ``"http"`` / ``"protocol"``
+    - ``status_code`` — HTTP status when known, else ``None``
+    - ``retryable`` — ``True`` for transport blips and transient HTTP codes
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        kind: McpErrorKind = "protocol",
+        status_code: int | None = None,
+        retryable: bool = False,
+    ) -> None:
+        super().__init__(message)
+        self.kind = kind
+        self.status_code = status_code
+        self.retryable = retryable
 
 
 class McpApplyAborted(RuntimeError):
@@ -33,6 +61,9 @@ class McpApplyAborted(RuntimeError):
         self.applied = applied
         self.errors = errors
 
+
+#: Transient HTTP statuses that are safe to retry after a backoff.
+_RETRYABLE_HTTP = frozenset({408, 425, 429, 500, 502, 503, 504})
 
 MCP_HEADERS = {
     "Content-Type": "application/json",
@@ -547,8 +578,20 @@ def apply_commands_via_mcp(
     with httpx.Client(timeout=MCP_REQUEST_TIMEOUT_S) as client:
         try:
             session_id = init_mcp_session(client, endpoint)
+        except httpx.HTTPStatusError as exc:
+            code = exc.response.status_code
+            raise McpError(
+                f"Failed to initialize MCP session: HTTP {code}",
+                kind="http",
+                status_code=code,
+                retryable=code in _RETRYABLE_HTTP,
+            ) from exc
         except httpx.HTTPError as exc:
-            raise RuntimeError(f"Failed to initialize MCP session: {exc}") from exc
+            raise McpError(
+                f"Failed to initialize MCP session: {exc}",
+                kind="network",
+                retryable=True,
+            ) from exc
 
         if not session_id:
             console.print(
@@ -716,3 +759,19 @@ def apply_commands_via_mcp(
 
     console.print()  # newline after progress
     return success, errors
+
+
+__all__ = [
+    "MAX_MCP_PAGES",
+    "MCP_HEADERS",
+    "MCP_REQUEST_TIMEOUT_S",
+    "McpApplyAborted",
+    "McpError",
+    "McpErrorKind",
+    "apply_commands_via_mcp",
+    "fetch_all_functions",
+    "fetch_all_symbols",
+    "fetch_mcp_tool",
+    "fetch_mcp_tool_raw",
+    "init_mcp_session",
+]

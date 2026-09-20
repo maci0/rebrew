@@ -251,3 +251,15 @@ def refresh_all() -> dict[str, int]:
     counts["cache_backends"] = len(compile_cache.refresh_cache_backends())
     counts["discoverers"] = len(discover.refresh_discoverers())
     return counts
+
+
+__all__ = [
+    "Registration",
+    "RegistryError",
+    "entry_point_registrations",
+    "import_registration",
+    "load_registration_optional",
+    "merge_into",
+    "merge_provider_dict",
+    "refresh_all",
+]
