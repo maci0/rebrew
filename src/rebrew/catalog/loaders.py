@@ -123,6 +123,9 @@ def load_ghidra_data_labels(src_dir: Path | None) -> dict[int, GhidraDataLabel]:
 _function_list_cache: dict[str, tuple[str, list[dict[str, Any]]]] = {}
 _FUNCTION_LIST_CACHE_MAX = 32
 _function_list_cache_lock = threading.Lock()
+# VA frozenset derived from the same inventory — avoids rebuilding
+# ``{f["va"] for f in funcs}`` on every EXTRACT_ERROR in verify.
+_function_vas_cache: dict[str, tuple[str, frozenset[int]]] = {}
 
 
 def cached_function_list(cfg: ProjectConfig) -> list[dict[str, Any]]:
@@ -169,8 +172,45 @@ def cached_function_list(cfg: ProjectConfig) -> list[dict[str, Any]]:
         ):
             oldest = next(iter(_function_list_cache))
             _function_list_cache.pop(oldest, None)
+            _function_vas_cache.pop(oldest, None)
         _function_list_cache[cache_key] = (mtime_key, funcs)
+        _function_vas_cache[cache_key] = (
+            mtime_key,
+            frozenset(va for f in funcs if isinstance((va := f.get("va")), int)),
+        )
     return list(funcs)
+
+
+def cached_function_vas(cfg: ProjectConfig) -> frozenset[int]:
+    """VA set for the discovery inventory, once per path.
+
+    Shares invalidation with :func:`cached_function_list`.  Prefer this over
+    rebuilding a set comprehension from the list on hot membership checks.
+    """
+    from rebrew.config import FUNCTION_STRUCTURE_JSON
+
+    reversed_dir = getattr(cfg, "reversed_dir", "")
+    path = str(Path(reversed_dir) / FUNCTION_STRUCTURE_JSON) if reversed_dir else ""
+    mtime_key = ""
+    with contextlib.suppress(OSError):
+        mtime_key = str(Path(path).stat().st_mtime_ns)
+    cache_key = path if path else ""
+    with _function_list_cache_lock:
+        cached = _function_vas_cache.get(cache_key)
+        if cached is not None and cached[0] == mtime_key:
+            return cached[1]
+        list_cached = _function_list_cache.get(cache_key)
+        if list_cached is not None and list_cached[0] == mtime_key:
+            vas = frozenset(va for f in list_cached[1] if isinstance((va := f.get("va")), int))
+            _function_vas_cache[cache_key] = (mtime_key, vas)
+            return vas
+    # Populate both caches via the list loader, then re-read the VA set.
+    cached_function_list(cfg)
+    with _function_list_cache_lock:
+        cached = _function_vas_cache.get(cache_key)
+        if cached is not None and cached[0] == mtime_key:
+            return cached[1]
+    return frozenset()
 
 
 def parse_rizin_afl(text: str) -> list[tuple[int, int, str]]:

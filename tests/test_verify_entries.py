@@ -32,6 +32,10 @@ def _patch(monkeypatch: pytest.MonkeyPatch, entries: list[Annotation]) -> None:
     monkeypatch.setattr(verify_mod, "build_function_registry", lambda *a, **k: {})
     monkeypatch.setattr(verify_mod, "count_detection_sources", lambda r: (0, 0, 0, 0))
     monkeypatch.setattr(verify_mod, "_load_verify_cache", lambda *a, **k: None)
+    monkeypatch.setattr(
+        "rebrew.coff_reloc.build_name_to_va",
+        lambda cfg, annotations=None: {e.name: e.va for e in entries if e.name},
+    )
 
 
 class TestPrepareEntries:
@@ -49,7 +53,7 @@ class TestPrepareEntries:
                 _ann(0x4000, filepath="lib.h"),
             ],
         )
-        entries, passed, failed, fail_details, results, cached, size_div, _miss, _dup = (
+        entries, passed, failed, fail_details, results, cached, size_div, _miss, _dup, _n2v = (
             verify_mod.prepare_entries(cfg, full=True, json_output=False)
         )
         vas = [e.va for e in entries]
@@ -77,7 +81,9 @@ class TestPrepareEntries:
                 _ann(0x1000, filepath="dropped.c"),
             ],
         )
-        entries, *_rest, duplicates = verify_mod.prepare_entries(cfg, full=True, json_output=False)
+        entries, *_rest, duplicates, _n2v = verify_mod.prepare_entries(
+            cfg, full=True, json_output=False
+        )
         assert [e.va for e in entries] == [0x1000]
         assert duplicates == [{"va": "0x00001000", "kept": "kept.c", "dropped": "dropped.c"}]
         err = capsys.readouterr().err
@@ -111,6 +117,10 @@ class TestPrepareEntriesCache:
         monkeypatch.setattr(verify_mod, "cached_function_list", lambda _cfg: [])
         monkeypatch.setattr(verify_mod, "build_function_registry", lambda *a, **k: {})
         monkeypatch.setattr(verify_mod, "count_detection_sources", lambda r: (0, 0, 0, 0))
+        monkeypatch.setattr(
+            "rebrew.coff_reloc.build_name_to_va",
+            lambda cfg, annotations=None: {entry.name: entry.va} if entry.name else {},
+        )
         return cfg
 
     def _cache_entry(
@@ -185,7 +195,7 @@ class TestPrepareEntriesCache:
                 version=2, compiler_hash="", headers_hash="", target="", entries=cache
             ),
         )
-        entries, passed, failed, fail_details, results, cached, size_div, _miss, _dup = (
+        entries, passed, failed, fail_details, results, cached, size_div, _miss, _dup, _n2v = (
             verify_mod.prepare_entries(cfg, full=False, json_output=False)
         )
         assert cached == 1
@@ -217,12 +227,12 @@ class TestPrepareEntriesCache:
         )
         ctx = CompileContext(path=tmp_path / "ctx.c", text="typedef int myint;\n", sha256="abc123")
 
-        _e, _p, _f, _fd, _r, cached_no_ctx, _sd, _ms, _dup = verify_mod.prepare_entries(
+        _e, _p, _f, _fd, _r, cached_no_ctx, _sd, _ms, _dup, _n2v = verify_mod.prepare_entries(
             cfg, full=False, json_output=False
         )
         assert cached_no_ctx == 1, "the cache must hit without a context"
 
-        _e, _p, _f, _fd, _r, cached_ctx, _sd, _ms, _dup = verify_mod.prepare_entries(
+        _e, _p, _f, _fd, _r, cached_ctx, _sd, _ms, _dup, _n2v = verify_mod.prepare_entries(
             cfg, full=False, json_output=False, context=ctx
         )
         assert cached_ctx == 0, "a context-scoped run must re-verify, not reuse"
@@ -250,7 +260,7 @@ class TestPrepareEntriesCache:
                 version=2, compiler_hash="", headers_hash="", target="", entries=cache
             ),
         )
-        _, _, _, _, _, cached, _, _, _dup = verify_mod.prepare_entries(
+        _, _, _, _, _, cached, _, _, _dup, _n2v = verify_mod.prepare_entries(
             cfg, full=False, json_output=False
         )
         assert cached == 0
@@ -280,7 +290,7 @@ class TestPrepareEntriesCache:
                 version=2, compiler_hash="", headers_hash="", target="", entries=cache
             ),
         )
-        _, _, _, _, _, cached, _, _, _dup = verify_mod.prepare_entries(
+        _, _, _, _, _, cached, _, _, _dup, _n2v = verify_mod.prepare_entries(
             cfg, full=False, json_output=False
         )
         assert cached == 0
@@ -303,7 +313,7 @@ class TestPrepareEntriesCache:
                 version=2, compiler_hash="", headers_hash="", target="", entries=cache
             ),
         )
-        _, _, _, _, _, cached, _, _, _dup = verify_mod.prepare_entries(
+        _, _, _, _, _, cached, _, _, _dup, _n2v = verify_mod.prepare_entries(
             cfg, full=False, json_output=False
         )
         assert cached == 0
@@ -332,14 +342,14 @@ class TestPrepareEntriesCache:
             ),
         )
         # First pass: cache hit (resolved flags match the cached entry).
-        _, _, _, _, _, cached, _, _, _dup = verify_mod.prepare_entries(
+        _, _, _, _, _, cached, _, _, _dup, _n2v = verify_mod.prepare_entries(
             cfg, full=False, json_output=False
         )
         assert cached == 1
         # Config-level cflags change: the same source now compiles differently
         # → the cached result is stale and must be re-verified.
         cfg.cflags = "/O1"
-        _, _, _, _, _, cached, _, _, _dup = verify_mod.prepare_entries(
+        _, _, _, _, _, cached, _, _, _dup, _n2v = verify_mod.prepare_entries(
             cfg, full=False, json_output=False
         )
         assert cached == 0
@@ -357,7 +367,7 @@ class TestPrepareEntriesCache:
                 version=2, compiler_hash="", headers_hash="", target="", entries=cache
             ),
         )
-        entries, passed, failed, fail_details, results, cached, size_div, _miss, _dup = (
+        entries, passed, failed, fail_details, results, cached, size_div, _miss, _dup, _n2v = (
             verify_mod.prepare_entries(cfg, full=False, json_output=False)
         )
         assert cached == 1
@@ -387,7 +397,7 @@ class TestPrepareEntriesCache:
                 version=2, compiler_hash="", headers_hash="", target="", entries=cache
             ),
         )
-        _, _, _, _, _, cached, _, _, _dup = verify_mod.prepare_entries(
+        _, _, _, _, _, cached, _, _, _dup, _n2v = verify_mod.prepare_entries(
             cfg, full=False, json_output=False
         )
         assert cached == 0
@@ -408,7 +418,7 @@ class TestPrepareEntriesCache:
                 version=2, compiler_hash="", headers_hash="", target="", entries=cache
             ),
         )
-        _, _, _, _, _, cached, _, _, _dup = verify_mod.prepare_entries(
+        _, _, _, _, _, cached, _, _, _dup, _n2v = verify_mod.prepare_entries(
             cfg, full=False, json_output=False
         )
         assert cached == 1
@@ -436,7 +446,7 @@ class TestPrepareEntriesCache:
                 version=2, compiler_hash="", headers_hash="", target="", entries=cache
             ),
         )
-        _, _, _, _, _, cached, _, _, _dup = verify_mod.prepare_entries(
+        _, _, _, _, _, cached, _, _, _dup, _n2v = verify_mod.prepare_entries(
             cfg, full=False, json_output=False
         )
         assert cached == 1
@@ -462,7 +472,7 @@ class TestPrepareEntriesCache:
                 version=2, compiler_hash="", headers_hash="", target="", entries=cache
             ),
         )
-        _, _, _, _, _, cached, _, _, _dup = verify_mod.prepare_entries(
+        _, _, _, _, _, cached, _, _, _dup, _n2v = verify_mod.prepare_entries(
             cfg, full=False, json_output=False
         )
         assert cached == 0
@@ -484,7 +494,7 @@ class TestPrepareEntriesCache:
                 version=2, compiler_hash="", headers_hash="", target="", entries=cache
             ),
         )
-        _, _, _, _, _, cached, _, _, _dup = verify_mod.prepare_entries(
+        _, _, _, _, _, cached, _, _, _dup, _n2v = verify_mod.prepare_entries(
             cfg, full=False, json_output=False
         )
         assert cached == 1
@@ -504,7 +514,7 @@ class TestPrepareEntriesCache:
                 version=2, compiler_hash="", headers_hash="", target="", entries=cache
             ),
         )
-        _entries, passed, _failed, _fd, results, cached, size_div, _miss, _dup = (
+        _entries, passed, _failed, _fd, results, cached, size_div, _miss, _dup, _n2v = (
             verify_mod.prepare_entries(cfg, full=False, json_output=False)
         )
         assert cached == 0
@@ -529,7 +539,7 @@ class TestPrepareEntriesCache:
                 version=2, compiler_hash="", headers_hash="", target="", entries=cache
             ),
         )
-        _entries, passed, _failed, _fd, results, cached, size_div, _miss, _dup = (
+        _entries, passed, _failed, _fd, results, cached, size_div, _miss, _dup, _n2v = (
             verify_mod.prepare_entries(cfg, full=False, json_output=False)
         )
         assert cached == 0
@@ -547,7 +557,7 @@ class TestPrepareEntriesCache:
             "build_function_registry",
             lambda *a, **k: {0x1000: {"canonical_size": 80, "size_reason": "list"}},
         )
-        _e, _p, _f, _fd, _r, _c, size_div, _miss, _dup = verify_mod.prepare_entries(
+        _e, _p, _f, _fd, _r, _c, size_div, _miss, _dup, _n2v = verify_mod.prepare_entries(
             cfg, full=True, json_output=False
         )
         assert len(size_div) == 1
@@ -569,7 +579,7 @@ class TestPrepareEntriesCache:
             "build_function_registry",
             lambda *a, **k: {0x1000: {"canonical_size": 80, "size_reason": "list"}},
         )
-        _e, _p, _f, _fd, _r, _c, size_div, _miss, _dup = verify_mod.prepare_entries(
+        _e, _p, _f, _fd, _r, _c, size_div, _miss, _dup, _n2v = verify_mod.prepare_entries(
             cfg, full=True, json_output=False
         )
         assert size_div == []
@@ -605,7 +615,7 @@ class TestPrepareEntriesCache:
             "build_function_registry",
             lambda *a, **k: {0x1000: {"canonical_size": 64, "size_reason": "list"}},
         )
-        _e, _p, _f, _fd, _r, _c, size_div, _miss, _dup = verify_mod.prepare_entries(
+        _e, _p, _f, _fd, _r, _c, size_div, _miss, _dup, _n2v = verify_mod.prepare_entries(
             cfg, full=True, json_output=False
         )
         assert size_div == []
@@ -628,7 +638,7 @@ class TestPrepareEntriesCache:
             "build_function_registry",
             lambda *a, **k: {0x1000: {"canonical_size": 235, "size_reason": "list"}},
         )
-        _e, _p, _f, _fd, _r, _c, size_div, missing, _dup = verify_mod.prepare_entries(
+        _e, _p, _f, _fd, _r, _c, size_div, missing, _dup, _n2v = verify_mod.prepare_entries(
             cfg, full=True, json_output=False
         )
         assert size_div == []  # not a divergence — it's absent, not stale

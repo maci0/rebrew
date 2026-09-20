@@ -8,6 +8,7 @@ import shlex
 import threading
 import time
 import tomllib
+from collections import OrderedDict
 from collections.abc import Callable, Iterator, Sequence
 from pathlib import Path
 from typing import Any
@@ -22,6 +23,14 @@ logger = logging.getLogger(__name__)
 # ...).  Projects resolve compiler paths project-relative first, then fall
 # back here so a freshly-inited project works without a local tools/ symlink.
 _REPO_ROOT = Path(__file__).resolve().parents[2]
+
+# Process-lifetime source text memo keyed by (resolved path, mtime_ns, size).
+# verify/test/catalog re-read the same tree multiple times per run; a bounded
+# LRU collapses those duplicate syscalls without pinning unbounded content.
+# Guarded: verify -j N reads the same sources from worker threads.
+_SOURCE_TEXT_MEMO: OrderedDict[tuple[str, int, int], tuple[str, str]] = OrderedDict()
+_SOURCE_TEXT_MEMO_MAX = 512
+_SOURCE_TEXT_MEMO_LOCK = threading.Lock()
 
 
 def container_runtime() -> str:
@@ -363,10 +372,36 @@ def read_source_text(filepath: Path) -> tuple[str, str]:
     file back so legacy-encoded sources are not corrupted by a UTF-8 write.
     Undecodable bytes (e.g. the undefined CP1252 holes 0x81/0x8D/0x8F/0x90/
     0x9D) decode as U+FFFD rather than raising.
+
+    Bounded path+mtime memo: verify/test/catalog often re-scan the same
+    tree several times per run (prepare_entries, build_name_to_va,
+    scan_globals).  A content-digest parse memo still re-reads every file;
+    this layer skips the syscall+decode when the inode metadata is unchanged.
     """
-    data = filepath.read_bytes()
+    resolved = filepath.resolve()
+    try:
+        st = resolved.stat()
+    except OSError:
+        # Fall through to a direct read so the caller's OSError path matches
+        # the pre-cache behaviour (missing file, permission, etc.).
+        data = filepath.read_bytes()
+        encoding = detect_source_encoding(data)
+        return data.decode(encoding, errors="replace"), encoding
+    memo_key = (str(resolved), st.st_mtime_ns, st.st_size)
+    with _SOURCE_TEXT_MEMO_LOCK:
+        hit = _SOURCE_TEXT_MEMO.get(memo_key)
+        if hit is not None:
+            # Refresh LRU order: move-to-end so hot sources stay.
+            _SOURCE_TEXT_MEMO.move_to_end(memo_key)
+            return hit
+    data = resolved.read_bytes()
     encoding = detect_source_encoding(data)
-    return data.decode(encoding, errors="replace"), encoding
+    text = data.decode(encoding, errors="replace")
+    with _SOURCE_TEXT_MEMO_LOCK:
+        if memo_key not in _SOURCE_TEXT_MEMO and len(_SOURCE_TEXT_MEMO) >= _SOURCE_TEXT_MEMO_MAX:
+            _SOURCE_TEXT_MEMO.popitem(last=False)
+        _SOURCE_TEXT_MEMO[memo_key] = (text, encoding)
+    return text, encoding
 
 
 def atomic_write_text(filepath: Path, text: str, encoding: str = "utf-8") -> None:
@@ -399,6 +434,17 @@ def atomic_write_text(filepath: Path, text: str, encoding: str = "utf-8") -> Non
         # ``\r\n`` and would CRLF-corrupt every LF source/metadata rewrite.
         tmp_path.write_text(text, encoding=encoding, newline="")
         os.replace(tmp_path, filepath)
+        # Drop any stale path+mtime entries so a same-ns rewrite cannot
+        # serve pre-write content to a later reader in this process.
+        try:
+            resolved = str(filepath.resolve())
+        except OSError:
+            resolved = ""
+        if resolved:
+            with _SOURCE_TEXT_MEMO_LOCK:
+                stale = [k for k in _SOURCE_TEXT_MEMO if k[0] == resolved]
+                for k in stale:
+                    _SOURCE_TEXT_MEMO.pop(k, None)
     except BaseException:
         with contextlib.suppress(OSError):
             tmp_path.unlink()

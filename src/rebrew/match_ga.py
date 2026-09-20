@@ -650,23 +650,26 @@ class BinaryMatchingGA:
         # 300k-candidate warm batch).  getattr guards pickles written before
         # the field existed.
         res.fitness = total
+        # Drop the .obj payload before the in-memory store: warm hits take
+        # the fitness memo / res.fitness path and never re-read obj_bytes.
+        # Keeping every unique variant's bytes unboundedly (pop × gens)
+        # dominated long GA RSS; failures still store without bytes above.
+        if self.collect_pairs_path is not None:
+            self._write_pair(src, obj_bytes, total)
+        res.obj_bytes = None
         with self._memo_lock:
             self._fitness_memo[src_hash] = total
             # One memo store per candidate: _compile_source skipped the store on
             # a miss (it defers to the scored result here), so this put persists
-            # both the .obj and the fitness — a later generation loads fitness
-            # set and takes the warm-cache skip.  Keyed on the compile
-            # configuration (``_cache_key``), NOT the ``src_hash`` argument: the
-            # caller passes the bare source digest for memoization, and a
+            # the scored result with fitness set — a later generation takes
+            # the warm-cache skip.  Keyed on the compile configuration
+            # (``_cache_key``), NOT the ``src_hash`` argument: the caller
+            # passes the bare source digest for memoization, and a
             # digest-keyed entry is never read by ``_compile_source``.
             self.cache[self._cache_key(src)] = res
         _log(
             f"[{src_hash[:8]}] SUCCESS. Score={total:.2f} (len_bytes={len(obj_bytes)}, excess={excess})"
         )
-
-        # Collect source-binary pair for ML training if enabled
-        if self.collect_pairs_path is not None:
-            self._write_pair(src, obj_bytes, total)
 
         return total
 

@@ -52,7 +52,18 @@ def _patch_flow(monkeypatch: pytest.MonkeyPatch, cfg: SimpleNamespace) -> None:
     monkeypatch.setattr("rebrew.verify.require_config", lambda **kw: cfg)
     monkeypatch.setattr(
         "rebrew.verify.prepare_entries",
-        lambda cfg, full, json_output, context=None: ([_ann(0x1000)], 1, 0, [], [], 0, [], [], []),
+        lambda cfg, full, json_output, context=None: (
+            [_ann(0x1000)],
+            1,
+            0,
+            [],
+            [],
+            0,
+            [],
+            [],
+            [],
+            {},
+        ),
     )
     monkeypatch.setattr("rebrew.verify.run_verification", lambda *a, **k: (0, 0, [], [], []))
     monkeypatch.setattr("rebrew.verify_cache.load_baseline", lambda cfg: (None, None))

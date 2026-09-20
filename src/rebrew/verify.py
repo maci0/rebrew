@@ -199,8 +199,10 @@ def verify_entry(
         # say so instead of a bare tooling error.
         hint = ""
         try:
-            funcs = cached_function_list(cfg)
-            if funcs and entry.va not in {f["va"] for f in funcs}:
+            from rebrew.catalog.loaders import cached_function_vas
+
+            vas = cached_function_vas(cfg)
+            if vas and entry.va not in vas:
                 hint = (
                     f" (annotation VA 0x{entry.va:x} is not a function in the "
                     "current function list — stale annotation? re-run "
@@ -251,6 +253,10 @@ def verify_entry(
                 result.obj_bytes,
                 result.reloc_offsets,
                 as_dict=True,
+                # Counts only — verify reads summary.structural / summary.reg.
+                # Full per-instruction rows would rebuild hex/disasm for every
+                # mismatch in a batch (often hundreds of functions).
+                summary_only=True,
                 # Register-encoding diffs are classified separately (RR) so a
                 # register-only delta is distinguishable from real structural
                 # churn.  Register masking is x86-32 specific; other arches
@@ -1068,6 +1074,7 @@ def run_batch(
         size_divergences,
         missing_sizes,
         duplicate_vas,
+        name_to_va,
     ) = prepare_entries(cfg, full, json_output, context=context)
     (
         unique_entries,
@@ -1103,6 +1110,7 @@ def run_batch(
             cached_count,
             json_output,
             context,
+            name_to_va=name_to_va,
         )
     else:
         v_passed, v_failed, v_fail_details, v_results, deferred = 0, 0, [], [], []
@@ -1853,13 +1861,16 @@ def prepare_entries(
     list[dict[str, Any]],
     list[dict[str, Any]],
     list[dict[str, str]],
+    dict[str, int],
 ]:
     """Scan reversed_dir, deduplicate entries, and check the verify cache.
 
     Returns (unique_entries, passed, failed, fail_details, results,
-    cached_count, size_divergences, missing_sizes, duplicate_vas).
+    cached_count, size_divergences, missing_sizes, duplicate_vas, name_to_va).
     ``duplicate_vas`` names the dropped sources: ``{"va", "kept", "dropped"}``
     per duplicate-VA annotation (first source wins, the rest never compile).
+    ``name_to_va`` is the symbol catalog built from the same scan (plus
+    globals/metadata) so ``run_verification`` does not re-parse the tree.
 
     With *context* set the result cache is not consulted at all: a cached
     verdict was earned by compiling the bare source, and the cache entry type
@@ -1872,6 +1883,14 @@ def prepare_entries(
 
     console.print(f"Scanning {reversed_dir}...")
     entries = scan_reversed_dir(reversed_dir, cfg=cfg)
+    # Build the reloc-validation catalog from this scan — avoids a second
+    # full parse_c_file_multi walk inside run_verification.
+    from rebrew.coff_reloc import CatalogScanError, build_name_to_va
+
+    try:
+        name_to_va = build_name_to_va(cfg, annotations=entries)
+    except CatalogScanError as exc:
+        error_exit(str(exc), json_mode=json_output)
     funcs = cached_function_list(cfg)
     registry = build_function_registry(funcs, cfg, ghidra_json_path, cfg.target_binary)
 
@@ -1888,7 +1907,7 @@ def prepare_entries(
         error_exit(f"{cfg.target_binary} not found", json_mode=json_output)
 
     # Filter out non-compilable annotations and deduplicate by VA
-    seen_vas: set[int] = set()
+    va_to_kept: dict[int, Annotation] = {}
     unique_entries: list[Annotation] = []
     data_count = 0
     library_header_count = 0
@@ -1901,14 +1920,14 @@ def prepare_entries(
         if fp and fp.endswith(".h"):
             library_header_count += 1
             continue
-        if entry.va not in seen_vas:
-            seen_vas.add(entry.va)
+        kept = va_to_kept.get(entry.va)
+        if kept is None:
+            va_to_kept[entry.va] = entry
             unique_entries.append(entry)
         else:
             # Duplicate VA: the first source wins and the rest are DROPPED
             # from this run (they are never compiled).  Say so loudly — a
             # silent keep-first hides a stale annotation in CI.
-            kept = next(e for e in unique_entries if e.va == entry.va)
             duplicate_vas.append(
                 (entry.va, getattr(kept, "filepath", ""), getattr(entry, "filepath", ""))
             )
@@ -2070,6 +2089,7 @@ def prepare_entries(
         size_divergences,
         missing_sizes,
         duplicate_rows,
+        name_to_va,
     )
 
 
@@ -2081,6 +2101,7 @@ def run_verification(
     cached_count: int,
     json_output: bool,
     context: "CompileContext | None" = None,
+    name_to_va: dict[str, int] | None = None,
 ) -> tuple[
     int, int, list[tuple[Annotation, str]], list[dict[str, Any]], list[tuple[Annotation, str, int]]
 ]:
@@ -2089,6 +2110,8 @@ def run_verification(
     Returns (passed, failed, fail_details, results, deferred_fixes).
     *context* is threaded to every ``verify_entry`` so each result carries
     the digest of the context it was compiled under.
+    *name_to_va* is the shared symbol catalog from ``prepare_entries``; when
+    omitted the catalog is built here (standalone callers / tests).
     """
     passed = 0
     failed = 0
@@ -2112,12 +2135,13 @@ def run_verification(
     # Shared once for the whole batch — same catalog `rebrew test` uses.
     # Fail closed: a VA-map scan failure aborts the run instead of masking
     # relocs against an empty map (false RELOC).
-    from rebrew.coff_reloc import CatalogScanError, build_name_to_va
+    if name_to_va is None:
+        from rebrew.coff_reloc import CatalogScanError, build_name_to_va
 
-    try:
-        name_to_va = build_name_to_va(cfg)
-    except CatalogScanError as exc:
-        error_exit(str(exc), json_mode=json_output)
+        try:
+            name_to_va = build_name_to_va(cfg)
+        except CatalogScanError as exc:
+            error_exit(str(exc), json_mode=json_output)
 
     def _verify(
         e: Annotation,

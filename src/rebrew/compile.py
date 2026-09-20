@@ -1805,17 +1805,19 @@ def compile_and_compare(
 
     workdir: Path | None = None
     try:
-        # A real-disk, container-visible workdir (writable_temp_dir) - the
-        # docker runner mounts it at /work, so a system-temp sandbox
-        # (tmpfs / docker-invisible under sandboxed environments) would
-        # compile an empty dir.  Cleaned up in finally.
-        from rebrew.utils import writable_temp_dir
-
-        workdir = writable_temp_dir("rebrew_cmp_")
         obj_path: str | None
         if _precompiled_obj is not None and Path(_precompiled_obj).is_file():
+            # Batch precompile already produced the .obj — skip the
+            # mkdir/rmtree tax that dominated verify after ADR-021 batching.
             obj_path, err = _precompiled_obj, ""
         else:
+            # A real-disk, container-visible workdir (writable_temp_dir) - the
+            # docker runner mounts it at /work, so a system-temp sandbox
+            # (tmpfs / docker-invisible under sandboxed environments) would
+            # compile an empty dir.  Cleaned up in finally.
+            from rebrew.utils import writable_temp_dir
+
+            workdir = writable_temp_dir("rebrew_cmp_")
             obj_path, err = compile_to_obj(
                 cfg,
                 source_path,

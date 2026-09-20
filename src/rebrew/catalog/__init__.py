@@ -18,6 +18,9 @@ from rebrew.catalog.loaders import (
     cached_function_list as cached_function_list,
 )
 from rebrew.catalog.loaders import (
+    cached_function_vas as cached_function_vas,
+)
+from rebrew.catalog.loaders import (
     load_function_structure as load_function_structure,
 )
 from rebrew.catalog.loaders import (
@@ -55,6 +58,7 @@ __all__ = [
     "app",
     "build_function_registry",
     "cached_function_list",
+    "cached_function_vas",
     "count_detection_sources",
     "generate_data_json",
     "generate_reccmp_csv",

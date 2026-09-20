@@ -11,7 +11,7 @@ import struct
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 
@@ -168,7 +168,11 @@ def build_iat_region(cfg: ProjectConfig) -> set[int]:
     return region
 
 
-def build_name_to_va(cfg: ProjectConfig) -> dict[str, int]:
+def build_name_to_va(
+    cfg: ProjectConfig,
+    *,
+    annotations: Sequence[Any] | None = None,
+) -> dict[str, int]:
     """Build a symbol-name → VA map from globals AND the function catalog.
 
     Shared by ``rebrew test`` and ``rebrew verify`` so both paths apply the
@@ -176,6 +180,11 @@ def build_name_to_va(cfg: ProjectConfig) -> dict[str, int]:
     symbols, annotated functions, scanned globals, and data metadata —
     without the function half, REL32 callee validation would miss every call
     target and mask wrong-function calls as valid RELOC.
+
+    When *annotations* is provided (e.g. the list already returned by
+    ``scan_reversed_dir``), the function-name half is filled from that list
+    instead of re-walking and re-parsing every source — verify's prepare
+    pass already paid that cost once.
 
     :raises CatalogScanError: the scan failed — callers must fail closed
         (no reloc masking without validation), never mask on an empty map.
@@ -210,12 +219,19 @@ def build_name_to_va(cfg: ProjectConfig) -> dict[str, int]:
         for va, name in (getattr(cfg, "dll_exports", None) or {}).items():
             if isinstance(name, str) and name and isinstance(va, int):
                 name_to_va[name] = va
-        from rebrew.annotation import parse_c_file_multi
+        if annotations is not None:
+            for ann in annotations:
+                ann_name = getattr(ann, "name", None)
+                ann_va = getattr(ann, "va", None)
+                if isinstance(ann_name, str) and ann_name and isinstance(ann_va, int) and ann_va:
+                    name_to_va[ann_name] = ann_va
+        else:
+            from rebrew.annotation import parse_c_file_multi
 
-        for path in iter_sources(cfg.reversed_dir, cfg):
-            for ann in parse_c_file_multi(path):
-                if ann.name and ann.va:
-                    name_to_va[ann.name] = ann.va
+            for path in iter_sources(cfg.reversed_dir, cfg):
+                for ann in parse_c_file_multi(path):
+                    if ann.name and ann.va:
+                        name_to_va[ann.name] = ann.va
     except (ImportError, OSError, ValueError, KeyError, AttributeError) as exc:
         # Fail closed: a scan failure is indistinguishable from "nothing to
         # validate" to every caller — verify/test would then silently skip

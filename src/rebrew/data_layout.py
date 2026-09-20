@@ -246,15 +246,17 @@ def owner_of(names: list[str], files: list[Path]) -> Path | None:
     """The most-referencing file over *names* (None when nothing references them)."""
     if not names:
         return None
-    patterns = [re.compile(rf"\b{re.escape(n)}\b") for n in names]
+    # One alternation instead of N separate compiles × findall passes.
+    pat = re.compile(r"\b(?:" + "|".join(re.escape(n) for n in names) + r")\b")
     counts: dict[Path, int] = defaultdict(int)
     for f in files:
         try:
             t, _ = read_source_text(f)
         except OSError:
             continue
-        for pat in patterns:
-            counts[f] += len(pat.findall(t))
+        n = len(pat.findall(t))
+        if n:
+            counts[f] = n
     if not counts:
         return None
     return max(counts, key=lambda p: counts[p])
