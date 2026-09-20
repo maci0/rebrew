@@ -7,6 +7,9 @@ on:
 
 permissions:
   contents: read
+  # setup-uv enable-cache saves via the Actions cache API; contents:read alone
+  # restores but cannot write, so the cache would stay cold forever.
+  actions: write
 
 # Keep in sync with UV_VERSION / RESEMBL_REF in ci.yml: one pinned installer
 # and one sibling tag everywhere, never setup-uv's floating "latest".
@@ -14,6 +17,8 @@ permissions:
 env:
   UV_VERSION: "0.12.14"
   RESEMBL_REF: "v2.0.0"
+  # Clone helper + check-updates GitHub API (header auth; see ci.yml).
+  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -21,7 +26,7 @@ concurrency:
 
 jobs:
   check-updates:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - name: Checkout
@@ -47,8 +52,6 @@ jobs:
         # bypassing review (deps-review F1).
         run: uv sync --frozen
       - name: Check toolchain source drift
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail

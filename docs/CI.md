@@ -17,13 +17,17 @@ job that greps the high-value `--help` surfaces. The lint job also runs
 via workflow `UV_VERSION` (commit-SHA-pinned `setup-uv` / `checkout` Actions).
 Lint, pre-commit, package, cli-contract, and toolchain-sync pin the exact
 Python patch from `.python-version`; the test matrix covers the 3.13/3.14
-minors for compatibility. It does **not** require a target binary or MSVC
-toolchain.
+minors for compatibility. Jobs run on pinned `ubuntu-24.04` (not
+`ubuntu-latest`). Workflow `permissions` include `actions: write` so
+`setup-uv`'s `enable-cache` can persist the uv cache (restore alone works with
+`contents: read`, but a cold cache never warms without write). It does **not**
+require a target binary or MSVC toolchain.
 
 Every job that runs `uv sync` first clones the sibling `resembl` repo
 (`maci0/resembl`, tag from workflow `RESEMBL_REF`, currently `v2.0.0`) into the
 directory above the workspace via `tools/ci_clone_resembl.sh` (retries on
-network flake): `pyproject.toml`'s `[tool.uv.sources]` resolves
+network flake; uses `GH_TOKEN` header auth when mapped from
+`secrets.GITHUB_TOKEN`): `pyproject.toml`'s `[tool.uv.sources]` resolves
 the `similarity` group's `resembl` from `../resembl`, so uv fails to build the
 installation plan when that checkout is absent — even for a sync that does not
 install the group. Keep `RESEMBL_REF` in step with the `resembl` version in

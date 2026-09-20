@@ -110,15 +110,32 @@ class TestCiPins:
             f"third-party Actions must be commit-SHA pinned (got floating refs: {unpinned})"
         )
 
+    def test_runners_pin_ubuntu_lts(self) -> None:
+        """Float on ubuntu-latest silently switches major images; pin the LTS."""
+        for path in (CI_YML, SYNC_YML):
+            text = path.read_text(encoding="utf-8")
+            assert "runs-on: ubuntu-latest" not in text, path.name
+            assert "runs-on: ubuntu-24.04" in text, path.name
+
+    def test_cache_write_permission(self) -> None:
+        """setup-uv enable-cache needs actions:write to persist the uv cache."""
+        for path in (CI_YML, SYNC_YML):
+            head = path.read_text(encoding="utf-8").split("\njobs:", 1)[0]
+            assert "contents: read" in head, path.name
+            assert "actions: write" in head, path.name
+
     def test_resembl_clone_uses_retry_helper(self) -> None:
         """Network flakes cloning resembl must retry (same posture as apt-get)."""
         helper = ROOT / "tools" / "ci_clone_resembl.sh"
         assert helper.is_file()
-        assert "for attempt in 1 2 3" in helper.read_text(encoding="utf-8")
+        text = helper.read_text(encoding="utf-8")
+        assert "for attempt in 1 2 3" in text
+        assert "GIT_TERMINAL_PROMPT=0" in text
+        assert "basename is not 'resembl'" in text
         for path in (CI_YML, SYNC_YML):
-            text = path.read_text(encoding="utf-8")
-            assert "bash tools/ci_clone_resembl.sh" in text, path.name
-            assert "git clone --depth 1 --branch" not in text, path.name
+            wf = path.read_text(encoding="utf-8")
+            assert "bash tools/ci_clone_resembl.sh" in wf, path.name
+            assert "git clone --depth 1 --branch" not in wf, path.name
 
     def test_test_job_fetches_tags(self) -> None:
         """Packaging CHANGELOG↔tag contract needs tags on the shallow checkout."""

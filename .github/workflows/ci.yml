@@ -8,6 +8,9 @@ on:
 
 permissions:
   contents: read
+  # setup-uv enable-cache saves via the Actions cache API; contents:read alone
+  # restores but cannot write, so the cache would stay cold forever.
+  actions: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -21,6 +24,9 @@ concurrency:
 env:
   UV_VERSION: "0.12.14"
   RESEMBL_REF: "v2.0.0"
+  # Authenticated clone for tools/ci_clone_resembl.sh (higher GitHub git
+  # limits; token never lands in the remote URL — header auth in the script).
+  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   # typer renders every --help with ANSI codes whenever GITHUB_ACTIONS is set
   # (it treats the GitHub log renderer as a color terminal), which splits
   # option names across escape sequences and breaks every assertion on help
@@ -30,7 +36,7 @@ env:
 
 jobs:
   lint:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - name: Checkout
@@ -74,7 +80,7 @@ jobs:
         run: uv audit --locked --ignore-until-fixed GHSA-w8v5-vhqr-4h9v
 
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -130,7 +136,7 @@ jobs:
   # plus import-cycle and skills checks) against a clean checkout. The pytest
   # hook is pre-push stage only, so this job does not duplicate the suite.
   pre-commit:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - name: Checkout
@@ -156,7 +162,7 @@ jobs:
   # (not the editable src tree), and smoke-import. SOURCE_DATE_EPOCH + C/UTC
   # make wheels byte-reproducible for a given commit.
   package:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - name: Checkout
@@ -239,7 +245,7 @@ jobs:
   # These do not require a target binary: only that the options exist and help text
   # matches the public contract. Full verify/round-trip runs live in workspace CI.
   cli-contract:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - name: Checkout
