@@ -4,6 +4,8 @@
   Module filter fed by ``by_module_counts``. Summary failures offer Retry
   summary (same pattern as functions) instead of forcing a full reload;
   Matched/Identified cards carry titles that explain the percentages.
+- **``make cli-contract``** mirrors the CI ``cli-contract`` help greps; ``make
+  all`` runs it. Older-than-pin ``uv`` warns instead of blocking ``make setup``.
 
 ### Fixed
 - **Wheel METADATA classifiers match the shipped artifact.** ``Typing :: Typed``

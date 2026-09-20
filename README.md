@@ -306,7 +306,7 @@ make test-one T=tests/test_annotation.py   # single-file edit-test loop
 make test                  # full suite (needs nasm)
 uv run ruff check src/ tests/ tools/
 uv run ruff format src/ tests/ tools/
-make all                   # local mirror of CI lint + test gates
+make all                   # local mirror of CI lint + test + cli-contract
 make check                 # pre-commit hook parity (before a PR)
 make build                 # sdist + wheel (SOURCE_DATE_EPOCH / TZ=UTC for deterministic wheels)
 uv run python tools/sync_decomp_flags.py  # sync compiler flags from decomp.me

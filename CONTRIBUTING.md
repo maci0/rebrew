@@ -23,8 +23,9 @@ Needs **uv** (CI pins `UV_VERSION` in `.github/workflows/ci.yml`, currently
 [`resembl`](https://github.com/maci0/resembl) checkout at `../resembl` — the
 path pin in `pyproject.toml` / `uv.lock` (tag `v2.0.0`, same as CI
 `RESEMBL_REF`).  Without it, sync fails with a cryptic “Distribution not found”
-path error; `make setup` fails closed if `uv` is missing, older than
-`UV_VERSION`, or if `../resembl`'s `version` does not match `RESEMBL_REF`.
+path error; `make setup` fails closed if `uv` is missing or if `../resembl`'s
+`version` does not match `RESEMBL_REF`, and warns (still continues) when `uv`
+is older than `UV_VERSION`.
 
 ```bash
 # from the directory that will hold both checkouts:
@@ -42,8 +43,9 @@ make help                     # list contributor make targets
 make setup                    # frozen sync + pre-commit install (checks uv + ../resembl first)
 make test-one T=tests/foo.py  # single file / nodeid (fast edit-test loop)
 make test                     # full suite (~6700 tests; needs nasm)
-make all                      # local mirror of CI lint+test gates (+ import cycles)
+make all                      # local mirror of CI lint+test+cli-contract gates
 make check                    # pre-commit hook parity (CI pre-commit job)
+make cli-contract             # high-value --help greps (CI cli-contract job)
 make gen-fixtures             # regenerate tests/fixtures/ after editing tools/gen_fixtures.py
 uv run ruff check src/ tests/ tools/
 uv run mypy
@@ -89,7 +91,8 @@ schema `"7"` in 2.4.0 and the Python 3.13 floor in 2.3.0).
 
 ## Before submitting
 
-1. `make all && make check` — mirrors CI lint+test gates and the pre-commit job.
+1. `make all && make check` — mirrors CI lint+test+cli-contract gates and the
+   pre-commit job.
 2. Keep changes minimal and scoped; match the surrounding style.
 3. Add tests for new behavior — the suite sits at ~92% coverage, and new
    pure logic is expected to keep it there.

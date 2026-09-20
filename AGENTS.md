@@ -36,7 +36,7 @@ make setup                                # frozen sync + pre-commit; checks uv 
 make test-one T=tests/test_annotation.py  # single-file edit-test loop
 make lint                                 # ruff check src/ tests/ tools/
 make format                               # ruff format src/ tests/ tools/
-make all                                  # local mirror of CI lint + test gates (+ import cycles)
+make all                                  # local mirror of CI lint + test + cli-contract
 make check                                # pre-commit hook parity (before a PR: make all && make check)
 make gen-fixtures                         # regenerate tests/fixtures/ after editing the generator
 # or: uv sync --frozen --all-extras --group similarity

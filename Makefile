@@ -1,6 +1,6 @@
 .PHONY: help setup test test-one lint format format-check check build sbom all \
 	gen-fixtures gen-fixtures-check cycles-check idempotency-check mypy audit \
-	release-check ensure-uv ensure-resembl ensure-nasm
+	cli-contract release-check ensure-uv ensure-resembl ensure-nasm
 
 .DEFAULT_GOAL := help
 
@@ -41,9 +41,10 @@ help:
 		'  make mypy               # mypy (matches CI lint job)' \
 		'  make audit              # uv audit --locked (matches CI lint job)' \
 		'  make check              # pre-commit run --all-files (CI pre-commit job)' \
+		'  make cli-contract       # high-value --help greps (CI cli-contract job)' \
 		'  make build              # reproducible sdist+wheel' \
 		'  make sbom               # CycloneDX 1.5 JSON from uv.lock (offline)' \
-		'  make all                # local mirror of CI lint+test gates (+ import cycles)' \
+		'  make all                # local mirror of CI lint+test+cli-contract gates' \
 		'  make gen-fixtures       # regenerate tests/fixtures/ from tools/gen_fixtures.py' \
 		'  make gen-fixtures-check # tools/gen_fixtures.py --check' \
 		'  make cycles-check       # tools/detect_cycles.py (also in pre-commit / make check)' \
@@ -67,9 +68,9 @@ ensure-uv:
 	uv_ver=$$(uv --version | awk '{print $$2}'); \
 	lowest=$$(printf '%s\n%s\n' "$$uv_ver" "$(UV_VERSION)" | sort -V | head -1); \
 	if [ "$$lowest" != "$(UV_VERSION)" ]; then \
-	  echo "ERROR: uv $$uv_ver is older than required UV_VERSION=$(UV_VERSION) (CI pin)."; \
-	  echo "Upgrade uv (https://docs.astral.sh/uv/) then re-run make setup."; \
-	  exit 1; \
+	  echo "WARNING: uv $$uv_ver is older than CI pin UV_VERSION=$(UV_VERSION)."; \
+	  echo "Sync usually still works; upgrade when you can (https://docs.astral.sh/uv/)."; \
+	  echo "To silence this check: make setup UV_VERSION=$$uv_ver"; \
 	fi
 
 ensure-resembl: ensure-uv
@@ -129,9 +130,23 @@ format:
 format-check:
 	uv run --frozen ruff format --check src/ tests/ tools/
 
-# Run pre-commit checks on all files
+# Run pre-commit checks on all files.  Match CI workflow env so Rich/typer
+# ANSI cannot split option names when GITHUB_ACTIONS/FORCE_COLOR is set.
 check:
-	uv run --frozen pre-commit run --all-files
+	NO_COLOR=1 TERM=dumb _TYPER_FORCE_DISABLE_TERMINAL=1 \
+		uv run --frozen pre-commit run --all-files
+
+# High-value CLI --help contract (CI cli-contract job).  Same ANSI guards as
+# make test so a local TTY / GITHUB_ACTIONS export cannot break the greps.
+cli-contract:
+	@set -euo pipefail; \
+	NO_COLOR=1 TERM=dumb _TYPER_FORCE_DISABLE_TERMINAL=1 \
+		uv run --frozen rebrew round-trip --help | grep -- '--strict-catalog' >/dev/null; \
+	NO_COLOR=1 TERM=dumb _TYPER_FORCE_DISABLE_TERMINAL=1 \
+		uv run --frozen rebrew verify --help | grep -- '--compare' >/dev/null; \
+	NO_COLOR=1 TERM=dumb _TYPER_FORCE_DISABLE_TERMINAL=1 \
+		uv run --frozen rebrew prove --help | grep 'NEAR_MATCHING' >/dev/null; \
+	echo 'cli-contract OK'
 
 # Build sdist + wheel under a pinned locale/timezone for deterministic wheels.
 # Drop prior package artifacts so a bumped version cannot leave multiple
@@ -147,11 +162,12 @@ sbom:
 	@mkdir -p dist
 	uv run --frozen python tools/generate_sbom.py -o dist/rebrew.cdx.json
 
-# Run all non-mutating verification gates (mirrors CI lint + test jobs:
-# ruff, mypy, uv audit, pytest, fixture freshness, idempotency sweep, plus the
-# import-cycle hook that the CI pre-commit job also runs).  For full hook
-# parity (hygiene + skills validate) also run `make check` before a PR.
-all: format-check lint mypy audit test gen-fixtures-check cycles-check idempotency-check
+# Run all non-mutating verification gates (mirrors CI lint + test +
+# cli-contract jobs: ruff, mypy, uv audit, pytest, fixture freshness,
+# idempotency sweep, CLI help greps, plus the import-cycle hook that the CI
+# pre-commit job also runs).  For full hook parity (hygiene + skills validate)
+# also run `make check` before a PR.
+all: format-check lint mypy audit test gen-fixtures-check cycles-check idempotency-check cli-contract
 
 # Regenerate checked-in binary fixtures (run after editing tools/gen_fixtures.py).
 gen-fixtures:

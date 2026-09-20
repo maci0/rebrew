@@ -37,9 +37,11 @@ The workflow sets `_TYPER_FORCE_DISABLE_TERMINAL`, typer's switch for the
 forced-ANSI mode it enables whenever `GITHUB_ACTIONS` is set. Without it the
 help text carries escape sequences on a CI runner, which breaks every
 assertion on help output (the help-listing tests and the cli-contract grep).
-`make test` also sets `NO_COLOR=1` / `TERM=dumb`, because Rich Consoles
+`make test` / `make check` / `make cli-contract` also set `NO_COLOR=1` /
+`TERM=dumb` / `_TYPER_FORCE_DISABLE_TERMINAL`, because Rich Consoles
 created at import inspect the real stderr TTY and would otherwise color
-status text on a local terminal.
+status text on a local terminal (and typer's CI ANSI mode splits option
+names across escape sequences).  `make all` includes `cli-contract`.
 
 The nightly `toolchain-sync.yml` drift check installs through the same pinned
 uv flow (`uv sync --frozen`) and the same `RESEMBL_REF` / `UV_VERSION` pins,
