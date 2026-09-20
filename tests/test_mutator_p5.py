@@ -212,24 +212,32 @@ class TestInjectDummyRegisters:
     def test_injects_1_to_3_declarations(self) -> None:
         src = "int foo(int a) {\n    return a;\n}"
         # Run several seeds and check we get varying counts
-        counts = set()
+        counts: set[int] = set()
+        applied = 0
         for seed in range(100):
             res = mut_inject_dummy_registers(src, random.Random(seed))
-            if res is not None:
-                n = res.count("register int _dummy_reg_")
-                assert 1 <= n <= 3
-                counts.add(n)
+            if res is None:
+                continue
+            applied += 1
+            n = res.count("register int _dummy_reg_")
+            assert 1 <= n <= 3
+            counts.add(n)
+        assert applied >= 50, f"expected most seeds to apply, got {applied}/100"
         # With 100 seeds we should see at least 2 different counts
         assert len(counts) >= 2
 
     def test_no_duplicate_names(self) -> None:
         src = "int foo() {\n    return 0;\n}"
+        applied = 0
         for seed in range(50):
             res = mut_inject_dummy_registers(src, random.Random(seed))
-            if res is not None:
-                # Extract all _dummy_reg_NN names
-                names = re.findall(r"_dummy_reg_\d+", res)
-                assert len(names) == len(set(names)), f"Duplicate names in seed {seed}: {names}"
+            if res is None:
+                continue
+            applied += 1
+            # Extract all _dummy_reg_NN names
+            names = re.findall(r"_dummy_reg_\d+", res)
+            assert len(names) == len(set(names)), f"Duplicate names in seed {seed}: {names}"
+        assert applied >= 25, f"expected most seeds to apply, got {applied}/50"
 
     def test_skips_if_name_collision(self) -> None:
         src = "int foo() {\n    register int _dummy_reg_42 = 0;\n    return 0;\n}"

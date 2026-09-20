@@ -60,7 +60,8 @@ class TestMutateCode:
     def test_basic(self) -> None:
         result = mutate_code(FULL_SOURCE, random.Random(42))
         assert isinstance(result, str)
-        assert result != ""
+        assert result != FULL_SOURCE  # seed 42 must actually mutate this corpus
+        assert quick_validate(result)
 
     def test_with_tracking(self) -> None:
         result = mutate_code(FULL_SOURCE, random.Random(42), track_mutation=True)
@@ -69,13 +70,16 @@ class TestMutateCode:
         src, name = result
         assert isinstance(src, str)
         assert isinstance(name, str)
+        assert name.startswith("mut_")
+        assert src != FULL_SOURCE
+        assert quick_validate(src)
 
     def test_idempotent_on_trivial(self) -> None:
         # Trivial source where most mutations can't apply
         trivial = "int f() {\n  return 0;\n}"
         result = mutate_code(trivial, random.Random(42))
-        assert isinstance(result, str)
-        assert len(result) > 0
+        assert result == trivial
+        assert quick_validate(result)
 
     def test_no_mutation_tracking(self) -> None:
         trivial = "int f() { return 0; }"
@@ -95,13 +99,14 @@ class TestMutateCode:
             mutation_weights={"mut_swap_if_else": 100.0},
         )
         assert isinstance(result, str)
-        assert len(result) > 0
+        assert quick_validate(result)
 
     def test_mutation_weights_empty_dict(self) -> None:
         """Empty weights dict should behave like no weights (uniform)."""
         result = mutate_code(FULL_SOURCE, random.Random(42), mutation_weights={})
         assert isinstance(result, str)
-        assert len(result) > 0
+        assert result != FULL_SOURCE
+        assert quick_validate(result)
 
     def test_mutation_weights_with_tracking(self) -> None:
         """Weighted mutations should work with track_mutation=True."""
@@ -109,20 +114,20 @@ class TestMutateCode:
             FULL_SOURCE,
             random.Random(42),
             track_mutation=True,
-            mutation_weights={"mut_swap_if_else": 10.0},
+            mutation_weights={"mut_swap_if_else": 100.0},
         )
         assert isinstance(result, tuple)
         src, name = result
-        assert isinstance(src, str)
-        assert len(src) > 0
-        assert isinstance(name, str)
+        assert name in ("mut_swap_if_else", "none")
+        assert quick_validate(src)
 
     def test_mutation_weights_all_zero(self) -> None:
         """All-zero weights should fall back to uniform selection, not crash."""
         weights = {m.__name__: 0.0 for m in ALL_MUTATIONS}
         result = mutate_code(FULL_SOURCE, random.Random(42), mutation_weights=weights)
         assert isinstance(result, str)
-        assert len(result) > 0
+        assert quick_validate(result)
+        assert result != FULL_SOURCE  # uniform fallback still mutates this corpus
 
     def test_mutation_weights_unknown_names(self) -> None:
         """Weights for unknown mutation names should be ignored gracefully."""
@@ -132,7 +137,8 @@ class TestMutateCode:
             mutation_weights={"nonexistent_mutation": 100.0},
         )
         assert isinstance(result, str)
-        assert len(result) > 0
+        assert quick_validate(result)
+        assert result != FULL_SOURCE
 
 
 # -------------------------------------------------------------------------
@@ -248,8 +254,11 @@ class TestDeclarationMutationsDeep:
     def test_merge_separate_decl_and_assign(self) -> None:
         src = "int f() {\n  int x;\n  x = 5;\n  return x;\n}"
         result = mut_merge_declaration_init(src, random.Random(42))
-        if result is not None:
-            assert "int x = 5" in result
+        assert result is not None
+        assert "int x = 5;" in result
+        # Separate declaration + assignment must collapse to one statement.
+        assert "int x;" not in result
+        assert result.count("x = 5") == 1
 
 
 # -------------------------------------------------------------------------
@@ -273,10 +282,10 @@ class TestDeepAlias:
     def test_goto_to_return_present(self) -> None:
         src = "int f() {\n  goto ret_false;\nret_false:\n  return FALSE;\n}"
         result = mut_goto_to_return(src, random.Random(42))
-        # Mutation requires specific label+return pattern; may not match all variants
-        if result is not None:
-            assert "return" in result
-            assert "goto" not in result
+        assert result is not None
+        assert "return 0;" in result
+        assert "goto" not in result
+        assert "ret_false:" not in result
 
 
 # -------------------------------------------------------------------------
@@ -288,18 +297,17 @@ class TestTempVarDeep:
     def test_introduce_with_call(self) -> None:
         src = "int f() {\n  result = FuncA(a, b);\n  return result;\n}"
         result = mut_introduce_temp_for_call(src, random.Random(42))
-        # Mutation may genuinely not apply: regex may not match depending on exact format
-        if result is not None:
-            assert "FuncA" in result
-            assert isinstance(result, str)
+        assert result is not None
+        assert "BOOL tmp;" in result
+        assert "tmp = FuncA(a, b);" in result
+        assert "result = tmp;" in result
 
     def test_remove_temp_present(self) -> None:
         src = "int f() {\n  tmp = GetValue();\n  var = tmp;\n}"
         result = mut_remove_temp_var(src, random.Random(42))
-        # Mutation may genuinely not apply: regex needs specific pattern
-        if result is not None:
-            assert "var" in result
-            assert isinstance(result, str)
+        assert result is not None
+        assert "var = GetValue();" in result
+        assert "tmp" not in result
 
 
 # -------------------------------------------------------------------------
@@ -310,20 +318,18 @@ class TestTempVarDeep:
 class TestArrayStructDeep:
     def test_multiple_array_accesses(self) -> None:
         src = "x = arr[i];\ny = arr[j];"
-        for _ in range(5):
-            result = mut_change_array_index_order(src, random.Random(_ + 1))
-            if result is not None:
-                assert isinstance(result, str)
-                break
-        # Mutation may legitimately not match this input; smoke test only
+        result = mut_change_array_index_order(src, random.Random(42))
+        assert result is not None
+        # One subscript is rewritten to index[array] form; the other stays.
+        assert "i[arr]" in result or "j[arr]" in result
+        assert result != src
 
     def test_ptr_access(self) -> None:
         src = "x = obj->field1;\ny = obj->field2;"
-        for _ in range(5):
-            result = mut_struct_vs_ptr_access(src, random.Random(_ + 1))
-            if result is not None:
-                assert isinstance(result, str)
-                break
+        result = mut_struct_vs_ptr_access(src, random.Random(42))
+        assert result is not None
+        assert "(*obj).field1" in result or "(*obj).field2" in result
+        assert result != src
 
 
 # -------------------------------------------------------------------------
@@ -425,17 +431,22 @@ class TestRedundantParensKeywords:
     def test_does_not_wrap_keyword(self) -> None:
         """Ensure C keywords like 'if', 'return', 'while' are never wrapped."""
         src = "if (x) return 0;"
+        applied = 0
         for seed in range(50):
             result = mut_add_redundant_parens(src, random.Random(seed))
             if result is not None:
+                applied += 1
                 assert "(if)" not in result
                 assert "(return)" not in result
+                assert "(x)" in result or "((x))" in result
+        assert applied >= 1, "redundant-parens must apply at least once over 50 seeds"
 
     def test_wraps_identifier(self) -> None:
         src = "x = myvar + 1;"
         result = mut_add_redundant_parens(src, random.Random(42))
         assert result is not None
-        assert "(" in result
+        assert "(myvar)" in result or "(x)" in result
+        assert result != src
 
 
 # -------------------------------------------------------------------------
@@ -486,9 +497,9 @@ class TestEarlyReturnNestedCalls:
     def test_nested_func_call(self) -> None:
         src = "int f() {\n  int ret = 1;\n  if (!validate(get_val(x))) return 0;\n  return ret;\n}"
         result = mut_early_return_to_accum(src, random.Random(42))
-        if result is not None:
-            assert "&=" in result
-            assert "validate" in result
+        assert result is not None
+        assert "ret &= validate(get_val(x));" in result
+        assert "return 0;" not in result
 
 
 #: Valid-C corpus for the whole-operator validity property.  Kept small so the

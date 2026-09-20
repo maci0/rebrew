@@ -1622,11 +1622,14 @@ class TestInjectDummyArray:
 
     def test_size_is_valid(self) -> None:
         src = "int f() {\n    return 0;\n}"
+        sizes_seen: set[int] = set()
         for seed in range(20):
             result = mut_inject_dummy_array(src, random.Random(seed))
-            if result is not None:
-                # Should contain one of [4, 8, 12, 16]
-                assert any(f"[{s}]" in result for s in [4, 8, 12, 16])
+            assert result is not None
+            matched = [s for s in (4, 8, 12, 16) if f"[{s}]" in result]
+            assert matched, f"seed {seed}: expected pad size in {{4,8,12,16}}, got {result!r}"
+            sizes_seen.update(matched)
+        assert sizes_seen, "inject_dummy_array must emit a pad size"
 
     def test_no_function(self) -> None:
         assert mut_inject_dummy_array("// no function", _rng()) is None

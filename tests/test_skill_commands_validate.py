@@ -53,8 +53,9 @@ class TestValidateSkillCommands:
         assert hasattr(mod, "validate")
 
     def test_validate_function_returns_bool(self, _validate_once: bool) -> None:
-        """validate() must return a boolean."""
+        """validate() must return True when every skill command resolves."""
         assert isinstance(_validate_once, bool)
+        assert _validate_once is True
 
     def test_no_unknown_subcommands(self, _validate_once: bool) -> None:
         """All subcommands referenced in SKILL.md files must exist in the CLI.
