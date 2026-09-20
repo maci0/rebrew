@@ -183,9 +183,13 @@ def _disasm_sizes(cfg: ProjectConfig, vas: list[int]) -> tuple[dict[int, int], l
     return sizes, refused
 
 
-def _sizeless_vas(cfg: ProjectConfig) -> tuple[dict[int, int], list[int]]:
+def sizeless_dest_vas(cfg: ProjectConfig) -> tuple[dict[int, int], list[int]]:
     """Sizeless registry entries (``canonical_size`` 0/missing), split into
-    disassembly-sized matches and refusals (see :func:`_disasm_sizes`)."""
+    disassembly-sized matches and refusals (see :func:`_disasm_sizes`).
+
+    Public so the CLI can attach the ``sizeless, use --va`` guidance rows
+    for the refusals.
+    """
     registry = _registry(cfg)
     sizeless = [va for va, reg in registry.items() if not int(reg.get("canonical_size") or 0)]
     return _disasm_sizes(cfg, sizeless)
@@ -217,15 +221,6 @@ def matched_source_bytes(cfg_src: ProjectConfig) -> dict[int, bytes]:
         disasm_sizes, _refused = _disasm_sizes(cfg_src, sizeless)
         vas.update(disasm_sizes)
     return _target_bytes_by_va(cfg_src, vas)
-
-
-def sizeless_dest_vas(cfg_dst: ProjectConfig) -> tuple[dict[int, int], list[int]]:
-    """Destination-side sizeless entries: ``(disasm_sizes, refused)``.
-
-    Public (no leading underscore) so the CLI can attach the ``sizeless,
-    use --va`` guidance rows for the refusals.
-    """
-    return _sizeless_vas(cfg_dst)
 
 
 def sizeless_warning(size: int) -> str:
@@ -274,7 +269,7 @@ def unmatched_dest_bytes(cfg_dst: ProjectConfig, only_va: int | None = None) -> 
             disasm_sizes, _refused = _disasm_sizes(cfg_dst, [only_va])
             vas = disasm_sizes
     else:
-        _disasm_sizes_out, _ = _sizeless_vas(cfg_dst)
+        _disasm_sizes_out, _ = sizeless_dest_vas(cfg_dst)
         for va, size in _disasm_sizes_out.items():
             if statuses.get(va, ("", ""))[0] not in MATCHED_STATUSES:
                 vas[va] = size

@@ -18,6 +18,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from rebrew.dosbox import make_sandbox_dir
+
 if TYPE_CHECKING:
     from rebrew.ne_loader import NeFunction
 
@@ -62,12 +64,6 @@ def _is_83_safe(name: str) -> bool:
     if not base or len(base) > 8 or len(ext) > 3:
         return False
     return all(33 <= ord(c) < 127 and c not in '*?<>|"\\/' for c in name)
-
-
-def _default_workdir() -> Path:
-    from rebrew.dosbox import make_sandbox_dir
-
-    return make_sandbox_dir("delphi16-")
 
 
 def compile_ne(
@@ -122,7 +118,7 @@ def compile_ne(
     # short 8.3-safe name when the source basename exceeds 8.3.
     staged_name = src_name if _is_83_safe(src_name) else "SRC.dpr"
 
-    sandbox = Path(workdir) if workdir is not None else _default_workdir()
+    sandbox = Path(workdir) if workdir is not None else make_sandbox_dir("delphi16-")
     sandbox.mkdir(parents=True, exist_ok=True)
 
     # Stage the compiler trio + source into the sandbox (the DOSBox C:).

@@ -14,7 +14,7 @@ import typer
 from rich.console import Console
 
 from rebrew.cli import error_exit, json_print
-from rebrew.link_order import _base_key, file_va, order_sources
+from rebrew.link_order import order_sources
 
 console = Console(stderr=True)
 
@@ -23,7 +23,7 @@ app = typer.Typer(
     rich_markup_mode="rich",
 )
 
-__all__ = ["_base_key", "app", "file_va", "order_sources"]
+__all__ = ["app"]
 
 
 @app.callback(invoke_without_command=True)

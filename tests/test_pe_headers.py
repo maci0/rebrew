@@ -225,8 +225,8 @@ def _exercise_pe_headers(blob: bytes) -> None:
 
     fields = read_pe_header_fields(blob)
     if fields is not None:
-        assert isinstance(fields.values, dict)
-        for label, value in fields.values.items():
+        assert isinstance(fields, dict)
+        for label, value in fields.items():
             assert isinstance(label, str)
             assert isinstance(value, int)
 
@@ -296,7 +296,7 @@ def test_pe_headers_patch_read_roundtrip(label: str, value: int) -> None:
     expected = value & ((1 << (8 * size)) - 1)
     assert after.get(label) == expected
     # Unrelated non-checksum fields stay put (checksum is always rewritten).
-    for other in before.values:
+    for other in before:
         if other in (label, "checksum"):
             continue
         assert after.get(other) == before.get(other)

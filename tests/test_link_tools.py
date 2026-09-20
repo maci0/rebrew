@@ -11,7 +11,7 @@ import pytest
 from rebrew.calibrate_bss import find_link_cmd, read_data_vs
 from rebrew.gen_layout import gen_data_restore
 from rebrew.gen_link_stubs import gen_link_stubs, load_data_symbols
-from rebrew.order_sources import file_va, order_sources
+from rebrew.link_order import file_va, order_sources
 
 # ---------------------------------------------------------------------------
 # order-sources

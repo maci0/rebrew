@@ -1,8 +1,8 @@
-"""Tests for rebrew.order_sources — VA-ordered source layout."""
+"""Tests for rebrew.link_order VA-ordered source helpers (order-sources CLI)."""
 
 from pathlib import Path
 
-from rebrew.order_sources import _base_key, file_va, order_sources
+from rebrew.link_order import _base_key, file_va, order_sources
 
 
 def _write(path: Path, text: str) -> Path:

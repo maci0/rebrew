@@ -13,7 +13,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from rebrew.dosbox import DosboxError, read_uppercase, run_dosbox
+from rebrew.dosbox import DosboxError, make_sandbox_dir, read_uppercase, run_dosbox
 
 
 class Msvc16Error(RuntimeError):
@@ -86,7 +86,7 @@ def compile_c(
     # a fixed short 8.3-safe name; the produced object keeps that stem.
     staged_name = "SRC.C"
 
-    sandbox = Path(workdir) if workdir is not None else _default_workdir()
+    sandbox = Path(workdir) if workdir is not None else make_sandbox_dir("msvc16-")
     sandbox.mkdir(parents=True, exist_ok=True)
 
     # Symlink the read-only toolchain tree into the sandbox (DOSBox follows
@@ -136,12 +136,6 @@ def compile_c(
             f"CL produced no object for {src_name} (staged as {staged_name}; log below):\n{log.strip()}"
         )
     return Msvc16Result(obj_path=obj, log=log)
-
-
-def _default_workdir() -> Path:
-    from rebrew.dosbox import make_sandbox_dir
-
-    return make_sandbox_dir("msvc16-")
 
 
 __all__ = ["Msvc16Error", "Msvc16Result", "compile_c"]

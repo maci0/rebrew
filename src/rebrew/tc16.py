@@ -22,7 +22,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from rebrew.dosbox import DosboxError, read_uppercase, run_dosbox
+from rebrew.dosbox import DosboxError, make_sandbox_dir, read_uppercase, run_dosbox
 
 __all__ = ["Tc16Error", "Tc16Result", "compile_c"]
 
@@ -59,12 +59,6 @@ def _find_tc16(version: str = "3.1") -> Path:
             f"(expected {tcc} under the rebrew-toolchains checkout)"
         )
     return root
-
-
-def _default_workdir() -> Path:
-    from rebrew.dosbox import make_sandbox_dir
-
-    return make_sandbox_dir("tc16-")
 
 
 def compile_c(
@@ -105,7 +99,7 @@ def compile_c(
 
     # DOSBox 8.3-truncates long names — stage under a fixed short name.
     staged_name = "SRC.C"
-    sandbox = Path(workdir) if workdir is not None else _default_workdir()
+    sandbox = Path(workdir) if workdir is not None else make_sandbox_dir("tc16-")
     sandbox.mkdir(parents=True, exist_ok=True)
     for sub in ("BIN", "INCLUDE", "LIB"):
         link = sandbox / sub

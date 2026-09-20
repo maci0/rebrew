@@ -1439,9 +1439,9 @@ class TestFixHeaders:
         from rebrew.pe_headers import PATCHABLE
 
         for label in PATCHABLE - {"checksum"}:
-            assert reasm_fields.values[label] == orig_fields.values[label], label
+            assert reasm_fields[label] == orig_fields[label], label
         # The checksum was recomputed and is now valid.
-        assert reasm_fields.values["checksum"] == _pe_checksum(reasm)
+        assert reasm_fields["checksum"] == _pe_checksum(reasm)
 
     def test_config_link_values_applied(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -1467,10 +1467,10 @@ class TestFixHeaders:
         )
         fields = read_pe_header_fields(out.read_bytes())
         assert fields is not None
-        assert fields.values["dll_characteristics"] == 0x8000
-        assert fields.values["linker_version_major"] == 5
-        assert fields.values["linker_version_minor"] == 12
-        assert fields.values["timestamp"] == 0x37F6657C
+        assert fields["dll_characteristics"] == 0x8000
+        assert fields["linker_version_major"] == 5
+        assert fields["linker_version_minor"] == 12
+        assert fields["timestamp"] == 0x37F6657C
 
     def test_malformed_link_version_warns(self, tmp_path: Path) -> None:
         """A malformed `linker_version` ("5", "abc") must warn, not silently
@@ -1515,11 +1515,11 @@ class TestPeHeaderFieldWidths:
         patched = patch_pe_headers(original, {"linker_version_major": 7})
         new_fields = read_pe_header_fields(patched)
         assert new_fields is not None
-        assert new_fields.values["linker_version_major"] == 7
-        for label, value in orig_fields.values.items():
+        assert new_fields["linker_version_major"] == 7
+        for label, value in orig_fields.items():
             if label in ("linker_version_major", "checksum"):
                 continue
-            assert new_fields.values[label] == value, label
+            assert new_fields[label] == value, label
 
     def test_read_truncated_header_returns_partial(self) -> None:
         """A buffer ending one byte into the optional header must yield the
@@ -1534,6 +1534,6 @@ class TestPeHeaderFieldWidths:
         data[lfanew : lfanew + 4] = b"PE\x00\x00"
         fields = read_pe_header_fields(bytes(data))
         assert fields is not None
-        assert "timestamp" in fields.values
-        assert "linker_version_major" in fields.values
-        assert "linker_version_minor" not in fields.values
+        assert "timestamp" in fields
+        assert "linker_version_major" in fields
+        assert "linker_version_minor" not in fields

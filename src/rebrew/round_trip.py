@@ -673,8 +673,8 @@ def _run_round_trip(
             for label in PATCHABLE:
                 if label in configured_fields:
                     patch[label] = configured_fields[label]
-                elif label in original_fields.values:
-                    patch[label] = original_fields.values[label]
+                elif label in original_fields:
+                    patch[label] = original_fields[label]
             reasm = bytearray(patch_pe_headers(bytes(reasm), patch))
             header_parity = _header_parity(
                 original, bytes(reasm), configured_fields if configured_fields else None

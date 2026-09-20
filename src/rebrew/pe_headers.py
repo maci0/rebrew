@@ -43,16 +43,6 @@ _FIELD_SPECS: list[tuple[int, int, str]] = [
 PATCHABLE = {label for _o, _s, label in _FIELD_SPECS if label != "file_align"}
 
 
-@dataclass
-class PeHeaderFields:
-    """Parsed PE header fields keyed by label (see _FIELD_SPECS)."""
-
-    values: dict[str, int]
-
-    def get(self, label: str) -> int | None:
-        return self.values.get(label)
-
-
 #: Section-table entry size, fixed by the PE/COFF spec.
 SECTION_ENTRY_SIZE = 40
 
@@ -177,7 +167,7 @@ def find_section(data: bytes | bytearray, name: str) -> PeSection | None:
     return None
 
 
-def read_pe_header_fields(data: bytes) -> PeHeaderFields | None:
+def read_pe_header_fields(data: bytes) -> dict[str, int] | None:
     """Parse every known header field from *data*.  None if not a PE."""
     lfanew = pe_lfanew(data)
     if lfanew is None:
@@ -190,7 +180,7 @@ def read_pe_header_fields(data: bytes) -> PeHeaderFields | None:
         # Read exactly *size* bytes: a 4-byte unpack would raise struct.error
         # when fewer than 4 bytes remain after *pos*.
         values[label] = int.from_bytes(data[pos : pos + size], "little")
-    return PeHeaderFields(values)
+    return values
 
 
 def _pe_checksum(data: bytes) -> int:
@@ -263,8 +253,8 @@ def header_parity(
         return []
     out: list[dict[str, object]] = []
     for _offset, _size, label in _FIELD_SPECS:
-        o = orig.values.get(label)
-        c = cand.values.get(label)
+        o = orig.get(label)
+        c = cand.get(label)
         if o is None or c is None:
             continue
         out.append(
