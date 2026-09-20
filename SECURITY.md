@@ -32,8 +32,8 @@ document is:
 
 Operators should treat project source, configured HTTP endpoints
 (recompile, LLM, ReVa MCP, decomp.me), GitHub release and toolchain-media
-downloads (wibo, SDK tarballs), docker images, and installed Python
-entry-point plugins as part of the trust boundary.
+downloads (wibo, SDK tarballs), docker/podman images (`REBREW_CONTAINER_RUNTIME`),
+and installed Python entry-point plugins as part of the trust boundary.
 
 ## Claims this policy does **not** make
 
@@ -44,6 +44,11 @@ entry-point plugins as part of the trust boundary.
   hostile project tree or malicious image.
 - No claim that optional wibo / toolchain-media downloads are attested beyond
   the in-code host allow-list and hash checks described in
-  [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md).
+  [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md). Wibo integrity uses the live
+  GitHub release `digest`; it does not consume `GH_TOKEN`/`GITHUB_TOKEN`
+  (those tokens are used only by toolchain pin-check/update HTTP to GitHub).
 - No claim that dependency CVEs are absent; pin rationale lives in
   `pyproject.toml` comments and the changelog.
+- No claim that library helpers which invoke host DOSBox
+  (`rebrew.msvc16` / `tc16` / `delphi16`) are covered by the docker-only
+  compile guarantee on the shipped CLI compile path.
