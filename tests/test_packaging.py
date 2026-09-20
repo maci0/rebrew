@@ -7,6 +7,7 @@ pins the metadata honesty rules that keep that artifact PyPI-safe.
 
 from __future__ import annotations
 
+import os
 import re
 import tomllib
 from pathlib import Path
@@ -62,6 +63,11 @@ class TestPackagingMetadata:
         )
         tags = [line.strip() for line in proc.stdout.splitlines() if line.strip()]
         if not tags:
+            # CI's test job sets fetch-tags: true on actions/checkout so this
+            # contract actually runs on every PR.  Skipping only for shallow
+            # local clones that never fetched tags.
+            if os.environ.get("GITHUB_ACTIONS"):
+                pytest.fail("expected v* tags in CI (test job checkout must set fetch-tags: true)")
             pytest.skip("no v* tags in this checkout (shallow/CI clone fetches none)")
         text = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
         missing = [t for t in tags if f"## [{t.lstrip('v')}]" not in text]

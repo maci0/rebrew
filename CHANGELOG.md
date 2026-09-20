@@ -6,6 +6,14 @@
   Matched/Identified cards carry titles that explain the percentages.
 
 ### Fixed
+- **CI packaging CHANGELOG↔tag contract runs under shallow clones.** The test
+  job sets ``fetch-tags: true``; missing tags fail in ``GITHUB_ACTIONS``
+  instead of silently skipping.
+- **CI resembl checkout retries on network flake** via
+  ``tools/ci_clone_resembl.sh`` (same posture as the nasm ``apt-get`` step).
+- **Package SBOM generation uses the setup-uv Python pin**
+  (``uv run --frozen --no-project --offline``), not the runner's unpinned
+  ``python3``.
 - **Negative array bounds no longer collapse struct layouts.** ``type_size``
   rejects ``T[-N]`` and bare ``void`` as field types, and ``_align_up`` ignores
   non-positive alignments — ``char pad[-2]; int x;`` used to place both fields

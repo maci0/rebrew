@@ -32,8 +32,8 @@ jobs:
         # [tool.uv.sources] resolves `resembl` from ../resembl, so every uv
         # command needs the sibling checkout present even though this job never
         # installs the group.  Keep RESEMBL_REF in step with uv.lock's `resembl`
-        # version (see the clones in ci.yml).
-        run: git clone --depth 1 --branch "${{ env.RESEMBL_REF }}" https://github.com/maci0/resembl.git ../resembl
+        # version (see tools/ci_clone_resembl.sh / the clones in ci.yml).
+        run: bash tools/ci_clone_resembl.sh ../resembl
       - name: Set up uv
         uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
         with:

@@ -110,6 +110,22 @@ class TestCiPins:
             f"third-party Actions must be commit-SHA pinned (got floating refs: {unpinned})"
         )
 
+    def test_resembl_clone_uses_retry_helper(self) -> None:
+        """Network flakes cloning resembl must retry (same posture as apt-get)."""
+        helper = ROOT / "tools" / "ci_clone_resembl.sh"
+        assert helper.is_file()
+        assert "for attempt in 1 2 3" in helper.read_text(encoding="utf-8")
+        for path in (CI_YML, SYNC_YML):
+            text = path.read_text(encoding="utf-8")
+            assert "bash tools/ci_clone_resembl.sh" in text, path.name
+            assert "git clone --depth 1 --branch" not in text, path.name
+
+    def test_test_job_fetches_tags(self) -> None:
+        """Packaging CHANGELOG↔tag contract needs tags on the shallow checkout."""
+        text = CI_YML.read_text(encoding="utf-8")
+        test_job = text.split("\n  test:\n", 1)[1].split("\n  pre-commit:\n", 1)[0]
+        assert "fetch-tags: true" in test_job
+
     @pytest.mark.parametrize("path", [CI_YML, SYNC_YML, MAKEFILE, ROOT / ".pre-commit-config.yaml"])
     def test_uv_run_preserves_lockfile(self, path: Path) -> None:
         commands = [

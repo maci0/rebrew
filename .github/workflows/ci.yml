@@ -42,8 +42,8 @@ jobs:
         # sync needs the sibling present even when the group is not installed.
         # actions/checkout refuses to write outside the workspace, so clone
         # RESEMBL_REF (must match uv.lock) into the parent directory — the
-        # same layout a developer's checkout has.
-        run: git clone --depth 1 --branch "${{ env.RESEMBL_REF }}" https://github.com/maci0/resembl.git ../resembl
+        # same layout a developer's checkout has.  Retries on network flake.
+        run: bash tools/ci_clone_resembl.sh ../resembl
       - name: Set up uv
         uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
         with:
@@ -85,9 +85,12 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          # Packaging contract tests enumerate v* tags (CHANGELOG sections).
+          # Default shallow clone omits tags and the test would skip in CI.
+          fetch-tags: true
       - name: Check out sibling resembl (path dependency of the `similarity` group)
         # See the lint job: [tool.uv.sources] resolves `resembl` from ../resembl.
-        run: git clone --depth 1 --branch "${{ env.RESEMBL_REF }}" https://github.com/maci0/resembl.git ../resembl
+        run: bash tools/ci_clone_resembl.sh ../resembl
       - name: Set up uv
         uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
         with:
@@ -136,7 +139,7 @@ jobs:
           persist-credentials: false
       - name: Check out sibling resembl (path dependency of the `similarity` group)
         # See the lint job: [tool.uv.sources] resolves `resembl` from ../resembl.
-        run: git clone --depth 1 --branch "${{ env.RESEMBL_REF }}" https://github.com/maci0/resembl.git ../resembl
+        run: bash tools/ci_clone_resembl.sh ../resembl
       - name: Set up uv
         uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
         with:
@@ -175,7 +178,8 @@ jobs:
           PYTHONHASHSEED: "0"
         run: |
           set -euo pipefail
-          export SOURCE_DATE_EPOCH="$(git log -1 --pretty=%ct)"
+          SOURCE_DATE_EPOCH="$(git log -1 --pretty=%ct)"
+          export SOURCE_DATE_EPOCH
           uv build
           shopt -s nullglob
           wheels=(dist/*.whl)
@@ -189,10 +193,13 @@ jobs:
       - name: Generate CycloneDX SBOM from uv.lock
         # Offline inventory for consumers/scanners.  tools/generate_sbom.py is
         # stdlib-only so the package job does not need a prior `uv sync`.
+        # `--frozen --no-project --offline` still uses the setup-uv Python pin
+        # (not the runner's unpinned /usr/bin/python3); --frozen is a no-op
+        # with --no-project but keeps the lockfile-preservation CI contract.
         run: |
           set -euo pipefail
-          python3 tools/generate_sbom.py -o dist/rebrew.cdx.json
-          python3 -c "import json,sys; d=json.load(open('dist/rebrew.cdx.json')); assert d['bomFormat']=='CycloneDX'; assert len(d['components'])>10; print(len(d['components']), 'components')"
+          uv run --frozen --no-project --offline python tools/generate_sbom.py -o dist/rebrew.cdx.json
+          uv run --frozen --no-project --offline python -c "import json,sys; d=json.load(open('dist/rebrew.cdx.json')); assert d['bomFormat']=='CycloneDX'; assert len(d['components'])>10; print(len(d['components']), 'components')"
       - name: Verify wheel reproducibility (second clean build)
         # The wheel must be byte-identical across builds of the same commit:
         # --no-cache + a fresh out-dir forces a real second build (no cache
@@ -207,7 +214,8 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
-          export SOURCE_DATE_EPOCH="$(git log -1 --pretty=%ct)"
+          SOURCE_DATE_EPOCH="$(git log -1 --pretty=%ct)"
+          export SOURCE_DATE_EPOCH
           first_sha=$(sha256sum dist/*.whl | cut -d' ' -f1)
           uv build --wheel --no-cache --out-dir dist-repro 2>&1 | tail -1
           second_sha=$(sha256sum dist-repro/*.whl | cut -d' ' -f1)
@@ -240,7 +248,7 @@ jobs:
           persist-credentials: false
       - name: Check out sibling resembl (path dependency of the `similarity` group)
         # See the lint job: [tool.uv.sources] resolves `resembl` from ../resembl.
-        run: git clone --depth 1 --branch "${{ env.RESEMBL_REF }}" https://github.com/maci0/resembl.git ../resembl
+        run: bash tools/ci_clone_resembl.sh ../resembl
       - name: Set up uv
         uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
         with:

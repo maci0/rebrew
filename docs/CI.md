@@ -22,12 +22,14 @@ toolchain.
 
 Every job that runs `uv sync` first clones the sibling `resembl` repo
 (`maci0/resembl`, tag from workflow `RESEMBL_REF`, currently `v2.0.0`) into the
-directory above the workspace: `pyproject.toml`'s `[tool.uv.sources]` resolves
+directory above the workspace via `tools/ci_clone_resembl.sh` (retries on
+network flake): `pyproject.toml`'s `[tool.uv.sources]` resolves
 the `similarity` group's `resembl` from `../resembl`, so uv fails to build the
 installation plan when that checkout is absent — even for a sync that does not
 install the group. Keep `RESEMBL_REF` in step with the `resembl` version in
 `uv.lock`. The package job only runs `uv build` / `uv pip install` of the
-wheel, so it skips the sibling clone.
+wheel, so it skips the sibling clone. The test job sets `fetch-tags: true` so
+the packaging CHANGELOG↔tag contract runs under the default shallow checkout.
 Dev installs use `uv sync --frozen --all-extras --group similarity` (Makefile
 `make setup`); the `m2c` git dep is a separate `--group m2c` opt-in.
 
