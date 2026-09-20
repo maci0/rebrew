@@ -1,6 +1,6 @@
 ---
 name: rebrew-ghidra-sync
-description: Synchronizes annotations, labels, structs, and comments between local rebrew C files and Ghidra. Field-level sync (names, comments, prototypes, structs, globals) is BinSync-primary via the shared state dir; ReVa MCP remains only for the structural ops BinSync cannot express (function creation, bookmarks, data pulls). Use this skill when syncing with Ghidra, pushing labels, pulling renames, exporting structs, importing comments, or any interaction between rebrew and Ghidra. Triggers on 'Ghidra', 'sync', 'push', 'pull', 'binsync', 'state-dir', 'ReVa', 'MCP', 'create-functions', 'bookmarks', or 'pull-data'.
+description: "Use when syncing rebrew C annotations with Ghidra — BinSync state-dir push/pull for names, comments, prototypes, structs, globals; ReVa MCP only for create-functions, bookmarks, and pull-data. Triggers on 'Ghidra', 'binsync', 'state-dir', 'ReVa', 'rebrew sync', 'create-functions', 'bookmarks', 'pull-data', or Ghidra label/struct/comment sync. Not for day-to-day C edit/test (rebrew-workflow) or local // GLOBAL: without Ghidra (rebrew-data-analysis)."
 license: MIT
 ---
 
@@ -20,11 +20,10 @@ graph TD
 # Rebrew Ghidra Sync
 
 Synchronize annotations and symbols between rebrew source files and Ghidra.
-**Field-level sync is BinSync-primary** (metadata-review R1): rebrew exports
-and imports the shared BinSync state dir; the BinSync Ghidra plugin (or a
-collaborator's tool) relays the state to and from Ghidra.  ReVa MCP remains
-only for the structural ops the state dir cannot express: function creation,
-bookmarks, and live data pulls.
+**Field-level sync is BinSync-primary**: rebrew exports and imports the shared
+BinSync state dir; the BinSync Ghidra plugin (or a collaborator's tool) relays
+the state to and from Ghidra. ReVa MCP remains only for the structural ops the
+state dir cannot express: function creation, bookmarks, and live data pulls.
 
 ## When NOT to use this skill
 
@@ -99,7 +98,7 @@ differing locals gate as conflicts), notes, global names + differing
 type/size, structs (unknown definitions land in `binsync_types.h`);
 `--create-missing` materializes STUB files.  Conflicts are reported and
 skipped until resolved with `--accept-binsync` / `--accept-local`. Export
-writes `manifest.toml` freshness facts, surfaced by `binsync-diff --json`.
+writes `manifest.toml` freshness facts, surfaced by `rebrew binsync-diff --json`.
 
 **MCP structural:** function creation (`--create-functions`, standalone or
 chained after `--pull`), status bookmarks (`--bookmarks`), data labels

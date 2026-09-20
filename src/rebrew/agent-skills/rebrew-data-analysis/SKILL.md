@@ -1,6 +1,6 @@
 ---
 name: rebrew-data-analysis
-description: Analyzes global variables, structs, and arrays in binary data sections (.data, .rdata, .bss). Detects type conflicts across translation units, finds dispatch tables and vtables, and verifies BSS layout. Use this skill when working with globals, data annotations, debugging relocation mismatches, fixing BSS gaps, finding dispatch tables, or dealing with '// DATA:' and '// GLOBAL:' annotations. Triggers on 'global', 'data section', 'BSS', 'vtable', 'dispatch table', 'relocation', 'extern', or 'type conflict'.
+description: Use when working with globals, '// DATA:'/'// GLOBAL:' annotations, BSS gaps, dispatch tables/vtables, ~~ relocation mismatches from missing externs, or cross-TU type conflicts. Triggers on 'global', 'data section', 'BSS', 'vtable', 'dispatch table', 'bss gap', 'extern', 'type conflict', 'rebrew data', or 'data-drift'. Not for function bodies (rebrew-workflow/matching) or Ghidra data pulls (rebrew-ghidra-sync --pull-data).
 license: MIT
 ---
 
@@ -59,47 +59,7 @@ allow overwriting. Use `--gen-header-out PATH` to write to a custom location ins
 of the default `{reversed_dir}/rebrew_globals.h`. Always run `--fix-bss` / `--gen-header`
 with `--dry-run` first — `--fix-bss` writes both a source file and metadata.
 
-## What to expect (JSON shapes)
-
-`--json` prints one JSON document on **stdout** (rich tables go to stderr). Parse it
-with `jq` or Python; do not parse the terminal output.
-
-- **Default / `--conflicts` / `--summary`** — all three emit the same full inventory;
-  `--summary` and `--conflicts` only change the terminal table:
-  ```json
-  {"globals": {"g_name": {"name": "g_name", "type": "int *", "va": "0x10025000",
-                          "section": ".bss", "declared_in": ["server/main.c"], "annotated": true}},
-   "data_annotations": [{"va": "0x10025000", "name": "g_sprite_lut", "size": 256,
-                         "section": ".rdata", "note": "lookup table", "filepath": "server/main.c"}],
-   "type_conflicts": [{"name": "g_count", "types": {"int": ["a.c"], "short": ["b.c"]}}],
-   "summary": {"total": 42, "annotated": 10, "unannotated": 32, "data_entries": 5, "conflicts": 1},
-   "sections": {".data": {"va": "0x10022000", "size": 4096}}}
-  ```
-  Check `summary.conflicts > 0` to decide whether `--conflicts` needs attention.
-  `globals` with `"annotated": false` are plain `extern` declarations with no VA —
-  give them `// GLOBAL: MODULE 0xVA` markers so they resolve to a section.
-
-- **`--bss --json`** → `{"bss_va", "bss_size", "known_entries": [{"name", "va",
-  "size_hint", "source_file"}], "gaps": [{"offset", "size", "between": [before, after]}],
-  "coverage_pct", "summary": {"total_globals", "gaps", "total_gap_bytes"}}`. Each `gaps`
-  entry is a likely undeclared `extern` — that is what `--fix-bss` fills.
-
-- **`--dispatch --json`** → a list of tables:
-  `[{"va", "section", "num_entries", "resolved", "coverage", "entries": [{"target_va",
-  "name", "status"}]}]`. `status` is `EXACT`/`RELOC`/`NEAR_MATCHING`/`STUB` or `""`
-  (unknown). Low `coverage` means the table's targets have no reversed source yet —
-  good next-matching candidates.
-
-## Failure modes
-
-| Symptom | Cause | Fix |
-|---|---|---|
-| `rebrew-project.toml not found` / config error | Running outside a project | `cd` into the project root, or pass `--target NAME` |
-| `target binary not found (needed for --dispatch)` | Binary missing or unparseable | Fix `target_binary` in `rebrew-project.toml`; only `--dispatch` hard-requires the binary (plain scans degrade gracefully) |
-| `already exists. Use --force to overwrite.` | `--gen-header` clobber guard | Pass `--force`, or `--gen-header-out` to a new path |
-| `No annotated BSS globals — nothing to verify` | No `// GLOBAL:`/`extern` with a `.bss` VA | Add annotations first, then re-run `--bss` |
-| Gap size looks wrong | `size_hint` is estimated from the C type (int=4, char=1, …) | Verify the declared types of the globals on either side of the gap |
-| Small gaps not reported | Gaps < 4 bytes are alignment padding and intentionally ignored | Ignore; only ≥ 4-byte gaps are flagged |
+JSON response shapes and failure-mode table: `references/json-and-failures.md`.
 
 ## DATA Annotations
 

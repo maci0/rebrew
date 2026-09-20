@@ -1,6 +1,6 @@
 ---
 name: rebrew-init
-description: Scaffolds a new rebrew project from a bare directory + binary. Selects the target name and compiler profile, runs rebrew init, verifies the scaffold with rebrew doctor, and hands off to rebrew-intake. Use this skill when starting a reversing project from scratch, creating a new project directory, choosing a compiler profile for a new binary, or whenever the user mentions 'new project', 'scaffold', 'set up rebrew', or 'init'.
+description: Use when starting a reversing project from scratch — bare directory + binary, choose target name and compiler profile, run rebrew init, verify with rebrew doctor, hand off to rebrew-intake. Triggers on 'new project', 'scaffold', 'set up rebrew', 'rebrew init', or 'guess-compiler'. Not for onboarding a binary into an existing project (rebrew-intake) or day-to-day reversing (rebrew-workflow).
 license: MIT
 ---
 
@@ -67,9 +67,8 @@ image missing — fix with `rebrew toolchain build <profile>` (or `pull`).
 ## Skill rendering check
 
 `rebrew init` renders the packaged skills (plus any `REBREW_SKILLS_DIR`
-overlay) into `.agents/skills/`, substituting the target name. Verify the
-render happened — `tests/test_skills_sync.py` pins the copy in this repo;
-in a fresh project, `.agents/skills/` should list all six skills.
+overlay) into `.agents/skills/`, substituting the target name. Confirm
+`.agents/skills/` lists all six skills after init.
 
 ## Handoff
 

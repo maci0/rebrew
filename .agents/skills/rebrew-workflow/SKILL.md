@@ -20,13 +20,8 @@ graph TD
     Test -->|EXACT / RELOC| Verify[Verify progress<br/>rebrew verify]
     Test -->|COMPILE ERROR| Write
     Test -->|NEAR_MATCHING| Diff[Investigate diffs<br/>rebrew diff]
-    Diff --> Ga{GA / flag sweep?<br/>rebrew match}
-    Ga -->|match| Verify
-    Ga -->|no match| Prove{Still NEAR_MATCHING?}
-    Prove -->|No| Write
-    Prove -->|Yes| Symbolic[Prove equivalence<br/>rebrew prove]
-    Symbolic -->|PROVEN| Verify
-    Symbolic -->|Not proven| Write
+    Diff -->|edit fixes it| Write
+    Diff -->|still stuck| Matching[Hand off to<br/>rebrew-matching]
     Verify --> Lint[Lint annotations<br/>rebrew lint]
     Lint --> RoundTrip[Round-trip validation<br/>rebrew round-trip --json]
 ```
@@ -184,17 +179,10 @@ Split for different CFLAGS; merge for shared TU (statics/file globals).
 Globals → `rebrew-data-analysis` (`// GLOBAL:` / `// DATA:`, `rebrew data`).
 Metadata in `rebrew-data.toml` at `cfg.metadata_dir`.
 
-## 7. Prove Stubborn NEAR_MATCHING Functions
+## 7. Stubborn NEAR_MATCHING
 
-Hand off to `rebrew-matching` (`rebrew prove`). Quick path:
-
-```bash
-rebrew prove src/bench/<file>.c --json
-rebrew prove --all --json
-```
-
-Needs `uv pip install -e ".[prove]"`. STATUS must be NEAR_MATCHING; PROVEN sticky
-(`rebrew test <file> --force-status` to demote).
+When `rebrew diff` / C edits stall, switch to `rebrew-matching` (flag sweep, GA,
+`near-diag`, `prove`). Do not run long GA/prove from this skill.
 
 ## 8. Verify and Track Progress
 

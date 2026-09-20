@@ -1,6 +1,6 @@
 ---
 name: rebrew-matching
-description: Deep byte-level matching for functions already stuck at NEAR_MATCHING — structural diff, flag sweep, GA, or symbolic prove to reach EXACT/RELOC/PROVEN. Use after rebrew-workflow's test/diff loop stalls. Triggers on 'GA', 'genetic algorithm', 'flag sweep', 'near-diag', 'near-miss', 'prove', 'angr', 'symbolic equivalence', 'MATCHING status', or 'rebrew match'. For first-pass test/verify/todo, use rebrew-workflow instead.
+description: Deep byte-level matching for functions already stuck at NEAR_MATCHING — structural diff, flag sweep, GA, or symbolic prove to reach EXACT/RELOC/PROVEN. Use after rebrew-workflow's test/diff loop stalls. Triggers on 'GA', 'genetic algorithm', 'flag sweep', 'near-diag', 'near-miss', 'prove', 'angr', 'symbolic equivalence', 'NEAR_MATCHING', 'objdiff', 'gap-trace', or 'rebrew match'. For first-pass test/verify/todo, use rebrew-workflow instead.
 license: MIT
 ---
 
@@ -86,7 +86,7 @@ Use `--fix-blocker` to auto-write these to the `rebrew-functions.toml` metadata 
 rebrew diff --fix-blocker src/<target>/<file>.c        # auto-write BLOCKER to metadata file
 rebrew diff --fix-blocker --json src/<target>/<file>.c # with JSON output
 # Ad-hoc BLOCKERs that diff cannot classify (needs structs, SEH helper, etc.):
-rebrew blocker set src/<target>/<file>.c "needs RE structs -- see struct_recover"
+rebrew blocker set src/<target>/<file>.c "needs RE structs -- see rebrew recover-structs"
 rebrew blocker clear src/<target>/<file>.c
 ```
 

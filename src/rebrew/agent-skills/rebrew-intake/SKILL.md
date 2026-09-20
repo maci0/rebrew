@@ -1,6 +1,6 @@
 ---
 name: rebrew-intake
-description: Onboards a new binary into an existing rebrew project — doctor, FLIRT, catalog, coverage DB, first triage/skeletons. Use once per new target (or when re-running initial recon). Triggers on 'intake', 'onboard', 'new binary', 'new target', 'first triage'. Not for day-to-day flirt/todo/test on an already-onboarded target (use rebrew-workflow). Fresh empty directory → rebrew-init first.
+description: Onboards a new binary into an existing rebrew project — doctor, FLIRT, catalog, coverage DB, first triage/skeletons. Use once per new target (or when re-running initial recon). Triggers on 'intake', 'onboard', 'new binary', 'new target', 'first triage', 'catalog', 'build-db', 'detect-crt', or 'gen-layout'. Not for day-to-day flirt/todo/test on an already-onboarded target (use rebrew-workflow). Fresh empty directory → rebrew-init first.
 license: MIT
 ---
 
