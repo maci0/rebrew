@@ -161,6 +161,9 @@ def load_artifact(path: Path, kind: str) -> Any | None:
     try:
         text = path.read_text(encoding="utf-8")
     except OSError:
+        # Same visibility as the unparseable path: an I/O failure must not
+        # look like a missing artifact on import/pull.
+        log.warning("unreadable BinSync %s at %s", kind, path, exc_info=True)
         return None
     try:
         return _class_for(kind).loads(text)
@@ -186,6 +189,7 @@ def load_many(path: Path, kind: str) -> list[Any]:
     try:
         text = path.read_text(encoding="utf-8")
     except OSError:
+        log.warning("unreadable BinSync %s at %s", kind, path, exc_info=True)
         return []
     try:
         return list(_class_for(kind).loads_many(text))

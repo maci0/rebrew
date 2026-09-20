@@ -396,8 +396,11 @@ def _rename_data(
     for src in files:
         try:
             content, encoding = read_source_text(src)
-        except OSError:
-            continue
+        except OSError as exc:
+            # Abort before the metadata write: a skipped source leaves the
+            # old name in the tree while rebrew-data.toml already carries the
+            # new one (source/metadata split).
+            error_exit(f"Cannot read {src}: {exc}", json_mode=json_output)
         new_content = substitute_name(_name_pattern(old_name), new_name, content)
         if new_content != content:
             try:
@@ -502,8 +505,10 @@ def _rename_metadata_only(
     for src in files:
         try:
             content, encoding = read_source_text(src)
-        except OSError:
-            continue
+        except OSError as exc:
+            # Same abort-before-metadata rule as the marker path: a skipped
+            # rewrite plus a renamed TOML entry splits source and store.
+            error_exit(f"Cannot read {src}: {exc}", json_mode=json_output)
         new_content = pattern.sub(lambda _m: new_name, content)
         if new_content != content:
             try:

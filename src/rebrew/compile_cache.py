@@ -390,6 +390,9 @@ def include_fingerprint(include_dir: str) -> str:
     own mtime is stable (membership changes invalidate); each call re-stats
     those paths so content edits are visible mid-run without a process
     restart.  Returns ``""`` for a path that is not an existing directory.
+    An ``OSError`` while walking an existing directory returns a distinct
+    unreadable sentinel (never ``""``) so header deps are not silently
+    dropped from the compile-cache key.
     """
     root = Path(include_dir)
     if not root.is_dir():
@@ -408,8 +411,15 @@ def include_fingerprint(include_dir: str) -> str:
             path_list = sorted(
                 p for p in root.rglob("*") if p.suffix.lower() in _HEADER_SUFFIXES and p.is_file()
             )
-        except OSError:
-            return ""
+        except OSError as exc:
+            # "" is reserved for a missing dir.  Returning it here drops header
+            # deps from the cache key and can serve a stale .obj after edits.
+            logging.getLogger(__name__).warning(
+                "include fingerprint failed for %s: %s — treating as unreadable",
+                include_dir,
+                exc,
+            )
+            return hashlib.sha256(f"\0unreadable\0{include_dir}\0".encode()).hexdigest()
         paths = tuple(str(p) for p in path_list)
         with _INCLUDE_FP_LOCK:
             # Re-check: another worker may have filled a fresher entry.

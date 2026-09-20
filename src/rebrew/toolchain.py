@@ -26,6 +26,7 @@ style/object-format conventions the rest of rebrew needs to drive it.
 from __future__ import annotations
 
 import contextlib
+import logging
 import os
 import shutil
 import subprocess
@@ -371,11 +372,18 @@ def kill_container(name: str, timeout: int = 30) -> None:
     """Best-effort ``docker kill`` of a timed-out run container.
 
     The container was started with ``--rm``, so killing it also removes it.
-    All errors are suppressed: this is cleanup on an error path — losing the
-    kill race must not mask the original timeout with a secondary failure.
+    Failures are logged but not raised: this is cleanup on an error path —
+    losing the kill race must not mask the original timeout with a secondary
+    failure, but a silent skip leaves an orphan under dockerd.
     """
-    with contextlib.suppress(OSError, subprocess.SubprocessError):
-        subprocess.run([container_runtime(), "kill", name], capture_output=True, timeout=timeout)
+    try:
+        subprocess.run(
+            [container_runtime(), "kill", name], capture_output=True, timeout=timeout, check=False
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        logging.getLogger(__name__).warning(
+            "failed to kill container %s after timeout: %s", name, exc
+        )
 
 
 def image_present(tag: str, use_cache: bool = True) -> bool:

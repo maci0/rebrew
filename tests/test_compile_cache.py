@@ -244,6 +244,27 @@ class TestIncludeFingerprint:
     def test_missing_dir_is_empty(self, tmp_path: Path) -> None:
         assert include_fingerprint(str(tmp_path / "nope")) == ""
 
+    def test_unreadable_dir_is_not_empty_fingerprint(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """An OSError mid-walk must not collapse to ``""`` (missing-dir).
+
+        That collision dropped header deps from the cache key and could serve
+        a stale object after the tree became readable again.
+        """
+        inc = tmp_path / "inc"
+        inc.mkdir()
+        (inc / "a.h").write_text("x\n")
+        include_fingerprint.cache_clear()
+
+        def _boom(*_a: object, **_kw: object) -> list[Path]:
+            raise OSError(13, "Permission denied")
+
+        monkeypatch.setattr(Path, "rglob", _boom)
+        fp = include_fingerprint(str(inc))
+        assert fp != ""
+        assert len(fp) == 64  # sha256 hex
+
     def test_header_edit_changes_key(self, tmp_path: Path) -> None:
         inc = tmp_path / "inc"
         inc.mkdir()

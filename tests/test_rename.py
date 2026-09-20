@@ -428,6 +428,30 @@ class TestRenameData:
         assert res.exit_code == 0, res.output
         assert get_data_entry(tmp_path, 0x2000, "SERVER").get("name") == "g_old"
 
+    def test_rename_data_read_error_aborts_before_metadata(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """Unreadable source must abort before rewriting rebrew-data.toml."""
+        import typer as _typer
+        from typer.testing import CliRunner
+
+        from rebrew.data_metadata import get_data_entry
+        from rebrew.rename import main as _rename_main
+
+        app = _typer.Typer()
+        app.command()(_rename_main)
+
+        self._project(tmp_path)
+        monkeypatch.setattr("rebrew.rename.require_config", lambda **kw: self._cfg(tmp_path))
+
+        def _boom(_path: Path) -> tuple[str, str]:
+            raise OSError(13, "Permission denied")
+
+        monkeypatch.setattr("rebrew.utils.read_source_text", _boom)
+        res = CliRunner().invoke(app, ["g_old", "g_new", "--data"])
+        assert res.exit_code != 0
+        assert get_data_entry(tmp_path, 0x2000, "SERVER").get("name") == "g_old"
+
     def test_rename_data_metadata_only(self, tmp_path: Path, monkeypatch) -> None:
         """A metadata-only entry (no marker) renames via the metadata store."""
         import typer as _typer

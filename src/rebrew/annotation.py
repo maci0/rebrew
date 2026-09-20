@@ -1135,7 +1135,10 @@ def parse_c_file_multi(
     """
     try:
         text, _ = read_source_text(filepath)
-    except OSError:
+    except OSError as exc:
+        # Match iter_annotations: a silent [] here drops the function from
+        # catalog/verify/status with no trace that the file was unreadable.
+        logger.warning("Skipping unreadable source %s: %s", filepath, exc)
         return []
 
     # Structural parses are deterministic per file content — memoize them
@@ -1437,7 +1440,8 @@ def parse_library_header(
     """
     try:
         text, _ = read_source_text(filepath)
-    except OSError:
+    except OSError as exc:
+        logger.warning("Skipping unreadable library header %s: %s", filepath, exc)
         return []
 
     lines = text.splitlines()

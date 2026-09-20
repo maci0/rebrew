@@ -1225,6 +1225,9 @@ def _write_manifest(
         try:
             digest.update(path.read_bytes())
         except OSError:
+            # Omitting a real artifact silently makes content_hash claim
+            # "unchanged" when the unread file still differs on disk.
+            logger.warning("manifest hash skipped unreadable %s", path, exc_info=True)
             continue
     content_hash = digest.hexdigest()
     doc = tomlkit.document()

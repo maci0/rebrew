@@ -80,7 +80,11 @@ def _rizin_functions(binary: Path, cmds: list[str]) -> list[tuple[int, int, str]
             errors="replace",
             timeout=300,
         )
-    except (OSError, subprocess.TimeoutExpired):
+    except OSError as exc:
+        logging.warning("rizin %s unavailable for %s: %s", cmds, binary, exc)
+        return []
+    except subprocess.TimeoutExpired:
+        logging.warning("rizin %s timed out after 300s on %s", cmds, binary)
         return []
     if r.returncode != 0:
         logging.debug("rizin %s failed (rc=%d): %s", cmds, r.returncode, r.stderr[:500])

@@ -853,8 +853,10 @@ def generate_decomp_dev_report(cfg: ProjectConfig, out_path: Path) -> dict[str, 
                 except (TypeError, ValueError):
                     continue
                 cached_pct[va_key] = float(mp)
-    except (OSError, ValueError, TypeError):
-        pass
+    except (OSError, ValueError, TypeError) as exc:
+        logging.getLogger(__name__).warning(
+            "verify cache unavailable for fuzzy match percents: %s", exc
+        )
 
     def fuzzy_for(status: str, va: int) -> float:
         if status in MATCHED_STATUSES:
@@ -935,8 +937,8 @@ def generate_decomp_dev_report(cfg: ProjectConfig, out_path: Path) -> dict[str, 
             sec = info.sections.get(name)
             if sec is not None:
                 data_size += int(getattr(sec, "size", 0) or 0)
-    except (ImportError, OSError, KeyError, ValueError, RuntimeError):
-        pass
+    except (ImportError, OSError, KeyError, ValueError, RuntimeError) as exc:
+        logging.getLogger(__name__).debug("data section size unavailable: %s", exc)
 
     measures = {
         "fuzzy_match_percent": round(fuzzy_code / text_size * 100.0, 2) if text_size else 0.0,

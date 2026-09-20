@@ -188,5 +188,6 @@ def get_text_section_size(bin_path: Path) -> int:
 
         info = load_binary(bin_path)
         return info.text_size
-    except (ImportError, OSError, KeyError, ValueError, RuntimeError):
+    except (ImportError, OSError, KeyError, ValueError, RuntimeError) as exc:
+        logger.warning("text section size unavailable for %s: %s", bin_path, exc)
         return 0
