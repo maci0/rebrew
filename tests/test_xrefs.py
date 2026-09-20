@@ -308,8 +308,9 @@ class TestCallsFromInventory:
     """`--calls-from` must count CALLS, not relocations.
 
     This project miscounted the same function three times in four rounds
-    (docs/msvc6-c-shapes.md section 112): first by grepping disassembly for
-    "call", then by counting relocation entries, then by positional adjacency.
+    (guild-rebrew docs/msvc6-c-shapes.md section 112; sibling repo): first by
+    grepping disassembly for "call", then by counting relocation entries, then
+    by positional adjacency.
     The failure mode that matters is register caching -- msvc6 emits ONE
     `mov reg,[__imp__X]` and then many `call reg`, so a relocation count reports
     1 where the truth is 10.

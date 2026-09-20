@@ -54,9 +54,9 @@ Adopt an explicit **four-tier model** and document it as the contract
    snapshots are no longer written — see `verify_cache.load_baseline`).
 4. **Cache (delete-safe)** — verify cache, Ghidra sync-state, compile
    caches, GA build caches/checkpoints, in-memory mtime caches.  Except
-   `.rebrew/ga_runs.jsonl` (live GA history).  Legacy
-   `.rebrew/solutions.json` is read-only merge input when present (see
-   `matcher/solutions.py`).
+   `.rebrew/ga_runs.jsonl` (live GA history / win fingerprints; see
+   `matcher/solutions.py` — `load_solutions` derives winners from the log;
+   the old `.rebrew/solutions.json` store is gone).
 
 Single-source rules enforced by code where cheap:
 

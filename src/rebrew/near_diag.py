@@ -321,7 +321,8 @@ def _verdict(counts: dict[str, int], raw_total: int) -> tuple[str, str]:
         # the figure does not equal `rebrew test`'s byte delta and can land
         # either side of it (guild-rebrew: 56 vs 28 on one function, 13 vs 15
         # on another).  Readers reconciled those by hand twice before this
-        # said so; see docs/msvc6-c-shapes.md section 108.
+        # said so; see guild-rebrew docs/msvc6-c-shapes.md section 108
+        # (sibling repo; not shipped under this tree's docs/).
         suggestion = (
             "Most of the delta sits at relocation sites, but "
             f"{non_match - counts['reloc']} real byte(s) differ (instruction-"

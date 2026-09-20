@@ -76,24 +76,25 @@ This design allows:
 |-------|------|------------|
 | Intermediate JSON | `db/data_<target>.json` | `ghidra_name`, `list_name`, `detected_by`, `size_by_tool` |
 | SQLite DB | `db/coverage.db` → `functions` table | Same columns, queryable via SQL |
-| REST API | `GET /api/targets/<t>/functions/<va>` | Returns all tool names in response JSON |
+| REST API | `GET /api/functions?target=` (dashboard) | Function rows include `ghidra_name` / `list_name` / related columns; there is no per-VA `/api/targets/<t>/functions/<va>` route |
 | reccmp CSV | `db/<target>_functions.csv` (target lowercased) | Reversed functions emit their annotation name; unmatched functions leave the name blank when their only name is an auto-name (`FUN_`/`fcn.`/`sym.`) |
 
 ---
 
 ## Detecting Auto-Generated vs User-Assigned Names
 
-A name is considered **auto-generated** (generic) if it matches the shared
-regex — `_GENERIC_NAME_RE` in `binsync/importer.py` (reused by
-`binsync/diff.py` via `_is_meaningful`):
+A name is **not meaningful** (auto-generated / placeholder) when
+`_is_meaningful` in `binsync/importer.py` is false — shared by
+`binsync/diff.py` and `binsync/overlay.py`. That helper rejects:
 
-```regex
-^_?(func_|FUN_)[0-9a-fA-F]+(@\d+)?$
-```
+1. `_GENERIC_NAME_RE` — `func_`/`FUN_` hex auto-names (optional leading `_`, optional stdcall `@N`):
+   ```regex
+   ^_?(func_|FUN_)[0-9a-fA-F]+(@\d+)?$
+   ```
+2. `_GHIDRA_GENERIC_RE` — Ghidra prefixes `FUN_`, `DAT_`, `switchdata`, `thunk_`
+3. `_PLACEHOLDER_GLOBAL_RE` — synthetic `g_<4–8 hex>` globals
 
-(`func_`/`FUN_` hex auto-names, with an optional leading underscore and an
-optional stdcall `@N` suffix.) Everything else is treated as a **user-assigned**
-name and is always preserved.
+Everything else is treated as a **user-assigned** name and is preserved.
 
 > [!NOTE]
 > In the current code the `func_<hex>` form is produced by
@@ -137,8 +138,10 @@ registry[va]["size_by_tool"]["<tool>"] = entry["size"]
 
 ### 3. Name Normalization
 
-Extend the generic-name regex `_GENERIC_NAME_RE` (`binsync/importer.py`;
-`binsync/diff.py` imports `_is_meaningful` from there) with the tool's prefix:
+Extend `_is_meaningful` coverage in `binsync/importer.py` (imported by
+`binsync/diff.py` / `overlay.py`). Hex-style auto-names usually go on
+`_GENERIC_NAME_RE`; Ghidra-style prefixes may belong on `_GHIDRA_GENERIC_RE`
+instead:
 
 ```diff
 - _GENERIC_NAME_RE = re.compile(r"^_?(func_|FUN_)[0-9a-fA-F]+(@\d+)?$")

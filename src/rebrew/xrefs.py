@@ -104,7 +104,8 @@ def build_calls_from_payload(binary: Path, start: int, size: int) -> dict[str, A
     """Inventory every call made *from* one function, resolved per callee.
 
     Counting calls is harder than it looks, and this project got it wrong three
-    times in four rounds (docs/msvc6-c-shapes.md section 112):
+    times in four rounds (guild-rebrew docs/msvc6-c-shapes.md section 112;
+    sibling repo, not under this tree's docs/):
 
     * grepping disassembly for "call" also matches operands and comments;
     * counting *relocations* undercounts badly, because a relocation marks

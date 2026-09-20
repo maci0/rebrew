@@ -88,10 +88,7 @@ migration debt that `lint --fix` (W019) moves to the TOML. Co-read exceptions:
 pass the correct metadata root. Metadata is managed automatically by the CLI tools.
 
 > [!CAUTION]
-> **Never manually add STATUS, SIZE, or CFLAGS to a `.c` file.** These are managed
-> by `rebrew test`, `rebrew verify`, `rebrew match`, and `rebrew sync`.
-> Manual edits to `rebrew-functions.toml` or volatile annotation lines in `.c` files
-> will be overwritten or ignored.
+> **Never manually add volatile metadata keys (`STATUS`, `BLOCKER`, `NOTE`, `GHIDRA`, …) to a `.c` file** — they are not parsed (`_kv_to_annotation` hardcodes `STUB`) and `lint --fix` / W019 migrates them into `rebrew-functions.toml`. `// SIZE:` / `// CFLAGS:` are the co-read reccmp contract in the `.c` (TOML values are overrides); do not hand-edit `rebrew-functions.toml` for those either — use the CLI / `rebrew.metadata` APIs.
 
 ### Example
 
@@ -172,11 +169,12 @@ support TU only when nothing in the reversed tree can carry it.
 > Manual edits bypass the write-lock/atomicity and will be silently lost or may corrupt the file.
 
 > [!TIP]
-> **Rule of thumb**: Only the marker line is enforced as a linter error (E001). STATUS and
-> SIZE are metadata-only — they live in `rebrew-functions.toml` and are no longer validated
-> inline. CFLAGS is optional and falls back to the target default from config.
-> `SOURCE` and `BLOCKER` are enforced as warnings only for specific origins/statuses. Function
-> name and symbol are derived automatically from the C function definition.
+> **Rule of thumb**: Only the marker line is enforced as a linter error (E001). `STATUS`
+> (and other volatile keys) are metadata-only in `rebrew-functions.toml` — not parsed
+> inline. `SIZE`/`CFLAGS` are co-read: inline forms are the reccmp contract in the `.c`,
+> TOML values override; W019 warns only on disagreement. Bare `CFLAGS` falls back to the
+> target default from config. `SOURCE` and `BLOCKER` are warnings only for specific
+> origins/statuses. Function name and symbol are derived from the C definition.
 
 ### Per-Address ANALYSIS Comments
 

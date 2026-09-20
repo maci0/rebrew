@@ -59,10 +59,12 @@ W029-redundant per-function `cflags` that only repeat the inherited ladder.
 `ORIGIN` (legacy everywhere) and `SECTION` on FUNCTION/LIBRARY/STUB markers
 are never stored — `--fix` strips them instead of migrating.
 
-`STATUS`, `SIZE`, `CFLAGS`, `TOOLCHAIN`, `SKIP`, `GLOBALS`, `BLOCKER`,
-`BLOCKER_DELTA`, `SOURCE`, `NOTE`, `SECTION`, `GHIDRA`, `ANALYSIS`,
-`PROVE_CONSTRAINTS`, `LOCALS`, `COMMENTS`
-(`ORIGIN` also warns but is stripped, never stored)
+`STATUS`, `SKIP`, `GLOBALS`, `BLOCKER`, `BLOCKER_DELTA`, `NOTE`, `GHIDRA`,
+`ANALYSIS`, `PROVE_CONSTRAINTS`, `LOCALS`, `COMMENTS`
+(`ORIGIN` also warns but is stripped, never stored; `SECTION` on
+FUNCTION/LIBRARY/STUB markers is stripped — DATA/GLOBAL SECTION lives in
+`rebrew-data.toml`.  `SIZE`/`CFLAGS`/`TOOLCHAIN`/`SOURCE` stay inline per
+the co-read / file-borne rules above, not this list.)
 
 ## Layer 2: Metadata TOML Files
 

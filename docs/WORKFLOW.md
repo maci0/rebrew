@@ -391,10 +391,10 @@ Every `.c` file must start with a marker block. See [ANNOTATIONS.md](ANNOTATIONS
 for the full format reference.
 
 Only the marker line is enforced as a linter error (E001): `FUNCTION`/`LIBRARY`/`STUB`
-with MODULE and VA. STATUS and SIZE are metadata-only — they live in
-`rebrew-functions.toml` and are no longer validated inline. Optional: CFLAGS
-(metadata; falls back to project config default). Conditional: SOURCE (for
-CRT/ZLIB), BLOCKER (for NEAR_MATCHING/STUB — stored in `rebrew-functions.toml`).
+with MODULE and VA. `STATUS` (and other volatile keys) are metadata-only in
+`rebrew-functions.toml` — not parsed inline. `SIZE`/`CFLAGS` are co-read (inline
+reccmp contract + TOML override). Conditional: SOURCE (for CRT/ZLIB), BLOCKER
+(for NEAR_MATCHING/STUB — stored in `rebrew-functions.toml`).
 
 A file may contain **multiple marker blocks** for multi-function compilation. See
 [ANNOTATIONS.md](ANNOTATIONS.md#multi-function-files) for details.

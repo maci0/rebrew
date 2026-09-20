@@ -2,11 +2,13 @@
 
 Check that all .c files in the reversed directory have proper reccmp-style
 annotations (``// FUNCTION: MODULE 0xVA`` markers) and that volatile metadata
-(STATUS, SIZE, CFLAGS, etc.) lives in ``rebrew-functions.toml``.  Also
-cross-checks FUNCTION/STUB marker VAs against the target's function list
-(W028), flags redundant per-function / preset cflags that only repeat an
-inherited value (W029), and otherwise catches stale annotations at lint time
-instead of as confusing mismatches in ``rebrew test``.
+(STATUS, BLOCKER, NOTE, …) lives in ``rebrew-functions.toml``. ``SIZE`` /
+``CFLAGS`` are co-read (inline reccmp contract + TOML override; W019 warns on
+disagreement, does not migrate). Also cross-checks FUNCTION/STUB marker VAs
+against the target's function list (W028), flags redundant per-function /
+preset cflags that only repeat an inherited value (W029), and otherwise
+catches stale annotations at lint time instead of as confusing mismatches in
+``rebrew test``.
 Supports ``--fix`` to migrate inline metadata keys to the TOML metadata file
 and to drop redundant per-function / preset cflags (W029).
 
@@ -516,8 +518,8 @@ def _check_E008_size_value(result: LintResult, metadata_size: str | None) -> Non
 
     Validates the ``rebrew-functions.toml`` value only: ``// SIZE:`` inline is
     the reccmp-native contract (see W019) and is not part of this rule, matching
-    the reserved E008 scope.  SIZE is metadata-only, so a non-numeric spelling
-    would make a consumer slice the wrong byte count or silently fall back.
+    the reserved E008 scope.  A non-numeric *metadata* SIZE would make a
+    consumer slice the wrong byte count or silently fall back.
     """
     if not metadata_size:
         return
