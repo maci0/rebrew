@@ -168,7 +168,12 @@ def find_section(data: bytes | bytearray, name: str) -> PeSection | None:
 
 
 def read_pe_header_fields(data: bytes) -> dict[str, int] | None:
-    """Parse every known header field from *data*.  None if not a PE."""
+    """Parse every known header field from *data*.  None if not a PE.
+
+    Returns a plain ``{label: int}`` map (not a wrapper type).  Callers that
+    previously used ``PeHeaderFields.values[...]`` should index the dict
+    directly.
+    """
     lfanew = pe_lfanew(data)
     if lfanew is None:
         return None
@@ -267,3 +272,18 @@ def header_parity(
             }
         )
     return out
+
+
+__all__ = [
+    "PATCHABLE",
+    "SECTION_ENTRY_SIZE",
+    "PeLayout",
+    "PeSection",
+    "find_section",
+    "header_parity",
+    "patch_pe_headers",
+    "pe_layout",
+    "pe_lfanew",
+    "read_pe_header_fields",
+    "sections_at",
+]

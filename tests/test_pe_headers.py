@@ -24,8 +24,21 @@ class TestReadFields:
     def test_reads_known_fields(self) -> None:
         fields = read_pe_header_fields(_fixture())
         assert fields is not None
+        assert type(fields) is dict
         assert fields.get("stack_reserve") == 0x100000
         assert fields.get("timestamp") == 0
+
+    def test_returns_plain_dict_not_wrapper(self) -> None:
+        """Post-2.6.0: no PeHeaderFields wrapper; index the dict directly."""
+        import rebrew.pe_headers as pe_headers
+
+        assert not hasattr(pe_headers, "PeHeaderFields")
+        assert not hasattr(pe_headers, "COFF_HEADER_SIZE")
+        fields = read_pe_header_fields(_fixture())
+        assert fields is not None
+        assert "timestamp" in fields
+        # Former PeHeaderFields.values attribute must not be required.
+        assert fields["stack_reserve"] == 0x100000
 
     def test_non_pe_returns_none(self) -> None:
         assert read_pe_header_fields(b"\x00" * 256) is None

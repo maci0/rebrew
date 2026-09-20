@@ -184,6 +184,15 @@
   modules moved** to ``rebrew.flags`` / ``rebrew.flag_data``. Import from the
   new paths (or from ``rebrew.matcher``, which still re-exports the symbols);
   ``from rebrew.matcher.flags import …`` raises ``ModuleNotFoundError``.
+- **Breaking:** **``read_pe_header_fields`` returns ``dict[str, int] | None``**
+  (was a ``PeHeaderFields`` wrapper with a ``.values`` dict). Use
+  ``fields["timestamp"]`` / ``fields.get(...)`` directly;
+  ``from rebrew.pe_headers import PeHeaderFields`` and ``fields.values[...]``
+  no longer work. ``COFF_HEADER_SIZE`` is removed (always 20 per PE/COFF);
+  ``SECTION_ENTRY_SIZE`` remains. ``rebrew.order_sources`` no longer
+  re-exports ``file_va`` / ``_base_key`` — import those from
+  ``rebrew.link_order`` (``order_sources`` stays importable from the CLI
+  module because the callback still binds it).
 - **Effect inverses fire at most once.** `_Effect.revert` is armed; overlapping
   `Context.dispose` and `CoeffectScope.close` cannot run the same inverse
   twice. Disposing the context closes every attached scope.
