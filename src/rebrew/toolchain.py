@@ -277,20 +277,28 @@ def profile_family(profile: str) -> str:
 
 
 def docker_available() -> bool:
-    """True when docker is installed and its daemon responds (cached)."""
+    """True when docker is installed and its daemon responds.
+
+    Only a positive result is memoized.  A miss / daemon blip is rechecked
+    on the next call so a briefly-down dockerd is not frozen as unavailable
+    for the process lifetime (same discipline as :func:`image_present`).
+    """
     global _docker_available_cache
-    if _docker_available_cache is None:
-        try:
-            r = subprocess.run(
-                [container_runtime(), "info"],
-                capture_output=True,
-                text=True,
-                timeout=15,
-            )
-            _docker_available_cache = r.returncode == 0
-        except (OSError, subprocess.TimeoutExpired):
-            _docker_available_cache = False
-    return _docker_available_cache
+    if _docker_available_cache is True:
+        return True
+    try:
+        r = subprocess.run(
+            [container_runtime(), "info"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        ok = r.returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        ok = False
+    if ok:
+        _docker_available_cache = True
+    return ok
 
 
 #: Positive-only presence memo (tag → True).  Misses and inspect failures are

@@ -1349,3 +1349,25 @@ class TestVendorRetryAfterPartialFailure:
         result2 = runner.invoke(app, ["vendor", "fake-1.0"])
         assert result2.exit_code != 0
         assert "already has files" in result2.output
+
+
+class TestDockerAvailableCache:
+    def test_miss_is_not_frozen(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A transient docker-info failure must not pin unavailable forever."""
+        import rebrew.toolchain as tc
+
+        monkeypatch.setattr(tc, "_docker_available_cache", None)
+        calls = {"n": 0}
+
+        def _run(cmd, **kwargs):  # type: ignore[no-untyped-def]
+            calls["n"] += 1
+            # First call: daemon down; second: recovered.
+            return _FakeProc(1 if calls["n"] == 1 else 0)
+
+        monkeypatch.setattr(tc.subprocess, "run", _run)
+        assert tc.docker_available() is False
+        assert tc.docker_available() is True
+        assert calls["n"] == 2
+        # Positive hit is memoized — no third inspect.
+        assert tc.docker_available() is True
+        assert calls["n"] == 2

@@ -205,6 +205,26 @@ class TestLibraryCli:
 
 
 class TestLibraryCacheConcurrency:
+    def test_negative_miss_sees_newly_created_file(self, tmp_path: Path) -> None:
+        """A miss must not freeze 'no override' after a library file appears.
+
+        Caching ``None`` hid hand-created (or uncleared) ``rebrew-libraries.toml``
+        for the process lifetime and served project defaults instead.
+        """
+        from rebrew.metadata import (
+            LIBRARY_METADATA_FILE,
+            clear_library_override_cache,
+            find_library_override,
+        )
+
+        lib = tmp_path / "lib"
+        lib.mkdir()
+        clear_library_override_cache()
+        assert find_library_override(lib, tmp_path) is None
+        (lib / LIBRARY_METADATA_FILE).write_text('toolchain = "msvc-6.0"\n', encoding="utf-8")
+        ovr = find_library_override(lib, tmp_path)
+        assert ovr is not None and ovr.toolchain == "msvc-6.0"
+
     def test_concurrent_stale_path_invalidate_does_not_keyerror(self, tmp_path: Path) -> None:
         """Workers that all observe a deleted library file must not KeyError on del.
 

@@ -11,7 +11,6 @@ import pytest
 from rebrew.compile_cache import (
     CACHE_SCHEMA_VERSION,
     CompileCache,
-    _resolve_include_paths,
     close_all_caches,
     compile_cache_key,
     get_compile_cache,
@@ -216,6 +215,32 @@ class TestIncludeFingerprint:
         include_fingerprint.cache_clear()
         assert include_fingerprint(str(tmp_path)) != first
 
+    def test_header_edit_visible_without_cache_clear(self, tmp_path: Path) -> None:
+        """Content edits must change the digest mid-process without cache_clear.
+
+        The path list is memoized, but each call re-stats listed headers — a
+        size/mtime change on an existing header must invalidate compile keys
+        that fall back to whole-directory fingerprints.
+        """
+        inc = tmp_path / "inc"
+        inc.mkdir()
+        header = inc / "library_foo.h"
+        header.write_text("#define N 1\n")
+        include_fingerprint.cache_clear()
+        first = include_fingerprint(str(inc))
+        header.write_text("#define N 22222\n")
+        assert include_fingerprint(str(inc)) != first
+
+    def test_new_header_visible_without_cache_clear(self, tmp_path: Path) -> None:
+        """Creating a header mid-run must change the digest (dir mtime bump)."""
+        inc = tmp_path / "inc"
+        inc.mkdir()
+        (inc / "a.h").write_text("x\n")
+        include_fingerprint.cache_clear()
+        first = include_fingerprint(str(inc))
+        (inc / "b.h").write_text("y\n")
+        assert include_fingerprint(str(inc)) != first
+
     def test_missing_dir_is_empty(self, tmp_path: Path) -> None:
         assert include_fingerprint(str(tmp_path / "nope")) == ""
 
@@ -322,15 +347,17 @@ class TestHeaderDependencyHash:
         assert k1 != k2
 
     def test_created_header_changes_key_for_reacher(self, tmp_path: Path) -> None:
-        """A header created later in a searched dir changes the resolved set
-        on the next key computation (resolution is re-run per process)."""
+        """A header created later in a searched dir changes the resolved set.
+
+        Directory mtimes participate in the resolution memo key, so membership
+        changes are visible mid-process without an explicit ``cache_clear``.
+        """
         inc = tmp_path / "inc"
         inc.mkdir()
         src = "#include <new.h>\nint f(void){return 1;}\n"
         k1 = compile_cache_key(src, "f.c", ["/O2"], [str(inc)], "wine CL")
 
         (inc / "new.h").write_text("#define N 1\n")
-        _resolve_include_paths.cache_clear()  # structure change needs a fresh resolution
         k2 = compile_cache_key(src, "f.c", ["/O2"], [str(inc)], "wine CL")
         assert k1 != k2
 

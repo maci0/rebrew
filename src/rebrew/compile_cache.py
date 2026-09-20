@@ -39,9 +39,10 @@ image digest in the key.  When the closure cannot be resolved statically
 (a non-literal ``#include MACRO``, a ``/FI`` force-include), the key falls
 back to per-directory fingerprints of every include dir (the conservative
 ccache-style mode, via :func:`include_fingerprint`).  Resolution is
-memoized per process: a header *created* while a long GA run is in flight
-is not picked up until the next invocation (content edits to already
-resolved headers are still picked up, because each reached file is re-statted
+memoized per process keyed by search-directory mtimes: a header *created*
+while a long GA run is in flight bumps the parent directory's mtime and is
+picked up on the next key computation (content edits to already resolved
+headers are still picked up, because each reached file is re-statted
 at key time).
 """
 
@@ -324,7 +325,22 @@ def available_cache_backends() -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-@lru_cache(maxsize=64)
+# Path-list memo for :func:`include_fingerprint`: ``dir → (dir_mtime_ns, paths)``.
+# The list is reused only while the directory's own mtime is unchanged (create /
+# delete / rename of children bumps it).  Each call still re-stats every
+# listed header so an edit that preserves the directory mtime still changes
+# the digest.  Bounded + locked: verify -j N and GA workers share this map.
+_INCLUDE_FP_PATHS: dict[str, tuple[int, tuple[str, ...]]] = {}
+_INCLUDE_FP_PATHS_MAX = 64
+_INCLUDE_FP_LOCK = threading.Lock()
+
+
+def _clear_include_fingerprint_cache() -> None:
+    """Drop the include-fingerprint path memo (tests / forced refresh)."""
+    with _INCLUDE_FP_LOCK:
+        _INCLUDE_FP_PATHS.clear()
+
+
 def include_fingerprint(include_dir: str) -> str:
     """Return a digest of the headers reachable from *include_dir*.
 
@@ -335,31 +351,64 @@ def include_fingerprint(include_dir: str) -> str:
     ccache makes in its default mode — it can only be fooled by an edit that
     preserves both size and mtime.
 
-    Memoized per process (headers are assumed stable for the lifetime of one
-    rebrew invocation), so each include directory is walked at most once.
-    Returns ``""`` for a path that is not an existing directory.
+    The header *path list* is memoized per directory while the directory's
+    own mtime is stable (membership changes invalidate); each call re-stats
+    those paths so content edits are visible mid-run without a process
+    restart.  Returns ``""`` for a path that is not an existing directory.
     """
     root = Path(include_dir)
     if not root.is_dir():
         return ""
-    h = hashlib.sha256()
     try:
-        headers = sorted(
-            p for p in root.rglob("*") if p.suffix.lower() in _HEADER_SUFFIXES and p.is_file()
-        )
+        dir_mtime = root.stat().st_mtime_ns
     except OSError:
         return ""
-    for path in headers:
+
+    with _INCLUDE_FP_LOCK:
+        cached = _INCLUDE_FP_PATHS.get(include_dir)
+        paths = cached[1] if cached is not None and cached[0] == dir_mtime else None
+
+    if paths is None:
+        try:
+            path_list = sorted(
+                p for p in root.rglob("*") if p.suffix.lower() in _HEADER_SUFFIXES and p.is_file()
+            )
+        except OSError:
+            return ""
+        paths = tuple(str(p) for p in path_list)
+        with _INCLUDE_FP_LOCK:
+            # Re-check: another worker may have filled a fresher entry.
+            cached = _INCLUDE_FP_PATHS.get(include_dir)
+            if cached is None or cached[0] != dir_mtime:
+                if (
+                    len(_INCLUDE_FP_PATHS) >= _INCLUDE_FP_PATHS_MAX
+                    and include_dir not in _INCLUDE_FP_PATHS
+                ):
+                    oldest = next(iter(_INCLUDE_FP_PATHS))
+                    _INCLUDE_FP_PATHS.pop(oldest, None)
+                _INCLUDE_FP_PATHS[include_dir] = (dir_mtime, paths)
+            else:
+                paths = cached[1]
+
+    h = hashlib.sha256()
+    for p_str in paths:
+        path = Path(p_str)
         try:
             st = path.stat()
         except OSError:
             continue
+        try:
+            rel = path.relative_to(root)
+        except ValueError:
+            continue
         h.update(
-            f"{path.relative_to(root)}\0{st.st_size}\0{st.st_mtime_ns}\0".encode(
-                "utf-8", errors="surrogateescape"
-            )
+            f"{rel}\0{st.st_size}\0{st.st_mtime_ns}\0".encode("utf-8", errors="surrogateescape")
         )
     return h.hexdigest()
+
+
+# Test / forced-refresh hook — same attribute name as the former ``lru_cache``.
+include_fingerprint.cache_clear = _clear_include_fingerprint_cache  # type: ignore[attr-defined]
 
 
 @lru_cache(maxsize=1024)
@@ -476,7 +525,23 @@ def _find_in_dirs(name: Path, dirs: list[Path]) -> Path | None:
     return None
 
 
-@lru_cache(maxsize=1024)
+def _search_dir_mtimes(source_dir: str | None, include_dirs: tuple[str, ...]) -> tuple[int, ...]:
+    """Directory mtimes for include-resolution cache identity.
+
+    Creating/deleting a header bumps the parent directory's mtime, so a
+    mid-run membership change gets a fresh resolution without requiring
+    ``cache_clear`` or a process restart.
+    """
+    dirs: tuple[str, ...] = ((source_dir,) if source_dir else ()) + include_dirs
+    mtimes: list[int] = []
+    for d in dirs:
+        try:
+            mtimes.append(Path(d).stat().st_mtime_ns)
+        except OSError:
+            mtimes.append(0)
+    return tuple(mtimes)
+
+
 def _resolve_include_paths(
     source_content: str, source_dir: str | None, include_dirs: tuple[str, ...]
 ) -> tuple[tuple[str, ...], bool]:
@@ -487,13 +552,28 @@ def _resolve_include_paths(
     must use conservative per-directory fingerprints instead.  Includes that
     resolve nowhere on the host are left untracked: either they resolve
     inside the immutable toolchain image (pinned by the toolchain digest in
-    the key) or the compile errors and nothing is cached.  A header created
-    later in a searched dir changes the resolved set on the next key
-    computation, which changes the key — so membership changes are caught
-    even though the closure itself is memoized.  Memoized per process; same
-    tradeoff as :func:`include_fingerprint` (a header structure change mid
-    run is not picked up until the next invocation).
+    the key) or the compile errors and nothing is cached.
+
+    Memoized on ``(source, dirs, dir_mtimes)``: a header created later in a
+    searched dir bumps that directory's mtime, so the next key computation
+    re-resolves and the compile-cache key changes.
     """
+    return _resolve_include_paths_cached(
+        source_content,
+        source_dir,
+        include_dirs,
+        _search_dir_mtimes(source_dir, include_dirs),
+    )
+
+
+@lru_cache(maxsize=1024)
+def _resolve_include_paths_cached(
+    source_content: str,
+    source_dir: str | None,
+    include_dirs: tuple[str, ...],
+    _dir_mtimes: tuple[int, ...],
+) -> tuple[tuple[str, ...], bool]:
+    """Cached body of :func:`_resolve_include_paths` (``_dir_mtimes`` is the bust key)."""
     search_dirs: list[Path] = []
     if source_dir:
         search_dirs.append(Path(source_dir))
@@ -532,6 +612,15 @@ def _resolve_include_paths(
 
     _scan(source_content, Path(source_dir) if source_dir else None)
     return tuple(sorted(reached)), fallback
+
+
+def _clear_resolve_include_paths() -> None:
+    """Drop the include-resolution memo (tests / forced refresh)."""
+    _resolve_include_paths_cached.cache_clear()
+
+
+# Preserve the former ``lru_cache`` attribute name for callers/tests.
+_resolve_include_paths.cache_clear = _clear_resolve_include_paths  # type: ignore[attr-defined]
 
 
 def _header_key_entries(
