@@ -31,6 +31,7 @@ from rich.table import Table
 from rebrew.c_parser import _find_function_name, _node_text, _parse, get_ts_parser
 from rebrew.cli import EXIT_ERROR, TargetOption, error_exit, json_print, require_config
 from rebrew.sources import iter_sources
+from rebrew.utils import rel_display_path
 
 console = Console(stderr=True)
 
@@ -480,20 +481,22 @@ def main(
         f"(high: {by_severity['high']}, medium: {by_severity['medium']}, "
         f"low: {by_severity['low']}):"
     )
+    root = Path(str(result["root"]))
     table = Table()
-    table.add_column("Severity", style="bold")
-    table.add_column("Rule")
-    table.add_column("CWE")
-    table.add_column("File:Line")
-    table.add_column("Function")
+    table.add_column("Severity", style="bold", no_wrap=True)
+    table.add_column("Rule", no_wrap=True)
+    table.add_column("CWE", no_wrap=True)
+    table.add_column("File:Line", no_wrap=True)
+    table.add_column("Function", no_wrap=True)
     table.add_column("Snippet", overflow="fold")
     for finding in findings:
         severity = str(finding["severity"])
+        file_display = rel_display_path(Path(str(finding["file"])), root)
         table.add_row(
             f"[{_SEVERITY_COLORS[severity]}]{severity}[/]",
             str(finding["rule"]),
             str(finding["cwe"]),
-            f"{finding['file']}:{finding['line']}",
+            f"{file_display}:{finding['line']}",
             str(finding["function"]),
             str(finding["snippet"]),
         )

@@ -214,10 +214,23 @@ def main(
     ref_insns = iter_instructions(info, va_int, size)
     ref_seq = _seq(ref_insns, va_int, set())
 
-    flags = (cflags or getattr(sel, "cflags", None) or cfg.cflags or "").split()
+    from rebrew.compile_overrides import resolve_compile_overrides
+
+    # Same fallback chain as test/verify/near-diag so module presets and
+    # library overrides cannot make gap-trace disagree with those tools.
+    toolchain_name, cflags_str = resolve_compile_overrides(
+        cfg,
+        path.resolve().parent,
+        sel.toolchain,
+        cflags or sel.cflags or None,
+        sel.module,
+    )
+    flags = cflags_str.split()
     workdir = Path(cfg.root) / ".rebrew" / "gaptrace"
     workdir.mkdir(parents=True, exist_ok=True)
-    obj_path, err = compile_to_obj(cfg, path, flags, workdir, use_cache=False)
+    obj_path, err = compile_to_obj(
+        cfg, path, flags, workdir, use_cache=False, toolchain=toolchain_name
+    )
     if obj_path is None:
         error_exit(f"Compile failed: {err}", json_mode=json_output)
 

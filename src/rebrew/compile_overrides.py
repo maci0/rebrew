@@ -23,7 +23,7 @@ def resolve_cflags(
     Fallback chain: per-function metadata CFLAGS → per-module
     ``cflags_presets`` (``rebrew cfg set-cflags``) → ``[compiler].cflags``
     → ``"/O2 /Gd"``.  Single source of truth so match/diff/verify/test/
-    prove agree on the flags a function compiles with — a per-module preset
+    prove/probe/gap-trace agree on the flags a function compiles with — a per-module preset
     must not make ``rebrew match`` report EXACT while ``rebrew verify``
     recompiles with different flags and demotes it.
     """

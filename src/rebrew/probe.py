@@ -81,16 +81,28 @@ def main(
         )
 
     from rebrew.coff_reloc import smart_reloc_compare
+    from rebrew.compile_overrides import resolve_compile_overrides
     from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
     from rebrew.near_diag import align_and_classify, disasm_insns
 
     load_binary(cfg.target_binary)
     ref_raw = extract_raw_bytes(cfg.target_binary, va_int, size_val)
 
-    flags = (cflags or getattr(sel, "cflags", None) or cfg.cflags or "").split()
+    # Same fallback chain as test/verify/near-diag so module presets and
+    # library overrides cannot make probe disagree with those tools.
+    toolchain_name, cflags_str = resolve_compile_overrides(
+        cfg,
+        path.resolve().parent,
+        sel.toolchain,
+        cflags or sel.cflags or None,
+        sel.module,
+    )
+    flags = cflags_str.split()
     workdir = Path(cfg.root) / ".rebrew" / "probe"
     workdir.mkdir(parents=True, exist_ok=True)
-    obj_path, err = compile_to_obj(cfg, path, flags, workdir, use_cache=False)
+    obj_path, err = compile_to_obj(
+        cfg, path, flags, workdir, use_cache=False, toolchain=toolchain_name
+    )
     if obj_path is None:
         error_exit(f"Compile failed: {err}", json_mode=json_output)
 
