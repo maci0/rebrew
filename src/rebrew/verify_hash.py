@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import functools
 import hashlib
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -16,6 +17,11 @@ from typing import Any
 from rebrew.config import ProjectConfig
 
 _DEFAULT_TOOLCHAIN = "(default)"
+
+#: Guard for :data:`_HEADERS_HASH_CACHE`.  Eviction is clear-then-store on a
+#: shared dict; concurrent ``_headers_hash`` callers (parallel saves / tests /
+#: a ThreadingHTTPServer next to verify) must not race the compound mutation.
+_HEADERS_HASH_CACHE_LOCK = threading.Lock()
 
 
 @dataclass
@@ -212,9 +218,10 @@ def _headers_hash(cfg: ProjectConfig) -> str:
 
     ext_digest = _external_includes_hash(cfg)
     stat_fp = _headers_stat_fingerprint(src_dir) + (ext_digest,)
-    cached = _HEADERS_HASH_CACHE.get(stat_fp)
-    if cached is not None:
-        return cached
+    with _HEADERS_HASH_CACHE_LOCK:
+        cached = _HEADERS_HASH_CACHE.get(stat_fp)
+        if cached is not None:
+            return cached
 
     h = hashlib.sha256()
     # Sorted for stable hashing across runs / platforms.
@@ -230,9 +237,14 @@ def _headers_hash(cfg: ProjectConfig) -> str:
     h.update(ext_digest.encode("utf-8"))
     h.update(b"\x03")
     digest = h.hexdigest()
-    if len(_HEADERS_HASH_CACHE) >= _HEADERS_HASH_CACHE_MAX:
-        _HEADERS_HASH_CACHE.clear()
-    _HEADERS_HASH_CACHE[stat_fp] = digest
+    with _HEADERS_HASH_CACHE_LOCK:
+        # Re-check: another worker may have filled (or cleared) while we hashed.
+        cached = _HEADERS_HASH_CACHE.get(stat_fp)
+        if cached is not None:
+            return cached
+        if len(_HEADERS_HASH_CACHE) >= _HEADERS_HASH_CACHE_MAX:
+            _HEADERS_HASH_CACHE.clear()
+        _HEADERS_HASH_CACHE[stat_fp] = digest
     return digest
 
 
@@ -240,6 +252,7 @@ def _headers_hash(cfg: ProjectConfig) -> str:
 # plus the external-includes digest as the final element.
 # Key for the memoized _headers_hash — avoids re-reading every .h when the
 # tree is unchanged across the two calls per verify run.
+# Guarded by :data:`_HEADERS_HASH_CACHE_LOCK` (clear-then-store eviction).
 _HEADERS_HASH_CACHE: dict[tuple[tuple[str, int, int] | str, ...], str] = {}
 _HEADERS_HASH_CACHE_MAX = 8  # one entry per distinct header-tree state
 

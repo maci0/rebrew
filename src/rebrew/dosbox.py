@@ -13,6 +13,7 @@ import atexit
 import os
 import shutil
 import subprocess
+import threading
 from pathlib import Path
 
 _DOSBOX_CONF_HEADER = "[sdl]\nfullscreen=false\n\n[cpu]\ncycles=fixed 30000\n\n[autoexec]\n"
@@ -54,8 +55,12 @@ _SANDBOXES: list[Path] = []
 #: many 16-bit TUs (msvc16/tc16/delphi16 default workdirs) does not accumulate
 #: one dir + staged tree per call until atexit.  Callers that need an isolated
 #: tree pass their own *workdir* and own its lifetime.
+#: Guarded by :data:`_SANDBOX_LOCK`: verify -j N / parallel 16-bit compiles
+#: share the prefix map; an unlocked check-then-create orphaned dirs and
+#: raced list/dict mutations.
 _SANDBOX_BY_PREFIX: dict[str, Path] = {}
 _SANDBOX_ATEXIT_REGISTERED = False
+_SANDBOX_LOCK = threading.Lock()
 
 
 def make_sandbox_dir(prefix: str) -> Path:
@@ -76,22 +81,30 @@ def make_sandbox_dir(prefix: str) -> Path:
     Raises :class:`DosboxError` when no candidate is writable."""
     from rebrew.utils import writable_temp_dir
 
-    existing = _SANDBOX_BY_PREFIX.get(prefix)
-    if existing is not None and existing.is_dir():
-        return existing
+    with _SANDBOX_LOCK:
+        existing = _SANDBOX_BY_PREFIX.get(prefix)
+        if existing is not None and existing.is_dir():
+            return existing
 
     try:
         sandbox = writable_temp_dir(prefix)
     except OSError as exc:
         raise DosboxError(str(exc)) from exc
-    _SANDBOX_BY_PREFIX[prefix] = sandbox
-    _SANDBOXES.append(sandbox)
-    global _SANDBOX_ATEXIT_REGISTERED
-    if not _SANDBOX_ATEXIT_REGISTERED:
-        # ignore_errors=True: a still-mounted sandbox ("Device or resource busy")
-        # must not turn interpreter shutdown into a traceback.
-        atexit.register(_cleanup_sandboxes)
-        _SANDBOX_ATEXIT_REGISTERED = True
+    with _SANDBOX_LOCK:
+        # Re-check: another worker may have published the same prefix while
+        # we created a dir — keep theirs and drop the orphan.
+        existing = _SANDBOX_BY_PREFIX.get(prefix)
+        if existing is not None and existing.is_dir():
+            shutil.rmtree(sandbox, ignore_errors=True)
+            return existing
+        _SANDBOX_BY_PREFIX[prefix] = sandbox
+        _SANDBOXES.append(sandbox)
+        global _SANDBOX_ATEXIT_REGISTERED
+        if not _SANDBOX_ATEXIT_REGISTERED:
+            # ignore_errors=True: a still-mounted sandbox ("Device or resource busy")
+            # must not turn interpreter shutdown into a traceback.
+            atexit.register(_cleanup_sandboxes)
+            _SANDBOX_ATEXIT_REGISTERED = True
     return sandbox
 
 
@@ -102,24 +115,28 @@ def release_sandbox(path: Path) -> None:
     over waiting for atexit when the caller no longer needs the staged tree.
     """
     resolved = path.resolve()
-    stale_prefixes = [p for p, s in _SANDBOX_BY_PREFIX.items() if s.resolve() == resolved]
-    for p in stale_prefixes:
-        _SANDBOX_BY_PREFIX.pop(p, None)
-    try:
-        _SANDBOXES.remove(path)
-    except ValueError:
-        for i, s in enumerate(_SANDBOXES):
-            if s.resolve() == resolved:
-                del _SANDBOXES[i]
-                break
+    with _SANDBOX_LOCK:
+        stale_prefixes = [p for p, s in _SANDBOX_BY_PREFIX.items() if s.resolve() == resolved]
+        for p in stale_prefixes:
+            _SANDBOX_BY_PREFIX.pop(p, None)
+        try:
+            _SANDBOXES.remove(path)
+        except ValueError:
+            for i, s in enumerate(_SANDBOXES):
+                if s.resolve() == resolved:
+                    del _SANDBOXES[i]
+                    break
     shutil.rmtree(path, ignore_errors=True)
 
 
 def _cleanup_sandboxes() -> None:
     """atexit: remove every sandbox created by :func:`make_sandbox_dir`."""
-    _SANDBOX_BY_PREFIX.clear()
-    while _SANDBOXES:
-        shutil.rmtree(_SANDBOXES.pop(), ignore_errors=True)
+    with _SANDBOX_LOCK:
+        dirs = list(_SANDBOXES)
+        _SANDBOXES.clear()
+        _SANDBOX_BY_PREFIX.clear()
+    for path in dirs:
+        shutil.rmtree(path, ignore_errors=True)
 
 
 def run_dosbox(

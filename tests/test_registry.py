@@ -1385,6 +1385,44 @@ class TestRefreshAll:
         assert counts["cache_backends"] >= 1
         assert counts["library_presets"] >= 5
 
+    def test_toolchain_refresh_never_empties_registry(self) -> None:
+        """Concurrent readers must not observe TOOLCHAINS mid-clear.
+
+        ``refresh_toolchain_registry`` used to ``clear()`` then ``update()``;
+        verify -j N / GA workers reading unlocked saw an empty map and failed
+        with "unknown toolchain" for the duration of the rebuild.
+        """
+        import threading
+        import time
+
+        from rebrew.toolchain import TOOLCHAINS, refresh_toolchain_registry
+
+        errors: list[BaseException] = []
+        stop = threading.Event()
+
+        def _reader() -> None:
+            try:
+                while not stop.wait(0.001):
+                    if not TOOLCHAINS or "msvc-6.0" not in TOOLCHAINS:
+                        raise AssertionError("TOOLCHAINS empty or missing msvc-6.0 mid-refresh")
+            except BaseException as exc:
+                errors.append(exc)
+                stop.set()
+
+        readers = [threading.Thread(target=_reader) for _ in range(4)]
+        for t in readers:
+            t.start()
+        try:
+            for _ in range(3):
+                refresh_toolchain_registry()
+                assert "msvc-6.0" in TOOLCHAINS
+                time.sleep(0.01)
+        finally:
+            stop.set()
+            for t in readers:
+                t.join(timeout=10)
+        assert errors == []
+
     def test_refresh_picks_up_installed_plugin(self, monkeypatch: pytest.MonkeyPatch) -> None:
         import rebrew.compile_cache as cc
         from rebrew.registry import refresh_all

@@ -61,6 +61,41 @@ class TestSandboxLifecycle:
         assert dosbox._SANDBOXES == []
         assert dosbox._SANDBOX_BY_PREFIX == {}
 
+    def test_concurrent_same_prefix_reuses_one_sandbox(self, monkeypatch) -> None:
+        """Parallel 16-bit compiles must not race check-then-create on a prefix."""
+        import threading
+
+        import rebrew.dosbox as dosbox
+
+        monkeypatch.setattr(dosbox, "_SANDBOX_ATEXIT_REGISTERED", True)
+        monkeypatch.setattr(dosbox, "_SANDBOXES", [])
+        monkeypatch.setattr(dosbox, "_SANDBOX_BY_PREFIX", {})
+        results: list[Path] = []
+        errors: list[BaseException] = []
+        barrier = threading.Barrier(16)
+
+        def _worker() -> None:
+            try:
+                barrier.wait(timeout=30)
+                results.append(make_sandbox_dir("rebrew-test-concurrent-"))
+            except BaseException as exc:
+                errors.append(exc)
+
+        threads = [threading.Thread(target=_worker) for _ in range(16)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=60)
+        assert errors == []
+        assert results
+        assert len(set(results)) == 1
+        assert [results[0]] == dosbox._SANDBOXES
+        from rebrew.dosbox import release_sandbox
+
+        release_sandbox(results[0])
+        assert dosbox._SANDBOXES == []
+        assert dosbox._SANDBOX_BY_PREFIX == {}
+
     def test_sandbox_gone_after_process_exit(self) -> None:
         """End-to-end: a child process creating a default sandbox leaves no
         directory behind once it exits."""

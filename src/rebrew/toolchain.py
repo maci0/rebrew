@@ -251,6 +251,11 @@ TOOLCHAIN_ORIGINS: dict[str, str] = {}
 #: project-level TOML overlay extend it without touching host source.
 TOOLCHAINS: dict[str, ToolchainSpec] = build_toolchain_registry()
 
+#: Serializes in-place refresh of :data:`TOOLCHAINS`.  Readers (verify -j N /
+#: GA / cmake) do not take this lock — they must never observe an empty
+#: registry mid-refresh, so writers update-then-drop instead of clear-then-fill.
+_TOOLCHAIN_REGISTRY_LOCK = threading.Lock()
+
 
 def refresh_toolchain_registry() -> dict[str, ToolchainSpec]:
     """Re-run discovery and refresh the :data:`TOOLCHAINS` snapshot in place.
@@ -259,10 +264,18 @@ def refresh_toolchain_registry() -> dict[str, ToolchainSpec]:
     toolchains installed after startup without a restart.  The snapshot is
     updated in place so a module that bound ``TOOLCHAINS`` at import time
     (``rebrew.compile``, ``rebrew.cmake_tc``) sees the new registrations;
-    also refreshes :data:`TOOLCHAIN_ORIGINS` (built alongside the registry)."""
+    also refreshes :data:`TOOLCHAIN_ORIGINS` (built alongside the registry).
+
+    Writers must not ``clear()`` then ``update()``: concurrent workers read
+    ``TOOLCHAINS`` unlocked, and an empty window makes every lookup fail as
+    "unknown toolchain" for the duration of the rebuild.
+    """
     registry = build_toolchain_registry()
-    TOOLCHAINS.clear()
-    TOOLCHAINS.update(registry)
+    with _TOOLCHAIN_REGISTRY_LOCK:
+        obsolete = [name for name in TOOLCHAINS if name not in registry]
+        TOOLCHAINS.update(registry)
+        for name in obsolete:
+            del TOOLCHAINS[name]
     return TOOLCHAINS
 
 

@@ -867,6 +867,37 @@ class TestHeadersHash:
         assert len(result) == 64
         assert _headers_hash(cfg) == result  # deterministic
 
+    def test_headers_hash_memo_is_thread_safe(self, tmp_path: Path) -> None:
+        """Concurrent fills must not race the clear-then-store eviction."""
+        import threading
+
+        import rebrew.verify_hash as vh
+
+        cfg = _make_cfg(tmp_path)
+        (cfg.reversed_dir / "a.h").write_text("typedef int A;\n", encoding="utf-8")
+        vh._HEADERS_HASH_CACHE.clear()
+        errors: list[BaseException] = []
+        digests: list[str] = []
+        digests_lock = threading.Lock()
+
+        def _worker() -> None:
+            try:
+                local = [_headers_hash(cfg) for _ in range(32)]
+                with digests_lock:
+                    digests.extend(local)
+            except BaseException as exc:
+                errors.append(exc)
+
+        threads = [threading.Thread(target=_worker) for _ in range(16)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        assert errors == []
+        assert digests
+        assert all(d == digests[0] for d in digests)
+        assert len(vh._HEADERS_HASH_CACHE) <= vh._HEADERS_HASH_CACHE_MAX
+
     def test_changes_when_external_include_header_changes(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
