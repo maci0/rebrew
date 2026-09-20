@@ -35,6 +35,12 @@
   documented integrator surface.
 
 ### Fixed
+- **Dashboard `/api/globals` and `/api/history` honor `offset`** like
+  `/api/functions` (they previously always returned the first page and
+  reported ``offset: 0``). The HTML show-more path appends via
+  ``limit``+``offset`` instead of re-fetching a growing ``limit``. Docs for
+  the dashboard wire shape (`NAME_NORMALIZATION`, `CLI`, `DB_FORMAT`) match
+  the implemented routes and ``cols``.
 - **`coverage.db` `history` table** gained `va` / status / `changed_at` CHECKs
   with in-place migration for pre-CHECK tables (rows kept, outliers clamped),
   matching the `verify_results` guard path.  Workspace coverage.db readers

@@ -376,6 +376,9 @@ class TestHandle:
         assert "/api/sections" in body
         assert "/api/globals" in body
         assert "/api/history" in body
+        assert "loadGlobals({ append: true })" in body
+        assert "loadHistory({ append: true })" in body
+        assert "loadedGlobalsCount" in body
         assert "Retry summary" in body
         # Errors announce via role=alert only (avoid double-speaking with status).
         assert 'results-status").textContent = message' not in body
@@ -538,6 +541,44 @@ class TestHandle:
         assert payload["offset"] == _MAX_LIMIT + 100
         assert payload["count"] == 0
         assert payload["total"] == 2
+
+    def test_api_globals_honors_offset(self, dashboard: Dashboard) -> None:
+        """globals must apply limit+offset like functions (not silently drop offset)."""
+        status, _, body = dashboard.handle(
+            "GET",
+            "/api/globals",
+            {"target": ["server_dll"], "limit": ["1"], "offset": ["0"]},
+        )
+        assert status == 200
+        first = json.loads(body)
+        assert first["count"] == 1
+        assert first["total"] == 1
+        assert first["offset"] == 0
+        assert first["globals"][0]["name"] == "g_flag"
+
+        status, _, body = dashboard.handle(
+            "GET",
+            "/api/globals",
+            {"target": ["server_dll"], "limit": ["1"], "offset": ["1"]},
+        )
+        assert status == 200
+        past = json.loads(body)
+        assert past["count"] == 0
+        assert past["total"] == 1
+        assert past["offset"] == 1
+        assert past["globals"] == []
+
+    def test_api_history_honors_offset(self, dashboard: Dashboard) -> None:
+        status, _, body = dashboard.handle(
+            "GET",
+            "/api/history",
+            {"target": ["server_dll"], "limit": ["1"], "offset": ["50"]},
+        )
+        assert status == 200
+        payload = json.loads(body)
+        assert payload["offset"] == 50
+        assert payload["count"] == 0
+        assert payload["total"] == 0
 
     def test_api_sections_includes_count_total(self, dashboard: Dashboard) -> None:
         status, _, body = dashboard.handle("GET", "/api/sections", {"target": ["server_dll"]})

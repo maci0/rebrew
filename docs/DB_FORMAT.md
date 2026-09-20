@@ -386,3 +386,13 @@ The `recoverage` server exposes the following endpoints. All data endpoints retu
 | `GET` | `/src/<path>` | Serve source files from project dir |
 | `GET` | `/original/<path>` | Serve original binary files from project dir |
 | `GET` | `/potato` | Easter egg 🥔 |
+
+> [!NOTE]
+> `rebrew dashboard` is a separate, read-only stdlib server over the same
+> `coverage.db`. Its routes are query-param scoped (`/api/summary?target=`,
+> `/api/functions?target=` with `status`/`module`/`q`/`limit`/`offset`,
+> `/api/sections?target=`, `/api/globals?target=` with `q`/`limit`/`offset`,
+> `/api/history?target=` with `limit`/`offset`, plus `/api/bootstrap` and
+> `/api/targets`). It does **not** implement the path-style recoverage
+> endpoints above, `/api/regen`, or `/api/health`. See
+> [`dashboard.py`](../src/rebrew/dashboard.py).

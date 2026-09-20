@@ -2328,8 +2328,13 @@ address (calls, jmps, data references).
 
 `rebrew dashboard [OPTIONS]`
 
-Read-only web dashboard over `db/coverage.db` (bottle server) for triaging
-large binaries.
+Read-only stdlib `ThreadingHTTPServer` dashboard over `db/coverage.db` for
+triaging large binaries. GET/HEAD only; bind defaults to `127.0.0.1`.
+
+Endpoints: `/`, `/api/bootstrap`, `/api/targets`, `/api/summary?target=`,
+`/api/functions?target=` (status/module/q/limit/offset), `/api/sections?target=`,
+`/api/globals?target=` (q/limit/offset), `/api/history?target=` (limit/offset).
+Missing `target` → 400; unknown target → 404.
 
 ## Examples
 

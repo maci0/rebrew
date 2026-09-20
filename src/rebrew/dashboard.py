@@ -13,8 +13,8 @@ Endpoints
 ``GET /api/summary?target=``   → function stats + coverage % (target required)
 ``GET /api/functions?target=`` → function rows as arrays under ``cols`` (filters: status, module, q, limit, offset)
 ``GET /api/sections?target=``  → per-section cell stats (includes count/total)
-``GET /api/globals?target=``   → global data rows (filter: q, limit; includes total)
-``GET /api/history?target=``   → status-change history (limit; includes total)
+``GET /api/globals?target=``   → global data rows (filters: q, limit, offset; includes total)
+``GET /api/history?target=``   → status-change history (filters: limit, offset; includes total)
 
 Target-scoped endpoints return 400 when ``target`` is missing/empty and 404 when
 the target is unknown.  Non-GET/HEAD methods return 405 with ``Allow: GET, HEAD``.
@@ -22,7 +22,8 @@ Requests whose ``Host`` header does not match the bound host (or a loopback
 alias) are rejected with 403, so a web page the analyst visits cannot reach
 the server via DNS rebinding.
 List endpoints expose ``count`` (rows in this page), ``total`` (matching rows),
-and the applied ``limit`` / ``offset`` (offset is 0 when the endpoint has no page).
+and the applied ``limit`` / ``offset`` (offset is 0 when the endpoint has no page;
+``/api/sections``, ``/api/targets``, and ``/api/bootstrap`` always report offset 0).
 Successful 200 responses negotiate ``zstd`` then ``gzip`` (``Accept-Encoding``
 quality weights; explicit ``coding;q=0`` beats ``*``), carry an ``ETag`` (HTML
 content hash or DB mtime), and use ``Cache-Control: private, no-cache`` so
@@ -275,10 +276,12 @@ let functionsController = null;
 let summaryController = null;
 let viewController = null;
 let loadedCount = 0;
+let loadedGlobalsCount = 0;
+let loadedHistoryCount = 0;
 let retryAppend = false;
+let retryGlobalsAppend = false;
+let retryHistoryAppend = false;
 let pageLimit = 100;
-let globalsLimit = 100;
-let historyLimit = 100;
 let currentView = "functions";
 const PAGE_STEP = 500;
 const PAGE_MAX = 5000;
@@ -469,8 +472,14 @@ function resetPaging() {
   loadedCount = 0;
   retryAppend = false;
 }
-function resetGlobalsPaging() { globalsLimit = 100; }
-function resetHistoryPaging() { historyLimit = 100; }
+function resetGlobalsPaging() {
+  loadedGlobalsCount = 0;
+  retryGlobalsAppend = false;
+}
+function resetHistoryPaging() {
+  loadedHistoryCount = 0;
+  retryHistoryAppend = false;
+}
 const rowHtml = (f) => {
   const r = Array.isArray(f)
     ? f
@@ -636,18 +645,27 @@ function renderSections(data) {
     ? rows.length + " section" + (rows.length === 1 ? "" : "s")
     : "No sections";
 }
-function renderGlobals(data) {
-  const rows = data.globals || [];
+function renderGlobals(data, options) {
+  const append = !!(options && options.append);
   const body = $("globals-rows").querySelector("tbody");
-  body.innerHTML = rows.map(g => "<tr><td class=va>" + esc(g.va || "") + "</td><td>"
-    + esc(g.name || "") + "</td><td>" + esc(g.decl || "") + "</td><td>"
-    + esc(g.size ?? "") + "</td><td>" + esc(g.module || "") + "</td></tr>").join("");
-  const total = data.total ?? rows.length;
+  const rows = data.globals || [];
+  if (append) {
+    body.insertAdjacentHTML("beforeend", rows.map(g => "<tr><td class=va>" + esc(g.va || "")
+      + "</td><td>" + esc(g.name || "") + "</td><td>" + esc(g.decl || "") + "</td><td>"
+      + esc(g.size ?? "") + "</td><td>" + esc(g.module || "") + "</td></tr>").join(""));
+    loadedGlobalsCount += rows.length;
+  } else {
+    loadedGlobalsCount = rows.length;
+    body.innerHTML = rows.map(g => "<tr><td class=va>" + esc(g.va || "") + "</td><td>"
+      + esc(g.name || "") + "</td><td>" + esc(g.decl || "") + "</td><td>"
+      + esc(g.size ?? "") + "</td><td>" + esc(g.module || "") + "</td></tr>").join("");
+  }
+  const total = data.total ?? loadedGlobalsCount;
   setGlobalsEmptyMessage();
-  $("globals-empty").hidden = rows.length !== 0;
-  $("globals-results").hidden = rows.length === 0;
+  $("globals-empty").hidden = loadedGlobalsCount !== 0;
+  $("globals-results").hidden = loadedGlobalsCount === 0;
   setListPageMessage({
-    count: rows.length,
+    count: loadedGlobalsCount,
     total,
     noun: "globals",
     hintId: "globals-hint",
@@ -657,17 +675,26 @@ function renderGlobals(data) {
   });
   updateFilterActions();
 }
-function renderHistory(data) {
-  const rows = data.history || [];
+function renderHistory(data, options) {
+  const append = !!(options && options.append);
   const body = $("history-rows").querySelector("tbody");
-  body.innerHTML = rows.map(h => "<tr><td class=va>" + esc(h.va || "") + "</td><td>"
-    + esc(h.old_status || "") + "</td><td>" + esc(h.new_status || "") + "</td><td>"
-    + esc(formatWhen(h.changed_at)) + "</td></tr>").join("");
-  $("history-empty").hidden = rows.length !== 0;
-  $("history-results").hidden = rows.length === 0;
-  const total = data.total ?? rows.length;
+  const rows = data.history || [];
+  if (append) {
+    body.insertAdjacentHTML("beforeend", rows.map(h => "<tr><td class=va>" + esc(h.va || "")
+      + "</td><td>" + esc(h.old_status || "") + "</td><td>" + esc(h.new_status || "")
+      + "</td><td>" + esc(formatWhen(h.changed_at)) + "</td></tr>").join(""));
+    loadedHistoryCount += rows.length;
+  } else {
+    loadedHistoryCount = rows.length;
+    body.innerHTML = rows.map(h => "<tr><td class=va>" + esc(h.va || "") + "</td><td>"
+      + esc(h.old_status || "") + "</td><td>" + esc(h.new_status || "") + "</td><td>"
+      + esc(formatWhen(h.changed_at)) + "</td></tr>").join("");
+  }
+  $("history-empty").hidden = loadedHistoryCount !== 0;
+  $("history-results").hidden = loadedHistoryCount === 0;
+  const total = data.total ?? loadedHistoryCount;
   setListPageMessage({
-    count: rows.length,
+    count: loadedHistoryCount,
     total,
     noun: "history entries",
     hintId: "history-hint",
@@ -699,15 +726,18 @@ async function loadSections() {
     setLoadError("view", "Sections could not be loaded. Use Retry to try again.");
   }
 }
-async function loadGlobals() {
+async function loadGlobals(options) {
+  const grow = !!(options && options.append);
   const t = $("target").value; if (!t) return;
   const seq = ++viewSeq;
   if (viewController) viewController.abort();
   viewController = new AbortController();
   const { signal } = viewController;
+  const offset = grow ? loadedGlobalsCount : 0;
   const params = new URLSearchParams({
     target: t,
-    limit: String(globalsLimit),
+    limit: String(grow ? PAGE_STEP : 100),
+    offset: String(offset),
   });
   if ($("gq").value.trim()) params.set("q", $("gq").value.trim());
   updateFilterActions();
@@ -722,25 +752,37 @@ async function loadGlobals() {
       get("/api/globals?" + params, signal));
     if (seq !== viewSeq || signal.aborted) return;
     viewLoaded.globals = true;
-    renderGlobals(data);
+    renderGlobals(data, { append: grow });
   } catch (error) {
     if (seq !== viewSeq || signal.aborted) return;
-    $("globals-results").hidden = true;
+    retryGlobalsAppend = grow;
+    if (!grow) {
+      loadedGlobalsCount = 0;
+      $("globals-rows").querySelector("tbody").innerHTML = "";
+    }
+    $("globals-results").hidden = loadedGlobalsCount === 0;
     $("globals-empty").hidden = true;
     $("globals-hint").hidden = true;
     $("globals-show-more-wrap").hidden = true;
-    setLoadError("view", "Globals could not be loaded. Use Retry to try again.");
+    if (grow && loadedGlobalsCount > 0) {
+      setLoadError("view", "Could not load more globals. The rows already shown are unchanged; use Retry to fetch the next page again.");
+    } else {
+      setLoadError("view", "Globals could not be loaded. Use Retry to try again.");
+    }
   }
 }
-async function loadHistory() {
+async function loadHistory(options) {
+  const grow = !!(options && options.append);
   const t = $("target").value; if (!t) return;
   const seq = ++viewSeq;
   if (viewController) viewController.abort();
   viewController = new AbortController();
   const { signal } = viewController;
+  const offset = grow ? loadedHistoryCount : 0;
   const params = new URLSearchParams({
     target: t,
-    limit: String(historyLimit),
+    limit: String(grow ? PAGE_STEP : 100),
+    offset: String(offset),
   });
   $("history-empty").hidden = true;
   $("history-hint").hidden = true;
@@ -753,14 +795,23 @@ async function loadHistory() {
       get("/api/history?" + params, signal));
     if (seq !== viewSeq || signal.aborted) return;
     viewLoaded.history = true;
-    renderHistory(data);
+    renderHistory(data, { append: grow });
   } catch (error) {
     if (seq !== viewSeq || signal.aborted) return;
-    $("history-results").hidden = true;
+    retryHistoryAppend = grow;
+    if (!grow) {
+      loadedHistoryCount = 0;
+      $("history-rows").querySelector("tbody").innerHTML = "";
+    }
+    $("history-results").hidden = loadedHistoryCount === 0;
     $("history-empty").hidden = true;
     $("history-hint").hidden = true;
     $("history-show-more-wrap").hidden = true;
-    setLoadError("view", "History could not be loaded. Use Retry to try again.");
+    if (grow && loadedHistoryCount > 0) {
+      setLoadError("view", "Could not load more history. The rows already shown are unchanged; use Retry to fetch the next page again.");
+    } else {
+      setLoadError("view", "History could not be loaded. Use Retry to try again.");
+    }
   }
 }
 function loadCurrentView(force) {
@@ -769,8 +820,14 @@ function loadCurrentView(force) {
     return;
   }
   if (currentView === "sections" && (force || !viewLoaded.sections)) return loadSections();
-  if (currentView === "globals" && (force || !viewLoaded.globals)) return loadGlobals();
-  if (currentView === "history" && (force || !viewLoaded.history)) return loadHistory();
+  if (currentView === "globals" && (force || !viewLoaded.globals)) {
+    if (force) resetGlobalsPaging();
+    return loadGlobals();
+  }
+  if (currentView === "history" && (force || !viewLoaded.history)) {
+    if (force) resetHistoryPaging();
+    return loadHistory();
+  }
 }
 function setView(name) {
   if (!["functions", "sections", "globals", "history"].includes(name)) return;
@@ -823,18 +880,28 @@ function bindControls() {
   };
   $("retry-summary").onclick = () => loadSummary();
   $("retry-functions").onclick = () => loadFunctions({ append: retryAppend });
-  $("retry-view").onclick = () => loadCurrentView(true);
+  $("retry-view").onclick = () => {
+    if (currentView === "globals" && retryGlobalsAppend && loadedGlobalsCount > 0) {
+      loadGlobals({ append: true });
+      return;
+    }
+    if (currentView === "history" && retryHistoryAppend && loadedHistoryCount > 0) {
+      loadHistory({ append: true });
+      return;
+    }
+    loadCurrentView(true);
+  };
   $("show-more").onclick = () => {
     retryAppend = true;
     loadFunctions({ append: true });
   };
   $("show-more-globals").onclick = () => {
-    globalsLimit = Math.min(globalsLimit + PAGE_STEP, PAGE_MAX);
-    loadGlobals();
+    retryGlobalsAppend = true;
+    loadGlobals({ append: true });
   };
   $("show-more-history").onclick = () => {
-    historyLimit = Math.min(historyLimit + PAGE_STEP, PAGE_MAX);
-    loadHistory();
+    retryHistoryAppend = true;
+    loadHistory({ append: true });
   };
   $("cards").onclick = (ev) => {
     const btn = ev.target.closest("button[data-status]");
@@ -1185,7 +1252,12 @@ class Dashboard:
         }
 
     def globals(
-        self, target: str, *, q: str | None = None, limit: int = _DEFAULT_LIMIT
+        self,
+        target: str,
+        *,
+        q: str | None = None,
+        limit: int = _DEFAULT_LIMIT,
+        offset: int = 0,
     ) -> dict[str, Any]:
         where = ["target = ?"]
         args: list[Any] = [target]
@@ -1196,10 +1268,11 @@ class Dashboard:
         with self._conn() as conn:
             rows = conn.execute(
                 f"SELECT va, name, decl, size, module FROM globals WHERE "
-                f"{where_sql} ORDER BY va LIMIT ?",
-                [*args, limit],
+                f"{where_sql} ORDER BY va LIMIT ? OFFSET ?",
+                [*args, limit, offset],
             ).fetchall()
-            if len(rows) < limit:
+            # Same short-page COUNT skip as functions: first page only.
+            if offset == 0 and len(rows) < limit:
                 total = len(rows)
             else:
                 total = conn.execute(
@@ -1211,7 +1284,7 @@ class Dashboard:
             "count": len(rows),
             "total": total,
             "limit": limit,
-            "offset": 0,
+            "offset": offset,
             "globals": [
                 {
                     "va": f"0x{r[0]:08x}" if r[0] else "???",
@@ -1224,14 +1297,16 @@ class Dashboard:
             ],
         }
 
-    def history(self, target: str, *, limit: int = _DEFAULT_LIMIT) -> dict[str, Any]:
+    def history(
+        self, target: str, *, limit: int = _DEFAULT_LIMIT, offset: int = 0
+    ) -> dict[str, Any]:
         with self._conn() as conn:
             rows = conn.execute(
                 "SELECT va, old_status, new_status, changed_at FROM history "
-                "WHERE target = ? ORDER BY id DESC LIMIT ?",
-                (target, limit),
+                "WHERE target = ? ORDER BY id DESC LIMIT ? OFFSET ?",
+                (target, limit, offset),
             ).fetchall()
-            if len(rows) < limit:
+            if offset == 0 and len(rows) < limit:
                 total = len(rows)
             else:
                 total = conn.execute(
@@ -1243,7 +1318,7 @@ class Dashboard:
             "count": len(rows),
             "total": total,
             "limit": limit,
-            "offset": 0,
+            "offset": offset,
             "history": [
                 {
                     "va": f"0x{r[0]:08x}" if r[0] else "???",
@@ -1339,6 +1414,7 @@ class Dashboard:
                             target,
                             q=_opt_query(query, "q"),
                             limit=_int_param(query, "limit", _DEFAULT_LIMIT),
+                            offset=_offset_param(query, "offset", 0),
                         ),
                     )
                 return self._json(
@@ -1346,6 +1422,7 @@ class Dashboard:
                     self.history(
                         target,
                         limit=_int_param(query, "limit", _DEFAULT_LIMIT),
+                        offset=_offset_param(query, "offset", 0),
                     ),
                 )
         return self._json(404, {"error": f"no such endpoint {parsed.path!r}"})
@@ -1705,8 +1782,8 @@ app = typer.Typer(
         "  /api/summary?target= · · Coverage stats (target required)\n\n"
         "  /api/functions?target= · Function rows (status/module/q/limit/offset)\n\n"
         "  /api/sections?target= · · Per-section cell stats\n\n"
-        "  /api/globals?target= · · Global data rows\n\n"
-        "  /api/history?target= · · Status-change history\n\n"
+        "  /api/globals?target= · · Global data rows (q/limit/offset)\n\n"
+        "  /api/history?target= · · Status-change history (limit/offset)\n\n"
         "[dim]Read-only: DB opened mode=ro. Target-scoped routes need ?target= "
         "(400 if missing, 404 if unknown). Non-GET/HEAD → 405.[/dim]"
     ),

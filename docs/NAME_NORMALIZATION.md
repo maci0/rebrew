@@ -76,7 +76,7 @@ This design allows:
 |-------|------|------------|
 | Intermediate JSON | `db/data_<target>.json` | `ghidra_name`, `list_name`, `detected_by`, `size_by_tool` |
 | SQLite DB | `db/coverage.db` → `functions` table | Same columns, queryable via SQL |
-| REST API | `GET /api/functions?target=` (dashboard) | Function rows include `ghidra_name` / `list_name` / related columns; there is no per-VA `/api/targets/<t>/functions/<va>` route |
+| REST API | `GET /api/functions?target=` (`rebrew dashboard`) | Compact arrays under `cols`: `va`, `name`, `symbol`, `size`, `status`, `module`, `files`. Provenance columns (`ghidra_name`, `list_name`) stay in SQL only — the dashboard omits them from the wire (same reason it omits `markerType`). There is no per-VA `/api/targets/<t>/functions/<va>` route on this server; the sibling `recoverage` API is separate. |
 | reccmp CSV | `db/<target>_functions.csv` (target lowercased) | Reversed functions emit their annotation name; unmatched functions leave the name blank when their only name is an auto-name (`FUN_`/`fcn.`/`sym.`) |
 
 ---
