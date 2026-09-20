@@ -37,7 +37,7 @@ from rebrew.workspace import (
 console = Console(stderr=True)
 
 
-_CURRENT_DB_VERSION = "8"
+_CURRENT_DB_VERSION = "9"
 
 #: Statuses allowed in ``functions.status``.  ``KNOWN_STATUSES`` plus
 #: ``UNKNOWN`` (the DEFAULT when a catalog row omits STATUS).  Kept in one
@@ -184,37 +184,40 @@ def _clamp_effective_match(value: Any) -> int | None:
 
 #: Known cell states emitted by catalog/grid.py (grid.py sets
 #: `state = item["status"].lower()` for function cells plus the gap states
-#: none/padding/data/thunk and Ghidra label states).  Used to WARN on
+#: none/padding/data/thunk and Ghidra label states).  Used to WARN and coerce
 #: out-of-set states from hand-edited JSON — an unknown state otherwise
-#: vanishes silently into the section_cell_stats `other_count` bucket with no
-#: signal (db-review F4).  `near_match` is the accepted alias for
-#: `near_matching` (canonical spelling: metadata.KNOWN_STATUSES); both read
-#: identically everywhere below.
-_KNOWN_CELL_STATES = {
-    "exact",
-    "reloc",
-    "proven",
-    "near_matching",
-    "near_match",
-    "stub",
-    "size_mismatch",
-    "compile_error",
-    "missing_file",
-    "missing_size",
-    "skip",
-    "unknown",
-    "none",
-    "padding",
-    "data",
-    "thunk",
-    # Data verdicts (data_metadata.py DATA_STATUS_*): the grid emits the
-    # lowercased rebrew-data.toml STATUS for a global's covering cell, so
-    # without these every data cell warned "not in known set" and a VERIFIED
-    # global fell out of the section's exact_count into other_count.
-    "verified",
-    "drift",
-    "unchecked",
-}
+#: would abort on the ``cells.state`` CHECK (or, before that CHECK, vanish
+#: into ``section_cell_stats.other_count`` with no signal).  ``near_match``
+#: is the accepted alias for ``near_matching`` (canonical spelling:
+#: metadata.KNOWN_STATUSES); both read identically everywhere below.
+_KNOWN_CELL_STATES = frozenset(
+    {
+        "exact",
+        "reloc",
+        "proven",
+        "near_matching",
+        "near_match",
+        "stub",
+        "size_mismatch",
+        "compile_error",
+        "missing_file",
+        "missing_size",
+        "skip",
+        "unknown",
+        "none",
+        "padding",
+        "data",
+        "thunk",
+        # Data verdicts (data_metadata.py DATA_STATUS_*): the grid emits the
+        # lowercased rebrew-data.toml STATUS for a global's covering cell, so
+        # without these every data cell warned "not in known set" and a VERIFIED
+        # global fell out of the section's exact_count into other_count.
+        "verified",
+        "drift",
+        "unchecked",
+    }
+)
+_CELL_STATE_CHECK_SQL: str = ", ".join(repr(s) for s in sorted(_KNOWN_CELL_STATES))
 
 
 def _normalize_cell_row(
@@ -227,12 +230,12 @@ def _normalize_cell_row(
     state = str(cell.get("state") or "none")
     if state not in _KNOWN_CELL_STATES:
         logging.warning(
-            "build_db: cell state %r not in known set — it will land in "
-            "section_cell_stats.other_count (check the generator or hand-"
-            "edited JSON); known: %s",
+            "build_db: cell state %r not in known set — coercing to "
+            "'unknown' (check the generator or hand-edited JSON); known: %s",
             state,
             ", ".join(sorted(_KNOWN_CELL_STATES)),
         )
+        state = "unknown"
     functions = cell.get("functions", [])
     if not isinstance(functions, list):
         functions = []
@@ -657,7 +660,7 @@ def build_db(
             )
         """)
 
-        c.execute("""
+        c.execute(f"""
             CREATE TABLE IF NOT EXISTS cells (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 target TEXT NOT NULL,
@@ -665,7 +668,8 @@ def build_db(
                 start INTEGER NOT NULL CHECK (start >= 0),
                 end INTEGER NOT NULL CHECK (end >= start),
                 span INTEGER NOT NULL DEFAULT 1 CHECK (span > 0),
-                state TEXT NOT NULL,
+                state TEXT NOT NULL
+                    CHECK (state IN ({_CELL_STATE_CHECK_SQL})),
                 functions TEXT NOT NULL DEFAULT '[]',
                 label TEXT,
                 parent_function TEXT,
@@ -684,6 +688,10 @@ def build_db(
                 PRIMARY KEY (target, key)
             )
         """)
+        # PK is (target, key); dashboards and version probes also filter by
+        # key alone (``WHERE key = 'function_stats'`` / ``key = 'db_version'``),
+        # which cannot use that leftmost-target index.
+        c.execute("CREATE INDEX IF NOT EXISTS idx_metadata_key ON metadata(key, target)")
 
         # Per-section cell JSON, pre-aggregated and zlib-compressed.  Serving a
         # dashboard grid otherwise re-runs json_group_array over every cell on
@@ -1176,6 +1184,11 @@ def build_db(
                 col_raw = sec.get("columns", 64)
                 unit_bytes = ub_raw if isinstance(ub_raw, int) and ub_raw > 0 else 64
                 columns = col_raw if isinstance(col_raw, int) and col_raw > 0 else 64
+                # va/size/fileOffset are CHECK (>= 0 OR NULL): clamp like the
+                # function-row path so a stray negative does not abort rebuild.
+                sec_va = _clamp_nonneg_int(sec.get("va"))
+                sec_size = _clamp_nonneg_int(sec.get("size"))
+                sec_file_off = _clamp_nonneg_int(sec.get("fileOffset"))
 
                 c.execute(
                     """
@@ -1185,9 +1198,9 @@ def build_db(
                     (
                         target_name,
                         sec_name,
-                        sec.get("va"),
-                        sec.get("size"),
-                        sec.get("fileOffset"),
+                        sec_va,
+                        sec_size,
+                        sec_file_off,
                         unit_bytes,
                         columns,
                     ),

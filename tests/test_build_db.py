@@ -541,6 +541,38 @@ binary = "test.exe"
             )
         conn.close()
 
+    def test_cells_state_has_check(self, project_root: Path) -> None:
+        """cells.state must reject values outside the known cell-state set."""
+        build_db(project_root)
+        conn = sqlite3.connect(project_root / "db" / "coverage.db")
+        c = conn.cursor()
+        c.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='cells'")
+        ddl = c.fetchone()[0]
+        assert "CHECK (state IN (" in ddl
+        assert "'exact'" in ddl
+        assert "'unknown'" in ddl
+        # Need a parent section for the FK; reuse one from the fixture build.
+        c.execute("SELECT target, name FROM sections LIMIT 1")
+        sec = c.fetchone()
+        assert sec is not None
+        with pytest.raises(sqlite3.IntegrityError):
+            c.execute(
+                "INSERT INTO cells (target, section_name, start, end, span, state) "
+                "VALUES (?, ?, 99999, 100000, 1, 'not_a_state')",
+                sec,
+            )
+        conn.close()
+
+    def test_metadata_key_index_exists(self, project_root: Path) -> None:
+        """key-first metadata lookups (targets list, legacy db_version) need
+        idx_metadata_key — PK is (target, key) and cannot serve WHERE key=?."""
+        build_db(project_root)
+        conn = sqlite3.connect(project_root / "db" / "coverage.db")
+        c = conn.cursor()
+        c.execute("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_metadata_key'")
+        assert c.fetchone() is not None
+        conn.close()
+
     def test_verify_results_has_range_checks(self, project_root: Path) -> None:
         """verify_results columns that carry deltas/scores must reject out-of-
         range values at the schema level (and migrate pre-CHECK tables)."""
@@ -777,17 +809,55 @@ binary = "test.exe"
         c = conn.cursor()
         c.execute("SELECT value FROM metadata WHERE target = 'alpha' AND key = 'summary'")
         row = c.fetchone()
-        conn.close()
         assert row is not None
         summary = json.loads(row[0])
         assert summary[".data"]["coveredBytes"] == 0
 
-        conn = sqlite3.connect(db_dir / "coverage.db")
-        c = conn.cursor()
         c.execute("SELECT start, end FROM cells WHERE target = 'alpha' AND section_name = '.data'")
         cell = c.fetchone()
         conn.close()
         assert cell == (64, 64)
+
+    def test_section_negative_extents_are_clamped(self, tmp_path: Path) -> None:
+        """sections.va/size/fileOffset CHECK (>= 0) must not abort rebuild on
+        a stray negative from hand-edited JSON — clamp like function rows."""
+        db_dir = tmp_path / "db"
+        db_dir.mkdir()
+        data = {
+            "sections": {
+                ".text": {
+                    "va": -1,
+                    "size": -64,
+                    "fileOffset": -8,
+                    "unitBytes": 64,
+                    "columns": 64,
+                    "cells": [],
+                }
+            },
+            "globals": {},
+            "summary": {},
+            "functions": {
+                "0x10001000": {
+                    "name": "f",
+                    "vaStart": "0x10001000",
+                    "size": 16,
+                    "status": "EXACT",
+                }
+            },
+            "paths": {},
+        }
+        (db_dir / "data_alpha.json").write_text(json.dumps(data), encoding="utf-8")
+
+        build_db(tmp_path)
+
+        conn = sqlite3.connect(db_dir / "coverage.db")
+        c = conn.cursor()
+        c.execute(
+            "SELECT va, size, fileOffset FROM sections WHERE target = 'alpha' AND name = '.text'"
+        )
+        row = c.fetchone()
+        conn.close()
+        assert row == (0, 0, 0)
 
     def test_zero_unit_bytes_clamped(self, tmp_path: Path) -> None:
         """A stray unitBytes/columns of 0 in hand-edited JSON must not abort

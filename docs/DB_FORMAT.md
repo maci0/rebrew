@@ -124,7 +124,7 @@ Represents chunks (cells) of memory to be rendered in the UI coverage map.
 | `start` | `INTEGER` | Start offset of the cell (relative to section start). |
 | `end` | `INTEGER` | End offset of the cell (relative to section start). |
 | `span` | `INTEGER` | Width of the cell in grid units. |
-| `state` | `TEXT` | Match state (see table below). |
+| `state` | `TEXT` | Match state (see table below). CHECK-constrained to the known cell-state set; insert path coerces unknowns to `unknown`. |
 | `functions` | `TEXT` | JSON array of function names mapping to this cell. |
 | `label` | `TEXT` | Optional display label (e.g., Ghidra data label name like `switchdataD_10002e9c`). |
 | `parent_function` | `TEXT` | Optional name of the parent function (for data / thunk cells that immediately follow a function). |
@@ -153,12 +153,16 @@ Represents chunks (cells) of memory to be rendered in the UI coverage map.
 ### `metadata` Table
 Stores arbitrary target-specific key-value pairs. Primary Key is `(target, key)`. Values are serialized JSON.
 
+**Indexes**: `idx_metadata_key` on `(key, target)` — serves key-first lookups
+(`WHERE key = 'function_stats'` / legacy `db_version`) that cannot use the
+leftmost-`target` primary key.
+
 | Key | Description |
 |-----|-------------|
 | `summary` | JSON object with coverage statistics (totalFunctions, matchedFunctions, exactMatches, etc.) |
 | `function_stats` | JSON object with coverage stats for the dashboard headline (`total`, `covered_bytes`, `matched_bytes`, `total_bytes`, `by_status`, `by_module_counts`) |
 | `paths` | JSON object with file paths (originalDll, sourceRoot) |
-| `db_version` | Schema version string (current: `"8"`) |
+| `db_version` | Schema version string (current: `"9"`) |
 
 #### Schema Version History
 
@@ -169,6 +173,7 @@ whenever the schema changes.
 
 | Version | Change |
 |---|---|
+| `"9"` | `cells.state` CHECK-constrained to the known cell-state set; insert path coerces unknowns to `unknown`. `idx_metadata_key` on `metadata(key, target)` for key-first lookups (targets list, legacy `db_version`). Migration is `--force` (DROP+rebuild), same as prior schema bumps. |
 | `"8"` | `functions.status` CHECK-constrained to `KNOWN_STATUSES` ∪ `{UNKNOWN}`; insert path canonicalizes (case / `NEAR_MATCH` alias) and coerces unknowns to `UNKNOWN`. Migration is `--force` (DROP+rebuild), same as prior schema bumps. |
 | `"7"` | `section_cell_stats` is a **table** rather than a view; new `section_cells_json` table (per-section cell JSON, zstd-compressed) so dashboards stop re-aggregating `cells` on every request. Migration is `--force` (DROP+rebuild), the existing convention: `history` and `verify_results` are not dropped by a rebuild, but `--force` unlinks the file, so `verify_results` is re-imported from `db/verify_results.json` / `.rebrew/verify_cache.json` and `history` is not recoverable. |
 | `"6"` | `functions` gained `updated_by`/`updated_at` (STATUS-write provenance); `globals` gained `status` (data verdicts); `history` gained `updated_by`. |

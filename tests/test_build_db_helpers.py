@@ -40,12 +40,12 @@ class TestNormalizeCellRow:
         assert row[5] == "exact"
 
     def test_unknown_state_warns(self, caplog: pytest.LogCaptureFixture) -> None:
-        """An out-of-set cell state (hand-edited JSON typo) must warn — it
-        otherwise vanishes silently into section_cell_stats.other_count
-        (db-review F4)."""
+        """An out-of-set cell state (hand-edited JSON typo) must warn and
+        coerce to ``unknown`` so the cells.state CHECK accepts the row
+        (and it still lands in section_cell_stats.other_count)."""
         with caplog.at_level(logging.WARNING):
             row = _normalize_cell_row("T", ".text", {"state": "excat"})
-        assert row[5] == "excat"  # value preserved; the warning signals it
+        assert row[5] == "unknown"
         assert any("not in known set" in r.message for r in caplog.records)
 
     def test_clamping(self) -> None:

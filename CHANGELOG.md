@@ -15,6 +15,11 @@
   all`` runs it. Older-than-pin ``uv`` warns instead of blocking ``make setup``.
 
 ### Fixed
+- **Coverage DB schema v9: ``cells.state`` is CHECK-constrained** to the known
+  cell-state set; out-of-set values coerce to ``unknown`` on insert (matching
+  the ``functions.status`` pattern). ``idx_metadata_key`` covers key-first
+  metadata lookups. Section ``va``/``size``/``fileOffset`` clamp on insert so
+  a stray negative no longer aborts ``build-db``.
 - **Wheel METADATA classifiers match the shipped artifact.** ``Typing :: Typed``
   (``py.typed`` already packaged), ``Environment :: Console``, and
   ``Intended Audience :: Developers`` are declared so PyPI / type-checkers
