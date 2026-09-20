@@ -81,24 +81,25 @@ header { background: #1e293b; color: #fff; padding: 0.75rem 1.5rem;
          display: flex; flex-wrap: wrap; align-items: baseline; gap: 1rem 2rem; }
 header h1 { font-size: 1.05rem; margin: 0; }
 nav { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; }
-nav a { color: #cbd5e1; text-decoration: none; }
+nav a { color: #cbd5e1; text-decoration: none; min-height: 2.75rem; padding: 0.5rem 0.35rem;
+        display: inline-flex; align-items: center; }
 nav a:hover { color: #fff; }
 nav a.active { color: #fff; font-weight: 600; text-decoration: underline; }
 :focus-visible { outline: 3px solid #2563eb; outline-offset: 2px; }
 nav a:focus-visible { outline-color: #93c5fd; }
 main { max-width: 1100px; margin: 1.5rem auto; padding: 0 1.5rem; }
 .cards { display: flex; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.5rem; }
-.card { background: #fff; border: 1px solid #e2e8f0; border-radius: 8px;
+.card { background: #fff; border: 1px solid #64748b; border-radius: 8px;
         padding: 0.9rem 1.1rem; min-width: 140px; }
 .card .value { font-size: 1.5rem; font-weight: 700; }
 .card .label { color: #64748b; font-size: 0.75rem; text-transform: uppercase;
                letter-spacing: 0.05em; }
 .table-scroll { overflow-x: auto; margin-bottom: 1.5rem; }
 table { width: 100%; border-collapse: collapse; background: #fff;
-        border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden;
+        border: 1px solid #64748b; border-radius: 8px; overflow: hidden;
         margin-bottom: 0; }
 th, td { text-align: left; padding: 0.5rem 0.75rem;
-         border-bottom: 1px solid #eef2f7; font-size: 0.85rem; }
+         border-bottom: 1px solid #64748b; font-size: 0.85rem; }
 th { background: #f1f5f9; font-weight: 600; }
 caption { caption-side: top; text-align: left; padding: 0.5rem 0.75rem;
           font-size: 0.85rem; font-weight: 600; color: #334155; }
@@ -117,13 +118,18 @@ td.blocker { max-width: 28rem; overflow-wrap: anywhere; }
 @media (forced-colors: active) {
   .status-EXACT, .status-RELOC, .status-PROVEN, .status-NEAR_MATCHING,
   .status-STUB, .status-UNKNOWN { color: CanvasText; font-weight: 700; }
+  nav a.active { text-decoration: underline; }
+  :focus-visible { outline-color: Highlight; }
 }
-.note { background: #fff7ed; border: 1px solid #fed7aa; border-radius: 8px;
+.note { background: #fff7ed; border: 1px solid #9a3412; border-radius: 8px;
         padding: 0.9rem 1.1rem; color: #9a3412; margin-bottom: 1.5rem; }
-pre.mermaid { background: #fff; border: 1px solid #e2e8f0;
+pre.mermaid { background: #fff; border: 1px solid #64748b;
         border-radius: 8px; padding: 1rem; overflow-x: auto;
         font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
         font-size: 0.8rem; line-height: 1.4; }
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}
 """
 
 

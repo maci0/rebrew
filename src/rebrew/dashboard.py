@@ -92,15 +92,16 @@ _INDEX_HTML = """<!doctype html>
   .filters { display: flex; flex-wrap: wrap; gap: .5rem 1rem; align-items: end;
     margin-bottom: .5rem; }
   .filters > div { display: flex; flex-direction: column; gap: .25rem; font-size: .9rem; }
-  select, input { min-height: 2.75rem; padding: .3rem .5rem; min-width: 10rem; }
+  select, input { min-height: 2.75rem; padding: .3rem .5rem; min-width: 10rem;
+    border: 1px solid #767676; }
   :focus-visible { outline: 3px solid #005fcc; outline-offset: 2px; }
   h1 { margin-bottom: .25rem; }
   .cards { display: flex; gap: 1rem; flex-wrap: wrap; margin: 1rem 0; }
-  .card { border: 1px solid #ccc; border-radius: 6px; padding: .6rem 1rem; min-width: 110px;
+  .card { border: 1px solid #767676; border-radius: 6px; padding: .6rem 1rem; min-width: 110px;
     background: #fff; }
   button.card { font: inherit; color: inherit; text-align: left; cursor: pointer; }
-  button.card:hover { border-color: #888; }
-  button.card.active { border-color: #005fcc; box-shadow: 0 0 0 2px rgba(0,95,204,.25); }
+  button.card:hover { border-color: #444; }
+  button.card.active { border-color: #005fcc; border-width: 2px; box-shadow: 0 0 0 2px rgba(0,95,204,.25); }
   .card .value { font-size: 1.4rem; font-weight: 700; display: block; }
   .card .label { color: #444; }
   .table-scroll { overflow-x: auto; position: relative; }
@@ -111,26 +112,37 @@ _INDEX_HTML = """<!doctype html>
   .visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
     overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
   table { border-collapse: collapse; width: 100%; margin-top: 1rem; font-size: .85rem; }
-  th, td { border: 1px solid #ddd; padding: .3rem .5rem; text-align: left; }
+  th, td { border: 1px solid #767676; padding: .3rem .5rem; text-align: left; }
   th { background: #f5f5f5; }
   td.va { font-family: monospace; }
-  #dashboard-error { color: #9a3412; background: #fff7ed; border: 1px solid #fed7aa;
+  #dashboard-error { color: #9a3412; background: #fff7ed; border: 1px solid #9a3412;
     border-radius: 6px; padding: .6rem .8rem; margin: .75rem 0; }
   #empty-state, #no-targets { color: #555; margin: 1rem 0; }
   #results-hint { color: #555; font-size: .9rem; margin: .25rem 0 0; }
   #filter-actions, #show-more-wrap, #retry-bar { margin: .35rem 0 .75rem; }
   #clear-filters, #show-more, #retry-functions, #retry-summary, #retry-view {
-    min-height: 2.75rem; padding: .3rem .75rem; }
+    min-height: 2.75rem; padding: .3rem .75rem; border: 1px solid #767676; background: #fff; color: inherit; }
   .views { display: flex; flex-wrap: wrap; gap: .35rem; margin: .75rem 0 .25rem; }
   .views button { min-height: 2.75rem; padding: .3rem .85rem; font: inherit; cursor: pointer;
-    border: 1px solid #ccc; border-radius: 6px; background: #fff; color: inherit; }
-  .views button:hover { border-color: #888; }
-  .views button.active { border-color: #005fcc; box-shadow: 0 0 0 2px rgba(0,95,204,.25); }
+    border: 1px solid #767676; border-radius: 6px; background: #fff; color: inherit; }
+  .views button:hover { border-color: #444; }
+  .views button.active { border-color: #005fcc; border-width: 2px; box-shadow: 0 0 0 2px rgba(0,95,204,.25); }
   .view-panel[hidden] { display: none; }
   @media (max-width: 40rem) {
     body { margin: 1rem; }
     select, input { min-width: 0; width: 100%; }
     .filters > div { flex: 1 1 100%; }
+  }
+  @media (forced-colors: active) {
+    button.card.active, .views button.active {
+      border: 2px solid Highlight;
+      box-shadow: none;
+    }
+    :focus-visible { outline-color: Highlight; }
+    #dashboard-error { border-color: CanvasText; color: CanvasText; background: Canvas; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; animation: none !important; }
   }
 </style>
 </head>
@@ -138,10 +150,10 @@ _INDEX_HTML = """<!doctype html>
 <a class="skip-link" href="#main">Skip to content</a>
 <main id="main">
 <h1>Rebrew coverage</h1>
-<p id="boot-status">Loading coverage…</p>
+<p id="boot-status" role="status">Loading coverage…</p>
 <p id="no-targets" hidden>No targets found in coverage.db. Run
   <code>rebrew build-db</code> for this project, then reload.</p>
-<div id="controls" class="filters" hidden>
+<div id="controls" class="filters" hidden role="group" aria-label="Coverage filters">
 <div>
 <label for="target">Target</label>
 <select id="target"></select>
@@ -167,7 +179,7 @@ _INDEX_HTML = """<!doctype html>
 <button type="button" id="clear-filters">Clear filters</button>
 </div>
 <nav id="views" class="views" hidden aria-label="Coverage views">
-<button type="button" data-view="functions" class="active">Functions</button>
+<button type="button" data-view="functions" class="active" aria-current="true">Functions</button>
 <button type="button" data-view="sections">Sections</button>
 <button type="button" data-view="globals">Globals</button>
 <button type="button" data-view="history">History</button>
@@ -278,7 +290,7 @@ function syncError() {
     || (currentView === "functions" ? loadErrors.functions : "")
     || (currentView !== "functions" ? loadErrors.view : "");
   if (message) {
-    $("results-status").textContent = message;
+    // Announce once via role=alert; keep status live region for load counts only.
     $("dashboard-error").textContent = message;
     $("dashboard-error").hidden = false;
   } else {
@@ -312,7 +324,10 @@ function syncViewChrome() {
     $("view-" + name).hidden = name !== currentView;
   });
   document.querySelectorAll("#views button[data-view]").forEach(btn => {
-    btn.classList.toggle("active", btn.getAttribute("data-view") === currentView);
+    const on = btn.getAttribute("data-view") === currentView;
+    btn.classList.toggle("active", on);
+    if (on) btn.setAttribute("aria-current", "true");
+    else btn.removeAttribute("aria-current");
   });
   updateFilterActions();
   syncError();
@@ -320,7 +335,9 @@ function syncViewChrome() {
 function syncCardActive() {
   const current = $("status").value;
   document.querySelectorAll("#cards button[data-status]").forEach(btn => {
-    btn.classList.toggle("active", btn.getAttribute("data-status") === current);
+    const on = btn.getAttribute("data-status") === current;
+    btn.classList.toggle("active", on);
+    btn.setAttribute("aria-pressed", on ? "true" : "false");
   });
 }
 function setStatusOptions(byStatus) {
@@ -461,9 +478,10 @@ function renderSummary(s) {
   for (const [k, v] of Object.entries(byStatus)) cards.push([k, v, k, "Filter by " + k]);
   $("cards").innerHTML = cards.map(([k, v, status, title]) => {
     if (status) {
-      const active = $("status").value === status ? " active" : "";
+      const pressed = $("status").value === status;
+      const active = pressed ? " active" : "";
       return "<button type=button class='card" + active + "' data-status='" + esc(status)
-        + "' title='" + esc(title) + "'>"
+        + "' title='" + esc(title) + "' aria-pressed='" + (pressed ? "true" : "false") + "'>"
         + "<span class=value>" + esc(v) + "</span>"
         + "<span class=label>" + esc(k) + "</span></button>";
     }

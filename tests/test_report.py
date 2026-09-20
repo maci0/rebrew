@@ -87,6 +87,11 @@ class TestReportCli:
         assert "aria-label='Report pages'" in index
         assert "#475569" in index  # STUB text meets WCAG AA contrast on white
         assert "#94a3b8" not in index
+        assert "min-height: 2.75rem" in index  # nav link touch target (WCAG 2.5.8)
+        assert "border: 1px solid #64748b" in index  # WCAG 1.4.11 non-text contrast
+        assert "#e2e8f0" not in index
+        assert "prefers-reduced-motion" in index
+        assert "forced-colors" in index
 
     def test_index_shows_blockers(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """The function table's Blocker column surfaces near-diag blockers."""

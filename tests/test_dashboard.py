@@ -321,9 +321,12 @@ class TestHandle:
         assert '<main id="main">' in body
         assert 'href="#main"' in body
         assert "Skip to content" in body
+        assert 'lang="en"' in body
         assert '<label for="q">Search name or symbol</label>' in body
         assert '<label for="module">Module</label>' in body
         assert '<label for="gq">Search global name</label>' in body
+        assert 'role="group" aria-label="Coverage filters"' in body
+        assert 'id="boot-status" role="status"' in body
         assert 'role="status" aria-live="polite"' in body
         assert 'id="dashboard-error" role="alert" hidden' in body
         assert '<caption class="visually-hidden">' in body
@@ -333,6 +336,12 @@ class TestHandle:
         assert 'aria-label="Global results"' in body
         assert 'aria-label="History results"' in body
         assert body.count('aria-busy="false"') == 5
+        assert 'aria-current="true"' in body
+        assert "aria-pressed" in body
+        assert "border: 1px solid #767676" in body  # WCAG 1.4.11 non-text contrast
+        assert "#ccc" not in body
+        assert "forced-colors" in body
+        assert "prefers-reduced-motion" in body
         assert 'name="viewport"' in body
         assert "setStatusOptions" in body
         assert "setModuleOptions" in body
@@ -358,6 +367,8 @@ class TestHandle:
         assert "/api/globals" in body
         assert "/api/history" in body
         assert "Retry summary" in body
+        # Errors announce via role=alert only (avoid double-speaking with status).
+        assert 'results-status").textContent = message' not in body
 
     def test_api_bootstrap(self, dashboard: Dashboard) -> None:
         """Cold start packs targets + first target summary/functions in one response."""
