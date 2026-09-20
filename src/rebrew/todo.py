@@ -1123,6 +1123,7 @@ _EPILOG = (
     "  rebrew todo --count 50 · · · · · Show top 50\n\n"
     "  rebrew todo -c fix-delta · · · · Filter to quick-win near-misses (<= 20B diff)\n\n"
     "  rebrew todo -c improve-match · · Filter to functions needing general work\n\n"
+    "  rebrew todo -c blocked · · · · · Lens: every function with BLOCKER text\n\n"
     "  rebrew todo --json · · · · · · · Machine-readable JSON output\n\n"
     "[bold]Categories (interleaved globally by continuous ROI score):[/bold]\n\n"
     "  setup · · · · · · · · · Project setup steps (fresh projects)\n\n"
@@ -1140,6 +1141,8 @@ _EPILOG = (
     "                         `rebrew verify --data`\n\n"
     "  start-data · · · · · · · Data symbol never verified — run\n\n"
     "                         `rebrew verify --data`\n\n"
+    "  blocked · · · · · · · · Lens (ADR-019): every item with BLOCKER text, "
+    "whatever its home category — filter with `-c blocked`\n\n"
     "[dim]Reads from ghidra_functions.json, source files, and .rebrew/verify_cache.json.[/dim]"
 )
 
@@ -1157,7 +1160,7 @@ def main(
         None,
         "--category",
         "-c",
-        help="Filter by category (fix-delta, start-function, compile-error, ...)",
+        help="Filter by category (fix-delta, start-function, compile-error, blocked, ...)",
     ),
     stats: bool = typer.Option(False, "--stats", "-s", help="Show coverage stats header"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),

@@ -3,8 +3,10 @@
 > **Correction (2026-09):** `rebrew sync` is BinSync-primary — field sync via
 > `--push`/`--pull --state-dir` (`--accept-binsync` / `--accept-local`); the
 > removed `--pull-signatures` / `--pull-structs` / `--pull-comments` /
-> `--pull-data` / `--accept-ghidra` flags referenced below are superseded (see
-> `rebrew sync --help`). This report is a historical record, kept as written.
+> `--accept-ghidra` flags referenced below are superseded (see
+> `rebrew sync --help`). `--pull-data` remains as a ReVa MCP structural op
+> (data labels → `rebrew_globals.h`). This report is a historical record,
+> kept as written.
 
 Generated: 2026-05-20
 

@@ -69,6 +69,8 @@ PRD 05 collects these into `verify`, `status`, `graph`, and `cache`.
 
 - For each `.c` file in `reversed_dir`, compiles with project-configured
   CFLAGS and compares against the target DLL.
+- Optional positional `file.c` restricts the run to one source (ADR-018);
+  `--dir` / `--origin` compose with file scope.
 - Reports EXACT, RELOC, NEAR_MATCHING (with delta), STUB, or
   COMPILE_ERROR.
 - Writes no default report file — `-o` is explicit export only
@@ -80,6 +82,12 @@ PRD 05 collects these into `verify`, `status`, `graph`, and `cache`.
   headers or include dirs otherwise invalidate the affected cache entries
   automatically).
 - `--summary` prints a STATUS breakdown table.
+- `--nolib` excludes LIBRARY-marked functions; `--no-promote` measures
+  without writing STATUS; `--prune-orphans` deletes metadata with no
+  source marker before verifying.
+- `--data` / `--text` / `--whole-binary` (with `--built`) compare built
+  artifacts against the reference; `--context PATH` compiles with extra
+  declarations.
 - `-j JOBS` parallel compile jobs.
 - `--json` machine-readable.
 - Exit codes: 0=all passed, 1=failures or regressions.
@@ -193,7 +201,7 @@ PRD 05 collects these into `verify`, `status`, `graph`, and `cache`.
 ## CLI Surface
 
 ```
-rebrew verify [OPTIONS]
+rebrew verify [file.c] [OPTIONS]
       --root PATH
   -j, --jobs N
   -o, --output PATH (explicit export only; no default report file)
@@ -202,8 +210,17 @@ rebrew verify [OPTIONS]
       --full
       --fix-sizes
       --dry-run
+      --dir TEXT
+      --origin TEXT
+      --no-promote
       --watch
       --nolib
+      --prune-orphans
+      --data
+      --built PATH
+      --text
+      --whole-binary
+      --context PATH
       --json
   -t, --target TEXT
 

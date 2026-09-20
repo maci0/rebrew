@@ -167,11 +167,11 @@ rebrew match [SEED_C]
       --ignore-lint
       --seed-file PATH (ignored if --no-seeds passed)
       --no-seeds (takes precedence over --seed-file)
-      --sweep-toolchain
-      --sweep-only TEXT
-      --sweep-exclude TEXT
-      --llm-seed
-      --kuna-seed
+      --flag-sweep-toolchains
+      --sweep-toolchains TEXT
+      --sweep-exclude-toolchains TEXT
+      --seed-llm
+      --seed-kuna
       --watch
   GA tuning
       --seed N
@@ -188,9 +188,9 @@ rebrew match [SEED_C]
       --threshold N (default 10)
       --flag-sweep
       --fix-cflags
-      --sweep-then-ga
+      --flag-sweep-then-ga
       --resume
-      --seed-solutions PATH
+      --seed-solutions-file PATH
       --skip-recent N (default 0)
       --max-stubs N (default 0)
       --min-size N (default 10)

@@ -164,6 +164,9 @@ you what to attack next.
   - `run-prover` — small near-matches eligible for `rebrew prove`.
   - `documented` — IAT thunks / non-reproducible code (audit only, hidden
     from the default list).
+  - `data-drift` / `start-data` — data symbols needing `rebrew verify --data`.
+  - `blocked` — lens (ADR-019): every item with non-empty `BLOCKER` text;
+    filter with `-c blocked` (items also keep their home category).
 - `--count N`, `--category C` filters.
 - `--stats` adds coverage stats header.
 

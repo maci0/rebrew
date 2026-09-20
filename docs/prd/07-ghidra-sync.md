@@ -6,10 +6,13 @@
 > `--accept-local`); ReVa MCP remains only for structural ops
 > (`--create-functions`, `--bookmarks`, `--pull-data`). The removed
 > `--pull-signatures`, `--pull-structs`, `--pull-datatypes`, `--pull-params`,
-> `--pull-comments`, `--accept-ghidra` flags below are superseded — see
-> `rebrew sync --help`. PRDs are historical records, kept as written.
+> `--pull-comments`, `--accept-ghidra`, `--export`, `--apply`, `--force`,
+> `--refresh-cache` flags in the Functional Requirements below are superseded —
+> see the CLI Surface section (verified against `rebrew sync --help`) and
+> `rebrew sync --help`. Functional Requirements / Open Questions below the
+> banner remain a historical ReVa-era record.
 
-**Feature name:** Bidirectional Ghidra ↔ Rebrew Sync (via ReVa MCP)
+**Feature name:** Bidirectional Ghidra ↔ Rebrew Sync (BinSync state dir + ReVa MCP structural ops)
 **One-line value:** Keep Rebrew's local C source the source of truth for
 "what we know about this binary" while letting users edit names, types,
 comments, and structures in Ghidra and re-converge with one command.
@@ -148,20 +151,20 @@ to a running Ghidra instance via the ReVa MCP server.
 ### Story 1 — Onboarding push
 
 1. After `rebrew catalog` + initial annotations, the user runs
-   `rebrew sync --summary` and reviews the planned push.
-2. `rebrew sync --push` creates Ghidra functions for every annotated VA,
-   pushes structs and signatures, and labels every `// DATA:` /
-   `// GLOBAL:` site.
-3. Ghidra immediately shows meaningful names; further analysis is much
+   `rebrew sync --summary --state-dir ./state` and reviews the planned push.
+2. `rebrew sync --push --state-dir ./state` exports names/comments/prototypes/
+   structs/globals into the BinSync state dir; separately,
+   `rebrew sync --create-functions --bookmarks` applies structural ops via ReVa MCP.
+3. Ghidra (via BinSync + MCP) shows meaningful names; further analysis is much
    faster.
 
 ### Story 2 — Pulling Ghidra renames
 
-1. After a Ghidra analysis pass the user renamed 30 functions.
-2. `rebrew sync --pull --dry-run` lists the proposed renames.
-3. `rebrew sync --pull --accept-ghidra` rewrites local source files and
-   updates cross-refs (conflicts resolve in Ghidra's favor); with
-   `--accept-local` instead, `GHIDRA: ...` notes record Ghidra names where
+1. After a Ghidra analysis pass the user renamed 30 functions (state dir updated).
+2. `rebrew sync --pull --state-dir ./state --dry-run` lists the proposed renames.
+3. `rebrew sync --pull --state-dir ./state --accept-binsync` rewrites local source files and
+   updates cross-refs (conflicts resolve in BinSync's favor); with
+   `--accept-local` instead, provenance notes record BinSync names where
    local names were kept.
 
 ### Story 3 — Working offline
@@ -186,36 +189,21 @@ to a running Ghidra instance via the ReVa MCP server.
 
 ```
 rebrew sync [OPTIONS]
-  Push
-      --export
-      --apply
+  Field sync (BinSync state dir)
+      --state-dir PATH
       --push
-      --summary
-      --create-functions / --no-create-functions   (default on)
-      --skip-generic / --no-skip-generic           (default on)
-      --sync-sizes
-      --sync-new-functions
-      --sync-data / --no-sync-data                 (default on)
-      --sync-structs / --no-sync-structs           (default on)
-      --sync-signatures / --no-sync-signatures     (default on)
-  Pull
       --pull
-      --accept-ghidra
+      --summary
+      --watch
+      --accept-binsync
       --accept-local
-      --module TEXT
-      --pull-signatures
-      --pull-structs
-      --pull-datatypes
-      --pull-params
-      --types-out PATH
-      --by-module
-      --pull-comments
+      --create-missing
+  Structural (ReVa MCP)
+      --create-functions
+      --bookmarks
       --pull-data
   Runtime
-      --refresh-cache
       --endpoint URL   (default http://localhost:8080/mcp/message)
-      --force
-      --watch
       --dry-run
       --json
   -t, --target TEXT
@@ -236,15 +224,17 @@ rebrew binsync-import STATE_DIR
       --dry-run
       --json
   -t, --target TEXT
+
+rebrew binsync {init,diff,overlay,push,pull,summary}
 ```
 
 ## Success Metrics
 
-- `rebrew sync --push --dry-run` followed by `--push` produces zero net
-  diff on a second `--push` (idempotent).
+- `rebrew sync --push --state-dir D --dry-run` followed by `--push --state-dir D`
+  produces zero net diff on a second `--push` (idempotent).
 - Generic names from Ghidra never overwrite meaningful local names.
-- Pulled names from Ghidra always update every cross-reference in
-  reversed source (no orphan references after `--pull --accept-ghidra`).
+- Pulled names from the BinSync state always update every cross-reference in
+  reversed source (no orphan references after `--pull --state-dir D --accept-binsync`).
 - Offline runs (Ghidra not reachable) degrade to read-only operations
   with a clear error rather than corrupting state.
 - BinSync export round-trips through `binsync-cli` without losing
