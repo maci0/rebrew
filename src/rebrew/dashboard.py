@@ -12,15 +12,17 @@ Endpoints
 ``GET /api/targets``           → list of targets (includes count/total)
 ``GET /api/summary?target=``   → function stats + coverage % (target required)
 ``GET /api/functions?target=`` → function rows as arrays under ``cols`` (filters: status, module, q, limit, offset)
-``GET /api/sections?target=``  → per-section cell stats (includes count/total)
+``GET /api/sections?target=``  → per-section cell stats (includes count/total/limit/offset)
 ``GET /api/globals?target=``   → global data rows (filters: q, limit, offset; includes total)
 ``GET /api/history?target=``   → status-change history (filters: limit, offset; includes total)
 
 Target-scoped endpoints return 400 when ``target`` is missing/empty and 404 when
-the target is unknown.  Non-GET/HEAD methods return 405 with ``Allow: GET, HEAD``.
-Requests whose ``Host`` header does not match the bound host (or a loopback
-alias) are rejected with 403, so a web page the analyst visits cannot reach
-the server via DNS rebinding.
+the target is unknown.  ``GET /api/summary`` returns 500 when the target's
+``function_stats`` metadata row exists but is unreadable (corrupt JSON or a
+non-object), so clients are not told the target is missing.  Non-GET/HEAD
+methods return 405 with ``Allow: GET, HEAD``.  Requests whose ``Host`` header
+does not match the bound host (or a loopback alias) are rejected with 403, so
+a web page the analyst visits cannot reach the server via DNS rebinding.
 List endpoints expose ``count`` (rows in this page), ``total`` (matching rows),
 and the applied ``limit`` / ``offset`` (offset is 0 when the endpoint has no page;
 ``/api/sections``, ``/api/targets``, and ``/api/bootstrap`` always report offset 0).
@@ -1131,14 +1133,21 @@ class Dashboard:
                 payload["functions"] = self.functions(target, limit=_DEFAULT_LIMIT)
             return payload
 
-    def summary(self, target: str) -> dict[str, Any] | None:
+    def _summary_lookup(
+        self, target: str
+    ) -> tuple[Literal["missing", "corrupt", "ok"], dict[str, Any] | None]:
+        """One-query summary read: missing row vs corrupt vs usable payload.
+
+        Keeps the HTTP layer from mapping corrupt ``function_stats`` to
+        ``404 unknown target`` (the row is present; the value is unreadable).
+        """
         with self._conn() as conn:
             row = conn.execute(
                 "SELECT value FROM metadata WHERE target = ? AND key = 'function_stats'",
                 (target,),
             ).fetchone()
         if row is None:
-            return None
+            return "missing", None
         try:
             stats = json.loads(row[0])
         except (json.JSONDecodeError, TypeError) as exc:
@@ -1149,14 +1158,14 @@ class Dashboard:
                 target,
                 exc,
             )
-            return None
+            return "corrupt", None
         if not isinstance(stats, dict):
             log.warning(
                 "Ignoring non-object function_stats for target %r (%s)",
                 target,
                 type(stats).__name__,
             )
-            return None
+            return "corrupt", None
         # Headline coverage = reversed bytes (EXACT/RELOC/PROVEN) / text size.
         # Not byte-identity: PROVEN bytes differ from the target (verify's
         # _STATUS_RANK puts PROVEN below RELOC for that reason). —
@@ -1169,12 +1178,17 @@ class Dashboard:
         # second metadata row (key='summary') and probed its ".text" size, but
         # nothing writes a ".text" key there, so the branch never fired.
         total_b = int(stats.get("total_bytes") or 0)
-        return {
+        return "ok", {
             "target": target,
             "function_stats": stats,
             "coverage_pct": round(covered / total_b * 100.0, 1) if total_b else 0.0,
             "identified_pct": round(identified / total_b * 100.0, 1) if total_b else 0.0,
         }
+
+    def summary(self, target: str) -> dict[str, Any] | None:
+        """Coverage stats for *target*, or None when missing/unreadable."""
+        _kind, payload = self._summary_lookup(target)
+        return payload
 
     def functions(
         self,
@@ -1415,9 +1429,14 @@ class Dashboard:
                 return self._json(400, {"error": "missing required query parameter 'target'"})
             with self._conn():
                 if parsed.path == "/api/summary":
-                    result = self.summary(target)
-                    if result is None:
+                    # Single stats-row read: missing → 404, corrupt → 500 (not
+                    # "unknown"), ok → 200.  Avoids a second target_known probe
+                    # on the happy path while keeping status codes accurate.
+                    kind, result = self._summary_lookup(target)
+                    if kind == "missing":
                         return self._json(404, {"error": f"unknown target {target!r}"})
+                    if kind == "corrupt" or result is None:
+                        return self._json(500, {"error": "corrupt function_stats metadata"})
                     return self._json(200, result)
                 if not self.target_known(target):
                     return self._json(404, {"error": f"unknown target {target!r}"})
@@ -1813,7 +1832,8 @@ app = typer.Typer(
         "  /api/globals?target= · · Global data rows (q/limit/offset)\n\n"
         "  /api/history?target= · · Status-change history (limit/offset)\n\n"
         "[dim]Read-only: DB opened mode=ro. Target-scoped routes need ?target= "
-        "(400 if missing, 404 if unknown). Non-GET/HEAD → 405.[/dim]"
+        "(400 if missing, 404 if unknown; /api/summary → 500 if function_stats "
+        "is corrupt). Non-GET/HEAD → 405.[/dim]"
     ),
 )
 

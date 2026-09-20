@@ -196,6 +196,32 @@ class TestQueryLayer:
             conn.execute("INSERT INTO metadata VALUES ('broken', 'function_stats', '{not-json')")
         dashboard = Dashboard(db)
         assert dashboard.summary("broken") is None
+        assert dashboard._summary_lookup("broken") == ("corrupt", None)
+
+    def test_api_summary_corrupt_function_stats_500(self, tmp_path: Path) -> None:
+        """Present-but-unreadable stats must not look like an unknown target."""
+        import sqlite3
+
+        db = tmp_path / "coverage.db"
+        with sqlite3.connect(db) as conn:
+            conn.execute(
+                "CREATE TABLE functions (target TEXT, va INT, name TEXT, symbol TEXT, "
+                "size INT, status TEXT, module TEXT, files TEXT, markerType TEXT)"
+            )
+            conn.execute("CREATE TABLE metadata (target TEXT, key TEXT, value TEXT)")
+            conn.execute("INSERT INTO metadata VALUES ('broken', 'function_stats', '{not-json')")
+            conn.execute("INSERT INTO metadata VALUES ('notobj', 'function_stats', '[1, 2]')")
+        dashboard = Dashboard(db)
+        status, _, body = dashboard.handle("GET", "/api/summary", {"target": ["broken"]})
+        assert status == 500
+        assert json.loads(body) == {"error": "corrupt function_stats metadata"}
+        status, _, body = dashboard.handle("GET", "/api/summary", {"target": ["notobj"]})
+        assert status == 500
+        assert "corrupt" in json.loads(body)["error"]
+        # Sibling list route still treats the target as known.
+        status, _, body = dashboard.handle("GET", "/api/functions", {"target": ["broken"]})
+        assert status == 200
+        assert json.loads(body)["target"] == "broken"
 
     def test_functions_all(self, dashboard: Dashboard) -> None:
         data = dashboard.functions("server_dll")
@@ -480,7 +506,13 @@ class TestHandle:
 
     def test_api_blank_target_param_400(self, dashboard: Dashboard) -> None:
         """Whitespace-only target is missing, not an unknown name."""
-        for path in ("/api/summary", "/api/functions"):
+        for path in (
+            "/api/summary",
+            "/api/functions",
+            "/api/sections",
+            "/api/globals",
+            "/api/history",
+        ):
             status, _, body = dashboard.handle("GET", path, {"target": ["  "]})
             assert status == 400, path
             assert "target" in json.loads(body)["error"]

@@ -39,6 +39,10 @@
   documented integrator surface.
 
 ### Fixed
+- **Dashboard `/api/summary` returns 500 for corrupt `function_stats`** instead
+  of 404 ``unknown target`` when the metadata row exists but is unreadable
+  (invalid JSON or a non-object). Missing targets stay 404; the happy path
+  remains a single stats-row read.
 - **Missing ``prove`` / ``binsync`` install hints name the distribution** —
   ``pip install 'rebrew[prove]'`` / ``'rebrew[binsync]'`` (with a checkout
   ``uv sync --extra …`` alternative) instead of editable ``.[extra]`` paths
