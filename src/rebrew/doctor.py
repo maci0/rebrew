@@ -1219,21 +1219,24 @@ def check_optional_tools() -> CheckResult:
             name="Optional tools",
             status=_WARN,
             message="angr installed but claripy is missing — prove will crash",
-            fix="Install the pair in rebrew's env: 'uv sync --extra prove' from the rebrew checkout.",
+            fix="Install the prove extra: pip install 'rebrew[prove]' "
+            "(or from a checkout: uv sync --extra prove).",
         )
     if claripy_available:
         return CheckResult(
             name="Optional tools",
             status=_WARN,
             message="claripy installed but angr is missing — prove needs both",
-            fix="Install the pair in rebrew's env: 'uv sync --extra prove' from the rebrew checkout.",
+            fix="Install the prove extra: pip install 'rebrew[prove]' "
+            "(or from a checkout: uv sync --extra prove).",
         )
     return CheckResult(
         name="Optional tools",
         status=_WARN,
         message="angr + claripy missing (for 'rebrew prove')",
-        fix="Optional: 'uv sync --extra prove' from the rebrew checkout "
-        "(doctor probes rebrew's env, not the project's).",
+        fix="Optional: pip install 'rebrew[prove]' "
+        "(or from a checkout: uv sync --extra prove). "
+        "Doctor probes rebrew's env, not the project's.",
     )
 
 

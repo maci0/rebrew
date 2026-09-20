@@ -22,7 +22,7 @@ Architecture
    comparison is skipped for them and only watched-VA memory is compared.
 
 angr is an optional dependency.  Import is guarded with a clear error
-message directing users to ``uv pip install -e ".[prove]"``.
+message directing users to ``pip install 'rebrew[prove]'``.
 """
 
 from __future__ import annotations
@@ -74,7 +74,8 @@ log = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 _ANGR_MISSING_MSG = (
-    "angr is required for 'rebrew prove'.  Install it with:\n  uv pip install -e \".[prove]\""
+    "angr is required for 'rebrew prove'.  Install it with:\n"
+    "  pip install 'rebrew[prove]'   (or from a checkout: uv sync --extra prove)"
 )
 
 
@@ -1062,7 +1063,7 @@ _EPILOG = (
     "  5. Proves EAX equivalence via Z3 constraint solving\n\n"
     "  6. If proven: updates STATUS from NEAR_MATCHING/SIZE_MISMATCH \u2192 PROVEN\n\n"
     "[dim]angr is a heavy optional dependency (~500 MB). "
-    'Install with: uv pip install -e ".[prove]"[/dim]'
+    "Install with: pip install 'rebrew[prove]'[/dim]"
 )
 
 app = typer.Typer(

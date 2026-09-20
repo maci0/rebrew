@@ -39,6 +39,11 @@
   documented integrator surface.
 
 ### Fixed
+- **Missing ``prove`` / ``binsync`` install hints name the distribution** —
+  ``pip install 'rebrew[prove]'`` / ``'rebrew[binsync]'`` (with a checkout
+  ``uv sync --extra …`` alternative) instead of editable ``.[extra]`` paths
+  that only work next to a source tree.  Doctor, README, and packaged skills
+  match.
 - **CI maps ``GH_TOKEN`` only onto resembl-clone and toolchain ``check-updates``
   steps** — no longer workflow-wide — so pytest/ruff/mypy never see
   ``secrets.GITHUB_TOKEN``.

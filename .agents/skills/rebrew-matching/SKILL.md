@@ -192,7 +192,7 @@ rebrew prove --all --json
 
 Register-gap verdicts (`REGISTER (N% of delta)`) are prime PROVEN candidates —
 run `rebrew prove --all` before more GA. Full flags, EDX/`--watch-va` gotchas,
-and angr mechanics: `references/prove.md`. Requires `uv pip install -e ".[prove]"`.
+and angr mechanics: `references/prove.md`. Requires `pip install 'rebrew[prove]'`.
 
 ## 8. End-to-End Round-Trip
 

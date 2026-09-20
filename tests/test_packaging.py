@@ -190,6 +190,24 @@ class TestPackagingMetadata:
                 assert "@" not in dep, f"extra {name!r} has direct URL: {dep}"
                 assert "git+" not in dep, f"extra {name!r} has git URL: {dep}"
 
+    def test_extra_install_hints_name_the_distribution(self) -> None:
+        """Missing-extra errors must tell wheel users ``pip install 'rebrew[…]'``.
+
+        Editable ``.[extra]`` / checkout-only ``uv sync`` hints strand anyone who
+        installed the published wheel (or ``uv tool install``) without a
+        source tree beside them.
+        """
+        from rebrew.binsync.serial import _DECLIB_MISSING_MSG
+        from rebrew.prove import _ANGR_MISSING_MSG
+
+        assert "pip install 'rebrew[prove]'" in _ANGR_MISSING_MSG
+        assert 'install -e ".[prove]"' not in _ANGR_MISSING_MSG
+        assert "pip install 'rebrew[binsync]'" in _DECLIB_MISSING_MSG
+        assert 'install -e ".[binsync]"' not in _DECLIB_MISSING_MSG
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        assert "pip install 'rebrew[prove]'" in readme
+        assert 'uv pip install -e ".[prove]"' not in readme
+
     def test_non_pypi_deps_live_in_dependency_groups(self) -> None:
         data = tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))
         groups = data.get("dependency-groups", {})
