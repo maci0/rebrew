@@ -508,7 +508,11 @@ def _run_one_stub_ga(
                         # demotes the match immediately.
                         if spliced_ok and cflags_override is not None:
                             update_cflags_annotation(
-                                filepath, persist_cflags, metadata_dir=cfg.metadata_dir
+                                filepath,
+                                persist_cflags,
+                                metadata_dir=cfg.metadata_dir,
+                                module=stub.module,
+                                va=int(stub.va, 16),
                             )
                 except (RuntimeError, OSError) as e:
                     console.print(
@@ -1222,7 +1226,6 @@ def _run_batch_flag_sweep(
     Returns ``(exact_count, not_exact_count)`` so ``--all-targets``
     aggregation reports real numbers instead of a hardcoded ``(0, 0)``.
     """
-    from rebrew.annotation import module_for_va
     from rebrew.matcher import SolutionEntry, save_solutions
     from rebrew.metadata import update_source_status
     from rebrew.utils import rel_display_path
@@ -1356,12 +1359,14 @@ def _run_batch_flag_sweep(
                 stub.filepath,
                 f"{resolved} {best_flags}".strip(),
                 metadata_dir=cfg.metadata_dir,
+                module=stub.module,
+                va=int(stub.va, 16),
             )
             result_entry["cflags_updated"] = cflags_updated
             update_source_status(
                 cfg.metadata_dir,
                 "EXACT",
-                module=module_for_va(stub.filepath, int(stub.va, 16)),
+                module=stub.module,
                 va=int(stub.va, 16),
                 clear_blockers=True,
                 updated_by="match",

@@ -1251,6 +1251,45 @@ class TestResolveBuildParamsVATargeting:
         assert "/Od" in params.cflags
         assert "/O2" not in params.cflags
 
+    def test_selected_function_size_not_first_block(self, tmp_path: Path, monkeypatch: Any) -> None:
+        """Per-function SIZE must come from the SELECTED annotation, not the
+        file's first block: a VA-targeted sibling with no SIZE must fail
+        rather than extract the first function's byte span."""
+        import typer
+
+        from rebrew.match import resolve_build_params
+
+        src_dir = tmp_path / "src" / "T"
+        src_dir.mkdir(parents=True)
+        multi = src_dir / "multi.c"
+        multi.write_text(
+            "// FUNCTION: T 0x10001000\n"
+            "// SIZE: 8\n"
+            "void exit_handler(void) { return; }\n"
+            "\n"
+            "// FUNCTION: T 0x1000a010\n"
+            "void cleanup(void) { return; }\n",
+            encoding="utf-8",
+        )
+        cfg = self._cfg(tmp_path, src_dir)
+        extracted: list[tuple[int, int]] = []
+
+        def _capture(path: Any, va: int, size: int) -> bytes:
+            extracted.append((va, size))
+            return b"\x90" * size
+
+        monkeypatch.setattr("rebrew.match_sweep.extract_raw_bytes", _capture)
+        monkeypatch.setattr(
+            "rebrew.match_sweep.resolve_compiler_env",
+            lambda cfg: ("wine CL.EXE", "inc", {"WINEDEBUG": "-all"}, None),
+        )
+        with pytest.raises(typer.Exit) as exc_info:
+            resolve_build_params(
+                cfg, str(multi), None, None, None, "_cleanup", "0x1000a010", None, False, False
+            )
+        assert exc_info.value.exit_code == 2
+        assert extracted == []
+
 
 class TestMutationFocusWeights:
     """--mutation-focus biases GA mutation selection toward a near-diag

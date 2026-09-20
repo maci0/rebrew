@@ -145,9 +145,15 @@ def main(
         )
 
     size_val = size
-    if size_val is None and selected is not None and selected.size:
+    if size_val is None and selected is not None and selected.size > 0:
         size_val = selected.size
-    if size_val is None and "SIZE" in meta:
+    # ``meta["SIZE"]`` is the first annotation only — a --va-selected sibling
+    # with no SIZE must not borrow that span.
+    if (
+        size_val is None
+        and "SIZE" in meta
+        and (selected is None or not annos or selected is annos[0])
+    ):
         try:
             size_val = int(meta["SIZE"])
         except ValueError:
@@ -155,15 +161,29 @@ def main(
     if size_val is None:
         error_exit("no size: pass --size or record SIZE metadata", json_mode=json_output)
 
-    symbol = (selected.symbol if selected and selected.symbol else "") or meta.get("SYMBOL", "")
+    symbol = (selected.symbol if selected and selected.symbol else "") or (
+        meta.get("SYMBOL", "") if selected is None or not annos or selected is annos[0] else ""
+    )
     if not symbol:
         error_exit(
             f"no symbol for 0x{va_int:08x}: add a `// SYMBOL:` header or a "
             "`// FUNCTION:` header above the definition",
             json_mode=json_output,
         )
+    if selected is not None:
+        _ann_toolchain: str | None = selected.toolchain or None
+        _ann_cflags: str | None = selected.cflags or None
+        _mod = selected.module
+    else:
+        _ann_toolchain = meta.get("TOOLCHAIN")
+        _ann_cflags = meta.get("CFLAGS")
+        _mod = ""
     toolchain_name, cflags_str = resolve_compile_overrides(
-        cfg, src_path.resolve().parent, toolchain, cflags, ""
+        cfg,
+        src_path.resolve().parent,
+        toolchain or _ann_toolchain,
+        cflags or _ann_cflags,
+        _mod,
     )
 
     ref_code = extract_raw_bytes(cfg.target_binary, va_int, size_val)

@@ -412,6 +412,24 @@ class TestUpdateCflagsAnnotation:
         update_cflags_annotation(f, "/O1 /Gz")
         assert f.read_text(encoding="utf-8") == original
 
+    def test_explicit_module_va_targets_second_function(self, tmp_path: Path) -> None:
+        """Multi-function files: module+va must address the matched stub, not
+        the file's first marker (STATUS already uses stub.va; CFLAGS must too)."""
+        f = tmp_path / "multi.c"
+        f.write_text(
+            "// FUNCTION: A 0x1000\n"
+            "int __cdecl a(void) { return 0; }\n"
+            "// FUNCTION: B 0x2000\n"
+            "int __cdecl b(void) { return 1; }\n",
+            encoding="utf-8",
+        )
+        changed = update_cflags_annotation(f, "/O1 /Gz", module="B", va=0x2000)
+        assert changed is True
+        meta = (tmp_path / "rebrew-functions.toml").read_text(encoding="utf-8")
+        assert '"B.0x00002000"' in meta
+        assert "/O1 /Gz" in meta
+        assert "A.0x00001000" not in meta
+
 
 class TestStubMetadataDir:
     """Stub discovery must read SIZE/STATUS from cfg.metadata_dir, which is

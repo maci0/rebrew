@@ -200,11 +200,16 @@ def resolve_build_params(
     # own TOOLCHAIN/CFLAGS select the docker image and flags.  These must come
     # from the SELECTED annotation: ``meta`` is the file's FIRST annotation's
     # fields only, so on a multi-function file `--symbol foo` would otherwise
-    # compile foo with the first block's flags.
+    # compile foo with the first block's flags.  Empty per-function fields
+    # must fall through the library/project chain — not the sibling's values.
     from rebrew.compile_overrides import resolve_compile_overrides
 
-    toolchain_meta = (anno.toolchain if anno else "") or meta.get("TOOLCHAIN")
-    cflags_meta = (anno.cflags if anno else "") or meta.get("CFLAGS")
+    if anno is not None:
+        toolchain_meta = anno.toolchain or None
+        cflags_meta = anno.cflags or None
+    else:
+        toolchain_meta = meta.get("TOOLCHAIN")
+        cflags_meta = meta.get("CFLAGS")
     toolchain_name, _lib_cflags = resolve_compile_overrides(
         cfg,
         Path(seed_c).resolve().parent,
@@ -284,9 +289,12 @@ def resolve_build_params(
                         break
 
     if target_size is None:
-        if anno and anno.size:
+        if anno and anno.size > 0:
             target_size = anno.size
-        elif "SIZE" in meta:
+        elif "SIZE" in meta and (anno is None or not annos or anno is annos[0]):
+            # ``meta["SIZE"]`` is the FIRST annotation only.  A VA/--symbol-
+            # selected sibling with size 0 must not borrow that span (wrong
+            # byte extract → false EXACT/NEAR_MATCHING).
             try:
                 target_size = int(meta["SIZE"])
             except ValueError:

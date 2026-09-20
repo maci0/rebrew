@@ -363,35 +363,47 @@ def find_size_mismatch(
 
 
 def update_cflags_annotation(
-    filepath: Path, new_cflags: str, metadata_dir: Path | None = None
+    filepath: Path,
+    new_cflags: str,
+    metadata_dir: Path | None = None,
+    *,
+    module: str | None = None,
+    va: int | None = None,
 ) -> bool:
     """Update the ``cflags`` for a function — writes to the metadata.
+
+    When *module* and *va* are provided they identify the function; otherwise
+    the first FUNCTION/STUB/... marker in *filepath* is used (legacy
+    single-function callers).  Multi-function files must pass the matched
+    stub's identity — scanning the first marker writes CFLAGS under the
+    wrong key while STATUS promotion targets the correct VA.
 
     Returns True if the metadata was updated, False on failure.
     """
     from rebrew.metadata import get_entry, update_field
 
-    try:
-        text, _ = read_source_text(filepath)
-    except OSError:
-        return False
+    if module is None or va is None:
+        try:
+            text, _ = read_source_text(filepath)
+        except OSError:
+            return False
 
-    m = re.search(
-        r"(?://|/\*)\s*(?:FUNCTION|STUB|LIBRARY|DATA|GLOBAL):\s*(\S+)\s+(0x[0-9a-fA-F]+)",
-        text,
-    )
-    if m is None:
-        return False
+        m = re.search(
+            r"(?://|/\*)\s*(?:FUNCTION|STUB|LIBRARY|DATA|GLOBAL):\s*(\S+)\s+(0x[0-9a-fA-F]+)",
+            text,
+        )
+        if m is None:
+            return False
 
-    module = m.group(1)
-    va_int = int(m.group(2), 16)
+        module = m.group(1)
+        va = int(m.group(2), 16)
 
     meta_root = metadata_dir or filepath.parent
-    entry = get_entry(meta_root, va_int, module=module)
+    entry = get_entry(meta_root, va, module=module)
     if entry.get("cflags", "") == new_cflags:
         return False
 
-    update_field(meta_root, va_int, "cflags", new_cflags, module=module)
+    update_field(meta_root, va, "cflags", new_cflags, module=module)
     return True
 
 

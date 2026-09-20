@@ -840,7 +840,13 @@ def _run_test_impl(
                     break
 
     size_val = size
-    if size_val is None and "SIZE" in meta:
+    # ``meta["SIZE"]`` is the first annotation only (parse_source_metadata).
+    # A --va-selected sibling with no SIZE must not borrow that span.
+    if (
+        size_val is None
+        and "SIZE" in meta
+        and (va is None or sel_ann is None or not lint_annos or sel_ann is lint_annos[0])
+    ):
         try:
             size_val = int(meta["SIZE"])
         except ValueError:
@@ -851,12 +857,19 @@ def _run_test_impl(
     _mod = (sel_ann or lint_annos[0]).module if lint_annos else ""
     # Shared fallback chain (per-function metadata → per-library
     # rebrew-libraries.toml → preset → compiler.cflags); an explicit
-    # --toolchain / --cflags wins over the metadata value.
+    # --toolchain / --cflags wins over the metadata value.  Prefer the
+    # SELECTED annotation's fields — ``meta`` is first-block only.
+    if sel_ann is not None:
+        _ann_toolchain: str | None = sel_ann.toolchain or None
+        _ann_cflags: str | None = sel_ann.cflags or None
+    else:
+        _ann_toolchain = meta.get("TOOLCHAIN")
+        _ann_cflags = meta.get("CFLAGS")
     toolchain_name, cflags_str = resolve_compile_overrides(
         cfg,
         Path(source).resolve().parent,
-        toolchain or meta.get("TOOLCHAIN"),
-        cflags or meta.get("CFLAGS"),
+        toolchain or _ann_toolchain,
+        cflags or _ann_cflags,
         _mod,
     )
 
