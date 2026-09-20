@@ -485,7 +485,7 @@ _INDEX_HTML_GZIP: bytes | None = (
 
 
 def _int_param(params: dict[str, list[str]], name: str, default: int) -> int:
-    """Parse a positive int query param, clamped to ``[_DEFAULT floor, _MAX_LIMIT]``.
+    """Parse a positive int page-size query param, clamped to ``[1, _MAX_LIMIT]``.
 
     Missing, empty, non-numeric, or non-positive values fall back to *default*
     so ``limit=0`` / ``limit=-1`` never silently return an empty page.
@@ -501,6 +501,27 @@ def _int_param(params: dict[str, list[str]], name: str, default: int) -> int:
     if value <= 0:
         return default
     return min(value, _MAX_LIMIT)
+
+
+def _offset_param(params: dict[str, list[str]], name: str, default: int = 0) -> int:
+    """Parse a non-negative int skip query param (e.g. ``offset``).
+
+    Missing, empty, non-numeric, or negative values fall back to *default*.
+    Zero is valid.  Values are **not** capped at ``_MAX_LIMIT`` — that bound
+    is for page size only; clamping skip would make rows past the cap
+    unreachable via ``limit``+``offset`` pagination.
+    """
+    values = params.get(name)
+    raw = values[0] if values else None
+    if raw is None or raw == "":
+        return default
+    try:
+        value = int(raw)
+    except (ValueError, TypeError):
+        return default
+    if value < 0:
+        return default
+    return value
 
 
 def _opt_query(params: dict[str, list[str]], name: str) -> str | None:
@@ -770,7 +791,7 @@ class Dashboard:
             ],
         }
 
-    def history(self, target: str, *, limit: int = 100) -> dict[str, Any]:
+    def history(self, target: str, *, limit: int = _DEFAULT_LIMIT) -> dict[str, Any]:
         with self._conn() as conn:
             rows = conn.execute(
                 "SELECT va, old_status, new_status, changed_at FROM history "
@@ -873,7 +894,7 @@ class Dashboard:
                             module=_opt_query(query, "module"),
                             q=_opt_query(query, "q"),
                             limit=_int_param(query, "limit", _DEFAULT_LIMIT),
-                            offset=_int_param(query, "offset", 0),
+                            offset=_offset_param(query, "offset", 0),
                         ),
                     )
                 if parsed.path == "/api/sections":
@@ -891,7 +912,7 @@ class Dashboard:
                     200,
                     self.history(
                         target,
-                        limit=_int_param(query, "limit", 100),
+                        limit=_int_param(query, "limit", _DEFAULT_LIMIT),
                     ),
                 )
         return self._json(404, {"error": f"no such endpoint {parsed.path!r}"})
@@ -1200,7 +1221,7 @@ app = typer.Typer(
         "  /api/bootstrap · · · · · · Targets + first target summary/functions\n\n"
         "  /api/targets · · · · · · List targets\n\n"
         "  /api/summary?target= · · Coverage stats (target required)\n\n"
-        "  /api/functions?target= · Function rows (status/module/q/limit)\n\n"
+        "  /api/functions?target= · Function rows (status/module/q/limit/offset)\n\n"
         "  /api/sections?target= · · Per-section cell stats\n\n"
         "  /api/globals?target= · · Global data rows\n\n"
         "  /api/history?target= · · Status-change history\n\n"

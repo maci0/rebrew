@@ -483,6 +483,25 @@ class TestHandle:
         assert payload["limit"] == 100
         assert payload["offset"] == 0
 
+    def test_api_functions_offset_past_page_size_cap(self, dashboard: Dashboard) -> None:
+        """offset must not be clamped to _MAX_LIMIT (page size ≠ skip)."""
+        from rebrew.dashboard import _MAX_LIMIT
+
+        status, _, body = dashboard.handle(
+            "GET",
+            "/api/functions",
+            {
+                "target": ["server_dll"],
+                "limit": ["1"],
+                "offset": [str(_MAX_LIMIT + 100)],
+            },
+        )
+        assert status == 200
+        payload = json.loads(body)
+        assert payload["offset"] == _MAX_LIMIT + 100
+        assert payload["count"] == 0
+        assert payload["total"] == 2
+
     def test_api_sections_includes_count_total(self, dashboard: Dashboard) -> None:
         status, _, body = dashboard.handle("GET", "/api/sections", {"target": ["server_dll"]})
         assert status == 200
@@ -592,6 +611,23 @@ class TestIntParam:
         assert _int_param({"limit": ["-3"]}, "limit", 100) == 100
         assert _int_param({"limit": ["50"]}, "limit", _DEFAULT_LIMIT) == 50
         assert _int_param({"limit": [str(_MAX_LIMIT + 1)]}, "limit", _DEFAULT_LIMIT) == _MAX_LIMIT
+
+
+class TestOffsetParam:
+    """offset query parsing: zero valid, not clamped to page-size max."""
+
+    def test_missing_invalid_and_large(self) -> None:
+        from rebrew.dashboard import _MAX_LIMIT, _offset_param
+
+        assert _offset_param({}, "offset") == 0
+        assert _offset_param({"offset": [""]}, "offset") == 0
+        assert _offset_param({"offset": ["abc"]}, "offset") == 0
+        assert _offset_param({"offset": ["-1"]}, "offset") == 0
+        assert _offset_param({"offset": ["0"]}, "offset") == 0
+        assert _offset_param({"offset": ["50"]}, "offset") == 50
+        # Page-size cap must not apply: otherwise rows past _MAX_LIMIT are unreachable.
+        past_cap = _MAX_LIMIT + 1
+        assert _offset_param({"offset": [str(past_cap)]}, "offset") == past_cap
 
 
 class TestEscapeLike:
