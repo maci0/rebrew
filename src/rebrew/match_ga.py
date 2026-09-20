@@ -16,7 +16,7 @@ import threading
 import time
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import capstone
 from rich.console import Console
@@ -93,6 +93,13 @@ _MAX_STAGNATION_RESTARTS = 2
 #: cold start, not repeat it.
 _IMMIGRANT_MIN_STEPS = 2
 _IMMIGRANT_MAX_STEPS = 6
+
+#: Cap on the per-run in-memory compile cache / fitness memo.  Full mutation
+#: diversity reaches ~300k unique sources; retaining every BuildResult (and
+#: its error_msg) until ``close()`` dominated long-GA RSS.  Sized for several
+#: generations of elites + recent mutants; LRU eviction (touch on hit).
+_GA_MEMO_MAX_FLOOR = 1024
+_GA_MEMO_MAX_FACTOR = 32
 
 #: Default floor (bytes) for a function considered by a batch GA/sweep run.
 
@@ -384,8 +391,10 @@ class BinaryMatchingGA:
         # here (no extra disk write) captures the real win.
         # Guarded: ``num_jobs`` workers read/write this dict and ``self.cache``
         # concurrently; compound check-then-act without a lock races.
+        # Bounded (LRU): see :data:`_GA_MEMO_MAX_FLOOR` / ``_GA_MEMO_MAX_FACTOR``.
         self._fitness_memo: dict[str, float] = {}
         self._memo_lock = threading.Lock()
+        self._memo_max = max(_GA_MEMO_MAX_FLOOR, pop_size * _GA_MEMO_MAX_FACTOR)
 
         # Scope mutation queries to the target function's byte range — only
         # that function's compiled bytes are scored, so mutating siblings in
@@ -520,6 +529,27 @@ class BinaryMatchingGA:
             self.profile,
         )
 
+    def _lru_get(self, table: dict[str, Any], key: str) -> Any | None:
+        """Return *table[key]*, refreshing LRU order.  Caller holds ``_memo_lock``."""
+        if key not in table:
+            return None
+        value = table.pop(key)
+        table[key] = value
+        return value
+
+    def _lru_put(self, table: dict[str, Any], key: str, value: Any) -> None:
+        """Insert *key*→*value* with FIFO eviction past ``_memo_max``.
+
+        Caller holds ``_memo_lock``.  Re-inserting an existing key refreshes
+        its LRU position so elites that keep scoring are not aged out by
+        one-shot mutants.
+        """
+        if key in table:
+            del table[key]
+        elif len(table) >= self._memo_max:
+            table.pop(next(iter(table)))
+        table[key] = value
+
     def _compile_source(self, src: str) -> BuildResult:
         # Same-run memo (plain dict): elites persist across generations
         # unchanged, and a resumed run replays its population.  Cross-run
@@ -532,9 +562,9 @@ class BinaryMatchingGA:
         # reuse the previous flag combination's .obj.
         src_hash = self._cache_key(src)
         with self._memo_lock:
-            res = self.cache.get(src_hash)
-        if res:
-            return res
+            cached = self._lru_get(self.cache, src_hash)
+        if cached is not None:
+            return cast(BuildResult, cached)
 
         if self.compare_obj:
             res = build_candidate_obj_only(
@@ -586,7 +616,7 @@ class BinaryMatchingGA:
         # are stored here instead: one write per candidate either way.
         if not res.ok:
             with self._memo_lock:
-                self.cache[src_hash] = res
+                self._lru_put(self.cache, src_hash, res)
         return res
 
     def _compute_fitness(self, res: BuildResult, src_hash: str, src: str) -> float:
@@ -604,13 +634,13 @@ class BinaryMatchingGA:
         # ~2.8s per 300k-candidate warm batch of elite/unchanged sources
         # that persist across generations.
         with self._memo_lock:
-            memoized = self._fitness_memo.get(src_hash)
+            memoized = self._lru_get(self._fitness_memo, src_hash)
         if memoized is not None:
-            return memoized
+            return cast(float, memoized)
         cached_fitness = getattr(res, "fitness", None)
         if res.ok and cached_fitness is not None:
             with self._memo_lock:
-                self._fitness_memo[src_hash] = float(cached_fitness)
+                self._lru_put(self._fitness_memo, src_hash, float(cached_fitness))
             return float(cached_fitness)
 
         if not res.ok or res.obj_bytes is None:
@@ -662,7 +692,7 @@ class BinaryMatchingGA:
             self._write_pair(src, obj_bytes, total)
         res.obj_bytes = None
         with self._memo_lock:
-            self._fitness_memo[src_hash] = total
+            self._lru_put(self._fitness_memo, src_hash, total)
             # One memo store per candidate: _compile_source skipped the store on
             # a miss (it defers to the scored result here), so this put persists
             # the scored result with fitness set — a later generation takes
@@ -670,7 +700,7 @@ class BinaryMatchingGA:
             # (``_cache_key``), NOT the ``src_hash`` argument: the caller
             # passes the bare source digest for memoization, and a
             # digest-keyed entry is never read by ``_compile_source``.
-            self.cache[self._cache_key(src)] = res
+            self._lru_put(self.cache, self._cache_key(src), res)
         _log(
             f"[{src_hash[:8]}] SUCCESS. Score={total:.2f} (len_bytes={len(obj_bytes)}, excess={excess})"
         )
@@ -738,7 +768,7 @@ class BinaryMatchingGA:
                 for src in self.population:
                     src_hash = source_digest(src)
                     with self._memo_lock:
-                        memoized = self._fitness_memo.get(src_hash)
+                        memoized = self._lru_get(self._fitness_memo, src_hash)
                     if memoized is not None:
                         scored_pop.append((memoized, src))
                         continue

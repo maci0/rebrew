@@ -202,17 +202,21 @@ def upload_scratch(
         )
     except httpx.HTTPError as exc:
         raise RuntimeError(f"decomp.me request failed: {exc}") from exc
-    if resp.status_code >= 400:
-        raise RuntimeError(
-            f"decomp.me rejected the scratch (HTTP {resp.status_code}): {(resp.text or '')[:500]}"
-        )
     try:
-        data: dict[str, Any] = resp.json()
-    except ValueError as exc:
-        raise RuntimeError(
-            f"decomp.me returned an unparseable response: {resp.text[:200]}"
-        ) from exc
-    return data
+        if resp.status_code >= 400:
+            raise RuntimeError(
+                f"decomp.me rejected the scratch (HTTP {resp.status_code}): "
+                f"{(resp.text or '')[:500]}"
+            )
+        try:
+            data: dict[str, Any] = resp.json()
+        except ValueError as exc:
+            raise RuntimeError(
+                f"decomp.me returned an unparseable response: {resp.text[:200]}"
+            ) from exc
+        return data
+    finally:
+        resp.close()
 
 
 def scratch_url(slug: str, claim_token: str, api: str = _DEFAULT_API) -> str:
@@ -240,27 +244,30 @@ def verify_compiler(compiler: str, api: str = _DEFAULT_API, timeout: float = 15.
             f"({exc.__class__.__name__}) — skipping compiler check"
         )
         return
-    if resp.status_code >= 400:
-        console.print(
-            f"[yellow]warning:[/yellow] decomp.me registry unavailable "
-            f"(HTTP {resp.status_code}) — skipping compiler check"
-        )
-        return
     try:
-        data = resp.json()
-        compilers = data.get("compilers") or {}
-    except ValueError:
-        return
-    if not isinstance(compilers, dict):
-        return
-    if compiler in compilers:
-        return
-    known = sorted(str(k) for k in compilers)
-    hint = ", ".join(known[:8]) + ("…" if len(known) > 8 else "")
-    raise RuntimeError(
-        f"compiler {compiler!r} is not in the decomp.me registry "
-        f"(available: {hint}) — pass --compiler with a valid id"
-    )
+        if resp.status_code >= 400:
+            console.print(
+                f"[yellow]warning:[/yellow] decomp.me registry unavailable "
+                f"(HTTP {resp.status_code}) — skipping compiler check"
+            )
+            return
+        try:
+            data = resp.json()
+            compilers = data.get("compilers") or {}
+        except ValueError:
+            return
+        if not isinstance(compilers, dict):
+            return
+        if compiler in compilers:
+            return
+        known = sorted(str(k) for k in compilers)
+        hint = ", ".join(known[:8]) + ("…" if len(known) > 8 else "")
+        raise RuntimeError(
+            f"compiler {compiler!r} is not in the decomp.me registry "
+            f"(available: {hint}) — pass --compiler with a valid id"
+        )
+    finally:
+        resp.close()
 
 
 def _resolve_annotation(

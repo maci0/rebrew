@@ -312,6 +312,32 @@ class TestComputeFitness:
         assert best_score == 5.0
         assert best_src in ga.population
 
+    def test_memo_and_cache_evict_past_cap(self, tmp_path: Path) -> None:
+        """A long GA must not retain every unique source's BuildResult until
+        close() — FIFO/LRU eviction keeps the in-memory maps bounded."""
+        from rebrew.matcher import BuildResult
+
+        ga = _make_ga(tmp_path, pop_size=4)
+        ga._memo_max = 3
+        for i in range(8):
+            key = f"src_{i}"
+            res = BuildResult(ok=False, error_msg=f"fail {i}")
+            with ga._memo_lock:
+                ga._lru_put(ga.cache, key, res)
+                ga._lru_put(ga._fitness_memo, key, float(i))
+        assert len(ga.cache) == 3
+        assert len(ga._fitness_memo) == 3
+        # Oldest keys (0,1,2,3,4) were evicted; 5..7 remain.
+        assert "src_0" not in ga.cache
+        assert "src_5" in ga.cache
+        # LRU touch: refreshing src_5 then inserting 8 more should keep src_5.
+        with ga._memo_lock:
+            ga._lru_get(ga.cache, "src_5")
+            for i in range(8, 10):
+                ga._lru_put(ga.cache, f"src_{i}", BuildResult(ok=False, error_msg="x"))
+        assert "src_5" in ga.cache
+        assert len(ga.cache) == 3
+
 
 class TestGAReplay:
     def test_completion_order_does_not_change_seeded_run(

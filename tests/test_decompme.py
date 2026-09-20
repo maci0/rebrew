@@ -219,13 +219,16 @@ class TestFunctionIsolation:
 class TestUpload:
     def test_success(self, monkeypatch: pytest.MonkeyPatch) -> None:
         calls: dict = {}
+        closed: list[bool] = []
 
         def _fake_post(url, **kwargs):
             calls["url"] = url
             calls["data"] = kwargs.get("data")
             calls["files"] = kwargs.get("files")
             return SimpleNamespace(
-                status_code=201, json=lambda: {"slug": "abc123", "claim_token": "tok"}
+                status_code=201,
+                json=lambda: {"slug": "abc123", "claim_token": "tok"},
+                close=lambda: closed.append(True),
             )
 
         monkeypatch.setattr("rebrew.decompme.httpx.post", _fake_post)
@@ -235,14 +238,22 @@ class TestUpload:
         assert result == {"slug": "abc123", "claim_token": "tok"}
         assert calls["url"] == "https://decomp.me/api/scratch"
         assert calls["data"] == {"compiler": "x"}
+        assert closed == [True]
 
     def test_http_error_surfaced(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        closed: list[bool] = []
+
         def _fake_post(url, **kwargs):
-            return SimpleNamespace(status_code=400, text="Unknown compiler: nope")
+            return SimpleNamespace(
+                status_code=400,
+                text="Unknown compiler: nope",
+                close=lambda: closed.append(True),
+            )
 
         monkeypatch.setattr("rebrew.decompme.httpx.post", _fake_post)
         with pytest.raises(RuntimeError, match="Unknown compiler"):
             decompme.upload_scratch({"data": {}, "files": {}})
+        assert closed == [True]
 
     def test_transport_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
         import httpx
@@ -358,7 +369,9 @@ class TestCli:
         monkeypatch.setattr(
             "rebrew.decompme.httpx.post",
             lambda url, **kw: SimpleNamespace(
-                status_code=201, json=lambda: {"slug": "abc", "claim_token": "tok"}
+                status_code=201,
+                json=lambda: {"slug": "abc", "claim_token": "tok"},
+                close=lambda: None,
             ),
         )
         r = runner.invoke(decompme.app, [str(src)])
@@ -369,7 +382,9 @@ class TestCli:
         cfg, src = self._patch(tmp_path, monkeypatch)
         monkeypatch.setattr(
             "rebrew.decompme.httpx.post",
-            lambda url, **kw: SimpleNamespace(status_code=400, text="Unknown platform: nope"),
+            lambda url, **kw: SimpleNamespace(
+                status_code=400, text="Unknown platform: nope", close=lambda: None
+            ),
         )
         r = runner.invoke(decompme.app, [str(src)])
         assert r.exit_code == 2
@@ -380,6 +395,8 @@ class TestVerifyCompiler:
     def test_known_compiler_passes(self, monkeypatch: pytest.MonkeyPatch) -> None:
         import httpx
 
+        closed: list[bool] = []
+
         def _fake_get(url, timeout):
             return SimpleNamespace(
                 status_code=200,
@@ -387,10 +404,12 @@ class TestVerifyCompiler:
                     "compilers": {"msvc6.0": {"platform": "win32"}},
                     "platforms": {"win32": {}},
                 },
+                close=lambda: closed.append(True),
             )
 
         monkeypatch.setattr(httpx, "get", _fake_get)
         assert decompme.verify_compiler("msvc6.0") is None
+        assert closed == [True]
 
     def test_unknown_compiler_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
         import httpx
@@ -399,6 +418,7 @@ class TestVerifyCompiler:
             return SimpleNamespace(
                 status_code=200,
                 json=lambda: {"compilers": {"msvc6.0": {}, "msvc7.1": {}}, "platforms": {}},
+                close=lambda: None,
             )
 
         monkeypatch.setattr(httpx, "get", _fake_get)
@@ -420,6 +440,8 @@ class TestVerifyCompiler:
         import httpx
 
         monkeypatch.setattr(
-            httpx, "get", lambda url, timeout: SimpleNamespace(status_code=403, text="cf")
+            httpx,
+            "get",
+            lambda url, timeout: SimpleNamespace(status_code=403, text="cf", close=lambda: None),
         )
         assert decompme.verify_compiler("msvc6.0") is None

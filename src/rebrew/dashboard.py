@@ -1748,6 +1748,11 @@ def main(
         )
 
     server = ThreadingHTTPServer((host, port), _Handler)
+    # Request handlers must not keep the process alive after Ctrl+C:
+    # ThreadingMixIn defaults to non-daemon threads + block_on_close, so
+    # server_close() waited on every in-flight (or stuck) client until the
+    # OS closed the socket.  Daemon threads die with the main thread.
+    server.daemon_threads = True
     _Handler.dashboard = Dashboard(db_path)
     _Handler.allowed_hosts = allowed_hosts_for(host, port)
     console.print(
