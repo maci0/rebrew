@@ -89,6 +89,26 @@ class TestSourceHash:
 
         assert hash_a != hash_b
 
+    def test_hash_busts_when_size_changes_at_same_mtime(self, tmp_path: Path) -> None:
+        """Same-ns / restored-mtime rewrite must not keep hashing old bytes.
+
+        ``_source_bytes`` is an LRU keyed for multi-function TUs; without
+        size in the key, a rewrite that preserves mtime (``cp -p``, coarse
+        FS) would keep serving the previous content into verify-cache
+        identity and miss invalidating stale EXACT/RELOC rows.
+        """
+        import os
+
+        path = tmp_path / "func.c"
+        path.write_text("int a;\n", encoding="utf-8")
+        hash_a = _source_hash(path)
+        st = path.stat()
+        path.write_text("int abcdefgh;\n", encoding="utf-8")
+        os.utime(path, ns=(st.st_atime_ns, st.st_mtime_ns))
+        hash_b = _source_hash(path)
+        assert hash_a != hash_b
+        assert path.stat().st_mtime_ns == st.st_mtime_ns
+
 
 class TestLoadVerifyCache:
     def test_load_valid_cache(self, tmp_path: Path) -> None:

@@ -96,8 +96,13 @@ def _failed_result(status: "CompareStatus", message: str = "") -> "CompareResult
 
 
 @functools.lru_cache(maxsize=256)
-def _fenced_naked_note_cached(path_key: str) -> str:
-    """Fence probe keyed by path string (bounded memo for multi-function TUs)."""
+def _fenced_naked_note_cached(path_key: str, _mtime_ns: int, _size: int) -> str:
+    """Fence probe keyed by (path, mtime, size) for multi-function TUs.
+
+    Path alone would keep a stale "fenced" / "unfenced" answer after an
+    in-process edit (verify --watch, test→verify loops).  mtime+size match
+    :func:`rebrew.utils.read_source_text`'s memo so the note tracks the file.
+    """
     try:
         from rebrew.utils import read_source_text
 
@@ -126,7 +131,15 @@ def _fenced_naked_note(cfile: Path) -> str:
     ``rebrew round-trip --allow-naked`` (or build the reccmp recomp binary
     with ``-DREBREW_ALLOW_NAKED=1``) instead of chasing a phantom source bug.
     """
-    return _fenced_naked_note_cached(str(cfile))
+    try:
+        st = cfile.stat()
+    except OSError:
+        return ""
+    try:
+        path_key = str(cfile.resolve())
+    except OSError:
+        path_key = str(cfile)
+    return _fenced_naked_note_cached(path_key, st.st_mtime_ns, st.st_size)
 
 
 def verify_entry(

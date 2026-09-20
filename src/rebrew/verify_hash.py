@@ -60,7 +60,7 @@ def entry_fingerprint(cfg: ProjectConfig, entry: Any) -> EntryFingerprint | None
     except OSError:
         return None
     try:
-        source_bytes = _source_bytes(str(filepath.resolve()), st.st_mtime_ns)
+        source_bytes = _source_bytes(str(filepath.resolve()), st.st_mtime_ns, st.st_size)
     except OSError:
         return None
     toolchain, cflags = resolve_compile_overrides(
@@ -297,21 +297,25 @@ def _headers_stat_fingerprint(src_dir: Path) -> tuple[tuple[str, int, int], ...]
 
 
 @functools.lru_cache(maxsize=4096)
-def _source_bytes(path_str: str, _mtime_ns: int) -> bytes:
-    """Read *path_str* once per (path, mtime) — multi-function files share it.
+def _source_bytes(path_str: str, _mtime_ns: int, _size: int) -> bytes:
+    """Read *path_str* once per (path, mtime, size) — multi-function files share it.
 
-    *_mtime_ns* is part of the key so an edit within the process invalidates
-    the cached bytes without clearing the whole LRU.
+    *_mtime_ns* and *_size* are part of the key so an edit within the process
+    invalidates the cached bytes without clearing the whole LRU.  Size alone
+    catches same-ns rewrites and ``cp -p`` / restored-mtime copies that
+    ``read_source_text`` already guards against; mtime alone does not.
     """
     return Path(path_str).read_bytes()
 
 
 def _source_hash(filepath: Path) -> str:
     try:
-        mtime_ns = filepath.stat().st_mtime_ns
+        st = filepath.stat()
     except OSError:
         return hashlib.sha256(filepath.read_bytes()).hexdigest()
-    return hashlib.sha256(_source_bytes(str(filepath.resolve()), mtime_ns)).hexdigest()
+    return hashlib.sha256(
+        _source_bytes(str(filepath.resolve()), st.st_mtime_ns, st.st_size)
+    ).hexdigest()
 
 
 def _entry_headers_fp(

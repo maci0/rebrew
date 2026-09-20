@@ -212,6 +212,46 @@ class TestVerifyEntryBranches:
         result = verify_mod.verify_entry(_ann(0x1000), cfg)  # type: ignore[arg-type]
         assert "fenced naked" not in (result.message or "")
 
+    def test_fenced_naked_note_tracks_in_process_edit(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Path-only memo would keep the first probe forever; mtime+size must bust it."""
+        import rebrew.binary_loader
+        import rebrew.compile
+        import rebrew.verify as verify_mod
+
+        cfg = _cfg(tmp_path)
+        cfile = cfg.reversed_dir / "f.c"
+        cfile.write_text("void my_func(void) {}\n", encoding="utf-8")
+        monkeypatch.setattr(rebrew.binary_loader, "extract_raw_bytes", lambda *a, **k: b"\x90" * 8)
+        from rebrew.compile import CompareResult
+
+        def _unmatched(*a, **k):
+            return CompareResult(
+                matched=False,
+                status="NEAR_MATCHING",
+                match_percent=50.0,
+                delta=4,
+                obj_bytes=None,
+                reloc_offsets=None,
+                message="NEAR_MATCHING: 50.0%",
+            )
+
+        monkeypatch.setattr(rebrew.compile, "compile_and_compare", _unmatched)
+        first = verify_mod.verify_entry(_ann(0x1000), cfg)  # type: ignore[arg-type]
+        assert "fenced naked" not in (first.message or "")
+
+        cfile.write_text(
+            "#ifdef REBREW_ALLOW_NAKED\n"
+            "__declspec(naked) void my_func(void) { __asm { ret } }\n"
+            "#else\n"
+            "void my_func(void) { /* fallback */ }\n"
+            "#endif\n",
+            encoding="utf-8",
+        )
+        second = verify_mod.verify_entry(_ann(0x1000), cfg)  # type: ignore[arg-type]
+        assert "fenced naked" in (second.message or "")
+
     def test_effective_match_note(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """A NEAR_MATCHING whose ENTIRE delta is register allocation is a
         reccmp-style effective match — the message must name it (not
