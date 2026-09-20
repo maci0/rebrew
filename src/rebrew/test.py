@@ -60,7 +60,7 @@ from rebrew.compile import (
 )
 from rebrew.config import ProjectConfig
 from rebrew.context import CompileContext
-from rebrew.matcher import parse_obj_symbol_and_relocs
+from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
 from rebrew.metadata import (
     is_status_parked,
     is_status_sticky,

@@ -36,6 +36,7 @@ import typer
 from rich.console import Console
 
 from rebrew.binsync import serial
+from rebrew.c_parser import type_from_declaration
 from rebrew.catalog import scan_reversed_dir
 from rebrew.cli import TargetOption, error_exit, json_print, require_config
 from rebrew.config import ProjectConfig
@@ -68,38 +69,6 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Global type resolution
 # ---------------------------------------------------------------------------
-
-_DECL_RE = re.compile(
-    r"^(?:extern\s+)?(?P<type>.+?)\s+\b(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*(?P<arr>\[.*\])?\s*;?\s*$"
-)
-
-
-def type_from_declaration(decl: str, var_name: str) -> str | None:
-    """Extract the C type string for *var_name* from a single declaration line."""
-    decl = decl.strip().rstrip(";").strip()
-    if not decl or var_name not in decl:
-        return None
-    # Try the decl regex
-    m = _DECL_RE.match(decl + ";")
-    if m and m.group("name") == var_name:
-        t = m.group("type").strip()
-        arr = (m.group("arr") or "").strip()
-        if arr:
-            t = f"{t}{arr}"
-        return t or None
-    # Fallback: split on var_name
-    idx = decl.find(var_name)
-    if idx > 0:
-        prefix = decl[:idx].strip()
-        # Remove leading extern
-        if prefix.startswith("extern "):
-            prefix = prefix[7:].strip()
-        suffix = decl[idx + len(var_name) :].strip()
-        if suffix.startswith("["):
-            prefix = f"{prefix}{suffix}"
-        if prefix:
-            return prefix
-    return None
 
 
 def _extract_global_name_and_type(

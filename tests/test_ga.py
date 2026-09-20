@@ -1753,7 +1753,7 @@ class TestRunOneStubGaPersistsFlags:
         monkeypatch.setattr(
             M,
             "update_cflags_annotation",
-            lambda fp, cf, metadata_dir=None: persisted.update(cf=cf),
+            lambda fp, cf, metadata_dir=None, **_kw: persisted.update(cf=cf),
         )
 
         matched, _summary, _score, _gens = M._run_one_stub_ga(

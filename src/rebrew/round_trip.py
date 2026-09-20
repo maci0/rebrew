@@ -57,7 +57,7 @@ from rebrew.coff_reloc import (
 )
 from rebrew.compile import compile_to_obj
 from rebrew.config import ProjectConfig
-from rebrew.matcher import parse_obj_relocs_full, parse_obj_symbol_bytes
+from rebrew.matcher.parsers import parse_obj_relocs_full, parse_obj_symbol_bytes
 from rebrew.metadata import get_entry
 from rebrew.sections import trim_trailing_padding
 from rebrew.sources import (

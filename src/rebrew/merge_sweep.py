@@ -463,7 +463,7 @@ class _PartitionScorer:
         """Score one cluster as ``(matched_bytes, compiler_invocations)``."""
         from rebrew.coff_reloc import build_iat_region, smart_reloc_compare
         from rebrew.compile import compile_to_obj
-        from rebrew.matcher import parse_obj_symbol_and_relocs
+        from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
         from rebrew.utils import safe_shlex_split
 
         text = self._cluster_text(cluster)

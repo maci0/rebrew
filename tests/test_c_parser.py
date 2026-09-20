@@ -8,6 +8,7 @@ from rebrew.c_parser import (
     find_c_function_definitions,
     find_extern_function_names,
     find_extern_variables,
+    type_from_declaration,
 )
 
 
@@ -338,3 +339,17 @@ class TestParsePreservesLegacyBytes:
         spans = protected_spans(raw)
         assert spans, "expected a protected string span"
         assert raw[spans[0][0] : spans[0][1]] == b'"keep"'
+
+
+class TestTypeFromDeclaration:
+    def test_simple_extern(self) -> None:
+        assert type_from_declaration("extern int g_count;", "g_count") == "int"
+
+    def test_array_suffix(self) -> None:
+        assert type_from_declaration("char g_buf[64];", "g_buf") == "char[64]"
+
+    def test_wrong_name_returns_none(self) -> None:
+        assert type_from_declaration("int g_a;", "g_b") is None
+
+    def test_empty_decl_returns_none(self) -> None:
+        assert type_from_declaration("", "x") is None

@@ -26,14 +26,6 @@ from rich.console import Console
 
 from rebrew.cli import TargetOption, error_exit, json_print, require_config
 from rebrew.config import ProjectConfig
-from rebrew.data_annotate import annotate_globals, gen_globals_header, set_data_types
-from rebrew.data_render import (
-    render_bss,
-    render_dispatch,
-    render_globals,
-    render_summary,
-    section_summary,
-)
 from rebrew.utils import atomic_write_text, read_source_text
 
 console = Console(stderr=True)
@@ -1068,6 +1060,8 @@ def main(
 
     # --set-type: correct a declared global type in the data metadata
     if set_type:
+        from rebrew.data_annotate import set_data_types
+
         try:
             rows = set_data_types(cfg, set_type, dry_run=dry_run)
         except ValueError as exc:
@@ -1081,6 +1075,8 @@ def main(
 
     # --gen-header: generate rebrew_globals.h from annotations (no Ghidra)
     if gen_header:
+        from rebrew.data_annotate import gen_globals_header
+
         gen_globals_header(
             cfg,
             src_dir,
@@ -1237,6 +1233,8 @@ def main(
 
     # --annotate: insert // GLOBAL: markers from the data metadata
     if annotate:
+        from rebrew.data_annotate import annotate_globals
+
         metadata = cfg.metadata_dir / "rebrew-data.toml"
         if not metadata.exists():
             error_exit(f"data metadata not found: {metadata}", json_mode=json_output)
@@ -1298,6 +1296,16 @@ def main(
 
     data_anns = scan_data_annotations(src_dir, cfg=cfg)
     scan.data_annotations = data_anns
+
+    # Presentation helpers — CLI-only; keep library imports of scan_globals free
+    # of Rich / annotate writers.
+    from rebrew.data_render import (
+        render_bss,
+        render_dispatch,
+        render_globals,
+        render_summary,
+        section_summary,
+    )
 
     if bss or fix_bss:
         bss_report = verify_bss_layout(scan, sections)

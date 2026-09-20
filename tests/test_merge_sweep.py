@@ -410,7 +410,7 @@ class TestPartitionScorer:
     def _patch_compile(self, monkeypatch: Any, calls: list[dict[str, Any]], size: int = 10) -> None:
         import rebrew.coff_reloc
         import rebrew.compile
-        import rebrew.matcher
+        import rebrew.matcher.parsers
         import rebrew.merge_sweep as ms
 
         def fake_compile(
@@ -423,7 +423,7 @@ class TestPartitionScorer:
 
         monkeypatch.setattr(rebrew.compile, "compile_to_obj", fake_compile)
         monkeypatch.setattr(
-            rebrew.matcher,
+            rebrew.matcher.parsers,
             "parse_obj_symbol_and_relocs",
             lambda obj_path, symbol: (b"\x90" * size, {}, []),
         )

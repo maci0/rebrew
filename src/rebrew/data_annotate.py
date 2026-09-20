@@ -190,14 +190,9 @@ def _source_decls_by_va(
     *extra_files* are scanned in addition to *src_dir* (e.g. the stub TU,
     which lives outside the reversed tree but holds real markers).
     """
-    from rebrew.c_parser import find_extern_variables
+    from rebrew.c_parser import find_extern_variables, type_from_declaration
     from rebrew.sources import iter_sources
     from rebrew.utils import read_source_text
-
-    try:
-        from rebrew.binsync.export import type_from_declaration
-    except ImportError:  # binsync.export pulls catalog; keep header gen usable without it
-        type_from_declaration = None  # type: ignore[assignment]
 
     found: dict[int, tuple[str, str]] = {}
     files = sorted(iter_sources(src_dir, cfg)) if src_dir.exists() else []
@@ -226,7 +221,7 @@ def _source_decls_by_va(
                 ext_vars = []
             if ext_vars:
                 name, type_str = ext_vars[0].name, ext_vars[0].type_str
-            elif type_from_declaration is not None:
+            else:
                 var_m = re.search(r"([A-Za-z_][A-Za-z0-9_]*)\s*(\[[^\]]*\])?\s*$", decl)
                 if var_m:
                     name = var_m.group(1)

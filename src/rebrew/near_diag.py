@@ -600,7 +600,7 @@ def _diagnose_one(
     from rebrew.coff_reloc import build_iat_region, build_name_to_va, smart_reloc_compare
     from rebrew.compile import compile_to_obj
     from rebrew.compile_overrides import resolve_compile_overrides
-    from rebrew.matcher import parse_obj_symbol_and_relocs
+    from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
 
     target_bytes = extract_raw_bytes(cfg.target_binary, va_int, size_val)
     if not target_bytes:

@@ -574,7 +574,7 @@ class TestFixBlocker:
         )
         monkeypatch.setattr("rebrew.compile.compile_to_obj", lambda *a, **k: (Path("o.obj"), ""))
         monkeypatch.setattr(
-            "rebrew.matcher.parse_obj_symbol_and_relocs",
+            "rebrew.matcher.parsers.parse_obj_symbol_and_relocs",
             lambda *a, **k: (b"\x90" * 8, {}, []),
         )
         result = CliRunner().invoke(app, ["--fix-blocker", str(src)])
@@ -625,7 +625,7 @@ class TestAllBatch:
             compile_fn or (lambda *a, **k: (Path("o.obj"), "")),
         )
         monkeypatch.setattr(
-            "rebrew.matcher.parse_obj_symbol_and_relocs",
+            "rebrew.matcher.parsers.parse_obj_symbol_and_relocs",
             lambda *a, **k: (b"\x90" * 8, {}, []),
         )
         monkeypatch.setattr(
@@ -824,7 +824,7 @@ class TestValidatedRelocMasking:
         monkeypatch.setattr("rebrew.binary_loader.extract_raw_bytes", lambda *a, **k: target)
         monkeypatch.setattr("rebrew.compile.compile_to_obj", lambda *a, **k: (Path("o.obj"), ""))
         monkeypatch.setattr(
-            "rebrew.matcher.parse_obj_symbol_and_relocs",
+            "rebrew.matcher.parsers.parse_obj_symbol_and_relocs",
             lambda *a, **k: (compiled, {0: "_g", 5: "_h"}, []),
         )
         monkeypatch.setattr("rebrew.coff_reloc.build_name_to_va", lambda cfg: {"_g": 0x5000})
@@ -918,7 +918,7 @@ class TestFixBlockerDryRun:
         )
         monkeypatch.setattr("rebrew.compile.compile_to_obj", lambda *a, **k: (Path("o.obj"), ""))
         monkeypatch.setattr(
-            "rebrew.matcher.parse_obj_symbol_and_relocs",
+            "rebrew.matcher.parsers.parse_obj_symbol_and_relocs",
             lambda *a, **k: (b"\x90" * 8, {}, []),
         )
         result = CliRunner().invoke(app, ["--fix-blocker", "--dry-run", str(src)])
@@ -970,7 +970,7 @@ class TestFixBlockerDryRun:
         )
         monkeypatch.setattr("rebrew.compile.compile_to_obj", lambda *a, **k: (Path("o.obj"), ""))
         monkeypatch.setattr(
-            "rebrew.matcher.parse_obj_symbol_and_relocs",
+            "rebrew.matcher.parsers.parse_obj_symbol_and_relocs",
             lambda *a, **k: (b"\x90" * 8, {}, []),
         )
         result = CliRunner().invoke(app, ["--fix-blocker", "--dry-run", "--json", str(src)])
@@ -1028,7 +1028,7 @@ class TestFixBlockerDryRun:
         )
         monkeypatch.setattr("rebrew.compile.compile_to_obj", lambda *a, **k: (Path("o.obj"), ""))
         monkeypatch.setattr(
-            "rebrew.matcher.parse_obj_symbol_and_relocs",
+            "rebrew.matcher.parsers.parse_obj_symbol_and_relocs",
             lambda *a, **k: (b"\x90" * 8, {}, []),
         )
         result = CliRunner().invoke(app, ["--fix-blocker", "--dry-run", str(src)])
@@ -1075,7 +1075,7 @@ class TestFixBlockerStatus:
         monkeypatch.setattr("rebrew.binary_loader.extract_raw_bytes", lambda *a, **k: b"\x01\x03")
         monkeypatch.setattr("rebrew.compile.compile_to_obj", lambda *a, **k: (Path("o.obj"), ""))
         monkeypatch.setattr(
-            "rebrew.matcher.parse_obj_symbol_and_relocs",
+            "rebrew.matcher.parsers.parse_obj_symbol_and_relocs",
             lambda *a, **k: (b"\x01\x02", {}, []),
         )
         result = CliRunner().invoke(app, ["--fix-blocker", *extra_args, "--json", str(src)])
@@ -1147,7 +1147,7 @@ class TestFixBlockerPreservesGaCeiling:
         )
         monkeypatch.setattr("rebrew.compile.compile_to_obj", lambda *a, **k: (Path("o.obj"), ""))
         monkeypatch.setattr(
-            "rebrew.matcher.parse_obj_symbol_and_relocs",
+            "rebrew.matcher.parsers.parse_obj_symbol_and_relocs",
             lambda *a, **k: (b"\x90" * 8, {}, []),
         )
         result = CliRunner().invoke(app, ["--fix-blocker", str(src)])

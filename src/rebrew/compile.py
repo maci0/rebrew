@@ -70,7 +70,7 @@ from rebrew.compile_cache import CacheBackend, compile_cache_key, get_compile_ca
 from rebrew.config import ProjectConfig, validate_http_url
 from rebrew.context import CONTEXT_UNIT_NAME, CompileContext
 from rebrew.headless import _XVFB_RUN_SERVER_ARGS, ensure_xvfb
-from rebrew.matcher import parse_obj_symbol_and_relocs
+from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
 from rebrew.metadata import MATCHED_STATUSES, canonical_status
 from rebrew.msvc_env import msvc_env_from_config, resolve_runner_path
 from rebrew.toolchain import (

@@ -59,7 +59,7 @@ from rebrew.cli import (
 from rebrew.coff_reloc import build_iat_region, build_name_to_va, smart_reloc_compare
 from rebrew.compile import compile_to_obj
 from rebrew.config import ProjectConfig
-from rebrew.matcher import parse_obj_relocs_full, parse_obj_symbol_bytes
+from rebrew.matcher.parsers import parse_obj_relocs_full, parse_obj_symbol_bytes
 from rebrew.prove_simprocs import _get_win32_simprocs
 from rebrew.sources import (
     iter_sources,

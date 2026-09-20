@@ -373,7 +373,7 @@ def main(
     # Checked unconditionally — `rebrew match f.c --tier nonsense` silently
     # succeeded before (tier is only consulted in sweep paths, so the typo
     # went unnoticed instead of erroring at invocation time).
-    from rebrew.matcher import MSVC_SWEEP_TIERS
+    from rebrew.flag_data import MSVC_SWEEP_TIERS
 
     if tier not in MSVC_SWEEP_TIERS:
         error_exit(

@@ -40,9 +40,14 @@ Packaged `mut_*` ops under `mutations/` → `ALL_MUTATIONS` in `mutator.py`. Inv
 - `match_ga.py` — primary GA loop (`build_candidate_obj_only`)
 - `match_sweep.py` — flag sweep
 - `diff.py`, `stack_cmp.py` — compile-for-compare helpers
+- `compile.py` / `test.py` / `prove.py` — import **``rebrew.matcher.parsers``**
+  directly (package ``__init__`` is lazy so this does not load mutator/compiler)
 
 ## Gotchas
 
+- **Lazy package exports**: ``rebrew.matcher`` resolves public names via
+  ``__getattr__``.  Importing a submodule (e.g. ``parsers``) does not load the
+  GA stack; ``from rebrew.matcher import mutate_code`` still works.
 - **Profile-parametrized sweep**: `generate_flag_combinations(tier=, profile=)` picks axes per profile (incl. `borland-2.0`); unknown profile falls back to registry `flags_style` (posix → GCC axes, not MSVC).
 - **Heuristic reloc/register detection**: pattern matching in `scoring.py`, not COFF metadata.
 - **Timeouts**: `build_candidate_obj_only` / `flag_sweep` default 60s; `build_candidate` (compile+link) defaults to 120s. Direct subprocess timeouts return `BuildResult(ok=False)`. Image-backed path: `timeout=` seeds a synthetic cfg when none is passed; a real `cfg` uses `cfg.compile_timeout`.

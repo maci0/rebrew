@@ -606,3 +606,41 @@ def find_extern_variables(source: str, *, include_definitions: bool = False) -> 
 
     walk(tree.root_node)
     return results
+
+
+# ---------------------------------------------------------------------------
+# Plain declaration type extraction (regex fallback for single lines)
+# ---------------------------------------------------------------------------
+
+_DECL_TYPE_RE = re.compile(
+    r"^(?:extern\s+)?(?P<type>.+?)\s+\b(?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*(?P<arr>\[.*\])?\s*;?\s*$"
+)
+
+
+def type_from_declaration(decl: str, var_name: str) -> str | None:
+    """Extract the C type string for *var_name* from a single declaration line.
+
+    Shared by data annotation / header generation and BinSync global export —
+    lives here so callers do not reach into ``rebrew.binsync``.
+    """
+    decl = decl.strip().rstrip(";").strip()
+    if not decl or var_name not in decl:
+        return None
+    m = _DECL_TYPE_RE.match(decl + ";")
+    if m and m.group("name") == var_name:
+        t = m.group("type").strip()
+        arr = (m.group("arr") or "").strip()
+        if arr:
+            t = f"{t}{arr}"
+        return t or None
+    idx = decl.find(var_name)
+    if idx > 0:
+        prefix = decl[:idx].strip()
+        if prefix.startswith("extern "):
+            prefix = prefix[7:].strip()
+        suffix = decl[idx + len(var_name) :].strip()
+        if suffix.startswith("["):
+            prefix = f"{prefix}{suffix}"
+        if prefix:
+            return prefix
+    return None

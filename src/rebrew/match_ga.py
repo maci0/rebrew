@@ -24,17 +24,15 @@ from rich.console import Console
 from rebrew.compile_cache import CacheBackend, source_digest
 from rebrew.config import ProjectConfig
 from rebrew.match_sweep import BuildParams
-from rebrew.matcher import (
-    BuildResult,
-    GACheckpoint,
-    build_candidate,
-    build_candidate_obj_only,
+from rebrew.matcher.compiler import build_candidate, build_candidate_obj_only
+from rebrew.matcher.core import BuildResult, GACheckpoint
+from rebrew.matcher.mutator import (
     compute_population_diversity,
     crossover,
     mutate_code,
     quick_validate,
-    score_candidate,
 )
+from rebrew.matcher.scoring import score_candidate
 from rebrew.utils import atomic_write_text
 
 log = logging.getLogger(__name__)
