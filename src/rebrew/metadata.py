@@ -156,6 +156,9 @@ _CANONICAL_ORDER = [
     "locals",
     "comments",
     "source",
+    "prove_constraints",
+    "updated_by",
+    "updated_at",
 ]
 
 # Fields that live in the metadata — routing table used by update/delete helpers.

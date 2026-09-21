@@ -1342,6 +1342,7 @@ def lint_file(
         "status": "STATUS",
         "size": "SIZE",
         "cflags": "CFLAGS",
+        "toolchain": "TOOLCHAIN",
         "blocker": "BLOCKER",
         "blocker_delta": "BLOCKER_DELTA",
         "ghidra": "GHIDRA",
@@ -1944,14 +1945,20 @@ def main(
                             )
                         elif toml_key == "status":
                             # STATUS must go through the promotion gate
-                            # (validates the value, clears stale blockers,
-                            # never silently demotes PROVEN).
+                            # (validates the value, never silently demotes
+                            # PROVEN).  Clear blockers only for EXACT/RELOC —
+                            # migrating // STATUS: NEAR_MATCHING must not erase
+                            # an accompanying BLOCKER that this same --fix
+                            # pass is about to migrate; PROVEN keeps blockers
+                            # for the same reason as rebrew prove.
+                            canon = canonical_status(str(write_value))
                             update_source_status(
                                 cfg.metadata_dir,
-                                write_value,
+                                canon,
                                 module,
                                 va,
                                 force=True,
+                                clear_blockers=canon in ("EXACT", "RELOC"),
                                 updated_by="lint",
                             )
                         else:

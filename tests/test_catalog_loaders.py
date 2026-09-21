@@ -139,6 +139,28 @@ class TestScanReversedDirLibraryHeaders:
         entries = scan_reversed_dir(src, cfg=cfg)
         assert any(e.va == 0x1000 and e.marker_type == "LIBRARY" for e in entries)
 
+    def test_library_header_merges_metadata_status(self, tmp_path: Path) -> None:
+        """verify/test STATUS in TOML must win over the EXACT library default."""
+        from types import SimpleNamespace
+
+        from rebrew.catalog.loaders import scan_reversed_dir
+        from rebrew.metadata import save_metadata
+
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "library_msvc.h").write_text(
+            "// LIBRARY: SERVER 0x1000\n// _fflush\n", encoding="utf-8"
+        )
+        save_metadata(
+            tmp_path,
+            {("SERVER", 0x1000): {"status": "NEAR_MATCHING", "blocker": "1B diff"}},
+        )
+        cfg = SimpleNamespace(metadata_dir=tmp_path, marker="SERVER", source_ext=".c")
+        entries = scan_reversed_dir(src, cfg=cfg)
+        lib = next(e for e in entries if e.va == 0x1000)
+        assert lib.status == "NEAR_MATCHING"
+        assert lib.blocker == "1B diff"
+
 
 class TestParseRizinAfl:
     """Shared rizin ``afl`` parser (discover + intake used to hand-roll

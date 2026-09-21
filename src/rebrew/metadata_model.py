@@ -44,7 +44,18 @@ _JSON_FIELDS = frozenset({"prove_constraints", "locals", "comments"})
 #: ``metadata._FIELD_TYPES``).  ``skip``/``globals`` accept more than one type
 #: and are deliberately not listed.
 _STR_FIELDS = frozenset(
-    {"cflags", "toolchain", "status", "blocker", "note", "ghidra", "analysis", "source"}
+    {
+        "cflags",
+        "toolchain",
+        "status",
+        "blocker",
+        "note",
+        "ghidra",
+        "analysis",
+        "source",
+        "updated_by",
+        "updated_at",
+    }
 )
 
 # Field → typed dataclass attribute (public: annotation overlays use the same map).
@@ -64,6 +75,11 @@ FIELD_TO_ATTR: dict[str, str] = {
     "comments": "comments",
     "source": "source",
     "prove_constraints": "prove_constraints",
+    # Provenance of the last STATUS write (mirrors METADATA_FIELDS /
+    # Annotation / merge_into_annotation — without these they land in
+    # ``extra`` and update_annotation_key cannot idempotency-check them).
+    "updated_by": "updated_by",
+    "updated_at": "updated_at",
 }
 
 
@@ -87,6 +103,15 @@ def _coerce(key: str, value: Any) -> Any:
         return value
     if key in _JSON_FIELDS and not isinstance(value, dict):
         raise MetadataValidationError(f"{key} must be a table, got {value!r}")
+    if key == "globals":
+        # Store accepts list | str (metadata._FIELD_TYPES); Annotation merge
+        # turns lists into globals_list.  Normalize to the comma-string form
+        # so update_annotation_key idempotency compares like-for-like.
+        if isinstance(value, list):
+            return ", ".join(str(g) for g in value)
+        if not isinstance(value, str):
+            raise MetadataValidationError(f"globals must be a str or list, got {value!r}")
+        return value
     if key in _STR_FIELDS and not isinstance(value, str):
         # Left uncoerced, `status = 5` crashed `problems()` on `.upper()`.
         raise MetadataValidationError(f"{key} must be a str, got {value!r}")
@@ -114,6 +139,8 @@ class MetadataEntry:
     comments: dict[str, Any] | None = None
     source: str | None = None
     prove_constraints: dict[str, Any] | None = None
+    updated_by: str | None = None
+    updated_at: str | None = None
     extra: dict[str, Any] = field(default_factory=dict)
     load_problems: list[str] = field(default_factory=list, repr=False)
     """Per-field coercion failures seen by :meth:`load` (empty when clean).
@@ -175,7 +202,11 @@ class MetadataEntry:
           (:func:`rebrew.metadata.update_source_status`) — *force* (default
           False) decides whether stickiness (PROVEN) may be demoted, exactly
           like the raw writer.  Pass ``force=True`` only for explicit
-          user-intent writes.
+          user-intent writes.  Blockers are cleared only for byte-identical
+          statuses (EXACT/RELOC), matching ``rebrew test`` / ``rebrew verify``
+          for those verdicts.  PROVEN keeps blockers (``rebrew prove`` must
+          not strand a fresh promotion as a blocker-less STUB on the next
+          verify), and NEAR_MATCHING / STUB / error verdicts keep them too.
         * Every other key must be a metadata-owned field; ``size`` /
           ``blocker_delta`` are coerced to ``int``.  Writes are batched into
           a single read-modify-write (except STATUS, which has its own).
@@ -191,12 +222,19 @@ class MetadataEntry:
 
         status = coerced.pop("status", None)
         if status is not None:
-            if canonical_status(str(status)) not in KNOWN_STATUSES:
+            canon = canonical_status(str(status))
+            if canon not in KNOWN_STATUSES:
                 raise MetadataValidationError(
                     f"unknown STATUS {status!r} (expected one of {sorted(KNOWN_STATUSES)})"
                 )
             update_source_status(
-                directory, canonical_status(str(status)), self.module, self.va, force=force
+                directory,
+                canon,
+                self.module,
+                self.va,
+                force=force,
+                # EXACT/RELOC only — not PROVEN (see prove.py clear_blockers=False).
+                clear_blockers=canon in ("EXACT", "RELOC"),
             )
         if coerced:
             set_fields(directory, self.va, coerced, module=self.module)

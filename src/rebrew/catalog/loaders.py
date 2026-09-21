@@ -292,7 +292,11 @@ def scan_reversed_dir(reversed_dir: Path, cfg: ProjectConfig | None = None) -> l
     # `cfg` makes the scan include the project's shared root, which
     # scan_reversed_dir already covered for the catalog.
     for hfile in iter_library_headers(reversed_dir, cfg):
-        parsed = parse_library_header(hfile, target_name=target_marker(cfg))
+        parsed = parse_library_header(
+            hfile,
+            target_name=target_marker(cfg),
+            metadata_dir=cfg.metadata_dir if cfg else None,
+        )
         entries.extend(parsed)
 
     return entries

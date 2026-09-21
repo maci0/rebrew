@@ -99,14 +99,58 @@ def test_apply_rejects_non_int_size(tmp_path: Path) -> None:
 
 
 def test_apply_status_uses_promotion_gate(tmp_path: Path) -> None:
-    """STATUS writes clear stale blockers (update_source_status semantics)."""
+    """Matched STATUS writes clear stale blockers (update_source_status semantics)."""
     e = _entry(tmp_path)
     e.apply(tmp_path, size=16, blocker="stale blocker")
     e.apply(tmp_path, status="EXACT")
     loaded = MetadataEntry.load(tmp_path, 0x1000, "MAIN")
     assert loaded.status == "EXACT"
-    assert loaded.blocker is None  # promotion cleared it
+    assert loaded.blocker is None  # matched promotion cleared it
     assert loaded.size == 16  # unaffected
+
+
+def test_apply_near_matching_preserves_blocker(tmp_path: Path) -> None:
+    """NEAR_MATCHING must not wipe blockers — same policy as rebrew test."""
+    e = _entry(tmp_path)
+    e.apply(tmp_path, blocker="1B register diff", blocker_delta=1)
+    e.apply(tmp_path, status="NEAR_MATCHING")
+    loaded = MetadataEntry.load(tmp_path, 0x1000, "MAIN")
+    assert loaded.status == "NEAR_MATCHING"
+    assert loaded.blocker == "1B register diff"
+    assert loaded.blocker_delta == 1
+
+
+def test_apply_proven_preserves_blocker(tmp_path: Path) -> None:
+    """PROVEN must keep blockers (rebrew prove clear_blockers=False)."""
+    e = _entry(tmp_path)
+    e.apply(tmp_path, blocker="GA_CEILING: register-only", blocker_delta=3)
+    e.apply(tmp_path, status="PROVEN")
+    loaded = MetadataEntry.load(tmp_path, 0x1000, "MAIN")
+    assert loaded.status == "PROVEN"
+    assert loaded.blocker == "GA_CEILING: register-only"
+    assert loaded.blocker_delta == 3
+
+
+def test_apply_load_updated_by_roundtrip(tmp_path: Path) -> None:
+    """updated_by/updated_at are typed fields, not opaque ``extra`` keys."""
+    from rebrew.metadata import update_source_status
+
+    update_source_status(tmp_path, "EXACT", "MAIN", 0x1000, updated_by="verify")
+    loaded = MetadataEntry.load(tmp_path, 0x1000, "MAIN")
+    assert loaded.updated_by == "verify"
+    assert loaded.updated_at
+    assert "updated_by" not in loaded.extra
+    assert "updated_at" not in loaded.extra
+
+
+def test_load_globals_list_coerces_to_string(tmp_path: Path) -> None:
+    """List-valued globals (store contract) normalize to a comma string."""
+    from rebrew.metadata import save_metadata
+
+    save_metadata(tmp_path, {("MAIN", 0x1000): {"globals": ["g_foo", "g_bar"]}})
+    loaded = MetadataEntry.load(tmp_path, 0x1000, "MAIN")
+    assert loaded.globals == "g_foo, g_bar"
+    assert loaded.problems() == []
 
 
 def test_apply_proven_not_silently_demoted(tmp_path: Path) -> None:

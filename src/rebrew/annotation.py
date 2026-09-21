@@ -1321,14 +1321,29 @@ def update_annotation_key(
     Returns True if any write was made, False otherwise.
 
     """
-    from rebrew.metadata import is_metadata_key, update_source_status
+    from rebrew.metadata import (
+        canonical_status,
+        is_metadata_key,
+        update_source_status,
+    )
     from rebrew.metadata_model import FIELD_TO_ATTR, MetadataEntry
 
     if is_metadata_key(key):
         module = module_for_va(filepath, va)
         _dir = metadata_dir if metadata_dir is not None else filepath.parent
         if key.upper() == "STATUS":
-            update_source_status(_dir, new_value, module, va, force=True)
+            # Same clear_blockers policy as MetadataEntry.apply / prove:
+            # only byte-identical EXACT/RELOC wipe blockers; PROVEN and
+            # unmatched verdicts keep them.
+            canon = canonical_status(new_value)
+            update_source_status(
+                _dir,
+                canon,
+                module,
+                va,
+                force=True,
+                clear_blockers=canon in ("EXACT", "RELOC"),
+            )
         else:
             # Typed, validated write via the metadata facade: key case is
             # normalized, size/blocker_delta are coerced to int, and unknown
@@ -1418,6 +1433,7 @@ def update_annotation_key(
 def parse_library_header(
     filepath: Path,
     target_name: str | None = None,
+    metadata_dir: Path | None = None,
 ) -> list[Annotation]:
     """Parse a ``library_*.h`` file for LIBRARY markers.
 
@@ -1441,8 +1457,12 @@ def parse_library_header(
     are invisible to it.  Rebrew captures them to support library functions
     that are actively compiled and matched from reference source.
 
+    When *metadata_dir* is provided each returned Annotation is overlaid with
+    ``rebrew-functions.toml`` the same way :func:`parse_c_file_multi` does —
+    verify/test STATUS wins over the EXACT default / inline KV.
+
     Returns a list of Annotations with marker_type=LIBRARY.  Entries
-    without explicit STATUS default to EXACT.
+    without explicit STATUS (and no metadata overlay) default to EXACT.
     """
     try:
         text, _ = read_source_text(filepath)
@@ -1455,6 +1475,8 @@ def parse_library_header(
         return []
 
     results: list[Annotation] = []
+
+    from rebrew.metadata import canonical_status
 
     i = 0
     while i < len(lines):
@@ -1512,7 +1534,7 @@ def parse_library_header(
                     name=symbol.lstrip("_") if symbol else "",
                     symbol=symbol,
                     module=module,
-                    status=kv.get("STATUS", "EXACT").upper(),
+                    status=canonical_status(kv.get("STATUS", "EXACT")),
                     cflags=kv.get("CFLAGS", ""),
                     toolchain=kv.get("TOOLCHAIN", ""),
                     marker_type="LIBRARY",
@@ -1524,6 +1546,16 @@ def parse_library_header(
             )
 
         i += 1
+
+    if metadata_dir is not None and results:
+        from rebrew.metadata import apply_metadata_entry, load_metadata
+
+        # Same one-load-per-file overlay as parse_c_file_multi / _finalize_entries.
+        entries_by_key = load_metadata(metadata_dir, deepcopy=False)
+        for entry in results:
+            meta = entries_by_key.get((entry.module, entry.va))
+            if meta:
+                apply_metadata_entry(entry, meta)
 
     return results
 

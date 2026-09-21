@@ -328,7 +328,11 @@ def _collect_functions(cfg: ProjectConfig) -> list[dict[str, Any]]:
     # were missing from this table: iter_sources does not glob library_*.h, and
     # their minimal marker format needs parse_library_header.
     for header in iter_library_headers(reversed_path, cfg):
-        for ann in parse_library_header(header, target_name=target_marker(cfg)):
+        for ann in parse_library_header(
+            header,
+            target_name=target_marker(cfg),
+            metadata_dir=cfg.metadata_dir,
+        ):
             if ann.va < min_valid_va_for(cfg):
                 continue
             functions.append(
@@ -340,7 +344,7 @@ def _collect_functions(cfg: ProjectConfig) -> list[dict[str, Any]]:
                     "cflags": ann.cflags,
                     "module": ann.module,
                     "file": rel_display_path(header, reversed_path),
-                    "blocker": "",
+                    "blocker": ann.blocker or "",
                 }
             )
     functions.sort(key=lambda fn: (fn["va"], fn["name"]))
