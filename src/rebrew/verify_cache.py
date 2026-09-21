@@ -22,7 +22,6 @@ from dataclasses import asdict, dataclass, fields
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from rebrew.metadata import MATCHED_STATUSES
 from rebrew.utils import atomic_write_text
 from rebrew.utils import canonical_va_key as canonical_va_key
 from rebrew.verify_hash import (
@@ -30,6 +29,7 @@ from rebrew.verify_hash import (
     _headers_hash,
     entry_fingerprint,
 )
+from rebrew.workspace.status import MATCHED_STATUSES
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

@@ -27,7 +27,6 @@ from pathlib import Path
 from typing import Any
 
 from rebrew.metadata import (
-    KNOWN_STATUSES,
     METADATA_FIELDS,
     as_metadata_int,
     canonical_status,
@@ -36,6 +35,7 @@ from rebrew.metadata import (
     set_fields,
     update_source_status,
 )
+from rebrew.workspace.status import KNOWN_STATUSES
 
 # Field names (lower-case TOML keys) with a single canonical Python type.
 _INT_FIELDS = frozenset({"size", "blocker_delta"})

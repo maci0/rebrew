@@ -1102,9 +1102,10 @@ def apply_metadata_entry(ann: Annotation, entry: dict[str, Any]) -> None:
 # ``field_kind`` facade was deleted — it had drifted from the live model
 # (case-sensitive vs upper() status checks) and only its tests referenced it.
 # ``KNOWN_STATUSES`` / ``MATCHED_STATUSES`` are owned by
-# :mod:`rebrew.workspace.status` (stdlib-light vocabulary) and re-exported
-# here so metadata writers and the rest of rebrew keep importing from
-# ``rebrew.metadata``.  ``coerce_metadata_value`` below remains live:
+# :mod:`rebrew.workspace.status` (stdlib-light vocabulary).  Import the
+# vocabulary from there (or ``rebrew.workspace``); this module re-exports
+# them only so metadata *writers* that already import ``rebrew.metadata``
+# need not take a second import.  ``coerce_metadata_value`` below remains live:
 # metadata_model validates against KNOWN_STATUSES, and lint --fix coerces
 # values through coerce_metadata_value.
 

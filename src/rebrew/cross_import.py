@@ -40,10 +40,10 @@ from rebrew.cli import (
     require_config,
 )
 from rebrew.config import ProjectConfig
-from rebrew.metadata import MATCHED_STATUSES
 from rebrew.similar import DEFAULT_CS_ARCH, DEFAULT_CS_MODE, disasm_signature, similarity_score
 from rebrew.sources import iter_sources, target_marker
 from rebrew.utils import atomic_write_text, read_source_text
+from rebrew.workspace.status import MATCHED_STATUSES
 
 console = Console(stderr=True)
 

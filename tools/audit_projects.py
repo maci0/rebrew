@@ -19,8 +19,9 @@ from rebrew.catalog.loaders import load_function_structure
 from rebrew.compile import resolve_cl_command
 from rebrew.config import FUNCTION_STRUCTURE_JSON, load_config
 from rebrew.data_metadata import load_data_metadata
-from rebrew.metadata import KNOWN_STATUSES, load_metadata
+from rebrew.metadata import load_metadata
 from rebrew.toolchain import TOOLCHAINS
+from rebrew.workspace.status import KNOWN_STATUSES
 
 
 def _default_root() -> Path:

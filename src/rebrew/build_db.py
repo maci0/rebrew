@@ -29,7 +29,7 @@ from rebrew.data_metadata import (
     DATA_STATUS_UNCHECKED,
     DATA_STATUS_VERIFIED,
 )
-from rebrew.metadata import KNOWN_STATUSES, MATCHED_STATUSES, canonical_status
+from rebrew.metadata import canonical_status
 from rebrew.workspace import (
     SCHEMA_TARGET,
     SECTION_CELLS_AGG_SQL,
@@ -39,6 +39,7 @@ from rebrew.workspace import (
     encode_section_cells,
     open_sqlite_ro,
 )
+from rebrew.workspace.status import KNOWN_STATUSES, MATCHED_STATUSES
 
 console = Console(stderr=True)
 

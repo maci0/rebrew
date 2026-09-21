@@ -19,13 +19,13 @@ from rebrew.annotation import Annotation
 from rebrew.catalog.loaders import load_ghidra_data_labels
 from rebrew.catalog.registry import RegistryEntry, is_jump_table
 from rebrew.data_metadata import DATA_STATUS_UNCHECKED
-from rebrew.metadata import MATCHED_STATUSES
 from rebrew.sections import (
     get_globals,
     has_back_jumps,
     sections_from_info,
     trim_trailing_padding,
 )
+from rebrew.workspace.status import MATCHED_STATUSES
 
 log = logging.getLogger(__name__)
 
@@ -47,7 +47,7 @@ _GRID_COLUMNS = 64
 # than the target; only EXACT/RELOC are byte-identical (see the
 # "byte_matched" field in the verify summary).  NEAR_MATCH is accepted as an
 # alias for NEAR_MATCHING (hand-written/older inputs); the canonical spelling
-# is NEAR_MATCHING (see metadata.KNOWN_STATUSES).
+# is NEAR_MATCHING (see workspace.status.KNOWN_STATUSES).
 _STATUS_PRIORITY = (
     ("EXACT",),
     ("RELOC", "PROVEN"),

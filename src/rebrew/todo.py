@@ -37,7 +37,7 @@ from rebrew.cli import (
 )
 from rebrew.compile import NEAR_MATCH_THRESHOLD
 from rebrew.config import FUNCTION_STRUCTURE_JSON, ProjectConfig
-from rebrew.metadata import GA_CEILING_PREFIX, MATCHED_STATUSES
+from rebrew.metadata import GA_CEILING_PREFIX
 from rebrew.naming import (
     detect_unmatchable,
     estimate_difficulty,
@@ -46,6 +46,7 @@ from rebrew.naming import (
     load_data,
     parse_byte_delta,
 )
+from rebrew.workspace.status import MATCHED_STATUSES
 
 console = Console(stderr=True)
 

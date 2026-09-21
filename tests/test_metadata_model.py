@@ -8,8 +8,8 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from rebrew.metadata import KNOWN_STATUSES
 from rebrew.metadata_model import MetadataEntry, MetadataValidationError
+from rebrew.workspace.status import KNOWN_STATUSES
 
 
 def _entry(tmp_path: Path) -> MetadataEntry:

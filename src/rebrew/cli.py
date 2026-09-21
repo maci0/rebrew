@@ -28,9 +28,9 @@ from rich.console import Console
 from rich.markup import escape
 
 from rebrew.config import ProjectConfig, load_config
-from rebrew.metadata import MATCHED_STATUSES
 from rebrew.sources import iter_sources, target_marker
 from rebrew.utils import parse_int_literal
+from rebrew.workspace.status import MATCHED_STATUSES
 
 # ---------------------------------------------------------------------------
 # Standardised exit codes

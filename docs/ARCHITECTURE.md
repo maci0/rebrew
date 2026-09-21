@@ -78,7 +78,8 @@ flowchart LR
 | `rebrew/matcher/` | GA engine: `scoring.py` (numpy + capstone), `mutator.py` (128 tree-sitter mutations), `compiler.py` (flag sweep), `solutions.py` (cross-function seeding + run history) |
 | `rebrew/catalog/` | Function registry, coverage grid (`grid.py`), `data_*.json` export, `coverage.db` schema consumers |
 | `rebrew/ghidra/` | BinSync-primary field sync + ReVa MCP structural ops (function create/delete and similar) |
-| `rebrew/core/` | Relocation-aware byte comparison, MSVC env setup |
+| `rebrew/coff_reloc.py` | Relocation-aware byte comparison (COFF/ELF reloc masking) |
+| `rebrew/msvc_env.py` | MSVC include/lib env for host-side compile helpers |
 | `rebrew/extract.py` | Batch extract/disassemble command (group: `list`/`show`/`batch`) |
 | `rebrew/crt_match.py` | CRT source cross-reference matcher (index, match, ASM detection) |
 | `rebrew/flirt.py` | FLIRT signature scanning |

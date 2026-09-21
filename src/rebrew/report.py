@@ -867,9 +867,9 @@ def generate_decomp_dev_report(cfg: ProjectConfig, out_path: Path) -> dict[str, 
     Returns the machine-readable summary dict.
     """
     from rebrew.cli import iter_annotations
-    from rebrew.metadata import MATCHED_STATUSES
     from rebrew.sections import get_text_section_size
     from rebrew.sources import iter_sources, target_marker
+    from rebrew.workspace.status import MATCHED_STATUSES
 
     sources = list(iter_sources(cfg.reversed_dir, cfg))
     marker = target_marker(cfg)

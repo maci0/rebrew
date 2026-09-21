@@ -31,8 +31,8 @@ from rebrew.cli import (
     require_config,
 )
 from rebrew.config import ProjectConfig
-from rebrew.metadata import MATCHED_STATUSES
 from rebrew.sources import iter_sources
+from rebrew.workspace.status import MATCHED_STATUSES
 
 # Regex that matches an inline metadata comment line (``// STATUS: EXACT``,
 # ``// SIZE: 120``, ``// CFLAGS: /O2``, ``/* BLOCKER: ... */``, etc.).  The

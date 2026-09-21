@@ -53,8 +53,6 @@ from rebrew.lint_cflags import (
     check_redundant_cflags,
 )
 from rebrew.metadata import (
-    KNOWN_STATUSES,
-    MATCHED_STATUSES,
     canonical_status,
     is_table_field,
     load_metadata,
@@ -67,6 +65,7 @@ from rebrew.utils import (
     read_source_text,
     rel_display_path,
 )
+from rebrew.workspace.status import KNOWN_STATUSES, MATCHED_STATUSES
 
 console = Console(stderr=True)
 
