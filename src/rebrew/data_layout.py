@@ -34,6 +34,26 @@ from rebrew.binary_loader import load_binary
 from rebrew.data_metadata import iter_data_symbols
 from rebrew.utils import atomic_write_text, config_path, load_tomllib, read_source_text
 
+
+def _scan_files(src_dir: Path, shared_dir: Path | None = None) -> list[Path]:
+    """``*.c`` files under *src_dir* plus the shared tree (deduplicated).
+
+    DATA markers in ``src/shared`` belong to every target; a ``reversed_dir``
+    -only scan misses them (fill-data never pads them, --own never owns
+    them).  *shared_dir* ``None`` or missing keeps the old behavior.
+    """
+    files = sorted(p for p in src_dir.rglob("*.c") if not p.is_symlink())
+    if shared_dir is not None:
+        try:
+            is_same = shared_dir.resolve() == src_dir.resolve()
+        except OSError:
+            is_same = False
+        if not is_same and shared_dir.is_dir():
+            seen = {p.resolve() for p in files}
+            files.extend(p for p in sorted(shared_dir.rglob("*.c")) if p.resolve() not in seen)
+    return files
+
+
 # ---------------------------------------------------------------------------
 # Link order + per-TU symbol inventory (objdump-based)
 # ---------------------------------------------------------------------------
@@ -464,6 +484,7 @@ def fill_data(
     dry_run: bool = False,
     bss_only: bool = False,
     target: str | None = None,
+    shared_dir: Path | None = None,
 ) -> dict[str, int]:
     """Emit ``_dpad_<addr>[N]`` pads for the uncovered .data byte runs.
 
@@ -476,6 +497,8 @@ def fill_data(
     *target* selects which ``[targets.*]`` geometry the pads are sized
     against; without it the project default applies (a multi-target project
     otherwise placed pads against another binary's ``.data``).
+    *shared_dir* adds the shared tree to the owner scan (DATA markers in
+    ``src/shared`` belong to every target).
     """
     data_base, raw_end, section_end = layout_geometry(root / "rebrew-project.toml", target=target)
     orig = data_raw_from_binary(bin_path)
@@ -483,7 +506,7 @@ def fill_data(
     # raw_end and become the zero-init pads — a `.data`-only read dropped them,
     # so BSS pads were never emitted and `--bss-only` was a no-op.
     toml = data_symbols(metadata, (".data", ".bss"))
-    files = sorted(p for p in src_dir.rglob("*.c") if not p.is_symlink())
+    files = _scan_files(src_dir, shared_dir)
     by_addr = sorted(toml.items(), key=lambda kv: kv[1])
     if not by_addr:
         return {"init_pads": 0, "bss_pads": 0}
@@ -719,6 +742,7 @@ def own_data_globals(
     stub_file: Path,
     dry_run: bool = False,
     target: str | None = None,
+    shared_dir: Path | None = None,
 ) -> dict[str, Any]:
     """Materialize stub-file globals as real definitions in their owner TUs.
 
@@ -738,7 +762,7 @@ def own_data_globals(
     orig = data_raw_from_binary(bin_path)
     toml = data_symbols(metadata)
     stub_resolved = stub_file.resolve()
-    files = [f for f in sorted(src_dir.rglob("*.c")) if f.resolve() != stub_resolved]
+    files = [f for f in _scan_files(src_dir, shared_dir) if f.resolve() != stub_resolved]
     by_addr = sorted(toml.items(), key=lambda kv: kv[1])
     toml_next: dict[str, int] = {
         by_addr[i][0]: (by_addr[i + 1][1] if i + 1 < len(by_addr) else raw_end)
@@ -924,6 +948,7 @@ def fix_ownership(
     src_dir: Path,
     dry_run: bool = False,
     target: str | None = None,
+    shared_dir: Path | None = None,
 ) -> dict[str, Any]:
     """Re-assign global ownership so each TU owns one contiguous address run.
 
@@ -936,7 +961,7 @@ def fix_ownership(
     toml = _data_symbol_types(metadata)
     data_base, raw_end, _section_end = layout_geometry(root / "rebrew-project.toml", target=target)
     orig = data_raw_from_binary(bin_path)
-    files = sorted(p for p in src_dir.rglob("*.c") if not p.is_symlink())
+    files = _scan_files(src_dir, shared_dir)
 
     def_re = re.compile(r"^[ \t]*[\w\s\*]+\s+(\w+)(?:\[\d+\])?\s*=")
     owner: dict[str, Path] = {}

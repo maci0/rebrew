@@ -297,7 +297,14 @@ def main(
     orig = data_raw_from_binary(bin_path)
     token_re = re.compile(rf"\b{re.escape(token_prefix)}[A-Za-z0-9_]+_([0-9a-fA-F]{{6,8}})\b")
 
-    scan_files = sorted(src_dir.rglob("*.c"))
+    # Shared sources carry string tokens too; an explicit --source-dir keeps
+    # the old single-dir behavior.
+    if source_dir is None:
+        from rebrew.data_layout import _scan_files
+
+        scan_files = _scan_files(src_dir, getattr(cfg, "shared_dir", None))
+    else:
+        scan_files = sorted(src_dir.rglob("*.c"))
     if files:
         scan_files = [f for f in scan_files if f.name in {p.name for p in files}]
     if not scan_files:

@@ -18,6 +18,11 @@
 - **`split --va` matches any stacked marker.**  A shared block carries one
   marker per target; the old first-marker-only match missed every other
   target's VA.
+- **DATA tooling scans `src/shared`.**  `fill-data`, `--own`,
+  `--fix-ownership` (via a shared `_scan_files` helper + `shared_dir`
+  kwarg), and `inline-strings` see shared DATA markers; `gen-stubs`
+  already scanned the whole tree. Data metadata was already
+  multi-target qualified.
 - **`merge --shared` collapses twin copies.**  Same-body files with different
   target markers become one stacked block (markers + SIZE lines preserved);
   same-name different-body twins are refused with names, never averaged —

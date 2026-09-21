@@ -947,3 +947,57 @@ class TestDataModeTarget:
         with pytest.raises(_Probe):
             dl.fix_ownership(tmp_path, meta, binp, src, target="B")
         assert seen == ["B", "B", "B"]
+
+
+class TestSharedScans:
+    """DATA tooling sees src/shared (DATA markers belong to every target)."""
+
+    def test_scan_files_includes_shared(self, tmp_path: Path) -> None:
+        from rebrew.data_layout import _scan_files
+
+        src = tmp_path / "src" / "V1"
+        src.mkdir(parents=True)
+        (src / "a.c").write_text("int a;\n", encoding="utf-8")
+        shared = tmp_path / "src" / "shared"
+        shared.mkdir(parents=True)
+        (shared / "s.c").write_text("int s;\n", encoding="utf-8")
+        files = _scan_files(src, shared)
+        assert (src / "a.c") in files
+        assert (shared / "s.c") in files
+
+    def test_scan_files_no_shared_unchanged(self, tmp_path: Path) -> None:
+        from rebrew.data_layout import _scan_files
+
+        src = tmp_path / "src"
+        src.mkdir(parents=True)
+        (src / "a.c").write_text("int a;\n", encoding="utf-8")
+        assert _scan_files(src, None) == [src / "a.c"]
+        assert _scan_files(src, tmp_path / "nope") == [src / "a.c"]
+
+    def test_own_materializes_in_shared_owner(self, tmp_path: Path) -> None:
+        """--own finds the extern in a shared TU and defines it there."""
+        import struct
+
+        from rebrew.data_layout import own_data_globals
+
+        data_base = 0x10027000
+        raw = struct.pack("<i", 42) + b"\x00" * 20
+        binp = _own_fixture(tmp_path, raw, data_base)
+        shared = tmp_path / "src" / "shared"
+        shared.mkdir(parents=True)
+        (shared / "owner.c").write_text("extern int g_count;\n", encoding="utf-8")
+        # The fixture's mod.c also declares it — remove so ownership is shared-only.
+        (tmp_path / "src" / "mod.c").write_text("int unrelated;\n", encoding="utf-8")
+        meta = tmp_path / "rebrew-data.toml"
+        meta.write_text(
+            f'["SERVER.0x{data_base:x}"]\nname = "g_count"\nsection = ".data"\ntype = "int"\n',
+            encoding="utf-8",
+        )
+        stub = tmp_path / "src" / "link_stubs.c"
+        stub.write_text("int g_count = 0;\n", encoding="utf-8")
+
+        result = own_data_globals(
+            tmp_path, meta, binp, tmp_path / "src", stub, dry_run=False, shared_dir=shared
+        )
+        assert result["owned"] == 1
+        assert "int g_count = 42;" in (shared / "owner.c").read_text()

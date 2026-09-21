@@ -1167,6 +1167,7 @@ def main(
                     dry_run=dry_run,
                     bss_only=bss_only,
                     target=getattr(cfg, "target_name", None),
+                    shared_dir=getattr(cfg, "shared_dir", None),
                 )
             except OSError as exc:
                 error_exit(str(exc), json_mode=json_output)
@@ -1191,6 +1192,7 @@ def main(
                     stub,
                     dry_run=dry_run,
                     target=getattr(cfg, "target_name", None),
+                    shared_dir=getattr(cfg, "shared_dir", None),
                 )
             except OSError as exc:
                 error_exit(str(exc), json_mode=json_output)
@@ -1216,6 +1218,7 @@ def main(
                     src_dir,
                     dry_run=dry_run,
                     target=getattr(cfg, "target_name", None),
+                    shared_dir=getattr(cfg, "shared_dir", None),
                 )
             except OSError as exc:
                 error_exit(str(exc), json_mode=json_output)

@@ -64,6 +64,9 @@ copy.
 - `rebrew merge --shared` collapses identical twin copies into one stacked
   block (per-block SIZE preserved); same-name divergent bodies are refused
   with names — the bulk migration from per-target copies to `src/shared`.
+- DATA side: `fill-data`, `--own`, `--fix-ownership`, and `inline-strings`
+  scan the shared tree (data metadata was already `(module, va)` keyed);
+  `gen-stubs` already covered it via the whole-tree scan.
 
 ## Consequences
 
