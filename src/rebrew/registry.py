@@ -23,13 +23,17 @@ naming both origins — the "no two fibers of one registry whose provisions
 meet" rule of the spatiotemporal-composability model this mirrors.
 
 Failure policy: how a broken plugin registration is handled depends on the
-registry's role.  **Identity-critical** registries (toolchains — a wrong
-compiler produces wrong bytes; CLI commands — a colliding command name is
-a config error) keep the loud ``RegistryError``.  **Optional/tuning**
-registries (decompiler backends, GA mutations, flag sets, library presets,
-detectors, binary loaders, cache backends) skip the broken entry with a
-warning — a bad plugin must not brick the importing module, matching the
-CLI's stub-degradation for broken command plugins.
+registry's role.  **Identity-critical** toolchains keep the loud
+``RegistryError`` on a duplicate name (a wrong compiler produces wrong
+bytes).  **CLI** plugin name clashes against a built-in are warn+skip
+(discovery has no console yet; see ``entry_point_components``).
+**Optional/tuning** registries (decompiler backends, GA mutations, flag
+sets, library presets, detectors, binary loaders, cache backends) skip the
+broken or duplicate entry with a warning — a bad plugin must not brick the
+importing module, matching the CLI's stub-degradation for broken command
+plugins.  Tuning groups that are meant to be overridden
+(``flag_sets``, ``library_presets``, ``msvc_versions``) extend/replace by
+name instead of treating a second source as a conflict.
 """
 
 from __future__ import annotations
@@ -156,9 +160,11 @@ def load_registration_optional(reg: Registration, log: logging.Logger) -> Any | 
     Optional registries (decompiler backends, GA mutations, flag sets,
     library presets, detectors, binary loaders, cache backends) must not
     brick the importing module when a plugin is broken: the entry is
-    skipped with a warning and ``None`` returned.  Identity-critical
-    registries (toolchains, CLI commands) use :func:`import_registration`
-    directly and keep the loud :class:`RegistryError`."""
+    skipped with a warning and ``None`` returned.  Toolchains use
+    :func:`import_registration` directly and keep the loud
+    :class:`RegistryError`.  CLI command plugins call
+    :func:`import_registration` but degrade to an ``[unavailable]`` stub
+    on failure (and warn+skip on duplicate names)."""
     try:
         return import_registration(reg)
     except RegistryError as exc:

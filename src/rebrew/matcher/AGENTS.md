@@ -31,7 +31,7 @@ Flag axes (`rebrew.flags` / `rebrew.flag_data`) live at the package root so comp
 
 ## Mutations
 
-Packaged `mut_*` ops under `mutations/` → `ALL_MUTATIONS` in `mutator.py`. Inventory: `docs/GA_MUTATIONS.md`. Optional weights via `mutate_code(..., mutation_weights=)`. Entry-point group `rebrew.mutations`; duplicate name skipped with warning.
+Packaged `mut_*` ops under `mutations/` → `ALL_MUTATIONS` in `mutator.py`. New ops: tree-sitter only (never regex); inventory: `docs/GA_MUTATIONS.md`. Optional weights via `mutate_code(..., mutation_weights=)`. Entry-point group `rebrew.mutations`; duplicate name skipped with warning (packaged kept).
 
 ## Consumers
 
