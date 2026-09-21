@@ -7,7 +7,8 @@ rejected with 405.
 
 Endpoints
 ---------
-``GET /``                      → HTML app (functions, sections, globals, history)
+``GET /``                      → HTML shell (functions, sections, globals, history)
+``GET /app.js``                → deferred dashboard client (preloaded + ``defer``)
 ``GET /api/bootstrap``         → targets + first target's summary/functions (one RTT)
 ``GET /api/targets``           → list of targets (includes count/total)
 ``GET /api/summary?target=``   → function stats + coverage % (target required)
@@ -28,15 +29,18 @@ and the applied ``limit`` / ``offset`` (offset is 0 when the endpoint has no pag
 ``/api/sections``, ``/api/targets``, and ``/api/bootstrap`` always report offset 0).
 Successful 200 responses negotiate ``zstd`` then ``gzip`` (``Accept-Encoding``
 quality weights; explicit ``coding;q=0`` beats ``*``), carry an ``ETag`` (HTML
-content hash or DB mtime), and use ``Cache-Control: private, no-cache`` so
-browsers can 304 without serving a stale body after ``build-db``.  The static
-HTML shell is zstd- and gzip-precompressed at import time so the entry document
-skips per-request compression CPU.  The shell ``<head>`` preloads
-``/api/bootstrap`` (``as=fetch`` + ``crossorigin``); the inline client fetches
-with ``credentials: omit`` so the cold-start payload can reuse that preload.
+or ``/app.js`` content hash, or DB mtime), and use ``Cache-Control: private,
+no-cache`` so browsers can 304 without serving a stale body after ``build-db``.
+The static HTML shell and ``/app.js`` client are zstd- and gzip-precompressed at
+import time so entry assets skip per-request compression CPU.  The shell
+``<head>`` preloads ``/api/bootstrap`` (``as=fetch`` + ``crossorigin`` +
+``fetchpriority=high``) and ``/app.js`` (``as=script``); the deferred client
+fetches with ``credentials: omit`` so the cold-start payload can reuse that
+preload.  Keeping JS out of the document lets the browser paint the loading
+chrome before the script finishes downloading.
 JSON uses compact separators; function/global/history rows are arrays under
 ``cols``.  The handler speaks HTTP/1.1 so browsers reuse one TCP connection for
-the shell, bootstrap payload, and later filter fetches.
+the shell, ``/app.js``, bootstrap payload, and later filter fetches.
 
 The query layer (``Dashboard``) is separated from the HTTP plumbing so tests
 exercise it without opening a socket.
@@ -94,189 +98,7 @@ _CURRENT_CONN: ContextVar[sqlite3.Connection | None] = ContextVar(
 )
 
 
-_INDEX_HTML = """<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Rebrew coverage dashboard</title>
-<link rel="preload" href="/api/bootstrap" as="fetch" crossorigin>
-<style>
-  body { font-family: system-ui, sans-serif; margin: 1.5rem; color: #1a1a1a; }
-  .skip-link { position: absolute; left: -9999px; top: 0; z-index: 100;
-    padding: .5rem 1rem; background: #fff; color: #005fcc; text-decoration: underline; }
-  .skip-link:focus { left: 1rem; top: 1rem; }
-  .filters { display: flex; flex-wrap: wrap; gap: .5rem 1rem; align-items: end;
-    margin-bottom: .5rem; }
-  .filters > div { display: flex; flex-direction: column; gap: .25rem; font-size: .9rem; }
-  select, input { min-height: 2.75rem; padding: .3rem .5rem; min-width: 10rem;
-    border: 1px solid #767676; }
-  :focus-visible { outline: 3px solid #005fcc; outline-offset: 2px; }
-  h1 { margin-bottom: .25rem; }
-  .cards { display: flex; gap: 1rem; flex-wrap: wrap; margin: 1rem 0; }
-  .card { border: 1px solid #767676; border-radius: 6px; padding: .6rem 1rem; min-width: 110px;
-    background: #fff; }
-  button.card { font: inherit; color: inherit; text-align: left; cursor: pointer; }
-  button.card:hover { border-color: #444; }
-  button.card.active { border-color: #005fcc; border-width: 2px; box-shadow: 0 0 0 2px rgba(0,95,204,.25); }
-  .card .value { font-size: 1.4rem; font-weight: 700; display: block; }
-  .card .label { color: #444; }
-  .table-scroll { overflow-x: auto; position: relative; }
-  .table-scroll[aria-busy="true"]::after {
-    content: "Loading…"; position: absolute; inset: 0; display: flex; align-items: center;
-    justify-content: center; background: rgba(255,255,255,.7); font-size: .95rem; color: #444;
-  }
-  .visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
-    overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
-  table { border-collapse: collapse; width: 100%; margin-top: 1rem; font-size: .85rem; }
-  th, td { border: 1px solid #767676; padding: .3rem .5rem; text-align: left; }
-  th { background: #f5f5f5; }
-  td.va { font-family: monospace; }
-  #dashboard-error { color: #9a3412; background: #fff7ed; border: 1px solid #9a3412;
-    border-radius: 6px; padding: .6rem .8rem; margin: .75rem 0; }
-  #empty-state, #no-targets { color: #555; margin: 1rem 0; }
-  #results-hint { color: #555; font-size: .9rem; margin: .25rem 0 0; }
-  #filter-actions, #show-more-wrap, #globals-show-more-wrap, #history-show-more-wrap,
-  #retry-bar { margin: .35rem 0 .75rem; }
-  #clear-filters, #show-more, #show-more-globals, #show-more-history,
-  #retry-functions, #retry-summary, #retry-view {
-    min-height: 2.75rem; padding: .3rem .75rem; border: 1px solid #767676; background: #fff; color: inherit; }
-  #clear-filters:disabled { opacity: .55; cursor: not-allowed; }
-  .views { display: flex; flex-wrap: wrap; gap: .35rem; margin: .75rem 0 .25rem; }
-  .views button { min-height: 2.75rem; padding: .3rem .85rem; font: inherit; cursor: pointer;
-    border: 1px solid #767676; border-radius: 6px; background: #fff; color: inherit; }
-  .views button:hover { border-color: #444; }
-  .views button.active { border-color: #005fcc; border-width: 2px; box-shadow: 0 0 0 2px rgba(0,95,204,.25); }
-  .view-panel[hidden] { display: none; }
-  @media (max-width: 40rem) {
-    body { margin: 1rem; }
-    select, input { min-width: 0; width: 100%; }
-    .filters > div { flex: 1 1 100%; }
-  }
-  @media (forced-colors: active) {
-    button.card.active, .views button.active {
-      border: 2px solid Highlight;
-      box-shadow: none;
-    }
-    :focus-visible { outline-color: Highlight; }
-    #dashboard-error { border-color: CanvasText; color: CanvasText; background: Canvas; }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    * { transition: none !important; animation: none !important; }
-  }
-</style>
-</head>
-<body>
-<a class="skip-link" href="#main">Skip to content</a>
-<main id="main" tabindex="-1">
-<h1>Rebrew coverage</h1>
-<p id="boot-status" role="status">Loading coverage…</p>
-<p id="no-targets" hidden>No targets found in coverage.db. Run
-  <code>rebrew build-db</code> for this project, then reload.</p>
-<div id="controls" class="filters" hidden role="group" aria-label="Coverage filters">
-<div>
-<label for="target">Target</label>
-<select id="target"></select>
-</div>
-<div id="filter-status">
-<label for="status">Status</label>
-<select id="status"><option value="">any</option></select>
-</div>
-<div id="filter-module">
-<label for="module">Module</label>
-<select id="module"><option value="">any</option></select>
-</div>
-<div id="filter-q">
-<label for="q">Search name or symbol</label>
-<input id="q" type="search" size="24" placeholder="e.g. WinMain" autocomplete="off">
-</div>
-<div id="filter-gq" hidden>
-<label for="gq">Search global name</label>
-<input id="gq" type="search" size="24" placeholder="e.g. g_flag" autocomplete="off">
-</div>
-</div>
-<div id="filter-actions" hidden>
-<button type="button" id="clear-filters">Clear filters</button>
-</div>
-<div id="views" class="views" hidden role="tablist" aria-label="Coverage views">
-<button type="button" role="tab" id="tab-functions" data-view="functions"
-  aria-controls="view-functions" class="active" aria-selected="true" tabindex="0">Functions</button>
-<button type="button" role="tab" id="tab-sections" data-view="sections"
-  aria-controls="view-sections" aria-selected="false" tabindex="-1">Sections</button>
-<button type="button" role="tab" id="tab-globals" data-view="globals"
-  aria-controls="view-globals" aria-selected="false" tabindex="-1">Globals</button>
-<button type="button" role="tab" id="tab-history" data-view="history"
-  aria-controls="view-history" aria-selected="false" tabindex="-1">History</button>
-</div>
-<section id="summary" aria-labelledby="summary-heading" aria-busy="false" hidden>
-<h2 class="visually-hidden" id="summary-heading">Coverage summary</h2>
-<div class="cards" id="cards" role="group" aria-label="Coverage metrics"></div>
-</section>
-<p class="visually-hidden" id="results-status" role="status" aria-live="polite"></p>
-<p id="dashboard-error" role="alert" hidden></p>
-<div id="retry-bar" role="group" aria-label="Retry failed loads">
-<button type="button" id="retry-summary" hidden>Retry summary</button>
-<button type="button" id="retry-functions" hidden>Retry functions</button>
-<button type="button" id="retry-view" hidden>Retry</button>
-</div>
-<div id="view-functions" class="view-panel" role="tabpanel" aria-labelledby="tab-functions">
-<p id="results-hint" hidden></p>
-<p id="empty-state" hidden></p>
-<div id="results" class="table-scroll" tabindex="0" role="region"
-  aria-label="Function results" aria-busy="false" hidden>
-<table id="rows"><caption class="visually-hidden">Functions matching the selected filters</caption><thead><tr>
-  <th scope="col">VA</th><th scope="col">Name</th><th scope="col">Symbol</th>
-  <th scope="col">Size</th><th scope="col">Status</th>
-  <th scope="col">Module</th><th scope="col">Files</th>
-</tr></thead><tbody></tbody></table>
-</div>
-<div id="show-more-wrap" hidden>
-<button type="button" id="show-more">Show more functions</button>
-</div>
-</div>
-<div id="view-sections" class="view-panel" role="tabpanel" aria-labelledby="tab-sections" hidden>
-<p id="sections-empty" hidden>No section stats for this target. Run
-  <code>rebrew build-db</code> for this project, then reload.</p>
-<div id="sections-results" class="table-scroll" tabindex="0" role="region"
-  aria-label="Section results" aria-busy="false" hidden>
-<table id="sections-rows"><caption class="visually-hidden">Per-section cell stats</caption><thead><tr>
-  <th scope="col">Section</th><th scope="col">Size</th><th scope="col">Cells</th>
-  <th scope="col">Exact</th><th scope="col">Reloc</th><th scope="col">Near</th>
-  <th scope="col">Stub</th><th scope="col">Proven</th><th scope="col">Other</th>
-</tr></thead><tbody></tbody></table>
-</div>
-</div>
-<div id="view-globals" class="view-panel" role="tabpanel" aria-labelledby="tab-globals" hidden>
-<p id="globals-hint" hidden></p>
-<p id="globals-empty" hidden></p>
-<div id="globals-results" class="table-scroll" tabindex="0" role="region"
-  aria-label="Global results" aria-busy="false" hidden>
-<table id="globals-rows"><caption class="visually-hidden">Global data symbols</caption><thead><tr>
-  <th scope="col">VA</th><th scope="col">Name</th><th scope="col">Decl</th>
-  <th scope="col">Size</th><th scope="col">Module</th>
-</tr></thead><tbody></tbody></table>
-</div>
-<div id="globals-show-more-wrap" hidden>
-<button type="button" id="show-more-globals">Show more globals</button>
-</div>
-</div>
-<div id="view-history" class="view-panel" role="tabpanel" aria-labelledby="tab-history" hidden>
-<p id="history-hint" hidden></p>
-<p id="history-empty" hidden>No status changes recorded yet. History appears after
-  <code>rebrew build-db</code> when function statuses change.</p>
-<div id="history-results" class="table-scroll" tabindex="0" role="region"
-  aria-label="History results" aria-busy="false" hidden>
-<table id="history-rows"><caption class="visually-hidden">Recent status changes</caption><thead><tr>
-  <th scope="col">VA</th><th scope="col">Old status</th><th scope="col">New status</th>
-  <th scope="col">When</th>
-</tr></thead><tbody></tbody></table>
-</div>
-<div id="history-show-more-wrap" hidden>
-<button type="button" id="show-more-history">Show more history</button>
-</div>
-</div>
-</main>
-<script>
+_APP_JS = """
 const $ = (id) => document.getElementById(id);
 let targets = [];
 let searchTimer = null;
@@ -1027,13 +849,202 @@ function start() {
   });
 }
 start();
-</script>
+"""
+
+_INDEX_HTML = """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rebrew coverage dashboard</title>
+<link rel="preload" href="/api/bootstrap" as="fetch" crossorigin fetchpriority="high">
+<link rel="preload" href="/app.js" as="script">
+<style>
+  body { font-family: system-ui, sans-serif; margin: 1.5rem; color: #1a1a1a; }
+  .skip-link { position: absolute; left: -9999px; top: 0; z-index: 100;
+    padding: .5rem 1rem; background: #fff; color: #005fcc; text-decoration: underline; }
+  .skip-link:focus { left: 1rem; top: 1rem; }
+  .filters { display: flex; flex-wrap: wrap; gap: .5rem 1rem; align-items: end;
+    margin-bottom: .5rem; }
+  .filters > div { display: flex; flex-direction: column; gap: .25rem; font-size: .9rem; }
+  select, input { min-height: 2.75rem; padding: .3rem .5rem; min-width: 10rem;
+    border: 1px solid #767676; }
+  :focus-visible { outline: 3px solid #005fcc; outline-offset: 2px; }
+  h1 { margin-bottom: .25rem; }
+  .cards { display: flex; gap: 1rem; flex-wrap: wrap; margin: 1rem 0; }
+  .card { border: 1px solid #767676; border-radius: 6px; padding: .6rem 1rem; min-width: 110px;
+    background: #fff; }
+  button.card { font: inherit; color: inherit; text-align: left; cursor: pointer; }
+  button.card:hover { border-color: #444; }
+  button.card.active { border-color: #005fcc; border-width: 2px; box-shadow: 0 0 0 2px rgba(0,95,204,.25); }
+  .card .value { font-size: 1.4rem; font-weight: 700; display: block; }
+  .card .label { color: #444; }
+  .table-scroll { overflow-x: auto; position: relative; }
+  .table-scroll[aria-busy="true"]::after {
+    content: "Loading…"; position: absolute; inset: 0; display: flex; align-items: center;
+    justify-content: center; background: rgba(255,255,255,.7); font-size: .95rem; color: #444;
+  }
+  .visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+  table { border-collapse: collapse; width: 100%; margin-top: 1rem; font-size: .85rem; }
+  th, td { border: 1px solid #767676; padding: .3rem .5rem; text-align: left; }
+  th { background: #f5f5f5; }
+  td.va { font-family: monospace; }
+  #dashboard-error { color: #9a3412; background: #fff7ed; border: 1px solid #9a3412;
+    border-radius: 6px; padding: .6rem .8rem; margin: .75rem 0; }
+  #empty-state, #no-targets { color: #555; margin: 1rem 0; }
+  #results-hint { color: #555; font-size: .9rem; margin: .25rem 0 0; }
+  #filter-actions, #show-more-wrap, #globals-show-more-wrap, #history-show-more-wrap,
+  #retry-bar { margin: .35rem 0 .75rem; }
+  #clear-filters, #show-more, #show-more-globals, #show-more-history,
+  #retry-functions, #retry-summary, #retry-view {
+    min-height: 2.75rem; padding: .3rem .75rem; border: 1px solid #767676; background: #fff; color: inherit; }
+  #clear-filters:disabled { opacity: .55; cursor: not-allowed; }
+  .views { display: flex; flex-wrap: wrap; gap: .35rem; margin: .75rem 0 .25rem; }
+  .views button { min-height: 2.75rem; padding: .3rem .85rem; font: inherit; cursor: pointer;
+    border: 1px solid #767676; border-radius: 6px; background: #fff; color: inherit; }
+  .views button:hover { border-color: #444; }
+  .views button.active { border-color: #005fcc; border-width: 2px; box-shadow: 0 0 0 2px rgba(0,95,204,.25); }
+  .view-panel[hidden] { display: none; }
+  @media (max-width: 40rem) {
+    body { margin: 1rem; }
+    select, input { min-width: 0; width: 100%; }
+    .filters > div { flex: 1 1 100%; }
+  }
+  @media (forced-colors: active) {
+    button.card.active, .views button.active {
+      border: 2px solid Highlight;
+      box-shadow: none;
+    }
+    :focus-visible { outline-color: Highlight; }
+    #dashboard-error { border-color: CanvasText; color: CanvasText; background: Canvas; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; animation: none !important; }
+  }
+  /* Skip layout/paint for off-screen rows on large result pages. */
+  tbody tr { content-visibility: auto; contain-intrinsic-size: auto 2.2rem; }
+</style>
+</head>
+<body>
+<a class="skip-link" href="#main">Skip to content</a>
+<main id="main" tabindex="-1">
+<h1>Rebrew coverage</h1>
+<p id="boot-status" role="status">Loading coverage…</p>
+<p id="no-targets" hidden>No targets found in coverage.db. Run
+  <code>rebrew build-db</code> for this project, then reload.</p>
+<div id="controls" class="filters" hidden role="group" aria-label="Coverage filters">
+<div>
+<label for="target">Target</label>
+<select id="target"></select>
+</div>
+<div id="filter-status">
+<label for="status">Status</label>
+<select id="status"><option value="">any</option></select>
+</div>
+<div id="filter-module">
+<label for="module">Module</label>
+<select id="module"><option value="">any</option></select>
+</div>
+<div id="filter-q">
+<label for="q">Search name or symbol</label>
+<input id="q" type="search" size="24" placeholder="e.g. WinMain" autocomplete="off">
+</div>
+<div id="filter-gq" hidden>
+<label for="gq">Search global name</label>
+<input id="gq" type="search" size="24" placeholder="e.g. g_flag" autocomplete="off">
+</div>
+</div>
+<div id="filter-actions" hidden>
+<button type="button" id="clear-filters">Clear filters</button>
+</div>
+<div id="views" class="views" hidden role="tablist" aria-label="Coverage views">
+<button type="button" role="tab" id="tab-functions" data-view="functions"
+  aria-controls="view-functions" class="active" aria-selected="true" tabindex="0">Functions</button>
+<button type="button" role="tab" id="tab-sections" data-view="sections"
+  aria-controls="view-sections" aria-selected="false" tabindex="-1">Sections</button>
+<button type="button" role="tab" id="tab-globals" data-view="globals"
+  aria-controls="view-globals" aria-selected="false" tabindex="-1">Globals</button>
+<button type="button" role="tab" id="tab-history" data-view="history"
+  aria-controls="view-history" aria-selected="false" tabindex="-1">History</button>
+</div>
+<section id="summary" aria-labelledby="summary-heading" aria-busy="false" hidden>
+<h2 class="visually-hidden" id="summary-heading">Coverage summary</h2>
+<div class="cards" id="cards" role="group" aria-label="Coverage metrics"></div>
+</section>
+<p class="visually-hidden" id="results-status" role="status" aria-live="polite"></p>
+<p id="dashboard-error" role="alert" hidden></p>
+<div id="retry-bar" role="group" aria-label="Retry failed loads">
+<button type="button" id="retry-summary" hidden>Retry summary</button>
+<button type="button" id="retry-functions" hidden>Retry functions</button>
+<button type="button" id="retry-view" hidden>Retry</button>
+</div>
+<div id="view-functions" class="view-panel" role="tabpanel" aria-labelledby="tab-functions">
+<p id="results-hint" hidden></p>
+<p id="empty-state" hidden></p>
+<div id="results" class="table-scroll" tabindex="0" role="region"
+  aria-label="Function results" aria-busy="false" hidden>
+<table id="rows"><caption class="visually-hidden">Functions matching the selected filters</caption><thead><tr>
+  <th scope="col">VA</th><th scope="col">Name</th><th scope="col">Symbol</th>
+  <th scope="col">Size</th><th scope="col">Status</th>
+  <th scope="col">Module</th><th scope="col">Files</th>
+</tr></thead><tbody></tbody></table>
+</div>
+<div id="show-more-wrap" hidden>
+<button type="button" id="show-more">Show more functions</button>
+</div>
+</div>
+<div id="view-sections" class="view-panel" role="tabpanel" aria-labelledby="tab-sections" hidden>
+<p id="sections-empty" hidden>No section stats for this target. Run
+  <code>rebrew build-db</code> for this project, then reload.</p>
+<div id="sections-results" class="table-scroll" tabindex="0" role="region"
+  aria-label="Section results" aria-busy="false" hidden>
+<table id="sections-rows"><caption class="visually-hidden">Per-section cell stats</caption><thead><tr>
+  <th scope="col">Section</th><th scope="col">Size</th><th scope="col">Cells</th>
+  <th scope="col">Exact</th><th scope="col">Reloc</th><th scope="col">Near</th>
+  <th scope="col">Stub</th><th scope="col">Proven</th><th scope="col">Other</th>
+</tr></thead><tbody></tbody></table>
+</div>
+</div>
+<div id="view-globals" class="view-panel" role="tabpanel" aria-labelledby="tab-globals" hidden>
+<p id="globals-hint" hidden></p>
+<p id="globals-empty" hidden></p>
+<div id="globals-results" class="table-scroll" tabindex="0" role="region"
+  aria-label="Global results" aria-busy="false" hidden>
+<table id="globals-rows"><caption class="visually-hidden">Global data symbols</caption><thead><tr>
+  <th scope="col">VA</th><th scope="col">Name</th><th scope="col">Decl</th>
+  <th scope="col">Size</th><th scope="col">Module</th>
+</tr></thead><tbody></tbody></table>
+</div>
+<div id="globals-show-more-wrap" hidden>
+<button type="button" id="show-more-globals">Show more globals</button>
+</div>
+</div>
+<div id="view-history" class="view-panel" role="tabpanel" aria-labelledby="tab-history" hidden>
+<p id="history-hint" hidden></p>
+<p id="history-empty" hidden>No status changes recorded yet. History appears after
+  <code>rebrew build-db</code> when function statuses change.</p>
+<div id="history-results" class="table-scroll" tabindex="0" role="region"
+  aria-label="History results" aria-busy="false" hidden>
+<table id="history-rows"><caption class="visually-hidden">Recent status changes</caption><thead><tr>
+  <th scope="col">VA</th><th scope="col">Old status</th><th scope="col">New status</th>
+  <th scope="col">When</th>
+</tr></thead><tbody></tbody></table>
+</div>
+<div id="history-show-more-wrap" hidden>
+<button type="button" id="show-more-history">Show more history</button>
+</div>
+</div>
+</main>
+<script src="/app.js" defer></script>
 </body>
 </html>
 """
 
 _INDEX_HTML_BYTES = _INDEX_HTML.encode("utf-8")
 _INDEX_ETAG = '"' + hashlib.sha256(_INDEX_HTML_BYTES).hexdigest()[:16] + '"'
+_APP_JS_BYTES = _APP_JS.encode("utf-8")
+_APP_JS_ETAG = '"' + hashlib.sha256(_APP_JS_BYTES).hexdigest()[:16] + '"'
 
 
 def _precompress(raw: bytes, encoding: _WireEncoding) -> bytes | None:
@@ -1047,6 +1058,8 @@ def _precompress(raw: bytes, encoding: _WireEncoding) -> bytes | None:
 
 _INDEX_HTML_ZSTD = _precompress(_INDEX_HTML_BYTES, "zstd")
 _INDEX_HTML_GZIP = _precompress(_INDEX_HTML_BYTES, "gzip")
+_APP_JS_ZSTD = _precompress(_APP_JS_BYTES, "zstd")
+_APP_JS_GZIP = _precompress(_APP_JS_BYTES, "gzip")
 
 
 def _int_param(params: dict[str, list[str]], name: str, default: int) -> int:
@@ -1428,10 +1441,12 @@ class Dashboard:
         return row is not None
 
     def response_etag(self, path: str) -> str:
-        """Strong HTML etag; weak DB etag so rebuilds invalidate JSON caches."""
+        """Strong shell/asset etag; weak DB etag so rebuilds invalidate JSON caches."""
         parsed = urlparse(path)
         if parsed.path == "/":
             return _INDEX_ETAG
+        if parsed.path == "/app.js":
+            return _APP_JS_ETAG
         try:
             st = self.db_path.stat()
         except OSError:
@@ -1445,6 +1460,8 @@ class Dashboard:
         parsed = urlparse(path)
         if parsed.path == "/":
             return 200, "text/html; charset=utf-8", _INDEX_HTML
+        if parsed.path == "/app.js":
+            return 200, "application/javascript; charset=utf-8", _APP_JS
         if parsed.path == "/api/bootstrap":
             return self._json(200, self.bootstrap())
         if parsed.path == "/api/targets":
@@ -1674,14 +1691,20 @@ def _maybe_compress(body: bytes, accept_encoding: str) -> tuple[bytes, _WireEnco
     return compressed, encoding
 
 
-def _precompressed_index(accept_encoding: str) -> tuple[bytes, _WireEncoding | None]:
-    """Serve the import-time shell blob for the negotiated encoding."""
+def _precompressed_static(
+    accept_encoding: str,
+    *,
+    zstd_blob: bytes | None,
+    gzip_blob: bytes | None,
+    raw: bytes,
+) -> tuple[bytes, _WireEncoding | None]:
+    """Serve an import-time precompressed blob for the negotiated encoding."""
     encoding = _negotiate_encoding(accept_encoding)
-    if encoding == "zstd" and _INDEX_HTML_ZSTD is not None:
-        return _INDEX_HTML_ZSTD, "zstd"
-    if encoding == "gzip" and _INDEX_HTML_GZIP is not None:
-        return _INDEX_HTML_GZIP, "gzip"
-    return _INDEX_HTML_BYTES, None
+    if encoding == "zstd" and zstd_blob is not None:
+        return zstd_blob, "zstd"
+    if encoding == "gzip" and gzip_blob is not None:
+        return gzip_blob, "gzip"
+    return raw, None
 
 
 def _if_none_match(header: str, etag: str) -> bool:
@@ -1774,11 +1797,24 @@ class _Handler(BaseHTTPRequestHandler):
         body_bytes = body.encode("utf-8")
         encoding: _WireEncoding | None = None
         if status == 200:
-            # Entry document is immutable for a given process: serve the
-            # import-time zstd/gzip blob instead of recompressing every request.
+            # Shell HTML and /app.js are immutable for a given process: serve
+            # the import-time zstd/gzip blobs instead of recompressing every
+            # request.
             accept = self.headers.get("Accept-Encoding", "")
             if body is _INDEX_HTML:
-                body_bytes, encoding = _precompressed_index(accept)
+                body_bytes, encoding = _precompressed_static(
+                    accept,
+                    zstd_blob=_INDEX_HTML_ZSTD,
+                    gzip_blob=_INDEX_HTML_GZIP,
+                    raw=_INDEX_HTML_BYTES,
+                )
+            elif body is _APP_JS:
+                body_bytes, encoding = _precompressed_static(
+                    accept,
+                    zstd_blob=_APP_JS_ZSTD,
+                    gzip_blob=_APP_JS_GZIP,
+                    raw=_APP_JS_BYTES,
+                )
             else:
                 body_bytes, encoding = _maybe_compress(body_bytes, accept)
 
@@ -1815,12 +1851,12 @@ class _Handler(BaseHTTPRequestHandler):
             self.send_header("Cache-Control", "private, no-cache")
         else:
             self.send_header("Cache-Control", "no-store")
-        # The app is inline-JS/CSS only and fetches same-origin JSON — this
-        # keeps any future escaping of API data from loading external
-        # resources or phoning home.
+        # CSS stays inline in the shell; JS is same-origin /app.js.  Fetching
+        # JSON is same-origin only — keeps any future escaping of API data
+        # from loading third-party resources or phoning home.
         self.send_header(
             "Content-Security-Policy",
-            "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; "
+            "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; "
             "connect-src 'self'; img-src 'self'; form-action 'none'; base-uri 'none'",
         )
 
@@ -1867,7 +1903,8 @@ app = typer.Typer(
         "  rebrew dashboard · · · · · · · Serve on http://127.0.0.1:8000\n\n"
         "  rebrew dashboard --port 9000 · Custom port\n\n"
         "[bold]Endpoints:[/bold]\n\n"
-        "  / · · · · · · · · · · · · HTML app (targets, summary, function search)\n\n"
+        "  / · · · · · · · · · · · · HTML shell (targets, summary, function search)\n\n"
+        "  /app.js · · · · · · · · · Deferred dashboard client\n\n"
         "  /api/bootstrap · · · · · · Targets + first target summary/functions\n\n"
         "  /api/targets · · · · · · List targets\n\n"
         "  /api/summary?target= · · Coverage stats (target required)\n\n"

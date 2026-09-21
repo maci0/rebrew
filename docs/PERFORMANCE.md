@@ -98,15 +98,17 @@ globals JSON 8053 → 4597 bytes (0.57×); gzip-5 872 → 821. Gate:
 `test_functions_omit_unused_marker_type` (cols lists).
 
 Wire encoding: responses negotiate `zstd` then `gzip` from `Accept-Encoding`
-(q-values; zstd wins ties). HTML shell is precompressed at both codecs at
-import. Measured 500-row functions JSON: gzip-5 4728 → zstd-5 2912 bytes.
-Gates: `TestEncodingNegotiation`, `test_handler_serves_precompressed_index`.
+(q-values; zstd wins ties). HTML shell and `/app.js` are precompressed at both
+codecs at import. Measured 500-row functions JSON: gzip-5 4728 → zstd-5 2912
+bytes. Gates: `TestEncodingNegotiation`,
+`test_handler_serves_precompressed_static`.
 
-Shell HTML (gzip-9): ~7.9 KB on the wire — under one congestion window.
-`<link rel="preload" href="/api/bootstrap" as="fetch" crossorigin>` plus
-`fetch(..., {credentials: "omit"})` lets the browser start bootstrap on a
-second connection while the shell still downloads. Gate:
-`test_index_html_bootstraps_in_one_round_trip`.
+Shell HTML (zstd-19): ~2.7 KB on the wire (was ~8.2 KB with inlined JS) —
+under one congestion window so the loading chrome can paint before `/app.js`
+(~5.9 KB zstd) finishes. `<link rel="preload" href="/api/bootstrap" as="fetch"
+crossorigin fetchpriority="high">` plus `/app.js` script preload and
+`fetch(..., {credentials: "omit"})` lets bootstrap overlap the deferred
+client download. Gate: `test_index_html_bootstraps_in_one_round_trip`.
 
 First page default is 100 rows (Show more still 500). On 2000 synthetic
 functions, `/api/functions` CPU / 100: 500 rows 0.059 s / 32 KB → 100 rows

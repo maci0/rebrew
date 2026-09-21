@@ -9,7 +9,7 @@ import pytest
 from typer.testing import CliRunner
 
 from rebrew.build_db import build_db
-from rebrew.dashboard import _INDEX_HTML, Dashboard, _files_display
+from rebrew.dashboard import _APP_JS, Dashboard, _files_display
 
 
 def _write_data(db_dir: Path, target: str = "server_dll") -> Path:
@@ -342,7 +342,7 @@ class TestSummaryRequests:
             pytest.skip("Node.js is required for dashboard interaction tests")
         result = subprocess.run(
             [node, str(Path(__file__).with_name("dashboard_summary.mjs"))],
-            input=_INDEX_HTML.split("<script>", 1)[1].split("</script>", 1)[0],
+            input=_APP_JS,
             capture_output=True,
             text=True,
             timeout=15,
@@ -359,7 +359,14 @@ class TestHandle:
         assert "Rebrew coverage" in body
 
     def test_index_html_has_accessible_structure(self, dashboard: Dashboard) -> None:
-        _, _, body = dashboard.handle("GET", "/", {})
+        _, _, html = dashboard.handle("GET", "/", {})
+        _, _, js = dashboard.handle("GET", "/app.js", {})
+        body = html + js
+        assert '<script src="/app.js" defer></script>' in html
+        assert 'rel="preload" href="/app.js" as="script"' in html
+        assert 'fetchpriority="high"' in html
+        assert "content-visibility: auto" in html
+        assert "const $" in js
         assert '<main id="main" tabindex="-1">' in body
         assert 'href="#main"' in body
         assert "Skip to content" in body
@@ -445,6 +452,13 @@ class TestHandle:
         assert "Retry summary" in body
         # Errors announce via role=alert only (avoid double-speaking with status).
         assert 'results-status").textContent = message' not in body
+
+    def test_app_js_route(self, dashboard: Dashboard) -> None:
+        status, content_type, body = dashboard.handle("GET", "/app.js", {})
+        assert status == 200
+        assert "javascript" in content_type
+        assert body is _APP_JS
+        assert 'get("/api/bootstrap")' in body
 
     def test_api_bootstrap(self, dashboard: Dashboard) -> None:
         """Cold start packs targets + first target summary/functions in one response."""
@@ -797,6 +811,7 @@ class TestHttpMethods:
         "path",
         [
             "/",
+            "/app.js",
             "/api/bootstrap",
             "/api/targets",
             "/api/summary",
@@ -890,7 +905,7 @@ class TestEncodingNegotiation:
             ("zstd;q=invalid", None),
         ],
     )
-    @pytest.mark.parametrize("path", ["/", "/api/bootstrap"])
+    @pytest.mark.parametrize("path", ["/", "/app.js", "/api/bootstrap"])
     def test_response_encoding(
         self, dashboard: Dashboard, accept: str, encoding: str | None, path: str
     ) -> None:
@@ -1130,50 +1145,65 @@ class TestHostValidation:
 
     def test_index_html_bootstraps_in_one_round_trip(self, dashboard: Dashboard) -> None:
         """Cold start uses /api/bootstrap; target changes still parallel-fetch."""
-        _, _, body = dashboard.handle("GET", "/", {})
-        assert 'get("/api/bootstrap")' in body
-        assert 'rel="preload" href="/api/bootstrap" as="fetch" crossorigin' in body
-        assert 'credentials: "omit"' in body
-        assert "Promise.all([loadSummary()," in body
-        assert "loadFunctions()" in body
-        assert "loadCurrentView(true)" in body
-        assert "renderSummary" in body
-        assert "renderFunctions" in body
-        assert "renderSections" in body
-        assert "renderGlobals" in body
-        assert "renderHistory" in body
+        _, _, html = dashboard.handle("GET", "/", {})
+        _, _, js = dashboard.handle("GET", "/app.js", {})
+        assert 'get("/api/bootstrap")' in js
+        assert 'rel="preload" href="/api/bootstrap" as="fetch" crossorigin' in html
+        assert 'fetchpriority="high"' in html
+        assert 'rel="preload" href="/app.js" as="script"' in html
+        assert 'src="/app.js" defer' in html
+        assert 'credentials: "omit"' in js
+        assert "Promise.all([loadSummary()," in js
+        assert "loadFunctions()" in js
+        assert "loadCurrentView(true)" in js
+        assert "renderSummary" in js
+        assert "renderFunctions" in js
+        assert "renderSections" in js
+        assert "renderGlobals" in js
+        assert "renderHistory" in js
 
     @pytest.mark.parametrize(
-        ("accept", "encoding", "blob_attr"),
+        ("path", "accept", "encoding", "blob_attr", "raw_attr"),
         [
-            ("gzip", "gzip", "_INDEX_HTML_GZIP"),
-            ("zstd", "zstd", "_INDEX_HTML_ZSTD"),
+            ("/", "gzip", "gzip", "_INDEX_HTML_GZIP", "_INDEX_HTML_BYTES"),
+            ("/", "zstd", "zstd", "_INDEX_HTML_ZSTD", "_INDEX_HTML_BYTES"),
+            ("/app.js", "gzip", "gzip", "_APP_JS_GZIP", "_APP_JS_BYTES"),
+            ("/app.js", "zstd", "zstd", "_APP_JS_ZSTD", "_APP_JS_BYTES"),
         ],
     )
-    def test_handler_serves_precompressed_index(
-        self, dashboard: Dashboard, accept: str, encoding: str, blob_attr: str
+    def test_handler_serves_precompressed_static(
+        self,
+        dashboard: Dashboard,
+        path: str,
+        accept: str,
+        encoding: str,
+        blob_attr: str,
+        raw_attr: str,
     ) -> None:
-        """The static HTML shell is compressed once at import, not per request."""
+        """Static shell and /app.js are compressed once at import, not per request."""
         import gzip
 
         import zstandard
 
         import rebrew.dashboard as dash
-        from rebrew.dashboard import _INDEX_HTML_BYTES, _Handler, allowed_hosts_for
+        from rebrew.dashboard import _Handler, allowed_hosts_for
 
         blob = getattr(dash, blob_attr)
+        raw_bytes = getattr(dash, raw_attr)
         assert blob is not None
-        assert len(blob) < len(_INDEX_HTML_BYTES)
-        if blob_attr == "_INDEX_HTML_ZSTD":
-            assert dash._INDEX_HTML_GZIP is not None
-            assert len(blob) <= len(dash._INDEX_HTML_GZIP)
+        assert len(blob) < len(raw_bytes)
+        if blob_attr.endswith("_ZSTD"):
+            gzip_attr = blob_attr.replace("_ZSTD", "_GZIP")
+            gzip_blob = getattr(dash, gzip_attr)
+            assert gzip_blob is not None
+            assert len(blob) <= len(gzip_blob)
 
         handler = _Handler.__new__(_Handler)
         handler.headers = {
             "Host": "127.0.0.1:8000",
             "Accept-Encoding": accept,
         }
-        handler.path = "/"
+        handler.path = path
         handler.allowed_hosts = allowed_hosts_for("127.0.0.1", 8000)
         handler.dashboard = dashboard
         sent: list[tuple] = []
@@ -1194,9 +1224,9 @@ class TestHostValidation:
         assert ("Content-Encoding", encoding) in sent
         assert raw == blob
         if encoding == "gzip":
-            assert gzip.decompress(raw) == _INDEX_HTML_BYTES
+            assert gzip.decompress(raw) == raw_bytes
         else:
-            assert zstandard.ZstdDecompressor().decompress(raw) == _INDEX_HTML_BYTES
+            assert zstandard.ZstdDecompressor().decompress(raw) == raw_bytes
 
     @pytest.mark.parametrize("control", ["\x1b", "\n", "\r", "\x7f", "\x9b"])
     def test_handler_log_escapes_controls(

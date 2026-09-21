@@ -79,6 +79,11 @@
   silently restoring the default; documented in ``docs/CONFIG.md``.
 
 ### Changed
+- **Dashboard entry document no longer inlines the client script** — ``/`` is
+  the HTML/CSS shell (``fetchpriority=high`` preload of ``/api/bootstrap`` plus
+  ``/app.js``); the deferred ``/app.js`` is zstd/gzip-precompressed like the
+  shell so first paint is the loading chrome before the script finishes
+  downloading. CSP ``script-src`` is ``'self'``.
 - **Breaking:** **Dashboard ``/api/globals`` and ``/api/history`` rows are
   compact arrays** under ``cols`` (same shape as ``/api/functions``). Zip
   ``cols`` with each array; built-in HTML accepts both arrays and legacy
