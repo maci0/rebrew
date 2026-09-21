@@ -575,3 +575,32 @@ class TestMergeShared:
         a = "// FUNCTION: SERVER 0x1000\n// SIZE: 11\nint f(void){return 1;}\n"
         b = "// FUNCTION: GOLDTL 0x2000\nint f(void){return 1;}\n"
         assert _normalize_body(a) == _normalize_body(b)
+
+
+class TestMergeSameVaAcrossModules:
+    """Same VA in different modules is NOT a duplicate (lint E013 keys
+    (module, va) — DLLs at one base share VAs across targets)."""
+
+    def test_same_va_other_module_stacks(self, tmp_path: Path, monkeypatch: Any) -> None:
+        body = "int twin(void){return 1;}\n"
+        _write(
+            tmp_path / "a.c",
+            f"// FUNCTION: V1 0x00401000\n// SIZE: 11\n{body}",
+        )
+        _write(
+            tmp_path / "b.c",
+            f"// FUNCTION: V2 0x00401000\n// SIZE: 11\n{body}",
+        )
+        out = tmp_path / "shared.c"
+        monkeypatch.setattr(
+            "rebrew.merge.require_config",
+            lambda target=None, json_mode=False: _make_cfg(tmp_path),
+        )
+        result = runner.invoke(
+            app, ["--output", str(out), "--shared", str(tmp_path / "a.c"), str(tmp_path / "b.c")]
+        )
+        assert result.exit_code == 0, result.output
+        text = out.read_text(encoding="utf-8")
+        assert "// FUNCTION: V1 0x00401000" in text
+        assert "// FUNCTION: V2 0x00401000" in text
+        assert text.count("int twin") == 1

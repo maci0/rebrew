@@ -26,7 +26,9 @@
 - **`merge --shared` collapses twin copies.**  Same-body files with different
   target markers become one stacked block (markers + SIZE lines preserved);
   same-name different-body twins are refused with names, never averaged —
-  the migration from per-target copies to `src/shared`. The success message
+  the migration from per-target copies to `src/shared`. The duplicate-VA
+  guard keys `(module, va)` like lint E013, so same-VA twins across
+  targets (DLLs at one base) stack instead of erroring. The success message
   points at `--delete` for the now-redundant copies.
 - **Copy-path `cross-import` nudges `--shared`.**  On projects with a shared
   dir, a copy import prints the one-line pointer — copies drift, stacked
