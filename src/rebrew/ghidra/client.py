@@ -24,6 +24,19 @@ logger = logging.getLogger(__name__)
 McpErrorKind = Literal["network", "http", "protocol"]
 
 
+def _close_response(resp: Any) -> None:
+    """Release an httpx response so its connection returns to the pool.
+
+    MCP batch apply posts once per command against a single Client; leaving
+    responses open pins pool slots until GC and can stall under load.
+    Test stand-ins may omit ``.close``.
+    """
+    close = getattr(resp, "close", None)
+    if callable(close):
+        with contextlib.suppress(Exception):
+            close()
+
+
 class McpError(RuntimeError):
     """ReVa MCP transport or protocol failure before/outside an apply loop.
 
@@ -118,73 +131,76 @@ def _call_mcp_tool(
             endpoint,
         )
         return None
-    if resp.status_code != 200:
-        logger.warning(
-            "MCP tool %s request %s failed with HTTP %s from %s",
-            tool_name,
-            request_id,
-            resp.status_code,
-            endpoint,
-        )
-        return None
-    ct = resp.headers.get("content-type", "").lower()
-    if "text/event-stream" in ct:
-        data = _parse_sse_response(resp.text)
-    else:
-        text = resp.text.strip()
-        if not text:
+    try:
+        if resp.status_code != 200:
             logger.warning(
-                "MCP tool %s request %s returned empty body from %s",
+                "MCP tool %s request %s failed with HTTP %s from %s",
+                tool_name,
+                request_id,
+                resp.status_code,
+                endpoint,
+            )
+            return None
+        ct = resp.headers.get("content-type", "").lower()
+        if "text/event-stream" in ct:
+            data = _parse_sse_response(resp.text)
+        else:
+            text = resp.text.strip()
+            if not text:
+                logger.warning(
+                    "MCP tool %s request %s returned empty body from %s",
+                    tool_name,
+                    request_id,
+                    endpoint,
+                )
+                return None
+            try:
+                data = JsonRpcResponse.from_dict(resp.json())
+            except (ValueError, json.JSONDecodeError, UnicodeDecodeError):
+                logger.warning(
+                    "MCP tool %s request %s returned invalid JSON from %s",
+                    tool_name,
+                    request_id,
+                    endpoint,
+                )
+                return None
+        if not data:
+            logger.warning(
+                "MCP tool %s request %s returned no parseable JSON-RPC response from %s",
                 tool_name,
                 request_id,
                 endpoint,
             )
             return None
-        try:
-            data = JsonRpcResponse.from_dict(resp.json())
-        except (ValueError, json.JSONDecodeError, UnicodeDecodeError):
+        if data.error is not None:
             logger.warning(
-                "MCP tool %s request %s returned invalid JSON from %s",
+                "MCP tool %s request %s returned JSON-RPC error: %s",
+                tool_name,
+                request_id,
+                data.error.message,
+            )
+            return None
+        if not (data.result and "content" in data.result):
+            logger.warning(
+                "MCP tool %s request %s returned result without content from %s",
                 tool_name,
                 request_id,
                 endpoint,
             )
             return None
-    if not data:
-        logger.warning(
-            "MCP tool %s request %s returned no parseable JSON-RPC response from %s",
-            tool_name,
-            request_id,
-            endpoint,
-        )
-        return None
-    if data.error is not None:
-        logger.warning(
-            "MCP tool %s request %s returned JSON-RPC error: %s",
-            tool_name,
-            request_id,
-            data.error.message,
-        )
-        return None
-    if not (data.result and "content" in data.result):
-        logger.warning(
-            "MCP tool %s request %s returned result without content from %s",
-            tool_name,
-            request_id,
-            endpoint,
-        )
-        return None
-    res = McpToolResult.from_dict(data.result)
-    if res.isError:
-        error_text = res.content[0].text if res.content else str(data.result)
-        logger.warning(
-            "MCP tool %s request %s returned tool error: %s",
-            tool_name,
-            request_id,
-            error_text,
-        )
-        return None
-    return res
+        res = McpToolResult.from_dict(data.result)
+        if res.isError:
+            error_text = res.content[0].text if res.content else str(data.result)
+            logger.warning(
+                "MCP tool %s request %s returned tool error: %s",
+                tool_name,
+                request_id,
+                error_text,
+            )
+            return None
+        return res
+    finally:
+        _close_response(resp)
 
 
 def fetch_mcp_tool(
@@ -300,8 +316,11 @@ def init_mcp_session(client: httpx.Client, endpoint: str) -> str:
     resp = client.post(
         endpoint, json=init_payload, headers=MCP_HEADERS, timeout=MCP_REQUEST_TIMEOUT_S
     )
-    resp.raise_for_status()
-    return str(resp.headers.get("Mcp-Session-Id", ""))
+    try:
+        resp.raise_for_status()
+        return str(resp.headers.get("Mcp-Session-Id", ""))
+    finally:
+        _close_response(resp)
 
 
 def _paginate_mcp_list(
@@ -604,12 +623,16 @@ def apply_commands_via_mcp(
 
         # Best-effort: ReVa does not require this notification to succeed.
         try:
-            client.post(
+            notify = client.post(
                 endpoint,
                 json={"jsonrpc": "2.0", "method": "notifications/initialized"},
                 headers=headers,
                 timeout=MCP_REQUEST_TIMEOUT_S,
-            ).raise_for_status()
+            )
+            try:
+                notify.raise_for_status()
+            finally:
+                _close_response(notify)
         except httpx.HTTPError as exc:
             logger.warning("Failed to send initialized notification to %s: %s", endpoint, exc)
 
@@ -627,40 +650,43 @@ def apply_commands_via_mcp(
             resp = client.post(
                 endpoint, json=payload, headers=headers, timeout=MCP_REQUEST_TIMEOUT_S
             )
-            resp.raise_for_status()
-            # Read body once to avoid double-decode on non-UTF8 responses.
-            body = resp.text.strip()
-            if not body:
-                return False, "empty MCP response body"
-            ct = resp.headers.get("content-type", "").lower()
-            if "text/event-stream" in ct:
-                data = _parse_sse_response(body)
-            else:
-                try:
-                    data = JsonRpcResponse.from_dict(resp.json())
-                except (ValueError, json.JSONDecodeError, UnicodeDecodeError):
-                    return False, "invalid MCP JSON-RPC response"
-            if not data:
-                return False, "missing MCP JSON-RPC response"
-            is_error = data.error is not None
-            error_msg = data.error.message if data.error else ""
-            if not is_error:
-                # A JSON-RPC success must carry a tool result with ``content``
-                # to confirm the mutation landed (the ``_call_mcp_tool``
-                # contract).  Counting a content-less result as applied silently
-                # drops the op.
-                if not (isinstance(data.result, dict) and "content" in data.result):
-                    return False, "MCP response carried no tool-result content"
-                res = McpToolResult.from_dict(data.result)
-                if res.isError:
-                    is_error = True
-                    content = res.content
-                    error_msg = content[0].text if content else str(data.result)
-            if is_error:
-                if _is_idempotent_success(cmd, error_msg):
-                    return True, ""
-                return False, str(error_msg)
-            return True, ""
+            try:
+                resp.raise_for_status()
+                # Read body once to avoid double-decode on non-UTF8 responses.
+                body = resp.text.strip()
+                if not body:
+                    return False, "empty MCP response body"
+                ct = resp.headers.get("content-type", "").lower()
+                if "text/event-stream" in ct:
+                    data = _parse_sse_response(body)
+                else:
+                    try:
+                        data = JsonRpcResponse.from_dict(resp.json())
+                    except (ValueError, json.JSONDecodeError, UnicodeDecodeError):
+                        return False, "invalid MCP JSON-RPC response"
+                if not data:
+                    return False, "missing MCP JSON-RPC response"
+                is_error = data.error is not None
+                error_msg = data.error.message if data.error else ""
+                if not is_error:
+                    # A JSON-RPC success must carry a tool result with ``content``
+                    # to confirm the mutation landed (the ``_call_mcp_tool``
+                    # contract).  Counting a content-less result as applied silently
+                    # drops the op.
+                    if not (isinstance(data.result, dict) and "content" in data.result):
+                        return False, "MCP response carried no tool-result content"
+                    res = McpToolResult.from_dict(data.result)
+                    if res.isError:
+                        is_error = True
+                        content = res.content
+                        error_msg = content[0].text if content else str(data.result)
+                if is_error:
+                    if _is_idempotent_success(cmd, error_msg):
+                        return True, ""
+                    return False, str(error_msg)
+                return True, ""
+            finally:
+                _close_response(resp)
 
         # Apply each command
         current_phase = ""

@@ -76,7 +76,13 @@ def _mock_client(status_code: int = 200, text: str = "", content_type: str = "ap
         text=text,
         headers={"content-type": content_type},
         json=lambda: json.loads(text),
+        closed=False,
     )
+
+    def _close() -> None:
+        resp.closed = True
+
+    resp.close = _close
     client = SimpleNamespace(post=lambda *a, **k: resp)
     return client, resp
 
@@ -88,11 +94,12 @@ class TestCallMcpTool:
             "id": 1,
             "result": {"content": [{"type": "text", "text": "ok"}]},
         }
-        client, _ = _mock_client(text=json.dumps(payload))
+        client, resp = _mock_client(text=json.dumps(payload))
         result = _call_mcp_tool(client, "http://x", "get-functions", {}, 1, "")
         assert result is not None
         assert result.isError is False
         assert [(c.type, c.text) for c in result.content] == [("text", "ok")]
+        assert resp.closed is True
 
     def test_sse_response(self) -> None:
         payload = {
@@ -437,6 +444,7 @@ class _FakeResp:
         self.text = text
         self.headers = headers or {"content-type": "application/json"}
         self.status_code = status
+        self.closed = False
 
     def raise_for_status(self) -> None:
         if self.status_code >= 400:
@@ -448,6 +456,9 @@ class _FakeResp:
 
     def json(self) -> Any:
         return json.loads(self.text)
+
+    def close(self) -> None:
+        self.closed = True
 
 
 class _FakeClient:

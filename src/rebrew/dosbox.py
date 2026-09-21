@@ -56,11 +56,38 @@ _SANDBOXES: list[Path] = []
 #: tree per call until atexit, while parallel workers (verify -j N / GA) each
 #: get an isolated tree — sharing one sandbox across threads raced on
 #: ``.OBJ``/``.EXE`` names and silently mixed compile outputs.
+#: Keyed by ``(prefix, thread_ident)`` so dead worker threads (a new
+#: ThreadPoolExecutor each ``verify --watch`` pass) can be reaped instead of
+#: leaving one orphaned dir per retired thread id until process exit.
 #: Guarded by :data:`_SANDBOX_LOCK`: unlocked check-then-create orphaned dirs
 #: and raced list/dict mutations.
-_SANDBOX_BY_PREFIX: dict[str, Path] = {}
+_SANDBOX_BY_PREFIX: dict[tuple[str, int], Path] = {}
 _SANDBOX_ATEXIT_REGISTERED = False
 _SANDBOX_LOCK = threading.Lock()
+
+
+def _reap_dead_thread_sandboxes_locked() -> list[Path]:
+    """Drop map entries whose owner thread is gone; return paths to rmtree.
+
+    Caller must hold :data:`_SANDBOX_LOCK`.  Removals happen under the lock;
+    filesystem deletes run outside so a slow ``rmtree`` does not stall other
+    workers' sandbox lookups.
+    """
+    live = {t.ident for t in threading.enumerate() if t.ident is not None}
+    doomed: list[Path] = []
+    for key, path in list(_SANDBOX_BY_PREFIX.items()):
+        if key[1] in live:
+            continue
+        _SANDBOX_BY_PREFIX.pop(key, None)
+        try:
+            _SANDBOXES.remove(path)
+        except ValueError:
+            for i, s in enumerate(_SANDBOXES):
+                if s == path or s.resolve() == path.resolve():
+                    del _SANDBOXES[i]
+                    break
+        doomed.append(path)
+    return doomed
 
 
 def make_sandbox_dir(prefix: str) -> Path:
@@ -75,20 +102,29 @@ def make_sandbox_dir(prefix: str) -> Path:
     same directory (stale ``.OBJ``/``.EXE`` cleanup in the 16-bit compilers
     already assumes reuse).  Concurrent threads get distinct dirs so parallel
     compiles cannot clobber each other's staged outputs.  Distinct prefixes
-    still get distinct dirs.  Every tracked sandbox is removed at process
-    exit; :func:`release_sandbox` reclaims one earlier.  Callers that must
-    keep a sandbox for post-mortem inspection pass their own *workdir*
-    instead and own its lifetime.
+    still get distinct dirs.  Sandboxes whose owner thread has exited are
+    reaped on the next call (``verify --watch`` rebuilds its pool each pass).
+    Every remaining tracked sandbox is removed at process exit;
+    :func:`release_sandbox` reclaims one earlier.  Callers that must keep a
+    sandbox for post-mortem inspection pass their own *workdir* instead and
+    own its lifetime.
 
     Raises :class:`DosboxError` when no candidate is writable."""
     from rebrew.utils import writable_temp_dir
 
     # Per-thread key: sequential reuse on one worker, isolation across -j N.
-    cache_key = f"{prefix}{threading.get_ident()}"
+    cache_key = (prefix, threading.get_ident())
+    doomed: list[Path] = []
+    existing_hit: Path | None = None
     with _SANDBOX_LOCK:
+        doomed.extend(_reap_dead_thread_sandboxes_locked())
         existing = _SANDBOX_BY_PREFIX.get(cache_key)
         if existing is not None and existing.is_dir():
-            return existing
+            existing_hit = existing
+    for path in doomed:
+        shutil.rmtree(path, ignore_errors=True)
+    if existing_hit is not None:
+        return existing_hit
 
     try:
         sandbox = writable_temp_dir(prefix)

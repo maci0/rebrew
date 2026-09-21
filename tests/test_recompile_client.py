@@ -45,11 +45,15 @@ class _Resp:
         self._json = json_body
         self.content = content
         self.text = text
+        self.closed = False
 
     def json(self) -> Any:
         if self._json is None:
             raise ValueError("not json")
         return self._json
+
+    def close(self) -> None:
+        self.closed = True
 
 
 class _FakeClient:
@@ -92,12 +96,15 @@ class TestCompileSource:
             "artifact_url": "/api/v1/artifacts/x.obj",
             "compiler_version": "12.0",
         }
-        client = _patch(monkeypatch, _Resp(200, json_body=body), _Resp(200, content=b"OBJ"))
+        post = _Resp(200, json_body=body)
+        get = _Resp(200, content=b"OBJ")
+        client = _patch(monkeypatch, post, get)
 
         res = compile_source("http://svc/", "msvc-6.0", "int f(void){}", ["/c"])
 
         assert res.ok and res.obj_bytes == b"OBJ"
         assert res.compiler_version == "12.0"
+        assert post.closed and get.closed
         # relative artifact_url is joined onto the base, trailing slash stripped
         assert client.calls == [
             ("post", "http://svc/api/v1/compile"),

@@ -17,11 +17,25 @@ training.  rebrew passes it through only when the caller asks (the GA's
 
 from __future__ import annotations
 
+import contextlib
 import time
 from contextlib import nullcontext
 from dataclasses import dataclass
 from typing import Any, Literal, Protocol, runtime_checkable
 from urllib.parse import urljoin, urlparse
+
+
+def _close_response(resp: Any) -> None:
+    """Release an httpx response so its connection returns to the pool.
+
+    Injected test stand-ins may omit ``.close``; real ``httpx.Response``
+    objects must be closed on every exit path or a reused client drains.
+    """
+    close = getattr(resp, "close", None)
+    if callable(close):
+        with contextlib.suppress(Exception):
+            close()
+
 
 #: Request cap mirrored from the service (recompile ``_MAX_FLAGS``): longer
 #: flag lists 422 instead of compiling.
@@ -147,20 +161,23 @@ def _download_artifact(
             kind="network",
             retryable=True,
         ) from exc
-    if art.status_code != 200:
-        raise RecompileError(
-            f"recompile artifact download returned HTTP {art.status_code}: {art.text[:200]}",
-            kind="http",
-            status_code=art.status_code,
-            retryable=art.status_code in _RETRYABLE_HTTP,
+    try:
+        if art.status_code != 200:
+            raise RecompileError(
+                f"recompile artifact download returned HTTP {art.status_code}: {art.text[:200]}",
+                kind="http",
+                status_code=art.status_code,
+                retryable=art.status_code in _RETRYABLE_HTTP,
+            )
+        version = body.get("compiler_version") or None
+        return RecompileResult(
+            ok=True,
+            obj_bytes=art.content,
+            log=str(body.get("log", "")),
+            compiler_version=str(version) if version else None,
         )
-    version = body.get("compiler_version") or None
-    return RecompileResult(
-        ok=True,
-        obj_bytes=art.content,
-        log=str(body.get("log", "")),
-        compiler_version=str(version) if version else None,
-    )
+    finally:
+        _close_response(art)
 
 
 def compile_source(
@@ -257,47 +274,51 @@ def compile_source(
                             kind="network",
                             retryable=True,
                         ) from exc
-                    if resp.status_code != 200:
-                        raise RecompileError(
-                            f"recompile service returned HTTP {resp.status_code}: "
-                            f"{resp.text[:300]}",
-                            kind="http",
-                            status_code=resp.status_code,
-                            retryable=resp.status_code in _RETRYABLE_HTTP,
-                        )
                     try:
-                        body = resp.json()
-                    except Exception as exc:
-                        raise RecompileError(
-                            f"recompile service returned non-JSON: {exc}",
-                            kind="protocol",
-                        ) from exc
-                    if not isinstance(body, dict):
-                        raise RecompileError(
-                            f"recompile service returned {type(body).__name__}, "
-                            "expected a JSON object",
-                            kind="protocol",
-                        )
-                    status = body.get("status")
-                    if status not in ("ok", "error"):
-                        raise RecompileError(
-                            f"recompile service returned unknown status {status!r}",
-                            kind="protocol",
-                        )
-                    if status != "ok":
-                        return RecompileResult(ok=False, log=str(body.get("log", "")))
-                    artifact_url = body.get("artifact_url")
-                    if not artifact_url:
-                        raise RecompileError(
-                            'recompile service returned status "ok" with no artifact_url',
-                            kind="protocol",
-                        )
-                    if not isinstance(artifact_url, str):
-                        raise RecompileError(
-                            f"recompile service returned non-string artifact_url: {artifact_url!r}",
-                            kind="protocol",
-                        )
-                    pending = (body, artifact_url)
+                        if resp.status_code != 200:
+                            raise RecompileError(
+                                f"recompile service returned HTTP {resp.status_code}: "
+                                f"{resp.text[:300]}",
+                                kind="http",
+                                status_code=resp.status_code,
+                                retryable=resp.status_code in _RETRYABLE_HTTP,
+                            )
+                        try:
+                            body = resp.json()
+                        except Exception as exc:
+                            raise RecompileError(
+                                f"recompile service returned non-JSON: {exc}",
+                                kind="protocol",
+                            ) from exc
+                        if not isinstance(body, dict):
+                            raise RecompileError(
+                                f"recompile service returned {type(body).__name__}, "
+                                "expected a JSON object",
+                                kind="protocol",
+                            )
+                        status = body.get("status")
+                        if status not in ("ok", "error"):
+                            raise RecompileError(
+                                f"recompile service returned unknown status {status!r}",
+                                kind="protocol",
+                            )
+                        if status != "ok":
+                            return RecompileResult(ok=False, log=str(body.get("log", "")))
+                        artifact_url = body.get("artifact_url")
+                        if not artifact_url:
+                            raise RecompileError(
+                                'recompile service returned status "ok" with no artifact_url',
+                                kind="protocol",
+                            )
+                        if not isinstance(artifact_url, str):
+                            raise RecompileError(
+                                f"recompile service returned non-string artifact_url: "
+                                f"{artifact_url!r}",
+                                kind="protocol",
+                            )
+                        pending = (body, artifact_url)
+                    finally:
+                        _close_response(resp)
                 body, artifact_url = pending
                 return _download_artifact(http, url, body, artifact_url)
         except RecompileError as exc:
