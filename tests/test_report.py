@@ -85,6 +85,7 @@ class TestReportCli:
         assert "scope='col'" in index
         assert "Skip to content" in index
         assert "aria-label='Report pages'" in index
+        assert "tabindex='-1'" in index  # skip-link focus target (WCAG 2.4.1)
         assert "#475569" in index  # STUB text meets WCAG AA contrast on white
         assert "#94a3b8" not in index
         assert "min-height: 2.75rem" in index  # nav link touch target (WCAG 2.5.8)
@@ -95,6 +96,7 @@ class TestReportCli:
         assert "prefers-reduced-motion" in index
         assert "forced-colors" in index
         assert "text-decoration: underline" in index  # nav links not color-only (1.4.1)
+        assert "max-width: 40rem" in index  # narrow-viewport reflow (1.4.10)
         graph = (site / "graph.html").read_text(encoding="utf-8")
         assert "<h2>Call graph</h2>" in graph
         assert "<h3>" not in graph

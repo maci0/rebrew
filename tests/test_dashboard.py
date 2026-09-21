@@ -360,7 +360,7 @@ class TestHandle:
 
     def test_index_html_has_accessible_structure(self, dashboard: Dashboard) -> None:
         _, _, body = dashboard.handle("GET", "/", {})
-        assert '<main id="main">' in body
+        assert '<main id="main" tabindex="-1">' in body
         assert 'href="#main"' in body
         assert "Skip to content" in body
         assert 'lang="en"' in body
@@ -368,6 +368,7 @@ class TestHandle:
         assert '<label for="module">Module</label>' in body
         assert '<label for="gq">Search global name</label>' in body
         assert 'role="group" aria-label="Coverage filters"' in body
+        assert 'role="group" aria-label="Coverage metrics"' in body
         assert 'id="boot-status" role="status"' in body
         assert 'role="status" aria-live="polite"' in body
         assert 'id="dashboard-error" role="alert" hidden' in body
@@ -395,7 +396,8 @@ class TestHandle:
         assert 'id="boot-status"' in body
         assert 'id="empty-state"' in body
         assert "Showing " in body and "of " in body  # truncation copy in JS
-        assert "Loading functions" in body
+        assert "aria-busy only" in body  # loading via aria-busy, not live-region chatter
+        assert "Loading functions…" not in body
         assert "class=value" in body
         assert 'id="clear-filters"' in body
         assert 'id="show-more"' in body
@@ -405,6 +407,7 @@ class TestHandle:
         assert 'id="history-hint"' in body
         assert "formatWhen" in body
         assert "Reload dashboard" in body
+        assert 'retry-summary").focus()' in body
         assert "No status changes recorded yet" in body
         assert "No section stats for this target" in body
         assert "setGlobalsEmptyMessage" in body
@@ -427,6 +430,8 @@ class TestHandle:
         assert "Retry sections" in body
         assert "Retry globals" in body
         assert "Retry history" in body
+        assert "Total functions for this target" in body
+        assert "aria-label='" in body  # metric cards expose title+value to AT
         assert "/api/bootstrap" in body
         assert "/api/sections" in body
         assert "/api/globals" in body

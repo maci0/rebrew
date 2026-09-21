@@ -139,12 +139,16 @@ td.blocker { max-width: 28rem; overflow-wrap: anywhere; }
 .note { background: #fff7ed; border: 1px solid #9a3412; border-radius: 6px;
         padding: 0.9rem 1.1rem; color: #9a3412; margin-bottom: 1.5rem; }
 .pager { color: #333; font-size: 0.9rem; margin: 0.75rem 0 1rem; }
-.pager a { color: #005fcc; min-height: 2.75rem; padding: 0.35rem 0.5rem;
+.pager a { color: #005fcc; text-decoration: underline; min-height: 2.75rem; padding: 0.35rem 0.5rem;
            display: inline-flex; align-items: center; }
 pre.mermaid { background: #fff; border: 1px solid #767676;
         border-radius: 6px; padding: 1rem; overflow-x: auto;
         font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
         font-size: 0.8rem; line-height: 1.4; }
+@media (max-width: 40rem) {
+  header, main { padding-left: 1rem; padding-right: 1rem; }
+  .card { min-width: 0; flex: 1 1 100%; }
+}
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
 }
@@ -247,7 +251,7 @@ def _page(title: str, target: str, active: str, body: str) -> str:
         "<a class='skip-link' href='#main'>Skip to content</a>\n"
         f"<header><h1>{html.escape(target)} - Rebrew report</h1>"
         f"<nav aria-label='Report pages'>{nav}</nav></header>\n"
-        f"<main id='main'>\n{body}\n</main>\n"
+        f"<main id='main' tabindex='-1'>\n{body}\n</main>\n"
         "</body>\n</html>\n"
     )
 

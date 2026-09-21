@@ -168,7 +168,7 @@ _INDEX_HTML = """<!doctype html>
 </head>
 <body>
 <a class="skip-link" href="#main">Skip to content</a>
-<main id="main">
+<main id="main" tabindex="-1">
 <h1>Rebrew coverage</h1>
 <p id="boot-status" role="status">Loading coverage…</p>
 <p id="no-targets" hidden>No targets found in coverage.db. Run
@@ -210,7 +210,7 @@ _INDEX_HTML = """<!doctype html>
 </div>
 <section id="summary" aria-labelledby="summary-heading" aria-busy="false" hidden>
 <h2 class="visually-hidden" id="summary-heading">Coverage summary</h2>
-<div class="cards" id="cards"></div>
+<div class="cards" id="cards" role="group" aria-label="Coverage metrics"></div>
 </section>
 <p class="visually-hidden" id="results-status" role="status" aria-live="polite"></p>
 <p id="dashboard-error" role="alert" hidden></p>
@@ -556,7 +556,8 @@ async function loadFunctions(options) {
     $("results").hidden = false;
     $("empty-state").hidden = true;
     $("show-more-wrap").hidden = true;
-    $("results-status").textContent = "Loading functions…";
+    // Busy state via aria-busy only — avoid polite-live "Loading…" chatter on
+    // every debounced search keystroke (WCAG 4.1.3).
     const data = await whileBusy("results", () => get("/api/functions?" + params, signal));
     if (seq !== functionsSeq || signal.aborted) return;
     renderFunctions(data, { append: grow });
@@ -603,7 +604,8 @@ function renderSummary(s) {
         + "<span class=value>" + esc(v) + "</span>"
         + "<span class=label>" + esc(k) + "</span></button>";
     }
-    return "<div class=card title='" + esc(title) + "'><span class=value>" + esc(v) + "</span>"
+    return "<div class=card title='" + esc(title) + "' aria-label='"
+      + esc(title + ": " + v) + "'><span class=value>" + esc(v) + "</span>"
       + "<span class=label>" + esc(k) + "</span></div>";
   }).join("");
   $("summary").hidden = false;
@@ -750,7 +752,6 @@ async function loadSections() {
   const { signal } = viewController;
   $("sections-empty").hidden = true;
   $("sections-results").hidden = false;
-  $("results-status").textContent = "Loading sections…";
   try {
     setLoadError("view", "");
     const data = await whileBusy("sections-results", () =>
@@ -784,7 +785,6 @@ async function loadGlobals(options) {
   $("globals-hint").hidden = true;
   $("globals-show-more-wrap").hidden = true;
   $("globals-results").hidden = false;
-  $("results-status").textContent = "Loading globals…";
   try {
     setLoadError("view", "");
     const data = await whileBusy("globals-results", () =>
@@ -827,7 +827,6 @@ async function loadHistory(options) {
   $("history-hint").hidden = true;
   $("history-show-more-wrap").hidden = true;
   $("history-results").hidden = false;
-  $("results-status").textContent = "Loading history…";
   try {
     setLoadError("view", "");
     const data = await whileBusy("history-results", () =>
@@ -956,8 +955,10 @@ function bindControls() {
     setView(btn.getAttribute("data-view"));
   };
   $("views").onkeydown = (ev) => {
+    const tab = ev.target.closest("button[data-view]");
+    if (!tab || !$("views").contains(tab)) return;
     const tabs = Array.from($("views").querySelectorAll("button[data-view]"));
-    const current = tabs.findIndex((tab) => tab.getAttribute("data-view") === currentView);
+    const current = tabs.indexOf(tab);
     if (current < 0) return;
     let next = -1;
     if (ev.key === "ArrowRight" || ev.key === "ArrowDown") next = (current + 1) % tabs.length;
@@ -966,9 +967,9 @@ function bindControls() {
     else if (ev.key === "End") next = tabs.length - 1;
     else return;
     ev.preventDefault();
-    const tab = tabs[next];
-    setView(tab.getAttribute("data-view"));
-    tab.focus();
+    const nextTab = tabs[next];
+    setView(nextTab.getAttribute("data-view"));
+    nextTab.focus();
   };
 }
 async function init() {
@@ -1013,6 +1014,7 @@ function start() {
       $("boot-status").textContent = "Loading coverage…";
       start();
     };
+    $("retry-summary").focus();
   });
 }
 start();
