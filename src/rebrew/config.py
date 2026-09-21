@@ -362,6 +362,9 @@ class ProjectConfig:
     # --- All known target names ---
     all_targets: list[str] = field(default_factory=list)
 
+    # --- All known target markers (E012 allows stacked shared markers) ---
+    all_markers: set[str] = field(default_factory=set)
+
     # --- Linker settings for byte-identical reconstruction ([link]) ---
     link: LinkConfig = field(default_factory=LinkConfig)
 
@@ -1310,6 +1313,15 @@ def load_config(
             tgt.get("binsync_state_dir"), "", f"targets.{target}.binsync_state_dir"
         ),
         all_targets=all_target_names,
+        all_markers={
+            _as_str(
+                t.get("marker") if isinstance(t, dict) else None,
+                re.sub(r"[^A-Za-z0-9_]", "", n).upper(),
+                f"targets.{n}.marker",
+            )
+            for n, t in targets_dict.items()
+            if isinstance(n, str)
+        },
         # lint configuration — validated enums; unknown keys warn like other sections
         **_load_lint_settings(project_raw),
     )

@@ -1020,3 +1020,39 @@ class TestCheckLayoutPackage:
         pkg.write_text("[layout]\n", encoding="utf-8")
         result = check_layout_package(_make_cfg(tmp_path))  # type: ignore[arg-type]
         assert result.status == "pass"
+
+
+class TestCheckSharedSources:
+    def test_single_target_skips(self, tmp_path: Path) -> None:
+        from rebrew.doctor import check_shared_sources
+
+        result = check_shared_sources(_make_cfg(tmp_path, all_targets=["V1"]))  # type: ignore[arg-type]
+        assert result.status == "skip"
+
+    def test_multi_target_missing_dir_warns(self, tmp_path: Path) -> None:
+        from rebrew.doctor import check_shared_sources
+
+        cfg = _make_cfg(
+            tmp_path,
+            all_targets=["V1", "V2"],
+            shared_dir=tmp_path / "src" / "shared",
+        )
+        result = check_shared_sources(cfg)  # type: ignore[arg-type]
+        assert result.status == "warn"
+        assert "--shared" in (result.fix or "")
+
+    def test_multi_target_disabled_warns(self, tmp_path: Path) -> None:
+        from rebrew.doctor import check_shared_sources
+
+        cfg = _make_cfg(tmp_path, all_targets=["V1", "V2"], shared_dir=None)
+        result = check_shared_sources(cfg)  # type: ignore[arg-type]
+        assert result.status == "warn"
+
+    def test_multi_target_present_passes(self, tmp_path: Path) -> None:
+        from rebrew.doctor import check_shared_sources
+
+        shared = tmp_path / "src" / "shared"
+        shared.mkdir(parents=True)
+        cfg = _make_cfg(tmp_path, all_targets=["V1", "V2"], shared_dir=shared)
+        result = check_shared_sources(cfg)  # type: ignore[arg-type]
+        assert result.status == "pass"

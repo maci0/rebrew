@@ -593,13 +593,23 @@ def _check_W015_va_case(result: LintResult, va_str: str) -> None:
 def _check_config_rules(
     result: LintResult, found_keys: dict[str, str], cfg: ProjectConfig | None
 ) -> None:
-    """Config-aware checks (E012)."""
+    """Config-aware checks (E012).
+
+    A stacked shared-source marker for ANOTHER target (``// FUNCTION: V1``
+    in a file linted under V2) is not a mismatch: one ``src/shared`` file
+    serves every target with one marker per target (ADR-010).  Accept any
+    module that names a known project target; only a module naming NO
+    target fires E012.
+    """
     if cfg is None:
         return
 
     module = found_keys.get("MODULE", "")
     marker = getattr(cfg, "marker", None)
     if module and marker and module != marker:
+        known = {marker} | set(getattr(cfg, "all_markers", None) or ())
+        if module in known:
+            return
         result.error(
             result.marker_line,
             "E012",
@@ -1473,7 +1483,21 @@ def lint_file(
                 )
 
             if marker not in ("GLOBAL", "DATA"):
-                _check_W018_cflags(result, found_keys, cfg)
+                # A stacked shared-source block for ANOTHER target answers to
+                # its own target's defaults, not this one's — flagging it for
+                # missing CFLAGS here is misattribution (ADR-010).
+                _own_marker = getattr(cfg, "marker", None) if cfg is not None else None
+                _known_markers = getattr(cfg, "all_markers", None) or (
+                    {_own_marker} if _own_marker else set()
+                )
+                if not (
+                    cfg is not None
+                    and _own_marker
+                    and mod
+                    and mod != _own_marker
+                    and mod in _known_markers
+                ):
+                    _check_W018_cflags(result, found_keys, cfg)
             else:
                 # For DATA/GLOBAL: overlay data metadata fields (size, section, note).
                 # SIZE is co-read; SECTION/NOTE follow the same store-wins rule

@@ -2109,3 +2109,24 @@ class TestCommentInteriorIsNotCode:
         result = lint_file(f, cfg=None)
         assert "E023" not in [code for _, code, _ in result.errors]
         assert "W020" not in [code for _, code, _ in result.warnings]
+
+
+class TestStackedSharedMarkers:
+    """One shared file, one marker per target (ADR-010): no E012."""
+
+    def test_other_target_marker_allowed(self, tmp_path: Path) -> None:
+        cfg = _make_cfg(marker="V2")
+        cfg.all_markers = {"V1", "V2"}
+        content = (
+            "// FUNCTION: V1 0x401000\n// FUNCTION: V2 0x501000\nint common(void){ return 1; }\n"
+        )
+        f = _write_c(tmp_path, "common.c", content)
+        result = lint_file(f, cfg=cfg)
+        assert not any((c == "E012" for _, c, _ in result.errors))
+
+    def test_unknown_module_still_e012(self, tmp_path: Path) -> None:
+        cfg = _make_cfg(marker="V2")
+        cfg.all_markers = {"V1", "V2"}
+        f = _write_c(tmp_path, "bad.c", "// FUNCTION: NOPE 0x401000\nint f(void){ return 1; }\n")
+        result = lint_file(f, cfg=cfg)
+        assert any((c == "E012" for _, c, _ in result.errors))

@@ -12,7 +12,7 @@ Manual inspection and linkage tools outside the main reverse loop. Run
 | `rebrew recover-structs` | Recover struct definitions from decompiler output (offset evidence to typedefs). |
 | `rebrew document-unmatched` | Document unmatched functions as STUB skeletons plus blockers. |
 | `rebrew binary-similarity` | Whole-binary structural similarity against another binary (versions, DLL+EXE). |
-| `rebrew cross-import` | Import matched functions from another target (same code, different VAs). |
+| `rebrew cross-import` | Import matched functions from another target (same code, different VAs). `--shared` stacks the marker onto the shared file in `src/shared` (one file, one marker per target) instead of copying; prefer it when targets share one codebase. |
 | `rebrew verify-exports` | Verify the recompiled binary's export table matches the original target. |
 | `rebrew order-sources` | Order source files by their first function's original VA (position-aligned `.text`). |
 | `rebrew calibrate-bss` | Calibrate a BSS tail pad so the raw link's `.data` VirtualSize matches the reference. |

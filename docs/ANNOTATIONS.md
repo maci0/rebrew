@@ -438,7 +438,7 @@ Errors indicate broken annotations that will cause `rebrew test`, `rebrew verify
 
 | Code | Description | Triggered by |
 |------|-------------|--------------|
-| E012 | Module name mismatch | `// FUNCTION: CLIENT 0x...` when `rebrew-project.toml` says `marker = "SERVER"` |
+| E012 | Module name mismatch | `// FUNCTION: CLIENT 0x...` when neither the target `marker` nor any known project marker names `CLIENT` — a stacked `src/shared` block for another target (ADR-010) is accepted |
 
 #### Cross-File Errors
 

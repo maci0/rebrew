@@ -96,6 +96,12 @@ the same VA (which can occur when multiple DLLs are compiled from the same
 base address). The key format directly mirrors the `// FUNCTION: MODULE 0xVA`
 marker line.
 
+Shared files live under `src/shared` (one marker per target, per-target
+`STATUS`). Shared headers live there too: a shared source finds them by
+bare name (the shared root is on the include path). Move a per-target file
+there with `rebrew cross-import --from <src> --promote`; import with
+`--shared` instead of copying.
+
 ## Data Annotations
 
 DATA/GLOBAL metadata lives in a **`rebrew-data.toml` metadata file** — the data

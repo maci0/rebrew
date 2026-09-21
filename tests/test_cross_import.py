@@ -198,6 +198,102 @@ class TestMarkerRewrite:
         assert "// SIZE: 8" in out  # f2's SIZE untouched
 
 
+class TestExtractSingleFunction:
+    def test_single_function_source_unchanged(self) -> None:
+        src = "// FUNCTION: SRC 0x401000\nint f1(void){ return 1; }\n"
+        assert ci._extract_function_text(src, 0x401000) == src
+
+    def test_multi_function_keeps_only_matched_block(self) -> None:
+        """Copying a whole multi-function SERVER file into GOLDTL leaked every
+        co-resident marker (lint E012) and duplicated the other functions.
+        The matched function must import alone with its preamble."""
+        src = (
+            '#include "h.h"\n'
+            "// FUNCTION: SERVER 0x401000\nint f1(void){ return 1; }\n"
+            "// FUNCTION: SERVER 0x401010\nint f2(void){ return 2; }\n"
+        )
+        out = ci._extract_function_text(src, 0x401000)
+        assert out is not None
+        assert "f1" in out
+        assert "f2" not in out
+        assert out.count("FUNCTION:") == 1
+        assert out.startswith('#include "h.h"')
+
+    def test_multi_function_second_block(self) -> None:
+        src = (
+            "// FUNCTION: SERVER 0x401000\nint f1(void){ return 1; }\n"
+            "// FUNCTION: SERVER 0x401010\nint f2(void){ return 2; }\n"
+        )
+        out = ci._extract_function_text(src, 0x401010)
+        assert out is not None
+        assert "f2" in out and "f1" not in out
+        assert out.count("FUNCTION:") == 1
+
+    def test_unknown_va_returns_none(self) -> None:
+        src = "// FUNCTION: SERVER 0x401000\nint f1(void){ return 1; }\n"
+        assert ci._extract_function_text(src, 0x999999) is None
+
+    def test_import_emits_only_matched_function(self, tmp_path: Path, monkeypatch) -> None:
+        """End-to-end: a SERVER multi-function file imports ONLY f1 into GOLDTL,
+        re-tagged — no foreign markers survive, no co-resident body duplicated."""
+        import rebrew.cross_import as ci_mod
+
+        rev_src = tmp_path / "src_SERVER"
+        rev_src.mkdir(parents=True)
+        rev_dst = tmp_path / "src_GOLDTL"
+        rev_dst.mkdir(parents=True)
+
+        cfg_src = SimpleNamespace(
+            root=tmp_path,
+            target_name="GOLDTL",
+            reversed_dir=rev_src,
+            metadata_dir=tmp_path,
+            target_binary=tmp_path / "server.dll",
+            source_ext=".c",
+            marker="SERVER",
+            posix_style=True,
+        )
+        cfg_dst = SimpleNamespace(
+            root=tmp_path,
+            target_name="DST",
+            reversed_dir=rev_dst,
+            metadata_dir=tmp_path,
+            target_binary=tmp_path / "goldtl.exe",
+            source_ext=".c",
+            marker="DST",
+            posix_style=False,
+        )
+        (rev_src / "shared.c").write_text(
+            '#include "shared.h"\n'
+            "// FUNCTION: SERVER 0x401000\nint f1(void){ return 1; }\n"
+            "// FUNCTION: SERVER 0x401010\nint f2(void){ return 2; }\n"
+        )
+
+        from rebrew.compile import CompareResult
+
+        monkeypatch.setattr(
+            "rebrew.verify.verify_entry",
+            lambda *a, **k: CompareResult(
+                matched=True,
+                status="RELOC",
+                match_percent=100.0,
+                delta=0,
+                obj_bytes=b"x",
+                reloc_offsets=[],
+                message="RELOC",
+            ),
+        )
+        monkeypatch.setattr("rebrew.verify.apply_status_updates", lambda *a, **k: None)
+        monkeypatch.setattr(ci_mod, "_source_flags", lambda *a, **k: "")
+
+        res = ci_mod.import_function(cfg_dst, cfg_src, 0x601000, 0x401000, "shared.c", 11)
+        assert res["action"] == "imported"
+        text = (rev_dst / "shared.c").read_text(encoding="utf-8")
+        assert "// FUNCTION: DST 0x601000" in text
+        assert text.count("FUNCTION:") == 1
+        assert "int f2" not in text
+
+
 class TestOnlyVaGuard:
     def test_only_va_does_not_bypass_matched_status(self, monkeypatch) -> None:
         """``--va`` on an already matched destination function must not re-add
@@ -855,3 +951,445 @@ class TestRewriteMarkerSizeAndLineEndings:
         assert lines[0] == "// FUNCTION: DST 0x601000\r\n"
         assert lines[1] == "// SIZE: 13\r\n"
         assert all(line.endswith("\r\n") for line in lines if line.strip())
+
+
+class TestSharedImport:
+    """`--shared`: stack the destination marker onto one file (ADR-010)."""
+
+    def test_stack_marker_prepends_destination_block(self) -> None:
+        src = "// FUNCTION: SRC 0x401000\n// SIZE: 11\nint f1(void){ return 1; }\n"
+        out = ci._stack_marker(src, "DST", 0x601000, 13)
+        lines = out.splitlines()
+        assert lines[0] == "// FUNCTION: DST 0x601000"
+        assert lines[1] == "// SIZE: 13"
+        assert "// FUNCTION: SRC 0x401000" in out
+        assert "int f1(void)" in out
+
+    def test_stack_marker_idempotent(self) -> None:
+        src = "// FUNCTION: DST 0x601000\n// SIZE: 13\nint f1(void){ return 1; }\n"
+        assert ci._stack_marker(src, "DST", 0x601000, 13) == src
+
+    def test_shared_import_stacks_in_place(self, tmp_path: Path, monkeypatch) -> None:
+        rev = tmp_path / "src_shared"
+        rev.mkdir(parents=True)
+        src_file = rev / "f1.c"
+        src_file.write_text(
+            "// FUNCTION: SRC 0x401000\n// SIZE: 11\nint f1(void){ return 1; }\n",
+            encoding="utf-8",
+        )
+        cfg_src = SimpleNamespace(
+            root=tmp_path,
+            target_name="SRC",
+            reversed_dir=rev,
+            shared_dir=rev,
+            metadata_dir=tmp_path,
+            target_binary=tmp_path / "a.exe",
+            source_ext=".c",
+            marker="SRC",
+            posix_style=False,
+        )
+        dst_rev = tmp_path / "src_DST"
+        dst_rev.mkdir(parents=True)
+        cfg_dst = SimpleNamespace(
+            root=tmp_path,
+            target_name="DST",
+            reversed_dir=dst_rev,
+            metadata_dir=tmp_path,
+            target_binary=tmp_path / "b.exe",
+            source_ext=".c",
+            marker="DST",
+            posix_style=False,
+        )
+
+        from rebrew.compile import CompareResult
+
+        monkeypatch.setattr(
+            "rebrew.verify.verify_entry",
+            lambda *a, **k: CompareResult(
+                matched=True,
+                status="EXACT",
+                match_percent=100.0,
+                delta=0,
+                obj_bytes=b"x",
+                reloc_offsets=[],
+                message="EXACT MATCH",
+            ),
+        )
+        monkeypatch.setattr("rebrew.verify.apply_status_updates", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.cross_import._source_flags", lambda *a, **k: "")
+
+        res = ci.import_shared_function(cfg_dst, cfg_src, B_F1, A_F1, "f1.c", 11)
+        assert res["action"] == "imported-shared"
+        text = src_file.read_text(encoding="utf-8")
+        assert "// FUNCTION: DST 0x401040" in text
+        assert "// FUNCTION: SRC 0x401000" in text
+        assert not (dst_rev / "f1.c").exists()  # no copy: one file serves both
+
+
+class TestPromoteToShared:
+    def _cfg(self, tmp_path: Path) -> SimpleNamespace:
+        rev = tmp_path / "src_SRC"
+        rev.mkdir(parents=True, exist_ok=True)
+        shared = tmp_path / "src" / "shared"
+        shared.mkdir(parents=True, exist_ok=True)
+        return SimpleNamespace(
+            root=tmp_path,
+            target_name="SRC",
+            reversed_dir=rev,
+            shared_dir=shared,
+            marker="SRC",
+        )
+
+    def test_promote_moves_preserving_path(self, tmp_path: Path) -> None:
+        cfg = self._cfg(tmp_path)
+        sub = cfg.reversed_dir / "Units" / "vfs"
+        sub.mkdir(parents=True)
+        (sub / "f1.c").write_text("// FUNCTION: SRC 0x401000\nint f1(void){ return 1; }\n")
+        res = ci.promote_to_shared(cfg, "Units/vfs/f1.c")
+        assert res["action"] == "promoted"
+        assert (cfg.shared_dir / "Units" / "vfs" / "f1.c").is_file()
+        assert not (cfg.reversed_dir / "Units" / "vfs" / "f1.c").exists()
+
+    def test_promote_dry_run_moves_nothing(self, tmp_path: Path) -> None:
+        cfg = self._cfg(tmp_path)
+        (cfg.reversed_dir / "f1.c").write_text("x")
+        res = ci.promote_to_shared(cfg, "f1.c", dry_run=True)
+        assert res["action"] == "would-promote"
+        assert (cfg.reversed_dir / "f1.c").is_file()
+
+    def test_promote_conflict_when_shared_exists(self, tmp_path: Path) -> None:
+        cfg = self._cfg(tmp_path)
+        (cfg.reversed_dir / "f1.c").write_text("x")
+        (cfg.shared_dir / "f1.c").write_text("y")
+        res = ci.promote_to_shared(cfg, "f1.c")
+        assert res["action"] == "error"
+        assert res["status"] == "TARGET_CONFLICT"
+
+    def test_promote_no_shared_dir_errors(self, tmp_path: Path) -> None:
+        cfg = self._cfg(tmp_path)
+        cfg.shared_dir = None
+        (cfg.reversed_dir / "f1.c").write_text("x")
+        res = ci.promote_to_shared(cfg, "f1.c")
+        assert res["action"] == "error"
+        assert res["status"] == "NO_SHARED_DIR"
+
+    def test_shared_import_auto_promotes(self, tmp_path: Path, monkeypatch) -> None:
+        """--shared on a source still in the per-target tree moves it under
+        src/shared first, so the stacked marker lands on the scanned file."""
+        rev = tmp_path / "src_SRC"
+        rev.mkdir(parents=True)
+        shared = tmp_path / "src" / "shared"
+        shared.mkdir(parents=True)
+        (rev / "f1.c").write_text(
+            "// FUNCTION: SRC 0x401000\n// SIZE: 11\nint f1(void){ return 1; }\n"
+        )
+        cfg_src = SimpleNamespace(
+            root=tmp_path,
+            target_name="SRC",
+            reversed_dir=rev,
+            shared_dir=shared,
+            metadata_dir=tmp_path,
+            target_binary=tmp_path / "a.exe",
+            source_ext=".c",
+            marker="SRC",
+            posix_style=False,
+        )
+        dst_rev = tmp_path / "src_DST"
+        dst_rev.mkdir(parents=True)
+        cfg_dst = SimpleNamespace(
+            root=tmp_path,
+            target_name="DST",
+            reversed_dir=dst_rev,
+            metadata_dir=tmp_path,
+            target_binary=tmp_path / "b.exe",
+            source_ext=".c",
+            marker="DST",
+            posix_style=False,
+        )
+        from rebrew.compile import CompareResult
+
+        monkeypatch.setattr(
+            "rebrew.verify.verify_entry",
+            lambda *a, **k: CompareResult(
+                matched=True,
+                status="EXACT",
+                match_percent=100.0,
+                delta=0,
+                obj_bytes=b"x",
+                reloc_offsets=[],
+                message="EXACT MATCH",
+            ),
+        )
+        monkeypatch.setattr("rebrew.verify.apply_status_updates", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.cross_import._source_flags", lambda *a, **k: "")
+
+        res = ci.import_shared_function(cfg_dst, cfg_src, B_F1, A_F1, "f1.c", 11)
+        assert res["action"] == "imported-shared"
+
+    def test_cli_shared_promotes_before_stacking(self, tmp_path: Path, monkeypatch) -> None:
+        """The CLI --shared path moves a per-target source under src/shared
+        first, so the stacked marker lands on the file every target scans."""
+        from typer.testing import CliRunner
+
+        (tmp_path / "rebrew-project.toml").write_text(
+            "[project]\nname = 'probe'\ndefault_target = 'DST'\nshared_dir = 'src/shared'\n"
+            "[compiler]\nprofile = 'msvc-6.0'\ncommand = 'CL.EXE'\n"
+            "[targets.SRC]\nbinary = 'a.exe'\n"
+            "[targets.DST]\nbinary = 'b.exe'\n",
+            encoding="utf-8",
+        )
+        (tmp_path / "a.exe").write_bytes(b"MZ")
+        (tmp_path / "b.exe").write_bytes(b"MZ")
+        (tmp_path / "src" / "SRC").mkdir(parents=True)
+        (tmp_path / "src" / "DST").mkdir(parents=True)
+        (tmp_path / "src" / "shared").mkdir(parents=True)
+        (tmp_path / "src" / "SRC" / "f1.c").write_text(
+            "// FUNCTION: SRC 0x401000\n// SIZE: 11\nint f1(void){ return 1; }\n"
+        )
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr("rebrew.cross_import.matched_source_bytes", lambda cfg: {A_F1: F1})
+        monkeypatch.setattr(
+            "rebrew.cross_import.unmatched_dest_bytes",
+            lambda cfg, only_va=None: {B_F1: F1},
+        )
+        monkeypatch.setattr(
+            "rebrew.cross_import.cross_match", lambda d, s, **k: {B_F1: (A_F1, 100.0)}
+        )
+        monkeypatch.setattr(
+            "rebrew.cross_import._registry", lambda cfg: {B_F1: {"canonical_size": 11}}
+        )
+        monkeypatch.setattr(
+            "rebrew.cross_import._annotations_by_va",
+            lambda cfg: (
+                {B_F1: ("STUB", ""), A_F1: ("EXACT", "f1.c")}
+                if cfg.target_name == "DST"
+                else {A_F1: ("EXACT", "f1.c")}
+            ),
+        )
+        monkeypatch.setattr(
+            "rebrew.cross_import.import_shared_function",
+            lambda *a, **k: {
+                "dst_va": "0x401040",
+                "src_va": "0x401000",
+                "score": 100.0,
+                "action": "imported-shared",
+                "status": "EXACT",
+                "filepath": "../shared/f1.c",
+                "message": "",
+            },
+        )
+
+        from rebrew.main import app as umbrella
+
+        runner = CliRunner()
+        result = runner.invoke(
+            umbrella, ["cross-import", "--from", "SRC", "--shared", "--target", "DST"]
+        )
+        assert result.exit_code == 0, result.output
+        assert (tmp_path / "src" / "shared" / "f1.c").is_file()
+        assert not (tmp_path / "src" / "SRC" / "f1.c").exists()
+
+
+class TestSharedSupersede:
+    def _cfgs(self, tmp_path: Path) -> tuple[SimpleNamespace, SimpleNamespace]:
+        rev = tmp_path / "src_SRC"
+        rev.mkdir(parents=True)
+        shared = tmp_path / "src" / "shared"
+        shared.mkdir(parents=True)
+        dst_rev = tmp_path / "src_DST"
+        dst_rev.mkdir(parents=True)
+        cfg_src = SimpleNamespace(
+            root=tmp_path,
+            target_name="SRC",
+            reversed_dir=rev,
+            shared_dir=shared,
+            metadata_dir=tmp_path,
+            target_binary=tmp_path / "a.exe",
+            source_ext=".c",
+            marker="SRC",
+            posix_style=False,
+        )
+        cfg_dst = SimpleNamespace(
+            root=tmp_path,
+            target_name="DST",
+            reversed_dir=dst_rev,
+            metadata_dir=tmp_path,
+            target_binary=tmp_path / "b.exe",
+            source_ext=".c",
+            marker="DST",
+            posix_style=False,
+        )
+        return cfg_src, cfg_dst
+
+    def _ok_verify(self, monkeypatch) -> None:
+        from rebrew.compile import CompareResult
+
+        monkeypatch.setattr(
+            "rebrew.verify.verify_entry",
+            lambda *a, **k: CompareResult(
+                matched=True,
+                status="EXACT",
+                match_percent=100.0,
+                delta=0,
+                obj_bytes=b"x",
+                reloc_offsets=[],
+                message="EXACT MATCH",
+            ),
+        )
+        monkeypatch.setattr("rebrew.verify.apply_status_updates", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.cross_import._source_flags", lambda *a, **k: "")
+
+    def test_matched_shared_import_deletes_stub(self, tmp_path: Path, monkeypatch) -> None:
+        cfg_src, cfg_dst = self._cfgs(tmp_path)
+        (cfg_src.shared_dir / "f1.c").write_text(
+            "// FUNCTION: SRC 0x401000\n// SIZE: 11\nint f1(void){ return 1; }\n"
+        )
+        (cfg_dst.reversed_dir / "stub.c").write_text(
+            "// FUNCTION: DST 0x401040\n// SIZE: 0\nint f1(void){ return 0; }\n"
+        )
+        self._ok_verify(monkeypatch)
+        res = ci.import_shared_function(cfg_dst, cfg_src, B_F1, A_F1, "f1.c", 11, dst_file="stub.c")
+        assert res["action"] == "imported-shared"
+        assert "superseded stub.c" in res["message"]
+        assert not (cfg_dst.reversed_dir / "stub.c").exists()
+
+    def test_unverified_shared_import_keeps_stub(self, tmp_path: Path, monkeypatch) -> None:
+        from rebrew.compile import CompareResult
+
+        cfg_src, cfg_dst = self._cfgs(tmp_path)
+        (cfg_src.shared_dir / "f1.c").write_text(
+            "// FUNCTION: SRC 0x401000\n// SIZE: 11\nint f1(void){ return 1; }\n"
+        )
+        (cfg_dst.reversed_dir / "stub.c").write_text(
+            "// FUNCTION: DST 0x401040\n// SIZE: 0\nint f1(void){ return 0; }\n"
+        )
+        monkeypatch.setattr(
+            "rebrew.verify.verify_entry",
+            lambda *a, **k: CompareResult(
+                matched=False,
+                status="NEAR_MATCHING",
+                match_percent=50.0,
+                delta=5,
+                obj_bytes=b"x",
+                reloc_offsets=[],
+                message="NEAR",
+            ),
+        )
+        monkeypatch.setattr("rebrew.verify.apply_status_updates", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.cross_import._source_flags", lambda *a, **k: "")
+        res = ci.import_shared_function(cfg_dst, cfg_src, B_F1, A_F1, "f1.c", 11, dst_file="stub.c")
+        assert res["action"] == "imported-unverified"
+        assert (cfg_dst.reversed_dir / "stub.c").is_file()
+
+    def test_same_file_stub_never_deleted(self, tmp_path: Path, monkeypatch) -> None:
+        cfg_src, cfg_dst = self._cfgs(tmp_path)
+        (cfg_src.shared_dir / "f1.c").write_text(
+            "// FUNCTION: SRC 0x401000\n// SIZE: 11\nint f1(void){ return 1; }\n"
+        )
+        self._ok_verify(monkeypatch)
+        res = ci.import_shared_function(
+            cfg_dst, cfg_src, B_F1, A_F1, "f1.c", 11, dst_file="../shared/f1.c"
+        )
+        assert res["action"] == "imported-shared"
+        assert (cfg_src.shared_dir / "f1.c").is_file()
+
+
+class TestSharedCflagsPortable:
+    """Shared imports record no absolute source-dir include.
+
+    The copy path needs ``/I<abs parent>`` (destination tree lacks the
+    source headers); the shared file moves WITH its tree, and compile.py
+    already adds src_parent — so an absolute include only bakes one
+    machine's checkout path into the metadata (guild-rebrew
+    GOLDTL.0x004c75e0 carried ``/I/home/.../server.dll/...``).
+    """
+
+    def test_shared_cflags_have_no_absolute_include(self, tmp_path: Path, monkeypatch) -> None:
+        rev = tmp_path / "src_SRC"
+        rev.mkdir(parents=True)
+        sub = rev / "Units" / "vfs"
+        sub.mkdir(parents=True)
+        (sub / "f1.c").write_text(
+            "// FUNCTION: SRC 0x401000\n// CFLAGS: /O1 /Gd\nint f1(void){ return 1; }\n"
+        )
+        shared = tmp_path / "src" / "shared"
+        shared.mkdir(parents=True)
+        dst_rev = tmp_path / "src_DST"
+        dst_rev.mkdir(parents=True)
+        cfg_src = SimpleNamespace(
+            root=tmp_path,
+            target_name="SRC",
+            reversed_dir=rev,
+            shared_dir=shared,
+            metadata_dir=tmp_path,
+            target_binary=tmp_path / "a.exe",
+            source_ext=".c",
+            marker="SRC",
+            posix_style=False,
+        )
+        cfg_dst = SimpleNamespace(
+            root=tmp_path,
+            target_name="DST",
+            reversed_dir=dst_rev,
+            metadata_dir=tmp_path,
+            target_binary=tmp_path / "b.exe",
+            source_ext=".c",
+            marker="DST",
+            posix_style=False,
+        )
+        from rebrew.compile import CompareResult
+
+        monkeypatch.setattr(
+            "rebrew.verify.verify_entry",
+            lambda *a, **k: CompareResult(
+                matched=True,
+                status="EXACT",
+                match_percent=100.0,
+                delta=0,
+                obj_bytes=b"x",
+                reloc_offsets=[],
+                message="EXACT MATCH",
+            ),
+        )
+        monkeypatch.setattr("rebrew.verify.apply_status_updates", lambda *a, **k: None)
+
+        res = ci.import_shared_function(cfg_dst, cfg_src, B_F1, A_F1, "Units/vfs/f1.c", 11)
+        assert res["action"] == "imported-shared"
+        from rebrew.metadata import load_metadata
+
+        cflags = load_metadata(cfg_dst.metadata_dir)[("DST", B_F1)]["cflags"]
+        assert cflags == "/O1 /Gd"
+        assert str(tmp_path) not in cflags
+
+
+class TestSharedDryRunPath:
+    def test_dry_run_reports_project_relative_path(self, tmp_path: Path) -> None:
+        """Dry-run filepath must be project-portable (../shared/f.c), not an
+        absolute checkout path leaking into CI logs and JSON consumers."""
+        rev = tmp_path / "src" / "SRC"
+        rev.mkdir(parents=True)
+        shared = tmp_path / "src" / "shared"
+        shared.mkdir(parents=True)
+        (shared / "f1.c").write_text(
+            "// FUNCTION: SRC 0x401000\n// SIZE: 11\nint f1(void){ return 1; }\n"
+        )
+        cfg_src = SimpleNamespace(
+            root=tmp_path,
+            target_name="SRC",
+            reversed_dir=rev,
+            shared_dir=shared,
+            marker="SRC",
+        )
+        dst_rev = tmp_path / "src" / "DST"
+        dst_rev.mkdir(parents=True)
+        cfg_dst = SimpleNamespace(
+            root=tmp_path,
+            target_name="DST",
+            reversed_dir=dst_rev,
+            metadata_dir=tmp_path,
+            marker="DST",
+        )
+        res = ci.import_shared_function(cfg_dst, cfg_src, B_F1, A_F1, "f1.c", 11, dry_run=True)
+        assert res["action"] == "would-import-shared"
+        assert res["filepath"] == "../shared/f1.c"
+        assert str(tmp_path) not in res["filepath"]

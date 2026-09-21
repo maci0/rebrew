@@ -1478,3 +1478,69 @@ class TestSinglePathExitCodes:
         except __import__("typer").Exit:
             pass
         assert captured["kwargs"].get("section_va") == 0x1000
+
+
+class TestRebrewTestBatchDirShared:
+    """`--dir src/shared` scopes the shared tree (project-relative first)."""
+
+    def _cfg(self, tmp_path: Path) -> SimpleNamespace:
+        return SimpleNamespace(
+            default_jobs=1,
+            root=tmp_path,
+            reversed_dir=tmp_path / "src" / "server.dll",
+            metadata_dir=tmp_path / "src",
+            marker="SERVER",
+            source_ext=".c",
+        )
+
+    def test_batch_dir_scopes_shared_tree(
+        self, monkeypatch: Any, tmp_path: Path, capsys: Any
+    ) -> None:
+        from rebrew.annotation import Annotation
+        from rebrew.test import emit_test_batch as _run_all_batch
+
+        cfg = self._cfg(tmp_path)
+        (cfg.reversed_dir / "Units").mkdir(parents=True)
+        (tmp_path / "src" / "shared").mkdir(parents=True)
+
+        def _fake_entries(*a: Any, **k: Any) -> Any:
+            return (
+                [
+                    Annotation(va=0x1000, name="a", status="STUB", size=10, filepath="Units/a.c"),
+                    Annotation(
+                        va=0x2000,
+                        name="s",
+                        status="STUB",
+                        size=10,
+                        filepath="../shared/s.c",
+                    ),
+                ],
+                0,
+                0,
+                [],
+                [],
+                0,
+                [],
+                [],
+                [],
+                {},
+            )
+
+        monkeypatch.setattr("rebrew.verify.prepare_entries", _fake_entries)
+        monkeypatch.setattr(
+            "rebrew.verify.run_verification",
+            lambda *a, **k: (0, 0, [], [], []),
+        )
+        monkeypatch.setattr("rebrew.verify.apply_status_updates", lambda *a, **k: None)
+
+        _run_all_batch(
+            cfg,
+            batch_dir="src/shared",
+            origin_filter=None,
+            dry_run=True,
+            no_promote=True,
+            json_output=True,
+            jobs=cfg.default_jobs,
+        )
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["files"] == ["../shared/s.c"]

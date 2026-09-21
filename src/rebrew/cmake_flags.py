@@ -42,6 +42,7 @@ from rebrew.cli import (
 )
 from rebrew.compile_overrides import resolve_compile_overrides
 from rebrew.config import ProjectConfig
+from rebrew.sources import iter_sources
 from rebrew.utils import atomic_write_text, config_path
 
 app = typer.Typer(add_completion=False, help=__doc__)
@@ -91,7 +92,10 @@ def collect(cfg: ProjectConfig, marker: str) -> tuple[dict[Path, str], list[str]
     files: dict[Path, str] = {}
     problems: list[str] = []
     notes: list[str] = []
-    for src in sorted(cfg.reversed_dir.rglob("*.c")):
+    # iter_sources (not a bare reversed_dir rglob): shared sources serve every
+    # target and need CMake flags too, and the glob honours source_ext
+    # (a bare "*.c" drops every .cpp source).
+    for src in iter_sources(cfg.reversed_dir, cfg):
         entries = [
             e
             for e in parse_c_file_multi(src, metadata_dir=cfg.metadata_dir)

@@ -669,6 +669,20 @@ def _effective_compile_flags(
     for define in getattr(cfg, "defines", None) or []:
         prefix = "-D" if (spec is not None and spec.flags_style == "posix") else "/D"
         all_flags.append(f"{prefix}{define}")
+    # A shared source (`src/shared/...`) includes sibling shared headers by
+    # bare name (`#include "game_structs.h"`); its own directory covers
+    # same-dir headers, but a nested shared file including a ROOT-level shared
+    # header needs the shared root itself on the path.  It joins the flags so
+    # the cache key tracks it (same rule as defines above).
+    shared = getattr(cfg, "shared_dir", None)
+    if shared is not None:
+        try:
+            is_shared = Path(src_parent).resolve().is_relative_to(Path(shared).resolve())
+        except (OSError, ValueError):
+            is_shared = False
+        if is_shared:
+            prefix = "-I" if (spec is not None and spec.flags_style == "posix") else "/I"
+            all_flags.append(f"{prefix}{Path(shared).resolve()}")
     return _dedupe_flags(all_flags)
 
 

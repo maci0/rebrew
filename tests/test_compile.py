@@ -1240,3 +1240,41 @@ class TestEffectiveCompileFlags:
         spec = SimpleNamespace(flags_style="posix")
         flags = _effective_compile_flags(cfg, spec, "-O2", tmp_path)
         assert "-DDEBUG" in flags
+
+
+class TestSharedIncludeFlags:
+    """Shared sources see the shared root for sibling headers."""
+
+    def test_shared_source_gets_shared_root_include(self, tmp_path: Path) -> None:
+        from types import SimpleNamespace
+
+        from rebrew.compile import _effective_compile_flags
+
+        shared = tmp_path / "src" / "shared"
+        (shared / "Units").mkdir(parents=True)
+        cfg = SimpleNamespace(root=tmp_path, base_cflags="", defines=[], shared_dir=shared)
+        spec = SimpleNamespace(flags_style="msvc")
+        flags = _effective_compile_flags(cfg, spec, "/Gd", shared / "Units")
+        assert f"/I{shared.resolve()}" in flags
+
+    def test_per_target_source_gets_no_shared_include(self, tmp_path: Path) -> None:
+        from types import SimpleNamespace
+
+        from rebrew.compile import _effective_compile_flags
+
+        shared = tmp_path / "src" / "shared"
+        shared.mkdir(parents=True)
+        cfg = SimpleNamespace(root=tmp_path, base_cflags="", defines=[], shared_dir=shared)
+        spec = SimpleNamespace(flags_style="msvc")
+        flags = _effective_compile_flags(cfg, spec, "/Gd", tmp_path / "src" / "V1")
+        assert not any(f.startswith("/I") and "shared" in f for f in flags)
+
+    def test_no_shared_dir_configured(self, tmp_path: Path) -> None:
+        from types import SimpleNamespace
+
+        from rebrew.compile import _effective_compile_flags
+
+        cfg = SimpleNamespace(root=tmp_path, base_cflags="", defines=[])
+        spec = SimpleNamespace(flags_style="msvc")
+        flags = _effective_compile_flags(cfg, spec, "/Gd", tmp_path / "src")
+        assert flags == ["/Gd"]

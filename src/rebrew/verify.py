@@ -1733,9 +1733,18 @@ def _scope_entries(
             unique_entries = [e for e in unique_entries if e.va not in lib_vas]
             library_excluded = len(lib_vas)
     if batch_dir:
-        batch_root = (
-            Path(batch_dir) if Path(batch_dir).is_absolute() else Path(cfg.reversed_dir) / batch_dir
-        ).resolve()
+        raw_dir = Path(batch_dir)
+        if raw_dir.is_absolute():
+            batch_root = raw_dir.resolve()
+        else:
+            # Project-relative first (src/shared), then relative to the
+            # reversed dir (Units/vfs) — shared sources live outside
+            # reversed_dir, so a reversed-only resolution can never scope
+            # them.
+            root_hit = (Path(cfg.root) / raw_dir).resolve()
+            batch_root = (
+                root_hit if root_hit.is_dir() else (Path(cfg.reversed_dir) / raw_dir).resolve()
+            )
         # Path-aware containment: a raw string prefix also matched sibling
         # directories (`game_dll_extra` under `game_dll`) and broke on a root
         # with `..` in it; resolve both sides and compare real paths.

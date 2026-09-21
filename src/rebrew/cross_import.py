@@ -42,7 +42,7 @@ from rebrew.cli import (
 from rebrew.config import ProjectConfig
 from rebrew.similar import DEFAULT_CS_ARCH, DEFAULT_CS_MODE, disasm_signature, similarity_score
 from rebrew.sources import iter_sources, target_marker
-from rebrew.utils import atomic_write_text, read_source_text
+from rebrew.utils import atomic_write_text, read_source_text, rel_display_path
 from rebrew.workspace.status import MATCHED_STATUSES
 
 console = Console(stderr=True)
@@ -308,6 +308,32 @@ _KV_RE = re.compile(r"^[ \t]*(?://|/\*)[ \t]*[A-Za-z_][A-Za-z0-9_]*:[ \t]*")
 _SIZE_KV_RE = re.compile(r"^[ \t]*(?://|/\*)[ \t]*SIZE:[ \t]*\S+(?:[ \t]*\*/)?")
 
 
+def _extract_function_text(text: str, src_va: int) -> str | None:
+    """Reduce a (possibly multi-function) source to preamble + the one block.
+
+    Cross-import previously copied the WHOLE source file into the destination
+    tree.  A multi-function SERVER file landed with every SERVER marker intact,
+    so the GOLDTL tree inherited E012 lint (foreign module marker) and
+    duplicated every co-resident function.  The imported copy must carry only
+    the matched function and the shared preamble/headers it needs to compile,
+    re-tagged for the destination.
+
+    Returns the block text (marker + body, still in the SOURCE module) or
+    ``None`` when *src_va* matches no marker block.
+    """
+    from rebrew.annotation import NEW_FUNC_CAPTURE_RE, split_annotation_sections
+
+    preamble, blocks = split_annotation_sections(text)
+    if not blocks:
+        return None
+    for block in blocks:
+        for line in block.splitlines():
+            m = NEW_FUNC_CAPTURE_RE.match(line.strip())
+            if m and int(m.group("va"), 16) == src_va:
+                return preamble + block
+    return None
+
+
 def _rewrite_marker(text: str, module: str, va: int, size: int) -> str:
     """Remap the first FUNCTION/LIBRARY/STUB marker to *module*/*va* and set SIZE.
 
@@ -389,6 +415,246 @@ def _rewrite_marker(text: str, module: str, va: int, size: int) -> str:
     return "".join(collapsed)
 
 
+def _stack_marker(text: str, module: str, va: int, size: int) -> str:
+    """Prepend a destination marker block above the existing marker.
+
+    Shared-source import (``--shared``): the source file stays the single
+    home for the function and gains one stacked ``// FUNCTION: <dst> <va>``
+    block per target (ADR-010).  The existing blocks keep their own VAs;
+    only the new block carries the destination VA/SIZE.  Returns the text
+    unchanged when a block for *module*/*va* already exists (idempotent).
+    """
+    from rebrew.annotation import NEW_FUNC_CAPTURE_RE
+
+    for line in text.splitlines():
+        m = NEW_FUNC_CAPTURE_RE.match(line.strip())
+        if m and m.group("module") == module and int(m.group("va"), 16) == va:
+            return text
+    eol = "\r\n" if "\r\n" in text else "\n"
+    marker_idx = next(
+        (i for i, line in enumerate(text.splitlines(keepends=True)) if _MARKER_RE.match(line)),
+        None,
+    )
+    block = f"// FUNCTION: {module} 0x{va:x}{eol}// SIZE: {size}{eol}"
+    if marker_idx is None:
+        return block + text
+    lines = text.splitlines(keepends=True)
+    return "".join(lines[:marker_idx] + [block] + lines[marker_idx:])
+
+
+def promote_to_shared(
+    cfg_src: ProjectConfig,
+    src_file: str,
+    *,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Move a per-target source into ``src/shared`` preserving relative path.
+
+    The shared tree only works when the file actually lives under the shared
+    root — stacking a marker onto a file in the SOURCE target's own tree
+    leaves it invisible to other targets' scans.  This moves
+    ``<reversed_dir>/<src_file>`` to ``<shared_dir>/<src_file>`` (creating
+    parent dirs), refusing when the shared dir is disabled, the source is
+    missing, or the destination already exists.  Markers and metadata are
+    untouched: the stacked blocks travel with the file, and the
+    ``(module, va)`` metadata keys are path-independent.
+
+    Returns a result dict with ``action`` ``promoted`` / ``would-promote`` /
+    ``error`` and the shared-relative ``filepath``.
+    """
+    shared_root = getattr(cfg_src, "shared_dir", None)
+    if shared_root is None:
+        return {
+            "action": "error",
+            "status": "NO_SHARED_DIR",
+            "filepath": src_file,
+            "message": "shared_dir is disabled — set project.shared_dir first",
+        }
+    src_path = Path(cfg_src.reversed_dir) / src_file
+    dst_path = Path(shared_root) / src_file
+    if not src_path.is_file():
+        return {
+            "action": "error",
+            "status": "READ_ERROR",
+            "filepath": src_file,
+            "message": f"source not found: {src_path}",
+        }
+    if dst_path.exists():
+        return {
+            "action": "error",
+            "status": "TARGET_CONFLICT",
+            "filepath": src_file,
+            "message": f"shared destination already exists: {dst_path}",
+        }
+    if dry_run:
+        return {
+            "action": "would-promote",
+            "status": "",
+            "filepath": src_file,
+            "message": f"would move {src_path} to {dst_path}",
+        }
+    try:
+        dst_path.parent.mkdir(parents=True, exist_ok=True)
+        src_path.rename(dst_path)
+    except OSError as exc:
+        return {
+            "action": "error",
+            "status": "WRITE_ERROR",
+            "filepath": src_file,
+            "message": str(exc),
+        }
+    return {
+        "action": "promoted",
+        "status": "",
+        "filepath": src_file,
+        "message": f"moved {src_path} to {dst_path}",
+    }
+
+
+def import_shared_function(
+    cfg_dst: ProjectConfig,
+    cfg_src: ProjectConfig,
+    dst_va: int,
+    src_va: int,
+    src_file: str,
+    dst_size: int,
+    *,
+    dst_file: str | None = None,
+    dry_run: bool = False,
+    cache: Any = None,
+) -> dict[str, Any]:
+    """Import by stacking a destination marker onto the SHARED source file.
+
+    Unlike :func:`import_function` (which copies the source into the
+    destination's ``reversed_dir``), this keeps one file: the stacked marker
+    is prepended in place (in the shared dir when the source already lives
+    there, else in the source target's own tree), then the function is
+    compiled + verified against the destination binary through the standard
+    verify flow.  The destination metadata records the source's flags plus
+    the source directory for relative ``#include``s — the same rule the copy
+    path uses.
+
+    The import is verified before STATUS promotion exactly like the copy
+    path: a mismatch reports ``imported-unverified``, never a false match.
+
+    When *dst_file* names the destination's existing stub for *dst_va* (a
+    different file than the shared target), a matched import deletes it —
+    otherwise the old stub and the new stacked block claim the same VA and
+    lint E013 fires.  Deletion happens only on a matched verify; an
+    unverified import leaves the stub in place.
+    """
+    shared_root = getattr(cfg_src, "shared_dir", None)
+    shared_path = Path(shared_root) / src_file if shared_root is not None else None
+    if shared_path is not None and shared_path.is_file():
+        target_path = shared_path
+    else:
+        target_path = Path(cfg_src.reversed_dir) / src_file
+    try:
+        text, encoding = read_source_text(target_path)
+    except OSError as exc:
+        return {
+            "dst_va": f"0x{dst_va:08x}",
+            "src_va": f"0x{src_va:08x}",
+            "score": None,
+            "action": "error",
+            "status": "READ_ERROR",
+            "filepath": src_file,
+            "message": str(exc),
+        }
+    module = target_marker(cfg_dst) or cfg_dst.target_name
+
+    from rebrew.annotation import parse_c_file_multi
+
+    existing = parse_c_file_multi(target_path, target_name=module)
+    if any(e.va == dst_va for e in existing):
+        stacked = text  # idempotent: marker already present
+    else:
+        stacked = _stack_marker(text, module, dst_va, dst_size)
+
+    if dry_run:
+        return {
+            "dst_va": f"0x{dst_va:08x}",
+            "src_va": f"0x{src_va:08x}",
+            "score": None,
+            "action": "would-import-shared",
+            "status": "",
+            "filepath": rel_display_path(target_path, cfg_dst.reversed_dir),
+            "message": f"would supersede {dst_file}" if dst_file else "",
+        }
+
+    try:
+        atomic_write_text(target_path, stacked, encoding=encoding)
+    except OSError as exc:
+        return {
+            "dst_va": f"0x{dst_va:08x}",
+            "src_va": f"0x{src_va:08x}",
+            "score": None,
+            "action": "error",
+            "status": "WRITE_ERROR",
+            "filepath": str(target_path),
+            "message": str(exc),
+        }
+
+    from rebrew.annotation import Annotation
+    from rebrew.metadata import update_field
+    from rebrew.verify import apply_status_updates, verify_entry
+
+    src_flags = _source_flags(cfg_src, target_path)
+    # No source-dir /I here (unlike the copy path): the shared file moves
+    # WITH its tree under src/shared, so relative #include chains resolve
+    # against its own directory already (compile.py always adds src_parent).
+    # Recording an absolute ``/I<parent>`` would bake one machine's checkout
+    # path into the metadata and break the file on promote or clone —
+    # exactly the guild-rebrew GOLDTL.0x004c75e0 case.
+    cflags = src_flags.strip()
+    update_field(cfg_dst.metadata_dir, dst_va, "cflags", cflags, module)
+
+    # The verify filepath resolves against the destination's reversed_dir —
+    # a shared file becomes ``../shared/f.c`` via the standard helper.
+    rel_dst = rel_display_path(target_path, cfg_dst.reversed_dir)
+    entry = Annotation(
+        va=dst_va,
+        name=_source_name(target_path),
+        symbol=_source_symbol(target_path),
+        size=dst_size,
+        filepath=rel_dst,
+        marker_type="FUNCTION",
+        status="STUB",
+        module=module,
+        cflags=cflags,
+    )
+    result = verify_entry(entry, cfg_dst, cache=cache)
+    apply_status_updates([(entry, result.status, result.delta)], cfg_dst)
+
+    action = "imported-shared" if result.matched else "imported-unverified"
+    message = result.message
+    if result.matched and dst_file:
+        stub_path = Path(cfg_dst.reversed_dir) / dst_file
+        if stub_path.resolve() != target_path.resolve() and stub_path.is_file():
+            try:
+                stub_path.unlink()
+                message = f"{message} (superseded {dst_file})".strip()
+            except OSError as exc:
+                return {
+                    "dst_va": f"0x{dst_va:08x}",
+                    "src_va": f"0x{src_va:08x}",
+                    "score": None,
+                    "action": "error",
+                    "status": result.status,
+                    "filepath": rel_dst,
+                    "message": f"shared import verified but stub removal failed: {exc}",
+                }
+    return {
+        "dst_va": f"0x{dst_va:08x}",
+        "src_va": f"0x{src_va:08x}",
+        "score": None,
+        "action": action,
+        "status": result.status,
+        "filepath": rel_dst,
+        "message": message,
+    }
+
+
 def import_function(
     cfg_dst: ProjectConfig,
     cfg_src: ProjectConfig,
@@ -431,7 +697,14 @@ def import_function(
         }
 
     module = target_marker(cfg_dst) or cfg_dst.target_name
-    rewritten = _rewrite_marker(text, module, dst_va, dst_size)
+    # Emit only the matched function (preamble + its block), re-tagged to the
+    # destination.  Copying the whole multi-function source would carry every
+    # co-resident marker into the destination tree (lint E012) and duplicate
+    # the other functions.
+    extracted = _extract_function_text(text, src_va)
+    rewritten = _rewrite_marker(
+        extracted if extracted is not None else text, module, dst_va, dst_size
+    )
     if dst_file is None:
         # Keep the source's path relative to its own reversed_dir: it gives
         # one destination file per source file (two imports out of one
@@ -517,7 +790,9 @@ def import_function(
     # the source's own directory on the include path: MSVC resolves
     # `#include "../../Units/Error/error.h"` against it.  Without this the copy
     # fails with C1083 and keeps the source's inline `// CFLAGS:` line without
-    # its metadata counterpart (lint W019).
+    # its metadata counterpart (lint W019).  The absolute path is a known
+    # portability wart (breaks on clone/move) — the shared path avoids it
+    # because the file itself moves with its headers.
     src_flags = _source_flags(cfg_src, src_path)
     include = "-I" if cfg_dst.posix_style else "/I"
     cflags = f"{src_flags} {include}{src_path.parent}".strip()
@@ -641,6 +916,19 @@ def main(
         None, "--va", help="Restrict to one destination VA (hex, e.g. 0x401000)"
     ),
     limit: int | None = typer.Option(None, "--limit", help="Import at most N functions"),
+    shared: bool = typer.Option(
+        False,
+        "--shared",
+        help="Stack the destination marker onto the shared source file "
+        "instead of copying into the destination tree (one file, one marker "
+        "per target). Promotes the source into src/shared first when needed",
+    ),
+    promote: bool = typer.Option(
+        False,
+        "--promote",
+        help="Move the source file into src/shared (preserving relative path) "
+        "without importing — the manual step before --shared",
+    ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
@@ -752,16 +1040,48 @@ def main(
                 }
             )
             continue
-        res = import_function(
-            cfg,
-            cfg_src,
-            dst_va,
-            src_va,
-            src_file,
-            dst_size,
-            dst_file=dst_file or None,
-            dry_run=dry_run,
-            cache=cache,
+        if promote:
+            res = promote_to_shared(cfg_src, src_file, dry_run=dry_run)
+            res.update({"dst_va": f"0x{dst_va:08x}", "src_va": f"0x{src_va:08x}", "score": score})
+            results.append(res)
+            continue
+        if shared:
+            # The shared tree only works when the file lives under the shared
+            # root — auto-promote a per-target source there first so the
+            # stacked marker lands on the one file every target scans.
+            shared_root = getattr(cfg_src, "shared_dir", None)
+            if shared_root is not None and not (Path(shared_root) / src_file).is_file():
+                promo = promote_to_shared(cfg_src, src_file, dry_run=dry_run)
+                if promo["action"] == "error":
+                    promo.update(
+                        {"dst_va": f"0x{dst_va:08x}", "src_va": f"0x{src_va:08x}", "score": score}
+                    )
+                    results.append(promo)
+                    continue
+        res = (
+            import_shared_function(
+                cfg,
+                cfg_src,
+                dst_va,
+                src_va,
+                src_file,
+                dst_size,
+                dst_file=dst_file or None,
+                dry_run=dry_run,
+                cache=cache,
+            )
+            if shared
+            else import_function(
+                cfg,
+                cfg_src,
+                dst_va,
+                src_va,
+                src_file,
+                dst_size,
+                dst_file=dst_file or None,
+                dry_run=dry_run,
+                cache=cache,
+            )
         )
         res["score"] = score
         merge_sizeless_warning(res, disasm_size)

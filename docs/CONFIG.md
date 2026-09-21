@@ -123,7 +123,9 @@ Running `rebrew test --target server_dll` processes only the `SERVER` marker blo
 |-----|------|---------|-------------|
 | `marker` | `string` | target key uppercased, non-alphanumeric characters stripped (e.g. `server.dll` → `SERVERDLL`) | Module identifier used in `// FUNCTION:`, `// LIBRARY:`, `// STUB:` markers |
 
-The lint tool (`rebrew lint`) validates that each marker's module matches the configured marker (error E012).
+The lint tool (`rebrew lint`) validates that each marker's module matches the configured marker (error E012) — except stacked blocks naming another known project target, which is the `src/shared` pattern (ADR-010), not a mismatch. Each stacked block answers to its own target's CFLAGS defaults (W018).
+
+`src/shared` files are scanned for every target; `rebrew doctor` warns on multi-target projects when the shared dir is missing or `shared_dir` is disabled. `rebrew cross-import --shared` stacks the destination marker onto the shared file in place (verified before STATUS promotion) instead of copying per-target duplicates.
 
 ## Compiler Profiles
 

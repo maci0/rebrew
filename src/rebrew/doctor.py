@@ -973,6 +973,47 @@ def check_bin_dir(cfg: ProjectConfig) -> CheckResult:
     )
 
 
+def check_shared_sources(cfg: ProjectConfig) -> CheckResult:
+    """Check shared-source setup for multi-target projects.
+
+    Single-target projects need nothing.  Multi-target projects sharing one
+    codebase (same game logic in several binaries) want ``src/shared`` with
+    one ``// FUNCTION: <target> <va>`` marker per target (ADR-010) plus
+    ``cross-import --shared`` instead of per-target copies that drift apart.
+    Warns when the project has several targets but no shared dir, or when the
+    configured shared dir does not exist.
+    """
+    targets = list(getattr(cfg, "all_targets", []) or [])
+    if len(targets) < 2:
+        return CheckResult(
+            name="Shared sources",
+            status=_SKIP,
+            message="Single-target project — no shared sources needed",
+        )
+    shared = getattr(cfg, "shared_dir", None)
+    if shared is None:
+        return CheckResult(
+            name="Shared sources",
+            status=_WARN,
+            message=f"{len(targets)} targets but shared_dir is disabled",
+            fix="Enable with `rebrew cfg set project.shared_dir 'src/shared'` "
+            "and `rebrew cross-import --from <src> --shared` for shared functions.",
+        )
+    if not Path(shared).is_dir():
+        return CheckResult(
+            name="Shared sources",
+            status=_WARN,
+            message=f"{len(targets)} targets sharing one codebase but {shared} is missing",
+            fix=f"Create with: mkdir -p {shared} — then `rebrew cross-import "
+            "--from <src> --shared` stacks one marker per target on one file.",
+        )
+    return CheckResult(
+        name="Shared sources",
+        status=_PASS,
+        message=f"{shared} serves {len(targets)} targets",
+    )
+
+
 # ---------------------------------------------------------------------------
 # Main diagnostic runner
 # ---------------------------------------------------------------------------
@@ -1031,6 +1072,7 @@ def run_doctor(target: str | None = None) -> DoctorReport:
     report.checks.append(check_source_files(cfg))
     report.checks.append(check_bin_dir(cfg))
     report.checks.append(check_metadata_files(cfg))
+    report.checks.append(check_shared_sources(cfg))
     report.checks.append(check_layout_package(cfg))
     report.checks.append(check_optional_tools())
     report.checks.append(check_flirt_sigs(cfg))

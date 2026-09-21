@@ -229,3 +229,30 @@ def test_sources_file_unannotated_appears_in_json(
     assert "src/server_dll/a.c" in payload["files"]
     assert "src/server_dll/extra.c" in payload["files"]
     assert payload["files"]["src/server_dll/a.c"] == "/Ox /Gd"
+
+
+def test_shared_sources_are_collected(tmp_path: Path) -> None:
+    """A shared file's marker for this target decides its CMake flags — the
+    old reversed_dir-only rglob left every shared TU flagless in the build."""
+    (tmp_path / "rebrew-project.toml").write_text(
+        TOML.replace(
+            'default_target = "server_dll"',
+            'default_target = "server_dll"\nshared_dir = "src/shared"',
+        ),
+        encoding="utf-8",
+    )
+    (tmp_path / "src/server_dll").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "src/shared").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "src/rebrew-functions.toml").write_text(
+        '["SERVER.0x10001000"]\ncflags = "/Ox /Gd"\n', encoding="utf-8"
+    )
+    (tmp_path / "src/shared" / "common.c").write_text(
+        "// FUNCTION: SERVER 0x10001000\nint a(void) { return 0; }\n",
+        encoding="utf-8",
+    )
+    cfg = load_config(root=tmp_path, target="server_dll")
+    files, problems, _notes = collect(cfg, "SERVER")
+    assert problems == []
+    assert any(Path(p).name == "common.c" and flags == "/Ox /Gd" for p, flags in files.items()), (
+        files
+    )

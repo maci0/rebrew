@@ -1462,3 +1462,66 @@ class TestSetBinsyncStateDir:
         doc, _ = load_toml(tmp_path)
         assert doc["targets"]["server.dll"]["binsync_state_dir"] == "/tmp/state"
         assert "binsync_state_dir" not in doc
+
+
+class TestAddTargetSharedScaffold:
+    def test_second_target_creates_shared_dir(self, tmp_path: Path, monkeypatch) -> None:
+        """Adding a 2nd target scaffolds src/shared (one codebase, N binaries)."""
+        _make_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(
+            cfg_app,
+            [
+                "add-target",
+                "client.exe",
+                "--binary",
+                "original/client.exe",
+                "--arch",
+                "x86_32",
+                "--force",
+            ],
+        )
+        assert result.exit_code == 0
+        assert (tmp_path / "src" / "shared").is_dir()
+        assert "--shared" in result.output
+
+    def test_second_target_respects_disabled_shared(self, tmp_path: Path, monkeypatch) -> None:
+        """shared_dir = '' stays disabled — only the dir, never config, is touched."""
+        _make_project(
+            tmp_path,
+            SAMPLE_TOML + '\n[project]\ndefault_target = "server.dll"\nshared_dir = ""\n',
+        )
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(
+            cfg_app,
+            [
+                "add-target",
+                "client.exe",
+                "--binary",
+                "original/client.exe",
+                "--arch",
+                "x86_32",
+                "--force",
+            ],
+        )
+        assert result.exit_code == 0
+        assert not (tmp_path / "src" / "shared").exists()
+
+    def test_second_target_dry_run_creates_nothing(self, tmp_path: Path, monkeypatch) -> None:
+        _make_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(
+            cfg_app,
+            [
+                "add-target",
+                "client.exe",
+                "--binary",
+                "original/client.exe",
+                "--arch",
+                "x86_32",
+                "--force",
+                "--dry-run",
+            ],
+        )
+        assert result.exit_code == 0
+        assert not (tmp_path / "src" / "shared").exists()

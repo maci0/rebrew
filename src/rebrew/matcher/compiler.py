@@ -523,6 +523,13 @@ def build_candidate_obj_only(
     # compile_to_obj; this path serves image-less plugin/overlay natives.)
     for define in getattr(cfg, "defines", None) or []:
         all_flags.append(f"{'-D' if posix_style else '/D'}{define}")
+    # Shared sources: a candidate compiled from a shared file includes
+    # sibling shared headers by bare name.  The raw path compiles from a
+    # temp copy, so add the shared root (same rule compile_to_obj applies
+    # via _effective_compile_flags) — else GA/diff diverge from verify.
+    shared = getattr(cfg, "shared_dir", None) if cfg is not None else None
+    if shared is not None and Path(shared).is_dir():
+        all_flags.append(f"{'-I' if posix_style else '/I'}{Path(shared).resolve()}")
     extra_inc = extra_include_dirs or []
 
     # Resolve relative /I paths in the flags (base_cflags often carry e.g.

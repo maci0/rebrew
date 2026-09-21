@@ -595,6 +595,22 @@ def add_target(
     src_dir.mkdir(parents=True, exist_ok=True)
     bin_dir = root / "bin" / name
     bin_dir.mkdir(parents=True, exist_ok=True)
+    # A second target means one codebase in several binaries: scaffold the
+    # shared root (ADR-010) so the workflow is discoverable.  Existing
+    # projects with shared_dir disabled keep it disabled — only create the
+    # directory, never write config.
+    other_targets = [k for k in targets if k != name]
+    shared_hint = ""
+    if other_targets and not dry_run:
+        project = doc.get("project", {})
+        shared_raw = (
+            project.get("shared_dir", "src/shared") if hasattr(project, "get") else "src/shared"
+        )
+        if shared_raw and str(shared_raw).strip():
+            shared_dir = root / str(shared_raw).strip()
+            if not shared_dir.exists():
+                shared_dir.mkdir(parents=True, exist_ok=True)
+                shared_hint = f"\n[green]  Created {shared_dir.relative_to(root)}/[/green] (shared sources: one file, one marker per target)"
 
     tgt = tomlkit.table()
     tgt.add("binary", binary)
@@ -636,7 +652,12 @@ def add_target(
     console.print(f'[green]Added [targets."{name}"] to rebrew-project.toml[/green]')
     console.print(f"[green]  Format: {fmt}, Arch: {arch} (auto-detected)[/green]")
     console.print(f"[green]  Language: {detected_lang} ({source_ext})[/green]")
-    console.print(f"[green]  Created src/{name}/ and bin/{name}/[/green]")
+    console.print(f"[green]  Created src/{name}/ and bin/{name}/[/green]{shared_hint}")
+    if shared_hint:
+        console.print(
+            "[dim]  Shared functions: rebrew cross-import --from "
+            f'"{other_targets[0]}" --shared --target "{name}"[/dim]'
+        )
     console.print(f'\nNext: rebrew todo --target "{name}" --stats')
 
 

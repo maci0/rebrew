@@ -1,5 +1,56 @@
 ## [Unreleased]
+### Changed
+- **Shared sources see the shared root.**  Compiling a file under
+  `src/shared` adds the shared root to the include path (both the docker
+  path via `_effective_compile_flags` and the matcher's raw path), so a
+  nested shared file finds root-level shared headers by bare name. Shapes
+  the compile-cache key like defines do.
+- **`cmake-flags` covers shared sources.**  Collection goes through
+  `iter_sources` (shared dir + `source_ext`) instead of a `reversed_dir`
+  `*.c` rglob — shared TUs were flagless in the CMake build.
+- **`--dir` scopes the shared tree.**  `verify`/`test --all --dir` resolves
+  project-relative first (`src/shared`), then reversed-relative — shared
+  sources live outside `reversed_dir`, so the old resolution could never
+  scope them.
+- **`add-target` scaffolds `src/shared` for the 2nd target.**  Two targets
+  mean one codebase in several binaries — the shared root is created (unless
+  `shared_dir` is disabled) with a pointer to `cross-import --shared`.
+- **Lint accepts stacked shared-source markers.**  A `src/shared` file carrying
+  one `// FUNCTION:` marker per target (ADR-010) no longer fires E012 on the
+  other targets' blocks, and those blocks are exempt from this target's W018 —
+  each block answers to its own target's defaults.
+- **`cross-import` emits a single function, not the whole source file.**  A
+  multi-function SERVER source previously landed in the destination tree with
+  every co-resident marker intact (lint E012) and the other functions
+  duplicated.  The imported copy is now preamble + one re-tagged block.
+- **`verify` reports the inventory count beside the annotation count.**  The
+  summary carries `inventory_count` (function-catalog entries) next to `total`
+  (annotations verified), and the human line labels a gap as inventory
+  coarseness, not missing functions.
+- **`test` honours the CMake per-file toolchain/flags pin.**  When a source
+  has a `flags.make` `Custom` pin (`/REBREW_TOOLCHAIN:...` + `COMPILE_FLAGS`)
+  and the metadata names no compiler/flags, `test` compiles with the pin — the
+  shipped link's flags — instead of the project default.  `--cflags` on a
+  pinned file is now a loud error rather than a silent (and never-shipped)
+  metadata write.
+- **`verify --data` needs `--raw-link` to write DRIFT statuses.**  A raw link's
+  `.data` divergence is postlink-supplied, so without the explicit ack the
+  status write-back is suppressed (reported via `raw_link_status_suppressed`)
+  instead of silently flipping VERIFIED→DRIFT in `rebrew-data.toml`.
+
 ### Added
+- **`cross-import --shared` stacks the marker instead of copying.**  The
+  destination marker block (`// FUNCTION: <dst> <va>` + `// SIZE:`) is
+  prepended onto the shared source in place — one file, one marker per
+  target, verified against the destination before STATUS promotion — so
+  shared game logic never drifts across per-target copies. A per-target
+  source is moved under `src/shared` first (same relative path);
+  `--promote` does the move alone. A matched `--shared` import deletes the
+  destination's old stub file so the VA is claimed once (unverified imports
+  leave it); the copy path already replaced it by overwriting. Shared imports
+  record no absolute source-dir `/I`, and `--shared --dry-run` reports the
+  project-relative path (`../shared/f.c`) — no checkout paths in metadata
+  or JSON.
 - **``make setup`` warns when ``nasm`` is missing** so a clean clone names the
   host dep before the first ``make test`` / ``make test-one`` failure.
 - **Structured ``ToolchainError``** — ``kind`` / ``name`` / ``retryable``

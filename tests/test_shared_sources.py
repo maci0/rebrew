@@ -589,3 +589,36 @@ class TestSharedLibraryHeaderCoverage:
         assert existing[0x503000]["status"] == "EXACT"
         # The marker file is not an append target (find_neighbor_file's rule).
         assert covered[0x503000] == "library_foo.h"
+
+    def test_matcher_raw_path_adds_shared_root(self, tmp_path: Path, monkeypatch) -> None:
+        """Parity with the docker path: the raw subprocess compile must also
+        see the shared root, or GA/diff on a shared file diverge from verify."""
+        from rebrew.matcher.compiler import build_candidate_obj_only
+
+        captured: dict[str, list[str]] = {}
+        mini_obj = (Path(__file__).parent / "fixtures" / "mini.obj").read_bytes()
+
+        def _fake_run(cmd, **kw):
+            captured["cmd"] = cmd
+            import pathlib
+
+            cwd = pathlib.Path(kw.get("cwd", "."))
+            (cwd / "cand.obj").write_bytes(mini_obj)
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        monkeypatch.setattr("rebrew.matcher.compiler.subprocess.run", _fake_run)
+
+        shared = tmp_path / "src" / "shared"
+        shared.mkdir(parents=True)
+        cfg = SimpleNamespace(defines=[], root=tmp_path, shared_dir=shared)
+        build_candidate_obj_only(
+            "int f(void){ return 1; }\n",
+            "i686-w64-mingw32-gcc",
+            str(tmp_path),
+            "-O2",
+            "_f",
+            env=None,
+            posix_style=True,
+            cfg=cfg,
+        )
+        assert f"-I{shared.resolve()}" in captured["cmd"]

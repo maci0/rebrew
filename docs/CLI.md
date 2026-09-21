@@ -371,7 +371,7 @@ consumers can learn whether the blocker landed (mirrors `near-diag`'s
 | `--cflags FLAGS` | Override compiler flags |
 | `--toolchain TEXT` | Vendored compiler override (overrides the project default) |
 | `--all` | Batch test all reversed .c files |
-| `--dir PATH` | With `--all`, restrict to this subdirectory |
+| `--dir PATH` | With `--all`, restrict to this subdirectory (project-relative first, so `src/shared` scopes the shared tree) |
 | `--origin TYPE` | With `--all`, filter by origin (GAME, MSVCRT, ZLIB) |
 | `--jobs N` / `-j N` | Parallel compile jobs (with `--all`) |
 | `--dry-run` | Preview changes without writing |
@@ -392,6 +392,12 @@ function in the file is tested.  A resolved size and any explicit `--cflags`
 override are persisted to `rebrew-functions.toml` alongside STATUS, so
 `rebrew diff` / `rebrew near-diag` can resolve them later without re-supplying
 them, and `rebrew verify` recompiles with the flags that produced the match.
+
+When the source has a CMake per-file pin (a `flags.make` `Custom` comment with
+`/REBREW_TOOLCHAIN:...` + `COMPILE_FLAGS`) and the metadata names no compiler
+or flags, `test` compiles with the pin — the shipped link's flags — instead of
+the project default.  `--cflags` on such a file is a loud error rather than a
+silent metadata write that the build never honours.
 
 ### `rebrew rename`
 
@@ -513,16 +519,21 @@ graph TD
 | `--prune-orphans` | Delete metadata blocks whose VA has no source marker before verifying (same scan as `rebrew orphans --prune`; EXACT/RELOC/PROVEN blocks held back) |
 | `--data` | Byte-compare built `.data`/`.rdata` against the reference, per metadata symbol with first-diff attribution (needs `--built`); verdicts persist as data STATUS (`VERIFIED`/`DRIFT`/`UNCHECKED`) and surface in `status` + `todo data-drift` |
 | `--built PATH` | Built binary for `--data` / `--text` / `--whole-binary` comparison (default `build/<target>`) |
+| `--raw-link` | Ack that `--built` is the raw link, not a postlinked deliverable. Without it, `--data` suppresses DRIFT status write-backs (a raw link's `.data` divergence is postlink-supplied and would flip wrong statuses) |
 | `--text` | Check built `.text` function placement against the `// FUNCTION:` markers via `text-audit` (needs `--built`); exit 1 on any misplaced function |
 | `--whole-binary` | Compare built binary against the reference: section sizes, exports, imports, `.rsrc` bytes, headers, plus layout-freshness check (needs `--built`) |
 | `--context FILE` | Compile every source with these declarations merged ahead of it under `#line` directives (see `rebrew test --context`); each result and the report carry `context_hash`. A context run bypasses the result cache in both directions: no cached verdict is served, and nothing is written back, because a cache entry records no context digest |
-| `--dir TEXT` | Restrict to this subdirectory of reversed_dir |
+| `--dir TEXT` | Restrict to this subdirectory — project-relative first (`src/shared` scopes the shared tree), then relative to reversed_dir |
 | `--origin TEXT` | Restrict to one module (e.g. GAME) |
 | `--no-promote` | Measure only: write NOTHING to rebrew-functions.toml (report + cache still save) |
 
 The `--json` report carries `dry_run`, `size_divergences`, and `missing_sizes`
 (plus `sizes_fixed` when `--fix-sizes` ran); VAs fixed by `--fix-sizes` are
 stripped from the same-run `size_divergences`/`missing_sizes` lists.
+The summary carries `total` (annotations verified) and `inventory_count` (the
+function catalog's registry entries); a gap between them is inventory
+coarseness (the discoverer's partition is often coarser than the annotations),
+not missing functions, and reads as such in the human line.
 `--nolib` also adds `library_excluded` to the summary, `--prune-orphans` adds
 `orphans_pruned`. `--data` adds a `data` block (`matched` count,
 `mismatched`/`missing` lists with first-diff offsets); `--text` adds a `text`
@@ -612,8 +623,10 @@ Output prefixes for unambiguous parsing:
 Checks: project toml, target binary, arch/format, toolchain alignment
 (diec → PDB → heuristics), CRT linkage, optimization level, compiler +
 CL.EXE reachability, runner, include/lib paths, function list, source dirs,
-FLIRT signatures, Ghidra sync, optional tools (angr/claripy), and metadata
-files.  `rebrew doctor` is environment health only — source-corpus checks
+FLIRT signatures, Ghidra sync, optional tools (angr/claripy), metadata
+files, and shared-source setup (multi-target projects warn when
+`src/shared` is missing or disabled — skipped on single-target projects).
+`rebrew doctor` is environment health only — source-corpus checks
 (annotation markers, VA-vs-function-list consistency) live in
 `rebrew lint`.  16-bit-only checks (e.g. Delphi 1.0) only appear on
 x86_16 targets.
@@ -798,7 +811,9 @@ resolve to different **codegen** flags is reported as an error (split the file
 or align the metadata) and nothing is emitted for it.  `--target` picks the
 annotation marker to emit; `/D` defines are not emitted (this project's are the
 `DREBREW_ALLOW_NAKED` reconstruction guard, which the shipped build must not
-compile) and each omission is printed as a note.
+compile) and each omission is printed as a note.  Shared sources
+(`src/shared`) are collected for every target through their own marker —
+a shared TU is flagless in the build without this.
 
 ### `rebrew cmake-toolchain`
 
@@ -1513,7 +1528,7 @@ from a configured target.  Same-arch binaries only.
 
 ### `rebrew cross-import`
 
-`rebrew cross-import --from TARGET [--min-score N] [--min-gap N] [--va 0x...] [--limit N] [--dry-run] [--json] [--target NAME]`
+`rebrew cross-import --from TARGET [--min-score N] [--min-gap N] [--va 0x...] [--limit N] [--shared] [--promote] [--dry-run] [--json] [--target NAME]`
 
 Import functions already matched in **another target** of the same project into the target the command runs against — for binary versions (same code, different VAs) or a DLL+EXE pair sharing code. The source target's EXACT/RELOC/PROVEN functions are structurally matched (from their target bytes — no compile needed) against this target's unmatched functions; an unambiguous match above the threshold is imported, then **compiled + verified against this target** before STATUS is promoted via the standard verify flow, so a wrong match simply fails verification and stays untouched.
 
@@ -1524,11 +1539,13 @@ Import functions already matched in **another target** of the same project into 
 | `--min-gap N` | Best match must beat the runner-up by at least this (default: 5) |
 | `--va 0x...` | Restrict to one destination VA |
 | `--limit N` | Import at most N functions |
+| `--shared` | Stack the destination marker onto the shared source in place (one file, one marker per target) instead of copying into the destination tree. Auto-promotes a per-target source into `src/shared` first when needed |
+| `--promote` | Move the source file into `src/shared` (preserving relative path) without importing — the manual step before `--shared` |
 | `--dry-run` | Preview changes without writing |
 | `--json` | JSON structured output (per-function action/status) |
 | `--target NAME` | Select the destination target (default: project default) |
 
-The import rewrites the `.c` marker to the destination module + VA and sets `SIZE` to the destination's canonical size; the destination's existing file for that VA is replaced. Run with `--dry-run` first to review.
+The import rewrites the `.c` marker to the destination module + VA and sets `SIZE` to the destination's canonical size; the destination's existing file for that VA is replaced. Only the matched function is emitted: a multi-function source file imports as preamble + a single re-tagged block, so no foreign markers (lint E012) and no co-resident functions leak into the destination tree. With `--shared` the destination marker block is instead prepended onto the shared source in place — the one file then serves both targets with one marker per target, still verified before STATUS promotion; a source still living in the per-target tree is moved under `src/shared` first (same as `--promote`), and a matched import deletes the destination's old stub file so the VA is claimed once (an unverified import leaves the stub in place). Run with `--dry-run` first to review.
 
 ### Shared multi-version sources (`src/shared` + per-target defines)
 
