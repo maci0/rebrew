@@ -106,6 +106,7 @@ class BuildParams:
     target_size: int
     msvc_env: dict[str, str] | None
     cc: Any  # CacheBackend | None
+    module: str = ""
 
 
 def _select_annotation(annos: list[Annotation], symbol: str | None) -> Annotation | None:
@@ -324,6 +325,7 @@ def resolve_build_params(
         target_size=target_size,
         msvc_env=msvc_env,
         cc=cc,
+        module=getattr(anno, "module", "") if anno else "",
     )
 
 

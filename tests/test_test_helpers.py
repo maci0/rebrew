@@ -601,6 +601,73 @@ class TestUnchangedStatusCachePatch:
         assert kwargs["delta"] == 3
 
 
+class TestMultiUnchangedStatusCachePatch:
+    """Multi-function path must mirror the single-file refused-promotion
+    cache patch so status/todo see an improved match_percent."""
+
+    def test_multi_path_patches_unchanged_status(self, tmp_path: Path, monkeypatch: Any) -> None:
+        from types import SimpleNamespace as NS
+
+        import typer
+
+        import rebrew.test as testmod
+        from rebrew.annotation import Annotation
+
+        (tmp_path / "f.c").write_text("// FUNCTION: X 0x1000\nvoid f(int a) { g = a; }\n")
+        cfg = NS(
+            target_binary=str(tmp_path / "x.bin"),
+            metadata_dir=tmp_path,
+            reversed_dir=tmp_path,
+            marker="X",
+            default_jobs=1,
+            compile_timeout=60,
+        )
+        (tmp_path / "x.bin").write_bytes(b"\x90" * 12)
+        ann = Annotation(
+            marker_type="FUNCTION",
+            module="X",
+            va=0x1000,
+            size=12,
+            symbol="_f",
+            status="NEAR_MATCHING",
+            source="void f(int a) { g = a; }",
+        )
+
+        monkeypatch.setattr(
+            testmod,
+            "compile_to_obj",
+            lambda *a, **k: (str(tmp_path / "f.obj"), ""),
+        )
+        monkeypatch.setattr(
+            testmod,
+            "parse_obj_symbol_and_relocs",
+            lambda *a, **k: (b"\x90" * 12, {}, []),
+        )
+        # Same status as the annotation → should_promote_status refuses.
+        monkeypatch.setattr(
+            testmod,
+            "smart_reloc_compare",
+            lambda *a, **k: (False, 9, 12, [], []),
+        )
+        monkeypatch.setattr(testmod, "update_source_status", lambda *a, **k: None)
+        monkeypatch.setattr(testmod, "extract_raw_bytes", lambda *a, **k: b"\x90" * 12)
+        patched: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
+        monkeypatch.setattr(
+            testmod,
+            "_patch_verify_cache",
+            lambda *a, **k: patched.append((a, k)),
+        )
+
+        with pytest.raises(typer.Exit):
+            testmod._test_multi(cfg, str(tmp_path / "f.c"), [ann], None)
+
+        assert len(patched) == 1, "unchanged-status multi path must still patch the cache"
+        args, kwargs = patched[0]
+        assert args[1] == 0x1000
+        assert args[2] == "NEAR_MATCHING"
+        assert kwargs.get("delta") is not None
+
+
 class TestCflagsPersistence:
     """`rebrew test --cflags` must persist the explicit override so verify
     recompiles with the flags that produced the match (else an /O1 EXACT

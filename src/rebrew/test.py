@@ -1545,6 +1545,19 @@ def _test_multi(
                         is_status_sticky(old_status) or is_status_parked(old_status)
                     ) and not json_output:
                         console.print(f"[dim]  STATUS → skipped ({old_status})[/dim]")
+                    # A refused promotion with the SAME status still carries fresh
+                    # metrics: status/todo rank ROI from the cache's match_percent
+                    # and byte delta (same rule as the single-file path).
+                    if not dry_run and new_status == old_status and context is None:
+                        _patch_verify_cache(
+                            cfg,
+                            ann.va,
+                            new_status,
+                            match_count,
+                            total,
+                            delta=cmp.delta,
+                            match_percent=cmp.match_percent,
+                        )
                 elif dry_run:
                     # --dry-run must not write: preview (compile already ran).
                     if not json_output:

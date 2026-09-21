@@ -386,7 +386,10 @@ def _validate_field(key: str, value: Any) -> Any:
     ``size`` accepts hex/decimal string spellings (``"0x2A"``) and coerces
     them to int; ``blocker_delta`` coerces the same way when parseable and
     passes other spellings through (the merge layer treats them as unknown).
+    Callers may pass mixed-case keys; they are normalized to lower-case for
+    the type table (stored keys are always lower-case).
     """
+    key = key.lower()
     if key.upper() not in METADATA_FIELDS:
         raise ValueError(
             f"unknown metadata field {key!r} (expected one of {sorted(METADATA_FIELDS)})"
@@ -477,12 +480,14 @@ def set_fields(directory: Path, va: int, fields: dict[str, Any], module: str) ->
 
         changed = False
         for key, value in fields.items():
+            key = key.lower()
             if key == "status":
                 raise ValueError(
                     "Use update_source_status() for STATUS changes — it enforces promotion rules"
                 )
-            if entry.get(key) != value:
-                entry[key] = toml_safe(value)
+            safe = toml_safe(_validate_field(key, value))
+            if entry.get(key) != safe:
+                entry[key] = safe
                 changed = True
         if changed:
             atomic_write_locked(path, tomlkit.dumps(doc))
@@ -521,10 +526,12 @@ def set_fields_batch(metadata_dir: Path, updates: list[dict[str, Any]]) -> int:
             entry = typing.cast(dict[str, Any], doc_dict[toml_key])
             changed = False
             for key, value in (u.get("fields") or {}).items():
+                key = key.lower()
                 if key == "status":
                     raise ValueError("Use update_statuses_batch() for STATUS changes")
-                if entry.get(key) != value:
-                    entry[key] = toml_safe(value)
+                safe = toml_safe(_validate_field(key, value))
+                if entry.get(key) != safe:
+                    entry[key] = safe
                     changed = True
             if changed:
                 changed_entries += 1
@@ -568,6 +575,7 @@ def remove_fields_batch(metadata_dir: Path, updates: list[dict[str, Any]]) -> in
             entry = typing.cast(dict[str, Any], doc_dict[toml_key])
             changed = False
             for key in keys:
+                key = key.lower() if isinstance(key, str) else key
                 if key == "status":
                     raise ValueError("Cannot delete STATUS directly")
                 if key in entry:
@@ -704,6 +712,7 @@ def update_field(directory: Path, va: int, key: str, value: Any, module: str) ->
         ValueError: If *key* is unknown or *value* has the wrong type.
 
     """
+    key = key.lower()
     if key == "status":
         raise ValueError(
             "Use update_source_status() for STATUS changes — it enforces promotion rules"
@@ -730,9 +739,10 @@ def remove_field(directory: Path, va: int, key: str, module: str) -> bool:
         ValueError: If *key* is ``"status"`` — cannot delete STATUS directly.
 
     """
+    key = key.lower()
     if key == "status":
         raise ValueError("Cannot delete STATUS directly")
-    if key.lower() not in {f.lower() for f in METADATA_FIELDS}:
+    if key not in {f.lower() for f in METADATA_FIELDS}:
         raise ValueError(
             f"unknown metadata field {key!r} (expected one of {sorted(METADATA_FIELDS)})"
         )

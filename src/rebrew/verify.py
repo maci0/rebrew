@@ -1365,10 +1365,19 @@ def _save_report(
     diff_result: dict[str, Any] | None = None
     if diff_mode and previous_report is not None:
         diff_result = diff_reports(previous_report, report)
+    data_failed = 0
+    if data_report is not None:
+        data_failed = len(data_report.get("mismatched") or ()) + len(
+            data_report.get("missing") or ()
+        )
+    whole_failed = bool(whole_report is not None and not whole_report.get("match"))
+    text_misplaced = text_report["misplaced"] if text_report else 0
     gate_failed = _gate_fails(
         diff_result,
         failed,
-        text_misplaced=text_report["misplaced"] if text_report else 0,
+        text_misplaced=text_misplaced,
+        data_failed=data_failed,
+        whole_failed=whole_failed,
     )
 
     # A context-scoped run stores nothing: its verdicts were earned under
@@ -1426,7 +1435,9 @@ def _save_report(
         _raise_if_regression(
             diff_result,
             failed,
-            text_misplaced=text_report["misplaced"] if text_report else 0,
+            text_misplaced=text_misplaced,
+            data_failed=data_failed,
+            whole_failed=whole_failed,
         )
         return
 
@@ -1445,7 +1456,9 @@ def _save_report(
         _raise_if_regression(
             diff_result,
             failed,
-            text_misplaced=text_report["misplaced"] if text_report else 0,
+            text_misplaced=text_misplaced,
+            data_failed=data_failed,
+            whole_failed=whole_failed,
         )
         return
 
@@ -1464,7 +1477,9 @@ def _save_report(
     _raise_if_regression(
         diff_result,
         failed,
-        text_misplaced=text_report["misplaced"] if text_report else 0,
+        text_misplaced=text_misplaced,
+        data_failed=data_failed,
+        whole_failed=whole_failed,
     )
 
 
@@ -1492,7 +1507,12 @@ def _apply_size_fixes(cfg: Any, size_divergences: list[dict[str, Any]], dry_run:
 
 
 def _gate_fails(
-    diff_result: dict[str, Any] | None, failed: int, *, text_misplaced: int = 0
+    diff_result: dict[str, Any] | None,
+    failed: int,
+    *,
+    text_misplaced: int = 0,
+    data_failed: int = 0,
+    whole_failed: bool = False,
 ) -> bool:
     """True when the CI regression gate must fail this run.
 
@@ -1501,9 +1521,12 @@ def _gate_fails(
     business.  Without a baseline, any failed function fails the run.
     A misplaced ``--text`` function fails the gate in both modes: placement
     drift means the link no longer reproduces the reference layout, which no
-    byte-level verdict covers.
+    byte-level verdict covers.  The same applies to ``--data`` symbol
+    mismatches/missing entries and a failed ``--whole-binary`` compare —
+    auxiliary gates that were requested must fail the command when they
+    detect drift (exit-code contract: "Failures or regressions detected").
     """
-    if text_misplaced:
+    if text_misplaced or data_failed or whole_failed:
         return True
     if diff_result is not None:
         if diff_result["regressions"]:
@@ -1520,13 +1543,24 @@ def _gate_fails(
 
 
 def _raise_if_regression(
-    diff_result: dict[str, Any] | None, failed: int, *, text_misplaced: int = 0
+    diff_result: dict[str, Any] | None,
+    failed: int,
+    *,
+    text_misplaced: int = 0,
+    data_failed: int = 0,
+    whole_failed: bool = False,
 ) -> None:
     """Raise ``typer.Exit(EXIT_MISMATCH)`` per the CI regression gate.
 
     Shared gate logic lives in :func:`_gate_fails`; this raises on it.
     """
-    if _gate_fails(diff_result, failed, text_misplaced=text_misplaced):
+    if _gate_fails(
+        diff_result,
+        failed,
+        text_misplaced=text_misplaced,
+        data_failed=data_failed,
+        whole_failed=whole_failed,
+    ):
         raise typer.Exit(code=EXIT_MISMATCH)
 
 

@@ -300,6 +300,15 @@ class TestApplyOrPreviewStatus:
         assert _STATUS_RANK.get("FUTURE_WEIRD", unknown_rank) > _STATUS_RANK["FAIL"]
         assert _gate_fails(diff, 0) is True
 
+    def test_data_and_whole_binary_fail_the_gate(self) -> None:
+        """Auxiliary --data / --whole-binary drift must fail like --text."""
+        from rebrew.verify import _gate_fails
+
+        assert _gate_fails(None, 0) is False
+        assert _gate_fails(None, 0, text_misplaced=1) is True
+        assert _gate_fails(None, 0, data_failed=1) is True
+        assert _gate_fails(None, 0, whole_failed=True) is True
+
     def test_compare_drop_threshold_named(self) -> None:
         """The same-rank match-percentage regression threshold is a named
         constant, not a magic literal."""

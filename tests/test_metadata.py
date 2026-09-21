@@ -382,6 +382,26 @@ class TestUpdateField:
         with pytest.raises(ValueError, match="update_source_status"):
             update_field(tmp_path, 0x01006364, "status", "EXACT", module="SERVER")
 
+    def test_status_blocked_via_update_field_uppercase(self, tmp_path: Path) -> None:
+        """Upper-case STATUS must hit the same gate as lower-case status.
+
+        A case-sensitive check would write a sibling ``STATUS`` TOML key and
+        leave the real ``status`` (and PROVEN stickiness) untouched.
+        """
+        save_metadata(tmp_path, {("SERVER", 0x1000): {"status": "PROVEN"}})
+        with pytest.raises(ValueError, match="update_source_status"):
+            update_field(tmp_path, 0x1000, "STATUS", "NEAR_MATCHING", module="SERVER")
+        entry = get_entry(tmp_path, 0x1000, "SERVER")
+        assert entry.get("status") == "PROVEN"
+        assert "STATUS" not in entry
+
+    def test_uppercase_blocker_normalizes(self, tmp_path: Path) -> None:
+        """Mixed-case field names must store under the canonical lower-case key."""
+        update_field(tmp_path, 0x1000, "BLOCKER", "1B diff", module="SERVER")
+        entry = get_entry(tmp_path, 0x1000, "SERVER")
+        assert entry.get("blocker") == "1B diff"
+        assert "BLOCKER" not in entry
+
     def test_unknown_key_rejected(self, tmp_path: Path) -> None:
         with pytest.raises(ValueError, match="unknown metadata field"):
             update_field(tmp_path, 0x1000, "author", "x", module="SERVER")
@@ -462,6 +482,10 @@ class TestRemoveField:
     def test_status_blocked_via_remove_field(self, tmp_path: Path) -> None:
         with pytest.raises(ValueError, match="Cannot delete STATUS"):
             remove_field(tmp_path, 0x01006364, "status", module="SERVER")
+
+    def test_status_blocked_via_remove_field_uppercase(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match="Cannot delete STATUS"):
+            remove_field(tmp_path, 0x01006364, "STATUS", module="SERVER")
 
     def test_remove_fields_batch_drops_cflags(self, tmp_path: Path) -> None:
         save_metadata(
@@ -1094,3 +1118,29 @@ class TestSetFieldsBatchTomlSafe:
         assert entry["note"] == "see[0m dump"
         # Round-trip: file must still parse.
         assert load_metadata(tmp_path)[("SERVER", 0x1000)]["note"] == "see[0m dump"
+
+
+class TestSetFieldsValidation:
+    """set_fields / set_fields_batch must enforce the same type gate as update_field."""
+
+    def test_set_fields_rejects_wrong_type(self, tmp_path: Path) -> None:
+        from rebrew.metadata import set_fields
+
+        with pytest.raises(ValueError, match="must be"):
+            set_fields(tmp_path, 0x1000, {"size": "not-a-number"}, "SERVER")
+        assert get_entry(tmp_path, 0x1000, "SERVER") == {}
+
+    def test_set_fields_blocks_uppercase_status(self, tmp_path: Path) -> None:
+        from rebrew.metadata import set_fields
+
+        with pytest.raises(ValueError, match="update_source_status"):
+            set_fields(tmp_path, 0x1000, {"STATUS": "EXACT"}, "SERVER")
+
+    def test_set_fields_batch_blocks_uppercase_status(self, tmp_path: Path) -> None:
+        from rebrew.metadata import set_fields_batch
+
+        with pytest.raises(ValueError, match="update_statuses_batch"):
+            set_fields_batch(
+                tmp_path,
+                [{"module": "SERVER", "va": 0x1000, "fields": {"STATUS": "EXACT"}}],
+            )

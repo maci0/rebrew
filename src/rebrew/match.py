@@ -590,10 +590,17 @@ def main(
         if mutation_focus == "auto":
             from rebrew.metadata import load_metadata
 
+            # Metadata keys are qualified (module, va); VA-only lookup picks
+            # the first hit and can weight mutations from a sibling target
+            # that shares the address (SERVER vs CLIENT at the same VA).
+            want_module = (params.module or "").upper()
             for (_module, va), entry in load_metadata(cfg.metadata_dir, deepcopy=False).items():
-                if va == params.va_int and entry.get("blocker"):
-                    blocker_text = entry["blocker"]
-                    break
+                if va != params.va_int or not entry.get("blocker"):
+                    continue
+                if want_module and _module.upper() != want_module:
+                    continue
+                blocker_text = entry["blocker"]
+                break
         mutation_weights = _mutation_focus_weights(mutation_focus, blocker_text)
         if mutation_weights is None and mutation_focus == "auto" and not blocker_text:
             mutation_weights = _live_mutation_weights(params)
