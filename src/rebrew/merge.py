@@ -646,6 +646,11 @@ def main(
     )
     if delete and not dry_run:
         console.print("Deleted original input files after merge")
+    elif shared and not dry_run and not delete:
+        console.print(
+            "[dim]Twins are now stacked in the output — re-run with --delete "
+            "to remove the redundant copies.[/dim]"
+        )
 
 
 def main_entry() -> None:

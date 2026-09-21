@@ -1118,6 +1118,13 @@ def main(
             r["filepath"] or "-",
         )
     console.print(table)
+    if not shared and not dry_run and getattr(cfg, "shared_dir", None) is not None:
+        imported = sum(1 for r in results if r["action"] in ("imported", "imported-unverified"))
+        if imported:
+            console.print(
+                "[dim]Copies drift — re-run with --shared to stack these onto "
+                "one src/shared file instead.[/dim]"
+            )
 
 
 def main_entry() -> None:
