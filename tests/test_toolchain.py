@@ -1544,10 +1544,10 @@ class TestVendorRetryAfterPartialFailure:
         result = runner.invoke(app, ["vendor", "fake-1.0"])
         assert result.exit_code == 0, result.output
         assert (host / "source" / "Bin" / "CL.EXE").is_file()
-        # Second run on a complete tree still refuses.
-        result2 = runner.invoke(app, ["vendor", "fake-1.0"])
-        assert result2.exit_code != 0
-        assert "already has files" in result2.output
+        # Second run on a complete tree is an idempotent success.
+        result2 = runner.invoke(app, ["vendor", "fake-1.0", "--json"])
+        assert result2.exit_code == 0, result2.output
+        assert '"already_present": true' in result2.output
 
 
 class TestDockerAvailableCache:

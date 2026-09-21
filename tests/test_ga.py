@@ -668,6 +668,50 @@ class TestRunAllParallel:
         assert sorted(s for s, _j in seen) == ["_s0", "_s1", "_s2"]
         assert all(j == 1 for _, j in seen)
 
+    def test_write_pair_dedups_across_reruns(self, tmp_path: Path) -> None:
+        """Re-appending the same source/bytes/cflags/symbol must be a no-op."""
+        from rebrew.match_ga import BinaryMatchingGA
+
+        pairs = tmp_path / "pairs.jsonl"
+        ga = BinaryMatchingGA(
+            seed_source="int f(void){return 0;}",
+            target_bytes=b"\x90\x90",
+            cl_cmd="cl",
+            inc_dir=str(tmp_path),
+            cflags="/O2",
+            symbol="_f",
+            out_dir=tmp_path,
+            pop_size=2,
+            num_generations=1,
+            num_jobs=1,
+            collect_pairs_path=pairs,
+            verbose=0,
+        )
+        src = "int f(void){return 1;}"
+        obj = b"\x55\x8b"
+        ga._write_pair(src, obj, 1.0)
+        ga._write_pair(src, obj, 2.0)  # same content, different score
+        assert pairs.read_text(encoding="utf-8").count("\n") == 1
+        # Fresh instance (CLI re-run) must also skip the on-disk duplicate.
+        ga2 = BinaryMatchingGA(
+            seed_source="int f(void){return 0;}",
+            target_bytes=b"\x90\x90",
+            cl_cmd="cl",
+            inc_dir=str(tmp_path),
+            cflags="/O2",
+            symbol="_f",
+            out_dir=tmp_path,
+            pop_size=2,
+            num_generations=1,
+            num_jobs=1,
+            collect_pairs_path=pairs,
+            verbose=0,
+        )
+        ga2._write_pair(src, obj, 3.0)
+        assert pairs.read_text(encoding="utf-8").count("\n") == 1
+        ga2._write_pair(src, b"\x55\x8c", 3.0)  # different bytes → append
+        assert pairs.read_text(encoding="utf-8").count("\n") == 2
+
     def test_collect_pairs_is_forwarded_to_each_stub_ga(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

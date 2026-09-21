@@ -768,6 +768,29 @@ class TestManifest:
             "content_hash": "abc",
         }
 
+    def test_manifest_rerun_preserves_exported_at(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Identical content must not bump exported_at (no timestamp-only churn)."""
+        _make_project(
+            tmp_path,
+            {
+                "foo.c": "// FUNCTION: SERVER 0x10001000\n// STATUS: EXACT\n// SIZE: 31\nint foo() { return 1; }\n",
+            },
+        )
+        result1, outdir = _invoke(tmp_path, monkeypatch)
+        assert result1.exit_code == 0, result1.output
+        manifest = outdir / "manifest.toml"
+        first = manifest.read_text(encoding="utf-8")
+        doc1 = tomlkit.parse(first)
+        result2, _ = _invoke(tmp_path, monkeypatch)
+        assert result2.exit_code == 0, result2.output
+        second = manifest.read_text(encoding="utf-8")
+        doc2 = tomlkit.parse(second)
+        assert doc1["exported_at"] == doc2["exported_at"]
+        assert doc1["content_hash"] == doc2["content_hash"]
+        assert first == second
+
 
 class TestBinaryHashAndSharedTypes:
     _FOO = (

@@ -175,6 +175,47 @@ class TestCompileSource:
         assert len([c for c in client.calls if c[0] == "post"]) == 2
         assert sleeps == [0.25]  # first retry: base * 2**0
 
+    def test_retries_artifact_get_without_repost(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """After a successful compile POST, retries must not re-POST.
+
+        ``emit_assembly=True`` appends a train.jsonl row per successful
+        compile; a lost artifact GET must only re-download.
+        """
+        body = {
+            "status": "ok",
+            "artifact_url": "/api/v1/artifacts/x.obj",
+            "compiler_version": "12.0",
+            "log": "",
+        }
+        posts = [_Resp(200, json_body=body)]
+        gets = [_Resp(503, text="busy"), _Resp(200, content=b"OBJ")]
+
+        class _SeqClient(_FakeClient):
+            def post(self, url: str, json: Any = None) -> Any:
+                self.calls.append(("post", url))
+                assert json.get("emit_assembly") is True
+                return posts.pop(0)
+
+            def get(self, url: str) -> Any:
+                self.calls.append(("get", url))
+                return gets.pop(0)
+
+        client = _SeqClient(None)
+        monkeypatch.setattr(httpx, "Client", lambda **kwargs: client)
+        sleeps: list[float] = []
+        monkeypatch.setattr("rebrew.recompile_client.time.sleep", lambda s: sleeps.append(s))
+        res = compile_source(
+            "http://svc/",
+            "msvc-6.0",
+            "int f(void){}",
+            ["/c"],
+            emit_assembly=True,
+            retries=1,
+        )
+        assert res.ok and res.obj_bytes == b"OBJ"
+        assert [c[0] for c in client.calls] == ["post", "get", "get"]
+        assert sleeps == [0.25]
+
     def test_retries_do_not_retry_validation(self) -> None:
         with pytest.raises(RecompileError, match="too many flags") as ei:
             compile_source("http://svc", "msvc-6.0", "x", ["/c"] * 65, retries=3)

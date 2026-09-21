@@ -1087,12 +1087,8 @@ def export_state(
     if not dry_run:
         binary_hash = _write_binary_hash(outdir, cfg)
 
-    # Optional git commit (opt-in, after all writes)
-    commit_hash: str | None = None
-    if git_commit and not dry_run:
-        commit_hash = _git_commit_state_dir(outdir, cfg.target_name or cfg.marker or "default")
-
-    # --clean: remove orphan TOMLs no longer in catalog/annotations (prevents drift)
+    # --clean before manifest/git so the committed tree matches on-disk state
+    # and a re-export with identical content is a no-op.
     cleaned: list[str] = []
     if clean and not dry_run:
         try:
@@ -1125,16 +1121,23 @@ def export_state(
         for w in warnings_list:
             console.print(f"[yellow]warning:[/yellow] {w}")
 
-    # Freshness manifest: timestamp + content hash so import/diff can tell
-    # whether the state dir is newer, older, or divergent from local.
+    # Freshness manifest BEFORE git so an unchanged re-export leaves a clean
+    # tree (no post-commit timestamp dirt that the next --git would commit).
+    # The commit id is returned in the CLI result / git log — writing it back
+    # into manifest.toml after commit would re-dirty the working tree.
     manifest_hash = ""
     if not dry_run:
         manifest_hash = _write_manifest(
             outdir,
-            commit_hash,
+            None,
             target=getattr(cfg, "target_name", "") or "",
             binary_hash=binary_hash,
         )
+
+    # Optional git commit (opt-in, after all writes including manifest)
+    commit_hash: str | None = None
+    if git_commit and not dry_run:
+        commit_hash = _git_commit_state_dir(outdir, cfg.target_name or cfg.marker or "default")
 
     return {
         "outdir": str(outdir),
@@ -1183,7 +1186,13 @@ def _write_manifest(
     target: str = "",
     binary_hash: str = "",
 ) -> str:
-    """Write ``manifest.toml`` (timestamp, content hash, commit) and return the hash."""
+    """Write ``manifest.toml`` (timestamp, content hash, commit) and return the hash.
+
+    Idempotent: when ``content_hash`` / ``target`` / ``binary_hash`` match the
+    existing manifest, the file is left untouched (``exported_at`` preserved)
+    unless only the ``commit`` field needs updating — then ``exported_at`` is
+    still preserved so a re-export cannot create timestamp-only git churn.
+    """
     import hashlib
     from datetime import UTC, datetime
 
@@ -1199,6 +1208,34 @@ def _write_manifest(
             logger.warning("manifest hash skipped unreadable %s", path, exc_info=True)
             continue
     content_hash = digest.hexdigest()
+    manifest_path = outdir / "manifest.toml"
+    existing: dict[str, Any] | None = None
+    if manifest_path.exists():
+        try:
+            parsed = tomlkit.parse(manifest_path.read_text(encoding="utf-8"))
+            if isinstance(parsed, dict):
+                existing = dict(parsed)
+        except (OSError, TypeError, ValueError, tomlkit.exceptions.TOMLKitError):
+            existing = None
+    if existing is not None and existing.get("content_hash") == content_hash:
+        same_target = not target or existing.get("target") == target
+        same_binary = not binary_hash or existing.get("binary_hash") == binary_hash
+        if same_target and same_binary:
+            existing_commit = existing.get("commit")
+            if commit_hash is None or commit_hash == existing_commit:
+                # Fully unchanged — no rewrite, no timestamp bump.
+                return content_hash
+            # Content same; only the commit field needs a touch.
+            doc = tomlkit.document()
+            doc["exported_at"] = existing.get("exported_at") or datetime.now(UTC).isoformat()
+            doc["content_hash"] = content_hash
+            if target or existing.get("target"):
+                doc["target"] = target or existing.get("target")
+            if binary_hash or existing.get("binary_hash"):
+                doc["binary_hash"] = binary_hash or existing.get("binary_hash")
+            doc["commit"] = commit_hash
+            atomic_write_locked(manifest_path, tomlkit.dumps(doc), encoding="utf-8")
+            return content_hash
     doc = tomlkit.document()
     doc["exported_at"] = datetime.now(UTC).isoformat()
     doc["content_hash"] = content_hash
@@ -1208,7 +1245,7 @@ def _write_manifest(
         doc["binary_hash"] = binary_hash
     if commit_hash:
         doc["commit"] = commit_hash
-    atomic_write_locked(outdir / "manifest.toml", tomlkit.dumps(doc), encoding="utf-8")
+    atomic_write_locked(manifest_path, tomlkit.dumps(doc), encoding="utf-8")
     return content_hash
 
 

@@ -442,15 +442,16 @@ def vendor_cmd(
     Downloads (sha256-verified) or extracts the pinned tarball into
     ``<family>/<version>-<arch>/source`` under the rebrew-toolchains
     checkout — the same source the docker image builds from, so host trees
-    and containers are byte-identical.  Refuses to clobber an existing
-    *complete* tree; an incomplete ``source/`` from a failed prior run is
-    removed so retry converges.
+    and containers are byte-identical.  A *complete* tree is an idempotent
+    success (``already_present``), matching ``pull``.  An incomplete
+    ``source/`` from a failed prior run is removed so retry converges;
+    unexpected non-meta content still refuses to clobber.
     """
     import hashlib
     import subprocess
     import tempfile
 
-    from rebrew.toolchain import require_toolchains_repo
+    from rebrew.toolchain import get_toolchain, require_toolchains_repo, vendored_binary
     from rebrew.toolchain_data import SOURCES
     from rebrew.toolchain_paths import REPO_TOOLS
 
@@ -475,6 +476,22 @@ def vendor_cmd(
         ".dockerignore",
         *("*.sh", "*.tar.xz", "*.md"),
     }
+    # Complete tree: re-run is a no-op success (same posture as ``pull``).
+    if host.exists() and _vendor_tree_complete(host, name):
+        spec = get_toolchain(name)
+        probe = vendored_binary(replace(spec, host_path=host))
+        if probe is None:
+            probe = vendored_binary(replace(spec, host_path=host / "source"))
+        if probe is None:
+            error_exit(
+                f"vendor {name}: tree reported complete but {spec.binary} missing under {host}",
+                json_mode=json_output,
+            )
+        if json_output:
+            json_print({"vendored": src.host_dir, "binary": str(probe), "already_present": True})
+        else:
+            console.print(f"[green]Already present[/green] {src.host_dir} ({probe})")
+        return
     # Crash / timeout mid-extract leaves source/ (often empty or partial).
     # Wipe incomplete trees so a re-run succeeds instead of "already has files".
     if host.exists() and extract_dir.exists() and not _vendor_tree_complete(host, name):
@@ -590,8 +607,6 @@ def vendor_cmd(
     # Guard: a bad extraction must fail loudly (the images do the same).
     # Probe the ACTUAL extracted dir (src.host_dir) — the spec's host_path
     # is captured at import time and may predate the extraction.
-    from rebrew.toolchain import get_toolchain, vendored_binary
-
     spec = get_toolchain(name)
     probe = vendored_binary(replace(spec, host_path=host))
     if probe is None:
@@ -606,7 +621,9 @@ def vendor_cmd(
         )
 
     if json_output:
-        json_print({"vendored": src.host_dir, "binary": str(probe)})
+        json_print({"vendored": src.host_dir, "binary": str(probe), "already_present": False})
+    else:
+        console.print(f"[green]Vendored[/green] {src.host_dir} -> {probe}")
 
 
 #: Golden object hashes — the byte-exact output each toolchain image must

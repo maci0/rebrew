@@ -355,6 +355,9 @@ class BinaryMatchingGA:
         self.compile_timeout = compile_timeout
         self.collect_pairs_path = collect_pairs_path
         self._pairs_count = 0
+        # Content-addressed keys already present in collect_pairs_path (lazy).
+        # Re-runs skip duplicates so the JSONL does not accumulate copies.
+        self._pair_keys: set[str] | None = None
         # Lazily hexed target bytes — every pair record repeats them, and
         # re-hexing per candidate dominated --collect-pairs overhead.
         self._target_hex: str | None = None
@@ -707,13 +710,77 @@ class BinaryMatchingGA:
 
         return total
 
+    def _pair_fingerprint(self, src: str, obj_bytes: bytes) -> str:
+        """Stable content key for one training pair (excludes score)."""
+        import hashlib
+
+        h = hashlib.sha256()
+        h.update(src.encode("utf-8", errors="surrogateescape"))
+        h.update(b"\0")
+        h.update(obj_bytes)
+        h.update(b"\0")
+        h.update(self.cflags.encode("utf-8", errors="surrogateescape"))
+        h.update(b"\0")
+        h.update(self.symbol.encode("utf-8", errors="surrogateescape"))
+        return h.hexdigest()
+
+    def _load_pair_keys(self) -> set[str]:
+        """Return fingerprints already on disk for ``collect_pairs_path``."""
+        import hashlib
+
+        keys: set[str] = set()
+        path = self.collect_pairs_path
+        if path is None or not path.exists():
+            return keys
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError:
+            return keys
+        for line in text.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rec = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(rec, dict):
+                continue
+            src = rec.get("source")
+            compiled = rec.get("compiled_bytes")
+            cflags = rec.get("cflags", "")
+            symbol = rec.get("symbol", "")
+            if not isinstance(src, str) or not isinstance(compiled, str):
+                continue
+            try:
+                obj = bytes.fromhex(compiled)
+            except ValueError:
+                continue
+            h = hashlib.sha256()
+            h.update(src.encode("utf-8", errors="surrogateescape"))
+            h.update(b"\0")
+            h.update(obj)
+            h.update(b"\0")
+            h.update(str(cflags).encode("utf-8", errors="surrogateescape"))
+            h.update(b"\0")
+            h.update(str(symbol).encode("utf-8", errors="surrogateescape"))
+            keys.add(h.hexdigest())
+        return keys
+
     def _write_pair(self, src: str, obj_bytes: bytes, score: float) -> None:
         """Append a source-binary pair to the JSONL collection file.
 
         The caller guards ``collect_pairs_path is not None`` before calling,
         so no in-function re-check is needed (the old one sat AFTER the
-        record was built, i.e. unreachable).
+        record was built, i.e. unreachable).  Duplicate content (same
+        source/bytes/cflags/symbol) is skipped so a CLI re-run does not
+        pollute the training corpus.
         """
+        key = self._pair_fingerprint(src, obj_bytes)
+        if self._pair_keys is None:
+            self._pair_keys = self._load_pair_keys()
+        if key in self._pair_keys:
+            return
         if self._target_hex is None:
             self._target_hex = self.target_bytes.hex()
         record = {
@@ -726,6 +793,7 @@ class BinaryMatchingGA:
         }
         with _COLLECT_PAIRS_LOCK, open(self.collect_pairs_path, "a", encoding="utf-8") as f:  # type: ignore[arg-type]
             f.write(json.dumps(record) + "\n")
+            self._pair_keys.add(key)
             self._pairs_count += 1
 
     def run(self, deadline: float | None = None) -> tuple[str | None, float]:
