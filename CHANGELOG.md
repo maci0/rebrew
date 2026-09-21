@@ -69,6 +69,10 @@
   ``FIELD_TO_ATTR`` replace the private cross-module names.
 
 ### Fixed
+- **``build-db`` no longer aborts on duplicate cell starts** after start
+  clamping (hand-edited JSON / negative ``start`` colliding with ``0``);
+  last row wins and a warning is logged.  ``section_cells_json`` now has the
+  same ``sections`` ``ON DELETE CASCADE`` FK as ``cells``.
 - **``[cache].backend`` typos fail at config load** — an empty or unregistered
   name raises ``ValueError`` instead of waiting for the first compile.
 - **``REBREW_LLM_MAX_REQUESTS`` rejects non-integers and negatives** instead of

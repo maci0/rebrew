@@ -13,6 +13,7 @@ from rebrew.build_db import (
     _clamp_nonneg_int,
     _clamp_unit_interval,
     _clamp_verify_similarity,
+    _dedupe_cell_rows,
     _function_stats,
     _normalize_cell_row,
     _parse_int,
@@ -133,6 +134,25 @@ class TestNormalizeCellRow:
         row = _normalize_cell_row("T", ".text", {"label": "x", "parent_function": "f"})
         assert row[7] == "x"
         assert row[8] == "f"
+
+    def test_dedupe_keeps_last_and_warns(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Clamped/hand-edited duplicate starts must not abort UNIQUE insert."""
+        first = _normalize_cell_row("T", ".text", {"start": -1, "end": 8, "state": "none"})
+        second = _normalize_cell_row(
+            "T", ".text", {"start": 0, "end": 8, "state": "exact", "functions": ["f"]}
+        )
+        assert first[2] == second[2] == 0
+        with caplog.at_level(logging.WARNING):
+            rows = _dedupe_cell_rows([first, second], target_name="T", sec_name=".text")
+        assert len(rows) == 1
+        assert rows[0][5] == "exact"
+        assert rows[0][6] == '["f"]'
+        assert any("duplicate cell" in r.message for r in caplog.records)
+
+    def test_dedupe_noop_when_unique(self) -> None:
+        a = _normalize_cell_row("T", ".text", {"start": 0, "end": 8})
+        b = _normalize_cell_row("T", ".text", {"start": 8, "end": 16})
+        assert _dedupe_cell_rows([a, b], target_name="T", sec_name=".text") == [a, b]
 
 
 class TestFunctionStats:

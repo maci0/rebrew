@@ -280,9 +280,12 @@ _KNOWN_CELL_STATES: frozenset[str] = (
 _CELL_STATE_CHECK_SQL: str = ", ".join(repr(s) for s in sorted(_KNOWN_CELL_STATES))
 
 
-def _normalize_cell_row(
-    target_name: str, sec_name: str, cell: dict[str, Any]
-) -> tuple[str, str, int, int, int, str, str, str | None, str | None]:
+#: One normalized ``cells`` insert row:
+#: ``(target, section_name, start, end, span, state, functions_json, label, parent)``.
+_CellRow = tuple[str, str, int, int, int, str, str, str | None, str | None]
+
+
+def _normalize_cell_row(target_name: str, sec_name: str, cell: dict[str, Any]) -> _CellRow:
     """Return a DB-safe cell row from generated coverage JSON."""
     start = max(0, _parse_int(cell.get("start"), 0))
     end = max(start, _parse_int(cell.get("end"), start))
@@ -312,6 +315,38 @@ def _normalize_cell_row(
         str(label) if label is not None else None,
         str(parent_function) if parent_function is not None else None,
     )
+
+
+def _dedupe_cell_rows(
+    rows: list[_CellRow],
+    *,
+    target_name: str,
+    sec_name: str,
+) -> list[_CellRow]:
+    """Collapse rows that share ``start`` after normalization.
+
+    ``cells`` has ``UNIQUE (target, section_name, start)``.  Hand-edited JSON
+    (or a negative ``start`` clamped to 0 next to a real ``start: 0`` cell)
+    would otherwise abort the whole rebuild.  Last row wins so a later real
+    cell overrides a clamped collision; results are sorted by ``start`` for
+    stable inserts.
+    """
+    if len(rows) < 2:
+        return rows
+    by_start: dict[int, _CellRow] = {}
+    for row in rows:
+        by_start[row[2]] = row
+    dropped = len(rows) - len(by_start)
+    if dropped:
+        logging.warning(
+            "build_db: %s %s: dropped %d duplicate cell row(s) sharing the "
+            "same start after normalization (UNIQUE target/section/start); "
+            "last wins",
+            target_name,
+            sec_name,
+            dropped,
+        )
+    return sorted(by_start.values(), key=lambda r: r[2])
 
 
 def _function_stats(
@@ -600,7 +635,8 @@ def build_db(
         conn = sqlite3.connect(db_path, timeout=_SQLITE_TIMEOUT_SECONDS)
         c: sqlite3.Cursor = conn.cursor()
         # WAL + relaxed sync trade durability for throughput on a rebuildable
-        # cache DB; foreign_keys=ON enforces the cells→sections cascade.
+        # cache DB; foreign_keys=ON enforces cells/section_cells_json → sections
+        # cascades on scoped target deletes.
         c.execute("PRAGMA foreign_keys=ON")
         c.execute("PRAGMA journal_mode=WAL")
         c.execute("PRAGMA synchronous=NORMAL")
@@ -632,6 +668,9 @@ def build_db(
         if existing_stats is not None:
             stats_kind = "VIEW" if existing_stats[0] == "view" else "TABLE"
             c.execute(f"DROP {stats_kind} {SECTION_CELL_STATS_TABLE}")
+        # Derived cache: drop before sections so a sections FK cannot block
+        # DROP TABLE sections on full rebuild.  Recreated with CREATE below.
+        c.execute(f"DROP TABLE IF EXISTS {SECTION_CELLS_TABLE}")
         # Full rebuild (no --target): recreate the whole schema.
         # Scoped rebuild (--target): keep the schema and other targets'
         # rows; only this target's rows are deleted below.
@@ -641,8 +680,6 @@ def build_db(
             c.execute("DROP TABLE IF EXISTS globals")
             c.execute("DROP TABLE IF EXISTS sections")
             c.execute("DROP TABLE IF EXISTS metadata")
-            # Derived from cells; repopulated whole at the end of this function.
-            c.execute(f"DROP TABLE IF EXISTS {SECTION_CELLS_TABLE}")
             # verify_results is NOT dropped here: it is a persistent history
             # table (DB_FORMAT.md documents "never dropped on rebuild"), and
             # dropping it wiped every target's verification rows except the
@@ -749,7 +786,7 @@ def build_db(
         # which cannot use that leftmost-target index.
         c.execute("CREATE INDEX IF NOT EXISTS idx_metadata_key ON metadata(key, target)")
 
-        # Per-section cell JSON, pre-aggregated and zlib-compressed.  Serving a
+        # Per-section cell JSON, pre-aggregated and zstd-compressed.  Serving a
         # dashboard grid otherwise re-runs json_group_array over every cell on
         # each cold request: measured 10.7 ms of SQLite per 39k-cell section
         # versus 0.3 ms to read this row, for 188 KB stored across the whole
@@ -758,13 +795,18 @@ def build_db(
         #
         # It is a derived cache: `cells` remains the source of truth and is the
         # only thing other queries read, so a reader without this table still
-        # works (see rebrew.workspace.SECTION_CELLS_AGG_SQL).
+        # works (see rebrew.workspace.SECTION_CELLS_AGG_SQL).  DROP ran above
+        # (before sections) so a prior FK cannot block full-rebuild drops;
+        # CREATE here (not IF NOT EXISTS) so the sections FK always applies.
         c.execute(f"""
-            CREATE TABLE IF NOT EXISTS {SECTION_CELLS_TABLE} (
+            CREATE TABLE {SECTION_CELLS_TABLE} (
                 target TEXT NOT NULL,
                 section_name TEXT NOT NULL,
                 {SECTION_CELLS_COLUMN} BLOB NOT NULL,
-                PRIMARY KEY (target, section_name)
+                PRIMARY KEY (target, section_name),
+                FOREIGN KEY (target, section_name)
+                    REFERENCES sections(target, name)
+                    ON DELETE CASCADE
             ) WITHOUT ROWID
         """)
 
@@ -1343,12 +1385,17 @@ def build_db(
                     ),
                 )
 
-                # Insert cells
-                cell_rows = [
-                    _normalize_cell_row(target_name, sec_name, cell)
-                    for cell in sec.get("cells", [])
-                    if isinstance(cell, dict)
-                ]
+                # Insert cells (dedupe by start so clamp/hand-edit collisions
+                # cannot abort the rebuild on the UNIQUE constraint).
+                cell_rows = _dedupe_cell_rows(
+                    [
+                        _normalize_cell_row(target_name, sec_name, cell)
+                        for cell in sec.get("cells", [])
+                        if isinstance(cell, dict)
+                    ],
+                    target_name=target_name,
+                    sec_name=sec_name,
+                )
 
                 c.executemany(
                     """

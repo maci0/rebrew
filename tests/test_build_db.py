@@ -1173,6 +1173,78 @@ binary = "test.exe"
         conn.close()
         assert any(row[2] == "sections" for row in rows)
 
+    def test_section_cells_json_references_sections(self, project_root: Path) -> None:
+        """Derived cell-JSON cache must CASCADE with sections like cells do."""
+        from rebrew.workspace import SECTION_CELLS_TABLE
+
+        build_db(project_root)
+        conn = sqlite3.connect(project_root / "db" / "coverage.db")
+        c = conn.cursor()
+        c.execute(f"PRAGMA foreign_key_list({SECTION_CELLS_TABLE})")
+        rows = c.fetchall()
+        conn.close()
+        assert any(row[2] == "sections" for row in rows)
+
+    def test_duplicate_cell_starts_after_clamp_do_not_abort(
+        self, tmp_path: Path, caplog: Any
+    ) -> None:
+        """A negative start clamped onto a real start=0 cell must not raise
+        UNIQUE constraint failed — last row wins, rebuild completes."""
+        import logging
+
+        db_dir = tmp_path / "db"
+        db_dir.mkdir()
+        data = {
+            "sections": {
+                ".text": {
+                    "va": 0x10000000,
+                    "size": 256,
+                    "fileOffset": 0,
+                    "unitBytes": 64,
+                    "columns": 64,
+                    "cells": [
+                        {
+                            "start": -1,
+                            "end": 10,
+                            "span": 1,
+                            "state": "none",
+                            "functions": [],
+                        },
+                        {
+                            "start": 0,
+                            "end": 10,
+                            "span": 1,
+                            "state": "exact",
+                            "functions": ["f"],
+                        },
+                    ],
+                }
+            },
+            "globals": {},
+            "summary": {},
+            "functions": {
+                "0x10001000": {
+                    "name": "f",
+                    "vaStart": "0x10001000",
+                    "size": 16,
+                    "status": "EXACT",
+                }
+            },
+            "paths": {},
+        }
+        (db_dir / "data_t.json").write_text(json.dumps(data), encoding="utf-8")
+        with caplog.at_level(logging.WARNING):
+            build_db(tmp_path)
+        conn = sqlite3.connect(db_dir / "coverage.db")
+        try:
+            rows = conn.execute(
+                "SELECT start, state, functions FROM cells WHERE target = 't' ORDER BY start"
+            ).fetchall()
+            assert rows == [(0, "exact", '["f"]')]
+        finally:
+            conn.close()
+        assert any("duplicate cell" in r.message for r in caplog.records)
+
 
 class TestBuildDbTargetFiltering:
     """Verify that build_db(target=...) only processes matching JSON files."""

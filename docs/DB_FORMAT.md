@@ -288,6 +288,11 @@ the two cannot drift into serving different cell shapes or cell orders.
 | `section_name` | `TEXT` | Section name. |
 | `cells_zstd` | `BLOB` | `zstd` frame holding the JSON array of that section's cells. |
 
+**Primary Key**: `(target, section_name)`
+**Foreign Key**: `(target, section_name)` → `sections(target, name)` `ON DELETE CASCADE`
+(same referential rule as `cells`, so a scoped `--target` section delete cannot
+leave a stale compressed blob behind).
+
 The **column name is the codec**, and the codec itself is shared:
 `rebrew.workspace.encode_section_cells`/`decode_section_cells` are the single
 definition used by `build_db` (producer) and by recoverage (reader), so the two
