@@ -26,7 +26,7 @@ make test-one T=tests/test_annotation.py  # single-file edit-test loop
 make lint                                 # ruff check src/ tests/ tools/
 make format                               # ruff format src/ tests/ tools/
 make all                                  # format-check lint mypy audit test gen-fixtures-check cycles-check idempotency-check cli-contract
-make check                                # pre-commit hook parity (before a PR: make all && make check)
+make check                                # pre-commit hook parity (before a PR: make all && make check && make build)
 make gen-fixtures                         # regenerate tests/fixtures/ after editing the generator
 # or: uv sync --frozen --all-extras --group similarity
 

@@ -1100,7 +1100,7 @@ are normalized.
 1. `rebrew match --flag-sweep-only --tier normal` (~5.4K combos)
 2. Use `--tier quick` for fast iteration (192), `--tier targeted` (default), `--tier thorough` for deep search (~258K), or `--tier full`
 3. **objconv** comp.id verification to confirm same compiler
-4. Re-sync flags from decomp.me: `python tools/sync_decomp_flags.py`
+4. Re-sync flags from decomp.me: `uv run --frozen python tools/sync_decomp_flags.py`
 
 ### For Structure Recovery
 1. **Ghidra** structure editor via MCP (`parse-c-structure`, `get-structure-info`)

@@ -112,7 +112,7 @@ make all                                # local mirror of CI lint + test + cli-c
 make check                              # pre-commit hook parity (CI pre-commit job)
 make cli-contract                       # high-value --help greps (CI cli-contract job)
 make gen-fixtures                       # regenerate tests/fixtures/ (then commit)
-make build                              # sdist+wheel (deterministic wheels)
+make build                              # sdist+wheel (CI package job; run before a PR)
 uv run --frozen python -m slipcover --fail-under 80 -m pytest tests/ -q   # coverage
 # Bare pytest is also ANSI-safe (pytest_ansi_env plugin); prefer make test-one.
 ```

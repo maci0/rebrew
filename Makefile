@@ -1,6 +1,6 @@
 .PHONY: help setup test test-one lint format format-check check build sbom all \
 	gen-fixtures gen-fixtures-check cycles-check idempotency-check mypy audit \
-	cli-contract release-check ensure-uv ensure-resembl ensure-nasm
+	cli-contract release-check ensure-uv ensure-resembl ensure-nasm warn-nasm
 
 # Force POSIX sh for recipes (ignore a caller-exported SHELL=bash).  Recipes
 # below use only POSIX constructs so Alpine/busybox ash and Debian dash work.
@@ -61,7 +61,7 @@ help:
 		'  2. Clone sibling resembl at $(RESEMBL_REF) into ../resembl' \
 		'     git clone --depth 1 --branch $(RESEMBL_REF) https://github.com/maci0/resembl.git ../resembl' \
 		'  3. make setup && make test-one T=tests/test_annotation.py' \
-		'  Before a PR: make all && make check'
+		'  Before a PR: make all && make check && make build'
 
 ensure-uv:
 	@set -eu; \
@@ -106,8 +106,16 @@ ensure-nasm:
 	  exit 1; \
 	fi
 
+# Soft check for setup: name the host dep before the first ``make test`` failure.
+warn-nasm:
+	@set -eu; \
+	if ! command -v nasm >/dev/null 2>&1; then \
+	  echo "WARNING: nasm not on PATH (required for make test / make test-one, same as CI)."; \
+	  echo "Install it before running tests: e.g. apt install nasm / pacman -S nasm / dnf install nasm"; \
+	fi
+
 # Setup the development environment
-setup: ensure-resembl
+setup: ensure-resembl warn-nasm
 	uv sync $(UV_SYNC_FLAGS)
 	uv run --frozen pre-commit install
 

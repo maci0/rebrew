@@ -1,5 +1,7 @@
 ## [Unreleased]
 ### Added
+- **``make setup`` warns when ``nasm`` is missing** so a clean clone names the
+  host dep before the first ``make test`` / ``make test-one`` failure.
 - **Structured ``ToolchainError``** — ``kind`` / ``name`` / ``retryable``
   (same recovery shape as ``RecompileError`` / ``McpError``); public
   ``__all__`` also exports ``require_toolchains_repo``,
@@ -54,6 +56,10 @@
   documented integrator surface.
 
 ### Changed
+- **Contributor PR path includes ``make build``** (``make help``, CONTRIBUTING,
+  README Development) so the local checklist covers the CI package job's
+  sdist/wheel step; Development docs use ``make lint`` / ``make format``
+  instead of bare ``uv run`` (lock-unsafe).
 - **Catalog scan/registry data lives in ``catalog.pipeline``** — ``build_db
   --regen`` no longer imports ``catalog.cli``; ``build_catalog_data`` is the
   shared domain entry.

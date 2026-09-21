@@ -45,12 +45,12 @@ make test-one T=tests/foo.py  # single file / nodeid (fast edit-test loop)
 make test                     # full suite (~6700 tests; needs nasm)
 make all                      # local mirror of CI lint+test+cli-contract gates
 make check                    # pre-commit hook parity (CI pre-commit job)
+make build                    # reproducible sdist+wheel + dist/rebrew.buildinfo (CI package job)
 make cli-contract             # high-value --help greps (CI cli-contract job)
 make gen-fixtures             # regenerate tests/fixtures/ after editing tools/gen_fixtures.py
 uv run --frozen ruff check src/ tests/ tools/
 uv run --frozen mypy
 uv run --frozen pre-commit run --all-files
-make build                    # reproducible sdist+wheel + dist/rebrew.buildinfo (SOURCE_DATE_EPOCH, TZ=UTC)
 ```
 
 ## What to work on
@@ -91,8 +91,9 @@ schema `"7"` in 2.4.0 and the Python 3.13 floor in 2.3.0).
 
 ## Before submitting
 
-1. `make all && make check` — mirrors CI lint+test+cli-contract gates and the
-   pre-commit job.
+1. `make all && make check && make build` — mirrors CI lint+test+cli-contract
+   gates, the pre-commit job, and the package job's `make build` (sdist/wheel +
+   `dist/rebrew.buildinfo`).
 2. Keep changes minimal and scoped; match the surrounding style.
 3. Add tests for new behavior — the suite sits at ~92% coverage, and new
    pure logic is expected to keep it there.

@@ -337,13 +337,15 @@ cd rebrew/
 make setup                 # uv sync --frozen --all-extras --group similarity + pre-commit hooks
 make test-one T=tests/test_annotation.py   # single-file edit-test loop
 make test                  # full suite (needs nasm)
-uv run ruff check src/ tests/ tools/
-uv run ruff format src/ tests/ tools/
+make lint                  # ruff check (same as CI)
+make format                # ruff format (writes)
 make all                   # local mirror of CI lint + test + cli-contract
 make check                 # pre-commit hook parity (before a PR)
-make build                 # sdist + wheel + dist/rebrew.buildinfo (SOURCE_DATE_EPOCH / TZ=UTC)
-uv run python tools/sync_decomp_flags.py  # sync compiler flags from decomp.me
+make build                 # sdist + wheel + dist/rebrew.buildinfo (CI package job)
 ```
+
+Flag-axis refresh from decomp.me (maintainer, needs network):
+`uv run --frozen python tools/sync_decomp_flags.py`.
 
 ### Flag Sweep Tiers
 

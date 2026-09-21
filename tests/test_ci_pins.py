@@ -300,6 +300,22 @@ class TestCiPins:
         )
         assert result.returncode == 0, result.stdout + result.stderr
 
+    def test_readme_development_uv_runs_are_frozen(self) -> None:
+        """README Development is the clean-clone path — bare ``uv run`` can rewrite the lock."""
+        text = (ROOT / "README.md").read_text(encoding="utf-8")
+        section = text.split("## Development\n", 1)[1].split("\n## ", 1)[0]
+        commands = [m.group(1) for m in re.finditer(r"(?m)(?<![\w-])uv run\s+(\S+)", section)]
+        assert all(cmd in {"--frozen", "--locked", "--no-sync"} for cmd in commands), (
+            f"README Development has lock-unsafe uv run: {commands}"
+        )
+
+    def test_makefile_setup_warns_without_nasm(self) -> None:
+        """Bootstrap should name the nasm host dep before the first test failure."""
+        text = MAKEFILE.read_text(encoding="utf-8")
+        assert "warn-nasm" in text
+        assert re.search(r"(?m)^setup:\s*ensure-resembl\s+warn-nasm\s*$", text)
+        assert "Before a PR: make all && make check && make build" in text
+
     @pytest.mark.parametrize("path", [CI_YML, SYNC_YML, MAKEFILE, ROOT / ".pre-commit-config.yaml"])
     def test_uv_run_preserves_lockfile(self, path: Path) -> None:
         commands = [
