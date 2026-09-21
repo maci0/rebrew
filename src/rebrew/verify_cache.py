@@ -53,6 +53,27 @@ _VERIFY_CACHE_MEMO_MAX = 8
 _VERIFY_CACHE_MEMO_LOCK = threading.Lock()
 
 
+def _invalidate_verify_cache_memo(cache_path: Path) -> None:
+    """Drop every memo entry for *cache_path* after a write.
+
+    ``load_verify_cache_raw`` keys on ``(path, mtime_ns, size)``.  A rewrite
+    that lands in the same mtime slot with the same byte length (coarse
+    filesystems, same-second agent edits, truncated status strings of equal
+    width) would otherwise keep serving the pre-write JSON for the rest of
+    the process — status/todo then disagree with the file ``rebrew test`` /
+    ``rebrew verify`` just patched.  Mirror ``atomic_write_text``'s source-
+    text memo drop.
+    """
+    try:
+        path_key = str(cache_path.resolve())
+    except OSError:
+        path_key = str(cache_path)
+    with _VERIFY_CACHE_MEMO_LOCK:
+        stale = [k for k in _VERIFY_CACHE_MEMO if k[0] == path_key]
+        for old in stale:
+            del _VERIFY_CACHE_MEMO[old]
+
+
 def load_verify_cache_raw(cfg: Any) -> dict[str, Any] | None:
     """Load the shared ``.rebrew/verify_cache.json`` as a raw dict (memoized).
 
@@ -452,6 +473,7 @@ def patch_verify_cache_entries(cfg: ProjectConfig, patches: list[dict[str, Any]]
 
         try:
             atomic_write_text(cache_path, json.dumps(raw, indent=2), encoding="utf-8")
+            _invalidate_verify_cache_memo(cache_path)
         except (OSError, TypeError) as exc:
             logging.warning(
                 "Could not patch verify cache %s — status may be stale: %s", cache_path, exc
@@ -592,6 +614,7 @@ def _save_verify_cache(
             entries={str(k): VerifyCacheEntry.from_dict(v) for k, v in cache_entries.items()},
         )
         atomic_write_text(cache_path, json.dumps(cache_data.to_dict(), indent=2), encoding="utf-8")
+        _invalidate_verify_cache_memo(cache_path)
 
 
 #: The --compare baseline: last good report, next to the cache (both local,

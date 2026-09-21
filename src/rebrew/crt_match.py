@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import contextlib
 import re
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -345,12 +346,15 @@ def _build_indexes(cfg: ProjectConfig) -> dict[str, list[CrtSourceEntry]]:
     return indexes
 
 
-# Inventory fingerprint → {va: size}.  Keyed by (path, mtime_ns), not
+# Inventory fingerprint → {va: size}.  Keyed by (path, mtime_ns, size), not
 # ``id(cfg)``: a rewritten function_structure.json must not keep serving
-# sizes from the first snapshot, and a long-lived process that constructs
-# many ProjectConfig objects must not retain one dict per id forever.
-_canonical_sizes: dict[tuple[str, int], dict[int, int]] = {}
+# sizes from the first snapshot (same-ns rewrites included), and a long-lived
+# process that constructs many ProjectConfig objects must not retain one
+# dict per id forever.  Guarded: verify -j N / parallel crt-match callers
+# share this map.
+_canonical_sizes: dict[tuple[str, int, int], dict[int, int]] = {}
 _CANONICAL_SIZES_MAX = 32
+_canonical_sizes_lock = threading.Lock()
 
 
 def _canonical_size(cfg: ProjectConfig, va: int) -> int:
@@ -366,20 +370,28 @@ def _canonical_size(cfg: ProjectConfig, va: int) -> int:
     reversed_dir = getattr(cfg, "reversed_dir", "") or ""
     path = str(Path(reversed_dir) / FUNCTION_STRUCTURE_JSON) if reversed_dir else ""
     mtime_ns = 0
+    fsize = 0
     if path:
         with contextlib.suppress(OSError):
-            mtime_ns = Path(path).stat().st_mtime_ns
-    cache_key = (path, mtime_ns)
-    sizes = _canonical_sizes.get(cache_key)
+            st = Path(path).stat()
+            mtime_ns = st.st_mtime_ns
+            fsize = st.st_size
+    cache_key = (path, mtime_ns, fsize)
+    with _canonical_sizes_lock:
+        sizes = _canonical_sizes.get(cache_key)
     if sizes is None:
         try:
             sizes = {f["va"]: int(f["size"]) for f in cached_function_list(cfg)}
         except (OSError, ValueError, KeyError, TypeError):
             sizes = {}
-        if len(_canonical_sizes) >= _CANONICAL_SIZES_MAX and cache_key not in _canonical_sizes:
-            oldest = next(iter(_canonical_sizes))
-            _canonical_sizes.pop(oldest, None)
-        _canonical_sizes[cache_key] = sizes
+        with _canonical_sizes_lock:
+            if cache_key not in _canonical_sizes:
+                if len(_canonical_sizes) >= _CANONICAL_SIZES_MAX:
+                    oldest = next(iter(_canonical_sizes))
+                    _canonical_sizes.pop(oldest, None)
+                _canonical_sizes[cache_key] = sizes
+            else:
+                sizes = _canonical_sizes[cache_key]
     return sizes.get(va, 0)
 
 

@@ -457,10 +457,10 @@ _load_binary_cache: dict[tuple[str, str], BinaryInfo] = {}
 _LOAD_BINARY_CACHE_MAX = 16
 _load_binary_lock = threading.Lock()
 
-# Bounded memo for :func:`iat_slot_vas` (IAT slot VAs).  Keyed on the
-# resolved path — the same binary is scanned once per run, not once per
-# function comparison.  Same lock/bounded-dict discipline as
-# ``_load_binary_cache`` so tests can clear it when they rewrite a fixture.
+# Bounded memo for :func:`iat_slot_vas` (IAT slot VAs).  Keyed on
+# ``resolved:mtime_ns:size`` so a rebuilt binary at the same path is
+# re-scanned.  Same lock/bounded-dict discipline as ``_load_binary_cache``
+# so tests can clear it when they rewrite a fixture.
 _iat_slot_cache: dict[str, set[int]] = {}
 _IAT_SLOT_CACHE_MAX = 32
 _iat_slot_lock = threading.Lock()
@@ -942,12 +942,11 @@ def iat_slot_vas(binary_path: Path | str) -> set[int]:
     Shared by ``rebrew.coff_reloc.build_iat_region`` (reloc masking) and the
     catalog registry (function filtering) — one LIEF scan, two consumers.
 
-    Memoized per resolved path (bounded dict + lock, mirroring
-    ``_load_binary_cache``): ``compile_and_compare`` calls this once per
-    function (via :func:`build_iat_region`) even on compile-cache hits, so
-    a full verify/test batch re-parsed the *same immutable PE* N times
-    (0.05-0.3s each).  The target binary never changes mid-run, so the
-    cache cannot go stale.
+    Memoized per ``(resolved path, mtime_ns, size)`` (bounded dict + lock,
+    mirroring ``_load_binary_cache``): ``compile_and_compare`` calls this
+    once per function (via :func:`build_iat_region`) even on compile-cache
+    hits, so a full verify/test batch re-parsed the *same PE* N times
+    (0.05-0.3s each).  A rebuild at the same path invalidates via mtime/size.
     """
     path = Path(binary_path)
     if not path.exists():

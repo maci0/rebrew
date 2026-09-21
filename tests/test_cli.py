@@ -246,6 +246,51 @@ class TestLoadVerifyCacheRaw:
         assert only_key[0] == str(path)
         assert vc_mod._VERIFY_CACHE_MEMO[only_key] == {"version": 2}
 
+    def test_verify_cache_memo_cleared_on_patch(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """patch_verify_cache_entries must drop the in-process memo.
+
+        Same-ns / same-size rewrites would otherwise keep serving the
+        pre-patch JSON to status/todo in the same process.
+        """
+        from types import SimpleNamespace
+
+        import rebrew.verify_cache as vc_mod
+
+        monkeypatch.setattr(vc_mod, "_VERIFY_CACHE_MEMO", {})
+        cache_dir = tmp_path / ".rebrew"
+        cache_dir.mkdir()
+        path = cache_dir / "verify_cache.json"
+        raw = {
+            "version": 2,
+            "target": "GAME",
+            "compiler_hash": "deadbeef",
+            "entries": {
+                "0x00001000": {
+                    "status": "STUB",
+                    "va": "0x00001000",
+                    "match_percent": 0.0,
+                    "passed": False,
+                    "delta": 10,
+                    "filepath": "a.c",
+                }
+            },
+        }
+        path.write_text(__import__("json").dumps(raw), encoding="utf-8")
+        cfg = SimpleNamespace(root=tmp_path, target_name="GAME", reversed_dir=tmp_path)
+        monkeypatch.setattr(vc_mod, "_cache_identity_matches", lambda _raw, _cfg: True)
+        assert vc_mod.load_verify_cache_raw(cfg)["entries"]["0x00001000"]["status"] == "STUB"
+        assert len(vc_mod._VERIFY_CACHE_MEMO) == 1
+        vc_mod.patch_verify_cache_entries(
+            cfg,
+            [{"va": 0x1000, "status": "RELOC", "match_count": 10, "total": 10, "delta": 0}],
+        )
+        assert vc_mod._VERIFY_CACHE_MEMO == {}
+        reloaded = vc_mod.load_verify_cache_raw(cfg)
+        assert reloaded is not None
+        assert reloaded["entries"]["0x00001000"]["status"] == "RELOC"
+
 
 # ---------------------------------------------------------------------------
 # resolve_source_arg()

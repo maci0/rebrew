@@ -4,7 +4,6 @@ Loads Ghidra function JSON, function lists, Ghidra data labels,
 and scans reversed directories for annotated source files.
 """
 
-import contextlib
 import json
 import threading
 import warnings
@@ -116,8 +115,10 @@ def load_ghidra_data_labels(src_dir: Path | None) -> dict[int, GhidraDataLabel]:
 # ---------------------------------------------------------------------------
 
 # Path-keyed cache of discovery inventories (multiple projects per process).
-# Value is ``(mtime_ns_str, funcs)`` so a rewrite replaces the same slot
+# Value is ``(mtime_size_fp, funcs)`` so a rewrite replaces the same slot
 # instead of orphaning a new ``path:mtime`` key on every edit (unbounded growth).
+# Fingerprint includes size: same-ns rewrites (``cp -p``, coarse filesystems)
+# must not keep serving the previous inventory.
 # Guarded: eviction is a multi-step next(iter)+del on a shared dict; concurrent
 # catalog/verify callers must not race the check-then-act.
 _function_list_cache: dict[str, tuple[str, list[dict[str, Any]]]] = {}
@@ -126,6 +127,17 @@ _function_list_cache_lock = threading.Lock()
 # VA frozenset derived from the same inventory — avoids rebuilding
 # ``{f["va"] for f in funcs}`` on every EXTRACT_ERROR in verify.
 _function_vas_cache: dict[str, tuple[str, frozenset[int]]] = {}
+
+
+def _inventory_fingerprint(path: str) -> str:
+    """``mtime_ns:size`` for *path*, or ``""`` when unreadable / unset."""
+    if not path:
+        return ""
+    try:
+        st = Path(path).stat()
+    except OSError:
+        return ""
+    return f"{st.st_mtime_ns}:{st.st_size}"
 
 
 def cached_function_list(cfg: ProjectConfig) -> list[dict[str, Any]]:
@@ -144,13 +156,11 @@ def cached_function_list(cfg: ProjectConfig) -> list[dict[str, Any]]:
 
     reversed_dir = getattr(cfg, "reversed_dir", "")
     path = str(Path(reversed_dir) / FUNCTION_STRUCTURE_JSON) if reversed_dir else ""
-    mtime_key = ""
-    with contextlib.suppress(OSError):
-        mtime_key = str(Path(path).stat().st_mtime_ns)
+    fp = _inventory_fingerprint(path)
     cache_key = path if path else ""
     with _function_list_cache_lock:
         cached = _function_list_cache.get(cache_key)
-        if cached is not None and cached[0] == mtime_key:
+        if cached is not None and cached[0] == fp:
             return list(cached[1])
     try:
         funcs = [
@@ -173,9 +183,9 @@ def cached_function_list(cfg: ProjectConfig) -> list[dict[str, Any]]:
             oldest = next(iter(_function_list_cache))
             _function_list_cache.pop(oldest, None)
             _function_vas_cache.pop(oldest, None)
-        _function_list_cache[cache_key] = (mtime_key, funcs)
+        _function_list_cache[cache_key] = (fp, funcs)
         _function_vas_cache[cache_key] = (
-            mtime_key,
+            fp,
             frozenset(va for f in funcs if isinstance((va := f.get("va")), int)),
         )
     return list(funcs)
@@ -191,24 +201,22 @@ def cached_function_vas(cfg: ProjectConfig) -> frozenset[int]:
 
     reversed_dir = getattr(cfg, "reversed_dir", "")
     path = str(Path(reversed_dir) / FUNCTION_STRUCTURE_JSON) if reversed_dir else ""
-    mtime_key = ""
-    with contextlib.suppress(OSError):
-        mtime_key = str(Path(path).stat().st_mtime_ns)
+    fp = _inventory_fingerprint(path)
     cache_key = path if path else ""
     with _function_list_cache_lock:
         cached = _function_vas_cache.get(cache_key)
-        if cached is not None and cached[0] == mtime_key:
+        if cached is not None and cached[0] == fp:
             return cached[1]
         list_cached = _function_list_cache.get(cache_key)
-        if list_cached is not None and list_cached[0] == mtime_key:
+        if list_cached is not None and list_cached[0] == fp:
             vas = frozenset(va for f in list_cached[1] if isinstance((va := f.get("va")), int))
-            _function_vas_cache[cache_key] = (mtime_key, vas)
+            _function_vas_cache[cache_key] = (fp, vas)
             return vas
     # Populate both caches via the list loader, then re-read the VA set.
     cached_function_list(cfg)
     with _function_list_cache_lock:
         cached = _function_vas_cache.get(cache_key)
-        if cached is not None and cached[0] == mtime_key:
+        if cached is not None and cached[0] == fp:
             return cached[1]
     return frozenset()
 

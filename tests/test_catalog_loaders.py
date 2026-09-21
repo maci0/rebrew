@@ -214,6 +214,38 @@ class TestCachedFunctionList:
         # Same path key — no orphaned path:mtime entries.
         assert len(loaders_mod._function_list_cache) == 1
 
+    def test_same_mtime_size_change_invalidates(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A rewrite that preserves mtime but changes size must not hit stale data."""
+        import os
+        from types import SimpleNamespace
+
+        from rebrew.catalog import loaders as loaders_mod
+        from rebrew.config import FUNCTION_STRUCTURE_JSON
+
+        monkeypatch.setattr(loaders_mod, "_function_list_cache", {})
+        inv = tmp_path / FUNCTION_STRUCTURE_JSON
+        inv.write_text(
+            json.dumps([{"va": "0x1000", "size": 8, "name": "a"}]),
+            encoding="utf-8",
+        )
+        cfg = SimpleNamespace(reversed_dir=str(tmp_path))
+        assert loaders_mod.cached_function_list(cfg) == [{"va": 0x1000, "size": 8, "name": "a"}]
+        previous_stat = inv.stat()
+        inv.write_text(
+            json.dumps([{"va": "0x2000", "size": 16, "name": "b"}, {"va": "0x3000", "size": 4}]),
+            encoding="utf-8",
+        )
+        # Preserve mtime (cp -p / coarse FS same-ns rewrite); size still changes.
+        os.utime(inv, ns=(previous_stat.st_atime_ns, previous_stat.st_mtime_ns))
+        assert inv.stat().st_mtime_ns == previous_stat.st_mtime_ns
+        assert inv.stat().st_size != previous_stat.st_size
+        assert loaders_mod.cached_function_list(cfg) == [
+            {"va": 0x2000, "size": 16, "name": "b"},
+            {"va": 0x3000, "size": 4, "name": ""},
+        ]
+
     def test_evicts_when_full(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         from types import SimpleNamespace
 
