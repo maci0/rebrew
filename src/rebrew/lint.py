@@ -341,7 +341,10 @@ def _staleness_fix(cfg: ProjectConfig | None) -> str:
         rev_dir = getattr(cfg, "reversed_dir", None)
         inv_path = Path(rev_dir) / FUNCTION_STRUCTURE_JSON if rev_dir else None
         if inv_path is not None and bin_path.is_file() and inv_path.is_file():
-            binary_newer = bin_path.stat().st_mtime > inv_path.stat().st_mtime
+            # Nanosecond mtimes: second-granularity floats tie when a rebuild
+            # and inventory refresh land in the same wall-clock second (common
+            # on scripts / coarse Docker volume clocks), flipping the hint.
+            binary_newer = bin_path.stat().st_mtime_ns > inv_path.stat().st_mtime_ns
     except OSError:
         binary_newer = None
 

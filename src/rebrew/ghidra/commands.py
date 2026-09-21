@@ -495,5 +495,22 @@ def pull_data(
         console.print(header_text)
         return
 
+    # Idempotency: regeneration only bumps the "Generated:" timestamp —
+    # skip the write when the body is otherwise identical to avoid needless
+    # git churn (and mtime-driven rebuilds) on every --pull-data.
+    def _strip_timestamp(text: str) -> str:
+        return "\n".join(line for line in text.splitlines() if "Generated:" not in line)
+
+    if out_file.exists():
+        try:
+            existing = out_file.read_text(encoding="utf-8")
+        except OSError:
+            existing = ""
+        if existing and _strip_timestamp(existing) == _strip_timestamp(header_text):
+            console.print(
+                f"[dim]{out_file.name} unchanged[/dim] ({len(rows)} data labels from Ghidra)"
+            )
+            return
+
     atomic_write_text(out_file, header_text, encoding="utf-8")
     console.print(f"Pulled {len(rows)} data labels from Ghidra, wrote {out_file.name}")

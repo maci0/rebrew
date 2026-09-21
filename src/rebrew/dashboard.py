@@ -327,7 +327,16 @@ function esc(s) {
 }
 function formatWhen(value) {
   if (!value) return "";
-  const parsed = Date.parse(value);
+  // Rebrew stores UTC instants (ISO-8601).  Zone-less forms must not be
+  // parsed as the browser's local wall time: Date.parse treats a bare
+  // "YYYY-MM-DDTHH:MM:SS" as local, which shifts the display by the host
+  // offset and becomes Invalid Date in a spring-forward gap (e.g. 02:30
+  // on America/New_York transition night).
+  let raw = String(value).trim();
+  if (/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(:\\d{2}(\\.\\d+)?)?$/.test(raw)) {
+    raw += "Z";
+  }
+  const parsed = Date.parse(raw);
   if (Number.isNaN(parsed)) return String(value);
   try {
     return new Date(parsed).toLocaleString(undefined, {

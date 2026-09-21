@@ -917,6 +917,8 @@ class TestCheckBinsyncState:
             ["git", "-C", str(state), "log", "-1", "--format=%ct"],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=10,
         )
         assert result.status == status

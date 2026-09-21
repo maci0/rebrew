@@ -122,6 +122,26 @@ class TestPullDataGlobalsHeader:
         assert "extern int g_playerCount;" in header
         assert "extern void* g_windowTitle;" in header
 
+    def test_regeneration_is_idempotent(self, tmp_path: Any, monkeypatch: Any) -> None:
+        """Re-running --pull-data must not rewrite when only Generated: would change."""
+        symbols = [
+            {"name": "g_playerCount", "address": "0x00403010", "isFunction": False},
+        ]
+        data_by_addr = {
+            "0x00403010": {
+                "address": "0x00403010",
+                "dataType": "int",
+                "length": 4,
+                "symbolName": "g_playerCount",
+            },
+        }
+        _runpull_data(monkeypatch, tmp_path, symbols, data_by_addr)
+        out = tmp_path / "rebrew_globals.h"
+        first = out.read_text(encoding="utf-8")
+        assert "Generated:" in first
+        _runpull_data(monkeypatch, tmp_path, symbols, data_by_addr)
+        assert out.read_text(encoding="utf-8") == first
+
     def test_type_mapping_int(self, tmp_path: Any, monkeypatch: Any) -> None:
         symbols = [{"name": "g_value", "address": "0x00403010", "isFunction": False}]
         data_by_addr = {

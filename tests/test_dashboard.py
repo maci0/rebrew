@@ -406,6 +406,9 @@ class TestHandle:
         assert 'id="globals-hint"' in body
         assert 'id="history-hint"' in body
         assert "formatWhen" in body
+        # Zone-less ISO datetimes are forced to UTC (append Z) so a browser
+        # in a DST zone cannot mis-parse them as local wall time.
+        assert 'raw += "Z"' in body
         assert "Reload dashboard" in body
         assert 'retry-summary").focus()' in body
         assert "No status changes recorded yet" in body
