@@ -34,7 +34,12 @@ Operators should treat project source, configured HTTP endpoints
 (recompile, LLM, ReVa MCP, decomp.me), GitHub release and toolchain-media
 downloads (wibo, SDK tarballs), docker/podman images (`REBREW_CONTAINER_RUNTIME`),
 cmake bridge wineprefix / profile pins (`REBREW_WINEPREFIX`, `REBREW_TOOLCHAIN`),
-and installed Python entry-point plugins as part of the trust boundary.
+`REBREW_SKILLS_DIR` overlays, and installed Python entry-point plugins
+(including `rebrew.cache_backends`) as part of the trust boundary.
+
+The packaged compile-cache backends refuse pickle deserialize
+(`NoPickleDisk` in `src/rebrew/compile_cache.py`); that does not attest
+plugin cache backends or remove the open upstream diskcache advisory.
 
 ## Claims this policy does **not** make
 
@@ -50,7 +55,9 @@ and installed Python entry-point plugins as part of the trust boundary.
   GitHub release `digest`; it does not consume `GH_TOKEN`/`GITHUB_TOKEN`
   (those tokens are used only by toolchain pin-check/update HTTP to GitHub).
 - No claim that dependency CVEs are absent; pin rationale lives in
-  `pyproject.toml` comments and the changelog.
+  `pyproject.toml` comments and the changelog. In particular, diskcache's
+  open pickle advisory is mitigated for packaged backends by `NoPickleDisk`,
+  not by claiming the upstream advisory is fixed.
 - No claim that library helpers which invoke host DOSBox
   (`rebrew.msvc16` / `tc16` / `delphi16`) are covered by the docker-only
   compile guarantee on the shipped CLI compile path.
