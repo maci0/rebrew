@@ -4,9 +4,10 @@ description: >-
   Use when scaffolding with `rebrew init` — bare directory, target naming,
   `--guess-compiler` vs `--toolchain`, doctor done-gate, then hand off to
   rebrew-intake. Triggers on 'new project', 'scaffold', 'bare directory',
-  'create project', 'set up rebrew', 'rebrew init', or 'guess-compiler'. If the
-  user hands you a binary to onboard in one shot, use rebrew-intake
-  (`rebrew intake`) instead. Not for day-to-day reversing (rebrew-workflow).
+  'create project', 'set up rebrew', 'rebrew init', 'guess-compiler', or
+  'refresh-agents'. If the user hands you a binary to onboard in one shot, use
+  rebrew-intake (`rebrew intake`) instead. Not for day-to-day reversing
+  (rebrew-workflow).
 license: MIT
 ---
 
@@ -42,7 +43,7 @@ mkdir original && cp /path/to/<binary> original/
 rebrew init --target <name> --binary <filename> --guess-compiler
 ```
 
-Target naming: the bare binary stem (`server.dll` → `server.dll`, `game.exe` → `game`). Keep the extension — targets are keyed by it elsewhere (`layout/<target>/`, `src/<target>/`).
+Target naming: bare binary stem, no extension (`server.dll` → `server`, `game.exe` → `game`; lowercased, non-alnum → `_`). Same default as `rebrew intake`. Override with `--target` only when MODULE markers already use a different form (e.g. legacy `server.dll`). Paths are `layout/<target>/`, `src/<target>/`.
 
 ## Profile selection
 

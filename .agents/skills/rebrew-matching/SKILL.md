@@ -191,19 +191,17 @@ Use `rebrew diff --fix-blocker` / `rebrew near-diag --fix-blocker` to auto-gener
 
 ## 7. Symbolic Equivalence Proving
 
-When stuck at NEAR_MATCHING (register alloc / reorder / loop layout), classify
-then prove:
+When stuck at NEAR_MATCHING (register alloc / reorder / loop layout):
 
 ```bash
 rebrew near-diag src/bench/<file>.c --json
-rebrew near-diag --all --fix-blocker --json
 rebrew prove src/bench/<file>.c --json
-rebrew prove --all --json
 ```
 
-Register-gap verdicts (`REGISTER (N% of delta)`) are prime PROVEN candidates —
-run `rebrew prove --all` before more GA. Full flags, EDX/`--watch-va` gotchas,
-and angr mechanics: `references/prove.md`. Requires `pip install 'rebrew[prove]'`.
+`REGISTER (N% of delta)` verdicts are prime PROVEN candidates — prefer
+`rebrew prove --all` before more GA. Full flags, EDX/`--watch-va` gotchas, and
+angr mechanics: `references/prove.md`. Requires `pip install 'rebrew[prove]'`
+(or `uv sync --extra prove`); stop and install if `rebrew prove` import-fails.
 
 ## 8. End-to-End Round-Trip
 

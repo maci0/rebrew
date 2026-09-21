@@ -5,9 +5,10 @@ description: >-
   (`todo`), skeleton, edit, `test`/`diff`, verify, lint, round-trip. Use for
   day-to-day reversing: next function, skeleton, test, verify, lint, or progress.
   Triggers on 'reverse', 'decompile', 'skeleton', 'test function', 'verify',
-  'lint', 'next function', 'workflow', 'todo'. Hand off near-miss GA/prove to
-  rebrew-matching; new binaries to rebrew-intake; globals/BSS to
-  rebrew-data-analysis; Ghidra to rebrew-ghidra-sync.
+  'lint', 'next function', 'workflow', 'todo', 'diff', 'asm', 'status',
+  'blocker'. Hand off near-miss GA/prove to rebrew-matching; new binaries to
+  rebrew-intake; globals/BSS to rebrew-data-analysis; Ghidra to
+  rebrew-ghidra-sync.
 license: MIT
 ---
 

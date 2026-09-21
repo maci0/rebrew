@@ -100,7 +100,8 @@ Exit 1 on any `fail`. `--json` → `checks[].fix` repair commands. Missing image
 Missing binary → place at configured path. Missing FLIRT →:
 
 ```bash
-rebrew gen-flirt-pat toolchain/msvc/6.0-win32/source/VC98/Lib/msvcrt.lib --output flirt_sigs/msvcrt_vc6.pat
+rebrew gen-flirt-pat /path/to/msvcrt.lib --output flirt_sigs/msvcrt_vc6.pat
+# .lib from a vendored toolchain/ tree, or extract Lib/ from the profile docker image
 rebrew cfg add-target <name> --binary original/<filename>   # or --force if binary absent
 ```
 
@@ -193,8 +194,9 @@ rebrew skeleton 0x<VA> --xrefs          # with caller context from Ghidra
 decompiler (`--decomp-backend`: `auto`, `r2ghidra`, `r2dec`, `ghidra`; default `auto`).
 
 For library functions identified by FLIRT, check if vendored reference source is
-available (e.g. MSVCRT under `toolchain/msvc/…/CRT/SRC/`, zlib under a project
-`zlib-1.1.3/` tree).
+available under the project's `toolchain/` tree (e.g. MSVCRT at
+`toolchain/msvc/…/CRT/SRC/` after `cfg detect-crt --write`) or a project
+`zlib-1.1.3/` tree.
 
 ### 9. Sync to Ghidra (Optional)
 
