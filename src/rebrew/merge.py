@@ -2,6 +2,12 @@
 
 Combines multiple annotated source files into a single compilation unit,
 deduplicating preamble lines and sorting function blocks by virtual address.
+
+With ``--shared``, twin files (same body, different target markers — the
+per-target copies ``cross-import`` used to make) collapse into one stacked
+block per body (one ``// FUNCTION: <target> <va>`` marker per target,
+ADR-022): the migration path from N copies to one shared file.  Bodies
+that differ between targets are refused, never averaged.
 """
 
 import re
@@ -14,6 +20,7 @@ from rich.console import Console
 
 from rebrew.annotation import (
     NEW_FUNC_CAPTURE_RE,
+    NEW_KV_RE,
     parse_c_file_text,
     split_annotation_sections,
 )
@@ -246,6 +253,138 @@ def consolidate_declarations(text: str) -> tuple[str, ExternReport]:
     return out, report
 
 
+def _block_markers(block: str) -> list[tuple[str, int]]:
+    """Every ``(module, va)`` marker in one block, in order."""
+    out: list[tuple[str, int]] = []
+    for line in block.splitlines():
+        m = NEW_FUNC_CAPTURE_RE.match(line.strip())
+        if m:
+            out.append((m.group("module"), int(m.group("va"), 16)))
+    return out
+
+
+def _normalize_body(block: str) -> str:
+    """The block minus identity lines: markers and their SIZE lines.
+
+    Two per-target copies of one function differ exactly here (module, VA,
+    and the destination's canonical SIZE); the C body must be identical.
+    Everything else — code, comments, other KV lines — compares exactly.
+    """
+    kept: list[str] = []
+    for line in block.splitlines():
+        stripped = line.strip()
+        if NEW_FUNC_CAPTURE_RE.match(stripped):
+            continue
+        kv = NEW_KV_RE.match(stripped) if stripped.startswith(("//", "/*")) else None
+        if kv and kv.group("key").upper() == "SIZE":
+            continue
+        kept.append(line.rstrip())
+    return "\n".join(kept).strip()
+
+
+def _stack_twin_blocks(blocks: list[str]) -> str:
+    """One stacked block from twin blocks sharing a normalized body.
+
+    Each input's marker (+ its SIZE line when present) is preserved above
+    the single shared body, so per-target VA/SIZE survive the collapse.
+    """
+    marker_lines: list[str] = []
+    body_lines: list[str] | None = None
+    for block in blocks:
+        head: list[str] = []
+        rest: list[str] = []
+        seen_code = False
+        for line in block.splitlines():
+            stripped = line.strip()
+            if not seen_code and (
+                NEW_FUNC_CAPTURE_RE.match(stripped)
+                or (
+                    stripped.startswith(("//", "/*"))
+                    and (kv := NEW_KV_RE.match(stripped))
+                    and kv.group("key").upper() == "SIZE"
+                )
+            ):
+                head.append(line.rstrip())
+                continue
+            seen_code = True
+            rest.append(line.rstrip())
+        marker_lines.extend(head)
+        if body_lines is None:
+            body_lines = rest
+    while body_lines and not body_lines[0].strip():
+        body_lines.pop(0)
+    while body_lines and not body_lines[-1].strip():
+        body_lines.pop()
+    return "\n".join(marker_lines + ["", *(body_lines or [])]) + "\n"
+
+
+def _collapse_twins(
+    blocks_with_va: list[tuple[int, str]], json_output: bool
+) -> list[tuple[int, str]]:
+    """Collapse same-body blocks into one stacked block per body.
+
+    Groups by normalized body (:func:`_normalize_body`).  A group whose
+    blocks name ≥2 distinct modules is one function in several targets:
+    emit a single stacked block (markers + SIZE lines preserved, one shared
+    body).  A group with one distinct module passes through unchanged.
+
+    Two blocks with the same function NAME but different bodies are NOT
+    twins — they diverged between targets and no single body serves both.
+    Merging them would silently ship one target's bytes to the other, so
+    refuse with the names instead.
+    """
+    from rebrew.c_parser import extract_function_name_from_line
+
+    groups: dict[str, list[tuple[int, str]]] = {}
+    order: list[str] = []
+    for va, block in blocks_with_va:
+        key = _normalize_body(block)
+        if key not in groups:
+            groups[key] = []
+            order.append(key)
+        groups[key].append((va, block))
+
+    out: list[tuple[int, str]] = []
+    for key in order:
+        group = groups[key]
+        modules = {mod for _, b in group for mod, _ in _block_markers(b)}
+        if len(modules) < 2:
+            out.extend(group)
+            continue
+        stacked = _stack_twin_blocks([b for _, b in group])
+        out.append((min(va for va, _ in group), stacked))
+
+    # Divergent twins: same C symbol, different bodies.  Find them by name
+    # across groups (a name appearing in ≥2 groups with different bodies).
+    names: dict[str, set[str]] = {}
+    for key in order:
+        for _, block in groups[key]:
+            sym = ""
+            for line in block.splitlines():
+                stripped = line.strip()
+                if not stripped or stripped.startswith(("//", "/*", "#")):
+                    continue
+                if stripped.rstrip().endswith(";"):
+                    continue
+                got = extract_function_name_from_line(stripped)
+                if got:
+                    sym = got[0]
+                    break
+            if sym:
+                names.setdefault(sym, set()).add(key)
+    divergent = sorted(sym for sym, keys in names.items() if len(keys) > 1)
+    if divergent:
+        from rebrew.cli import error_exit as _exit
+
+        _exit(
+            "Refusing shared merge: these functions differ between targets "
+            f"({', '.join(divergent)}) — one body cannot serve both. Merge "
+            "only the identical twins, or keep per-target files.",
+            json_mode=json_output,
+        )
+    return out
+
+
 def _block_metadata(block: str) -> dict[str, Any] | None:
     """Extract marker module/VA from a function block."""
     for line in block.splitlines():
@@ -342,6 +481,13 @@ def main(
         "--consolidate",
         help="Hoist unique includes/externs/typedefs/intrinsics to the top of the merged TU",
     ),
+    shared: bool = typer.Option(
+        False,
+        "--shared",
+        help="Collapse twin files (same body, different target markers) into "
+        "one stacked block per body (one // FUNCTION: marker per target). "
+        "Bodies that differ are refused, never merged",
+    ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
@@ -350,6 +496,10 @@ def main(
         error_exit("Merge requires at least two source files", json_mode=json_output)
 
     cfg = require_config(target=target, json_mode=json_output)
+    # Direct main() calls in tests leave typer OptionInfo sentinels in place
+    # of real bools (every option param is affected, not just this one) —
+    # coerce so a sentinel never enables the shared path by truthiness.
+    shared = shared is True
     output_path = Path(output)
     input_files = _collect_input_files(sources, cfg, exclude=output_path)
     if len(input_files) < 2:
@@ -377,7 +527,9 @@ def main(
         except OSError as exc:
             error_exit(f"Failed to read {file_path}: {exc}", json_mode=json_output)
 
-        annotations = parse_c_file_text(text, file_path, target_marker(cfg), None, cfg.metadata_dir)
+        annotations = parse_c_file_text(
+            text, file_path, None if shared else target_marker(cfg), None, cfg.metadata_dir
+        )
         if not annotations:
             continue
 
@@ -397,7 +549,7 @@ def main(
             if meta is None:
                 continue
             module = str(meta["module"])
-            if cfg.marker and module.lower() != cfg.marker.lower():
+            if not shared and cfg.marker and module.lower() != cfg.marker.lower():
                 continue
             va = meta["va"]
             if va in seen_vas:
@@ -410,11 +562,16 @@ def main(
             seen_vas.add(va)
             blocks_with_va.append((va, block.strip("\n")))
 
-    if len(blocks_with_va) < 2:
+    if shared:
+        blocks_with_va = _collapse_twins(blocks_with_va, json_output)
+
+    if len(blocks_with_va) < 2 and not shared:
         error_exit(
             f"Need at least two matching function blocks for target '{cfg.marker}'",
             json_mode=json_output,
         )
+    if shared and not blocks_with_va:
+        error_exit("No function blocks found in input files", json_mode=json_output)
 
     if len(legacy_encodings) > 1:
         # One output has one encoding; two legacy inputs cannot both round-trip.

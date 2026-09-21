@@ -1115,7 +1115,7 @@ On success, updates `STATUS` from `NEAR_MATCHING`/`SIZE_MISMATCH` → `PROVEN`. 
 
 ### `rebrew merge`
 
-`rebrew merge <file1> <file2> ... --output FILE [--dry-run] [--force] [--delete] [--json]`
+`rebrew merge <file1> <file2> ... --output FILE [--dry-run] [--force] [--delete] [--consolidate] [--shared] [--json]`
 
 Merge multiple single-function `.c` files into one multi-function file. Preamble lines (`#include`, `extern`, `#define`) are deduplicated. Function blocks are sorted by virtual address ascending.
 
@@ -1126,6 +1126,7 @@ Merge multiple single-function `.c` files into one multi-function file. Preamble
 | `--force` | Overwrite output if it already exists |
 | `--delete` | Delete input files after successful merge |
 | `--consolidate` | Hoist unique includes/externs/typedefs/`#pragma intrinsic` to the top of the merged TU, resolving conflicting extern signatures by specificity (companion cleanup for multi-function merges) |
+| `--shared` | Collapse twin files (same body, different target markers) into one stacked block per body — the migration from per-target copies to `src/shared`. Bodies that differ are refused, never merged |
 | `--json` | Structured JSON output |
 
 ### `rebrew merge-sweep`

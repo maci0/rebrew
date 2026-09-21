@@ -519,3 +519,59 @@ class TestMergeEncodings:
         result, _out = _invoke(tmp_path, monkeypatch, str(a), str(b))
         assert result.exit_code != 0
         assert "conflicting source encodings" in result.output
+
+
+class TestMergeShared:
+    """--shared collapses twin copies into one stacked block (ADR-022)."""
+
+    def _twin(self, module: str, va: int, body: str, size_line: str = "") -> str:
+        size = "// SIZE: 14\n" if size_line else ""
+        return f"// FUNCTION: {module} 0x{va:08x}\n{size}{body}\n"
+
+    def test_identical_twins_stack(self, tmp_path: Path, monkeypatch: Any) -> None:
+        body = "int __cdecl cm_MarkAndReturn(int cmd, char* result)\n{\n\treturn 0;\n}\n"
+        _write(tmp_path / "a.c", self._twin("SERVER", 0x1000D330, body))
+        _write(tmp_path / "b.c", self._twin("GOLDTL", 0x4C75E0, body, "size"))
+        out = tmp_path / "shared.c"
+        monkeypatch.setattr(
+            "rebrew.merge.require_config",
+            lambda target=None, json_mode=False: _make_cfg(tmp_path),
+        )
+        result = runner.invoke(
+            app, ["--output", str(out), "--shared", str(tmp_path / "a.c"), str(tmp_path / "b.c")]
+        )
+        assert result.exit_code == 0, result.output
+        text = out.read_text(encoding="utf-8")
+        assert text.count("cm_MarkAndReturn") == 1
+        assert "// FUNCTION: SERVER 0x1000d330" in text
+        assert "// FUNCTION: GOLDTL 0x004c75e0" in text
+
+    def test_divergent_twins_refused(self, tmp_path: Path, monkeypatch: Any) -> None:
+        _write(
+            tmp_path / "c.c",
+            self._twin(
+                "SERVER", 0x1000D340, "int __cdecl cm_Other(int c)\n{\n\treturn c + 1;\n}\n"
+            ),
+        )
+        _write(
+            tmp_path / "d.c",
+            self._twin("GOLDTL", 0x4C75F0, "int __cdecl cm_Other(int c)\n{\n\treturn c + 2;\n}\n"),
+        )
+        out = tmp_path / "out.c"
+        monkeypatch.setattr(
+            "rebrew.merge.require_config",
+            lambda target=None, json_mode=False: _make_cfg(tmp_path),
+        )
+        result = runner.invoke(
+            app, ["--output", str(out), "--shared", str(tmp_path / "c.c"), str(tmp_path / "d.c")]
+        )
+        assert result.exit_code != 0
+        assert "cm_Other" in result.output
+        assert not out.exists()
+
+    def test_normalize_body_ignores_markers_and_size(self) -> None:
+        from rebrew.merge import _normalize_body
+
+        a = "// FUNCTION: SERVER 0x1000\n// SIZE: 11\nint f(void){return 1;}\n"
+        b = "// FUNCTION: GOLDTL 0x2000\nint f(void){return 1;}\n"
+        assert _normalize_body(a) == _normalize_body(b)

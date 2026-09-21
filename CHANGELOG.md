@@ -18,6 +18,10 @@
 - **`split --va` matches any stacked marker.**  A shared block carries one
   marker per target; the old first-marker-only match missed every other
   target's VA.
+- **`merge --shared` collapses twin copies.**  Same-body files with different
+  target markers become one stacked block (markers + SIZE lines preserved);
+  same-name different-body twins are refused with names, never averaged —
+  the migration from per-target copies to `src/shared`.
 - **Lint accepts stacked shared-source markers.**  A `src/shared` file carrying
   one `// FUNCTION:` marker per target (ADR-010) no longer fires E012 on the
   other targets' blocks, and those blocks are exempt from this target's W018 —

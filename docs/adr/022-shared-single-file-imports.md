@@ -61,6 +61,9 @@ copy.
   pointer — directory only, never config.
 - `rebrew split --va` matches any stacked marker in a block, not just the
   first (the stacked-last marker used to hide the others).
+- `rebrew merge --shared` collapses identical twin copies into one stacked
+  block (per-block SIZE preserved); same-name divergent bodies are refused
+  with names — the bulk migration from per-target copies to `src/shared`.
 
 ## Consequences
 

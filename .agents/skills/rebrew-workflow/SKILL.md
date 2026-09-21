@@ -174,6 +174,8 @@ rebrew graph --cu-map --json              # infer TU boundaries for merge decisi
 ```
 
 Split for different CFLAGS; merge for shared TU (statics/file globals).
+`rebrew merge --shared` collapses per-target twin copies into one stacked
+`src/shared` file (refuses divergent bodies).
 
 ## 6. Global Data
 
