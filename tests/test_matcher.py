@@ -181,10 +181,11 @@ def test_generate_flag_combinations_max_limit() -> None:
 
 
 def test_generate_flag_combinations_full_axes() -> None:
-    """Test that generated combos contain expected MSVC flag substrings."""
+    """Generated combos must cover the main MSVC6 sweep axes, not just /O*."""
     combos = generate_flag_combinations()
-    has_opt = any("/O" in c for c in combos)
-    assert has_opt
+    joined = "\n".join(combos)
+    for needle in ("/O", "/G3", "/Gd", "/Gr", "/Gz", "/Oy", "/Op"):
+        assert needle in joined, f"expected flag axis {needle!r} in generated combos"
 
 
 # -------------------------
@@ -200,6 +201,10 @@ def test_diff_functions_identical() -> None:
     assert result["target_size"] == len(code)
     # All instructions should match exactly
     assert result["summary"]["structural"] == 0
+    assert result["summary"]["reloc"] == 0
+    assert result["summary"]["exact"] == result["summary"]["total"]
+    assert result["summary"]["total"] > 0
+    assert all(insn["match"] == "==" for insn in result["instructions"])
 
 
 def test_diff_functions_different() -> None:
@@ -209,6 +214,7 @@ def test_diff_functions_different() -> None:
     result = diff_functions(target, cand, as_dict=True)
     assert isinstance(result, dict)
     assert result["summary"]["structural"] > 0
+    assert "**" in {insn["match"] for insn in result["instructions"]}
 
 
 def test_diff_functions_length_mismatch() -> None:

@@ -33,7 +33,10 @@ class TestDiffFunctionsAsDict:
         assert result["target_size"] == len(code)
         assert result["candidate_size"] == len(code)
         assert result["summary"]["structural"] == 0
-        assert result["summary"]["exact"] > 0
+        assert result["summary"]["reloc"] == 0
+        assert result["summary"]["exact"] == result["summary"]["total"]
+        assert result["summary"]["total"] > 0
+        assert all(insn["match"] == "==" for insn in result["instructions"])
         assert isinstance(result["instructions"], list)
         assert len(result["instructions"]) > 0
 
@@ -44,6 +47,7 @@ class TestDiffFunctionsAsDict:
         result = diff_functions(target, candidate, as_dict=True)
         assert result is not None
         assert result["summary"]["structural"] >= 1
+        assert "**" in {insn["match"] for insn in result["instructions"]}
 
     def test_instruction_structure(self) -> None:
         """Each instruction entry should have expected keys."""
@@ -91,14 +95,27 @@ class TestDiffFunctionsAsDict:
         assert result["target_size"] != result["candidate_size"]
 
     def test_with_reloc_offsets(self) -> None:
-        """Reloc offsets should affect match classification."""
-        # call rel32 — bytes after opcode differ but are reloc
-        target = b"\xe8\x10\x00\x00\x00\xc3"
-        candidate = b"\xe8\x20\x00\x00\x00\xc3"
-        result = diff_functions(target, candidate, reloc_offsets=[1], as_dict=True)
-        assert result is not None
-        # With reloc masking, the call instruction should be ~~ not **
-        assert result["summary"]["total"] > 0
+        """Reloc offsets should affect match classification.
+
+        Use an imm32 that auto-normalize does *not* treat as a reloc so the
+        ``reloc_offsets`` argument is what flips ``**`` → ``~~``.  (call rel32
+        is already classified ``~~`` without explicit offsets.)
+        """
+        # mov eax, imm32 — differing address-like immediates
+        target = b"\x55\x8b\xec\xb8\x00\x00\x00\x10\x5d\xc3"
+        candidate = b"\x55\x8b\xec\xb8\x00\x10\x00\x10\x5d\xc3"
+        without = diff_functions(target, candidate, as_dict=True)
+        assert without is not None
+        assert without["summary"]["structural"] >= 1
+        assert "**" in {insn["match"] for insn in without["instructions"]}
+
+        with_reloc = diff_functions(target, candidate, reloc_offsets=[4], as_dict=True)
+        assert with_reloc is not None
+        assert with_reloc["summary"]["structural"] == 0
+        assert with_reloc["summary"]["reloc"] >= 1
+        matches = [insn["match"] for insn in with_reloc["instructions"]]
+        assert "~~" in matches
+        assert "**" not in matches
 
     def test_summary_counts_add_up(self) -> None:
         """exact + reloc + structural should equal total."""

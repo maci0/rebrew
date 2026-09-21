@@ -176,11 +176,14 @@ class TestScoreCandidate:
         cand = b"\x55\x8b\xec\xe8\xff\xfe\xfd\xfc\xc3"
         score_no_reloc = score_candidate(target, cand)
         score_with_reloc = score_candidate(target, cand, reloc_offsets=[4])
-        # With reloc offsets, reloc bytes are masked; total score should improve
-        assert score_with_reloc.total <= score_no_reloc.total, (
-            f"reloc masking should not worsen total score: "
+        # Explicit reloc_offsets must improve the score (not merely leave it equal).
+        assert score_no_reloc.total > 0.0
+        assert score_with_reloc.total < score_no_reloc.total, (
+            f"reloc masking should improve total score: "
             f"with={score_with_reloc.total}, without={score_no_reloc.total}"
         )
+        assert score_with_reloc.byte_score == 0.0
+        assert score_with_reloc.reloc_score == 0.0
 
     def test_reloc_only_match_scores_zero(self) -> None:
         """A candidate whose ONLY diffs are at known reloc sites must score
@@ -314,12 +317,15 @@ class TestDiffFunctions:
         assert isinstance(result, dict)
         assert "instructions" in result
         assert "summary" in result
-        # All lines should be exact matches
+        # Byte-identical inputs must be exact matches — never reloc/structural.
         for line in result["instructions"]:
-            assert line["match"] in ("==", "~~"), (
-                f"Expected match for identical code, got {line['match']}"
+            assert line["match"] == "==", (
+                f"Expected exact match for identical code, got {line['match']}"
             )
         assert result["summary"]["structural"] == 0
+        assert result["summary"]["reloc"] == 0
+        assert result["summary"]["exact"] == result["summary"]["total"]
+        assert result["summary"]["total"] > 0
 
     def test_different_code(self) -> None:
         # sub esp, 0x10 vs sub esp, 0x20 — structural difference (not relocation)

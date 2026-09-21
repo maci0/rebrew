@@ -291,15 +291,24 @@ class TestDisasmInsnsCapstoneConstants:
 
     def test_string_names(self) -> None:
         insns = nd.disasm_insns(self._CODE, 0x1000, "CS_ARCH_X86", "CS_MODE_32")
-        assert len(insns) >= 1
-        assert insns[0].mnemonic
+        assert len(insns) == 6
+        assert [(i.mnemonic, i.op_str) for i in insns] == [
+            ("push", "ebp"),
+            ("mov", "ebp, esp"),
+            ("sub", "esp, 8"),
+            ("mov", "eax, 1"),
+            ("leave", ""),
+            ("ret", ""),
+        ]
 
     def test_int_constants(self) -> None:
         import capstone
 
         insns = nd.disasm_insns(self._CODE, 0x1000, capstone.CS_ARCH_X86, capstone.CS_MODE_32)
-        assert len(insns) >= 1
-        assert insns[0].mnemonic
+        assert len(insns) == 6
+        assert insns[0].mnemonic == "push"
+        assert insns[0].op_str == "ebp"
+        assert insns[-1].mnemonic == "ret"
 
     def test_both_forms_equal(self) -> None:
         a = [
