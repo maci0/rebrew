@@ -24,7 +24,7 @@ Manual inspection and linkage tools outside the main reverse loop. Run
 | `rebrew cmake-flags` | Write per-file CFLAGS from `rebrew-functions.toml` as a CMake include. |
 | `rebrew build-check` | Verify `build/` still matches what CMake generated (catches a hand-edited `build.make`). |
 | `rebrew binsync-init` | Initialize a BinSync git repo (root and user branches) for a target. |
-| `rebrew binsync-export` | Export annotations to an experimental BinSync state directory. |
-| `rebrew binsync-import` | Import a BinSync state directory into rebrew metadata. |
+| `rebrew binsync-export` | Low-level state export (prefer `rebrew sync --push --state-dir`; see rebrew-ghidra-sync). |
+| `rebrew binsync-import` | Low-level state import (prefer `rebrew sync --pull --state-dir`; see rebrew-ghidra-sync). |
 | `rebrew binsync-overlay` | Overlay a related target's BinSync names onto this target. |
 | `rebrew refactor` | Analyse the source tree and suggest refactoring opportunities. |

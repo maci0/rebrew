@@ -76,6 +76,27 @@ def test_every_cli_command_covered_by_agent_skills() -> None:
     )
 
 
+def test_skill_local_reference_paths_exist() -> None:
+    """Backticked ``references/*.md`` paths must resolve inside that skill tree.
+
+    Progressive-disclosure splits are useless if SKILL.md points at a missing
+    file (e.g. a trim that forgot to add the reference). Cross-skill pointers
+    must not use a local ``references/…`` backtick — name the sibling skill.
+    """
+    skills_dir = ROOT / "src" / "rebrew" / "agent-skills"
+    missing: list[str] = []
+    for skill_dir in sorted(p for p in skills_dir.iterdir() if p.is_dir()):
+        for md in skill_dir.rglob("*.md"):
+            text = md.read_text(encoding="utf-8")
+            for match in re.finditer(r"`(references/[\w./-]+\.md)`", text):
+                rel = match.group(1)
+                if not (skill_dir / rel).is_file():
+                    missing.append(f"{md.relative_to(ROOT)} -> {rel}")
+    assert missing == [], "skill markdown points at missing local references:\n  " + "\n  ".join(
+        missing
+    )
+
+
 def test_every_script_main_has_callback_decorator() -> None:
     """Every [project.scripts] main_entry must sit on a @app.callback main.
 

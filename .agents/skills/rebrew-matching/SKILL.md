@@ -6,8 +6,8 @@ description: >-
   EXACT/RELOC/PROVEN. Use after rebrew-workflow's test/diff loop stalls.
   Triggers on 'GA', 'genetic algorithm', 'flag sweep', 'near-diag', 'near-miss',
   'prove', 'angr', 'symbolic equivalence', 'NEAR_MATCHING', 'objdiff',
-  'gap-trace', 'qual-sweep', or 'rebrew match'. For first-pass test/verify/todo,
-  use rebrew-workflow instead.
+  'gap-trace', 'climb', 'qual-sweep', or 'rebrew match'. For first-pass
+  test/verify/todo, use rebrew-workflow instead.
 license: MIT
 ---
 
@@ -151,9 +151,20 @@ Use this to quickly rule out flag-based solutions before spending time on sweeps
 `flag_sensitive: false` means flag sweeping won't help — go straight to the GA or
 `rebrew prove`. A high `mnemonic_match_ratio` with low `structural_ratio` means the
 code is semantically close and C-level tweaks (or `rebrew near-diag`) may finish
-the job. When the kinds match but the registers don't (allocator wall, not
-order), run `rebrew qual-sweep` — the exhaustive per-declaration qualifier
-sweep, counterpart to `rebrew climb` for naming residue.
+the job.
+
+When kinds match but residue remains (statement order / qualifiers), prefer these
+over another GA pass:
+
+```bash
+rebrew climb src/bench/<file>.c --json                 # adjacent statement-order hill-climb
+rebrew climb src/bench/<file>.c --objective aligned --json
+rebrew qual-sweep src/bench/<file>.c --json            # declaration qualifier sweep
+rebrew qual-sweep src/bench/<file>.c --dry-run --json
+```
+
+`climb` = adjacent statement swaps; `qual-sweep` = exhaustive per-declaration
+qualifier variants. Batch flag/GA details: `references/flag-sweep.md`.
 
 ## 5. Blocker Tracking
 
@@ -207,5 +218,5 @@ rebrew round-trip --json --strict-catalog    # exit non-zero on unresolved catal
 
 Writes `<binary>.reasm` next to the target. Inspect `spliced`, `mismatches`
 (`compile_drift` / `catalog_resolution_drift`), `skipped_catalog`,
-`skipped_proven`. Full splice/fallback rules: `rebrew-workflow` →
-`references/round-trip.md`. Use in CI alongside `verify --compare`.
+`skipped_proven`. Full splice/fallback rules live in the rebrew-workflow
+skill (its round-trip reference). Use in CI alongside `verify --compare`.

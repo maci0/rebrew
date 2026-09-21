@@ -1,6 +1,13 @@
 ---
 name: rebrew-data-analysis
-description: Use when working with globals, '// DATA:'/'// GLOBAL:' annotations, BSS gaps, dispatch tables/vtables, ~~ relocation mismatches from missing externs, or cross-TU type conflicts. Triggers on 'global', 'data section', 'BSS', 'vtable', 'dispatch table', 'bss gap', 'extern', 'type conflict', 'rebrew data', or 'data-drift'. Not for function bodies (rebrew-workflow/matching) or Ghidra data pulls (rebrew-ghidra-sync --pull-data).
+description: >-
+  Use when working with globals, '// DATA:'/'// GLOBAL:' annotations, BSS gaps,
+  dispatch tables/vtables, ~~ relocation mismatches from missing externs, or
+  cross-TU type conflicts. Triggers on 'global', 'data section', 'BSS',
+  'vtable', 'dispatch table', 'bss gap', 'extern', 'type conflict',
+  'rebrew data', or 'data-drift'. Not for function bodies
+  (rebrew-workflow/matching) or Ghidra data pulls
+  (rebrew-ghidra-sync --pull-data).
 license: MIT
 ---
 

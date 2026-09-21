@@ -192,8 +192,9 @@ rebrew skeleton 0x<VA> --xrefs          # with caller context from Ghidra
 `--batch N` picks the N smallest eligible functions first. `--decomp` requires a reachable
 decompiler (`--decomp-backend`: `auto`, `r2ghidra`, `r2dec`, `ghidra`; default `auto`).
 
-For library functions identified by FLIRT, check if reference source is available
-(e.g. `toolchain/msvc/6.0-win32/source/VC98/CRT/SRC/` for MSVCRT, `references/zlib-1.1.3/` for zlib).
+For library functions identified by FLIRT, check if vendored reference source is
+available (e.g. MSVCRT under `toolchain/msvc/…/CRT/SRC/`, zlib under a project
+`zlib-1.1.3/` tree).
 
 ### 9. Sync to Ghidra (Optional)
 
