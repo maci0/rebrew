@@ -142,3 +142,13 @@ class TestExtractTypeDefinitions:
 
     def test_missing_file_yields_nothing(self, tmp_path: Path) -> None:
         assert list(extract_type_definitions(tmp_path / "missing.c")) == []
+
+    @_SKIP_NO_TS
+    def test_cp1252_undefined_byte_in_comment_does_not_crash(self, tmp_path: Path) -> None:
+        """0x81+space → cp1252 with an undefined hole; must not raise."""
+        f = tmp_path / "legacy.c"
+        f.write_bytes(b"typedef struct { int x; /* caf\x81 e */ } S;\n")
+        out = list(extract_structs_from_file(f))
+        assert len(out) == 1
+        assert "S" in out[0]
+        assert "\ufffd" in out[0]

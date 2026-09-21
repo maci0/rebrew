@@ -355,10 +355,14 @@ def scan_paths(paths: Sequence[Path]) -> list[dict[str, Any]]:
 
     An unreadable path is skipped; the remaining files still report.
     """
+    from rebrew.utils import read_source_text
+
     findings: list[dict[str, Any]] = []
     for path in paths:
         try:
-            text = path.read_text(encoding="utf-8", errors="replace")
+            # Detected encoding: a CP1252 callee name / comment must not be
+            # U+FFFD-replaced before the pattern match runs.
+            text, _ = read_source_text(path)
         except OSError:
             continue
         findings.extend(scan_source(text, file=str(path)))

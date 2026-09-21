@@ -140,3 +140,16 @@ class TestSignatureParserBranches:
         f.write_text("int decl_only(int x);\n", encoding="utf-8")
         # A bare declaration is not a function_definition → nothing extracted.
         assert list(extract_function_signatures(f)) == []
+
+    @_SKIP_NO_TS
+    def test_cp1252_undefined_byte_in_comment_does_not_crash(self, tmp_path: Path) -> None:
+        """0x81+space is not Shift-JIS; cp1252 leaves it undefined.
+
+        Strict ``.decode(encoding)`` raised UnicodeDecodeError and dropped
+        every signature in the file; ``errors=\"replace\"`` keeps ``foo``.
+        """
+        f = tmp_path / "legacy.c"
+        f.write_bytes(b"int /* caf\x81 e */ foo(void)\n{\n  return 0;\n}\n")
+        result = dict(extract_function_signatures(f))
+        assert "foo" in result
+        assert "\ufffd" in result["foo"]

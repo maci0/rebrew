@@ -277,6 +277,7 @@ def _scan_analysis_comments(
     """
     from rebrew.binsync.state import containing_va, parse_analysis_markers
     from rebrew.sources import iter_sources
+    from rebrew.utils import read_source_text
 
     ranges = [
         (int(getattr(e, "va", 0) or 0), int(getattr(e, "size", 0) or 0))
@@ -300,7 +301,9 @@ def _scan_analysis_comments(
     out: dict[int, tuple[int, str]] = {}
     for path in paths:
         try:
-            text = path.read_text(encoding="utf-8", errors="replace")
+            # Detected encoding (not UTF-8-replace): a CP1252/Shift-JIS
+            # ANALYSIS comment (e.g. "Café") must survive into the export.
+            text, _ = read_source_text(path)
         except OSError:
             continue
         for addr, comment in parse_analysis_markers(text).items():
@@ -1212,7 +1215,9 @@ def _write_manifest(
     existing: dict[str, Any] | None = None
     if manifest_path.exists():
         try:
-            parsed = tomlkit.parse(manifest_path.read_text(encoding="utf-8"))
+            # utf-8-sig: Windows editors may prefix EF BB BF; plain utf-8
+            # leaves U+FEFF and tomlkit rejects the file (EmptyKeyError).
+            parsed = tomlkit.parse(manifest_path.read_text(encoding="utf-8-sig"))
             if isinstance(parsed, dict):
                 existing = dict(parsed)
         except (OSError, TypeError, ValueError, tomlkit.exceptions.TOMLKitError):

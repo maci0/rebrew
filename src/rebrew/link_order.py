@@ -27,7 +27,7 @@ from rich.console import Console
 
 from rebrew.cli import EXIT_MISMATCH, TargetOption, error_exit, json_print, require_config
 from rebrew.sources import iter_sources, source_exts
-from rebrew.utils import atomic_write_text
+from rebrew.utils import atomic_write_text, read_source_text
 
 console = Console(stderr=True)
 
@@ -49,7 +49,10 @@ def file_va(path: Path) -> int | None:
     to the unknown-VA tail of the order.
     """
     try:
-        text = path.read_text(encoding="utf-8", errors="replace")
+        # Detected encoding (not UTF-8-replace): markers are ASCII, but a
+        # legacy-encoded source must still round-trip through the same
+        # reader used by annotation/edit so path identity stays consistent.
+        text, _ = read_source_text(path)
     except OSError:
         return None
     vas = [int(m.group(1), 16) for m in _FUNC_RE.finditer(text)]

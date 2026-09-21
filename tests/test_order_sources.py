@@ -25,6 +25,12 @@ class TestFileVa:
     def test_missing_file_returns_none(self, tmp_path: Path) -> None:
         assert file_va(tmp_path / "nope.c") is None
 
+    def test_cp1252_source_still_finds_ascii_marker(self, tmp_path: Path) -> None:
+        """Legacy-encoded sources go through read_source_text, not UTF-8-replace."""
+        f = tmp_path / "legacy.c"
+        f.write_bytes(b"// FUNCTION: T 0x10001000\n// Caf\xe9\nint a(void){return 0;}\n")
+        assert file_va(f) == 0x10001000
+
 
 class TestBaseKey:
     def test_posix_and_windows_separators(self) -> None:

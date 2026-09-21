@@ -42,7 +42,9 @@ def _iter_definitions(
         if node.type == "type_definition":
             text = code_bytes[node.start_byte : node.end_byte]
             if all_type_defs or (keyword in text and b"{" in text):
-                yield text.decode(encoding)
+                # Match read_source_text: undefined CP1252 bytes → U+FFFD,
+                # not UnicodeDecodeError that skips the rest of the file.
+                yield text.decode(encoding, errors="replace")
         elif node.type == specifier_type:
             if node.parent and node.parent.type != "type_definition":
                 text = code_bytes[node.start_byte : node.end_byte]
@@ -51,7 +53,7 @@ def _iter_definitions(
                     next_sibling = node.next_sibling
                     if next_sibling and next_sibling.type == ";":
                         end_byte = next_sibling.end_byte
-                    yield code_bytes[node.start_byte : end_byte].decode(encoding)
+                    yield code_bytes[node.start_byte : end_byte].decode(encoding, errors="replace")
         else:
             for child in node.children:
                 yield from walk(child)

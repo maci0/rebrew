@@ -791,6 +791,47 @@ class TestManifest:
         assert doc1["content_hash"] == doc2["content_hash"]
         assert first == second
 
+    def test_manifest_bom_prefixed_still_idempotent(self, tmp_path: Path) -> None:
+        """Notepad EF BB BF must not force a rewrite (content_hash still matches)."""
+        import os
+
+        from rebrew.binsync.export import _write_manifest
+
+        outdir = tmp_path / "state"
+        outdir.mkdir()
+        (outdir / "functions").mkdir()
+        # Seed a non-manifest toml so content_hash is non-empty and stable.
+        (outdir / "functions" / "1000.toml").write_text('name = "foo"\n', encoding="utf-8")
+        first_hash = _write_manifest(outdir, None, target="server")
+        manifest = outdir / "manifest.toml"
+        body = manifest.read_bytes()
+        os.chmod(manifest, 0o644)
+        manifest.write_bytes(b"\xef\xbb\xbf" + body)
+        second_hash = _write_manifest(outdir, None, target="server")
+        assert first_hash == second_hash
+        # Idempotent path left the on-disk bytes alone (still BOM-prefixed).
+        assert manifest.read_bytes().startswith(b"\xef\xbb\xbf")
+
+
+class TestScanAnalysisComments:
+    def test_cp1252_analysis_comment_preserves_non_ascii(self, tmp_path: Path) -> None:
+        """UTF-8-replace would turn Café into CafU+FFFD; detected CP1252 keeps é."""
+        from rebrew.binsync.export import _scan_analysis_comments
+
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "f.c").write_bytes(
+            b"// FUNCTION: SERVER 0x10001000\n"
+            b"// ANALYSIS @ 0x00001006: Caf\xe9 note\n"
+            b"int foo(void) { return 0; }\n"
+        )
+        cfg = SimpleNamespace(reversed_dir=src, shared_dir=None, source_ext=".c")
+        entries = [SimpleNamespace(va=0x10001000, size=0x20)]
+        out = _scan_analysis_comments(cast(Any, cfg), cast(list[object], entries))
+        assert 0x1006 in out
+        _owner, comment = out[0x1006]
+        assert comment == "Café note"
+
 
 class TestBinaryHashAndSharedTypes:
     _FOO = (

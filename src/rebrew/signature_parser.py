@@ -66,7 +66,9 @@ def extract_function_signatures(filepath: Path) -> Iterator[tuple[str, str]]:
         if node.type == "function_declarator":
             for child in node.children:
                 if child.type == "identifier":
-                    return code_bytes[child.start_byte : child.end_byte].decode(encoding)
+                    return code_bytes[child.start_byte : child.end_byte].decode(
+                        encoding, errors="replace"
+                    )
                 res = get_function_name(child)
                 if res:
                     return res
@@ -93,7 +95,9 @@ def extract_function_signatures(filepath: Path) -> Iterator[tuple[str, str]]:
 
             if compound_stmt:
                 sig_bytes = code_bytes[node.start_byte : compound_stmt.start_byte].strip()
-                sig_str = sig_bytes.decode(encoding)
+                # Match read_source_text: CP1252 holes (0x81/…) become U+FFFD
+                # instead of raising and dropping the whole file's signatures.
+                sig_str = sig_bytes.decode(encoding, errors="replace")
 
                 name = get_function_name(decl_node)
                 if name:
