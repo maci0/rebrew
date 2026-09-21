@@ -167,3 +167,12 @@ def iter_sources(directory: Path, cfg: ProjectConfig | None = None) -> list[Path
         shared_files = _files_with_ext(shared, wanted)
         return sorted(set(base) | set(shared_files))
     return base
+
+
+__all__ = [
+    "iter_library_headers",
+    "iter_sources",
+    "source_exts",
+    "source_glob",
+    "target_marker",
+]

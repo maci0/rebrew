@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -43,8 +44,39 @@ class TestRegistry:
         assert {"ido-5.3", "ido-7.1"} <= set(TOOLCHAINS)
 
     def test_get_unknown_raises(self) -> None:
-        with pytest.raises(ToolchainError, match="unknown toolchain"):
+        with pytest.raises(ToolchainError, match="unknown toolchain") as ei:
             get_toolchain("nope")
+        assert ei.value.kind == "unknown"
+        assert ei.value.name == "nope"
+        assert ei.value.retryable is False
+
+    def test_toolchain_public_all(self) -> None:
+        """Star-imports must not leak typing/stdlib names into consumer namespaces."""
+        import rebrew.toolchain as tc
+
+        assert tc.__all__ == [
+            "RunResult",
+            "TOOLCHAIN_OVERLAY_ENV",
+            "TOOLCHAINS",
+            "ToolchainError",
+            "ToolchainErrorKind",
+            "ToolchainSpec",
+            "cached_image_digest",
+            "docker_available",
+            "get_toolchain",
+            "invalidate_toolchain_digest",
+            "list_toolchains",
+            "pull_toolchain",
+            "require_toolchains_repo",
+            "run_toolchain",
+            "swap_toolchain_image",
+        ]
+        for name in tc.__all__:
+            assert getattr(tc, name, None) is not None, name
+        ns: dict[str, Any] = {}
+        exec("from rebrew.toolchain import *", ns)  # noqa: S102
+        exported = {k for k in ns if not k.startswith("_")}
+        assert exported == set(tc.__all__)
 
     def test_ido_specs(self) -> None:
         """IDO reimplementations: native-Linux docker images, POSIX flags,
@@ -387,15 +419,21 @@ class TestRunToolchain:
         spec = ToolchainSpec(name="t", image="rebrew/t:latest", binary="cl")
         monkeypatch.setattr("rebrew.toolchain.docker_available", lambda: True)
         monkeypatch.setattr("rebrew.toolchain.image_present", lambda tag: False)
-        with pytest.raises(ToolchainError, match="not built"):
+        with pytest.raises(ToolchainError, match="not built") as ei:
             run_toolchain(spec, ["/c", "t.c"], workdir=tmp_path)
+        assert ei.value.kind == "missing"
+        assert ei.value.name == "t"
+        assert ei.value.retryable is False
 
     def test_docker_unavailable_raises(self, tmp_path: Path, monkeypatch) -> None:
         """No docker daemon -> clear error before any invocation attempt."""
         spec = ToolchainSpec(name="t", image="rebrew/t:latest", binary="cl")
         monkeypatch.setattr("rebrew.toolchain.docker_available", lambda: False)
-        with pytest.raises(ToolchainError, match="docker is not available"):
+        with pytest.raises(ToolchainError, match="docker is not available") as ei:
             run_toolchain(spec, ["/c", "t.c"], workdir=tmp_path)
+        assert ei.value.kind == "docker"
+        assert ei.value.name == "t"
+        assert ei.value.retryable is True
 
 
 class TestCli:

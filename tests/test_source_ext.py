@@ -5,11 +5,32 @@ from __future__ import annotations
 import struct
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import patch
 
 from rebrew.binary_loader import detect_source_language
 from rebrew.config import ProjectConfig
 from rebrew.sources import source_glob
+
+
+def test_sources_public_all() -> None:
+    """Star-imports must not leak typing/stdlib names into consumer namespaces."""
+    import rebrew.sources as sources
+
+    assert sources.__all__ == [
+        "iter_library_headers",
+        "iter_sources",
+        "source_exts",
+        "source_glob",
+        "target_marker",
+    ]
+    for name in sources.__all__:
+        assert getattr(sources, name, None) is not None, name
+    ns: dict[str, Any] = {}
+    exec("from rebrew.sources import *", ns)  # noqa: S102
+    exported = {k for k in ns if not k.startswith("_")}
+    assert exported == set(sources.__all__)
+
 
 # ---------------------------------------------------------------------------
 # detect_source_language() tests

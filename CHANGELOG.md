@@ -1,20 +1,15 @@
 ## [Unreleased]
-### Changed
-- **Catalog scan/registry data lives in ``catalog.pipeline``** — ``build_db
-  --regen`` no longer imports ``catalog.cli``; ``build_catalog_data`` is the
-  shared domain entry.
-- **``load_verify_cache_raw`` moves to ``verify_cache``** — status/todo/
-  residue/build-db read the cache without going through ``cli``.
-- **Metadata overlay helpers are public** — ``apply_metadata_entry`` and
-  ``FIELD_TO_ATTR`` replace the private cross-module names.
-
-### Fixed
-- **``[cache].backend`` typos fail at config load** — an empty or unregistered
-  name raises ``ValueError`` instead of waiting for the first compile.
-- **``REBREW_LLM_MAX_REQUESTS`` rejects non-integers and negatives** instead of
-  silently restoring the default; documented in ``docs/CONFIG.md``.
-
 ### Added
+- **Structured ``ToolchainError``** — ``kind`` / ``name`` / ``retryable``
+  (same recovery shape as ``RecompileError`` / ``McpError``); public
+  ``__all__`` also exports ``require_toolchains_repo``,
+  ``TOOLCHAIN_OVERLAY_ENV``, and ``ToolchainErrorKind``.
+- **``rebrew.sources`` pins ``__all__``** for the discovery helpers
+  (``iter_sources``, ``iter_library_headers``, ``source_exts``,
+  ``source_glob``, ``target_marker``).
+- **``McpErrorKind`` re-exported from ``rebrew.ghidra``** alongside
+  ``McpError`` / ``McpApplyAborted``.
+- **README library quickstart** for the documented integrator imports.
 - **Ruff/mypy ratchets** — ``S602``, ``PLR0124``, ``PIE790``, ``ANN205``,
   ``ANN206`` join the select (zero findings on the current tree);
   mypy enables ``extra_checks`` plus ``ignore-without-code``,
@@ -57,6 +52,21 @@
   ``RecompileError``); remote compile optionally retries on retryable
   failures. Public modules pin ``__all__`` so star-imports match the
   documented integrator surface.
+
+### Changed
+- **Catalog scan/registry data lives in ``catalog.pipeline``** — ``build_db
+  --regen`` no longer imports ``catalog.cli``; ``build_catalog_data`` is the
+  shared domain entry.
+- **``load_verify_cache_raw`` moves to ``verify_cache``** — status/todo/
+  residue/build-db read the cache without going through ``cli``.
+- **Metadata overlay helpers are public** — ``apply_metadata_entry`` and
+  ``FIELD_TO_ATTR`` replace the private cross-module names.
+
+### Fixed
+- **``[cache].backend`` typos fail at config load** — an empty or unregistered
+  name raises ``ValueError`` instead of waiting for the first compile.
+- **``REBREW_LLM_MAX_REQUESTS`` rejects non-integers and negatives** instead of
+  silently restoring the default; documented in ``docs/CONFIG.md``.
 
 ### Changed
 - **Breaking:** **Dashboard ``/api/globals`` and ``/api/history`` rows are

@@ -135,6 +135,39 @@ rebrew test src/server/func_10003da0.c  # compile and compare
 `rebrew init` creates `rebrew-project.toml`, source/bin directories, and agent skills.
 All tools find the config by searching upward from the current directory (like `git` finds `.git/`).
 
+## Library usage
+
+Install as a dependency (`uv add git+https://github.com/maci0/rebrew.git` or
+`pip install` from the same URL). Import submodules directly — the top-level
+package only exports `__version__`:
+
+```python
+from rebrew.config import load_config
+from rebrew.sources import iter_sources
+from rebrew.toolchain import ToolchainError, get_toolchain
+
+cfg = load_config()  # walks up for rebrew-project.toml
+for path in iter_sources(cfg.reversed_dir, cfg):
+    print(path)
+
+try:
+    get_toolchain(cfg.compiler_profile)  # e.g. "msvc-6.0"
+except ToolchainError as exc:
+    # Branch on exc.kind / exc.name / exc.retryable — not message substrings.
+    raise
+
+# Byte-level matching uses the same entry as the CLI:
+#   from rebrew.compile import CompareResult, compile_and_compare
+#   result = compile_and_compare(cfg, source_path, symbol, target_bytes, cflags)
+#   result.matched / result.status / result.match_percent / result.message
+```
+
+Remote compile transport, registry plugins, workspace helpers, and the GA
+matcher follow the same pattern (`rebrew.recompile_client`, `rebrew.registry`,
+`rebrew.plugin`, `rebrew.workspace`, `rebrew.matcher`). Catch
+`RecompileError` / `McpError` / `ToolchainError` / `RegistryError` and branch
+on their structured fields.
+
 ## Usage & Workflow
 
 All CLI tools must be run **from within a project directory** that contains a `rebrew-project.toml` config file.

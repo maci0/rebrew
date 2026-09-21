@@ -42,8 +42,11 @@ def test_ghidra_package_exports_mcp_errors() -> None:
 
     assert "McpError" in ghidra.__all__
     assert "McpApplyAborted" in ghidra.__all__
+    assert "McpErrorKind" in ghidra.__all__
     assert ghidra.McpError is not None
     assert issubclass(ghidra.McpError, RuntimeError)
+    # Kind alias must be importable alongside the exception for typed branching.
+    assert ghidra.McpErrorKind == ghidra.client.McpErrorKind
 
 
 class TestParseSseResponse:

@@ -36,7 +36,7 @@ import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from rebrew.registry import RegistryError, merge_provider_dict
 from rebrew.toolchain_data import BUILTIN_TOOLCHAINS, IMAGE_ENTRYPOINTS
@@ -59,9 +59,40 @@ _DOCKER_MEMO_LOCK = threading.Lock()
 
 _docker_available_cache: bool | None = None
 
+#: How a :class:`ToolchainError` arose — callers branch on this instead of
+#: matching message substrings.
+ToolchainErrorKind = Literal[
+    "unknown",
+    "missing",
+    "docker",
+    "validation",
+    "invocation",
+]
+
 
 class ToolchainError(RuntimeError):
-    """The toolchain cannot be invoked (missing image/path/binary)."""
+    """The toolchain cannot be invoked (missing image/path/binary).
+
+    Structured fields let callers recover without string-matching ``str(exc)``:
+
+    - ``kind`` — ``"unknown"`` / ``"missing"`` / ``"docker"`` /
+      ``"validation"`` / ``"invocation"``
+    - ``name`` — toolchain profile id when known, else ``""``
+    - ``retryable`` — ``True`` for transient docker/daemon blips
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        kind: ToolchainErrorKind = "invocation",
+        name: str = "",
+        retryable: bool = False,
+    ) -> None:
+        super().__init__(message)
+        self.kind = kind
+        self.name = name
+        self.retryable = retryable
 
 
 @dataclass
@@ -89,7 +120,8 @@ def require_toolchains_repo() -> Path:
         raise ToolchainError(
             f"rebrew-toolchains checkout not found at {repo} — the docker "
             f"build source lives there now (clone {TOOLCHAINS_REPO_URL} "
-            "next to this repo, or set REBREW_TOOLCHAINS_DIR=<path>)"
+            "next to this repo, or set REBREW_TOOLCHAINS_DIR=<path>)",
+            kind="missing",
         )
     return repo
 
@@ -181,7 +213,10 @@ def _toolchain_overlay_dir() -> Path | None:
         return None
     path = Path(env)
     if not path.is_dir():
-        raise ToolchainError(f"{TOOLCHAIN_OVERLAY_ENV}={env} is not a directory")
+        raise ToolchainError(
+            f"{TOOLCHAIN_OVERLAY_ENV}={env} is not a directory",
+            kind="validation",
+        )
     return path
 
 
@@ -196,12 +231,21 @@ def _merge_toolchain_overlay(registry: dict[str, ToolchainSpec]) -> None:
         try:
             raw = tomllib.loads(path.read_text(encoding="utf-8-sig"))
         except (OSError, tomllib.TOMLDecodeError) as exc:
-            raise ToolchainError(f"bad toolchain overlay {path}: {exc}") from exc
+            raise ToolchainError(
+                f"bad toolchain overlay {path}: {exc}",
+                kind="validation",
+            ) from exc
         if not isinstance(raw, dict):
-            raise ToolchainError(f"bad toolchain overlay {path}: must be a TOML table")
+            raise ToolchainError(
+                f"bad toolchain overlay {path}: must be a TOML table",
+                kind="validation",
+            )
         for name, table in raw.items():
             if not isinstance(table, dict):
-                raise ToolchainError(f"bad toolchain overlay {path}: {name!r} must be a table")
+                raise ToolchainError(
+                    f"bad toolchain overlay {path}: {name!r} must be a table",
+                    kind="validation",
+                )
             spec = toolchain_from_toml(name, table, str(path))
             merge_into(registry, name, spec, f"data-file {path}", group="toolchains")
             TOOLCHAIN_ORIGINS[name] = f"data-file {path}"
@@ -284,7 +328,11 @@ def get_toolchain(name: str) -> ToolchainSpec:
     try:
         return TOOLCHAINS[name]
     except KeyError:
-        raise ToolchainError(f"unknown toolchain {name!r} (known: {sorted(TOOLCHAINS)})") from None
+        raise ToolchainError(
+            f"unknown toolchain {name!r} (known: {sorted(TOOLCHAINS)})",
+            kind="unknown",
+            name=name,
+        ) from None
 
 
 def profile_family(profile: str) -> str:
@@ -650,7 +698,9 @@ def _resolve_binary(spec: ToolchainSpec) -> str:
     raise ToolchainError(
         f"toolchain {spec.name!r}: no native binary ({spec.binary}) found — "
         "run `rebrew toolchain vendor <name>` into the rebrew-toolchains "
-        "checkout or install it on PATH"
+        "checkout or install it on PATH",
+        kind="missing",
+        name=spec.name,
     )
 
 
@@ -697,15 +747,26 @@ def run_toolchain(
     except OSError as exc:
         # An un-creatable workdir must surface as a ToolchainError (callers
         # catch that), not a raw OSError escaping into the GA/flag-sweep path.
-        raise ToolchainError(f"cannot create workdir {workdir}: {exc}") from exc
+        raise ToolchainError(
+            f"cannot create workdir {workdir}: {exc}",
+            kind="validation",
+            name=spec.name,
+        ) from exc
 
     if spec.image is not None:
         if not docker_available():
-            raise ToolchainError("docker is not available — cannot run toolchain images")
+            raise ToolchainError(
+                "docker is not available — cannot run toolchain images",
+                kind="docker",
+                name=spec.name,
+                retryable=True,
+            )
         if not image_present(spec.image):
             raise ToolchainError(
                 f"toolchain {spec.name!r}: docker image {spec.image} not built — "
-                f"run `rebrew toolchain build {spec.name}`"
+                f"run `rebrew toolchain build {spec.name}`",
+                kind="missing",
+                name=spec.name,
             )
         cmd = [
             container_runtime(),
@@ -742,9 +803,19 @@ def run_toolchain(
             )
         except subprocess.TimeoutExpired as exc:
             kill_container(str(cmd[cmd.index("--name") + 1]))
-            raise ToolchainError(f"docker invocation failed: {exc}") from exc
+            raise ToolchainError(
+                f"docker invocation failed: {exc}",
+                kind="invocation",
+                name=spec.name,
+                retryable=True,
+            ) from exc
         except OSError as exc:
-            raise ToolchainError(f"docker invocation failed: {exc}") from exc
+            raise ToolchainError(
+                f"docker invocation failed: {exc}",
+                kind="invocation",
+                name=spec.name,
+                retryable=True,
+            ) from exc
         return RunResult(r.returncode, r.stdout, r.stderr, backend="docker")
 
     if spec.runtime == "native":
@@ -764,13 +835,20 @@ def run_toolchain(
                 cwd=str(workdir),
             )
         except (OSError, subprocess.TimeoutExpired) as exc:
-            raise ToolchainError(f"toolchain invocation failed: {exc}") from exc
+            raise ToolchainError(
+                f"toolchain invocation failed: {exc}",
+                kind="invocation",
+                name=spec.name,
+                retryable=True,
+            ) from exc
         return RunResult(r.returncode, r.stdout, r.stderr, backend="native")
 
     raise ToolchainError(
         f"toolchain {spec.name!r} ({spec.runtime}) has no docker image — every "
         "Windows/DOS toolchain runs only through its docker image; "
-        f"run `rebrew toolchain build {spec.name}`"
+        f"run `rebrew toolchain build {spec.name}`",
+        kind="missing",
+        name=spec.name,
     )
 
 
@@ -807,10 +885,19 @@ def pull_toolchain(name: str, timeout: int = 1200) -> tuple[str, bool]:
     """
     spec = get_toolchain(name)
     if spec.image is None:
-        raise ToolchainError(f"toolchain {name!r} has no docker image (host-only)")
+        raise ToolchainError(
+            f"toolchain {name!r} has no docker image (host-only)",
+            kind="missing",
+            name=name,
+        )
     image = spec.image  # narrowed local — mypy does not narrow into the closure
     if not docker_available():
-        raise ToolchainError("docker is not available — cannot pull images")
+        raise ToolchainError(
+            "docker is not available — cannot pull images",
+            kind="docker",
+            name=name,
+            retryable=True,
+        )
     _drop_image_presence(image)
     if image_present(image):
         return image, True
@@ -828,7 +915,10 @@ def pull_toolchain(name: str, timeout: int = 1200) -> tuple[str, bool]:
             raise ToolchainError(
                 f"{container_runtime()} pull {spec.image} failed: {r.stderr[-400:]}.  "
                 f"rebrew images are BUILT from pinned sources, not pushed to a "
-                f"registry — run `rebrew toolchain build {name}` instead"
+                f"registry — run `rebrew toolchain build {name}` instead",
+                kind="invocation",
+                name=name,
+                retryable=True,
             )
 
     swap_toolchain_image(image, _pull)
@@ -837,15 +927,18 @@ def pull_toolchain(name: str, timeout: int = 1200) -> tuple[str, bool]:
 
 __all__ = [
     "RunResult",
-    "ToolchainError",
-    "ToolchainSpec",
+    "TOOLCHAIN_OVERLAY_ENV",
     "TOOLCHAINS",
+    "ToolchainError",
+    "ToolchainErrorKind",
+    "ToolchainSpec",
     "cached_image_digest",
     "docker_available",
     "get_toolchain",
     "invalidate_toolchain_digest",
     "list_toolchains",
     "pull_toolchain",
+    "require_toolchains_repo",
     "run_toolchain",
     "swap_toolchain_image",
 ]

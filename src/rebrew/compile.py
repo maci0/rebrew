@@ -2041,7 +2041,9 @@ def build_linked_link_cmd(
     if spec.image is None or spec.tool_root is None:
         raise ToolchainError(
             f"linked compare needs a docker image with LINK.EXE (toolchain "
-            f"{spec.name!r} has image={spec.image!r}, tool_root={spec.tool_root!r})"
+            f"{spec.name!r} has image={spec.image!r}, tool_root={spec.tool_root!r})",
+            kind="missing",
+            name=spec.name,
         )
     win_root = str(Path(spec.tool_root).parent).replace("/", "\\")
     # Every value travels as a docker `-e` variable, never spliced into the
