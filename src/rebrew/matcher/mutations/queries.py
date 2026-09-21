@@ -7,6 +7,7 @@ for the tree-sitter queries at import.
 
 from __future__ import annotations
 
+import threading
 from typing import Any
 
 import tree_sitter as ts
@@ -19,14 +20,20 @@ class _LazyQuery:
 
     This GA-only module defines ~98 queries; compiling them at import cost
     ~50ms of EVERY CLI invocation (status/todo/cfg/--help never use them).
+
+    Module-level instances are shared across ``match --all -j N`` stub
+    workers; first-use compilation is guarded so two threads cannot both
+    observe ``_query is None`` and race the assignment (tree-sitter's
+    ``Query`` constructor can release the GIL).
     """
 
-    __slots__ = ("_lang", "_source", "_query")
+    __slots__ = ("_lang", "_source", "_query", "_lock")
 
     def __init__(self, lang: ts.Language, source: str) -> None:
         self._lang = lang
         self._source = source
         self._query: ts.Query | None = None
+        self._lock = threading.Lock()
 
     def _get(self) -> Any:
         """Return the compiled query, compiling on first use.
@@ -35,9 +42,14 @@ class _LazyQuery:
         ``captures``/``matches`` on ``Query`` even though
         they exist at runtime.
         """
-        if self._query is None:
-            self._query = ts.Query(self._lang, self._source)
-        return self._query
+        # Fast path: already compiled (common after the first mutation).
+        cached = self._query
+        if cached is not None:
+            return cached
+        with self._lock:
+            if self._query is None:
+                self._query = ts.Query(self._lang, self._source)
+            return self._query
 
     def captures(self, *args: object, **kwargs: object) -> Any:
         return self._get().captures(*args, **kwargs)

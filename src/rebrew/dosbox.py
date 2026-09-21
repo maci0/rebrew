@@ -51,13 +51,13 @@ class DosboxError(RuntimeError):
 #: One atexit hook sweeps the list — registering ``rmtree`` per call would
 #: accumulate one callback (and leave every dir live) until process exit.
 _SANDBOXES: list[Path] = []
-#: Reuse one live sandbox per *prefix* so a long-lived process that compiles
-#: many 16-bit TUs (msvc16/tc16/delphi16 default workdirs) does not accumulate
-#: one dir + staged tree per call until atexit.  Callers that need an isolated
-#: tree pass their own *workdir* and own its lifetime.
-#: Guarded by :data:`_SANDBOX_LOCK`: verify -j N / parallel 16-bit compiles
-#: share the prefix map; an unlocked check-then-create orphaned dirs and
-#: raced list/dict mutations.
+#: Reuse one live sandbox per *(prefix, thread)* so a long-lived process that
+#: compiles many 16-bit TUs sequentially does not accumulate one dir + staged
+#: tree per call until atexit, while parallel workers (verify -j N / GA) each
+#: get an isolated tree — sharing one sandbox across threads raced on
+#: ``.OBJ``/``.EXE`` names and silently mixed compile outputs.
+#: Guarded by :data:`_SANDBOX_LOCK`: unlocked check-then-create orphaned dirs
+#: and raced list/dict mutations.
 _SANDBOX_BY_PREFIX: dict[str, Path] = {}
 _SANDBOX_ATEXIT_REGISTERED = False
 _SANDBOX_LOCK = threading.Lock()
@@ -71,18 +71,22 @@ def make_sandbox_dir(prefix: str) -> Path:
     /work, so the user cache dir is preferred when writable; read-only homes
     (sandboxed / CI) fall back to the workspace ``.cache`` and TMPDIR.
 
-    Repeated calls with the same *prefix* reuse the same directory (stale
-    ``.OBJ``/``.EXE`` cleanup in the 16-bit compilers already assumes reuse).
-    Distinct prefixes still get distinct dirs.  Every tracked sandbox is
-    removed at process exit; :func:`release_sandbox` reclaims one earlier.
-    Callers that must keep a sandbox for post-mortem inspection pass their
-    own *workdir* instead and own its lifetime.
+    Repeated calls with the same *prefix* on the **same thread** reuse the
+    same directory (stale ``.OBJ``/``.EXE`` cleanup in the 16-bit compilers
+    already assumes reuse).  Concurrent threads get distinct dirs so parallel
+    compiles cannot clobber each other's staged outputs.  Distinct prefixes
+    still get distinct dirs.  Every tracked sandbox is removed at process
+    exit; :func:`release_sandbox` reclaims one earlier.  Callers that must
+    keep a sandbox for post-mortem inspection pass their own *workdir*
+    instead and own its lifetime.
 
     Raises :class:`DosboxError` when no candidate is writable."""
     from rebrew.utils import writable_temp_dir
 
+    # Per-thread key: sequential reuse on one worker, isolation across -j N.
+    cache_key = f"{prefix}{threading.get_ident()}"
     with _SANDBOX_LOCK:
-        existing = _SANDBOX_BY_PREFIX.get(prefix)
+        existing = _SANDBOX_BY_PREFIX.get(cache_key)
         if existing is not None and existing.is_dir():
             return existing
 
@@ -91,13 +95,13 @@ def make_sandbox_dir(prefix: str) -> Path:
     except OSError as exc:
         raise DosboxError(str(exc)) from exc
     with _SANDBOX_LOCK:
-        # Re-check: another worker may have published the same prefix while
+        # Re-check: another worker may have published the same key while
         # we created a dir — keep theirs and drop the orphan.
-        existing = _SANDBOX_BY_PREFIX.get(prefix)
+        existing = _SANDBOX_BY_PREFIX.get(cache_key)
         if existing is not None and existing.is_dir():
             shutil.rmtree(sandbox, ignore_errors=True)
             return existing
-        _SANDBOX_BY_PREFIX[prefix] = sandbox
+        _SANDBOX_BY_PREFIX[cache_key] = sandbox
         _SANDBOXES.append(sandbox)
         global _SANDBOX_ATEXIT_REGISTERED
         if not _SANDBOX_ATEXIT_REGISTERED:

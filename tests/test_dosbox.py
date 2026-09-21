@@ -61,8 +61,13 @@ class TestSandboxLifecycle:
         assert dosbox._SANDBOXES == []
         assert dosbox._SANDBOX_BY_PREFIX == {}
 
-    def test_concurrent_same_prefix_reuses_one_sandbox(self, monkeypatch) -> None:
-        """Parallel 16-bit compiles must not race check-then-create on a prefix."""
+    def test_concurrent_same_prefix_isolates_per_thread(self, monkeypatch) -> None:
+        """Parallel 16-bit compiles must not share one staged tree.
+
+        Reusing a single sandbox across threads raced on ``.OBJ``/``.EXE``
+        names and mixed compile outputs.  Each worker gets its own dir;
+        same-thread sequential reuse is covered separately.
+        """
         import threading
 
         import rebrew.dosbox as dosbox
@@ -73,13 +78,17 @@ class TestSandboxLifecycle:
         results: list[Path] = []
         errors: list[BaseException] = []
         barrier = threading.Barrier(16)
+        lock = threading.Lock()
 
         def _worker() -> None:
             try:
                 barrier.wait(timeout=30)
-                results.append(make_sandbox_dir("rebrew-test-concurrent-"))
+                path = make_sandbox_dir("rebrew-test-concurrent-")
+                with lock:
+                    results.append(path)
             except BaseException as exc:
-                errors.append(exc)
+                with lock:
+                    errors.append(exc)
 
         threads = [threading.Thread(target=_worker) for _ in range(16)]
         for t in threads:
@@ -87,12 +96,13 @@ class TestSandboxLifecycle:
         for t in threads:
             t.join(timeout=60)
         assert errors == []
-        assert results
-        assert len(set(results)) == 1
-        assert [results[0]] == dosbox._SANDBOXES
+        assert len(results) == 16
+        assert len(set(results)) == 16
+        assert set(results) == set(dosbox._SANDBOXES)
         from rebrew.dosbox import release_sandbox
 
-        release_sandbox(results[0])
+        for path in results:
+            release_sandbox(path)
         assert dosbox._SANDBOXES == []
         assert dosbox._SANDBOX_BY_PREFIX == {}
 

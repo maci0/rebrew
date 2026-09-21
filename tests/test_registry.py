@@ -1395,7 +1395,7 @@ class TestRefreshAll:
         import threading
         import time
 
-        from rebrew.toolchain import TOOLCHAINS, refresh_toolchain_registry
+        from rebrew.toolchain import TOOLCHAIN_ORIGINS, TOOLCHAINS, refresh_toolchain_registry
 
         errors: list[BaseException] = []
         stop = threading.Event()
@@ -1405,6 +1405,10 @@ class TestRefreshAll:
                 while not stop.wait(0.001):
                     if not TOOLCHAINS or "msvc-6.0" not in TOOLCHAINS:
                         raise AssertionError("TOOLCHAINS empty or missing msvc-6.0 mid-refresh")
+                    # Origins publish under the same lock as TOOLCHAINS — a
+                    # mid-merge origins map must not drop packaged names.
+                    if "msvc-6.0" not in TOOLCHAIN_ORIGINS:
+                        raise AssertionError("TOOLCHAIN_ORIGINS missing msvc-6.0 mid-refresh")
             except BaseException as exc:
                 errors.append(exc)
                 stop.set()
@@ -1416,6 +1420,7 @@ class TestRefreshAll:
             for _ in range(3):
                 refresh_toolchain_registry()
                 assert "msvc-6.0" in TOOLCHAINS
+                assert "msvc-6.0" in TOOLCHAIN_ORIGINS
                 time.sleep(0.01)
         finally:
             stop.set()

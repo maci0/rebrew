@@ -195,7 +195,9 @@ def toolchain_from_toml(name: str, table: dict[str, Any], source: str) -> Toolch
     )
 
 
-def _merge_entry_point_toolchains(registry: dict[str, ToolchainSpec]) -> None:
+def _merge_entry_point_toolchains(
+    registry: dict[str, ToolchainSpec], origins: dict[str, str]
+) -> None:
     """Merge every ``rebrew.toolchains`` entry-point provider into *registry*."""
     from rebrew.registry import entry_point_registrations, import_registration
 
@@ -203,7 +205,7 @@ def _merge_entry_point_toolchains(registry: dict[str, ToolchainSpec]) -> None:
         before = set(registry)
         merge_provider_dict(registry, import_registration(reg), reg.origin, group=reg.group)
         for name in set(registry) - before:
-            TOOLCHAIN_ORIGINS[name] = f"entry-point:{reg.module}"
+            origins[name] = f"entry-point:{reg.module}"
 
 
 def _toolchain_overlay_dir() -> Path | None:
@@ -220,7 +222,7 @@ def _toolchain_overlay_dir() -> Path | None:
     return path
 
 
-def _merge_toolchain_overlay(registry: dict[str, ToolchainSpec]) -> None:
+def _merge_toolchain_overlay(registry: dict[str, ToolchainSpec], origins: dict[str, str]) -> None:
     """Merge project-level ``*.toml`` toolchain files into *registry*."""
     from rebrew.registry import merge_into
 
@@ -248,7 +250,7 @@ def _merge_toolchain_overlay(registry: dict[str, ToolchainSpec]) -> None:
                 )
             spec = toolchain_from_toml(name, table, str(path))
             merge_into(registry, name, spec, f"data-file {path}", group="toolchains")
-            TOOLCHAIN_ORIGINS[name] = f"data-file {path}"
+            origins[name] = f"data-file {path}"
 
 
 def _fill_image_entrypoints(registry: dict[str, ToolchainSpec]) -> None:
@@ -263,6 +265,47 @@ def _fill_image_entrypoints(registry: dict[str, ToolchainSpec]) -> None:
             registry[name] = replace(spec, image_entrypoint=IMAGE_ENTRYPOINTS.get(spec.image))
 
 
+#: Provenance of each registered toolchain name (built alongside
+#: :func:`build_toolchain_registry`): "packaged", "entry-point:<module>",
+#: or "data-file <path>".  A name not present is packaged (defensive default).
+TOOLCHAIN_ORIGINS: dict[str, str] = {}
+
+#: Serializes in-place refresh of :data:`TOOLCHAINS` / :data:`TOOLCHAIN_ORIGINS`.
+#: Readers (verify -j N / GA / cmake) do not take this lock — they must never
+#: observe an empty registry mid-refresh, so writers update-then-drop instead
+#: of clear-then-fill.  Origins are published under the same critical section
+#: so ``toolchain list`` never sees a half-merged provenance map.
+_TOOLCHAIN_REGISTRY_LOCK = threading.Lock()
+
+
+def _assemble_toolchain_registry() -> tuple[dict[str, ToolchainSpec], dict[str, str]]:
+    """Build registry + origins maps without mutating process globals.
+
+    Callers publish under :data:`_TOOLCHAIN_REGISTRY_LOCK` so concurrent
+    ``refresh_toolchain_registry`` / ``build_toolchain_registry`` cannot
+    leave :data:`TOOLCHAIN_ORIGINS` half-filled while workers read it.
+    """
+    registry = dict(BUILTIN_TOOLCHAINS)
+    origins: dict[str, str] = dict.fromkeys(registry, "packaged")
+    _merge_entry_point_toolchains(registry, origins)
+    _merge_toolchain_overlay(registry, origins)
+    _fill_image_entrypoints(registry)
+    return registry, origins
+
+
+def _publish_toolchain_origins(origins: dict[str, str]) -> None:
+    """Replace :data:`TOOLCHAIN_ORIGINS` without an empty mid-refresh window.
+
+    Same update-then-drop discipline as :data:`TOOLCHAINS`: unlocked readers
+    (``toolchain list`` / dashboard) must never observe a cleared map.
+    Caller must hold :data:`_TOOLCHAIN_REGISTRY_LOCK`.
+    """
+    obsolete = [name for name in TOOLCHAIN_ORIGINS if name not in origins]
+    TOOLCHAIN_ORIGINS.update(origins)
+    for name in obsolete:
+        del TOOLCHAIN_ORIGINS[name]
+
+
 def build_toolchain_registry() -> dict[str, ToolchainSpec]:
     """The full registry: packaged built-ins + entry points + TOML overlay.
 
@@ -274,19 +317,10 @@ def build_toolchain_registry() -> dict[str, ToolchainSpec]:
     Also repopulates :data:`TOOLCHAIN_ORIGINS` with each name's provenance
     (``"packaged"`` / ``"entry-point"`` / ``"data-file <path>"``), so
     ``rebrew toolchain list`` can show where a toolchain came from."""
-    global TOOLCHAIN_ORIGINS
-    registry = dict(BUILTIN_TOOLCHAINS)
-    TOOLCHAIN_ORIGINS = dict.fromkeys(registry, "packaged")
-    _merge_entry_point_toolchains(registry)
-    _merge_toolchain_overlay(registry)
-    _fill_image_entrypoints(registry)
+    registry, origins = _assemble_toolchain_registry()
+    with _TOOLCHAIN_REGISTRY_LOCK:
+        _publish_toolchain_origins(origins)
     return registry
-
-
-#: Provenance of each registered toolchain name (built alongside
-#: :func:`build_toolchain_registry`): "packaged", "entry-point:<module>",
-#: or "data-file <path>".  A name not present is packaged (defensive default).
-TOOLCHAIN_ORIGINS: dict[str, str] = {}
 
 
 #: The canonical toolchain registry.  Profiles in config.py map to these by
@@ -294,11 +328,6 @@ TOOLCHAIN_ORIGINS: dict[str, str] = {}
 #: :func:`build_toolchain_registry` so entry-point providers and the
 #: project-level TOML overlay extend it without touching host source.
 TOOLCHAINS: dict[str, ToolchainSpec] = build_toolchain_registry()
-
-#: Serializes in-place refresh of :data:`TOOLCHAINS`.  Readers (verify -j N /
-#: GA / cmake) do not take this lock — they must never observe an empty
-#: registry mid-refresh, so writers update-then-drop instead of clear-then-fill.
-_TOOLCHAIN_REGISTRY_LOCK = threading.Lock()
 
 
 def refresh_toolchain_registry() -> dict[str, ToolchainSpec]:
@@ -314,12 +343,13 @@ def refresh_toolchain_registry() -> dict[str, ToolchainSpec]:
     ``TOOLCHAINS`` unlocked, and an empty window makes every lookup fail as
     "unknown toolchain" for the duration of the rebuild.
     """
-    registry = build_toolchain_registry()
+    registry, origins = _assemble_toolchain_registry()
     with _TOOLCHAIN_REGISTRY_LOCK:
         obsolete = [name for name in TOOLCHAINS if name not in registry]
         TOOLCHAINS.update(registry)
         for name in obsolete:
             del TOOLCHAINS[name]
+        _publish_toolchain_origins(origins)
     return TOOLCHAINS
 
 

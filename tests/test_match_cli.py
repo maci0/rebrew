@@ -386,6 +386,44 @@ int other(void) { return 2; }
         finally:
             set_target_range(None, None)
 
+    def test_lazy_query_first_use_is_thread_safe(self) -> None:
+        """Parallel GA workers share module-level _LazyQuery singletons.
+
+        First-use compilation must not race: two threads observing
+        ``_query is None`` would both construct a Query (GIL may release
+        inside the constructor) and leave an inconsistent handle.
+        """
+        import threading
+
+        from rebrew.matcher import ast_engine
+        from rebrew.matcher.mutations.queries import _LazyQuery
+
+        q = _LazyQuery(ast_engine._C_LANGUAGE, "(identifier) @id")
+        results: list[object] = []
+        errors: list[BaseException] = []
+        barrier = threading.Barrier(16)
+        lock = threading.Lock()
+
+        def _worker() -> None:
+            try:
+                barrier.wait(timeout=30)
+                compiled = q._get()
+                with lock:
+                    results.append(compiled)
+            except BaseException as exc:
+                with lock:
+                    errors.append(exc)
+
+        threads = [threading.Thread(target=_worker) for _ in range(16)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=60)
+        assert errors == []
+        assert len(results) == 16
+        assert len({id(r) for r in results}) == 1
+        assert q._query is results[0]
+
 
 class TestMatchCliDryRun:
     """rebrew match --dry-run is batch-only; single-function must reject it."""
