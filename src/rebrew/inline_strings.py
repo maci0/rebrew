@@ -139,7 +139,10 @@ def _mask_keep_regions(text: str) -> bytearray:
             continue
         i += 1
     for ls in line_start:
-        line = text[ls : text.index("\n", ls) if "\n" in text[ls:] else n]
+        # ``find`` from *ls* is O(line); ``"\\n" in text[ls:]`` copied the
+        # suffix then rescanned it — quadratic on multi-thousand-line TUs.
+        nl = text.find("\n", ls)
+        line = text[ls:nl] if nl >= 0 else text[ls:n]
         if line.lstrip().startswith("extern"):
             mask[ls : ls + len(line)] = b"0" * len(line)
     return mask

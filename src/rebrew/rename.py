@@ -26,6 +26,9 @@ from rebrew.rename_ops import (
 )
 from rebrew.utils import rel_display_path
 
+# MSVC stdcall decoration (`foo@8`) — strip before matching C identifiers.
+_AT_DECORATION_RE = re.compile(r"@\d+$")
+
 # C89 keywords cannot be used as function names; `str.isidentifier()` alone
 # would let `if`, `int`, `struct`, ... through and generate uncompilable C.
 _C_KEYWORDS = frozenset(
@@ -175,7 +178,7 @@ def main(
     # genuinely named `_foo` carries `__foo`, and `lstrip("_")` searched for
     # `foo` — renaming an unrelated function instead of this one.
     actual_old_name = old_sym.removeprefix("_") if old_sym.startswith("_") else old_name
-    actual_old_name = re.sub(r"@\d+$", "", actual_old_name)
+    actual_old_name = _AT_DECORATION_RE.sub("", actual_old_name)
 
     target_func = new_name
     if not target_func.isidentifier() or target_func in _C_KEYWORDS:

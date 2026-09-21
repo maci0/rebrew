@@ -75,16 +75,20 @@ console = Console(stderr=True)
 # lint must not report E001/E002 on a file the parser reads fine.
 _HEADER_MARKER_RE = re.compile(r"(?://|/\*)\s*(\w+):\s*(\S+)\s+(0x[0-9a-fA-F]+)")
 _SIZE_ANNOTATION_RE = re.compile(r"//\s*SIZE\s+0x[0-9a-fA-F]+")
-# Patterns for default function names (to be used with --pedantic flag)
+# Patterns for default function names (to be used with --pedantic flag).
+# Pre-compiled: W023 runs ``fullmatch`` per function in the TU.
 _DEFAULT_FUNC_NAME_PATTERNS = [
-    r"\bfcn\b",
-    r"\bfn\b",
-    r"\bfun\b",
-    r"\bFUN_[0-9A-Fa-f]+\b",
-    r"\bsub_[0-9A-Fa-f]+\b",
-    r"\bfunc_[0-9A-Fa-f]+\b",
-    r"\bthunk_[0-9A-Fa-f]+\b",
+    re.compile(r"\bfcn\b"),
+    re.compile(r"\bfn\b"),
+    re.compile(r"\bfun\b"),
+    re.compile(r"\bFUN_[0-9A-Fa-f]+\b"),
+    re.compile(r"\bsub_[0-9A-Fa-f]+\b"),
+    re.compile(r"\bfunc_[0-9A-Fa-f]+\b"),
+    re.compile(r"\bthunk_[0-9A-Fa-f]+\b"),
 ]
+_FUNC_DEF_STYLE_RE = re.compile(
+    r"([a-zA-Z_][a-zA-Z0-9_]*)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\([^)]*\)\s*\{"
+)
 
 
 @dataclass
@@ -1095,20 +1099,19 @@ def _check_W023_default_func_names(result: LintResult, lines: list[str], pedanti
 
     # Look for function definitions with default names
     # Pattern: return_type function_name(...) {
-    func_def_pattern = r"([a-zA-Z_][a-zA-Z0-9_]*)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\([^)]*\)\s*\{"
 
     # Matches are monotonic, so count newlines incrementally — rescanning
     # the whole prefix per match is quadratic on merged multi-function files.
     last_pos = 0
     line_num = 1
-    for match in re.finditer(func_def_pattern, code):
+    for match in _FUNC_DEF_STYLE_RE.finditer(code):
         func_name = match.group(2)
         line_num += code.count("\n", last_pos, match.start())
         last_pos = match.start()
 
         # Check against default patterns
         for pattern in _DEFAULT_FUNC_NAME_PATTERNS:
-            if re.fullmatch(pattern, func_name):
+            if pattern.fullmatch(func_name):
                 result.warning(
                     line_num,
                     "W023",
@@ -1117,9 +1120,6 @@ def _check_W023_default_func_names(result: LintResult, lines: list[str], pedanti
                 break
 
 
-_FUNC_DEF_STYLE_RE = re.compile(
-    r"([a-zA-Z_][a-zA-Z0-9_]*)\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\([^)]*\)\s*\{"
-)
 _SNAKE_CASE_RE = re.compile(r"[a-z_][a-z0-9_]*")
 _CAMEL_CASE_RE = re.compile(r"[a-z][a-zA-Z0-9]*")
 

@@ -18,6 +18,9 @@ from rebrew.utils import atomic_write_text, read_source_text
 
 logger = logging.getLogger(__name__)
 
+# MSVC stdcall decoration (`foo@8`) — strip once per rename, not recompile.
+_AT_DECORATION_RE = re.compile(r"@\d+$")
+
 
 def substitute_name(pattern: re.Pattern[str], replacement: str, text: str) -> str:
     """Substitute *pattern* in *text*, leaving literals and macro names alone.
@@ -91,7 +94,7 @@ def rename_function_everywhere(
     actual_old_name = old_sym.removeprefix("_") if old_sym.startswith("_") else old_name
     # __stdcall symbols carry a decorated suffix (foo@8) that never appears
     # in the C source — strip it or nothing matches.
-    actual_old_name = re.sub(r"@\d+$", "", actual_old_name)
+    actual_old_name = _AT_DECORATION_RE.sub("", actual_old_name)
     if not actual_old_name:
         # An annotation-only stub with no meaningful name (sync --pull passes
         # name=""/symbol="" for these): re.sub with an empty pattern would
@@ -152,10 +155,13 @@ def rename_function_everywhere(
                     )
                 rename_target = target_file
 
+    # One compile for the whole tree walk — recompiling per file was O(files)
+    # of identical Pattern construction on a rename that only differs by content.
+    name_re = re.compile(r"\b" + re.escape(actual_old_name) + r"\b")
+
     if dry_run:
         # Preview mode: count files that would be modified without writing.
-        pattern = re.compile(r"\b" + re.escape(actual_old_name) + r"\b")
-        return len(collect_matching_files(cfg, filepath, pattern))
+        return len(collect_matching_files(cfg, filepath, name_re))
 
     updated_files = 0
 
@@ -168,9 +174,7 @@ def rename_function_everywhere(
         # Literals and macro names are left alone (see substitute_name), and
         # target_func is literal, never interpreted as re backreference syntax
         # (e.g. a name containing ``\1``) — the replacement is a plain string.
-        new_content = substitute_name(
-            re.compile(r"\b" + re.escape(actual_old_name) + r"\b"), target_func, content
-        )
+        new_content = substitute_name(name_re, target_func, content)
         if new_content != content:
             atomic_write_text(filepath, new_content, encoding=encoding)
             updated_files += 1
@@ -190,9 +194,7 @@ def rename_function_everywhere(
 
         try:
             content, encoding = read_source_text(src_file)
-            new_content = substitute_name(
-                re.compile(r"\b" + re.escape(actual_old_name) + r"\b"), target_func, content
-            )
+            new_content = substitute_name(name_re, target_func, content)
             if new_content != content:
                 atomic_write_text(src_file, new_content, encoding=encoding)
                 updated_files += 1

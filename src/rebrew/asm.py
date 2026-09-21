@@ -358,17 +358,14 @@ def detect_function_pattern(cfg: ProjectConfig, va: int) -> str | None:
         ):
             return "EH-ctor prolog (__eh_ctor) — not C-reproducible"
         # Switch dispatch anywhere in the window.
-        if any(
-            x.mnemonic == "jmp" and re.search(r"dword ptr \[[a-z0-9]+\s*\*\s*4", x.op_str)
-            for x in insns
-        ):
+        if any(x.mnemonic == "jmp" and _JMP_TABLE_RE.search(x.op_str) for x in insns):
             return "switch dispatch (jump table)"
         # IAT forwarder: stack-slot pushes + call [IAT] (+ ret after).  A
         # plain `push imm`/`push reg` argument call is not a forwarder and
-        # must not be labeled.
-        call = next((x for x in reversed(insns) if x.mnemonic == "call"), None)
-        if call and re.search(r"dword ptr \[0x[0-9a-fA-F]+\]", call.op_str):
-            ci = insns.index(call)
+        # must not be labeled.  Walk once from the end so the call index is
+        # free — ``list.index`` after ``next`` rescanned the same window.
+        ci = next((i for i in range(len(insns) - 1, -1, -1) if insns[i].mnemonic == "call"), None)
+        if ci is not None and _IAT_ABS_RE.search(insns[ci].op_str):
             run: list[tuple[str, str]] = []
             j = ci - 1
             while j >= 0 and j >= ci - 12 and insns[j].mnemonic in ("mov", "push"):
@@ -566,9 +563,12 @@ def calling_convention_at(cfg: ProjectConfig, va: int) -> str:
     return calling_convention(insns, next_va=_next_function_va(cfg, va))
 
 
+_HEX_OPERAND_RE = re.compile(r"0x([0-9a-fA-F]+)")
+
+
 def _extract_hex_operand(op_str: str) -> int | None:
     """Return the first ``0x...`` absolute operand, or None."""
-    m = re.search(r"0x([0-9a-fA-F]+)", op_str)
+    m = _HEX_OPERAND_RE.search(op_str)
     return int(m.group(1), 16) if m else None
 
 

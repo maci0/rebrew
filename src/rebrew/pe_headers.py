@@ -191,6 +191,8 @@ def read_pe_header_fields(data: bytes) -> dict[str, int] | None:
 def _pe_checksum(data: bytes) -> int:
     """Compute the PE checksum per the spec: sum of all 16-bit LE words with the
     checksum field itself treated as zero, plus the file length, folded."""
+    import numpy as np
+
     lfanew = pe_lfanew(data)
     cksum_off = (lfanew + 0x58) if lfanew is not None else -1
     tmp = bytearray(data)
@@ -202,18 +204,18 @@ def _pe_checksum(data: bytes) -> int:
     # Pad to even length for 16-bit words (spec).
     if len(tmp) & 1:
         tmp.append(0)
-    checksum = 0
-    for i in range(0, len(tmp), 2):
-        checksum += struct.unpack_from("<H", tmp, i)[0]
-        checksum = (checksum & 0xFFFF) + (checksum >> 16)
-    checksum = (checksum & 0xFFFF) + (checksum >> 16)
-    checksum = (checksum & 0xFFFF) + (checksum >> 16)
+    # Sum then fold is equivalent to fold-after-each for this reduction;
+    # a Python loop over every word dominated ``round-trip --fix-headers``
+    # on multi-megabyte PEs (numpy sum is one pass over the buffer).
+    total = int(np.frombuffer(tmp, dtype="<u2").sum(dtype=np.uint64))
+    while total >> 16:
+        total = (total & 0xFFFF) + (total >> 16)
     # The spec (and pefile's reference implementation) ends with the ORIGINAL
     # file length added to the folded 16-bit sum — the result may exceed 0xFFFF
     # and is stored as a u32.  Folding again here destroyed the length term
     # (e.g. 0x2A492 -> 0xA494), so every non-trivial PE got a checksum that
     # Windows/pefile reject.
-    return (checksum & 0xFFFF) + len(data)
+    return (total & 0xFFFF) + len(data)
 
 
 def patch_pe_headers(data: bytes, fields: dict[str, int]) -> bytes:

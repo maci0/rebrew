@@ -181,6 +181,7 @@ _FASTCALL_RE = re.compile(r"\b__fastcall\b")
 # Pre-compiled patterns for CFLAGS validation and template stripping.
 _CFLAGS_GLUED_RE = re.compile(r"^/\w+/\w+")
 _TEMPLATE_STRIP_RE = re.compile(r"<[^<>]*>")
+_DECLSPEC_STRIP_RE = re.compile(r"__declspec\s*\([^)]*\)")
 
 
 # Process-lifetime memo for metadata-free parses (see parse_c_file_multi).
@@ -726,7 +727,7 @@ def _calc_stdcall_param_size(proto: str) -> int | None:
     # ``find("(")`` grabs the declspec group and counts its content as a
     # parameter — a ``void __declspec(naked) __stdcall foo(void)`` would
     # decorate ``_foo@4`` instead of ``_foo@0``.  Strip declspec groups first.
-    cleaned = re.sub(r"__declspec\s*\([^)]*\)", "", proto)
+    cleaned = _DECLSPEC_STRIP_RE.sub("", proto)
     paren_start = cleaned.find("(")
     paren_end = cleaned.rfind(")")
     if paren_start < 0 or paren_end < 0 or paren_end <= paren_start:

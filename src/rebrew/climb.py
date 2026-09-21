@@ -121,7 +121,7 @@ def _function_span(lines: list[str], symbol: str) -> tuple[int, int]:
     name = symbol[1:] if symbol.startswith("_") else symbol
     # A __stdcall/__fastcall definition carries an "@<bytes>" decoration, which
     # the compiler adds and the source never writes: `_foo@8` defines `foo`.
-    name = re.sub(r"@\d+$", "", name)
+    name = _AT_DECORATION_RE.sub("", name)
     head = re.compile(rf"^[\w\s\*]+?\b{re.escape(name)}\s*\(")
     code = _code_lines(lines)
     # A file may declare the symbol before defining it; a definition is the
@@ -189,6 +189,9 @@ _ADDRESS_RE = re.compile(r"0x[0-9a-f]{6,}")
 #: A bracketed short addend, the form an object carries for a relocation
 #: against a global (the target side shows the resolved address).
 _SHORT_ADDEND_RE = re.compile(r"\[0x[0-9a-f]{1,5}\]")
+
+#: MSVC stdcall decoration (`foo@8`) — never appears in C source.
+_AT_DECORATION_RE = re.compile(r"@\d+$")
 
 
 def _score(
