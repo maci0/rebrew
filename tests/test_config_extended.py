@@ -33,6 +33,13 @@ class TestParseHelpers:
         with pytest.warns(UserWarning, match="Unexpected type"):
             assert _parse_int_list([1.5], "test") == []
 
+    def test_parse_int_list_integral_float_accepted(self) -> None:
+        assert _parse_int_list([2.0], "test") == [2]
+
+    def test_parse_int_list_bool_rejected(self) -> None:
+        with pytest.warns(UserWarning, match="Unexpected type"):
+            assert _parse_int_list([True], "test") == []
+
     def test_parse_source_ext_defaults(self) -> None:
         assert _parse_source_ext(None) == ".c"
         assert _parse_source_ext("") == ".c"

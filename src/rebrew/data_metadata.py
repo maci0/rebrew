@@ -55,6 +55,7 @@ from typing import TYPE_CHECKING, Any
 
 import tomlkit
 
+from rebrew.metadata import as_metadata_int
 from rebrew.utils import (
     atomic_write_locked,
     build_metadata_key_index,
@@ -390,7 +391,7 @@ def merge_into_data_annotation(ann: Annotation, directory: Path) -> Annotation:
 
     if "size" in entry:
         with contextlib.suppress(ValueError, TypeError):
-            ann.size = int(entry["size"])
+            ann.size = as_metadata_int(entry["size"])
 
     if "section" in entry:
         ann.section = str(entry["section"])

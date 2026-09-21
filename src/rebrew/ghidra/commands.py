@@ -410,7 +410,21 @@ def pull_data(
             )
 
             length_raw = data_info.get("length", 0)
-            length = int(length_raw) if isinstance(length_raw, int | float) else 0
+            # Ghidra/JSON sometimes emits whole lengths as floats (16.0).
+            # Reject non-integral / non-finite values: bare int() truncates
+            # 16.7 → 16 and would emit a wrong ``N bytes`` note + array size.
+            if isinstance(length_raw, bool):
+                length = 0
+            elif isinstance(length_raw, int):
+                length = length_raw
+            elif (
+                isinstance(length_raw, float) and length_raw.is_integer() and abs(length_raw) < 1e15
+            ):
+                length = int(length_raw)
+            else:
+                length = 0
+            if length < 0:
+                length = 0
             data_type = str(data_info.get("dataType") or "")
             decl, type_note = _build_extern_decl(data_type, symbol_name, length)
             section_name = _find_section(va, sections)

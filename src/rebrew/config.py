@@ -23,6 +23,7 @@ To load a specific target::
     cfg = load_config(target="client_exe")
 """
 
+import math
 import re
 import shlex
 import sys
@@ -404,8 +405,16 @@ def _parse_int_list(values: list[Any] | None, field_name: str) -> list[int]:
 
     parsed: list[int] = []
     for v in values:
-        if isinstance(v, int):
+        if isinstance(v, bool):
+            # bool is an int subclass; True must not become reloc offset 1.
+            _config_warn(f"Unexpected type {type(v).__name__} in {field_name}; ignoring")
+        elif isinstance(v, int):
             parsed.append(v)
+        elif isinstance(v, float):
+            if math.isfinite(v) and v.is_integer():
+                parsed.append(int(v))
+            else:
+                _config_warn(f"Unexpected type {type(v).__name__} in {field_name}; ignoring")
         elif isinstance(v, str):
             try:
                 parsed.append(parse_int_literal(v))
@@ -480,9 +489,21 @@ def _safe_int(value: Any, default: int, field_name: str = "integer") -> int:
 
     ``None`` (not set) returns *default* silently — matching ``_as_str`` —
     so absent optional keys never warn on an otherwise valid config.
+    Non-integral floats (``3.9``) are rejected rather than truncated: bare
+    ``int(3.9)`` would silently store ``3`` for timeouts/jobs/limits.
     """
     if value is None:
         return default
+    if isinstance(value, bool):
+        _config_warn(f"Expected integer for {field_name}, got {value!r}; using default {default}")
+        return default
+    if isinstance(value, float):
+        if not math.isfinite(value) or not value.is_integer():
+            _config_warn(
+                f"Expected integer for {field_name}, got {value!r}; using default {default}"
+            )
+            return default
+        return int(value)
     try:
         return int(value)
     except (ValueError, TypeError, OverflowError):

@@ -311,6 +311,33 @@ class TestCoercionRejectsWrongTypes:
         with pytest.raises(MetadataValidationError):
             _coerce("size", True)
 
+    def test_non_integral_float_is_rejected(self) -> None:
+        """``size = 12.9`` must not truncate to 12."""
+        import pytest
+
+        from rebrew.metadata_model import MetadataValidationError, _coerce
+
+        with pytest.raises(MetadataValidationError):
+            _coerce("size", 12.9)
+        with pytest.raises(MetadataValidationError):
+            _coerce("blocker_delta", -1.5)
+
+    def test_non_finite_float_is_rejected(self) -> None:
+        """``±inf`` used to raise OverflowError past load's catch."""
+        import pytest
+
+        from rebrew.metadata_model import MetadataValidationError, _coerce
+
+        with pytest.raises(MetadataValidationError):
+            _coerce("size", float("inf"))
+        with pytest.raises(MetadataValidationError):
+            _coerce("size", float("nan"))
+
+    def test_integral_float_still_coerces(self) -> None:
+        from rebrew.metadata_model import _coerce
+
+        assert _coerce("size", 32.0) == 32
+
     def test_hex_string_still_coerces(self) -> None:
         from rebrew.metadata_model import _coerce
 

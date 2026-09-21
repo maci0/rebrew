@@ -41,6 +41,7 @@ by address, then name).  Nothing here reads the clock or the environment.
 
 from __future__ import annotations
 
+import math
 import struct
 from collections.abc import Iterator
 from dataclasses import dataclass, field
@@ -777,9 +778,17 @@ def _as_list(obj: Any, attr: str) -> list[Any]:
 
 
 def _int_or_none(value: Any) -> int | None:
-    """*value* as an int, or ``None`` when it is not integer-like."""
+    """*value* as an int, or ``None`` when it is not integer-like.
+
+    Finite integral floats are accepted; non-integral floats and bools are
+    rejected so ``int(12.9)`` cannot invent a truncated RVA/size.
+    """
     if value is None or isinstance(value, bool):
         return None
+    if isinstance(value, float):
+        if not math.isfinite(value) or not value.is_integer():
+            return None
+        return int(value)
     try:
         return int(value)
     except (TypeError, ValueError):

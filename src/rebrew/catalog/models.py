@@ -5,14 +5,25 @@ r2, rizin, or function_structure.json) and :class:`GhidraDataLabel` for data
 labels exported from Ghidra.
 """
 
+import math
 from dataclasses import dataclass
 from typing import Any
 
 
 def _parse_int(value: Any) -> int:
-    """Parse an integer from various formats (int, hex string, decimal string)."""
+    """Parse an integer from various formats (int, hex string, decimal string).
+
+    Finite integral floats (``16.0`` from JSON) are accepted; non-integral
+    floats are rejected — ``int(12.9)`` would truncate and invent a size.
+    """
+    if isinstance(value, bool):
+        raise ValueError(f"Cannot parse integer from {value!r}")
     if isinstance(value, int):
         return value
+    if isinstance(value, float):
+        if not math.isfinite(value) or not value.is_integer():
+            raise ValueError(f"Cannot parse integer from {value!r}")
+        return int(value)
     s = str(value).strip()
     try:
         return int(s, 0)  # auto-detect base: 0x prefix → hex, plain digits → decimal

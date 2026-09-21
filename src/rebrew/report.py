@@ -31,6 +31,7 @@ import gzip
 import html
 import json
 import logging
+import math
 from pathlib import Path
 from typing import Any
 
@@ -894,9 +895,14 @@ def generate_decomp_dev_report(cfg: ProjectConfig, out_path: Path) -> dict[str, 
                     continue
                 try:
                     va_key = int(str(key), 0)
+                    pct = float(mp)
                 except (TypeError, ValueError):
                     continue
-                cached_pct[va_key] = float(mp)
+                # Corrupt cache entries once stored NaN; NaN * size poisons
+                # the unit/project fuzzy totals (and sorts break on NaN).
+                if not math.isfinite(pct):
+                    continue
+                cached_pct[va_key] = pct
     except (OSError, ValueError, TypeError) as exc:
         logging.getLogger(__name__).warning(
             "verify cache unavailable for fuzzy match percents: %s", exc

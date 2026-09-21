@@ -29,6 +29,7 @@ from typing import Any
 from rebrew.metadata import (
     KNOWN_STATUSES,
     METADATA_FIELDS,
+    as_metadata_int,
     canonical_status,
     get_entry,
     remove_field,
@@ -90,17 +91,14 @@ class MetadataValidationError(ValueError):
 def _coerce(key: str, value: Any) -> Any:
     """Coerce *value* to the canonical type for *key* (raises on failure)."""
     if key in _INT_FIELDS:
-        if isinstance(value, bool):
-            # bool is an int subclass: `int(True)` would become a plausible 1.
-            # metadata._validate_field rejects bools for the same reason.
-            raise MetadataValidationError(f"{key} must be an int, got {value!r}")
-        if not isinstance(value, int):
-            try:
-                # Accept "42" and "0x2A" (hex) string spellings.
-                return int(value, 0) if isinstance(value, str) else int(value)
-            except (TypeError, ValueError) as exc:
-                raise MetadataValidationError(f"{key} must be an int, got {value!r}") from exc
-        return value
+        try:
+            # Shared with coerce_metadata_value / apply_metadata_entry so a
+            # hand-edited ``size = 12.9`` cannot truncate to 12, and ``±inf``
+            # cannot raise OverflowError past load's MetadataValidationError
+            # catch (which used to crash the whole entry read).
+            return as_metadata_int(value)
+        except (TypeError, ValueError) as exc:
+            raise MetadataValidationError(f"{key} must be an int, got {value!r}") from exc
     if key in _JSON_FIELDS and not isinstance(value, dict):
         raise MetadataValidationError(f"{key} must be a table, got {value!r}")
     if key == "globals":

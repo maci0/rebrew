@@ -85,6 +85,7 @@ from __future__ import annotations
 import contextlib
 import copy
 import logging
+import math
 import threading
 import tomllib
 import typing
@@ -205,6 +206,7 @@ __all__ = [
     "canonical_status",
     "clear_library_override_cache",
     "clear_metadata_cache",
+    "as_metadata_int",
     "coerce_metadata_value",
     "delete_entries_batch",
     "delete_metadata_entry",
@@ -1029,7 +1031,7 @@ def apply_metadata_entry(ann: Annotation, entry: dict[str, Any]) -> None:
     """
     if "size" in entry:
         with contextlib.suppress(ValueError, TypeError):
-            ann.size = int(entry["size"])
+            ann.size = as_metadata_int(entry["size"])
 
     if "cflags" in entry:
         ann.cflags = str(entry["cflags"])
@@ -1046,7 +1048,7 @@ def apply_metadata_entry(ann: Annotation, entry: dict[str, Any]) -> None:
     if "blocker_delta" in entry:
         raw = entry["blocker_delta"]
         try:
-            ann.blocker_delta = int(raw)
+            ann.blocker_delta = as_metadata_int(raw)
         except (ValueError, TypeError):
             ann.blocker_delta = None
 
@@ -1114,6 +1116,28 @@ def apply_metadata_entry(ann: Annotation, entry: dict[str, Any]) -> None:
 GA_CEILING_PREFIX = "GA_CEILING:"
 
 
+def as_metadata_int(value: Any) -> int:
+    """Coerce *value* to int for ``size`` / ``blocker_delta``.
+
+    Accepts plain ``int`` (not ``bool``), decimal/hex strings, and finite
+    integral floats (``12.0``).  Non-integral floats (``12.9``) and
+    non-finite values are rejected: bare ``int()`` would truncate toward
+    zero or raise ``OverflowError`` on ``±inf``, inventing a wrong size
+    or crashing a merge that only catches ``ValueError``.
+    """
+    if isinstance(value, bool):
+        raise ValueError(f"expected int, got {value!r}")
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        if not math.isfinite(value) or not value.is_integer():
+            raise ValueError(f"expected int, got {value!r}")
+        return int(value)
+    if isinstance(value, str):
+        return int(value.strip(), 0)
+    raise ValueError(f"expected int, got {value!r}")
+
+
 def coerce_metadata_value(key: str, value: Any) -> Any:
     """Coerce *value* to the canonical type for metadata field *key* (lower-case TOML key).
 
@@ -1123,7 +1147,7 @@ def coerce_metadata_value(key: str, value: Any) -> Any:
     """
     if key in ("size", "blocker_delta") and not isinstance(value, int):
         with contextlib.suppress(ValueError, TypeError):
-            return int(value, 0) if isinstance(value, str) else int(value)
+            return as_metadata_int(value)
     return value
 
 

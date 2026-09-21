@@ -1365,6 +1365,23 @@ class TestSafeInt:
         with pytest.warns(UserWarning, match="Expected integer"):
             assert _safe_int("abc", 7, "x") == 7
 
+    def test_non_integral_float_uses_default(self) -> None:
+        from rebrew.config import _safe_int
+
+        with pytest.warns(UserWarning, match="Expected integer"):
+            assert _safe_int(3.9, 7, "x") == 7
+
+    def test_integral_float_accepted(self) -> None:
+        from rebrew.config import _safe_int
+
+        assert _safe_int(4.0, 0, "x") == 4
+
+    def test_bool_uses_default(self) -> None:
+        from rebrew.config import _safe_int
+
+        with pytest.warns(UserWarning, match="Expected integer"):
+            assert _safe_int(True, 7, "x") == 7
+
 
 class TestPositiveInt:
     def test_valid(self) -> None:

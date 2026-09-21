@@ -780,6 +780,28 @@ class TestMergeAnnotationEdges:
         merge_into_annotation(ann, tmp_path)
         assert ann.blocker_delta is None
 
+    def test_size_non_integral_float_left_unset(self, tmp_path: Path) -> None:
+        """Hand-edited ``size = 12.9`` must not truncate to 12 on merge."""
+        from rebrew.annotation import Annotation
+        from rebrew.metadata import METADATA_FILENAME, apply_metadata_entry
+
+        (tmp_path / METADATA_FILENAME).write_text(
+            '["SERVER.0x00001000"]\nsize = 12.9\n',
+            encoding="utf-8",
+        )
+        ann = Annotation(va=0x1000, module="SERVER", name="f", size=99)
+        apply_metadata_entry(ann, {"size": 12.9})
+        assert ann.size == 99
+
+    def test_size_inf_does_not_crash_merge(self, tmp_path: Path) -> None:
+        """``size = inf`` used to raise OverflowError out of apply_metadata_entry."""
+        from rebrew.annotation import Annotation
+        from rebrew.metadata import apply_metadata_entry
+
+        ann = Annotation(va=0x1000, module="SERVER", name="f", size=99)
+        apply_metadata_entry(ann, {"size": float("inf")})
+        assert ann.size == 99
+
     def test_analysis_fills_empty_note(self, tmp_path: Path) -> None:
         from rebrew.annotation import Annotation
         from rebrew.metadata import merge_into_annotation, update_field

@@ -313,11 +313,20 @@ def _scan_analysis_comments(
 
 
 def _as_int(value: object, default: int = 0) -> int:
-    """Best-effort int from a metadata value (accepts decimal/hex strings)."""
+    """Best-effort int from a metadata value (accepts decimal/hex strings).
+
+    Finite integral floats (``16.0``) are accepted; non-integral floats and
+    bools are rejected (``int(True)`` would invent size 1; ``int(12.9)``
+    would truncate).  Unparseable values fall back to *default*.
+    """
     if isinstance(value, bool):
-        return int(value)
+        return default
     if isinstance(value, int):
         return value
+    if isinstance(value, float):
+        if value.is_integer() and abs(value) < 1e15:
+            return int(value)
+        return default
     try:
         return int(str(value), 0)
     except (TypeError, ValueError):
