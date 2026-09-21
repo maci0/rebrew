@@ -59,6 +59,8 @@ copy.
 - `rebrew cfg add-target` creates the shared root when the project gains its
   2nd target (unless `shared_dir` is disabled) and prints the `--shared`
   pointer — directory only, never config.
+- `rebrew split --va` matches any stacked marker in a block, not just the
+  first (the stacked-last marker used to hide the others).
 
 ## Consequences
 

@@ -617,3 +617,40 @@ class TestPreambleStripping:
 
         preamble = "#include <stdio.h>\n#define MAGIC 7\n"
         assert strip_comment_blocks(preamble) == "#include <stdio.h>\n#define MAGIC 7"
+
+
+class TestSplitStackedMarkers:
+    """--va on a shared file matches any stacked marker, not just the first."""
+
+    def _stacked(self) -> str:
+        return (
+            "// FUNCTION: V2 0x501000\n"
+            "// SIZE: 11\n"
+            "// FUNCTION: V1 0x401000\n"
+            "// SIZE: 11\n"
+            "int common(void) { return 1; }\n"
+        )
+
+    def _invoke_marker(self, tmp_path: Path, monkeypatch: Any, marker: str, *args: str) -> Any:
+        src = _write(tmp_path / "common.c", self._stacked())
+        monkeypatch.setattr(
+            "rebrew.split.require_config",
+            lambda target=None, json_mode=False: _make_cfg(tmp_path, marker),
+        )
+        return runner.invoke(app, [*args, str(src)])
+
+    def test_va_matches_non_first_marker(self, tmp_path: Path, monkeypatch: Any) -> None:
+        result = self._invoke_marker(tmp_path, monkeypatch, "V1", "--va", "0x401000", "--force")
+        assert result.exit_code == 0, result.output
+        out = tmp_path / "common_c" / "common.c"
+        assert out.exists()
+        assert "// FUNCTION: V1 0x401000" in out.read_text(encoding="utf-8")
+
+    def test_va_matches_first_marker(self, tmp_path: Path, monkeypatch: Any) -> None:
+        result = self._invoke_marker(tmp_path, monkeypatch, "V2", "--va", "0x501000", "--force")
+        assert result.exit_code == 0, result.output
+
+    def test_va_wrong_target_still_misses(self, tmp_path: Path, monkeypatch: Any) -> None:
+        result = self._invoke_marker(tmp_path, monkeypatch, "V3", "--va", "0x401000", "--force")
+        assert result.exit_code != 0
+        assert "No function block found" in result.output

@@ -15,6 +15,9 @@
 - **`add-target` scaffolds `src/shared` for the 2nd target.**  Two targets
   mean one codebase in several binaries — the shared root is created (unless
   `shared_dir` is disabled) with a pointer to `cross-import --shared`.
+- **`split --va` matches any stacked marker.**  A shared block carries one
+  marker per target; the old first-marker-only match missed every other
+  target's VA.
 - **Lint accepts stacked shared-source markers.**  A `src/shared` file carrying
   one `// FUNCTION:` marker per target (ADR-010) no longer fires E012 on the
   other targets' blocks, and those blocks are exempt from this target's W018 —

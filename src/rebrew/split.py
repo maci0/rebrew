@@ -66,6 +66,21 @@ class _BlockMeta(TypedDict):
     symbol: str
 
 
+def _block_markers(block: str) -> list[tuple[str, int]]:
+    """Every ``// FUNCTION: <MODULE> 0x<VA>`` marker in one block, in order.
+
+    A shared source stacks one marker per target above a single body
+    (ADR-010/022) — matching only the first marker makes ``--va`` blind to
+    the others.
+    """
+    out: list[tuple[str, int]] = []
+    for line in block.splitlines():
+        m = NEW_FUNC_CAPTURE_RE.match(line.strip())
+        if m:
+            out.append((m.group("module"), int(m.group("va"), 16)))
+    return out
+
+
 def _block_metadata(block: str) -> _BlockMeta | None:
     """Extract marker metadata and first annotation key-values for one block.
 
@@ -188,13 +203,20 @@ def main(
             meta = _block_metadata(block)
             if meta is None:
                 continue
-            if cfg.marker and meta["module"].lower() != cfg.marker.lower():
+            # A stacked shared block carries one marker per target: match
+            # when ANY marker names this target at the requested VA (the
+            # first marker is whichever was stacked last, not this target).
+            markers = _block_markers(block) or [(meta["module"], meta["va"])]
+            hit = any(
+                (not cfg.marker or mod.lower() == cfg.marker.lower()) and va == target_va
+                for mod, va in markers
+            )
+            if not hit:
                 continue
-            if meta["va"] == target_va:
-                matched_block = block
-                matched_meta = meta
-                matched_idx = idx
-                break
+            matched_block = block
+            matched_meta = meta
+            matched_idx = idx
+            break
 
         if matched_block is None or matched_meta is None or matched_idx is None:
             error_exit(
