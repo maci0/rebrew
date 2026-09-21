@@ -1012,11 +1012,11 @@ def merge_into_annotation(ann: Annotation, directory: Path) -> Annotation:
     entry = get_entry(directory, ann.va, module=module)
     if not entry:
         return ann
-    _apply_metadata_entry(ann, entry)
+    apply_metadata_entry(ann, entry)
     return ann
 
 
-def _apply_metadata_entry(ann: Annotation, entry: dict[str, Any]) -> None:
+def apply_metadata_entry(ann: Annotation, entry: dict[str, Any]) -> None:
     """Overlay one ``{field: value}`` metadata *entry* onto *ann* in place.
 
     Shared by :func:`merge_into_annotation` (single function) and

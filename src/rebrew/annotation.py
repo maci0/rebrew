@@ -1202,7 +1202,7 @@ def _finalize_entries(
     """Copy *structural* entries and apply the per-call overlays.
 
     Copies are shallow: the metadata overlay assigns scalar fields only
-    (:func:`rebrew.metadata._apply_metadata_entry`), so shared nested
+    (:func:`rebrew.metadata.apply_metadata_entry`), so shared nested
     lists (callers, etc.) are never mutated through a copy.
     """
     if not structural:
@@ -1216,19 +1216,19 @@ def _finalize_entries(
     for entry in filtered_entries:
         entry.filepath = rel
     if metadata_dir is not None:
-        from rebrew.metadata import _apply_metadata_entry, load_metadata
+        from rebrew.metadata import apply_metadata_entry, load_metadata
 
         # Load the metadata ONCE per file and apply per annotation —
         # merge_into_annotation re-loaded it per function (the
         # whole-tree parse hot path: 1000 functions = 1000 TOML loads).
-        # deepcopy=False: _apply_metadata_entry only reads and copies
+        # deepcopy=False: apply_metadata_entry only reads and copies
         # mutable field values onto the Annotation; cloning the whole
         # table per source file dominated catalog/verify scans.
         entries_by_key = load_metadata(metadata_dir, deepcopy=False)
         for entry in filtered_entries:
             meta = entries_by_key.get((entry.module, entry.va))
             if meta:
-                _apply_metadata_entry(entry, meta)
+                apply_metadata_entry(entry, meta)
     return filtered_entries
 
 
@@ -1321,7 +1321,7 @@ def update_annotation_key(
 
     """
     from rebrew.metadata import is_metadata_key, update_source_status
-    from rebrew.metadata_model import _FIELD_TO_ATTR, MetadataEntry
+    from rebrew.metadata_model import FIELD_TO_ATTR, MetadataEntry
 
     if is_metadata_key(key):
         module = module_for_va(filepath, va)
@@ -1333,7 +1333,7 @@ def update_annotation_key(
             # normalized, size/blocker_delta are coerced to int, and unknown
             # /file-only keys raise instead of silently mis-routing.
             entry = MetadataEntry.load(_dir, va, module)
-            attr = _FIELD_TO_ATTR.get(key.lower())
+            attr = FIELD_TO_ATTR.get(key.lower())
             existing = getattr(entry, attr, None) if attr is not None else None
             # Idempotent: a write with the same value is a no-op (False).
             if existing is not None and str(existing) == str(new_value):

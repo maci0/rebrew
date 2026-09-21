@@ -1019,7 +1019,7 @@ def build_db(
         # (no intermediate files); otherwise they are read from disk.
         datasets: list[tuple[str, dict[str, Any]]] = []
         if regen:
-            from rebrew.catalog.cli import build_catalog_data
+            from rebrew.catalog.pipeline import build_catalog_data
 
             base_cfg = load_config(root_dir)
             regen_targets = [target] if target else (base_cfg.all_targets or [base_cfg.target_name])
@@ -1458,7 +1458,7 @@ def build_db(
             # staying empty.  The cache rows ARE the report rows (same shape),
             # and they carry identity guards the old db/verify_results.json
             # snapshot lacked.  Best-effort: a missing cache is fine.
-            from rebrew.cli import load_verify_cache_raw
+            from rebrew.verify_cache import load_verify_cache_raw
 
             vr_rows = []
             vr_time = now_iso

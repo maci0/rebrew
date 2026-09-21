@@ -38,6 +38,9 @@ from rebrew.catalog.models import (
 from rebrew.catalog.models import (
     GhidraDataLabel as GhidraDataLabel,
 )
+from rebrew.catalog.pipeline import (
+    build_catalog_data as build_catalog_data,
+)
 from rebrew.catalog.registry import (
     RegistryEntry as RegistryEntry,
 )
@@ -56,6 +59,7 @@ __all__ = [
     "GhidraDataLabel",
     "RegistryEntry",
     "app",
+    "build_catalog_data",
     "build_function_registry",
     "cached_function_list",
     "cached_function_vas",

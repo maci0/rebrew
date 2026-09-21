@@ -628,7 +628,7 @@ def _load_verify_entries(cfg: ProjectConfig) -> dict[str, "VerifyCacheEntry"]:
     entries must never drive todo's categories/deltas — a CLIENT run would
     otherwise surface SERVER's EXACTs as phantom fix-delta quick-wins.
     """
-    from rebrew.cli import load_verify_cache_raw
+    from rebrew.verify_cache import load_verify_cache_raw
 
     raw = load_verify_cache_raw(cfg)
     if raw is None:

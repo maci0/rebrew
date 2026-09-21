@@ -12,6 +12,7 @@ the same shape the report writes.
 from __future__ import annotations
 
 import contextlib
+import copy
 import hashlib
 import json
 import logging
@@ -38,6 +39,64 @@ if TYPE_CHECKING:
 
 #: Current cache schema version (flat rows).
 CACHE_VERSION = 2
+
+#: mtime-keyed memo of the raw verify-cache JSON: status and todo both decode
+#: ``.rebrew/verify_cache.json`` every run — sometimes twice per command —
+#: and the decode is linear in cache size.  At most one entry per path: a
+#: rewrite changes mtime/size, and keeping the old key would retain the
+#: previous full JSON payload for the process lifetime.  Cap distinct paths
+#: so a long-lived process that touches many project roots cannot retain
+#: every decoded payload.  Guarded: eviction is a multi-step mutation on a
+#: shared dict; concurrent status/todo/build-db callers must not race it.
+_VERIFY_CACHE_MEMO: dict[tuple[str, int, int], dict[str, Any] | None] = {}
+_VERIFY_CACHE_MEMO_MAX = 8
+_VERIFY_CACHE_MEMO_LOCK = threading.Lock()
+
+
+def load_verify_cache_raw(cfg: Any) -> dict[str, Any] | None:
+    """Load the shared ``.rebrew/verify_cache.json`` as a raw dict (memoized).
+
+    Returns ``None`` when the file is missing or corrupt.  Target/version
+    validation is the caller's responsibility — readers apply their own
+    guards (status vs todo differ slightly).  Memoized by (path, mtime,
+    size), so repeated loads within one command are free.
+    """
+    cache_path = Path(cfg.root) / ".rebrew" / "verify_cache.json"
+    try:
+        st = cache_path.stat()
+    except OSError:
+        return None
+    path_key = str(cache_path)
+    key = (path_key, st.st_mtime_ns, st.st_size)
+    with _VERIFY_CACHE_MEMO_LOCK:
+        if key in _VERIFY_CACHE_MEMO:
+            cached = _VERIFY_CACHE_MEMO[key]
+            return copy.deepcopy(cached) if cached is not None else None
+    try:
+        raw: dict[str, Any] | None = json.loads(cache_path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError, UnicodeDecodeError) as exc:
+        # UnicodeDecodeError is a ValueError, not an OSError: a cache holding
+        # non-UTF-8 bytes (truncated/tampered) used to escape this guard and
+        # crash `status`/`todo` instead of degrading to "no cache".
+        # Log so a corrupt cache is not mistaken for a cold start.
+        logging.getLogger(__name__).warning("Ignoring corrupt verify cache %s: %s", cache_path, exc)
+        raw = None
+    with _VERIFY_CACHE_MEMO_LOCK:
+        # Another thread may have filled the same key while we decoded.
+        if key in _VERIFY_CACHE_MEMO:
+            cached = _VERIFY_CACHE_MEMO[key]
+            return copy.deepcopy(cached) if cached is not None else None
+        # Drop prior fingerprints for this path before storing — otherwise each
+        # verify rewrite orphans a full decoded dict under the old mtime key.
+        stale = [k for k in _VERIFY_CACHE_MEMO if k[0] == path_key]
+        for old in stale:
+            del _VERIFY_CACHE_MEMO[old]
+        # Evict another path's entry when at capacity (FIFO on insertion order).
+        while len(_VERIFY_CACHE_MEMO) >= _VERIFY_CACHE_MEMO_MAX:
+            oldest = next(iter(_VERIFY_CACHE_MEMO))
+            del _VERIFY_CACHE_MEMO[oldest]
+        _VERIFY_CACHE_MEMO[key] = raw
+    return copy.deepcopy(raw) if raw is not None else None
 
 
 #: Verdict fields shared by the report row and the cache row — one shape,

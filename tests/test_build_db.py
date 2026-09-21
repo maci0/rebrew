@@ -215,7 +215,7 @@ binary = "test.exe"
             ),
         )
         monkeypatch.setattr(
-            "rebrew.catalog.cli.build_catalog_data",
+            "rebrew.catalog.pipeline.build_catalog_data",
             lambda cfg: {"data": deepcopy(SAMPLE_DATA)},
         )
 

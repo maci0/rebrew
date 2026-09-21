@@ -203,21 +203,23 @@ class TestIterAnnotations:
         src.write_text("x", encoding="utf-8")
         assert cli_mod.iter_annotations([src], target="SERVER") == []
 
+
+class TestLoadVerifyCacheRaw:
     def test_verify_cache_copy(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """load_verify_cache_raw returns a copy: mutating the result must not
         corrupt the memo for later readers in the same process."""
         from types import SimpleNamespace
 
-        import rebrew.cli as cli_mod
+        import rebrew.verify_cache as vc_mod
 
         cache_dir = tmp_path / ".rebrew"
         cache_dir.mkdir()
         (cache_dir / "verify_cache.json").write_text('{"version": 1}', encoding="utf-8")
         cfg = SimpleNamespace(root=tmp_path)
-        first = cli_mod.load_verify_cache_raw(cfg)
+        first = vc_mod.load_verify_cache_raw(cfg)
         assert first == {"version": 1}
         first["version"] = 999  # type: ignore[index]
-        second = cli_mod.load_verify_cache_raw(cfg)
+        second = vc_mod.load_verify_cache_raw(cfg)
         assert second == {"version": 1}
         assert first is not second
 
@@ -227,22 +229,22 @@ class TestIterAnnotations:
         """A rewrite must not leave the previous full JSON under an old mtime key."""
         from types import SimpleNamespace
 
-        import rebrew.cli as cli_mod
+        import rebrew.verify_cache as vc_mod
 
-        monkeypatch.setattr(cli_mod, "_VERIFY_CACHE_MEMO", {})
+        monkeypatch.setattr(vc_mod, "_VERIFY_CACHE_MEMO", {})
         cache_dir = tmp_path / ".rebrew"
         cache_dir.mkdir()
         path = cache_dir / "verify_cache.json"
         path.write_text('{"version": 1}', encoding="utf-8")
         cfg = SimpleNamespace(root=tmp_path)
-        assert cli_mod.load_verify_cache_raw(cfg) == {"version": 1}
-        assert len(cli_mod._VERIFY_CACHE_MEMO) == 1
+        assert vc_mod.load_verify_cache_raw(cfg) == {"version": 1}
+        assert len(vc_mod._VERIFY_CACHE_MEMO) == 1
         path.write_text('{"version": 2}', encoding="utf-8")
-        assert cli_mod.load_verify_cache_raw(cfg) == {"version": 2}
-        assert len(cli_mod._VERIFY_CACHE_MEMO) == 1
-        only_key = next(iter(cli_mod._VERIFY_CACHE_MEMO))
+        assert vc_mod.load_verify_cache_raw(cfg) == {"version": 2}
+        assert len(vc_mod._VERIFY_CACHE_MEMO) == 1
+        only_key = next(iter(vc_mod._VERIFY_CACHE_MEMO))
         assert only_key[0] == str(path)
-        assert cli_mod._VERIFY_CACHE_MEMO[only_key] == {"version": 2}
+        assert vc_mod._VERIFY_CACHE_MEMO[only_key] == {"version": 2}
 
 
 # ---------------------------------------------------------------------------

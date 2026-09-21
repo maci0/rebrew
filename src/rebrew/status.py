@@ -232,7 +232,7 @@ class StatusReport:
 
 def _load_verify_info(cfg: ProjectConfig) -> VerifyInfo | None:
     """Load last verify summary from the verify cache file."""
-    from rebrew.cli import load_verify_cache_raw
+    from rebrew.verify_cache import load_verify_cache_raw
 
     cache_path = cfg.root / ".rebrew" / "verify_cache.json"
     raw = load_verify_cache_raw(cfg)
@@ -316,7 +316,7 @@ def load_verify_details(cfg: ProjectConfig) -> dict[int, tuple[str, bool]]:
     allocation (reccmp's 100% effective-match case) — candidates worth
     proving even though bytes differ.
     """
-    from rebrew.cli import load_verify_cache_raw
+    from rebrew.verify_cache import load_verify_cache_raw
 
     raw = load_verify_cache_raw(cfg)
     if raw is None:

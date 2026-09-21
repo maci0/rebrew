@@ -1,4 +1,13 @@
 ## [Unreleased]
+### Changed
+- **Catalog scan/registry data lives in ``catalog.pipeline``** — ``build_db
+  --regen`` no longer imports ``catalog.cli``; ``build_catalog_data`` is the
+  shared domain entry.
+- **``load_verify_cache_raw`` moves to ``verify_cache``** — status/todo/
+  residue/build-db read the cache without going through ``cli``.
+- **Metadata overlay helpers are public** — ``apply_metadata_entry`` and
+  ``FIELD_TO_ATTR`` replace the private cross-module names.
+
 ### Fixed
 - **``[cache].backend`` typos fail at config load** — an empty or unregistered
   name raises ``ValueError`` instead of waiting for the first compile.

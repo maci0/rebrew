@@ -11,7 +11,8 @@ Merges function sources (discovery inventory, Ghidra JSON, binary exports) into 
 | `registry.py` | `build_function_registry` + canonical size resolution |
 | `grid.py` | `generate_data_json` (coverage grid) |
 | `export.py` | `generate_reccmp_csv` |
-| `cli.py` | `run_catalog` / `build_catalog_data` + Typer entry |
+| `pipeline.py` | `build_catalog_data` (scan/registry/grid dict; no disk writes) |
+| `cli.py` | `run_catalog` + Typer entry |
 
 PE section helpers live in `rebrew.sections` (outside this package). Externals: `binary_loader`, `config`, `sources`, `annotation`.
 

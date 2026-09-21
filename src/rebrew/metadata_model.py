@@ -47,8 +47,8 @@ _STR_FIELDS = frozenset(
     {"cflags", "toolchain", "status", "blocker", "note", "ghidra", "analysis", "source"}
 )
 
-# Field → typed dataclass attribute.
-_FIELD_TO_ATTR: dict[str, str] = {
+# Field → typed dataclass attribute (public: annotation overlays use the same map).
+FIELD_TO_ATTR: dict[str, str] = {
     "size": "size",
     "cflags": "cflags",
     "toolchain": "toolchain",
@@ -135,7 +135,7 @@ class MetadataEntry:
         extra: dict[str, Any] = {}
         load_problems: list[str] = []
         for key, value in raw.items():
-            attr = _FIELD_TO_ATTR.get(key)
+            attr = FIELD_TO_ATTR.get(key)
             if attr is None:
                 extra[key] = value
             else:

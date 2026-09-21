@@ -122,7 +122,7 @@ def residue_report(
 
 def _nonmatching_from_cache(cfg: Any, image_base: int, text_rva: int) -> list[tuple[int, int, str]]:
     """(text-relative offset, size, name) for every non-byte-matched function."""
-    from rebrew.cli import load_verify_cache_raw
+    from rebrew.verify_cache import load_verify_cache_raw
 
     raw = load_verify_cache_raw(cfg) or {}
     out = []
