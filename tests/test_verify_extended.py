@@ -1179,7 +1179,7 @@ class TestPrintResults:
         assert "1 improvements" in out
         assert "1 new" in out
         assert "1 removed" in out
-        assert "Warning: no prev" in out
+        assert "warning: no prev" in out
 
     def test_summary_table(self, monkeypatch: pytest.MonkeyPatch) -> None:
         results = [

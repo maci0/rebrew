@@ -69,6 +69,12 @@
   ``FIELD_TO_ATTR`` replace the private cross-module names.
 
 ### Fixed
+- **``rebrew dashboard --json`` exits after printing the bind URL and db
+  path** instead of hanging in ``serve_forever`` (scripts piping ``--json``
+  no longer block).  Warning prefixes in ``verify`` / ``flirt`` / plugin
+  stubs use the shared ``warning:`` / ``error:`` form; ``catalog --summary``
+  docs name stderr (matching ``--help``); umbrella uncaught-exception JSON
+  uses the same indented envelope as ``error_exit``.
 - **``build-db`` no longer aborts on duplicate cell starts** after start
   clamping (hand-edited JSON / negative ``start`` colliding with ``0``);
   last row wins and a warning is logged.  ``section_cells_json`` now has the

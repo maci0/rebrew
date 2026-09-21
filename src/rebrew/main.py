@@ -215,7 +215,7 @@ def main() -> None:
         if _json_requested():
             import json
 
-            print(json.dumps({"error": str(e), "code": EXIT_ERROR}))
+            print(json.dumps({"error": str(e), "code": EXIT_ERROR}, indent=2))
         else:
             Console(stderr=True).print(f"[red]error:[/red] {e}")
         raise SystemExit(EXIT_ERROR) from None

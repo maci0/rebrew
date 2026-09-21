@@ -1902,6 +1902,7 @@ app = typer.Typer(
         "  rebrew build-db · · · · · · · · Build db/coverage.db first\n\n"
         "  rebrew dashboard · · · · · · · Serve on http://127.0.0.1:8000\n\n"
         "  rebrew dashboard --port 9000 · Custom port\n\n"
+        "  rebrew dashboard --json · · · · Print bind URL + db path, then exit\n\n"
         "[bold]Endpoints:[/bold]\n\n"
         "  / · · · · · · · · · · · · HTML shell (targets, summary, function search)\n\n"
         "  /app.js · · · · · · · · · Deferred dashboard client\n\n"
@@ -1943,7 +1944,11 @@ def main(
         error_exit(f"Cannot open database {db_path}: {exc}", json_mode=json_output)
 
     if json_output:
+        # Machine-readable probe: emit bind URL + db path and exit.  Starting
+        # the server here would hang every ``rebrew dashboard --json | jq``
+        # consumer (and mix the later "serving…" line onto stderr).
         json_print({"url": f"http://{host}:{port}", "db": str(db_path)})
+        return
 
     # Non-loopback binds expose the read-only coverage API with no auth
     # (SECURITY.md).  Warn once at startup so ``--host 0.0.0.0`` is never silent.

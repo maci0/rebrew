@@ -943,7 +943,7 @@ missing_typing, for_loops, while_loops, suggestions}]}`.
 |------|-----------|
 | `--data-json` | Write `db/data_<target>.json` (input for `build-db`) |
 | `--json` | Print catalog summary as JSON to stdout |
-| `--summary` | Print summary to stdout |
+| `--summary` | Print summary table to stderr |
 | `--csv` | Generate reccmp-compatible CSV (written to `db/<target>_functions.csv`) |
 | `--export-ghidra` | Cache Ghidra function list |
 | `--export-ghidra-labels` | Generate `ghidra_data_labels.json` from detected tables |
@@ -2330,6 +2330,8 @@ address (calls, jmps, data references).
 
 Read-only stdlib `ThreadingHTTPServer` dashboard over `db/coverage.db` for
 triaging large binaries. GET/HEAD only; bind defaults to `127.0.0.1`.
+`--json` prints `{"url", "db"}` and exits without serving (script-friendly
+bind probe).
 
 Endpoints: `/`, `/app.js`, `/api/bootstrap`, `/api/targets`,
 `/api/summary?target=`, `/api/functions?target=` (status/module/q/limit/offset;

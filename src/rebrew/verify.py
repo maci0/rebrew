@@ -2492,7 +2492,7 @@ def _print_results(
 
         if diff_warning:
             console.print()
-            console.print(f"Warning: {diff_warning}")
+            console.print(f"[yellow]warning:[/yellow] {diff_warning}")
 
         if regressions:
             console.print()

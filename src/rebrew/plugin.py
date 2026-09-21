@@ -445,7 +445,7 @@ def make_stub_command(module: str, error: Exception, console: Console) -> Callab
     """A command callable that reports why its module could not be loaded."""
 
     def _stub() -> None:
-        console.print(f"[red]Error:[/red] could not load '{escape(module)}': {escape(str(error))}")
+        console.print(f"[red]error:[/red] could not load '{escape(module)}': {escape(str(error))}")
         raise typer.Exit(code=EXIT_ERROR)
 
     return _stub

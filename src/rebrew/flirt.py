@@ -593,7 +593,10 @@ def main(
     # Note: this is a warning only — the shared JSON block below still emits
     # the full schema (and the --va single-function check still runs).
     if total_code < _MIN_MATCH_WINDOW:
-        console.print(f"Warning: code sections too small ({total_code} bytes) for FLIRT matching")
+        console.print(
+            f"[yellow]warning:[/yellow] code sections too small ({total_code} bytes) "
+            "for FLIRT matching"
+        )
 
     def _check_offset(base_va: int, code_data: bytes, offset: int, *, force: bool = False) -> None:
         """Match one code-section offset against the signature index.

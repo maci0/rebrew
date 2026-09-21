@@ -758,6 +758,35 @@ class TestCli:
         assert result.exit_code == 0
         assert "--target" not in result.output
 
+    def test_json_exits_without_serving(self, tmp_path: Path) -> None:
+        """``--json`` is a bind-probe for scripts: print URL + db path and exit
+        (never ``serve_forever``)."""
+        import json
+        import sqlite3
+
+        from rebrew.dashboard import app
+
+        db_dir = tmp_path / "db"
+        db_dir.mkdir()
+        db_path = db_dir / "coverage.db"
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                "CREATE TABLE functions (target TEXT, va INT, name TEXT, symbol TEXT, "
+                "size INT, status TEXT, module TEXT, files TEXT, markerType TEXT)"
+            )
+            conn.execute("CREATE TABLE metadata (target TEXT, key TEXT, value TEXT)")
+            conn.execute("INSERT INTO metadata VALUES ('t', 'function_stats', '{}')")
+
+        result = CliRunner().invoke(app, ["--root", str(tmp_path), "--json", "--port", "9123"])
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.stdout)
+        assert payload == {
+            "url": "http://127.0.0.1:9123",
+            "db": str(db_path.resolve()),
+        }
+        assert "serving" not in result.output.lower()
+        assert "Rebrew dashboard" not in result.output
+
 
 class TestIntParam:
     """limit query parsing: non-positive / invalid → default, else clamp."""
