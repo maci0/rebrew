@@ -314,6 +314,26 @@ class TestStockLib:
         argv = seen[0]
         assert "rebrew/msvc:6.0-sp6-win32" in argv
         assert "/opt/msvc6.0-sp6/VC98/Lib/LIBCMT.LIB" in argv
+        assert "--network=none" in argv
+
+    def test_assert_library_is_stock_runs_offline_read_only(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import rebrew.lib_match as lm
+
+        self._runtime(monkeypatch)
+        path = tmp_path / "libcmt_stock.LIB"
+        path.write_bytes(b"STOCK")
+        seen: list[list[str]] = []
+
+        def fake_run(argv: list[str], **kwargs: object) -> SimpleNamespace:
+            seen.append(list(argv))
+            return SimpleNamespace(returncode=0, stdout="aaaa  stock\naaaa  /out/x\n", stderr="")
+
+        monkeypatch.setattr(lm.subprocess, "run", fake_run)
+        lm.assert_library_is_stock(path, profile="msvc-6.0-sp6", name="LIBCMT.LIB")
+        assert "--network=none" in seen[0]
+        assert f"{tmp_path}:/out:ro" in seen[0]
 
     def test_assert_library_is_stock_rejects_divergent_copy(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

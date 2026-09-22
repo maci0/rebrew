@@ -302,6 +302,7 @@ def ensure_stock_lib(dest: Path, *, profile: str, name: str) -> bool:
                 runtime,
                 "run",
                 "--rm",
+                "--network=none",  # local file copy - no egress needed
                 "--name",
                 container,
                 "--entrypoint",
@@ -356,12 +357,13 @@ def assert_library_is_stock(
                 runtime,
                 "run",
                 "--rm",
+                "--network=none",  # local hash - no egress needed
                 "--name",
                 container,
                 "--entrypoint",
                 "sh",
                 "-v",
-                f"{path.parent}:/out",
+                f"{path.parent}:/out:ro",
                 image,
                 "-c",
                 'md5sum "$1" "/out/$2"',
