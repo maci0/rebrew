@@ -288,6 +288,46 @@ class TestCollectStatus:
         assert report.status_counts.get("EXACT") == 1
         assert report.covered_functions == 1
 
+    def test_library_rows_excluded_from_progress(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """LIBRARY attributions count separately, not as reversing progress."""
+        import rebrew.naming
+
+        cfg = _make_cfg(tmp_path)
+        existing = {
+            0x1000: {
+                "filename": "a.c",
+                "size": "100",
+                "status": "EXACT",
+                "module": "TEST",
+                "marker_type": "FUNCTION",
+            },
+            0x2000: {
+                "filename": "library_x.h",
+                "size": "50",
+                "status": "EXACT",
+                "module": "TEST",
+                "marker_type": "LIBRARY",
+            },
+            0x3000: {
+                "filename": "other.h",
+                "size": "50",
+                "status": "EXACT",
+                "module": "OTHER",
+                "marker_type": "LIBRARY",
+            },
+        }
+        monkeypatch.setattr(
+            rebrew.naming,
+            "load_data",
+            lambda cfg: ([], existing, {0x1000: "a.c", 0x2000: "library_x.h"}),
+        )
+        report = collect_status(cfg)  # type: ignore[arg-type]
+        assert report.status_counts.get("EXACT") == 1
+        assert report.library_identified == 1
+        assert report.covered_functions == 1
+
     def test_empty_blocker_not_counted(self, tmp_path: Path) -> None:
         """An empty BLOCKER metadata entry is not an unresolved blocker."""
         cfg = _make_cfg(tmp_path)

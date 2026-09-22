@@ -59,6 +59,10 @@ same tiers and the data/globals/layout pipeline.
    target (plus module-less legacy rows); library headers land in every
    target's scan but count for none.  Same-VA cross-target entries coexist
    as separate rows and never collide.
+6. **Library attributions are not progress**: `LIBRARY`-marker rows
+   (lib-match identifications) tally into `library_identified`, outside
+   the EXACT/RELOC progress table and its denominators — the table
+   answers "how much of this binary's code is reversed".
 
 ## Sync stores (external)
 

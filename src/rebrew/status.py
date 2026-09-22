@@ -103,6 +103,10 @@ class StatusReport:
     # Per-module status breakdown: {module: {status: count}}
     module_status: dict[str, dict[str, int]] = field(default_factory=dict)
 
+    # Library attributions (lib-match identifications) excluded from the
+    # progress table — counted here so the number stays visible.
+    library_identified: int = 0
+
     # Verify cache summary
     verify_info: VerifyInfo | None = None
 
@@ -190,6 +194,7 @@ class StatusReport:
             },
             "status": self.status_counts,
             "modules": self.module_status,
+            "library_identified": self.library_identified,
             "coverage_pct": self.coverage_pct,
             "matched_pct": self.matched_pct,
             "decompiled_pct": self.decompiled_pct,
@@ -399,6 +404,18 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
     report.total_functions = len(ghidra_vas | covered_vas_set)
     report.covered_functions = len(existing)
 
+    # Progress counts game functions only: library attributions are tallied
+    # separately below, so shrink the headline denominators to FUNCTION rows.
+    # (covered_vas_set above stays whole — navigation must still find
+    # library-annotated VAs.)
+    function_vas = {
+        va
+        for va, info in existing.items()
+        if (info.get("marker_type") or "").upper() != "LIBRARY"
+    }
+    report.total_functions = len(ghidra_vas | function_vas)
+    report.covered_functions = len(function_vas)
+
     src_dir = Path(cfg.reversed_dir)
     report.source_files = len(iter_sources(src_dir, cfg))
 
@@ -421,9 +438,23 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
     verify_missing_size = 0
     effective_matches = 0
     unresolved_blockers = 0
+    library_identified = 0
     for va, info in existing.items():
         if info.get("blocker"):
             unresolved_blockers += 1
+        # Library attributions (lib-match identifications) are not
+        # reversing progress: count them separately so the progress table
+        # answers "how much of this binary's code is reversed".
+        if (info.get("marker_type") or "").upper() == "LIBRARY":
+            lib_status = (info.get("status") or "STUB").upper()
+            if lib_status in MATCHED_STATUSES:
+                library_identified += 1
+            module = info.get("module") or "?"
+            report.module_status.setdefault(module, {})
+            report.module_status[module][lib_status] = (
+                report.module_status[module].get(lib_status, 0) + 1
+            )
+            continue
         ann_status = info.get("status", "STUB")
         # A naked reconstruction (`// SOURCE: naked`) is byte-exact via a
         # generated skeleton — reproduced, not decompiled (ct-recomp's
@@ -469,6 +500,7 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
         report.module_status.setdefault(module, {})
         report.module_status[module][effective] = report.module_status[module].get(effective, 0) + 1
     report.status_counts = status_counts
+    report.library_identified = library_identified
     report.matched_bytes = matched_bytes
     report.naked_matched = naked_matched
     report.naked_bytes = naked_bytes
@@ -738,6 +770,11 @@ def _render_terminal(report: StatusReport) -> None:
 
     # Source file count
     summary_lines.append(f"  [dim]{report.source_files} source files[/dim]")
+    if report.library_identified:
+        summary_lines.append(
+            f"  [dim]library:[/dim] [green]{report.library_identified} identified[/green] "
+            "(lib-match attributions, not reversing progress)"
+        )
 
     # Unresolved BLOCKERs (understood-blocked work needing attention)
     if report.unresolved_blockers:
