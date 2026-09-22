@@ -374,6 +374,12 @@
   ``one_line``, ``run_git``). Call sites inside the package already updated.
 
 ### Fixed
+- **DOS MZ codegen scan reads the real entry point.**  The entry offset
+  ignored the `e_cparhdr` header paragraphs, so `rebrew toolchain detect`
+  disassembled bytes one header-length before the entry code.
+- **`rebrew verify` no longer writes a percent into the byte `delta`.**
+  When a result row had no byte delta, the verify-cache patch stored
+  `100 - match_percent` there; it now keeps the cached delta.
 - **A malformed CLI plugin's `RegistryError` carries `group`, `name`,
   and `origin`.**  The three CLI-mount failures (not a Typer app, no
   `main`, not callable) left those fields empty, unlike every other

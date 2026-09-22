@@ -353,9 +353,10 @@ def patch_verify_cache_entries(cfg: ProjectConfig, patches: list[dict[str, Any]]
     itself runs under that lock so a concurrent ``verify --watch`` save
     cannot interleave and drop the patch.
 
-    *patches*: list of dicts with ``va`` (int), ``status``, ``match_count``,
-    ``total``, optional ``delta`` (int|None), optional ``match_percent``
-    (float).  When ``match_percent`` is supplied it is stored as-is —
+    *patches*: list of dicts with ``va`` (int), ``status``, optional byte
+    counts ``match_count`` and ``total``, optional ``delta`` (int|None),
+    optional ``match_percent`` (float).  Without ``total``, a missing
+    ``delta`` keeps the cached one.  When ``match_percent`` is supplied it is stored as-is —
     recomputing ``match_count / total`` disagrees with
     :func:`rebrew.compile.classify_compare_result` whenever lengths differ
     (SIZE_MISMATCH / truncated compare), and status/todo would then rank ROI
@@ -392,7 +393,7 @@ def patch_verify_cache_entries(cfg: ProjectConfig, patches: list[dict[str, Any]]
             entry = entries.get(va_key)
             if not isinstance(entry, dict):
                 continue  # No cached entry to patch
-            total = p["total"]
+            total = p.get("total", 0)
             if p.get("match_percent") is not None:
                 raw_pct = float(p["match_percent"])
                 # Reject NaN/inf so a corrupt patch cannot poison status/todo

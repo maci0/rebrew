@@ -232,11 +232,19 @@ class TestMZCodegenScan:
     def _mz_with_code(code: bytes) -> bytes:
         data = bytearray(0x400)
         data[0:2] = b"MZ"
-        # e_ip=0x100, e_cs=0 -> entry at file offset 0x100
+        # e_cparhdr=2 (0x20-byte header), e_ip=0x100, e_cs=0
+        # -> entry at file offset 0x20 + 0x100
+        data[0x08:0x0A] = (2).to_bytes(2, "little")
         data[0x14:0x16] = (0x100).to_bytes(2, "little")
         data[0x16:0x18] = (0).to_bytes(2, "little")
-        data[0x100 : 0x100 + len(code)] = code
+        data[0x120 : 0x120 + len(code)] = code
         return bytes(data)
+
+    def test_entry_is_relative_to_load_module(self) -> None:
+        # Code at file offset e_ip (ignoring the header) must not be scanned.
+        data = bytearray(self._mz_with_code(b""))
+        data[0x100:0x103] = bytes.fromhex("cb cb cb")
+        assert _mz_codegen_scan(bytes(data))["retf"] == 0
 
     def test_leave_epilogues(self) -> None:
         # msvc 1.5x style: push bp / mov bp,sp / ... / leave / ret
