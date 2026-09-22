@@ -32,6 +32,8 @@ Successful 200 responses negotiate ``zstd`` then ``gzip`` (``Accept-Encoding``
 quality weights; explicit ``coding;q=0`` beats ``*``), carry an ``ETag`` (HTML
 or ``/app.js`` content hash, or DB mtime), and use ``Cache-Control: private,
 no-cache`` so browsers can 304 without serving a stale body after ``build-db``.
+A matching ``If-None-Match`` on a routed path is answered 304 before any
+SQLite query runs.
 The static HTML shell and ``/app.js`` client are zstd- and gzip-precompressed at
 import time so entry assets skip per-request compression CPU.  The shell
 ``<head>`` preloads ``/api/bootstrap`` (``as=fetch`` + ``crossorigin`` +
@@ -82,6 +84,20 @@ _MAX_LIMIT = 5000
 _FUNCTION_COLS = ("va", "name", "symbol", "size", "status", "module", "files")
 _GLOBAL_COLS = ("va", "name", "decl", "size", "module")
 _HISTORY_COLS = ("va", "old_status", "new_status", "changed_at")
+#: Paths ``Dashboard.handle`` serves; only these may short-circuit to 304.
+_ROUTES = frozenset(
+    {
+        "/",
+        "/app.js",
+        "/api/bootstrap",
+        "/api/targets",
+        "/api/summary",
+        "/api/functions",
+        "/api/sections",
+        "/api/globals",
+        "/api/history",
+    }
+)
 # Below this size framing usually costs more than it saves on a LAN.
 _MIN_COMPRESS_BYTES = 256
 # Per-request dynamic JSON: mid effort (bodies are rebuilt every request).
@@ -1795,6 +1811,15 @@ class _Handler(BaseHTTPRequestHandler):
                 self.wfile.write(body_bytes)
             return
 
+        # Revalidation of a routed GET/HEAD: the ETag (asset hash or DB mtime)
+        # decides freshness, so answer 304 before running the SQLite query
+        # whose body would be discarded anyway.
+        if method in ("GET", "HEAD") and urlparse(self.path).path in _ROUTES:
+            cached_etag = self.dashboard.response_etag(self.path)
+            if _if_none_match(self.headers.get("If-None-Match", ""), cached_etag):
+                self._send_not_modified(cached_etag)
+                return
+
         query = parse_qs(urlparse(self.path).query)
         try:
             status, content_type, body = self.dashboard.handle(method, self.path, query)
@@ -1826,13 +1851,6 @@ class _Handler(BaseHTTPRequestHandler):
         etag: str | None = None
         if status == 200:
             etag = self.dashboard.response_etag(self.path)
-            if _if_none_match(self.headers.get("If-None-Match", ""), etag):
-                self.send_response(304)
-                self.send_header("ETag", etag)
-                self.send_header("Vary", "Accept-Encoding")
-                self._write_security_headers(cacheable=True)
-                self.end_headers()
-                return
 
         body_bytes = body.encode("utf-8")
         encoding: _WireEncoding | None = None
@@ -1874,6 +1892,13 @@ class _Handler(BaseHTTPRequestHandler):
         # HEAD: headers only (RFC 9110); body length still advertised.
         if method != "HEAD":
             self.wfile.write(body_bytes)
+
+    def _send_not_modified(self, etag: str) -> None:
+        self.send_response(304)
+        self.send_header("ETag", etag)
+        self.send_header("Vary", "Accept-Encoding")
+        self._write_security_headers(cacheable=True)
+        self.end_headers()
 
     def _write_security_headers(self, *, cacheable: bool) -> None:
         """Browser hardening shared by every response, including early 403s."""

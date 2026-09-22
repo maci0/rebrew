@@ -1185,6 +1185,46 @@ class TestHostValidation:
         assert [v for k, v in sent if k == "status"] == [304]
         assert written == []
 
+    def test_handler_304_skips_database_query(self, dashboard: Dashboard) -> None:
+        """A matching If-None-Match on a JSON route answers 304 without querying."""
+        from rebrew.dashboard import _Handler, allowed_hosts_for
+
+        handler = _Handler.__new__(_Handler)
+        handler.path = "/api/functions?target=server_dll"
+        handler.allowed_hosts = allowed_hosts_for("127.0.0.1", 8000)
+        handler.dashboard = dashboard
+        etag = dashboard.response_etag(handler.path)
+        handler.headers = {"Host": "127.0.0.1:8000", "If-None-Match": etag}
+        sent: list[tuple] = []
+        written: list[bytes] = []
+        handler.send_response = lambda status: sent.append(("status", status))  # type: ignore[method-assign]
+        handler.send_header = lambda name, value: sent.append((name, value))  # type: ignore[method-assign]
+        handler.end_headers = lambda: sent.append(("end", None))  # type: ignore[method-assign]
+
+        class _FakeWFile:
+            def write(self, data: bytes) -> int:
+                written.append(data)
+                return len(data)
+
+        handler.wfile = _FakeWFile()
+
+        def _no_query(*_args: object, **_kwargs: object) -> tuple[int, str, str]:
+            raise AssertionError("revalidation must not run the query")
+
+        dashboard.handle = _no_query  # type: ignore[method-assign]
+        handler._respond("GET")
+        assert [v for k, v in sent if k == "status"] == [304]
+        assert ("ETag", etag) in sent
+        assert written == []
+
+        # Unrouted paths never 304, even with a matching validator.
+        del dashboard.handle
+        sent.clear()
+        handler.path = "/nope"
+        handler.headers = {"Host": "127.0.0.1:8000", "If-None-Match": "*"}
+        handler._respond("GET")
+        assert [v for k, v in sent if k == "status"] == [404]
+
     def test_functions_omit_unused_marker_type(self, dashboard: Dashboard) -> None:
         """The table never reads markerType; keep it off the JSON wire."""
         row = dashboard.functions("server_dll")["functions"][0]

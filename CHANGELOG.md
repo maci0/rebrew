@@ -150,6 +150,11 @@
   documented integrator surface.
 
 ### Changed
+- **`rebrew dashboard` answers revalidations without querying.**  A
+  browser revalidating `/api/*` with a matching `If-None-Match` got its
+  304 only after the full SQLite query and JSON build ran and the body was
+  discarded.  Routed GET/HEAD requests now compare the ETag first and
+  return 304 before touching the database.
 - **The include-resolution memo's dead clear hook is gone.**
   `_clear_resolve_include_paths` existed only to re-publish the old
   `lru_cache` name as `_resolve_include_paths.cache_clear`, a compat shim
