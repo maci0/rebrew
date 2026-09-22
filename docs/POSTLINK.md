@@ -175,4 +175,3 @@ Pipeline order: layout-map (measure) → link-order (order) → text-audit
 
 - `rebrew postlink --help` — CLI reference
 - `docs/TOOLCHAIN.md` — the MSVC6 compile/link backend
-- `docs/GAP_ANALYSIS.md` — when to use placement fixes vs. real re-decompilation

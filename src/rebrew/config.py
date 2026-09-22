@@ -1061,7 +1061,7 @@ _KNOWN_TARGET_KEYS = {
     # warning; canonical home is [targets.X.compiler.cflags_presets].  Kept in
     # known keys so projects that still have it do not also get an
     # "unrecognized keys" warning (and so a rewriter does not drop it).
-    "layout",  # written by `rebrew layout capture`: the position-alignment
+    "layout",  # printed by `rebrew gen-layout --layout-config`: the position-alignment
     # package (image base, section geometry, exports, imports).  Not read by
     # this loader -- the layout tooling parses it directly -- but it must be
     # recognised here: a target carrying it warned "unrecognized keys:

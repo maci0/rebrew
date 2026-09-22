@@ -1,6 +1,6 @@
 """merge_sweep.py - deterministic TU-partition search over cu_map clusters.
 
-``rebrew cu-map`` infers translation units from gap analysis plus call-graph
+``rebrew graph --cu-map`` infers translation units from gap analysis plus call-graph
 signals, but the inference never compiles anything: a boundary it proposes
 may not reproduce.  This tool closes the loop.  It starts from the
 :func:`rebrew.cu_map.cluster_functions` partition and hill-climbs toward the

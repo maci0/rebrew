@@ -82,7 +82,8 @@ see [`AGENTS.md`](../AGENTS.md); for the CLI surface see [`CLI.md`](CLI.md).
   image — covered with stubs at the pure-helper level only.
 - `prove.py` needs `angr` (the `prove` extra).  `uv sync --all-extras` (the
   documented dev install) enables the full prove test classes for real
-  (69 tests; the 36 angr-gated ones are skipped when angr is absent).  The
+  (81 tests in `tests/test_prove.py`; the 42 angr-gated ones are skipped
+  when angr is absent).  The
   module-level `_run_simulation` is patchable so tests can inject crafted
   states and still exercise the real `_compare_state_pairs` logic.
 - The FLIRT pipeline (`flirt.py`, `gen_flirt_pat.py`) needs real `.sig`/`.pat`

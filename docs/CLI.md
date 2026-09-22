@@ -99,6 +99,7 @@ for `--compare` (not “better than EXACT”).
 | `rebrew qual-sweep` | `qual_sweep.py` | Sweep declaration qualifiers over one function, keeping winners (`--rounds`, `--jobs`, `--dry-run`, `--json`) |
 | `rebrew residue` | `residue.py` | Section diffs plus per-function attribution of remaining `.text` bytes (`--baseline`, `--new-baseline`, `--json`) |
 | `rebrew diagnose` | `diagnose.py` | Explain why a function compiles with its toolchain+flags: prints the resolution chain (per-function metadata → nearest `rebrew-libraries.toml` → project defaults) and validates the declarations (unknown toolchains, preset contradictions, function-vs-library family drift); `--json` |
+| `rebrew recommend` | `recommend.py` | Deterministic project advice: TU layout, hygiene, next steps (`-c`, `--apply`, `--json`) |
 | `rebrew stack-cmp` | `stack_cmp.py` | Compare a compiled function's stack frame against the target (reccmp `stackcmp` without a PDB): frame size, ebp-vs-esp (/Oy), `ret N` popping, `[ebp±N]` slot layout — flag-focused hints for per-function CFLAGS tuning |
 | `rebrew verify-exports` | `exports.py` | Verify the recompiled binary's export table matches the original target (reccmp `verexp` equivalent; compares export names, exits 1 on missing/added) |
 | `rebrew round-trip` | `round_trip.py` | Splice matched functions back into the target PE and verify byte equality |
@@ -112,6 +113,7 @@ for `--compare` (not “better than EXACT”).
 | `rebrew calibrate-bss` | `calibrate_bss.py` | Size the BSS tail pad so raw-link `.data` VirtualSize matches |
 | `rebrew cmake-toolchain` | `cmake_tc.py` | Generate a CMake toolchain file running the image's tools via docker |
 | `rebrew cmake-flags` | `cmake_flags.py` | Write the per-file CFLAGS from `rebrew-functions.toml` as a CMake include |
+| `rebrew cmake-sources` | `cmake_sources.py` | Write the target's marker-selected source list as a CMake include |
 | `rebrew context` | `context.py` | Universal decompiler context (types + prototypes) |
 | `rebrew cross-import` | `cross_import.py` | Import functions matched in another target |
 | `rebrew decompile` | `name_decomp.py` | Decompile a function, optionally applying known struct names (`--named`) |

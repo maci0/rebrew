@@ -331,7 +331,7 @@
         <mxCell id="obj" value="&lt;b&gt;Object parse&lt;/b&gt;&lt;br&gt;parsers.py  COFF/ELF/Mach-O via LIEF&lt;br&gt;omf16.py    16-bit OMF (MSVC 1.52 dialect)&lt;br&gt;→ function bytes + reloc slot offsets" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ca8a04;fontColor=#713f12;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="880" y="308" width="360" height="100" as="geometry"/>
         </mxCell>
-        <mxCell id="cmake" value="&lt;b&gt;CMake bridge&lt;/b&gt;&lt;br&gt;rebrew cmake-toolchain --out cmake/&lt;br&gt;rebrew-cmake-{cl,link,lib} wrap docker run&lt;br&gt;same images, same wineprefix flock" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ca8a04;fontColor=#713f12;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="cmake" value="&lt;b&gt;CMake bridge&lt;/b&gt;&lt;br&gt;rebrew cmake-toolchain --output cmake/&lt;br&gt;rebrew-cmake-{cl,link,lib} wrap docker run&lt;br&gt;same images, same wineprefix flock" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ca8a04;fontColor=#713f12;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="1260" y="308" width="360" height="100" as="geometry"/>
         </mxCell>
         <mxCell id="smoke" value="rebrew toolchain smoke: byte-reproducible objects for every image-backed toolchain. Missing image is a hard error (rebrew toolchain build | pull). Remote backend: cache id pins (url, profile), never shared with local." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fee2e2;strokeColor=#ef4444;fontColor=#7f1d1d;align=left;spacingLeft=10;fontSize=11;" vertex="1" parent="1">
@@ -363,7 +363,7 @@
         <mxCell id="d1" value="&lt;b&gt;1. Detect&lt;/b&gt;&lt;br&gt;toolchain_detect.py&lt;br&gt;diec → PDB S_COMPILE3&lt;br&gt;→ codegen heuristics&lt;br&gt;(.buildid, 0f 1f nops, chkstk_ms)" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="60" y="556" width="280" height="140" as="geometry"/>
         </mxCell>
-        <mxCell id="d2" value="&lt;b&gt;2. Init / cfg set&lt;/b&gt;&lt;br&gt;rebrew init --compiler msvc-6.0|mingw-16.2.0|…&lt;br&gt;writes [compiler] in project toml&lt;br&gt;seeds CRT / opt from detect" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="d2" value="&lt;b&gt;2. Init / cfg set&lt;/b&gt;&lt;br&gt;rebrew init --toolchain msvc-6.0|mingw-16.2.0|…&lt;br&gt;writes [compiler] in project toml&lt;br&gt;seeds CRT / opt from detect" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="380" y="556" width="280" height="140" as="geometry"/>
         </mxCell>
         <mxCell id="d3" value="&lt;b&gt;3. Per-library override&lt;/b&gt;&lt;br&gt;rebrew library set&lt;br&gt;rebrew-libraries.toml walk-up&lt;br&gt;whole subtree, one image+flags" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#9333ea;fontColor=#581c87;align=center;fontSize=11;" vertex="1" parent="1">

@@ -376,13 +376,13 @@ workflows, and limitations.
 ### Gap: `rebrew binsync-export` is one-way _(fixed)_
 
 - **Previously:** PRD listed this as a known limitation. There was no `binsync-import` command.
-- **Now:** `src/rebrew/binsync_import.py` provides `rebrew binsync-import <state-dir>` (reads
+- **Now:** `src/rebrew/binsync/importer.py` provides `rebrew binsync-import <state-dir>` (reads
   `functions/*.toml` + `global_vars.toml` back into `rebrew-functions.toml` / `rebrew-data.toml`
   for names/prototypes/globals, with `--accept-binsync`/`--accept-local` conflict handling,
   `--module` filter, `--dry-run`/`--json`). The exporter also now writes real global types
   and struct fields, and supports `--module` + `--git` (opt-in commit). Full `libbs`/stack-var
   bidirectional sync remains in [PRD 09](09-binsync-full.md).
-- **Evidence:** `src/rebrew/binsync_export.py`, `src/rebrew/binsync_import.py`, `docs/BINSYNC_INTEGRATION.md`.
+- **Evidence:** `src/rebrew/binsync/export.py`, `src/rebrew/binsync/importer.py`, `docs/BINSYNC_INTEGRATION.md`.
 - **Severity:** enhancement (fixed)
 - **Suggested fix:** Done; keep `docs/BINSYNC_INTEGRATION.md` as the user-facing reference for the current scope.
 
