@@ -367,6 +367,10 @@ class ProjectConfig:
     # default, and `rebrew cmake-sources` emits them as REBREW_EXTERNAL_LIBS
     # so the build links the stock archive.
     external_libs: dict[str, str] = field(default_factory=dict)
+    #: Inclusive ``(lo, hi)`` address bands the target's binary fills from a
+    #: linked library rather than from project sources (``targets.<name>.
+    #: external_ranges``).  Tools that enumerate "work left" must skip them.
+    external_ranges: list[tuple[int, int]] = field(default_factory=list)
     crt_sources: dict[str, str] = field(default_factory=dict)
     source_ext: str = ".c"  # Source file extension (e.g. ".c", ".cpp")
     ghidra_program_path: str = ""
@@ -500,6 +504,38 @@ def inventory_path_for(reversed_dir: Path | str, cfg: Any = None) -> Path:
         except (OSError, ValueError, TypeError):
             pass
     return rd / FUNCTION_STRUCTURE_JSON
+
+
+def _parse_va_ranges(values: list[Any] | None, field_name: str) -> list[tuple[int, int]]:
+    """Parse ``["0x5e0000-0x64ffff", ...]`` into inclusive ``(lo, hi)`` pairs.
+
+    Used by ``targets.<name>.external_ranges``: address bands the target's
+    binary fills with code from a statically linked library rather than from
+    the project's sources (the D3DX8/T&L band in a client build).  A band is a
+    fact about the *link*, so it belongs in configuration next to
+    ``external_libs`` — not hardcoded per tool.
+    """
+    if not isinstance(values, list):
+        if values is not None:
+            _config_warn(f"Expected list for {field_name}, got {type(values).__name__}; ignoring")
+        return []
+
+    parsed: list[tuple[int, int]] = []
+    for v in values:
+        if not isinstance(v, str) or "-" not in v:
+            _config_warn(f"Invalid range {v!r} in {field_name}; expected '0xLO-0xHI'")
+            continue
+        lo_s, _, hi_s = v.partition("-")
+        try:
+            lo, hi = parse_int_literal(lo_s.strip()), parse_int_literal(hi_s.strip())
+        except ValueError:
+            _config_warn(f"Invalid range {v!r} in {field_name}; expected '0xLO-0xHI'")
+            continue
+        if hi < lo:
+            _config_warn(f"Invalid range {v!r} in {field_name}: end before start; ignoring")
+            continue
+        parsed.append((lo, hi))
+    return parsed
 
 
 def _parse_int_list(values: list[Any] | None, field_name: str) -> list[int]:
@@ -1008,6 +1044,7 @@ _KNOWN_TARGET_KEYS = {
     "ignored_symbols",
     "library_modules",
     "external_libs",
+    "external_ranges",  # address bands filled by a statically linked library
     "crt_sources",
     "source_ext",
     "ghidra_program_path",
@@ -1420,6 +1457,9 @@ def load_config(
             k.upper(): v
             for k, v in _parse_str_dict(tgt.get("external_libs", {}), "external_libs").items()
         },
+        external_ranges=_parse_va_ranges(
+            tgt.get("external_ranges", []), f"targets.{target}.external_ranges"
+        ),
         crt_sources=_parse_str_dict(tgt.get("crt_sources", {}), "crt_sources"),
         source_ext=source_ext,
         ghidra_program_path=_as_str(

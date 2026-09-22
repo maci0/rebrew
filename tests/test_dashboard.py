@@ -351,6 +351,22 @@ class TestSummaryRequests:
         assert result.returncode == 0, result.stdout + result.stderr
 
 
+class TestHashState:
+    def test_reload_restores_target_view_and_filters(self) -> None:
+        node = shutil.which("node")
+        if node is None:
+            pytest.skip("Node.js is required for dashboard interaction tests")
+        result = subprocess.run(
+            [node, str(Path(__file__).with_name("dashboard_hash_state.mjs"))],
+            input=_APP_JS,
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+
+
 class TestHandle:
     def test_index_html(self, dashboard: Dashboard) -> None:
         status, content_type, body = dashboard.handle("GET", "/", {})

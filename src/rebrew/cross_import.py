@@ -241,9 +241,44 @@ def merge_sizeless_warning(res: dict[str, Any], size: int | None) -> dict[str, A
     return res
 
 
+def _library_vas(cfg: ProjectConfig) -> set[int]:
+    """VAs the destination binary gets from a linked library, not game source.
+
+    ``// LIBRARY:`` rows in the target's ``library_*.h`` headers, plus rows
+    whose module is named in ``targets.<name>.external_libs`` (D3DX8, LIBCMT,
+    MSS32, …).  Cross-import must never create a game-source annotation for one:
+    the code is linker-supplied, byte-identical across the clients by
+    construction, and importing it turns a library band into dozens of
+    unmatchable "game" functions — guild-rebrew round 1293 matched ~50 D3DX8
+    bodies in GOLDTL's ``0x5e0000-0x64ffff`` band against GOLD's copies before
+    this filter existed.
+    """
+    from rebrew.annotation import parse_c_file_multi
+    from rebrew.sources import iter_library_headers
+
+    modules = {str(m).upper() for m in (getattr(cfg, "external_libs", None) or ())}
+    out: set[int] = set()
+    for path in iter_library_headers(cfg.reversed_dir, cfg):
+        for ann in parse_c_file_multi(path, metadata_dir=cfg.metadata_dir):
+            kind = str(getattr(ann, "marker_type", "") or "").upper()
+            module = str(getattr(ann, "module", "") or "").upper()
+            if ann.va and (kind == "LIBRARY" or (module and module in modules)):
+                out.add(int(ann.va))
+    return out
+
+
+def _in_external_range(va: int, ranges: list[tuple[int, int]]) -> bool:
+    """True when *va* falls in a band the binary fills from a linked library."""
+    return any(lo <= va <= hi for lo, hi in ranges)
+
+
 def unmatched_dest_bytes(cfg_dst: ProjectConfig, only_va: int | None = None) -> dict[int, bytes]:
     """Destination side: target bytes of the destination's NOT-yet-matched
     functions (anything whose STATUS is not EXACT/RELOC/PROVEN).
+
+    Library VAs (see :func:`_library_vas`) and VAs inside the target's
+    ``external_ranges`` bands are excluded: they are linked, not reversed, and
+    importing them would pollute the progress accounting.
 
     Entries with no registry size fall back to the disassembly-derived
     extent (ret-ended only); ones the disassembler cannot size stay out of
@@ -251,10 +286,15 @@ def unmatched_dest_bytes(cfg_dst: ProjectConfig, only_va: int | None = None) -> 
     :func:`sizeless_dest_vas`."""
     statuses = _annotations_by_va(cfg_dst)
     registry = _registry(cfg_dst)
+    library_vas = _library_vas(cfg_dst)
+    bands = list(getattr(cfg_dst, "external_ranges", None) or [])
     vas = {
         va: int(reg["canonical_size"])
         for va, reg in registry.items()
-        if reg.get("canonical_size") and statuses.get(va, ("", ""))[0] not in MATCHED_STATUSES
+        if reg.get("canonical_size")
+        and statuses.get(va, ("", ""))[0] not in MATCHED_STATUSES
+        and va not in library_vas
+        and not _in_external_range(va, bands)
     }
     if only_va is not None:
         if only_va in vas:
@@ -606,7 +646,13 @@ def import_shared_function(
     # path into the metadata and break the file on promote or clone —
     # exactly the guild-rebrew GOLDTL.0x004c75e0 case.
     cflags = src_flags.strip()
-    update_field(cfg_dst.metadata_dir, dst_va, "cflags", cflags, module)
+    # Record flags only when they differ from what the destination would use
+    # anyway: an inherited value written per function is lint W029 noise and
+    # one more thing to keep in sync (guild-rebrew round 1293 imported 25
+    # functions and 25 W029 rows appeared).
+    inherited = str(getattr(cfg_dst, "cflags", "") or "").strip()
+    if cflags and cflags != inherited:
+        update_field(cfg_dst.metadata_dir, dst_va, "cflags", cflags, module)
 
     # The verify filepath resolves against the destination's reversed_dir —
     # a shared file becomes ``../shared/f.c`` via the standard helper.
@@ -627,6 +673,14 @@ def import_shared_function(
 
     action = "imported-shared" if result.matched else "imported-unverified"
     message = result.message
+    if not result.matched and dst_file and stacked != text:
+        # The stacked marker did not verify, and the destination already had
+        # its own file for this VA.  Leaving both claims in place is a
+        # duplicate VA (lint E013) for a function nobody has matched yet, so
+        # roll the stack back — the stub stays the sole owner.
+        atomic_write_text(target_path, text, encoding=encoding)
+        action = "skipped-unverified-duplicate"
+        message = f"{message} (destination already annotates this VA; stack reverted)"
     if result.matched and dst_file:
         stub_path = Path(cfg_dst.reversed_dir) / dst_file
         if stub_path.resolve() != target_path.resolve() and stub_path.is_file():

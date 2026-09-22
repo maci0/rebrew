@@ -1,5 +1,10 @@
 ## [Unreleased]
 ### Added
+- **`rebrew dashboard` survives a reload.**  The empty states tell users
+  to run `rebrew build-db` and reload, but a reload reset the page to the
+  first target, the Functions view, and no filters.  The target, view,
+  Status, Module, and both searches now live in the URL hash and are
+  restored on load; the hash also works as a shareable link.
 - **Every GA run is replayable from its seed.**  An unseeded `rebrew match`
   used an OS-entropy RNG and never reported it, so a lucky match could not
   be reproduced.  The GA now draws the seed itself and reports it: printed

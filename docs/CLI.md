@@ -2428,6 +2428,9 @@ compact row arrays under `cols`), `/api/sections?target=`,
 `/api/history?target=` (limit/offset; compact arrays under `cols`).
 Missing `target` → 400; unknown target → 404. Corrupt `function_stats` on
 `/api/summary` → 500 (not 404).
+The page keeps the selected target, view, and filters in the URL hash
+(`#target=…&view=globals&status=EXACT&q=…`), so a reload after
+`rebrew build-db` or a shared link opens the same view.
 
 ## Examples
 

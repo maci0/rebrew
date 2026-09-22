@@ -117,6 +117,12 @@ let retryGlobalsAppend = false;
 let retryHistoryAppend = false;
 let pageLimit = 100;
 let currentView = "functions";
+// Filters restored from the URL hash before their options exist.
+let pendingStatus = "";
+let pendingModule = "";
+// Hash writes start once init has restored state, so a reload keeps it.
+let hashReady = false;
+const VIEWS = ["functions", "sections", "globals", "history"];
 const PAGE_STEP = 500;
 const PAGE_MAX = 5000;
 const loadErrors = { summary: "", functions: "", view: "" };
@@ -220,6 +226,19 @@ function updateFilterActions() {
   const canFilter = currentView === "functions" || currentView === "globals";
   $("filter-actions").hidden = !canFilter;
   $("clear-filters").disabled = !filtersActive();
+  writeHash();
+}
+function writeHash() {
+  if (!hashReady) return;
+  const params = new URLSearchParams({ target: $("target").value });
+  if (currentView !== "functions") params.set("view", currentView);
+  const status = $("status").value || pendingStatus;
+  const module = $("module").value || pendingModule;
+  if (status) params.set("status", status);
+  if (module) params.set("module", module);
+  if ($("q").value.trim()) params.set("q", $("q").value.trim());
+  if ($("gq").value.trim()) params.set("gq", $("gq").value.trim());
+  history.replaceState(null, "", "#" + params);
 }
 function syncViewChrome() {
   const isFunctions = currentView === "functions";
@@ -228,7 +247,7 @@ function syncViewChrome() {
   $("filter-module").hidden = !isFunctions;
   $("filter-q").hidden = !isFunctions;
   $("filter-gq").hidden = !isGlobals;
-  ["functions", "sections", "globals", "history"].forEach(name => {
+  VIEWS.forEach(name => {
     $("view-" + name).hidden = name !== currentView;
   });
   document.querySelectorAll("#views button[data-view]").forEach(btn => {
@@ -250,7 +269,7 @@ function syncCardActive() {
 }
 function setStatusOptions(byStatus) {
   const select = $("status");
-  const previous = select.value;
+  const previous = select.value || pendingStatus;
   const names = Object.keys(byStatus || {}).sort();
   select.innerHTML = "<option value=''>any</option>"
     + names.map(s => "<option value='" + esc(s) + "'>" + esc(s) + "</option>").join("");
@@ -259,7 +278,7 @@ function setStatusOptions(byStatus) {
 }
 function setModuleOptions(byModule) {
   const select = $("module");
-  const previous = select.value;
+  const previous = select.value || pendingModule;
   const names = Object.keys(byModule || {}).filter((m) => m !== "").sort();
   select.innerHTML = "<option value=''>any</option>"
     + names.map(m => {
@@ -414,6 +433,8 @@ function renderSummary(s) {
   const byStatus = s.function_stats.by_status || {};
   setStatusOptions(byStatus);
   setModuleOptions(s.function_stats.by_module_counts || {});
+  pendingStatus = "";
+  pendingModule = "";
   $("status").disabled = false;
   $("module").disabled = false;
   const cards = [
@@ -700,7 +721,7 @@ function loadCurrentView(force) {
   }
 }
 function setView(name) {
-  if (!["functions", "sections", "globals", "history"].includes(name)) return;
+  if (!VIEWS.includes(name)) return;
   currentView = name;
   setLoadError("view", "");
   syncViewChrome();
@@ -710,6 +731,8 @@ function bindControls() {
   $("target").onchange = () => {
     $("status").value = "";
     $("module").value = "";
+    pendingStatus = "";
+    pendingModule = "";
     $("q").value = "";
     $("gq").value = "";
     viewLoaded.sections = false;
@@ -741,6 +764,8 @@ function bindControls() {
     }
     $("status").value = "";
     $("module").value = "";
+    pendingStatus = "";
+    pendingModule = "";
     $("q").value = "";
     resetPaging();
     syncCardActive();
@@ -817,21 +842,34 @@ async function init() {
   $("views").hidden = false;
   $("target").innerHTML = targets.map(t =>
     "<option value='" + esc(t) + "'>" + esc(t) + "</option>").join("");
+  const saved = new URLSearchParams(location.hash.slice(1));
+  if (targets.includes(saved.get("target"))) $("target").value = saved.get("target");
+  if (VIEWS.includes(saved.get("view"))) currentView = saved.get("view");
+  pendingStatus = saved.get("status") || "";
+  pendingModule = saved.get("module") || "";
+  $("q").value = saved.get("q") || "";
+  $("gq").value = saved.get("gq") || "";
+  // The bootstrap payload covers the first target with no filters.
+  const bootFits = $("target").value === targets[0];
   bindControls();
   syncViewChrome();
-  if (boot.summary) {
+  if (boot.summary && bootFits) {
     setLoadError("summary", "");
     renderSummary(boot.summary);
   } else {
     await loadSummary();
   }
-  if (boot.functions) {
+  hashReady = true;
+  updateFilterActions();
+  const unfiltered = !$("status").value && !$("module").value && !$("q").value.trim();
+  if (boot.functions && bootFits && unfiltered) {
     setLoadError("functions", "");
     $("results").hidden = false;
     renderFunctions(boot.functions);
   } else {
     await loadFunctions();
   }
+  loadCurrentView(false);
 }
 function start() {
   init().catch(error => {

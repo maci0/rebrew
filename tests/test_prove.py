@@ -375,6 +375,42 @@ class TestProveCLIStatusGuard:
         entry = load_metadata(tmp_path).get(("GAME", 0x1000), {})
         assert entry.get("note") == "mine: hand analysis"
 
+    def test_counterexample_note_cleared_on_success(self, tmp_path: Path) -> None:
+        """The success path's inverse removes the prove-owned NOTE, matching
+        the write-side pin: record, then clear, leaves no note behind."""
+        from types import SimpleNamespace
+
+        from rebrew.metadata import load_metadata
+        from rebrew.prove import _clear_prove_counterexample, _record_prove_counterexample
+
+        cfg = SimpleNamespace(metadata_dir=tmp_path)
+        ann = SimpleNamespace(module="GAME", va=0x1000)
+        _record_prove_counterexample(
+            cfg, ann, "Z3 found a satisfying assignment where EAX differs; EAX=0 vs 4"
+        )
+        assert load_metadata(tmp_path).get(("GAME", 0x1000), {}).get("note")
+        _clear_prove_counterexample(cfg, ann)
+        assert load_metadata(tmp_path).get(("GAME", 0x1000), {}).get("note") is None
+
+    def test_counterexample_clear_spares_foreign_note_and_missing_entry(
+        self, tmp_path: Path
+    ) -> None:
+        """Clearing without a note is a no-op, and a reverser's own note (no
+        ``prove: `` prefix) survives — the inverse may only retract what the
+        module wrote."""
+        from types import SimpleNamespace
+
+        from rebrew.metadata import load_metadata, update_field
+        from rebrew.prove import _clear_prove_counterexample
+
+        cfg = SimpleNamespace(metadata_dir=tmp_path)
+        ann = SimpleNamespace(module="GAME", va=0x1000)
+        _clear_prove_counterexample(cfg, ann)  # no entry yet: must not raise
+        update_field(tmp_path, 0x1000, "note", "mine: hand analysis", module="GAME")
+        _clear_prove_counterexample(cfg, ann)
+        entry = load_metadata(tmp_path).get(("GAME", 0x1000), {})
+        assert entry.get("note") == "mine: hand analysis"
+
 
 @pytest.mark.skipif(
     not has_angr,
