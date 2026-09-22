@@ -802,12 +802,27 @@ def _route_comments(
 
 
 def _definition_files(cfg: ProjectConfig) -> list[Path]:
-    """Local header + source files scanned for known type names."""
+    """Local header + source files scanned for known type names.
+
+    Headers include the shared tree: a struct in ``src/shared`` is already
+    defined for every target, and missing it re-imports a duplicate into
+    ``binsync_types.h``.  Sources already arrive shared-aware via
+    :func:`rebrew.sources.iter_sources`.
+    """
     reversed_dir = Path(cfg.reversed_dir)
     try:
         header_files = list(reversed_dir.rglob("*.h"))
     except OSError:
         header_files = []
+    shared_dir = getattr(cfg, "shared_dir", None)
+    if shared_dir is not None:
+        try:
+            shared = Path(shared_dir)
+            if shared.resolve() != reversed_dir.resolve() and shared.is_dir():
+                seen = {p.resolve() for p in header_files}
+                header_files.extend(p for p in shared.rglob("*.h") if p.resolve() not in seen)
+        except OSError:
+            pass
     try:
         from rebrew.sources import iter_sources
 

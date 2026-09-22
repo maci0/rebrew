@@ -942,3 +942,48 @@ marker = "V1"
         assert result.exit_code == 0, result.output
         data = json.loads(result.stdout)
         assert data["applied_prototypes"] == 1, data
+
+
+class TestSharedHeaderTypeDedup:
+    """A struct in src/shared suppresses BinSync re-import (no duplicate)."""
+
+    def test_shared_header_name_skipped(self, tmp_path: Path) -> None:
+        from types import SimpleNamespace
+
+        from rebrew.binsync.importer import _import_type_definitions, _local_type_names
+
+        rev = tmp_path / "src" / "V1"
+        rev.mkdir(parents=True)
+        shared = tmp_path / "src" / "shared"
+        shared.mkdir(parents=True)
+        (shared / "game_structs.h").write_text(
+            "typedef struct {\n\tint id;\n} ENTITY;\n", encoding="utf-8"
+        )
+        cfg = SimpleNamespace(
+            reversed_dir=rev,
+            shared_dir=shared,
+            metadata_dir=tmp_path,
+            source_ext=".c",
+        )
+        assert "ENTITY" in _local_type_names(cfg)
+        applied = _import_type_definitions(
+            cfg,
+            {"ENTITY": {"definition": "typedef struct {\n\tint id;\n} ENTITY;"}},
+            dry_run=False,
+            proposed=[],
+        )
+        assert applied == 0
+
+    def test_definition_files_covers_shared(self, tmp_path: Path) -> None:
+        from types import SimpleNamespace
+
+        from rebrew.binsync.importer import _definition_files
+
+        rev = tmp_path / "src" / "V1"
+        rev.mkdir(parents=True)
+        shared = tmp_path / "src" / "shared"
+        shared.mkdir(parents=True)
+        hdr = shared / "t.h"
+        hdr.write_text("typedef int H;\n", encoding="utf-8")
+        cfg = SimpleNamespace(reversed_dir=rev, shared_dir=shared, source_ext=".c")
+        assert hdr in _definition_files(cfg)

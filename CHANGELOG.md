@@ -26,7 +26,8 @@
 - **Binsync pull writes shared files.**  The importer's reversed-only
   containment guard silently skipped renames/prototypes/markers for every
   `../shared` file; `_inside_project` covers the shared tree too (overlay
-  renames ride the same fix).
+  renames ride the same fix). Type-dedup also scans shared headers, so a
+  struct in `src/shared` is not re-imported as a duplicate.
 - **`link-order` sorts stacked files by the target's own VA.**  The old
   minimum-across-all-markers could file a shared TU at another target's
   address; unknown modules fall back to the old minimum.
