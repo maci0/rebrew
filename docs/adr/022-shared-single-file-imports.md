@@ -106,3 +106,9 @@ Every other surface checked shared-correct, no change needed:
 - Remaining raw `*.c`/`*.h` rglobs are intentionally scoped: gen-stubs
   scans the whole tree (covers shared), inline-strings `--source-dir` is
   explicit, round-trip/types/binsync headers are per-target build state.
+- Second audit (skeleton, diag tools, watch, graph, refactor): skeleton
+  writes per-target by default with cfg-aware uncovered detection (no
+  shared duplication); stack-cmp/gap-trace/climb/near-diag/prove resolve
+  via `resolve_source_arg` + target filter; verify/test/match watch modes
+  poll `iter_sources`; rename operates in place with shared-aware
+  candidates; link-order fix above. No changes needed.
