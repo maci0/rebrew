@@ -62,7 +62,7 @@ class McpError(RebrewError, RuntimeError):
         self.retryable = retryable
 
 
-class McpApplyAborted(RuntimeError):
+class McpApplyAborted(RebrewError, RuntimeError):
     """MCP apply died mid-loop after partially applying *ops*.
 
     Carries the (applied, errors) counts so the caller can decide whether a

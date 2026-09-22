@@ -72,8 +72,11 @@ def test_submodules_import_without_rebrew_stack(monkeypatch: pytest.MonkeyPatch)
         name for name in set(sys.modules) - before if name == "rebrew" or name.startswith("rebrew.")
     }
     # workspace must stay free of the metadata / utils / registry stack.
+    # rebrew.errors is allowed: a leaf module importing nothing, carrying the
+    # RebrewError base WorkspaceNotFound inherits.
     assert pulled <= {
         "rebrew",
+        "rebrew.errors",
         "rebrew.workspace",
         "rebrew.workspace.config",
         "rebrew.workspace.db",

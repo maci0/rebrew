@@ -66,14 +66,17 @@
   raises.**  Embedding code had to enumerate `ToolchainError`,
   `RecompileError`, `McpError`, `RegistryError` and 14 more in every
   `except` clause, and a release that added an error type escaped those
-  handlers silently.  The 18 public error types now inherit
+  handlers silently.  All 21 public exception types now inherit
   `RebrewError` *in addition to* their original base, so existing
   `except RuntimeError` / `except ValueError` clauses are unchanged and
   their domain fields (`kind`, `name`, `status_code`, `group`) are
   untouched.  `retryable` moved onto the base (default `False`) so
   "may I try again?" reads off any rebrew error without a `getattr`
-  guard.  `tests/test_errors.py` AST-scans the package and fails on a
-  new error type that skips the base.
+  guard.  `ghidra.McpApplyAborted` and `workspace.WorkspaceNotFound`
+  are included: both are exported, both raise at consumers, and neither
+  is named `*Error`.  `tests/test_errors.py` AST-scans the package by
+  base class rather than by name suffix, so a future exception type
+  cannot escape the base by what it is called.
 - **`targets.<name>.external_libs` — one flag for external .lib code.**
   `module = "link-spec"` table (`LIBCMT = "LIBCMT.lib"`,
   `D3DX8 = "references/dxsdk8/lib/d3dx8.lib"`, `MSVCRT = ""` for

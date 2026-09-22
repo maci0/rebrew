@@ -19,6 +19,8 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
+from rebrew.errors import RebrewError
+
 CONFIG_NAME = "rebrew-project.toml"
 
 
@@ -47,7 +49,7 @@ DEFAULT_REVERSED_ROOT = "src"
 _MARKER_KEEP = re.compile(r"[^A-Za-z0-9_]")
 
 
-class WorkspaceNotFound(FileNotFoundError):
+class WorkspaceNotFound(RebrewError, FileNotFoundError):
     """No directory containing ``rebrew-project.toml`` was found."""
 
 

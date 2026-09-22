@@ -8,14 +8,28 @@ from pathlib import Path
 import pytest
 
 from rebrew.errors import RebrewError
-from rebrew.ghidra import McpError
+from rebrew.ghidra import McpApplyAborted, McpError
 from rebrew.metadata_model import MetadataValidationError
 from rebrew.recompile_client import RecompileError
 from rebrew.registry import RegistryError
 from rebrew.toolchain import ToolchainError
+from rebrew.workspace import WorkspaceNotFound
 
-# Exception bases a rebrew error may carry besides RebrewError.
-_STDLIB_EXCEPTION_BASES = {"Exception", "RuntimeError", "ValueError", "OSError"}
+# Stdlib exception bases a rebrew error may carry besides RebrewError.  A class
+# deriving from one of these is part of the raise hierarchy regardless of what
+# it is named: `McpApplyAborted` and `WorkspaceNotFound` both escaped an
+# earlier `*Error`-suffix scan.
+_STDLIB_EXCEPTION_BASES = {
+    "Exception",
+    "FileNotFoundError",
+    "KeyError",
+    "LookupError",
+    "NotImplementedError",
+    "OSError",
+    "RuntimeError",
+    "TypeError",
+    "ValueError",
+}
 
 
 def _package_root() -> Path:
@@ -25,25 +39,41 @@ def _package_root() -> Path:
     return Path(rebrew.__file__).parent
 
 
-def _error_classes() -> list[tuple[Path, ast.ClassDef]]:
-    """Every public ``*Error`` class defined in the package, by source file."""
-    found: list[tuple[Path, ast.ClassDef]] = []
+def _exception_classes() -> list[tuple[Path, ast.ClassDef]]:
+    """Every public exception class defined in the package, by source file.
+
+    Membership is by base class, not by name: a class counts when it derives
+    from a stdlib exception or from another class in this set.  Resolved to a
+    fixpoint so a two-level hierarchy inside the package is followed.
+    """
+    all_classes: list[tuple[Path, ast.ClassDef]] = []
     for path in sorted(_package_root().rglob("*.py")):
         tree = ast.parse(path.read_text(), filename=str(path))
         for node in ast.walk(tree):
-            if not isinstance(node, ast.ClassDef):
-                continue
-            if not node.name.endswith("Error") or node.name.startswith("_"):
-                continue
-            if node.name == "RebrewError":  # the base itself
-                continue
-            base_names = {b.id for b in node.bases if isinstance(b, ast.Name)}
-            # A class with no exception base (e.g. the JsonRpcError payload
-            # dataclass) is not part of the raise hierarchy.
-            if not base_names:
-                continue
-            found.append((path, node))
-    return found
+            if isinstance(node, ast.ClassDef):
+                all_classes.append((path, node))
+
+    exceptions = {"RebrewError"}
+    while True:
+        grown = {
+            node.name
+            for _, node in all_classes
+            if _base_names(node) & (_STDLIB_EXCEPTION_BASES | exceptions)
+        }
+        if grown <= exceptions:
+            break
+        exceptions |= grown
+
+    return [
+        (path, node)
+        for path, node in all_classes
+        if node.name in exceptions and not node.name.startswith("_") and node.name != "RebrewError"
+    ]
+
+
+def _base_names(node: ast.ClassDef) -> set[str]:
+    """Bare-name bases of *node* (dotted and generic bases are ignored)."""
+    return {b.id for b in node.bases if isinstance(b, ast.Name)}
 
 
 class TestRebrewErrorBase:
@@ -52,7 +82,15 @@ class TestRebrewErrorBase:
 
     @pytest.mark.parametrize(
         "exc_type",
-        [ToolchainError, RecompileError, RegistryError, McpError, MetadataValidationError],
+        [
+            ToolchainError,
+            RecompileError,
+            RegistryError,
+            McpError,
+            McpApplyAborted,
+            MetadataValidationError,
+            WorkspaceNotFound,
+        ],
     )
     def test_documented_errors_share_the_base(self, exc_type: type[Exception]) -> None:
         assert issubclass(exc_type, RebrewError)
@@ -62,6 +100,8 @@ class TestRebrewErrorBase:
         assert issubclass(ToolchainError, RuntimeError)
         assert issubclass(RegistryError, RuntimeError)
         assert issubclass(MetadataValidationError, ValueError)
+        assert issubclass(McpApplyAborted, RuntimeError)
+        assert issubclass(WorkspaceNotFound, FileNotFoundError)
 
     def test_structured_fields_survive_the_new_base(self) -> None:
         exc = ToolchainError("nope", kind="missing", name="msvc-6.0", retryable=False)
@@ -86,17 +126,21 @@ class TestHierarchyCoverage:
     """
 
     def test_no_public_error_escapes_rebrew_error(self) -> None:
-        classes = _error_classes()
-        assert classes, "no error classes found — the scan is broken, not the tree"
-        local_names = {node.name for _, node in classes}
-        orphans: list[str] = []
-        for path, node in classes:
-            base_names = {b.id for b in node.bases if isinstance(b, ast.Name)}
-            if "RebrewError" in base_names or base_names & local_names:
-                continue
-            if base_names <= _STDLIB_EXCEPTION_BASES:
-                orphans.append(f"{path.name}:{node.name}")
+        classes = _exception_classes()
+        assert classes, "no exception classes found — the scan is broken, not the tree"
+
+        by_name = {node.name: node for _, node in classes}
+        reachable = {"RebrewError"}
+        while True:
+            grown = {name for name, node in by_name.items() if _base_names(node) & reachable}
+            if grown <= reachable:
+                break
+            reachable |= grown
+
+        orphans = sorted(
+            f"{path.name}:{node.name}" for path, node in classes if node.name not in reachable
+        )
         assert not orphans, (
-            "these error types are unreachable via `except RebrewError`; "
+            "these exception types are unreachable via `except RebrewError`; "
             f"add RebrewError as a base: {orphans}"
         )
