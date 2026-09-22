@@ -305,3 +305,32 @@ class TestRestoreOnSignal:
         )
         assert proc.returncode == -signal.SIGTERM
         assert source.read_text() == original
+
+    def test_error_exit_paths_leave_handlers_alone(self, tmp_path: Path, monkeypatch) -> None:
+        """The span/chunks error exits fire before the restore handler is
+        installed, so no inverse is owed there. An install above those checks
+        leaked the handler: error_exit raised out without the finally that
+        removes it."""
+        from types import SimpleNamespace
+
+        from typer.testing import CliRunner
+
+        import rebrew.climb as climb_mod
+
+        source = tmp_path / "demo.c"
+        source.write_text("// FUNCTION: SERVER 0x1000\nint demo(void)\n{\n    return 0;\n}\n")
+        cfg = SimpleNamespace(metadata_dir=str(tmp_path), target_binary=str(tmp_path / "t.bin"))
+        ann = SimpleNamespace(symbol="demo", size=4, va=0x1000, module="SERVER", cflags=None)
+        monkeypatch.setattr(climb_mod, "require_config", lambda **kw: cfg)
+        monkeypatch.setattr(climb_mod, "target_marker", lambda c: "SERVER")
+        monkeypatch.setattr(climb_mod, "parse_c_file_multi", lambda *a, **k: [ann])
+        monkeypatch.setattr(climb_mod, "extract_raw_bytes", lambda *a: b"\x90\x90\x90\x90")
+        monkeypatch.setattr(
+            climb_mod, "resolve_compile_overrides", lambda *a, **k: ("msvc-6.0", "")
+        )
+        monkeypatch.setattr(climb_mod, "build_name_to_va", lambda c: {})
+
+        before = signal.getsignal(signal.SIGTERM)
+        result = CliRunner().invoke(climb_mod.app, [str(source)])
+        assert result.exit_code != 0  # "nothing to climb"
+        assert signal.getsignal(signal.SIGTERM) is before

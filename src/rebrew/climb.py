@@ -473,7 +473,6 @@ def main(
     name_to_va = build_name_to_va(cfg)
 
     original, encoding = read_source_text(path)
-    previous_handlers = _install_restore_handler(path, original, encoding)
     lines = original.splitlines(keepends=True)
     try:
         lo, hi = _function_span(lines, sym)
@@ -496,6 +495,10 @@ def main(
         # stderr, so --json output on stdout stays parseable
         console.print(f"  pass {move['pass']} statement {move['index']}: {move['after']:.0f} bytes")
 
+    # Installed only now: nothing above writes the source, and every path
+    # from here on runs the inverse in the finally below — an earlier
+    # install leaked the handler on the span/chunks error_exit paths.
+    previous_handlers = _install_restore_handler(path, original, encoding)
     try:
         baseline, baseline_obj = scorer(
             cfg, path, sym, target_bytes, cflags_str, name_to_va, va_int, toolchain_name

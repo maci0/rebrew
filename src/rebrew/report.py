@@ -732,8 +732,9 @@ def _render_graph(cfg: ProjectConfig) -> tuple[str, str | None]:
         "<p>Call graph over reversed functions. The mermaid source below renders in any "
         "mermaid-compatible viewer. A <a href='adjacency.txt'>plain-text adjacency list</a> "
         "(screen-reader accessible) is available as a separate download.</p>"
-        "<h2>Mermaid source</h2>"
-        f"<pre class='mermaid' aria-label='Mermaid call-graph source'>"
+        "<h2 id='mermaid-heading'>Mermaid source</h2>"
+        # Focusable region so keyboard users can scroll the wide source.
+        "<pre class='mermaid' tabindex='0' role='region' aria-labelledby='mermaid-heading'>"
         f"{html.escape(mermaid)}</pre>"
     )
     return _page("Call graph", target, "graph.html", body), adjacency

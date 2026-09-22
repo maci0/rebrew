@@ -441,7 +441,7 @@ class TestHandle:
         assert "Retry globals" in body
         assert "Retry history" in body
         assert "Total functions for this target" in body
-        assert "aria-label='" in body  # metric cards expose title+value to AT
+        assert "<span class=visually-hidden>, " in body  # card title reaches AT after visible text
         assert "/api/bootstrap" in body
         assert "/api/sections" in body
         assert "/api/globals" in body

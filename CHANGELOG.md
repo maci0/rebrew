@@ -1,5 +1,24 @@
 ## [Unreleased]
 ### Fixed
+- **Report and dashboard accessibility.**  `graph.html` put `aria-label`
+  on a `<pre>` (invalid ARIA, flagged by vnu) that keyboard users could
+  not scroll; it is now a focusable region named by its heading.
+  Dashboard metric cards named a `<div>` via `aria-label` (ignored by
+  AT) and gave filter buttons a name not starting with their visible
+  text (WCAG 2.5.3); the description now follows the visible text in a
+  visually-hidden span.
+- **No work at module load; every registration keeps its inverse.**
+  CORDIS review (arXiv:2608.25512) pass over the component runtime:
+  `rebrew.main`'s import-time `compose()` discarded the `(ctx, scope)`
+  tuple — the fiber that owns every mount's disposer — and now retains
+  it as `_COMPOSED`; `rebrew.decompiler` and `rebrew.compile_cache`
+  registered their `atexit` cleanup at import and now arm the hook once,
+  on first use, matching the pattern `dosbox`/`compile` already use;
+  `rebrew.climb` installed its SIGTERM/SIGINT restore handler before the
+  span/chunks `error_exit` paths, which raised past the `finally` that
+  removes it, and now installs only once the file can be written.
+  Each repair ships a test that disposes the contribution and asserts it
+  is gone (idempotently).
 - **cvdump parsing no longer crashes on non-hex fields.**  The PUBLICS,
   SECTION CONTRIBUTIONS, and MODULES regexes matched hex fields with
   `\w`, so a malformed PDB dump such as `000G "a" "b.obj"` raised

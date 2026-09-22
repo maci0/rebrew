@@ -126,6 +126,8 @@ class TestReportCli:
 
         graph = (site / "graph.html").read_text(encoding="utf-8")
         assert "graph LR" in graph  # mermaid block
+        # Wide source must be keyboard-scrollable and named by its heading.
+        assert "tabindex='0' role='region' aria-labelledby='mermaid-heading'" in graph
         assert "adjacency.txt" in graph  # sidecar link, not inlined
         adjacency = (site / "adjacency.txt").read_text(encoding="utf-8")
         assert "2 nodes" in adjacency  # plain-text adjacency fallback

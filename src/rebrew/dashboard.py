@@ -425,19 +425,20 @@ function renderSummary(s) {
       "Share of .text bytes covered by any known function, including stubs"],
   ];
   for (const [k, v] of Object.entries(byStatus)) cards.push([k, v, k, "Filter by " + k]);
+  // The title text rides in a visually-hidden span, not aria-label: a div
+  // cannot be named, and the name must start with the visible text (WCAG 2.5.3).
   $("cards").innerHTML = cards.map(([k, v, status, title]) => {
+    const inner = "<span class=value>" + esc(v) + "</span>"
+      + "<span class=label>" + esc(k) + "</span>"
+      + "<span class=visually-hidden>, " + esc(title) + "</span>";
     if (status) {
       const pressed = $("status").value === status;
       const active = pressed ? " active" : "";
       return "<button type=button class='card" + active + "' data-status='" + esc(status)
-        + "' title='" + esc(title) + "' aria-label='" + esc(title + ": " + v)
-        + "' aria-pressed='" + (pressed ? "true" : "false") + "'>"
-        + "<span class=value>" + esc(v) + "</span>"
-        + "<span class=label>" + esc(k) + "</span></button>";
+        + "' title='" + esc(title) + "' aria-pressed='" + (pressed ? "true" : "false") + "'>"
+        + inner + "</button>";
     }
-    return "<div class=card title='" + esc(title) + "' aria-label='"
-      + esc(title + ": " + v) + "'><span class=value>" + esc(v) + "</span>"
-      + "<span class=label>" + esc(k) + "</span></div>";
+    return "<div class=card title='" + esc(title) + "'>" + inner + "</div>";
   }).join("");
   $("summary").hidden = false;
   updateFilterActions();
