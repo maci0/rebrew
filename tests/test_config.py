@@ -160,6 +160,32 @@ binary = "test.exe"
         assert cfg.target_name == "client_exe"
         assert cfg.arch == "x86_64"
 
+    def test_metadata_dir_prefers_parent(self, tmp_path: Path) -> None:
+        root = _make_project(tmp_path, self.MULTI_TOML)
+        cfg = load_config(root)
+        assert cfg.metadata_dir == (root / "src").resolve()
+
+    def test_metadata_dir_falls_back_to_source_root(self, tmp_path: Path) -> None:
+        """Whole-tree projects may keep TOMLs inside reversed_dir itself."""
+        toml = """\
+[project]
+default_target = "game"
+
+[targets.game]
+binary = "game.exe"
+format = "pe"
+arch = "x86_32"
+reversed_dir = "src"
+
+[compiler]
+profile = "gcc-14.2.0"
+"""
+        root = _make_project(tmp_path, toml)
+        (root / "src").mkdir()
+        (root / "src" / "rebrew-functions.toml").write_text("", encoding="utf-8")
+        cfg = load_config(root)
+        assert cfg.metadata_dir == (root / "src").resolve()
+
     def test_all_targets_listed(self, tmp_path: Path) -> None:
         root = _make_project(tmp_path, self.MULTI_TOML)
         cfg = load_config(root)

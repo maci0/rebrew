@@ -394,10 +394,22 @@ class ProjectConfig:
         """Directory for rebrew-functions.toml and rebrew-data.toml.
 
         This is the parent of ``reversed_dir`` — e.g. ``src/`` when
-        ``reversed_dir`` is ``src/NP``.  All metadata reads/writes must
-        go through this property so the location is centralized.
+        ``reversed_dir`` is ``src/NP``.  When the whole tree is the source
+        root (``reversed_dir`` is ``src`` itself) projects may keep the
+        TOMLs inside it; prefer the parent, but fall back to
+        ``reversed_dir`` when it holds ``rebrew-functions.toml`` and the
+        parent does not.  All metadata reads/writes must go through this
+        property so the location is centralized.
         """
-        return self.reversed_dir.parent
+        from rebrew.metadata import METADATA_FILENAME
+
+        parent = self.reversed_dir.parent
+        if (
+            not (parent / METADATA_FILENAME).exists()
+            and (self.reversed_dir / METADATA_FILENAME).exists()
+        ):
+            return self.reversed_dir
+        return parent
 
     @property
     def inventory_path(self) -> Path:

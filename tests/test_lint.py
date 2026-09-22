@@ -189,6 +189,26 @@ class TestDuplicateVA:
         assert not any((c == "E013" for _, c, _ in r1.errors))
         assert not any((c == "E013" for _, c, _ in r2.errors))
 
+    def test_same_va_different_modules_no_duplicate(self, tmp_path: Path) -> None:
+        """Cross-target same-VA blocks share one file: not a duplicate."""
+        seen_vas: dict[Any, str] = {}
+        server = VALID_HEADER
+        goldtl = VALID_HEADER.replace("SERVER", "GOLDTL")
+        f1 = _write_c(tmp_path, "first.c", server)
+        f2 = _write_c(tmp_path, "second.c", goldtl)
+        r1 = lint_file(f1, seen_vas=seen_vas)
+        r2 = lint_file(f2, seen_vas=seen_vas)
+        assert not any((c == "E013" for _, c, _ in r1.errors))
+        assert not any((c == "E013" for _, c, _ in r2.errors))
+
+    def test_same_va_same_module_in_one_file_detected(self, tmp_path: Path) -> None:
+        """Two same-module blocks at one VA in one file still collide."""
+        seen_vas: dict[Any, str] = {}
+        content = VALID_HEADER + VALID_HEADER.replace("bit_reverse", "bit_reverse2")
+        f = _write_c(tmp_path, "twin.c", content)
+        r = lint_file(f, seen_vas=seen_vas)
+        assert any((c == "E013" for _, c, _ in r.errors))
+
 
 class TestWarnings:
     def test_w001_missing_symbol(self, tmp_path: Path) -> None:

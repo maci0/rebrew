@@ -158,6 +158,18 @@ class TestLoadSaveMetadata:
         assert ("SERVER", 0x01006364) in loaded
         assert ("SERVER", 0x0DEAD000) not in loaded
 
+    def test_same_va_different_modules_coexist(self, tmp_path: Path) -> None:
+        """Cross-target same-VA entries share a file, never a row."""
+        data = {
+            ("SERVER", 0x01006364): {"size": 80, "status": "EXACT"},
+            ("GOLD", 0x01006364): {"size": 96, "status": "NEAR_MATCHING"},
+        }
+        save_metadata(tmp_path, data)
+        loaded = load_metadata(tmp_path)
+        assert loaded[("SERVER", 0x01006364)]["status"] == "EXACT"
+        assert loaded[("GOLD", 0x01006364)]["status"] == "NEAR_MATCHING"
+        assert loaded[("GOLD", 0x01006364)]["size"] == 96
+
     def test_sorted_output(self, tmp_path: Path) -> None:
         data = {
             ("SERVER", 0x02000000): {"size": 10, "status": "EXACT"},
