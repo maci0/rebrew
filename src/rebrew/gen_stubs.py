@@ -46,7 +46,7 @@ import typer
 from rich.console import Console
 
 from rebrew.cli import error_exit, json_print
-from rebrew.utils import atomic_write_text, load_tomllib, read_source_text
+from rebrew.utils import atomic_write_text, load_tomllib, read_source_text, run_process_group
 
 console = Console(stderr=True)
 
@@ -661,9 +661,9 @@ def _run_build(
                 )
 
         try:
-            result = subprocess.run(
+            # Group kill: make/cmake children must not outlive a timeout.
+            result: subprocess.CompletedProcess[str] = run_process_group(
                 argv,
-                shell=False,
                 capture_output=True,
                 text=True,
                 encoding="utf-8",

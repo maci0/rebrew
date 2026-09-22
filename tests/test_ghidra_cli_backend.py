@@ -1,5 +1,8 @@
 """Tests for the ghidra-cli sync backend (IDEAS #24)."""
 
+import time
+from pathlib import Path
+
 from rebrew.ghidra.cli_backend import _op_to_args, apply_commands_via_cli
 
 
@@ -125,7 +128,7 @@ class TestApplyCommandsViaCli:
             rc = 0 if "set-signature" not in argv else 1
             return type("P", (), {"returncode": rc, "stdout": "", "stderr": "boom" if rc else ""})()
 
-        monkeypatch.setattr("rebrew.ghidra.cli_backend.subprocess.run", fake_run)
+        monkeypatch.setattr("rebrew.ghidra.cli_backend.run_process_group", fake_run)
         commands = [
             {"tool": "create-function", "args": {"address": "0x1"}},
             {"tool": "set-function-prototype", "args": {"location": "0x2", "signature": "int f()"}},
@@ -149,7 +152,7 @@ class TestApplyCommandsViaCli:
                 {"returncode": 1, "stdout": "", "stderr": "DuplicateNameException: already exists"},
             )()
 
-        monkeypatch.setattr("rebrew.ghidra.cli_backend.subprocess.run", fake_run)
+        monkeypatch.setattr("rebrew.ghidra.cli_backend.run_process_group", fake_run)
         ok, errs = apply_commands_via_cli(
             [{"tool": "create-label", "args": {"addressOrSymbol": "0x1", "labelName": "x"}}],
             program="",
@@ -161,10 +164,26 @@ class TestApplyCommandsViaCli:
         def fake_run(argv, capture_output=False, text=False, timeout=None, **_kwargs):
             raise OSError("no binary")
 
-        monkeypatch.setattr("rebrew.ghidra.cli_backend.subprocess.run", fake_run)
+        monkeypatch.setattr("rebrew.ghidra.cli_backend.run_process_group", fake_run)
         ok, errs = apply_commands_via_cli(
             [{"tool": "create-label", "args": {"addressOrSymbol": "0x1", "labelName": "x"}}],
             program="",
         )
         assert ok == 0
         assert errs == 1
+
+    def test_timeout_kills_ghidra_cli_grandchildren(self, tmp_path: Path) -> None:
+        """A timed-out op counts as an error and its JVM-like grandchild dies
+        with it instead of outliving the sync loop."""
+        marker = tmp_path / "orphan-ran"
+        fake_cli = tmp_path / "ghidra-cli"
+        fake_cli.write_text(f"#!/bin/sh\n(sleep 2; touch '{marker}') & wait\n", encoding="utf-8")
+        fake_cli.chmod(0o755)
+        ok, errs = apply_commands_via_cli(
+            [{"tool": "create-label", "args": {"addressOrSymbol": "0x1", "labelName": "x"}}],
+            ghidra_cli=str(fake_cli),
+            timeout=1,
+        )
+        assert (ok, errs) == (0, 1)
+        time.sleep(2.5)
+        assert not marker.exists()

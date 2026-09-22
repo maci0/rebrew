@@ -18,6 +18,8 @@ from typing import Any
 
 from rich.console import Console
 
+from rebrew.utils import run_process_group
+
 console = Console(stderr=True)
 
 
@@ -97,7 +99,8 @@ def apply_commands_via_cli(
         if project:
             full += ["--project", project]
         try:
-            proc = subprocess.run(
+            # Group kill: ghidra-cli launches a JVM that would outlive a timeout.
+            proc = run_process_group(
                 full,
                 capture_output=True,
                 text=True,

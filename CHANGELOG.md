@@ -374,6 +374,12 @@
   ``one_line``, ``run_git``). Call sites inside the package already updated.
 
 ### Fixed
+- **Timed-out ghidra-cli ops, link-sweep links, and gen-stubs builds no
+  longer orphan grandchildren.**  `subprocess.run` killed only the direct
+  child on timeout, so ghidra-cli's JVM, a wrapper's linker, or
+  make/cmake's compilers kept running, one set per timed-out op in the
+  sync and link-sweep loops.  These call sites now use
+  `run_process_group`, which kills the whole process group.
 - **The wheel no longer depends on the builder's umask.**  setuptools
   copies umask-filtered file modes into wheel entries, so `make build`
   under `umask 077` produced `0600` entries and a different hash.

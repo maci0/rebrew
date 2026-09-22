@@ -43,6 +43,7 @@ from rich.table import Table
 from rebrew.cli import TargetOption, error_exit, json_print, require_config
 from rebrew.gen_layout import derive_link_options, parse_pe
 from rebrew.pe_headers import pe_layout
+from rebrew.utils import run_process_group
 
 console = Console(stderr=True)
 
@@ -228,7 +229,8 @@ def main(
             # element (same discipline as calibrate_bss).
             cmd = cmd_tpl.format(options=" ".join(cand.options), out=shlex.quote(str(out)))
             try:
-                proc = subprocess.run(
+                # Group kill: a wrapper's linker must not outlive a timeout.
+                proc = run_process_group(
                     shlex.split(cmd),
                     cwd=workdir,
                     capture_output=True,
