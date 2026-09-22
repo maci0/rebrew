@@ -1811,14 +1811,20 @@ class _Handler(BaseHTTPRequestHandler):
                 self.wfile.write(body_bytes)
             return
 
-        # Revalidation of a routed GET/HEAD: the ETag (asset hash or DB mtime)
-        # decides freshness, so answer 304 before running the SQLite query
-        # whose body would be discarded anyway.
-        if method in ("GET", "HEAD") and urlparse(self.path).path in _ROUTES:
-            cached_etag = self.dashboard.response_etag(self.path)
-            if _if_none_match(self.headers.get("If-None-Match", ""), cached_etag):
-                self._send_not_modified(cached_etag)
-                return
+        # Read the ETag (asset hash or DB mtime) BEFORE the query: a
+        # ``build-db`` swap between query and stat would otherwise tag the old
+        # body with the new ETag, and the browser would revalidate that stale
+        # body as fresh until the next rebuild.  An old ETag on a new body
+        # only costs one extra refetch.  A matching If-None-Match on a routed
+        # GET/HEAD answers 304 without running the query.
+        etag = self.dashboard.response_etag(self.path)
+        if (
+            method in ("GET", "HEAD")
+            and urlparse(self.path).path in _ROUTES
+            and _if_none_match(self.headers.get("If-None-Match", ""), etag)
+        ):
+            self._send_not_modified(etag)
+            return
 
         query = parse_qs(urlparse(self.path).query)
         try:
@@ -1848,10 +1854,6 @@ class _Handler(BaseHTTPRequestHandler):
                 500, {"error": "internal server error"}
             )
 
-        etag: str | None = None
-        if status == 200:
-            etag = self.dashboard.response_etag(self.path)
-
         body_bytes = body.encode("utf-8")
         encoding: _WireEncoding | None = None
         if status == 200:
@@ -1879,7 +1881,7 @@ class _Handler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body_bytes)))
-        if etag is not None:
+        if status == 200:
             self.send_header("ETag", etag)
         if encoding:
             self.send_header("Content-Encoding", encoding)

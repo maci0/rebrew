@@ -1225,6 +1225,42 @@ class TestHostValidation:
         handler._respond("GET")
         assert [v for k, v in sent if k == "status"] == [404]
 
+    def test_handler_etag_read_before_query(self, dashboard: Dashboard) -> None:
+        """A DB rebuilt mid-query must not tag the old body with the new ETag."""
+        import os
+
+        from rebrew.dashboard import _Handler, allowed_hosts_for
+
+        handler = _Handler.__new__(_Handler)
+        handler.path = "/api/targets"
+        handler.allowed_hosts = allowed_hosts_for("127.0.0.1", 8000)
+        handler.dashboard = dashboard
+        handler.headers = {"Host": "127.0.0.1:8000"}
+        before = dashboard.response_etag(handler.path)
+        sent: list[tuple] = []
+        handler.send_response = lambda status: sent.append(("status", status))  # type: ignore[method-assign]
+        handler.send_header = lambda name, value: sent.append((name, value))  # type: ignore[method-assign]
+        handler.end_headers = lambda: sent.append(("end", None))  # type: ignore[method-assign]
+
+        class _FakeWFile:
+            def write(self, data: bytes) -> int:
+                return len(data)
+
+        handler.wfile = _FakeWFile()
+        real_handle = dashboard.handle
+
+        def _handle_then_rebuild(*args: object, **kwargs: object) -> tuple[int, str, str]:
+            result = real_handle(*args, **kwargs)  # type: ignore[arg-type]
+            st = dashboard.db_path.stat()
+            os.utime(dashboard.db_path, ns=(st.st_atime_ns, st.st_mtime_ns + 10**9))
+            return result
+
+        dashboard.handle = _handle_then_rebuild  # type: ignore[method-assign]
+        handler._respond("GET")
+        assert [v for k, v in sent if k == "status"] == [200]
+        assert dashboard.response_etag(handler.path) != before
+        assert ("ETag", before) in sent
+
     def test_functions_omit_unused_marker_type(self, dashboard: Dashboard) -> None:
         """The table never reads markerType; keep it off the JSON wire."""
         row = dashboard.functions("server_dll")["functions"][0]

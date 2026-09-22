@@ -349,6 +349,11 @@
   ``one_line``, ``run_git``). Call sites inside the package already updated.
 
 ### Fixed
+- **`rebrew dashboard` no longer caches a stale body under a fresh ETag.**
+  The 200 response read the DB-mtime ETag after its SQLite query, so a
+  `build-db` finishing mid-request tagged the old body with the new ETag
+  and browsers revalidated it as current until the next rebuild.  The
+  ETag is now read once, before the query.
 - **`verify --whole-binary` no longer passes on unparseable binaries.**
   A binary LIEF could not load, or whose import/export tables failed to
   parse, snapshotted as empty facts, so two broken binaries compared equal
