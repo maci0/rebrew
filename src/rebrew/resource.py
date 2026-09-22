@@ -146,7 +146,9 @@ def extract(
 
 def main_entry() -> None:
     """Run the Typer CLI application."""
-    app()
+    from rebrew.cli import run_cli
+
+    run_cli(app)
 
 
 if __name__ == "__main__":

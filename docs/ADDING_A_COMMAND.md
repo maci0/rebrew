@@ -8,7 +8,8 @@ skipped.
 
 Create `src/rebrew/<name>.py` following the CLI tool pattern (AGENTS.md):
 module docstring, `console = Console(stderr=True)`, `app = typer.Typer(...)`,
-`@app.callback(invoke_without_command=True)` on `main()`, `main_entry()`,
+`@app.callback(invoke_without_command=True)` on `main()`, `main_entry()`
+(body: `run_standalone(main)` from `rebrew.cli`),
 `if __name__ == "__main__"` guard.
 
 Conventions (CLI review will flag drift):

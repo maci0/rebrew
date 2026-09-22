@@ -359,6 +359,12 @@ def _docker_run(spec: ToolchainSpec, mode: str, args: list[str]) -> int:
 
 def tc_main() -> None:
     """Console-script entry: dispatch by argv[0] basename (cl/link/lib)."""
+    from rebrew.cli import run_cli
+
+    run_cli(_tc_dispatch)
+
+
+def _tc_dispatch() -> None:
     mode = _TOOL_MODES.get(Path(sys.argv[0]).name)
     if mode is None:
         error_exit(f"rebrew-cmake-*: unknown invocation name {Path(sys.argv[0]).name!r}")

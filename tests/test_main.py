@@ -1,5 +1,6 @@
 """Tests for main.py — the umbrella rebrew CLI."""
 
+import pytest
 from typer.testing import CliRunner
 
 from rebrew.main import app
@@ -80,8 +81,20 @@ class TestUmbrellaCli:
 
 
 class TestClosedStdout:
-    def test_closed_pipe_exits_like_sigpipe(self) -> None:
-        """``rebrew ... | head`` must not warn on stderr or exit 120."""
+    @pytest.mark.parametrize(
+        "argv",
+        [
+            ["rebrew.main", "skills", "list", "--json"],
+            # Output past the pipe buffer: the EPIPE hits inside click (JSON)
+            # or Rich (markdown), both of which swallow it into exit 1.
+            ["rebrew.main", "skills", "show", "rebrew-workflow", "--json"],
+            ["rebrew.main", "skills", "show", "rebrew-workflow"],
+            # Standalone console-script entry (``rebrew-skills``).
+            ["rebrew.skills", "show", "rebrew-workflow", "--json"],
+        ],
+    )
+    def test_closed_pipe_exits_like_sigpipe(self, argv: list[str]) -> None:
+        """``rebrew ... | head`` must not warn on stderr or exit 1/120."""
         import os
         import subprocess
         import sys
@@ -90,7 +103,7 @@ class TestClosedStdout:
         os.close(read_fd)  # reader gone before the child writes anything
         try:
             proc = subprocess.run(
-                [sys.executable, "-m", "rebrew.main", "skills", "list", "--json"],
+                [sys.executable, "-m", *argv],
                 stdout=write_fd,
                 stderr=subprocess.PIPE,
                 timeout=120,
@@ -100,3 +113,24 @@ class TestClosedStdout:
             os.close(write_fd)
         assert proc.returncode == 141, proc.stderr
         assert proc.stderr == b""
+
+
+class TestPlainEntryErrorExit:
+    def test_error_exit_outside_click_keeps_its_code(self) -> None:
+        """A plain console-script entry's ``error_exit`` is a clean exit 2, not a traceback."""
+        import subprocess
+        import sys
+
+        proc = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                "from rebrew.objdiff_project import objdiff_build_entry as e; e()",
+            ],
+            capture_output=True,
+            timeout=120,
+            check=False,
+        )
+        assert proc.returncode == 2, proc.stderr
+        assert b"usage: rebrew-objdiff-build" in proc.stderr
+        assert b"Traceback" not in proc.stderr

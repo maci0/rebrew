@@ -6,6 +6,7 @@ from rich.console import Console
 from typer.testing import CliRunner
 
 import rebrew.main as main_mod
+from rebrew.cli import EXIT_ERROR
 from rebrew.plugin import make_stub_app, make_stub_command
 
 
@@ -55,12 +56,12 @@ class TestStubRegistration:
         stub = make_stub_command("rebrew.nope", ImportError("no module"), Console(stderr=True))
         with pytest.raises(typer.Exit) as exc:
             stub()
-        assert exc.value.exit_code == main_mod.EXIT_ERROR
+        assert exc.value.exit_code == EXIT_ERROR
 
     def test_stub_app_reports_error(self) -> None:
         stub = make_stub_app("rebrew.nope", ImportError("no module"), Console(stderr=True))
         result = CliRunner().invoke(stub, [])
-        assert result.exit_code == main_mod.EXIT_ERROR
+        assert result.exit_code == EXIT_ERROR
         assert "could not load" in result.output
 
     def test_stub_cmd_escapes_markup(self) -> None:
@@ -85,7 +86,7 @@ class TestMainEntry:
         # that would print a traceback and exit 1).
         with pytest.raises(SystemExit) as exc:
             main_mod.main()
-        assert exc.value.code == main_mod.EXIT_ERROR
+        assert exc.value.code == EXIT_ERROR
 
     def test_keyboard_interrupt_exit_130(self, monkeypatch: pytest.MonkeyPatch) -> None:
         class _InterruptApp:
@@ -99,13 +100,13 @@ class TestMainEntry:
 
 
 class TestMainEntryExitPaths:
-    def test_typer_exit_from_subcommand_converted(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """The catch-all exists because error_exit() raises typer.Exit OUTSIDE
-        click's handler — it must become SystemExit(EXIT_ERROR), not a
-        traceback with exit 1."""
+    def test_typer_exit_from_subcommand_keeps_code(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """error_exit() raises typer.Exit OUTSIDE click's handler (plain
+        entry functions); it must become SystemExit with the code the caller
+        chose, not a traceback."""
         import typer
 
-        from rebrew.cli import EXIT_ERROR, EXIT_MISMATCH
+        from rebrew.cli import EXIT_MISMATCH
 
         class _ExitApp:
             def __call__(self, *a: object, **k: object) -> None:
@@ -114,7 +115,7 @@ class TestMainEntryExitPaths:
         monkeypatch.setattr(main_mod, "app", _ExitApp())
         with pytest.raises(SystemExit) as exc:
             main_mod.main()
-        assert exc.value.code == EXIT_ERROR
+        assert exc.value.code == EXIT_MISMATCH
 
 
 class TestJsonRequested:
@@ -124,13 +125,13 @@ class TestJsonRequested:
     error envelope to JSON mode)."""
 
     def test_exact_json_matches(self) -> None:
-        from rebrew.main import _json_requested
+        from rebrew.cli import _json_requested
 
         assert _json_requested(["rebrew", "test", "f.c", "--json"])
         assert _json_requested(["rebrew", "test", "--json=true"])
 
     def test_substring_does_not_match(self) -> None:
-        from rebrew.main import _json_requested
+        from rebrew.cli import _json_requested
 
         assert not _json_requested(["rebrew", "test", "x--json.c"])
         # A VALUE containing "--json" (e.g. --cflags "--json") is one token

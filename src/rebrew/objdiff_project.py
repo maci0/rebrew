@@ -34,7 +34,7 @@ import typer
 from rich.console import Console
 
 from rebrew.annotation import iter_annotations
-from rebrew.cli import TargetOption, error_exit, require_config
+from rebrew.cli import TargetOption, error_exit, require_config, run_cli
 from rebrew.sources import iter_sources, source_exts, target_marker
 
 console = Console(stderr=True)
@@ -314,6 +314,10 @@ def objdiff_build_entry() -> None:
 
     argv: ``rebrew-objdiff-build <target> <base-object>``
     """
+    run_cli(_objdiff_build)
+
+
+def _objdiff_build() -> None:
     if len(sys.argv) < 3:
         error_exit("usage: rebrew-objdiff-build <target> <base-object>")
     target_name = sys.argv[1]

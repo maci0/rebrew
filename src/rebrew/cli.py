@@ -20,6 +20,10 @@ Usage in a tool::
 from __future__ import annotations
 
 import json
+import os
+import stat
+import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NoReturn
 
@@ -42,6 +46,11 @@ if TYPE_CHECKING:
 EXIT_OK = 0  # Success (all functions matched / no errors)
 EXIT_MISMATCH = 1  # Actionable failure (fix your code)
 EXIT_ERROR = 2  # Infrastructure error (build/config broken)
+#: Exit status of a process killed by SIGPIPE (128 + 13), what a shell reports
+#: for ``yes | head``.
+EXIT_SIGPIPE = 141
+#: Exit status after Ctrl+C (128 + SIGINT).
+EXIT_INTERRUPTED = 130
 
 # Canonical Rich colour tags for status strings — used across CLI tools
 # for consistent output formatting.
@@ -239,7 +248,76 @@ def run_standalone(main: Any) -> None:
     """
     _standalone = typer.Typer()
     _standalone.command()(main)
-    _standalone()
+    run_cli(_standalone)
+
+
+def _json_requested(argv: list[str] | None = None) -> bool:
+    """True when the invocation passed the exact ``--json`` / ``--json=true`` token.
+
+    A substring scan would match a file named ``x--json.c`` or
+    ``--cflags "--json"``.
+    """
+    return any(arg in ("--json", "--json=true") for arg in (sys.argv if argv is None else argv))
+
+
+def _stdout_is_fifo() -> bool:
+    try:
+        return stat.S_ISFIFO(os.fstat(sys.stdout.fileno()).st_mode)
+    except (OSError, ValueError):  # stdout replaced by an in-memory stream
+        return False
+
+
+def _stdout_pipe_closed(stdout_was_fifo: bool) -> bool:
+    """True when a library swallowed an EPIPE on stdout into ``exit(1)``.
+
+    click/typer swap ``sys.stdout`` for a ``PacifyFlushWrapper``; Rich's
+    ``Console.on_broken_pipe`` dups ``/dev/null`` over the stdout fd.  Either
+    is the only sign distinguishing a closed pipe from a real
+    ``EXIT_MISMATCH``.
+    """
+    if type(sys.stdout).__name__.endswith("PacifyFlushWrapper"):
+        return True
+    return stdout_was_fifo and not _stdout_is_fifo()
+
+
+def run_cli(app: Callable[[], Any]) -> None:
+    """Run a Typer *app* as a process entry point with rebrew's exit contract.
+
+    - reader closed the pipe early (``rebrew ... --json | head``): exit
+      ``EXIT_SIGPIPE`` silently, never click's ``1`` (which reads as
+      ``EXIT_MISMATCH``) or Python's ``120``
+    - ``error_exit`` raised outside click (plain entry functions): its code
+    - an uncaught ``ValueError`` / ``OSError`` / ``KeyError`` / ``RuntimeError``:
+      one-line error (JSON envelope under ``--json``) and ``EXIT_ERROR``
+    - Ctrl+C: ``EXIT_INTERRUPTED``
+    """
+    stdout_was_fifo = _stdout_is_fifo()
+    try:
+        try:
+            app()
+        except SystemExit as exc:
+            if exc.code == EXIT_MISMATCH and _stdout_pipe_closed(stdout_was_fifo):
+                raise BrokenPipeError from None
+            raise
+        finally:
+            # Flush here, not at interpreter exit, so a closed pipe raises
+            # inside this handler instead of printing "Exception ignored".
+            sys.stdout.flush()
+    except BrokenPipeError:
+        os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+        raise SystemExit(EXIT_SIGPIPE) from None
+    except typer.Exit as e:
+        # error_exit() outside click's handler: the message is already out.
+        raise SystemExit(e.exit_code) from None
+    except (ValueError, OSError, KeyError, RuntimeError) as e:
+        if _json_requested():
+            print(json.dumps({"error": str(e), "code": EXIT_ERROR}, indent=2))
+        else:
+            _err_console.print(f"[red]error:[/red] {escape(str(e))}", soft_wrap=True)
+        raise SystemExit(EXIT_ERROR) from None
+    except KeyboardInterrupt:
+        _err_console.print("[red]error:[/red] Interrupted by user")
+        raise SystemExit(EXIT_INTERRUPTED) from None
 
 
 def option_default(value: Any, default: Any) -> Any:
@@ -391,8 +469,10 @@ def angr_available() -> bool:
 __all__ = [
     "DISPLAY_STATUSES",
     "EXIT_ERROR",
+    "EXIT_INTERRUPTED",
     "EXIT_MISMATCH",
     "EXIT_OK",
+    "EXIT_SIGPIPE",
     "STATUS_COLORS",
     "TargetOption",
     "angr_available",
@@ -402,5 +482,6 @@ __all__ = [
     "parse_va",
     "require_config",
     "resolve_source_arg",
+    "run_cli",
     "run_standalone",
 ]

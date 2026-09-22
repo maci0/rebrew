@@ -381,6 +381,15 @@
   ``one_line``, ``run_git``). Call sites inside the package already updated.
 
 ### Fixed
+- **A closed pipe exits 141 everywhere, not 1.**  When a reader closed
+  stdout early (`rebrew skills show X | head`), click and Rich both
+  swallowed the EPIPE into exit 1, which reads as `EXIT_MISMATCH`; only
+  small, fully-buffered output reached the 141 path.  The 72 standalone
+  `rebrew-*` scripts had no pipe or exception handling at all.  All entry
+  points now run through `rebrew.cli.run_cli`: closed pipe → 141 silently,
+  Ctrl+C → 130, uncaught error → one line and 2.  `error_exit` from a plain
+  entry function (`rebrew-objdiff-build`, `rebrew-cmake-*`) now exits with
+  its code instead of printing a `typer.Exit` traceback.
 - **`dist/rebrew.buildinfo` no longer records a host path.**  The
   `python=` line held the absolute interpreter path (for example
   `/home/<user>/.local/share/uv/...`), so the uploaded manifest leaked the

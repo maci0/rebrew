@@ -252,9 +252,9 @@ def main(
 
 def main_entry() -> None:
     """Run the Typer CLI application."""
-    _standalone = typer.Typer()
-    _standalone.command()(main)
-    _standalone()
+    from rebrew.cli import run_standalone
+
+    run_standalone(main)
 
 
 if __name__ == "__main__":

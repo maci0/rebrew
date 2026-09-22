@@ -96,7 +96,9 @@ def main(
 
 def main_entry() -> None:
     """Run the Typer CLI application."""
-    app()
+    from rebrew.cli import run_cli
+
+    run_cli(app)
 
 
 @app.command("apply-type")

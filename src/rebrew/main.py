@@ -11,15 +11,13 @@ component's declared service dependencies decide activation order.
 from __future__ import annotations
 
 import logging
-import os
-import sys
 import time
 
 import typer
 from rich.console import Console
 
 from rebrew.builtins import BUILTIN_COMPONENTS
-from rebrew.cli import EXIT_ERROR
+from rebrew.cli import run_cli
 from rebrew.plugin import (
     CLI_SERVICE,
     CONSOLE_SERVICE,
@@ -33,10 +31,6 @@ from rebrew.plugin import (
 
 console = Console(stderr=True)
 _stdout_console = Console()
-
-#: Exit status of a process killed by SIGPIPE (128 + 13), what a shell reports
-#: for ``yes | head``.
-_EXIT_SIGPIPE = 141
 
 app = typer.Typer(
     help="Compiler-in-the-loop decompilation workbench for binary-matching reversing.",
@@ -198,46 +192,9 @@ def compose() -> tuple[Context, CoeffectScope]:
 _COMPOSED: tuple[Context, CoeffectScope] = compose()
 
 
-def _json_requested(argv: list[str] | None = None) -> bool:
-    """True when the invocation asked for JSON output.
-
-    Checks the EXACT ``--json`` / ``--json=true`` tokens — the old
-    substring scan (``"--json" in sys.argv``) matched any argument
-    containing the literal, e.g. a file named ``x--json.c`` or
-    ``--cflags "--json"``, switching the uncaught-exception envelope to
-    JSON mode without the user passing ``--json``.
-    """
-    return any(arg in ("--json", "--json=true") for arg in (sys.argv if argv is None else argv))
-
-
 def main() -> None:
     """Package entry point for the ``rebrew`` umbrella CLI."""
-    try:
-        try:
-            app()
-        finally:
-            # Flush here, not at interpreter exit: a reader that closed the
-            # pipe early (``rebrew ... --json | head``) otherwise surfaces as
-            # an "Exception ignored" warning and exit 120.
-            sys.stdout.flush()
-    except BrokenPipeError:
-        os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
-        raise SystemExit(_EXIT_SIGPIPE) from None
-    except (ValueError, OSError, KeyError, RuntimeError) as e:
-        # error_exit() raises typer.Exit, which OUTSIDE click's handler
-        # becomes an uncaught-exception traceback with a lying exit 1.
-        # Print the friendly message (JSON envelope when --json was passed)
-        # and exit with EXIT_ERROR instead.
-        if _json_requested():
-            import json
-
-            print(json.dumps({"error": str(e), "code": EXIT_ERROR}, indent=2))
-        else:
-            Console(stderr=True).print(f"[red]error:[/red] {e}")
-        raise SystemExit(EXIT_ERROR) from None
-    except KeyboardInterrupt:
-        Console(stderr=True).print("[red]error:[/red] Interrupted by user")
-        raise SystemExit(130) from None
+    run_cli(app)
 
 
 if __name__ == "__main__":

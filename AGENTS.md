@@ -62,7 +62,7 @@ Dockerfiles / wrappers / 16-bit media: sibling **rebrew-toolchains** (not vendor
 
 ## CLI Conventions
 
-Single-command tools: `@app.callback(invoke_without_command=True)` + `main_entry()` in `[project.scripts]`; `TargetOption` + `require_config()` from `rebrew.cli` (use `rebrew.config.load_config` only for optional loads; not re-exported from `cli`). Param order: `--json` before `--target`, both last. Help strings exact: `--json` → `"Output results as JSON"`; `--dry-run` → `"Preview changes without writing"`. Output via `Console(stderr=True)`; raw `print()` only for piped data. `main_entry` docstring always `"""Run the Typer CLI application."""`. JSON errors: `error_exit(..., json_mode=json_output)`.
+Single-command tools: `@app.callback(invoke_without_command=True)` + `main_entry()` in `[project.scripts]`; `TargetOption` + `require_config()` from `rebrew.cli` (use `rebrew.config.load_config` only for optional loads; not re-exported from `cli`). Param order: `--json` before `--target`, both last. Help strings exact: `--json` → `"Output results as JSON"`; `--dry-run` → `"Preview changes without writing"`. Output via `Console(stderr=True)`; raw `print()` only for piped data. `main_entry` docstring always `"""Run the Typer CLI application."""`; its body is `run_standalone(main)` (single-command) or `run_cli(app)` (group), never a bare `app()` (that loses the 141/130/2 exit contract). JSON errors: `error_exit(..., json_mode=json_output)`.
 
 Multi-command groups: `is_group=True` in `builtins.py`.
 
