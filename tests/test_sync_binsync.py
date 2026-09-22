@@ -49,7 +49,21 @@ class TestBuilders:
         assert len(ops) == 2
         assert all(o["tool"] == "set-bookmark" for o in ops)
         assert ops[0]["args"]["addressOrSymbol"] == "0x00001000"
-        assert ops[0]["args"]["category"] == "rebrew/exact"
+        assert ops[0]["args"]["category"] == "rebrew"
+        assert ops[0]["args"]["comment"] == "EXACT"
+
+    def test_bookmark_status_change_targets_same_bookmark(self) -> None:
+        """Ghidra's setBookmark replaces on (address, type, category): a rerun
+        after STUB → EXACT must hit that key, not add a second bookmark."""
+        before = build_bookmark_commands([{"va": 0x1000, "status": "STUB"}], "/x.dll")
+        after = build_bookmark_commands([{"va": 0x1000, "status": "EXACT"}], "/x.dll")
+
+        def key(op: dict) -> tuple[str, str, str]:
+            a = op["args"]
+            return (a["addressOrSymbol"], a["type"], a["category"])
+
+        assert key(before[0]) == key(after[0])
+        assert after[0]["args"]["comment"] == "EXACT"
 
     def test_create_functions_empty_registry(self) -> None:
         assert build_new_function_commands({}, "/x.dll") == []

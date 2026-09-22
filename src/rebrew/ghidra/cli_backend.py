@@ -46,8 +46,8 @@ def _op_to_args(op: dict[str, Any]) -> list[str] | None:
         return cmd
     if tool == "set-bookmark":
         # ghidra-cli 0.2.1 has no `bookmark` subcommand; represent the status
-        # category as a plate comment instead (same visual marker at the
-        # address — e.g. `rebrew/exact`).
+        # bookmark as a plate comment instead (same visual marker at the
+        # address, e.g. `rebrew: EXACT`).
         addr = _addr()
         category = str(args.get("category") or "rebrew")
         text = category

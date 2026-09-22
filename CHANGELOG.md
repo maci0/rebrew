@@ -360,6 +360,13 @@
   ``one_line``, ``run_git``). Call sites inside the package already updated.
 
 ### Fixed
+- **`rebrew sync --bookmarks` reruns replace, not pile up.**  Each status
+  had its own bookmark category (`rebrew/stub`, `rebrew/exact`, …), and
+  Ghidra replaces a bookmark only on the same address, type, and category,
+  so a rerun after STUB → EXACT left the stale STUB bookmark beside the new
+  one.  Every status bookmark now uses category `rebrew` with the status in
+  the comment.  Bookmarks from earlier runs under the old categories stay
+  until removed in Ghidra.
 - **`rebrew pdb-info --write-cflags` writes when `[compiler]` is absent.**
   A project without a `[compiler]` table got no write and no message; the
   table is now created.  Text mode prints the write outcome (it printed

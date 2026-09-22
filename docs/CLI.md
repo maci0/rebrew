@@ -1025,7 +1025,7 @@ state dir cannot express — function creation, bookmarks, data pulls.
 | `--accept-binsync` | With `--pull`: accept BinSync names on conflicts |
 | `--accept-local` | With `--pull`: keep local names on conflicts (records provenance) |
 | `--create-missing` | With `--pull`: STUB files for BinSync functions not in the catalog |
-| `--bookmarks` | Set status bookmarks in Ghidra via MCP (rebrew/exact\|reloc\|matching\|stub) |
+| `--bookmarks` | Set status bookmarks in Ghidra via MCP (category `rebrew`, status in the comment; a rerun replaces each) |
 | `--pull-data` | Pull Ghidra data labels into `rebrew_globals.h` (MCP) |
 | `--summary` | Preview the push (dry-run export) without writing |
 | `--watch` | With `--push --state-dir`: re-export on every source change |

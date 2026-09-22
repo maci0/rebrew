@@ -27,16 +27,17 @@ console = Console(stderr=True)
 # Matches non-identifier characters to remove from symbol names.
 _NORMALIZE_NAME_RE = re.compile(r"[^A-Za-z0-9_]")
 
-# Status → bookmark category prefix for visual distinction
-_STATUS_BOOKMARK_CATEGORY = {
-    "EXACT": "rebrew/exact",
-    "RELOC": "rebrew/reloc",
-    "NEAR_MATCHING": "rebrew/matching",
-    "STUB": "rebrew/stub",
-}
+#: Statuses that get a status bookmark.
+_BOOKMARK_STATUSES = frozenset({"EXACT", "RELOC", "NEAR_MATCHING", "STUB"})
+
+#: One fixed bookmark category; the status rides in the comment.  Ghidra's
+#: ``setBookmark`` replaces the bookmark with the same address, type, and
+#: category, so a rerun after a status change (STUB → EXACT) updates the one
+#: bookmark instead of adding a second, stale one beside it.
+_BOOKMARK_CATEGORY = "rebrew"
 
 
-def _bookmark_cmd(program_path: str, va_hex: str, category: str, comment: str) -> dict[str, Any]:
+def _bookmark_cmd(program_path: str, va_hex: str, comment: str) -> dict[str, Any]:
     """Build a ``set-bookmark`` MCP command (always of Ghidra type ``Note``)."""
     return {
         "tool": "set-bookmark",
@@ -44,7 +45,7 @@ def _bookmark_cmd(program_path: str, va_hex: str, category: str, comment: str) -
             "programPath": program_path,
             "addressOrSymbol": va_hex,
             "type": "Note",
-            "category": category,
+            "category": _BOOKMARK_CATEGORY,
             "comment": comment,
         },
     }
@@ -67,11 +68,9 @@ def build_bookmark_commands(
         status = str(e.get("status", ""))
         # ``va is None``, not ``not va``: 16-bit targets legitimately place a
         # function at VA 0 and its bookmark was silently dropped.
-        if va is None or status not in _STATUS_BOOKMARK_CATEGORY:
+        if va is None or status not in _BOOKMARK_STATUSES:
             continue
-        out.append(
-            _bookmark_cmd(program_path, f"0x{va:08X}", _STATUS_BOOKMARK_CATEGORY[status], status)
-        )
+        out.append(_bookmark_cmd(program_path, f"0x{va:08X}", status))
     return out
 
 

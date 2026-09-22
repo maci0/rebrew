@@ -89,7 +89,7 @@ Notes:
 
 ```bash
 rebrew sync --create-functions                   # create functions for list-only entries in Ghidra
-rebrew sync --bookmarks                          # status bookmarks (rebrew/exact|reloc|matching|stub)
+rebrew sync --bookmarks                          # status bookmarks (category rebrew, status in the comment)
 rebrew sync --pull-data                          # Ghidra data labels -> rebrew_globals.h
 ```
 

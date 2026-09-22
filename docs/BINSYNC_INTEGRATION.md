@@ -496,7 +496,7 @@ graph TD
 | Import a BinSync state dir into rebrew | File → Local | ✅ Done | `--pull --state-dir D` |
 | Import structs / notes / global types+sizes | File → Local | ✅ Done | `--pull` (structs → `binsync_types.h`, notes → metadata, global type/size → `rebrew-data.toml`) |
 | Create missing functions in Ghidra | Local → Ghidra | ✅ Done | `--pull --create-functions` (MCP create op over imported VAs) |
-| Status-based bookmark categories | Local → Ghidra | ✅ Done | automatic (`rebrew/exact`, `/reloc`, etc.) via `--bookmarks` |
+| Status bookmarks | Local → Ghidra | ✅ Done | `--bookmarks` (category `rebrew`, status in the comment) |
 | Custom MCP endpoint URL | — | ✅ Done | `--endpoint URL` |
 | Summary / dry-run preview | — | ✅ Done | `--summary`, `--dry-run` |
 | Prototype conflict gating | File → Local | ✅ Done | differing local prototype reports a conflict; `--accept-binsync` overwrites |
