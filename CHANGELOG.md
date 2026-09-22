@@ -336,6 +336,19 @@
   ``one_line``, ``run_git``). Call sites inside the package already updated.
 
 ### Fixed
+- **`cross-import` refuses library code, duplicate source bodies, and
+  duplicate VAs.**  Three ways a shared import could write a marker that
+  cannot be true: (1) destination VAs that are linked, not reversed — now
+  skipped via `// LIBRARY:` rows, `external_libs` modules, and the new
+  `targets.<name>.external_ranges` bands (`["0x5e0000-0x64ffff"]` for a
+  T&L client's D3DX8 region); (2) one source body stacked at several
+  destination VAs whose spans differ (one body is one function — the best
+  match per source file imports, the rest report "needs a deliberate
+  twin"); (3) a failed stack onto a VA the destination already annotates,
+  which used to leave two claimants (lint E013) — it is now rolled back and
+  reported as `skipped-unverified-duplicate`.  Shared imports also stop
+  writing a per-function `cflags` equal to the inherited default (25 imports
+  produced 25 redundant W029 rows).  Evidence: guild-rebrew round 1293.
 - **`make setup` installs the pre-push hook.**  Plain `pre-commit install`
   installs only the pre-commit hook type, so the `pytest` hook (stage
   `pre-push`) never ran.  `.pre-commit-config.yaml` now sets
