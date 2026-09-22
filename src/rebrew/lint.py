@@ -249,6 +249,10 @@ def _check_E013_duplicate_va(
     filepath: Path,
     seen_vas: dict[Any, str] | None,
     module: str = "",
+    marker: str = "",
+    lines: list[str] | None = None,
+    marker_line: int = 0,
+    seen_va_defines: dict[Any, bool] | None = None,
 ) -> None:
     if va_int is None or seen_vas is None:
         return
@@ -256,10 +260,46 @@ def _check_E013_duplicate_va(
     # (a valid layout) is not flagged, while a true duplicate — same module
     # + VA, in the same or another file — is.
     key: Any = (module, va_int) if module else va_int
+    defines = _block_defines(lines, marker_line) if marker in ("DATA", "GLOBAL") else True
     if key in seen_vas:
+        # DATA/GLOBAL duplicates collide only when BOTH sides define the
+        # symbol (two initializers = LNK4006 risk).  The normal
+        # progressive-ownership shape — owner TU extern-declares (or bare
+        # claim) while link scaffolding holds the single definition — is
+        # unambiguous and must not fail the gate.
+        if marker in ("DATA", "GLOBAL") and not (
+            defines and (seen_va_defines or {}).get(key, False)
+        ):
+            if seen_va_defines is not None:
+                seen_va_defines[key] = (seen_va_defines.get(key, False) or defines)
+            seen_vas[key] = f"{rel_display_path(filepath)}"
+            return
         result.error(result.marker_line, "E013", f"Duplicate VA {va_str} — also in {seen_vas[key]}")
     else:
+        if seen_va_defines is not None:
+            seen_va_defines[key] = defines
         seen_vas[key] = rel_display_path(filepath)
+
+
+def _block_defines(lines: list[str] | None, marker_line: int) -> bool:
+    """True when the declaration after a marker line is a definition.
+
+    Skips blanks/comments; a first code line with an initializer (``=``)
+    that is not ``extern`` counts as a definition.  Tentative definitions
+    (``int x;``) and pure markers (next marker follows) do not.
+    """
+    if not lines or marker_line < 1:
+        return False
+    for raw in lines[marker_line:]:
+        stripped = raw.strip()
+        if not stripped or stripped.startswith(("//", "/*", "*")):
+            continue
+        if re.match(r"(?://|/\*)\s*(?:FUNCTION|LIBRARY|STUB|GLOBAL|DATA)", stripped):
+            return False
+        if stripped.startswith("extern"):
+            return False
+        return "=" in stripped
+    return False
 
 
 def _function_containing_va(
@@ -494,7 +534,12 @@ def _check_E015_marker_consistency(
     else:
         expected_marker = "FUNCTION"
         allowed = {"FUNCTION"}
-    if marker not in allowed and marker in VALID_MARKERS and marker not in ("GLOBAL", "DATA"):
+    if marker not in allowed and marker in VALID_MARKERS and marker not in (
+        "GLOBAL",
+        "DATA",
+        "VTABLE",
+        "STRING",
+    ):
         result.error(
             result.marker_line,
             "E015",
@@ -1235,7 +1280,7 @@ def _check_body_rules(result: LintResult, lines: list[str], has_new: bool) -> No
         ):
             has_code = True
         if (
-            ("typedef struct" in stripped or "struct " in stripped)
+            ("typedef struct" in stripped or re.search(r"\bstruct\s+\w+\s*\{", stripped))
             and not stripped.startswith("//")
             and not stripped.startswith("/*")
             and not stripped.startswith("*")
@@ -1261,6 +1306,7 @@ def lint_file(
     filepath: Path,
     cfg: ProjectConfig | None = None,
     seen_vas: dict[Any, str] | None = None,
+    seen_va_defines: dict[Any, bool] | None = None,
     seen_globals: dict[str, str] | None = None,
     preloaded_metadata: dict[tuple[str, int], dict[str, Any]] | None = None,
     preloaded_data_metadata: dict[tuple[str, int], dict[str, Any]] | None = None,
@@ -1276,6 +1322,9 @@ def lint_file(
         cfg: Optional ProjectConfig for config-aware checks.
         seen_vas: Optional dict mapping VA → filename for duplicate detection.
                   Will be mutated (VAs from this file are added).
+        seen_va_defines: Optional parallel dict mapping the same keys to
+                  whether the first-seen block defines its symbol (DATA/
+                  GLOBAL E013 needs both sides defining to collide).
         seen_globals: Optional dict mapping global symbol name → filename for
                       W021 duplicate-global detection. Will be mutated.
         preloaded_metadata: Pre-loaded metadata dict (avoids per-file I/O in batch).
@@ -1297,6 +1346,8 @@ def lint_file(
     # must still be caught, so fall back to a per-file dict.
     if seen_vas is None:
         seen_vas = {}
+    if seen_va_defines is None:
+        seen_va_defines = {}
 
     try:
         text, _ = read_source_text(filepath)
@@ -1465,7 +1516,21 @@ def lint_file(
             # a later block of a multi-function file used to be skipped by the
             # old `i == 0` guard.  The (module, va) key keeps a multi-module
             # file whose blocks share a VA (a valid layout) is not flagged.
-            _check_E013_duplicate_va(result, va_int, va_str, filepath, seen_vas, module=mod)
+            # DATA/GLOBAL also pass the marker kind + body so the check can
+            # tell a second definition (real collision) from an extern/bare
+            # claim beside the single definition (progressive ownership).
+            _check_E013_duplicate_va(
+                result,
+                va_int,
+                va_str,
+                filepath,
+                seen_vas,
+                module=mod,
+                marker=marker,
+                lines=lines,
+                marker_line=result.marker_line,
+                seen_va_defines=seen_va_defines,
+            )
 
             if marker in ("FUNCTION", "STUB") and va_int is not None:
                 _check_W028_stale_annotation(
@@ -1712,6 +1777,7 @@ def main(
     # seen_vas keys are (module, va) tuples — bare int would falsely flag
     # cross-module files that legitimately share a VA in different targets.
     seen_vas: dict[Any, str] = {}
+    seen_va_defines: dict[Any, bool] = {}
     seen_globals: dict[str, str] = {}
 
     # Pre-load metadata once for the whole batch (avoids per-file I/O).
@@ -1758,6 +1824,7 @@ def main(
             cfile,
             cfg=cfg,
             seen_vas=seen_vas,
+            seen_va_defines=seen_va_defines,
             seen_globals=seen_globals,
             preloaded_metadata=_preloaded_metadata,
             preloaded_data_metadata=_preloaded_data_metadata,
