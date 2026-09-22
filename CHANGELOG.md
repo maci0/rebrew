@@ -150,6 +150,11 @@
   documented integrator surface.
 
 ### Changed
+- **`coverage.db` drops `idx_functions_marker`.**  Every query filters
+  `markerType NOT IN ('GLOBAL', 'DATA')`, which the partial
+  `idx_functions_list` already serves (list and `COUNT(*)`), so the
+  `(target, markerType)` index only slowed inserts.  `rebrew build-db`
+  removes it from existing databases.
 - **Lint and type gates cover more defect classes.**  Ruff now enforces
   the module-docstring rule (D100/D104/D106) and the zero-finding
   pep8-naming, flake8-pyi, flake8-todos, and TID252 codes; mypy adds

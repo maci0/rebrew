@@ -814,12 +814,12 @@ def build_db(
         c.execute("CREATE INDEX IF NOT EXISTS idx_functions_name ON functions(target, name)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_functions_status ON functions(target, status)")
         c.execute("CREATE INDEX IF NOT EXISTS idx_functions_module ON functions(target, module)")
-        c.execute(
-            "CREATE INDEX IF NOT EXISTS idx_functions_marker ON functions(target, markerType)"
-        )
         # Dashboard + _function_stats always exclude GLOBAL/DATA and ORDER BY
         # va: a partial (target, va) index matches that filter+sort without
-        # scanning markerType rows that the UI never lists.
+        # scanning markerType rows that the UI never lists.  It also serves the
+        # COUNT(*), so a (target, markerType) index would only cost writes:
+        # drop the copy older builds created (scoped rebuilds keep the table).
+        c.execute("DROP INDEX IF EXISTS idx_functions_marker")
         c.execute(
             "CREATE INDEX IF NOT EXISTS idx_functions_list ON functions(target, va) "
             "WHERE markerType NOT IN ('GLOBAL', 'DATA')"

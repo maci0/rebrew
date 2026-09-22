@@ -557,6 +557,31 @@ binary = "test.exe"
         assert c.fetchone() is None  # not created, and any stale copy dropped
         conn.close()
 
+    def test_stale_marker_index_dropped_on_scoped_rebuild(self, project_root: Path) -> None:
+        """idx_functions_list serves every markerType filter; a scoped rebuild
+        keeps the functions table, so an older DB's marker index must be dropped."""
+        build_db(project_root)
+        db_path = project_root / "db" / "coverage.db"
+        conn = sqlite3.connect(db_path)
+        conn.execute("CREATE INDEX idx_functions_marker ON functions(target, markerType)")
+        conn.commit()
+        conn.close()
+        build_db(project_root, target="testbin")
+        conn = sqlite3.connect(db_path)
+        try:
+            names = {
+                r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='index'")
+            }
+            assert "idx_functions_marker" not in names
+            assert "idx_functions_list" in names
+            plan = conn.execute(
+                "EXPLAIN QUERY PLAN SELECT COUNT(*) FROM functions "
+                "WHERE target = 'testbin' AND markerType NOT IN ('GLOBAL', 'DATA')"
+            ).fetchall()
+            assert any("idx_functions_list" in row[3] for row in plan)
+        finally:
+            conn.close()
+
     def test_section_cell_stats_has_primary_key(self, project_root: Path) -> None:
         """section_cell_stats must be keyed on (target, section_name) — CREATE
         TABLE AS SELECT left it without a PK so WHERE target=? was unindexed
