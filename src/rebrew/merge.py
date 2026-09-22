@@ -587,7 +587,20 @@ def main(
 
     extern_report: ExternReport | None = None
     merged_preamble = _merge_preambles(preambles)
-    sorted_blocks = [block for _, block in sorted(blocks_with_va, key=lambda x: x[0])]
+
+    # DATA/GLOBAL definition blocks sort before FUNCTION blocks: C89 needs
+    # declarations before use, and VA order alone can place a string table
+    # after its function (a GOLDTL 0x40xxxx function sorts before SERVER
+    # 0x1002xxxx data it references).  Within each class, VA ascending.
+    def _block_rank(block: str) -> int:
+        for line in block.splitlines():
+            m = NEW_FUNC_CAPTURE_RE.match(line.strip())
+            if m:
+                return 0 if m.group("type") in ("DATA", "GLOBAL") else 1
+        return 1
+
+    ranked = sorted(blocks_with_va, key=lambda x: (_block_rank(x[1]), x[0]))
+    sorted_blocks = [block for _, block in ranked]
     merged_text = merged_preamble + "\n\n".join(sorted_blocks) + "\n"
     if consolidate:
         merged_text, extern_report = consolidate_declarations(merged_text)

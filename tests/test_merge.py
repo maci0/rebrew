@@ -604,3 +604,39 @@ class TestMergeSameVaAcrossModules:
         assert "// FUNCTION: V1 0x00401000" in text
         assert "// FUNCTION: V2 0x00401000" in text
         assert text.count("int twin") == 1
+
+
+class TestMergeDataFirst:
+    """DATA/GLOBAL blocks sort before FUNCTION blocks (C89 decl-before-use)."""
+
+    def test_data_blocks_lead(self, tmp_path: Path, monkeypatch: Any) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.merge import app
+
+        (tmp_path / "a.c").write_text(
+            "// FUNCTION: V1 0x401000\n// SIZE: 11\nint f(void){return s[0];}\n",
+            encoding="utf-8",
+        )
+        (tmp_path / "b.c").write_text('// DATA: V1 0x1002d990\nchar s[] = "x";\n', encoding="utf-8")
+        out = tmp_path / "m.c"
+        monkeypatch.setattr(
+            "rebrew.merge.require_config",
+            lambda target=None, json_mode=False: _make_cfg(tmp_path),
+        )
+        # Flags precede positionals: trailing options after the variadic
+        # file list are consumed as paths, never parsed (upstream click).
+        result = CliRunner().invoke(
+            app,
+            [
+                "--output",
+                str(out),
+                "--force",
+                "--shared",
+                str(tmp_path / "a.c"),
+                str(tmp_path / "b.c"),
+            ],
+        )
+        assert result.exit_code == 0, result.output
+        text = out.read_text(encoding="utf-8")
+        assert text.index("// DATA:") < text.index("// FUNCTION:")

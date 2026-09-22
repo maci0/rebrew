@@ -1,4 +1,34 @@
 ## [Unreleased]
+### Added
+- **ADR 023 — markers: TOML single source (pure-C sources).**
+  `rebrew migrate-markers` moves inline markers into
+  `rebrew-functions.toml` (`file`/`symbol`/`name`/`marker_type` + SIZE/
+  CFLAGS/TOOLCHAIN) and strips the marker blocks from the `.c`; idempotent,
+  `--dry-run` previews. The reader needs no flag:
+  `parse_c_file_multi`/`parse_c_file_text` synthesize Annotations from
+  `file`-tagged TOML entries for marker-less files, so trees migrate
+  file-by-file while every consumer keeps working. SIZE/CFLAGS become
+  single-source on migrated files (the inline co-read and lint W019 are
+  moot there), and `VTABLE`/`STRING` are now legal markers (parser,
+  lint E001/E015, `build_db` schema). Shared effective-match classifier:
+  `match_semantics.is_effective_match` now backs both `verify` and
+  `near-diag` (one rule, one note string, no drift).
+### Added- **reccmp-adapted modules** (all MIT-attributed, see
+  `docs/RECCMP_ADAPTATIONS.md`): `pinned_diff` (pin-seeded sequence matcher,
+  now drives near-diag's alignment via unique byte-identical anchors),
+  `asm_equiv` (swapped cmp/jump, mov+commutative, fld/fmul equivalence
+  patterns; mirrored conditional jumps classify as `equivalent` in
+  near-diag), `vtordisp` (MI thunk detection, new `vtordisp` section in
+  `rebrew analyze`), `float_const` (float-constant pool from x87 code
+  references, new `float_consts` dossier section), `demangle` (MSVC string-
+  const/vtable symbol helpers; optional pydemumble), and `pdb_cvdump` (MSVC
+  PDB access via WDK cvdump.exe — lines/publics/section contributions/
+  modules; full type import deferred).
+- **verify-placement per-object drift stats.** Terminal output gains a
+  "placement drift by object" table and `--json` a `per_object` list
+  (symbols, misplaced, mean delta per linked object, worst first) — the
+  reccmp `roadmap` view: one drifted TU shifts everything after it by the
+  same delta.
 ### Changed
 - **Per-target `inventory_file` key.**  `[targets.<name>].inventory_file`
   overrides where one target's function inventory lives (default:
@@ -41,7 +71,8 @@
 - **`merge --shared` collapses twin copies.**  Same-body files with different
   target markers become one stacked block (markers + SIZE lines preserved);
   same-name different-body twins are refused with names, never averaged —
-  the migration from per-target copies to `src/shared`. The duplicate-VA
+  the migration from per-target copies to `src/shared`. DATA/GLOBAL blocks
+  sort before FUNCTION blocks (C89 declaration-before-use). The duplicate-VA
   guard keys `(module, va)` like lint E013, so same-VA twins across
   targets (DLLs at one base) stack instead of erroring. The success message
   points at `--delete` for the now-redundant copies.
