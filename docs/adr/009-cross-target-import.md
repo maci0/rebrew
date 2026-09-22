@@ -1,6 +1,8 @@
 # ADR-009: Cross-target function import (`rebrew cross-import`)
 
-- **Status**: Accepted
+- **Status**: Amended by [ADR-022](022-shared-single-file-imports.md)
+  (`--shared` stacks a marker onto one `src/shared` file instead of
+  copying; the copy import below stays the default)
 - **Date**: 2026-08
 
 ## Context

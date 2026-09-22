@@ -2,7 +2,8 @@
 
 ## Status
 
-Accepted
+Accepted. Amends [ADR-012](012-metadata-store-tiers.md) (canonical tier: `.c`
+marker lines are no longer the identity source).
 
 ## Context
 
@@ -56,8 +57,8 @@ identity and state. A migrated `.c` file is pure C.**
   par with `GLOBAL`/`DATA`).
 - **Interop as output.** The reccmp CSV, `data.json`, and `objdiff.json`
   stay thin emitters over `build_function_registry`. A community recomp
-  build that needs inline markers runs `rebrew export` tooling (or the
-  CSV) rather than reading the source tree as the contract.
+  build that needs inline markers reads the reccmp CSV
+  (`rebrew catalog --csv`) rather than reading the source tree as the contract.
 
 ## Consequences
 

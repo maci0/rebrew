@@ -2,7 +2,10 @@
 
 ## Status
 
-Accepted
+Accepted. Amends [ADR-006](006-toolchain-standardization.md),
+[ADR-007](007-complete-containerization-reproducibility.md),
+[ADR-008](008-docker-only-execution.md), and
+[ADR-015](015-compile-backends.md) (every shipped profile is image-backed).
 
 ## Context
 
