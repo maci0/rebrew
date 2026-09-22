@@ -372,6 +372,31 @@ class TestHeaderDependencyHash:
         k2 = compile_cache_key(src, "f.c", ["/O2"], [str(inc)], "wine CL")
         assert k1 != k2
 
+    def test_in_place_header_edit_adding_include_tracks_new_dep(self, tmp_path: Path) -> None:
+        """An in-place edit that adds an ``#include`` extends the closure.
+
+        Rewriting ``a.h`` in place leaves the directory mtime unchanged, so
+        the resolution memo must still notice the new ``b.h`` dependency;
+        otherwise a later ``b.h`` edit keeps the old key (stale ``.obj`` hit).
+        """
+        inc = tmp_path / "inc"
+        inc.mkdir()
+        (inc / "a.h").write_text("#define A 1\n")
+        (inc / "b.h").write_text("#define B 1\n")
+        dir_mtime = inc.stat().st_mtime_ns
+        src = "#include <a.h>\nint f(void){return 1;}\n"
+        compile_cache_key(src, "f.c", ["/O2"], [str(inc)], "wine CL")
+
+        with (inc / "a.h").open("w") as f:
+            f.write("#include <b.h>\n#define A 1\n")
+        os.utime(inc, ns=(dir_mtime, dir_mtime))
+        k1 = compile_cache_key(src, "f.c", ["/O2"], [str(inc)], "wine CL")
+
+        (inc / "b.h").write_text("#define B 2 /* longer */\n")
+        os.utime(inc, ns=(dir_mtime, dir_mtime))
+        k2 = compile_cache_key(src, "f.c", ["/O2"], [str(inc)], "wine CL")
+        assert k1 != k2
+
     def test_quote_include_from_source_dir(self, tmp_path: Path) -> None:
         """A quote include next to the source is tracked via source_dir."""
         src_dir = tmp_path / "src"

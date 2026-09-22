@@ -574,6 +574,17 @@ def _find_in_dirs(name: Path, dirs: list[Path]) -> Path | None:
     return None
 
 
+# Include-closure memo for :func:`_resolve_include_paths`:
+# ``(source, source_dir, include_dirs, dir_mtimes) → (paths, fallback, header_stats)``.
+# Bounded + locked: verify -j N and GA workers share this map.
+_INCLUDE_CLOSURE_MEMO: dict[
+    tuple[str, str | None, tuple[str, ...], tuple[int, ...]],
+    tuple[tuple[str, ...], bool, tuple[tuple[int, int], ...]],
+] = {}
+_INCLUDE_CLOSURE_MEMO_MAX = 1024
+_INCLUDE_CLOSURE_LOCK = threading.Lock()
+
+
 def _search_dir_mtimes(source_dir: str | None, include_dirs: tuple[str, ...]) -> tuple[int, ...]:
     """Directory mtimes for include-resolution cache identity.
 
@@ -603,26 +614,50 @@ def _resolve_include_paths(
     inside the immutable toolchain image (pinned by the toolchain digest in
     the key) or the compile errors and nothing is cached.
 
-    Memoized on ``(source, dirs, dir_mtimes)``: a header created later in a
-    searched dir bumps that directory's mtime, so the next key computation
-    re-resolves and the compile-cache key changes.
+    Memoized on ``(source, dirs, dir_mtimes)`` and reused only while every
+    reached header keeps its ``(mtime_ns, size)``: a header created later in
+    a searched dir bumps that directory's mtime, and an in-place header edit
+    (which may add or drop an ``#include``) changes that header's stat, so
+    either forces a re-resolve.
     """
-    return _resolve_include_paths_cached(
-        source_content,
-        source_dir,
-        include_dirs,
-        _search_dir_mtimes(source_dir, include_dirs),
-    )
+    key = (source_content, source_dir, include_dirs, _search_dir_mtimes(source_dir, include_dirs))
+    with _INCLUDE_CLOSURE_LOCK:
+        cached = _INCLUDE_CLOSURE_MEMO.get(key)
+    if cached is not None and _header_stats(cached[0]) == cached[2]:
+        return cached[0], cached[1]
+    paths, fallback = _scan_include_closure(source_content, source_dir, include_dirs)
+    # Stat before storing: an edit racing the scan leaves a mismatch that the
+    # next lookup re-resolves instead of trusting.
+    stats = _header_stats(paths)
+    with _INCLUDE_CLOSURE_LOCK:
+        if (
+            len(_INCLUDE_CLOSURE_MEMO) >= _INCLUDE_CLOSURE_MEMO_MAX
+            and key not in _INCLUDE_CLOSURE_MEMO
+        ):
+            _INCLUDE_CLOSURE_MEMO.pop(next(iter(_INCLUDE_CLOSURE_MEMO)), None)
+        _INCLUDE_CLOSURE_MEMO[key] = (paths, fallback, stats)
+    return paths, fallback
 
 
-@lru_cache(maxsize=1024)
-def _resolve_include_paths_cached(
+def _header_stats(paths: tuple[str, ...]) -> tuple[tuple[int, int], ...]:
+    """``(mtime_ns, size)`` per path; ``(-1, -1)`` for one that cannot be stat'ed."""
+    out: list[tuple[int, int]] = []
+    for p in paths:
+        try:
+            st = Path(p).stat()
+        except OSError:
+            out.append((-1, -1))
+            continue
+        out.append((st.st_mtime_ns, st.st_size))
+    return tuple(out)
+
+
+def _scan_include_closure(
     source_content: str,
     source_dir: str | None,
     include_dirs: tuple[str, ...],
-    _dir_mtimes: tuple[int, ...],
 ) -> tuple[tuple[str, ...], bool]:
-    """Cached body of :func:`_resolve_include_paths` (``_dir_mtimes`` is the bust key)."""
+    """Uncached body of :func:`_resolve_include_paths`."""
     search_dirs: list[Path] = []
     if source_dir:
         search_dirs.append(Path(source_dir))

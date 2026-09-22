@@ -376,6 +376,12 @@
   ``one_line``, ``run_git``). Call sites inside the package already updated.
 
 ### Fixed
+- **Compile cache tracks headers added by an in-place header edit.**  The
+  `#include` closure was memoized on the source text and search-directory
+  mtimes only, so editing `a.h` in place to add `#include <b.h>` kept the
+  old closure; later edits to `b.h` left the compile-cache and verify-cache
+  keys unchanged and served a stale `.obj`.  The memo is now reused only
+  while every reached header keeps its mtime and size.
 - **`REBREW_WINE_HEADLESS=0` is honoured from the shell.**  The opt-out was
   read only from an explicit env dict, so a call that inherits the process
   environment still wrapped wine in Xvfb.  An inherited env is now checked
