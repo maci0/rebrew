@@ -236,7 +236,12 @@ def test_diff_functions_length_mismatch() -> None:
     cand = b"\x55\x8b\xec\x33\xc0\xc3"
     result = diff_functions(target, cand, as_dict=True)
     assert isinstance(result, dict)
-    assert result["target_size"] != result["candidate_size"]
+    assert (result["target_size"], result["candidate_size"]) == (4, 6)
+    # push/mov align; the extra xor shifts ret, so the tail rows differ.
+    assert [insn["match"] for insn in result["instructions"]] == ["==", "==", "**", "**"]
+    assert result["summary"]["exact"] == 2
+    assert result["summary"]["structural"] == 2
+    assert result["mnemonics"]["candidate"] == ["push", "mov", "xor", "ret"]
 
 
 # -------------------------

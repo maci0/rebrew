@@ -35,6 +35,10 @@ def _make_project(tmp_path: Path, files: dict[str, str]) -> Path:
     return tmp_path
 
 
+def _src_files(tmp_path: Path) -> dict[str, str]:
+    return {p.name: p.read_text(encoding="utf-8") for p in sorted((tmp_path / "src").iterdir())}
+
+
 def _write_state_function(state: Path, va: int, name: str, prototype: str | None = None) -> None:
     from declib.artifacts import Function, FunctionHeader
 
@@ -130,12 +134,16 @@ class TestBinsyncImportDryRun:
             },
         )
         state = _make_state(tmp_path, funcs={0x10001000: "_NewName"})
-        # Make local name generic so it would be applied — but dry-run shouldn't change files
-        # foo is meaningful, so it would be a conflict not an auto-apply
-        result = _invoke_import(tmp_path, state, monkeypatch, "--dry-run", "--json")
-        assert result.exit_code in (0, 1)
-        # Check file unchanged
-        assert "foo" in (tmp_path / "src" / "foo.c").read_text()
+        before = _src_files(tmp_path)
+        # --accept-binsync would rename foo.c -> NewName.c without --dry-run.
+        result = _invoke_import(
+            tmp_path, state, monkeypatch, "--accept-binsync", "--dry-run", "--json"
+        )
+        assert result.exit_code == 0
+        data = json.loads(result.stdout)
+        assert data["dry_run"] is True
+        assert data["applied_names"] == 0
+        assert _src_files(tmp_path) == before
 
     def test_json_output(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         _make_project(
@@ -179,6 +187,10 @@ class TestBinsyncImportConflicts:
         assert result.exit_code == 0
         data = json.loads(result.stdout)
         assert data["applied_names"] == 1
+        assert _src_files(tmp_path) == {
+            "Renamed.c": "// FUNCTION: SERVER 0x10001000\n// STATUS: EXACT\n// SIZE: 4\n"
+            "int Renamed(void){return 1;}\n"
+        }
 
     def test_mutually_exclusive_accept(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -210,6 +222,10 @@ class TestBinsyncImportConflicts:
         assert result.exit_code == 0
         data = json.loads(result.stdout)
         assert data["module"] == "SERVER"
+        assert data["applied_names"] == 1
+        files = _src_files(tmp_path)
+        assert sorted(files) == ["NewFoo.c", "other.c"]
+        assert "int bar(void)" in files["other.c"]  # OTHER module left alone
 
     def test_missing_state_dir(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         _make_project(

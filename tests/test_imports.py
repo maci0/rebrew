@@ -3,7 +3,6 @@
 import json
 import struct
 import sys
-import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -19,12 +18,12 @@ IMAGE_BASE = 0x400000
 TEXT_VA = 0x1000
 
 
-def _pe_with_stub() -> tuple[bytes, int, int]:
+def _pe_with_stub(work_dir: Path) -> tuple[bytes, int, int]:
     """A PE whose .text starts with ``jmp dword ptr [iat]`` at TEXT_VA.
 
     Returns (pe_bytes, stub_len, iat_va).  LIEF's ``iat_address`` is not
     byte-exact with the hand-rolled layout, so the IAT slot VA is learned
-    from a probe build with identical code length.
+    from a probe build with identical code length, written under *work_dir*.
     """
     stub_len = 8
     tail = b"\x55\x8b\xec\x5d\xc3"  # a normal function after the stub
@@ -35,7 +34,7 @@ def _pe_with_stub() -> tuple[bytes, int, int]:
         text_va=TEXT_VA,
         imports=imports,
     )
-    probe_path = Path(tempfile.mkdtemp()) / "probe.exe"
+    probe_path = work_dir / "probe.exe"
     probe_path.write_bytes(probe)
     table = parse_import_table(probe_path)
     iat_va = min(table)
@@ -54,7 +53,7 @@ def _pe_with_stub() -> tuple[bytes, int, int]:
 
 @pytest.fixture()
 def pe_path(tmp_path: Path) -> Path:
-    pe_bytes, _, _ = _pe_with_stub()
+    pe_bytes, _, _ = _pe_with_stub(tmp_path)
     path = tmp_path / "game.exe"
     path.write_bytes(pe_bytes)
     return path
@@ -126,12 +125,15 @@ class TestParseImportTable:
 
 
 class TestFindImportStubs:
-    def test_detects_jmp_stub(self, pe_path: Path) -> None:
+    def test_detects_jmp_stub(self, tmp_path: Path) -> None:
+        pe_bytes, _, iat_va = _pe_with_stub(tmp_path)
+        pe_path = tmp_path / "game.exe"
+        pe_path.write_bytes(pe_bytes)
         stubs = find_import_stubs(pe_path)
-        # The stub lives at .text start (full VA = imagebase + RVA).
+        # The stub lives at .text start (full VA = imagebase + RVA) and
+        # names the import whose IAT slot its jmp dereferences.
         stub_va = IMAGE_BASE + TEXT_VA
-        assert stub_va in stubs
-        assert stubs[stub_va] in ("MessageBoxA", "GetProcAddress")
+        assert stubs == {stub_va: parse_import_table(pe_path)[iat_va]}
 
     def test_no_imports_no_stubs(self, tmp_path: Path) -> None:
         plain = tmp_path / "plain.exe"
@@ -296,7 +298,7 @@ class TestNeImports:
     def test_pe_imports_unchanged(self, tmp_path: Path) -> None:
         from rebrew.imports import parse_imports
 
-        pe_bytes, _, _ = _pe_with_stub()
+        pe_bytes, _, _ = _pe_with_stub(tmp_path)
         p = tmp_path / "game.exe"
         p.write_bytes(pe_bytes)
         recs = parse_imports(p)

@@ -141,11 +141,12 @@ class TestBuildDossier:
         d = build_dossier(_cfg(), FIXTURES / "mini_pe.exe")
         assert d["near_match"] is None  # mock cfg has no metadata_dir
         assert d["imports"]["entries"][0]["dll"] == "KERNEL32.dll"
-        # Strings / references / dispatch are lists or counts, never absent.
-        assert isinstance(d["strings"]["count"], int)
-        assert isinstance(d["references"]["total"], int)
-        assert isinstance(d["dispatch_tables"], list)
-        assert d["functions"] is None or isinstance(d["functions"], dict)
+        # Strings / references / dispatch are lists or counts, never absent,
+        # even when mini_pe.exe has nothing to report.
+        assert d["strings"]["count"] == 0
+        assert d["references"]["total"] == 1
+        assert d["dispatch_tables"] == []
+        assert d["functions"] is None
         # No flirt_sigs in this project → FLIRT section skipped (null).
         assert d["flirt"] is None
 

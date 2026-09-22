@@ -433,14 +433,21 @@ class TestMutationRegistry:
 
         from rebrew.matcher import mutator
 
-        weights = {"mut_plugin_weighted": 5.0}
+        calls: list[str] = []
+
+        def _mut_plugin(s: str, rng: Any) -> str | None:
+            calls.append(s)
+            return None
+
+        # Weights key on the function __name__; only the plugin is positive,
+        # so a fresh memo must route every attempt to it.
+        weights = dict.fromkeys((m.__name__ for m in mutator._BUILTIN_MUTATIONS), 0.0)
+        weights[_mut_plugin.__name__] = 5.0
         src = "int f(int a) { return a + 1; }\n"
         try:
             mutator.refresh_mutations()
             mutator.mutate_code(src, random.Random(1), mutation_weights=weights)
-
-            def _mut_plugin(s: str, rng: Any) -> str | None:
-                return None
+            assert calls == []
 
             _install_fake_module("mutation_weight_test", mut_fn=_mut_plugin)
             monkeypatch.setattr(
@@ -450,7 +457,8 @@ class TestMutationRegistry:
                 ),
             )
             mutator.refresh_mutations()
-            mutator.mutate_code(src, random.Random(1), mutation_weights=weights)
+            assert mutator.mutate_code(src, random.Random(1), mutation_weights=weights) == src
+            assert calls, "stale weight memo: plugin mutation never chosen"
         finally:
             monkeypatch.undo()
             mutator.refresh_mutations()
