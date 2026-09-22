@@ -64,7 +64,8 @@ plugin cache backends or remove the open upstream diskcache advisory.
   docker-only compile guarantee on the shipped CLI compile path.
 - No claim that every shipped CLI command stays inside a container.
   `rebrew calibrate-bss` executes the link command read from the project's
-  `build/CMakeFiles/*/link.txt` and its `--compile-cmd` on the host, and
+  `build/CMakeFiles/*/link.txt` and its `--compile-cmd` on the host,
+  `rebrew link-sweep` executes that same `link.txt` command on the host, and
   analysis helpers run host rizin/r2, kuna, objconv, llvm-pdbutil, diec, and
   objdump against target binaries. Treat a project tree from an untrusted
   source as able to run code on the host through these paths.
