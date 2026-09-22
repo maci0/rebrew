@@ -1,9 +1,8 @@
-# 023 — Markers: TOML single source (pure-C sources)
+# ADR-023: Markers: TOML single source (pure-C sources)
 
-## Status
-
-Accepted. Amends [ADR-012](012-metadata-store-tiers.md) (canonical tier: `.c`
-marker lines are no longer the identity source).
+- **Status**: Accepted. Amends [ADR-012](012-metadata-store-tiers.md) (canonical tier: `.c`
+  marker lines are no longer the identity source).
+- **Date**: 2026-09
 
 ## Context
 

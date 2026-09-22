@@ -1,8 +1,7 @@
-# 018 — Single-file verify scope and baseline
+# ADR-018: Single-file verify scope and baseline
 
-## Status
-
-Accepted
+- **Status**: Accepted
+- **Date**: 2026-09
 
 ## Context
 

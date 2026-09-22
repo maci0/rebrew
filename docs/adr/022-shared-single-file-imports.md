@@ -1,9 +1,8 @@
-# 022 — Shared single-file imports (`cross-import --shared`)
+# ADR-022: Shared single-file imports (`cross-import --shared`)
 
-## Status
-
-Accepted. Amends [ADR-009](009-cross-target-import.md) (adds the
-stacked-marker import beside the copy path).
+- **Status**: Accepted. Amends [ADR-009](009-cross-target-import.md) (adds the
+  stacked-marker import beside the copy path).
+- **Date**: 2026-09
 
 ## Context
 

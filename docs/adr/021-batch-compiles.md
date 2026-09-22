@@ -1,8 +1,7 @@
-# 021 — Batch container compiles
+# ADR-021: Batch container compiles
 
-## Status
-
-Accepted
+- **Status**: Accepted
+- **Date**: 2026-09
 
 ## Context
 
@@ -16,16 +15,23 @@ hundreds.
 ## Decision
 
 - `precompile_batch(cfg, entries, ...)` / `compile_batch_objs(...)`:
-  group by (toolchain image, cflags, include set), one `docker run` per
-  group with N source files, default-named outputs collected per file.
+  group by (toolchain image, cflags), one `docker run` per group with N
+  source files, default-named outputs collected per file. Grouping ignores
+  `/I`; each group compiles with the union of its members' include dirs.
+- Only `posix`/`msvc` arg styles batch. dos/borland/watcom profiles, the
+  recompile backend, context-merged units, and groups of one compile
+  individually.
   GCC: `gcc -O2 -c a.c b.c ...` in one workdir (objects land beside
   sources); MSVC: `cl /c a.c b.c ...` (same). Per-file `/Fo`/`-o` is
   dropped — outputs are renamed from defaults after the run.
 - Cache hits are filtered BEFORE grouping (their files never enter a
-  batch); cache writes happen per file after collection, same keys.
-- Single-file callers keep `compile_to_obj` (thin wrapper over a 1-group
-  batch). No caller migration required; `run_verification` switches to
-  the batch entry when >1 file shares a group.
+  batch); cache writes happen per file after collection, under the same
+  key a single-file compile uses, and only for members whose own include
+  set equals the group union (otherwise the bytes were built with a wider
+  search path than that key describes).
+- Single-file callers keep `compile_to_obj` unchanged. No caller migration
+  required; `run_verification` calls `precompile_batch` first, and entries
+  it did not build compile individually in `verify_entry`.
 - A group failure (nonzero exit) falls back to per-file compiles to
   attribute the error — batch output interleaves stderr, so the failing
   file is identified by re-running individually (rare path, correctness

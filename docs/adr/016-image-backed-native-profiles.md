@@ -1,11 +1,10 @@
-# 016 — Image-backed native compiler profiles (gcc-14.2.0, clang-18.1.8, mingw-16.2.0, watcom-2.0-win16)
+# ADR-016: Image-backed native compiler profiles (gcc-14.2.0, clang-18.1.8, mingw-16.2.0, watcom-2.0-win16)
 
-## Status
-
-Accepted. Amends [ADR-006](006-toolchain-standardization.md),
-[ADR-007](007-complete-containerization-reproducibility.md),
-[ADR-008](008-docker-only-execution.md), and
-[ADR-015](015-compile-backends.md) (every shipped profile is image-backed).
+- **Status**: Accepted. Amends [ADR-006](006-toolchain-standardization.md),
+  [ADR-007](007-complete-containerization-reproducibility.md),
+  [ADR-008](008-docker-only-execution.md), and
+  [ADR-015](015-compile-backends.md) (every shipped profile is image-backed).
+- **Date**: 2026-09
 
 ## Context
 

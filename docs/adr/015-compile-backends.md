@@ -1,9 +1,9 @@
-# 015 — Compile backends: local docker images plus the recompile service
+# ADR-015: Compile backends: local docker images plus the recompile service
 
-## Status
-
-Amended by [016](016-image-backed-native-profiles.md) — the blockers recorded
-below are resolved; every shipped profile is image-backed now.
+- **Status**: Amended by [ADR-016](016-image-backed-native-profiles.md)
+  (the blockers recorded below are resolved; every shipped profile is
+  image-backed now)
+- **Date**: 2026-09
 
 ## Context
 

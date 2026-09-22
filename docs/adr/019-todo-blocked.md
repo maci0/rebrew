@@ -1,8 +1,7 @@
-# 019 — Todo blocked category
+# ADR-019: Todo blocked category
 
-## Status
-
-Accepted
+- **Status**: Accepted
+- **Date**: 2026-09
 
 ## Context
 
@@ -23,8 +22,8 @@ plain iteration cannot unstick.
   near-miss is both `improve-match` and `blocked`) — the category is a lens,
   not a move. Counts in the header reflect this (an item can appear under
   two categories; the total stays deduplicated).
-- `todo --json` exposes the same items (no schema change — `category` is
-  already per-item... see consequence).
+- `todo --json` exposes the same items with no schema change (see
+  Consequences for how `category` behaves).
 
 ## Consequences
 

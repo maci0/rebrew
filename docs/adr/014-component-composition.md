@@ -1,8 +1,7 @@
-# 014 — The CLI is a component graph
+# ADR-014: The CLI is a component graph
 
-## Status
-
-Accepted
+- **Status**: Accepted
+- **Date**: 2026-09
 
 ## Context
 

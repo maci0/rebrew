@@ -1,8 +1,7 @@
-# 020 — Init scaffolding skill
+# ADR-020: Init scaffolding skill
 
-## Status
-
-Accepted
+- **Status**: Accepted
+- **Date**: 2026-09
 
 ## Context
 

@@ -1,8 +1,7 @@
-# 017 — Standardized toolchain profile names
+# ADR-017: Standardized toolchain profile names
 
-## Status
-
-Accepted
+- **Status**: Accepted
+- **Date**: 2026-09
 
 ## Context
 

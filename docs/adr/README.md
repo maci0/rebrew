@@ -8,8 +8,9 @@ itself, and the consequences (including trade-offs accepted).
 
 - Records live in `docs/adr/` as `NNN-short-title.md`, numbered in the
   order they were written.
-- Every ADR has four sections: **Status**, **Context**, **Decision**,
-  **Consequences**.
+- Every ADR opens with `# ADR-NNN: Title`, then `- **Status**:` and
+  `- **Date**:` (`YYYY-MM`) lines, then three sections: **Context**,
+  **Decision**, **Consequences**.
 - Status values: `Accepted` (in force), `Amended by NNN` (partially
   superseded — read the citing ADR for the current shape), `Superseded by
   NNN`. A decision still being made is an RFC, not a proposed ADR.
