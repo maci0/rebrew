@@ -1,7 +1,7 @@
 ---
 name: rebrew-intake
 description: >-
-  Onboard a binary into rebrew — one-shot `rebrew intake` (init + enumerate +
+  Use when onboarding a binary into rebrew — one-shot `rebrew intake` (init + enumerate +
   STUB document) and/or first recon (doctor, FLIRT, catalog, build-db, triage,
   first skeletons). Triggers on 'intake', 'onboard', 'new binary', 'new target',
   'FLIRT scan', 'first triage', 'catalog', 'build-db', 'detect-crt', or
@@ -57,7 +57,7 @@ rebrew toolchain build <profile>          # docker image for the profile (requir
 
 `rebrew intake` does **not** run FLIRT, catalog, or `build-db` — continue with
 §1–§8 below after it (or after a manual `rebrew init`). Shipped toolchains are
-docker-only; `--install-wibo` is ignored for image-backed profiles.
+docker-only.
 
 ### Multi-target file layout
 

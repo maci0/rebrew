@@ -1,11 +1,11 @@
 ---
 name: rebrew-matching
 description: >-
-  Deep byte-level matching for functions already stuck at NEAR_MATCHING —
-  structural diff, flag sweep, GA, climb/qual-sweep, or symbolic prove to reach
-  EXACT/RELOC/PROVEN. Use after rebrew-workflow's test/diff loop stalls.
-  Triggers on 'GA', 'genetic algorithm', 'flag sweep', 'near-diag', 'near-miss',
-  'prove', 'angr', 'symbolic equivalence', 'NEAR_MATCHING', 'objdiff',
+  Use when a function is stuck at NEAR_MATCHING and C edits no longer close
+  the byte diff — structural diff, flag sweep, GA, climb/qual-sweep, or
+  symbolic prove to reach EXACT/RELOC/PROVEN. Triggers on 'stuck', 'almost
+  matches', 'register allocation', 'GA', 'genetic algorithm', 'flag sweep',
+  'near-diag', 'near-miss', 'prove', 'angr', 'symbolic equivalence', 'objdiff',
   'gap-trace', 'climb', 'qual-sweep', or 'rebrew match'. For first-pass
   test/verify/todo, use rebrew-workflow instead.
 license: MIT
@@ -92,12 +92,14 @@ Use `--fix-blocker` to auto-write these to the `rebrew-functions.toml` metadata 
 ```bash
 rebrew diff --fix-blocker src/bench/<file>.c        # auto-write BLOCKER to metadata file
 rebrew diff --fix-blocker --json src/bench/<file>.c # with JSON output
+rebrew near-diag src/bench/<file>.c --fix-blocker   # BLOCKER from the near-miss classification
 # Ad-hoc BLOCKERs that diff cannot classify (needs structs, SEH helper, etc.):
-rebrew blocker set src/bench/<file>.c "needs RE structs -- see rebrew recover-structs"
+rebrew blocker set src/bench/<file>.c "needs RE structs -- see rebrew recover-structs" --delta 3
 rebrew blocker clear src/bench/<file>.c
 ```
 
-When no structural diffs remain, `--fix-blocker` clears existing BLOCKER/BLOCKER_DELTA.
+BLOCKER/BLOCKER_DELTA land in `rebrew-functions.toml` under `["<MODULE>.0x<VA>"]`.
+When no structural diffs remain, `--fix-blocker` clears them.
 **Never hand-edit `rebrew-functions.toml` for BLOCKER — use `rebrew blocker set/clear` or the `--fix-blocker` writers.**
 
 Use this to quickly rule out structural issues before running the GA.
@@ -166,20 +168,7 @@ rebrew qual-sweep src/bench/<file>.c --dry-run --json
 `climb` = adjacent statement swaps; `qual-sweep` = exhaustive per-declaration
 qualifier variants. Batch flag/GA details: `references/flag-sweep.md`.
 
-## 5. Blocker Tracking
-
-When a function is NEAR_MATCHING but not byte-perfect, blockers live in the `rebrew-functions.toml` metadata file (managed programmatically — never hand-edit):
-
-```toml
-["SERVER.0x<VA>"]
-blocker = "register allocation, jump condition swap"
-blocker_delta = 3
-```
-
-Set them via `rebrew blocker set <file|0xVA> "<reason>" [--delta N]` (and `rebrew blocker clear` to remove).
-Use `rebrew diff --fix-blocker` / `rebrew near-diag --fix-blocker` to auto-generate from classification.
-
-## 6. Tips
+## 5. Tips
 
 - Always start with `rebrew diff` before running the GA.
 - For library-origin functions (MSVCRT, ZLIB), use `rebrew crt-match` to identify the reference source first.
@@ -189,7 +178,7 @@ Use `rebrew diff --fix-blocker` / `rebrew near-diag --fix-blocker` to auto-gener
   file save — faster than re-typing the command.
 - Do not start long GA (`-g` large / `--all`) or thorough/full sweeps without user confirmation.
 
-## 7. Symbolic Equivalence Proving
+## 6. Symbolic Equivalence Proving
 
 When stuck at NEAR_MATCHING (register alloc / reorder / loop layout):
 
@@ -200,21 +189,12 @@ rebrew prove src/bench/<file>.c --json
 
 `REGISTER (N% of delta)` verdicts are prime PROVEN candidates — prefer
 `rebrew prove --all` before more GA. Full flags, EDX/`--watch-va` gotchas, and
-angr mechanics: `references/prove.md`. Requires `uv tool install --reinstall 'rebrew[prove] @ git+https://github.com/maci0/rebrew.git'`
-(in-repo: `uv sync --extra prove`); stop and install if `rebrew prove` import-fails.
+angr mechanics: `references/prove.md`. Needs the `[prove]` extra (angr); if
+`rebrew prove` import-fails, stop and ask the user to install it (see the reference).
 
-## 8. End-to-End Round-Trip
+## 7. End-to-End Round-Trip
 
-After `rebrew verify` reports all EXACT/RELOC:
-
-```bash
-rebrew round-trip --json                     # full splice validation
-rebrew round-trip --json --dry-run           # preview the splice set
-rebrew round-trip --json --filter "MyClass::"  # scope to a symbol substring
-rebrew round-trip --json --strict-catalog    # exit non-zero on unresolved catalog symbols
-```
-
-Writes `<binary>.reasm` next to the target. Inspect `spliced`, `mismatches`
-(`compile_drift` / `catalog_resolution_drift`), `skipped_catalog`,
-`skipped_proven`. Full splice/fallback rules live in the rebrew-workflow
-skill (its round-trip reference). Use in CI alongside `verify --compare`.
+After `rebrew verify` reports all EXACT/RELOC, run `rebrew round-trip --json`
+(`--dry-run` previews; `--filter`, `--strict-catalog`). Splice/fallback rules and
+`compile_drift` / `catalog_resolution_drift` triage: the rebrew-workflow skill
+(its round-trip reference). Use in CI alongside `verify --compare`.

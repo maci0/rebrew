@@ -77,7 +77,7 @@ image missing — fix with `rebrew toolchain build <profile>` (or `pull`).
 
 `rebrew init` renders the packaged skills (plus any `REBREW_SKILLS_DIR`
 overlay) into `.agents/skills/`, substituting the target name. Confirm
-`.agents/skills/` lists all six skills after init.
+`.agents/skills/` holds every skill `rebrew skills list` reports.
 
 ## Handoff
 

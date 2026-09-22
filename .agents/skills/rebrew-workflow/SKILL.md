@@ -1,9 +1,9 @@
 ---
 name: rebrew-workflow
 description: >-
-  End-to-end reversing loop for matching C against target functions — pick work
-  (`todo`), skeleton, edit, `test`/`diff`, verify, lint, round-trip. Use for
-  day-to-day reversing: next function, skeleton, test, verify, lint, or progress.
+  Use for day-to-day reversing on an onboarded target: matching C against
+  target functions — pick work (`todo`), skeleton, edit, `test`/`diff`, verify,
+  lint, round-trip, progress.
   Triggers on 'reverse', 'decompile', 'skeleton', 'test function', 'verify',
   'lint', 'next function', 'workflow', 'todo', 'diff', 'asm', 'status',
   'blocker'. Hand off near-miss GA/prove to rebrew-matching; new binaries to
