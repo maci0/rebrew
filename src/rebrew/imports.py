@@ -21,6 +21,7 @@ import typer
 from rich.console import Console
 
 from rebrew.cli import EXIT_ERROR, TargetOption, error_exit, json_print, require_config
+from rebrew.config import module_marker
 from rebrew.utils import read_source_text
 
 console = Console(stderr=True)
@@ -259,7 +260,7 @@ def mark_import_stubs(
     import stubs detected in .text become LIBRARY functions that
     ``rebrew crt-match`` can then attribute to CRT sources.
     """
-    marker = getattr(cfg, "marker", "") or getattr(cfg, "target_name", "GAME")
+    marker = module_marker(cfg)
     out_file = Path(cfg.reversed_dir) / "library_imports.h"
     existing, encoding = read_source_text(out_file) if out_file.exists() else ("", "utf-8")
 

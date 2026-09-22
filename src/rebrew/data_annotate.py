@@ -16,7 +16,7 @@ from typing import Any
 from rich.console import Console
 
 from rebrew.cli import error_exit, json_print
-from rebrew.config import ProjectConfig
+from rebrew.config import ProjectConfig, module_marker
 from rebrew.data_metadata import iter_data_symbols
 from rebrew.utils import atomic_write_text, load_tomllib, read_source_text
 
@@ -262,7 +262,7 @@ def gen_globals_header(
     from rebrew.data_metadata import load_data_metadata
     from rebrew.sources import iter_sources
 
-    marker = getattr(cfg, "marker", getattr(cfg, "target_name", "GAME").upper())
+    marker = module_marker(cfg)
     metadata = load_data_metadata(cfg.metadata_dir)
 
     # Sources are authoritative for the emitted name and type: a

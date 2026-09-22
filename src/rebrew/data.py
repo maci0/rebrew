@@ -25,7 +25,7 @@ import typer
 from rich.console import Console
 
 from rebrew.cli import TargetOption, error_exit, json_print, require_config
-from rebrew.config import ProjectConfig, inventory_path_for
+from rebrew.config import ProjectConfig, inventory_path_for, module_marker
 from rebrew.utils import atomic_write_text, read_source_text
 
 console = Console(stderr=True)
@@ -1337,7 +1337,7 @@ def main(
                 src_dir,
                 # Match --annotate's marker fallback: an empty origin would
                 # emit `// DATA:  0x...` which the annotation parser rejects.
-                getattr(cfg, "marker", "") or cfg.target_name.upper(),
+                module_marker(cfg),
                 metadata_dir=cfg.metadata_dir,
                 dry_run=dry_run,
                 json_output=json_output,

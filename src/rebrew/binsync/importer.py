@@ -46,7 +46,7 @@ from rebrew.cli import (
     require_config,
     run_standalone,
 )
-from rebrew.config import ProjectConfig
+from rebrew.config import ProjectConfig, module_marker
 from rebrew.naming import avoid_windows_reserved
 from rebrew.utils import strip_body
 
@@ -657,7 +657,7 @@ def import_state(
                 try:
                     from rebrew.data_metadata import set_data_field as _sdf2
 
-                    mod = module or getattr(cfg, "marker", "") or "SERVER"
+                    mod = module or module_marker(cfg)
                     _sdf2(cfg.metadata_dir, va, "name", bs_name, mod)
                     applied_globals += 1
                     touched_vas.append(va)
@@ -719,7 +719,7 @@ def import_state(
     for owner_va in sorted(comments_by_func):
         func_comments = comments_by_func[owner_va]
         owner = local_by_va.get(owner_va)
-        owner_mod = getattr(owner, "module", "") or getattr(cfg, "marker", "") or "SERVER"
+        owner_mod = getattr(owner, "module", "") or module_marker(cfg)
         if dry_run:
             proposed.append(
                 {

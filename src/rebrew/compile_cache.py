@@ -925,6 +925,9 @@ _caches_lock = threading.Lock()
 #: Cap open backends so a long-lived process that touches many project roots
 #: does not retain every diskcache SQLite handle until atexit.
 _CACHES_MAX = 8
+#: atexit close armed once, with the first opened backend (registering at
+#: import would run work at module load before any cache exists).
+_CACHES_ATEXIT_REGISTERED = False
 
 
 def get_compile_cache(project_root: Path, backend: str = "diskcache") -> CacheBackend:
@@ -962,6 +965,10 @@ def get_compile_cache(project_root: Path, backend: str = "diskcache") -> CacheBa
             with contextlib.suppress(Exception):
                 old.close()
         _caches[key] = factory(Path(cache_dir), _DEFAULT_SIZE_LIMIT)
+        global _CACHES_ATEXIT_REGISTERED
+        if not _CACHES_ATEXIT_REGISTERED:
+            atexit.register(close_all_caches)
+            _CACHES_ATEXIT_REGISTERED = True
         return _caches[key]
 
 
@@ -971,6 +978,3 @@ def close_all_caches() -> None:
         for cache in _caches.values():
             cache.close()
         _caches.clear()
-
-
-atexit.register(close_all_caches)

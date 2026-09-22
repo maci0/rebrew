@@ -185,7 +185,12 @@ def compose() -> tuple[Context, CoeffectScope]:
     return ctx, activate(components, ctx)
 
 
-compose()
+# Import-time composition: importing this module mounts the CLI (library
+# callers introspect `app` without running the CLI). The module owns the
+# fiber, so the inverse accumulator is held instead of dropped —
+# compose()'s contract. Lifetime is the process: nothing unloads the
+# components before interpreter exit, so no earlier teardown point exists.
+_COMPOSED: tuple[Context, CoeffectScope] = compose()
 
 
 def _json_requested(argv: list[str] | None = None) -> bool:

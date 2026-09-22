@@ -28,6 +28,7 @@ import typer
 from rich.console import Console
 
 from rebrew.cli import TargetOption, error_exit, json_print, parse_va, require_config
+from rebrew.config import module_marker
 
 console = Console(stderr=True)
 
@@ -73,7 +74,7 @@ def _resolve_function(
     if va_int is None and re.match(r"^0[xX][0-9a-fA-F]+$", raw.strip()):
         va_int = parse_va(raw.strip(), json_mode=json_mode)
         # Bare VA without a file — module comes from config marker.
-        module = getattr(cfg, "marker", "") or ""
+        module = module_marker(cfg)
         if not module:
             error_exit(
                 "Cannot determine module for bare VA — pass a file path or set a marker",
@@ -132,7 +133,7 @@ def _resolve_function(
     if va_from_flag and va_int is not None:
         # Use the explicit VA as target; keep module from matched ann if any,
         # else from first annotation.
-        return ann.module or getattr(cfg, "marker", "") or "", va_int
+        return ann.module or module_marker(cfg), va_int
 
     return ann.module, int(ann.va)
 

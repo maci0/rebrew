@@ -26,6 +26,7 @@ import typer
 from rich.console import Console
 
 from rebrew.cli import EXIT_MISMATCH, TargetOption, error_exit, json_print, require_config
+from rebrew.config import module_marker
 from rebrew.sources import iter_sources, source_exts
 from rebrew.utils import atomic_write_text, read_source_text
 
@@ -377,7 +378,7 @@ def main(
     files = iter_sources(cfg.reversed_dir, cfg)
     if not files:
         error_exit(f"no source files found in {cfg.reversed_dir}", json_mode=json_output)
-    ordered_paths, _excluded = order_sources(files, marker=getattr(cfg, "marker", None))
+    ordered_paths, _excluded = order_sources(files, marker=module_marker(cfg) or None)
     by_key = {_abs_key(cfg.root, str(p)): _rel(cfg.root, p) for p in ordered_paths}
     computed = [_rel(cfg.root, p) for p in ordered_paths]
 

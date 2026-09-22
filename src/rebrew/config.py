@@ -56,6 +56,18 @@ def _config_warn(msg: str) -> None:
 # ---------------------------------------------------------------------------
 
 FUNCTION_STRUCTURE_JSON = "function_structure.json"
+
+#: Seconds before a compile subprocess is killed.  The single source for
+#: ``ProjectConfig.compile_timeout``: its dataclass default, the
+#: ``[compiler] timeout`` fallback, and the ``getattr(cfg, ...)`` fallbacks in
+#: ``rebrew.compile`` all read this, so a mock-backed call cannot get a
+#: different budget than a configured one.
+DEFAULT_COMPILE_TIMEOUT = 60
+
+#: Maximum C source line length for lint W027 (0 disables the check).  Single
+#: source for ``ProjectConfig.lint_max_line_length``, the
+#: ``[project.lint] max_line_length`` fallback, and ``rebrew.lint``.
+DEFAULT_LINT_MAX_LINE_LENGTH = 200
 """Tool-agnostic structural cache: ``[{va, size, name?}]``.
 
 This file stores function *boundaries* (VA + size) discovered by any RE
@@ -284,7 +296,7 @@ class ProjectConfig:
     module has a preset and whose per-function metadata has no CFLAGS.
     """
     base_cflags: str = "/nologo /c /MT"  # Always-on flags prepended to every compile
-    compile_timeout: int = 60  # Seconds before a compile subprocess is killed
+    compile_timeout: int = DEFAULT_COMPILE_TIMEOUT  # see DEFAULT_COMPILE_TIMEOUT
 
     # --- recompile remote backend ([compiler] recompile_url or
     # REBREW_RECOMPILE_URL env) ---
@@ -368,7 +380,7 @@ class ProjectConfig:
     lint_naming_convention: str = "none"  # "snake_case", "camelCase", or "none"
     lint_brace_style: str = "none"  # "same_line", "new_line", or "none"
     lint_indent_style: str = "none"  # "spaces", "tabs", or "none"
-    lint_max_line_length: int = 200  # Maximum line length
+    lint_max_line_length: int = DEFAULT_LINT_MAX_LINE_LENGTH  # see DEFAULT_LINT_MAX_LINE_LENGTH
 
     # --- All known target names ---
     all_targets: list[str] = field(default_factory=list)
@@ -432,6 +444,38 @@ class ProjectConfig:
             p = config_path(self.inventory_file.strip())
             return p if p.is_absolute() else self.root / p
         return self.reversed_dir / FUNCTION_STRUCTURE_JSON
+
+
+#: Characters stripped from a target name when deriving its module marker:
+#: ``server.dll`` must yield ``SERVER`` (the annotation module), not
+#: ``SERVER.DLL`` (which matches no ``// FUNCTION: MODULE 0xVA`` line).
+_MARKER_STRIP_RE = re.compile(r"[^A-Za-z0-9_]")
+
+
+def module_marker(cfg: Any) -> str:
+    """Return the annotation module marker for *cfg*.
+
+    The marker is the ``MODULE`` half of every ``MODULE.0xVA`` metadata key
+    and of every ``// FUNCTION: MODULE 0xVA`` line, so it must resolve the
+    same way everywhere: an entry written under one spelling is invisible to
+    a reader using another.  The rule is ``cfg.marker``, else the target name
+    with non-identifier characters stripped and upper-cased (the same
+    derivation :func:`load_config` applies), else ``""``.
+
+    Callers that write to the metadata store must reject an empty result:
+    :func:`rebrew.utils.qualified_key` renders a module-less entry as a bare
+    ``0xVA`` key, which :func:`rebrew.utils.parse_metadata_key` does not
+    accept, so the write is silently unreadable.  Fabricating a placeholder
+    module instead (``"SERVER"``, ``"GAME"``) is worse: it writes real data
+    under another project's module name.
+
+    Mock-safe via ``getattr`` — takes any config-shaped object.
+    """
+    marker = str(getattr(cfg, "marker", "") or "")
+    if marker:
+        return marker
+    target = str(getattr(cfg, "target_name", "") or "")
+    return _MARKER_STRIP_RE.sub("", target).upper()
 
 
 def inventory_path_for(reversed_dir: Path | str, cfg: Any = None) -> Path:
@@ -1065,7 +1109,7 @@ def _load_lint_settings(project_raw: Mapping[str, Any]) -> dict[str, Any]:
         ),
         "lint_max_line_length": _positive_int(
             lint_raw.get("max_line_length"),
-            200,
+            DEFAULT_LINT_MAX_LINE_LENGTH,
             "project.lint.max_line_length",
         ),
     }
@@ -1318,7 +1362,7 @@ def load_config(
         # silently filters every function out of verify/todo/status.
         marker=_as_str(
             tgt.get("marker"),
-            re.sub(r"[^A-Za-z0-9_]", "", target).upper(),
+            _MARKER_STRIP_RE.sub("", target).upper(),
             f"targets.{target}.marker",
         ),
         r2_bogus_vas=_parse_int_list(tgt.get("r2_bogus_vas", []), "r2_bogus_vas"),
@@ -1350,7 +1394,11 @@ def load_config(
             "" if profile_flags_style(profile_val) == "posix" else "/nologo /c /MT",
             "compiler.base_cflags",
         ),
-        compile_timeout=_positive_int(compiler.get("timeout", 60), 60, "compiler.timeout"),
+        compile_timeout=_positive_int(
+            compiler.get("timeout", DEFAULT_COMPILE_TIMEOUT),
+            DEFAULT_COMPILE_TIMEOUT,
+            "compiler.timeout",
+        ),
         recompile_url=validate_http_url(
             _as_str(compiler.get("recompile_url"), "", "compiler.recompile_url"),
             "compiler.recompile_url",
@@ -1386,7 +1434,7 @@ def load_config(
         all_markers={
             _as_str(
                 t.get("marker") if isinstance(t, dict) else None,
-                re.sub(r"[^A-Za-z0-9_]", "", n).upper(),
+                _MARKER_STRIP_RE.sub("", n).upper(),
                 f"targets.{n}.marker",
             )
             for n, t in targets_dict.items()
@@ -1508,12 +1556,15 @@ def load_config(
 
 
 __all__ = [
+    "DEFAULT_COMPILE_TIMEOUT",
+    "DEFAULT_LINT_MAX_LINE_LENGTH",
     "FUNCTION_STRUCTURE_JSON",
     "LinkConfig",
     "ProjectConfig",
     "detect_crt_sources",
     "find_root",
     "load_config",
+    "module_marker",
     "profile_flags_style",
     "validate_http_url",
 ]

@@ -64,6 +64,7 @@ from rebrew.cli import (
     json_print,
     require_config,
 )
+from rebrew.config import module_marker
 from rebrew.gen_flirt_pat import parse_archive, parse_coff_obj
 from rebrew.utils import config_path, container_runtime
 
@@ -496,7 +497,7 @@ def main(
         from rebrew.metadata import get_entry
 
         va_int = parse_va(va)
-        module = getattr(cfg, "marker", None) or "SERVER"
+        module = module_marker(cfg)
         size = (get_entry(cfg.metadata_dir, va_int, module) or {}).get("size") or 0
         data = extract_raw_bytes(cfg.target_binary, va_int, size or PREFIX_BYTES)
         hit = match_bytes(index, data)

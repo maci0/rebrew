@@ -67,7 +67,7 @@ import numpy as np
 from rebrew.binary_loader import BinaryInfo, SectionInfo, load_binary
 from rebrew.coff_reloc import build_iat_region, smart_reloc_compare
 from rebrew.compile_cache import CacheBackend, compile_cache_key, get_compile_cache
-from rebrew.config import ProjectConfig, validate_http_url
+from rebrew.config import DEFAULT_COMPILE_TIMEOUT, ProjectConfig, validate_http_url
 from rebrew.context import CONTEXT_UNIT_NAME, CompileContext
 from rebrew.headless import _XVFB_RUN_SERVER_ARGS, ensure_xvfb
 from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
@@ -999,7 +999,10 @@ def _compile_via_recompile(
             source=source_text,
             flags=all_flags,
             filename=source_path.name,
-            timeout=float(getattr(cfg, "compile_timeout", 60) or 60) + 120.0,
+            timeout=float(
+                getattr(cfg, "compile_timeout", DEFAULT_COMPILE_TIMEOUT) or DEFAULT_COMPILE_TIMEOUT
+            )
+            + 120.0,
             emit_assembly=emit_assembly,
             # Transient 503/timeout on the compile service is common under
             # load; two retries with backoff beat a hard COMPILE_ERROR that
@@ -2169,7 +2172,7 @@ def _link_obj_docker(
         out_name=Path(dll_path).name,
         workdir=workdir,
     )
-    timeout = getattr(cfg, "compile_timeout", 300) or 300
+    timeout = getattr(cfg, "compile_timeout", DEFAULT_COMPILE_TIMEOUT) or DEFAULT_COMPILE_TIMEOUT
     try:
         r = subprocess.run(
             cmd,

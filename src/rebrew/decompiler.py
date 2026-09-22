@@ -95,6 +95,9 @@ _ALLOWED_RE_CMDS = frozenset({"pdg", "pdd"})
 _RE_PROJECT_DIRS: dict[tuple[str, str], str] = {}
 _RE_PROJECT_DIRS_MAX = 8
 _RE_PROJECT_DIRS_LOCK = threading.Lock()
+#: atexit sweep armed once, with the first cached project dir (registering at
+#: import would run work at module load before any dir exists).
+_RE_PROJECT_ATEXIT_REGISTERED = False
 
 
 def _re_project_key(binary: Path, tool: str) -> tuple[str, str]:
@@ -212,6 +215,10 @@ def _re_cached_project(binary: Path, tool: str, root: Path) -> str | None:
             old_dir = _RE_PROJECT_DIRS.pop(oldest_key)
             shutil.rmtree(old_dir, ignore_errors=True)
         _RE_PROJECT_DIRS[key] = proj_dir
+        global _RE_PROJECT_ATEXIT_REGISTERED
+        if not _RE_PROJECT_ATEXIT_REGISTERED:
+            atexit.register(_clear_re_projects)
+            _RE_PROJECT_ATEXIT_REGISTERED = True
         return proj_dir
 
 
@@ -233,9 +240,6 @@ def _clear_re_projects() -> None:
         _RE_PROJECT_DIRS.clear()
     for proj_dir in dirs:
         shutil.rmtree(proj_dir, ignore_errors=True)
-
-
-atexit.register(_clear_re_projects)
 
 
 def _run_re(binary: Path, va: int, cmd: str, root: Path) -> str | None:

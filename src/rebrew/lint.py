@@ -45,7 +45,12 @@ from rebrew.cli import (
     json_print,
     option_default,
 )
-from rebrew.config import ProjectConfig, inventory_path_for, load_config
+from rebrew.config import (
+    DEFAULT_LINT_MAX_LINE_LENGTH,
+    ProjectConfig,
+    inventory_path_for,
+    load_config,
+)
 from rebrew.data_metadata import load_data_metadata
 from rebrew.lint_cflags import (
     RedundantFunctionCflags,
@@ -1239,7 +1244,7 @@ def _check_style_rules(result: LintResult, cfg: ProjectConfig | None) -> None:
                     result.warning(i, "W026", "Line uses space indent, expected tabs")
 
     # Max line length (W027).
-    max_len = getattr(cfg, "lint_max_line_length", 0)
+    max_len = getattr(cfg, "lint_max_line_length", DEFAULT_LINT_MAX_LINE_LENGTH)
     if max_len and max_len > 0:
         for i, line in enumerate(lines, start=1):
             if len(line) > max_len:

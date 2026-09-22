@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 from rebrew.analysis import capstone_handle
 from rebrew.annotation import min_valid_va_for, parse_c_file_multi, parse_library_header
 from rebrew.binary_loader import BinaryInfo, extract_bytes_at_va
-from rebrew.config import ProjectConfig, inventory_path_for
+from rebrew.config import ProjectConfig, inventory_path_for, module_marker
 from rebrew.sources import (
     iter_library_headers,
     iter_sources,
@@ -333,7 +333,7 @@ def scope_to_target(
     marker, plus module-less rows (legacy callers that cannot attribute);
     navigation maps (``covered_vas``) stay unfiltered.
     """
-    marker = (getattr(cfg, "marker", None) or "").lower() if cfg else ""
+    marker = module_marker(cfg).lower() if cfg else ""
     if not marker:
         return existing
     return {
