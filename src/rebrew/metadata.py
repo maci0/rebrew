@@ -97,6 +97,7 @@ from typing import TYPE_CHECKING, Any
 
 import tomlkit
 
+from rebrew.errors import RebrewError
 from rebrew.utils import (
     atomic_write_locked,
     build_metadata_doc,
@@ -1169,7 +1170,7 @@ def coerce_metadata_value(key: str, value: Any) -> Any:
 LIBRARY_METADATA_FILE = "rebrew-libraries.toml"
 
 
-class LibraryOverrideError(RuntimeError):
+class LibraryOverrideError(RebrewError, RuntimeError):
     """A declared library override is malformed (bad TOML / bad fields)."""
 
 

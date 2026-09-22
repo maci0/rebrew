@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from rebrew.dosbox import make_sandbox_dir
+from rebrew.errors import RebrewError
 
 if TYPE_CHECKING:
     from rebrew.ne_loader import NeFunction
@@ -26,7 +27,7 @@ if TYPE_CHECKING:
 _DCC_FILES = ("DCC.EXE", "DELPHI.DSL", "DPMI16BI.OVL", "RTM.EXE")
 
 
-class Delphi16Error(RuntimeError):
+class Delphi16Error(RebrewError, RuntimeError):
     """Compilation failed (toolchain missing, DOSBox absent, or DCC error)."""
 
 

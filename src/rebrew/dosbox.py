@@ -16,6 +16,8 @@ import subprocess
 import threading
 from pathlib import Path
 
+from rebrew.errors import RebrewError
+
 _DOSBOX_CONF_HEADER = "[sdl]\nfullscreen=false\n\n[cpu]\ncycles=fixed 30000\n\n[autoexec]\n"
 
 
@@ -43,7 +45,7 @@ def _build_dosbox_conf(sandbox: Path, autoexec: list[str]) -> str:
     return _DOSBOX_CONF_HEADER + body + "\n"
 
 
-class DosboxError(RuntimeError):
+class DosboxError(RebrewError, RuntimeError):
     """DOSBox is missing or the run failed."""
 
 

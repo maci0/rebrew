@@ -24,6 +24,8 @@ from dataclasses import dataclass
 from typing import Any, Literal, Protocol, runtime_checkable
 from urllib.parse import urljoin, urlparse
 
+from rebrew.errors import RebrewError
+
 
 def _close_response(resp: Any) -> None:
     """Release an httpx response so its connection returns to the pool.
@@ -85,7 +87,7 @@ class RecompileResult:
     compiler_version: str | None = None
 
 
-class RecompileError(RuntimeError):
+class RecompileError(RebrewError, RuntimeError):
     """The recompile service cannot serve the request (unreachable, 4xx/5xx).
 
     Structured fields let callers recover without string-matching ``str(exc)``:

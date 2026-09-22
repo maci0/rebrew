@@ -14,6 +14,7 @@ from typing import Any, Literal
 import httpx
 from rich.console import Console
 
+from rebrew.errors import RebrewError
 from rebrew.ghidra.models import JsonRpcResponse, McpToolResult
 
 console = Console(stderr=True)
@@ -37,7 +38,7 @@ def _close_response(resp: Any) -> None:
             close()
 
 
-class McpError(RuntimeError):
+class McpError(RebrewError, RuntimeError):
     """ReVa MCP transport or protocol failure before/outside an apply loop.
 
     Structured fields let callers recover without string-matching ``str(exc)``:

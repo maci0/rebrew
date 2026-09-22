@@ -49,6 +49,8 @@ import struct
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from rebrew.errors import RebrewError
+
 #: Byte-identical decompressor stubs for LZEXE v0.90 and v0.91 (from
 #: unlzexe.c).  Detection reads this many bytes at the header's CS:IP entry.
 SIG90 = bytes(
@@ -528,7 +530,7 @@ SIG91 = bytes(
 _SIGLEN = len(SIG90)
 
 
-class NotLzexeError(ValueError):
+class NotLzexeError(RebrewError, ValueError):
     """Raised when a file is not an LZEXE-packed MZ executable."""
 
 

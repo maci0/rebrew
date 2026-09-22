@@ -18,11 +18,12 @@ from rich.console import Console
 
 from rebrew.cli import TargetOption, error_exit, json_print, require_config
 from rebrew.config import inventory_path_for
+from rebrew.errors import RebrewError
 
 console = Console(stderr=True)
 
 
-class OrphanInventoryError(RuntimeError):
+class OrphanInventoryError(RebrewError, RuntimeError):
     """Raised when the function inventory cannot be trusted for orphan safety."""
 
 

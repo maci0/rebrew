@@ -41,6 +41,7 @@ from rich.console import Console
 from rich.markup import escape
 
 from rebrew.cli import EXIT_ERROR
+from rebrew.errors import RebrewError
 from rebrew.registry import Registration, RegistryError, import_registration
 
 Disposer = Callable[[], None]
@@ -73,7 +74,7 @@ class Panel:
     )
 
 
-class ComponentError(RuntimeError):
+class ComponentError(RebrewError, RuntimeError):
     """A component could not activate: unknown service, duplicate, or bad shape."""
 
 

@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 
+from rebrew.errors import RebrewError
 from rebrew.sources import iter_sources
 
 if TYPE_CHECKING:
@@ -76,11 +77,11 @@ RelocInput = list[int] | dict[int, str] | Sequence[CoffRelocRecord] | None
 # when the VA map is unavailable — an unvalidated mask would report RELOC on
 # wrong-callee calls.  A degraded map with SOME entries still validates what
 # it knows; only a total scan failure raises.
-class CatalogScanError(Exception):
+class CatalogScanError(RebrewError, Exception):
     """Raised when the global/function scan fails to build the VA map."""
 
 
-class UnresolvedSymbolError(Exception):
+class UnresolvedSymbolError(RebrewError, Exception):
     """Raised when a relocation references a symbol with no VA in the catalog."""
 
     def __init__(self, symbol: str) -> None:
