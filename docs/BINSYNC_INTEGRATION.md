@@ -31,8 +31,11 @@ rebrew binsync-init ./binsync_state --dry-run
 
 `--user` defaults to `git config user.name` (else `rebrew`). The root commit
 adds only `.gitignore` and `binary_hash` (never `-A`), so files already present
-in the state directory stay untracked. Running against a state directory that
-already has a `binsync/__root__` branch errors.
+in the state directory stay untracked. Rerunning against a state directory that
+already has a `binsync/__root__` branch keeps the root and checks out
+`binsync/<user>`, creating it from the root if missing (a second user joining,
+or recovery after a crash past the root commit). A root `binary_hash` that
+differs from the target binary errors.
 
 ---
 

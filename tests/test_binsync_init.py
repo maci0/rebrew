@@ -73,15 +73,59 @@ class TestInit:
         assert "binsync/tester" in branches
         assert _git(state, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip() == "binsync/tester"
 
-    def test_running_twice_errors(self, tmp_path: Path, monkeypatch) -> None:
+    def test_running_twice_converges(self, tmp_path: Path, monkeypatch) -> None:
         _make_project(tmp_path)
         state = tmp_path / "state"
         monkeypatch.chdir(tmp_path)
         first = _invoke(state, "--user", "tester", "--json")
         assert first.exit_code == 0, first.output
+        refs = _git(state, "show-ref").stdout
         second = _invoke(state, "--user", "tester", "--json")
-        assert second.exit_code != 0
-        assert "already a BinSync repository" in second.output
+        assert second.exit_code == 0, second.output
+        assert second.output == first.output
+        assert _git(state, "show-ref").stdout == refs
+        assert _git(state, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip() == "binsync/tester"
+
+    def test_rerun_recovers_missing_user_branch(self, tmp_path: Path, monkeypatch) -> None:
+        """A crash after the root commit leaves no user branch; a rerun adds it."""
+        _make_project(tmp_path)
+        state = tmp_path / "state"
+        monkeypatch.chdir(tmp_path)
+        assert _invoke(state, "--user", "tester").exit_code == 0
+        _git(state, "checkout", "-q", "binsync/__root__")
+        _git(state, "branch", "-q", "-D", "binsync/tester")
+
+        result = _invoke(state, "--user", "tester")
+        assert result.exit_code == 0, result.output
+        assert _git(state, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip() == "binsync/tester"
+        assert (
+            _git(state, "rev-parse", "binsync/tester").stdout
+            == _git(state, "rev-parse", "binsync/__root__").stdout
+        )
+
+    def test_second_user_branches_from_root(self, tmp_path: Path, monkeypatch) -> None:
+        _make_project(tmp_path)
+        state = tmp_path / "state"
+        monkeypatch.chdir(tmp_path)
+        assert _invoke(state, "--user", "tester").exit_code == 0
+        root = _git(state, "rev-parse", "binsync/__root__").stdout
+
+        result = _invoke(state, "--user", "alice")
+        assert result.exit_code == 0, result.output
+        assert _git(state, "rev-parse", "binsync/__root__").stdout == root
+        assert _git(state, "rev-parse", "binsync/alice").stdout == root
+        assert _git(state, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip() == "binsync/alice"
+
+    def test_rerun_with_other_binary_errors(self, tmp_path: Path, monkeypatch) -> None:
+        _make_project(tmp_path)
+        state = tmp_path / "state"
+        monkeypatch.chdir(tmp_path)
+        assert _invoke(state, "--user", "tester").exit_code == 0
+        (tmp_path / "a.exe").write_bytes(_BINARY + b"\x00")
+
+        result = _invoke(state, "--user", "tester", "--json")
+        assert result.exit_code != 0
+        assert "binary_hash does not match" in result.output
 
     def test_missing_binary_errors(self, tmp_path: Path, monkeypatch) -> None:
         _make_project(tmp_path, write_binary=False)

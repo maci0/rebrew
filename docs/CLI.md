@@ -1801,8 +1801,11 @@ files already in the state directory stay untracked.
 | `--json` | Output results as JSON |
 | `--target NAME` | Select a target from `rebrew-project.toml` |
 
-An already-initialized state directory (a `binsync/__root__` branch exists)
-errors.
+Rerunning against an initialized state directory (a `binsync/__root__` branch
+exists) converges: the root is left alone and `binsync/<user>` is checked out,
+created from the root if missing. That covers a second user joining and a
+rerun after a crash past the root commit. A root `binary_hash` that differs
+from the target binary's MD5 errors.
 
 ### `rebrew binsync-overlay`
 

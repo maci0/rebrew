@@ -164,10 +164,33 @@ def main(
     except OSError as exc:
         error_exit(f"Cannot resolve state directory {state_dir}: {exc}", json_mode=json_output)
 
-    if _is_binsync_repo(resolved):
-        error_exit("already a BinSync repository", json_mode=json_output)
-
     user_name = user or _default_user(resolved)
+    user_branch = f"binsync/{user_name}"
+
+    if _is_binsync_repo(resolved):
+        # Converge instead of erroring: a rerun after a crash past the root
+        # commit, or a second user joining, only needs the user branch.
+        root_hash = run_git(resolved, "show", f"{_ROOT_BRANCH}:binary_hash")
+        if root_hash.returncode != 0 or root_hash.stdout.strip() != digest:
+            error_exit(
+                f"{_ROOT_BRANCH} binary_hash does not match the target binary",
+                json_mode=json_output,
+            )
+        if not dry_run:
+            has_branch = run_git(resolved, "rev-parse", "--verify", "--quiet", user_branch)
+            args = (
+                (user_branch,) if has_branch.returncode == 0 else ("-b", user_branch, _ROOT_BRANCH)
+            )
+            _checked(run_git(resolved, "checkout", "-q", *args), json_mode=json_output)
+        _report(
+            resolved,
+            cfg.target_name,
+            user_name,
+            digest,
+            dry_run=dry_run,
+            json_output=json_output,
+        )
+        return
 
     if dry_run:
         _report(
@@ -199,9 +222,7 @@ def main(
     _write_root_files(resolved, digest)
     _checked(run_git(resolved, "add", "--", ".gitignore", "binary_hash"), json_mode=json_output)
     _checked(run_git(resolved, "commit", "-q", "-m", "Root commit"), json_mode=json_output)
-    _checked(
-        run_git(resolved, "checkout", "-q", "-b", f"binsync/{user_name}"), json_mode=json_output
-    )
+    _checked(run_git(resolved, "checkout", "-q", "-b", user_branch), json_mode=json_output)
 
     _report(
         resolved,

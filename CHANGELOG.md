@@ -374,6 +374,12 @@
   ``one_line``, ``run_git``). Call sites inside the package already updated.
 
 ### Fixed
+- **`rebrew binsync-init` converges on a rerun.**  A second run errored
+  with "already a BinSync repository", so a crash after the root commit left
+  no way to create `binsync/<user>`, and a second user could not add their
+  branch.  A rerun now keeps the root, checks out `binsync/<user>` (created
+  from the root if missing), and errors only when the root `binary_hash`
+  differs from the target binary.
 - **DOS MZ codegen scan reads the real entry point.**  The entry offset
   ignored the `e_cparhdr` header paragraphs, so `rebrew toolchain detect`
   disassembled bytes one header-length before the entry code.
