@@ -99,27 +99,31 @@ def main(
 
     if backfill_blockers:
         from rebrew.intake import blocker_reason
-        from rebrew.metadata import get_entry, update_field
+        from rebrew.metadata import get_entry, set_fields_batch
         from rebrew.naming import load_data
 
         _ghidra, existing, _covered = load_data(cfg)
         backfilled = 0
         sizes_written = 0
+        updates: list[dict[str, Any]] = []
         for va, info in existing.items():
             module = info.get("module") or cfg.marker
             entry = get_entry(cfg.metadata_dir, va, module)
             if info.get("status") == "STUB" and not entry.get("blocker"):
                 size = int(info.get("size") or 0)
-                reason = blocker_reason(family, size, "")
-                if not dry_run:
-                    update_field(cfg.metadata_dir, va, "blocker", reason, module=module)
-                    # Same self-heal as classify_all: a blocker for a size-less
-                    # stub is incomplete — record the binary-derived size so
-                    # rebrew test can run on it.
-                    if size > 0 and not entry.get("size"):
-                        update_field(cfg.metadata_dir, va, "size", size, module=module)
+                fields: dict[str, Any] = {"blocker": blocker_reason(family, size, "")}
+                # Same self-heal as classify_all: a blocker for a size-less
+                # stub is incomplete — record the binary-derived size so
+                # rebrew test can run on it.
+                if size > 0 and not entry.get("size"):
+                    fields["size"] = size
+                    if not dry_run:
                         sizes_written += 1
+                updates.append({"module": module, "va": va, "fields": fields})
                 backfilled += 1
+        if not dry_run:
+            # One TOML rewrite for the whole backfill, not one per STUB.
+            set_fields_batch(cfg.metadata_dir, updates)
         payload = {
             "functions": len(funcs),
             "backfilled_blockers": backfilled,

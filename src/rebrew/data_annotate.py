@@ -148,22 +148,24 @@ def set_data_types(
     compiler sees, and `--gen-header` reads it from the metadata, so a wrong
     one has to be correctable through the tool rather than by editing the TOML.
     """
-    from rebrew.data_metadata import set_data_field
+    from rebrew.data_metadata import set_data_fields_batch
     from rebrew.sources import target_marker
 
     module = target_marker(cfg) or ""
     if not module:
         raise ValueError("no target marker configured to address the data metadata")
     rows: list[dict[str, str]] = []
+    updates: list[dict[str, Any]] = []
     for spec in specs:
         va_s, sep, type_s = spec.partition("=")
         type_s = type_s.strip()
         if not sep:
             raise ValueError(f"--set-type wants 0xVA=TYPE, got {spec!r}")
         va = int(va_s, 16)
-        if not dry_run:
-            set_data_field(cfg.metadata_dir, va, "type", type_s, module)
         rows.append({"va": f"0x{va:x}", "type": type_s, "module": module})
+        updates.append({"module": module, "va": va, "fields": {"type": type_s}})
+    if not dry_run:
+        set_data_fields_batch(cfg.metadata_dir, updates)
     return rows
 
 

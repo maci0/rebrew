@@ -1228,8 +1228,7 @@ def parse_c_file_multi(
     # + build_name_to_va + scan_reversed_dir, test --all) don't parse the
     # same source tree once per call shape.  The per-call tail (target
     # filter, relative path, metadata overlay) is applied to fresh copies
-    # on every call: metadata can change independently of source, and the
-    # overlay writes scalars only, so a shallow copy carries it safely.
+    # on every call: metadata can change independently of source.
     # The memo key is a content digest of the parsed *snapshot*, not the
     # on-disk stat identity: a source replaced between read_source_text and
     # an earlier stat would otherwise file the old parse under the new
@@ -1281,11 +1280,10 @@ def _finalize_entries(
     base_dir: Path | None,
     metadata_dir: Path | None,
 ) -> list[Annotation]:
-    """Copy *structural* entries and apply the per-call overlays.
+    """Deep-copy *structural* entries and apply the per-call overlays.
 
-    Copies are shallow: the metadata overlay assigns scalar fields only
-    (:func:`rebrew.metadata.apply_metadata_entry`), so shared nested
-    lists (callers, etc.) are never mutated through a copy.
+    Deep copies keep caller mutations of nested fields (lists, dicts) out
+    of the shared parse memo.
     """
     if not structural:
         return []

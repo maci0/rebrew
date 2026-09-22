@@ -1582,18 +1582,21 @@ def _write_functions(cfg: Any, plan: ImportPlan, planned: list[Annotation]) -> l
 
 def _write_data(cfg: Any, plan: ImportPlan, planned: list[Annotation]) -> list[str]:
     """Write ``// DATA:`` markers and their ``rebrew-data.toml`` size/section."""
-    from rebrew.data_metadata import set_data_field
+    from rebrew.data_metadata import set_data_fields_batch
 
     written: list[str] = []
+    updates: list[dict[str, Any]] = []
     for ann in planned:
         target_path = cfg.reversed_dir / ann.path
         target_path.parent.mkdir(parents=True, exist_ok=True)
         atomic_write_text(target_path, f"{ann.marker}\n")
         written.append(target_path.relative_to(cfg.root).as_posix())
-        set_data_field(cfg.metadata_dir, ann.va, "section", ann.section, plan.marker)
-        set_data_field(cfg.metadata_dir, ann.va, "name", ann.name, plan.marker)
+        fields: dict[str, Any] = {"section": ann.section, "name": ann.name}
         if ann.size:
-            set_data_field(cfg.metadata_dir, ann.va, "size", ann.size, plan.marker)
+            fields["size"] = ann.size
+        updates.append({"module": plan.marker, "va": ann.va, "fields": fields})
+    # One rebrew-data.toml rewrite for the whole import, not three per symbol.
+    set_data_fields_batch(cfg.metadata_dir, updates)
     return written
 
 

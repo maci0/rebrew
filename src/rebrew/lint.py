@@ -1974,6 +1974,7 @@ def main(
             DATA_STATUSES,
             get_data_entry,
             set_data_field,
+            set_data_fields_batch,
         )
         from rebrew.metadata import (
             coerce_metadata_value,
@@ -2165,18 +2166,22 @@ def main(
                     )
                 section_count = len(section_hits)
             else:
+                # One rebrew-data.toml rewrite for all hits, not one per symbol.
+                section_updates: dict[tuple[str, int], dict[str, Any]] = {}
                 for section_hit in section_hits:
+                    hit_key = (section_hit.module, section_hit.va)
+                    if hit_key in section_updates:
+                        continue
                     existing = get_data_entry(cfg.metadata_dir, section_hit.va, section_hit.module)
                     if "section" in {k.lower() for k in existing}:
                         continue
-                    set_data_field(
-                        cfg.metadata_dir,
-                        section_hit.va,
-                        "section",
-                        section_hit.section,
-                        module=section_hit.module,
-                    )
-                    section_count += 1
+                    section_updates[hit_key] = {
+                        "module": section_hit.module,
+                        "va": section_hit.va,
+                        "fields": {"section": section_hit.section},
+                    }
+                set_data_fields_batch(cfg.metadata_dir, list(section_updates.values()))
+                section_count = len(section_updates)
 
         if not json_output:
             parts: list[str] = []
