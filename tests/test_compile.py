@@ -601,6 +601,14 @@ class TestMaybeHeadlessWine:
         cmd, _env = maybe_headless_wine(["wine", "/opt/CL.EXE"], {"REBREW_WINE_HEADLESS": "0"})
         assert cmd == ["wine", "/opt/CL.EXE"]
 
+    def test_headless_opt_out_inherited_env(self, monkeypatch) -> None:
+        """env=None inherits os.environ, so the opt-out is read from there."""
+        monkeypatch.setattr("rebrew.compile.ensure_xvfb", lambda: ":99")
+        monkeypatch.setenv("REBREW_WINE_HEADLESS", "0")
+        cmd, env = maybe_headless_wine(["wine", "/opt/CL.EXE"], None)
+        assert cmd == ["wine", "/opt/CL.EXE"]
+        assert env is None
+
     def test_empty_command_untouched(self, monkeypatch) -> None:
         monkeypatch.setattr("rebrew.compile.ensure_xvfb", lambda: ":99")
         cmd, env = maybe_headless_wine([], {"WINEDEBUG": "-all"})

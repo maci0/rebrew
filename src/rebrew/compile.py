@@ -522,7 +522,7 @@ def maybe_headless_wine(
     """
     if not cmd or Path(cmd[0]).name != "wine":
         return cmd, env
-    if env is not None and env.get("REBREW_WINE_HEADLESS", "") == "0":
+    if (os.environ if env is None else env).get("REBREW_WINE_HEADLESS", "") == "0":
         return cmd, env
     display = ensure_xvfb()
     if display is not None:

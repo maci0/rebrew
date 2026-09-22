@@ -376,6 +376,10 @@
   ``one_line``, ``run_git``). Call sites inside the package already updated.
 
 ### Fixed
+- **`REBREW_WINE_HEADLESS=0` is honoured from the shell.**  The opt-out was
+  read only from an explicit env dict, so a call that inherits the process
+  environment still wrapped wine in Xvfb.  An inherited env is now checked
+  too.
 - **`rebrew binsync-init` converges on a rerun.**  A second run errored
   with "already a BinSync repository", so a crash after the root commit left
   no way to create `binsync/<user>`, and a second user could not add their
