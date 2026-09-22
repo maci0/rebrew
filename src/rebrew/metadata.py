@@ -1220,32 +1220,12 @@ def _merged_library_presets() -> dict[str, dict[str, str]]:
 
     An optional registry: a broken provider is skipped with a warning (the
     packaged presets stand) instead of bricking metadata resolution."""
-    from rebrew.registry import entry_point_registrations, load_registration_optional
+    from rebrew.registry import iter_optional_provider_dicts
 
     presets = dict(LIBRARY_PRESETS)
-    for reg in entry_point_registrations(LIBRARY_PRESET_ENTRY_POINT_GROUP):
-        provider = load_registration_optional(reg, logger)
-        if provider is None:
-            continue
-        try:
-            provided = provider()
-        except Exception as exc:
-            logger.warning(
-                "skipping %s provider %r: %s: %s",
-                reg.group,
-                reg.name,
-                type(exc).__name__,
-                exc,
-            )
-            continue
-        if not isinstance(provided, dict):
-            logger.warning(
-                "skipping %s provider %r: expected dict[name, {toolchain, cflags}], got %s",
-                reg.group,
-                reg.name,
-                type(provided).__name__,
-            )
-            continue
+    for reg, provided in iter_optional_provider_dicts(
+        LIBRARY_PRESET_ENTRY_POINT_GROUP, logger, expected="dict[name, {toolchain, cflags}]"
+    ):
         for name, fields in provided.items():
             if not isinstance(fields, dict):
                 logger.warning(

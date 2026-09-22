@@ -267,34 +267,15 @@ def _merged_msvc_version_tables() -> tuple[
     them (order matters — ``suggest_profile`` prefers earlier names).  An
     optional registry: a broken provider or a malformed key is skipped with
     a warning (the packaged tables stand)."""
-    from rebrew.registry import entry_point_registrations, load_registration_optional
+    from rebrew.registry import iter_optional_provider_dicts
 
     rich = {k: tuple(v) for k, v in _RICH_BUILD_PROFILES.items()}
     eras = {k: tuple(v) for k, v in _LINKER_ERA_PROFILES.items()}
-    for reg in entry_point_registrations(MSVC_VERSION_ENTRY_POINT_GROUP):
-        provider = load_registration_optional(reg, logger)
-        if provider is None:
-            continue
-        try:
-            provided = provider()
-        except Exception as exc:
-            logger.warning(
-                "skipping %s provider %r: %s: %s",
-                reg.group,
-                reg.name,
-                type(exc).__name__,
-                exc,
-            )
-            continue
-        if not isinstance(provided, dict):
-            logger.warning(
-                "skipping %s provider %r: expected dict['build:<n>' | "
-                "'linker:<M>.<m>', list[profile]], got %s",
-                reg.group,
-                reg.name,
-                type(provided).__name__,
-            )
-            continue
+    for reg, provided in iter_optional_provider_dicts(
+        MSVC_VERSION_ENTRY_POINT_GROUP,
+        logger,
+        expected="dict['build:<n>' | 'linker:<M>.<m>', list[profile]]",
+    ):
         for key, profiles in provided.items():
             if not isinstance(profiles, (list, tuple, set)) or not profiles:
                 logger.warning(
@@ -1776,32 +1757,12 @@ def _merged_profile_compat() -> dict[str, set[str] | None]:
     Packaged family sets are the base; a provider extends a family's
     profile set (union).  An optional registry: a broken provider is
     skipped with a warning (the packaged table stands)."""
-    from rebrew.registry import entry_point_registrations, load_registration_optional
+    from rebrew.registry import iter_optional_provider_dicts
 
     compat = {k: (set(v) if v is not None else None) for k, v in _PROFILE_COMPAT.items()}
-    for reg in entry_point_registrations(TOOLCHAIN_DETECTOR_ENTRY_POINT_GROUP):
-        provider = load_registration_optional(reg, logger)
-        if provider is None:
-            continue
-        try:
-            provided = provider()
-        except Exception as exc:
-            logger.warning(
-                "skipping %s provider %r: %s: %s",
-                reg.group,
-                reg.name,
-                type(exc).__name__,
-                exc,
-            )
-            continue
-        if not isinstance(provided, dict):
-            logger.warning(
-                "skipping %s provider %r: expected dict[family, list[profile]], got %s",
-                reg.group,
-                reg.name,
-                type(provided).__name__,
-            )
-            continue
+    for reg, provided in iter_optional_provider_dicts(
+        TOOLCHAIN_DETECTOR_ENTRY_POINT_GROUP, logger, expected="dict[family, list[profile]]"
+    ):
         for family, profiles in provided.items():
             if not isinstance(profiles, (set, list, tuple)) or not profiles:
                 logger.warning(

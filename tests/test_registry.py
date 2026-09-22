@@ -37,6 +37,7 @@ def test_registry_public_all() -> None:
         "RegistryError",
         "entry_point_registrations",
         "import_registration",
+        "iter_optional_provider_dicts",
         "load_registration_optional",
         "merge_into",
         "merge_provider_dict",

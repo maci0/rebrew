@@ -40,7 +40,7 @@ from __future__ import annotations
 
 import importlib
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from importlib.metadata import entry_points
 from typing import Any
@@ -174,6 +174,41 @@ def load_registration_optional(reg: Registration, log: logging.Logger) -> Any | 
         return None
 
 
+def iter_optional_provider_dicts(
+    group: str, log: logging.Logger, *, expected: str
+) -> Iterator[tuple[Registration, dict[Any, Any]]]:
+    """Yield ``(reg, provided)`` for each provider function in optional *group*.
+
+    A provider that fails to import, raises, or returns a non-dict is skipped
+    with a warning; *expected* names the dict shape in that warning.  Entries
+    inside *provided* are unvalidated: the caller checks each one."""
+    for reg in entry_point_registrations(group):
+        provider = load_registration_optional(reg, log)
+        if provider is None:
+            continue
+        try:
+            provided = provider()
+        except Exception as exc:
+            log.warning(
+                "skipping %s provider %r: %s: %s",
+                reg.group,
+                reg.name,
+                type(exc).__name__,
+                exc,
+            )
+            continue
+        if not isinstance(provided, dict):
+            log.warning(
+                "skipping %s provider %r: expected %s, got %s",
+                reg.group,
+                reg.name,
+                expected,
+                type(provided).__name__,
+            )
+            continue
+        yield reg, provided
+
+
 def merge_into(
     registry: dict[str, Any],
     name: str,
@@ -266,6 +301,7 @@ __all__ = [
     "RegistryError",
     "entry_point_registrations",
     "import_registration",
+    "iter_optional_provider_dicts",
     "load_registration_optional",
     "merge_into",
     "merge_provider_dict",

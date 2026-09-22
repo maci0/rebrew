@@ -185,38 +185,17 @@ def _merged_flag_sets() -> tuple[dict[str, Flags], dict[str, dict[str, list[str]
     profile name in discovery order (last provider wins).  An optional
     registry: a broken provider is skipped with a warning (the packaged
     sweep axes stand)."""
-    from rebrew.registry import entry_point_registrations, load_registration_optional
+    from rebrew.registry import iter_optional_provider_dicts
 
     flags = dict(_FLAGS_MAP)
     tiers = dict(_PACKAGED_FLAG_TIERS)
-    for reg in entry_point_registrations(FLAG_SET_ENTRY_POINT_GROUP):
-        provider = load_registration_optional(reg, log)
-        if provider is None:
-            continue
-        try:
-            provided = provider()
-        except Exception as exc:
-            log.warning(
-                "skipping %s provider %r: %s: %s",
-                reg.group,
-                reg.name,
-                type(exc).__name__,
-                exc,
-            )
-            continue
-        if not isinstance(provided, dict):
-            log.warning(
-                "skipping %s provider %r: expected dict[profile, (Flags, tiers)], got %s",
-                reg.group,
-                reg.name,
-                type(provided).__name__,
-            )
-            continue
+    for reg, provided in iter_optional_provider_dicts(
+        FLAG_SET_ENTRY_POINT_GROUP, log, expected="dict[profile, (Flags, tiers)]"
+    ):
         for name, value in provided.items():
-            # Validate each entry before unpacking: a malformed provider value
-            # (e.g. {"msvc-6.0": None}) raised TypeError out of module import,
-            # defeating the documented skip, because this loop sits outside the
-            # try that guards provider().
+            # Validate each entry before unpacking: a malformed value
+            # (e.g. {"msvc-6.0": None}) must be skipped, not raise out of
+            # module import.
             if not (isinstance(value, tuple) and len(value) == 2):
                 log.warning(
                     "skipping %s provider %r entry %r: expected (Flags, tiers), got %s",
