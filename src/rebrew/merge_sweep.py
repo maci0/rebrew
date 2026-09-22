@@ -506,7 +506,9 @@ class _PartitionScorer:
                     obj_bytes = obj_bytes[: len(target_bytes)]
                 else:
                     target_bytes = target_bytes[: len(obj_bytes)]
-            matched, match_count, match_total, _relocs, _inv = smart_reloc_compare(
+            # Both sides are truncated to equal length above, so match_count
+            # is already a byte count over len(target_bytes).
+            matched, match_count, _total, _relocs, _inv = smart_reloc_compare(
                 obj_bytes,
                 target_bytes,
                 coff_relocs,
@@ -514,12 +516,7 @@ class _PartitionScorer:
                 section_va=va,
                 iat_region=iat_region,
             )
-            if size_mismatch or not matched:
-                total += (
-                    int(round(match_count / match_total * len(target_bytes))) if match_total else 0
-                )
-            else:
-                total += len(target_bytes)
+            total += match_count if size_mismatch or not matched else len(target_bytes)
         return total, 1
 
     def __call__(self, partition: list[list[int]]) -> tuple[int, int]:

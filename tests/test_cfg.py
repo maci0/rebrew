@@ -774,6 +774,23 @@ class TestCLISet:
         doc, _ = load_toml(tmp_path)
         assert doc["compiler"]["image_base"] == 0x10000000
 
+    def test_set_float(self, tmp_path: Path, monkeypatch) -> None:
+        _make_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(cfg_app, ["set", "matcher.threshold", "0.5"])
+        assert result.exit_code == 0
+        doc, _ = load_toml(tmp_path)
+        assert doc["matcher"]["threshold"] == 0.5
+
+    def test_set_non_finite_stays_string(self, tmp_path: Path, monkeypatch) -> None:
+        _make_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        for raw in ("nan", "inf", "1e999"):
+            result = runner.invoke(cfg_app, ["set", "matcher.threshold", raw])
+            assert result.exit_code == 0
+            doc, _ = load_toml(tmp_path)
+            assert doc["matcher"]["threshold"] == raw
+
     def test_set_api_key_refused(self, tmp_path: Path, monkeypatch) -> None:
         """Non-empty secrets must not ride on argv via cfg set."""
         _make_project(tmp_path)

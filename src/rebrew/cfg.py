@@ -24,6 +24,7 @@ Usage::
 
 import contextlib
 import json
+import math
 import shutil
 from pathlib import Path
 from typing import Any
@@ -754,7 +755,11 @@ def set_value(
             parsed_value = int(value, 16) if value.startswith(("0x", "0X")) else int(value)
         except ValueError:
             with contextlib.suppress(ValueError):
-                parsed_value = float(value)
+                as_float = float(value)
+                # "nan"/"inf"/"1e999" stay strings: a non-finite number would
+                # poison every threshold comparison that reads the key.
+                if math.isfinite(as_float):
+                    parsed_value = as_float
 
     url_label = _url_config_label(key)
     if url_label is not None:
