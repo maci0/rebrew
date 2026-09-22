@@ -418,7 +418,7 @@ def _climb(
 @app.callback(invoke_without_command=True)
 def main(
     source: str = typer.Argument(..., help="C source file containing the function"),
-    va: str | None = typer.Option(None, "--va", help="VA in hex (e.g. 0x10018850)"),
+    va: str | None = typer.Option(None, "--va", help="Target VA in hex (default: from annotation)"),
     symbol: str | None = typer.Option(None, "--symbol", help="COFF symbol (e.g. _funcname)"),
     size: int | None = typer.Option(None, "--size", help="Size in bytes"),
     cflags: str | None = typer.Option(None, "--cflags", help="Compiler flags"),
