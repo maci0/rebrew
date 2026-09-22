@@ -30,8 +30,9 @@ T ?= tests/
 
 # Reproducible package builds: honor SOURCE_DATE_EPOCH when set; otherwise use
 # the committer timestamp (or 0 for a non-git tree). Wheel builds with this set
-# are byte-identical across runs; sdist tar directory mtimes still vary under
-# setuptools (known limitation: ship/compare wheels).
+# are byte-identical across runs; `make build` then rewrites the sdist with
+# tools/normalize_sdist.py (sorted entries, fixed mtimes, 0:0 owner, fixed
+# modes) so it is byte-identical across checkouts too.
 SOURCE_DATE_EPOCH ?= $(shell git log -1 --pretty=%ct 2>/dev/null || echo 0)
 
 # List contributor-facing targets (default goal).
@@ -179,6 +180,7 @@ build: ensure-uv
 	@mkdir -p dist
 	@rm -f dist/*.whl dist/*.tar.gz dist/*.buildinfo
 	SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) TZ=UTC LC_ALL=C PYTHONHASHSEED=0 uv build
+	SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) uv run --frozen --no-project python tools/normalize_sdist.py dist/*.tar.gz
 	@rm -rf build rebrew.egg-info
 	@set -eu; \
 	st=$$(sed -n 's/^requires = \["setuptools==\([0-9.][0-9.]*\)"\]/\1/p' pyproject.toml | head -1); \

@@ -9,7 +9,9 @@ across the supported Python versions (3.13–3.14) — including a fixture-fresh
 check (`tools/gen_fixtures.py --check`) and an idempotency sweep over the
 offline `--json` CLI surface — a pre-commit hook-parity job, a package job
 that builds the sdist/wheel via `make build` (SOURCE_DATE_EPOCH, C/UTC,
-`PYTHONHASHSEED=0`), emits a CycloneDX 1.5 SBOM (`dist/rebrew.cdx.json` from
+`PYTHONHASHSEED=0`, sdist tar metadata normalized by
+`tools/normalize_sdist.py`), checks both artifacts hash the same on a second
+`--no-cache` build, emits a CycloneDX 1.5 SBOM (`dist/rebrew.cdx.json` from
 `uv.lock` via `tools/generate_sbom.py`), writes `dist/rebrew.buildinfo`
 (uv/python/`.python-version`/setuptools parsed from `pyproject.toml` + epoch
 knobs), and installs the
@@ -41,7 +43,9 @@ script — so lint/test steps never see the token):
 `pyproject.toml`'s `[tool.uv.sources]` resolves
 the `similarity` group's `resembl` from `../resembl`, so a default
 `uv sync --frozen` fails to build the installation plan when that checkout is
-absent. Keep `resembl-ref` in step with the `resembl` version in `uv.lock`.
+absent. Keep `resembl-ref` in step with the `resembl` version in `uv.lock`,
+and `resembl-sha` with the commit that tag resolves to: the clone fails when
+the tag points anywhere else.
 The package job skips the sibling clone (`clone-resembl: "false"`): its
 lockfile sync uses
 `--no-default-groups --no-install-project` (no path dep needed) before the

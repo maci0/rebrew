@@ -6,7 +6,9 @@
 # match the apt-get install step: GitHub/codeload flakes should not fail the
 # job on the first transient error.
 #
-# Requires RESEMBL_REF in the environment (workflow env / Makefile pin).
+# Requires RESEMBL_REF and RESEMBL_SHA in the environment (uv-env action
+# inputs).  The clone fails unless the tag resolves to RESEMBL_SHA: tags are
+# mutable, so a retargeted tag must not silently change the path dependency.
 # When GH_TOKEN or GITHUB_TOKEN is set (workflows map secrets.GITHUB_TOKEN
 # onto this step only — not workflow-wide),
 # clone with an Authorization header so the token never lands in the remote
@@ -16,6 +18,7 @@
 set -euo pipefail
 
 ref="${RESEMBL_REF:?RESEMBL_REF is required (e.g. v2.0.0)}"
+want_sha="${RESEMBL_SHA:?RESEMBL_SHA is required (the commit RESEMBL_REF must resolve to)}"
 dest="${1:-../resembl}"
 
 # Refuse callers that would rm -rf something other than a resembl checkout
@@ -61,6 +64,11 @@ for attempt in 1 2 3; do
   rm -rf "${dest}"
   if git clone --depth 1 --branch "${ref}" \
       https://github.com/maci0/resembl.git "${dest}"; then
+    got_sha="$(git -C "${dest}" rev-parse HEAD)"
+    if [[ "${got_sha}" != "${want_sha}" ]]; then
+      echo "resembl ${ref} resolves to ${got_sha}, expected ${want_sha}" >&2
+      exit 1
+    fi
     exit 0
   fi
   if [[ "${attempt}" -eq 3 ]]; then

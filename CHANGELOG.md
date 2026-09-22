@@ -1,5 +1,14 @@
 ## [Unreleased]
 ### Fixed
+- **Byte-reproducible sdist.**  setuptools copied each file's mtime, mode,
+  and owner into the sdist, so a checkout with 0600 files or a different
+  clone time produced a different archive.  `make build` now rewrites it
+  with `tools/normalize_sdist.py` (sorted entries, `SOURCE_DATE_EPOCH`
+  mtimes, `0:0` owner, 0644/0755 modes, zero gzip timestamp), and the CI
+  package job checks the sdist hash across two builds like the wheel.
+- **resembl clone pinned to a commit.**  CI cloned the sibling `resembl`
+  by tag only; the `uv-env` action's `resembl-sha` input now fails the
+  clone when `v2.0.0` resolves to any other commit.
 - **Report and dashboard accessibility.**  `graph.html` put `aria-label`
   on a `<pre>` (invalid ARIA, flagged by vnu) that keyboard users could
   not scroll; it is now a focusable region named by its heading.

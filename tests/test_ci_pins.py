@@ -86,6 +86,9 @@ class TestCiPins:
         make_ref = _makefile_resembl_ref()
         assert _uv_env_defaults()["resembl-ref"] == make_ref
         assert make_ref.lstrip("v") == _lock_resembl_version()
+        # Tags are mutable: the clone verifies the tag against this commit.
+        assert _SHA_REF_RE.match(_uv_env_defaults()["resembl-sha"])
+        assert "RESEMBL_SHA" in (ROOT / "tools" / "ci_clone_resembl.sh").read_text(encoding="utf-8")
         for path in (CI_YML, SYNC_YML):
             assert "RESEMBL_REF" not in _workflow_env(path), (
                 f"{path.name}: resembl is pinned in {UV_ENV_ACTION.name}; a workflow copy drifts"

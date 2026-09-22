@@ -187,13 +187,11 @@ jobs:
           set -euo pipefail
           uv run --frozen --no-project --offline python tools/generate_sbom.py -o dist/rebrew.cdx.json
           uv run --frozen --no-project --offline python -c "import json,sys; d=json.load(open('dist/rebrew.cdx.json')); assert d['bomFormat']=='CycloneDX'; assert len(d['components'])>10; print(len(d['components']), 'components')"
-      - name: Verify wheel reproducibility (second clean build)
-        # The wheel must be byte-identical across builds of the same commit:
-        # --no-cache + a fresh out-dir forces a real second build (no cache
-        # hit), and the same SOURCE_DATE_EPOCH must yield the same hash.
-        # The sdist is excluded — setuptools leaves entry mtimes unnormalized
-        # (documented Makefile limitation; wheels are the reproducibility
-        # contract).
+      - name: Verify wheel and sdist reproducibility (second clean build)
+        # Both artifacts must be byte-identical across builds of the same
+        # commit: --no-cache + a fresh out-dir forces a real second build (no
+        # cache hit), and the same SOURCE_DATE_EPOCH must yield the same hash.
+        # The sdist goes through the same normalize_sdist.py pass as make build.
         env:
           TZ: UTC
           LC_ALL: C
@@ -203,17 +201,20 @@ jobs:
           shopt -s nullglob
           SOURCE_DATE_EPOCH="$(git log -1 --pretty=%ct)"
           export SOURCE_DATE_EPOCH
-          first_sha=$(sha256sum dist/*.whl | cut -d' ' -f1)
           # Do not pipe through tail: under pipefail a failing uv build must
           # surface its full log, not a truncated last line.
-          uv build --wheel --no-cache --out-dir dist-repro
+          uv build --no-cache --out-dir dist-repro
           rm -rf build rebrew.egg-info
-          second_sha=$(sha256sum dist-repro/*.whl | cut -d' ' -f1)
-          if [[ "$first_sha" != "$second_sha" ]]; then
-            echo "::error::wheel is not reproducible (first=$first_sha second=$second_sha)" >&2
-            exit 1
-          fi
-          echo "wheel reproducible: $first_sha"
+          uv run --frozen --no-project python tools/normalize_sdist.py dist-repro/*.tar.gz
+          for ext in whl tar.gz; do
+            first_sha=$(sha256sum dist/*.$ext | cut -d' ' -f1)
+            second_sha=$(sha256sum dist-repro/*.$ext | cut -d' ' -f1)
+            if [[ "$first_sha" != "$second_sha" ]]; then
+              echo "::error::$ext is not reproducible (first=$first_sha second=$second_sha)" >&2
+              exit 1
+            fi
+            echo "$ext reproducible: $first_sha"
+          done
       - name: Install wheel into clean venv and smoke-import
         # Hermetic: install runtime deps from uv.lock, then overlay the just-
         # built wheel with --no-deps so a live PyPI resolve cannot drift past

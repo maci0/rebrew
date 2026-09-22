@@ -21,6 +21,12 @@ inputs:
     description: Tag of maci0/resembl to clone into ../resembl (must match uv.lock).
     required: false
     default: "v2.0.0"
+  resembl-sha:
+    description: >-
+      Commit the resembl-ref tag must resolve to. A retargeted tag fails the
+      clone instead of silently changing the path dependency.
+    required: false
+    default: "a66d7ec5bb0c6150a00f4d42663c23d9fcba247b"
   clone-resembl:
     description: >-
       Clone the sibling resembl checkout. Set to "false" for jobs whose sync
@@ -48,6 +54,7 @@ runs:
       shell: bash
       env:
         RESEMBL_REF: ${{ inputs.resembl-ref }}
+        RESEMBL_SHA: ${{ inputs.resembl-sha }}
         GH_TOKEN: ${{ inputs.github-token }}
       run: bash tools/ci_clone_resembl.sh ../resembl
 
