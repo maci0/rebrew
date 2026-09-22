@@ -124,6 +124,28 @@ def _strip_cdecl_prefix(name: str) -> str:
     return name[1:] if name.startswith("_") else name
 
 
+def _inside_project(fp: Path, cfg: Any) -> bool:
+    """True when *fp* is a project source (reversed dir or shared tree).
+
+    Pull writes renames/prototypes/markers into source files; the old
+    reversed-only containment silently skipped every shared file
+    (``../shared/f.c`` resolves outside ``reversed_dir``).
+    """
+    try:
+        resolved = fp.resolve()
+    except (OSError, ValueError):
+        return False
+    for root in (getattr(cfg, "reversed_dir", None), getattr(cfg, "shared_dir", None)):
+        if root is None:
+            continue
+        try:
+            if resolved.is_relative_to(Path(root).resolve()):
+                return True
+        except (OSError, ValueError):
+            continue
+    return False
+
+
 def normalize_prototype(proto: str) -> str:
     """Canonicalize a prototype for comparison: collapse whitespace, drop trailing semicolon."""
     text = " ".join(proto.strip().split())
@@ -164,10 +186,7 @@ def _apply_binsync_func_name(
     if not local_filepath:
         return False
     fp = Path(cfg.reversed_dir) / local_filepath
-    try:
-        if not fp.resolve().is_relative_to(Path(cfg.reversed_dir).resolve()):
-            return False
-    except (OSError, ValueError):
+    if not _inside_project(fp, cfg):
         return False
     if not fp.exists():
         return False
@@ -455,11 +474,7 @@ def import_state(
                         skipped += 1
                     else:
                         fp = Path(cfg.reversed_dir) / local_filepath
-                        try:
-                            inside = fp.resolve().is_relative_to(Path(cfg.reversed_dir).resolve())
-                        except (OSError, ValueError):
-                            inside = False
-                        if not inside or not fp.exists():
+                        if not _inside_project(fp, cfg) or not fp.exists():
                             skipped += 1
                         else:
                             _uak(fp, va, "PROTOTYPE", bs_proto, metadata_dir=cfg.metadata_dir)
@@ -564,11 +579,7 @@ def import_state(
 
                     if local_filepath:
                         fp = Path(cfg.reversed_dir) / local_filepath
-                        try:
-                            inside = fp.resolve().is_relative_to(Path(cfg.reversed_dir).resolve())
-                        except (OSError, ValueError):
-                            inside = False
-                        if inside and fp.exists():
+                        if _inside_project(fp, cfg) and fp.exists():
                             _uak2(fp, va, "GHIDRA", bs_name, metadata_dir=cfg.metadata_dir)
                 except Exception:
                     log.debug("GHIDRA annotation apply failed for VA 0x%x", va, exc_info=True)

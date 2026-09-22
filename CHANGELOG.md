@@ -23,6 +23,10 @@
   kwarg), and `inline-strings` see shared DATA markers; `gen-stubs`
   already scanned the whole tree. Data metadata was already
   multi-target qualified.
+- **Binsync pull writes shared files.**  The importer's reversed-only
+  containment guard silently skipped renames/prototypes/markers for every
+  `../shared` file; `_inside_project` covers the shared tree too (overlay
+  renames ride the same fix).
 - **`merge --shared` collapses twin copies.**  Same-body files with different
   target markers become one stacked block (markers + SIZE lines preserved);
   same-name different-body twins are refused with names, never averaged —

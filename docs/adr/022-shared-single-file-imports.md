@@ -69,6 +69,11 @@ copy.
 - DATA side: `fill-data`, `--own`, `--fix-ownership`, and `inline-strings`
   scan the shared tree (data metadata was already `(module, va)` keyed);
   `gen-stubs` already covered it via the whole-tree scan.
+- Sync side: BinSync pull (`sync --pull`, `binsync-import`, overlay
+  renames) writes shared files — the importer's containment guard covers
+  the shared tree, not just `reversed_dir`. Push/export was already
+  shared-aware via cfg scans; Ghidra MCP ops create in-Ghidra or write the
+  per-target globals header, unaffected.
 
 ## Consequences
 
