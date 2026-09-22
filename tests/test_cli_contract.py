@@ -6,6 +6,9 @@ without writing", and the `--target` option describes selecting a
 `rebrew-project.toml` target.  `main_entry` carries one docstring.  New
 commands inherit all of this from `TargetOption`/`AllTargetsOption` and
 `rebrew.cli.run_standalone` — a drift here is a grep-level regression.
+`--va` help belongs to one of three semantic families (disambiguation,
+direct VA selection, kept-distinct scoping), enumerated literally in
+`VA_HELP_ALLOWED`.
 
 The rules bind *options* only: positionals (e.g. a function reference as
 a C file, symbol, or hex VA) are a different concept and legitimately
@@ -25,6 +28,20 @@ CANONICAL_MAIN_ENTRY_DOC = "Run the Typer CLI application."
 JSON_HELP = "Output results as JSON"
 DRY_RUN_HELP = "Preview changes without writing"
 TARGET_HELP_PREFIX = "Target name"
+VA_HELP_ALLOWED = frozenset(
+    {
+        # Class A: pick which function inside a file/function reference.
+        "Disambiguate VA in a multi-function file (hex)",
+        # Class B: direct VA selection, default from the file's annotation.
+        "Target VA in hex (default: from annotation)",
+        # Class C: kept distinct — bulk/artifact scoping, not target selection.
+        "VA in hex (e.g. 0x10009310)",
+        "Check a single function VA (hex) instead of the whole .text",
+        "Check a single VA (hex) instead of every reversed function.",
+        "Restrict to one destination VA (hex, e.g. 0x401000)",
+        "Extract a single function by VA (hex) into its own file",
+    }
+)
 
 
 def _command_functions():
@@ -93,6 +110,15 @@ class TestSharedOptionHelp:
             if names.index("json_output") > names.index(target_key):
                 bad.append((comp, cmd))
         assert not bad, f"--json must precede --target in the signature: {bad}"
+
+    def test_va_help_is_canonical(self) -> None:
+        bad = []
+        for comp, cmd, fn in _command_functions():
+            for name in ("va", "va_override"):
+                opt = _options(fn).get(name)
+                if opt is not None and (opt.help or "") not in VA_HELP_ALLOWED:
+                    bad.append((comp, cmd, name, opt.help))
+        assert not bad, f"--va help must be one of the canonical set: {bad}"
 
 
 class TestEntryPointDocstrings:

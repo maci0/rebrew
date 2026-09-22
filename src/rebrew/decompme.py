@@ -325,7 +325,7 @@ def _build_context(cfg: Any, context_path: Path | None, no_context: bool) -> str
 def main(
     source: str = typer.Argument(..., help="C source file for the function to upload"),
     va: str | None = typer.Option(
-        None, "--va", help="Target VA in hex (default: first FUNCTION annotation)"
+        None, "--va", help="Target VA in hex (default: from annotation)"
     ),
     size: int | None = typer.Option(
         None, "--size", help="Target size in bytes (default: annotation SIZE)"

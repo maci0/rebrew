@@ -103,7 +103,10 @@ def main(
         rich_help_panel="Single-Function",
     ),
     target_va: str | None = typer.Option(
-        None, "--va", help="Target VA hex (auto from source)", rich_help_panel="Single-Function"
+        None,
+        "--va",
+        help="Target VA in hex (default: from annotation)",
+        rich_help_panel="Single-Function",
     ),
     target_size: int | None = typer.Option(
         None, "--size", help="Target size (auto from source)", rich_help_panel="Single-Function"

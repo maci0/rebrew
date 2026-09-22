@@ -147,7 +147,7 @@ def blocker_set(
         None, "--delta", help="BLOCKER_DELTA as integer (decimal or 0x hex)"
     ),
     va: str | None = typer.Option(
-        None, "--va", help="Disambiguate VA in a multi-function file (hex, e.g. 0x401000)"
+        None, "--va", help="Disambiguate VA in a multi-function file (hex)"
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
