@@ -388,13 +388,18 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
         arch=cfg.arch,
     )
 
-    # Load function data (same path as rebrew todo), scoped to this
-    # target's own module — shared-tree scans otherwise credit one binary
-    # with another target's rows (library headers land in every map).
     try:
         ghidra_funcs, existing, _covered_vas = load_data(cfg)
         from rebrew.naming import scope_to_target
 
+        # Before scoping: library attributions carry library modules
+        # (D3DX8, MSVCRT, …) and must leave the denominators whatever the
+        # module — an identified library function is not pending work.
+        library_vas = {
+            va
+            for va, info in existing.items()
+            if (info.get("marker_type") or "").upper() == "LIBRARY"
+        }
         existing = scope_to_target(existing, cfg)
     except (OSError, json.JSONDecodeError, KeyError, ValueError):
         # Graceful degradation: return zeroed report.  ValueError is what the
@@ -403,20 +408,18 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
         return report
 
     ghidra_vas = {f.va for f in ghidra_funcs}
-    covered_vas_set = set(existing.keys())
-    report.total_functions = len(ghidra_vas | covered_vas_set)
-    report.covered_functions = len(existing)
 
     # Progress counts game functions only: library attributions are tallied
-    # separately below, so shrink the headline denominators to FUNCTION rows.
-    # (covered_vas_set above stays whole — navigation must still find
-    # library-annotated VAs.)
+    # separately below, so the headline denominators cover FUNCTION rows plus
+    # the ghidra inventory MINUS identified library code — counting the
+    # binary's whole inventory (game + CRT/zlib/static libs) made coverage
+    # read "half done" when library code was never work.
     function_vas = {
         va
         for va, info in existing.items()
         if (info.get("marker_type") or "").upper() != "LIBRARY"
     }
-    report.total_functions = len(ghidra_vas | function_vas)
+    report.total_functions = len(function_vas | (ghidra_vas - library_vas))
     report.covered_functions = len(function_vas)
 
     src_dir = Path(cfg.reversed_dir)

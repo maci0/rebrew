@@ -1,4 +1,14 @@
 ## [Unreleased]
+### Fixed
+- **Library code leaves progress totals (status/todo agree again).**
+  Identified library functions (CRT/zlib/static-lib attributions —
+  "never reverse" work) inflated the denominators: server.dll reported
+  558 functions with 277 of them already-identified library code, so
+  coverage read 46.8%/41.9% where the honest game-code numbers are
+  261/281 (92.9% covered, 82.9% reversed). `rebrew todo` now mirrors
+  `rebrew status` exactly: same FUNCTION-only counts, same denominator
+  (covered FUNCTION rows + ghidra inventory - identified library VAs),
+  library rows excluded from the status table.
 ### Added
 - **--all-targets for the batch tools (verify/test/lint/status/todo).**
   Target selection contract: every project-scoped command runs the

@@ -1190,6 +1190,14 @@ def main(
         ghidra_funcs, existing, covered_vas = load_data(cfg)
         from rebrew.naming import scope_to_target
 
+        # Before scoping: library attributions carry library modules
+        # (D3DX8, MSVCRT, …) and leave the denominator as identified
+        # library code whatever the module (same rule as `rebrew status`).
+        library_vas = {
+            va
+            for va, info in existing.items()
+            if (info.get("marker_type") or "").upper() == "LIBRARY"
+        }
         existing = scope_to_target(existing, cfg)
     except (OSError, json.JSONDecodeError, KeyError) as exc:
         error_exit(f"Failed to load project data: {exc}", json_mode=json_output)
@@ -1206,6 +1214,10 @@ def main(
     status_counts: dict[str, int] = {}
     documented = 0
     for va_int, info in existing.items():
+        # Library attributions are not reversing progress (same rule as
+        # `rebrew status`): identifications, not bodies to match.
+        if (info.get("marker_type") or "").upper() == "LIBRARY":
+            continue
         ann_status = info.get("status", "STUB")
         # PROVEN is a post-verify promotion that wins over verify cache
         # The metadata status is authoritative for STUB (verify runs no longer
@@ -1226,23 +1238,27 @@ def main(
         else:
             s = verify_statuses.get(va_int, ann_status)
         status_counts[s] = status_counts.get(s, 0) + 1
-    total_funcs = len(ghidra_funcs)
-    covered = len(covered_vas)
+    function_vas = {
+        va
+        for va, info in existing.items()
+        if (info.get("marker_type") or "").upper() != "LIBRARY"
+    }
+    ghidra_vas = {f.va for f in ghidra_funcs}
+    total_funcs = len(function_vas | (ghidra_vas - library_vas))
+    covered = len(function_vas)
     exact = status_counts.get("EXACT", 0)
     reloc = status_counts.get("RELOC", 0)
     proven = status_counts.get("PROVEN", 0)
     matching = status_counts.get("NEAR_MATCHING", 0)
     stub = status_counts.get("STUB", 0)
-    # status_counts is built over the COVERED population (source files +
-    # library headers), and status_counts can therefore include library-header
-    # functions the ghidra list lacks.  The denominator is the same union
-    # `rebrew status` uses (`ghidra ∪ covered`), so `todo --json` and `status`
-    # cannot disagree: dividing by `covered` alone reported 60% where status
-    # reported 30% for the same project (an uncovered ghidra function is
-    # unmatched by definition), while dividing by `ghidra_funcs` alone produced
-    # >100% figures (e.g. 527 matched / 219 ghidra funcs).
-    ghidra_vas = {f.va for f in ghidra_funcs}
-    denominator = len(ghidra_vas | set(covered_vas))
+    # Denominator mirrors `rebrew status` exactly (the two must not
+    # disagree): covered FUNCTION rows plus the ghidra inventory MINUS
+    # identified library code (CRT/zlib/static libs — "never reverse"
+    # attributions, not pending work).  The older shapes both lied:
+    # `ghidra_funcs` alone went over 100% (library rows outside the
+    # inventory), and `ghidra ∪ covered` counted library attributions as
+    # unfinished functions (28% where status said 42% for the same tree).
+    denominator = total_funcs
     pct = round(100.0 * (exact + reloc + proven) / denominator, 1) if denominator else 0.0
 
     if category == "blocked":

@@ -1177,6 +1177,50 @@ class TestTodoCli:
         assert data["total_items"] >= 1
         assert any(i["va"] == "0x00001000" for i in data["items"])
 
+    def test_library_rows_leave_counts_and_denominator(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Library attributions count for nothing (same rule as `rebrew status`).
+
+        An identified library function is not pending work: it leaves both
+        the status counts and the denominator, or coverage reads artificially
+        low (28% here where `rebrew status` said 42% for the same tree).
+        """
+        import json
+
+        result = self._invoke(
+            tmp_path,
+            monkeypatch,
+            ghidra_funcs=[
+                FunctionEntry(va=0x1000, size=100, name="game_fn"),
+                FunctionEntry(va=0x2000, size=50, name="lib_fn"),
+            ],
+            existing={
+                0x1000: {
+                    "status": "EXACT",
+                    "symbol": "game_fn",
+                    "size": "100",
+                    "marker_type": "FUNCTION",
+                },
+                0x2000: {
+                    "status": "EXACT",
+                    "symbol": "lib_fn",
+                    "size": "50",
+                    "marker_type": "LIBRARY",
+                },
+            },
+            covered_vas={0x1000: "game_fn.c", 0x2000: "library_x.h"},
+            args=["--json"],
+        )
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        cov = data["coverage"]
+        # 2 ghidra functions minus the identified library one = 1 total.
+        assert cov["ghidra_funcs"] == 1
+        assert cov["covered"] == 1
+        assert cov["exact"] == 1
+        assert cov["pct_matched"] == 100.0
+
     def test_pct_matched_uses_the_status_denominator(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
