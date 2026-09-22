@@ -376,6 +376,13 @@
   ``one_line``, ``run_git``). Call sites inside the package already updated.
 
 ### Fixed
+- **`rebrew migrate-markers` no longer drops concurrent STATUS writes or
+  inline markers.**  It loaded `rebrew-functions.toml` outside the metadata
+  write lock and then rewrote the whole store, so a promotion from a
+  concurrent `rebrew verify` / `rebrew test` in between was lost.  It also
+  stripped the `.c` markers before writing the TOML, so a failed write lost
+  the inline `SIZE`/`CFLAGS`.  Load and save now share one lock, and the
+  `.c` is stripped only after the TOML write succeeds.
 - **`rebrew qual-sweep` finds the definition and reports both scores.**
   It located the function by the first line containing the raw symbol, so
   an MSVC `_foo` never matched `foo(` and crashed with a traceback, and a

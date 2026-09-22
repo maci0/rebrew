@@ -1,9 +1,12 @@
 """End-to-end test for `rebrew migrate-markers`: inline markers → TOML,
 stripped pure-C sources, and post-migration parsing."""
 
+import threading
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
+import pytest
 from typer.testing import CliRunner
 
 from rebrew.migrate_markers import app
@@ -86,6 +89,61 @@ class TestMigrateMarkersEndToEnd:
         from rebrew.metadata import load_metadata
 
         assert load_metadata(tmp_path) == {}
+
+    def test_concurrent_status_promotion_survives(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import rebrew.metadata as md
+        from rebrew.migrate_markers import _migrate_file
+
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "f.c").write_text(
+            "// FUNCTION: S 0x1000\n// SIZE: 4\nint f(void) { return 0; }\n", encoding="utf-8"
+        )
+        md.update_source_status(tmp_path, "STUB", "S", 0x1000)
+        cfg = SimpleNamespace(reversed_dir=src, metadata_dir=tmp_path, marker="S", source_ext=".c")
+
+        real_save = md.save_metadata
+        writer = threading.Thread(
+            target=md.update_source_status, args=(tmp_path, "EXACT", "S", 0x1000)
+        )
+
+        def _race_then_save(directory: Path, data: Any) -> None:
+            # A verify promotion landing between migrate's load and save.
+            writer.start()
+            writer.join(timeout=0.5)
+            real_save(directory, data)
+
+        monkeypatch.setattr(md, "save_metadata", _race_then_save)
+        _migrate_file(cfg, src / "f.c", "S", dry_run=False)
+        writer.join(timeout=5)
+        assert not writer.is_alive()
+
+        entry = md.load_metadata(tmp_path)[("S", 0x1000)]
+        assert entry["status"] == "EXACT"
+        assert entry["size"] == 4
+
+    def test_failed_metadata_write_keeps_inline_markers(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import rebrew.metadata as md
+        from rebrew.migrate_markers import _migrate_file
+
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "f.c").write_text(
+            "// FUNCTION: S 0x1000\n// SIZE: 4\nint f(void) { return 0; }\n", encoding="utf-8"
+        )
+        cfg = SimpleNamespace(reversed_dir=src, metadata_dir=tmp_path, marker="S", source_ext=".c")
+
+        def _fail(*_a: Any, **_kw: Any) -> None:
+            raise OSError("disk full")
+
+        monkeypatch.setattr(md, "save_metadata", _fail)
+        with pytest.raises(OSError):
+            _migrate_file(cfg, src / "f.c", "S", dry_run=False)
+        assert "// SIZE: 4" in (src / "f.c").read_text(encoding="utf-8")
 
     def test_cli_app_runs_help(self) -> None:
         result = runner.invoke(app, ["--help"])
