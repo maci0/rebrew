@@ -438,7 +438,7 @@ def raw(
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
     """Dump entire rebrew-project.toml as JSON or TOML (raw machine-readable output)."""
-    doc, _ = load_toml()
+    doc, _ = load_toml(json_mode=json_output)
     fmt = fmt.lower()
     if fmt not in {"json", "toml"}:
         error_exit(f"Unknown format: {fmt}. Use json or toml.", json_mode=json_output)

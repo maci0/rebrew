@@ -32,8 +32,10 @@ import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import tomlkit
 import typer
 from rich.console import Console
+from rich.markup import escape
 
 from rebrew.cli import error_exit, json_print
 
@@ -235,12 +237,17 @@ def main(
         else:
             from rebrew.cfg import load_toml, save_toml
 
-            doc, toml_path = load_toml(cfg_path.parent)
+            doc, toml_path = load_toml(cfg_path.parent, json_mode=json_output)
             comp = doc.get("compiler")
+            if comp is None:
+                comp = tomlkit.table()
+                doc["compiler"] = comp
             if isinstance(comp, dict):
                 comp["cflags"] = " ".join(candidates)
-                save_toml(doc, toml_path)
+                save_toml(doc, toml_path, json_mode=json_output)
                 payload["cflags_write"] = " ".join(candidates)
+            else:
+                payload["cflags_write"] = "skipped: [compiler] is not a table"
 
     if json_output:
         json_print(payload)
@@ -256,8 +263,8 @@ def main(
             console.print(f"    - {fn['name']}")
         if info.error:
             console.print(f"  [yellow]{info.error}[/yellow]")
-        if dry_run and "cflags_write" in payload:
-            console.print(f"  [cyan]dry-run:[/cyan] would write {payload['cflags_write']!r}")
+        if "cflags_write" in payload:
+            console.print(f"  cflags write: {escape(str(payload['cflags_write']))}")
 
 
 def main_entry() -> None:

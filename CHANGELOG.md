@@ -360,6 +360,13 @@
   ``one_line``, ``run_git``). Call sites inside the package already updated.
 
 ### Fixed
+- **`rebrew pdb-info --write-cflags` writes when `[compiler]` is absent.**
+  A project without a `[compiler]` table got no write and no message; the
+  table is now created.  Text mode prints the write outcome (it printed
+  nothing outside `--dry-run`, and `would write 'dry-run: …'` inside it).
+- **Negative VAs are rejected.**  `parse_va("-1000")` returned `-4096`
+  instead of exiting with `Invalid hex VA`.
+- **`rebrew cfg raw --json` reports a missing config as a JSON error.**
 - **`rebrew match --seed-llm` no longer accepts unchecked model output.**
   When the source's function signature did not parse, the request still
   went out and any single function the model returned, under any name or

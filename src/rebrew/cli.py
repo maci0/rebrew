@@ -299,9 +299,12 @@ def parse_va(va_str: str, *, json_mode: bool = False) -> int:
     (1), so scripts can distinguish "bad invocation" from "needs code work".
     """
     try:
-        return parse_int_literal(va_str, base=16)
+        va = parse_int_literal(va_str, base=16)
     except ValueError:
+        va = -1
+    if va < 0:
         error_exit(f"Invalid hex VA: {va_str!r}", json_mode=json_mode, code=EXIT_ERROR)
+    return va
 
 
 def resolve_source_arg(cfg: ProjectConfig, source_arg: str) -> Path:
