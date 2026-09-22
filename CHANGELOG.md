@@ -336,6 +336,15 @@
   ``one_line``, ``run_git``). Call sites inside the package already updated.
 
 ### Fixed
+- **A failed `cross-import --shared` stack is always withdrawn.**  The
+  round-1293 rule only rolled back when the destination already claimed the
+  VA, so an unverified import into a fresh VA left a marker asserting that
+  the source body *is* the destination function there — guild-rebrew got 12
+  such rows scoring 1/56-12/56 before they were noticed.  The stack, the
+  STATUS write, and the cflags write are now reverted for every failed
+  verify, and the action is reported as `skipped-unverified` (with a note
+  when the destination already annotates the VA).  Evidence: guild-rebrew
+  round 1294.
 - **The shared-stack rollback retracts its metadata writes too.**
   `import_shared_function`'s unverified-rollback path restored the source
   file but left the two metadata writes taken before verify in place: the
