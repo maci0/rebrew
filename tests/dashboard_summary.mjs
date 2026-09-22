@@ -21,6 +21,8 @@ globalThis.document = {
     return elements.get(id);
   },
   querySelectorAll() { return []; },
+  // Focus is not modeled here; report it as held so restoreFocus is a no-op.
+  activeElement: {},
 };
 const pending = [];
 globalThis.fetch = (path, options) => {

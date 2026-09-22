@@ -233,6 +233,20 @@ function syncError() {
   else if (currentView === "history") $("retry-view").textContent = "Retry history";
   else $("retry-view").textContent = "Retry";
 }
+// A control that hides or disables itself on activation drops keyboard focus
+// to <body> (WCAG 2.4.3). Move it to the first usable id in *ids*; each id
+// must name a focusable element. No-op when focus is still somewhere.
+function restoreFocus(ids) {
+  const active = document.activeElement;
+  if (active && active !== document.body) return;
+  for (const id of ids) {
+    const el = $(id);
+    if (el && !el.disabled && !el.closest("[hidden]")) {
+      el.focus();
+      return;
+    }
+  }
+}
 function setLoadError(source, message) {
   loadErrors[source] = message || "";
   syncError();
@@ -427,7 +441,7 @@ async function loadFunctions(options) {
     setLoadError("functions", "");
     $("results").hidden = false;
     $("empty-state").hidden = true;
-    $("show-more-wrap").hidden = true;
+    if (!grow) $("show-more-wrap").hidden = true;
     // Busy state via aria-busy only — avoid polite-live "Loading…" chatter on
     // every debounced search keystroke (WCAG 4.1.3).
     const data = await whileBusy("results", () => get("/api/functions?" + params, signal));
@@ -658,7 +672,7 @@ async function loadGlobals(options) {
   updateFilterActions();
   $("globals-empty").hidden = true;
   $("globals-hint").hidden = true;
-  $("globals-show-more-wrap").hidden = true;
+  if (!grow) $("globals-show-more-wrap").hidden = true;
   $("globals-results").hidden = false;
   try {
     setLoadError("view", "");
@@ -700,7 +714,7 @@ async function loadHistory(options) {
   });
   $("history-empty").hidden = true;
   $("history-hint").hidden = true;
-  $("history-show-more-wrap").hidden = true;
+  if (!grow) $("history-show-more-wrap").hidden = true;
   $("history-results").hidden = false;
   try {
     setLoadError("view", "");
@@ -782,6 +796,7 @@ function bindControls() {
       resetGlobalsPaging();
       loadGlobals();
       updateFilterActions();
+      restoreFocus(["gq", "main"]);
       return;
     }
     $("status").value = "";
@@ -794,31 +809,40 @@ function bindControls() {
     updateFilterActions();
     clearTimeout(searchTimer);
     loadFunctions();
+    restoreFocus(["q", "main"]);
   };
-  $("retry-summary").onclick = () => loadSummary();
-  $("retry-functions").onclick = () => loadFunctions({ append: retryAppend });
-  $("retry-view").onclick = () => {
+  $("retry-summary").onclick = async () => {
+    await loadSummary();
+    restoreFocus(["retry-summary", "main"]);
+  };
+  $("retry-functions").onclick = async () => {
+    await loadFunctions({ append: retryAppend });
+    restoreFocus(["retry-functions", "results", "main"]);
+  };
+  $("retry-view").onclick = async () => {
     if (currentView === "globals" && retryGlobalsAppend && loadedGlobalsCount > 0) {
-      loadGlobals({ append: true });
-      return;
+      await loadGlobals({ append: true });
+    } else if (currentView === "history" && retryHistoryAppend && loadedHistoryCount > 0) {
+      await loadHistory({ append: true });
+    } else {
+      await loadCurrentView(true);
     }
-    if (currentView === "history" && retryHistoryAppend && loadedHistoryCount > 0) {
-      loadHistory({ append: true });
-      return;
-    }
-    loadCurrentView(true);
+    restoreFocus(["retry-view", currentView + "-results", "results", "main"]);
   };
-  $("show-more").onclick = () => {
+  $("show-more").onclick = async () => {
     retryAppend = true;
-    loadFunctions({ append: true });
+    await loadFunctions({ append: true });
+    restoreFocus(["show-more", "retry-functions", "results", "main"]);
   };
-  $("show-more-globals").onclick = () => {
+  $("show-more-globals").onclick = async () => {
     retryGlobalsAppend = true;
-    loadGlobals({ append: true });
+    await loadGlobals({ append: true });
+    restoreFocus(["show-more-globals", "retry-view", "globals-results", "main"]);
   };
-  $("show-more-history").onclick = () => {
+  $("show-more-history").onclick = async () => {
     retryHistoryAppend = true;
-    loadHistory({ append: true });
+    await loadHistory({ append: true });
+    restoreFocus(["show-more-history", "retry-view", "history-results", "main"]);
   };
   $("cards").onclick = (ev) => {
     const btn = ev.target.closest("button[data-status]");
@@ -894,17 +918,18 @@ async function init() {
   loadCurrentView(false);
 }
 function start() {
-  init().catch(error => {
+  return init().catch(error => {
     $("boot-status").hidden = true;
     $("retry-summary").textContent = "Reload dashboard";
     setLoadError("summary", "Dashboard failed to load: " + error.message
       + ". Use Reload dashboard to try again.");
-    $("retry-summary").onclick = () => {
+    $("retry-summary").onclick = async () => {
       setLoadError("summary", "");
       $("retry-summary").textContent = "Retry summary";
       $("boot-status").hidden = false;
       $("boot-status").textContent = "Loading coverage…";
-      start();
+      await start();
+      restoreFocus(["target", "main"]);
     };
     $("retry-summary").focus();
   });

@@ -376,6 +376,11 @@
   ``one_line``, ``run_git``). Call sites inside the package already updated.
 
 ### Fixed
+- **`rebrew dashboard` keeps keyboard focus.**  Show more, Retry, Reload
+  dashboard, and Clear filters hid or disabled themselves on activation,
+  dropping focus to the page start (WCAG 2.4.3).  Show more now stays
+  mounted while its page loads, and a control that goes away hands focus
+  to the next usable one: the results table, the search field, or `main`.
 - **Piping into `head` exits quietly.**  A reader that closed stdout early
   (`rebrew toolchain list --json | head`) left the final flush to
   interpreter exit, which printed an "Exception ignored ... BrokenPipeError"
