@@ -376,6 +376,10 @@
   ``one_line``, ``run_git``). Call sites inside the package already updated.
 
 ### Fixed
+- **`rebrew dashboard` Functions follows a target change.**  Switching the
+  target on the Sections, Globals, or History tab left the previous
+  target's function rows in place when the Functions tab was reopened.
+  The tab now reloads for the new target.
 - **`rebrew build-db` no longer fails with "too many SQL variables"** when
   the verify cache holds more VAs than SQLite's bound-parameter limit
   (32766). The `verify_results` prune passes the VA list as one JSON

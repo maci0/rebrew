@@ -149,7 +149,7 @@ const PAGE_STEP = 500;
 const PAGE_MAX = 5000;
 const loadErrors = { summary: "", functions: "", view: "" };
 const busyCounts = new Map();
-const viewLoaded = { sections: false, globals: false, history: false };
+const viewLoaded = { functions: false, sections: false, globals: false, history: false };
 async function get(path, signal) {
   // credentials:omit matches <link rel=preload as=fetch crossorigin> so the
   // cold-start bootstrap fetch can reuse the preload cache.
@@ -446,6 +446,7 @@ async function loadFunctions(options) {
     // every debounced search keystroke (WCAG 4.1.3).
     const data = await whileBusy("results", () => get("/api/functions?" + params, signal));
     if (seq !== functionsSeq || signal.aborted) return;
+    viewLoaded.functions = true;
     renderFunctions(data, { append: grow });
   } catch (error) {
     if (seq !== functionsSeq || signal.aborted) return;
@@ -743,7 +744,7 @@ async function loadHistory(options) {
 }
 function loadCurrentView(force) {
   if (currentView === "functions") {
-    if (force) { resetPaging(); loadFunctions(); }
+    if (force || !viewLoaded.functions) { resetPaging(); return loadFunctions(); }
     return;
   }
   if (currentView === "sections" && (force || !viewLoaded.sections)) return loadSections();
@@ -771,6 +772,8 @@ function bindControls() {
     pendingModule = "";
     $("q").value = "";
     $("gq").value = "";
+    // Every view now shows the old target; each reloads when next shown.
+    viewLoaded.functions = false;
     viewLoaded.sections = false;
     viewLoaded.globals = false;
     viewLoaded.history = false;
@@ -911,6 +914,7 @@ async function init() {
   if (boot.functions && bootFits && unfiltered) {
     setLoadError("functions", "");
     $("results").hidden = false;
+    viewLoaded.functions = true;
     renderFunctions(boot.functions);
   } else {
     await loadFunctions();

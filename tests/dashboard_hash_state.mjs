@@ -40,8 +40,8 @@ globalThis.fetch = async (path) => {
   return { ok: true, json: async () => body };
 };
 
-const { init } = await import(
-  "data:text/javascript;base64," + Buffer.from(source + "\nexport { init };\n").toString("base64")
+const { init, setView } = await import(
+  "data:text/javascript;base64," + Buffer.from(source + "\nexport { init, setView };\n").toString("base64")
 );
 await init();
 await new Promise((resolve) => setTimeout(resolve, 0));
@@ -65,3 +65,15 @@ assert.equal(last.get("status"), "EXACT");
 assert.equal(last.get("module"), "GAME");
 assert.equal(last.get("q"), "Win");
 assert.equal(last.get("gq"), "g_");
+
+// Switching target on another tab must not leave the old target's functions.
+el("target").value = "a";
+el("target").onchange();
+await new Promise((resolve) => setTimeout(resolve, 0));
+paths.length = 0;
+setView("functions");
+await new Promise((resolve) => setTimeout(resolve, 0));
+assert.ok(
+  paths.some((p) => p.startsWith("/api/functions") && /target=a/.test(p)),
+  "functions reload for the new target when the tab is shown",
+);
