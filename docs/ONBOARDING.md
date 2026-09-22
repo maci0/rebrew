@@ -10,11 +10,11 @@ see [TOOLCHAIN.md](TOOLCHAIN.md).
 
 | Tool | Needed for | Install |
 |------|-----------|---------|
-| Python 3.13+ + `uv` | running rebrew | `pip install uv` / your distro |
+| Python 3.13+ + `uv` | running rebrew | [uv installer](https://docs.astral.sh/uv/getting-started/installation/) / your distro; `uv python install 3.13` |
 | rebrew itself | everything | `uv pip install -e .` in this checkout |
 | **docker** | every compiler (MSVC, Borland, Watcom, Turbo C, Delphi, GCC, Clang, MinGW) — execution is docker-only; the image wraps wine/DOSBox or holds the native compiler | your distro's `docker` |
 | **rizin** (`rz`/`rizin`) | packaged function discoverer (`rebrew.discoverers`; alternatives plug in without host edits) | `apt install rizin` / [rizin.re](https://rizin.re) |
-| `diec` (optional) | stronger compiler detection in `rebrew doctor`/`intake` | `tools/diec` (vendored) |
+| `diec` (optional) | stronger compiler detection in `rebrew doctor`/`intake` | `diec` on `PATH`, or unpack [Detect It Easy](https://github.com/horsicq/DIE-engine/releases) into `tools/diec/` (gitignored, not shipped) |
 
 Every compiler — including GCC, Clang and MinGW — needs docker: the image
 holds it (see `rebrew toolchain list`).
