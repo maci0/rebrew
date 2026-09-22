@@ -37,6 +37,11 @@ def main(
     exclude: list[str] = typer.Option(
         [], "--exclude", help="File basenames absent from the original (repeatable)"
     ),
+    marker: str = typer.Option(
+        "",
+        "--marker",
+        help="FUNCTION: module to order by (e.g. SERVER) when files carry markers for several targets",
+    ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
     """Print *files* ordered by their first function's original VA."""
@@ -57,7 +62,7 @@ def main(
                 f"--first-va {entry!r}: cannot parse VA {va!r} as an integer",
                 json_mode=json_output,
             )
-    ordered, excluded = order_sources(files, table, set(exclude))
+    ordered, excluded = order_sources(files, table, set(exclude), marker=marker or None)
     if json_output:
         json_print({"ordered": [str(f) for f in ordered], "excluded": excluded})
     else:
