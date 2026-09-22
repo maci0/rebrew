@@ -376,6 +376,12 @@
   ``one_line``, ``run_git``). Call sites inside the package already updated.
 
 ### Fixed
+- **`rebrew build-db` no longer fails with "too many SQL variables"** when
+  the verify cache holds more VAs than SQLite's bound-parameter limit
+  (32766). The `verify_results` prune passes the VA list as one JSON
+  parameter. The `history` retention prune is scoped to the rebuilt target
+  and served by `idx_history_target_id` instead of windowing the whole table
+  once per target.
 - **`rebrew migrate-markers` no longer wipes a corrupt
   `rebrew-functions.toml`.**  An unparseable store loaded as empty, and
   `save_metadata` then rewrote it with only the migrated entries.

@@ -223,7 +223,7 @@ Tracks function status changes over time.
 
 > [!NOTE]
 > This table is persistent — never dropped on rebuild, but retention-capped:
-> only the newest 10,000 rows per target survive each rebuild
+> only the newest 10,000 rows of each rebuilt target survive
 > (`_HISTORY_RETENTION` in `build_db`), so long-lived projects that
 > regenerate often do not accumulate rows forever.  A rebuild
 > that finds a pre-CHECK DDL recreates the table in place (preserving `id`,

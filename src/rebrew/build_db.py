@@ -1466,19 +1466,14 @@ def build_db(
                     "VALUES (?, ?, ?, ?, ?, ?)",
                     history_rows,
                 )
-            # Retention: keep only the newest _HISTORY_RETENTION rows per
-            # target.  ROW_NUMBER over (target, id DESC) keeps the newest N;
-            # older rows are deleted so the table does not grow unboundedly
-            # across rebuilds.
+            # Retention: keep only the newest _HISTORY_RETENTION rows of this
+            # target (only this target gained rows).  Both scans are served
+            # by idx_history_target_id.
             c.execute(
-                "DELETE FROM history WHERE id NOT IN ("
-                "  SELECT id FROM ("
-                "    SELECT id, ROW_NUMBER() OVER ("
-                "      PARTITION BY target ORDER BY id DESC"
-                "    ) AS rn FROM history"
-                "  ) WHERE rn <= ?"
+                "DELETE FROM history WHERE target = ? AND id NOT IN ("
+                "  SELECT id FROM history WHERE target = ? ORDER BY id DESC LIMIT ?"
                 ")",
-                (_HISTORY_RETENTION,),
+                (target_name, target_name, _HISTORY_RETENTION),
             )
 
             # Import the verify cache's per-function rows so the
@@ -1537,11 +1532,12 @@ def build_db(
                 # Guard on the PARSED vr_rows, not the raw entries:
                 # zero parseable VAs prunes nothing; only rows with
                 # parseable VAs prune their stale siblings.
+                # VAs travel as one JSON parameter: a placeholder per VA
+                # overflows SQLITE_MAX_VARIABLE_NUMBER on large targets.
                 c.execute(
                     "DELETE FROM verify_results WHERE target = ? AND va NOT IN ("
-                    + ",".join("?" * len(vr_rows))
-                    + ")",
-                    (target_name, *(r[1] for r in vr_rows)),
+                    "SELECT value FROM json_each(?))",
+                    (target_name, json.dumps([r[1] for r in vr_rows])),
                 )
             elif cache_entries == {}:
                 # The cache names this target but holds no rows — the target

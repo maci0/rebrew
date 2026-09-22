@@ -513,6 +513,24 @@ binary = "test.exe"
         assert c.fetchone()[0] == 1  # row survived despite the unparseable report
         conn.close()
 
+    def test_verify_results_prune_past_sqlite_variable_limit(self, project_root: Path) -> None:
+        """A cache with more VAs than SQLITE_MAX_VARIABLE_NUMBER must still
+        import and prune stale rows (one bound parameter per VA overflowed)."""
+        _write_cache(project_root, "testbin", {"0x1": {"va": "0x1", "delta": 1}})
+        build_db(project_root)
+        limit = sqlite3.connect(":memory:").getlimit(sqlite3.SQLITE_LIMIT_VARIABLE_NUMBER)
+        entries = {hex(va): {"va": hex(va), "delta": 0} for va in range(0x10, 0x10 + limit + 1)}
+        _write_cache(project_root, "testbin", entries)
+        build_db(project_root)
+        conn = sqlite3.connect(project_root / "db" / "coverage.db")
+        try:
+            count, stale = conn.execute(
+                "SELECT COUNT(*), SUM(va = 1) FROM verify_results WHERE target = 'testbin'"
+            ).fetchone()
+        finally:
+            conn.close()
+        assert (count, stale) == (limit + 1, 0)
+
     @pytest.mark.parametrize("scoped", [False, True])
     @pytest.mark.parametrize("entries", [None, [], "invalid", 7, {}, "missing"])
     def test_verify_results_require_valid_empty_cache_to_clear(
@@ -862,18 +880,11 @@ binary = "test.exe"
             rows,
         )
         conn.commit()
-        # Run the same retention prune build_db applies after each insert.
-        c.execute(
-            "DELETE FROM history WHERE id NOT IN ("
-            "  SELECT id FROM ("
-            "    SELECT id, ROW_NUMBER() OVER ("
-            "      PARTITION BY target ORDER BY id DESC"
-            "    ) AS rn FROM history"
-            "  ) WHERE rn <= ?"
-            ")",
-            (bdb._HISTORY_RETENTION,),
-        )
-        conn.commit()
+        conn.close()
+        # The rebuild applies the retention prune.
+        build_db(project_root)
+        conn = sqlite3.connect(project_root / "db" / "coverage.db")
+        c = conn.cursor()
         c.execute("SELECT COUNT(*) FROM history WHERE target = 'testbin'")
         assert c.fetchone()[0] == 3  # newest 3 of 8 kept
         # The newest rows survive (highest id).
