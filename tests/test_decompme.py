@@ -265,6 +265,27 @@ class TestUpload:
         with pytest.raises(RuntimeError, match="boom"):
             decompme.upload_scratch({"data": {}, "files": {}})
 
+    @pytest.mark.parametrize(
+        "body",
+        [
+            ["abc"],
+            {"claim_token": "tok"},
+            {"slug": "abc/../x", "claim_token": "tok"},
+            {"slug": "abc", "claim_token": "tok&next=https://evil"},
+            {"slug": "[link=https://evil]abc", "claim_token": "tok"},
+            {"slug": "abc", "claim_token": 123},
+        ],
+    )
+    def test_untrusted_reply_rejected(self, monkeypatch: pytest.MonkeyPatch, body: object) -> None:
+        monkeypatch.setattr(
+            "rebrew.decompme.httpx.post",
+            lambda url, **kw: SimpleNamespace(
+                status_code=201, json=lambda: body, close=lambda: None
+            ),
+        )
+        with pytest.raises(RuntimeError, match="decomp.me returned"):
+            decompme.upload_scratch({"data": {}, "files": {}})
+
     def test_scratch_url(self) -> None:
         assert decompme.scratch_url("abc", "tok") == "https://decomp.me/scratch/abc/claim?token=tok"
 

@@ -31,6 +31,7 @@ Usage:
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -56,6 +57,10 @@ app = typer.Typer(
 )
 
 _DEFAULT_API = "https://decomp.me"
+
+#: Server-issued ``slug`` / ``claim_token`` shape.  Both are spliced into the
+#: claim URL and printed through Rich, so anything else is refused.
+_SCRATCH_ID_RE = re.compile(r"[A-Za-z0-9_-]{1,128}")
 
 #: rebrew profile → decomp.me compiler id (closest match).  decomp.me's
 #: registry mirrors the MSVC line; anything else (mingw-16.2.0, console
@@ -191,8 +196,9 @@ def upload_scratch(
 ) -> dict[str, Any]:
     """POST the scratch to decomp.me; returns the response dict.
 
-    Raises :class:`RuntimeError` on transport failure or a non-2xx response
-    (the body is included — decomp.me validation errors explain the reason).
+    Raises :class:`RuntimeError` on transport failure, a non-2xx response
+    (the body is included — decomp.me validation errors explain the reason),
+    or a reply whose ``slug`` / ``claim_token`` are not URL-safe tokens.
     """
     try:
         resp = httpx.post(
@@ -210,11 +216,17 @@ def upload_scratch(
                 f"{(resp.text or '')[:500]}"
             )
         try:
-            data: dict[str, Any] = resp.json()
+            data = resp.json()
         except ValueError as exc:
             raise RuntimeError(
                 f"decomp.me returned an unparseable response: {resp.text[:200]}"
             ) from exc
+        if not isinstance(data, dict):
+            raise RuntimeError(f"decomp.me returned {type(data).__name__}, expected an object")
+        for key in ("slug", "claim_token"):
+            value = data.get(key)
+            if not isinstance(value, str) or not _SCRATCH_ID_RE.fullmatch(value):
+                raise RuntimeError(f"decomp.me returned an invalid {key}: {value!r:.80}")
         return data
     finally:
         resp.close()
