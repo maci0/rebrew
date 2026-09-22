@@ -117,7 +117,7 @@ class TestProfileMatches:
         info = ToolchainInfo(family="zig")
         aligned, expl = profile_matches_detection("mingw-16.2.0", info)
         assert aligned is True
-        assert expl is not None
+        assert expl is not None and "Zig" in expl and "structurally" in expl
 
     def test_unknown_family_not_second_guessed(self) -> None:
         info = ToolchainInfo(family="unknown")

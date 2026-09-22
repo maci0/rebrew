@@ -90,7 +90,7 @@ def test_parse_coff_obj_basic(tmp_path: Path) -> None:
     code_result, relocs = parse_obj_symbol_bytes(obj_path, "_myfunc")
     assert code_result is not None
     assert code_result == code
-    assert relocs is not None
+    assert relocs == {}  # the synthetic section carries no relocations
 
 
 def test_parse_coff_obj_long_name(tmp_path: Path) -> None:

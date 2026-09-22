@@ -5,11 +5,10 @@
 - A file carrying multiple markers from the start strips all of them.
 - The synthesis reader is safe under concurrent threads (PARSE_MEMO +
   metadata cache interplay).
+- A TOML-only (markerless) file and a second migration pass are no-ops.
 """
 
 import threading
-
-from typer.testing import CliRunner  # noqa: F401  (keeps the runner import parity)
 
 from rebrew.annotation import parse_c_file_multi
 from rebrew.migrate_markers import _migrate_file
@@ -141,12 +140,46 @@ class TestMigrateMarkersCliEndToEnd:
         assert not any(m == "OTHER" for m, _va in doc)
 
 
-def test_markerless_project_survives_marker_purge(tmp_path):
-    """A project whose only annotations live in TOML must survive marker removal."""
+class TestMarkerlessAndRerun:
+    def test_markerless_project_survives_marker_purge(self, tmp_path) -> None:
+        """A file whose only annotations live in TOML is left byte-identical."""
+        from rebrew.metadata import load_metadata, save_metadata
 
-    # NOTE: intentionally no assertion beyond the call not raising; the real
-    # contract is exercised in test_marker_trees.py (separate module).
+        src = tmp_path / "src"
+        src.mkdir()
+        save_metadata(
+            tmp_path,
+            {
+                ("S", 0x1000): {
+                    "file": "src/a.c",
+                    "symbol": "a",
+                    "marker_type": "FUNCTION",
+                    "size": 12,
+                }
+            },
+        )
+        body = "int a(void) { return 0; }\n"
+        (src / "a.c").write_text(body)
+        before = load_metadata(tmp_path)
 
+        assert _migrate_file(_Cfg(tmp_path), src / "a.c", "S", dry_run=False) is None
+        assert (src / "a.c").read_text() == body
+        assert load_metadata(tmp_path) == before
+        annos = parse_c_file_multi(src / "a.c", metadata_dir=tmp_path)
+        assert [(a.va, a.size) for a in annos] == [(0x1000, 12)]
 
-def test_rebuild_cache_idempotent(tmp_path):
-    """Two identical rebuilds must produce identical artifacts (no drift)."""
+    def test_second_migration_is_noop(self, tmp_path) -> None:
+        """Re-running migration on its own output changes neither source nor TOML."""
+        from rebrew.metadata import load_metadata
+
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "a.c").write_text("// FUNCTION: S 0x1000\n// SIZE: 12\nint a(void) { return 0; }\n")
+        cfg = _Cfg(tmp_path)
+        assert _migrate_file(cfg, src / "a.c", "S", dry_run=False) is not None
+        text, meta = (src / "a.c").read_text(), load_metadata(tmp_path)
+
+        assert _migrate_file(cfg, src / "a.c", "S", dry_run=False) is None
+        assert (src / "a.c").read_text() == text
+        assert load_metadata(tmp_path) == meta
+        assert meta[("S", 0x1000)]["size"] == 12

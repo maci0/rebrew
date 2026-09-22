@@ -1,5 +1,6 @@
 """Tests for rebrew lib-match — byte-compare reversed functions vs .lib archives."""
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -87,8 +88,9 @@ class TestLibMatch:
         _mock_cfg(tmp_path, pe_path, monkeypatch)
         allow = tmp_path / "allow.txt"
         allow.write_text(f"# displaced for the link\n0x{va:x}\n", encoding="utf-8")
-        res = CliRunner().invoke(app, ["--lib", str(lib_path), "--allow", str(allow)])
+        res = CliRunner().invoke(app, ["--lib", str(lib_path), "--allow", str(allow), "--json"])
         assert res.exit_code == 0, res.output
+        assert json.loads(res.output) == {"findings": [], "count": 0}
 
     def test_va_verdict(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         from rebrew.lib_match import app

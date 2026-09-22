@@ -89,10 +89,7 @@ class TestMutateCode:
         assert name == "none"
 
     def test_mutation_weights(self) -> None:
-        """mutation_weights should bias selection toward higher-weighted mutations."""
-        # Zero-weight all mutations except one — the selected mutation must be
-        # one of the non-zero-weighted ones (though it may fail to apply and
-        # fall through to "none").
+        """A partial weights dict still yields a valid mutation (unlisted weight 1.0)."""
         result = mutate_code(
             FULL_SOURCE,
             random.Random(42),
@@ -109,17 +106,19 @@ class TestMutateCode:
         assert quick_validate(result)
 
     def test_mutation_weights_with_tracking(self) -> None:
-        """Weighted mutations should work with track_mutation=True."""
-        result = mutate_code(
-            FULL_SOURCE,
-            random.Random(42),
-            track_mutation=True,
-            mutation_weights={"mut_swap_if_else": 100.0},
-        )
-        assert isinstance(result, tuple)
-        src, name = result
-        assert name in ("mut_swap_if_else", "none")
-        assert quick_validate(src)
+        """Only positively weighted mutations are drawn (unlisted default to 1.0)."""
+        weights = {m.__name__: 0.0 for m in ALL_MUTATIONS}
+        weights["mut_swap_if_else"] = 1.0
+        for seed in range(10):
+            src, name = mutate_code(
+                FULL_SOURCE,
+                random.Random(seed),
+                track_mutation=True,
+                mutation_weights=weights,
+            )
+            assert name == "mut_swap_if_else", seed
+            assert src != FULL_SOURCE
+            assert quick_validate(src)
 
     def test_mutation_weights_all_zero(self) -> None:
         """All-zero weights should fall back to uniform selection, not crash."""

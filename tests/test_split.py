@@ -649,6 +649,8 @@ class TestSplitStackedMarkers:
     def test_va_matches_first_marker(self, tmp_path: Path, monkeypatch: Any) -> None:
         result = self._invoke_marker(tmp_path, monkeypatch, "V2", "--va", "0x501000", "--force")
         assert result.exit_code == 0, result.output
+        out = tmp_path / "common_c" / "common.c"
+        assert "// FUNCTION: V2 0x501000" in out.read_text(encoding="utf-8")
 
     def test_va_wrong_target_still_misses(self, tmp_path: Path, monkeypatch: Any) -> None:
         result = self._invoke_marker(tmp_path, monkeypatch, "V3", "--va", "0x401000", "--force")

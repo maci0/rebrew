@@ -1427,6 +1427,7 @@ class TestRefreshAll:
             stop.set()
             for t in readers:
                 t.join(timeout=10)
+        assert not any(t.is_alive() for t in readers), "reader thread wedged"
         assert errors == []
 
     def test_refresh_picks_up_installed_plugin(self, monkeypatch: pytest.MonkeyPatch) -> None:

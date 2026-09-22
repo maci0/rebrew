@@ -196,6 +196,8 @@ class TestLibraryCli:
             lib.mkdir()
             res = self._invoke("set", str(lib), "--toolchain", name)
             assert res.exit_code == 0, f"{name}: {res.output}"
+            ovr = find_library_override(lib, tmp_path)
+            assert ovr is not None and ovr.toolchain == name, name
 
     def test_unknown_preset_fails(self, tmp_path: Path) -> None:
         lib = tmp_path / "lib"
