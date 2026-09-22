@@ -196,6 +196,55 @@ class TestReactiveCoeffects:
         assert comp.log == ["on", "off"]
         assert scope.unresolved() == [comp]
 
+    def test_provider_swap_reactivates_against_new_value(self) -> None:
+        """Withdraw-then-reprovide (a provider swap) deactivates and then
+        reactivates the dependent with the NEW binding — no component may
+        assume a coeffect is eternal."""
+        ctx = Context()
+        scope = CoeffectScope(ctx)
+        seen: list[object] = []
+
+        class _Watch:
+            needs = ("svc",)
+
+            def apply(self, ctx: Context) -> None:
+                seen.append(ctx.resolve("svc"))
+                ctx.effect(lambda: seen.append("off"))
+
+        scope.add(_Watch())
+        ctx.provide("svc", "v1")
+        ctx.unprovide("svc")
+        ctx.provide("svc", "v2")
+        assert seen == ["v1", "off", "v2"]
+        ctx.dispose()
+        assert seen == ["v1", "off", "v2", "off"]
+
+    def test_fork_scope_reacts_to_parent_table_changes(self) -> None:
+        """A scope on a forked context activates when the parent's provision
+        appears and deactivates when it is withdrawn: Definition 22 covers
+        every context that resolves the key, not just the nearest."""
+        parent = Context()
+        child = parent.fork()
+        scope = CoeffectScope(child)
+        comp = _RevertibleComponent(needs=("svc",))
+        scope.add(comp)
+        assert comp.log == []
+        parent.provide("svc", 1)
+        assert comp.log == ["on"]
+        parent.unprovide("svc")
+        assert comp.log == ["on", "off"]
+        assert scope.unresolved() == [comp]
+
+    def test_disposed_fork_detached_from_parent(self) -> None:
+        """Disposing a fork removes it from the parent's child list — the
+        parent must not retain a disposed context past its owner."""
+        parent = Context()
+        child = parent.fork()
+        assert parent._children == [child]
+        child.dispose()
+        assert parent._children == []
+        parent.dispose()
+
     def test_deactivation_leaves_siblings_untouched(self) -> None:
         """Reverting one component does not disturb another's effects."""
         ctx = Context()
