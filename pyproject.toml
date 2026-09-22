@@ -235,7 +235,11 @@ line-length = 100
 # RUF011→B035, RUF035→S704, TRY200→B904): those families/codes are already
 # selected.  S602/PLR0124/PIE790/ANN205/ANN206 join as zero-finding
 # ratchets (shell=True subprocess, self-compare, useless pass, typed
-# class/static method returns).
+# class/static method returns).  D100/D104/D106 enforce the module-docstring
+# rule (AGENTS.md); the D2xx/D4xx, pep8-naming (N), flake8-pyi (PYI), TD and
+# TID252 codes below are the zero-finding subset.  Still off: D101-D103/D205/
+# D209/D401 (thousands of findings), N802/N806/N814 (Win32 API names), PYI034/
+# PYI036/PYI056, and D203/D206/D213/D300 (formatter or D211/D212 conflicts).
 select = [
     "E", "F", "W", "I", "UP", "B", "SIM", "C4", "DTZ", "RSE", "EXE", "Q",
     "NPY", "ICN", "G", "PGH", "YTT", "ASYNC", "FA", "SLOT", "PLE",
@@ -278,6 +282,17 @@ select = [
     "PT002", "PT003", "PT007", "PT008", "PT009", "PT010", "PT015", "PT016",
     "PT020", "PT021", "PT022", "PT023", "PT024", "PT025", "PT026", "PT027",
     "PT028", "PT031",
+    "D100", "D104", "D106", "D200", "D201", "D204", "D207", "D208", "D214",
+    "D215", "D402", "D418", "D419",
+    "N801", "N803", "N804", "N805", "N807", "N811", "N813", "N816", "N999",
+    "TD001", "TD005", "TD007", "TID252",
+    "PYI001", "PYI002", "PYI003", "PYI004", "PYI005", "PYI006", "PYI007", "PYI008",
+    "PYI009", "PYI010", "PYI011", "PYI012", "PYI013", "PYI014", "PYI015", "PYI016",
+    "PYI017", "PYI018", "PYI019", "PYI020", "PYI021", "PYI024", "PYI025", "PYI026",
+    "PYI029", "PYI030", "PYI032", "PYI033", "PYI035", "PYI041", "PYI042", "PYI043",
+    "PYI044", "PYI045", "PYI046", "PYI047", "PYI048", "PYI049", "PYI050", "PYI051",
+    "PYI052", "PYI053", "PYI054", "PYI055", "PYI057", "PYI058", "PYI059", "PYI061",
+    "PYI062", "PYI063", "PYI064", "PYI066",
 ]
 # E501: formatter owns wrapping (line-length=100).  B008: Typer Option/Argument
 # defaults are intentional function calls in signatures.
@@ -330,6 +345,10 @@ enable_error_code = [
     "mutable-override",
     "exhaustive-match",
     "unimported-reveal",
+    "truthy-iterable",
+    "redundant-self",
+    "deprecated",
+    "narrowed-type-not-subtype",
 ]
 # src/ is the shipped library; tools/ are the repo's own dev scripts (CI and
 # the pre-commit hook both run plain `uv run mypy`, which checks both).

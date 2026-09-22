@@ -150,6 +150,12 @@
   documented integrator surface.
 
 ### Changed
+- **Lint and type gates cover more defect classes.**  Ruff now enforces
+  the module-docstring rule (D100/D104/D106) and the zero-finding
+  pep8-naming, flake8-pyi, flake8-todos, and TID252 codes; mypy adds
+  `truthy-iterable`, `redundant-self`, `deprecated`, and
+  `narrowed-type-not-subtype`.  The tree already passed all of them, so
+  they block regressions only.
 - **`rebrew dashboard` answers revalidations without querying.**  A
   browser revalidating `/api/*` with a matching `If-None-Match` got its
   304 only after the full SQLite query and JSON build ran and the body was
