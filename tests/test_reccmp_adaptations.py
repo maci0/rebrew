@@ -380,6 +380,17 @@ class TestCvdumpRunLifecycle:
         assert isinstance(parser, pv.CvdumpParser)
         assert not proc.killed, "an exited child must not be killed again"
 
+    def test_failed_child_raises_instead_of_empty_parse(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew import pdb_cvdump as pv
+
+        proc = self._wire(monkeypatch)
+        proc.returncode = 1
+        monkeypatch.setattr(pv, "iter_cvdump_sections", lambda wrap: iter(()))
+        with pytest.raises(RuntimeError, match="status 1 reading x.pdb"):
+            pv.Cvdump("x.pdb").publics().run()
+
 
 # ---------------------------------------------------------------------------
 # near_diag wiring

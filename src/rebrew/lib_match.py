@@ -389,6 +389,7 @@ def assert_library_is_stock(
         error_exit(
             f"cannot verify {path.name} against {image} ({source}): "
             f"{result.stderr.strip() or 'the image did not hash both files'}",
+            json_mode=json_mode,
             code=EXIT_ERROR,
         )
     if digests[0] != digests[1]:
@@ -396,6 +397,7 @@ def assert_library_is_stock(
             f"{path} differs from the toolchain's stock {name} in {image}. The check exists "
             "because a hand-edited archive makes library code look like target code; delete the "
             "cached copy to re-extract it, or drop --stock-lib for this run.",
+            json_mode=json_mode,
             code=EXIT_ERROR,
         )
 

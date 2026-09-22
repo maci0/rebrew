@@ -41,6 +41,10 @@ _CVDUMP_FLAGS: dict[str, str] = {
 }
 
 
+#: Upper bound for ``winepath``; a first run may initialise a wine prefix.
+_WINEPATH_TIMEOUT_S = 120
+
+
 def cvdump_exe_path() -> str | None:
     """Locate ``cvdump.exe``: ``REBREW_CVDUMP`` env override, then PATH.
 
@@ -69,6 +73,7 @@ def _cmd_line(pdb: Path, flags: list[str]) -> list[str]:
         encoding="utf-8",
         errors="surrogateescape",
         check=False,
+        timeout=_WINEPATH_TIMEOUT_S,
     ).stdout.strip()
     return ["wine", exe, *flags, win_path or str(pdb)]
 
@@ -261,7 +266,7 @@ class Cvdump:
         try:
             for name, section in iter_cvdump_sections(wrap):
                 parser.read_section(name, section)
-            proc.wait()
+            returncode = proc.wait()
         finally:
             # An abort mid-parse must not leave the cvdump/wine child running
             # or hold the stdout pipe: kill and reap it, then drop the wrap.
@@ -269,4 +274,8 @@ class Cvdump:
                 proc.kill()
                 proc.wait()
             wrap.close()
+        # A failed dump (missing wine, unreadable PDB) yields no sections;
+        # returning that empty parse would read as "PDB has no symbols".
+        if returncode != 0:
+            raise RuntimeError(f"cvdump exited with status {returncode} reading {self._pdb}")
         return parser
