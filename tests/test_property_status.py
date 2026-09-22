@@ -229,3 +229,14 @@ class TestVocabularyCoverage:
 
         assert _workspace_status.MATCHED_STATUSES == _metadata.MATCHED_STATUSES
         assert _workspace_status.KNOWN_STATUSES == _metadata.KNOWN_STATUSES
+
+    def test_compare_status_literal_matches_vocabulary(self) -> None:
+        from typing import get_args
+
+        from rebrew.compile import CompareStatus
+        from rebrew.metadata import KNOWN_STATUSES
+
+        # CompareResult.status is persisted verbatim by test/verify, so the
+        # Literal must be exactly the persisted vocabulary plus the one
+        # never-persisted tooling verdict.
+        assert set(get_args(CompareStatus)) == KNOWN_STATUSES | {"INTERNAL_ERROR"}
