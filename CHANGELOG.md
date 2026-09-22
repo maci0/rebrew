@@ -331,6 +331,24 @@
   ``one_line``, ``run_git``). Call sites inside the package already updated.
 
 ### Fixed
+- **Metadata TOML reads see same-mtime rewrites.**  The in-process
+  `rebrew-functions.toml` / `rebrew-data.toml` parse cache compared only
+  `st_mtime_ns`, so another process's rewrite inside one timestamp tick
+  (coarse filesystem, `cp -p`) kept serving the old STATUS table.  The
+  fingerprint is now `(mtime_ns, size, inode)`; every writer's atomic
+  rename changes the inode.
+- **Weighted GA mutation after `refresh_mutations()`.**  The per-mutation
+  weight memo was positional over the old `ALL_MUTATIONS`, so a refresh
+  that added a plugin raised `ValueError` from `rng.choices` (or, at equal
+  length, applied weights to the wrong operators).  The refresh now clears
+  the memo.
+- **`contextualized_source`'s parameter is `compile_context`.**  Every
+  CORDIS review round (arXiv:2608.25512) tripped the checker's `inject`
+  rule on `context.text` in this function: `context` is a reserved
+  coeffect-context alias in the scanner, and a plain `CompileContext`
+  dataclass field read is not a service read.  The parameter (callers
+  were positional) is renamed so `cordis-check` reports clean and a real
+  `ctx` misread cannot hide behind the standing false positive.
 - **The reloc VA map and the global scan are marker-scoped across every
   source.**  `build_name_to_va` took its data half from `rebrew-data.toml`
   without comparing the entry's module, and `scan_globals` matched every

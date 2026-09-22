@@ -1023,11 +1023,11 @@ def _compile_via_recompile(
 
 
 def contextualized_source(
-    context: CompileContext | None,
+    compile_context: CompileContext | None,
     source_text: str,
     source_name: str,
 ) -> str:
-    """Merge *context* and *source_text* into one compilable unit.
+    """Merge *compile_context* and *source_text* into one compilable unit.
 
     The unit is the context's declarations followed by the function body,
     each introduced by ``#line 1 "<file>"`` so a compiler diagnostic names
@@ -1047,12 +1047,17 @@ def contextualized_source(
     An empty context returns *source_text* unchanged: a context that carries
     no declarations must not alter the compile unit (or, through it, the
     compile-cache key).
+
+    The parameter is named *compile_context*, not *context*: `context` is a
+    reserved alias for the Cordis coeffect context in dsh-cordis-review's
+    checker, and a `context.text` read here raised a false `inject` finding
+    on every review round.
     """
-    if context is None or not context.text:
+    if compile_context is None or not compile_context.text:
         return source_text
     return (
         f'#line 1 "{CONTEXT_UNIT_NAME}"\n'
-        f"{context.text.rstrip()}\n"
+        f"{compile_context.text.rstrip()}\n"
         f'#line 1 "{source_name}"\n'
         f"{source_text}"
     )

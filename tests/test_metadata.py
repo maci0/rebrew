@@ -728,6 +728,25 @@ class TestMetadataEdgeCases:
         second = md.load_metadata(tmp_path)
         assert second[("SERVER", 0x10001000)]["status"] == "STUB"
 
+    def test_load_metadata_cache_sees_same_mtime_rewrite(self, tmp_path: Path) -> None:
+        """Another process rewriting the TOML inside one mtime tick (coarse
+        filesystem, ``cp -p``) must not keep serving the old parse."""
+        import os
+
+        import rebrew.metadata as md
+
+        md.clear_metadata_cache()
+        f = tmp_path / "rebrew-functions.toml"
+        f.write_text('["SERVER.0x10001000"]\nstatus = "STUB"\n', encoding="utf-8")
+        mtime_ns = f.stat().st_mtime_ns
+        assert md.load_metadata(tmp_path)[("SERVER", 0x10001000)]["status"] == "STUB"
+        tmp = tmp_path / "new.toml"
+        tmp.write_text('["SERVER.0x10001000"]\nstatus = "EXACT"\n', encoding="utf-8")
+        os.utime(tmp, ns=(mtime_ns, mtime_ns))
+        os.replace(tmp, f)
+        assert f.stat().st_mtime_ns == mtime_ns
+        assert md.load_metadata(tmp_path)[("SERVER", 0x10001000)]["status"] == "EXACT"
+
     def test_metadata_path(self, tmp_path: Path) -> None:
         import rebrew.metadata as md
 

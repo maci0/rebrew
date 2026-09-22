@@ -761,9 +761,15 @@ _METADATA_DOC_CACHE_LOCK = threading.Lock()
 #: parsed table until exit.  Eviction is FIFO on insertion order.
 _METADATA_DOC_CACHE_MAX = 64
 
+#: ``(st_mtime_ns, st_size, st_ino)`` of a metadata TOML.  mtime alone misses
+#: another process's rewrite inside one timestamp tick (coarse filesystems,
+#: ``cp -p``); the atomic-rename writers always produce a new inode.
+MetadataDocFingerprint = tuple[int, int, int]
+MetadataDocCache = dict[Path, tuple[MetadataDocFingerprint, dict[tuple[str, int], dict[str, Any]]]]
+
 
 def pop_metadata_doc_cache(
-    cache: dict[Path, tuple[int, dict[tuple[str, int], dict[str, Any]]]],
+    cache: MetadataDocCache,
     path: Path,
 ) -> None:
     """Drop one entry from a metadata-doc cache under the shared lock."""
@@ -772,7 +778,7 @@ def pop_metadata_doc_cache(
 
 
 def clear_metadata_doc_cache(
-    cache: dict[Path, tuple[int, dict[tuple[str, int], dict[str, Any]]]],
+    cache: MetadataDocCache,
 ) -> None:
     """Clear a metadata-doc cache under the shared lock."""
     with _METADATA_DOC_CACHE_LOCK:
@@ -781,7 +787,7 @@ def clear_metadata_doc_cache(
 
 def load_metadata_doc(
     path: Path,
-    cache: dict[Path, tuple[int, dict[tuple[str, int], dict[str, Any]]]],
+    cache: MetadataDocCache,
     description: str,
     *,
     deepcopy: bool = True,
@@ -796,7 +802,7 @@ def load_metadata_doc(
     only needed for WRITES, which still use tomlkit.
 
     *path* is resolved for stable cache keys.  *cache* is the caller's
-    mtime-keyed in-memory cache (invalidated by write helpers).  Returns an
+    stat-fingerprinted in-memory cache (invalidated by write helpers).  Returns an
     empty dict when the file is missing or unparseable.
 
     When *deepcopy* is True (default), each caller receives an isolated
@@ -809,13 +815,17 @@ def load_metadata_doc(
         pop_metadata_doc_cache(cache, path)
         return {}
 
+    # Stat before reading: a rewrite racing the parse leaves newer content
+    # under an older fingerprint, which the next stat replaces.
     try:
-        current_mtime = path.stat().st_mtime_ns
+        st = path.stat()
     except OSError:
-        current_mtime = 0
+        pop_metadata_doc_cache(cache, path)
+        return {}
+    current_fp: MetadataDocFingerprint = (st.st_mtime_ns, st.st_size, st.st_ino)
     with _METADATA_DOC_CACHE_LOCK:
         cached = cache.get(path)
-        if cached is not None and cached[0] == current_mtime:
+        if cached is not None and cached[0] == current_fp:
             # Deep copy: callers mutate the entries they get (merge overlays,
             # status promotion), and an aliased dict would corrupt the cache.
             return copy.deepcopy(cached[1]) if deepcopy else cached[1]
@@ -831,12 +841,12 @@ def load_metadata_doc(
         # Re-check: a writer may have invalidated (or another reader filled)
         # while we parsed — prefer a fresher entry if one landed.
         cached = cache.get(path)
-        if cached is not None and cached[0] == current_mtime:
+        if cached is not None and cached[0] == current_fp:
             return copy.deepcopy(cached[1]) if deepcopy else cached[1]
         if len(cache) >= _METADATA_DOC_CACHE_MAX and path not in cache:
             oldest = next(iter(cache))
             cache.pop(oldest, None)
-        cache[path] = (current_mtime, result)
+        cache[path] = (current_fp, result)
     # Deep copy for the same reason as the cache-hit path above.
     return copy.deepcopy(result) if deepcopy else result
 

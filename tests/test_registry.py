@@ -425,6 +425,35 @@ class TestMutationRegistry:
         assert any(m is _mut_plugin for m in merged)
         assert len(merged) > 100  # packaged operators still present
 
+    def test_refresh_mutations_resets_weight_memo(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Weighted mutate_code after a refresh that adds a plugin must not
+        reuse the weight list built for the previous ALL_MUTATIONS."""
+        import random
+
+        from rebrew.matcher import mutator
+
+        weights = {"mut_plugin_weighted": 5.0}
+        src = "int f(int a) { return a + 1; }\n"
+        try:
+            mutator.refresh_mutations()
+            mutator.mutate_code(src, random.Random(1), mutation_weights=weights)
+
+            def _mut_plugin(s: str, rng: Any) -> str | None:
+                return None
+
+            _install_fake_module("mutation_weight_test", mut_fn=_mut_plugin)
+            monkeypatch.setattr(
+                "rebrew.registry.entry_points",
+                _fake_entry_points(
+                    **{"rebrew.mutations": [("mut_plugin_weighted", "mutation_weight_test:mut_fn")]}
+                ),
+            )
+            mutator.refresh_mutations()
+            mutator.mutate_code(src, random.Random(1), mutation_weights=weights)
+        finally:
+            monkeypatch.undo()
+            mutator.refresh_mutations()
+
     def test_entry_point_conflict_skipped_with_warning(
         self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
     ) -> None:

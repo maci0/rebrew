@@ -57,6 +57,7 @@ import tomlkit
 
 from rebrew.metadata import as_metadata_int
 from rebrew.utils import (
+    MetadataDocCache,
     atomic_write_locked,
     build_metadata_key_index,
     load_metadata_doc,
@@ -79,7 +80,7 @@ logger = logging.getLogger(__name__)
 # mtime_ns change or by the write helpers below.
 # ---------------------------------------------------------------------------
 
-_data_metadata_cache: dict[Path, tuple[int, dict[tuple[str, int], dict[str, Any]]]] = {}
+_data_metadata_cache: MetadataDocCache = {}
 
 
 def _invalidate_data_cache(path: Path) -> None:

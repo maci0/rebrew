@@ -377,6 +377,8 @@ def refresh_mutations() -> list[Callable[..., str | None]]:
     global ALL_MUTATIONS
 
     ALL_MUTATIONS = _merge_entry_point_mutations()
+    # The weight memo is positional over ALL_MUTATIONS.
+    _mutation_weight_list.cache_clear()
     return ALL_MUTATIONS
 
 

@@ -99,6 +99,7 @@ import tomlkit
 
 from rebrew.errors import RebrewError
 from rebrew.utils import (
+    MetadataDocCache,
     atomic_write_locked,
     build_metadata_doc,
     build_metadata_key_index,
@@ -123,7 +124,7 @@ logger = logging.getLogger(__name__)
 # Keyed by resolved Path; invalidated by mtime_ns change or explicit clear.
 # ---------------------------------------------------------------------------
 
-_metadata_cache: dict[Path, tuple[int, dict[tuple[str, int], dict[str, Any]]]] = {}
+_metadata_cache: MetadataDocCache = {}
 
 
 def clear_metadata_cache() -> None:
