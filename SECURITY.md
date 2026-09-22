@@ -62,3 +62,9 @@ plugin cache backends or remove the open upstream diskcache advisory.
   (`rebrew.msvc16` / `tc16` / `delphi16`) or host wine (`rebrew.pdb_cvdump`
   runs `cvdump.exe` from `REBREW_CVDUMP` or `PATH`) are covered by the
   docker-only compile guarantee on the shipped CLI compile path.
+- No claim that every shipped CLI command stays inside a container.
+  `rebrew calibrate-bss` executes the link command read from the project's
+  `build/CMakeFiles/*/link.txt` and its `--compile-cmd` on the host, and
+  analysis helpers run host rizin/r2, kuna, objconv, llvm-pdbutil, diec, and
+  objdump against target binaries. Treat a project tree from an untrusted
+  source as able to run code on the host through these paths.
