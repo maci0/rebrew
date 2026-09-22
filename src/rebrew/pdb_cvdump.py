@@ -262,7 +262,10 @@ class Cvdump:
             stderr=subprocess.DEVNULL,
         )
         assert proc.stdout is not None
-        wrap = io.TextIOWrapper(proc.stdout, encoding="utf-8", errors="ignore")
+        # cvdump prints PDB names as raw ANSI bytes (cp1252/Shift-JIS paths).
+        # surrogateescape keeps each byte, so two paths differing only in
+        # non-ASCII stay distinct ``lines`` keys; "ignore" merged them.
+        wrap = io.TextIOWrapper(proc.stdout, encoding="utf-8", errors="surrogateescape")
         try:
             for name, section in iter_cvdump_sections(wrap):
                 parser.read_section(name, section)

@@ -51,12 +51,14 @@ jobs:
         # --group similarity installs the sibling resembl path dep (not a
         # PyPI extra — see pyproject.toml [dependency-groups]).
         run: uv sync --frozen --all-extras --group similarity
+      # Gates call the Makefile targets so local `make all` and CI run the
+      # same command lines (the audit ignore list lives only there).
       - name: Ruff lint
-        run: uv run --frozen ruff check src/ tests/ tools/
+        run: make lint
       - name: Ruff format check
-        run: uv run --frozen ruff format --check src/ tests/ tools/
+        run: make format-check
       - name: Mypy type check
-        run: uv run --frozen mypy
+        run: make mypy
       - name: Dependency vulnerability audit
         # Blocking gate: `uv audit` exits 1 on known-vulnerable packages, so
         # --frozen CI cannot keep re-pinning a vulnerable lock.  diskcache's
@@ -64,7 +66,7 @@ jobs:
         # unfixed: the cache
         # stores only compiled .obj bytes, never untrusted input, and a
         # fixed release flips this step red to force the upgrade.
-        run: uv audit --locked --ignore-until-fixed GHSA-w8v5-vhqr-4h9v
+        run: make audit
 
   test:
     runs-on: ubuntu-24.04
@@ -109,15 +111,16 @@ jobs:
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends nasm
           nasm -v
       - name: Run tests
-        run: uv run --frozen pytest tests/ -v --tb=short
+        run: make test
       - name: Fixture freshness (checked-in fixtures match the generator)
-        run: uv run --frozen python tools/gen_fixtures.py --check
+        run: make gen-fixtures-check
       - name: Idempotency sweep (every --json command, run twice)
-        run: uv run --frozen python tools/check_idempotency.py --fixture-dir .scratch/rebrew-idem
+        run: make idempotency-check
 
-  # Pre-commit hook parity: run the repo's own hook set (hygiene + ruff + mypy,
-  # plus import-cycle and skills checks) against a clean checkout. The pytest
-  # hook is pre-push stage only, so this job does not duplicate the suite.
+  # Pre-commit hook parity: run the repo's own hook set (file hygiene,
+  # import-cycle and skills checks) against a clean checkout. The ruff and mypy
+  # hooks are skipped because the lint job runs the same commands, and the
+  # pytest hook is pre-push stage only, so this job duplicates neither.
   pre-commit:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -133,7 +136,9 @@ jobs:
       - name: Install dependencies
         run: uv sync --frozen --all-extras --group similarity
       - name: Run pre-commit hooks
-        run: uv run --frozen pre-commit run --all-files
+        env:
+          SKIP: ruff-check,ruff-format,mypy
+        run: make check
 
   # Package build: prove sdist/wheel build from a clean tree, install the wheel
   # (not the editable src tree), and smoke-import. SOURCE_DATE_EPOCH + C/UTC

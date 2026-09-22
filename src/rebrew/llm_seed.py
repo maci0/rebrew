@@ -213,6 +213,29 @@ def _normalize_proto(proto: str) -> str:
     return re.sub(r"\s*([(),*])\s*", r"\1", text)
 
 
+def _without_comments(code: bytes, root: Any) -> str:
+    """*code* with each comment node replaced by one space (C translation phase 3).
+
+    A comment ahead of ``#`` still leaves a directive (``/* x */ #define``), so
+    the preprocessor check must run on this text, not the raw snippet.
+    """
+    spans: list[tuple[int, int]] = []
+    stack = [root]
+    while stack:
+        node = stack.pop()
+        if node.type == "comment":
+            spans.append((node.start_byte, node.end_byte))
+        else:
+            stack.extend(node.children)
+    out = bytearray()
+    pos = 0
+    for start, end in sorted(spans):
+        out += code[pos:start] + b" "
+        pos = end
+    out += code[pos:]
+    return out.decode("utf-8", errors="replace")
+
+
 def valid_c_source(
     src: str,
     *,
@@ -225,7 +248,7 @@ def valid_c_source(
     Known calling conventions are stripped only for syntax validation.
     Snippets must contain exactly one ``function_definition`` at the
     translation-unit root (comments allowed; no globals, typedefs, structs,
-    or preprocessor).  When *expect_name* / *expect_proto* are set, both must
+    or preprocessor, including directives hidden behind a comment).  When *expect_name* / *expect_proto* are set, both must
     match — so a hallucinated helper, wrong arity, or Trojan second
     definition cannot ride into the GA population.
 
@@ -251,8 +274,11 @@ def valid_c_source(
         if parser_pair is None:
             return False
         parser, _ = parser_pair
-        tree = parser.parse(_strip_cc(src).encode("utf-8"))
+        code = _strip_cc(src).encode("utf-8")
+        tree = parser.parse(code)
         if tree.root_node.has_error:
+            return False
+        if _PREPROC_RE.search(_without_comments(code, tree.root_node)):
             return False
         top = list(tree.root_node.children)
         if any(c.type not in allowed for c in top):

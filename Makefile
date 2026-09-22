@@ -231,7 +231,7 @@ cycles-check:
 idempotency-check:
 	uv run --frozen python tools/check_idempotency.py --fixture-dir .scratch/rebrew-idem
 
-# Type check (CI lint job runs plain `uv run --frozen mypy`).
+# Type check (CI lint job).
 mypy:
 	uv run --frozen mypy
 

@@ -174,6 +174,18 @@ class TestValidCSource:
         assert not valid_c_source(src, expect_name="f")
 
     @pytest.mark.parametrize(
+        "body",
+        [
+            "  /* x */ #define Y 1\n",
+            '/*\n*/#include "/etc/passwd"\n',
+        ],
+    )
+    def test_comment_prefixed_directive_rejected(self, body: str) -> None:
+        """Comments become a space before preprocessing, so ``/**/ #`` is a directive."""
+        src = f"int f(int a) {{\n{body}  return a;\n}}\n"
+        assert not valid_c_source(src, expect_name="f", expect_proto="int f(int a)")
+
+    @pytest.mark.parametrize(
         "extra",
         [
             "int g;\n",

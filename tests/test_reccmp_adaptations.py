@@ -380,6 +380,25 @@ class TestCvdumpRunLifecycle:
         assert isinstance(parser, pv.CvdumpParser)
         assert not proc.killed, "an exited child must not be killed again"
 
+    def test_non_utf8_filenames_stay_distinct(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import io
+
+        from rebrew import pdb_cvdump as pv
+
+        proc = self._wire(monkeypatch)
+        # Two Shift-JIS source paths that share every ASCII byte.
+        header = b"*** LINES\n"
+        rec = b" C:\\%s\\a.c (None), 0001:00001000-00001010, line/addr pairs = 1\n  1 00001000\n"
+        proc.stdout = io.BytesIO(
+            header + rec % "テスト".encode("shift_jis") + rec % "ゲーム".encode("shift_jis")
+        )
+        parser = pv.Cvdump("x.pdb").lines().run()
+        keys = list(parser.lines)
+        assert len(keys) == 2
+        assert keys[0].encode("utf-8", "surrogateescape") == b"C:\\%s\\a.c" % "テスト".encode(
+            "shift_jis"
+        )
+
     def test_failed_child_raises_instead_of_empty_parse(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:

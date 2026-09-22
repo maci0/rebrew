@@ -7,7 +7,8 @@ Suggested gates for reverse-engineering workspaces that use rebrew.
 GitHub Actions (`.github/workflows/ci.yml`) runs lint, the full unit test suite
 across the supported Python versions (3.13–3.14) — including a fixture-freshness
 check (`tools/gen_fixtures.py --check`) and an idempotency sweep over the
-offline `--json` CLI surface — a pre-commit hook-parity job, a package job
+offline `--json` CLI surface — a pre-commit hook-parity job (`make check` with
+the ruff and mypy hooks skipped, since the lint job runs them), a package job
 that builds the sdist/wheel via `make build` (SOURCE_DATE_EPOCH, umask 022, C/UTC,
 `PYTHONHASHSEED=0`, sdist tar metadata normalized by
 `tools/normalize_sdist.py`), checks both artifacts hash the same on a second
@@ -19,7 +20,7 @@ wheel into a clean venv for a smoke import — runtime deps come from
 `uv sync --frozen --no-install-project`, then the wheel is overlaid with
 `--no-deps` so the smoke cannot drift past `uv.lock` — and a `cli-contract`
 job that greps the high-value `--help` surfaces. The lint job also runs
-`uv audit --locked` (diskcache's unfixed pickle advisory is
+`make audit` (`uv audit --locked`; diskcache's unfixed pickle advisory is
 `--ignore-until-fixed` until upstream ships a fix). Every job installs uv
 through the local composite action `.github/actions/uv-env`, which holds the
 one `uv-version` / `python-version` / `resembl-ref` pin set both workflows
