@@ -326,6 +326,30 @@ class TestQueryLayer:
             ["0x10002000", "func_b", "STUB", "EXACT", "2026-01-01T00:00:00Z"],
         ]
 
+    def test_functions_list_uses_partial_index(
+        self, dashboard: Dashboard, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The unfiltered list query must be served by idx_functions_list."""
+        import sqlite3
+
+        import rebrew.dashboard as dashboard_mod
+
+        statements: list[str] = []
+        real_open = dashboard_mod.open_sqlite_ro
+
+        def _traced_open(path: Path) -> sqlite3.Connection:
+            conn = real_open(path)
+            conn.set_trace_callback(statements.append)
+            return conn
+
+        monkeypatch.setattr(dashboard_mod, "open_sqlite_ro", _traced_open)
+        dashboard.functions("server_dll")
+        list_sql = next(s for s in statements if s.startswith("SELECT va, name"))
+        with sqlite3.connect(dashboard.db_path) as conn:
+            plan = conn.execute(f"EXPLAIN QUERY PLAN {list_sql}").fetchall()
+        assert any("idx_functions_list" in row[3] for row in plan)
+        assert not any("TEMP B-TREE" in row[3] for row in plan)
+
     def test_functions_total_excludes_global_markers(self, tmp_path: Path) -> None:
         """total must apply the same markerType filter as the row query."""
         db_dir = tmp_path / "db"

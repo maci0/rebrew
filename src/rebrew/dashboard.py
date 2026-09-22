@@ -1332,9 +1332,11 @@ class Dashboard:
         # Exclude non-function rows; must remain in *where* for the COUNT total.
         where.append("markerType NOT IN ('GLOBAL', 'DATA')")
         where_sql = " AND ".join(where)
+        # (target, va) is the primary key, so va alone is a total order; a
+        # second sort key stops idx_functions_list from serving the ORDER BY.
         query = (
             "SELECT va, name, symbol, size, status, module, files "
-            f"FROM functions WHERE {where_sql} ORDER BY va, module LIMIT ? OFFSET ?"
+            f"FROM functions WHERE {where_sql} ORDER BY va LIMIT ? OFFSET ?"
         )
         with self._conn() as conn:
             rows = conn.execute(query, [*args, limit, offset]).fetchall()
