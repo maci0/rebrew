@@ -275,7 +275,7 @@ they do **not** all share one global precedence over the TOML.
 | `[compiler] recompile_url` / `REBREW_RECOMPILE_URL` | env **when the variable is present** (even if empty — empty forces local docker for the run); else TOML |
 | `[llm] endpoint` / `REBREW_LLM_ENDPOINT` | TOML, then env |
 | `[llm] api_key` / `REBREW_LLM_API_KEY` | env **when present** (even if empty — clears a committed TOML key for the run); else TOML — prefer the env var; do not commit keys |
-| `[llm] model` / `REBREW_LLM_MODEL` | TOML, then env (default `gpt-4o-mini`) |
+| `[llm] model` / `REBREW_LLM_MODEL` | TOML, then env (default `gpt-4o-mini-2024-07-18`; `latest`/`auto`/`default` fall back to it) |
 
 Unset vs empty: for the two env-wins settings above, an unset variable falls through to TOML; an empty value is intentional and overrides TOML. `rebrew cfg set` refuses non-empty secret keys (they would appear in argv/history); clear with `rebrew cfg set llm.api_key ''` or set `REBREW_LLM_API_KEY`.
 

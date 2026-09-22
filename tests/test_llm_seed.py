@@ -472,6 +472,18 @@ class TestRequestSeeds:
     def test_no_endpoint_returns_empty(self) -> None:
         assert request_seeds(_cfg(), "int f(void){return 0;}") == []
 
+    def test_unparseable_source_skips_request(self, caplog: pytest.LogCaptureFixture) -> None:
+        """No signature to validate against: never bill, never accept model output."""
+
+        class _MustNotCall:
+            def stream(self, *a: object, **k: object) -> None:
+                raise AssertionError("LLM endpoint called for an unvalidatable source")
+
+        with caplog.at_level(logging.WARNING):
+            seeds = request_seeds(_cfg("https://llm/v1"), "not c at all", client=_MustNotCall())
+        assert seeds == []
+        assert "cannot parse the source's function signature" in caplog.text
+
     def test_failing_request_returns_empty(self) -> None:
         class _Broken:
             def stream(self, *a: object, **k: object) -> None:

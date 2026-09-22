@@ -349,6 +349,12 @@
   ``one_line``, ``run_git``). Call sites inside the package already updated.
 
 ### Fixed
+- **`rebrew match --seed-llm` no longer accepts unchecked model output.**
+  When the source's function signature did not parse, the request still
+  went out and any single function the model returned, under any name or
+  prototype, entered the GA population.  The request is now skipped with a
+  warning.  The default model is pinned to the dated snapshot
+  `gpt-4o-mini-2024-07-18` instead of the floating `gpt-4o-mini` alias.
 - **`rebrew dashboard` no longer caches a stale body under a fresh ETag.**
   The 200 response read the DB-mtime ETag after its SQLite query, so a
   `build-db` finishing mid-request tagged the old body with the new ETag

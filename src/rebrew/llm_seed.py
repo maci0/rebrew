@@ -42,7 +42,7 @@ _MAX_SEED_CHARS = 8_000
 _MAX_HTTP_BODY_BYTES = 256_000  # reject before json.loads blows memory/budget
 _DEFAULT_MAX_TOKENS = 2_048
 _DEFAULT_COUNT = 3
-_DEFAULT_MODEL = "gpt-4o-mini"
+_DEFAULT_MODEL = "gpt-4o-mini-2024-07-18"  # dated snapshot; bare alias floats
 _DEFAULT_MAX_REQUESTS = 32  # process-wide; override via REBREW_LLM_MAX_REQUESTS
 _UNPINNED_MODELS = frozenset({"latest", "auto", "default"})
 # Model ids flow into the provider JSON; reject shells/newlines/path traversal.
@@ -410,6 +410,7 @@ def _request(
     conf: dict[str, str],
     source: str,
     count: int,
+    expect: tuple[str, str],
     *,
     model: str = _DEFAULT_MODEL,
 ) -> list[str]:
@@ -422,9 +423,7 @@ def _request(
     if conf.get("api_key"):
         headers["Authorization"] = f"Bearer {conf['api_key']}"
     safe = _sanitize_source(source)
-    expect = _expected_signature(source)
-    expect_name = expect[0] if expect else None
-    expect_proto = expect[1] if expect else None
+    expect_name, expect_proto = expect
     # Cap completion size: ~count seeds × a modest function body.
     max_tokens = min(_DEFAULT_MAX_TOKENS, max(256, count * 512))
     payload = {
@@ -462,8 +461,10 @@ def request_seeds(
 ) -> list[str]:
     """Ask the configured LLM for alternative C implementations of *source*.
 
-    Returns only tree-sitter-valid snippets.  Empty list when no endpoint is
-    configured, the request fails, or the response carries no valid C.
+    Returns only tree-sitter-valid snippets whose name and prototype match
+    *source*.  Empty list (no request) when no endpoint is configured or
+    *source* has no parseable signature; empty when the request fails or the
+    response carries no valid C.
     Never raises (the GA must run unchanged when the LLM is unavailable).
     Never retries on 429/503/529 — a retry storm would multiply spend.
     """
@@ -472,6 +473,15 @@ def request_seeds(
         return []
     count = max(1, min(int(count), 8))
     model = _resolve_model(cfg)
+    # Without the source's name + prototype the response cannot be checked
+    # against it, so any function the model invents would enter the GA.
+    expect = _expected_signature(source)
+    if expect is None:
+        logging.warning(
+            "LLM seeding skipped: cannot parse the source's function signature, "
+            "so model output could not be validated against it"
+        )
+        return []
     if not _consume_request_slot():
         logging.warning(
             "LLM seeding request budget exhausted (%s calls this process; "
@@ -481,11 +491,11 @@ def request_seeds(
         return []
     try:
         if client is not None:
-            return _request(client, conf, source, count, model=model)
+            return _request(client, conf, source, count, expect, model=model)
         import httpx
 
         with httpx.Client(timeout=90) as http:
-            return _request(http, conf, source, count, model=model)
+            return _request(http, conf, source, count, expect, model=model)
     except Exception as exc:  # LLM availability must never break the GA
         # --seed-llm was explicitly requested; a silent empty result hides a
         # misconfigured endpoint/key.  Warn so the user knows seeds were asked
