@@ -3,7 +3,12 @@
 import pytest
 from tree_sitter import Node, Tree
 
-from rebrew.matcher.ast_engine import parse_c_ast, replace_node
+from rebrew.matcher.ast_engine import (
+    decode_source,
+    encode_source,
+    parse_c_ast,
+    replace_node,
+)
 
 
 def _func_defs(tree: Tree) -> list[Node]:
@@ -60,3 +65,26 @@ class TestParseAstErrors:
     @pytest.mark.parametrize("bad", ["int f( {", "void }", "struct { ;", "1 +* 2;"])
     def test_invalid_sources_flag_errors(self, bad: str) -> None:
         assert parse_c_ast(bad).root_node.has_error
+
+
+class TestLegacyEncodedSource:
+    """A cp1252 / Shift-JIS seed must survive the GA str<->bytes boundary.
+
+    ``read_compile_source`` decodes with ``surrogateescape`` so the compile
+    round-trip stays byte-identical; encoding that text back with a plain
+    ``utf-8`` encode raises UnicodeEncodeError on the lone surrogate, which
+    killed every GA run on a legacy-encoded source before its first
+    generation.
+    """
+
+    # cp1252 0xE9 ('é' in "Café") as read_compile_source hands it over.
+    SRC = 'int f(int n) { char *s = "Caf\udce9"; return n + (int)s[0]; }'
+
+    def test_parse_accepts_surrogate_escaped_source(self) -> None:
+        assert not parse_c_ast(self.SRC).root_node.has_error
+
+    def test_encode_source_restores_the_raw_byte(self) -> None:
+        assert b'"Caf\xe9"' in encode_source(self.SRC)
+
+    def test_encode_decode_roundtrip_is_lossless(self) -> None:
+        assert decode_source(encode_source(self.SRC)) == self.SRC

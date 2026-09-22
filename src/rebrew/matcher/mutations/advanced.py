@@ -11,7 +11,12 @@ import random
 import re
 from typing import Any
 
-from rebrew.matcher.ast_engine import _C_LANGUAGE, parse_c_ast
+from rebrew.matcher.ast_engine import (
+    _C_LANGUAGE,
+    decode_source,
+    encode_source,
+    parse_c_ast,
+)
 from rebrew.matcher.mutations.queries import (
     _QUERY_BIN_COND_IF,
     _QUERY_LOCAL_DECL,
@@ -75,7 +80,7 @@ def _bin_cond_if_ops(b_source: bytes, op: bytes) -> list[tuple[Any, Any, Any, An
 
 def mut_split_and_condition(s: str, rng: random.Random) -> str | None:
     """Split an if(a && b) into nested if(a) { if(b) ... } blocks."""
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
     valid_ifs = _bin_cond_if_ops(b_source, b"&&")
     if not valid_ifs:
         return None
@@ -88,12 +93,12 @@ def mut_split_and_condition(s: str, rng: random.Random) -> str | None:
 
     new_stmt = b"if (" + left_str + b") {\n        if (" + right_str + b") " + body_str + b"\n    }"
 
-    return (b_source[: stmt.start_byte] + new_stmt + b_source[stmt.end_byte :]).decode("utf-8")
+    return decode_source(b_source[: stmt.start_byte] + new_stmt + b_source[stmt.end_byte :])
 
 
 def mut_split_or_condition(s: str, rng: random.Random) -> str | None:
     """Split if(a || b) into separate if(a) ... else if(b) ... blocks."""
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
     valid_ifs = _bin_cond_if_ops(b_source, b"||")
     if not valid_ifs:
         return None
@@ -108,12 +113,12 @@ def mut_split_or_condition(s: str, rng: random.Random) -> str | None:
         b"if (" + left_str + b") " + body_str + b"\n    else if (" + right_str + b") " + body_str
     )
 
-    return (b_source[: stmt.start_byte] + new_stmt + b_source[stmt.end_byte :]).decode("utf-8")
+    return decode_source(b_source[: stmt.start_byte] + new_stmt + b_source[stmt.end_byte :])
 
 
 def mut_merge_nested_ifs(s: str, rng: random.Random) -> str | None:
     """Merge nested if(a) { if(b) } into a single if(a && b) condition."""
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
 
     tree = parse_c_ast(b_source)
     cursor = _cursor(_QUERY_NESTED_IF_P3)
@@ -169,12 +174,12 @@ def mut_merge_nested_ifs(s: str, rng: random.Random) -> str | None:
 
     new_stmt = b"if ((" + cond1_str + b") && (" + cond2_str + b")) " + body_str
 
-    return (b_source[: stmt.start_byte] + new_stmt + b_source[stmt.end_byte :]).decode("utf-8")
+    return decode_source(b_source[: stmt.start_byte] + new_stmt + b_source[stmt.end_byte :])
 
 
 def mut_extract_condition_to_var(s: str, rng: random.Random) -> str | None:
     """Hoist an if-condition into a temporary variable assignment."""
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
 
     tree = parse_c_ast(b_source)
     cursor = _cursor(_QUERY_BIN_COND_IF)
@@ -237,12 +242,12 @@ def mut_extract_condition_to_var(s: str, rng: random.Random) -> str | None:
     # Replace the binary expression with the variable
     new_stmt_str = out[stmt_start:bin_start] + var_name + out[bin_end:stmt_end]
 
-    return (out[:stmt_start] + inline_assign + new_stmt_str + out[stmt_end:]).decode("utf-8")
+    return decode_source(out[:stmt_start] + inline_assign + new_stmt_str + out[stmt_end:])
 
 
 def mut_loop_condition_extraction(s: str, rng: random.Random) -> str | None:
     """Rewrite while(cond) as while(1) { if(!cond) break; ... }."""
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
 
     tree = parse_c_ast(b_source)
     cursor = _cursor(_QUERY_WHILE_LOOP)
@@ -292,7 +297,7 @@ def mut_loop_condition_extraction(s: str, rng: random.Random) -> str | None:
             + b"\n    }"
         )
 
-    return (b_source[: stmt.start_byte] + new_loop + b_source[stmt.end_byte :]).decode("utf-8")
+    return decode_source(b_source[: stmt.start_byte] + new_loop + b_source[stmt.end_byte :])
 
 
 # ---------------------------------------------------------------------------
@@ -316,7 +321,7 @@ def mut_widen_local_type(s: str, rng: random.Random) -> str | None:
     MSVC6 generates different MOV sizes (MOVSX, MOVZX, MOV EAX vs MOV AL)
     depending on the declared type width.
     """
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
     cursor = _cursor(_QUERY_LOCAL_DECL)
     tree = parse_c_ast(b_source)
     matches = cursor.matches(tree.root_node)
@@ -339,7 +344,7 @@ def mut_widen_local_type(s: str, rng: random.Random) -> str | None:
     node, old_type = rng.choice(valid)
     new_type = _TYPE_WIDEN_MAP[old_type]
     res = b_source[: node.start_byte] + new_type + b_source[node.end_byte :]
-    result = res.decode("utf-8")
+    result = decode_source(res)
     return result if result != s else None
 
 
@@ -359,14 +364,14 @@ def mut_toggle_dllimport(s: str, rng: random.Random) -> str | None:
     Changes IAT calling sequences: dllimport produces direct CALL [addr]
     to the IAT, while without it the linker inserts a thunk stub.
     """
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
 
     # Try to remove existing dllimport first
     dllimport_matches = list(_DLLIMPORT_RE.finditer(b_source))
     if dllimport_matches:
         m = rng.choice(dllimport_matches)
         res = b_source[: m.start()] + b_source[m.end() :]
-        result = res.decode("utf-8")
+        result = decode_source(res)
         return result if result != s else None
 
     # Try to add dllimport to an extern declaration
@@ -380,7 +385,7 @@ def mut_toggle_dllimport(s: str, rng: random.Random) -> str | None:
             + m.group(2)
             + b_source[m.end(2) :]
         )
-        result = res.decode("utf-8")
+        result = decode_source(res)
         return result if result != s else None
 
     return None
@@ -397,7 +402,7 @@ def mut_memcpy_to_loop(s: str, rng: random.Random) -> str | None:
     MSVC6 inlines memcpy() to REP MOVSD/MOVSB while explicit loops
     generate different codegen (typically LEA + indexed MOV).
     """
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
     matches = list(_MEMCPY_RE.finditer(b_source))
     if not matches:
         return None
@@ -441,7 +446,7 @@ def mut_memcpy_to_loop(s: str, rng: random.Random) -> str | None:
 
     # Replace memcpy call
     res = out[: m.start() + offset] + loop + out[m.end() + offset :]
-    return res.decode("utf-8")
+    return decode_source(res)
 
 
 _BYTE_COPY_LOOP_RE = re.compile(
@@ -456,7 +461,7 @@ def mut_loop_to_memcpy(s: str, rng: random.Random) -> str | None:
     Inverse of mut_memcpy_to_loop.  memcpy() inlines to REP MOVS
     on MSVC6, which uses different register allocation.
     """
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
     matches = list(_BYTE_COPY_LOOP_RE.finditer(b_source))
     if not matches:
         return None
@@ -467,7 +472,7 @@ def mut_loop_to_memcpy(s: str, rng: random.Random) -> str | None:
     n = m.group(2)
     replacement = b"memcpy(" + dst + b", " + src + b", " + n + b");"
     res = b_source[: m.start()] + replacement + b_source[m.end() :]
-    return res.decode("utf-8")
+    return decode_source(res)
 
 
 _QUERY_FLOAT_BINOP = _LazyQuery(
@@ -495,7 +500,7 @@ def mut_commute_float_operands(s: str, rng: random.Random) -> str | None:
     Identical math, different bytes.  Only targets expressions that
     look like they involve floating-point variables.
     """
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
     cursor = _cursor(_QUERY_FLOAT_BINOP)
     tree = parse_c_ast(b_source)
     matches = cursor.matches(tree.root_node)
@@ -550,7 +555,7 @@ def mut_commute_float_operands(s: str, rng: random.Random) -> str | None:
         + left_text
         + b_source[right.end_byte :]
     )
-    result = res.decode("utf-8")
+    result = decode_source(res)
     return result if result != s else None
 
 
@@ -575,7 +580,7 @@ def mut_register_param(s: str, rng: random.Random) -> str | None:
     forces the parameter into a callee-saved register (ESI/EDI) and can
     suppress ``push ebp`` frame setup entirely.
     """
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
     tree = parse_c_ast(b_source)
     cursor = _cursor(_QUERY_FUNC_PARAM)
     matches = cursor.matches(tree.root_node)
@@ -595,12 +600,12 @@ def mut_register_param(s: str, rng: random.Random) -> str | None:
     param = rng.choice(valid)
     text = b_source[param.start_byte : param.end_byte]
     result = b_source[: param.start_byte] + b"register " + text + b_source[param.end_byte :]
-    return result.decode("utf-8")
+    return decode_source(result)
 
 
 def mut_unregister_param(s: str, rng: random.Random) -> str | None:
     """Remove 'register' keyword from a function parameter declaration."""
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
     tree = parse_c_ast(b_source)
     cursor = _cursor(_QUERY_FUNC_PARAM)
     matches = cursor.matches(tree.root_node)
@@ -620,7 +625,7 @@ def mut_unregister_param(s: str, rng: random.Random) -> str | None:
     text = b_source[param.start_byte : param.end_byte]
     new_text = text.replace(b"register ", b"", 1)
     result = b_source[: param.start_byte] + new_text + b_source[param.end_byte :]
-    return result.decode("utf-8")
+    return decode_source(result)
 
 
 # --- Loop break mutations ---
@@ -655,7 +660,7 @@ def mut_remove_loop_break(s: str, rng: random.Random) -> str | None:
     MSVC6 generates different branch layouts for loops with explicit
     break vs fall-through behavior.
     """
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
     tree = parse_c_ast(b_source)
     cursor = _cursor(_QUERY_BREAK_IN_LOOP)
     matches = cursor.matches(tree.root_node)
@@ -673,7 +678,7 @@ def mut_remove_loop_break(s: str, rng: random.Random) -> str | None:
         end += 1
 
     result = b_source[: brk.start_byte] + b_source[end:]
-    res = result.decode("utf-8")
+    res = decode_source(result)
     return res if res != s else None
 
 
@@ -682,7 +687,7 @@ def mut_add_loop_break(s: str, rng: random.Random) -> str | None:
 
     Inserts ``break;`` as the last statement inside a loop's compound body.
     """
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
     tree = parse_c_ast(b_source)
     cursor = _cursor(_QUERY_LOOP_BODY)
     matches = cursor.matches(tree.root_node)
@@ -703,7 +708,7 @@ def mut_add_loop_break(s: str, rng: random.Random) -> str | None:
     close_brace = body.end_byte - 1
     indent = b"\n    "
     result = b_source[:close_brace] + indent + b"break;" + indent[:-4] + b_source[close_brace:]
-    return result.decode("utf-8")
+    return decode_source(result)
 
 
 # --- If/else call to ternary arg ---
@@ -735,7 +740,7 @@ def mut_if_else_call_to_ternary_arg(s: str, rng: random.Random) -> str | None:
 
     Reduces AST use-count, which can change MSVC6 register allocation.
     """
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
     tree = parse_c_ast(b_source)
     cursor = _cursor(_QUERY_IF_ELSE_CALL)
     matches = cursor.matches(tree.root_node)
@@ -786,7 +791,7 @@ def mut_if_else_call_to_ternary_arg(s: str, rng: random.Random) -> str | None:
 
     replacement = fn_name + b"(" + b", ".join(merged_args) + b");"
     result = b_source[: caps["expr"].start_byte] + replacement + b_source[caps["expr"].end_byte :]
-    return result.decode("utf-8")
+    return decode_source(result)
 
 
 def mut_ternary_arg_to_if_else_call(s: str, rng: random.Random) -> str | None:
@@ -795,7 +800,7 @@ def mut_ternary_arg_to_if_else_call(s: str, rng: random.Random) -> str | None:
     Changes: Fn(a, c ? X : Y);
          ->  if (c) { Fn(a, X); } else { Fn(a, Y); }
     """
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
     tree = parse_c_ast(b_source)
 
     # Find call expressions that have a conditional_expression in their argument list
@@ -850,7 +855,7 @@ def mut_ternary_arg_to_if_else_call(s: str, rng: random.Random) -> str | None:
 
     stmt = caps["stmt"]
     result = b_source[: stmt.start_byte] + replacement + b_source[stmt.end_byte :]
-    return result.decode("utf-8")
+    return decode_source(result)
 
 
 # --- Hoist/sink common tail from if/else branches ---
@@ -876,7 +881,7 @@ def mut_hoist_common_tail(s: str, rng: random.Random) -> str | None:
     it from both and places it after the if/else.  This lets the compiler
     merge return paths.
     """
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
     tree = parse_c_ast(b_source)
     cursor = _cursor(_QUERY_IF_ELSE_COMPOUND)
     matches = cursor.matches(tree.root_node)
@@ -954,7 +959,7 @@ def mut_hoist_common_tail(s: str, rng: random.Random) -> str | None:
 
     # Insert the common statement after the if/else
     result = result[:adj_stmt_end] + b"\n    " + common_text + result[adj_stmt_end:]
-    return result.decode("utf-8")
+    return decode_source(result)
 
 
 def mut_sink_common_tail(s: str, rng: random.Random) -> str | None:
@@ -963,7 +968,7 @@ def mut_sink_common_tail(s: str, rng: random.Random) -> str | None:
     Takes a statement immediately following an if/else and duplicates it
     as the last statement in both branches.
     """
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
     tree = parse_c_ast(b_source)
 
     # Find if/else followed by a sibling statement
@@ -1003,4 +1008,4 @@ def mut_sink_common_tail(s: str, rng: random.Random) -> str | None:
         rm_start -= 1
     result = result[:rm_start] + result[orig_end:]
 
-    return result.decode("utf-8")
+    return decode_source(result)

@@ -1,7 +1,7 @@
 # CLI Reference
 
-All 97 CLI commands are registered under the unified `rebrew` entry point in `main.py`
-(96 packaged `CliComponent` entries in `builtins.py` plus `import-splat` from
+All 101 CLI commands are registered under the unified `rebrew` entry point in `main.py`
+(100 packaged `CliComponent` entries in `builtins.py` plus `import-splat` from
 `main.py` `_EXTRA_COMPONENTS`).
 Every tool supports `--target / -t` to select a target from `rebrew-project.toml` and
 reads defaults (binary path, reversed_dir, compiler settings) from the project config.

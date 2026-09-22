@@ -173,8 +173,8 @@ compiles.
 
 It is also the dataset side of the ML vision: `emit_assembly: true` appends
 `(source, listing)` pairs to `train_data/train.jsonl` — the raw material
-for the snowball/LoRA fine-tuning pipeline ([ML_TRAINING.md](ML_TRAINING.md),
-relumea below).
+for the snowball/LoRA fine-tuning pipeline (relumea below).  Collection is
+implemented (`rebrew.recompile_client`); the training pipeline itself is not.
 
 ### reagent — autonomous LLM RE agent
 
@@ -407,8 +407,6 @@ binary being decompiled.
   recoverage
 - [BINSYNC_INTEGRATION.md](BINSYNC_INTEGRATION.md) — the BinSync state-dir
   bridge in detail
-- [ML_TRAINING.md](ML_TRAINING.md) — dataset collection and the snowball
-  training vision
 - [PRINCIPLES.md](PRINCIPLES.md) — idempotency, score monotonicity, snowball
   effect
 - Sibling READMEs: `../rebrew-toolchains`, `../resembl`, `../recoverage`,

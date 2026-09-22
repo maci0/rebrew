@@ -15,7 +15,12 @@ from typing import Any
 
 import tree_sitter as ts
 
-from rebrew.matcher.ast_engine import parse_c_ast, replace_node
+from rebrew.matcher.ast_engine import (
+    decode_source,
+    encode_source,
+    parse_c_ast,
+    replace_node,
+)
 from rebrew.matcher.mutations.queries import _LazyQuery
 
 
@@ -175,7 +180,7 @@ def _commute_operands(
     s: str, rng: random.Random, query: ts.Query | _LazyQuery, op_str: bytes
 ) -> str | None:
     """Generic commutative operand swap for the given binary operator query."""
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
         left = b_source[captures["left"].start_byte : captures["left"].end_byte]
@@ -187,5 +192,5 @@ def _commute_operands(
     res = _apply_query_once(b_source, query, _repl, rng)
     if not res:
         return None
-    res_str = res.decode("utf-8")
+    res_str = decode_source(res)
     return res_str if res_str != s else None

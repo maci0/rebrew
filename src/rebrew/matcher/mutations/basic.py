@@ -14,7 +14,12 @@ from typing import Any
 
 import tree_sitter as ts
 
-from rebrew.matcher.ast_engine import parse_c_ast, replace_node
+from rebrew.matcher.ast_engine import (
+    decode_source,
+    encode_source,
+    parse_c_ast,
+    replace_node,
+)
 from rebrew.matcher.mutations.queries import (
     _QUERY_ACCUM,
     _QUERY_ADJACENT_DECL,
@@ -102,7 +107,7 @@ from rebrew.matcher.mutations.runtime import (
 
 def mut_flip_eq_zero(s: str, rng: random.Random) -> str | None:
     """Rewrite x == 0 / x != 0 into boolean-not forms."""
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
         left = b_source[captures["left"].start_byte : captures["left"].end_byte]
@@ -114,12 +119,12 @@ def mut_flip_eq_zero(s: str, rng: random.Random) -> str | None:
             return b"!!" + left
 
     res = _apply_query_once(b_source, _QUERY_EQ_ZERO, _repl, rng)
-    return res.decode("utf-8") if res else None
+    return decode_source(res) if res else None
 
 
 def mut_flip_lt_ge(s: str, rng: random.Random) -> str | None:
     """Rewrite ``a < b`` into the equivalent negated ``!(a >= b)`` form."""
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
         left = b_source[captures["left"].start_byte : captures["left"].end_byte]
@@ -127,7 +132,7 @@ def mut_flip_lt_ge(s: str, rng: random.Random) -> str | None:
         return b"!(" + left + b" >= " + right + b")"
 
     res = _apply_query_once(b_source, _QUERY_FLIP_LT_GE, _repl, rng)
-    return res.decode("utf-8") if res else None
+    return decode_source(res) if res else None
 
 
 def mut_add_redundant_parens(s: str, rng: random.Random) -> str | None:
@@ -138,7 +143,7 @@ def mut_add_redundant_parens(s: str, rng: random.Random) -> str | None:
     is legal C, but `quick_validate`'s cheap function-start gate rejects it, so
     the mutant could never reach the compiler.
     """
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
     tree = parse_c_ast(b_source)
     q = _QUERY_IDENTIFIER
     cursor = _cursor(q._get() if isinstance(q, _LazyQuery) else q)
@@ -153,9 +158,9 @@ def mut_add_redundant_parens(s: str, rng: random.Random) -> str | None:
     if not candidates:
         return None
     node = rng.choice(candidates)
-    return replace_node(
-        b_source, node, b"(" + b_source[node.start_byte : node.end_byte] + b")"
-    ).decode("utf-8")
+    return decode_source(
+        replace_node(b_source, node, b"(" + b_source[node.start_byte : node.end_byte] + b")")
+    )
 
 
 def mut_swap_eq_operands(s: str, rng: random.Random) -> str | None:
@@ -170,7 +175,7 @@ def mut_swap_ne_operands(s: str, rng: random.Random) -> str | None:
 
 def mut_reassociate_add(s: str, rng: random.Random) -> str | None:
     """Reassociate ``(a + b) + c`` into ``a + (b + c)``."""
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
         a = b_source[captures["a"].start_byte : captures["a"].end_byte]
@@ -179,7 +184,7 @@ def mut_reassociate_add(s: str, rng: random.Random) -> str | None:
         return a + b" + (" + b + b" + " + c + b")"
 
     res = _apply_query_once(b_source, _QUERY_REASSOCIATE, _repl, rng)
-    return res.decode("utf-8") if res else None
+    return decode_source(res) if res else None
 
 
 def mut_swap_or_operands(s: str, rng: random.Random) -> str | None:
@@ -194,14 +199,14 @@ def mut_swap_and_operands(s: str, rng: random.Random) -> str | None:
 
 def mut_toggle_bool_not(s: str, rng: random.Random) -> str | None:
     """Remove one ``!!identifier`` sequence."""
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
         ident = b_source[captures["ident"].start_byte : captures["ident"].end_byte]
         return ident
 
     res = _apply_query_once(b_source, _QUERY_DOUBLE_NOT, _repl, rng)
-    return res.decode("utf-8") if res else None
+    return decode_source(res) if res else None
 
 
 def mut_return_to_goto(s: str, rng: random.Random) -> str | None:
@@ -209,7 +214,7 @@ def mut_return_to_goto(s: str, rng: random.Random) -> str | None:
     if "ret_false:" in s:
         return None  # already has the label
 
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
     tree = parse_c_ast(b_source)
     cursor = _cursor(
         _QUERY_RETURN_FALSE._get()
@@ -263,12 +268,12 @@ def mut_return_to_goto(s: str, rng: random.Random) -> str | None:
         brace_pos = body.end_byte - 1
         result = result[:brace_pos] + b"ret_false:\n    return 0;\n" + result[brace_pos:]
 
-    return result.decode("utf-8")
+    return decode_source(result)
 
 
 def mut_goto_to_return(s: str, rng: random.Random) -> str | None:
     """Reverse: replace 'goto ret_false;' with 'return 0;'."""
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
         return b"return 0;"
@@ -277,7 +282,7 @@ def mut_goto_to_return(s: str, rng: random.Random) -> str | None:
     if not res:
         return None
 
-    result = res.decode("utf-8")
+    result = decode_source(res)
 
     # Remove the label if no more gotos reference it
     if "goto ret_false" not in result:
@@ -289,7 +294,7 @@ def mut_goto_to_return(s: str, rng: random.Random) -> str | None:
 
 def mut_swap_if_else(s: str, rng: random.Random) -> str | None:
     """Swap if/else bodies and negate the condition."""
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
         cond_node = captures["cond"]
@@ -312,12 +317,12 @@ def mut_swap_if_else(s: str, rng: random.Random) -> str | None:
         return b"if (" + negated_cond + b") " + brace_block(alt) + b" else " + brace_block(cons)
 
     res = _apply_query_once(b_source, _QUERY_IF_ELSE, _repl, rng)
-    return res.decode("utf-8") if res else None
+    return decode_source(res) if res else None
 
 
 def mut_add_cast(s: str, rng: random.Random) -> str | None:
     """Wrap an expression in (int) or (unsigned int) cast."""
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
     casts = [b"(int)", b"(unsigned int)"]
     cast = rng.choice(casts)
 
@@ -349,25 +354,25 @@ def mut_add_cast(s: str, rng: random.Random) -> str | None:
     res = _apply_query_once(b_source, _QUERY_RHS_IDENT, _repl, rng)
     if not res:
         return None
-    res_str = res.decode("utf-8")
+    res_str = decode_source(res)
     return res_str if res_str != s else None
 
 
 def mut_remove_cast(s: str, rng: random.Random) -> str | None:
     """Remove a (TYPE) cast."""
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
         val = b_source[captures["val"].start_byte : captures["val"].end_byte]
         return val
 
     res = _apply_query_once(b_source, _QUERY_REMOVE_CAST, _repl, rng)
-    return res.decode("utf-8") if res else None
+    return decode_source(res) if res else None
 
 
 def mut_toggle_volatile(s: str, rng: random.Random) -> str | None:
     """Add or remove 'volatile' on a local variable declaration."""
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
         decl = b_source[captures["expr"].start_byte : captures["expr"].end_byte]
@@ -387,7 +392,7 @@ def mut_toggle_volatile(s: str, rng: random.Random) -> str | None:
     res = _apply_query_once(b_source, _QUERY_DECLARATION, _repl, rng)
     if not res:
         return None
-    res_str = res.decode("utf-8")
+    res_str = decode_source(res)
     return res_str if res_str != s else None
 
 
@@ -404,7 +409,7 @@ def mut_volatile_access(s: str, rng: random.Random) -> str | None:
     Only an existing cast is requalified, so no pointee type has to be
     invented.
     """
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
         ty = b_source[captures["ty"].start_byte : captures["ty"].end_byte]
@@ -416,13 +421,13 @@ def mut_volatile_access(s: str, rng: random.Random) -> str | None:
     res = _apply_query_once(b_source, _QUERY_VOLATILE_ACCESS, _repl, rng)
     if not res:
         return None
-    res_str = res.decode("utf-8")
+    res_str = decode_source(res)
     return res_str if res_str != s else None
 
 
 def mut_add_register_keyword(s: str, rng: random.Random) -> str | None:
     """Add 'register' keyword to a local variable declaration."""
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
         decl = b_source[captures["expr"].start_byte : captures["expr"].end_byte]
@@ -433,13 +438,13 @@ def mut_add_register_keyword(s: str, rng: random.Random) -> str | None:
     res = _apply_query_once(b_source, _QUERY_DECLARATION, _repl, rng)
     if not res:
         return None
-    res_str = res.decode("utf-8")
+    res_str = decode_source(res)
     return res_str if res_str != s else None
 
 
 def mut_remove_register_keyword(s: str, rng: random.Random) -> str | None:
     """Remove 'register' keyword from a local variable declaration."""
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
         decl = b_source[captures["expr"].start_byte : captures["expr"].end_byte]
@@ -450,13 +455,13 @@ def mut_remove_register_keyword(s: str, rng: random.Random) -> str | None:
     res = _apply_query_once(b_source, _QUERY_DECLARATION, _repl, rng)
     if not res:
         return None
-    res_str = res.decode("utf-8")
+    res_str = decode_source(res)
     return res_str if res_str != s else None
 
 
 def mut_if_false_to_bitand(s: str, rng: random.Random) -> str | None:
     """Convert 'if (!expr) var = FALSE;' to 'var &= expr;'."""
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
         cond = b_source[captures["cond"].start_byte : captures["cond"].end_byte]
@@ -465,7 +470,7 @@ def mut_if_false_to_bitand(s: str, rng: random.Random) -> str | None:
         return var + b" &= " + cond + b";"
 
     res = _apply_query_once(b_source, _QUERY_IF_FALSE_BITAND, _repl, rng)
-    return res.decode("utf-8") if res else None
+    return decode_source(res) if res else None
 
 
 def mut_reorder_elseif(s: str, rng: random.Random) -> str | None:
@@ -476,7 +481,7 @@ def mut_reorder_elseif(s: str, rng: random.Random) -> str | None:
     both hold, changing the result) and any trailing ``else`` must be
     preserved (a bare swap silently dropped it).
     """
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
         cond1 = b_source[captures["cond1"].start_byte : captures["cond1"].end_byte]
@@ -503,12 +508,12 @@ def mut_reorder_elseif(s: str, rng: random.Random) -> str | None:
         return replacement
 
     res = _apply_query_once(b_source, _QUERY_ELSE_IF, _repl, rng)
-    return res.decode("utf-8") if res else None
+    return decode_source(res) if res else None
 
 
 def mut_bitand_to_if_false(s: str, rng: random.Random) -> str | None:
     """Reverse of mut_if_false_to_bitand: convert 'var &= expr;' to 'if (!expr) var = 0;'."""
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
         var = b_source[captures["var"].start_byte : captures["var"].end_byte]
@@ -517,7 +522,7 @@ def mut_bitand_to_if_false(s: str, rng: random.Random) -> str | None:
         return b"if (!(" + expr + b"))\n            " + var + b" = 0;"
 
     res = _apply_query_once(b_source, _QUERY_BITAND, _repl, rng)
-    return res.decode("utf-8") if res else None
+    return decode_source(res) if res else None
 
 
 def mut_introduce_temp_for_call(s: str, rng: random.Random) -> str | None:
@@ -525,7 +530,7 @@ def mut_introduce_temp_for_call(s: str, rng: random.Random) -> str | None:
 
     C89-safe: hoists 'BOOL tmp;' to the top of the function body.
     """
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
     tree = parse_c_ast(b_source)
     cursor = _cursor(_QUERY_CALL_ASSIGN)
     matches = cursor.matches(tree.root_node)
@@ -549,7 +554,7 @@ def mut_introduce_temp_for_call(s: str, rng: random.Random) -> str | None:
     if re.search(rb"\btmp\b", b_source):
         # 'tmp' already declared somewhere — just use it, no hoisting needed
         res = replace_node(b_source, target_node, inline_repl)
-        return res.decode("utf-8") if res else None
+        return decode_source(res) if res else None
 
     # C89: hoist 'BOOL tmp;' to function body top
     insert_pos = _find_function_body_insert_pos(b_source, target_node.start_byte)
@@ -565,12 +570,12 @@ def mut_introduce_temp_for_call(s: str, rng: random.Random) -> str | None:
     new_start = target_node.start_byte + offset
     new_end = target_node.end_byte + offset
     result = out[:new_start] + inline_repl + out[new_end:]
-    return result.decode("utf-8")
+    return decode_source(result)
 
 
 def mut_remove_temp_var(s: str, rng: random.Random) -> str | None:
     """Remove a temp variable usage: 'tmp = expr; var = tmp;' -> 'var = expr;'."""
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
     cursor = _cursor(_QUERY_TEMP_VAR)
 
     tree = parse_c_ast(b_source)
@@ -591,12 +596,12 @@ def mut_remove_temp_var(s: str, rng: random.Random) -> str | None:
     replacement = var + b" = " + expr + b";"
 
     res = b_source[: stmt1.start_byte] + replacement + b_source[stmt2.end_byte :]
-    return res.decode("utf-8")
+    return decode_source(res)
 
 
 def mut_toggle_signedness(s: str, rng: random.Random) -> str | None:
     """Toggle signed/unsigned on a local variable declaration."""
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
         decl = b_source[captures["expr"].start_byte : captures["expr"].end_byte]
@@ -608,13 +613,13 @@ def mut_toggle_signedness(s: str, rng: random.Random) -> str | None:
     res = _apply_query_once(b_source, _QUERY_DECLARATION, _repl, rng)
     if not res:
         return None
-    res_str = res.decode("utf-8")
+    res_str = decode_source(res)
     return res_str if res_str != s else None
 
 
 def mut_swap_adjacent_declarations(s: str, rng: random.Random) -> str | None:
     """Swap two adjacent variable declarations."""
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
     cursor = _cursor(_QUERY_ADJACENT_DECL)
 
     tree = parse_c_ast(b_source)
@@ -635,7 +640,7 @@ def mut_swap_adjacent_declarations(s: str, rng: random.Random) -> str | None:
 
     replacement = d2_text + mid_text + d1_text
     res = b_source[: d1.start_byte] + replacement + b_source[d2.end_byte :]
-    return res.decode("utf-8")
+    return decode_source(res)
 
 
 def mut_split_declaration_init(s: str, rng: random.Random) -> str | None:
@@ -645,7 +650,7 @@ def mut_split_declaration_init(s: str, rng: random.Random) -> str | None:
     declaration.  Leaving it beside the declaration put a statement ahead of
     any later declaration in the same block, which C89 (and MSVC6) rejects.
     """
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
     tree = parse_c_ast(b_source)
 
     valid: list[tuple[ts.Node, int, bytes, bytes, bytes]] = []
@@ -675,12 +680,12 @@ def mut_split_declaration_init(s: str, rng: random.Random) -> str | None:
     # so the declaration's own offsets stay valid for the replacement.
     out = b_source[:insert_at] + b"\n    " + var + b" = " + expr + b";" + b_source[insert_at:]
     out = out[: declaration.start_byte] + type_ + b" " + var + b";" + out[declaration.end_byte :]
-    return out.decode("utf-8")
+    return decode_source(out)
 
 
 def mut_merge_declaration_init(s: str, rng: random.Random) -> str | None:
     """Merge 'TYPE var; ... var = expr;' into 'TYPE var = expr;'."""
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
     cursor = _cursor(_QUERY_MERGE_DECL)
 
     tree = parse_c_ast(b_source)
@@ -701,12 +706,12 @@ def mut_merge_declaration_init(s: str, rng: random.Random) -> str | None:
 
     replacement = type_ + b" " + var + b" = " + expr + b";"
     res = b_source[: d1.start_byte] + replacement + b_source[d2.end_byte :]
-    return res.decode("utf-8")
+    return decode_source(res)
 
 
 def mut_while_to_dowhile(s: str, rng: random.Random) -> str | None:
     """Convert 'while (cond) { body }' to 'if (cond) { do { body } while (cond); }'."""
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
         cond = b_source[captures["cond"].start_byte : captures["cond"].end_byte]
@@ -714,12 +719,12 @@ def mut_while_to_dowhile(s: str, rng: random.Random) -> str | None:
         return b"if " + cond + b" {\n    do " + body + b" while " + cond + b";\n    }"
 
     res = _apply_query_once(b_source, _QUERY_WHILE, _repl, rng)
-    return res.decode("utf-8") if res else None
+    return decode_source(res) if res else None
 
 
 def mut_dowhile_to_while(s: str, rng: random.Random) -> str | None:
     """Convert 'do { body } while (cond);' to 'while (cond) { body }'."""
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
         cond = b_source[captures["cond"].start_byte : captures["cond"].end_byte]
@@ -727,12 +732,12 @@ def mut_dowhile_to_while(s: str, rng: random.Random) -> str | None:
         return b"while " + cond + b" " + body
 
     res = _apply_query_once(b_source, _QUERY_DO_WHILE, _repl, rng)
-    return res.decode("utf-8") if res else None
+    return decode_source(res) if res else None
 
 
 def mut_early_return_to_accum(s: str, rng: random.Random) -> str | None:
     """Convert 'if (!expr) return 0;' to 'ret &= expr;' accumulator pattern."""
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
     if (
         b"ret;" not in b_source
         and b"retcode;" not in b_source
@@ -751,48 +756,48 @@ def mut_early_return_to_accum(s: str, rng: random.Random) -> str | None:
         return var + b" &= " + expr + b";"
 
     res = _apply_query_once(b_source, _QUERY_EARLY_RETURN, _repl, rng)
-    return res.decode("utf-8") if res else None
+    return decode_source(res) if res else None
 
 
 def mut_accum_to_early_return(s: str, rng: random.Random) -> str | None:
     """Convert 'ret &= expr;' to 'if (!expr) return 0;'."""
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
         expr = b_source[captures["expr"].start_byte : captures["expr"].end_byte]
         return b"if (!(" + expr + b"))\n        return 0;"
 
     res = _apply_query_once(b_source, _QUERY_ACCUM, _repl, rng)
-    return res.decode("utf-8") if res else None
+    return decode_source(res) if res else None
 
 
 def mut_pointer_to_int_param(s: str, rng: random.Random) -> str | None:
     """Change a pointer parameter to int or vice versa."""
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
         var = b_source[captures["var"].start_byte : captures["var"].end_byte]
         return b"int " + var
 
     res = _apply_query_once(b_source, _QUERY_PTR_PARAM, _repl, rng)
-    return res.decode("utf-8") if res else None
+    return decode_source(res) if res else None
 
 
 def mut_int_to_pointer_param(s: str, rng: random.Random) -> str | None:
     """Change an int parameter to char* (for pointer-based access)."""
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
         var = b_source[captures["var"].start_byte : captures["var"].end_byte]
         return b"char *" + var
 
     res = _apply_query_once(b_source, _QUERY_INT_PARAM, _repl, rng)
-    return res.decode("utf-8") if res else None
+    return decode_source(res) if res else None
 
 
 def mut_duplicate_loop_body(s: str, rng: random.Random) -> str | None:
     """Duplicate loop body (manual loop unrolling by 2x)."""
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
         cond = b_source[captures["cond"].start_byte : captures["cond"].end_byte]
@@ -805,14 +810,14 @@ def mut_duplicate_loop_body(s: str, rng: random.Random) -> str | None:
 
     try:
         res = _apply_query_once(b_source, _QUERY_WHILE, _repl, rng)
-        return res.decode("utf-8") if res else None
+        return decode_source(res) if res else None
     except ValueError:
         return None
 
 
 def mut_fold_constant_add(s: str, rng: random.Random) -> str | None:
     """Fold two consecutive constant additions into a single statement."""
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
     cursor = _cursor(_QUERY_CONST_ADD_FOLD)
 
     tree = parse_c_ast(b_source)
@@ -824,10 +829,10 @@ def mut_fold_constant_add(s: str, rng: random.Random) -> str | None:
         if captures["stmt1"].next_named_sibling == captures["stmt2"]:
             try:
                 n1 = int(
-                    b_source[captures["n1"].start_byte : captures["n1"].end_byte].decode("utf-8")
+                    decode_source(b_source[captures["n1"].start_byte : captures["n1"].end_byte])
                 )
                 n2 = int(
-                    b_source[captures["n2"].start_byte : captures["n2"].end_byte].decode("utf-8")
+                    decode_source(b_source[captures["n2"].start_byte : captures["n2"].end_byte])
                 )
                 valid_matches.append((captures, n1, n2))
             except ValueError:
@@ -839,12 +844,12 @@ def mut_fold_constant_add(s: str, rng: random.Random) -> str | None:
     captures, n1, n2 = rng.choice(valid_matches)
     v1 = b_source[captures["v1"].start_byte : captures["v1"].end_byte]
 
-    new_sum = str(n1 + n2).encode("utf-8")
+    new_sum = encode_source(str(n1 + n2))
     replacement = v1 + b" = " + v1 + b" + " + new_sum + b";"
 
     start = captures["stmt1"].start_byte
     end = captures["stmt2"].end_byte
-    return (b_source[:start] + replacement + b_source[end:]).decode("utf-8")
+    return decode_source(b_source[:start] + replacement + b_source[end:])
 
 
 def _parse_int_literal(raw: str) -> int | None:
@@ -881,7 +886,7 @@ def mut_tweak_integer_literal(s: str, rng: random.Random) -> str | None:
     mistakes decompilation actually makes.  The literal's radix (hex vs
     decimal) is preserved.
     """
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
     tree = parse_c_ast(b_source)
     cursor = _cursor(_QUERY_NUMBER_LITERAL)
 
@@ -890,7 +895,7 @@ def mut_tweak_integer_literal(s: str, rng: random.Random) -> str | None:
         lit = _first_caps(match[1]).get("lit")
         if lit is None:
             continue
-        raw = b_source[lit.start_byte : lit.end_byte].decode("utf-8")
+        raw = decode_source(b_source[lit.start_byte : lit.end_byte])
         value = _parse_int_literal(raw)
         if value is None:
             continue
@@ -905,8 +910,8 @@ def mut_tweak_integer_literal(s: str, rng: random.Random) -> str | None:
     if new_value < 0 or new_value == value:
         return None
     new_raw = hex(new_value) if raw.lower().startswith("0x") else str(new_value)
-    return (b_source[: lit.start_byte] + new_raw.encode("utf-8") + b_source[lit.end_byte :]).decode(
-        "utf-8"
+    return decode_source(
+        b_source[: lit.start_byte] + encode_source(new_raw) + b_source[lit.end_byte :]
     )
 
 
@@ -965,7 +970,7 @@ def mut_materialize_constant(s: str, rng: random.Random) -> str | None:
     0xff ``unsigned char``, at most 0xffff ``unsigned short``, otherwise
     ``int``.  Literals where C requires a constant expression are skipped.
     """
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
     tree = parse_c_ast(b_source)
     cursor = _cursor(_QUERY_NUMBER_LITERAL)
 
@@ -974,7 +979,7 @@ def mut_materialize_constant(s: str, rng: random.Random) -> str | None:
         lit = _first_caps(match[1]).get("lit")
         if lit is None:
             continue
-        value = _parse_int_literal(b_source[lit.start_byte : lit.end_byte].decode("utf-8"))
+        value = _parse_int_literal(decode_source(b_source[lit.start_byte : lit.end_byte]))
         # 0 and 1 are structural (`i = 0`), not magic constants, and the
         # widest int cannot hold a larger literal.
         if value is None or value in (0, 1) or abs(value) > 0x7FFFFFFF:
@@ -995,7 +1000,7 @@ def mut_materialize_constant(s: str, rng: random.Random) -> str | None:
         return None
 
     raw = b_source[lit_node.start_byte : lit_node.end_byte]
-    magnitude = abs(_parse_int_literal(raw.decode("utf-8")) or 0)
+    magnitude = abs(_parse_int_literal(decode_source(raw)) or 0)
     if magnitude <= 0xFF:
         ctype = b"unsigned char"
     elif magnitude <= 0xFFFF:
@@ -1008,12 +1013,12 @@ def mut_materialize_constant(s: str, rng: random.Random) -> str | None:
     # the replacement cannot shift it.
     result = b_source[: lit_node.start_byte] + name + b_source[lit_node.end_byte :]
     result = result[:body_pos] + decl + result[body_pos:]
-    return result.decode("utf-8")
+    return decode_source(result)
 
 
 def mut_unfold_constant_add(s: str, rng: random.Random) -> str | None:
     """Expand a constant addition into repeated increment-by-one statements."""
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
     cursor = _cursor(_QUERY_CONST_ADD_UNFOLD)
 
     tree = parse_c_ast(b_source)
@@ -1023,7 +1028,7 @@ def mut_unfold_constant_add(s: str, rng: random.Random) -> str | None:
     for match in matches:
         captures = _first_caps(match[1])
         try:
-            n = int(b_source[captures["n"].start_byte : captures["n"].end_byte].decode("utf-8"))
+            n = int(decode_source(b_source[captures["n"].start_byte : captures["n"].end_byte]))
             if 1 < n <= 16:
                 valid_matches.append((captures, n))
         except ValueError:
@@ -1039,12 +1044,12 @@ def mut_unfold_constant_add(s: str, rng: random.Random) -> str | None:
 
     start = captures["stmt"].start_byte
     end = captures["stmt"].end_byte
-    return (b_source[:start] + incs + b_source[end:]).decode("utf-8")
+    return decode_source(b_source[:start] + incs + b_source[end:])
 
 
 def mut_change_array_index_order(s: str, rng: random.Random) -> str | None:
     """Swap array and index in a subscript expression (arr[i] to i[arr])."""
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
         arr = b_source[captures["arr"].start_byte : captures["arr"].end_byte]
@@ -1052,12 +1057,12 @@ def mut_change_array_index_order(s: str, rng: random.Random) -> str | None:
         return idx + b"[" + arr + b"]"
 
     res = _apply_query_once(b_source, _QUERY_ARRAY_INDEX, _repl, rng)
-    return res.decode("utf-8") if res is not None else None
+    return decode_source(res) if res is not None else None
 
 
 def mut_struct_vs_ptr_access(s: str, rng: random.Random) -> str | None:
     """Convert ptr->field arrow access to (*ptr).field dereference form."""
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
         ptr = b_source[captures["ptr"].start_byte : captures["ptr"].end_byte]
@@ -1065,29 +1070,29 @@ def mut_struct_vs_ptr_access(s: str, rng: random.Random) -> str | None:
         return b"(*" + ptr + b")." + field
 
     res = _apply_query_once(b_source, _QUERY_PTR_ARROW, _repl, rng)
-    return res.decode("utf-8") if res is not None else None
+    return decode_source(res) if res is not None else None
 
 
 def mut_change_return_type(s: str, rng: random.Random) -> str | None:
     """Replace the function return type with a random integer type."""
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
-        current = b_source[captures["expr"].start_byte : captures["expr"].end_byte].decode("utf-8")
+        current = decode_source(b_source[captures["expr"].start_byte : captures["expr"].end_byte])
         types = ["int", "char", "short", "long"]
         candidates = [t for t in types if t != current]
         if not candidates:
-            return current.encode("utf-8")
-        new_type = rng.choice(candidates).encode("utf-8")
+            return encode_source(current)
+        new_type = encode_source(rng.choice(candidates))
         return new_type
 
     res = _apply_query_once(b_source, _QUERY_RETURN_TYPE, _repl, rng)
-    return res.decode("utf-8") if res is not None else None
+    return decode_source(res) if res is not None else None
 
 
 def mut_combine_ptr_arith(s: str, rng: random.Random) -> str | None:
     """Combine two consecutive pointer arithmetic additions into one."""
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
     cursor = _cursor(_QUERY_COMBINE_PTR_ARITH)
 
     tree = parse_c_ast(b_source)
@@ -1097,8 +1102,8 @@ def mut_combine_ptr_arith(s: str, rng: random.Random) -> str | None:
     for match in matches:
         captures = _first_caps(match[1])
         try:
-            n1 = int(b_source[captures["n1"].start_byte : captures["n1"].end_byte].decode("utf-8"))
-            n2 = int(b_source[captures["n2"].start_byte : captures["n2"].end_byte].decode("utf-8"))
+            n1 = int(decode_source(b_source[captures["n1"].start_byte : captures["n1"].end_byte]))
+            n2 = int(decode_source(b_source[captures["n2"].start_byte : captures["n2"].end_byte]))
             s1 = captures["stmt1"]
             s2 = captures["stmt2"]
             between = b_source[s1.end_byte : s2.start_byte].strip()
@@ -1112,16 +1117,16 @@ def mut_combine_ptr_arith(s: str, rng: random.Random) -> str | None:
 
     captures, n1, n2 = rng.choice(valid_matches)
     v1 = b_source[captures["v1"].start_byte : captures["v1"].end_byte]
-    new_sum = str(n1 + n2).encode("utf-8")
+    new_sum = encode_source(str(n1 + n2))
     replacement = v1 + b" = " + v1 + b" + " + new_sum + b";"
     start = captures["stmt1"].start_byte
     end = captures["stmt2"].end_byte
-    return (b_source[:start] + replacement + b_source[end:]).decode("utf-8")
+    return decode_source(b_source[:start] + replacement + b_source[end:])
 
 
 def mut_split_ptr_arith(s: str, rng: random.Random) -> str | None:
     """Split a single pointer addition into two smaller additions."""
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
     cursor = _cursor(_QUERY_SPLIT_PTR_ARITH)
 
     tree = parse_c_ast(b_source)
@@ -1135,7 +1140,7 @@ def mut_split_ptr_arith(s: str, rng: random.Random) -> str | None:
         if "n1" not in captures or "v1" not in captures:
             continue
         try:
-            n = int(b_source[captures["n1"].start_byte : captures["n1"].end_byte].decode("utf-8"))
+            n = int(decode_source(b_source[captures["n1"].start_byte : captures["n1"].end_byte]))
             if n > 1:
                 valid_matches.append((captures, n))
         except ValueError:
@@ -1153,23 +1158,23 @@ def mut_split_ptr_arith(s: str, rng: random.Random) -> str | None:
         + b" = "
         + v1
         + b" + "
-        + str(n1).encode("utf-8")
+        + encode_source(str(n1))
         + b"; "
         + v1
         + b" = "
         + v1
         + b" + "
-        + str(n2).encode("utf-8")
+        + encode_source(str(n2))
         + b";"
     )
     start = captures["stmt"].start_byte
     end = captures["stmt"].end_byte
-    return (b_source[:start] + replacement + b_source[end:]).decode("utf-8")
+    return decode_source(b_source[:start] + replacement + b_source[end:])
 
 
 def mut_change_param_order(s: str, rng: random.Random) -> str | None:
     """Swap two parameters in a function definition's parameter list."""
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
         params = captures["expr"]
@@ -1182,12 +1187,12 @@ def mut_change_param_order(s: str, rng: random.Random) -> str | None:
         return b"(" + b", ".join(params_text) + b")"
 
     res = _apply_query_once(b_source, _QUERY_PARAM_ORDER, _repl, rng)
-    return res.decode("utf-8") if res is not None else None
+    return decode_source(res) if res is not None else None
 
 
 def mut_toggle_calling_convention(s: str, rng: random.Random) -> str | None:
     """Toggle between __cdecl and __stdcall calling conventions."""
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
 
     def _repl_existing(captures: dict[str, ts.Node]) -> bytes:
         conv = b_source[captures["expr"].start_byte : captures["expr"].end_byte]
@@ -1199,7 +1204,7 @@ def mut_toggle_calling_convention(s: str, rng: random.Random) -> str | None:
 
     res = _apply_query_once(b_source, _QUERY_CALL_CONV, _repl_existing, rng)
     if res is not None:
-        return res.decode("utf-8")
+        return decode_source(res)
 
     # No existing convention — insert one after the return type.  The query
     # captures the TYPE node as `expr` (see _QUERY_NO_CALL_CONV): splicing the
@@ -1210,12 +1215,12 @@ def mut_toggle_calling_convention(s: str, rng: random.Random) -> str | None:
         return t + b" " + conv
 
     res = _apply_query_once(b_source, _QUERY_NO_CALL_CONV, _repl_insert, rng)
-    return res.decode("utf-8") if res is not None else None
+    return decode_source(res) if res is not None else None
 
 
 def mut_toggle_char_signedness(s: str, rng: random.Random) -> str | None:
     """Cycle char type signedness: char -> unsigned -> signed -> char."""
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
         t = b_source[captures["expr"].start_byte : captures["expr"].end_byte]
@@ -1231,19 +1236,19 @@ def mut_toggle_char_signedness(s: str, rng: random.Random) -> str | None:
         res = _apply_query_once(b_source, _QUERY_BARE_CHAR_TYPE, _repl, rng)
     if res is None or res == b_source:
         return None
-    return res.decode("utf-8")
+    return decode_source(res)
 
 
 def mut_comparison_boundary(s: str, rng: random.Random) -> str | None:
     """Adjust comparison boundary by toggling between > 0 and >= 1 forms."""
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
         left = b_source[captures["left"].start_byte : captures["left"].end_byte]
         op = b_source[captures["op"].start_byte : captures["op"].end_byte]
         num_str = b_source[captures["num"].start_byte : captures["num"].end_byte]
         try:
-            num = int(num_str.decode("utf-8"))
+            num = int(decode_source(num_str))
         except ValueError:
             return b_source[captures["expr"].start_byte : captures["expr"].end_byte]
         if op == b">" and num == 0:
@@ -1257,12 +1262,12 @@ def mut_comparison_boundary(s: str, rng: random.Random) -> str | None:
         return b_source[captures["expr"].start_byte : captures["expr"].end_byte]
 
     res = _apply_query_once(b_source, _QUERY_CMP_BOUNDARY, _repl, rng)
-    return res.decode("utf-8") if res is not None else None
+    return decode_source(res) if res is not None else None
 
 
 def mut_insert_noop_block(s: str, rng: random.Random) -> str | None:
     """Insert a no-op block `if (0) {}` before a random statement in a compound body."""
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
 
     tree = parse_c_ast(b_source)
     # Find all statements inside compound_statements
@@ -1276,12 +1281,12 @@ def mut_insert_noop_block(s: str, rng: random.Random) -> str | None:
     stmt_node = captures["stmt"]
     noop = b"if (0) {} "
     start = stmt_node.start_byte
-    return (b_source[:start] + noop + b_source[start:]).decode("utf-8")
+    return decode_source(b_source[:start] + noop + b_source[start:])
 
 
 def mut_introduce_local_alias(s: str, rng: random.Random) -> str | None:
     """Introduce a local alias for an identifier used in an expression statement."""
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
 
     tree = parse_c_ast(b_source)
     q = _QUERY_INTRODUCE_LOCAL_ALIAS
@@ -1304,12 +1309,12 @@ def mut_introduce_local_alias(s: str, rng: random.Random) -> str | None:
         + alias
         + b_source[var_node.end_byte :]
     )
-    return result.decode("utf-8")
+    return decode_source(result)
 
 
 def mut_reorder_declarations(s: str, rng: random.Random) -> str | None:
     """Swap two adjacent declarations in a compound statement."""
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
 
     tree = parse_c_ast(b_source)
     q = _QUERY_REORDER_DECLARATIONS
@@ -1330,7 +1335,7 @@ def mut_reorder_declarations(s: str, rng: random.Random) -> str | None:
         + d1_text
         + b_source[d2.end_byte :]
     )
-    return result.decode("utf-8")
+    return decode_source(result)
 
 
 # ---------------------------------------------------------------------------
@@ -1449,7 +1454,7 @@ def _quick_validate_ast_checks(source: str) -> bool:
     """
     from rebrew.matcher.ast_engine import parse_c_ast
 
-    tree = parse_c_ast(source.encode("utf-8"))
+    tree = parse_c_ast(encode_source(source))
     for child in tree.root_node.children:
         if child.type != "function_definition":
             continue
@@ -1537,7 +1542,7 @@ def mut_extract_else_body(s: str, rng: random.Random) -> str | None:
     where <early return> matches the function type (``return;`` for void,
     ``return NULL;`` for pointers, ``return 0;`` otherwise).
     """
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
     cursor = _cursor(_QUERY_IF_BODY_RETURN)
     tree = parse_c_ast(b_source)
     matches = cursor.matches(tree.root_node)
@@ -1572,7 +1577,7 @@ def mut_extract_else_body(s: str, rng: random.Random) -> str | None:
         + if_body
     )
     result = b_source[: caps["expr"].start_byte] + replacement + b_source[caps["expr"].end_byte :]
-    return result.decode("utf-8")
+    return decode_source(result)
 
 
 def mut_for_to_while(s: str, rng: random.Random) -> str | None:
@@ -1580,7 +1585,7 @@ def mut_for_to_while(s: str, rng: random.Random) -> str | None:
 
     Changes:  for (i=0; i<n; i++) { body }  ->  i=0; while (i<n) { body i++; }
     """
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
     cursor = _cursor(_QUERY_FOR_LOOP)
     tree = parse_c_ast(b_source)
     matches = cursor.matches(tree.root_node)
@@ -1617,7 +1622,7 @@ def mut_for_to_while(s: str, rng: random.Random) -> str | None:
 
     replacement = b"".join(parts)
     result = b_source[: caps["stmt"].start_byte] + replacement + b_source[caps["stmt"].end_byte :]
-    return result.decode("utf-8")
+    return decode_source(result)
 
 
 def mut_while_to_for(s: str, rng: random.Random) -> str | None:
@@ -1625,7 +1630,7 @@ def mut_while_to_for(s: str, rng: random.Random) -> str | None:
 
     Changes:  while (cond) { body }  ->  for (; cond; ) { body }
     """
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
         cond = b_source[captures["cond"].start_byte : captures["cond"].end_byte]
@@ -1637,7 +1642,7 @@ def mut_while_to_for(s: str, rng: random.Random) -> str | None:
         return b"for (; " + cond_inner.strip() + b"; ) " + body
 
     res = _apply_query_once(b_source, _QUERY_WHILE, _repl, rng)
-    return res.decode("utf-8") if res is not None else None
+    return decode_source(res) if res is not None else None
 
 
 def mut_if_to_ternary(s: str, rng: random.Random) -> str | None:
@@ -1645,7 +1650,7 @@ def mut_if_to_ternary(s: str, rng: random.Random) -> str | None:
 
     Changes:  if (c) x = a; else x = b;  ->  x = (c) ? a : b;
     """
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
     cursor = _cursor(_QUERY_IF_ASSIGN_ELSE)
     tree = parse_c_ast(b_source)
     matches = cursor.matches(tree.root_node)
@@ -1673,7 +1678,7 @@ def mut_if_to_ternary(s: str, rng: random.Random) -> str | None:
 
     replacement = var + b" = " + cond + b" ? " + val_true + b" : " + val_false + b";"
     result = b_source[: caps["expr"].start_byte] + replacement + b_source[caps["expr"].end_byte :]
-    return result.decode("utf-8")
+    return decode_source(result)
 
 
 def mut_ternary_to_if(s: str, rng: random.Random) -> str | None:
@@ -1681,7 +1686,7 @@ def mut_ternary_to_if(s: str, rng: random.Random) -> str | None:
 
     Changes:  x = c ? a : b;  ->  if (c) x = a; else x = b;
     """
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
     cursor = _cursor(_QUERY_TERNARY)
     tree = parse_c_ast(b_source)
     matches = cursor.matches(tree.root_node)
@@ -1711,7 +1716,7 @@ def mut_ternary_to_if(s: str, rng: random.Random) -> str | None:
         + b";"
     )
     result = b_source[: caps["expr"].start_byte] + replacement + b_source[caps["expr"].end_byte :]
-    return result.decode("utf-8")
+    return decode_source(result)
 
 
 def mut_hoist_return(s: str, rng: random.Random) -> str | None:
@@ -1720,7 +1725,7 @@ def mut_hoist_return(s: str, rng: random.Random) -> str | None:
     Changes:  return expr;  ->  ret = expr; goto end;
     (and adds 'end: return ret;' before the function's closing brace)
     """
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
     if b"end:" in b_source:
         return None
 
@@ -1777,7 +1782,7 @@ def mut_hoist_return(s: str, rng: random.Random) -> str | None:
     brace_pos = parent.end_byte + offset - 1 + (len(replacement) - (s_end - s_start))
     result = result[:brace_pos] + b"\nend:\n    return " + ret_var + b";\n" + result[brace_pos:]
 
-    return result.decode("utf-8")
+    return decode_source(result)
 
 
 def mut_sink_return(s: str, rng: random.Random) -> str | None:
@@ -1785,7 +1790,7 @@ def mut_sink_return(s: str, rng: random.Random) -> str | None:
 
     Inverse of mut_hoist_return.
     """
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
     if b"goto end;" not in b_source:
         return None
 
@@ -1803,12 +1808,12 @@ def mut_sink_return(s: str, rng: random.Random) -> str | None:
     if b"goto end;" not in result:
         result = re.sub(rb"\nend:\n\s*return\s+\w+;\n", b"\n", result)
 
-    return result.decode("utf-8")
+    return decode_source(result)
 
 
 def mut_swap_adjacent_stmts(s: str, rng: random.Random) -> str | None:
     """Swap two adjacent non-dependent assignment statements."""
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
     cursor = _cursor(_QUERY_ADJACENT_EXPR_STMTS)
     tree = parse_c_ast(b_source)
     matches = cursor.matches(tree.root_node)
@@ -1845,7 +1850,7 @@ def mut_swap_adjacent_stmts(s: str, rng: random.Random) -> str | None:
     mid = b_source[s1.end_byte : s2.start_byte]
 
     result = b_source[: s1.start_byte] + s2_text + mid + s1_text + b_source[s2.end_byte :]
-    return result.decode("utf-8")
+    return decode_source(result)
 
 
 def mut_guard_clause(s: str, rng: random.Random) -> str | None:
@@ -1853,7 +1858,7 @@ def mut_guard_clause(s: str, rng: random.Random) -> str | None:
 
     Changes: if(c){body;return x;} return y -> if(!c) return y; body; return x;
     """
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
     # Use regex for this complex multi-statement pattern
     all_m = list(_RE_GUARD_CLAUSE.finditer(b_source))
     if not all_m:
@@ -1887,12 +1892,12 @@ def mut_guard_clause(s: str, rng: random.Random) -> str | None:
         + b";"
     )
     result = b_source[: m.start()] + replacement + b_source[m.end() :]
-    return result.decode("utf-8")
+    return decode_source(result)
 
 
 def mut_invert_loop_direction(s: str, rng: random.Random) -> str | None:
     """Reverse loop iteration: for(i=0;i<n;i++) -> for(i=n-1;i>=0;i--)."""
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
     cursor = _cursor(_QUERY_FOR_COUNT_UP)
     tree = parse_c_ast(b_source)
     matches = cursor.matches(tree.root_node)
@@ -1911,12 +1916,12 @@ def mut_invert_loop_direction(s: str, rng: random.Random) -> str | None:
         b"for (" + var + b" = " + limit + b" - 1; " + var + b" >= 0; " + var + b"--) " + body
     )
     result = b_source[: caps["stmt"].start_byte] + replacement + b_source[caps["stmt"].end_byte :]
-    return result.decode("utf-8")
+    return decode_source(result)
 
 
 def mut_compound_assign_toggle(s: str, rng: random.Random) -> str | None:
     """Toggle between x = x + n and x += n."""
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
 
     # Try expanding compound (x += n -> x = x + n)
     expand_cursor = _cursor(_QUERY_COMPOUND_ASSIGN)
@@ -1964,12 +1969,12 @@ def mut_compound_assign_toggle(s: str, rng: random.Random) -> str | None:
     if target is None:
         return None
     result = b_source[: target.start_byte] + replacement + b_source[target.end_byte :]
-    return result.decode("utf-8")
+    return decode_source(result)
 
 
 def mut_demorgan(s: str, rng: random.Random) -> str | None:
     """Apply De Morgan's law: !(a && b) <-> (!a || !b)."""
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
     tree = parse_c_ast(b_source)
 
     and_cursor = _cursor(_QUERY_DEMORGAN_NOT_AND)
@@ -1995,12 +2000,12 @@ def mut_demorgan(s: str, rng: random.Random) -> str | None:
 
     expr = caps["expr"]
     result = b_source[: expr.start_byte] + replacement + b_source[expr.end_byte :]
-    return result.decode("utf-8")
+    return decode_source(result)
 
 
 def mut_postpre_increment(s: str, rng: random.Random) -> str | None:
     """Toggle i++ <-> ++i and i-- <-> --i."""
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
     tree = parse_c_ast(b_source)
 
     candidates: list[tuple[dict[str, ts.Node], bytes]] = []
@@ -2028,12 +2033,12 @@ def mut_postpre_increment(s: str, rng: random.Random) -> str | None:
     caps, replacement = rng.choice(candidates)
     expr = caps["expr"]
     result = b_source[: expr.start_byte] + replacement + b_source[expr.end_byte :]
-    return result.decode("utf-8")
+    return decode_source(result)
 
 
 def mut_xor_zero_toggle(s: str, rng: random.Random) -> str | None:
     """Toggle x = 0 <-> x ^= x."""
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
     tree = parse_c_ast(b_source)
 
     candidates: list[tuple[dict[str, ts.Node], bytes, str]] = []
@@ -2062,12 +2067,12 @@ def mut_xor_zero_toggle(s: str, rng: random.Random) -> str | None:
     caps, replacement, target_key = rng.choice(candidates)
     target = caps[target_key]
     result = b_source[: target.start_byte] + replacement + b_source[target.end_byte :]
-    return result.decode("utf-8")
+    return decode_source(result)
 
 
 def mut_negate_condition(s: str, rng: random.Random) -> str | None:
     """Wrap if-condition in negation: if (a > b) -> if (!(a > b))."""
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
     tree = parse_c_ast(b_source)
 
     q = _QUERY_NEGATE_CONDITION
@@ -2092,4 +2097,4 @@ def mut_negate_condition(s: str, rng: random.Random) -> str | None:
 
     replacement = b"(" + new_cond + b")"
     result = b_source[: cond_node.start_byte] + replacement + b_source[cond_node.end_byte :]
-    return result.decode("utf-8")
+    return decode_source(result)

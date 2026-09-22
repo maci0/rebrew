@@ -42,10 +42,34 @@ def _parse_c_ast_cached(source: bytes) -> ts.Tree:
     return _get_parser().parse(source)
 
 
+def encode_source(source: str) -> bytes:
+    """Encode GA source text to the on-disk bytes tree-sitter parses.
+
+    GA seeds arrive from :func:`rebrew.utils.read_compile_source`, which
+    decodes with ``surrogateescape`` so a cp1252 or Shift-JIS source keeps
+    every on-disk byte.  The inverse must use the same handler: a plain
+    ``"utf-8"`` encode raises ``UnicodeEncodeError`` on the lone surrogate
+    a non-UTF-8 byte became (cp1252 ``Caf\xe9`` -> U+DCE9), so every
+    mutation of such a source would die before its first generation.
+    """
+    return source.encode("utf-8", errors="surrogateescape")
+
+
+def decode_source(source: bytes) -> str:
+    """Decode mutated source bytes back to GA text, inverse of encode_source.
+
+    Keeps the byte identity the compile round-trip depends on: a plain
+    ``"utf-8"`` decode raises on the same legacy bytes, and
+    ``errors="replace"`` would silently rewrite them to U+FFFD and change
+    the string literals MSVC emits.
+    """
+    return source.decode("utf-8", errors="surrogateescape")
+
+
 def parse_c_ast(source: bytes | str) -> ts.Tree:
     """Parse C source code into a tree-sitter AST."""
     if isinstance(source, str):
-        source = source.encode("utf-8")
+        source = encode_source(source)
     return _parse_c_ast_cached(source)
 
 
