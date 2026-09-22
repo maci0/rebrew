@@ -19,7 +19,6 @@ The verdict maps the dominant category to an actionable suggestion
 
 from __future__ import annotations
 
-import difflib
 import logging
 import re
 from pathlib import Path
@@ -38,6 +37,7 @@ from rebrew.cli import (
     parse_va,
     require_config,
 )
+from rebrew.pinned_diff import SequenceMatcherWithPins
 from rebrew.stack_cmp import analyze_frame, compare_frames
 
 console = Console(stderr=True)
@@ -169,6 +169,41 @@ def _insn_reloc_bytes(insn: Insn, base: int, reloc_offsets: set[int]) -> bool:
     return any(o in reloc_offsets for o in range(off, off + insn.size))
 
 
+def _monotonic_pins(pins: list[tuple[int, int]]) -> list[tuple[int, int]]:
+    """Drop crossing anchors, keeping *pins* strictly increasing on both sides.
+
+    An instruction-reorder hunk (same instructions, different order) makes
+    byte-identical anchors cross.  ``SequenceMatcherWithPins`` slices its
+    islands by pin order and rejects crossing pins, so the reorder span
+    would abort the whole diagnosis.  Dropping the crossing anchors leaves
+    the remaining islands valid and diffable; the matcher's monotonicity
+    guard keeps protecting direct callers.
+    """
+    mono: list[tuple[int, int]] = []
+    last_a = last_b = -1
+    for ai, bi in pins:
+        if ai > last_a and bi > last_b:
+            mono.append((ai, bi))
+            last_a, last_b = ai, bi
+    return mono
+
+
+def _auto_pins(target_insns: list[Insn], compiled_insns: list[Insn]) -> list[tuple[int, int]]:
+    """Anchor pairs for the pinned diff: byte-identical instructions whose
+    raw encoding is unique on BOTH sides — reliable landmarks a register or
+    encoding churn elsewhere cannot have produced."""
+    from collections import Counter
+
+    t_counts = Counter(i.raw for i in target_insns)
+    c_counts = Counter(i.raw for i in compiled_insns)
+    unique = {raw for raw, n in t_counts.items() if n == 1} & {
+        raw for raw, n in c_counts.items() if n == 1
+    }
+    t_idx = {i.raw: n for n, i in enumerate(target_insns) if i.raw in unique}
+    pins = [(t_idx[c.raw], n) for n, c in enumerate(compiled_insns) if c.raw in unique]
+    return _monotonic_pins(pins)
+
+
 def align_and_classify(
     target_insns: list[Insn],
     compiled_insns: list[Insn],
@@ -179,9 +214,12 @@ def align_and_classify(
     The mnemonic LCS only decides *pairing*; every aligned pair is then
     classified individually (identical bytes → match, same mnemonic with
     different registers → register, semantic-family swap → equivalent,
-    anything else → structural).  Target bytes at relocation sites are
-    neutralised and counted as ``reloc``.  Unpaired target instructions
-    (insertion/deletion) count as structural.
+    anything else → structural).  Unique byte-identical instructions pin
+    the alignment (:class:`~rebrew.pinned_diff.SequenceMatcherWithPins`),
+    so structural churn in one island cannot scramble later blocks.
+    Target bytes at relocation sites are neutralised and counted as
+    ``reloc``.  Unpaired target instructions (insertion/deletion) count as
+    structural.
 
     Returns ``(byte_counts, first_mismatch)`` — *first_mismatch* is the
     earliest non-match (dtk ``dol diff``-style decisive diagnosis): the
@@ -189,10 +227,10 @@ def align_and_classify(
     the target/compiled text, or ``None`` when everything matches.
     """
     base = target_insns[0].va if target_insns else (compiled_insns[0].va if compiled_insns else 0)
-    match = difflib.SequenceMatcher(
+    matcher = SequenceMatcherWithPins(
         a=[i.mnemonic for i in compiled_insns],
         b=[i.mnemonic for i in target_insns],
-        autojunk=False,
+        pinned_lines=_auto_pins(target_insns, compiled_insns),
     )
     byte_counts: dict[str, int] = {
         "match": 0,
@@ -217,7 +255,8 @@ def align_and_classify(
                 "compiled": compiled_text,
             }
 
-    for _op, a0, a1, b0, b1 in match.get_opcodes():
+    for op in matcher.get_opcodes():
+        a0, a1, b0, b1 = op.a_start, op.a_end, op.b_start, op.b_end
         comp_span = compiled_insns[a0:a1]
         tgt_span = target_insns[b0:b1]
         if len(tgt_span) == len(comp_span) and tgt_span:
