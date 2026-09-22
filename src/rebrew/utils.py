@@ -558,10 +558,6 @@ def atomic_write_locked(filepath: Path | str, text: str, encoding: str = "utf-8"
     Permission denied; the only sanctioned path is the CLI, which chmods
     writable, updates, and re-locks.
 
-    The chmod-before is also required on Windows, where ``os.replace`` over
-    a read-only target fails — un-readonlying first keeps the atomic
-    replace working.
-
     If the write fails after the chmod-writable step, the existing file is
     re-locked to 0444 before the exception propagates — otherwise a disk-full
     or interrupt would leave the tool-owned store world-writable.

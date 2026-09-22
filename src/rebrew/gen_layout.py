@@ -378,6 +378,16 @@ def _import_lib_symbols(lib_path: Path) -> set[str]:
     return out
 
 
+#: POSIX sh run in the toolchain image: grep the ``__imp__`` symbols out of
+#: the file in dir ``$1`` whose upper-cased name equals ``$2``.
+_IMAGE_LIB_GREP_SCRIPT = (
+    'for f in "$1"/*; do '
+    'if [ "$(basename "$f" | tr \'[:lower:]\' \'[:upper:]\')" = "$2" ]; then '
+    "exec grep -ao '__imp__[A-Za-z0-9_]*@[0-9]*' \"$f\"; fi; "
+    "done; exit 1"
+)
+
+
 def _import_lib_symbols_from_image(dll_stem: str) -> set[str]:
     """Collect the decorated import symbols from the toolchain image's own libs.
 
@@ -394,7 +404,11 @@ def _import_lib_symbols_from_image(dll_stem: str) -> set[str]:
     # Unique name: a fixed ``rebrew-libgrep-{dll}`` collided when two
     # gen-layout runs hit the same DLL, and a timed-out orphan blocked the
     # next attempt until manual ``docker rm``.
-    name = f"rebrew-libgrep-{dll_stem}-{uuid.uuid4().hex[:12]}"
+    # The stem comes from the target's import table, so it stays out of the
+    # container name (docker rejects most punctuation) and out of the script
+    # body: it travels as a positional arg, matched case-insensitively
+    # because the image filesystem is case-sensitive.
+    name = f"rebrew-libgrep-{uuid.uuid4().hex[:12]}"
     try:
         r = subprocess.run(
             [
@@ -410,7 +424,10 @@ def _import_lib_symbols_from_image(dll_stem: str) -> set[str]:
                 "sh",
                 spec.image,
                 "-c",
-                f"grep -ao '__imp__[A-Za-z0-9_]*@[0-9]*' {lib_dir}/{dll_stem}.LIB",
+                _IMAGE_LIB_GREP_SCRIPT,
+                "sh",
+                lib_dir,
+                f"{dll_stem}.LIB".upper(),
             ],
             capture_output=True,
             text=True,
@@ -732,21 +749,15 @@ def main(
     for dll in {i.dll for i in imports_raw}:
         # binary names imports "KERNEL32.dll"; the import libs on disk are
         # "KERNEL32.LIB" (case and extension differ, and Linux is
-        # case-sensitive) — try the stem with common lib extensions.
+        # case-sensitive) — match "<stem>.lib", then the DLL name, ignoring case.
         stem = Path(dll).stem
-        found = False
+        lib: Path | None = None
         if libs_dir and libs_dir.is_dir():
-            for lib in (
-                libs_dir / f"{stem}.LIB",
-                libs_dir / f"{stem}.Lib",
-                libs_dir / f"{stem}.lib",
-                libs_dir / dll,
-            ):
-                if lib.exists():
-                    lib_symbols |= _import_lib_symbols(lib)
-                    found = True
-                    break
-        if not found:
+            by_name = {p.name.casefold(): p for p in libs_dir.iterdir() if p.is_file()}
+            lib = by_name.get(f"{stem}.lib".casefold()) or by_name.get(dll.casefold())
+        if lib is not None:
+            lib_symbols |= _import_lib_symbols(lib)
+        else:
             lib_symbols |= _import_lib_symbols_from_image(stem)
     imports = _resolve_imports(imports_raw, lib_symbols)
 

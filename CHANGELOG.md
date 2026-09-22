@@ -374,6 +374,14 @@
   ``one_line``, ``run_git``). Call sites inside the package already updated.
 
 ### Fixed
+- **`rebrew gen-layout` finds import libs regardless of case, and no
+  longer runs the target's DLL names as shell.**  A lowercase import
+  (`kernel32.dll`) missed `KERNEL32.LIB` on the case-sensitive host and
+  image filesystems, dropping every `@N` suffix for that DLL.  The image
+  fallback also spliced the DLL name from the target's import table into
+  its `sh -c` script and container name.  Both lookups now match the lib
+  name case-insensitively, and the name reaches the container as a
+  positional argument.
 - **Timed-out ghidra-cli ops, link-sweep links, and gen-stubs builds no
   longer orphan grandchildren.**  `subprocess.run` killed only the direct
   child on timeout, so ghidra-cli's JVM, a wrapper's linker, or

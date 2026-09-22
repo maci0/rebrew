@@ -172,3 +172,44 @@ class TestOftZeroFallback:
         assert parse_pe(bytes(data))[2]  # fixture sanity: the OFT is bound
         struct.pack_into("<I", data, desc_off, 0)  # OFT = 0
         assert parse_pe(bytes(data))[2]
+
+
+class TestImportLibSymbolsFromImage:
+    """The in-image grep script, run by the host ``sh`` against a temp dir."""
+
+    @staticmethod
+    def _run_locally(monkeypatch: pytest.MonkeyPatch, lib_dir: Path) -> list[list[str]]:
+        import subprocess
+
+        seen: list[list[str]] = []
+        real_run = subprocess.run
+
+        def fake_run(cmd: list[str], **kwargs: object) -> object:
+            seen.append(cmd)
+            i = cmd.index("-c")
+            # Same script and argv, with the image's Lib dir swapped for lib_dir.
+            local = ["sh", "-c", cmd[i + 1], cmd[i + 2], str(lib_dir), *cmd[i + 4 :]]
+            return real_run(local, **kwargs)  # type: ignore[call-overload]
+
+        monkeypatch.setattr(subprocess, "run", fake_run)
+        return seen
+
+    def test_matches_lib_name_case_insensitively(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.gen_layout import _import_lib_symbols_from_image
+
+        (tmp_path / "Kernel32.Lib").write_bytes(b"!<arch>\n\0__imp__Sleep@4\0junk")
+        self._run_locally(monkeypatch, tmp_path)
+        assert _import_lib_symbols_from_image("kernel32") == {"__imp__Sleep@4"}
+
+    def test_hostile_stem_is_data_not_script(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.gen_layout import _import_lib_symbols_from_image
+
+        marker = tmp_path / "pwned"
+        seen = self._run_locally(monkeypatch, tmp_path)
+        assert _import_lib_symbols_from_image(f"x; touch {marker}; #") == set()
+        assert not marker.exists()
+        assert "touch" not in seen[0][seen[0].index("-c") + 1]

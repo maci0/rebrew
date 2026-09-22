@@ -58,8 +58,6 @@ def cvdump_exe_path() -> str | None:
 def _cmd_line(pdb: Path, flags: list[str]) -> list[str]:
     exe = cvdump_exe_path()
     assert exe is not None
-    if os.name == "nt":
-        return [exe, *flags, str(pdb)]
     # wine needs a Windows-style path.  surrogateescape, not the locale
     # default: a PDB under a non-ASCII directory crashes a strict decode
     # under LANG=C, and the surrogates re-encode to the original bytes when
