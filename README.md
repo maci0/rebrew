@@ -326,7 +326,8 @@ record, the Microsoft Linker version still pins the MSVC era.
 
 **Compiler profiles:** `msvc-6.0` is the default — every profile (all `msvc*`
 from 1.0 through 11.0, `borland-5.5`, `borland-3.1`/`borland-2.0`, `watcom-2.0-win32`/`watcom-2.0-win16`,
-`delphi-1.0`, `gcc-14.2.0`/`gcc-12.3.0`, `clang-18.1.8`/`clang-16.0.4`, `mingw-16.2.0`/`mingw-14.2.0`) compiles
+`delphi-1.0`, `gcc-14.2.0`/`gcc-12.3.0`, `clang-18.1.8`/`clang-16.0.4`, `mingw-16.2.0`/`mingw-14.2.0`,
+`ido-5.3`/`ido-7.1`) compiles
 inside a per-toolchain **docker image** (wine/DOSBox/a native Linux compiler
 live in the image; there is no host wine/wibo path).  `mingw-16.2.0` targets MinGW
 GCC / Zig PE builds, `gcc-14.2.0`/`clang-18.1.8` cover ELF/x86_64, and `watcom-2.0-win16` is the

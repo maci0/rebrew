@@ -498,7 +498,7 @@
         <mxCell id="ga-src" value="&lt;b&gt;seed .c&lt;/b&gt;&lt;br&gt;STUB or NEAR_MATCHING&lt;br&gt;--all / --improve / --near-miss" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#ea580c;fontColor=#7c2d12;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="60" y="490" width="200" height="80" as="geometry"/>
         </mxCell>
-        <mxCell id="mut" value="&lt;b&gt;mutator.py&lt;/b&gt;&lt;br&gt;119 mut_* ops (tree-sitter)&lt;br&gt;mutate_code / crossover&lt;br&gt;entry point rebrew.mutations" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fed7aa;strokeColor=#ea580c;fontColor=#7c2d12;align=center;fontSize=11;" vertex="1" parent="1">
+        <mxCell id="mut" value="&lt;b&gt;mutator.py&lt;/b&gt;&lt;br&gt;128 mut_* ops (tree-sitter)&lt;br&gt;mutate_code / crossover&lt;br&gt;entry point rebrew.mutations" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fed7aa;strokeColor=#ea580c;fontColor=#7c2d12;align=center;fontSize=11;" vertex="1" parent="1">
           <mxGeometry x="300" y="490" width="230" height="80" as="geometry"/>
         </mxCell>
         <mxCell id="build" value="&lt;b&gt;compiler.build_candidate_obj_only&lt;/b&gt;&lt;br&gt;compile_to_obj: image or recompile&lt;br&gt;CompileCache SHA-256&lt;br&gt;60s timeout per build" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dbeafe;strokeColor=#3b82f6;fontColor=#1e3a5f;align=center;fontSize=11;" vertex="1" parent="1">

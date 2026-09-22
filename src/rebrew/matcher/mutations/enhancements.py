@@ -12,7 +12,12 @@ import re
 
 import tree_sitter as ts
 
-from rebrew.matcher.ast_engine import _C_LANGUAGE, parse_c_ast
+from rebrew.matcher.ast_engine import (
+    _C_LANGUAGE,
+    decode_source,
+    encode_source,
+    parse_c_ast,
+)
 from rebrew.matcher.mutations.queries import (
     _QUERY_ADJACENT_EXPR_STMTS,
     _QUERY_ASSIGN_ZERO,
@@ -153,7 +158,7 @@ def mut_inject_block_register(s: str, rng: random.Random) -> str | None:
 
     This is C89-safe: the declaration is at the top of the new block.
     """
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
     tree = parse_c_ast(b_source)
 
     # Strategy 1: wrap a loop body in a register block
@@ -203,7 +208,7 @@ def mut_inject_block_register(s: str, rng: random.Random) -> str | None:
         )
         result = b_source[: s1.start_byte] + replacement + b_source[s2.end_byte :]
 
-    return result.decode("utf-8")
+    return decode_source(result)
 
 
 # --- Enhancement 3: Equivalent-Size Local Type Retyping ---
@@ -230,7 +235,7 @@ def mut_retype_local_equiv(s: str, rng: random.Random) -> str | None:
     Cycle: int → DWORD → long → char* → int
     Also: unsigned int ↔ ULONG
     """
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
     cursor = _cursor(_QUERY_LOCAL_DECL)
     tree = parse_c_ast(b_source)
     matches = cursor.matches(tree.root_node)
@@ -275,7 +280,7 @@ def mut_retype_local_equiv(s: str, rng: random.Random) -> str | None:
 
     new_type = prefix + new_bare
     result = b_source[: node.start_byte] + new_type + b_source[node.end_byte :]
-    result_str = result.decode("utf-8")
+    result_str = decode_source(result)
     return result_str if result_str != s else None
 
 
@@ -290,7 +295,7 @@ def mut_zero_to_bitand(s: str, rng: random.Random) -> str | None:
     Using ``var &= 0`` instead of ``var = 0`` can trigger the
     ``and`` instruction form instead of ``mov [mem], 0``.
     """
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
     tree = parse_c_ast(b_source)
 
     candidates: list[tuple[dict[str, ts.Node], bytes, str]] = []
@@ -321,7 +326,7 @@ def mut_zero_to_bitand(s: str, rng: random.Random) -> str | None:
     caps, replacement, target_key = rng.choice(candidates)
     target = caps[target_key]
     result = b_source[: target.start_byte] + replacement + b_source[target.end_byte :]
-    return result.decode("utf-8")
+    return decode_source(result)
 
 
 # ---------------------------------------------------------------------------
@@ -415,7 +420,7 @@ def mut_invert_if_else(s: str, rng: random.Random) -> str | None:
     identical code but forces the opposite branch prediction layout
     and jump instruction.
     """
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
     tree = parse_c_ast(b_source)
 
     cursor = _cursor(_QUERY_IF_ELSE_FULL)
@@ -455,7 +460,7 @@ def mut_invert_if_else(s: str, rng: random.Random) -> str | None:
         + brace_block(cons)
     )
     result = b_source[: stmt_node.start_byte] + replacement + b_source[stmt_node.end_byte :]
-    return result.decode("utf-8")
+    return decode_source(result)
 
 
 # Stack-frame padding sizes that trip MSVC6 push/sub-esp thresholds.
@@ -476,7 +481,7 @@ def mut_dummy_stack_vars(s: str, rng: random.Random) -> str | None:
     a ``volatile`` local of a specific, randomly-chosen byte size to
     precisely target the push/sub-esp boundary.
     """
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
     tree = parse_c_ast(b_source)
 
     q = _QUERY_DUMMY_STACK_VARS
@@ -501,7 +506,7 @@ def mut_dummy_stack_vars(s: str, rng: random.Random) -> str | None:
     if size == 4:
         decl = b"\n    volatile int " + pad_name + b" = 0;"
         result = b_source[:insert_pos] + decl + b_source[insert_pos:]
-        return result.decode("utf-8")
+        return decode_source(result)
 
     # The array needs a write to stay live, and that write is a *statement*:
     # emitting it beside the declaration (the old shape) put it ahead of the
@@ -513,7 +518,7 @@ def mut_dummy_stack_vars(s: str, rng: random.Random) -> str | None:
     write_pos = _statement_region_start(body_node)
     result = b_source[:write_pos] + write + b_source[write_pos:]
     result = result[:insert_pos] + array_decl + result[insert_pos:]
-    return result.decode("utf-8")
+    return decode_source(result)
 
 
 # --- Category 7: Register Pressure Manipulation ---
@@ -532,7 +537,7 @@ def mut_inject_dummy_registers(s: str, rng: random.Random) -> str | None:
     The count is randomised (1-3) so the GA can explore different
     register pressure levels.
     """
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
     tree = parse_c_ast(b_source)
 
     q = _QUERY_INJECT_DUMMY_REGISTERS
@@ -561,7 +566,7 @@ def mut_inject_dummy_registers(s: str, rng: random.Random) -> str | None:
     insert_pos = body_node.start_byte + 1
     payload = b"".join(decls)
     result = b_source[:insert_pos] + payload + b_source[insert_pos:]
-    return result.decode("utf-8")
+    return decode_source(result)
 
 
 def mut_extract_complex_args(s: str, rng: random.Random) -> str | None:
@@ -579,7 +584,7 @@ def mut_extract_complex_args(s: str, rng: random.Random) -> str | None:
     Targets both nested function calls and binary-expression arguments
     (e.g. ``ptr + offset``).
     """
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
     tree = parse_c_ast(b_source)
 
     candidates: list[tuple[ts.Node, ts.Node, bytes]] = []
@@ -652,7 +657,7 @@ def mut_extract_complex_args(s: str, rng: random.Random) -> str | None:
     new_stmt = out[s_start:e_start] + var_name + out[e_end:s_end]
     result = out[:s_start] + inline_assign + new_stmt + out[s_end:]
 
-    return result.decode("utf-8")
+    return decode_source(result)
 
 
 def mut_hoist_repeated_deref(s: str, rng: random.Random) -> str | None:
@@ -666,7 +671,7 @@ def mut_hoist_repeated_deref(s: str, rng: random.Random) -> str | None:
     this shape change — a shared ``p`` local reused across blocks keeps one
     register, while the target keeps the object pointer live in another.
     """
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
     tree = parse_c_ast(b_source)
     q = _QUERY_HOIST_REPEATED_DEREF
     cursor = _cursor(q)
@@ -708,7 +713,7 @@ def mut_hoist_repeated_deref(s: str, rng: random.Random) -> str | None:
     if insert_at <= 0:
         return None
     new_body = new_body[:insert_at] + b"\n    " + decl + new_body[insert_at:]
-    return (b_source[:body_start] + new_body + b_source[body_end:]).decode("utf-8")
+    return decode_source(b_source[:body_start] + new_body + b_source[body_end:])
 
 
 #: Function-level pragmas that affect a single function's codegen — they

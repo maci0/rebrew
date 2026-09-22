@@ -10,7 +10,12 @@ import random
 
 import tree_sitter as ts
 
-from rebrew.matcher.ast_engine import _C_LANGUAGE, parse_c_ast
+from rebrew.matcher.ast_engine import (
+    _C_LANGUAGE,
+    decode_source,
+    encode_source,
+    parse_c_ast,
+)
 from rebrew.matcher.mutations.queries import (
     _QUERY_ADD_VOLATILE_INTERMEDIATE,
     _QUERY_ARRAY_INDEX,
@@ -59,7 +64,7 @@ def mut_while_to_goto_loop(s: str, rng: random.Random) -> str | None:
         end_N:
               ;
     """
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
     cursor = _cursor(_QUERY_WHILE_LOOP)
     tree = parse_c_ast(b_source)
     matches = cursor.matches(tree.root_node)
@@ -113,7 +118,7 @@ def mut_while_to_goto_loop(s: str, rng: random.Random) -> str | None:
     )
 
     result = b_source[: caps["stmt"].start_byte] + replacement + b_source[caps["stmt"].end_byte :]
-    return result.decode("utf-8")
+    return decode_source(result)
 
 
 # --- Category 2: Stack Frame Manipulation ---
@@ -125,7 +130,7 @@ def mut_inject_dummy_var(s: str, rng: random.Random) -> str | None:
     Adding locals can switch MSVC6 between push ecx (small frame)
     and sub esp, N (larger frame).
     """
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
     tree = parse_c_ast(b_source)
 
     # Find function body compound statements
@@ -149,7 +154,7 @@ def mut_inject_dummy_var(s: str, rng: random.Random) -> str | None:
     insert_pos = body_node.start_byte + 1
     decl = b"\n    int " + dummy_name + b";"
     result = b_source[:insert_pos] + decl + b_source[insert_pos:]
-    return result.decode("utf-8")
+    return decode_source(result)
 
 
 def mut_inject_dummy_array(s: str, rng: random.Random) -> str | None:
@@ -157,7 +162,7 @@ def mut_inject_dummy_array(s: str, rng: random.Random) -> str | None:
 
     MSVC6 changes stack allocation strategy at certain byte boundaries.
     """
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
     tree = parse_c_ast(b_source)
 
     q = _QUERY_INJECT_DUMMY_ARRAY
@@ -180,7 +185,7 @@ def mut_inject_dummy_array(s: str, rng: random.Random) -> str | None:
     insert_pos = body_node.start_byte + 1
     decl = f"\n    char {pad_name.decode()}[{size}];".encode()
     result = b_source[:insert_pos] + decl + b_source[insert_pos:]
-    return result.decode("utf-8")
+    return decode_source(result)
 
 
 def mut_scope_variable(s: str, rng: random.Random) -> str | None:
@@ -189,7 +194,7 @@ def mut_scope_variable(s: str, rng: random.Random) -> str | None:
     MSVC6 allocates stack space differently for block-scoped variables.
     Wraps the declaration + its first usage in a bare { } block.
     """
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
     tree = parse_c_ast(b_source)
 
     # Find declarations inside the function body (top-level compound_statement)
@@ -213,7 +218,7 @@ def mut_scope_variable(s: str, rng: random.Random) -> str | None:
     replacement = b"{\n        " + d1_text + b"\n        " + next_text + b"\n    }"
 
     result = b_source[: d1.start_byte] + replacement + b_source[next_stmt.end_byte :]
-    return result.decode("utf-8")
+    return decode_source(result)
 
 
 # --- Category 3: Instruction Folding (lea vs. Arithmetic) ---
@@ -225,7 +230,7 @@ def mut_array_to_ptr_arith(s: str, rng: random.Random) -> str | None:
     Changes whether MSVC6 uses lea for address computation or explicit
     add/shl instructions.
     """
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
         arr = b_source[captures["arr"].start_byte : captures["arr"].end_byte]
@@ -235,13 +240,13 @@ def mut_array_to_ptr_arith(s: str, rng: random.Random) -> str | None:
     res = _apply_query_once(b_source, _QUERY_ARRAY_INDEX, _repl, rng)
     if not res:
         return None
-    res_str = res.decode("utf-8")
+    res_str = decode_source(res)
     return res_str if res_str != s else None
 
 
 def mut_ptr_arith_to_array(s: str, rng: random.Random) -> str | None:
     """Rewrite *(p + i) to p[i] (inverse of mut_array_to_ptr_arith)."""
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
         ptr = b_source[captures["ptr"].start_byte : captures["ptr"].end_byte]
@@ -251,7 +256,7 @@ def mut_ptr_arith_to_array(s: str, rng: random.Random) -> str | None:
     res = _apply_query_once(b_source, _QUERY_DEREF_PTR_ADD, _repl, rng)
     if not res:
         return None
-    res_str = res.decode("utf-8")
+    res_str = decode_source(res)
     return res_str if res_str != s else None
 
 
@@ -265,7 +270,7 @@ def mut_decouple_index_math(s: str, rng: random.Random) -> str | None:
     — MSVC6 just computes the offset separately instead of folding it into
     a lea.
     """
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
     tree = parse_c_ast(b_source)
     cursor = _cursor(_QUERY_SUBSCRIPT_SCALED)
     matches = cursor.matches(tree.root_node)
@@ -302,7 +307,7 @@ def mut_decouple_index_math(s: str, rng: random.Random) -> str | None:
     e_start = expr.start_byte + offset
     e_end = expr.end_byte + offset
     result = out[:e_start] + new_expr + out[e_end:]
-    return result.decode("utf-8")
+    return decode_source(result)
 
 
 # --- Category 4: Zero-Extension & Register Clearing ---
@@ -314,7 +319,7 @@ def mut_preinit_byte_load(s: str, rng: random.Random) -> str | None:
     Rewrites: char c = *p;  -->  int c = 0; c = *p;
     MSVC6 emits xor eax, eax + mov al, [mem] instead of movzx.
     """
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
     cursor = _cursor(_QUERY_BYTE_TYPE_DECL)
     tree = parse_c_ast(b_source)
     matches = cursor.matches(tree.root_node)
@@ -333,7 +338,7 @@ def mut_preinit_byte_load(s: str, rng: random.Random) -> str | None:
 
     stmt = caps["stmt"]
     result = b_source[: stmt.start_byte] + replacement + b_source[stmt.end_byte :]
-    return result.decode("utf-8")
+    return decode_source(result)
 
 
 def mut_cast_to_bitmask(s: str, rng: random.Random) -> str | None:
@@ -343,7 +348,7 @@ def mut_cast_to_bitmask(s: str, rng: random.Random) -> str | None:
     (BYTE)x  --> (x & 0xFF)
     Affects movzx vs. and-masking codegen in MSVC6.
     """
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
 
     _MASK_MAP = {
         b"WORD": b"0xFFFF",
@@ -363,7 +368,7 @@ def mut_cast_to_bitmask(s: str, rng: random.Random) -> str | None:
     res = _apply_query_once(b_source, _QUERY_BYTE_CAST, _repl, rng)
     if not res:
         return None
-    res_str = res.decode("utf-8")
+    res_str = decode_source(res)
     return res_str if res_str != s else None
 
 
@@ -379,7 +384,7 @@ def mut_swap_register_keywords(s: str, rng: random.Random) -> str | None:
     to register allocation (first=ESI, second=EDI, third=EBX).
     Moving register from one var to another changes allocation.
     """
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
     tree = parse_c_ast(b_source)
 
     # Find ALL declarations
@@ -446,7 +451,7 @@ def mut_swap_register_keywords(s: str, rng: random.Random) -> str | None:
             + b_source[non_reg_node.end_byte :]
         )
 
-    return result.decode("utf-8")
+    return decode_source(result)
 
 
 def mut_add_volatile_intermediate(s: str, rng: random.Random) -> str | None:
@@ -459,7 +464,7 @@ def mut_add_volatile_intermediate(s: str, rng: random.Random) -> str | None:
     Forces MSVC6 to spill the intermediate to the stack, freeing up
     registers for the main computation path.
     """
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
     tree = parse_c_ast(b_source)
 
     q = _QUERY_ADD_VOLATILE_INTERMEDIATE
@@ -495,7 +500,7 @@ def mut_add_volatile_intermediate(s: str, rng: random.Random) -> str | None:
     stmt_end = stmt.end_byte + offset
 
     result = out[:stmt_start] + inline_replacement + out[stmt_end:]
-    return result.decode("utf-8")
+    return decode_source(result)
 
 
 def mut_reorder_register_vars(s: str, rng: random.Random) -> str | None:
@@ -505,7 +510,7 @@ def mut_reorder_register_vars(s: str, rng: random.Random) -> str | None:
       first register var → ESI, second → EDI, third → EBX.
     Permuting them directly controls register allocation.
     """
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
     tree = parse_c_ast(b_source)
 
     cursor = _cursor(_QUERY_REGISTER_DECL)
@@ -537,7 +542,7 @@ def mut_reorder_register_vars(s: str, rng: random.Random) -> str | None:
         return None
 
     result = b_source[: n1.start_byte] + n2_text + mid_text + n1_text + b_source[n2.end_byte :]
-    return result.decode("utf-8")
+    return decode_source(result)
 
 
 # ---------------------------------------------------------------------------
@@ -561,7 +566,7 @@ def mut_reorder_switch_cases(s: str, rng: random.Random) -> str | None:
     message IDs) in **source order**.  Reordering cases directly changes
     the cmp/je/jne branch tree layout.
     """
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
     tree = parse_c_ast(b_source)
     cursor = _cursor(_QUERY_SWITCH_STMT)
     matches = cursor.matches(tree.root_node)
@@ -598,7 +603,7 @@ def mut_reorder_switch_cases(s: str, rng: random.Random) -> str | None:
         + n1_text
         + b_source[n2.end_byte :]
     )
-    return result.decode("utf-8")
+    return decode_source(result)
 
 
 def mut_switch_to_if_chain(s: str, rng: random.Random) -> str | None:
@@ -609,7 +614,7 @@ def mut_switch_to_if_chain(s: str, rng: random.Random) -> str | None:
     if/else if uses direct comparisons.  This mutation explores that
     alternate codegen path.
     """
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
     tree = parse_c_ast(b_source)
     cursor = _cursor(_QUERY_SWITCH_STMT)
     matches = cursor.matches(tree.root_node)
@@ -680,7 +685,7 @@ def mut_switch_to_if_chain(s: str, rng: random.Random) -> str | None:
 
     replacement = b"".join(parts)
     result = b_source[: stmt_node.start_byte] + replacement + b_source[stmt_node.end_byte :]
-    return result.decode("utf-8")
+    return decode_source(result)
 
 
 def mut_split_switch(s: str, rng: random.Random) -> str | None:
@@ -694,7 +699,7 @@ def mut_split_switch(s: str, rng: random.Random) -> str | None:
     original code used nested message handling or where MSVC6 internally
     split the comparison tree at a different pivot.
     """
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
     tree = parse_c_ast(b_source)
     cursor = _cursor(_QUERY_SWITCH_STMT)
     matches = cursor.matches(tree.root_node)
@@ -761,7 +766,7 @@ def mut_split_switch(s: str, rng: random.Random) -> str | None:
     )
 
     result = b_source[: stmt_node.start_byte] + replacement + b_source[stmt_node.end_byte :]
-    return result.decode("utf-8")
+    return decode_source(result)
 
 
 def mut_move_switch_default(s: str, rng: random.Random) -> str | None:
@@ -771,7 +776,7 @@ def mut_move_switch_default(s: str, rng: random.Random) -> str | None:
     MSVC6's comparison chain.  Moving it changes whether the default
     path is the first or last jne target.
     """
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
     tree = parse_c_ast(b_source)
     cursor = _cursor(_QUERY_SWITCH_STMT)
     matches = cursor.matches(tree.root_node)
@@ -809,7 +814,7 @@ def mut_move_switch_default(s: str, rng: random.Random) -> str | None:
     new_body += b"\n" + close_brace
 
     result = b_source[: body_node.start_byte] + new_body + b_source[body_node.end_byte :]
-    return result.decode("utf-8")
+    return decode_source(result)
 
 
 # ---------------------------------------------------------------------------
@@ -819,7 +824,7 @@ def mut_move_switch_default(s: str, rng: random.Random) -> str | None:
 
 def mut_if_chain_to_switch(s: str, rng: random.Random) -> str | None:
     """Convert an if/else-if equality chain into a switch statement."""
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
 
     tree = parse_c_ast(b_source)
     cursor = _cursor(_QUERY_IF_STMT)
@@ -918,12 +923,12 @@ def mut_if_chain_to_switch(s: str, rng: random.Random) -> str | None:
 
     end_byte = target_if.end_byte
     start = target_if.start_byte
-    return (b_source[:start] + out + b_source[end_byte:]).decode("utf-8")
+    return decode_source(b_source[:start] + out + b_source[end_byte:])
 
 
 def mut_switch_add_explicit_default(s: str, rng: random.Random) -> str | None:
     """Add an explicit default case to a switch that lacks one."""
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
 
     tree = parse_c_ast(b_source)
     cursor = _cursor(_QUERY_SWITCH_STMT)
@@ -963,12 +968,12 @@ def mut_switch_add_explicit_default(s: str, rng: random.Random) -> str | None:
     stmt = rng.choice([b"break;", b"return;"])
     injection = b"\n    default:\n        " + stmt + b"\n"
 
-    return (b_source[:end_idx] + injection + b_source[end_idx:]).decode("utf-8")
+    return decode_source(b_source[:end_idx] + injection + b_source[end_idx:])
 
 
 def mut_wrap_in_else(s: str, rng: random.Random) -> str | None:
     """Wrap statements after an early-exit if into an else block."""
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
 
     tree = parse_c_ast(b_source)
     cursor = _cursor(_QUERY_IF_STMT)
@@ -1035,12 +1040,12 @@ def mut_wrap_in_else(s: str, rng: random.Random) -> str | None:
 
     replacement = b" else {\n    " + rest_of_block + b"\n}"
 
-    return (b_source[:start_byte] + replacement + b_source[end_byte:]).decode("utf-8")
+    return decode_source(b_source[:start_byte] + replacement + b_source[end_byte:])
 
 
 def mut_switch_break_to_return(s: str, rng: random.Random) -> str | None:
     """Replace switch break statements with the trailing return statement."""
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
 
     tree = parse_c_ast(b_source)
     cursor = _cursor(_QUERY_SWITCH_STMT)
@@ -1095,7 +1100,7 @@ def mut_switch_break_to_return(s: str, rng: random.Random) -> str | None:
     for b_node in breaks:
         out = out[: b_node.start_byte] + ret_text + out[b_node.end_byte :]
 
-    return out.decode("utf-8")
+    return decode_source(out)
 
 
 # ---------------------------------------------------------------------------
@@ -1105,7 +1110,7 @@ def mut_switch_break_to_return(s: str, rng: random.Random) -> str | None:
 
 def _node_text(node: ts.Node, source: bytes) -> str:
     """Decode *node*'s source span."""
-    return source[node.start_byte : node.end_byte].decode("utf-8")
+    return decode_source(source[node.start_byte : node.end_byte])
 
 
 def _enclosing_function(node: ts.Node) -> ts.Node | None:
@@ -1242,7 +1247,7 @@ def mut_ternary_lift_constant(s: str, rng: random.Random) -> str | None:
     is the reference's ``and reg,0xff`` preamble shape.  The arms are equal,
     so the rewrite cannot change the result.
     """
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
     tree = parse_c_ast(b_source)
 
     candidates: list[tuple[ts.Node, str, str, str]] = []
@@ -1289,8 +1294,8 @@ def mut_ternary_lift_constant(s: str, rng: random.Random) -> str | None:
 
     binary, cond_txt, _op_txt, combined = rng.choice(candidates)
     new = f"(({cond_txt}) ? {combined} : {combined})"
-    result = b_source[: binary.start_byte] + new.encode("utf-8") + b_source[binary.end_byte :]
-    return result.decode("utf-8")
+    result = b_source[: binary.start_byte] + encode_source(new) + b_source[binary.end_byte :]
+    return decode_source(result)
 
 
 def mut_compare_negate_to_ternary(s: str, rng: random.Random) -> str | None:
@@ -1301,7 +1306,7 @@ def mut_compare_negate_to_ternary(s: str, rng: random.Random) -> str | None:
     reference uses.  The ternary spelling reaches the fused form; ``==`` maps
     to the mirrored ``(a == b ? 0 : -1)``.  Both spellings yield 0 or -1.
     """
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
     tree = parse_c_ast(b_source)
 
     candidates: list[tuple[ts.Node, ts.Node, bytes]] = []
@@ -1326,8 +1331,8 @@ def mut_compare_negate_to_ternary(s: str, rng: random.Random) -> str | None:
     cmp_txt = _node_text(cmp_node, b_source)
     true_val, false_val = ("-1", "0") if cmp_op_text == b"!=" else ("0", "-1")
     new = f"(({cmp_txt}) ? {true_val} : {false_val})"
-    result = b_source[: unary.start_byte] + new.encode("utf-8") + b_source[unary.end_byte :]
-    return result.decode("utf-8")
+    result = b_source[: unary.start_byte] + encode_source(new) + b_source[unary.end_byte :]
+    return decode_source(result)
 
 
 def mut_walk_in_parameter(s: str, rng: random.Random) -> str | None:
@@ -1339,7 +1344,7 @@ def mut_walk_in_parameter(s: str, rng: random.Random) -> str | None:
     parameter merges the ranges.  The declaration becomes the first assignment
     and every use of the local becomes the parameter.
     """
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
     tree = parse_c_ast(b_source)
 
     candidates: list[tuple[ts.Node, ts.Node, bytes, bytes, list[ts.Node]]] = []
@@ -1391,7 +1396,7 @@ def mut_walk_in_parameter(s: str, rng: random.Random) -> str | None:
         out = out[: use.start_byte] + param + out[use.end_byte :]
     assignment = param + b" = " + out[init.start_byte : init.end_byte] + b";"
     out = out[: declaration.start_byte] + assignment + out[declaration.end_byte :]
-    return out.decode("utf-8")
+    return decode_source(out)
 
 
 def mut_home_byte_in_param_slot(s: str, rng: random.Random) -> str | None:
@@ -1404,7 +1409,7 @@ def mut_home_byte_in_param_slot(s: str, rng: random.Random) -> str | None:
     the spill and restores the reference's frame size.  Byte 2 loses the frame
     instead, so only bytes 0 and 1 are used.
     """
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
     tree = parse_c_ast(b_source)
     byte_types = {b"char", b"unsigned char", b"signed char", b"BYTE"}
 
@@ -1443,7 +1448,7 @@ def mut_home_byte_in_param_slot(s: str, rng: random.Random) -> str | None:
         return None
 
     declaration, init, _local_name, param, uses = rng.choice(candidates)
-    home = b"((unsigned char*)&" + param + b")[" + str(rng.choice((0, 1))).encode("utf-8") + b"]"
+    home = b"((unsigned char*)&" + param + b")[" + encode_source(str(rng.choice((0, 1)))) + b"]"
     out = b_source
     for use in sorted(uses, key=lambda n: n.start_byte, reverse=True):
         out = out[: use.start_byte] + home + out[use.end_byte :]
@@ -1451,7 +1456,7 @@ def mut_home_byte_in_param_slot(s: str, rng: random.Random) -> str | None:
     if init is not None:
         replacement = home + b" = " + out[init.start_byte : init.end_byte] + b";"
     out = out[: declaration.start_byte] + replacement + out[declaration.end_byte :]
-    return out.decode("utf-8")
+    return decode_source(out)
 
 
 def mut_call_prototype_view(s: str, rng: random.Random) -> str | None:
@@ -1467,7 +1472,7 @@ def mut_call_prototype_view(s: str, rng: random.Random) -> str | None:
     project's default calling convention, so a callee declared ``__stdcall``
     is mis-called (the same hazard ``mut_toggle_calling_convention`` carries).
     """
-    b_source = s.encode("utf-8")
+    b_source = encode_source(s)
     tree = parse_c_ast(b_source)
     varied = ("unsigned char", "char", "short", "int")
 
@@ -1494,8 +1499,8 @@ def mut_call_prototype_view(s: str, rng: random.Random) -> str | None:
 
     fn, args, signature = rng.choice(candidates)
     new_fn = f"(({signature}) {_node_text(fn, b_source)})"
-    result = b_source[: fn.start_byte] + new_fn.encode("utf-8") + b_source[fn.end_byte :]
-    return result.decode("utf-8")
+    result = b_source[: fn.start_byte] + encode_source(new_fn) + b_source[fn.end_byte :]
+    return decode_source(result)
 
 
 def _argument_type_text(node: ts.Node, source: bytes) -> str:

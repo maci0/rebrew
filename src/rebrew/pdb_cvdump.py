@@ -59,9 +59,17 @@ def _cmd_line(pdb: Path, flags: list[str]) -> list[str]:
     assert exe is not None
     if os.name == "nt":
         return [exe, *flags, str(pdb)]
-    # wine needs a Windows-style path.
+    # wine needs a Windows-style path.  surrogateescape, not the locale
+    # default: a PDB under a non-ASCII directory crashes a strict decode
+    # under LANG=C, and the surrogates re-encode to the original bytes when
+    # subprocess passes win_path back to wine.
     win_path = subprocess.run(
-        ["winepath", "-w", str(pdb)], capture_output=True, text=True, check=False
+        ["winepath", "-w", str(pdb)],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="surrogateescape",
+        check=False,
     ).stdout.strip()
     return ["wine", exe, *flags, win_path or str(pdb)]
 

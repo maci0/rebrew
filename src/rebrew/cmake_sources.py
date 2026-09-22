@@ -32,7 +32,7 @@ from rebrew.cli import (
 )
 from rebrew.config import ProjectConfig
 from rebrew.sources import iter_sources, target_marker
-from rebrew.utils import atomic_write_text
+from rebrew.utils import atomic_write_text, read_source_text
 
 app = typer.Typer(add_completion=False, help=__doc__)
 console = Console(stderr=True)
@@ -67,7 +67,11 @@ def collect(cfg: ProjectConfig, marker: str) -> tuple[list[Path], list[Path]]:
         anns = [a for a in parse_c_file_multi(src, metadata_dir=cfg.metadata_dir) if a.va]
         if not anns:
             try:
-                support = _support_declaration(src.read_text(errors="replace").splitlines())
+                # read_source_text, not Path.read_text: the latter decodes
+                # with the locale encoding, so under LANG=C a cp1252 or
+                # Shift-JIS TU loses its SUPPORT line to U+FFFD and the file
+                # silently lands in the wrong target's source list.
+                support = _support_declaration(read_source_text(src)[0].splitlines())
             except OSError:
                 support = None
             if support is not None and support[1].upper() == marker.upper():
