@@ -117,8 +117,8 @@ class CompareResult:
 
     Attributes:
         matched: ``True`` when compiled bytes equal target after reloc masking.
-        status: One of ``EXACT``, ``RELOC``, ``NEAR_MATCHING``, ``STUB``,
-            ``SIZE_MISMATCH``, ``COMPILE_ERROR``, ``MISSING_SIZE``, ``MISSING_FILE``.
+        status: A :data:`CompareStatus` value (``EXACT``, ``RELOC``,
+            ``NEAR_MATCHING``, ``COMPILE_ERROR``, ``SIZE_MISMATCH``, …).
         match_percent: Percentage of bytes that match (0-100).  On mismatch,
             computed as matching / target_len * 100 with reloc slots masked.
         match_count: Matching bytes in the compared (common-prefix) region,

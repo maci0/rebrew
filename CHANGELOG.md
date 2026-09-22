@@ -374,6 +374,10 @@
   ``one_line``, ``run_git``). Call sites inside the package already updated.
 
 ### Fixed
+- **A malformed CLI plugin's `RegistryError` carries `group`, `name`,
+  and `origin`.**  The three CLI-mount failures (not a Typer app, no
+  `main`, not callable) left those fields empty, unlike every other
+  `RegistryError` raise site.
 - **`rebrew gen-layout` finds import libs regardless of case, and no
   longer runs the target's DLL names as shell.**  A lowercase import
   (`kernel32.dll`) missed `KERNEL32.LIB` on the case-sensitive host and

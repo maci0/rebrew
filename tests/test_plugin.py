@@ -420,6 +420,39 @@ class TestCliComponent:
         activate([component], ctx)
         assert [g.name for g in app.registered_groups] == ["wrong"]
 
+    def test_wrong_kind_error_carries_structured_fields(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import rebrew.plugin as plug
+        from rebrew.registry import RegistryError
+
+        seen: list[Exception] = []
+        real = plug.make_stub_app
+
+        def _capture(module: str, error: Exception, console: Console) -> typer.Typer:
+            seen.append(error)
+            return real(module, error, console)
+
+        monkeypatch.setattr(plug, "make_stub_app", _capture)
+        app = typer.Typer()
+        component = CliComponent(
+            name="wrong",
+            module="rebrew.diagnose",
+            attr="main",
+            help="x",
+            panel=Panel.PLUGINS,
+            is_group=True,
+            origin="entry-point",
+        )
+        activate([component], self._context(app))
+        [error] = seen
+        assert isinstance(error, RegistryError)
+        assert (error.group, error.name, error.origin) == (
+            plug.MULTI_COMMANDS_GROUP,
+            "wrong",
+            "entry-point",
+        )
+
 
 class TestBuiltinManifest:
     def test_names_and_modules_are_unique(self) -> None:

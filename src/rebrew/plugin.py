@@ -543,17 +543,21 @@ class CliComponent(Component):
         else:
             self._mount_command(app, console, obj, ctx)
 
+    def _bad_plugin(self, detail: str) -> RegistryError:
+        return RegistryError(
+            f"bad CLI plugin {self.name!r} from {self.origin} ({self.module}): {detail}",
+            group=self.group,
+            name=self.name,
+            origin=self.origin,
+        )
+
     def _mount_group(self, app: typer.Typer, console: Console, obj: Any, ctx: Context) -> None:
         group_app = obj if isinstance(obj, typer.Typer) else getattr(obj, "app", None)
         if not isinstance(group_app, typer.Typer):
             self._mount_unavailable(
                 app,
                 console,
-                RegistryError(
-                    f"bad CLI plugin {self.name!r} from {self.origin} "
-                    f"({self.module}): expected a typer.Typer app, "
-                    f"got {type(obj).__name__}"
-                ),
+                self._bad_plugin(f"expected a typer.Typer app, got {type(obj).__name__}"),
                 ctx,
             )
             return
@@ -578,11 +582,7 @@ class CliComponent(Component):
                 self._mount_unavailable(
                     app,
                     console,
-                    RegistryError(
-                        f"bad CLI plugin {self.name!r} from {self.origin} "
-                        f"({self.module}): module exposes no callable 'main' "
-                        f"and a typer app"
-                    ),
+                    self._bad_plugin("module exposes no callable 'main' and a typer app"),
                     ctx,
                 )
                 return
@@ -592,10 +592,7 @@ class CliComponent(Component):
             self._mount_unavailable(
                 app,
                 console,
-                RegistryError(
-                    f"bad CLI plugin {self.name!r} from {self.origin} "
-                    f"({self.module}): expected a callable, got {type(command).__name__}"
-                ),
+                self._bad_plugin(f"expected a callable, got {type(command).__name__}"),
                 ctx,
             )
             return
