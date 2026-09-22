@@ -318,8 +318,8 @@ _BUILTIN_MUTATIONS = [
 #: A member is ``module:attr`` naming a callable with the mutator signature
 #: ``(source: str, rng: random.Random) -> str | None`` (see the ``mut_*``
 #: operators).  Discovered mutations join ``ALL_MUTATIONS`` alongside the
-#: packaged ones; a duplicate name is a :class:`RegistryError` (single-source
-#: discipline — the GA must never pick between two operators of one name).
+#: packaged ones; a duplicate name is skipped with a warning and the packaged
+#: operator kept (the GA must never pick between two operators of one name).
 MUTATION_ENTRY_POINT_GROUP = "rebrew.mutations"
 
 

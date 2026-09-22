@@ -319,6 +319,16 @@
   ``one_line``, ``run_git``). Call sites inside the package already updated.
 
 ### Fixed
+- **Forked contexts react to their parent's service table.**  `Context`
+  tracked no children, so `_changed` and `unprovide` only walked the
+  lookup chain upward: a `CoeffectScope` attached to `parent.fork()` never
+  activated when the parent later provided a key it needed, and a
+  withdrawal never reached it.  A fork now registers as a child, both
+  traversals cover the enclosing chain *and* the derived contexts below
+  (one visited-guarded `_scope_chain`), and disposing a fork detaches it
+  so the parent retains nothing past its owner.  Three tests in
+  `tests/test_plugin.py` pin parent-driven activation/withdrawal,
+  provider-swap reactivation against the new binding, and detachment.
 - **The reloc-validation catalog is marker-scoped.**  `build_name_to_va`
   scanned reversed sources with `parse_c_file_multi(path)` and no target
   filter, so in a shared file carrying one `// FUNCTION:` marker per target
