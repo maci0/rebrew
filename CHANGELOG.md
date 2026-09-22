@@ -381,6 +381,11 @@
   ``one_line``, ``run_git``). Call sites inside the package already updated.
 
 ### Fixed
+- **`dist/rebrew.buildinfo` no longer records a host path.**  The
+  `python=` line held the absolute interpreter path (for example
+  `/home/<user>/.local/share/uv/...`), so the uploaded manifest leaked the
+  build host layout and differed between hosts.  It now records the
+  interpreter version (`Python 3.13.15`).
 - **Nested metadata locks on two roots both take their `flock`.**
   `metadata_write_lock` tracked reentrancy per filename, so a thread holding
   one root's `rebrew-functions.toml` lock skipped the `flock` for the same

@@ -176,6 +176,7 @@ cli-contract:
 # After the build, remove setuptools' in-tree egg-info / build/ residue and
 # record a buildinfo manifest (toolchain + SOURCE_DATE_EPOCH) next to the
 # artifacts so a rebuild can be attempted with the same environment knobs.
+# Toolchain lines record versions, never host paths (the manifest ships).
 # setuptools= is parsed from pyproject.toml [build-system] (never hardcoded —
 # a stale pin next to requires = ["setuptools==…"] would lie in the manifest).
 build: ensure-uv
@@ -197,7 +198,7 @@ build: ensure-uv
 	  echo "LC_ALL=C"; \
 	  echo "PYTHONHASHSEED=0"; \
 	  echo "uv=$$(uv --version)"; \
-	  echo "python=$$(uv python find)"; \
+	  echo "python=$$("$$(uv python find)" --version)"; \
 	  echo "python-version=$$(cat .python-version)"; \
 	  echo "setuptools=$$st"; \
 	} > dist/rebrew.buildinfo
