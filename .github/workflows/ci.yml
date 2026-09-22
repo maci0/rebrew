@@ -16,14 +16,11 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-# Pin the uv installer so CI does not drift with setup-uv's default "latest".
-# Bump deliberately when upgrading the local toolchain (see `uv --version`).
-# RESEMBL_REF must match the `resembl` version recorded in uv.lock (path dep).
+# uv / Python / resembl pins and the shared setup steps live in one place:
+# .github/actions/uv-env/action.yml (used by both workflows).
 # Third-party Actions are commit-SHA pinned (mutable tags can be retargeted);
 # Dependabot's github-actions group refreshes the SHAs weekly.
 env:
-  UV_VERSION: "0.12.14"
-  RESEMBL_REF: "v2.0.0"
   # typer renders every --help with ANSI codes whenever GITHUB_ACTIONS is set
   # (it treats the GitHub log renderer as a color terminal), which splits
   # option names across escape sequences and breaks every assertion on help
@@ -42,24 +39,12 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Check out sibling resembl (path dependency of the `similarity` group)
-        # [tool.uv.sources] resolves `resembl` from ../resembl, so every uv
-        # sync needs the sibling present even when the group is not installed.
-        # actions/checkout refuses to write outside the workspace, so clone
-        # RESEMBL_REF (must match uv.lock) into the parent directory — the
-        # same layout a developer's checkout has.  Retries on network flake.
-        # GH_TOKEN: authenticated git rate limits; header auth in the script
-        # (token never lands in the remote URL or on git argv).
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: bash tools/ci_clone_resembl.sh ../resembl
-      - name: Set up uv
-        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+      - name: Set up uv and the sibling resembl checkout
+        # Default python-version is the exact .python-version patch (hermetic
+        # lint; do not float).
+        uses: ./.github/actions/uv-env
         with:
-          version: ${{ env.UV_VERSION }}
-          enable-cache: true
-          # Exact patch matches .python-version (hermetic lint; do not float).
-          python-version: "3.13.15"
+          github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Install dependencies
         # --all-extras matters for mypy: prove.py's angr/SimProcedure stubs
         # only type-check correctly with angr installed (otherwise mypy
@@ -97,17 +82,11 @@ jobs:
           # Packaging contract tests enumerate v* tags (CHANGELOG sections).
           # Default shallow clone omits tags and the test would skip in CI.
           fetch-tags: true
-      - name: Check out sibling resembl (path dependency of the `similarity` group)
-        # See the lint job: [tool.uv.sources] resolves `resembl` from ../resembl.
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: bash tools/ci_clone_resembl.sh ../resembl
-      - name: Set up uv
-        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+      - name: Set up uv and the sibling resembl checkout
+        uses: ./.github/actions/uv-env
         with:
-          version: ${{ env.UV_VERSION }}
-          enable-cache: true
           python-version: ${{ matrix.python-version }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Install dependencies
         run: uv sync --frozen --all-extras --group similarity
       - name: Install nasm (NASM round-trip verification in asm tests)
@@ -148,18 +127,10 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Check out sibling resembl (path dependency of the `similarity` group)
-        # See the lint job: [tool.uv.sources] resolves `resembl` from ../resembl.
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: bash tools/ci_clone_resembl.sh ../resembl
-      - name: Set up uv
-        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+      - name: Set up uv and the sibling resembl checkout
+        uses: ./.github/actions/uv-env
         with:
-          version: ${{ env.UV_VERSION }}
-          enable-cache: true
-          # Exact patch matches .python-version (hermetic hook parity).
-          python-version: "3.13.15"
+          github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Install dependencies
         run: uv sync --frozen --all-extras --group similarity
       - name: Run pre-commit hooks
@@ -178,13 +149,11 @@ jobs:
         with:
           persist-credentials: false
       - name: Set up uv
-        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+        # No sibling clone: this job's sync uses --no-default-groups
+        # --no-install-project, so the resembl path dep is never resolved.
+        uses: ./.github/actions/uv-env
         with:
-          version: ${{ env.UV_VERSION }}
-          enable-cache: true
-          # Explicit pin (matches .python-version): do not float with the
-          # runner image if the checkout file is ever absent.
-          python-version: "3.13.15"
+          clone-resembl: "false"
       - name: Build sdist and wheel
         # Single source of truth with the local contributor path: `make build`
         # owns locale knobs, egg-info cleanup, and dist/rebrew.buildinfo
@@ -285,18 +254,10 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Check out sibling resembl (path dependency of the `similarity` group)
-        # See the lint job: [tool.uv.sources] resolves `resembl` from ../resembl.
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: bash tools/ci_clone_resembl.sh ../resembl
-      - name: Set up uv
-        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+      - name: Set up uv and the sibling resembl checkout
+        uses: ./.github/actions/uv-env
         with:
-          version: ${{ env.UV_VERSION }}
-          enable-cache: true
-          # Exact patch matches .python-version (hermetic contract smoke).
-          python-version: "3.13.15"
+          github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Install package
         run: uv sync --frozen
       - name: CLI contract (round-trip / verify flags)

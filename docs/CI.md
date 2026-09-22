@@ -18,8 +18,11 @@ wheel into a clean venv for a smoke import — runtime deps come from
 `--no-deps` so the smoke cannot drift past `uv.lock` — and a `cli-contract`
 job that greps the high-value `--help` surfaces. The lint job also runs
 `uv audit --locked` (diskcache's unfixed pickle advisory is
-`--ignore-until-fixed` until upstream ships a fix). The uv installer is pinned
-via workflow `UV_VERSION` (commit-SHA-pinned `setup-uv` / `checkout` Actions).
+`--ignore-until-fixed` until upstream ships a fix). Every job installs uv
+through the local composite action `.github/actions/uv-env`, which holds the
+one `uv-version` / `python-version` / `resembl-ref` pin set both workflows
+share (commit-SHA-pinned `setup-uv` / `checkout` Actions; Dependabot scans the
+action's directory as well as `.github/workflows/`).
 Lint, pre-commit, package, cli-contract, and toolchain-sync pin the exact
 Python patch from `.python-version`; the test matrix covers the 3.13/3.14
 minors for compatibility. Jobs run on pinned `ubuntu-24.04` (not
@@ -29,15 +32,18 @@ minors for compatibility. Jobs run on pinned `ubuntu-24.04` (not
 require a target binary or MSVC toolchain.
 
 Every job that runs `uv sync` first clones the sibling `resembl` repo
-(`maci0/resembl`, tag from workflow `RESEMBL_REF`, currently `v2.0.0`) into the
+(`maci0/resembl`, tag from the action's `resembl-ref` input, currently
+`v2.0.0`) into the
 directory above the workspace via `tools/ci_clone_resembl.sh` (retries on
-network flake; maps `secrets.GITHUB_TOKEN` to `GH_TOKEN` on that step only —
-header auth in the script — so lint/test steps never see the token):
+network flake; the job passes `secrets.GITHUB_TOKEN` as the action's
+`github-token` input, which reaches only the clone step — header auth in the
+script — so lint/test steps never see the token):
 `pyproject.toml`'s `[tool.uv.sources]` resolves
 the `similarity` group's `resembl` from `../resembl`, so a default
 `uv sync --frozen` fails to build the installation plan when that checkout is
-absent. Keep `RESEMBL_REF` in step with the `resembl` version in `uv.lock`.
-The package job skips the sibling clone: its lockfile sync uses
+absent. Keep `resembl-ref` in step with the `resembl` version in `uv.lock`.
+The package job skips the sibling clone (`clone-resembl: "false"`): its
+lockfile sync uses
 `--no-default-groups --no-install-project` (no path dep needed) before the
 `--no-deps` wheel overlay. After the smoke import it uploads the verified
 `dist/` wheel, sdist, `rebrew.buildinfo`, and CycloneDX SBOM as a workflow
@@ -62,7 +68,7 @@ developer shell cannot break CliRunner assertions that `make test`
 would have passed.  `make all` includes `cli-contract`.
 
 The nightly `toolchain-sync.yml` drift check installs through the same pinned
-uv flow (`uv sync --frozen`) and the same `RESEMBL_REF` / `UV_VERSION` pins,
+uv flow (`uv sync --frozen`) and the same `.github/actions/uv-env` pins,
 so scheduled runs can never silently resolve newer dependency versions than
 the audited lockfile. It checks sources once, prints that JSON result, and
 fails on drift, failed checks, unpinned sources, or an empty source inventory.

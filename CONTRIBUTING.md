@@ -17,12 +17,12 @@ pinned docker image).
 
 ## Bootstrap (clean clone)
 
-Needs **uv** (CI pins `UV_VERSION` in `.github/workflows/ci.yml`, currently
-`0.12.14`), **Python 3.13+** (see `.python-version`), and **nasm** on `PATH`
+Needs **uv** (CI pins `uv-version` in `.github/actions/uv-env/action.yml`,
+currently `0.12.14`), **Python 3.13+** (see `.python-version`), and **nasm** on `PATH`
 (CI installs nasm for asm round-trip tests).  `uv sync` also needs the sibling
 [`resembl`](https://github.com/maci0/resembl) checkout at `../resembl` — the
-path pin in `pyproject.toml` / `uv.lock` (tag `v2.0.0`, same as CI
-`RESEMBL_REF`).  Without it, sync fails with a cryptic “Distribution not found”
+path pin in `pyproject.toml` / `uv.lock` (tag `v2.0.0`, same as CI's
+`resembl-ref`).  Without it, sync fails with a cryptic “Distribution not found”
 path error; `make setup` fails closed if `uv` is missing or if `../resembl`'s
 `version` does not match `RESEMBL_REF`, and warns (still continues) when `uv`
 is older than `UV_VERSION`.

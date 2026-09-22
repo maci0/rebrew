@@ -14,12 +14,13 @@ SHELL := /bin/sh
 # --group m2c is opt-in (git-only decompiler) — add it when exercising fetch_m2c.
 UV_SYNC_FLAGS ?= --frozen --all-extras --group similarity
 
-# Keep in step with RESEMBL_REF / UV_VERSION in .github/workflows/ci.yml and the
-# resembl version recorded in uv.lock (path dep).  `make setup` prints the clone
+# Keep in step with the `resembl-ref` / `uv-version` input defaults in
+# .github/actions/uv-env/action.yml (CI's single pin site) and the resembl
+# version recorded in uv.lock (path dep).  `make setup` prints the clone
 # command when ../resembl is missing; it does not clone for you.
 RESEMBL_REF ?= v2.0.0
 RESEMBL_DIR := $(abspath $(CURDIR)/../resembl)
-# Match workflow env UV_VERSION so local sync/audit behavior tracks CI.
+# Match the CI uv pin so local sync/audit behavior tracks CI.
 UV_VERSION ?= 0.12.14
 
 # Single-file / nodeid override for the edit-test loop:

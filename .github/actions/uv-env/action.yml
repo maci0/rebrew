@@ -1,0 +1,59 @@
+name: uv environment
+description: >-
+  Pin the uv installer and Python patch, and (optionally) clone the sibling
+  resembl path dependency that every `uv sync` needs. Single source of truth
+  for the pins both workflows share.
+
+# Keep RESEMBL_REF in step with the `resembl` version recorded in uv.lock, and
+# UV_VERSION / python-version with the Makefile (`make setup`) and
+# .python-version.  Third-party Actions are commit-SHA pinned (mutable tags can
+# be retargeted); Dependabot's github-actions group refreshes the SHAs weekly.
+inputs:
+  python-version:
+    description: Exact Python patch for setup-uv (matches .python-version).
+    required: false
+    default: "3.13.15"
+  uv-version:
+    description: uv installer version (never setup-uv's floating "latest").
+    required: false
+    default: "0.12.14"
+  resembl-ref:
+    description: Tag of maci0/resembl to clone into ../resembl (must match uv.lock).
+    required: false
+    default: "v2.0.0"
+  clone-resembl:
+    description: >-
+      Clone the sibling resembl checkout. Set to "false" for jobs whose sync
+      uses --no-default-groups --no-install-project (no path dep needed).
+    required: false
+    default: "true"
+  github-token:
+    description: >-
+      Mapped onto the clone step only (authenticated git rate limits), so the
+      job's other steps never see secrets.GITHUB_TOKEN.
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    # [tool.uv.sources] resolves `resembl` from ../resembl, so every uv sync
+    # needs the sibling present even when the `similarity` group is not
+    # installed.  actions/checkout refuses to write outside the workspace, so
+    # clone into the parent directory instead — the same layout a developer's
+    # checkout has.  The script retries on network flake and passes the token
+    # as a git http header (never on argv or in the remote URL).
+    - name: Check out sibling resembl (path dependency of the `similarity` group)
+      if: inputs.clone-resembl == 'true'
+      shell: bash
+      env:
+        RESEMBL_REF: ${{ inputs.resembl-ref }}
+        GH_TOKEN: ${{ inputs.github-token }}
+      run: bash tools/ci_clone_resembl.sh ../resembl
+
+    - name: Set up uv
+      uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+      with:
+        version: ${{ inputs.uv-version }}
+        enable-cache: true
+        python-version: ${{ inputs.python-version }}
