@@ -563,8 +563,8 @@ def _iter_definition_files(cfg: ProjectConfig) -> list[Path]:
         return header_files
 
 
-def _split_top_level(text: str, sep: str = ",") -> list[str]:
-    """Split *text* on *sep* at bracket/paren/brace depth zero."""
+def _split_top_level(text: str) -> list[str]:
+    """Split *text* on commas at bracket/paren/brace depth zero."""
     parts: list[str] = []
     current: list[str] = []
     depth = 0
@@ -573,7 +573,7 @@ def _split_top_level(text: str, sep: str = ",") -> list[str]:
             depth += 1
         elif ch in ")]}":
             depth -= 1
-        if ch == sep and depth == 0:
+        if ch == "," and depth == 0:
             parts.append("".join(current))
             current = []
         else:

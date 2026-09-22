@@ -989,11 +989,9 @@ def mut_wrap_in_else(s: str, rng: random.Random) -> str | None:
             "continue_statement",
         ):
             return True
-        if node.type == "compound_statement":
-            for child in node.children:
-                if contains_early_exit(child):
-                    return True
-        return False
+        return node.type == "compound_statement" and any(
+            contains_early_exit(child) for child in node.children
+        )
 
     for match in matches:
         if_stmt = _capture(match, "if_stmt")

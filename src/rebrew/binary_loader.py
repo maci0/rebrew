@@ -96,6 +96,10 @@ def refresh_loaders() -> list[tuple[str, Any]]:
 
 _MAX_BINARY_SIZE = 512 * 1024 * 1024  # 512 MB safety limit
 
+#: ELF program-header ``PF_X`` (executable) flag, matching LIEF's
+#: ``Segment.FLAGS.X``.
+_ELF_SEGMENT_FLAG_EXEC = 1
+
 # Guards the lazy ``BinaryInfo.data`` fill.  One global lock rather than a
 # per-instance one: the instance cache holds at most _LOAD_BINARY_CACHE_MAX
 # entries and in practice a run touches one target binary, so contention is
@@ -230,21 +234,16 @@ def _load_pe(binary: lief.PE.Binary, path: Path) -> BinaryInfo:
     )
 
 
-def _sections_from_exec_segments(
-    load_segments: Any,
-    exec_mask: int = 1,  # LIEF Segment.FLAGS.X
-) -> list[SectionInfo]:
+def _sections_from_exec_segments(load_segments: Any) -> list[SectionInfo]:
     """Code regions synthesised from executable ``PT_LOAD`` segments.
 
     Only used when the ELF has no *section* headers at all — every sstrip'd
     OpenWrt package and most stripped firmware — where the program headers are
-    the only description of the mapping left.  ``exec_mask`` is a parameter
-    purely so the rule can be unit-tested without LIEF; callers pass LIEF's
-    ``Segment.FLAGS.X``.
+    the only description of the mapping left.
     """
     found: list[SectionInfo] = []
     for index, segment in enumerate(load_segments):
-        if not int(getattr(segment, "flags", 0)) & exec_mask:
+        if not int(getattr(segment, "flags", 0)) & _ELF_SEGMENT_FLAG_EXEC:
             continue
         size = getattr(segment, "physical_size", 0)
         if not size:

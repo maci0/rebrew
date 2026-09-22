@@ -115,24 +115,20 @@ app = typer.Typer(
 )
 
 
-def _collect_context(
-    cfg: Any, include_sources: bool = True, include_headers: bool = True
-) -> tuple[list[str], int]:
+def _collect_context(cfg: Any, include_headers: bool = True) -> tuple[list[str], int]:
     """Collect deduplicated declaration blocks from headers (and sources).
 
     Returns ``(blocks, file_count)`` — *blocks* are source snippets (struct
     definitions, typedefs, enums, function prototypes), deduplicated by their
     text, in stable (path-sorted) order.
 
-    ``--sources-only`` is ``(include_sources=True, include_headers=False)``;
-    gating only *sources* left the headers in, so no flag combination could
-    produce a sources-only file.
+    Reversed sources are always included; ``--sources-only`` drops the library
+    headers by passing ``include_headers=False``.
     """
     files: list[Path] = []
     if include_headers:
         files += list(iter_library_headers(cfg.reversed_dir, cfg))
-    if include_sources:
-        files += list(iter_sources(cfg.reversed_dir, cfg))
+    files += list(iter_sources(cfg.reversed_dir, cfg))
     seen: set[str] = set()
     blocks: list[str] = []
     for path in files:

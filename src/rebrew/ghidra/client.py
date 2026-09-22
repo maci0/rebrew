@@ -519,9 +519,8 @@ def _is_idempotent_success(op: dict[str, Any] | None, error_msg: str) -> bool:
     # that carries ``0x00001000`` (and vice versa).
     text_addrs = {int(a, 16) for a in re.findall(r"0x[0-9a-fA-F]+", text)}
     # A different address named → the error is about something else.
-    for addr in text_addrs:
-        if addr not in op_addrs:
-            return False
+    if not text_addrs <= op_addrs:
+        return False
 
     def _op_spellings(name: str) -> set[str]:
         return {name, name.replace("-", " "), name.replace("-", "_")}

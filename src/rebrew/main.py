@@ -197,10 +197,7 @@ def _json_requested(argv: list[str] | None = None) -> bool:
     ``--cflags "--json"``, switching the uncaught-exception envelope to
     JSON mode without the user passing ``--json`` (cli-review F11).
     """
-    for arg in argv if argv is not None else sys.argv:
-        if arg == "--json" or arg == "--json=true":
-            return True
-    return False
+    return any(arg in ("--json", "--json=true") for arg in (sys.argv if argv is None else argv))
 
 
 def main() -> None:
