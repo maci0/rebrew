@@ -1969,7 +1969,12 @@ def main(
     if fix and cfg:
         from rebrew.annotation import remove_inline_annotation_key
         from rebrew.compile_overrides import resolve_cflags
-        from rebrew.data_metadata import get_data_entry, set_data_field
+        from rebrew.data_metadata import (
+            DATA_METADATA_FIELDS,
+            DATA_STATUSES,
+            get_data_entry,
+            set_data_field,
+        )
         from rebrew.metadata import (
             coerce_metadata_value,
             get_entry,
@@ -2044,6 +2049,18 @@ def main(
                         elif remove_inline_annotation_key(r.filepath, va, key):
                             inline_strip_count += 1
                         continue
+                # A function-only key (or function STATUS value) on a
+                # DATA/GLOBAL marker has no home in rebrew-data.toml: leave it
+                # inline (W019 keeps flagging it).
+                if is_data_marker and (
+                    key not in DATA_METADATA_FIELDS
+                    or (key == "STATUS" and value.strip() not in DATA_STATUSES)
+                ):
+                    console.print(
+                        f"  [yellow]Skipped[/yellow] {r.filepath.name} "
+                        f"// {key}: (not a data metadata field)"
+                    )
+                    continue
                 # Check if the destination store already has this field.
                 if is_data_marker:
                     existing = get_data_entry(cfg.metadata_dir, va, module)

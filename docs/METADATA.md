@@ -106,7 +106,9 @@ whenever the reference binary changes — the layout files carry
 3. Writes to canonical stores go through the gated APIs:
    `update_source_status` / `update_statuses_batch` (STATUS),
    `update_field` / `remove_field` (function metadata, incl. `rebrew blocker`
-   for BLOCKER), `set_data_field` (data metadata), `rebrew library set`
+   for BLOCKER), `set_data_field` / `set_data_fields_batch` (data metadata;
+   keys limited to `DATA_METADATA_FIELDS`, STATUS to the three data
+   verdicts, so a function-only field such as BLOCKER raises), `rebrew library set`
    (library overrides).  **Do not hand-edit `rebrew-functions.toml` or
    `rebrew-data.toml`** — every write goes through `metadata_write_lock` +
    `atomic_write_locked` (see `rebrew/metadata.py`, `rebrew/data_metadata.py`).

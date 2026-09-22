@@ -143,6 +143,17 @@ class TestSetDataField:
             "section": ".rdata",
         }
 
+    def test_rejects_function_only_field(self, tmp_path: Path) -> None:
+        """BLOCKER/CFLAGS belong to rebrew-functions.toml, never the data store."""
+        with pytest.raises(ValueError, match="unknown data metadata field"):
+            set_data_field(tmp_path, 0x10025000, "blocker", "x", "SERVER")
+        assert not (tmp_path / DATA_METADATA_FILENAME).exists()
+
+    def test_rejects_function_status_value(self, tmp_path: Path) -> None:
+        """Data STATUS is a verify --data verdict; EXACT/RELOC are function statuses."""
+        with pytest.raises(ValueError, match="invalid data STATUS"):
+            set_data_field(tmp_path, 0x10025000, "status", "EXACT", "SERVER")
+
 
 class TestSetDataFieldsBatch:
     def test_batch_writes_many_entries_once(self, tmp_path: Path) -> None:

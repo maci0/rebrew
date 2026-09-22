@@ -103,6 +103,9 @@ DATA_METADATA_FIELDS: frozenset[str] = frozenset(
 DATA_STATUS_VERIFIED = "VERIFIED"
 DATA_STATUS_DRIFT = "DRIFT"
 DATA_STATUS_UNCHECKED = "UNCHECKED"
+DATA_STATUSES: frozenset[str] = frozenset(
+    {DATA_STATUS_VERIFIED, DATA_STATUS_DRIFT, DATA_STATUS_UNCHECKED}
+)
 
 # Canonical TOML key order when writing.
 _CANONICAL_ORDER = ["name", "type", "size", "section", "note", "status"]
@@ -122,6 +125,21 @@ __all__ = [
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def _check_data_field(key: str, value: Any) -> None:
+    """Reject a key outside :data:`DATA_METADATA_FIELDS` or a non-verdict STATUS.
+
+    Function-only fields (BLOCKER, CFLAGS, …) and function STATUS values have no
+    meaning in the data store; accepting them would give a fact a second home.
+    """
+    if not key or key.upper() not in DATA_METADATA_FIELDS or key != key.lower():
+        raise ValueError(
+            f"unknown data metadata field {key!r} "
+            f"(expected one of {sorted(k.lower() for k in DATA_METADATA_FIELDS)})"
+        )
+    if key == "status" and value not in DATA_STATUSES:
+        raise ValueError(f"invalid data STATUS {value!r} (expected one of {sorted(DATA_STATUSES)})")
 
 
 # ---------------------------------------------------------------------------
@@ -231,8 +249,7 @@ def set_data_field(directory: Path, va: int, key: str, value: Any, module: str) 
     """
     if not module:
         raise ValueError("data metadata writes require a non-empty module")
-    if not key or not key.isidentifier():
-        raise ValueError(f"invalid data metadata key {key!r}")
+    _check_data_field(key, value)
     if va < 0:
         raise ValueError(f"VA must be non-negative, got {va:#x}")
     path = directory / DATA_METADATA_FILENAME
@@ -310,8 +327,7 @@ def set_data_fields_batch(directory: Path, updates: list[dict[str, Any]]) -> int
             entry = doc[toml_key]
             changed = False
             for key, value in fields.items():
-                if not key or not str(key).isidentifier():
-                    raise ValueError(f"invalid data metadata key {key!r}")
+                _check_data_field(key, value)
                 safe = toml_safe(value)
                 if isinstance(entry, dict) and entry.get(key) == safe:
                     continue

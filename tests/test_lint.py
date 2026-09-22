@@ -780,6 +780,32 @@ class TestLintFix:
         assert entry.get("status") == "EXACT"
         assert entry.get("size") is None  # SIZE is not migrated to metadata
 
+    def test_fix_leaves_function_only_key_on_data_marker(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A BLOCKER or function STATUS on a DATA marker has no data-store field;
+        --fix must leave it inline instead of writing it into rebrew-data.toml."""
+        from typer.testing import CliRunner
+
+        from rebrew.data_metadata import get_data_entry
+        from rebrew.lint import app
+
+        cfg = self._cfg(tmp_path)
+        src = tmp_path / "src"
+        src.mkdir()
+        f = src / "g.c"
+        f.write_text(
+            "// DATA: SERVER 0x2000\n// STATUS: EXACT\n// BLOCKER: pending\nint g;\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setattr("rebrew.lint.load_config", lambda root=None, **kw: cfg)
+        result = CliRunner().invoke(app, ["--fix", str(f)])
+        assert result.exit_code == 0, result.output
+        text = f.read_text(encoding="utf-8")
+        assert "// STATUS: EXACT" in text
+        assert "// BLOCKER: pending" in text
+        assert get_data_entry(tmp_path, 0x2000, "SERVER") == {}
+
     def test_fix_metadata_sourced_status_not_migrated(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
