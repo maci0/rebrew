@@ -35,6 +35,7 @@ from rebrew.cli import (
     require_config,
     select_annotation,
 )
+from rebrew.climb import _function_span as climb_function_span
 from rebrew.compile import compile_and_compare
 from rebrew.utils import atomic_write_text, read_source_text
 
@@ -68,16 +69,13 @@ def variants(decl: str) -> list[tuple[str, str]]:
 
 
 def _function_span(lines: list[str], symbol: str) -> tuple[int, int]:
-    start = next(i for i, ln in enumerate(lines) if symbol in ln)
-    depth = 0
-    begun = False
-    for i in range(start, len(lines)):
-        depth += lines[i].count("{") - lines[i].count("}")
-        if "{" in lines[i]:
-            begun = True
-        if begun and depth == 0:
-            return start, i + 1
-    return start, len(lines)
+    """Half-open line range of *symbol*'s definition, closing brace included.
+
+    Raises:
+        ValueError: when no definition or no matching closing brace is found.
+    """
+    lo, last = climb_function_span(lines, symbol)
+    return lo, last + 1
 
 
 def _is_decl(unit: str) -> bool:
@@ -127,7 +125,10 @@ def main(
 
     original, encoding = read_source_text(path)
     lines = original.splitlines(keepends=True)
-    lo, hi = _function_span(lines, sym)
+    try:
+        lo, hi = _function_span(lines, sym)
+    except ValueError as exc:
+        error_exit(str(exc), json_mode=json_output)
     head, body_lines, tail = lines[:lo], lines[lo:hi], lines[hi:]
     # Split body into top-level `;`-terminated units (declarations live there).
     units: list[str] = []
@@ -145,12 +146,27 @@ def main(
     console.print(f"{sym}: {len(units)} statements, {len(decls)} declarations")
 
     if dry_run:
-        for k in decls:
-            for lab, new in variants(units[k]):
-                console.print(f"  [{k:3d}] {lab}: {_strip_literals(new).strip()[:70]}")
+        candidates = [
+            (k, lab, _strip_literals(new).strip()) for k in decls for lab, new in variants(units[k])
+        ]
+        if json_output:
+            json_print(
+                {
+                    "source": str(path),
+                    "symbol": sym,
+                    "va": hex(va_int),
+                    "candidates": [
+                        {"index": k, "qualifier": lab, "text": text} for k, lab, text in candidates
+                    ],
+                }
+            )
+            return
+        for k, lab, text in candidates:
+            console.print(f"  [{k:3d}] {lab}: {text[:70]}")
         return
 
     base = score_fn(cfg, path, va_int, size, sym)
+    baseline = base
     console.print(f"baseline {base[0]} matched, object size {base[1]} vs target {size}")
     moves: list[dict[str, Any]] = []
 
@@ -193,7 +209,8 @@ def main(
         "source": str(path),
         "symbol": sym,
         "va": hex(va_int),
-        "baseline_matched": base[0],
+        "baseline_matched": baseline[0],
+        "best_matched": base[0],
         "moves": moves,
     }
     if json_output:

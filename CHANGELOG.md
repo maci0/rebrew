@@ -376,6 +376,14 @@
   ``one_line``, ``run_git``). Call sites inside the package already updated.
 
 ### Fixed
+- **`rebrew qual-sweep` finds the definition and reports both scores.**
+  It located the function by the first line containing the raw symbol, so
+  an MSVC `_foo` never matched `foo(` and crashed with a traceback, and a
+  prototype could be picked over the definition.  It now shares `rebrew
+  climb`'s definition lookup and exits with an error when none is found.
+  `--json` `baseline_matched` held the final score; it now holds the
+  baseline, with the final score in `best_matched`.  `--dry-run --json`
+  prints its candidates as JSON instead of nothing.
 - **`rebrew dashboard` keeps keyboard focus.**  Show more, Retry, Reload
   dashboard, and Clear filters hid or disabled themselves on activation,
   dropping focus to the page start (WCAG 2.4.3).  Show more now stays
