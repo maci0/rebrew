@@ -24,6 +24,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from rebrew.utils import file_lock
+
 log = logging.getLogger(__name__)
 
 _REBREW_DIR = ".rebrew"
@@ -42,25 +44,10 @@ def _ga_runs_append_lock(path: Path) -> Iterator[None]:
 
     Same discipline as :func:`rebrew.utils.metadata_write_lock`: the thread
     lock covers in-process workers; an advisory ``flock`` on a ``.lock``
-    sidecar covers concurrent processes.  Falls back to the thread lock
-    alone when ``fcntl`` is unavailable.
+    sidecar covers concurrent processes.
     """
-    try:
-        import fcntl
-    except ImportError:
-        fcntl = None  # type: ignore[assignment]
-
-    with _GA_RUNS_APPEND_LOCK:
-        if fcntl is None:
-            yield
-            return
-        lock_path = Path(str(path) + ".lock")
-        with lock_path.open("w", encoding="utf-8") as lock_fh:
-            fcntl.flock(lock_fh, fcntl.LOCK_EX)
-            try:
-                yield
-            finally:
-                fcntl.flock(lock_fh, fcntl.LOCK_UN)
+    with _GA_RUNS_APPEND_LOCK, file_lock(Path(str(path) + ".lock")):
+        yield
 
 
 @dataclass

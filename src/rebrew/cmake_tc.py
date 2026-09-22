@@ -29,8 +29,6 @@ import subprocess
 import sys
 import tomllib
 import uuid
-from collections.abc import Iterator
-from contextlib import contextmanager
 from pathlib import Path
 
 import typer
@@ -38,13 +36,8 @@ from rich.console import Console
 
 from rebrew.cli import error_exit, json_print
 from rebrew.toolchain import TOOLCHAINS, ToolchainSpec, kill_container
-from rebrew.utils import container_runtime, load_tomllib
+from rebrew.utils import container_runtime, file_lock, load_tomllib
 from rebrew.workspace import walk_up_to_root
-
-try:
-    import fcntl
-except ImportError:  # non-POSIX (no advisory file locks)
-    fcntl = None  # type: ignore[assignment]
 
 console = Console(stderr=True)
 
@@ -101,24 +94,6 @@ _WINE = "/usr/bin/wine"  # the rebrew base image installs wine here
 # ---------------------------------------------------------------------------
 # Resolution
 # ---------------------------------------------------------------------------
-
-
-@contextmanager
-def _exclusive_lock(lock_path: Path) -> Iterator[None]:
-    """Advisory cross-process lock around a wineprefix/docker critical section.
-
-    Falls back to no locking on platforms without ``flock`` (same discipline
-    as :func:`rebrew.utils.metadata_write_lock`).
-    """
-    if fcntl is None:
-        yield
-        return
-    with open(lock_path, "w", encoding="utf-8") as lock_fh:
-        fcntl.flock(lock_fh, fcntl.LOCK_EX)
-        try:
-            yield
-        finally:
-            fcntl.flock(lock_fh, fcntl.LOCK_UN)
 
 
 def _docker_user_args() -> list[str]:
@@ -281,7 +256,7 @@ def _ensure_wineprefix(prefix: Path, spec: ToolchainSpec) -> None:
     prefix.mkdir(parents=True, exist_ok=True)
     assert spec.image is not None  # _resolve_spec validated it
     lock_path = prefix / ".init.lock"
-    with _exclusive_lock(lock_path):
+    with file_lock(lock_path):
         if (prefix / ".update-timestamp").exists():
             return
         name = f"rebrew-{spec.name}-wineboot-{uuid.uuid4().hex[:12]}"
@@ -363,7 +338,7 @@ def _docker_run(spec: ToolchainSpec, mode: str, args: list[str]) -> int:
     ]
 
     try:
-        with _exclusive_lock(prefix / ".run.lock"):
+        with file_lock(prefix / ".run.lock"):
             r = subprocess.run(
                 cmd,
                 capture_output=True,

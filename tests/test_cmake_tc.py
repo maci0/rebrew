@@ -18,13 +18,13 @@ from rebrew.cmake_tc import (
     _docker_run,
     _docker_user_args,
     _ensure_wineprefix,
-    _exclusive_lock,
     _is_host_path,
     _rewrite_args,
     _to_w,
     generate_toolchain_file,
 )
 from rebrew.toolchain import TOOLCHAINS
+from rebrew.utils import file_lock
 from rebrew.workspace import walk_up_to_root
 
 
@@ -143,19 +143,19 @@ class TestDockerUserArgs:
             assert args == []
 
 
-class TestExclusiveLock:
+class TestFileLock:
     def test_released_after_exit(self, tmp_path: Path) -> None:
         import fcntl
 
         lock_path = tmp_path / ".lock"
-        with _exclusive_lock(lock_path):
+        with file_lock(lock_path):
             assert lock_path.exists()
         # After the context exits the handle must be gone: a non-blocking
         # flock on a fresh fd must succeed (no leaked exclusive holder).
         with open(lock_path) as probe:
             fcntl.flock(probe, fcntl.LOCK_EX | fcntl.LOCK_NB)
             fcntl.flock(probe, fcntl.LOCK_UN)
-        with _exclusive_lock(lock_path):
+        with file_lock(lock_path):
             assert lock_path.exists()
 
     def test_excludes_concurrent_holder(self, tmp_path: Path) -> None:
@@ -163,7 +163,7 @@ class TestExclusiveLock:
 
         lock_path = tmp_path / ".lock"
         with (
-            _exclusive_lock(lock_path),
+            file_lock(lock_path),
             open(lock_path) as other,
             pytest.raises(OSError),
         ):

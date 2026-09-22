@@ -22,7 +22,7 @@ from dataclasses import asdict, dataclass, fields
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from rebrew.utils import atomic_write_text
+from rebrew.utils import atomic_write_text, file_lock
 from rebrew.utils import canonical_va_key as canonical_va_key
 from rebrew.verify_hash import (
     _compiler_config_hash,
@@ -290,25 +290,10 @@ def _verify_cache_write_lock(cache_path: Path) -> Iterator[None]:
     ``.lock`` file serializes concurrent processes (e.g. ``rebrew verify
     --watch`` saving while ``rebrew test`` patches a promotion — without
     it, interleaved read-modify-writes silently drop one side's update and
-    status/todo serve a stale entry).  Falls back to the thread lock alone
-    on platforms without ``fcntl``.
+    status/todo serve a stale entry).
     """
-    try:
-        import fcntl
-    except ImportError:  # non-POSIX (no advisory file locks)
-        fcntl = None  # type: ignore[assignment]
-
-    with _VERIFY_CACHE_LOCK:
-        if fcntl is None:
-            yield
-            return
-        lock_path = Path(str(cache_path) + ".lock")
-        with lock_path.open("w", encoding="utf-8") as lock_fh:
-            fcntl.flock(lock_fh, fcntl.LOCK_EX)
-            try:
-                yield
-            finally:
-                fcntl.flock(lock_fh, fcntl.LOCK_UN)
+    with _VERIFY_CACHE_LOCK, file_lock(Path(str(cache_path) + ".lock")):
+        yield
 
 
 def _cache_identity_matches(raw: dict[str, Any], cfg: ProjectConfig) -> bool:

@@ -2,6 +2,7 @@
 
 import contextlib
 import copy
+import fcntl
 import logging
 import os
 import shlex
@@ -685,6 +686,21 @@ _METADATA_WRITE_DEPTH = threading.local()
 
 
 @contextlib.contextmanager
+def file_lock(lock_path: Path) -> Iterator[None]:
+    """Hold an exclusive advisory ``flock`` on *lock_path* (created if absent).
+
+    Cross-process only: ``flock`` does not exclude other threads that open
+    their own fd in the same process, so callers pair it with a thread lock.
+    """
+    with lock_path.open("w", encoding="utf-8") as lock_fh:
+        fcntl.flock(lock_fh, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock_fh, fcntl.LOCK_UN)
+
+
+@contextlib.contextmanager
 def metadata_write_lock(directory: Path, filename: str) -> Iterator[None]:
     """Thread + cross-process lock around a metadata read-modify-write.
 
@@ -695,17 +711,11 @@ def metadata_write_lock(directory: Path, filename: str) -> Iterator[None]:
     processes* (e.g. ``rebrew verify --watch`` in one terminal while
     ``rebrew test`` promotes in another — without it, interleaved
     read-modify-writes silently drop one process's STATUS promotion).
-    Falls back to the thread lock alone on platforms without ``fcntl``.
 
     Reentrant within one thread: a nested acquisition on the same filename
     yields without re-``flock``ing (the flock is held until the outermost
     exit), so a compound critical section can call helpers that lock again.
     """
-    try:
-        import fcntl
-    except ImportError:  # non-POSIX (no advisory file locks)
-        fcntl = None  # type: ignore[assignment]
-
     path = (directory / filename).resolve()
     # Reject directory-traversal filenames (e.g. "../../etc/passwd") — the
     # lock file is derived from this path and would otherwise escape the
@@ -739,16 +749,8 @@ def metadata_write_lock(directory: Path, filename: str) -> Iterator[None]:
             return
         depth[filename] = 1
         try:
-            if fcntl is None:
+            with file_lock(path.with_suffix(path.suffix + ".lock")):
                 yield
-                return
-            lock_path = path.with_suffix(path.suffix + ".lock")
-            with lock_path.open("w", encoding="utf-8") as lock_fh:
-                fcntl.flock(lock_fh, fcntl.LOCK_EX)
-                try:
-                    yield
-                finally:
-                    fcntl.flock(lock_fh, fcntl.LOCK_UN)
         finally:
             depth.pop(filename, None)
 
