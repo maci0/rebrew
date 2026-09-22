@@ -2,8 +2,8 @@
 name: rebrew-data-analysis
 description: >-
   Use when working with globals, '// DATA:'/'// GLOBAL:' annotations, BSS gaps,
-  dispatch tables/vtables, ~~ relocation mismatches from missing externs, or
-  cross-TU type conflicts. Triggers on 'global', 'data section', 'BSS',
+  dispatch tables/vtables, XX relocations or missing_globals hints in a diff,
+  or cross-TU type conflicts. Triggers on 'global', 'data section', 'BSS',
   'vtable', 'dispatch table', 'bss gap', 'extern', 'type conflict',
   'rebrew data', or 'data-drift'. Not for function bodies
   (rebrew-workflow/matching) or Ghidra data pulls
@@ -115,26 +115,22 @@ missing `SECTION` metadata (W016) and inline volatile keys — run it after addi
 
 ## Debugging Relocation Mismatches
 
-If code matches but absolute addresses differ, the cause is often missing globals
-in `.bss`. Run `rebrew data --bss --json` to detect gaps between known globals
-that indicate missing `extern` declarations.
+`~~` rows are accepted relocations (they count toward RELOC); leave them alone.
+Two diff signals point at globals:
 
-### Common causes of relocation-only diffs (`~~` markers)
+| Signal in `rebrew diff --json` | Cause | Fix |
+|--------------------------------|-------|-----|
+| `XX` rows (`summary` counts them as mismatches) | Relocation resolves to a catalogued global at the wrong VA: wrong name or a type conflict | Check the name in `rebrew-data.toml`; run `--conflicts` and unify the type |
+| `missing_globals` hints (`[0]` operand on a `**` row) | Reference never resolved: no definition for the target address | Add `extern` + `// GLOBAL: MODULE 0x<VA>` |
 
-| Symptom | Cause | Fix |
-|---------|-------|-----|
-| `mov eax, [0x1002XXXX]` differs | Global not declared as `extern` | Add `extern int g_var;` and `// GLOBAL:` annotation |
-| BSS gap between two globals | Missing `extern` variable in between | Check `--bss` output for gap addresses |
-| Multiple `~~` at same VA range | Shared global with different types across files | Run `--conflicts` and unify the type |
+### Workflow
 
-### Workflow for fixing relocation mismatches
-
-1. Run `rebrew diff --json src/bench/<file>.c` — note `~~` addresses
-2. Run `rebrew data --bss --json` — check if the addresses fall in BSS gaps
-3. Run `rebrew data --fix-bss --dry-run` first (preview), then `rebrew data --fix-bss` to
-   generate `bss_padding.c` (writes SIZE/SECTION/NOTE into `{metadata_dir}/rebrew-data.toml`)
-4. Add missing `extern` declarations with `// GLOBAL:` annotations
-5. Re-run `rebrew data --bss --json` to confirm the gap is gone, then
+1. `rebrew diff --json src/bench/<file>.c`: note `XX` rows and `missing_globals`
+2. Add the missing `extern` declarations with `// GLOBAL:` annotations
+3. `rebrew data --bss --json`: gaps between known globals mean more missing externs
+4. `rebrew data --fix-bss --dry-run`, then `rebrew data --fix-bss` to generate
+   `bss_padding.c` (writes SIZE/SECTION/NOTE into `{metadata_dir}/rebrew-data.toml`)
+5. Re-run `rebrew data --bss --json` until no gaps remain, then
    `rebrew test src/bench/<file>.c --json`
 
 ## Dispatch Tables and Vtables

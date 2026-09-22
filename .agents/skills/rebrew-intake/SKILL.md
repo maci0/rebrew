@@ -191,7 +191,7 @@ rebrew skeleton 0x<VA> --xrefs          # with caller context from Ghidra
 ```
 
 `--batch N` picks the N smallest eligible functions first. `--decomp` requires a reachable
-decompiler (`--decomp-backend`: `auto`, `r2ghidra`, `r2dec`, `ghidra`; default `auto`).
+decompiler (`--decomp-backend`: `auto`, `r2ghidra`, `r2dec`, `ghidra`, `kuna`, `m2c`; default `auto`).
 
 For library functions identified by FLIRT, check if vendored reference source is
 available under the project's `toolchain/` tree (e.g. MSVCRT at

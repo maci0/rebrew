@@ -37,7 +37,7 @@ For the overall reversing workflow, see the `rebrew-workflow` skill.
 
 - Picking which function to work on → use `rebrew-workflow` (`rebrew todo`)
 - Generating skeletons / editing source / verifying STATUS → use `rebrew-workflow`
-- Fixing missing globals / `~~` diffs caused by BSS gaps → use `rebrew-data-analysis`
+- `XX` rows or `missing_globals` hints (wrong or unresolved globals) → use `rebrew-data-analysis`
 
 ## 1. Diff Analysis (Always Start Here)
 

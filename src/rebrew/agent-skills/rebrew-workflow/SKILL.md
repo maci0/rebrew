@@ -45,7 +45,7 @@ Also note `rebrew types` in §8 for struct/signature rewrites.
 ```bash
 rebrew status --json                    # Quick overview: counts per STATUS, % coverage
 rebrew todo --json                      # Primary: highest ROI action items
-rebrew todo -c start-function --json    # Filter category: start-function | fix-delta | compile-error | extract-error | improve-match | missing-annotation | identify-library | run-prover | setup | documented (audit-only) | data-drift
+rebrew todo -c start-function --json    # Filter category: start-function | fix-delta | compile-error | extract-error | improve-match | missing-annotation | identify-library | run-prover | setup | documented (audit-only) | data-drift | start-data | blocked (any item with BLOCKER)
 rebrew flirt --json                     # FLIRT scan: identify known library functions (fast wins)
 rebrew crt-match --all --json           # Find matching CRT source files for LIBRARY functions
 rebrew similar 0x10001000 --json        # Find structurally similar functions (same source family)
@@ -141,7 +141,7 @@ and fallback size come from it — same rule as diff/match/prove). Pass
 
 `rebrew test` syncs STATUS (`--no-promote` skips): EXACT/RELOC update + clear
 BLOCKER; NEAR_MATCHING (≥60%) updates; STUB (<60%) demotes; PROVEN is sticky
-(`--force-status` to demote). Exit: `0` EXACT/RELOC · `1` NEAR/STUB · `2` compile error.
+(`--force-status` to demote). Exit: `0` EXACT/RELOC · `1` NEAR/STUB · `2` compile/extract error.
 
 For a byte diff of the current state:
 
