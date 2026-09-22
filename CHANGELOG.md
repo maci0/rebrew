@@ -376,6 +376,15 @@
   ``one_line``, ``run_git``). Call sites inside the package already updated.
 
 ### Fixed
+- **Piping into `head` exits quietly.**  A reader that closed stdout early
+  (`rebrew toolchain list --json | head`) left the final flush to
+  interpreter exit, which printed an "Exception ignored ... BrokenPipeError"
+  warning and exited 120.  `rebrew` now exits 141 (the SIGPIPE status) with
+  nothing on stderr.
+- **`rebrew lib-match --va` validates the VA first.**  A malformed `--va`
+  was parsed only after every archive was indexed, and printed a Rich
+  error instead of the JSON envelope under `--json`.  It now fails at once
+  with exit 2 and the JSON error.
 - **Legacy sources with an undefined CP1252 byte round-trip.**  A source
   holding 0x81/0x8D/0x8F/0x90/0x9D outside a Shift-JIS pair was read as
   cp1252 with the byte replaced by U+FFFD, and every write-back (`rebrew

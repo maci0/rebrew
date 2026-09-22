@@ -62,6 +62,7 @@ from rebrew.cli import (
     TargetOption,
     error_exit,
     json_print,
+    parse_va,
     require_config,
 )
 from rebrew.config import module_marker
@@ -461,6 +462,7 @@ def main(
     from rebrew.toolchain import ToolchainError
 
     cfg = require_config(target=target, json_mode=json_output)
+    va_int = parse_va(va, json_mode=json_output) if va is not None else None
 
     if not lib and not stock_lib:
         # Ingest the configured external archives by default (explicit
@@ -496,11 +498,9 @@ def main(
     for sym, entries in index_objects(objects).items():
         index.setdefault(sym, []).extend(entries)
 
-    if va is not None:
-        from rebrew.cli import parse_va
+    if va_int is not None:
         from rebrew.metadata import get_entry
 
-        va_int = parse_va(va)
         module = module_marker(cfg)
         size = (get_entry(cfg.metadata_dir, va_int, module) or {}).get("size") or 0
         data = extract_raw_bytes(cfg.target_binary, va_int, size or PREFIX_BYTES)

@@ -77,3 +77,26 @@ class TestUmbrellaCli:
         assert not ctx.disposed
         assert not scope._closed
         assert ctx.resolve(CLI_SERVICE) is main_mod.app
+
+
+class TestClosedStdout:
+    def test_closed_pipe_exits_like_sigpipe(self) -> None:
+        """``rebrew ... | head`` must not warn on stderr or exit 120."""
+        import os
+        import subprocess
+        import sys
+
+        read_fd, write_fd = os.pipe()
+        os.close(read_fd)  # reader gone before the child writes anything
+        try:
+            proc = subprocess.run(
+                [sys.executable, "-m", "rebrew.main", "skills", "list", "--json"],
+                stdout=write_fd,
+                stderr=subprocess.PIPE,
+                timeout=120,
+                check=False,
+            )
+        finally:
+            os.close(write_fd)
+        assert proc.returncode == 141, proc.stderr
+        assert proc.stderr == b""

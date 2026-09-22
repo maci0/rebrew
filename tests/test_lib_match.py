@@ -154,6 +154,17 @@ class TestLibMatch:
         res = CliRunner().invoke(app, [])
         assert res.exit_code == 2, res.output
 
+    def test_bad_va_is_json_usage_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.lib_match import app
+
+        pe_path, lib_path, _ = _write_project(tmp_path)
+        _mock_cfg(tmp_path, pe_path, monkeypatch)
+        res = CliRunner().invoke(app, ["--lib", str(lib_path), "--va", "zz", "--json"])
+        assert res.exit_code == 2, res.output
+        assert json.loads(res.stdout)["error"] == "Invalid hex VA: 'zz'"
+
 
 class TestLoadAllowlist:
     def test_none_is_empty(self) -> None:
