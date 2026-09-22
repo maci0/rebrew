@@ -365,6 +365,12 @@
   ``one_line``, ``run_git``). Call sites inside the package already updated.
 
 ### Fixed
+- **`rebrew dashboard` answers an oversized `offset` with an empty page.**
+  `/api/functions`, `/api/globals`, and `/api/history` passed any
+  non-negative `offset` to SQLite, so a value past int64 raised
+  `OverflowError` and the client got `500 internal server error` for its
+  own mistake.  The offset now clamps to SQLite's int64 max and the
+  response echoes the applied value.
 - **`rebrew match --seed-llm` rejects a bad model id instead of swapping
   it.**  An unpinned alias (`latest`/`auto`/`default`) or a malformed
   `[llm] model` / `REBREW_LLM_MODEL` used to log a warning and send the

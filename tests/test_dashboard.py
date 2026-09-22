@@ -634,6 +634,17 @@ class TestHandle:
         assert data["total"] == 2
         assert data["offset"] == 50
 
+    def test_offset_beyond_sqlite_int_is_empty_page(self, dashboard: Dashboard) -> None:
+        huge = str(10**30)
+        for path in ("/api/functions", "/api/globals", "/api/history"):
+            status, _, body = dashboard.handle(
+                "GET", path, {"target": ["server_dll"], "offset": [huge]}
+            )
+            assert status == 200, path
+            page = json.loads(body)
+            assert page["count"] == 0, path
+            assert page["offset"] == 2**63 - 1, path
+
     def test_api_functions_nonpositive_limit_uses_default(self, dashboard: Dashboard) -> None:
         status, _, body = dashboard.handle(
             "GET", "/api/functions", {"target": ["server_dll"], "limit": ["0"]}

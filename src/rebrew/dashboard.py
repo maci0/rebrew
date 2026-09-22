@@ -28,6 +28,9 @@ a web page the analyst visits cannot reach the server via DNS rebinding.
 List endpoints expose ``count`` (rows in this page), ``total`` (matching rows),
 and the applied ``limit`` / ``offset`` (offset is 0 when the endpoint has no page;
 ``/api/sections``, ``/api/targets``, and ``/api/bootstrap`` always report offset 0).
+A missing, malformed, or non-positive ``limit`` uses 100 and larger values clamp
+to 5000; a missing, malformed, or negative ``offset`` uses 0 and values past
+SQLite's int64 range clamp to it.  Clients read the applied values back.
 Successful 200 responses negotiate ``zstd`` then ``gzip`` (``Accept-Encoding``
 quality weights; explicit ``coding;q=0`` beats ``*``), carry an ``ETag`` (HTML
 or ``/app.js`` content hash, or DB mtime), and use ``Cache-Control: private,
@@ -81,6 +84,8 @@ _LOG_CONTROL_CHARS[ord("\\")] = "\\\\"
 
 _DEFAULT_LIMIT = 100
 _MAX_LIMIT = 5000
+#: SQLite INTEGER max; a larger bound parameter raises OverflowError.
+_MAX_OFFSET = 2**63 - 1
 _FUNCTION_COLS = ("va", "name", "symbol", "size", "status", "module", "files")
 _GLOBAL_COLS = ("va", "name", "decl", "size", "module")
 _HISTORY_COLS = ("va", "name", "old_status", "new_status", "changed_at")
@@ -1144,7 +1149,8 @@ def _offset_param(params: dict[str, list[str]], name: str, default: int = 0) -> 
     Missing, empty, non-numeric, or negative values fall back to *default*.
     Zero is valid.  Values are **not** capped at ``_MAX_LIMIT`` — that bound
     is for page size only; clamping skip would make rows past the cap
-    unreachable via ``limit``+``offset`` pagination.
+    unreachable via ``limit``+``offset`` pagination.  They are clamped to
+    ``_MAX_OFFSET`` so an oversized skip is an empty page, not a 500.
     """
     values = params.get(name)
     raw = values[0] if values else None
@@ -1156,7 +1162,7 @@ def _offset_param(params: dict[str, list[str]], name: str, default: int = 0) -> 
         return default
     if value < 0:
         return default
-    return value
+    return min(value, _MAX_OFFSET)
 
 
 def _opt_query(params: dict[str, list[str]], name: str) -> str | None:
