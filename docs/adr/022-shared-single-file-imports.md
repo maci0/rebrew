@@ -78,3 +78,24 @@ copy.
 - The default copy path is unchanged; `--shared` is opt-in per import, so
   divergent functions (beyond `#ifdef`-ability) keep the copy flow.
 - No auto-migration of existing per-target copies; the copies keep working.
+
+## Coverage audit (2026-09-22)
+
+Every other surface checked shared-correct, no change needed:
+
+- Scan side (`iter_sources`/`scan_reversed_dir` with cfg): status, catalog,
+  todo, rename, extract, context, binsync export, ghidra watch — shared
+  files appear per target with only their own marker.
+- Compile/verify/test/diff/prove/match: target-filtered blocks, per-target
+  defines, shared root on the include path; compile + verify caches key on
+  content+flags+defines+toolchain, so identical shared bodies share hits
+  and `#ifdef` variants stay separate.
+- Metadata: `rebrew-functions.toml` and `rebrew-data.toml` both key
+  `(module, va)` — same-VA twins across targets stay isolated (proven live:
+  V1 EXACT / V2 STUB on one `0x401000`).
+- Creation tools (skeleton, new-file paths) default per-target — correct:
+  sharing is a promotion decision (`--promote`, `merge --shared`), not a
+  creation default.
+- Remaining raw `*.c`/`*.h` rglobs are intentionally scoped: gen-stubs
+  scans the whole tree (covers shared), inline-strings `--source-dir` is
+  explicit, round-trip/types/binsync headers are per-target build state.
