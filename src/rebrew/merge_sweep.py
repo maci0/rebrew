@@ -421,8 +421,7 @@ class _PartitionScorer:
         picked = sorted({va: block for va, block in blocks if va in wanted}.items())
         if not picked:
             return None
-        merged = _merge_preambles(preambles) + "\n\n".join(b for _, b in picked) + "\n"
-        return merged
+        return _merge_preambles(preambles) + "\n\n".join(b for _, b in picked) + "\n"
 
     def _real_source_dir(self, va: int) -> Path:
         """Directory holding *va*'s real source file (override resolution root)."""

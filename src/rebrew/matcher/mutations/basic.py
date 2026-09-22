@@ -202,8 +202,7 @@ def mut_toggle_bool_not(s: str, rng: random.Random) -> str | None:
     b_source = encode_source(s)
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
-        ident = b_source[captures["ident"].start_byte : captures["ident"].end_byte]
-        return ident
+        return b_source[captures["ident"].start_byte : captures["ident"].end_byte]
 
     res = _apply_query_once(b_source, _QUERY_DOUBLE_NOT, _repl, rng)
     return decode_source(res) if res else None
@@ -363,8 +362,7 @@ def mut_remove_cast(s: str, rng: random.Random) -> str | None:
     b_source = encode_source(s)
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
-        val = b_source[captures["val"].start_byte : captures["val"].end_byte]
-        return val
+        return b_source[captures["val"].start_byte : captures["val"].end_byte]
 
     res = _apply_query_once(b_source, _QUERY_REMOVE_CAST, _repl, rng)
     return decode_source(res) if res else None
@@ -1083,8 +1081,7 @@ def mut_change_return_type(s: str, rng: random.Random) -> str | None:
         candidates = [t for t in types if t != current]
         if not candidates:
             return encode_source(current)
-        new_type = encode_source(rng.choice(candidates))
-        return new_type
+        return encode_source(rng.choice(candidates))
 
     res = _apply_query_once(b_source, _QUERY_RETURN_TYPE, _repl, rng)
     return decode_source(res) if res is not None else None

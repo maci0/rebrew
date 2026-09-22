@@ -214,11 +214,7 @@ class VerifyCacheEntry:
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> VerifyCacheEntry:
         """Reconstruct a VerifyCacheEntry from a JSON dictionary (flat v2 form)."""
-        kwargs: dict[str, Any] = {}
-        for f in fields(cls):
-            if f.name in d:
-                kwargs[f.name] = d[f.name]
-        return cls(**kwargs)
+        return cls(**{f.name: d[f.name] for f in fields(cls) if f.name in d})
 
     def to_dict(self) -> dict[str, Any]:
         """Convert this VerifyCacheEntry to a JSON-serializable dictionary."""
