@@ -1,5 +1,7 @@
 """Tests for probe, qual-sweep, gap-trace, residue (pure helpers + CLI wiring)."""
 
+from pathlib import Path
+
 import pytest
 
 
@@ -126,3 +128,22 @@ class TestCommandWiring:
         for cmd in ("probe", "qual-sweep", "gap-trace"):
             r = CliRunner().invoke(app, [cmd, "--help"])
             assert r.exit_code == 0, cmd
+
+    def test_residue_defaults_to_target_build_output(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import json
+
+        from typer.testing import CliRunner
+
+        from rebrew.residue import app
+
+        root = tmp_path
+        (root / "rebrew-project.toml").write_text(
+            '[project]\ndefault_target = "game"\n[targets.game]\nbinary = "game.exe"\nreversed_dir = "src"\n',
+            encoding="utf-8",
+        )
+        monkeypatch.chdir(root)
+        r = CliRunner().invoke(app, ["--json"])
+        assert r.exit_code == 2
+        assert json.loads(r.stdout)["error"] == f"Built image not found: {root / 'build' / 'game'}"

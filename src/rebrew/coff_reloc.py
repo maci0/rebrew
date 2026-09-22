@@ -235,9 +235,18 @@ def build_name_to_va(
                     name_to_va[ann_name] = ann_va
         else:
             from rebrew.annotation import parse_c_file_multi
+            from rebrew.config import module_marker
 
+            # Marker-scope the scan.  A shared file carries one marker per
+            # target, and the same symbol name sits at a different VA in each
+            # binary; unfiltered, the last marker parsed wins the name and
+            # every call to that symbol in the *other* target false-fails
+            # REL32 validation (guild-rebrew round 1290: gm_RandomFloat01
+            # resolved to the SERVER VA inside a GOLDTL compare, so a correct
+            # `call` was reported as a 2-byte NEAR_MATCHING).
+            active_marker = module_marker(cfg)
             for path in iter_sources(cfg.reversed_dir, cfg):
-                for ann in parse_c_file_multi(path):
+                for ann in parse_c_file_multi(path, target_name=active_marker):
                     if getattr(ann, "marker_type", "") == "LIBRARY":
                         continue
                     if ann.name and ann.va:

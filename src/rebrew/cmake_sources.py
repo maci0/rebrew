@@ -1,4 +1,4 @@
-"""cmake_sources.py — emit the per-target source list a CMake build must compile.
+"""Emit the per-target source list a CMake build must compile.
 
 A glob (``src/shared/*.c``) over-includes: a shared tree holds every
 target's TUs, and a target must compile only the files carrying its own

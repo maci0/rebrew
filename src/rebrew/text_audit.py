@@ -10,7 +10,7 @@ When objects are unavailable, actual VAs fall back to exported-symbol lookup
 on the built binary.
 
 Usage:
-    rebrew text-audit [--built build/server.dll] [--limit 15] [--json]
+    rebrew text-audit [--built build/<target>] [--limit 15] [--json]
 """
 
 from __future__ import annotations
@@ -139,10 +139,10 @@ def audit_text(
 
 @app.callback(invoke_without_command=True)
 def main(
-    built: Path = typer.Option(
-        Path("build/server.dll"),
+    built: Path | None = typer.Option(
+        None,
         "--built",
-        help="Built binary to inspect (default: build/server.dll)",
+        help="Built binary to inspect (default: build/<target>)",
     ),
     limit: int = typer.Option(15, "--limit", help="Max misplaced functions to print"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
@@ -151,6 +151,8 @@ def main(
     """Build-then-compare: .text function VAs of the current build vs the markers."""
     cfg = require_config(target=target, json_mode=json_output)
     root = Path(cfg.root)
+    if built is None:
+        built = Path("build") / cfg.target_name
     dll = built if built.is_absolute() else root / built
     if not dll.exists():
         error_exit(

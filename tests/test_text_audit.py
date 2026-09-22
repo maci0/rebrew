@@ -130,12 +130,12 @@ class TestTextAuditCli:
 
         monkeypatch.chdir(_project(tmp_path))
         # Wide terminal: Rich wraps at terminal width, which varies by
-        # environment (e.g. under pytest-xdist) and can split "server.dll"
-        # mid-word with a space no normalization can rejoin.
+        # environment (e.g. under pytest-xdist) and can split the path
+        # mid-path with a space no normalization can rejoin.
         monkeypatch.setenv("COLUMNS", "200")
         result = CliRunner().invoke(app, [])
         assert result.exit_code == 2
-        assert "server.dll" in result.output
+        assert "build/game" in result.output
         assert "not found" in result.output
 
     def test_custom_built_path_honored(
@@ -164,7 +164,7 @@ class TestTextAuditCli:
         from rebrew.text_audit import app
 
         monkeypatch.chdir(_project(tmp_path, {"a.c": _TWO_FUNCS_C, "b.c": _TWO_FILES_B}))
-        (tmp_path / "build" / "server.dll").write_bytes(b"MZ")
+        (tmp_path / "build" / "game").write_bytes(b"MZ")
         # alpha at base+0 of TU#1; beta at offset 0 of TU#2 → base + 0x20.
         _patch_layout(monkeypatch, objects=[(0x20, {"_alpha": 0}), (0x20, {"_beta": 0})])
         result = CliRunner().invoke(app, ["--json"])
@@ -182,7 +182,7 @@ class TestTextAuditCli:
         from rebrew.text_audit import app
 
         monkeypatch.chdir(_project(tmp_path, {"a.c": _TWO_FUNCS_C, "b.c": _TWO_FILES_B}))
-        (tmp_path / "build" / "server.dll").write_bytes(b"MZ")
+        (tmp_path / "build" / "game").write_bytes(b"MZ")
         # beta lands at base+0x10 instead of the marked 0x1020.
         _patch_layout(monkeypatch, objects=[(0x10, {"_alpha": 0}), (0x20, {"_beta": 0})])
         result = CliRunner().invoke(app, ["--json"])
@@ -207,7 +207,7 @@ class TestTextAuditCli:
         from rebrew.text_audit import app
 
         monkeypatch.chdir(_project(tmp_path, {"a.c": _TWO_FUNCS_C, "b.c": _TWO_FILES_B}))
-        (tmp_path / "build" / "server.dll").write_bytes(b"MZ")
+        (tmp_path / "build" / "game").write_bytes(b"MZ")
         _patch_layout(monkeypatch, objects=[(0x10, {"_alpha": 0}), (0x20, {"_beta": 0})])
         result = CliRunner().invoke(app, [])
         assert result.exit_code == 1
@@ -223,7 +223,7 @@ class TestTextAuditCli:
         from rebrew.text_audit import app
 
         monkeypatch.chdir(_project(tmp_path, {"a.c": _TWO_FUNCS_C, "b.c": _TWO_FILES_B}))
-        (tmp_path / "build" / "server.dll").write_bytes(b"MZ")
+        (tmp_path / "build" / "game").write_bytes(b"MZ")
         # beta has no .text symbol in the build — MISSING, not misplaced.
         _patch_layout(monkeypatch, objects=[(0x20, {"_alpha": 0})])
         result = CliRunner().invoke(app, ["--json"])
@@ -237,7 +237,7 @@ class TestTextAuditCli:
         from rebrew.text_audit import app
 
         monkeypatch.chdir(_project(tmp_path))
-        (tmp_path / "build" / "server.dll").write_bytes(b"MZ")
+        (tmp_path / "build" / "game").write_bytes(b"MZ")
         _patch_layout(monkeypatch, fail=RuntimeError("objdump exploded"))
         result = CliRunner().invoke(app, [])
         assert result.exit_code == 2
@@ -258,7 +258,7 @@ class TestExportFallback:
         import rebrew.text_audit as ta
 
         monkeypatch.chdir(_project(tmp_path, {"a.c": _TWO_FUNCS_C}))
-        pe = _export_pe(tmp_path / "build" / "server.dll", ["alpha"])
+        pe = _export_pe(tmp_path / "build" / "game", ["alpha"])
         monkeypatch.setattr(
             dl, "link_objects", lambda _root: (_ for _ in ()).throw(FileNotFoundError("no rsp"))
         )

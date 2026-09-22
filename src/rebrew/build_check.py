@@ -1,4 +1,4 @@
-"""build_check.py — is ``build/`` still the tree CMake generated?
+"""Check whether ``build/`` is still the tree CMake generated.
 
 ``build/`` is gitignored in every rebrew project, so no tracked-file check, no
 ``rebrew lint``, no ``rebrew verify`` and no ``git status`` can see inside it.

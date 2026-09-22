@@ -321,7 +321,7 @@ skipped.
 
 `rebrew residue [BUILT] [--baseline PATH] [--new-baseline PATH] [--json] [--target NAME]`
 
-Apply postlink fixers to BUILT and report the remaining byte residue:
+Apply postlink fixers to BUILT (default `build/<target>`) and report the remaining byte residue:
 per-section diffs plus per-function attribution of the `.text` bytes
 `verify` still reports as not byte-matched. `--new-baseline` writes the
 report as JSON (adopt as baseline); `--baseline` prints per-function
@@ -971,7 +971,7 @@ the culprit while the symbol rows show the victims. Terminal mode prints a
 
 ### `rebrew text-audit`
 
-`rebrew text-audit [--built build/server.dll] [--limit 15] [--json]`
+`rebrew text-audit [--built build/<target>] [--limit 15] [--json]`
 
 Post-edit check: walk the link's object files (objdump, link order), compute
 each function's current `.text` VA, and compare against the `// FUNCTION:`

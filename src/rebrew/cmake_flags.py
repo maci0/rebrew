@@ -1,4 +1,4 @@
-"""cmake_flags.py — emit the per-file CFLAGS a CMake build must compile with.
+"""Emit the per-file CFLAGS a CMake build must compile with.
 
 The flags a translation unit compiles with are ``rebrew-functions.toml``'s
 business: that is the store every tool resolves from, and rebrew's own lint

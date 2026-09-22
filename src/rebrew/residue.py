@@ -140,7 +140,7 @@ def _nonmatching_from_cache(cfg: Any, image_base: int, text_rva: int) -> list[tu
 
 @app.callback(invoke_without_command=True)
 def main(
-    built: str = typer.Argument(None, help="Built image to measure (default: project output)"),
+    built: str = typer.Argument(None, help="Built image to measure (default: build/<target>)"),
     baseline: str | None = typer.Option(
         None,
         "--baseline",
@@ -156,18 +156,7 @@ def main(
     import json
 
     cfg = require_config(target=target, json_mode=json_output)
-    built_path = (
-        Path(built) if built else Path(cfg.root) / getattr(cfg, "output_binary", "build/out.dll")
-    )
-    if not built_path.is_file():
-        # Fall back to the conventional build output locations.
-        for cand in (
-            Path(cfg.root) / "build" / "server.dll",
-            Path(cfg.root) / "build" / "split_poc.dll",
-        ):
-            if cand.is_file():
-                built_path = cand
-                break
+    built_path = Path(built) if built else Path(cfg.root) / "build" / cfg.target_name
     if not built_path.is_file():
         error_exit(f"Built image not found: {built_path}", json_mode=json_output)
 

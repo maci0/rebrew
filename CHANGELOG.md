@@ -319,11 +319,29 @@
   ``one_line``, ``run_git``). Call sites inside the package already updated.
 
 ### Fixed
+- **The reloc-validation catalog is marker-scoped.**  `build_name_to_va`
+  scanned reversed sources with `parse_c_file_multi(path)` and no target
+  filter, so in a shared file carrying one `// FUNCTION:` marker per target
+  (ADR-022/ADR-023 stacking) the last marker parsed won the symbol name: the
+  same function at two VAs collapsed to one entry.  A compare for the other
+  target then validated REL32 callees against the wrong VA and reported a
+  correct `call` as a byte mismatch — guild-rebrew round 1290 hit it with
+  `gm_RandomFloat01` (GOLDTL `0x42e450` vs SERVER `0x1001a0f0`), where a
+  48/48-byte function sat at NEAR_MATCHING on the relocation field alone.
+  The scan now passes the active marker (`module_marker(cfg)`), so each
+  target's catalog holds its own VAs.  Regression test:
+  `tests/test_coff_reloc.py::test_function_catalog_scan_is_marker_scoped`.
+- **`text-audit` and `residue` default to `build/<target>`.**  `text-audit`
+  defaulted `--built` to a hardcoded `build/server.dll`, and `residue` read a
+  nonexistent `output_binary` config field then probed `build/server.dll` and
+  `build/split_poc.dll`.  Both now use the active target's build output, like
+  `verify` and `verify-placement`.  `cmake-flags`, `cmake-sources`, and
+  `build-check` help summaries no longer start with their module filename.
 - **`Cvdump.run` reaps its cvdump/wine child when parsing aborts.**  The
   runner read the child's stdout straight into the parser with no
   cleanup path, so any exception mid-stream left the process running and
   the pipe held by a dead owner.  The parse loop now runs under a
-  `try/finally` that kills and waits for an still-alive child and closes
+  `try/finally` that kills and waits for a still-alive child and closes
   the wrapper; a clean run still just waits, never kills.  CORDIS review
   (arXiv:2608.25512) `leak` finding; two lifecycle tests in
   `tests/test_reccmp_adaptations.py` pin both paths.

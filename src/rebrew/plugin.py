@@ -32,7 +32,7 @@ built: a CLI process composes once and has no module to swap, and
 from __future__ import annotations
 
 import contextlib
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
 
@@ -119,6 +119,7 @@ class Context:
 
     def __init__(self, parent: Context | None = None) -> None:
         self._parent = parent
+        self._children: list[Context] = []
         self._services: dict[str, Any] = {}
         self._effects: list[_Effect] = []
         self._owners: list[list[_Effect]] = []
@@ -154,14 +155,12 @@ class Context:
         if key not in self._services:
             raise ComponentError(f"service {key!r} is not provided")
         seen: set[int] = set()
-        ctx: Context | None = self
-        while ctx is not None:
+        for ctx in self._scope_chain():
             for callback in list(ctx._on_change):
                 scope = getattr(callback, "__self__", None)
                 if id(callback) not in seen and isinstance(scope, CoeffectScope):
                     seen.add(id(callback))
                     scope._withdraw_key(key)
-            ctx = ctx._parent
         for index, effect in enumerate(self._effects):
             if effect.key == key:
                 del self._effects[index]
@@ -213,12 +212,20 @@ class Context:
         _remove_identity(self._effects, effect)
 
     def fork(self) -> Context:
-        """A derived context that resolves services through this one."""
-        return Context(parent=self)
+        """A derived context that resolves services through this one.
+
+        The fork is registered as a child so table changes and withdrawals
+        on this context reach scopes attached below it (Definition 22
+        covers every context that can resolve the key, not just the
+        nearest).  Disposing the fork detaches it.
+        """
+        child = Context(parent=self)
+        self._children.append(child)
+        return child
 
     # ponytail: no isolation realms or service interception (paper Def 24-27);
-    # fork() is lookup-only. Add isolate()/intercept() when a component needs
-    # a private service view or a proxied dependency.
+    # fork() shares the parent's table. Add isolate()/intercept() when a
+    # component needs a private service view or a proxied dependency.
 
     @property
     def disposed(self) -> bool:
@@ -229,26 +236,46 @@ class Context:
         if self._disposed:
             return
         self._disposed = True
+        if self._parent is not None:
+            # A disposed fork must not stay reachable from its parent.
+            _remove_identity(self._parent._children, self)
         # Detach the scopes first: withdrawing the provisions as they revert
         # must not reclassify anything during teardown.
         self._on_change.clear()
         while self._effects:
             self._effects.pop().revert()
 
+    def _scope_chain(self) -> Iterator[Context]:
+        """This context, its enclosing contexts, and every derived context.
+
+        One visited-guarded traversal: both a table change (``_changed``) and
+        a withdrawal (``unprovide``) must reach every scope whose components
+        resolve through this chain, in either direction (Definition 22).
+        """
+        visited: set[int] = set()
+        stack: list[Context | None] = [self]
+        while stack:
+            ctx = stack.pop()
+            if ctx is None or id(ctx) in visited:
+                continue
+            visited.add(id(ctx))
+            yield ctx
+            stack.append(ctx._parent)
+            stack.extend(ctx._children)
+
     def _changed(self) -> None:
         """A service table change: hand it to every attached scope.
 
         Definition 22 classifies every change against every specification, so
-        all scopes on the lookup chain reclassify — not just the nearest.
+        every scope on the enclosing chain and below this context reclassifies
+        — not just the nearest.
         """
         seen: set[int] = set()
-        ctx: Context | None = self
-        while ctx is not None:
+        for ctx in self._scope_chain():
             for callback in list(ctx._on_change):
                 if id(callback) not in seen:
                     seen.add(id(callback))
                     callback()
-            ctx = ctx._parent
 
 
 @runtime_checkable
