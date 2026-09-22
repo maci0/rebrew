@@ -275,7 +275,7 @@ def main() -> None:
             print(source)
         else:
             output_path.parent.mkdir(parents=True, exist_ok=True)
-            output_path.write_text(source)
+            output_path.write_text(source, encoding="utf-8")
             print(f"\nWrote {output_path}")
 
 

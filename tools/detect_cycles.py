@@ -46,7 +46,7 @@ def _module_level_imports(stmts: list[ast.stmt]) -> list[ast.Import | ast.Import
 
 
 def _get_imports(filepath: str, package_prefix: str) -> list[str]:
-    with open(filepath) as f:
+    with open(filepath, "rb") as f:
         try:
             tree = ast.parse(f.read(), filename=filepath)
         except Exception:
