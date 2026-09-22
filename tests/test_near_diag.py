@@ -83,6 +83,24 @@ class TestClassifyPair:
         assert nd.classify_pair(a, b) == "structural"
 
 
+class TestAutoPins:
+    def test_ordered_pins_unchanged(self) -> None:
+        # Normal input: anchors already monotonic — behavior preserved.
+        target = [_insn("mov", "eax, ebx", MOV_EAX_EBX), _insn("ret", "", RET)]
+        compiled = [_insn("mov", "eax, ebx", MOV_EAX_EBX), _insn("ret", "", RET)]
+        assert nd._auto_pins(target, compiled) == [(0, 0), (1, 1)]
+
+    def test_crossing_reorder_pins_dropped(self) -> None:
+        # Instruction-reorder hunks pair byte-identical anchors crosswise;
+        # the crossing anchor is dropped instead of aborting the diff.
+        target = [_insn("mov", "eax, ebx", MOV_EAX_EBX), _insn("mov", "eax, 1", MOV_EAX_1)]
+        compiled = [_insn("mov", "eax, 1", MOV_EAX_1), _insn("mov", "eax, ebx", MOV_EAX_EBX)]
+        assert nd._auto_pins(target, compiled) == [(1, 0)]
+
+    def test_monotonic_pins_passthrough(self) -> None:
+        assert nd._monotonic_pins([(10, 20), (30, 25)]) == [(10, 20), (30, 25)]
+
+
 class TestAlignAndClassify:
     def _run(
         self, target: bytes, compiled: bytes, relocs: set[int] | None = None
@@ -108,6 +126,16 @@ class TestAlignAndClassify:
         counts = self._run(MOV_EAX_EBX + RET, MOV_EAX_EBX + RET)
         assert counts["match"] == 3
         assert counts["register"] == counts["structural"] == counts["equivalent"] == 0
+
+    def test_reorder_hunks_produce_a_verdict(self) -> None:
+        # Same instructions, different order: the byte-identical anchors
+        # cross and must not abort the diagnosis (was: ValueError
+        # "Pins are not monotonous").  The swapped movs cross-align and
+        # count structural; the realigned pair and the ret still match.
+        counts = self._run(MOV_EAX_EBX + MOV_EAX_1 + RET, MOV_EAX_1 + MOV_EAX_EBX + RET)
+        assert counts["match"] == 3
+        assert counts["structural"] == 10
+        assert counts["register"] == counts["equivalent"] == counts["encoding"] == 0
 
     def test_register_alloc_detected(self) -> None:
         counts = self._run(MOV_EAX_EBX + RET, MOV_EAX_ECX + RET)
