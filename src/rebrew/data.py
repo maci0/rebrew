@@ -1022,6 +1022,11 @@ def main(
         "--set-type",
         help="Set a global's declared type in rebrew-data.toml: 0xVA=TYPE (repeatable)",
     ),
+    set_section: list[str] = typer.Option(
+        [],
+        "--set-section",
+        help="Set a global's PE section in rebrew-data.toml: 0xVA=.data (repeatable)",
+    ),
     gen_header_out: Path | None = typer.Option(
         None,
         "--gen-header-out",
@@ -1104,6 +1109,21 @@ def main(
         else:
             for row in rows:
                 console.print(f"set type {row['type']!r} for {row['va']} ({row['module']})")
+        return
+
+    # --set-section: give a // GLOBAL: marker its SECTION metadata (lint W016)
+    if set_section:
+        from rebrew.data_annotate import set_data_sections
+
+        try:
+            rows = set_data_sections(cfg, set_section, dry_run=dry_run)
+        except ValueError as exc:
+            error_exit(str(exc), json_mode=json_output)
+        if json_output:
+            json_print({"dry_run": dry_run, "set": rows})
+        else:
+            for row in rows:
+                console.print(f"set section {row['section']!r} for {row['va']} ({row['module']})")
         return
 
     # --gen-header: generate rebrew_globals.h from annotations (no Ghidra)

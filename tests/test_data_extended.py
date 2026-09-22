@@ -18,6 +18,7 @@ from rebrew.data import (
 from rebrew.data_annotate import (
     _emit_extern_decl,
     gen_globals_header,
+    set_data_sections,
     set_data_types,
 )
 from rebrew.data_render import (
@@ -833,3 +834,38 @@ class TestDataMarkerScan:
         entry = scan.globals["g_elsewhere"]
         assert entry.annotated is True
         assert entry.type_str == "char[24]"
+
+
+class TestSetDataSection:
+    """`rebrew data --set-section`: give a `// GLOBAL:` marker its SECTION.
+
+    W016 fires for every DATA/GLOBAL marker whose metadata has no SECTION, so a
+    global that exists only through an annotation needs a tool-side way to
+    record which PE section it lives in.
+    """
+
+    def _meta(self, cfg) -> Path:
+        return cfg.metadata_dir / "rebrew-data.toml"
+
+    def test_sets_section_in_metadata(self, tmp_path: Path) -> None:
+        cfg = _cfg(tmp_path)
+        self._meta(cfg).write_text(
+            '["SERVER.0x1000"]\nname = "g_x"\ntype = "int"\n', encoding="utf-8"
+        )
+        rows = set_data_sections(cfg, ["0x1000=.data"])
+        assert rows == [{"va": "0x1000", "section": ".data", "module": "SERVER"}]
+        assert 'section = ".data"' in self._meta(cfg).read_text(encoding="utf-8")
+
+    def test_dry_run_writes_nothing(self, tmp_path: Path) -> None:
+        cfg = _cfg(tmp_path)
+        self._meta(cfg).write_text('["SERVER.0x1000"]\ntype = "int"\n', encoding="utf-8")
+        set_data_sections(cfg, ["0x1000=.data"], dry_run=True)
+        assert "section" not in self._meta(cfg).read_text(encoding="utf-8")
+
+    def test_rejects_an_unknown_section(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match="set-section"):
+            set_data_sections(_cfg(tmp_path), ["0x1000=.text"])
+
+    def test_rejects_a_spec_without_an_equals(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match="0xVA=SECTION"):
+            set_data_sections(_cfg(tmp_path), ["0x1000"])

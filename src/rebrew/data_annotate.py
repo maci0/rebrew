@@ -164,6 +164,43 @@ def set_data_types(
     return rows
 
 
+_DATA_SECTIONS = (".data", ".rdata", ".bss")
+
+
+def set_data_sections(
+    cfg: ProjectConfig, specs: list[str], *, dry_run: bool = False
+) -> list[dict[str, str]]:
+    """Set a global's PE section in rebrew-data.toml from ``0xVA=SECTION`` specs.
+
+    ``rebrew lint`` W016 wants a SECTION for every ``// GLOBAL:`` marker, but
+    the type setter never wrote one, so a global that exists only through an
+    annotation could not carry the marker without a warning.
+    """
+    from rebrew.data_metadata import set_data_fields_batch
+    from rebrew.sources import target_marker
+
+    module = target_marker(cfg) or ""
+    if not module:
+        raise ValueError("no target marker configured to address the data metadata")
+    rows: list[dict[str, str]] = []
+    updates: list[dict[str, Any]] = []
+    for spec in specs:
+        va_s, sep, section_s = spec.partition("=")
+        section_s = section_s.strip()
+        if not sep:
+            raise ValueError(f"--set-section wants 0xVA=SECTION, got {spec!r}")
+        if section_s not in _DATA_SECTIONS:
+            raise ValueError(
+                "--set-section wants one of " + ", ".join(_DATA_SECTIONS) + f", got {section_s!r}"
+            )
+        va = int(va_s, 16)
+        rows.append({"va": f"0x{va:x}", "section": section_s, "module": module})
+        updates.append({"module": module, "va": va, "fields": {"section": section_s}})
+    if not dry_run:
+        set_data_fields_batch(cfg.metadata_dir, updates)
+    return rows
+
+
 _VA_COMMENT_RE = re.compile(r"/\*\s*(0x[0-9a-fA-F]+)")
 # A valid C identifier.  The generated header is compiled, so anything else
 # (notably `@`-decorated import symbols such as `__imp__GetLocalTime@4`) must
