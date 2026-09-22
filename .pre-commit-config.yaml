@@ -34,7 +34,7 @@ repos:
         name: Validate Agent Skills
         # The skills-ref package exposes the `agentskills` binary; the old
         # hook checked for a nonexistent `skills-ref` command and silently
-        # exited 0, so a broken SKILL.md passed CI (infra-review F6).
+        # exited 0, so a broken SKILL.md passed CI.
         entry: bash -c 'for f in "$@"; do uv run --frozen agentskills validate "$f" || exit 1; done' --
         language: system
         pass_filenames: true

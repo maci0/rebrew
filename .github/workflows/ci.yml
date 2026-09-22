@@ -6,11 +6,10 @@ on:
   pull_request:
     branches: [main]
 
+# The Actions cache (setup-uv enable-cache) authenticates with the runner's
+# own token, not GITHUB_TOKEN, so no `actions` grant is needed to save it.
 permissions:
   contents: read
-  # setup-uv enable-cache saves via the Actions cache API; contents:read alone
-  # restores but cannot write, so the cache would stay cold forever.
-  actions: write
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -59,10 +58,10 @@ jobs:
       - name: Mypy type check
         run: uv run --frozen mypy
       - name: Dependency vulnerability audit
-        # Advisory gate: `uv audit` exits 1 on known-vulnerable packages
-        # (deps-review F1 — the lock previously pinned 35 CVEs and --frozen
-        # CI re-pinned them forever).  diskcache's unsafe-pickle advisory
-        # (GHSA-w8v5-vhqr-4h9v) is ignored only while unfixed: the cache
+        # Blocking gate: `uv audit` exits 1 on known-vulnerable packages, so
+        # --frozen CI cannot keep re-pinning a vulnerable lock.  diskcache's
+        # unsafe-pickle advisory (GHSA-w8v5-vhqr-4h9v) is ignored only while
+        # unfixed: the cache
         # stores only compiled .obj bytes, never untrusted input, and a
         # fixed release flips this step red to force the upgrade.
         run: uv audit --locked --ignore-until-fixed GHSA-w8v5-vhqr-4h9v
@@ -263,10 +262,5 @@ jobs:
       - name: Install package
         run: uv sync --frozen
       - name: CLI contract (round-trip / verify flags)
-        run: |
-          set -euo pipefail
-          # grep -q closes the pipe on match → SIGPIPE → pipefail fails even on
-          # success; consume all input and discard output instead.
-          uv run --frozen rebrew round-trip --help | grep -- '--strict-catalog' >/dev/null
-          uv run --frozen rebrew verify --help | grep -- '--compare' >/dev/null
-          uv run --frozen rebrew prove --help | grep 'NEAR_MATCHING' >/dev/null
+        # The Makefile target owns the greps so local `make all` and CI agree.
+        run: make cli-contract

@@ -5,11 +5,10 @@ on:
     - cron: '0 4 * * *'   # nightly upstream-drift check
   workflow_dispatch: {}
 
+# The Actions cache (setup-uv enable-cache) authenticates with the runner's
+# own token, not GITHUB_TOKEN, so no `actions` grant is needed to save it.
 permissions:
   contents: read
-  # setup-uv enable-cache saves via the Actions cache API; contents:read alone
-  # restores but cannot write, so the cache would stay cold forever.
-  actions: write
 
 # uv / Python / resembl pins and the shared setup steps come from
 # .github/actions/uv-env — the same ones ci.yml uses, so a scheduled run can
@@ -41,7 +40,7 @@ jobs:
       - name: Install dependencies
         # --frozen installs exactly the audited uv.lock versions; a raw
         # `pip install -e .` here would resolve fresh from PyPI nightly,
-        # bypassing review (deps-review F1).
+        # bypassing review.
         run: uv sync --frozen
       - name: Check toolchain source drift
         shell: bash

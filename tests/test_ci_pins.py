@@ -153,12 +153,13 @@ class TestCiPins:
             assert "runs-on: ubuntu-latest" not in text, path.name
             assert "runs-on: ubuntu-24.04" in text, path.name
 
-    def test_cache_write_permission(self) -> None:
-        """setup-uv enable-cache needs actions:write to persist the uv cache."""
+    def test_token_permissions_read_only(self) -> None:
+        """GITHUB_TOKEN stays contents:read; the Actions cache uses the runner token."""
         for path in (CI_YML, SYNC_YML):
-            head = path.read_text(encoding="utf-8").split("\njobs:", 1)[0]
+            text = path.read_text(encoding="utf-8")
+            head = text.split("\njobs:", 1)[0]
             assert "contents: read" in head, path.name
-            assert "actions: write" in head, path.name
+            assert ": write" not in text, path.name
 
     def test_gh_token_scoped_to_needing_steps(self) -> None:
         """Do not expose secrets.GITHUB_TOKEN to pytest/ruff/mypy via workflow env.

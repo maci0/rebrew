@@ -28,9 +28,9 @@ action's directory as well as `.github/workflows/`).
 Lint, pre-commit, package, cli-contract, and toolchain-sync pin the exact
 Python patch from `.python-version`; the test matrix covers the 3.13/3.14
 minors for compatibility. Jobs run on pinned `ubuntu-24.04` (not
-`ubuntu-latest`). Workflow `permissions` include `actions: write` so
-`setup-uv`'s `enable-cache` can persist the uv cache (restore alone works with
-`contents: read`, but a cold cache never warms without write). It does **not**
+`ubuntu-latest`). Workflow `permissions` are `contents: read` only:
+`setup-uv`'s `enable-cache` saves through the runner's cache token, not
+`GITHUB_TOKEN`. It does **not**
 require a target binary or MSVC toolchain.
 
 Every job that runs `uv sync` first clones the sibling `resembl` repo
