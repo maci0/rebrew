@@ -290,6 +290,20 @@ def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
             # 1. Check for // GLOBAL: annotation
             gm = _GLOBAL_RE.search(line)
             if gm:
+                # Marker-scope the scan when the module is another TARGET's
+                # marker: the same global name sits at a different VA in each
+                # binary, and an unscoped scan let the last marker win the
+                # name in every target's VA map (guild-rebrew round 1292 —
+                # GOLDTL's log tables resolved to the SERVER VAs, failing
+                # DIR32 validation on bytes that are correct for the client).
+                # Library-module markers (MSVCRT, ZLIB, ...) are kept: they
+                # are not targets and carry no competing VA.
+                if cfg is not None and gm.group("module"):
+                    mod = gm.group("module").lower()
+                    others = {m.lower() for m in (getattr(cfg, "all_markers", None) or set())}
+                    active = str(getattr(cfg, "marker", "") or "").lower()
+                    if mod in others and mod != active:
+                        continue
                 va = int(gm.group("va"), 16)
                 # Next line should be the declaration
                 decl = lines[i + 1].strip() if i + 1 < len(lines) else ""

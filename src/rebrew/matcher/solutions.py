@@ -347,6 +347,7 @@ def record_ga_run(
     matched: bool,
     score: float | None = None,
     generations: int = 0,
+    rng_seed: int | None = None,
     cflags: str = "",
     size: int = 0,
     source_file: str = "",
@@ -357,6 +358,8 @@ def record_ga_run(
 
     Win-only fields (*cflags*, *size*, *source_file*, *mutations*) turn the
     record into a solution fingerprint readable by ``load_solutions``.
+    *rng_seed* is the seed the GA ran from; replay the stub with
+    ``rebrew match --seed <rng_seed>``.
     """
     record: dict[str, Any] = {
         "ts": datetime.now(UTC).isoformat(),
@@ -369,6 +372,8 @@ def record_ga_run(
         record["score"] = round(float(score), 2)
     if generations:
         record["generations"] = int(generations)
+    if rng_seed is not None:
+        record["rng_seed"] = rng_seed
     if matched:
         # Solution fingerprint (see SolutionEntry) — only wins seed later runs.
         record["cflags"] = cflags

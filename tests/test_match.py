@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 
 from rebrew.match_batch import StubInfo
-from rebrew.match_ga import BinaryMatchingGA
+from rebrew.match_ga import BinaryMatchingGA, read_ga_checkpoint
 
 # ---------------------------------------------------------------------------
 # BinaryMatchingGA — init and population
@@ -157,6 +157,22 @@ class TestBinaryMatchingGAInit:
         ga1 = _make_ga(tmp_path / "run1", rng_seed=123, pop_size=8)
         ga2 = _make_ga(tmp_path / "run2", rng_seed=123, pop_size=8)
         assert ga1.population == ga2.population
+
+    def test_unseeded_run_replays_from_drawn_seed(self, tmp_path: Path) -> None:
+        """An unseeded GA exposes the seed it drew; passing it back replays the run."""
+        ga1 = _make_ga(tmp_path / "run1", rng_seed=None, pop_size=8)
+        ga2 = _make_ga(tmp_path / "run2", rng_seed=ga1.rng_seed, pop_size=8)
+        assert ga1.population == ga2.population
+        assert ga1.rng.getstate() == ga2.rng.getstate()
+
+    def test_checkpoint_carries_seed(self, tmp_path: Path) -> None:
+        """The checkpoint records the start seed, and resume restores it."""
+        ga = _make_ga(tmp_path, rng_seed=None, pop_size=8)
+        ga._save_checkpoint(1)
+        ckpt = read_ga_checkpoint(tmp_path / "ga_out", "_f")
+        assert ckpt is not None and ckpt.rng_seed == ga.rng_seed
+        resumed = _make_ga(tmp_path / "again", rng_seed=None, pop_size=8, resume_from=ckpt)
+        assert resumed.rng_seed == ga.rng_seed
 
     def test_different_seeds_differ(self, tmp_path: Path) -> None:
         """Different RNG seeds produce different populations."""
@@ -648,18 +664,21 @@ class TestRunAllBatch:
             solutions_out=None,
             collect_pairs_path=None,
         ):
-            return True, "MATCHED", 0.0, 3
+            return True, "MATCHED", 0.0, 3, 1234
 
-        def _fake_record(root, *, target, va, symbol, matched, score=None, generations=0):
-            calls.append((str(root), target, va, symbol, matched, score, generations))
+        def _fake_record(
+            root, *, target, va, symbol, matched, score=None, generations=0, rng_seed=None
+        ):
+            calls.append((str(root), target, va, symbol, matched, score, generations, rng_seed))
 
         monkeypatch.setattr("rebrew.match_run._run_one_stub_ga", _fake_ga)
         monkeypatch.setattr("rebrew.matcher.record_ga_run", _fake_record)
         matched, failed = self._run(self._cfg(tmp_path), json_output=True)
         assert (matched, failed) == (1, 0)
         # The score and executed generations must ride along, or --ga-history
-        # reports avg/best score null for every batch run.
-        assert calls == [(str(tmp_path), "T", "0x10001000", "a.c", True, 0.0, 3)]
+        # reports avg/best score null for every batch run; the seed makes the
+        # stub replayable with --seed.
+        assert calls == [(str(tmp_path), "T", "0x10001000", "a.c", True, 0.0, 3, 1234)]
 
     def test_failed_stub_does_not_abort_batch(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -685,7 +704,7 @@ class TestRunAllBatch:
         ):
             if "bad" in stub.symbol:
                 raise RuntimeError("boom")
-            return True, "MATCHED", 0.0, 3
+            return True, "MATCHED", 0.0, 3, None
 
         monkeypatch.setattr("rebrew.match_run._run_one_stub_ga", _fake_ga)
         matched, failed = self._run(self._cfg(tmp_path), json_output=True)
@@ -704,6 +723,7 @@ class TestRunAllBatch:
                 "MATCHED",
                 0.0,
                 3,
+                None,
             ),
         )
         matched, failed = self._run(self._cfg(tmp_path), jobs=2, json_output=True)
@@ -1120,8 +1140,8 @@ class TestFindSizeMismatch:
 
         monkeypatch.setattr("rebrew.match_run.find_size_mismatch", _fake_find)
 
-        def _fake_ga(*a: Any, **k: Any) -> tuple[bool, str, float, int]:
-            return False, "best_score=5.00", 5.0, 3
+        def _fake_ga(*a: Any, **k: Any) -> tuple[bool, str, float, int, int | None]:
+            return False, "best_score=5.00", 5.0, 3, None
 
         monkeypatch.setattr("rebrew.match_run._run_one_stub_ga", _fake_ga)
         monkeypatch.setattr("rebrew.matcher.record_ga_run", lambda *a, **k: None)

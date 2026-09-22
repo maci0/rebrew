@@ -1,5 +1,12 @@
 ## [Unreleased]
 ### Added
+- **Every GA run is replayable from its seed.**  An unseeded `rebrew match`
+  used an OS-entropy RNG and never reported it, so a lucky match could not
+  be reproduced.  The GA now draws the seed itself and reports it: printed
+  as `GA seed:` (single-function), `seed` in the `--json` payload,
+  `rng_seed` in each batch `.rebrew/ga_runs.jsonl` record, and in the GA
+  checkpoint.  `rebrew match --seed <n>` replays the run.  Unseeded
+  `--resume` still matches its checkpoint.
 - **`rebrew.errors.RebrewError` — one base for every error rebrew
   raises.**  Embedding code had to enumerate `ToolchainError`,
   `RecompileError`, `McpError`, `RegistryError` and 14 more in every

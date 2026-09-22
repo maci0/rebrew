@@ -192,7 +192,16 @@ def build_name_to_va(
     """
     name_to_va: dict[str, int] = {}
     try:
+        from rebrew.config import module_marker
         from rebrew.data import scan_globals
+
+        # Every source of pairs below is scoped to the ACTIVE target's marker.
+        # A shared file carries one `// DATA:`/`// GLOBAL:` marker per target
+        # and the same symbol sits at a different VA in each binary; unscoped,
+        # the last entry wins and the other target's compare validates its
+        # absolute references against the wrong binary (guild-rebrew round
+        # 1292: GOLDTL's log tables resolved to the SERVER VAs 0x10027078...).
+        active_marker = module_marker(cfg)
 
         scan = scan_globals(cfg.reversed_dir, cfg)
         for entry in scan.data_annotations:
@@ -210,6 +219,8 @@ def build_name_to_va(
 
         meta = load_data_metadata(cfg.metadata_dir)
         for (_module, va), entry in meta.items():
+            if active_marker and _module and _module.lower() != active_marker.lower():
+                continue
             name = entry.get("name", "")
             if isinstance(name, str) and name and isinstance(va, int):
                 name_to_va[name] = va
@@ -235,16 +246,7 @@ def build_name_to_va(
                     name_to_va[ann_name] = ann_va
         else:
             from rebrew.annotation import parse_c_file_multi
-            from rebrew.config import module_marker
 
-            # Marker-scope the scan.  A shared file carries one marker per
-            # target, and the same symbol name sits at a different VA in each
-            # binary; unfiltered, the last marker parsed wins the name and
-            # every call to that symbol in the *other* target false-fails
-            # REL32 validation (guild-rebrew round 1290: gm_RandomFloat01
-            # resolved to the SERVER VA inside a GOLDTL compare, so a correct
-            # `call` was reported as a 2-byte NEAR_MATCHING).
-            active_marker = module_marker(cfg)
             for path in iter_sources(cfg.reversed_dir, cfg):
                 for ann in parse_c_file_multi(path, target_name=active_marker):
                     if getattr(ann, "marker_type", "") == "LIBRARY":

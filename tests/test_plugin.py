@@ -253,6 +253,53 @@ class TestReactiveCoeffects:
         assert parent._children == []
         parent.dispose()
 
+    def test_nested_fork_scope_sees_root_provision_and_withdrawal(self) -> None:
+        """The cascade is transitive: a grandchild scope reacts to a change
+        made two contexts above it, in both directions."""
+        root = Context()
+        mid = root.fork()
+        leaf = mid.fork()
+        scope = CoeffectScope(leaf)
+        comp = _RevertibleComponent(needs=("svc",))
+        scope.add(comp)
+        root.provide("svc", "deep")
+        assert comp.log == ["on"]
+        root.unprovide("svc")
+        assert comp.log == ["on", "off"]
+        assert scope.unresolved() == [comp]
+
+    def test_parent_scope_ignores_child_provision(self) -> None:
+        """Lookup is one-directional: an ancestor's components must not
+        resolve a descendant's key. A spec whose provider lives below stays
+        inactive — missing provider, no crash, no downward reach."""
+        parent = Context()
+        scope = CoeffectScope(parent)
+        comp = _RevertibleComponent(needs=("child_key",))
+        scope.add(comp)
+        child = parent.fork()
+        child.provide("child_key", 1)
+        assert comp.log == []
+        assert scope.unresolved() == [comp]
+        child.dispose()
+        parent.dispose()
+
+    def test_withdrawal_inside_activation_is_stable(self) -> None:
+        """A component that withdraws its own need during apply must not
+        crash the classifier; it ends inactive and the key is gone."""
+        ctx = Context()
+
+        class _Suicidal:
+            needs = ("x",)
+
+            def apply(self, c: Context) -> None:
+                c.unprovide("x")
+
+        scope = CoeffectScope(ctx)
+        scope.add(_Suicidal())
+        ctx.provide("x", 1)
+        assert not ctx.has("x")
+        assert len(scope.unresolved()) == 1
+
     def test_deactivation_leaves_siblings_untouched(self) -> None:
         """Reverting one component does not disturb another's effects."""
         ctx = Context()

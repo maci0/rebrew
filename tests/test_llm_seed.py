@@ -633,6 +633,8 @@ class TestMatchGlue:
         captured: dict[str, object] = {}
 
         class _FakeGA:
+            rng_seed = 0
+
             def __init__(self, *a, **k):  # type: ignore[no-untyped-def]
                 captured["extra_seeds"] = k.get("extra_seeds")
                 captured["target"] = k.get("target_bytes")
@@ -701,6 +703,8 @@ class TestMatchGlue:
         calls: list[object] = []
 
         class _FakeGA:
+            rng_seed = 0
+
             def __init__(self, *a, **k):  # type: ignore[no-untyped-def]
                 calls.append(k.get("extra_seeds"))
 
@@ -757,6 +761,8 @@ class TestLlmSeedDryRun:
         llm_calls: list[object] = []
 
         class _FakeGA:
+            rng_seed = 0
+
             def __init__(self, *a, **k):  # type: ignore[no-untyped-def]
                 calls.append(1)
 

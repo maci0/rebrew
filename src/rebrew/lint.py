@@ -1000,16 +1000,24 @@ def _check_W021_duplicate_globals(
 
     Catches the np-rebrew pattern where ``globals.c`` and another source both
     annotate/define the same global (g_ vs DAT_ collisions, duplicate
-    definitions).  ``seen_globals`` maps name → filepath, threaded across the
-    batch like ``seen_vas``.
+    definitions).  ``seen_globals`` maps ``marker:name`` → filepath, threaded
+    across the batch like ``seen_vas``.
+
+    The key carries the annotation's marker: a shared tree annotates the same
+    symbol once per target (SERVER ``g_log_newline`` at 0x100270e4, the
+    client's at 0x677ac8), and those are two binaries' globals, not a
+    collision.  Two files annotating one name under the SAME marker still warn.
     """
     if seen_globals is None:
         return
     pending = False
+    marker = ""
     for i, line in enumerate(lines, start=1):
         s = line.strip()
         if s.startswith("// DATA:") or s.startswith("// GLOBAL:"):
             pending = True
+            parts = s.split(":", 1)[1].split()
+            marker = parts[0] if parts else ""
             continue
         if not pending:
             continue
@@ -1019,16 +1027,17 @@ def _check_W021_duplicate_globals(
         m = _GLOBAL_NAME_RE.search(s)
         if m:
             name = m.group(1)
-            prev = seen_globals.get(name)
+            key = f"{marker}:{name}"
+            prev = seen_globals.get(key)
             if prev is not None and prev != str(filepath):
                 result.warning(
                     i,
                     "W021",
-                    f"global '{name}' is also annotated in {prev} — duplicate "
-                    "definition or naming collision",
+                    f"global '{name}' ({marker}) is also annotated in {prev} — "
+                    "duplicate definition or naming collision",
                 )
             else:
-                seen_globals[name] = str(filepath)
+                seen_globals[key] = str(filepath)
 
 
 _ZERO_INIT_RE = re.compile(

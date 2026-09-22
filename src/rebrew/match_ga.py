@@ -101,6 +101,10 @@ _IMMIGRANT_MAX_STEPS = 6
 _GA_MEMO_MAX_FLOOR = 1024
 _GA_MEMO_MAX_FACTOR = 32
 
+#: Bit width of the seed drawn from OS entropy when the caller passes none.
+#: Fits a signed 64-bit int so it round-trips through JSON and ``--seed``.
+_DRAWN_SEED_BITS = 63
+
 #: Default floor (bytes) for a function considered by a batch GA/sweep run.
 
 
@@ -346,7 +350,12 @@ class BinaryMatchingGA:
         self.num_jobs = num_jobs
         self.stagnation_limit = stagnation_limit
         self.verbose = verbose
-        self.rng_seed = rng_seed
+        # The seed actually driving ``self.rng``: an unseeded run draws one so
+        # it can be replayed with ``--seed``.  ``args_hash`` keeps the caller's
+        # value, so an unseeded run still resumes its own checkpoint.
+        self.rng_seed: int = (
+            rng_seed if rng_seed is not None else random.getrandbits(_DRAWN_SEED_BITS)
+        )
         self.compare_obj = compare_obj
         self.lib_dir = lib_dir
         self.link_cmd = link_cmd
@@ -362,7 +371,7 @@ class BinaryMatchingGA:
         # re-hexing per candidate dominated --collect-pairs overhead.
         self._target_hex: str | None = None
 
-        self.rng = random.Random(rng_seed)
+        self.rng = random.Random(self.rng_seed)
         self.mutation_weights = mutation_weights or {}
         # One-shot flag: _save_checkpoint warns once per run on failure
         # (per-generation repetition would flood a long batch's log).
@@ -448,6 +457,8 @@ class BinaryMatchingGA:
             self.stagnant_gens = int(resume_from.stagnant_gens)
             if resume_from.rng_state:
                 self.rng.setstate(resume_from.rng_state)
+            if resume_from.rng_seed is not None:
+                self.rng_seed = resume_from.rng_seed
             self._start_generation = resume_from.generation
         else:
             self._init_population()
@@ -967,6 +978,7 @@ class BinaryMatchingGA:
                 best_source=self.best_source,
                 population=list(self.population),
                 rng_state=self.rng.getstate(),
+                rng_seed=self.rng_seed,
                 args_hash=self.args_hash,
                 applied_mutations=set(self.applied_mutations),
                 restarts=self.restarts,

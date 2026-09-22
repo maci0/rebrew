@@ -224,7 +224,7 @@ skills.
 | `--symbol NAME` | Symbol to match (auto from source) |
 | `--va HEX` | Target VA hex (auto from source) |
 | `--size N` | Target size (auto from source) |
-| `--seed N` | Seed RNG for reproducible GA runs |
+| `--seed N` | Seed RNG for reproducible GA runs. Without it the GA draws a seed and prints it (`seed` in `--json`; `rng_seed` in batch `ga_runs.jsonl` records), so any run replays with `--seed` |
 | `--ignore-lint` | Continue even if source marker linter finds errors |
 | `--generations N` / `-g N` | Number of GA generations (default 100) |
 | `--pop-size N` / `-p N` | GA population size (default 64) |

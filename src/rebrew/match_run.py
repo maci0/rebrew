@@ -178,6 +178,8 @@ def _run_single_ga(
         cfg=p.cfg,
     )
     ceiling_blocker: str | None = None
+    if not json_output:
+        console.print(f"[dim]GA seed:[/dim] {ga.rng_seed} (replay with --seed {ga.rng_seed})")
     try:
         best_src, best_score = ga.run()
         # GA exhausted without a match: if the champion's residual delta is
@@ -222,6 +224,7 @@ def _run_single_ga(
             "elapsed_sec": round(ga.elapsed_sec, 2),
             "stagnant_gens": ga.stagnant_gens,
             "restarts": ga.restarts,
+            "seed": ga.rng_seed,
         }
         if best_src is not None:
             best_path = out_dir_path / "best.c"
@@ -326,12 +329,14 @@ def _run_one_stub_ga(
     mutation_weights: dict[str, float] | None = None,
     solutions_out: list[SolutionEntry] | None = None,
     collect_pairs_path: Path | None = None,
-) -> tuple[bool, str, float, int]:
+) -> tuple[bool, str, float, int, int | None]:
     """Run one GA pass for a single stub in-process.
 
-    Returns ``(matched, summary, best_score, generations)`` — ``generations``
-    is what the run actually executed (resume-aware), not the requested
-    budget, so the batch driver records the truth in ``ga_runs.jsonl``.
+    Returns ``(matched, summary, best_score, generations, rng_seed)`` —
+    ``generations`` is what the run actually executed (resume-aware), not the
+    requested budget, and ``rng_seed`` is the seed the GA ran from (drawn
+    when *rng_seed* is None; None when no GA ran), so the batch driver records the truth in
+    ``ga_runs.jsonl``.
 
     *cflags_override* replaces ``stub.cflags`` (used by ``--sweep-then-ga``
     to seed the GA with the flag-sweep's best variant).  *resume_from* is a
@@ -350,7 +355,7 @@ def _run_one_stub_ga(
     va_int = int(stub.va, 16)
     target_bytes = extract_raw_bytes(cfg.target_binary, va_int, stub.size)
     if not target_bytes:
-        return False, "Could not extract target bytes", float("inf"), 0
+        return False, "Could not extract target bytes", float("inf"), 0, rng_seed
 
     cl_cmd, inc_dir, msvc_env, cc = resolve_compiler_env(cfg)
 
@@ -588,7 +593,7 @@ def _run_one_stub_ga(
     # Score and executed generations ride back to the batch driver so its
     # .rebrew/ga_runs.jsonl record carries them (`--ga-history` averages the
     # scores; without them every past run reports null).
-    return matched, output_summary, best_score, ga.generation
+    return matched, output_summary, best_score, ga.generation, ga.rng_seed
 
 
 # ---------------------------------------------------------------------------
@@ -1101,7 +1106,7 @@ def _run_all(
                     f"  [dim]Resuming {stub.symbol} from generation {resume_from.generation}[/dim]"
                 )
         try:
-            matched, output_summary, best_score, generations_run = _run_one_stub_ga(
+            matched, output_summary, best_score, generations_run, used_seed = _run_one_stub_ga(
                 stub,
                 cfg,
                 generations,
@@ -1136,6 +1141,7 @@ def _run_all(
                 matched=matched,
                 score=best_score,
                 generations=generations_run,
+                rng_seed=used_seed,
             )
         except Exception:
             # A failed record makes --skip-recent re-run this stub next batch

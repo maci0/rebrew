@@ -632,6 +632,7 @@ class TestKunaSeed:
             _pairs_count = 0
             elapsed_sec = 1.0
             stagnant_gens = 0
+            rng_seed = 0
 
         monkeypatch.setattr(match_mod, "BinaryMatchingGA", FakeGA)
         monkeypatch.setattr(

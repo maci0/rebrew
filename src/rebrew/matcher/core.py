@@ -261,6 +261,8 @@ class GACheckpoint:
     applied_mutations: set[str] = field(default_factory=set)
     restarts: int = 0
     stagnant_gens: int = 0
+    #: Seed the run started from; replay it with ``--seed``.
+    rng_seed: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize for JSON (rng_state → list for round-tripping)."""
@@ -274,6 +276,7 @@ class GACheckpoint:
             "applied_mutations": sorted(self.applied_mutations),
             "restarts": self.restarts,
             "stagnant_gens": self.stagnant_gens,
+            "rng_seed": self.rng_seed,
         }
 
     @classmethod
@@ -294,6 +297,7 @@ class GACheckpoint:
 
         raw_state = d.get("rng_state", [])
         mutations = d.get("applied_mutations", [])
+        seed = d.get("rng_seed")
         return cls(
             generation=int(d["generation"]),
             best_score=float(d["best_score"]),
@@ -304,4 +308,5 @@ class GACheckpoint:
             applied_mutations={str(m) for m in mutations},
             restarts=int(d.get("restarts", 0)),
             stagnant_gens=int(d.get("stagnant_gens", 0)),
+            rng_seed=seed if isinstance(seed, int) else None,
         )

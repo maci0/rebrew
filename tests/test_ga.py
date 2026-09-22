@@ -639,7 +639,7 @@ class TestRunAllParallel:
             collect_pairs_path=None,
         ):
             seen.append((stub.symbol, jobs))
-            return False, "best_score=5.00", 5.0, 3
+            return False, "best_score=5.00", 5.0, 3, None
 
         monkeypatch.setattr("rebrew.match_run._run_one_stub_ga", _fake_run)
         cfg = self._cfg(tmp_path)
@@ -732,9 +732,9 @@ class TestRunAllParallel:
         monkeypatch.setattr("rebrew.match_run.find_all_stubs", lambda *a, **k: [stub])
         seen: list[Path | None] = []
 
-        def _fake_run(*args: Any, **kwargs: Any) -> tuple[bool, str]:
+        def _fake_run(*args: Any, **kwargs: Any) -> tuple[bool, str, float, int, int | None]:
             seen.append(kwargs.get("collect_pairs_path"))
-            return False, "best_score=5.00", 5.0, 3
+            return False, "best_score=5.00", 5.0, 3, None
 
         monkeypatch.setattr("rebrew.match_run._run_one_stub_ga", _fake_run)
         pairs_path = tmp_path / "pairs.jsonl"
@@ -797,7 +797,7 @@ class TestRunAllParallel:
             collect_pairs_path=None,
         ):
             seen.append(jobs)
-            return False, "best_score=5.00", 5.0, 3
+            return False, "best_score=5.00", 5.0, 3, None
 
         monkeypatch.setattr("rebrew.match_run._run_one_stub_ga", _fake_run)
         _run_all(
@@ -1017,7 +1017,7 @@ class TestSweepThenGa:
             collect_pairs_path=None,
         ):
             seen["override"] = cflags_override
-            return False, "best_score=5.00", 5.0, 3
+            return False, "best_score=5.00", 5.0, 3, None
 
         monkeypatch.setattr("rebrew.match_run._run_one_stub_ga", _fake_run)
         cfg = SimpleNamespace(
@@ -1691,6 +1691,7 @@ class TestPerFunctionToolchain:
 
         class FakeGA:
             generation = 1
+            rng_seed = 0
 
             def __init__(self, *a: Any, **k: Any) -> None:
                 captured.update(k)
@@ -1768,6 +1769,7 @@ class TestRunOneStubGaPersistsFlags:
             stagnant_gens = 0
             _pairs_count = 0
             generation = 3
+            rng_seed = 0
 
             def __init__(self, *a: Any, **k: Any) -> None:
                 pass
@@ -1800,7 +1802,7 @@ class TestRunOneStubGaPersistsFlags:
             lambda fp, cf, metadata_dir=None, **_kw: persisted.update(cf=cf),
         )
 
-        matched, _summary, _score, _gens = M._run_one_stub_ga(
+        matched, _summary, _score, _gens, _seed = M._run_one_stub_ga(
             stub, self._cfg(tmp_path), 1, 4, 1, 5, cflags_override="/O2 /G3"
         )
         assert matched
@@ -1833,6 +1835,7 @@ class TestRunOneStubGaPersistsFlags:
             stagnant_gens = 0
             _pairs_count = 0
             generation = 3
+            rng_seed = 0
 
             def __init__(self, *a: Any, **k: Any) -> None:
                 pass
@@ -1861,7 +1864,9 @@ class TestRunOneStubGaPersistsFlags:
         saved: list[tuple] = []
         monkeypatch.setattr(M, "_save_solution", lambda *a, **k: saved.append(a))
 
-        matched, _summary, _score, _gens = M._run_one_stub_ga(stub, self._cfg(tmp_path), 1, 4, 1, 5)
+        matched, _summary, _score, _gens, _seed = M._run_one_stub_ga(
+            stub, self._cfg(tmp_path), 1, 4, 1, 5
+        )
         assert not matched
         assert saved == []
 
@@ -1893,6 +1898,7 @@ class TestRunOneStubGaPersistsFlags:
             stagnant_gens = 0
             _pairs_count = 0
             generation = 3
+            rng_seed = 0
 
             def __init__(self, *a: Any, **k: Any) -> None:
                 pass
@@ -1919,7 +1925,9 @@ class TestRunOneStubGaPersistsFlags:
         saved: list[tuple] = []
         monkeypatch.setattr(M, "_save_solution", lambda *a, **k: saved.append(a))
 
-        matched, summary, _score, _gens = M._run_one_stub_ga(stub, self._cfg(tmp_path), 1, 4, 1, 5)
+        matched, summary, _score, _gens, _seed = M._run_one_stub_ga(
+            stub, self._cfg(tmp_path), 1, 4, 1, 5
+        )
         assert not matched
         assert spliced == []
         assert saved == []
@@ -2007,7 +2015,7 @@ class TestCrossProjectSeeding:
         ):
             seen["cflags_override"] = cflags_override
             seen["seeds"] = seeds
-            return False, "best_score=5.00", 5.0, 3
+            return False, "best_score=5.00", 5.0, 3, None
 
         monkeypatch.setattr("rebrew.match_run._run_one_stub_ga", _fake_run)
         _run_all(
