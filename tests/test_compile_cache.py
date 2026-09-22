@@ -877,3 +877,25 @@ class TestNoPickleDisk:
         with pytest.raises(TypeError, match="NoPickleDisk"):
             cache._cache.set("x", {"not": "bytes"})
         cache.close()
+
+
+class TestAtexitClose:
+    def test_hook_armed_once_and_closes_caches(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The atexit close arms with the first opened cache (not at import),
+        at most once, and disposing empties the registry idempotently."""
+        import rebrew.compile_cache as cc
+
+        registered: list[tuple] = []
+        monkeypatch.setattr(cc.atexit, "register", lambda fn, *a: registered.append((fn, a)))
+        monkeypatch.setattr(cc, "_CACHES_ATEXIT_REGISTERED", False)
+        monkeypatch.setattr(cc, "_caches", {})
+        get_compile_cache(tmp_path / "a")
+        get_compile_cache(tmp_path / "b")
+        assert len(registered) == 1, "one atexit hook for every cache"
+        fn, args = registered[0]
+        assert fn is cc.close_all_caches
+        fn(*args)
+        assert cc._caches == {}
+        fn(*args)  # inverse is idempotent

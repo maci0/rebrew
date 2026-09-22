@@ -1252,3 +1252,34 @@ class TestReToolDigestInvalidation:
         finally:
             dc._clear_re_projects()
         assert len([c for c in calls if "Ps" in c[3]]) == 2
+
+
+class TestProjectSweepAtexit:
+    def test_hook_armed_once_and_sweeps_dirs(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The atexit sweep arms with the first cached project dir (not at
+        import), at most once, and disposing removes the dirs idempotently."""
+        import rebrew.decompiler as dc
+
+        registered: list[tuple] = []
+        monkeypatch.setattr(dc.atexit, "register", lambda fn, *a: registered.append((fn, a)))
+        monkeypatch.setattr(dc, "_RE_PROJECT_ATEXIT_REGISTERED", False)
+        monkeypatch.setattr(dc, "_RE_PROJECT_DIRS", {})
+        proj = tmp_path / "proj"
+        proj.mkdir()
+        monkeypatch.setattr(dc, "_re_init_project", lambda *a: str(proj))
+        binary = tmp_path / "game.bin"
+        binary.write_bytes(b"MZ")
+
+        assert dc._re_cached_project(binary, "rz", tmp_path) == str(proj)
+        assert len(registered) == 1, "one atexit hook for every project dir"
+        # A second creation miss must not arm the hook again.
+        monkeypatch.setattr(dc, "_RE_PROJECT_DIRS", {})
+        dc._re_cached_project(binary, "rz", tmp_path)
+        assert len(registered) == 1
+        fn, args = registered[0]
+        fn(*args)
+        assert dc._RE_PROJECT_DIRS == {}
+        assert not proj.exists()
+        fn(*args)  # inverse is idempotent

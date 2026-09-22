@@ -1280,3 +1280,91 @@ def test_parse_symbol_addrs_csv_roundtrip(pairs: list[tuple[int, str]]) -> None:
     text = "".join(f"0x{va:08X},{name}\n" for va, name in pairs)
     parsed = parse_symbol_addrs(text)
     assert parsed == [SymbolRow(va=va, name=name) for va, name in pairs]
+
+
+# ---------------------------------------------------------------------------
+# pdb_cvdump: cvdump text output of an untrusted PDB
+# ---------------------------------------------------------------------------
+
+_CVDUMP_SECTIONS = ("LINES", "PUBLICS", "SECTION CONTRIBUTIONS", "MODULES")
+_CVDUMP_WORD4 = st.text(alphabet="0123456789ABCDEFGHXYZ_a", min_size=4, max_size=4)
+_CVDUMP_WORD8 = st.text(alphabet="0123456789ABCDEFGHXYZ_a", min_size=8, max_size=8)
+
+
+@st.composite
+def _cvdump_line(draw: st.DrawFn) -> str:
+    """Lines shaped like each section's records, with non-hex ``\\w`` digits."""
+    w4, w8 = draw(_CVDUMP_WORD4), draw(_CVDUMP_WORD8)
+    name = draw(st.text(min_size=1, max_size=12).filter(lambda s: "\n" not in s))
+    return draw(
+        st.sampled_from(
+            [
+                f"S_PUB32: [{w4}:{w8}], Flags: {draw(_CVDUMP_WORD8)}, {name}",
+                f"  {w4}  {draw(_CVDUMP_WORD4)}:{w8}  {draw(_CVDUMP_WORD8)}  {w8}",
+                f'{w4} "{name}" "{name}.obj"',
+                f"  {name} (None), {w4}:{w8}-{w8}, line/addr pairs = 1",
+                f"     {draw(st.integers(min_value=0))} {w8}",
+                name,
+            ]
+        )
+    )
+
+
+@settings(max_examples=300, deadline=None)
+@given(
+    st.sampled_from(_CVDUMP_SECTIONS),
+    st.lists(_cvdump_line() | st.text(max_size=80), max_size=12),
+)
+def test_cvdump_parser_robust_on_malformed_sections(section: str, lines: list[str]) -> None:
+    """Any section body parses without raising; every record holds
+    non-negative ints (hex fields decode, never ValueError)."""
+    from rebrew.pdb_cvdump import CvdumpParser
+
+    p = CvdumpParser()
+    p.read_section(section, "\n".join(lines) + "\n")
+    for pub in p.publics:
+        assert min(pub.section, pub.offset, pub.flags) >= 0
+    for ref in p.sizerefs:
+        assert min(ref.module, ref.section, ref.offset, ref.size) >= 0
+    for mod in p.modules:
+        assert mod.id >= 0 and mod.obj
+    for values in p.lines.values():
+        assert all(min(v.line_number, v.section, v.offset) >= 0 for v in values)
+
+
+@settings(max_examples=200, deadline=None)
+@given(st.lists(st.text(max_size=60), max_size=20))
+def test_iter_cvdump_sections_keeps_every_body_line(raw: list[str]) -> None:
+    """Section splitting drops only header lines, never body text."""
+    from rebrew.pdb_cvdump import iter_cvdump_sections
+
+    stream = [line.replace("\n", " ") + "\n" for line in raw]
+    sections = list(iter_cvdump_sections(stream))
+    for name, _body in sections:
+        assert name
+    body_chars = sum(len(body) for _name, body in sections)
+    assert body_chars <= sum(len(line) for line in stream)
+
+
+# ---------------------------------------------------------------------------
+# flirt.find_func_size: disassembly over untrusted binary bytes
+# ---------------------------------------------------------------------------
+
+
+@settings(max_examples=200, deadline=None)
+@given(
+    st.binary(max_size=512),
+    st.integers(min_value=-8, max_value=600),
+    st.sampled_from(
+        ["x86_16", "x86_32", "mips32", "mips64", "arm32", "arm64", "ppc32", "ppc64", "sh2", "?"]
+    ),
+    st.sampled_from(["", "little", "big"]),
+)
+def test_find_func_size_within_scan_window(
+    code: bytes, offset: int, arch: str, endian: str
+) -> None:
+    """Size is always inside the bytes left after *offset*, for every arch."""
+    from rebrew.flirt import find_func_size
+
+    size = find_func_size(code, offset, arch, endian)
+    assert 0 <= size <= max(0, len(code) - max(offset, 0))

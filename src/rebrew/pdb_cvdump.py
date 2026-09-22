@@ -154,14 +154,14 @@ class CvdumpParser:
         r"(?P<end>[A-F0-9]{8}), line/addr pairs = (?P<len>\d+)"
     )
     _publics_line = re.compile(
-        r"^(?P<type>\w+): \[(?P<section>\w{4}):(?P<offset>\w{8})], "
-        r"Flags: (?P<flags>\w{8}), (?P<name>\S+)"
+        r"^(?P<type>\w+): \[(?P<section>[A-F0-9]{4}):(?P<offset>[A-F0-9]{8})], "
+        r"Flags: (?P<flags>[A-F0-9]{8}), (?P<name>\S+)"
     )
     _section_contrib = re.compile(
-        r"\s*(?P<module>\w{4})  (?P<section>\w{4}):(?P<offset>\w{8})  "
-        r"(?P<size>\w{8})  (?P<flags>\w{8})"
+        r"\s*(?P<module>[A-F0-9]{4})  (?P<section>[A-F0-9]{4}):(?P<offset>[A-F0-9]{8})  "
+        r"(?P<size>[A-F0-9]{8})  (?P<flags>[A-F0-9]{8})"
     )
-    _module_line = re.compile(r"(?P<id>\w{4})(?: \"(?P<lib>.+?)\")?(?: \"(?P<obj>.+?)\")")
+    _module_line = re.compile(r"(?P<id>[A-F0-9]{4})(?: \"(?P<lib>.+?)\")?(?: \"(?P<obj>.+?)\")")
 
     def read_section(self, name: str, section: str) -> None:
         """Route one cvdump section body to its parser."""

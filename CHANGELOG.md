@@ -1,5 +1,12 @@
 ## [Unreleased]
 ### Fixed
+- **cvdump parsing no longer crashes on non-hex fields.**  The PUBLICS,
+  SECTION CONTRIBUTIONS, and MODULES regexes matched hex fields with
+  `\w`, so a malformed PDB dump such as `000G "a" "b.obj"` raised
+  `ValueError` from `int(..., 16)`.  Those fields now match `[A-F0-9]`,
+  like the LINES regexes, and the line is skipped.  Hypothesis
+  harnesses in `tests/test_property_parsers.py` now fuzz `CvdumpParser`,
+  `iter_cvdump_sections`, and `flirt.find_func_size`.
 - **`.coverage` is no longer committed.**  A slipcover run's SQLite
   database landed in the tree despite being listed in `.gitignore` and
   `MANIFEST.in`; it is a 176 KB build artifact carrying local absolute

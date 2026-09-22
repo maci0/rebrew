@@ -61,3 +61,19 @@ class TestUmbrellaCli:
         # Withdrawing the console deactivates every mounted component.
         ctx.unprovide(CONSOLE_SERVICE)
         assert len(global_app.registered_commands) == before
+
+    def test_module_holds_composed_fiber(self) -> None:
+        """The import-time composition's fiber is retained, not dropped.
+
+        ``compose()`` hands the caller the scope — the inverse accumulator
+        every mount records its disposer on. The module-load call site must
+        hold that tuple; discarding it would leave registrations with an
+        inverse nobody holds.
+        """
+        from rebrew import main as main_mod
+        from rebrew.plugin import CLI_SERVICE
+
+        ctx, scope = main_mod._COMPOSED
+        assert not ctx.disposed
+        assert not scope._closed
+        assert ctx.resolve(CLI_SERVICE) is main_mod.app
