@@ -1376,10 +1376,20 @@ def _save_report(
         whole_report=whole_report,
     )
 
-    if size_divergences and not json_output:
+    # Warn only on ACTIONABLE divergences.  An EXACT/RELOC/PROVEN annotation
+    # size is byte-match evidence that `_partition_size_fixes` deliberately
+    # keeps (rewriting it demotes a real match -- measured on guild-rebrew:
+    # one `--fix-sizes` run took byte-matched 264 -> 252).  A fully-protected
+    # set is the intended state, not a defect, so warning on it fired every run
+    # with nothing to do.  The kept count is mentioned only when some
+    # divergences ARE actionable, so the number matches what `--fix-sizes`
+    # would touch.
+    _appl_div, _prot_div = _partition_size_fixes(size_divergences)
+    if _appl_div and not json_output:
+        _kept = f" ({len(_prot_div)} kept as EXACT/RELOC/PROVEN evidence)" if _prot_div else ""
         console.print(
-            f"[yellow]warning:[/yellow] {len(size_divergences)} function(s) have annotation "
-            "SIZE differing from the binary-derived size; run with --json for details"
+            f"[yellow]warning:[/yellow] {len(_appl_div)} function(s) have annotation "
+            f"SIZE differing from the binary-derived size{_kept}; run with --json for details"
         )
 
     sizes_fixed = 0
