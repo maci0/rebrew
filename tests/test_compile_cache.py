@@ -265,6 +265,23 @@ class TestIncludeFingerprint:
         assert fp != ""
         assert len(fp) == 64  # sha256 hex
 
+    def test_unstattable_dir_is_not_empty_fingerprint(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """A dir that exists but cannot be stat'd must not read as missing."""
+        inc = tmp_path / "inc"
+        inc.mkdir()
+        include_fingerprint.cache_clear()
+
+        def _boom(*_a: object, **_kw: object) -> Any:
+            raise OSError(13, "Permission denied")
+
+        monkeypatch.setattr(Path, "is_dir", lambda _self: True)
+        monkeypatch.setattr(Path, "stat", _boom)
+        fp = include_fingerprint(str(inc))
+        assert fp != ""
+        assert len(fp) == 64  # sha256 hex
+
     def test_header_edit_changes_key(self, tmp_path: Path) -> None:
         inc = tmp_path / "inc"
         inc.mkdir()

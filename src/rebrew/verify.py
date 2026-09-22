@@ -1081,6 +1081,8 @@ def main(
                 console.print("[green]whole-binary: match[/green]")
             else:
                 console.print("[red]whole-binary: drift[/red]")
+                for err in whole_report["errors"]:
+                    console.print(f"  [red]error[/red]: {err}")
                 for area in ("sections", "exports", "imports", "rsrc", "headers"):
                     part = whole_report[area]
                     if not part["match"]:

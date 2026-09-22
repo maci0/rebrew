@@ -542,7 +542,8 @@ block (same shape as `text-audit`: `functions`/`found`/`correct`/`misplaced`/
 `missing` counts plus the `misplaced_list` rows, exit 1 on any misplaced
 function); `--whole-binary` adds
 a `whole_binary` block (per-area verdicts for sections, exports, imports,
-`rsrc`, headers, plus `layout` freshness).
+`rsrc`, headers, plus `layout` freshness; `errors` lists binaries that failed
+to load or parse, which counts as drift).
 Per-function result rows carry `diff_lines` (structural diff count),
 `similarity`, `reg_delta` (register-encoding-only diff count), and
 `effective_match` (true when the entire delta is register allocation) —

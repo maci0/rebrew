@@ -150,6 +150,14 @@
   documented integrator surface.
 
 ### Changed
+- **The include-resolution memo's dead clear hook is gone.**
+  `_clear_resolve_include_paths` existed only to re-publish the old
+  `lru_cache` name as `_resolve_include_paths.cache_clear`, a compat shim
+  with zero callers or tests — and the memo needs no forced clear: its key
+  carries the searched directories' mtimes, so membership changes bust it
+  on the next lookup.  Both the helper and the alias are removed, and the
+  `_search_dir_mtimes` docstring no longer advertises a hook that never
+  fires (CORDIS review, arXiv:2608.25512, final round).
 - **`iter_annotations` moved from `rebrew.cli` to `rebrew.annotation`.**
   It is annotation parsing, not a Typer helper; library modules
   (`verify_hash`, `round_trip`, `merge_sweep`, …) no longer import the
@@ -336,6 +344,12 @@
   ``one_line``, ``run_git``). Call sites inside the package already updated.
 
 ### Fixed
+- **`verify --whole-binary` no longer passes on unparseable binaries.**
+  A binary LIEF could not load, or whose import/export tables failed to
+  parse, snapshotted as empty facts, so two broken binaries compared equal
+  and the gate reported a match.  The failure now lands in the
+  `whole_binary.errors` list, prints as an `error:` line, and counts as
+  drift.
 - **Extra install hints point at the git source.**  rebrew is not on PyPI,
   so `pip install 'rebrew[prove]'` / `'rebrew[binsync]'` (prove, binsync,
   doctor, README, skills) resolved a PyPI name this project does not own and

@@ -81,6 +81,7 @@ class TestCompareSnapshots:
             "imports": ["k.dll!f"],
             "rsrc": b"r",
             "headers": {"image_base": 0x400000},
+            "error": None,
         }
         base.update(over)
         return base
@@ -133,19 +134,40 @@ class TestCompareSnapshots:
             "imports": ["kernel32.dll!ExitProcess"],
             "rsrc": b"rsr",
             "headers": {"image_base": 0x400000},
+            "error": None,
         }
 
     def test_snapshot_missing_file(self, tmp_path: Path) -> None:
         from rebrew.binary_gate import snapshot_binary
 
         snap = snapshot_binary(tmp_path / "nope.dll")
-        assert snap == {
-            "sections": {},
-            "exports": [],
-            "imports": [],
-            "rsrc": None,
-            "headers": {},
-        }
+        assert snap["sections"] == {}
+        assert snap["error"] is not None
+        assert "nope.dll" in snap["error"]
+
+    def test_unreadable_both_sides_is_drift(self, tmp_path: Path) -> None:
+        from rebrew.binary_gate import compare_snapshots, snapshot_binary
+
+        res = compare_snapshots(
+            snapshot_binary(tmp_path / "a.dll"), snapshot_binary(tmp_path / "b.dll")
+        )
+        assert res["match"] is False
+        assert len(res["errors"]) == 2
+
+    def test_import_parse_failure_is_drift(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from rebrew.binary_gate import compare_snapshots, snapshot_binary
+
+        info = SimpleNamespace(sections={}, data=b"", image_base=0x400000)
+        monkeypatch.setattr("rebrew.binary_loader.load_binary", lambda path: info)
+        monkeypatch.setattr("rebrew.binary_loader.parse_exports", lambda path: [])
+
+        def _boom(path: Path) -> list[dict[str, str]]:
+            raise ValueError("bad import table")
+
+        monkeypatch.setattr("rebrew.imports.parse_imports", _boom)
+        snap = snapshot_binary(Path("x.dll"))
+        assert "bad import table" in snap["error"]
+        assert compare_snapshots(snap, dict(snap))["match"] is False
 
 
 class TestLayoutFreshness:

@@ -399,8 +399,11 @@ def include_fingerprint(include_dir: str) -> str:
         return ""
     try:
         dir_mtime = root.stat().st_mtime_ns
-    except OSError:
-        return ""
+    except OSError as exc:
+        logging.getLogger(__name__).warning(
+            "include fingerprint failed for %s: %s — treating as unreadable", include_dir, exc
+        )
+        return hashlib.sha256(f"\0unreadable\0{include_dir}\0".encode()).hexdigest()
 
     with _INCLUDE_FP_LOCK:
         cached = _INCLUDE_FP_PATHS.get(include_dir)

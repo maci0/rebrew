@@ -7,7 +7,6 @@ gate-relevant facts.  The ``verify --whole-binary`` wiring lives in
 ``verify.py``.
 """
 
-import logging
 from pathlib import Path
 from typing import Any
 
@@ -48,7 +47,9 @@ def snapshot_binary(binary_path: Path) -> dict[str, Any]:
     Returns ``sections`` (``{name: virtual size}``), ``exports`` (sorted
     names), ``imports`` (sorted ``dll!name``), ``rsrc`` (raw ``.rsrc`` bytes
     or None), and ``headers`` (image base, entry point, section count).
-    Best-effort: unparseable inputs snapshot as empty facts, never raise.
+    Never raises: an unreadable binary or a failed import/export parse sets
+    ``error`` (None on success), which :func:`compare_snapshots` reports as
+    drift so two unparseable binaries cannot pass the gate.
     """
     from rebrew.binary_loader import load_binary
 
@@ -58,11 +59,13 @@ def snapshot_binary(binary_path: Path) -> dict[str, Any]:
         "imports": [],
         "rsrc": None,
         "headers": {},
+        "error": None,
     }
     try:
         info = load_binary(binary_path)
-    except (OSError, ValueError):
-        return empty
+    except (OSError, ValueError) as exc:
+        return {**empty, "error": f"cannot load {binary_path}: {exc}"}
+    error: str | None = None
     sections = {name: sec.size for name, sec in info.sections.items()}
     rsrc: bytes | None = None
     sec = info.sections.get(".rsrc")
@@ -80,14 +83,15 @@ def snapshot_binary(binary_path: Path) -> dict[str, Any]:
             {f"{r.get('dll', '')}!{r.get('name', '')}" for r in parse_imports(binary_path)}
         )
     except Exception as exc:
-        logging.getLogger(__name__).debug("import/export parse failed for %s: %s", binary_path, exc)
         exports, imports = [], []
+        error = f"import/export parse failed for {binary_path}: {exc}"
     return {
         "sections": sections,
         "exports": exports,
         "imports": imports,
         "rsrc": rsrc,
         "headers": {"image_base": info.image_base},
+        "error": error,
     }
 
 
@@ -104,9 +108,11 @@ def compare_snapshots(expected: dict[str, Any], actual: dict[str, Any]) -> dict[
         rsrc = compare_bytes(expected["rsrc"], actual["rsrc"])
     headers_match = expected["headers"] == actual["headers"]
     match = sections["match"] and exports["match"] and imports["match"] and rsrc["match"]
-    match = bool(match and headers_match)
+    errors = [e for e in (expected.get("error"), actual.get("error")) if e]
+    match = bool(match and headers_match and not errors)
     return {
         "match": match,
+        "errors": errors,
         "sections": sections,
         "exports": exports,
         "imports": imports,
