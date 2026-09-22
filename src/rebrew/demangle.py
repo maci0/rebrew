@@ -122,16 +122,3 @@ def demangle_vtable(symbol: str) -> str:
             return f"{class_name}<class {arg_name}>"
         return class_name
     return head
-
-
-def get_vtordisp_name(symbol: str) -> str | None:
-    """The ```vtordisp{x,y}'`` friendly name of an adjuster-thunk symbol."""
-    name = msvc_demangle(symbol)
-    if not name or "`vtordisp" not in name:
-        return None
-    try:
-        thiscall_idx = name.index("__thiscall")
-        end_idx = name.index("}'")
-        return name[thiscall_idx + len("__thiscall") : end_idx + 2]
-    except ValueError:
-        return name

@@ -55,11 +55,6 @@ def cvdump_exe_path() -> str | None:
     return shutil.which("cvdump.exe")
 
 
-def cvdump_available() -> bool:
-    """True when a cvdump.exe was found (env override or PATH)."""
-    return cvdump_exe_path() is not None
-
-
 def _cmd_line(pdb: Path, flags: list[str]) -> list[str]:
     exe = cvdump_exe_path()
     assert exe is not None

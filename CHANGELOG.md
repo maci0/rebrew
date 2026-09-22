@@ -155,6 +155,13 @@
   documented integrator surface.
 
 ### Changed
+- **Unused library helpers removed.**  Nothing in rebrew called
+  `cli.iter_target_configs`, `demangle.get_vtordisp_name`,
+  `pdb_cvdump.cvdump_available` (use `cvdump_exe_path() is not None`),
+  `fingerprints.function_boundaries_hash`, the `asm_equiv.PATCHERS` dict,
+  or the ghidra-cli pull path `ghidra.cli_backend.fetch_pull_data_via_cli`
+  (pull uses MCP).  `float_const.find_float_consts` now scans through
+  `find_float_instructions_in_buffer` instead of a copy of it.
 - **`coverage.db` drops `idx_functions_marker`.**  Every query filters
   `markerType NOT IN ('GLOBAL', 'DATA')`, which the partial
   `idx_functions_list` already serves (list and `COUNT(*)`), so the

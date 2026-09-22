@@ -104,21 +104,16 @@ def find_float_consts(
     """
     seen: set[int] = set()
     for region_va, region_data in code_regions:
-        for match in _FLOAT_INSTRUCTION_RE.finditer(region_data):
-            inst = match.group(1)
-            opcode = (inst[0], inst[1])
-            if opcode not in FLOAT_OPCODES:
-                continue
-            (pointer,) = struct.unpack("<I", inst[2:6])
+        for inst in find_float_instructions_in_buffer(region_data, region_va):
+            pointer = inst.pointer
             if pointer in seen:
                 continue
             seen.add(pointer)
-            inst_addr = region_va + match.start()
-            if reloc_sites is not None and inst_addr + 2 not in reloc_sites:
+            if reloc_sites is not None and inst.address + 2 not in reloc_sites:
                 continue
             if not any(start <= pointer < end for start, end in const_regions):
                 continue
-            if opcode in SINGLE_PRECISION_OPCODES:
+            if inst.opcode in SINGLE_PRECISION_OPCODES:
                 raw = read_at(pointer, 4)
                 (value,) = struct.unpack("<f", raw)
                 yield FloatConstant(pointer, 4, value)

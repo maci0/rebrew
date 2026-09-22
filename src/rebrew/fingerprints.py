@@ -269,17 +269,6 @@ def rich_header_hash(path: str | Path) -> str | None:
     return rich_header_hash_from_parts(key, entries)
 
 
-def function_boundaries_hash(functions: Iterable[tuple[int, int]]) -> str:
-    """SHA-256 over ``(va, size)`` function boundaries.
-
-    Records are ``<va:08x>:<size:x>`` joined with newlines after sorting by
-    VA, so the same function set hashes identically regardless of input
-    order, and a changed size or VA changes the hash.
-    """
-    lines = "\n".join(f"{va:08x}:{size:x}" for va, size in sorted(functions))
-    return hashlib.sha256(lines.encode("utf-8")).hexdigest()
-
-
 def _shannon_entropy(data: bytes) -> float:
     """Shannon entropy of *data* in bits per byte (0.0 for empty input)."""
     if not data:

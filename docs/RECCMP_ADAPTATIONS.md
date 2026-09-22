@@ -59,9 +59,8 @@ diff-fix heuristics:
   (keeps `b`'s displacement so a real displacement difference survives).
 - `patch_cmp_jmp` / `patch_mov_cmp_jmp` / `patch_mov_commutative` /
   `patch_fld_fmul` — whole-pattern detectors returning the set of orig-line
-  indices each pattern explains, or an empty set. `PATCHERS` is the
-  registry; a text-diff renderer can apply each to aligned mismatch
-  islands before classifying the remainder.
+  indices each pattern explains, or an empty set. No shipped command
+  applies them yet.
 
 **near-diag integration.** `classify_pair` treats a mirrored conditional
 jump pair with the same displacement as `equivalent` — the compiler
@@ -120,7 +119,7 @@ Scoped subset needing no demangler dependency:
 - `demangle_vtable(symbol)` — class name from a `??_7` vtable symbol,
   self-contained parser: simple and one-level template cases, no backrefs
   or virtual inheritance (same ceiling as reccmp's parked implementation).
-- `msvc_demangle` / `get_function_arg_string` / `get_vtordisp_name` — use
+- `msvc_demangle` / `get_function_arg_string` — use
   `pydemumble` when installed; otherwise a decoration-strip fallback that
   covers plain-C symbols. `pydemumble` is intentionally NOT a rebrew
   dependency.
@@ -137,9 +136,9 @@ parser for the sections it consumes:
 - `MODULES` — object/library files linked into the binary
 
 ```python
-from rebrew.pdb_cvdump import Cvdump, cvdump_available
+from rebrew.pdb_cvdump import Cvdump, cvdump_exe_path
 
-if cvdump_available():            # REBREW_CVDUMP env override, then PATH
+if cvdump_exe_path():             # REBREW_CVDUMP env override, then PATH
     parser = Cvdump(pdb_path).publics().modules().section_contributions().run()
     parser.publics      # [PublicsEntry]
     parser.sizerefs     # [SizeRefEntry]

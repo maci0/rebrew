@@ -16,7 +16,6 @@ from rebrew.fingerprints import (
     export_hash_from_pairs,
     file_hashes,
     fingerprint_bundle,
-    function_boundaries_hash,
     imphash,
     imphash_from_pairs,
     rich_header_bytes_from_parts,
@@ -177,23 +176,6 @@ class TestExportHash:
 
     def test_missing_returns_none(self, tmp_path: Path) -> None:
         assert export_hash(tmp_path / "absent.dll") is None
-
-
-class TestFunctionBoundariesHash:
-    def test_order_independent(self) -> None:
-        a = function_boundaries_hash([(0x1000, 0x20), (0x2000, 0x10)])
-        b = function_boundaries_hash([(0x2000, 0x10), (0x1000, 0x20)])
-        assert a == b
-
-    def test_size_change_changes_hash(self) -> None:
-        a = function_boundaries_hash([(0x1000, 0x20)])
-        b = function_boundaries_hash([(0x1000, 0x21)])
-        assert a != b
-
-    def test_va_change_changes_size(self) -> None:
-        a = function_boundaries_hash([(0x1000, 0x20)])
-        b = function_boundaries_hash([(0x1001, 0x20)])
-        assert a != b
 
 
 class TestSectionEntropies:

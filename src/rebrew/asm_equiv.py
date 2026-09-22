@@ -177,14 +177,3 @@ def patch_fld_fmul(orig: list[str], recomp: list[str]) -> set[int]:
     ):
         return {fld_index, fld_index + 1}
     return set()
-
-
-#: All pattern patchers: name → callable(orig_lines, recomp_lines) → fixed indices.
-#: ``near_diag`` (and any future text-diff renderer) applies each in turn to
-#: aligned mismatch islands before classifying the remainder.
-PATCHERS = {
-    "cmp_jmp": patch_cmp_jmp,
-    "mov_cmp_jmp": patch_mov_cmp_jmp,
-    "mov_commutative": patch_mov_commutative,
-    "fld_fmul": patch_fld_fmul,
-}

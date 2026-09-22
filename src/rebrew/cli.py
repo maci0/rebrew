@@ -82,27 +82,6 @@ AllTargetsOption: bool = typer.Option(
 )
 
 
-def iter_target_configs(cfg: ProjectConfig, *, json_mode: bool = False) -> list[ProjectConfig]:
-    """Per-target configs for an --all-targets run.
-
-    Expands the already-loaded (default or explicit) config to one config
-    per configured target, preserving project root.  Returns ``[cfg]`` when
-    the project has one target.  A broken target raises here — callers that
-    must survive one bad target (batch runners) should iterate
-    ``cfg.all_targets`` with their own try/except instead.
-    """
-    names = list(getattr(cfg, "all_targets", []) or [])
-    if len(names) <= 1:
-        return [cfg]
-    out: list[ProjectConfig] = []
-    for name in names:
-        try:
-            out.append(load_config(root=cfg.root, target=name))
-        except (FileNotFoundError, KeyError, ValueError) as exc:
-            error_exit(f"Config error for target {name!r}: {exc}", json_mode=json_mode)
-    return out
-
-
 def run_for_each_target(
     names: list[str],
     run_one: Any,

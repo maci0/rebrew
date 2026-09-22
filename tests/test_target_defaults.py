@@ -22,7 +22,7 @@ import pytest
 import typer
 from typer.testing import CliRunner
 
-from rebrew.cli import all_targets_run, iter_target_configs, run_for_each_target
+from rebrew.cli import all_targets_run, run_for_each_target
 from rebrew.config import load_config
 
 # Commands that legitimately take no --target, keyed (component, command).
@@ -155,11 +155,9 @@ class TestTargetResolution:
         assert load_config().target_name == "alpha"
         assert load_config(target="beta").target_name == "beta"
 
-    def test_iter_target_configs_expands(self, tmp_path: Path) -> None:
+    def test_all_targets_lists_every_target(self, tmp_path: Path) -> None:
         root = _project(tmp_path)
-        cfg = load_config(root=root)
-        names = [c.target_name for c in iter_target_configs(cfg)]
-        assert names == ["alpha", "beta"]
+        assert load_config(root=root).all_targets == ["alpha", "beta"]
 
 
 class TestRunForEachTarget:
