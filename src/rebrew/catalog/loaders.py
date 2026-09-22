@@ -208,13 +208,11 @@ def cached_function_vas(cfg: ProjectConfig) -> frozenset[int]:
             vas = frozenset(va for f in list_cached[1] if isinstance((va := f.get("va")), int))
             _function_vas_cache[cache_key] = (fp, vas)
             return vas
-    # Populate both caches via the list loader, then re-read the VA set.
-    cached_function_list(cfg)
-    with _function_list_cache_lock:
-        cached = _function_vas_cache.get(cache_key)
-        if cached is not None and cached[0] == fp:
-            return cached[1]
-    return frozenset()
+    # Derive from the list the loader returns, not a re-read of the cache: a
+    # concurrent rewrite between the stat above and the reload changes the
+    # fingerprint, and a re-read keyed on the stale one returned an empty set.
+    funcs = cached_function_list(cfg)
+    return frozenset(va for f in funcs if isinstance((va := f.get("va")), int))
 
 
 def parse_rizin_afl(text: str) -> list[tuple[int, int, str]]:

@@ -374,6 +374,11 @@
   ``one_line``, ``run_git``). Call sites inside the package already updated.
 
 ### Fixed
+- **The inventory VA set is not empty after a concurrent rewrite.**
+  `cached_function_vas` re-read the cache under the fingerprint it took
+  before reloading, so a `function_structure.json` rewritten in between
+  (another process running `rebrew intake`) returned an empty set.  It now
+  derives the set from the list it just loaded.
 - **`rebrew dashboard` answers an oversized `offset` with an empty page.**
   `/api/functions`, `/api/globals`, and `/api/history` passed any
   non-negative `offset` to SQLite, so a value past int64 raised

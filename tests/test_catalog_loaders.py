@@ -291,3 +291,24 @@ class TestCachedFunctionList:
             str(tmp_path / "p1" / FUNCTION_STRUCTURE_JSON),
             str(tmp_path / "p2" / FUNCTION_STRUCTURE_JSON),
         }
+
+    def test_vas_survive_rewrite_during_load(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A rewrite between the VA lookup's stat and the reload must not yield an empty set."""
+        from types import SimpleNamespace
+
+        from rebrew.catalog import loaders as loaders_mod
+        from rebrew.config import FUNCTION_STRUCTURE_JSON
+
+        monkeypatch.setattr(loaders_mod, "_function_list_cache", {})
+        monkeypatch.setattr(loaders_mod, "_function_vas_cache", {})
+        (tmp_path / FUNCTION_STRUCTURE_JSON).write_text(
+            json.dumps([{"va": "0x1000", "size": 8, "name": "a"}]),
+            encoding="utf-8",
+        )
+        # Each stat sees a newer fingerprint, as if another process rewrote the file.
+        stamps = iter(["1:1", "2:1"])
+        monkeypatch.setattr(loaders_mod, "_inventory_fingerprint", lambda _p: next(stamps))
+        cfg = SimpleNamespace(reversed_dir=str(tmp_path))
+        assert loaders_mod.cached_function_vas(cfg) == frozenset({0x1000})
