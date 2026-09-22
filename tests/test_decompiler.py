@@ -707,6 +707,17 @@ class TestKunaBackend:
         assert roots[0] == xdg / "uv" / "tools"
         assert not any(p.as_posix().endswith(".local/share/uv/tools") for p in roots)
 
+    def test_uv_tool_roots_ignores_relative_xdg_data_home(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A relative XDG_DATA_HOME is invalid per the XDG spec: use ~/.local/share."""
+        import rebrew.decompiler as dc
+
+        monkeypatch.delenv("UV_TOOL_DIR", raising=False)
+        monkeypatch.setenv("XDG_DATA_HOME", "rel-data")
+        roots = dc._uv_tool_roots()
+        assert roots[0] == Path.home() / ".local" / "share" / "uv" / "tools"
+
     def test_rizin_sleigh_dirs_include_lib64(self) -> None:
         """Multi-lib Linux layouts are probed, not only /usr/lib."""
         import rebrew.decompiler as dc

@@ -667,6 +667,23 @@ class TestWritableTempDir:
 
             shutil.rmtree(d, ignore_errors=True)
 
+    def test_ignores_relative_xdg_cache_home(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A relative XDG_CACHE_HOME is invalid per the XDG spec: use ~/.cache."""
+        from rebrew.utils import writable_temp_dir
+
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("XDG_CACHE_HOME", "rel-cache")
+        d = writable_temp_dir("rebrew_test_")
+        try:
+            assert d.is_absolute()
+            assert not (tmp_path / "rel-cache").exists()
+        finally:
+            import shutil
+
+            shutil.rmtree(d, ignore_errors=True)
+
     def test_not_directly_in_home(self) -> None:
         from rebrew.utils import writable_temp_dir
 

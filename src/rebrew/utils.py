@@ -1248,6 +1248,16 @@ def strip_comment_blocks(text: str) -> str:
     return "\n".join(result)
 
 
+def xdg_cache_home() -> Path:
+    """Return ``$XDG_CACHE_HOME``, or ``~/.cache`` when unset, empty, or relative.
+
+    The XDG Base Directory spec requires ignoring a relative value; honoring
+    one would resolve against the cwd and hand docker a relative bind mount.
+    """
+    xdg = Path(os.environ.get("XDG_CACHE_HOME", "").strip())
+    return xdg if xdg.is_absolute() else Path.home() / ".cache"
+
+
 def writable_temp_dir(prefix: str) -> Path:
     """Create a writable temp dir on a real-disk, container-visible location.
 
@@ -1268,9 +1278,7 @@ def writable_temp_dir(prefix: str) -> Path:
     import tempfile
 
     workspace = Path(__file__).resolve().parents[2] / ".cache"
-    xdg = os.environ.get("XDG_CACHE_HOME", "").strip()
-    cache_root = Path(xdg) if xdg else Path.home() / ".cache"
-    home_tmp = cache_root / "rebrew" / "tmp"
+    home_tmp = xdg_cache_home() / "rebrew" / "tmp"
     candidates = [home_tmp, workspace]
     with contextlib.suppress(Exception):
         candidates.append(Path(tempfile.gettempdir()))

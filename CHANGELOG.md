@@ -376,6 +376,10 @@
   ``one_line``, ``run_git``). Call sites inside the package already updated.
 
 ### Fixed
+- **A relative `XDG_CACHE_HOME` / `XDG_DATA_HOME` is ignored.**  The XDG
+  spec calls a relative value invalid; rebrew honored it, so compile
+  sandboxes and the cmake wineprefix resolved against the cwd (a relative
+  docker bind mount).  Both now fall back to `~/.cache` / `~/.local/share`.
 - **`rebrew migrate-markers` no longer drops concurrent STATUS writes or
   inline markers.**  It loaded `rebrew-functions.toml` outside the metadata
   write lock and then rewrote the whole store, so a promotion from a

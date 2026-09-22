@@ -36,7 +36,7 @@ from rich.console import Console
 
 from rebrew.cli import error_exit, json_print
 from rebrew.toolchain import TOOLCHAINS, ToolchainSpec, kill_container
-from rebrew.utils import container_runtime, file_lock, load_tomllib
+from rebrew.utils import container_runtime, file_lock, load_tomllib, xdg_cache_home
 from rebrew.workspace import walk_up_to_root
 
 console = Console(stderr=True)
@@ -244,9 +244,7 @@ def _wineprefix(spec: ToolchainSpec) -> Path:
     env = os.environ.get("REBREW_WINEPREFIX")
     if env:
         return Path(env)
-    xdg = os.environ.get("XDG_CACHE_HOME", "").strip()
-    cache_root = Path(xdg) if xdg else Path.home() / ".cache"
-    return cache_root / f"rebrew-{spec.name}-wineprefix"
+    return xdg_cache_home() / f"rebrew-{spec.name}-wineprefix"
 
 
 def _ensure_wineprefix(prefix: Path, spec: ToolchainSpec) -> None:

@@ -320,9 +320,10 @@ def _uv_tool_roots() -> list[Path]:
     if env:
         roots.append(Path(env))
     home = Path.home()
-    xdg_data = os.environ.get("XDG_DATA_HOME", "").strip()
+    # XDG spec: a relative XDG_DATA_HOME is invalid and ignored.
+    xdg_data = Path(os.environ.get("XDG_DATA_HOME", "").strip())
     linux_data = (
-        Path(xdg_data) / "uv" / "tools" if xdg_data else home / ".local" / "share" / "uv" / "tools"
+        (xdg_data if xdg_data.is_absolute() else home / ".local" / "share") / "uv" / "tools"
     )
     for candidate in (
         linux_data,
