@@ -58,8 +58,8 @@ libs = "toolchain/msvc/6.0-win32/source/VC98/Lib"
 | `text_va` | Auto-detected from PE | `.text` section virtual address |
 | `reversed_dir` | `[targets.<name>].reversed_dir` | Where `.c` files are stored |
 | `inventory_file` | `[targets.<name>].inventory_file` | Function-inventory path override, relative to project root (default: `reversed_dir/function_structure.json`); per-target inventories for one shared source tree |
-| `shared_dir` | `[project].shared_dir` | Project-level shared-sources root (`src/shared` by default); sources here are scanned for every target and may carry one `// FUNCTION: <target> <va>` marker per target. Empty value disables shared sources |
-| `metadata_dir` | Derived: parent of `reversed_dir` | Canonical home of `rebrew-functions.toml` / `rebrew-data.toml`; callers must pass it explicitly (no walk-up) |
+| `shared_dir` | `[project].shared_dir` | Project-level shared-sources root (`src/shared` by default); sources here are scanned for every target and may carry one `// FUNCTION: <target> <va>` marker per target. Empty value disables shared sources. When the whole tree is the source root (`reversed_dir` is `src` itself), the TOMLs may live inside it |
+| `metadata_dir` | Derived: parent of `reversed_dir`, falling back to `reversed_dir` itself when it holds `rebrew-functions.toml` and the parent does not | Canonical home of `rebrew-functions.toml` / `rebrew-data.toml`; callers must pass it explicitly (no walk-up) |
 | `capstone_arch` / `capstone_mode` | Derived from `arch` | Capstone disassembly constants |
 | `padding_bytes` | Derived from `arch` | `(0xCC, 0x90)` for x86_32/x86_64 (see Architecture Presets) |
 | `symbol_prefix` | Derived from `arch` | `_` for x86_16/x86_32, empty for x86_64/arm |
@@ -129,6 +129,8 @@ Running `rebrew test --target server_dll` processes only the `SERVER` marker blo
 The lint tool (`rebrew lint`) validates that each marker's module matches the configured marker (error E012) — except stacked blocks naming another known project target, which is the `src/shared` pattern (ADR-010), not a mismatch. Each stacked block answers to its own target's CFLAGS defaults (W018).
 
 `src/shared` files are scanned for every target; `rebrew doctor` warns on multi-target projects when the shared dir is missing or `shared_dir` is disabled. `rebrew cross-import --shared` stacks the destination marker onto the shared file in place (verified before STATUS promotion) instead of copying per-target duplicates.
+
+Progress commands (`status`, `todo`) scope to the active target's own module: in a shared tree every target scans every file, so unscoped counts credit one binary with another target's rows (library headers land in every target's map). Rows whose module matches the target marker count; module-less legacy rows are kept; navigation maps stay unfiltered. Divergent twins that cannot share one file sit side by side as `GOLDTL.<name>.c` / `GOLD.<name>.c` (module-first, like metadata keys).
 
 ## Compiler Profiles
 

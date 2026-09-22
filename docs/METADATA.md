@@ -52,6 +52,13 @@ same tiers and the data/globals/layout pipeline.
    (`resolve_compile_overrides`).
 4. **SIZE precedence**: compile contract = annotation/metadata `SIZE`;
    coverage = registry canonical size.
+5. **Shared-tree scoping**: one `rebrew-functions.toml` holds every
+   target's rows under module-prefixed keys (`SERVER.0x…`, `GOLD.0x…`) —
+   one TOML per metadata root, not one per target.  Progress commands
+   (`status`, `todo`) count only rows whose module matches the active
+   target (plus module-less legacy rows); library headers land in every
+   target's scan but count for none.  Same-VA cross-target entries coexist
+   as separate rows and never collide.
 
 ## Sync stores (external)
 

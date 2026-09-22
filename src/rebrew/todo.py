@@ -12,7 +12,6 @@ Usage::
     rebrew todo --json              Machine-readable output
 """
 
-import bisect
 import contextlib
 import json
 from collections.abc import Callable
@@ -29,6 +28,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
+from rebrew.annotation import span_contains_factory
 from rebrew.cli import (
     TargetOption,
     error_exit,
@@ -704,9 +704,7 @@ def _collect_new_functions(
         if str(info.get("size", "") or "").strip().isdigit()
     )
 
-    def _inside_annotated(probe: int) -> bool:
-        i = bisect.bisect_right(annotated_spans, (probe, 1 << 62)) - 1
-        return i >= 0 and annotated_spans[i][0] < probe < annotated_spans[i][1]
+    _inside_annotated = span_contains_factory(annotated_spans)
 
     # Statically linked library code sits in .text looking exactly like game
     # code, and reversing it is wasted work -- the linker supplies those bytes
@@ -1171,6 +1169,9 @@ def main(
     cfg = require_config(target=target, json_mode=json_output)
     try:
         ghidra_funcs, existing, covered_vas = load_data(cfg)
+        from rebrew.naming import scope_to_target
+
+        existing = scope_to_target(existing, cfg)
     except (OSError, json.JSONDecodeError, KeyError) as exc:
         error_exit(f"Failed to load project data: {exc}", json_mode=json_output)
     all_items = collect_all(cfg, ghidra_funcs, existing, covered_vas)

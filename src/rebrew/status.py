@@ -380,9 +380,14 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
         arch=cfg.arch,
     )
 
-    # Load function data (same path as rebrew todo)
+    # Load function data (same path as rebrew todo), scoped to this
+    # target's own module — shared-tree scans otherwise credit one binary
+    # with another target's rows (library headers land in every map).
     try:
         ghidra_funcs, existing, _covered_vas = load_data(cfg)
+        from rebrew.naming import scope_to_target
+
+        existing = scope_to_target(existing, cfg)
     except (OSError, json.JSONDecodeError, KeyError, ValueError):
         # Graceful degradation: return zeroed report.  ValueError is what the
         # loaders raise for a corrupt structure JSON, so omitting it meant the

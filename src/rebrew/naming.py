@@ -255,7 +255,7 @@ def load_data(
 
     Returns (ghidra_funcs, existing, covered_vas) where:
     - ghidra_funcs: list of FunctionEntry objects
-    - existing: dict mapping VA -> {filename, size, status, blocker, blocker_delta, symbol, source}
+    - existing: dict mapping VA -> {filename, size, status, blocker, blocker_delta, symbol, source, module, marker_type}
     - covered_vas: dict mapping VA -> filename (for find_neighbor_file)
     """
     from rebrew.catalog import load_function_structure
@@ -285,6 +285,7 @@ def load_data(
                 "size": str(entry.size),
                 "status": entry.status,
                 "module": entry.module or "",
+                "marker_type": entry.marker_type or "",
                 "blocker": entry.blocker,
                 "blocker_delta": str(entry.blocker_delta)
                 if entry.blocker_delta is not None
@@ -309,6 +310,7 @@ def load_data(
                 "size": str(entry.size),
                 "status": entry.status,
                 "module": entry.module or "",
+                "marker_type": entry.marker_type or "",
                 "blocker": entry.blocker or "",
                 "blocker_delta": str(entry.blocker_delta)
                 if entry.blocker_delta is not None
@@ -319,6 +321,30 @@ def load_data(
             covered_vas[entry.va] = hfile.name
 
     return ghidra_funcs, existing, covered_vas
+
+
+def scope_to_target(
+    existing: dict[int, dict[str, str]], cfg: ProjectConfig | None
+) -> dict[int, dict[str, str]]:
+    """Restrict progress rows to the active target's own module.
+
+    In a shared tree every target scans every file, so ``existing`` holds
+    other targets' rows (another module's FUNCTION blocks are filtered at
+    parse, but library headers carry no target affinity and land in every
+    target's map).  Counting those as progress credits one binary with
+    another's work — e.g. a client target reporting thousands of EXACT
+    library attributions.  Keep rows whose module matches the target
+    marker, plus module-less rows (legacy callers that cannot attribute);
+    navigation maps (``covered_vas``) stay unfiltered.
+    """
+    marker = (getattr(cfg, "marker", None) or "").lower() if cfg else ""
+    if not marker:
+        return existing
+    return {
+        va: info
+        for va, info in existing.items()
+        if (info.get("module") or "").lower() in ("", marker)
+    }
 
 
 # ---------------------------------------------------------------------------
