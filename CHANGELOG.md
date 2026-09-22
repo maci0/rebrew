@@ -1,101 +1,4 @@
 ## [Unreleased]
-### Fixed
-- **Byte-reproducible sdist.**  setuptools copied each file's mtime, mode,
-  and owner into the sdist, so a checkout with 0600 files or a different
-  clone time produced a different archive.  `make build` now rewrites it
-  with `tools/normalize_sdist.py` (sorted entries, `SOURCE_DATE_EPOCH`
-  mtimes, `0:0` owner, 0644/0755 modes, zero gzip timestamp), and the CI
-  package job checks the sdist hash across two builds like the wheel.
-- **resembl clone pinned to a commit.**  CI cloned the sibling `resembl`
-  by tag only; the `uv-env` action's `resembl-sha` input now fails the
-  clone when `v2.0.0` resolves to any other commit.
-- **Report and dashboard accessibility.**  `graph.html` put `aria-label`
-  on a `<pre>` (invalid ARIA, flagged by vnu) that keyboard users could
-  not scroll; it is now a focusable region named by its heading.
-  Dashboard metric cards named a `<div>` via `aria-label` (ignored by
-  AT) and gave filter buttons a name not starting with their visible
-  text (WCAG 2.5.3); the description now follows the visible text in a
-  visually-hidden span.
-- **No work at module load; every registration keeps its inverse.**
-  CORDIS review (arXiv:2608.25512) pass over the component runtime:
-  `rebrew.main`'s import-time `compose()` discarded the `(ctx, scope)`
-  tuple — the fiber that owns every mount's disposer — and now retains
-  it as `_COMPOSED`; `rebrew.decompiler` and `rebrew.compile_cache`
-  registered their `atexit` cleanup at import and now arm the hook once,
-  on first use, matching the pattern `dosbox`/`compile` already use;
-  `rebrew.climb` installed its SIGTERM/SIGINT restore handler before the
-  span/chunks `error_exit` paths, which raised past the `finally` that
-  removes it, and now installs only once the file can be written.
-  Each repair ships a test that disposes the contribution and asserts it
-  is gone (idempotently).
-- **cvdump parsing no longer crashes on non-hex fields.**  The PUBLICS,
-  SECTION CONTRIBUTIONS, and MODULES regexes matched hex fields with
-  `\w`, so a malformed PDB dump such as `000G "a" "b.obj"` raised
-  `ValueError` from `int(..., 16)`.  Those fields now match `[A-F0-9]`,
-  like the LINES regexes, and the line is skipped.  Hypothesis
-  harnesses in `tests/test_property_parsers.py` now fuzz `CvdumpParser`,
-  `iter_cvdump_sections`, and `flirt.find_func_size`.
-- **`.coverage` is no longer committed.**  A slipcover run's SQLite
-  database landed in the tree despite being listed in `.gitignore` and
-  `MANIFEST.in`; it is a 176 KB build artifact carrying local absolute
-  paths.  The `check-added-large-files` pre-commit ceiling drops from
-  35 MB to 8 MB at the same time: the MSVC tarballs it was raised for
-  are gitignored and live in the sibling `rebrew-toolchains` repo, and
-  8 MB still clears the largest tracked file (`docs/codegen/corpus.json`,
-  ~3.8 MB) while blocking an accidental toolchain tarball or binary.
-- **`rebrew migrate-markers` is registered.**  The ADR 023 migration
-  command existed as `rebrew.migrate_markers` with docs, tests, and an
-  agent-skill entry, but it was never added to `BUILTIN_COMPONENTS`, so
-  the umbrella CLI did not expose it.  It now appears in `rebrew
-  --help` (Development panel) and `rebrew migrate-markers --help`
-  works, including `--dry-run` / `--json` / `--target`.
-- **Marker code cites ADR 023, not ADR 018.**  `rebrew.migrate_markers`
-  and the marker-less-file synthesis paths in `rebrew.annotation`
-  referenced "ADR 018 (markers: TOML single source)"; 018 is
-  single-file verify scope.  Corrected to 023 (the real markers ADR) in
-  the module docstring, the `--help` line, and four comments.
-- **Library code leaves progress totals (status/todo agree again).**
-  Identified library functions (CRT/zlib/static-lib attributions —
-  "never reverse" work) inflated the denominators: server.dll reported
-  558 functions with 277 of them already-identified library code, so
-  coverage read 46.8%/41.9% where the honest game-code numbers are
-  261/281 (92.9% covered, 82.9% reversed). `rebrew todo` now mirrors
-  `rebrew status` exactly: same FUNCTION-only counts, same denominator
-  (covered FUNCTION rows + ghidra inventory - identified library VAs),
-  library rows excluded from the status table.
-- **`.text` byte coverage counts stock-linked bytes again.**  The
-  library-out-of-totals change had left the byte line as game-only
-  matched bytes over the whole `.text` (43.3%); external/library rows
-  that reproduce the reference bytes count as covered again (96.3%,
-  136,086B / 141,382B on server.dll).  The progress table stays
-  game-only: "reversed" answers our work, "bytes covered" answers
-  deliverable byte identity.
-### Changed
-- **CI pins live once, in `.github/actions/uv-env`.**  The resembl clone
-  and pinned `setup-uv` step were copy-pasted into five jobs across
-  `ci.yml` and `toolchain-sync.yml`, with `UV_VERSION`, `RESEMBL_REF`,
-  and the `3.13.15` Python patch repeated in both workflow files (they
-  had drifted before).  Both workflows now call one local composite
-  action whose input defaults are the single pin site; the `package`
-  job passes `clone-resembl: "false"` since its sync needs no path dep,
-  and Dependabot scans the action's directory so its `setup-uv` SHA
-  keeps getting refreshed.  `tests/test_ci_pins.py` fails any workflow
-  that re-declares a pin or hand-rolls `setup-uv`.
-- **`parse_library_header()` drops its dead `target_name` argument.**
-  LIBRARY marker modules are library names (MSVCRT, ZLIB, ...), not the
-  project marker, so the parser never filtered on it; five call sites
-  computed `target_marker(cfg)` for nothing.
-- **CLI surface consistency, contract-enforced.**  One `main_entry`
-  docstring everywhere (`"Run the Typer CLI application."` — 64 drifted
-  modules normalized); `--target` help unified on the shared
-  `TargetOption` wording wherever it selects an existing target
-  (`splat-config`, `init` phrased to start "Target name"); and `rebrew
-  blocker`'s positional is now `function` (was `target` — it resolves a
-  C file, symbol, or hex VA, and the old name collided with `--target`'s
-  project-target meaning).  `tests/test_cli_contract.py` pins the
-  surface: exact `--json`/`--dry-run` help strings, `--target` help
-  wording, `--json`-before-`--target` signature order, and the
-  `main_entry` docstring — shared-option drift now fails the suite.
 ### Added
 - **`rebrew.errors.RebrewError` — one base for every error rebrew
   raises.**  Embedding code had to enumerate `ToolchainError`,
@@ -151,7 +54,7 @@
   lint E001/E015, `build_db` schema). Shared effective-match classifier:
   `match_semantics.is_effective_match` now backs both `verify` and
   `near-diag` (one rule, one note string, no drift).
-### Added- **reccmp-adapted modules** (all MIT-attributed, see
+- **reccmp-adapted modules** (all MIT-attributed, see
   `docs/RECCMP_ADAPTATIONS.md`): `pinned_diff` (pin-seeded sequence matcher,
   now drives near-diag's alignment via unique byte-identical anchors),
   `asm_equiv` (swapped cmp/jump, mov+commutative, fld/fmul equivalence
@@ -167,7 +70,141 @@
   (symbols, misplaced, mean delta per linked object, worst first) — the
   reccmp `roadmap` view: one drifted TU shifts everything after it by the
   same delta.
+- **`cross-import --shared` stacks the marker instead of copying.**  The
+  destination marker block (`// FUNCTION: <dst> <va>` + `// SIZE:`) is
+  prepended onto the shared source in place — one file, one marker per
+  target, verified against the destination before STATUS promotion — so
+  shared game logic never drifts across per-target copies. A per-target
+  source is moved under `src/shared` first (same relative path);
+  `--promote` does the move alone. A matched `--shared` import deletes the
+  destination's old stub file so the VA is claimed once (unverified imports
+  leave it); the copy path already replaced it by overwriting. Shared imports
+  record no absolute source-dir `/I`, and `--shared --dry-run` reports the
+  project-relative path (`../shared/f.c`) — no checkout paths in metadata
+  or JSON.
+- **``make setup`` warns when ``nasm`` is missing** so a clean clone names the
+  host dep before the first ``make test`` / ``make test-one`` failure.
+- **Structured ``ToolchainError``** — ``kind`` / ``name`` / ``retryable``
+  (same recovery shape as ``RecompileError`` / ``McpError``); public
+  ``__all__`` also exports ``require_toolchains_repo``,
+  ``TOOLCHAIN_OVERLAY_ENV``, and ``ToolchainErrorKind``.
+- **``rebrew.sources`` pins ``__all__``** for the discovery helpers
+  (``iter_sources``, ``iter_library_headers``, ``source_exts``,
+  ``source_glob``, ``target_marker``).
+- **``McpErrorKind`` re-exported from ``rebrew.ghidra``** alongside
+  ``McpError`` / ``McpApplyAborted``.
+- **README library quickstart** for the documented integrator imports.
+- **Ruff/mypy ratchets** — ``S602``, ``PLR0124``, ``PIE790``, ``ANN205``,
+  ``ANN206`` join the select (zero findings on the current tree);
+  mypy enables ``extra_checks`` plus ``ignore-without-code``,
+  ``unused-awaitable``, ``mutable-override``, ``exhaustive-match``, and
+  ``unimported-reveal``.
+- **Package CI uploads verified ``dist/`` artifacts** (wheel, sdist,
+  ``rebrew.buildinfo``, CycloneDX SBOM) with 14-day retention after the
+  smoke-import step.
+- **``dist/rebrew.buildinfo``** records uv/python/``.python-version``/setuptools
+  (setuptools parsed from ``pyproject.toml``) and ``SOURCE_DATE_EPOCH`` /
+  locale knobs next to ``make build`` / package-CI artifacts so a rebuild can
+  reuse the same environment pins.
+- **Ruff rule set widened** — zero-finding stable pylint (PLW/PLC/PLR),
+  flake8-type-checking (TC004/005/007/010), bandit S201/S202/S702,
+  tryceratops TRY203, refurb FURB122/162, perf PERF203, pie PIE796/808,
+  logging LOG004/014, flake8-errmsg EM103, flake8-pytest-style PT (clean
+  subset), and ISC003 join the select as ratchets.  Debt siblings,
+  preview-only codes, formatter-conflicting ISC001/002, and TID* (no
+  banned-api list yet) stay off.
+- **Ruff enforces B904** (exception chaining) and ratchets on T100/T203
+  plus the zero-finding ``PTH*`` pathlib subset — codes the tree already
+  passes.  ``B904`` is dropped from ``ignore`` after the raise sites
+  gained ``from`` clauses; remaining PTH debt stays off until clean.
+- **Coverage dashboard views for sections, globals, and history**, plus a
+  Module filter fed by ``by_module_counts``. Summary failures offer Retry
+  summary (same pattern as functions) instead of forcing a full reload;
+  Matched/Identified cards carry titles that explain the percentages.
+- **``rebrew build-check``** verifies ``build/`` still matches what CMake
+  generated (hand-edited ``build.make`` / stale objects). Exits non-zero on
+  drift and on ``not-configured`` so a mistyped ``--build-dir`` cannot read
+  as clean.
+- **``rebrew verify --data`` reports coverage**, not only match counts:
+  ``total`` / ``compared`` / ``not_comparable`` / ``coverage`` in human and
+  ``--json`` output, so a partial compare cannot look like a whole-tree pass.
+- **``make cli-contract``** mirrors the CI ``cli-contract`` help greps; ``make
+  all`` runs it. Older-than-pin ``uv`` warns instead of blocking ``make setup``.
+- **Wheel METADATA ``Security`` project URL** points at ``SECURITY.md``.
+- **Structured MCP / recompile transport errors** — ``McpError`` carries
+  ``kind`` / ``status_code`` / ``retryable`` (same shape as
+  ``RecompileError``); remote compile optionally retries on retryable
+  failures. Public modules pin ``__all__`` so star-imports match the
+  documented integrator surface.
+
 ### Changed
+- **Breaking:** **Dashboard ``/api/globals`` and ``/api/history`` rows are
+  compact arrays** under ``cols`` (same shape as ``/api/functions``). Zip
+  ``cols`` with each array; built-in HTML accepts both arrays and legacy
+  dicts. External clients must update.
+- **Breaking:** **`coverage.db` `db_version` is now `"10"`** (was `"8"` at
+  2.6.0). Schema `"9"` CHECK-constrains ``cells.state`` to the known
+  cell-state set (unknowns coerce to ``unknown`` on insert) and adds
+  ``idx_metadata_key`` for key-first metadata lookups; section
+  ``va``/``size``/``fileOffset`` clamp on insert. Schema `"10"` derives the
+  ``cells.state`` known set from lowercased ``KNOWN_STATUSES`` plus gap/data
+  verdicts so ``extract_error`` / ``invalid_va`` (and future STATUS values)
+  stay CHECK-valid; ``globals.status`` uses the same ``DATA_STATUS_*``
+  constants. Existing databases refuse writes until
+  ``rebrew build-db --force`` (DROP+rebuild), same as prior schema bumps.
+- **Breaking:** **`activate()` no longer raises on unmet coeffects** (2.6.0
+  raised ``ComponentError`` naming the missing services). Components whose
+  ``needs`` are missing stay inactive; a later ``provide`` mounts them, and
+  ``unprovide`` reverts them. Catch ``ComponentError`` at startup only for
+  import/registration failures — not for deferred ``needs``. ADR 014 records
+  the current contract.
+- **Breaking:** **Dashboard ``/api/functions`` (and bootstrap ``functions``)
+  rows are compact arrays** keyed by ``cols``, not dicts. Before: each row was
+  ``{"va", "name", "symbol", "size", "status", "module", "files"}``. After:
+  ``{"cols": [...], "functions": [[...], ...]}`` — zip ``cols`` with each
+  array. Built-in HTML follows the new shape; external dashboard clients must
+  update.
+- **Breaking:** **Dashboard default page size is 100** (was 500). Pass
+  ``limit=500`` (Show more still steps by 500) to keep the previous first-page
+  width.
+- **Breaking:** **``rebrew.matcher.flags`` / ``rebrew.matcher.flag_data``
+  modules moved** to ``rebrew.flags`` / ``rebrew.flag_data``. Import from the
+  new paths (or from ``rebrew.matcher``, which still re-exports the symbols);
+  ``from rebrew.matcher.flags import …`` raises ``ModuleNotFoundError``.
+- **Breaking:** **``read_pe_header_fields`` returns ``dict[str, int] | None``**
+  (was a ``PeHeaderFields`` wrapper with a ``.values`` dict). Use
+  ``fields["timestamp"]`` / ``fields.get(...)`` directly;
+  ``from rebrew.pe_headers import PeHeaderFields`` and ``fields.values[...]``
+  no longer work. ``COFF_HEADER_SIZE`` is removed (always 20 per PE/COFF);
+  ``SECTION_ENTRY_SIZE`` remains. ``rebrew.order_sources`` no longer
+  re-exports ``file_va`` / ``_base_key`` — import those from
+  ``rebrew.link_order`` (``order_sources`` stays importable from the CLI
+  module because the callback still binds it).
+- **CI pins live once, in `.github/actions/uv-env`.**  The resembl clone
+  and pinned `setup-uv` step were copy-pasted into five jobs across
+  `ci.yml` and `toolchain-sync.yml`, with `UV_VERSION`, `RESEMBL_REF`,
+  and the `3.13.15` Python patch repeated in both workflow files (they
+  had drifted before).  Both workflows now call one local composite
+  action whose input defaults are the single pin site; the `package`
+  job passes `clone-resembl: "false"` since its sync needs no path dep,
+  and Dependabot scans the action's directory so its `setup-uv` SHA
+  keeps getting refreshed.  `tests/test_ci_pins.py` fails any workflow
+  that re-declares a pin or hand-rolls `setup-uv`.
+- **`parse_library_header()` drops its dead `target_name` argument.**
+  LIBRARY marker modules are library names (MSVCRT, ZLIB, ...), not the
+  project marker, so the parser never filtered on it; five call sites
+  computed `target_marker(cfg)` for nothing.
+- **CLI surface consistency, contract-enforced.**  One `main_entry`
+  docstring everywhere (`"Run the Typer CLI application."` — 64 drifted
+  modules normalized); `--target` help unified on the shared
+  `TargetOption` wording wherever it selects an existing target
+  (`splat-config`, `init` phrased to start "Target name"); and `rebrew
+  blocker`'s positional is now `function` (was `target` — it resolves a
+  C file, symbol, or hex VA, and the old name collided with `--target`'s
+  project-target meaning).  `tests/test_cli_contract.py` pins the
+  surface: exact `--json`/`--dry-run` help strings, `--target` help
+  wording, `--json`-before-`--target` signature order, and the
+  `main_entry` docstring — shared-option drift now fails the suite.
 - **Per-target `inventory_file` key.**  `[targets.<name>].inventory_file`
   overrides where one target's function inventory lives (default:
   `reversed_dir/function_structure.json`), so several targets can share a
@@ -239,76 +276,6 @@
   `.data` divergence is postlink-supplied, so without the explicit ack the
   status write-back is suppressed (reported via `raw_link_status_suppressed`)
   instead of silently flipping VERIFIED→DRIFT in `rebrew-data.toml`.
-
-### Added
-- **`cross-import --shared` stacks the marker instead of copying.**  The
-  destination marker block (`// FUNCTION: <dst> <va>` + `// SIZE:`) is
-  prepended onto the shared source in place — one file, one marker per
-  target, verified against the destination before STATUS promotion — so
-  shared game logic never drifts across per-target copies. A per-target
-  source is moved under `src/shared` first (same relative path);
-  `--promote` does the move alone. A matched `--shared` import deletes the
-  destination's old stub file so the VA is claimed once (unverified imports
-  leave it); the copy path already replaced it by overwriting. Shared imports
-  record no absolute source-dir `/I`, and `--shared --dry-run` reports the
-  project-relative path (`../shared/f.c`) — no checkout paths in metadata
-  or JSON.
-- **``make setup`` warns when ``nasm`` is missing** so a clean clone names the
-  host dep before the first ``make test`` / ``make test-one`` failure.
-- **Structured ``ToolchainError``** — ``kind`` / ``name`` / ``retryable``
-  (same recovery shape as ``RecompileError`` / ``McpError``); public
-  ``__all__`` also exports ``require_toolchains_repo``,
-  ``TOOLCHAIN_OVERLAY_ENV``, and ``ToolchainErrorKind``.
-- **``rebrew.sources`` pins ``__all__``** for the discovery helpers
-  (``iter_sources``, ``iter_library_headers``, ``source_exts``,
-  ``source_glob``, ``target_marker``).
-- **``McpErrorKind`` re-exported from ``rebrew.ghidra``** alongside
-  ``McpError`` / ``McpApplyAborted``.
-- **README library quickstart** for the documented integrator imports.
-- **Ruff/mypy ratchets** — ``S602``, ``PLR0124``, ``PIE790``, ``ANN205``,
-  ``ANN206`` join the select (zero findings on the current tree);
-  mypy enables ``extra_checks`` plus ``ignore-without-code``,
-  ``unused-awaitable``, ``mutable-override``, ``exhaustive-match``, and
-  ``unimported-reveal``.
-- **Package CI uploads verified ``dist/`` artifacts** (wheel, sdist,
-  ``rebrew.buildinfo``, CycloneDX SBOM) with 14-day retention after the
-  smoke-import step.
-- **``dist/rebrew.buildinfo``** records uv/python/``.python-version``/setuptools
-  (setuptools parsed from ``pyproject.toml``) and ``SOURCE_DATE_EPOCH`` /
-  locale knobs next to ``make build`` / package-CI artifacts so a rebuild can
-  reuse the same environment pins.
-- **Ruff rule set widened** — zero-finding stable pylint (PLW/PLC/PLR),
-  flake8-type-checking (TC004/005/007/010), bandit S201/S202/S702,
-  tryceratops TRY203, refurb FURB122/162, perf PERF203, pie PIE796/808,
-  logging LOG004/014, flake8-errmsg EM103, flake8-pytest-style PT (clean
-  subset), and ISC003 join the select as ratchets.  Debt siblings,
-  preview-only codes, formatter-conflicting ISC001/002, and TID* (no
-  banned-api list yet) stay off.
-- **Ruff enforces B904** (exception chaining) and ratchets on T100/T203
-  plus the zero-finding ``PTH*`` pathlib subset — codes the tree already
-  passes.  ``B904`` is dropped from ``ignore`` after the raise sites
-  gained ``from`` clauses; remaining PTH debt stays off until clean.
-- **Coverage dashboard views for sections, globals, and history**, plus a
-  Module filter fed by ``by_module_counts``. Summary failures offer Retry
-  summary (same pattern as functions) instead of forcing a full reload;
-  Matched/Identified cards carry titles that explain the percentages.
-- **``rebrew build-check``** verifies ``build/`` still matches what CMake
-  generated (hand-edited ``build.make`` / stale objects). Exits non-zero on
-  drift and on ``not-configured`` so a mistyped ``--build-dir`` cannot read
-  as clean.
-- **``rebrew verify --data`` reports coverage**, not only match counts:
-  ``total`` / ``compared`` / ``not_comparable`` / ``coverage`` in human and
-  ``--json`` output, so a partial compare cannot look like a whole-tree pass.
-- **``make cli-contract``** mirrors the CI ``cli-contract`` help greps; ``make
-  all`` runs it. Older-than-pin ``uv`` warns instead of blocking ``make setup``.
-- **Wheel METADATA ``Security`` project URL** points at ``SECURITY.md``.
-- **Structured MCP / recompile transport errors** — ``McpError`` carries
-  ``kind`` / ``status_code`` / ``retryable`` (same shape as
-  ``RecompileError``); remote compile optionally retries on retryable
-  failures. Public modules pin ``__all__`` so star-imports match the
-  documented integrator surface.
-
-### Changed
 - **Contributor PR path includes ``make build``** (``make help``, CONTRIBUTING,
   README Development) so the local checklist covers the CI package job's
   sdist/wheel step; Development docs use ``make lint`` / ``make format``
@@ -320,8 +287,124 @@
   residue/build-db read the cache without going through ``cli``.
 - **Metadata overlay helpers are public** — ``apply_metadata_entry`` and
   ``FIELD_TO_ATTR`` replace the private cross-module names.
+- **Dashboard entry document no longer inlines the client script** — ``/`` is
+  the HTML/CSS shell (``fetchpriority=high`` preload of ``/api/bootstrap`` plus
+  ``/app.js``); the deferred ``/app.js`` is zstd/gzip-precompressed like the
+  shell so first paint is the loading chrome before the script finishes
+  downloading. CSP ``script-src`` is ``'self'``.
+- **Dashboard HTML preloads ``/api/bootstrap``** (``as=fetch`` + ``crossorigin``)
+  and fetches with ``credentials: omit`` so the cold-start JSON can overlap
+  the shell download on a second connection.
+- **Dashboard and report wire compression negotiate ``zstd``** (then ``gzip``)
+  from ``Accept-Encoding`` q-values; the HTML shell is zstd+gzip precompressed
+  at import, and ``rebrew report`` writes ``.zst`` sidecars beside ``.gz``.
+  On a 500-row functions JSON body: gzip-5 4728 → zstd-5 2912 bytes.
+- **Data/verify I/O batching and scan indexes**: ``set_data_fields_batch``
+  collapses many ``rebrew-data.toml`` RMWs (verify ``--data`` statuses,
+  ``fix-bss`` gaps); batch compile stages/reads each multi-function ``.c``
+  once; ``scan_globals`` / ``annotate_globals`` use name indexes instead of
+  nested linear scans; GA ``mut_if_chain_to_switch`` joins case chunks
+  instead of quadratic ``bytes +=``.
+- **Effect inverses fire at most once.** `_Effect.revert` is armed; overlapping
+  `Context.dispose` and `CoeffectScope.close` cannot run the same inverse
+  twice. Disposing the context closes every attached scope.
+- **Dashboard nested queries share one SQLite connection.** Bootstrap and
+  target-scoped routes no longer open a handle per subquery (4→1 / 2→1).
+- **Dashboard function rows skip `json.loads` on the common files cell** and
+  skip `COUNT(*)` on a short first page.
+- **Dashboard list payloads echo `limit`/`offset`.** `/api/summary` uses the
+  stats row as the existence check instead of a second `target_known` query.
+- **Cross-module binsync helpers drop the leading underscore**
+  (``is_meaningful``, ``normalize_prototype``, ``print_import_result``,
+  ``one_line``, ``run_git``). Call sites inside the package already updated.
 
 ### Fixed
+- **`Cvdump.run` reaps its cvdump/wine child when parsing aborts.**  The
+  runner read the child's stdout straight into the parser with no
+  cleanup path, so any exception mid-stream left the process running and
+  the pipe held by a dead owner.  The parse loop now runs under a
+  `try/finally` that kills and waits for an still-alive child and closes
+  the wrapper; a clean run still just waits, never kills.  CORDIS review
+  (arXiv:2608.25512) `leak` finding; two lifecycle tests in
+  `tests/test_reccmp_adaptations.py` pin both paths.
+- **`make release-check` enforces what CONTRIBUTING promises.**  It
+  passed any `__version__` unequal to the last tag (a downgrade included)
+  and any `## [<version>]` line, dated or not; it now requires a version
+  above the last tag and a `## [<version>] - YYYY-MM-DD` heading.
+  `tests/test_packaging.py` fails when `[Unreleased]` repeats an
+  Added/Changed/Removed/Fixed group; the scattered groups (and a
+  `### Added- ...` heading swallowing its entry) are merged, `**Breaking:**`
+  entries first under Changed.
+- **Byte-reproducible sdist.**  setuptools copied each file's mtime, mode,
+  and owner into the sdist, so a checkout with 0600 files or a different
+  clone time produced a different archive.  `make build` now rewrites it
+  with `tools/normalize_sdist.py` (sorted entries, `SOURCE_DATE_EPOCH`
+  mtimes, `0:0` owner, 0644/0755 modes, zero gzip timestamp), and the CI
+  package job checks the sdist hash across two builds like the wheel.
+- **resembl clone pinned to a commit.**  CI cloned the sibling `resembl`
+  by tag only; the `uv-env` action's `resembl-sha` input now fails the
+  clone when `v2.0.0` resolves to any other commit.
+- **Report and dashboard accessibility.**  `graph.html` put `aria-label`
+  on a `<pre>` (invalid ARIA, flagged by vnu) that keyboard users could
+  not scroll; it is now a focusable region named by its heading.
+  Dashboard metric cards named a `<div>` via `aria-label` (ignored by
+  AT) and gave filter buttons a name not starting with their visible
+  text (WCAG 2.5.3); the description now follows the visible text in a
+  visually-hidden span.
+- **No work at module load; every registration keeps its inverse.**
+  CORDIS review (arXiv:2608.25512) pass over the component runtime:
+  `rebrew.main`'s import-time `compose()` discarded the `(ctx, scope)`
+  tuple — the fiber that owns every mount's disposer — and now retains
+  it as `_COMPOSED`; `rebrew.decompiler` and `rebrew.compile_cache`
+  registered their `atexit` cleanup at import and now arm the hook once,
+  on first use, matching the pattern `dosbox`/`compile` already use;
+  `rebrew.climb` installed its SIGTERM/SIGINT restore handler before the
+  span/chunks `error_exit` paths, which raised past the `finally` that
+  removes it, and now installs only once the file can be written.
+  Each repair ships a test that disposes the contribution and asserts it
+  is gone (idempotently).
+- **cvdump parsing no longer crashes on non-hex fields.**  The PUBLICS,
+  SECTION CONTRIBUTIONS, and MODULES regexes matched hex fields with
+  `\w`, so a malformed PDB dump such as `000G "a" "b.obj"` raised
+  `ValueError` from `int(..., 16)`.  Those fields now match `[A-F0-9]`,
+  like the LINES regexes, and the line is skipped.  Hypothesis
+  harnesses in `tests/test_property_parsers.py` now fuzz `CvdumpParser`,
+  `iter_cvdump_sections`, and `flirt.find_func_size`.
+- **`.coverage` is no longer committed.**  A slipcover run's SQLite
+  database landed in the tree despite being listed in `.gitignore` and
+  `MANIFEST.in`; it is a 176 KB build artifact carrying local absolute
+  paths.  The `check-added-large-files` pre-commit ceiling drops from
+  35 MB to 8 MB at the same time: the MSVC tarballs it was raised for
+  are gitignored and live in the sibling `rebrew-toolchains` repo, and
+  8 MB still clears the largest tracked file (`docs/codegen/corpus.json`,
+  ~3.8 MB) while blocking an accidental toolchain tarball or binary.
+- **`rebrew migrate-markers` is registered.**  The ADR 023 migration
+  command existed as `rebrew.migrate_markers` with docs, tests, and an
+  agent-skill entry, but it was never added to `BUILTIN_COMPONENTS`, so
+  the umbrella CLI did not expose it.  It now appears in `rebrew
+  --help` (Development panel) and `rebrew migrate-markers --help`
+  works, including `--dry-run` / `--json` / `--target`.
+- **Marker code cites ADR 023, not ADR 018.**  `rebrew.migrate_markers`
+  and the marker-less-file synthesis paths in `rebrew.annotation`
+  referenced "ADR 018 (markers: TOML single source)"; 018 is
+  single-file verify scope.  Corrected to 023 (the real markers ADR) in
+  the module docstring, the `--help` line, and four comments.
+- **Library code leaves progress totals (status/todo agree again).**
+  Identified library functions (CRT/zlib/static-lib attributions —
+  "never reverse" work) inflated the denominators: server.dll reported
+  558 functions with 277 of them already-identified library code, so
+  coverage read 46.8%/41.9% where the honest game-code numbers are
+  261/281 (92.9% covered, 82.9% reversed). `rebrew todo` now mirrors
+  `rebrew status` exactly: same FUNCTION-only counts, same denominator
+  (covered FUNCTION rows + ghidra inventory - identified library VAs),
+  library rows excluded from the status table.
+- **`.text` byte coverage counts stock-linked bytes again.**  The
+  library-out-of-totals change had left the byte line as game-only
+  matched bytes over the whole `.text` (43.3%); external/library rows
+  that reproduce the reference bytes count as covered again (96.3%,
+  136,086B / 141,382B on server.dll).  The progress table stays
+  game-only: "reversed" answers our work, "bytes covered" answers
+  deliverable byte identity.
 - **``rebrew dashboard --json`` exits after printing the bind URL and db
   path** instead of hanging in ``serve_forever`` (scripts piping ``--json``
   no longer block).  Warning prefixes in ``verify`` / ``flirt`` / plugin
@@ -336,22 +419,6 @@
   name raises ``ValueError`` instead of waiting for the first compile.
 - **``REBREW_LLM_MAX_REQUESTS`` rejects non-integers and negatives** instead of
   silently restoring the default; documented in ``docs/CONFIG.md``.
-
-### Changed
-- **Dashboard entry document no longer inlines the client script** — ``/`` is
-  the HTML/CSS shell (``fetchpriority=high`` preload of ``/api/bootstrap`` plus
-  ``/app.js``); the deferred ``/app.js`` is zstd/gzip-precompressed like the
-  shell so first paint is the loading chrome before the script finishes
-  downloading. CSP ``script-src`` is ``'self'``.
-- **Breaking:** **Dashboard ``/api/globals`` and ``/api/history`` rows are
-  compact arrays** under ``cols`` (same shape as ``/api/functions``). Zip
-  ``cols`` with each array; built-in HTML accepts both arrays and legacy
-  dicts. External clients must update.
-- **Dashboard HTML preloads ``/api/bootstrap``** (``as=fetch`` + ``crossorigin``)
-  and fetches with ``credentials: omit`` so the cold-start JSON can overlap
-  the shell download on a second connection.
-
-### Fixed
 - **Stale ``noqa: F401`` on unused ``source_auto_writable`` import** in
   ``tests/test_crt_match.py``; presence-probe imports document why F401 is
   suppressed.
@@ -489,68 +556,6 @@
   compile path.
 - **``postlink`` reports the measured ``.rdata`` prefix mismatch**, not a
   single hypothesis.
-
-### Changed
-- **Dashboard and report wire compression negotiate ``zstd``** (then ``gzip``)
-  from ``Accept-Encoding`` q-values; the HTML shell is zstd+gzip precompressed
-  at import, and ``rebrew report`` writes ``.zst`` sidecars beside ``.gz``.
-  On a 500-row functions JSON body: gzip-5 4728 → zstd-5 2912 bytes.
-- **Data/verify I/O batching and scan indexes**: ``set_data_fields_batch``
-  collapses many ``rebrew-data.toml`` RMWs (verify ``--data`` statuses,
-  ``fix-bss`` gaps); batch compile stages/reads each multi-function ``.c``
-  once; ``scan_globals`` / ``annotate_globals`` use name indexes instead of
-  nested linear scans; GA ``mut_if_chain_to_switch`` joins case chunks
-  instead of quadratic ``bytes +=``.
-- **Breaking:** **`coverage.db` `db_version` is now `"10"`** (was `"8"` at
-  2.6.0). Schema `"9"` CHECK-constrains ``cells.state`` to the known
-  cell-state set (unknowns coerce to ``unknown`` on insert) and adds
-  ``idx_metadata_key`` for key-first metadata lookups; section
-  ``va``/``size``/``fileOffset`` clamp on insert. Schema `"10"` derives the
-  ``cells.state`` known set from lowercased ``KNOWN_STATUSES`` plus gap/data
-  verdicts so ``extract_error`` / ``invalid_va`` (and future STATUS values)
-  stay CHECK-valid; ``globals.status`` uses the same ``DATA_STATUS_*``
-  constants. Existing databases refuse writes until
-  ``rebrew build-db --force`` (DROP+rebuild), same as prior schema bumps.
-- **Breaking:** **`activate()` no longer raises on unmet coeffects** (2.6.0
-  raised ``ComponentError`` naming the missing services). Components whose
-  ``needs`` are missing stay inactive; a later ``provide`` mounts them, and
-  ``unprovide`` reverts them. Catch ``ComponentError`` at startup only for
-  import/registration failures — not for deferred ``needs``. ADR 014 records
-  the current contract.
-- **Breaking:** **Dashboard ``/api/functions`` (and bootstrap ``functions``)
-  rows are compact arrays** keyed by ``cols``, not dicts. Before: each row was
-  ``{"va", "name", "symbol", "size", "status", "module", "files"}``. After:
-  ``{"cols": [...], "functions": [[...], ...]}`` — zip ``cols`` with each
-  array. Built-in HTML follows the new shape; external dashboard clients must
-  update.
-- **Breaking:** **Dashboard default page size is 100** (was 500). Pass
-  ``limit=500`` (Show more still steps by 500) to keep the previous first-page
-  width.
-- **Breaking:** **``rebrew.matcher.flags`` / ``rebrew.matcher.flag_data``
-  modules moved** to ``rebrew.flags`` / ``rebrew.flag_data``. Import from the
-  new paths (or from ``rebrew.matcher``, which still re-exports the symbols);
-  ``from rebrew.matcher.flags import …`` raises ``ModuleNotFoundError``.
-- **Breaking:** **``read_pe_header_fields`` returns ``dict[str, int] | None``**
-  (was a ``PeHeaderFields`` wrapper with a ``.values`` dict). Use
-  ``fields["timestamp"]`` / ``fields.get(...)`` directly;
-  ``from rebrew.pe_headers import PeHeaderFields`` and ``fields.values[...]``
-  no longer work. ``COFF_HEADER_SIZE`` is removed (always 20 per PE/COFF);
-  ``SECTION_ENTRY_SIZE`` remains. ``rebrew.order_sources`` no longer
-  re-exports ``file_va`` / ``_base_key`` — import those from
-  ``rebrew.link_order`` (``order_sources`` stays importable from the CLI
-  module because the callback still binds it).
-- **Effect inverses fire at most once.** `_Effect.revert` is armed; overlapping
-  `Context.dispose` and `CoeffectScope.close` cannot run the same inverse
-  twice. Disposing the context closes every attached scope.
-- **Dashboard nested queries share one SQLite connection.** Bootstrap and
-  target-scoped routes no longer open a handle per subquery (4→1 / 2→1).
-- **Dashboard function rows skip `json.loads` on the common files cell** and
-  skip `COUNT(*)` on a short first page.
-- **Dashboard list payloads echo `limit`/`offset`.** `/api/summary` uses the
-  stats row as the existence check instead of a second `target_known` query.
-- **Cross-module binsync helpers drop the leading underscore**
-  (``is_meaningful``, ``normalize_prototype``, ``print_import_result``,
-  ``one_line``, ``run_git``). Call sites inside the package already updated.
 
 ## [2.6.0] - 2026-09-18
 ### Added

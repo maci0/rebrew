@@ -73,6 +73,20 @@ class TestPackagingMetadata:
         missing = [t for t in tags if f"## [{t.lstrip('v')}]" not in text]
         assert missing == [], f"CHANGELOG.md missing sections for tags: {missing}"
 
+    def test_unreleased_uses_each_changelog_group_once(self) -> None:
+        """``[Unreleased]`` has at most one Added/Changed/Removed/Fixed group.
+
+        Repeated groups scatter the next release's ``**Breaking:**`` entries,
+        and a heading glued to its first bullet (``### Added- ...``) renders
+        the entry as a heading.
+        """
+        text = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+        unreleased = text.split("## [Unreleased]", 1)[1].split("\n## [", 1)[0]
+        heads = re.findall(r"^### (.*)$", unreleased, flags=re.M)
+        bad = [h for h in heads if h not in ("Added", "Changed", "Removed", "Fixed")]
+        bad += [f"repeated {h}" for h in set(heads) if heads.count(h) > 1]
+        assert bad == [], bad
+
     def test_contributing_major_line_matches_package(self) -> None:
         from rebrew import __version__
 

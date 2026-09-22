@@ -298,6 +298,61 @@ class TestCvdumpParser:
         assert [ln.line_number for ln in p.lines["Z:\\proj\\view.cpp"]] == [27, 28]
 
 
+class TestCvdumpRunLifecycle:
+    """Cvdump.run owns a cvdump/wine child: an abort mid-parse must reap it,
+    and a clean run must not kill an already-exited child."""
+
+    class _FakeProc:
+        def __init__(self) -> None:
+            import io as _io
+
+            self.stdout = _io.BytesIO(b"")
+            self.killed = False
+            self.returncode: int | None = None
+
+        def poll(self) -> int | None:
+            return self.returncode
+
+        def kill(self) -> None:
+            self.killed = True
+            self.returncode = -9
+
+        def wait(self, timeout: float | None = None) -> int:
+            if self.returncode is None:  # a real wait() reaps the exit code
+                self.returncode = 0
+            return self.returncode
+
+    def _wire(self, monkeypatch: pytest.MonkeyPatch) -> _FakeProc:
+        from rebrew import pdb_cvdump as pv
+
+        proc = self._FakeProc()
+        monkeypatch.setattr(pv.Cvdump, "cmd_line", lambda self: ["cvdump"])
+        monkeypatch.setattr(pv.subprocess, "Popen", lambda *a, **k: proc)
+        return proc
+
+    def test_child_reaped_when_parse_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from rebrew import pdb_cvdump as pv
+
+        proc = self._wire(monkeypatch)
+
+        def _boom(*a: object, **k: object) -> None:
+            raise RuntimeError("parse exploded")
+
+        monkeypatch.setattr(pv, "iter_cvdump_sections", _boom)
+        with pytest.raises(RuntimeError, match="parse exploded"):
+            pv.Cvdump("x.pdb").publics().run()
+        assert proc.killed, "an abort mid-parse must kill the cvdump child"
+
+    def test_clean_run_returns_without_killing(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from rebrew import pdb_cvdump as pv
+
+        proc = self._wire(monkeypatch)
+        monkeypatch.setattr(pv, "iter_cvdump_sections", lambda wrap: iter(()))
+        parser = pv.Cvdump("x.pdb").publics().run()
+        assert isinstance(parser, pv.CvdumpParser)
+        assert not proc.killed, "an exited child must not be killed again"
+
+
 # ---------------------------------------------------------------------------
 # near_diag wiring
 # ---------------------------------------------------------------------------

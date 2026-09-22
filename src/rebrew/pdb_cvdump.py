@@ -259,7 +259,15 @@ class Cvdump:
         )
         assert proc.stdout is not None
         wrap = io.TextIOWrapper(proc.stdout, encoding="utf-8", errors="ignore")
-        for name, section in iter_cvdump_sections(wrap):
-            parser.read_section(name, section)
-        proc.wait()
+        try:
+            for name, section in iter_cvdump_sections(wrap):
+                parser.read_section(name, section)
+            proc.wait()
+        finally:
+            # An abort mid-parse must not leave the cvdump/wine child running
+            # or hold the stdout pipe: kill and reap it, then drop the wrap.
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait()
+            wrap.close()
         return parser

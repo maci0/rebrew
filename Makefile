@@ -248,13 +248,14 @@ release-check:
 	V=$$(uv run --frozen python -c "from rebrew import __version__; print(__version__)"); \
 	LAST=$$(git describe --tags --abbrev=0 2>/dev/null || echo v0.0.0); \
 	LASTV=$${LAST#v}; \
-	if [ "$$V" = "$$LASTV" ]; then \
-	  echo "ERROR: __version__ ($$V) not bumped from last tag ($$LAST)"; exit 1; \
+	HIGH=$$(printf '%s\n%s\n' "$$LASTV" "$$V" | sort -t. -k1,1n -k2,2n -k3,3n | tail -n 1); \
+	if [ "$$V" = "$$LASTV" ] || [ "$$HIGH" != "$$V" ]; then \
+	  echo "ERROR: __version__ ($$V) not bumped past last tag ($$LAST)"; exit 1; \
 	fi; \
 	if [ -n "$$(git status --porcelain)" ]; then \
 	  echo "ERROR: working tree not clean (commit first)"; exit 1; \
 	fi; \
-	if ! grep -q "^## \[$$V\]" CHANGELOG.md; then \
-	  echo "ERROR: CHANGELOG.md has no [$$V] section (date the [Unreleased] block)"; exit 1; \
+	if ! grep -Eq "^## \[$$V\] - [0-9]{4}-[0-9]{2}-[0-9]{2}$$" CHANGELOG.md; then \
+	  echo "ERROR: CHANGELOG.md has no dated [$$V] - YYYY-MM-DD section (date the [Unreleased] block)"; exit 1; \
 	fi; \
 	echo "release preflight OK: version $$V (last tag $$LAST)"
