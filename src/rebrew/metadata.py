@@ -106,6 +106,7 @@ from rebrew.utils import (
     clear_metadata_doc_cache,
     load_metadata_doc,
     load_toml_for_write,
+    load_tomllib,
     metadata_write_lock,
     pop_metadata_doc_cache,
     resolve_metadata_key,
@@ -316,10 +317,20 @@ def save_metadata(
         directory: The directory to write into.
         data: Mapping of ``{(module, va_int): {field: value}}``.
 
+    Raises:
+        ValueError: The existing store cannot be parsed; it is left untouched.
+
     """
     path = (directory / METADATA_FILENAME).resolve()
     doc = build_metadata_doc(data, _CANONICAL_ORDER)
     with metadata_write_lock(directory, METADATA_FILENAME):
+        # load_metadata reads an unparseable store as empty, so a caller's
+        # load-modify-save would otherwise replace every entry it never saw.
+        if path.exists():
+            try:
+                load_tomllib(path)
+            except (tomllib.TOMLDecodeError, UnicodeDecodeError) as exc:
+                raise ValueError(f"refusing to overwrite unparseable {path}: {exc}") from exc
         atomic_write_locked(path, tomlkit.dumps(doc))
         pop_metadata_doc_cache(_metadata_cache, path)
 

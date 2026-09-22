@@ -376,6 +376,14 @@
   ``one_line``, ``run_git``). Call sites inside the package already updated.
 
 ### Fixed
+- **`rebrew migrate-markers` no longer wipes a corrupt
+  `rebrew-functions.toml`.**  An unparseable store loaded as empty, and
+  `save_metadata` then rewrote it with only the migrated entries.
+  `save_metadata` now raises `ValueError` and leaves the store and the
+  inline markers untouched.
+- **A failed rizin/radare2 project analysis says why.**  A nonzero exit
+  or a failed project stamp returned no decompilation without a warning;
+  both now warn with the exit code and stderr tail.
 - **A relative `XDG_CACHE_HOME` / `XDG_DATA_HOME` is ignored.**  The XDG
   spec calls a relative value invalid; rebrew honored it, so compile
   sandboxes and the cmake wineprefix resolved against the cwd (a relative

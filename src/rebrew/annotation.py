@@ -1300,11 +1300,7 @@ def _parse_structural_entries(text: str) -> list[Annotation]:
     relative path, no metadata.  Callers must treat the result as
     read-only shared state (see ``_finalize_entries``).
     """
-    try:
-        lines = text.splitlines()
-    except Exception:  # degenerate input
-        return []
-    return parse_new_format_multi(lines)
+    return parse_new_format_multi(text.splitlines())
 
 
 def _finalize_entries(

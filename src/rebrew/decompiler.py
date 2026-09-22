@@ -154,11 +154,17 @@ def _re_init_project(binary: Path, tool: str, root: Path) -> str | None:
         shutil.rmtree(proj_dir, ignore_errors=True)
         return None
     if result.returncode != 0:
+        warnings.warn(
+            f"{tool} exited {result.returncode} analyzing {binary.name}: "
+            f"{result.stderr.strip()[-500:]}",
+            stacklevel=3,
+        )
         shutil.rmtree(proj_dir, ignore_errors=True)
         return None
     try:
         Path(proj_dir, "rebrew_tool.sha256").write_text(f"{tool}\n{digest}\n", encoding="utf-8")
-    except OSError:
+    except OSError as e:
+        warnings.warn(f"{tool} could not stamp project dir {proj_dir}: {e}", stacklevel=3)
         shutil.rmtree(proj_dir, ignore_errors=True)
         return None
     return proj_dir

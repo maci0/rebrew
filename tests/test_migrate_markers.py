@@ -145,6 +145,24 @@ class TestMigrateMarkersEndToEnd:
             _migrate_file(cfg, src / "f.c", "S", dry_run=False)
         assert "// SIZE: 4" in (src / "f.c").read_text(encoding="utf-8")
 
+    def test_corrupt_store_is_not_overwritten(self, tmp_path: Path) -> None:
+        from rebrew.migrate_markers import _migrate_file
+
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "f.c").write_text(
+            "// FUNCTION: S 0x1000\n// SIZE: 4\nint f(void) { return 0; }\n", encoding="utf-8"
+        )
+        store = tmp_path / "rebrew-functions.toml"
+        corrupt = '["S.0x2000"\nstatus = "EXACT"\n'
+        store.write_text(corrupt, encoding="utf-8")
+        cfg = SimpleNamespace(reversed_dir=src, metadata_dir=tmp_path, marker="S", source_ext=".c")
+
+        with pytest.raises(ValueError, match="unparseable"):
+            _migrate_file(cfg, src / "f.c", "S", dry_run=False)
+        assert store.read_text(encoding="utf-8") == corrupt
+        assert "// SIZE: 4" in (src / "f.c").read_text(encoding="utf-8")
+
     def test_cli_app_runs_help(self) -> None:
         result = runner.invoke(app, ["--help"])
         assert result.exit_code == 0

@@ -529,9 +529,12 @@ class TestRunRe:
 
         monkeypatch.setattr(dc.shutil, "which", lambda *a, **k: "rz")
         monkeypatch.setattr(
-            subprocess, "run", lambda *a, **k: SimpleNamespace(returncode=1, stdout="")
+            subprocess,
+            "run",
+            lambda *a, **k: SimpleNamespace(returncode=1, stdout="", stderr="bad binary\n"),
         )
-        assert dc._run_re(tmp_path / "x", 0x1000, "pdg", tmp_path) is None
+        with pytest.warns(UserWarning, match="exited 1 analyzing x: bad binary"):
+            assert dc._run_re(tmp_path / "x", 0x1000, "pdg", tmp_path) is None
 
     def test_timeout_warns(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         import subprocess
