@@ -310,6 +310,8 @@ by the CLI layer and win for that invocation.
 - `REBREW_TOOLCHAIN_OVERLAY_DIR` — directory of extra toolchain TOML overlays
   (plugin-style profiles without editing host source).
 - `REBREW_FLIRT_SIGS_DIR` — path to the `rebrew-flirt-sigs` checkout.
+  Default: sibling of this install. When set, a path that is not a
+  directory fails `rebrew flirt` instead of scanning without library sigs.
 - `REBREW_SKILLS_DIR` — user/community Agent Skills directory (overrides
   packaged skills of the same name).
 - `REBREW_CONTAINER_RUNTIME` — container CLI (`docker` default, or `podman`).
@@ -326,6 +328,9 @@ by the CLI layer and win for that invocation.
 - `REBREW_WINEPREFIX` — Wine prefix for cmake toolchain bridge scripts.
 - `REBREW_TOOLCHAIN` — cmake bridge pin for the active profile name.
 - `REBREW_COMPILER_RUNNER` — host PE runner path/name (set by `msvc_env`).
+- `REBREW_CVDUMP`: path to `cvdump.exe` for the `pdb_cvdump` helper.
+  Default: first `cvdump.exe` on `PATH`. A non-empty value that is not a
+  file raises `FileNotFoundError` instead of falling back to `PATH`.
 - `REBREW_RUNNER` — PE runner **inside** docker toolchain images
   (`wine` default, `wibo` opt-in).  Not read by the host Python process.
 

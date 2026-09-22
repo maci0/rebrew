@@ -3,6 +3,7 @@ vtordisp/float-const scans, demangle helpers, cvdump PDB parser, and the
 near_diag wiring (pins + jump-swap equivalence)."""
 
 import struct
+from pathlib import Path
 
 import pytest
 
@@ -296,6 +297,33 @@ class TestCvdumpParser:
         )
         assert list(p.lines) == ["Z:\\proj\\view.cpp"]
         assert [ln.line_number for ln in p.lines["Z:\\proj\\view.cpp"]] == [27, 28]
+
+
+class TestCvdumpExePath:
+    def test_override_file_wins(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        from rebrew import pdb_cvdump as pv
+
+        exe = tmp_path / "cvdump.exe"
+        exe.write_bytes(b"")
+        monkeypatch.setenv("REBREW_CVDUMP", str(exe))
+        assert pv.cvdump_exe_path() == str(exe)
+
+    def test_missing_override_fails_loud(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew import pdb_cvdump as pv
+
+        monkeypatch.setenv("REBREW_CVDUMP", str(tmp_path / "typo.exe"))
+        monkeypatch.setattr(pv.shutil, "which", lambda _name: "/usr/bin/cvdump.exe")
+        with pytest.raises(FileNotFoundError, match="REBREW_CVDUMP"):
+            pv.cvdump_exe_path()
+
+    def test_empty_override_uses_path(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from rebrew import pdb_cvdump as pv
+
+        monkeypatch.setenv("REBREW_CVDUMP", "")
+        monkeypatch.setattr(pv.shutil, "which", lambda _name: "/usr/bin/cvdump.exe")
+        assert pv.cvdump_exe_path() == "/usr/bin/cvdump.exe"
 
 
 class TestCvdumpRunLifecycle:

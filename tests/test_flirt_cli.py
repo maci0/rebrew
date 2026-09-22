@@ -118,6 +118,15 @@ class TestFlirtCli:
         assert data["skipped_ambiguous"] >= 1
 
 
+class TestFlirtSigsDirEnv:
+    def test_missing_env_dir_errors(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        _patch(tmp_path, monkeypatch, sigs=[object()])
+        monkeypatch.setenv("REBREW_FLIRT_SIGS_DIR", str(tmp_path / "typo"))
+        result = CliRunner().invoke(app, ["--json"])
+        assert result.exit_code != 0
+        assert "REBREW_FLIRT_SIGS_DIR" in json.loads(result.stdout)["error"]
+
+
 class TestFlirtInit:
     def test_copies_repo_sigs(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         from rebrew.flirt import _init_project_sigs

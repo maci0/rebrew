@@ -42,9 +42,15 @@ _CVDUMP_FLAGS: dict[str, str] = {
 
 
 def cvdump_exe_path() -> str | None:
-    """Locate ``cvdump.exe``: ``REBREW_CVDUMP`` env override, then PATH."""
-    override = os.environ.get("REBREW_CVDUMP")
-    if override and Path(override).is_file():
+    """Locate ``cvdump.exe``: ``REBREW_CVDUMP`` env override, then PATH.
+
+    A non-empty override that is not a file raises ``FileNotFoundError``
+    instead of silently running whichever ``cvdump.exe`` is on PATH.
+    """
+    override = os.environ.get("REBREW_CVDUMP", "").strip()
+    if override:
+        if not Path(override).is_file():
+            raise FileNotFoundError(f"REBREW_CVDUMP={override!r} is not a file")
         return override
     return shutil.which("cvdump.exe")
 
