@@ -128,6 +128,11 @@ class TestSetDataField:
         assert entry["section"] == ".rdata"
         assert entry["note"] == "sprite table"
 
+    def test_returned_entry_is_isolated_from_cache(self, tmp_path: Path) -> None:
+        set_data_field(tmp_path, 0x10025000, "size", 256, "SERVER")
+        get_data_entry(tmp_path, 0x10025000, "SERVER")["size"] = 999
+        assert get_data_entry(tmp_path, 0x10025000, "SERVER")["size"] == 256
+
     def test_updates_non_canonical_key_in_place(self, tmp_path: Path) -> None:
         """The store may spell a key SERVER.0x24000 while the writer's
         canonical form is SERVER.0x00024000; the loader parses both to one

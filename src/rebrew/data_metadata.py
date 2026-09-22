@@ -222,7 +222,8 @@ def load_data_metadata(directory: Path) -> dict[tuple[str, int], dict[str, Any]]
 def get_data_entry(directory: Path, va: int, module: str) -> dict[str, Any]:
     """Return data metadata fields for *(module, va)* in *directory*.
 
-    Returns an empty dict if not found.
+    Returns an empty dict if not found.  Copies only the selected entry, not
+    the whole table, so per-symbol lookups in batch loops stay O(1).
 
     Args:
         directory: The metadata root directory (``cfg.metadata_dir``).
@@ -230,7 +231,9 @@ def get_data_entry(directory: Path, va: int, module: str) -> dict[str, Any]:
         module: Target module name (e.g. ``"SERVER"``).
 
     """
-    entry = load_data_metadata(directory).get((module, va))
+    path = (directory / DATA_METADATA_FILENAME).resolve()
+    cached = load_metadata_doc(path, _data_metadata_cache, "data metadata", deepcopy=False)
+    entry = cached.get((module, va))
     return dict(entry) if entry is not None else {}
 
 
