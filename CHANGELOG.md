@@ -376,6 +376,11 @@
   ``one_line``, ``run_git``). Call sites inside the package already updated.
 
 ### Fixed
+- **Merge-sweep search no longer crashes when the initial score exceeds
+  `max_compiles`.**  `search_partitions` raised `UnboundLocalError`; it now
+  returns the initial partition and its score.  mypy's `possibly-undefined`
+  check is on (per-module allowlist for existing correlated-guard code), and
+  ruff FIX001/FIX003/FIX004 join the zero-finding ratchet.
 - **`rebrew dashboard` Functions follows a target change.**  Switching the
   target on the Sections, Globals, or History tab left the previous
   target's function rows in place when the Functions tab was reopened.

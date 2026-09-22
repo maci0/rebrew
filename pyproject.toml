@@ -236,9 +236,9 @@ line-length = 100
 # selected.  S602/PLR0124/PIE790/ANN205/ANN206 join as zero-finding
 # ratchets (shell=True subprocess, self-compare, useless pass, typed
 # class/static method returns).  D100/D104/D106 enforce the module-docstring
-# rule (AGENTS.md); the D2xx/D4xx, COM818, pep8-naming (N), flake8-pyi (PYI), TD and
-# TID252 codes below are the zero-finding subset.  Still off: D101-D103/D205/
-# D209/D401 (thousands of findings), N802/N806/N814 (Win32 API names), PYI034/
+# rule (AGENTS.md); the D2xx/D4xx, COM818, pep8-naming (N), flake8-pyi (PYI), TD,
+# TID252 and FIX001/003/004 (FIXME/XXX/HACK markers) codes below are the
+# zero-finding subset.  Still off: D101-D103/D205/D209/D401 (thousands of findings), N802/N806/N814 (Win32 API names), PYI034/
 # PYI036/PYI056, and D203/D206/D213/D300 (formatter or D211/D212 conflicts).
 select = [
     "E", "F", "W", "I", "UP", "B", "SIM", "C4", "DTZ", "RSE", "EXE", "Q",
@@ -286,7 +286,7 @@ select = [
     "D211", "D215", "D402", "D405", "D406", "D407", "D408", "D409", "D410",
     "D411", "D412", "D414", "D416", "D418", "D419", "COM818",
     "N801", "N803", "N804", "N805", "N807", "N811", "N813", "N816", "N999",
-    "TD001", "TD005", "TD007", "TID252",
+    "TD001", "TD005", "TD007", "TID252", "FIX001", "FIX003", "FIX004",
     "PYI001", "PYI002", "PYI003", "PYI004", "PYI005", "PYI006", "PYI007", "PYI008",
     "PYI009", "PYI010", "PYI011", "PYI012", "PYI013", "PYI014", "PYI015", "PYI016",
     "PYI017", "PYI018", "PYI019", "PYI020", "PYI021", "PYI024", "PYI025", "PYI026",
@@ -350,6 +350,7 @@ enable_error_code = [
     "redundant-self",
     "deprecated",
     "narrowed-type-not-subtype",
+    "possibly-undefined",
 ]
 # src/ is the shipped library; tools/ are the repo's own dev scripts (CI and
 # the pre-commit hook both run plain `uv run mypy`, which checks both).
@@ -378,3 +379,20 @@ module = [
     "resembl.*",  # sibling-checkout path dep (see `similarity` group); no stubs
 ]
 ignore_missing_imports = true
+
+# possibly-undefined debt: these modules bind names under conditions that
+# are correlated with their later use (same guard, early error_exit), which
+# mypy cannot prove.  Shrink-only: restructure a module, then drop it here.
+[[tool.mypy.overrides]]
+module = [
+    "rebrew.asm",
+    "rebrew.calibrate_bss",
+    "rebrew.data",
+    "rebrew.doctor",
+    "rebrew.matcher.scoring",
+    "rebrew.name_decomp",
+    "rebrew.prove",
+    "rebrew.skeleton",
+    "rebrew.test",
+]
+disable_error_code = ["possibly-undefined"]

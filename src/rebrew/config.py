@@ -841,8 +841,10 @@ def _split_compiler_runner(compiler: dict[str, Any]) -> tuple[str, str]:
         # command (the image IS the compiler); native profiles still need
         # one and are rejected below.
         profile = str(compiler.get("profile") or "").strip()
+        # Outside the try: the except clause below must be able to name it.
+        from rebrew.registry import RegistryError
+
         try:
-            from rebrew.registry import RegistryError
             from rebrew.toolchain import TOOLCHAINS
 
             spec = TOOLCHAINS.get(profile)

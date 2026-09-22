@@ -204,9 +204,11 @@ def search_partitions(
         return value
 
     moves: list[dict[str, Any]] = []
+    # The initial score is the fallback result, so it is never budget-aborted.
+    current = [sorted(cluster) for cluster in initial]
+    best, compiles = score_fn(current)
+    memo[_partition_key(current)] = best
     try:
-        current = [sorted(cluster) for cluster in initial]
-        best = scored(current)
         for sweep in range(max(1, max_passes)):
             changed = False
             for phase in ("merge", "split"):

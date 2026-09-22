@@ -201,6 +201,18 @@ class TestSearchPartitions:
         assert compiles == 3  # attempted invocations, including the aborting one
         assert moves == []
 
+    def test_budget_exhausted_by_initial_score_returns_initial(self) -> None:
+        """A cap the initial scoring already exceeds still returns its score."""
+        initial = [[A], [B]]
+        values = {((A,), (B,)): 10, ((A, B),): 11}
+        partition, score, moves, compiles = search_partitions(
+            initial, _score_of(values, cost=3), {A: {B}}, {}, {}, max_compiles=2
+        )
+        assert partition == [[A], [B]]
+        assert score == 10
+        assert moves == []
+        assert compiles == 6  # initial (3) plus the aborting merge candidate (3)
+
     def test_on_accept_receives_every_move(self) -> None:
         initial = [[A], [B]]
         values = {((A,), (B,)): 10, ((A, B),): 14}
