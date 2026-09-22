@@ -1338,6 +1338,71 @@ class TestParseIntList:
         assert _parse_int_list(None, "x") == []
 
 
+class TestParseVaRanges:
+    """``targets.<name>.external_ranges`` bands validate at load: a malformed
+    band warns and is dropped before any tool reads ``cfg.external_ranges``
+    (config checklist: invalid values fail at load, not later)."""
+
+    def test_hex_and_decimal_bands_parse(self) -> None:
+        from rebrew.config import _parse_va_ranges
+
+        assert _parse_va_ranges(
+            ["0x5e0000-0x64ffff", "1000-2000"], "targets.g.external_ranges"
+        ) == [(0x5E0000, 0x64FFFF), (1000, 2000)]
+
+    def test_missing_dash_warns_and_drops(self) -> None:
+        from rebrew.config import _parse_va_ranges
+
+        with pytest.warns(UserWarning, match="expected '0xLO-0xHI'"):
+            assert _parse_va_ranges(["0x5e0000"], "targets.g.external_ranges") == []
+
+    def test_non_numeric_warns_and_drops(self) -> None:
+        from rebrew.config import _parse_va_ranges
+
+        with pytest.warns(UserWarning, match="Invalid range"):
+            assert _parse_va_ranges(["nope-0x20"], "targets.g.external_ranges") == []
+
+    def test_end_before_start_warns_and_drops(self) -> None:
+        from rebrew.config import _parse_va_ranges
+
+        with pytest.warns(UserWarning, match="end before start"):
+            assert _parse_va_ranges(["0x200-0x100"], "targets.g.external_ranges") == []
+
+    def test_non_list_warns_and_returns_empty(self) -> None:
+        from rebrew.config import _parse_va_ranges
+
+        with pytest.warns(UserWarning, match="Expected list"):
+            assert _parse_va_ranges("0x1-0x2", "targets.g.external_ranges") == []  # type: ignore[arg-type]
+        assert _parse_va_ranges(None, "targets.g.external_ranges") == []
+
+    def test_mixed_list_keeps_valid_bands(self) -> None:
+        from rebrew.config import _parse_va_ranges
+
+        with pytest.warns(UserWarning, match="Invalid range"):
+            assert _parse_va_ranges(
+                ["0x10-0x20", "garbage", "0x30-0x40"], "targets.g.external_ranges"
+            ) == [(0x10, 0x20), (0x30, 0x40)]
+
+    def test_load_config_binds_bands_and_warns_on_bad_ones(self, tmp_path: Path) -> None:
+        """End-to-end: the band list lands on the config at load_config and a
+        malformed entry is warned about there — never half-parsed later."""
+        toml = """\
+[project]
+default_target = "game"
+
+[targets.game]
+binary = "game.exe"
+format = "pe"
+arch = "x86_32"
+reversed_dir = "src"
+external_ranges = ["0x5e0000-0x64ffff", "not-a-band"]
+"""
+        root = _make_project(tmp_path, toml)
+        with pytest.warns(UserWarning, match="Invalid range"):
+            cfg = load_config(root)
+        assert cfg.external_ranges == [(0x5E0000, 0x64FFFF)]
+
+
 class TestParseHexDict:
     def test_valid(self) -> None:
         from rebrew.config import _parse_hex_dict

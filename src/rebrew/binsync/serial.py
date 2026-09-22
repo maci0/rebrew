@@ -31,7 +31,7 @@ log = logging.getLogger(__name__)
 
 _DECLIB_MISSING_MSG = (
     "declib is required for BinSync state support (the 'binsync' extra).  Install it with:\n"
-    "  pip install 'rebrew[binsync]'   (or from a checkout: uv sync --extra binsync)"
+    "  uv tool install --reinstall 'rebrew[binsync] @ git+https://github.com/maci0/rebrew.git'   (or from a checkout: uv sync --extra binsync)"
 )
 
 #: ``metadata.toml`` version string rebrew writes.

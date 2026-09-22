@@ -31,6 +31,7 @@ import typer
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
+from rich.text import Text
 
 from rebrew.cli import EXIT_MISMATCH, TargetOption, json_print, require_config
 from rebrew.config import ProjectConfig, inventory_path_for, load_config
@@ -1236,9 +1237,9 @@ def main(
             style = _STATUS_STYLES.get(check.status, "")
             table.add_row(
                 icon,
-                f"[{style}]{check.name}[/{style}]",
-                f"[{style}]{check.message}[/{style}]",
-                check.fix or "",
+                Text(check.name, style=style),
+                Text(check.message, style=style),
+                Text(check.fix or ""),
             )
 
         parts = []
@@ -1302,7 +1303,7 @@ def check_optional_tools() -> CheckResult:
             name="Optional tools",
             status=_WARN,
             message="angr installed but claripy is missing — prove will crash",
-            fix="Install the prove extra: pip install 'rebrew[prove]' "
+            fix="Install the prove extra: uv tool install --reinstall 'rebrew[prove] @ git+https://github.com/maci0/rebrew.git' "
             "(or from a checkout: uv sync --extra prove).",
         )
     if claripy_available:
@@ -1310,14 +1311,14 @@ def check_optional_tools() -> CheckResult:
             name="Optional tools",
             status=_WARN,
             message="claripy installed but angr is missing — prove needs both",
-            fix="Install the prove extra: pip install 'rebrew[prove]' "
+            fix="Install the prove extra: uv tool install --reinstall 'rebrew[prove] @ git+https://github.com/maci0/rebrew.git' "
             "(or from a checkout: uv sync --extra prove).",
         )
     return CheckResult(
         name="Optional tools",
         status=_WARN,
         message="angr + claripy missing (for 'rebrew prove')",
-        fix="Optional: pip install 'rebrew[prove]' "
+        fix="Optional: uv tool install --reinstall 'rebrew[prove] @ git+https://github.com/maci0/rebrew.git' "
         "(or from a checkout: uv sync --extra prove). "
         "Doctor probes rebrew's env, not the project's.",
     )

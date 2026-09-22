@@ -1056,3 +1056,35 @@ class TestCheckSharedSources:
         cfg = _make_cfg(tmp_path, all_targets=["V1", "V2"], shared_dir=shared)
         result = check_shared_sources(cfg)  # type: ignore[arg-type]
         assert result.status == "pass"
+
+
+class TestDoctorTableRendering:
+    """Check text is data, not Rich markup: brackets must survive rendering."""
+
+    def test_brackets_in_fix_render_literally(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import io
+
+        from rich.console import Console
+        from typer.testing import CliRunner
+
+        import rebrew.doctor as doctor
+
+        out = io.StringIO()
+        monkeypatch.setattr(doctor, "console", Console(file=out, width=400))
+        report = DoctorReport(
+            target="t",
+            checks=[
+                CheckResult(
+                    name="[x] name",
+                    status=_WARN,
+                    message="missing [targets] section",
+                    fix="pip-free: 'rebrew[prove] @ git+url' and [compiler] profile",
+                )
+            ],
+        )
+        monkeypatch.setattr(doctor, "run_doctor", lambda target=None: report)
+        CliRunner().invoke(doctor.app, [])
+        text = out.getvalue()
+        assert "[x] name" in text
+        assert "missing [targets] section" in text
+        assert "'rebrew[prove] @ git+url' and [compiler] profile" in text

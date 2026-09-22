@@ -575,8 +575,8 @@ def _search_dir_mtimes(source_dir: str | None, include_dirs: tuple[str, ...]) ->
     """Directory mtimes for include-resolution cache identity.
 
     Creating/deleting a header bumps the parent directory's mtime, so a
-    mid-run membership change gets a fresh resolution without requiring
-    ``cache_clear`` or a process restart.
+    mid-run membership change gets a fresh resolution without a process
+    restart.
     """
     dirs: tuple[str, ...] = ((source_dir,) if source_dir else ()) + include_dirs
     mtimes: list[int] = []
@@ -658,15 +658,6 @@ def _resolve_include_paths_cached(
 
     _scan(source_content, Path(source_dir) if source_dir else None)
     return tuple(sorted(reached)), fallback
-
-
-def _clear_resolve_include_paths() -> None:
-    """Drop the include-resolution memo (tests / forced refresh)."""
-    _resolve_include_paths_cached.cache_clear()
-
-
-# Preserve the former ``lru_cache`` attribute name for callers/tests.
-_resolve_include_paths.cache_clear = _clear_resolve_include_paths  # type: ignore[attr-defined]
 
 
 def _header_key_entries(

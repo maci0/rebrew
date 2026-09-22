@@ -236,7 +236,7 @@ rebrew match --all --near-miss --threshold 5 # batch GA on NEAR_MATCHING with â‰
 rebrew match --all --flag-sweep             # batch flag sweep on all NEAR_MATCHING functions
 rebrew match --all --flag-sweep --fix-cflags  # targeted sweep, auto-update CFLAGS
 
-# Semantic Equivalence (requires angr: pip install 'rebrew[prove]')
+# Semantic Equivalence (requires angr: uv tool install --reinstall 'rebrew[prove] @ git+https://github.com/maci0/rebrew.git')
 rebrew prove src/server.dll/calculate_physics.c      # prove NEAR_MATCHING function equivalent
 rebrew prove src/server.dll/calculate_physics.c --json  # JSON output
 rebrew prove my_func --dry-run                        # find by symbol, preview only

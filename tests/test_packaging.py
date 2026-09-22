@@ -209,22 +209,25 @@ class TestPackagingMetadata:
                 assert "git+" not in dep, f"extra {name!r} has git URL: {dep}"
 
     def test_extra_install_hints_name_the_distribution(self) -> None:
-        """Missing-extra errors must tell wheel users ``pip install 'rebrew[…]'``.
+        """Missing-extra hints must name the git source the README installs from.
 
-        Editable ``.[extra]`` / checkout-only ``uv sync`` hints strand anyone who
-        installed the published wheel (or ``uv tool install``) without a
-        source tree beside them.
+        rebrew is not published to PyPI, so a bare ``pip install 'rebrew[…]'``
+        resolves a PyPI name this project does not own, and does not reach the
+        ``uv tool install`` venv. Editable ``.[extra]`` hints strand anyone
+        without a source tree beside them.
         """
         from rebrew.binsync.serial import _DECLIB_MISSING_MSG
         from rebrew.prove import _ANGR_MISSING_MSG
 
-        assert "pip install 'rebrew[prove]'" in _ANGR_MISSING_MSG
-        assert 'install -e ".[prove]"' not in _ANGR_MISSING_MSG
-        assert "pip install 'rebrew[binsync]'" in _DECLIB_MISSING_MSG
-        assert 'install -e ".[binsync]"' not in _DECLIB_MISSING_MSG
+        git = "@ git+https://github.com/maci0/rebrew.git'"
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
-        assert "pip install 'rebrew[prove]'" in readme
-        assert 'uv pip install -e ".[prove]"' not in readme
+        assert "uv tool install git+https://github.com/maci0/rebrew.git" in readme
+        assert f"uv tool install --reinstall 'rebrew[prove] {git}" in _ANGR_MISSING_MSG
+        assert f"uv tool install --reinstall 'rebrew[binsync] {git}" in _DECLIB_MISSING_MSG
+        assert f"'rebrew[prove] {git}" in readme
+        for text in (_ANGR_MISSING_MSG, _DECLIB_MISSING_MSG, readme):
+            assert "pip install 'rebrew[" not in text
+            assert 'install -e ".[' not in text
 
     def test_non_pypi_deps_live_in_dependency_groups(self) -> None:
         data = tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))

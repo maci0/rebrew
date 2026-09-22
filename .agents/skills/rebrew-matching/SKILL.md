@@ -200,7 +200,7 @@ rebrew prove src/bench/<file>.c --json
 
 `REGISTER (N% of delta)` verdicts are prime PROVEN candidates — prefer
 `rebrew prove --all` before more GA. Full flags, EDX/`--watch-va` gotchas, and
-angr mechanics: `references/prove.md`. Requires `uv pip install 'rebrew[prove]'`
+angr mechanics: `references/prove.md`. Requires `uv tool install --reinstall 'rebrew[prove] @ git+https://github.com/maci0/rebrew.git'`
 (in-repo: `uv sync --extra prove`); stop and install if `rebrew prove` import-fails.
 
 ## 8. End-to-End Round-Trip

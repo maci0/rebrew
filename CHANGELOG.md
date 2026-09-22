@@ -336,6 +336,13 @@
   ``one_line``, ``run_git``). Call sites inside the package already updated.
 
 ### Fixed
+- **Extra install hints point at the git source.**  rebrew is not on PyPI,
+  so `pip install 'rebrew[prove]'` / `'rebrew[binsync]'` (prove, binsync,
+  doctor, README, skills) resolved a PyPI name this project does not own and
+  missed the `uv tool install` venv; they now read
+  `uv tool install --reinstall 'rebrew[<extra>] @ git+https://github.com/maci0/rebrew.git'`.
+  `rebrew prove --help` and the `rebrew doctor` table no longer parse
+  bracketed text (`[prove]`, `[compiler]`, `[targets]`) as Rich markup and drop it.
 - **A failed `cross-import --shared` stack is always withdrawn.**  The
   round-1293 rule only rolled back when the destination already claimed the
   VA, so an unverified import into a fresh VA left a marker asserting that
