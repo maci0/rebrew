@@ -408,6 +408,69 @@ def _collect_library(cfg: Any) -> list[dict[str, Any]]:
     ]
 
 
+def _is_exec_section(sec: Any) -> bool:
+    """Code-section predicate: ELF's exec flag, or the classic PE text name."""
+    return bool(getattr(sec, "is_code", False)) or sec.name in (".text", "text")
+
+
+def _collect_vtordisp(info: Any) -> list[dict[str, Any]]:
+    """vtordisp (MI thunk) detection in the code sections (reccmp-adapted)."""
+    from rebrew.binary_loader import va_to_file_offset
+    from rebrew.vtordisp import find_vtordisps
+
+    try:
+        found: list[Any] = []
+        for sec in info.sections.values():
+            if not _is_exec_section(sec):
+                continue
+            start = va_to_file_offset(info, sec.va)
+            code = info.data[start : start + sec.raw_size]
+            found.extend(find_vtordisps(code, sec.va))
+    except Exception:  # best-effort
+        logger.debug("vtordisp scan failed", exc_info=True)
+        return []
+    return [
+        {
+            "va": f"0x{t.addr:08x}",
+            "target": f"0x{t.func_addr:08x}",
+            "disp": t.disp,
+            "addend": t.addend,
+            "size": t.size,
+        }
+        for t in sorted(found, key=lambda t: t.addr)
+    ]
+
+
+def _collect_float_consts(info: Any) -> list[dict[str, Any]]:
+    """Float constant pool referenced from code (reccmp-adapted)."""
+    from rebrew.binary_loader import va_to_file_offset
+    from rebrew.float_const import find_float_consts
+
+    code_regions: list[tuple[int, bytes]] = []
+    const_regions: list[tuple[int, int]] = []
+    for sec in info.sections.values():
+        start = va_to_file_offset(info, sec.va)
+        raw = info.data[start : start + sec.raw_size]
+        if _is_exec_section(sec):
+            code_regions.append((sec.va, raw))
+        elif sec.name in (".rdata", ".rodata", "rdata", ".sdata"):
+            const_regions.append((sec.va, sec.va + sec.raw_size))
+    if not code_regions:
+        return []
+    try:
+        consts = list(
+            find_float_consts(
+                code_regions,
+                const_regions,
+                lambda va, size: info.data[va_to_file_offset(info, va) :][:size],
+            )
+        )
+    except Exception:  # best-effort
+        logger.debug("float-const scan failed", exc_info=True)
+        return []
+    return [{"va": f"0x{c.address:08x}", "size": c.size, "value": repr(c.value)} for c in consts]
+
+
 def build_dossier(
     cfg: Any,
     binary: Path,
@@ -435,6 +498,8 @@ def build_dossier(
         "functions": _collect_functions(cfg),
         "near_match": _collect_near_match(cfg),
         "dispatch_tables": _collect_dispatch(info, cfg),
+        "vtordisp": _collect_vtordisp(info),
+        "float_consts": _collect_float_consts(info),
         "flirt": _collect_flirt(cfg, info),
         "library": _collect_library(cfg),
     }

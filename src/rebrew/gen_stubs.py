@@ -608,7 +608,11 @@ def _defined_symbols(text: str) -> set[str]:
 
 
 def _run_build(
-    root: Path, build_cmd: str, exclude_file: Path | None, cmake_stub_var: str | None
+    root: Path,
+    build_cmd: str,
+    exclude_file: Path | None,
+    cmake_stub_var: str | None,
+    json_mode: bool = False,
 ) -> str:
     """Run *build_cmd* in *root*, returning combined output.
 
@@ -652,7 +656,8 @@ def _run_build(
             else:
                 error_exit(
                     f"--cmake-stub-var {cmake_stub_var}: no 'set({cmake_stub_var} \"...\")' "
-                    f"line found in {cmake_path}"
+                    f"line found in {cmake_path}",
+                    json_mode=json_mode,
                 )
 
         try:
@@ -726,7 +731,9 @@ def main(
         console.print(f"[dim]building: {build_cmd}[/dim]")
         if exclude_file is not None and not exclude_file.is_absolute():
             exclude_file = root / exclude_file
-        linker_output = _run_build(root, build_cmd, exclude_file, cmake_stub_var)
+        linker_output = _run_build(
+            root, build_cmd, exclude_file, cmake_stub_var, json_mode=json_output
+        )
     elif log is not None:
         linker_output = log.read_text(encoding="utf-8", errors="replace")
     else:

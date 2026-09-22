@@ -435,12 +435,13 @@ def show(
 @app.command("raw")
 def raw(
     fmt: str = typer.Option("json", "--format", "-f", help="Output format: json, toml"),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
     """Dump entire rebrew-project.toml as JSON or TOML (raw machine-readable output)."""
     doc, _ = load_toml()
     fmt = fmt.lower()
     if fmt not in {"json", "toml"}:
-        error_exit(f"Unknown format: {fmt}. Use json or toml.")
+        error_exit(f"Unknown format: {fmt}. Use json or toml.", json_mode=json_output)
     import tomllib
 
     raw_doc = _redact_secrets(tomllib.loads(tomlkit.dumps(doc)))

@@ -1,8 +1,7 @@
 """Unit tests for rebrew.xrefs — the cross-reference explorer CLI.
 
-Builds the same synthetic PE as ``test_analysis`` (direct call, ``push
-imm32``, and an IAT call whose slot VA is learned from a probe build) and
-drives the CLI through ``CliRunner``.
+Drives the CLI through ``CliRunner`` against ``bin_util.make_xref_probe``,
+the same synthetic PE ``test_analysis`` uses.
 
 Standalone typer apps are invoked as groups, so options (``--json``,
 ``--kind``) are passed *before* the positional arguments — the same
@@ -12,7 +11,6 @@ convention as ``test_imports.py``.
 from __future__ import annotations
 
 import json
-import struct
 import sys
 from pathlib import Path
 
@@ -20,97 +18,9 @@ import pytest
 from typer.testing import CliRunner
 
 sys.path.insert(0, str(Path(__file__).parent))  # tests/ on path for bin_util
-from bin_util import make_pe
+from bin_util import PROBE_IMAGE_BASE, make_xref_probe
 
 from rebrew.xrefs import app, build_xrefs_payload
-
-TEXT_VA = 0x401000
-IMAGE_BASE = 0x400000
-
-
-def _build_code() -> tuple[bytes, dict[str, int]]:
-    """Assemble the probe code; return ``(code_bytes, symbols)``.
-
-    Layout (VAs are relative to ``TEXT_VA``), each reference target patched
-    after the layout is known:
-      0x000  e8 rel32      call <lea insn>     (direct call)
-      0x005  68 imm32      push <hello>        ("Hello World")
-      0x00a  b8 imm32      mov eax, <game>     ("Game Boy")
-      0x00f  ff 15 imm32   call [iat_slot]     (IAT call, fixed by caller)
-      0x015  8d 05 imm32   lea eax, [<wide>]   ("Wide" utf16)
-      0x01b  8b 05 imm32   mov eax, [<wide>]   (data read)
-      0x021  83 25 imm32 00 and [<hello>+4], 0 (generic mem)
-      0x028  c3            ret
-      <blob> "Hello World\\0" "Game Boys\\0" "\\0" "W\\0i\\0d\\0e\\0\\0\\0"
-    """
-    refs: dict[str, int] = {}
-
-    def emit(raw: bytes, name: str | None = None) -> None:
-        if name is not None:
-            refs[name] = TEXT_VA + len(pre)
-        pre.extend(raw)
-
-    pre = bytearray()
-    emit(b"\xe8" + b"\x00\x00\x00\x00", "call")  # rel patched below
-    emit(b"\x68" + b"\x00\x00\x00\x00", "push")
-    emit(b"\xb8" + b"\x00\x00\x00\x00", "mov")
-    emit(b"\xff\x15" + b"\x00\x00\x00\x00", "iat_call")
-    emit(b"\x8d\x05" + b"\x00\x00\x00\x00", "lea")
-    emit(b"\x8b\x05" + b"\x00\x00\x00\x00", "mov_mem")
-    emit(b"\x83\x25" + b"\x00\x00\x00\x00" + b"\x00", "and_mem")
-    emit(b"\xc3")
-
-    blob_start = TEXT_VA + len(pre)
-    hello = blob_start
-    game = blob_start + 12
-    wide = blob_start + 23
-    blob = b"Hello World\x00" + b"Game Boys\x00" + b"\x00" + b"W\x00i\x00d\x00e\x00\x00\x00"
-
-    def patch(at: int, value: int, imm_off: int = 1) -> None:
-        pre[at + imm_off : at + imm_off + 4] = struct.pack("<I", value)
-
-    # 1-byte opcodes: imm starts at +1.  Two-byte opcodes (opcode+modrm):
-    # imm starts at +2.
-    patch(refs["call"] - TEXT_VA, refs["lea"] - (refs["call"] + 5), imm_off=1)
-    patch(refs["push"] - TEXT_VA, hello, imm_off=1)
-    patch(refs["mov"] - TEXT_VA, game, imm_off=1)
-    patch(refs["lea"] - TEXT_VA, wide, imm_off=2)
-    patch(refs["mov_mem"] - TEXT_VA, wide, imm_off=2)
-    patch(refs["and_mem"] - TEXT_VA, hello, imm_off=2)
-
-    syms = {
-        **refs,
-        "hello": hello,
-        "game": game,
-        "wide": wide,
-    }
-    return bytes(pre) + blob, syms
-
-
-def _resolve_iat_slot(pe_bytes: bytes) -> int:
-    """Find the IAT slot VA for ``HeapCreate`` in a built probe PE."""
-    import lief
-
-    pe = lief.PE.parse(bytes(pe_bytes))
-    for imp in pe.imports:
-        for entry in imp.entries:
-            if entry.name == "HeapCreate":
-                return IMAGE_BASE + entry.iat_address
-    raise AssertionError("HeapCreate import not found")
-
-
-def _make_binary(tmp_path: Path) -> tuple[Path, dict[str, int]]:
-    """Build the probe PE on disk; return ``(path, symbols)``."""
-    code, syms = _build_code()
-    proto = make_pe(code, imports=[("KERNEL32.dll", ["HeapCreate"])])
-    slot = _resolve_iat_slot(proto)
-    code2 = bytearray(code)
-    code2[0x0F + 2 : 0x0F + 6] = struct.pack("<I", slot)
-    final = make_pe(bytes(code2), imports=[("KERNEL32.dll", ["HeapCreate"])])
-    path = tmp_path / "probe.exe"
-    path.write_bytes(final)
-    return path, {**syms, "iat_slot": slot}
-
 
 # ---------------------------------------------------------------------------
 # Tests
@@ -119,7 +29,7 @@ def _make_binary(tmp_path: Path) -> tuple[Path, dict[str, int]]:
 
 class TestXrefsCli:
     def test_direct_call_xref(self, tmp_path: Path) -> None:
-        path, syms = _make_binary(tmp_path)
+        path, syms = make_xref_probe(tmp_path)
         call_dst = syms["call"] + 5 + 0x10
         result = CliRunner().invoke(app, ["--json", str(path), f"0x{call_dst:X}"])
         assert result.exit_code == 0
@@ -133,7 +43,7 @@ class TestXrefsCli:
         assert ref["instruction"].startswith("call ")
 
     def test_push_xref(self, tmp_path: Path) -> None:
-        path, syms = _make_binary(tmp_path)
+        path, syms = make_xref_probe(tmp_path)
         result = CliRunner().invoke(app, ["--json", str(path), f"0x{syms['hello']:X}"])
         assert result.exit_code == 0
         payload = json.loads(result.output)
@@ -148,7 +58,7 @@ class TestXrefsCli:
         assert "and_mem" in terminal.output
 
     def test_iat_call_resolves_import(self, tmp_path: Path) -> None:
-        path, syms = _make_binary(tmp_path)
+        path, syms = make_xref_probe(tmp_path)
         result = CliRunner().invoke(app, ["--json", str(path), f"0x{syms['iat_slot']:X}"])
         assert result.exit_code == 0
         payload = json.loads(result.output)
@@ -162,7 +72,7 @@ class TestXrefsCli:
         assert "target is import: HeapCreate" in terminal.output
 
     def test_kind_filter(self, tmp_path: Path) -> None:
-        path, syms = _make_binary(tmp_path)
+        path, syms = make_xref_probe(tmp_path)
         filtered = CliRunner().invoke(
             app, ["--kind", "push", "--json", str(path), f"0x{syms['hello']:X}"]
         )
@@ -187,8 +97,8 @@ class TestXrefsCli:
         assert kinds == {"push", "and_mem"}
 
     def test_empty_result_exits_ok(self, tmp_path: Path) -> None:
-        path, _ = _make_binary(tmp_path)
-        target = IMAGE_BASE + 0x9000  # outside the binary: never referenced
+        path, _ = make_xref_probe(tmp_path)
+        target = PROBE_IMAGE_BASE + 0x9000  # outside the binary: never referenced
         result = CliRunner().invoke(app, [str(path), f"0x{target:X}"])
         assert result.exit_code == 0
         assert "no references to" in result.output
@@ -200,7 +110,7 @@ class TestXrefsCli:
         assert payload["import_name"] is None
 
     def test_json_shape(self, tmp_path: Path) -> None:
-        path, syms = _make_binary(tmp_path)
+        path, syms = make_xref_probe(tmp_path)
         call_dst = syms["call"] + 5 + 0x10
         result = CliRunner().invoke(app, ["--json", str(path), f"0x{call_dst:X}"])
         assert result.exit_code == 0
@@ -213,13 +123,13 @@ class TestXrefsCli:
         assert isinstance(payload["refs"][0]["instruction"], str)
 
     def test_cli_invocation(self, tmp_path: Path) -> None:
-        path, _ = _make_binary(tmp_path)
+        path, _ = make_xref_probe(tmp_path)
         result = CliRunner().invoke(app, [str(path), "0x401000"])
         assert result.exit_code == 0
         assert "no references to 0x00401000" in result.output
 
     def test_bad_va_exits_error(self, tmp_path: Path) -> None:
-        path, _ = _make_binary(tmp_path)
+        path, _ = make_xref_probe(tmp_path)
         result = CliRunner().invoke(app, [str(path), "not-an-address"])
         assert result.exit_code != 0
         assert "Invalid hex VA" in result.output
@@ -251,7 +161,7 @@ class TestVaFirstPositional:
 
         from rebrew.xrefs import app
 
-        path, _ = _make_binary(tmp_path)
+        path, _ = make_xref_probe(tmp_path)
         cfg = NS(
             root=tmp_path,
             target_name="t",
@@ -268,7 +178,7 @@ class TestVaFirstPositional:
 
         from rebrew.xrefs import app
 
-        path, _ = _make_binary(tmp_path)
+        path, _ = make_xref_probe(tmp_path)
         result = CliRunner().invoke(app, [str(path), "0x401000"])
         assert result.exit_code == 0, result.output
         assert "no references" in result.output
@@ -278,7 +188,7 @@ class TestBuildXrefsPayload:
     """``build_xrefs_payload()`` is the importable form of ``rebrew xrefs --json``."""
 
     def test_matches_cli_json(self, tmp_path: Path) -> None:
-        path, syms = _make_binary(tmp_path)
+        path, syms = make_xref_probe(tmp_path)
         call_dst = syms["call"] + 5 + 0x10
         payload = build_xrefs_payload(path, call_dst)
         result = CliRunner().invoke(app, ["--json", str(path), f"0x{call_dst:X}"])
@@ -288,13 +198,13 @@ class TestBuildXrefsPayload:
         assert payload["refs"][0]["kind"] == "call"
 
     def test_kind_filter_narrows_refs(self, tmp_path: Path) -> None:
-        path, syms = _make_binary(tmp_path)
+        path, syms = make_xref_probe(tmp_path)
         payload = build_xrefs_payload(path, syms["hello"], ["push"])
         assert [r["kind"] for r in payload["refs"]] == ["push"]
 
     def test_empty_result_is_not_an_error(self, tmp_path: Path) -> None:
-        path, _ = _make_binary(tmp_path)
-        payload = build_xrefs_payload(path, IMAGE_BASE + 0x9000)
+        path, _ = make_xref_probe(tmp_path)
+        payload = build_xrefs_payload(path, PROBE_IMAGE_BASE + 0x9000)
         assert payload["count"] == 0
         assert payload["refs"] == []
         assert payload["import_name"] is None

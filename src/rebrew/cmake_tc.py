@@ -140,25 +140,29 @@ def _load_profile(root: Path) -> str:
     return str(cfg.get("compiler", {}).get("profile", "msvc-6.0"))
 
 
-def _resolve_spec(name: str) -> ToolchainSpec:
+def _resolve_spec(name: str, *, json_mode: bool = False) -> ToolchainSpec:
     spec = TOOLCHAINS.get(name)
     if spec is None:
-        error_exit(f"unknown toolchain {name!r} (known: {sorted(TOOLCHAINS)})")
+        error_exit(f"unknown toolchain {name!r} (known: {sorted(TOOLCHAINS)})", json_mode=json_mode)
     if spec.image is None:
-        error_exit(f"toolchain {name!r} has no docker image — nothing to bridge")
+        error_exit(
+            f"toolchain {name!r} has no docker image — nothing to bridge", json_mode=json_mode
+        )
     if spec.runtime != "wine":
         error_exit(
             f"toolchain {name!r} runs through a {spec.runtime} image ({spec.image}) — "
             "the CMake bridge drives wine-runnable CL.EXE/LINK.EXE/LIB.EXE only; "
             f"{spec.runtime}-encapsulated images expose entrypoint wrappers, not "
             "separate link/lib tools. Use a wine-based MSVC profile "
-            "(e.g. --toolchain msvc-6.0) for CMake builds"
+            "(e.g. --toolchain msvc-6.0) for CMake builds",
+            json_mode=json_mode,
         )
     if spec.tool_root is None:
         error_exit(
             f"toolchain {name!r} has no tool_root in its spec — the CMake "
             "bridge needs the container dir that holds the tools "
-            f"(image {spec.image}). Plugin toolchains must declare tool_root"
+            f"(image {spec.image}). Plugin toolchains must declare tool_root",
+            json_mode=json_mode,
         )
     return spec
 
@@ -484,7 +488,7 @@ def main(
     ``rebrew-cmake-{cl,link,lib}`` console scripts, which run the tools
     inside the toolchain image (see the module docstring).
     """
-    spec = _resolve_spec(toolchain)
+    spec = _resolve_spec(toolchain, json_mode=json_output)
     if dry_run:
         if json_output:
             json_print({"toolchain": toolchain, "output": str(output), "dry_run": True})

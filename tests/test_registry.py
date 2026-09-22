@@ -148,7 +148,8 @@ class TestEntryPointRegistrations:
 
 class TestImportRegistration:
     def test_imports_module(self) -> None:
-        reg = entry_point_registrations("rebrew.commands") or SimpleNamespace(
+        regs = entry_point_registrations("rebrew.commands")
+        reg = next((r for r in regs if r.module == "rebrew.diagnose"), None) or SimpleNamespace(
             name="x", module="rebrew.diagnose", attr="", group="g", origin="entry-point"
         )
         obj = import_registration(reg)

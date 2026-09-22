@@ -62,6 +62,7 @@ def _patch_flow(monkeypatch: pytest.MonkeyPatch, cfg: SimpleNamespace) -> None:
             [],
             [],
             [],
+            0,  # inventory_count (ADR 023-era 11th return)
             {},
         ),
     )

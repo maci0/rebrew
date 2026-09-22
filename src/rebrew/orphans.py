@@ -232,7 +232,9 @@ def main(
 @app.command("drop")
 def drop(
     function: str = typer.Argument(..., help="Hex VA (0x...), file path, or symbol"),
-    va_override: str | None = typer.Option(None, "--va", help="Disambiguate VA in a multi-function file (hex)"),
+    va_override: str | None = typer.Option(
+        None, "--va", help="Disambiguate VA in a multi-function file (hex)"
+    ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,

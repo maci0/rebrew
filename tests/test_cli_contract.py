@@ -101,9 +101,7 @@ class TestSharedOptionHelp:
             opts = _options(fn)
             if "json_output" not in opts:
                 continue
-            target_key = next(
-                (k for k in ("target", "target_name") if k in opts), None
-            )
+            target_key = next((k for k in ("target", "target_name") if k in opts), None)
             if target_key is None:
                 continue
             names = list(inspect.signature(fn).parameters)
@@ -132,6 +130,4 @@ class TestEntryPointDocstrings:
             doc = (fn.__doc__ or "").strip()
             if doc != CANONICAL_MAIN_ENTRY_DOC:
                 bad.append((comp.name, doc))
-        assert not bad, (
-            f"main_entry docstring must be exactly {CANONICAL_MAIN_ENTRY_DOC!r}: {bad}"
-        )
+        assert not bad, f"main_entry docstring must be exactly {CANONICAL_MAIN_ENTRY_DOC!r}: {bad}"

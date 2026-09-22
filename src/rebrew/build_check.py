@@ -113,6 +113,56 @@ def parse_compile_lines(build_text: str) -> list[tuple[str, str]]:
     return out
 
 
+def per_file_pin(source_path: Path, build_dir: Path = DEFAULT_BUILD_DIR) -> tuple[str | None, str]:
+    """The toolchain + flags CMake pins for one source file.
+
+    Reads the generated ``flags.make`` ``Custom options`` / ``Custom flags``
+    comments.  ``/REBREW_TOOLCHAIN:...`` is the per-file toolchain pin, the
+    rest is the per-file ``COMPILE_FLAGS`` — exactly what the real link
+    compiles the file with, so ``test``/``verify`` can honour it when the
+    metadata is silent.
+
+    Returns ``(toolchain, flags)`` — both ``None``/``""`` when the file is not
+    pinned (no build tree, or no Custom comment for it).
+
+    Matches the object record by stem: CMake spells the object
+    ``<dir>.dir/<stem>.obj`` in the ``Custom`` comment and the build tree
+    stores it under the same ``<stem>.obj`` basename.  This is a best-effort
+    surface for a single-file pin; the authoritative whole-tree check is
+    :func:`check`.
+    """
+    flags_make: Path | None = None
+    cm = build_dir / "CMakeFiles"
+    try:
+        dirs = sorted(cm.iterdir())
+    except OSError:
+        return None, ""
+    for td in dirs:
+        if td.is_dir() and (td / "flags.make").is_file():
+            flags_make = td / "flags.make"
+            break
+    if flags_make is None:
+        return None, ""
+    recorded = parse_recorded(flags_make.read_text(encoding="utf-8", errors="replace"))
+    # The recorded key embeds the source's relative path, e.g.
+    # ``CMakeFiles/dir/src/a/one.c.obj`` for ``src/a/one.c``.  Match the object
+    # whose basename is ``<source-name>.obj`` (source NAME, not stem, because
+    # ``one.c`` -> ``one.c.obj``).
+    want = source_path.name + ".obj"
+    for obj, tokens in recorded.items():
+        if Path(obj).name != want:
+            continue
+        toolchain = next(
+            (tok.split(":", 1)[1] for tok in tokens if tok.startswith("/REBREW_TOOLCHAIN:")),
+            None,
+        )
+        flags = " ".join(
+            t for t in tokens if not t.startswith(("/REBREW_TOOLCHAIN", "/F", "/Y", "/Z"))
+        )
+        return toolchain, flags
+    return None, ""
+
+
 def parse_sources(build_text: str) -> list[str]:
     """Every source path a compile rule names, in first-seen order.
 
@@ -253,4 +303,12 @@ def main(
         raise typer.Exit(code=EXIT_ERROR)
 
 
-__all__ = ["app", "main", "check", "parse_compile_lines", "parse_recorded", "parse_sources"]
+__all__ = [
+    "app",
+    "main",
+    "check",
+    "parse_compile_lines",
+    "parse_recorded",
+    "parse_sources",
+    "per_file_pin",
+]

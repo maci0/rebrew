@@ -22,9 +22,12 @@ Manual inspection and linkage tools outside the main reverse loop. Run
 | `rebrew link-sweep` | Sweep LINK options to reproduce the reference PE header (find stamp-only fields). |
 | `rebrew cmake-toolchain` | Write a CMake toolchain file that drives a docker toolchain via `rebrew-cmake-*`. |
 | `rebrew cmake-flags` | Write per-file CFLAGS from `rebrew-functions.toml` as a CMake include. |
+| `rebrew cmake-sources` | Write the target's marker-selected source list as a CMake include. |
+| `rebrew migrate-markers` | ADR 023: move inline markers into `rebrew-functions.toml` and strip the `.c` to pure C (idempotent, `--dry-run` previews). |
 | `rebrew build-check` | Verify `build/` still matches what CMake generated (catches a hand-edited `build.make`). |
 | `rebrew binsync-init` | Initialize a BinSync git repo (root and user branches) for a target. |
 | `rebrew binsync-export` | Low-level state export (prefer `rebrew sync --push --state-dir`; see rebrew-ghidra-sync). |
 | `rebrew binsync-import` | Low-level state import (prefer `rebrew sync --pull --state-dir`; see rebrew-ghidra-sync). |
 | `rebrew binsync-overlay` | Overlay a related target's BinSync names onto this target. |
 | `rebrew refactor` | Analyse the source tree and suggest refactoring opportunities. |
+| `rebrew recommend` | Deterministic advice lanes (TU layout, hygiene, next action); `--apply` fixes safe lanes. |

@@ -278,6 +278,7 @@ def owner_of(names: list[str], files: list[Path]) -> Path | None:
 
 
 def hex_list(data: bytes) -> str:
+    """A C array-initializer body for *data* (16 bytes per line, comma-separated)."""
     out = []
     for i in range(0, len(data), 16):
         out.append("    " + ", ".join(f"0x{b:02x}" for b in data[i : i + 16]) + ",")

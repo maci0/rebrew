@@ -648,6 +648,7 @@ def prove_equivalence(
     check_eax: bool = True,
     watched_vas: list[int] | None = None,
     dir32_watched: dict[int, int] | None = None,
+    stub_thunks: bool = False,
 ) -> tuple[bool, str]:
     """Prove semantic equivalence of two function byte blobs via symbolic execution.
 
@@ -714,6 +715,29 @@ def prove_equivalence(
                             iat_api_names[stub_addr] = str(fn.name)
         except Exception:
             log.debug("LIEF import scan failed (best-effort)", exc_info=True)
+
+    # --stub-thunks: additionally stub every absolute address the compiled blob
+    # references via DIR32 relocs that LIEF did NOT list as an import.  A
+    # thunk reached through a pointer LIEF did not classify (an internal jmp
+    # stub, a table-driven dispatch) dead-ends the CFG the same way an IAT
+    # slot does — the compiled side reads the slot, gets zero-fill, and jumps
+    # to 0.  Missing-import instrumentation often misses these.
+    if stub_thunks and reloc_offsets:
+        extra_thunk_vas: list[int] = []
+        for offset, _sym_name in sorted(reloc_offsets.items()):
+            # DIR32: the 4 bytes at *offset* hold the absolute target (the
+            # compiled .obj holds the addend; the symbol name is the linker
+            # hint).  A plausible thunk address is outside the blob and not
+            # already in the LIEF import map.
+            if 0 <= offset <= len(compiled_bytes) - 4:
+                va = struct.unpack("<I", compiled_bytes[offset : offset + 4])[0]
+                # Base is 0 for both blobs: an absolute address inside the blob
+                # is an intra-function data/string reference, not a thunk.
+                if va and va >= len(compiled_bytes) and va not in iat_stub_map_orig:
+                    extra_thunk_vas.append(va)
+        for va in dict.fromkeys(extra_thunk_vas):
+            stub_addr = (STUB_BASE + len(iat_stub_map_orig) * 4) & 0xFFFFFFFF
+            iat_stub_map_orig.setdefault(va, stub_addr)
 
     cc, arg_count, return_width, _is_void = _parse_prototype(prototype)
 
@@ -982,13 +1006,16 @@ def prove_equivalence(
         except Exception:
             log.debug("Failed to hook return sentinel", exc_info=True)
 
-    # Seed IAT slot memory in the original blob's initial state so
-    # indirect calls (via register or memory) resolve to our stubs.
+    # Seed IAT/thunk slot memory in BOTH initial states so indirect calls
+    # (via register or memory) resolve to our stubs on both sides.  The
+    # compiled .obj calls an import thunk the same way the original does; if
+    # only the original had its slots seeded, the compiled side read zero-fill
+    # and jumped to 0 → no terminal state ("No terminal states reached").
     state_orig = _setup_state(proj_orig)
-    for iat_addr, stub_addr in iat_stub_map_orig.items():
-        state_orig.memory.store(iat_addr, claripy.BVV(stub_addr, 32), endness="Iend_LE")  # type: ignore[no-untyped-call]
-
     state_comp = _setup_state(proj_comp)
+    for state in (state_orig, state_comp):
+        for iat_addr, stub_addr in iat_stub_map_orig.items():
+            state.memory.store(iat_addr, claripy.BVV(stub_addr, 32), endness="Iend_LE")  # type: ignore[no-untyped-call]
 
     # Apply user-specified argument constraints to reduce path explosion.  ONE
     # symbol table for both states: fresh per-state field symbols made the two
@@ -1111,6 +1138,14 @@ def main(
         "--watch-va",
         help="Also compare 4 bytes of memory at this VA (repeatable). Values are decimal unless 0x-prefixed — unlike most other rebrew tools, bare digits are NOT hex (adds to prove_constraints.watched_vas)",
     ),
+    stub_thunks: bool = typer.Option(
+        False,
+        "--stub-thunks",
+        help="Stub every absolute thunk address the compiled blob references via "
+        "DIR32 (including thunks LIEF did not list as imports), seeding both "
+        "sides' IAT slots so indirect thunk calls terminate instead of dead-ending "
+        "the CFG at address 0",
+    ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     watch: bool = typer.Option(
         False, "--watch", help="Watch the source file and re-prove on every change"
@@ -1169,6 +1204,7 @@ def main(
             watch_va=watch_va_ints,
             max_delta=max_delta,
             ceiling_only=ceiling_only,
+            stub_thunks=stub_thunks,
         )
         return
 
@@ -1368,6 +1404,7 @@ def main(
         check_eax=not inputs.skip_regs,
         watched_vas=inputs.watched_vas,
         dir32_watched=inputs.dir32_watched,
+        stub_thunks=stub_thunks,
     )
 
     result: dict[str, Any] = {
@@ -1654,6 +1691,7 @@ def _prove_single(
     check_edx: bool = False,
     watched_vas: list[int] | None = None,
     name_to_va: dict[str, int] | None = None,
+    stub_thunks: bool = False,
 ) -> tuple[bool, str]:
     """Prove a single function and return (proven, message)."""
     try:
@@ -1696,6 +1734,7 @@ def _prove_single(
         check_eax=not inputs.skip_regs,
         watched_vas=inputs.watched_vas,
         dir32_watched=inputs.dir32_watched,
+        stub_thunks=stub_thunks,
     )
 
     if proven and not dry_run:
@@ -1776,6 +1815,7 @@ def _run_all_batch(
     watch_va: list[int] | None = None,
     max_delta: int | None = None,
     ceiling_only: bool = False,
+    stub_thunks: bool = False,
 ) -> None:
     """Batch-prove all NEAR_MATCHING/SIZE_MISMATCH functions.
 
@@ -1866,6 +1906,7 @@ def _run_all_batch(
                 check_edx=check_edx,
                 watched_vas=watch_va,
                 name_to_va=name_to_va,
+                stub_thunks=stub_thunks,
             )
         except Exception as e:
             log.debug("Prove failed for %s", src, exc_info=True)

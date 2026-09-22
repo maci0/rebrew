@@ -565,6 +565,10 @@ def _save_verify_cache(
             "headers_fp": fp_entry.headers_fp,
             "toolchain": fp_entry.toolchain,
             "defines": fp_entry.defines,
+            # Context digest the verdict was earned under (None = bare
+            # source).  Part of the cache identity: a changed context is a
+            # different compile input, not a still-valid match.
+            "context_hash": result.get("context_hash"),
         }
 
     # A filtered run (--nolib) drops its excluded VAs from `results`, but this

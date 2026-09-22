@@ -324,9 +324,7 @@ def _build_context(cfg: Any, context_path: Path | None, no_context: bool) -> str
 @app.callback(invoke_without_command=True)
 def main(
     source: str = typer.Argument(..., help="C source file for the function to upload"),
-    va: str | None = typer.Option(
-        None, "--va", help="Target VA in hex (default: from annotation)"
-    ),
+    va: str | None = typer.Option(None, "--va", help="Target VA in hex (default: from annotation)"),
     size: int | None = typer.Option(
         None, "--size", help="Target size in bytes (default: annotation SIZE)"
     ),
@@ -477,7 +475,7 @@ def main(
 
 
 def main_entry() -> None:
-    """Run the Typer CLI application (standalone single-command form)."""
+    """Run the Typer CLI application."""
     from rebrew.cli import run_standalone
 
     run_standalone(main)

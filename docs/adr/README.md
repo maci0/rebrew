@@ -44,3 +44,4 @@ itself, and the consequences (including trade-offs accepted).
 | 020 | Init scaffolding skill (`rebrew-init`) |
 | 021 | Batch container compiles (`compile_batch_objs` / `precompile_batch`) |
 | 022 | Shared single-file imports (`cross-import --shared`) |
+| 023 | Markers: TOML single source (pure-C sources, `rebrew migrate-markers`) |

@@ -974,6 +974,46 @@ the listing path.
 Default: `rebrew toolchain detect --json` is the compiler ID.
 Jev only when that JSON already disagrees with itself.
 
+#### 5.15 jevopt and the reverse (Jev as compiler advisor, rebrew as Jev oracle)
+
+[jevopt](https://github.com/Ramneet-Singh/jevopt) (reviewed 2026-09-21)
+is the forward direction this note deliberately avoids: a C/C++ compiler
+driver that puts Jev inside the optimization loop. At every
+discretionary call site, a Clang 21 / `-Oz` LLVM plugin sends Jev the
+caller/callee IR, the original source, build context, and 7 structural
+facts; Jev returns a typed two-way `Choice` (`inline` / `do_not_inline`)
+through a FIFO channel, and the trace (state, probabilities, decision,
+hashes) lands in `result.json`. The released `jevopt-embench` run
+(`jev-1.13.0`, all 19 Embench 1.0 programs, `.text` bytes, no LTO) beats
+Clang `-Oz` on 7/19 programs — including statemate at −58.20% — ties on
+2/19, loses on 10/19, geometric mean **+7.87%**. The author's own
+conclusion matches §4 here: keep the prompt small and fixed, withhold
+the compiler's suggested answer to avoid bias, and treat per-program
+wins as real even under an aggregate loss (ship the smaller of the two
+binaries). Jev outputs are stochastic run to run; the released
+`runs/jevopt-embench` traces are the pinned evidence.
+
+The reverse is what rebrew can offer Jev: an objective, deterministic
+reward signal Jev normally lacks. Every Jev codegen-family Choice in
+[§4](#4-codegen-pattern-choice) bottoms out in `rebrew test` byte
+comparison — `EXACT` / `NEAR_MATCHING` plus delta — instead of a second
+model's opinion. Candidate C rewrite → compile → measured delta scores
+the Choice that proposed it. That closes the loop jevopt leaves open
+(stochastic answers, no ground truth beyond `.text` size) and obeys
+this note's standing rules: code counts, Jev judges a named candidate,
+state stays a short English card rather than IR/ASM.
+
+Two concrete assets transfer directly:
+
+- `runs/jevopt-embench` decision traces as a prior on which inline
+  decisions move size (inline-vs-call is one more shape family in the
+  §4 beam, alongside loop form / addressing / live-range / flags).
+- [corpus.json](codegen/corpus.json) (17938 per-function byte records
+  across toolchains/flags) as a labeled eval set: ask a Jev Choice over
+  a short option list given counted idiom buckets, score against the
+  recorded bytes. Same A/B bar as §5.14 — if the Choice does not beat
+  `detect --json` + Rich-header pin on a labeled slice, delete it.
+
 ## 6. Lazy experiment (guild-rebrew only)
 
 One script. No rebrew package change. No new CLI.

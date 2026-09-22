@@ -280,11 +280,7 @@ def build_graph(
 
     for header in iter_library_headers(reversed_dir, cfg):
         header_rel = rel_display_path(header, reversed_dir)
-        for entry in parse_library_header(
-            header,
-            target_name=target_marker(cfg),
-            metadata_dir=cfg.metadata_dir if cfg else None,
-        ):
+        for entry in parse_library_header(header, metadata_dir=cfg.metadata_dir if cfg else None):
             if entry.va < min_valid_va_for(cfg):
                 continue
             key = _func_key(entry, header.stem)
@@ -824,7 +820,7 @@ def main(
 
 
 def main_entry() -> None:
-    """Run the Typer CLI application (standalone single-command form)."""
+    """Run the Typer CLI application."""
     from rebrew.cli import run_standalone
 
     run_standalone(main)

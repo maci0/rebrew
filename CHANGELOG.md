@@ -1,5 +1,16 @@
 ## [Unreleased]
 ### Fixed
+- **`rebrew migrate-markers` is registered.**  The ADR 023 migration
+  command existed as `rebrew.migrate_markers` with docs, tests, and an
+  agent-skill entry, but it was never added to `BUILTIN_COMPONENTS`, so
+  the umbrella CLI did not expose it.  It now appears in `rebrew
+  --help` (Development panel) and `rebrew migrate-markers --help`
+  works, including `--dry-run` / `--json` / `--target`.
+- **Marker code cites ADR 023, not ADR 018.**  `rebrew.migrate_markers`
+  and the marker-less-file synthesis paths in `rebrew.annotation`
+  referenced "ADR 018 (markers: TOML single source)"; 018 is
+  single-file verify scope.  Corrected to 023 (the real markers ADR) in
+  the module docstring, the `--help` line, and four comments.
 - **Library code leaves progress totals (status/todo agree again).**
   Identified library functions (CRT/zlib/static-lib attributions —
   "never reverse" work) inflated the denominators: server.dll reported
@@ -17,6 +28,10 @@
   game-only: "reversed" answers our work, "bytes covered" answers
   deliverable byte identity.
 ### Changed
+- **`parse_library_header()` drops its dead `target_name` argument.**
+  LIBRARY marker modules are library names (MSVCRT, ZLIB, ...), not the
+  project marker, so the parser never filtered on it; five call sites
+  computed `target_marker(cfg)` for nothing.
 - **CLI surface consistency, contract-enforced.**  One `main_entry`
   docstring everywhere (`"Run the Typer CLI application."` — 64 drifted
   modules normalized); `--target` help unified on the shared

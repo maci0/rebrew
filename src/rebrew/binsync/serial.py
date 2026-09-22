@@ -89,6 +89,7 @@ def new_function(
     name: str | None = None,
     prototype: str | None = None,
 ) -> Any:
+    """A declib function artifact for BinSync state (name/prototype optional)."""
     artifacts = _declib()
     header = artifacts.FunctionHeader(name=name, addr=addr, type_=prototype)
     return artifacts.Function(addr=addr, size=size, header=header)
