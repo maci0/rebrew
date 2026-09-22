@@ -411,7 +411,7 @@ class TestRunToolchain:
             calls.append(cmd)
             return _FakeProc(0, "", "")
 
-        monkeypatch.setattr("rebrew.toolchain.subprocess.run", _run)
+        monkeypatch.setattr("rebrew.toolchain.run_process_group", _run)
         r = run_toolchain(spec, ["/c", "t.c"], workdir=tmp_path)
         assert r.backend == "native"
         assert calls[0] == [str(cl), "/c", "t.c"]

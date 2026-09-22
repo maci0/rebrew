@@ -1,6 +1,8 @@
 """Tests for rebrew.utils."""
 
 import os
+import subprocess
+import time
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +16,7 @@ from rebrew.utils import (
     read_compile_source,
     read_source_text,
     read_toml_text,
+    run_process_group,
 )
 
 
@@ -922,3 +925,25 @@ class TestPreserveCorrupt:
         path.write_text("newest", encoding="utf-8")
         with pytest.raises(OSError, match="no free .corrupt slot"):
             preserve_corrupt(path)
+
+
+class TestRunProcessGroup:
+    def test_returns_output_and_returncode(self) -> None:
+        r = run_process_group(
+            ["sh", "-c", "echo out; echo err >&2; exit 3"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        assert (r.returncode, r.stdout, r.stderr) == (3, "out\n", "err\n")
+
+    def test_timeout_kills_grandchildren(self, tmp_path: Path) -> None:
+        """A driver's background child must die with it on timeout, not
+        keep running as an orphan (plain subprocess.run kills only the
+        direct child)."""
+        marker = tmp_path / "orphan-ran"
+        script = f"(sleep 1; touch '{marker}') & wait"
+        with pytest.raises(subprocess.TimeoutExpired):
+            run_process_group(["sh", "-c", script], capture_output=True, timeout=0.3)
+        time.sleep(1.5)
+        assert not marker.exists()

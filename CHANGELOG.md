@@ -360,6 +360,13 @@
   ``one_line``, ``run_git``). Call sites inside the package already updated.
 
 ### Fixed
+- **Timed-out native compiles no longer leave orphan processes.**  An
+  image-less (plugin) toolchain and the GA's host compile/link path ran
+  under `subprocess.run`, which on timeout kills only the direct child:
+  a driver's `cc1`/`as`, or the Xvfb and wine under `xvfb-run`, kept
+  running, one set per timed-out candidate.  These calls now go through
+  `rebrew.utils.run_process_group`, which starts the child in its own
+  session and kills the whole group on timeout.
 - **`rebrew sync --bookmarks` reruns replace, not pile up.**  Each status
   had its own bookmark category (`rebrew/stub`, `rebrew/exact`, …), and
   Ghidra replaces a bookmark only on the same address, type, and category,

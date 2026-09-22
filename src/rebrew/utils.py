@@ -5,6 +5,8 @@ import copy
 import logging
 import os
 import shlex
+import signal
+import subprocess
 import threading
 import time
 import tomllib
@@ -1053,6 +1055,38 @@ def safe_shlex_split(command: str) -> list[str]:
         return shlex.split(command)
     except ValueError:
         return command.split()
+
+
+def run_process_group(
+    cmd: Sequence[str], *, timeout: float, **popen_kwargs: Any
+) -> subprocess.CompletedProcess[Any]:
+    """``subprocess.run(cmd, timeout=...)`` that kills the whole process group.
+
+    Plain ``subprocess.run`` SIGKILLs only the direct child on timeout, so a
+    driver's grandchildren (gcc's ``cc1``/``as``, ``xvfb-run``'s Xvfb and
+    wine, a wrapper script's compiler) are orphaned and keep running.  The
+    child here leads its own session; on timeout the group is killed and
+    the child reaped before :class:`subprocess.TimeoutExpired` is raised.
+    ``popen_kwargs`` take ``subprocess.run``'s keywords except ``input``
+    and ``check``; pass ``capture_output=True`` to collect output.
+    """
+    if popen_kwargs.pop("capture_output", False):
+        popen_kwargs["stdout"] = subprocess.PIPE
+        popen_kwargs["stderr"] = subprocess.PIPE
+    with subprocess.Popen(list(cmd), start_new_session=True, **popen_kwargs) as proc:
+        try:
+            stdout, stderr = proc.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            # The group may already be gone (child exited, pipes still open).
+            with contextlib.suppress(ProcessLookupError):
+                os.killpg(proc.pid, signal.SIGKILL)
+            proc.communicate()
+            raise
+        except BaseException:
+            with contextlib.suppress(ProcessLookupError):
+                os.killpg(proc.pid, signal.SIGKILL)
+            raise
+    return subprocess.CompletedProcess(proc.args, proc.returncode, stdout, stderr)
 
 
 def watch_files(

@@ -347,7 +347,7 @@ class TestDefinesCompile:
             (cwd / "cand.obj").write_bytes(mini_obj)
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-        monkeypatch.setattr("rebrew.matcher.compiler.subprocess.run", _fake_run)
+        monkeypatch.setattr("rebrew.matcher.compiler.run_process_group", _fake_run)
 
         cfg = SimpleNamespace(defines=["V2"], root=tmp_path)
         build_candidate_obj_only(
@@ -394,7 +394,7 @@ class TestDefinesCompile:
             (pathlib.Path(kw.get("cwd", ".")) / "cand.obj").write_bytes(b"\x00OBJ")
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-        monkeypatch.setattr("rebrew.matcher.compiler.subprocess.run", _fake_run)
+        monkeypatch.setattr("rebrew.matcher.compiler.run_process_group", _fake_run)
 
         build_candidate_obj_only(
             "int f(void){ return 1; }\n",
@@ -606,7 +606,7 @@ class TestSharedLibraryHeaderCoverage:
             (cwd / "cand.obj").write_bytes(mini_obj)
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-        monkeypatch.setattr("rebrew.matcher.compiler.subprocess.run", _fake_run)
+        monkeypatch.setattr("rebrew.matcher.compiler.run_process_group", _fake_run)
 
         shared = tmp_path / "src" / "shared"
         shared.mkdir(parents=True)

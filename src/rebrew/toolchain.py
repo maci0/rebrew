@@ -47,7 +47,7 @@ from rebrew.toolchain_spec import (
     arg_style_from_str,
     flags_style_from_str,
 )
-from rebrew.utils import container_runtime
+from rebrew.utils import container_runtime, run_process_group
 
 _RUN_TIMEOUT = 300
 
@@ -855,7 +855,7 @@ def run_toolchain(
         binary = _resolve_binary(spec)
         env = dict(os.environ)
         try:
-            r = subprocess.run(
+            r = run_process_group(
                 [binary, *args],
                 capture_output=True,
                 text=True,

@@ -39,7 +39,7 @@ from rebrew.flag_data import (
 )
 from rebrew.flags import Checkbox, Flags, FlagSet
 from rebrew.toolchain_spec import FlagsStyle
-from rebrew.utils import safe_shlex_split
+from rebrew.utils import run_process_group, safe_shlex_split
 
 from .core import BuildResult
 from .parsers import extract_function_from_binary, parse_obj_symbol_bytes
@@ -596,7 +596,7 @@ def build_candidate_obj_only(
         cmd, env = _maybe_headless_wine(cmd, env)
 
         try:
-            r = subprocess.run(cmd, capture_output=True, cwd=workdir, env=env, timeout=timeout)
+            r = run_process_group(cmd, capture_output=True, cwd=workdir, env=env, timeout=timeout)
         except subprocess.TimeoutExpired:
             return BuildResult(ok=False, error_msg=f"Compile timed out after {timeout}s")
         except FileNotFoundError as e:
@@ -667,7 +667,7 @@ def build_candidate(
         env = _ensure_wine_env(env, cmd)
         cmd, env = _maybe_headless_wine(cmd, env)
         try:
-            r = subprocess.run(cmd, capture_output=True, cwd=workdir, env=env, timeout=timeout)
+            r = run_process_group(cmd, capture_output=True, cwd=workdir, env=env, timeout=timeout)
         except subprocess.TimeoutExpired:
             return BuildResult(ok=False, error_msg=f"Compile+link timed out after {timeout}s")
         except FileNotFoundError as e:
