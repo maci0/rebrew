@@ -168,7 +168,8 @@ cli-contract:
 	printf '%s\n' "$$help" | grep 'NEAR_MATCHING' >/dev/null; \
 	echo 'cli-contract OK'
 
-# Build sdist + wheel under a pinned locale/timezone for deterministic wheels.
+# Build sdist + wheel under a pinned umask/locale/timezone for deterministic
+# wheels (setuptools copies the umask-filtered file modes into wheel entries).
 # Drop prior package artifacts so a bumped version cannot leave multiple
 # wheels/sdists in dist/ (CI's package job expects exactly one of each).
 # After the build, remove setuptools' in-tree egg-info / build/ residue and
@@ -179,7 +180,7 @@ cli-contract:
 build: ensure-uv
 	@mkdir -p dist
 	@rm -f dist/*.whl dist/*.tar.gz dist/*.buildinfo
-	SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) TZ=UTC LC_ALL=C PYTHONHASHSEED=0 uv build
+	umask 022 && SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) TZ=UTC LC_ALL=C PYTHONHASHSEED=0 uv build
 	SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) uv run --frozen --no-project python tools/normalize_sdist.py dist/*.tar.gz
 	@rm -rf build rebrew.egg-info
 	@set -eu; \
@@ -190,6 +191,7 @@ build: ensure-uv
 	fi; \
 	{ \
 	  echo "SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH)"; \
+	  echo "umask=022"; \
 	  echo "TZ=UTC"; \
 	  echo "LC_ALL=C"; \
 	  echo "PYTHONHASHSEED=0"; \

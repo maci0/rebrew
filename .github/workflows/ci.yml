@@ -203,6 +203,7 @@ jobs:
           export SOURCE_DATE_EPOCH
           # Do not pipe through tail: under pipefail a failing uv build must
           # surface its full log, not a truncated last line.
+          umask 022
           uv build --no-cache --out-dir dist-repro
           rm -rf build rebrew.egg-info
           uv run --frozen --no-project python tools/normalize_sdist.py dist-repro/*.tar.gz

@@ -374,6 +374,11 @@
   ``one_line``, ``run_git``). Call sites inside the package already updated.
 
 ### Fixed
+- **The wheel no longer depends on the builder's umask.**  setuptools
+  copies umask-filtered file modes into wheel entries, so `make build`
+  under `umask 077` produced `0600` entries and a different hash.
+  `make build` and the CI repro build now run under `umask 022`, and
+  `dist/rebrew.buildinfo` records it.
 - **The inventory VA set is not empty after a concurrent rewrite.**
   `cached_function_vas` re-read the cache under the fingerprint it took
   before reloading, so a `function_structure.json` rewritten in between

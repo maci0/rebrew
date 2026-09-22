@@ -8,7 +8,7 @@ GitHub Actions (`.github/workflows/ci.yml`) runs lint, the full unit test suite
 across the supported Python versions (3.13–3.14) — including a fixture-freshness
 check (`tools/gen_fixtures.py --check`) and an idempotency sweep over the
 offline `--json` CLI surface — a pre-commit hook-parity job, a package job
-that builds the sdist/wheel via `make build` (SOURCE_DATE_EPOCH, C/UTC,
+that builds the sdist/wheel via `make build` (SOURCE_DATE_EPOCH, umask 022, C/UTC,
 `PYTHONHASHSEED=0`, sdist tar metadata normalized by
 `tools/normalize_sdist.py`), checks both artifacts hash the same on a second
 `--no-cache` build, emits a CycloneDX 1.5 SBOM (`dist/rebrew.cdx.json` from
