@@ -28,6 +28,7 @@
 | [TOOLCHAIN.md](TOOLCHAIN.md) | The toolchain zoo — compilers (MSVC 1.52–7, Borland C++ 5.5, Open Watcom, Delphi 1.0), docker images, reproducible builds (`rebrew toolchain vendor`/`smoke`), external tools, Python deps |
 | [SDK_MEDIA.md](SDK_MEDIA.md) | DirectX and Platform SDK media provenance: verified archive.org checksums, gaps, official and license-clean sources |
 | [OMF_NOTES.md](OMF_NOTES.md) | OMF object format research (Watcom wcc386 32-bit + MSVC 1.52 16-bit dialects, reloc decoding) |
+| [POSTLINK.md](POSTLINK.md) | `rebrew postlink`: post-link layout normalization of a built binary onto a reference, text-only layout package from `rebrew gen-layout` |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Module map, data flow, metadata routing rules, architectural conventions |
 | [CI.md](CI.md) | CI pipeline: lint/test/package/cli-contract jobs, gates, reproducibility |
 | [DEVELOPMENT.md](DEVELOPMENT.md) | Developer workflow |
@@ -44,6 +45,7 @@
 | [DECOMPME_COMPILERS.md](DECOMPME_COMPILERS.md) | decomp.me compiler fleet research + snippet-scrape guide |
 | [JEV.md](JEV.md) | TypeSafe Jev (System One) research: typed decisions over rebrew JSON, not codegen |
 | [ROADMAP.md](ROADMAP.md) | Multi-arch plan + consoles dossier appendix |
+| [IDEAS-GUILD.md](IDEAS-GUILD.md) | Open feature ideas from the guild-rebrew byte-identical campaign, with evidence pointers |
 
 ## Ecosystem
 

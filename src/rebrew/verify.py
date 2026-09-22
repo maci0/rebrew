@@ -4,10 +4,12 @@ Compiles every annotated ``.c`` file and compares object bytes against the
 target binary.  Results are classified by :class:`~rebrew.compile.CompareResult`
 (EXACT, RELOC, STUB, COMPILE_ERROR, …).
 
-After verification, STATUS is always promoted/demoted in
-``rebrew-functions.toml`` via :func:`~rebrew.metadata.update_statuses_batch`
-— the ``.c`` files are **never modified**.  PROVEN status is sticky and
-never demoted.
+After verification, STATUS is promoted/demoted in ``rebrew-functions.toml``
+via :func:`~rebrew.metadata.update_statuses_batch` unless ``--dry-run`` or
+``--no-promote`` is set; the ``.c`` files are **never modified**.  PROVEN
+is kept over the near-match states a proven function produces, upgraded
+by an EXACT/RELOC match, and demoted (``force``, with a ``metadata:``
+warning) when the build can no longer support it.
 
 With ``--compare`` it compares the current run against the last good
 baseline (``.rebrew/verify_baseline.json``) and exits with code 1 on any
@@ -1228,7 +1230,7 @@ def run_batch(
     fail_details.extend(v_fail_details)
     results.extend(v_results)
 
-    # Always promote/demote STATUS metadata to match verification results
+    # Promote/demote STATUS metadata unless --dry-run / --no-promote
     _apply_or_preview_status(deferred, cfg, dry_run or no_promote)
 
     results.sort(key=lambda r: r["va"])

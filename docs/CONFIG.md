@@ -16,7 +16,7 @@ default_target = "target_name"           # Default target when --target is not p
 [targets.target_name]
 binary = "original/target.dll"          # Target binary (relative to project root)
 format = "pe"                            # Binary format: pe, elf, macho, ne, mz
-arch = "x86_32"                          # Architecture: x86_16, x86_32, x86_64, arm32, arm64
+arch = "x86_32"                          # Architecture: x86_16, x86_32, x86_64, arm32, arm64, mips32, mips64, ppc32, ppc64, sh2
 # marker = "TARGET_NAME"                 # Defaults to target key uppercased (see below)
 reversed_dir = "src/target_name"         # Where reversed .c files live
 # inventory_file = "db/inventory-target.json"  # Function-inventory override
@@ -49,9 +49,9 @@ libs = "toolchain/msvc/6.0-win32/source/VC98/Lib"
 | `target_name` | Key under `[targets]` | Active target name (e.g. `"game_dll"`) |
 | `all_targets` | All keys under `[targets]` | List of all available target names |
 | `project_name` | `[project].name` | Project name (informational; defaults to `""`) |
-| `marker` | `[targets.<name>].marker` | Module identifier for source markers (default: target name uppercased, non-alphanumeric characters stripped) |
+| `marker` | `[targets.<name>].marker` | Module identifier for source markers (default: target name uppercased, characters other than letters, digits, and `_` stripped) |
 | `target_binary` | `[targets.<name>].binary` | Resolved path to the target executable/DLL |
-| `default_jobs` | `[project].jobs` | Default parallelism for batch commands |
+| `default_jobs` | `[project].jobs` | Default parallelism for batch commands (default `4`) |
 | `db_dir` | `[project].db_dir` | Coverage JSON, SQLite DB, CSV directory (verify reports are no longer written here by default — the `--compare` baseline lives in `.rebrew/`) |
 | `output_dir` | `[project].output_dir` | Default output directory for generated artifacts |
 | `image_base` | Auto-detected from PE | `0x10000000` for example DLL |
@@ -62,12 +62,17 @@ libs = "toolchain/msvc/6.0-win32/source/VC98/Lib"
 | `metadata_dir` | Derived: parent of `reversed_dir`, falling back to `reversed_dir` itself when it holds `rebrew-functions.toml` and the parent does not | Canonical home of `rebrew-functions.toml` / `rebrew-data.toml`; callers must pass it explicitly (no walk-up) |
 | `capstone_arch` / `capstone_mode` | Derived from `arch` | Capstone disassembly constants |
 | `padding_bytes` | Derived from `arch` | `(0xCC, 0x90)` for x86_32/x86_64 (see Architecture Presets) |
-| `symbol_prefix` | Derived from `arch` | `_` for x86_16/x86_32, empty for x86_64/arm |
+| `symbol_prefix` | Derived from `arch` | `_` for x86_16/x86_32, empty for every other arch |
 | `external_libs` | `[targets.<name>].external_libs` | External `.lib` code — `module = "link-spec"` table (e.g. `LIBCMT = "LIBCMT.lib"`, `D3DX8 = "references/dxsdk8/lib/d3dx8.lib"`, `MSVCRT = ""` for identified-only).  The one flag for "not our work": rows attributed to these modules leave the progress accounting, `rebrew lib-match` ingests the archives by default, and `rebrew cmake-sources` emits the non-empty specs as `REBREW_EXTERNAL_LIBS` for `target_link_libraries` — config order is link order (static archives last) |
 | `crt_sources` | `[targets.<name>].crt_sources` | Maps origin names to reference source directories for CRT cross-matching |
+| `external_ranges` | `[targets.<name>].external_ranges` | Inclusive address bands (`["0x5e0000-0x64ffff"]`) the binary fills from a statically linked library rather than project sources; tools that enumerate work left skip them |
+| `defines` | `[targets.<name>].defines` | Per-target compile-time define names (`["CLIENT"]`) for shared multi-version sources (ADR-010) |
 | `library_modules` | `[targets.<name>].library_modules` | Module names that use `LIBRARY` markers |
 | `source_ext` | `[targets.<name>].source_ext` | Source extension used when discovering and creating files |
 | `ghidra_program_path` | `[targets.<name>].ghidra_program_path` | ReVa MCP program path override |
+| `ghidra_backend` | `[targets.<name>].ghidra_backend` | Ghidra transport: `reva` (MCP, default) or `cli`; an unknown value warns and falls back to `reva` |
+| `binsync_state_dir` | `[targets.<name>].binsync_state_dir` | BinSync state directory (default for `--state-dir`) |
+| `iat_thunks` / `dll_exports` / `ignored_symbols` / `r2_bogus_vas` | `[targets.<name>]` | Project-specific VA lists (`iat_thunks`, `r2_bogus_vas`: VAs with known-bad r2 size data), VA → name export map, and symbol names to ignore |
 | `compiler_profile` | `[compiler].profile` | Selects the toolchain's docker image and flag-sweep axes |
 | `compiler_includes` | `[compiler].includes` | Resolved path to include dir |
 
@@ -80,6 +85,11 @@ libs = "toolchain/msvc/6.0-win32/source/VC98/Lib"
 | `x86_64` | `CS_ARCH_X86, CS_MODE_64` | 8 | `0xCC, 0x90` | (empty) |
 | `arm32` | `CS_ARCH_ARM, CS_MODE_ARM` | 4 | `0x00` | (empty) |
 | `arm64` | `CS_ARCH_ARM64, CS_MODE_ARM` | 8 | `0x00` | (empty) |
+| `mips32` | `CS_ARCH_MIPS, CS_MODE_MIPS32` | 4 | `0x00` | (empty) |
+| `mips64` | `CS_ARCH_MIPS, CS_MODE_MIPS64` | 8 | `0x00` | (empty) |
+| `ppc32` | `CS_ARCH_PPC, CS_MODE_32` | 4 | `0x60, 0x00, 0x00, 0x00` (`nop`) | (empty) |
+| `ppc64` | `CS_ARCH_PPC, CS_MODE_64` | 8 | `0x60, 0x00, 0x00, 0x00` (`nop`) | (empty) |
+| `sh2` | `CS_ARCH_SH, CS_MODE_SH2` | 4 | `0x00` | (empty) |
 
 `x86_16` targets are 16-bit binaries — Windows 3.x NE executables (Borland Delphi 1.0 /
 MSVC 16-bit) or plain DOS MZ; `rebrew intake` sets `format = "ne"` (or `"mz"`) +
@@ -125,7 +135,7 @@ Running `rebrew test --target server_dll` processes only the `SERVER` marker blo
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `marker` | `string` | target key uppercased, non-alphanumeric characters stripped (e.g. `server.dll` → `SERVERDLL`) | Module identifier used in `// FUNCTION:`, `// LIBRARY:`, `// STUB:` markers |
+| `marker` | `string` | target key uppercased, characters other than letters, digits, and `_` stripped (e.g. `server.dll` → `SERVERDLL`) | Module identifier used in `// FUNCTION:`, `// LIBRARY:`, `// STUB:` markers |
 
 The lint tool (`rebrew lint`) validates that each marker's module matches the configured marker (error E012) — except stacked blocks naming another known project target, which is the `src/shared` pattern (ADR-010), not a mismatch. Each stacked block answers to its own target's CFLAGS defaults (W018).
 
@@ -155,7 +165,7 @@ Sweep tiers: `quick` (~192), `targeted` (~1.2K), `normal` (~5.4K), `thorough` (~
 
 Compiler settings are resolved in layers. Each layer overrides the previous:
 
-1. **Built-in defaults** — empty host `command` for docker-backed profiles (the docker image is the compiler; `wine CL.EXE` is only a legacy fallback for hand-written configs), `/nologo /c /MT` base flags, 60s timeout
+1. **Built-in defaults** — `command = "wine CL.EXE"` when the key is absent (inert for docker-backed profiles, where the image is the compiler; `rebrew init` writes an empty `command`), `/nologo /c /MT` base flags, 60s timeout
 2. **`[compiler]`** — Global settings shared across all targets
 3. **`[targets.<name>.compiler]`** — Per-target overrides (partial — only keys present override)
 4. **Nearest `rebrew-libraries.toml`** — Per-library toolchain/flags overrides (walk-up from the source dir; presets fill missing fields)
@@ -186,7 +196,7 @@ profile = "msvc-7.0"
 | `includes` | `string` | `"toolchain/msvc/6.0-win32/source/VC98/Include"` | Path to compiler include directory. For `msvc-6.0`/`msvc-7.0` the default resolves the best layout actually present (full master, then the vendored compile-only mirrors `toolchain/msvc/6.0-sp6-win32`/`toolchain/msvc/6.0-sp3-win32`/`toolchain/msvc/7.0-win32`) — see `rebrew init` output and docs/TOOLCHAIN.md. Empty is valid ("no extra dir"; e.g. `mingw-16.2.0` ships its own headers) |
 | `libs` | `string` | `"toolchain/msvc/6.0-win32/source/VC98/Lib"` | Path to compiler lib directory (empty is valid — the compile-only mirrors ship no `Lib/`) |
 | `cflags` | `string` | `""` | Default compiler flags |
-| `base_cflags` | `string` | `"/nologo /c /MT"` | Always-on flags prepended to every compile. Posix-style profiles (`gcc-14.2.0`, `mingw-16.2.0`, `clang-18.1.8`, `watcom-2.0-win32`, `watcom-2.0-win16`, `borland-5.5`, `borland-3.1`, `borland-2.0`) default to `""` — the MSVC glue would break them |
+| `base_cflags` | `string` | `"/nologo /c /MT"` | Always-on flags prepended to every compile. Posix-style profiles (`gcc-14.2.0`, `gcc-12.3.0`, `mingw-16.2.0`, `mingw-14.2.0`, `clang-18.1.8`, `clang-16.0.4`, `ido-5.3`, `ido-7.1`, `watcom-2.0-win32`, `watcom-2.0-win16`, `borland-5.5`, `borland-3.1`, `borland-2.0`) default to `""` — the MSVC glue would break them |
 | `runner` | `string` | `""` | Win32 PE runner (`wine`, `wibo`, or empty). Auto-detected from `command` if not set explicitly. Under docker-only execution the runner is empty for image-backed profiles; `rebrew init --install-wibo` writes `tools/wibo` only for native (non-image) profiles — it is ignored for docker-backed ones. A relative runner path resolves against the project root and needs a `command` without the runner prefix |
 | `recompile_url` | `string` | `""` | Base URL of the recompile compile service (e.g. `http://localhost:8000`). When set (or `REBREW_RECOMPILE_URL`), every compile routes through `POST /api/v1/compile` instead of local docker images: the same pinned images, plus the opt-in training tap |
 | `recompile_emit_assembly` | `bool` | `false` | Pass `emit_assembly=true` on remote compiles (the training-data tap). Off by default; the GA `--collect-pairs` path enables it per run |
@@ -239,6 +249,25 @@ profile = "msvc-7.0"
 ```
 
 Only the keys you specify in the per-target `[compiler]` section override the global `[compiler]`. Unspecified keys fall back to the global defaults.
+
+## Linker Settings (`[link]`)
+
+Optional declarative PE header values for byte-identical reconstruction
+(`LinkConfig`). `rebrew round-trip --fix-headers` patches them into the
+reassembled copy, and the round-trip `header_parity` report compares them
+against the original binary. Unknown keys warn.
+
+```toml
+[link]
+stack_reserve = 0x100000
+stack_commit = 0x1000
+tsaware = false              # sets 0x8000 in DllCharacteristics
+linker_version = "6.0"
+os_version = "4.0"
+subsystem_version = "4.0"
+timestamp = 0x3a1b2c3d       # seconds since epoch
+# file_align = 0x1000        # informational only: warns, never patched (needs a relink)
+```
 
 ## Compile Cache Backend
 
@@ -370,7 +399,7 @@ The config loader fail-fasts on missing/invalid structure:
 
 It emits warnings (and applies safe defaults) if:
 - Unrecognized keys are found in top-level, project, global compiler, target,
-  per-target compiler, `[llm]`, `[cache]`, or `[project.lint]` tables (likely typos).
+  per-target compiler, `[llm]`, `[cache]`, `[link]`, or `[project.lint]` tables (likely typos).
 - `[llm].api_key` is set in the TOML (prefer `REBREW_LLM_API_KEY`) or is set
   without an endpoint.
 - A legacy `[targets.<name>.cflags_presets]` table is present (wrong place —
@@ -486,8 +515,8 @@ rebrew cfg path                                 # print path to config file
 (and sp1–sp3), 6.0 (and sp1–sp6), 7.0–11.0 (rtm/sp variants), 2.0/4.1, and the
 16-bit 1.0 (`msvc-1.0`)/1.5 (`msvc-1.5`)/1.52 (`msvc-1.52`) — plus borland-5.5,
 borland-3.1/borland-2.0, watcom-2.0-win32/watcom-2.0-win16, delphi-1.0,
-gcc-14.2.0/gcc-12.3.0/mingw-16.2.0/mingw-14.2.0 and
-clang-18.1.8/clang-16.0.4.  Every profile gets an empty `command`/`runner` in the
+gcc-14.2.0/gcc-12.3.0/mingw-16.2.0/mingw-14.2.0,
+clang-18.1.8/clang-16.0.4, and ido-5.3/ido-7.1.  Every profile gets an empty `command`/`runner` in the
 generated config (the docker image is the compiler); only a plugin toolchain
 registered without an image keeps a real host command.  The target
 `arch` follows the profile (`msvc-1.52` → `x86_16`); if a binary is already in

@@ -282,10 +282,12 @@ def classify_compare_result(
 
     Classification precedence:
     - ``matched=True`` → EXACT (no relocs) or RELOC (with relocs).
+    - ``"EXTRACT_ERROR"`` in *msg* → EXTRACT_ERROR.
     - ``obj_bytes is None`` or ``"COMPILE_ERROR"`` in *msg* → COMPILE_ERROR.
     - ``"MISSING"`` in *msg* → MISSING_SIZE or MISSING_FILE (by substring).
     - ``size_mismatch=True`` or ``"SIZE_MISMATCH"`` in *msg* → SIZE_MISMATCH
-      (still reports match% over the common prefix).
+      (still reports match% over the common prefix), or STUB when a minimal
+      candidate body faces a much larger target (unimplemented skeleton).
     - Otherwise → NEAR_MATCHING or STUB (by match percentage threshold).
 
     Args:

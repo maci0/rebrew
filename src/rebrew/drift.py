@@ -96,7 +96,7 @@ def branch_targets(code: bytes, md: Any) -> dict[int, tuple[int, int]]:
 
     Args:
         code: The function's bytes, starting at offset 0.
-        md: A capstone disassembler, from :func:`rebrew.asm.make_disassembler`.
+        md: A capstone ``Cs`` instance for the target arch (x86 branch mnemonics).
     """
     out: dict[int, tuple[int, int]] = {}
     for insn in md.disasm(code, 0):

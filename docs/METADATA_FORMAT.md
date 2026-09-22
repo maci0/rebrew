@@ -3,7 +3,8 @@
 > **Scope:** This document covers the **TOML metadata files** (`rebrew-functions.toml`,
 > `rebrew-data.toml`) that store volatile per-function fields (STATUS, SIZE, CFLAGS,
 > TOOLCHAIN, BLOCKER, BLOCKER_DELTA, NOTE, GHIDRA, ANALYSIS, SKIP, GLOBALS, LOCALS,
-> COMMENTS, SOURCE, PROVE_CONSTRAINTS) and data section metadata (NAME, TYPE, SIZE,
+> COMMENTS, SOURCE, PROVE_CONSTRAINTS, plus the write provenance UPDATED_BY / UPDATED_AT)
+> and data section metadata (NAME, TYPE, SIZE,
 > SECTION, NOTE, STATUS).
 > For the source-file marker format (`// FUNCTION: MODULE 0xVA`) and `library_*.h`
 > headers see [ANNOTATIONS.md](ANNOTATIONS.md).
@@ -88,7 +89,7 @@ note = "register allocation differs in inner loop"
 | Function / CLI | Purpose |
 |----------------|---------|
 | `update_source_status()` / `update_statuses_batch()` | Set STATUS (PROVEN is sticky except against byte matches) — via `rebrew test` / `rebrew verify` / `rebrew prove` (also `match`, `lint`, `binsync-import`, `intake` tag their writes) |
-| `update_field(key, value)` / `remove_field(key)` | Set / delete any non-STATUS field (e.g. BLOCKER) — via `rebrew blocker set` / `clear` |
+| `update_field(directory, va, key, value, module)` / `remove_field(directory, va, key, module)` | Set / delete any non-STATUS field (e.g. BLOCKER) — via `rebrew blocker set` / `clear` |
 | `get_entry(directory, va, module)` | Read an entry — via `rebrew blocker show` |
 | `rebrew diff --fix-blocker` / `rebrew near-diag --fix-blocker` / `rebrew document-unmatched` | Auto-classified BLOCKER writers (same gated API underneath) |
 

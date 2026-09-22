@@ -241,9 +241,9 @@ def _inject_from_errors(source: str, errors: str) -> tuple[str, list[str]]:
 def fixup_source(source: str, compile_errors: str | None = None) -> FixupResult:
     """Run the full fixup: sanitize, then inject from *compile_errors*.
 
-    The injection step is applied once (bounded — the sanitize pass already
-    resolves most blockers; a second compile loop is the caller's choice via
-    :func:`compile_and_fixup`).
+    The injection step is applied once (bounded: the sanitize pass already
+    resolves most blockers); a second compile-and-fixup round is the
+    caller's choice.
     """
     fixed, changes = sanitize_tokens(source)
     result = FixupResult(source=fixed, changes=changes, iterations=1)

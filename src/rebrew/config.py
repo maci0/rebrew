@@ -451,8 +451,9 @@ class ProjectConfig:
 
 
 #: Characters stripped from a target name when deriving its module marker:
-#: ``server.dll`` must yield ``SERVER`` (the annotation module), not
-#: ``SERVER.DLL`` (which matches no ``// FUNCTION: MODULE 0xVA`` line).
+#: ``server.dll`` yields ``SERVERDLL``, an identifier-shaped module name.
+#: Set ``marker`` explicitly when the annotations use another module
+#: (e.g. ``SERVER``).
 _MARKER_STRIP_RE = re.compile(r"[^A-Za-z0-9_]")
 
 
@@ -1394,8 +1395,8 @@ def load_config(
         shared_dir=shared_dir,
         bin_dir=bin_dir,
         # marker defaults to the target name upper-cased with non-identifier
-        # characters stripped: for `server.dll` the raw upper() yields
-        # "SERVER.DLL", which matches NO annotation module ("SERVER") and
+        # characters stripped: the raw upper() of `server.dll` is
+        # "SERVER.DLL", which matches no identifier-shaped annotation module and
         # silently filters every function out of verify/todo/status.
         marker=_as_str(
             tgt.get("marker"),

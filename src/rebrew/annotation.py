@@ -1448,8 +1448,8 @@ def update_annotation_key(
         va: Virtual address integer.
         key: Annotation key (e.g. ``"STATUS"``, ``"CFLAGS"``).
         new_value: New value string.
-        metadata_dir: Directory containing ``rebrew-functions.toml``.
-            Required for metadata-owned keys.
+        metadata_dir: Directory containing ``rebrew-functions.toml`` for
+            metadata-owned keys (default: ``filepath.parent``).
 
     Returns True if any write was made, False otherwise.
 
@@ -1700,8 +1700,8 @@ def remove_annotation_key(
         filepath: Path to the ``.c`` source file.
         va: Virtual address integer.
         key: Annotation key to remove.
-        metadata_dir: Directory containing ``rebrew-functions.toml``.
-            Required for metadata-owned keys.
+        metadata_dir: Directory containing ``rebrew-functions.toml`` for
+            metadata-owned keys (default: ``filepath.parent``).
 
     Returns True if any change was made, False otherwise.
 

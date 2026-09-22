@@ -3,6 +3,8 @@
 import struct
 from pathlib import Path
 
+import pytest
+
 from rebrew.matcher import (
     diff_functions,
     generate_flag_combinations,
@@ -215,6 +217,17 @@ def test_diff_functions_different() -> None:
     assert isinstance(result, dict)
     assert result["summary"]["structural"] > 0
     assert "**" in {insn["match"] for insn in result["instructions"]}
+
+
+def test_diff_functions_summary_only_implies_as_dict(capsys: pytest.CaptureFixture[str]) -> None:
+    """summary_only returns the counts dict without printing, even without as_dict."""
+    code = b"\x55\x8b\xec\x33\xc0\x5d\xc3"
+    result = diff_functions(code, code, summary_only=True)
+    assert isinstance(result, dict)
+    assert result["summary"]["exact"] == result["summary"]["total"] > 0
+    assert "mnemonics" in result
+    assert "instructions" not in result
+    assert capsys.readouterr().out == ""
 
 
 def test_diff_functions_length_mismatch() -> None:

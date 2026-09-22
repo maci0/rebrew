@@ -690,6 +690,8 @@ def diff_functions(
             (``**`` markers). Equivalent to ``| grep '\\*\\*'`` but built-in.
         register_aware: Highlight register allocation differences (RR markers).
         as_dict: If True, return a structured dict instead of printing.
+        summary_only: Skip per-instruction rows and return only ``summary``
+            and ``mnemonics``; implies ``as_dict``.
         cs_arch: Capstone architecture (default x86).
         cs_mode: Capstone mode (default 32-bit).
         pointer_size: Pointer size in bytes (default 4).
@@ -698,6 +700,7 @@ def diff_functions(
         A dict with diff data when ``as_dict`` is True, otherwise None.
 
     """
+    as_dict = as_dict or summary_only
     md = _get_cs(cs_arch, cs_mode)
 
     if reloc_offsets is not None:
