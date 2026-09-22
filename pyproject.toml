@@ -236,7 +236,7 @@ line-length = 100
 # selected.  S602/PLR0124/PIE790/ANN205/ANN206 join as zero-finding
 # ratchets (shell=True subprocess, self-compare, useless pass, typed
 # class/static method returns).  D100/D104/D106 enforce the module-docstring
-# rule (AGENTS.md); the D2xx/D4xx, pep8-naming (N), flake8-pyi (PYI), TD and
+# rule (AGENTS.md); the D2xx/D4xx, COM818, pep8-naming (N), flake8-pyi (PYI), TD and
 # TID252 codes below are the zero-finding subset.  Still off: D101-D103/D205/
 # D209/D401 (thousands of findings), N802/N806/N814 (Win32 API names), PYI034/
 # PYI036/PYI056, and D203/D206/D213/D300 (formatter or D211/D212 conflicts).
@@ -283,7 +283,8 @@ select = [
     "PT020", "PT021", "PT022", "PT023", "PT024", "PT025", "PT026", "PT027",
     "PT028", "PT031",
     "D100", "D104", "D106", "D200", "D201", "D204", "D207", "D208", "D214",
-    "D215", "D402", "D418", "D419",
+    "D211", "D215", "D402", "D405", "D406", "D407", "D408", "D409", "D410",
+    "D411", "D412", "D414", "D416", "D418", "D419", "COM818",
     "N801", "N803", "N804", "N805", "N807", "N811", "N813", "N816", "N999",
     "TD001", "TD005", "TD007", "TID252",
     "PYI001", "PYI002", "PYI003", "PYI004", "PYI005", "PYI006", "PYI007", "PYI008",

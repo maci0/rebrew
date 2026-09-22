@@ -115,7 +115,9 @@
   ``ANN206`` join the select (zero findings on the current tree);
   mypy enables ``extra_checks`` plus ``ignore-without-code``,
   ``unused-awaitable``, ``mutable-override``, ``exhaustive-match``, and
-  ``unimported-reveal``.
+  ``unimported-reveal``.  Docstring layout rules ``D211`` and
+  ``D405``–``D416`` plus ``COM818`` (bare-tuple trailing comma) join the
+  same way.
 - **Package CI uploads verified ``dist/`` artifacts** (wheel, sdist,
   ``rebrew.buildinfo``, CycloneDX SBOM) with 14-day retention after the
   smoke-import step.
