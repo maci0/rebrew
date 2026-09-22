@@ -360,6 +360,12 @@
   ``one_line``, ``run_git``). Call sites inside the package already updated.
 
 ### Fixed
+- **`rebrew match --seed-llm` rejects a bad model id instead of swapping
+  it.**  An unpinned alias (`latest`/`auto`/`default`) or a malformed
+  `[llm] model` / `REBREW_LLM_MODEL` used to log a warning and send the
+  source to `gpt-4o-mini-2024-07-18`, billing a model the operator never
+  chose.  It now raises `ValueError` while resolving the LLM config,
+  before any request.
 - **Timed-out native compiles no longer leave orphan processes.**  An
   image-less (plugin) toolchain and the GA's host compile/link path ran
   under `subprocess.run`, which on timeout kills only the direct child:

@@ -603,7 +603,14 @@ class TestResolveModel:
 
     def test_rejects_unpinned_alias(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("REBREW_LLM_MODEL", "latest")
-        assert _resolve_model(_cfg()) == _DEFAULT_MODEL
+        with pytest.raises(ValueError, match="unpinned alias"):
+            _resolve_model(_cfg())
+
+    def test_llm_config_fails_loud_on_bad_model(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("REBREW_LLM_MODEL", raising=False)
+        monkeypatch.delenv("REBREW_LLM_MAX_REQUESTS", raising=False)
+        with pytest.raises(ValueError, match="invalid characters"):
+            llm_config(_cfg("https://llm/v1", model="model with spaces"))
 
     @pytest.mark.parametrize(
         "bad",
@@ -616,7 +623,8 @@ class TestResolveModel:
     )
     def test_rejects_invalid_model_id(self, monkeypatch: pytest.MonkeyPatch, bad: str) -> None:
         monkeypatch.delenv("REBREW_LLM_MODEL", raising=False)
-        assert _resolve_model(_cfg(model=bad)) == _DEFAULT_MODEL
+        with pytest.raises(ValueError, match="invalid characters"):
+            _resolve_model(_cfg(model=bad))
 
 
 class TestLoadResponseJson:

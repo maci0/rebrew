@@ -115,7 +115,7 @@ def llm_config(cfg: Any) -> dict[str, str] | None:
     environment it wins (even if empty — clears a committed TOML key for
     the run); otherwise the TOML value.  A non-empty endpoint that is not
     http(s) with a host and a valid port raises ``ValueError`` (same rule
-    as ``compiler.recompile_url``).
+    as ``compiler.recompile_url``), as does an unpinned or malformed model.
     """
     endpoint = str(getattr(cfg, "llm_endpoint", "") or "").strip()
     if not endpoint:
@@ -128,9 +128,10 @@ def llm_config(cfg: Any) -> dict[str, str] | None:
     if not endpoint:
         return None
     endpoint = validate_http_url(endpoint, "LLM endpoint")
-    # Validate the process ceiling while resolving config so a bad
-    # REBREW_LLM_MAX_REQUESTS fails before the first HTTP call.
+    # Validate the process ceiling and model id while resolving config so a
+    # bad REBREW_LLM_MAX_REQUESTS or model fails before the first HTTP call.
     _max_requests()
+    _resolve_model(cfg)
     return {"endpoint": endpoint, "api_key": api_key}
 
 
@@ -174,10 +175,11 @@ def _consume_request_slot() -> bool:
 def _resolve_model(cfg: Any) -> str:
     """Pinned model id for the chat-completions payload.
 
-    ``REBREW_LLM_MODEL`` (or ``cfg.llm_model``) overrides the default.  Bare
-    aliases like ``latest`` / ``auto`` are rejected so provider updates cannot
-    silently change seeding behaviour.  Ids must match a conservative charset
-    so an env typo cannot smuggle newlines or path segments into the JSON body.
+    ``cfg.llm_model`` (then ``REBREW_LLM_MODEL``) overrides the default.  Bare
+    aliases like ``latest`` / ``auto`` and ids outside a conservative charset
+    raise ``ValueError``: substituting the default would bill a model the
+    operator did not choose, and a floating alias lets provider updates
+    silently change seeding behaviour.
     """
     model = str(getattr(cfg, "llm_model", "") or "").strip()
     if not model:
@@ -185,19 +187,9 @@ def _resolve_model(cfg: Any) -> str:
     if not model:
         return _DEFAULT_MODEL
     if model.lower() in _UNPINNED_MODELS:
-        logging.warning(
-            "LLM model %r is unpinned; using %s instead",
-            model,
-            _DEFAULT_MODEL,
-        )
-        return _DEFAULT_MODEL
+        raise ValueError(f"LLM model {model!r} is an unpinned alias; set a dated model id")
     if not _MODEL_ID_RE.fullmatch(model):
-        logging.warning(
-            "LLM model %r has invalid characters or length; using %s instead",
-            model,
-            _DEFAULT_MODEL,
-        )
-        return _DEFAULT_MODEL
+        raise ValueError(f"LLM model {model!r} has invalid characters or length")
     return model
 
 
