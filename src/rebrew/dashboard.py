@@ -986,12 +986,15 @@ _INDEX_HTML = """<!doctype html>
   /* Skip layout/paint for off-screen rows on large result pages. */
   tbody tr { content-visibility: auto; contain-intrinsic-size: auto 2.2rem; }
 </style>
+<noscript><style>#boot-status { display: none; }</style></noscript>
 </head>
 <body>
 <a class="skip-link" href="#main">Skip to content</a>
 <main id="main" tabindex="-1">
 <h1>Rebrew coverage</h1>
 <p id="boot-status" role="status">Loading coverage…</p>
+<noscript><p id="no-script">The dashboard needs JavaScript to load coverage data.
+  Enable it for this page, then reload.</p></noscript>
 <p id="no-targets" hidden>No targets found in coverage.db. Run
   <code>rebrew build-db</code> for this project, then reload.</p>
 <div id="controls" class="filters" hidden role="group" aria-label="Coverage filters">

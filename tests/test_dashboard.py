@@ -440,6 +440,9 @@ class TestHandle:
         assert 'role="group" aria-label="Coverage filters"' in body
         assert 'role="group" aria-label="Coverage metrics"' in body
         assert 'id="boot-status" role="status"' in body
+        # Without JS the shell must not sit on "Loading coverage…" forever.
+        assert "<noscript><style>#boot-status { display: none; }</style></noscript>" in body
+        assert '<noscript><p id="no-script">The dashboard needs JavaScript' in body
         assert 'role="status" aria-live="polite"' in body
         assert 'id="dashboard-error" role="alert" hidden' in body
         assert '<caption class="visually-hidden">' in body
