@@ -178,32 +178,6 @@ class TestRequireConfigErrors:
         assert exc_info.value.exit_code == EXIT_ERROR
 
 
-class TestIterAnnotations:
-    def test_parse_error_skipped(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        import rebrew.cli as cli_mod
-
-        def boom(src, target_name=None, metadata_dir=None) -> object:
-            raise ValueError("bad annotation")
-
-        monkeypatch.setattr("rebrew.annotation.parse_c_file_multi", boom)
-        src = tmp_path / "a.c"
-        src.write_text("x", encoding="utf-8")
-        assert cli_mod.iter_annotations([src], target="SERVER") == []
-
-    def test_non_value_error_skipped(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """A non-ValueError per-source failure (OSError, UnicodeDecodeError,
-        …) must also skip the file, never abort the batch run."""
-        import rebrew.cli as cli_mod
-
-        def boom(src, target_name=None, metadata_dir=None) -> object:
-            raise OSError("unreadable file")
-
-        monkeypatch.setattr("rebrew.annotation.parse_c_file_multi", boom)
-        src = tmp_path / "a.c"
-        src.write_text("x", encoding="utf-8")
-        assert cli_mod.iter_annotations([src], target="SERVER") == []
-
-
 class TestLoadVerifyCacheRaw:
     def test_verify_cache_copy(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """load_verify_cache_raw returns a copy: mutating the result must not

@@ -47,7 +47,7 @@ class TestDecompDevReport:
         src_file = src / "funcs.c"
         monkeypatch.setattr("rebrew.sources.iter_sources", lambda d, cfg=None: [src_file])
         monkeypatch.setattr(
-            "rebrew.cli.iter_annotations",
+            "rebrew.annotation.iter_annotations",
             lambda sources, target=None, metadata_dir=None: [(src_file, annos)],
         )
         monkeypatch.setattr("rebrew.sections.get_text_section_size", lambda _p: 0x1000)
@@ -181,7 +181,7 @@ class TestDecompDevDataMeasure:
         src_file = src / "funcs.c"
         monkeypatch.setattr("rebrew.sources.iter_sources", lambda d, cfg=None: [src_file])
         monkeypatch.setattr(
-            "rebrew.cli.iter_annotations",
+            "rebrew.annotation.iter_annotations",
             lambda sources, target=None, metadata_dir=None: [
                 (src_file, [_fake_ann(0x1000, 64, "f", "EXACT")])
             ],

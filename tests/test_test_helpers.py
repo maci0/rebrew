@@ -9,6 +9,7 @@ import typer
 from rebrew.compile import CompareResult
 from rebrew.test import (
     _expand_reloc_offsets,
+    _marker_va_from_annotation,
     _select_annotation_for_va,
     build_result_dict_from_compare,
 )
@@ -23,6 +24,30 @@ class TestExpandRelocOffsets:
 
     def test_empty(self) -> None:
         assert _expand_reloc_offsets([], limit=10) == set()
+
+
+class TestMarkerVaFromAnnotation:
+    """A shared file carries one ``// FUNCTION:`` marker per target and
+    ``parse_source_metadata`` is first-block only, so the file's first marker
+    is not necessarily the active target's."""
+
+    @staticmethod
+    def _ann(va: int | None) -> object:
+        from types import SimpleNamespace as NS
+
+        return NS(va=va)
+
+    def test_target_annotation_wins_over_first_marker(self) -> None:
+        meta = {"FUNCTION": "SERVER 0x1000d330"}
+        assert _marker_va_from_annotation(self._ann(0x4C75E0), meta) == "0x4c75e0"
+
+    def test_falls_back_to_first_marker(self) -> None:
+        assert _marker_va_from_annotation(self._ann(None), {"FUNCTION": "SERVER 0x1000d330"}) == (
+            "0x1000d330"
+        )
+
+    def test_no_annotation_and_no_marker(self) -> None:
+        assert _marker_va_from_annotation(None, {}) is None
 
 
 class TestSelectAnnotationForVa:

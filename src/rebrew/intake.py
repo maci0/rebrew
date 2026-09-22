@@ -35,7 +35,8 @@ import typer
 from rich.console import Console
 from typer.testing import CliRunner
 
-from rebrew.cli import EXIT_OK, error_exit, iter_annotations, json_print
+from rebrew.annotation import iter_annotations
+from rebrew.cli import EXIT_OK, error_exit, json_print
 from rebrew.skeleton import C89_STRICT_PROFILES
 from rebrew.sources import iter_sources
 from rebrew.utils import atomic_write_text

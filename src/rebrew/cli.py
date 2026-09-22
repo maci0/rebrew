@@ -301,48 +301,6 @@ def parse_va(va_str: str, *, json_mode: bool = False) -> int:
         error_exit(f"Invalid hex VA: {va_str!r}", json_mode=json_mode, code=EXIT_ERROR)
 
 
-def iter_annotations(
-    sources: list[Path],
-    *,
-    target: str | None = None,
-    metadata_dir: Path | None = None,
-) -> list[tuple[Path, list[Any]]]:
-    """Parse annotations from each source in *sources*, silently skipping failures.
-
-    Returns a list of ``(path, annotations)`` pairs — only entries where at
-    least one annotation was parsed are included.  Uses
-    :func:`rebrew.annotation.parse_c_file_multi` internally.
-
-    This is the single shared idiom for batch-mode annotation loading,
-    replacing the copy-pasted try/except pattern that was spread across
-    ``todo.py``, ``verify.py``, ``test.py``, ``match.py``, and others.
-
-    :param sources: List of paths returned by :func:`iter_sources`.
-    :param target:  Optional marker string passed through to
-        ``parse_c_file_multi`` (use :func:`target_marker` to obtain it).
-    :param metadata_dir: Parent of ``reversed_dir`` where ``rebrew-functions.toml``
-        lives.  When ``None``, metadata is not merged (only source annotations
-        are parsed).
-    """
-    import logging
-
-    from rebrew.annotation import parse_c_file_multi  # local import to avoid cycle
-
-    results: list[tuple[Path, list[Any]]] = []
-    for src in sources:
-        try:
-            annos = parse_c_file_multi(src, target_name=target, metadata_dir=metadata_dir)
-        except Exception:
-            # Any per-source failure (parse error, I/O, encoding) silently
-            # drops the whole function from verify/todo/status output — one
-            # bad file must never abort a batch run.  Visible at WARNING.
-            logging.warning("Skipping %s due to annotation parse error", src, exc_info=True)
-            continue
-        if annos:
-            results.append((src, annos))
-    return results
-
-
 def resolve_source_arg(cfg: ProjectConfig, source_arg: str) -> Path:
     """Resolve a source argument to an existing source file path.
 
@@ -430,7 +388,6 @@ __all__ = [
     "TargetOption",
     "angr_available",
     "error_exit",
-    "iter_annotations",
     "json_print",
     "option_default",
     "parse_va",

@@ -138,6 +138,11 @@
   documented integrator surface.
 
 ### Changed
+- **`iter_annotations` moved from `rebrew.cli` to `rebrew.annotation`.**
+  It is annotation parsing, not a Typer helper; library modules
+  (`verify_hash`, `round_trip`, `merge_sweep`, …) no longer import the
+  CLI layer to load a batch of sources.  Import it from
+  `rebrew.annotation`; `rebrew.cli` no longer exports it.
 - **Breaking:** **Dashboard ``/api/globals`` and ``/api/history`` rows are
   compact arrays** under ``cols`` (same shape as ``/api/functions``). Zip
   ``cols`` with each array; built-in HTML accepts both arrays and legacy
@@ -319,6 +324,15 @@
   ``one_line``, ``run_git``). Call sites inside the package already updated.
 
 ### Fixed
+- **Dispose is terminal for `fork()`, and the batch atexit backstop is
+  test-pinned.**  `provide` and `effect` refuse a disposed context but
+  `fork()` did not, so a dead context could gain a child whose inverses
+  would never run against it — it now raises `ComponentError` like its
+  siblings.  `_register_batch_obj_atexit` (compile.py) was the last
+  registration in the cleanup family without a dispose test; a test now
+  pins that it arms once on first use, not at import, and that the hook's
+  sweep removes tracked dirs idempotently.  CORDIS review
+  (arXiv:2608.25512) `inverse`/`hmr` findings.
 - **Forked contexts react to their parent's service table.**  `Context`
   tracked no children, so `_changed` and `unprovide` only walked the
   lookup chain upward: a `CoeffectScope` attached to `parent.fork()` never

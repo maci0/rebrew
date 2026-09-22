@@ -79,7 +79,7 @@ class TestIntake:
     def test_rediscovery_does_not_duplicate_renamed_functions(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, status: str
     ) -> None:
-        from rebrew.cli import iter_annotations
+        from rebrew.annotation import iter_annotations
         from rebrew.metadata import get_entry, update_field, update_source_status
         from rebrew.sources import iter_sources
 

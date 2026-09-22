@@ -219,6 +219,8 @@ class Context:
         covers every context that can resolve the key, not just the
         nearest).  Disposing the fork detaches it.
         """
+        if self._disposed:
+            raise ComponentError("context is disposed; cannot fork")
         child = Context(parent=self)
         self._children.append(child)
         return child

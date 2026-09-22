@@ -212,6 +212,27 @@ def _select_annotation_for_va(
     return next((a for a in lint_annos if a.va == want_va), None)
 
 
+def _marker_va_from_annotation(sel_ann: Annotation | None, meta: dict[str, str]) -> str | None:
+    """VA string for the selected annotation, else the file's first marker.
+
+    ``parse_source_metadata`` is first-block only, so on a shared file carrying
+    one ``// FUNCTION:`` marker per target it reports the OTHER target's VA.
+    *sel_ann* already comes from a target-filtered parse, so it wins when it
+    carries a VA (guild-rebrew round 1291: ``rebrew test cm_MarkAndReturn.c
+    --target GOLDTL`` compared SERVER 0x1000d330's bytes).
+    """
+    if sel_ann is not None and getattr(sel_ann, "va", None):
+        return f"0x{int(sel_ann.va):x}"
+    for marker_key in ("FUNCTION", "LIBRARY", "STUB"):
+        # Marker form: // FUNCTION: [TARGET] 0x100011f0
+        func_meta = meta.get(marker_key)
+        if func_meta and "0x" in func_meta:
+            after_hex = func_meta.split("0x")[1].split()
+            if after_hex:
+                return "0x" + after_hex[0]
+    return None
+
+
 @app.callback(invoke_without_command=True)
 def main(
     source: str | None = typer.Argument(None, help="C source file (omit with --all)"),
@@ -897,14 +918,7 @@ def _run_test_impl(
 
     va_str = va
     if not va_str:
-        # Check FUNCTION/LIBRARY/STUB marker like // FUNCTION: [TARGET] 0x100011f0
-        for marker_key in ("FUNCTION", "LIBRARY", "STUB"):
-            func_meta = meta.get(marker_key)
-            if func_meta and "0x" in func_meta:
-                after_hex = func_meta.split("0x")[1].split()
-                if after_hex:
-                    va_str = "0x" + after_hex[0]
-                    break
+        va_str = _marker_va_from_annotation(sel_ann, meta)
 
     size_val = size
     # ``meta["SIZE"]`` is the first annotation only (parse_source_metadata).

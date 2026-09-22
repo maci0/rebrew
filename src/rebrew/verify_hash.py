@@ -264,7 +264,7 @@ def _expected_text_functions(cfg: ProjectConfig) -> dict[str, int]:
     Marker symbols use the per-target ``// FUNCTION:`` name; ``lstrip("_")``
     normalizes leading underscores for export-table comparison.
     """
-    from rebrew.cli import iter_annotations
+    from rebrew.annotation import iter_annotations
     from rebrew.sources import iter_sources, target_marker
 
     marker = target_marker(cfg)

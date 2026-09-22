@@ -24,11 +24,11 @@ from typing import Any
 import typer
 from rich.console import Console
 
+from rebrew.annotation import iter_annotations
 from rebrew.catalog import cached_function_list
 from rebrew.cli import (
     TargetOption,
     error_exit,
-    iter_annotations,
     json_print,
     require_config,
 )

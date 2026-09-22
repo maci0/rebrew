@@ -49,11 +49,11 @@ from pathlib import Path
 import typer
 from rich.console import Console
 
+from rebrew.annotation import iter_annotations
 from rebrew.cli import (
     EXIT_ERROR,
     TargetOption,
     error_exit,
-    iter_annotations,
     json_print,
     require_config,
 )

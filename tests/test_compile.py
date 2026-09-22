@@ -1211,6 +1211,37 @@ class TestPrecompileBatchCleanup:
         assert busy.is_dir()
         assert not gone.exists()
 
+    def test_atexit_hook_armed_once_and_sweeps_dirs(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The atexit backstop arms with the first batch run (not at import),
+        at most once, and the hook's sweep removes the tracked dirs
+        idempotently."""
+        import rebrew.compile as compile_mod
+
+        registered: list[tuple] = []
+        monkeypatch.setattr(
+            compile_mod.atexit, "register", lambda fn, *a: registered.append((fn, a))
+        )
+        monkeypatch.setattr(compile_mod, "_BATCH_ATEXIT_REGISTERED", False)
+        monkeypatch.setattr(compile_mod, "_BATCH_OBJ_DIRS", [])
+        compile_mod._register_batch_obj_atexit()
+        compile_mod._register_batch_obj_atexit()
+        assert len(registered) == 1, "one atexit hook for every batch run"
+        fn, args = registered[0]
+        assert fn is compile_mod.cleanup_batch_obj_dirs
+
+        d1 = tmp_path / "objs1"
+        d1.mkdir()
+        d2 = tmp_path / "objs2"
+        d2.mkdir()
+        compile_mod._BATCH_OBJ_DIRS.extend([d1, d2])
+        fn(*args)
+        assert compile_mod._BATCH_OBJ_DIRS == []
+        assert not d1.exists()
+        assert not d2.exists()
+        fn(*args)  # inverse is idempotent
+
 
 class TestEffectiveCompileFlags:
     def test_includes_base_cflags_and_defines(self, tmp_path: Path) -> None:

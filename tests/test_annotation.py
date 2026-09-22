@@ -1957,3 +1957,29 @@ def test_data_markers_are_exempt_from_the_size_check() -> None:
     code = Annotation(va=0x10002770, size=0, marker_type="FUNCTION", name="f")
     errors, _ = code.validate()
     assert any("Invalid SIZE" in e for e in errors), errors
+
+
+class TestIterAnnotations:
+    def test_parse_error_skipped(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        import rebrew.annotation as annotation_mod
+
+        def boom(src, target_name=None, metadata_dir=None) -> object:
+            raise ValueError("bad annotation")
+
+        monkeypatch.setattr("rebrew.annotation.parse_c_file_multi", boom)
+        src = tmp_path / "a.c"
+        src.write_text("x", encoding="utf-8")
+        assert annotation_mod.iter_annotations([src], target="SERVER") == []
+
+    def test_non_value_error_skipped(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A non-ValueError per-source failure (OSError, UnicodeDecodeError,
+        …) must also skip the file, never abort the batch run."""
+        import rebrew.annotation as annotation_mod
+
+        def boom(src, target_name=None, metadata_dir=None) -> object:
+            raise OSError("unreadable file")
+
+        monkeypatch.setattr("rebrew.annotation.parse_c_file_multi", boom)
+        src = tmp_path / "a.c"
+        src.write_text("x", encoding="utf-8")
+        assert annotation_mod.iter_annotations([src], target="SERVER") == []

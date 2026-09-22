@@ -536,7 +536,7 @@ class _PartitionScorer:
 
 def _load_annotations(cfg: ProjectConfig) -> dict[int, Any]:
     """VA to annotation over every reversed source for the active target."""
-    from rebrew.cli import iter_annotations
+    from rebrew.annotation import iter_annotations
 
     marker = target_marker(cfg)
     out: dict[int, Any] = {}

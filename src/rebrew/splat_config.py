@@ -88,9 +88,9 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from rebrew.annotation import iter_annotations
 from rebrew.cli import (
     error_exit,
-    iter_annotations,
     json_print,
     require_config,
 )
@@ -1089,7 +1089,7 @@ def _layout_sections(
 def _existing_annotations(cfg: Any) -> dict[int, tuple[str, str]]:
     """``va -> ("MARKER name", path)`` for every annotation already in the project.
 
-    Sources come through :func:`rebrew.cli.iter_annotations` (the shared batch
+    Sources come through :func:`rebrew.annotation.iter_annotations` (the shared batch
     reader) and ``library_*.h`` headers through
     :func:`rebrew.annotation.parse_library_header`, so the import sees every
     way an address can already be claimed.  Paths are relative to

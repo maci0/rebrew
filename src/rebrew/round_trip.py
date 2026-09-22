@@ -37,7 +37,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from rebrew.annotation import resolve_symbol
+from rebrew.annotation import iter_annotations, resolve_symbol
 from rebrew.binary_loader import BinaryInfo, SectionInfo, load_binary, va_to_file_offset
 from rebrew.cli import (
     EXIT_MISMATCH,
@@ -45,7 +45,6 @@ from rebrew.cli import (
     STATUS_COLORS,
     TargetOption,
     error_exit,
-    iter_annotations,
     json_print,
     require_config,
 )

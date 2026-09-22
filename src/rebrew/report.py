@@ -39,12 +39,11 @@ import typer
 from rich.console import Console
 
 from rebrew.analysis import StringEntry, Xref, iter_strings, string_refs
-from rebrew.annotation import Annotation, min_valid_va_for, parse_library_header
+from rebrew.annotation import Annotation, iter_annotations, min_valid_va_for, parse_library_header
 from rebrew.binary_loader import load_binary
 from rebrew.cli import (
     DISPLAY_STATUSES,
     TargetOption,
-    iter_annotations,
     json_print,
     require_config,
 )
@@ -863,7 +862,7 @@ def generate_decomp_dev_report(cfg: ProjectConfig, out_path: Path) -> dict[str, 
 
     Returns the machine-readable summary dict.
     """
-    from rebrew.cli import iter_annotations
+    from rebrew.annotation import iter_annotations
     from rebrew.sections import get_text_section_size
     from rebrew.sources import iter_sources, target_marker
     from rebrew.workspace.status import MATCHED_STATUSES

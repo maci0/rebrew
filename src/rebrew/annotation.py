@@ -1259,6 +1259,40 @@ def parse_c_file_multi(
     return _finalize_entries(structural, filepath, target_name, base_dir, metadata_dir)
 
 
+def iter_annotations(
+    sources: list[Path],
+    *,
+    target: str | None = None,
+    metadata_dir: Path | None = None,
+) -> list[tuple[Path, list[Annotation]]]:
+    """Parse annotations from each source in *sources*, skipping failures.
+
+    Returns ``(path, annotations)`` pairs, only for sources that yielded at
+    least one annotation.  The shared batch-mode loader over
+    :func:`parse_c_file_multi`.
+
+    :param sources: List of paths returned by :func:`rebrew.sources.iter_sources`.
+    :param target:  Optional marker string passed through to
+        ``parse_c_file_multi`` (use :func:`rebrew.sources.target_marker` to obtain it).
+    :param metadata_dir: Parent of ``reversed_dir`` where ``rebrew-functions.toml``
+        lives.  When ``None``, metadata is not merged (only source annotations
+        are parsed).
+    """
+    results: list[tuple[Path, list[Annotation]]] = []
+    for src in sources:
+        try:
+            annos = parse_c_file_multi(src, target_name=target, metadata_dir=metadata_dir)
+        except Exception:
+            # Any per-source failure (parse error, I/O, encoding) silently
+            # drops the whole function from verify/todo/status output — one
+            # bad file must never abort a batch run.  Visible at WARNING.
+            logger.warning("Skipping %s due to annotation parse error", src, exc_info=True)
+            continue
+        if annos:
+            results.append((src, annos))
+    return results
+
+
 def _parse_structural_entries(text: str) -> list[Annotation]:
     """Parse annotation blocks from *text* without per-call overlays.
 

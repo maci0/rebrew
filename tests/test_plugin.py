@@ -92,6 +92,14 @@ class TestContext:
         with pytest.raises(ComponentError, match="disposed"):
             ctx.effect(lambda: None)
 
+    def test_fork_after_dispose_raises(self) -> None:
+        """Dispose is terminal: forking a dead context would attach a new
+        child to an owner whose inverses already ran."""
+        ctx = Context()
+        ctx.dispose()
+        with pytest.raises(ComponentError, match="disposed"):
+            ctx.fork()
+
     def test_provide_is_revertible(self) -> None:
         """A provision is an effect: its inverse is the key's restriction."""
         ctx = Context()

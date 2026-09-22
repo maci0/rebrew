@@ -33,7 +33,8 @@ from typing import Any
 import typer
 from rich.console import Console
 
-from rebrew.cli import TargetOption, error_exit, iter_annotations, require_config
+from rebrew.annotation import iter_annotations
+from rebrew.cli import TargetOption, error_exit, require_config
 from rebrew.sources import iter_sources, source_exts, target_marker
 
 console = Console(stderr=True)
