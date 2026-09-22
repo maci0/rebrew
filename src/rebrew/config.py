@@ -347,6 +347,14 @@ class ProjectConfig:
     library_modules: set[str] = field(
         default_factory=set
     )  # Module names using LIBRARY marker (e.g. {"MSVCRT", "ZLIB"})
+    # External .lib code, the one flag for "not our work": module name ->
+    # link spec (the archive to link, e.g. "LIBCMT.lib",
+    # "references/dxsdk8/lib/d3dx8.lib"; "" = identified external code with
+    # no separate archive).  Rows attributed to these modules leave the
+    # progress accounting, `rebrew lib-match` ingests the archives by
+    # default, and `rebrew cmake-sources` emits them as REBREW_EXTERNAL_LIBS
+    # so the build links the stock archive.
+    external_libs: dict[str, str] = field(default_factory=dict)
     crt_sources: dict[str, str] = field(default_factory=dict)
     source_ext: str = ".c"  # Source file extension (e.g. ".c", ".cpp")
     ghidra_program_path: str = ""
@@ -955,6 +963,7 @@ _KNOWN_TARGET_KEYS = {
     "dll_exports",
     "ignored_symbols",
     "library_modules",
+    "external_libs",
     "crt_sources",
     "source_ext",
     "ghidra_program_path",
@@ -1357,6 +1366,12 @@ def load_config(
         dll_exports=_parse_hex_dict(tgt.get("dll_exports", {})),
         ignored_symbols=_parse_str_list(tgt.get("ignored_symbols", []), "ignored_symbols"),
         library_modules=set(_parse_str_list(tgt.get("library_modules", []), "library_modules")),
+        # Marker modules are upper-case ("D3DX8"); normalize so lookups
+        # against parsed annotations never miss on spelling.
+        external_libs={
+            k.upper(): v
+            for k, v in _parse_str_dict(tgt.get("external_libs", {}), "external_libs").items()
+        },
         crt_sources=_parse_str_dict(tgt.get("crt_sources", {}), "crt_sources"),
         source_ext=source_ext,
         ghidra_program_path=_as_str(

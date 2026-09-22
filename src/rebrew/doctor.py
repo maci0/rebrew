@@ -1013,6 +1013,47 @@ def check_shared_sources(cfg: ProjectConfig) -> CheckResult:
     )
 
 
+def check_external_libs(cfg: ProjectConfig) -> CheckResult:
+    """Check the external ``.lib`` flag (``targets.<name>.external_libs``).
+
+    The map flags external library code — "not our work": its modules leave
+    the progress accounting, ``rebrew lib-match`` ingests the archives by
+    default, and ``rebrew cmake-sources`` emits the non-empty specs as
+    ``REBREW_EXTERNAL_LIBS`` so the build links the stock archive at build
+    time instead of compiling reversed copies.
+    """
+    libs = dict(getattr(cfg, "external_libs", None) or {})
+    if not libs:
+        return CheckResult(
+            name="External libraries",
+            status=_SKIP,
+            message="none flagged (targets.<name>.external_libs)",
+        )
+
+    missing: list[str] = []
+    for mod, spec in sorted(libs.items()):
+        s = (spec or "").strip()
+        if "/" not in s and "\\" not in s:
+            continue  # bare archive name — resolved by the linker/toolchain
+        p = Path(s)
+        if not (p if p.is_absolute() else cfg.root / p).exists():
+            missing.append(f"{mod}={s}")
+    if missing:
+        return CheckResult(
+            name="External libraries",
+            status=_WARN,
+            message=f"{len(libs)} flagged module(s); archive(s) not found: {', '.join(missing)}",
+            fix="Point each external_libs spec at the archive to link "
+            '(or "" for identified-only modules).',
+        )
+    linked = sum(1 for spec in libs.values() if (spec or "").strip())
+    return CheckResult(
+        name="External libraries",
+        status=_PASS,
+        message=f"{len(libs)} flagged module(s); {linked} link as stock archives",
+    )
+
+
 # ---------------------------------------------------------------------------
 # Main diagnostic runner
 # ---------------------------------------------------------------------------
@@ -1072,6 +1113,7 @@ def run_doctor(target: str | None = None) -> DoctorReport:
     report.checks.append(check_bin_dir(cfg))
     report.checks.append(check_metadata_files(cfg))
     report.checks.append(check_shared_sources(cfg))
+    report.checks.append(check_external_libs(cfg))
     report.checks.append(check_layout_package(cfg))
     report.checks.append(check_optional_tools())
     report.checks.append(check_flirt_sigs(cfg))

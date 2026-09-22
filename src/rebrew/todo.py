@@ -1188,16 +1188,13 @@ def main(
     cfg = require_config(target=target, json_mode=json_output)
     try:
         ghidra_funcs, existing, covered_vas = load_data(cfg)
-        from rebrew.naming import scope_to_target
+        from rebrew.naming import external_vas, scope_to_target
 
-        # Before scoping: library attributions carry library modules
+        # Before scoping: external .lib rows carry library modules
         # (D3DX8, MSVCRT, …) and leave the denominator as identified
-        # library code whatever the module (same rule as `rebrew status`).
-        library_vas = {
-            va
-            for va, info in existing.items()
-            if (info.get("marker_type") or "").upper() == "LIBRARY"
-        }
+        # external code whatever the module — the flag is
+        # `targets.<name>.external_libs` (same rule as `rebrew status`).
+        library_vas = external_vas(existing, getattr(cfg, "external_libs", None))
         existing = scope_to_target(existing, cfg)
     except (OSError, json.JSONDecodeError, KeyError) as exc:
         error_exit(f"Failed to load project data: {exc}", json_mode=json_output)
@@ -1214,9 +1211,9 @@ def main(
     status_counts: dict[str, int] = {}
     documented = 0
     for va_int, info in existing.items():
-        # Library attributions are not reversing progress (same rule as
+        # External .lib attributions count for nothing (same rule as
         # `rebrew status`): identifications, not bodies to match.
-        if (info.get("marker_type") or "").upper() == "LIBRARY":
+        if va_int in library_vas:
             continue
         ann_status = info.get("status", "STUB")
         # PROVEN is a post-verify promotion that wins over verify cache
@@ -1238,11 +1235,7 @@ def main(
         else:
             s = verify_statuses.get(va_int, ann_status)
         status_counts[s] = status_counts.get(s, 0) + 1
-    function_vas = {
-        va
-        for va, info in existing.items()
-        if (info.get("marker_type") or "").upper() != "LIBRARY"
-    }
+    function_vas = {va for va in existing if va not in library_vas}
     ghidra_vas = {f.va for f in ghidra_funcs}
     total_funcs = len(function_vas | (ghidra_vas - library_vas))
     covered = len(function_vas)

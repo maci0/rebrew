@@ -63,6 +63,7 @@ libs = "toolchain/msvc/6.0-win32/source/VC98/Lib"
 | `capstone_arch` / `capstone_mode` | Derived from `arch` | Capstone disassembly constants |
 | `padding_bytes` | Derived from `arch` | `(0xCC, 0x90)` for x86_32/x86_64 (see Architecture Presets) |
 | `symbol_prefix` | Derived from `arch` | `_` for x86_16/x86_32, empty for x86_64/arm |
+| `external_libs` | `[targets.<name>].external_libs` | External `.lib` code — `module = "link-spec"` table (e.g. `LIBCMT = "LIBCMT.lib"`, `D3DX8 = "references/dxsdk8/lib/d3dx8.lib"`, `MSVCRT = ""` for identified-only).  The one flag for "not our work": rows attributed to these modules leave the progress accounting, `rebrew lib-match` ingests the archives by default, and `rebrew cmake-sources` emits the non-empty specs as `REBREW_EXTERNAL_LIBS` for `target_link_libraries` — config order is link order (static archives last) |
 | `crt_sources` | `[targets.<name>].crt_sources` | Maps origin names to reference source directories for CRT cross-matching |
 | `library_modules` | `[targets.<name>].library_modules` | Module names that use `LIBRARY` markers |
 | `source_ext` | `[targets.<name>].source_ext` | Source extension used when discovering and creating files |

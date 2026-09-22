@@ -390,16 +390,13 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
 
     try:
         ghidra_funcs, existing, _covered_vas = load_data(cfg)
-        from rebrew.naming import scope_to_target
+        from rebrew.naming import external_vas, scope_to_target
 
-        # Before scoping: library attributions carry library modules
+        # Before scoping: external .lib rows carry library modules
         # (D3DX8, MSVCRT, …) and must leave the denominators whatever the
-        # module — an identified library function is not pending work.
-        library_vas = {
-            va
-            for va, info in existing.items()
-            if (info.get("marker_type") or "").upper() == "LIBRARY"
-        }
+        # module — identified external code is not pending work.  The flag
+        # is `targets.<name>.external_libs` (plus LIBRARY marker rows).
+        library_vas = external_vas(existing, getattr(cfg, "external_libs", None))
         existing = scope_to_target(existing, cfg)
     except (OSError, json.JSONDecodeError, KeyError, ValueError):
         # Graceful degradation: return zeroed report.  ValueError is what the
@@ -414,11 +411,7 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
     # the ghidra inventory MINUS identified library code — counting the
     # binary's whole inventory (game + CRT/zlib/static libs) made coverage
     # read "half done" when library code was never work.
-    function_vas = {
-        va
-        for va, info in existing.items()
-        if (info.get("marker_type") or "").upper() != "LIBRARY"
-    }
+    function_vas = {va for va in existing if va not in library_vas}
     report.total_functions = len(function_vas | (ghidra_vas - library_vas))
     report.covered_functions = len(function_vas)
 
@@ -448,10 +441,11 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
     for va, info in existing.items():
         if info.get("blocker"):
             unresolved_blockers += 1
-        # Library attributions (lib-match identifications) are not
-        # reversing progress: count them separately so the progress table
-        # answers "how much of this binary's code is reversed".
-        if (info.get("marker_type") or "").upper() == "LIBRARY":
+        # External .lib attributions (lib-match identifications + modules
+        # flagged in external_libs) are not reversing progress: count them
+        # separately so the progress table answers "how much of this
+        # binary's code is reversed".
+        if va in library_vas:
             lib_status = (info.get("status") or "STUB").upper()
             if lib_status in MATCHED_STATUSES:
                 library_identified += 1

@@ -44,6 +44,9 @@ HEADER = """# Per-target sources from rebrew annotations.
 # A file belongs to a target when it carries that target's FUNCTION/LIBRARY/
 # STUB marker — or a `// SUPPORT: <marker>` line (link scaffolding with no
 # VA markers by design).  Unannotated .c files are listed for every target.
+# External `.lib` archives (targets.<name>.external_libs) are listed as
+# REBREW_EXTERNAL_LIBS for target_link_libraries — the stock library links
+# at build time instead of reversed copies.
 """
 
 
@@ -99,11 +102,23 @@ def main(
     own, foreign = collect(cfg, marker)
 
     rels = [p.relative_to(cfg.root).as_posix() for p in own]
+    # Config order IS link order ("link it at the right place" — e.g. a
+    # static LIBCMT last), so dedupe without sorting.
+    external: list[str] = []
+    for spec in (getattr(cfg, "external_libs", None) or {}).values():
+        s = (spec or "").strip()
+        if s and s not in external:
+            external.append(s)
     lines = [HEADER]
     lines.append(f"set({var}\n")
     for rel in rels:
         lines.append(f'  "${{CMAKE_CURRENT_SOURCE_DIR}}/{rel}"\n')
     lines.append(")\n")
+    if external:
+        lines.append("\nset(REBREW_EXTERNAL_LIBS\n")
+        for spec in external:
+            lines.append(f'  "{spec}"\n')
+        lines.append(")\n")
     text = "".join(lines)
 
     if not json_output and foreign and not dry_run:
@@ -124,6 +139,7 @@ def main(
                 "variable": var,
                 "written": None if dry_run else str(output),
                 "files": rels,
+                "external_libs": external,
                 "excluded": [p.relative_to(cfg.root).as_posix() for p in foreign],
             }
         )

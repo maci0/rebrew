@@ -347,6 +347,29 @@ def scope_to_target(
     }
 
 
+def external_vas(
+    existing: dict[int, dict[str, str]],
+    external_libs: "dict[str, str] | set[str] | list[str] | None" = None,
+) -> set[int]:
+    """VAs whose row is external ``.lib`` code — "not our work".
+
+    External = ``LIBRARY`` marker rows (lib-match attributions) or rows
+    attributed to a configured external module (``targets.<name>.
+    external_libs`` keys — e.g. ``D3DX8``, ``LIBCMT``).  These leave the
+    progress accounting entirely: identified external code is neither
+    matched nor pending, just linked (``cmake-sources`` emits the archives
+    as ``REBREW_EXTERNAL_LIBS``).
+    """
+    modules = {m.upper() for m in (external_libs or ())}
+    out: set[int] = set()
+    for va, info in existing.items():
+        if (info.get("marker_type") or "").upper() == "LIBRARY":
+            out.add(va)
+        elif (info.get("module") or "").upper() in modules:
+            out.add(va)
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Naming conventions (from skeleton.py)
 # ---------------------------------------------------------------------------

@@ -10,6 +10,16 @@
   (covered FUNCTION rows + ghidra inventory - identified library VAs),
   library rows excluded from the status table.
 ### Added
+- **`targets.<name>.external_libs` — one flag for external .lib code.**
+  `module = "link-spec"` table (`LIBCMT = "LIBCMT.lib"`,
+  `D3DX8 = "references/dxsdk8/lib/d3dx8.lib"`, `MSVCRT = ""` for
+  identified-only modules) flags CRT/DirectX/import-lib code as "not our
+  work".  Flagged rows leave the progress accounting (status/todo),
+  `rebrew lib-match` ingests the archives by default (path specs as
+  `--lib`, bare names via `--stock-lib`), `rebrew cmake-sources` emits the
+  non-empty specs as `REBREW_EXTERNAL_LIBS` (config order = link order,
+  static archives last) and the CMake targets link them at build time,
+  and `rebrew doctor` reports the flag with archive-existence warnings.
 - **--all-targets for the batch tools (verify/test/lint/status/todo).**
   Target selection contract: every project-scoped command runs the
   project's `default_target` when no `--target` is given, `--target NAME`

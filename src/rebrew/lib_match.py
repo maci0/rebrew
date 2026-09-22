@@ -394,6 +394,28 @@ def assert_library_is_stock(path: Path, *, profile: str, name: str) -> None:
         )
 
 
+def external_archive_args(cfg: Any) -> tuple[list[Path], list[str]]:
+    """``(lib paths, stock_lib names)`` from ``targets.<name>.external_libs``.
+
+    The map IS the list of ``.lib`` code the target links (``cmake-sources``
+    emits the same specs as ``REBREW_EXTERNAL_LIBS``).  Path specs are
+    checked as ``--lib``; bare archive names (``LIBCMT.LIB``) go through
+    ``--stock-lib`` extraction from the toolchain image.  Empty specs flag
+    identified-only modules (accounting) and contribute no archive.
+    """
+    libs: list[Path] = []
+    stock: list[str] = []
+    for spec in (getattr(cfg, "external_libs", None) or {}).values():
+        s = (spec or "").strip()
+        if not s:
+            continue
+        if "/" in s or "\\" in s:
+            libs.append(Path(s))
+        else:
+            stock.append(s)
+    return libs, stock
+
+
 @app.callback(invoke_without_command=True)
 def main(
     lib: list[Path] | None = typer.Option(
@@ -431,6 +453,11 @@ def main(
     from rebrew.toolchain import ToolchainError
 
     cfg = require_config(target=target, json_mode=json_output)
+
+    if not lib and not stock_lib:
+        # Ingest the configured external archives by default (explicit
+        # --lib/--stock-lib still override).
+        lib, stock_lib = external_archive_args(cfg)
 
     archives = list(lib or [])
     for name in stock_lib or []:
