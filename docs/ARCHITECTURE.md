@@ -69,6 +69,7 @@ flowchart LR
 | `rebrew/intake.py` | One-shot binary onboarding: init + toolchain detect (diec → PDB → heuristics) + plugin function discovery + STUB/blocker documentation |
 | `rebrew/main.py` | Umbrella CLI. Provides `cli`/`console`, then `activate()`s packaged `CliComponent`s plus `rebrew.commands` / `rebrew.multicommands` plugins |
 | `rebrew/cli.py` | Shared options/helpers: `TargetOption`, `require_config`, `iter_annotations`, `error_exit`, `json_print`, exit codes |
+| `rebrew/errors.py` | `RebrewError`, the base every public error type inherits alongside its original `RuntimeError`/`ValueError` base — one `except` clause for library consumers. Imports nothing (leaf module) |
 | `rebrew/sources.py` | Source-tree discovery: `source_exts`, `source_glob`, `target_marker`, `iter_sources`, `iter_library_headers` (pure pathlib/config logic, importable by library modules) |
 | `rebrew/config.py` | `ProjectConfig` dataclass + `rebrew-project.toml` loader (multi-target) |
 | `rebrew/annotation.py` | Marker/KV annotation parsing (`// FUNCTION: MOD 0xVA`), key classification (file-only vs metadata) |

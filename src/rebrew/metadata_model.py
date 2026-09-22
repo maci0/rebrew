@@ -26,6 +26,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from rebrew.errors import RebrewError
 from rebrew.metadata import (
     METADATA_FIELDS,
     as_metadata_int,
@@ -84,7 +85,7 @@ FIELD_TO_ATTR: dict[str, str] = {
 }
 
 
-class MetadataValidationError(ValueError):
+class MetadataValidationError(RebrewError, ValueError):
     """Raised when a typed metadata write violates a field rule."""
 
 

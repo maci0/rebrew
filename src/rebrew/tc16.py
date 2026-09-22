@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from rebrew.dosbox import DosboxError, make_sandbox_dir, read_uppercase, run_dosbox
+from rebrew.errors import RebrewError
 
 __all__ = ["Tc16Error", "Tc16Result", "compile_c"]
 
@@ -34,7 +35,7 @@ _TREES = {
 _DISPLAY = {"2.0": "Turbo C 2.0", "3.1": "Turbo C++ 3.1"}
 
 
-class Tc16Error(RuntimeError):
+class Tc16Error(RebrewError, RuntimeError):
     """Turbo C toolchain/DOSBox missing, compile failure, or no object."""
 
 

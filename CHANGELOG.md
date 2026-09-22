@@ -44,6 +44,18 @@
   wording, `--json`-before-`--target` signature order, and the
   `main_entry` docstring — shared-option drift now fails the suite.
 ### Added
+- **`rebrew.errors.RebrewError` — one base for every error rebrew
+  raises.**  Embedding code had to enumerate `ToolchainError`,
+  `RecompileError`, `McpError`, `RegistryError` and 14 more in every
+  `except` clause, and a release that added an error type escaped those
+  handlers silently.  The 18 public error types now inherit
+  `RebrewError` *in addition to* their original base, so existing
+  `except RuntimeError` / `except ValueError` clauses are unchanged and
+  their domain fields (`kind`, `name`, `status_code`, `group`) are
+  untouched.  `retryable` moved onto the base (default `False`) so
+  "may I try again?" reads off any rebrew error without a `getattr`
+  guard.  `tests/test_errors.py` AST-scans the package and fails on a
+  new error type that skips the base.
 - **`targets.<name>.external_libs` — one flag for external .lib code.**
   `module = "link-spec"` table (`LIBCMT = "LIBCMT.lib"`,
   `D3DX8 = "references/dxsdk8/lib/d3dx8.lib"`, `MSVCRT = ""` for

@@ -45,8 +45,10 @@ from dataclasses import dataclass
 from importlib.metadata import entry_points
 from typing import Any
 
+from rebrew.errors import RebrewError
 
-class RegistryError(RuntimeError):
+
+class RegistryError(RebrewError, RuntimeError):
     """A plugin registration is malformed, conflicts, or fails to load.
 
     Structured fields (when known) let plugin authors recover without

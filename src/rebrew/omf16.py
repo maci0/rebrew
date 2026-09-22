@@ -35,8 +35,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from rebrew.errors import RebrewError
 
-class Omf16Error(RuntimeError):
+
+class Omf16Error(RebrewError, RuntimeError):
     """The object is not a decodable 16-bit MSVC OMF."""
 
 

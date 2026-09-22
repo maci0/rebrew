@@ -15,10 +15,12 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from rebrew.errors import RebrewError
+
 # ---------------------------------------------------------------------------
 
 
-class InvalidEncodedNumberError(Exception):
+class InvalidEncodedNumberError(RebrewError, Exception):
     """An ``@``-terminated length encoding that is not valid hex-ish A-P."""
 
 

@@ -14,9 +14,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from rebrew.dosbox import DosboxError, make_sandbox_dir, read_uppercase, run_dosbox
+from rebrew.errors import RebrewError
 
 
-class Msvc16Error(RuntimeError):
+class Msvc16Error(RebrewError, RuntimeError):
     """Compilation failed (toolchain missing, DOSBox absent, or CL error)."""
 
 

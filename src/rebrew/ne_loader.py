@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from rebrew.binary_loader import BinaryInfo, SectionInfo
+from rebrew.errors import RebrewError
 
 NE_MAGIC = b"NE"
 
@@ -349,7 +350,7 @@ class NeExport:
     ordinal: int
 
 
-class NeParseError(ValueError):
+class NeParseError(RebrewError, ValueError):
     """Raised when a file claims to be NE but its tables are malformed."""
 
 

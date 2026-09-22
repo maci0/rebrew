@@ -143,6 +143,7 @@ package only exports `__version__`:
 
 ```python
 from rebrew.config import load_config
+from rebrew.errors import RebrewError
 from rebrew.sources import iter_sources
 from rebrew.toolchain import ToolchainError, get_toolchain
 
@@ -164,9 +165,22 @@ except ToolchainError as exc:
 
 Remote compile transport, registry plugins, workspace helpers, and the GA
 matcher follow the same pattern (`rebrew.recompile_client`, `rebrew.registry`,
-`rebrew.plugin`, `rebrew.workspace`, `rebrew.matcher`). Catch
-`RecompileError` / `McpError` / `ToolchainError` / `RegistryError` and branch
-on their structured fields.
+`rebrew.plugin`, `rebrew.workspace`, `rebrew.matcher`). Catch the specific type
+(`RecompileError`, `McpError`, `ToolchainError`, `RegistryError`, ...) when the
+recovery differs per failure, and `RebrewError` when it does not:
+
+```python
+try:
+    result = compile_and_compare(cfg, source_path, symbol, target_bytes, cflags)
+except RebrewError as exc:
+    if exc.retryable:
+        ...   # transient docker/daemon blip or transport hiccup
+    raise
+```
+
+Every rebrew error type inherits `RebrewError` alongside its original
+`RuntimeError`/`ValueError` base, so a new error type in a later release lands
+in that handler instead of escaping it.
 
 ## Usage & Workflow
 

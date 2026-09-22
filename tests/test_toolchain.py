@@ -67,6 +67,9 @@ class TestRegistry:
             "invalidate_toolchain_digest",
             "list_toolchains",
             "pull_toolchain",
+            # Public per registry.refresh_all's docstring — a long-lived
+            # process re-discovers plugin toolchains through it.
+            "refresh_toolchain_registry",
             "require_toolchains_repo",
             "run_toolchain",
             "swap_toolchain_image",

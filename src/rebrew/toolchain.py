@@ -38,6 +38,7 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Literal
 
+from rebrew.errors import RebrewError
 from rebrew.registry import RegistryError, merge_provider_dict
 from rebrew.toolchain_data import BUILTIN_TOOLCHAINS, IMAGE_ENTRYPOINTS
 from rebrew.toolchain_paths import TOOLCHAINS_REPO_URL, toolchains_repo
@@ -70,7 +71,7 @@ ToolchainErrorKind = Literal[
 ]
 
 
-class ToolchainError(RuntimeError):
+class ToolchainError(RebrewError, RuntimeError):
     """The toolchain cannot be invoked (missing image/path/binary).
 
     Structured fields let callers recover without string-matching ``str(exc)``:
@@ -968,6 +969,7 @@ __all__ = [
     "invalidate_toolchain_digest",
     "list_toolchains",
     "pull_toolchain",
+    "refresh_toolchain_registry",
     "require_toolchains_repo",
     "run_toolchain",
     "swap_toolchain_image",

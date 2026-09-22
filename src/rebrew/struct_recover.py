@@ -65,6 +65,7 @@ from rebrew.cli import (
     json_print,
     require_config,
 )
+from rebrew.errors import RebrewError
 from rebrew.utils import parse_int_literal
 
 console = Console(stderr=True)
@@ -585,7 +586,7 @@ def _collect_functions(
     return sorted(out)
 
 
-class NoDecompilationError(RuntimeError):
+class NoDecompilationError(RebrewError, RuntimeError):
     """The selected decompiler backend produced no output for any function."""
 
 
