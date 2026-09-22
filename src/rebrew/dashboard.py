@@ -83,7 +83,7 @@ _DEFAULT_LIMIT = 100
 _MAX_LIMIT = 5000
 _FUNCTION_COLS = ("va", "name", "symbol", "size", "status", "module", "files")
 _GLOBAL_COLS = ("va", "name", "decl", "size", "module")
-_HISTORY_COLS = ("va", "old_status", "new_status", "changed_at")
+_HISTORY_COLS = ("va", "name", "old_status", "new_status", "changed_at")
 #: Paths ``Dashboard.handle`` serves; only these may short-circuit to 304.
 _ROUTES = frozenset(
     {
@@ -584,10 +584,10 @@ function renderGlobals(data, options) {
 const historyRowHtml = (h) => {
   const r = Array.isArray(h)
     ? h
-    : [h.va, h.old_status, h.new_status, h.changed_at];
+    : [h.va, h.name, h.old_status, h.new_status, h.changed_at];
   return "<tr><td class=va>" + esc(r[0] ?? "") + "</td><td>" + esc(r[1] || "")
-    + "</td><td>" + esc(r[2] || "") + "</td><td>"
-    + esc(formatWhen(r[3])) + "</td></tr>";
+    + "</td><td>" + esc(r[2] || "") + "</td><td>" + esc(r[3] || "")
+    + "</td><td>" + esc(formatWhen(r[4])) + "</td></tr>";
 };
 function renderHistory(data, options) {
   const append = !!(options && options.append);
@@ -1083,7 +1083,8 @@ _INDEX_HTML = """<!doctype html>
 <div id="history-results" class="table-scroll" tabindex="0" role="region"
   aria-label="History results" aria-busy="false" hidden>
 <table id="history-rows"><caption class="visually-hidden">Recent status changes</caption><thead><tr>
-  <th scope="col">VA</th><th scope="col">Old status</th><th scope="col">New status</th>
+  <th scope="col">VA</th><th scope="col">Name</th>
+  <th scope="col">Old status</th><th scope="col">New status</th>
   <th scope="col">When</th>
 </tr></thead><tbody></tbody></table>
 </div>
@@ -1456,8 +1457,10 @@ class Dashboard:
     ) -> dict[str, Any]:
         with self._conn() as conn:
             rows = conn.execute(
-                "SELECT va, old_status, new_status, changed_at FROM history "
-                "WHERE target = ? ORDER BY id DESC LIMIT ? OFFSET ?",
+                # A VA with no current function row (removed since) keeps name ''.
+                "SELECT h.va, f.name, h.old_status, h.new_status, h.changed_at "
+                "FROM history h LEFT JOIN functions f ON f.target = h.target AND f.va = h.va "
+                "WHERE h.target = ? ORDER BY h.id DESC LIMIT ? OFFSET ?",
                 (target, limit, offset),
             ).fetchall()
             if offset == 0 and len(rows) < limit:
@@ -1477,9 +1480,10 @@ class Dashboard:
             "history": [
                 [
                     f"0x{r[0]:08x}" if r[0] else "???",
-                    r[1],
+                    r[1] or "",
                     r[2],
                     r[3],
+                    r[4],
                 ]
                 for r in rows
             ],

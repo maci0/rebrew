@@ -5,6 +5,11 @@
   first target, the Functions view, and no filters.  The target, view,
   Status, Module, and both searches now live in the URL hash and are
   restored on load; the hash also works as a shareable link.
+- **`rebrew dashboard` History names the function.**  History rows showed
+  only a VA, so telling which function changed status meant a trip to the
+  Functions tab.  `/api/history` now carries `name` (joined from
+  `functions`, `''` once the VA has no function row) and the History table
+  shows it next to the VA.
 - **Every GA run is replayable from its seed.**  An unseeded `rebrew match`
   used an OS-entropy RNG and never reported it, so a lucky match could not
   be reproduced.  The GA now draws the seed itself and reports it: printed

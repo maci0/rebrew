@@ -303,6 +303,29 @@ class TestQueryLayer:
         assert hist["count"] == 0
         assert hist["total"] == 0
 
+    def test_history_rows_carry_function_name(self, tmp_path: Path) -> None:
+        """History rows name the function so a bare VA is not the only cue."""
+        import sqlite3
+
+        _write_data(tmp_path / "db")
+        build_db(tmp_path)
+        db_path = tmp_path / "db" / "coverage.db"
+        with sqlite3.connect(db_path) as conn:
+            conn.executemany(
+                "INSERT INTO history (target, va, old_status, new_status, changed_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                [
+                    ("server_dll", 0x10002000, "STUB", "EXACT", "2026-01-01T00:00:00Z"),
+                    ("server_dll", 0x10009000, "STUB", "EXACT", "2026-01-02T00:00:00Z"),
+                ],
+            )
+            conn.commit()
+        rows = Dashboard(db_path).history("server_dll")["history"]
+        assert rows == [
+            ["0x10009000", "", "STUB", "EXACT", "2026-01-02T00:00:00Z"],
+            ["0x10002000", "func_b", "STUB", "EXACT", "2026-01-01T00:00:00Z"],
+        ]
+
     def test_functions_total_excludes_global_markers(self, tmp_path: Path) -> None:
         """total must apply the same markerType filter as the row query."""
         db_dir = tmp_path / "db"
@@ -1284,6 +1307,7 @@ class TestHostValidation:
         ]
         assert dashboard.history("server_dll")["cols"] == [
             "va",
+            "name",
             "old_status",
             "new_status",
             "changed_at",
