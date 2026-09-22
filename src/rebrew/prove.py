@@ -1932,7 +1932,7 @@ def _run_all_batch(
 
 
 def main_entry() -> None:
-    """Run the Typer CLI application (standalone single-command form)."""
+    """Run the Typer CLI application."""
     from rebrew.cli import run_standalone
 
     run_standalone(main)

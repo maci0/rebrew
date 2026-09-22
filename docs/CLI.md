@@ -703,9 +703,9 @@ health is `rebrew doctor`'s job, not lint's.
 ### `rebrew blocker`
 
 ```
-rebrew blocker set <target> <blocker> [--delta INT] [--va HEX] [--dry-run] [--json] [--target NAME]
-rebrew blocker clear <target> [--va HEX] [--dry-run] [--json] [--target NAME]
-rebrew blocker show <target> [--json] [--target NAME]
+rebrew blocker set <function> <blocker> [--delta INT] [--va HEX] [--dry-run] [--json] [--target NAME]
+rebrew blocker clear <function> [--va HEX] [--dry-run] [--json] [--target NAME]
+rebrew blocker show <function> [--json] [--target NAME]
 ```
 
 Manage `BLOCKER` / `BLOCKER_DELTA` in `rebrew-functions.toml` for a single

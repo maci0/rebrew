@@ -38,7 +38,7 @@ from rich.console import Console
 from rebrew.binsync import serial
 from rebrew.c_parser import type_from_declaration
 from rebrew.catalog import scan_reversed_dir
-from rebrew.cli import TargetOption, error_exit, json_print, require_config
+from rebrew.cli import TargetOption, error_exit, json_print, require_config, run_standalone
 from rebrew.config import ProjectConfig, inventory_path_for
 from rebrew.utils import atomic_write_locked, md5_file, strip_body
 
@@ -1320,17 +1320,8 @@ def print_export_result(result: dict[str, object], *, json_output: bool, dry_run
 
 
 def main_entry() -> None:
-    """Run the Typer CLI application.
-
-    The callback is registered as a plain command on a fresh app: the
-    group-style ``invoke_without_command`` callback fails to parse
-    positional-then-option invocations (``rebrew-<cmd> ARG --opt`` — click
-    treats the positional as a command name), while the umbrella's command
-    registration parses both orderings (cli-review F1).
-    """
-    _standalone = typer.Typer()
-    _standalone.command()(main)
-    _standalone()
+    """Run the Typer CLI application."""
+    run_standalone(main)
 
 
 if __name__ == "__main__":

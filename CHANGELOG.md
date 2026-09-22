@@ -9,6 +9,25 @@
   `rebrew status` exactly: same FUNCTION-only counts, same denominator
   (covered FUNCTION rows + ghidra inventory - identified library VAs),
   library rows excluded from the status table.
+- **`.text` byte coverage counts stock-linked bytes again.**  The
+  library-out-of-totals change had left the byte line as game-only
+  matched bytes over the whole `.text` (43.3%); external/library rows
+  that reproduce the reference bytes count as covered again (96.3%,
+  136,086B / 141,382B on server.dll).  The progress table stays
+  game-only: "reversed" answers our work, "bytes covered" answers
+  deliverable byte identity.
+### Changed
+- **CLI surface consistency, contract-enforced.**  One `main_entry`
+  docstring everywhere (`"Run the Typer CLI application."` — 64 drifted
+  modules normalized); `--target` help unified on the shared
+  `TargetOption` wording wherever it selects an existing target
+  (`splat-config`, `init` phrased to start "Target name"); and `rebrew
+  blocker`'s positional is now `function` (was `target` — it resolves a
+  C file, symbol, or hex VA, and the old name collided with `--target`'s
+  project-target meaning).  `tests/test_cli_contract.py` pins the
+  surface: exact `--json`/`--dry-run` help strings, `--target` help
+  wording, `--json`-before-`--target` signature order, and the
+  `main_entry` docstring — shared-option drift now fails the suite.
 ### Added
 - **`targets.<name>.external_libs` — one flag for external .lib code.**
   `module = "link-spec"` table (`LIBCMT = "LIBCMT.lib"`,

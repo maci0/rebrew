@@ -789,7 +789,6 @@ def _compiler_command(profile_name: str, defaults: dict[str, Any]) -> str:
 
 @app.callback(invoke_without_command=True)
 def main(
-    target_name: str = typer.Option("main", "--target", "-t", help="Name of the initial target."),
     binary_name: str = typer.Option(
         "program.exe",
         "--binary",
@@ -852,6 +851,9 @@ def main(
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    target_name: str = typer.Option(
+        "main", "--target", "-t", help="Target name for the initial target (default: main)"
+    ),
     # typer injects the real Context on CLI runs; direct Python calls get None
     # (a union annotation would defeat typer's Context detection).
     ctx: typer.Context = None,  # type: ignore[assignment]
@@ -1181,7 +1183,7 @@ def main(
 
 
 def main_entry() -> None:
-    """Run the Typer CLI application (standalone single-command form)."""
+    """Run the Typer CLI application."""
     from rebrew.cli import run_standalone
 
     run_standalone(main)

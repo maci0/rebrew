@@ -1981,7 +1981,10 @@ def main(
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = typer.Option(
-        None, "--target", "-t", help="Target name from rebrew-project.toml"
+        None,
+        "--target",
+        "-t",
+        help="Target name from rebrew-project.toml (default: project default target).",
     ),
 ) -> None:
     """Seed a rebrew project from a splat config (dry run by default)."""

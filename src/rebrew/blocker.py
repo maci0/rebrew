@@ -49,13 +49,13 @@ app = typer.Typer(
 )
 
 
-def _resolve_target(
+def _resolve_function(
     cfg: Any,
-    target: str,
+    function: str,
     va_override: str | None,
     json_mode: bool,
 ) -> tuple[str, int]:
-    """Resolve TARGET (+ optional --va) to (module, va_int).
+    """Resolve FUNCTION (+ optional --va) to (module, va_int).
 
     Accepts file path, hex VA (0x...), or symbol (file stem). Mirrors the
     VA selection in near_diag.main so multi-function files require
@@ -68,7 +68,7 @@ def _resolve_target(
     va_from_flag = va_override is not None
     va_int: int | None = parse_va(va_override, json_mode=json_mode) if va_override else None
 
-    raw = target
+    raw = function
     # Check if positional itself is a hex VA before resolving through sources.
     if va_int is None and re.match(r"^0[xX][0-9a-fA-F]+$", raw.strip()):
         va_int = parse_va(raw.strip(), json_mode=json_mode)
@@ -92,7 +92,7 @@ def _resolve_target(
         # even when not found — try metadata lookup with cfg.marker?
         # Fail with actionable message instead of writing to wrong key.
         error_exit(
-            f"Cannot resolve target {raw!r} to a source file or VA "
+            f"Cannot resolve function {raw!r} to a source file or VA "
             "(pass a .c path, 0xVA, symbol, or use --va 0x... to disambiguate)",
             json_mode=json_mode,
         )
@@ -139,7 +139,9 @@ def _resolve_target(
 
 @app.command("set")
 def blocker_set(
-    target: str = typer.Argument(..., help="C source file, symbol, or hex VA (0x...)"),
+    function: str = typer.Argument(
+        ..., help="Function to act on: C source file, symbol, or hex VA (0x...)"
+    ),
     blocker: str = typer.Argument(..., help="BLOCKER text to write"),
     delta: str | None = typer.Option(
         None, "--delta", help="BLOCKER_DELTA as integer (decimal or 0x hex)"
@@ -172,7 +174,7 @@ def blocker_set(
         # would render as "−5B diff — try flag sweep".
         if delta_int < 0:
             error_exit(f"Invalid --delta value: {delta!r} (must be >= 0)", json_mode=json_output)
-    module, va_int = _resolve_target(cfg, target, va, json_output)
+    module, va_int = _resolve_function(cfg, function, va, json_output)
 
     payload: dict[str, Any] = {
         "module": module,
@@ -213,7 +215,9 @@ def blocker_set(
 
 @app.command("clear")
 def blocker_clear(
-    target: str = typer.Argument(..., help="C source file, symbol, or hex VA (0x...)"),
+    function: str = typer.Argument(
+        ..., help="Function to act on: C source file, symbol, or hex VA (0x...)"
+    ),
     va: str | None = typer.Option(
         None, "--va", help="Disambiguate VA in a multi-function file (hex)"
     ),
@@ -223,7 +227,7 @@ def blocker_clear(
 ) -> None:
     """Clear BLOCKER and BLOCKER_DELTA for a function."""
     cfg = require_config(target=target_name, json_mode=json_output)
-    module, va_int = _resolve_target(cfg, target, va, json_output)
+    module, va_int = _resolve_function(cfg, function, va, json_output)
 
     if dry_run:
         payload: dict[str, Any] = {
@@ -257,7 +261,9 @@ def blocker_clear(
 
 @app.command("show")
 def blocker_show(
-    target: str = typer.Argument(..., help="C source file, symbol, or hex VA (0x...)"),
+    function: str = typer.Argument(
+        ..., help="Function to act on: C source file, symbol, or hex VA (0x...)"
+    ),
     va: str | None = typer.Option(
         None, "--va", help="Disambiguate VA in a multi-function file (hex)"
     ),
@@ -266,7 +272,7 @@ def blocker_show(
 ) -> None:
     """Show BLOCKER metadata for a function."""
     cfg = require_config(target=target_name, json_mode=json_output)
-    module, va_int = _resolve_target(cfg, target, va, json_output)
+    module, va_int = _resolve_function(cfg, function, va, json_output)
 
     from rebrew.metadata import get_entry
 

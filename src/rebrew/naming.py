@@ -363,9 +363,9 @@ def external_vas(
     modules = {m.upper() for m in (external_libs or ())}
     out: set[int] = set()
     for va, info in existing.items():
-        if (info.get("marker_type") or "").upper() == "LIBRARY":
-            out.add(va)
-        elif (info.get("module") or "").upper() in modules:
+        if (info.get("marker_type") or "").upper() == "LIBRARY" or (
+            info.get("module") or ""
+        ).upper() in modules:
             out.add(va)
     return out
 

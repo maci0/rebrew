@@ -444,11 +444,20 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
         # External .lib attributions (lib-match identifications + modules
         # flagged in external_libs) are not reversing progress: count them
         # separately so the progress table answers "how much of this
-        # binary's code is reversed".
+        # binary's code is reversed".  They DO count toward .text byte
+        # coverage: the deliverable must reproduce the whole image, and
+        # stock-linked library bytes are reproduced bytes.
         if va in library_vas:
             lib_status = (info.get("status") or "STUB").upper()
             if lib_status in MATCHED_STATUSES:
                 library_identified += 1
+                size = size_by_va.get(va)
+                if size is None:
+                    try:
+                        size = int(info.get("size") or 0)
+                    except (TypeError, ValueError):
+                        size = 0
+                matched_bytes += size
             module = info.get("module") or "?"
             report.module_status.setdefault(module, {})
             report.module_status[module][lib_status] = (

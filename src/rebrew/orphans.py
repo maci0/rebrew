@@ -231,17 +231,17 @@ def main(
 
 @app.command("drop")
 def drop(
-    target_ident: str = typer.Argument(..., help="Hex VA (0x...), file path, or symbol"),
-    va_override: str | None = typer.Option(None, "--va", help="VA when TARGET is a file"),
+    function: str = typer.Argument(..., help="Hex VA (0x...), file path, or symbol"),
+    va_override: str | None = typer.Option(None, "--va", help="Disambiguate VA in a multi-function file (hex)"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
     """Delete one VA's metadata block from rebrew-functions.toml / rebrew-data.toml."""
-    from rebrew.blocker import _resolve_target
+    from rebrew.blocker import _resolve_function
 
     cfg = require_config(target=target, json_mode=json_output)
-    module, va_int = _resolve_target(cfg, target_ident, va_override, json_output)
+    module, va_int = _resolve_function(cfg, function, va_override, json_output)
 
     from rebrew.data_metadata import delete_data_entries_batch, get_data_entry
     from rebrew.metadata import delete_entries_batch, get_entry
