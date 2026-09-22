@@ -52,6 +52,31 @@ _CURRENT_DB_VERSION = "10"
 _FUNCTION_DB_STATUSES: frozenset[str] = frozenset({*KNOWN_STATUSES, "UNKNOWN"})
 _FUNCTION_STATUS_CHECK_SQL: str = ", ".join(repr(s) for s in sorted(_FUNCTION_DB_STATUSES))
 
+#: Column DDL for the persistent tables (never dropped on rebuild).  Shared by
+#: CREATE IF NOT EXISTS and the in-place migration so the two cannot drift.
+_HISTORY_COLUMNS_SQL = f"""
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    target TEXT NOT NULL,
+    va INTEGER NOT NULL CHECK (va >= 0),
+    old_status TEXT
+        CHECK (old_status IS NULL OR old_status IN ({_FUNCTION_STATUS_CHECK_SQL})),
+    new_status TEXT
+        CHECK (new_status IS NULL OR new_status IN ({_FUNCTION_STATUS_CHECK_SQL})),
+    changed_at TEXT NOT NULL CHECK (changed_at != ''),
+    updated_by TEXT NOT NULL DEFAULT ''
+"""
+_VERIFY_RESULTS_COLUMNS_SQL = """
+    target TEXT NOT NULL,
+    va INTEGER NOT NULL CHECK (va >= 0),
+    verified_at TEXT NOT NULL CHECK (verified_at != ''),
+    byte_delta INTEGER CHECK (byte_delta IS NULL OR byte_delta >= 0),
+    diff_lines INTEGER CHECK (diff_lines IS NULL OR diff_lines >= 0),
+    similarity REAL CHECK (similarity IS NULL OR (similarity >= 0.0 AND similarity <= 1.0)),
+    reg_delta INTEGER CHECK (reg_delta IS NULL OR reg_delta >= 0),
+    effective_match INTEGER CHECK (effective_match IS NULL OR effective_match IN (0, 1)),
+    PRIMARY KEY (target, va)
+"""
+
 #: Statuses allowed in ``globals.status``.  Empty string (no verdict yet)
 #: plus the three data-metadata verdicts — derived from the same constants
 #: ``data_metadata`` / the grid emit so the CHECK and the insert sanitizer
@@ -834,19 +859,7 @@ def build_db(
         # builds explicitly or it survives every rebuild.
         c.execute("DROP INDEX IF EXISTS idx_cells_section")
 
-        c.execute(f"""
-            CREATE TABLE IF NOT EXISTS history (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                target TEXT NOT NULL,
-                va INTEGER NOT NULL CHECK (va >= 0),
-                old_status TEXT
-                    CHECK (old_status IS NULL OR old_status IN ({_FUNCTION_STATUS_CHECK_SQL})),
-                new_status TEXT
-                    CHECK (new_status IS NULL OR new_status IN ({_FUNCTION_STATUS_CHECK_SQL})),
-                changed_at TEXT NOT NULL CHECK (changed_at != ''),
-                updated_by TEXT NOT NULL DEFAULT ''
-            )
-        """)
+        c.execute(f"CREATE TABLE IF NOT EXISTS history ({_HISTORY_COLUMNS_SQL})")
         # history is never dropped on rebuild, so CREATE IF NOT EXISTS leaves a
         # pre-CHECK table alone.  Recreate in place (preserving rows, clamping
         # outliers) when the stored DDL lacks the range/status guards.
@@ -856,19 +869,7 @@ def build_db(
         hist_sql = hist_sql_row[0] if hist_sql_row else ""
         if hist_sql and "old_status IS NULL OR old_status IN" not in hist_sql:
             c.execute("ALTER TABLE history RENAME TO _history_migrate")
-            c.execute(f"""
-                CREATE TABLE history (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    target TEXT NOT NULL,
-                    va INTEGER NOT NULL CHECK (va >= 0),
-                    old_status TEXT
-                        CHECK (old_status IS NULL OR old_status IN ({_FUNCTION_STATUS_CHECK_SQL})),
-                    new_status TEXT
-                        CHECK (new_status IS NULL OR new_status IN ({_FUNCTION_STATUS_CHECK_SQL})),
-                    changed_at TEXT NOT NULL CHECK (changed_at != ''),
-                    updated_by TEXT NOT NULL DEFAULT ''
-                )
-            """)
+            c.execute(f"CREATE TABLE history ({_HISTORY_COLUMNS_SQL})")
             # Preserve id so ORDER BY id DESC / retention stay stable across
             # the recreate.  Statuses outside the functions vocabulary become
             # UNKNOWN (same coercion the functions insert path uses).
@@ -882,7 +883,6 @@ def build_db(
                     target,
                     CASE
                         WHEN typeof(va) = 'integer' AND va >= 0 THEN va
-                        WHEN typeof(va) = 'integer' THEN 0
                         ELSE 0
                     END,
                     CASE
@@ -914,19 +914,7 @@ def build_db(
         # forever.
         c.execute("CREATE INDEX IF NOT EXISTS idx_history_target_id ON history(target, id)")
 
-        c.execute("""
-            CREATE TABLE IF NOT EXISTS verify_results (
-                target TEXT NOT NULL,
-                va INTEGER NOT NULL CHECK (va >= 0),
-                verified_at TEXT NOT NULL CHECK (verified_at != ''),
-                byte_delta INTEGER CHECK (byte_delta IS NULL OR byte_delta >= 0),
-                diff_lines INTEGER CHECK (diff_lines IS NULL OR diff_lines >= 0),
-                similarity REAL CHECK (similarity IS NULL OR (similarity >= 0.0 AND similarity <= 1.0)),
-                reg_delta INTEGER CHECK (reg_delta IS NULL OR reg_delta >= 0),
-                effective_match INTEGER CHECK (effective_match IS NULL OR effective_match IN (0, 1)),
-                PRIMARY KEY (target, va)
-            )
-        """)
+        c.execute(f"CREATE TABLE IF NOT EXISTS verify_results ({_VERIFY_RESULTS_COLUMNS_SQL})")
         # verify_results is never dropped on rebuild, so CREATE IF NOT EXISTS
         # leaves a pre-CHECK table alone.  Recreate in place (preserving rows,
         # clamping outliers) when the stored DDL lacks the range guards.
@@ -938,23 +926,7 @@ def build_db(
             "effective_match IN (0, 1)" not in vr_sql or "verified_at != ''" not in vr_sql
         ):
             c.execute("ALTER TABLE verify_results RENAME TO _verify_results_migrate")
-            c.execute("""
-                CREATE TABLE verify_results (
-                    target TEXT NOT NULL,
-                    va INTEGER NOT NULL CHECK (va >= 0),
-                    verified_at TEXT NOT NULL CHECK (verified_at != ''),
-                    byte_delta INTEGER CHECK (byte_delta IS NULL OR byte_delta >= 0),
-                    diff_lines INTEGER CHECK (diff_lines IS NULL OR diff_lines >= 0),
-                    similarity REAL CHECK (
-                        similarity IS NULL OR (similarity >= 0.0 AND similarity <= 1.0)
-                    ),
-                    reg_delta INTEGER CHECK (reg_delta IS NULL OR reg_delta >= 0),
-                    effective_match INTEGER CHECK (
-                        effective_match IS NULL OR effective_match IN (0, 1)
-                    ),
-                    PRIMARY KEY (target, va)
-                )
-            """)
+            c.execute(f"CREATE TABLE verify_results ({_VERIFY_RESULTS_COLUMNS_SQL})")
             c.execute(
                 """
                 INSERT INTO verify_results (

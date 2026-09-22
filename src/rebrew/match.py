@@ -18,6 +18,7 @@ Batch usage (``rebrew match --all``)::
 
 from __future__ import annotations
 
+import functools
 import logging
 from pathlib import Path
 
@@ -413,35 +414,36 @@ def main(
             "no suggested operators — sampling mutations uniformly"
         )
 
+    # Batch knobs shared by --all and --all-targets; callers supply cfg, jobs, json_output.
+    run_all = functools.partial(
+        _run_all,
+        generations=generations,
+        pop_size=pop_size,
+        timeout_min=timeout_min,
+        dry_run=dry_run,
+        min_size=min_size,
+        max_size=max_size,
+        filter_str=filter_str,
+        near_miss=near_miss,
+        improve=improve,
+        size_mismatch=size_mismatch,
+        threshold=threshold,
+        flag_sweep=flag_sweep,
+        fix_cflags=fix_cflags,
+        max_stubs=max_stubs,
+        seed_from_solved=seed_from_solved,
+        tier=tier,
+        flag_sweep_then_ga=flag_sweep_then_ga,
+        skip_recent_hours=skip_recent_hours,
+        seed=seed,
+        seed_solutions_path=seed_solutions,
+        resume=resume,
+        mutation_weights=batch_mutation_weights,
+        collect_pairs=collect_pairs,
+    )
+
     if all_mode:
-        matched, failed = _run_all(
-            cfg=cfg,
-            jobs=jobs,
-            generations=generations,
-            pop_size=pop_size,
-            timeout_min=timeout_min,
-            dry_run=dry_run,
-            min_size=min_size,
-            max_size=max_size,
-            filter_str=filter_str,
-            near_miss=near_miss,
-            improve=improve,
-            size_mismatch=size_mismatch,
-            threshold=threshold,
-            flag_sweep=flag_sweep,
-            fix_cflags=fix_cflags,
-            max_stubs=max_stubs,
-            seed_from_solved=seed_from_solved,
-            json_output=json_output,
-            tier=tier,
-            flag_sweep_then_ga=flag_sweep_then_ga,
-            skip_recent_hours=skip_recent_hours,
-            seed=seed,
-            seed_solutions_path=seed_solutions,
-            resume=resume,
-            mutation_weights=batch_mutation_weights,
-            collect_pairs=collect_pairs,
-        )
+        matched, failed = run_all(cfg=cfg, jobs=jobs, json_output=json_output)
         # Documented exit contract (epilog): 1 = no match found.  A batch
         # with any failed stub is not a success for CI gates — mirror
         # `rebrew test --all`'s failed>0 → EXIT_MISMATCH.
@@ -471,34 +473,7 @@ def main(
                     console.print(f"\n[bold cyan]=== Target {name} ===[/]")
                 # Per-target detail stays on stderr (console); stdout gets one
                 # aggregate JSON document when --json is active.
-                return _run_all(
-                    cfg=target_cfg,
-                    jobs=per_target_jobs,
-                    generations=generations,
-                    pop_size=pop_size,
-                    timeout_min=timeout_min,
-                    dry_run=dry_run,
-                    min_size=min_size,
-                    max_size=max_size,
-                    filter_str=filter_str,
-                    near_miss=near_miss,
-                    improve=improve,
-                    size_mismatch=size_mismatch,
-                    threshold=threshold,
-                    flag_sweep=flag_sweep,
-                    fix_cflags=fix_cflags,
-                    max_stubs=max_stubs,
-                    seed_from_solved=seed_from_solved,
-                    json_output=False,
-                    tier=tier,
-                    flag_sweep_then_ga=flag_sweep_then_ga,
-                    skip_recent_hours=skip_recent_hours,
-                    seed=seed,
-                    seed_solutions_path=seed_solutions,
-                    resume=resume,
-                    mutation_weights=batch_mutation_weights,
-                    collect_pairs=collect_pairs,
-                )
+                return run_all(cfg=target_cfg, jobs=per_target_jobs, json_output=False)
             except Exception as exc:
                 log.warning("Target %s failed — counted as failed", name, exc_info=True)
                 console.print(

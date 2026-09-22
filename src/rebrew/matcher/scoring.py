@@ -122,6 +122,12 @@ def _build_invalid_reloc_mask(
     return mask
 
 
+#: ModR/M bytes selecting ``[abs32]`` (mod=00, r/m=101): FF /2 call, FF /4 jmp.
+_FF_ABS32_MODRM = frozenset({0x15, 0x25})
+#: ModR/M bytes selecting ``[abs32]`` for mov r32 <-> [abs32] (8B/89), any reg.
+_MOV_ABS32_MODRM = frozenset({0x05, 0x0D, 0x15, 0x1D, 0x25, 0x2D, 0x35, 0x3D})
+
+
 def _zero_u32_at(out: bytearray, addr: int, start: int) -> None:
     """Zero four little-endian bytes of *out* starting at *addr + start*."""
     for i in range(start, start + 4):
@@ -181,21 +187,8 @@ def _zero_reloc_fields(insn: capstone.CsInsn, out: bytearray) -> None:
         size >= after + 5
         and after < len(b)
         and (
-            (op0 == 0xFF and b[after] in (0x15, 0x25))
-            or (
-                op0 in (0x8B, 0x89)
-                and b[after]
-                in (
-                    0x05,
-                    0x0D,
-                    0x15,
-                    0x1D,
-                    0x25,
-                    0x2D,
-                    0x35,
-                    0x3D,
-                )
-            )
+            (op0 == 0xFF and b[after] in _FF_ABS32_MODRM)
+            or (op0 in (0x8B, 0x89) and b[after] in _MOV_ABS32_MODRM)
         )
     ):
         _zero_u32_at(out, addr, after + 1)
@@ -370,21 +363,8 @@ def _zero_reloc_fields_raw(
         size >= after + 5
         and after < len(b)
         and (
-            (op0 == 0xFF and b[after] in (0x15, 0x25))
-            or (
-                op0 in (0x8B, 0x89)
-                and b[after]
-                in (
-                    0x05,
-                    0x0D,
-                    0x15,
-                    0x1D,
-                    0x25,
-                    0x2D,
-                    0x35,
-                    0x3D,
-                )
-            )
+            (op0 == 0xFF and b[after] in _FF_ABS32_MODRM)
+            or (op0 in (0x8B, 0x89) and b[after] in _MOV_ABS32_MODRM)
         )
     ):
         _zero_u32_at(out, addr, after + 1)
