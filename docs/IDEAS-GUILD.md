@@ -314,3 +314,24 @@ Status `open` unless noted. Promote to ROADMAP when scoped.
   `--stub-thunks` flag so runs that need real semantics can opt out.
   Evidence: guild-rebrew `src/server.dll/DieGildeAddOnServer/server_c/ServerMainThread.c` header,
   "PROVEN is NOT reachable for this function" block (rounds 6-9 probes).
+
+- **`rebrew orphans --prune` deletes metadata for block-comment `/* DATA: SERVER 0x... */` markers.**
+  Pain: pruned 260 lines from `rebrew-data.toml` + 3 GOLDTL function entries, orphaning live source
+  DATA markers (vfs4.c `0x1002944c..0x100294a0` range form, vfs_OpenStream.c `0x100294a4`) and
+  tripping W016 ("DATA marker missing // SECTION") + W022. The orphan detector appears to match only
+  the `// DATA:` line form, so a `/* DATA: ... */` block marker does not register as a live
+  annotation and its metadata looks orphaned. Measured in guild-rebrew round 1282 (had to
+  `git checkout` both TOMLs to recover).
+  Feature: parse `/* DATA: ... */` and range `0x..0x` markers as live annotations before pruning;
+  report (not delete) any entry whose marker form the detector did not recognize.
+  Evidence: guild-rebrew `src/Develop/Units/vfs/vfs4.c` line 17 range marker.
+
+- **`rebrew data` needs a `--set-size` (data extent correction).**
+  Pain: a stale `size` on a data symbol cannot be corrected by any CLI — `--set-type` writes only
+  `type` (and preserves existing `size`), `annotation.py` only ever grows size, and `--fix-bss`
+  writes sizes only for new gaps. When a range marker overstates an extent (`0x1002944c..0x100294a0`
+  = 84 parsed onto a 4-byte `char s_rb[4]`), the extent gate fails and the only fix is calling
+  `rebrew.data_metadata.set_data_field(dir, va, "size", n, module)` by hand.
+  Feature: `rebrew data --set-size 0xVA=N` (mirror `--set-type`) so extent corrections go through
+  the sanctioned atomic writer.
+  Evidence: guild-rebrew `src/rebrew-data.toml` s_rb_1002944c size 84 vs binary 4 (round 1282).
