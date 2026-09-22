@@ -94,6 +94,8 @@ def check_project(rebrew: str, project: Path) -> list[tuple[str, int, str]]:
                 cwd=str(project),
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=300,
             )
         except (OSError, subprocess.TimeoutExpired) as exc:

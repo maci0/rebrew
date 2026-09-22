@@ -165,6 +165,8 @@ def _run_help(subcommand: str) -> tuple[bool, str]:
             _rebrew_help_command() + sub_tokens + ["--help"],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=30,
             cwd=_REPO_ROOT,
             env=env,

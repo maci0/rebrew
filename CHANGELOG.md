@@ -376,6 +376,11 @@
   ``one_line``, ``run_git``). Call sites inside the package already updated.
 
 ### Fixed
+- **Legacy sources with an undefined CP1252 byte round-trip.**  A source
+  holding 0x81/0x8D/0x8F/0x90/0x9D outside a Shift-JIS pair was read as
+  cp1252 with the byte replaced by U+FFFD, and every write-back (`rebrew
+  rename`, annotation edits) then raised `UnicodeEncodeError`.  Such a
+  source now reads as Latin-1 and writes back byte-for-byte.
 - **Compile cache tracks headers added by an in-place header edit.**  The
   `#include` closure was memoized on the source text and search-directory
   mtimes only, so editing `a.h` in place to add `#include <b.h>` kept the

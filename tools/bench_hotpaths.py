@@ -448,7 +448,8 @@ def bench_verify_cached() -> dict[str, float]:
         for i in range(500):
             p = src_dir / f"f_{i}.c"
             p.write_text(
-                f"// STUB: SERVER 0x{0x10001000 + i * 0x100:x}\nint f_{i}(void) {{ return 0; }}\n"
+                f"// STUB: SERVER 0x{0x10001000 + i * 0x100:x}\nint f_{i}(void) {{ return 0; }}\n",
+                encoding="utf-8",
             )
             paths.append(p)
         cfg = ProjectConfig(root=Path(d), compiler_includes=src_dir)

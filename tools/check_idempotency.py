@@ -102,7 +102,15 @@ def _run(cmd: str, cwd: Path) -> tuple[int, str]:
     """
     full = ["rebrew", *cmd.split()]
     try:
-        proc = subprocess.run(full, cwd=str(cwd), capture_output=True, text=True, timeout=600)
+        proc = subprocess.run(
+            full,
+            cwd=str(cwd),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=600,
+        )
     except subprocess.TimeoutExpired:
         return 2, ""
     except OSError as e:

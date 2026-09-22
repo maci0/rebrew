@@ -349,13 +349,13 @@ _SOURCE_ENCODINGS = ("utf-8", "shift_jis", "cp1252")
 
 def detect_source_encoding(data: bytes) -> str:
     """Return the encoding *data* is in: UTF-8 when it decodes cleanly,
-    otherwise Shift-JIS, else CP1252.
+    otherwise Shift-JIS, else CP1252, else Latin-1.
 
     Reading a legacy-encoded source as UTF-8 with ``errors="replace"`` and
     writing it back permanently replaces every non-ASCII byte with U+FFFD;
     detecting the real encoding on read lets write-backs round-trip
-    byte-for-byte.  Ordering note: cp1252 is tried last as the fallback;
-    shift_jis is stricter and catches Japanese sources first.
+    byte-for-byte.  Ordering note: cp1252 is tried last; shift_jis is
+    stricter and catches Japanese sources first.
     """
     for enc in _SOURCE_ENCODINGS:
         try:
@@ -363,11 +363,12 @@ def detect_source_encoding(data: bytes) -> str:
             return enc
         except UnicodeDecodeError:
             continue
-    # cp1252 is the fallback even though a handful of bytes are undefined
-    # (0x81, 0x8D, 0x8F, 0x90, 0x9D) — read_source_text decodes it with
-    # errors="replace" so those rare bytes degrade to U+FFFD instead of
-    # crashing the whole read.
-    return "cp1252"
+    # Only a CP1252 undefined byte (0x81, 0x8D, 0x8F, 0x90, 0x9D) gets here.
+    # Latin-1 maps every byte to one code point, so the write-back encodes to
+    # the same bytes; a cp1252 decode would yield U+FFFD, which cp1252 cannot
+    # encode (write-back raises UnicodeEncodeError).  0x80-0x9F then read as
+    # C1 controls instead of CP1252 glyphs.
+    return "latin-1"
 
 
 def read_compile_source(filepath: Path) -> str:
@@ -390,8 +391,8 @@ def read_source_text(filepath: Path) -> tuple[str, str]:
 
     Pass the returned encoding to :func:`atomic_write_text` when writing the
     file back so legacy-encoded sources are not corrupted by a UTF-8 write.
-    Undecodable bytes (e.g. the undefined CP1252 holes 0x81/0x8D/0x8F/0x90/
-    0x9D) decode as U+FFFD rather than raising.
+    A source with an undefined CP1252 byte (0x81/0x8D/0x8F/0x90/0x9D) that is
+    not Shift-JIS either reads as Latin-1, so it still round-trips.
 
     Bounded path+mtime memo: verify/test/catalog often re-scan the same
     tree several times per run (prepare_entries, build_name_to_va,
