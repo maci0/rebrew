@@ -147,12 +147,21 @@ for `--compare` (not “better than EXACT”).
 
 ## Component Registration (Plugins)
 
-Rebrew's component registries — toolchains, decompiler backends, CLI
-subcommands, and GA mutations — accept registrations from outside the host
-source tree (see `src/rebrew/registry.py`).  The packaged built-ins form the
-base registry; discovered components merge on top, and a duplicate name
-between any two sources raises a `RegistryError` (single-source discipline:
-a component name has exactly one provider).
+Rebrew's component registries (every group in the table below) accept
+registrations from outside the host source tree (see
+`src/rebrew/registry.py`).  The packaged built-ins form the base registry;
+discovered components merge on top.  Conflict and failure policy per group:
+
+- `rebrew.toolchains`: a duplicate name or a registration that fails to
+  load raises `RegistryError` (fields `group`, `name`, `origin`); a wrong
+  compiler produces wrong bytes.
+- `rebrew.commands` / `rebrew.multicommands`: a name clashing with a
+  built-in is ignored with a warning; an unimportable module degrades to a
+  stub command (exit 2).
+- `rebrew.flag_sets`, `rebrew.library_presets`, `rebrew.msvc_versions`:
+  tuning data; a later source extends or overrides by name.
+- Every other group: a broken or duplicate registration is skipped with a
+  logged warning, so one bad plugin cannot disable the host module.
 
 | Component | Entry-point group | Registration shape |
 |-----------|-------------------|--------------------|
@@ -168,6 +177,7 @@ a component name has exactly one provider).
 | Binary loader | `rebrew.binary_loaders` | `module:attr` — `(path, fmt) -> BinaryInfo \| None`; runs when LIEF cannot parse the file, so a novel container format can be loaded |
 | MSVC version table | `rebrew.msvc_versions` | `module:attr` — zero-arg callable returning `dict["build:<n>" \| "linker:<M>.<m>", list[profile]]`; a plugin MSVC-derivative declares which exact builds it byte-matches, joining the version-exact `suggested_profiles` (union per key) |
 | Compile-cache backend | `rebrew.cache_backends` | `module:attr` — factory `(cache_dir, size_limit) -> CacheBackend` (get/put/volume/count/clear/close/stats); selected via `[cache] backend` in `rebrew-project.toml`; the keying semantics are shared and not pluggable |
+| Function discoverer | `rebrew.discoverers` | `module:attr`: `(binary: Path) -> list[(va, size, name)]`; merged into `rebrew discover-functions` by entry-point name; return `[]` on failure, never raise |
 
 CLI tools (packaged and third-party) mount through `rebrew.plugin`.
 `main.compose()` provides the `cli` and `console` services, then
@@ -179,9 +189,8 @@ A CLI process composes once; there is no hot-reload. See
 [ADR 014](adr/014-component-composition.md).
 
 A CLI plugin whose module cannot be imported degrades to a stub command that
-reports the missing dependency (exit 2) — the same fallback built-ins get
-when an optional dependency is absent.  A non-CLI registration that fails to
-load raises `RegistryError` naming its origin.
+reports the missing dependency (exit 2), the same fallback built-ins get
+when an optional dependency is absent.
 
 Project-local toolchains (not packaged) declare themselves as TOML files in
 the directory named by `REBREW_TOOLCHAIN_OVERLAY_DIR`; each file is one or

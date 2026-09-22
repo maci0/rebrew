@@ -28,8 +28,8 @@ registry's role.  **Identity-critical** toolchains keep the loud
 bytes).  **CLI** plugin name clashes against a built-in are warn+skip
 (discovery has no console yet; see ``entry_point_components``).
 **Optional/tuning** registries (decompiler backends, GA mutations, flag
-sets, library presets, detectors, binary loaders, cache backends) skip the
-broken or duplicate entry with a warning — a bad plugin must not brick the
+sets, library presets, detectors, binary loaders, cache backends,
+discoverers) skip the broken or duplicate entry with a warning — a bad plugin must not brick the
 importing module, matching the CLI's stub-degradation for broken command
 plugins.  Tuning groups that are meant to be overridden
 (``flag_sets``, ``library_presets``, ``msvc_versions``) extend/replace by
@@ -160,8 +160,8 @@ def load_registration_optional(reg: Registration, log: logging.Logger) -> Any | 
     """Import a registration for an optional registry, skipping on failure.
 
     Optional registries (decompiler backends, GA mutations, flag sets,
-    library presets, detectors, binary loaders, cache backends) must not
-    brick the importing module when a plugin is broken: the entry is
+    library presets, detectors, binary loaders, cache backends, discoverers)
+    must not brick the importing module when a plugin is broken: the entry is
     skipped with a warning and ``None`` returned.  Toolchains use
     :func:`import_registration` directly and keep the loud
     :class:`RegistryError`.  CLI command plugins call
