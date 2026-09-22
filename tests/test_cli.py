@@ -15,6 +15,7 @@ from rebrew.cli import (
     parse_va,
     require_config,
     resolve_source_arg,
+    select_annotation,
 )
 
 # ---------------------------------------------------------------------------
@@ -313,6 +314,47 @@ class TestResolveSourceArg:
         result = resolve_source_arg(self._cfg(tmp_path), "no_such_func")
         # Returns Path("no_such_func") which doesn't exist — caller handles it
         assert result == Path("no_such_func")
+
+
+class TestSelectAnnotation:
+    """select_annotation: resolve the source, pick the annotation, parse --va."""
+
+    def _cfg(self, tmp_path: Path) -> SimpleNamespace:
+        return SimpleNamespace(
+            reversed_dir=tmp_path, metadata_dir=tmp_path.parent, source_ext=".c", marker="GAME"
+        )
+
+    def _write_two(self, tmp_path: Path) -> Path:
+        src = tmp_path / "pair.c"
+        src.write_text(
+            "// FUNCTION: GAME 0x1000\nint a(void) { return 0; }\n\n"
+            "// FUNCTION: GAME 0x2000\nint b(void) { return 1; }\n",
+            encoding="utf-8",
+        )
+        return src
+
+    @pytest.mark.parametrize(
+        ("va", "want_anno_va", "want_va"),
+        [(None, 0x1000, 0x1000), ("0x2000", 0x2000, 0x2000), ("0x3000", 0x1000, 0x3000)],
+    )
+    def test_selects_by_va(
+        self, tmp_path: Path, va: str | None, want_anno_va: int, want_va: int
+    ) -> None:
+        src = self._write_two(tmp_path)
+        path, anno, va_int = select_annotation(self._cfg(tmp_path), str(src), va)
+        assert path == src
+        assert anno.va == want_anno_va
+        assert va_int == want_va
+
+    def test_missing_source_exits(self, tmp_path: Path) -> None:
+        with pytest.raises(typer.Exit):
+            select_annotation(self._cfg(tmp_path), "no_such_func", None)
+
+    def test_no_annotation_exits(self, tmp_path: Path) -> None:
+        src = tmp_path / "bare.c"
+        src.write_text("int f(void) { return 0; }\n", encoding="utf-8")
+        with pytest.raises(typer.Exit):
+            select_annotation(self._cfg(tmp_path), str(src), None)
 
 
 class TestAngrAvailable:

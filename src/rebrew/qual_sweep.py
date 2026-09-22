@@ -28,17 +28,14 @@ from typing import Any
 import typer
 from rich.console import Console
 
-from rebrew.annotation import parse_c_file_multi
 from rebrew.cli import (
     TargetOption,
     error_exit,
     json_print,
-    parse_va,
     require_config,
-    resolve_source_arg,
+    select_annotation,
 )
 from rebrew.compile import compile_and_compare
-from rebrew.sources import target_marker
 from rebrew.utils import atomic_write_text, read_source_text
 
 console = Console(stderr=True)
@@ -120,19 +117,7 @@ def main(
 ) -> None:
     """Sweep one qualifier at a time over every declaration; keep winners."""
     cfg = require_config(target=target, json_mode=json_output)
-    source = str(resolve_source_arg(cfg, source))
-    path = Path(source)
-    if not path.is_file():
-        error_exit(f"Source file not found: {source}", json_mode=json_output)
-
-    annos = parse_c_file_multi(path, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir)
-    if not annos:
-        error_exit("No // FUNCTION annotation found in the source", json_mode=json_output)
-    sel = annos[0]
-    if va:
-        want = parse_va(va, json_mode=json_output)
-        sel = next((a for a in annos if a.va == want), sel)
-    va_int = parse_va(va, json_mode=json_output) if va else sel.va
+    path, sel, va_int = select_annotation(cfg, source, va, json_mode=json_output)
     sym = symbol or sel.symbol
     size = sel.size
     if va_int is None or not sym or not size:

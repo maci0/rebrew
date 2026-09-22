@@ -22,18 +22,15 @@ import typer
 from rich.console import Console
 
 from rebrew.analysis import Insn, iter_instructions
-from rebrew.annotation import parse_c_file_multi
 from rebrew.binary_loader import load_binary
 from rebrew.cli import (
     TargetOption,
     error_exit,
     json_print,
-    parse_va,
     require_config,
-    resolve_source_arg,
+    select_annotation,
 )
 from rebrew.compile import compile_to_obj
-from rebrew.sources import target_marker
 
 console = Console(stderr=True)
 
@@ -183,19 +180,7 @@ def main(
 ) -> None:
     """Print the length-gap trace of SOURCE against the reference function."""
     cfg = require_config(target=target, json_mode=json_output)
-    source = str(resolve_source_arg(cfg, source))
-    path = Path(source)
-    if not path.is_file():
-        error_exit(f"Source file not found: {source}", json_mode=json_output)
-
-    annos = parse_c_file_multi(path, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir)
-    if not annos:
-        error_exit("No // FUNCTION annotation found in the source", json_mode=json_output)
-    sel = annos[0]
-    if va:
-        want = parse_va(va, json_mode=json_output)
-        sel = next((a for a in annos if a.va == want), sel)
-    va_int = parse_va(va, json_mode=json_output) if va else sel.va
+    path, sel, va_int = select_annotation(cfg, source, va, json_mode=json_output)
     if va_int is None:
         error_exit("Need a VA (from the annotation or --va)", json_mode=json_output)
 

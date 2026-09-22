@@ -679,7 +679,11 @@ def import_shared_function(
     # The stack is withdrawn when it did not verify AND the destination
     # already claims this VA from its own file: a rolled-back claim must not
     # promote/demote STATUS either — the stub's earned status stands.
-    revert = not result.matched and dst_file and stacked != text
+    # A marker whose body does not match the destination VA is a false claim:
+    # withdraw every failed stack, not only the ones that collide with an
+    # existing stub (guild-rebrew round 1294 — 12 unverified imports had left
+    # markers asserting that a GOLD body is the GOLDTL function at that VA).
+    revert = not result.matched and stacked != text
     if not revert:
         apply_status_updates([(entry, result.status, result.delta)], cfg_dst)
 
@@ -700,8 +704,12 @@ def import_shared_function(
                 update_field(cfg_dst.metadata_dir, dst_va, "cflags", prior_cflags, module)
             else:
                 remove_field(cfg_dst.metadata_dir, dst_va, "cflags", module)
-        action = "skipped-unverified-duplicate"
-        message = f"{message} (destination already annotates this VA; stack reverted)"
+        action = "skipped-unverified"
+        message = (
+            f"{message} (destination already annotates this VA; stack reverted)"
+            if dst_file
+            else f"{message} (stack reverted)"
+        )
     if result.matched and dst_file:
         stub_path = Path(cfg_dst.reversed_dir) / dst_file
         if stub_path.resolve() != target_path.resolve() and stub_path.is_file():

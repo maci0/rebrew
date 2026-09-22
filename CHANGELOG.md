@@ -336,6 +336,17 @@
   ``one_line``, ``run_git``). Call sites inside the package already updated.
 
 ### Fixed
+- **The shared-stack rollback retracts its metadata writes too.**
+  `import_shared_function`'s unverified-rollback path restored the source
+  file but left the two metadata writes taken before verify in place: the
+  source's `cflags` override stayed on the destination VA (compiling the
+  never-imported stub under foreign flags, the destination's own value
+  lost — it was never captured), and `apply_status_updates` could write a
+  STATUS from a claim that no longer exists.  The rollback now captures
+  the prior `cflags` before writing, restores or removes it, and skips the
+  STATUS update on the reverted path.  Two tests in
+  `tests/test_cross_import.py` pin both halves (CORDIS review,
+  arXiv:2608.25512 `inverse` findings).
 - **`cross-import` refuses library code, duplicate source bodies, and
   duplicate VAs.**  Three ways a shared import could write a marker that
   cannot be true: (1) destination VAs that are linked, not reversed — now

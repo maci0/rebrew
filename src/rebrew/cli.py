@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, NoReturn
+from typing import TYPE_CHECKING, Any, NoReturn
 
 import typer
 from rich.console import Console
@@ -31,6 +31,9 @@ from rebrew.config import ProjectConfig, load_config
 from rebrew.sources import iter_sources, target_marker
 from rebrew.utils import parse_int_literal
 from rebrew.workspace.status import MATCHED_STATUSES
+
+if TYPE_CHECKING:
+    from rebrew.annotation import Annotation
 
 # ---------------------------------------------------------------------------
 # Standardised exit codes
@@ -357,6 +360,30 @@ def resolve_source_arg(cfg: ProjectConfig, source_arg: str) -> Path:
             return src
 
     return p
+
+
+def select_annotation(
+    cfg: ProjectConfig, source_arg: str, va: str | None, *, json_mode: bool = False
+) -> tuple[Path, Annotation, int | None]:
+    """Resolve *source_arg* and pick its annotation, exiting when either is missing.
+
+    Returns ``(path, annotation, va)``: the annotation whose VA equals *va*
+    (else the file's first), and *va* parsed when given, else the
+    annotation's own VA (``None`` when it has none).
+    """
+    from rebrew.annotation import parse_c_file_multi  # local import to avoid cycle
+
+    path = resolve_source_arg(cfg, source_arg)
+    if not path.is_file():
+        error_exit(f"Source file not found: {path}", json_mode=json_mode)
+
+    annos = parse_c_file_multi(path, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir)
+    if not annos:
+        error_exit("No // FUNCTION annotation found in the source", json_mode=json_mode)
+    if not va:
+        return path, annos[0], annos[0].va
+    want = parse_va(va, json_mode=json_mode)
+    return path, next((a for a in annos if a.va == want), annos[0]), want
 
 
 def angr_available() -> bool:
