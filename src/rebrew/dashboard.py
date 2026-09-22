@@ -34,7 +34,9 @@ SQLite's int64 range clamp to it.  Clients read the applied values back.
 Successful 200 responses negotiate ``zstd`` then ``gzip`` (``Accept-Encoding``
 quality weights; explicit ``coding;q=0`` beats ``*``), carry an ``ETag`` (HTML
 or ``/app.js`` content hash, or DB mtime), and use ``Cache-Control: private,
-no-cache`` so browsers can 304 without serving a stale body after ``build-db``.
+no-cache`` so browsers can 304 without serving a stale body after ``build-db``;
+the shell links ``/app.js?v=<content hash>``, which alone is ``immutable``.
+An inline ``data:,`` icon stops the per-load ``/favicon.ico`` 404.
 A matching ``If-None-Match`` on a routed path (target-scoped ones need a
 ``target``) is answered 304 before any SQLite query runs.
 The static HTML shell and ``/app.js`` client are zstd- and gzip-precompressed at
@@ -946,7 +948,8 @@ _INDEX_HTML = """<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Rebrew coverage dashboard</title>
 <link rel="preload" href="/api/bootstrap" as="fetch" crossorigin fetchpriority="high">
-<link rel="preload" href="/app.js" as="script">
+<link rel="preload" href="__APP_JS_URL__" as="script">
+<link rel="icon" href="data:,">
 <style>
   body { font-family: system-ui, sans-serif; margin: 1.5rem; color: #1a1a1a; }
   .skip-link { position: absolute; left: -9999px; top: 0; z-index: 100;
@@ -1128,15 +1131,20 @@ _INDEX_HTML = """<!doctype html>
 </div>
 </div>
 </main>
-<script src="/app.js" defer></script>
+<script src="__APP_JS_URL__" defer></script>
 </body>
 </html>
 """
 
+_APP_JS_BYTES = _APP_JS.encode("utf-8")
+_APP_JS_VERSION = hashlib.sha256(_APP_JS_BYTES).hexdigest()[:16]
+_APP_JS_ETAG = f'"{_APP_JS_VERSION}"'
+# The shell links the content-hashed URL, so only that URL is cached immutable.
+_INDEX_HTML = _INDEX_HTML.replace("__APP_JS_URL__", f"/app.js?v={_APP_JS_VERSION}")
 _INDEX_HTML_BYTES = _INDEX_HTML.encode("utf-8")
 _INDEX_ETAG = '"' + hashlib.sha256(_INDEX_HTML_BYTES).hexdigest()[:16] + '"'
-_APP_JS_BYTES = _APP_JS.encode("utf-8")
-_APP_JS_ETAG = '"' + hashlib.sha256(_APP_JS_BYTES).hexdigest()[:16] + '"'
+_CACHE_REVALIDATE = "private, no-cache"
+_CACHE_IMMUTABLE = "private, max-age=31536000, immutable"
 
 
 def _precompress(raw: bytes, encoding: _WireEncoding) -> bytes | None:
@@ -1818,6 +1826,13 @@ def _if_none_match(header: str, etag: str) -> bool:
     return False
 
 
+def _success_cache_control(path: str, query: dict[str, list[str]]) -> str:
+    """Immutable for the current content-hashed ``/app.js``; revalidate everything else."""
+    if path == "/app.js" and _opt_query(query, "v") == _APP_JS_VERSION:
+        return _CACHE_IMMUTABLE
+    return _CACHE_REVALIDATE
+
+
 def _escape_log_text(text: str) -> str:
     return text.translate(_LOG_CONTROL_CHARS)
 
@@ -1841,7 +1856,7 @@ class _Handler(BaseHTTPRequestHandler):
             self.send_response(403)
             self.send_header("Content-Type", content_type)
             self.send_header("Content-Length", str(len(body_bytes)))
-            self._write_security_headers(cacheable=False)
+            self._write_security_headers(cache_control="no-store")
             self.end_headers()
             if method != "HEAD":
                 self.wfile.write(body_bytes)
@@ -1864,7 +1879,7 @@ class _Handler(BaseHTTPRequestHandler):
             and (parsed.path not in _TARGET_ROUTES or _opt_query(query, "target"))
             and _if_none_match(self.headers.get("If-None-Match", ""), etag)
         ):
-            self._send_not_modified(etag)
+            self._send_not_modified(etag, _success_cache_control(parsed.path, query))
             return
 
         try:
@@ -1927,7 +1942,11 @@ class _Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Encoding", encoding)
         if status == 200:
             self.send_header("Vary", "Accept-Encoding")
-        self._write_security_headers(cacheable=(status == 200))
+        self._write_security_headers(
+            cache_control=(
+                _success_cache_control(parsed.path, query) if status == 200 else "no-store"
+            )
+        )
         if status == 405:
             self.send_header("Allow", "GET, HEAD")
         self.end_headers()
@@ -1935,14 +1954,14 @@ class _Handler(BaseHTTPRequestHandler):
         if method != "HEAD":
             self.wfile.write(body_bytes)
 
-    def _send_not_modified(self, etag: str) -> None:
+    def _send_not_modified(self, etag: str, cache_control: str) -> None:
         self.send_response(304)
         self.send_header("ETag", etag)
         self.send_header("Vary", "Accept-Encoding")
-        self._write_security_headers(cacheable=True)
+        self._write_security_headers(cache_control=cache_control)
         self.end_headers()
 
-    def _write_security_headers(self, *, cacheable: bool) -> None:
+    def _write_security_headers(self, *, cache_control: str) -> None:
         """Browser hardening shared by every response, including early 403s."""
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("X-Frame-Options", "DENY")
@@ -1952,19 +1971,18 @@ class _Handler(BaseHTTPRequestHandler):
             "camera=(), microphone=(), geolocation=(), payment=()",
         )
         # Successful GETs may be stored but must revalidate (ETag → 304) so a
-        # ``rebrew build-db`` rebuild is never served as a silent stale page.
-        # Errors stay no-store so a failed probe is not sticky.
-        if cacheable:
-            self.send_header("Cache-Control", "private, no-cache")
-        else:
-            self.send_header("Cache-Control", "no-store")
+        # ``rebrew build-db`` rebuild is never served as a silent stale page;
+        # the content-hashed /app.js URL is immutable.  Errors stay no-store
+        # so a failed probe is not sticky.
+        self.send_header("Cache-Control", cache_control)
         # CSS stays inline in the shell; JS is same-origin /app.js.  Fetching
         # JSON is same-origin only — keeps any future escaping of API data
-        # from loading third-party resources or phoning home.
+        # from loading third-party resources or phoning home.  ``data:`` images
+        # cover the empty inline favicon that stops a /favicon.ico 404 per load.
         self.send_header(
             "Content-Security-Policy",
             "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; "
-            "connect-src 'self'; img-src 'self'; form-action 'none'; base-uri 'none'",
+            "connect-src 'self'; img-src 'self' data:; form-action 'none'; base-uri 'none'",
         )
 
     def end_headers(self) -> None:

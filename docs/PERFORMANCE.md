@@ -110,6 +110,13 @@ crossorigin fetchpriority="high">` plus `/app.js` script preload and
 `fetch(..., {credentials: "omit"})` lets bootstrap overlap the deferred
 client download. Gate: `test_index_html_bootstraps_in_one_round_trip`.
 
+Repeat loads: the shell links `/app.js?v=<content hash>`, served
+`private, max-age=31536000, immutable`, and an inline `data:,` icon replaces
+the implicit `/favicon.ico` fetch (a no-store 404). A warm reload drops from
+four requests (shell 304, `/app.js` 304, bootstrap, favicon 404) to two
+(shell 304, bootstrap). Gates: `test_handler_caches_only_hashed_app_js_immutable`,
+`test_index_html_links_favicon_inline`.
+
 First page default is 100 rows (Show more still 500). On 2000 synthetic
 functions, `/api/functions` CPU / 100: 500 rows 0.059 s / 32 KB → 100 rows
 0.026 s / 6 KB. Bootstrap follows the same first-page limit.

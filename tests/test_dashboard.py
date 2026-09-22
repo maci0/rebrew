@@ -9,7 +9,7 @@ import pytest
 from typer.testing import CliRunner
 
 from rebrew.build_db import build_db
-from rebrew.dashboard import _APP_JS, Dashboard, _files_display
+from rebrew.dashboard import _APP_JS, _APP_JS_VERSION, Dashboard, _files_display
 
 
 def _write_data(db_dir: Path, target: str = "server_dll") -> Path:
@@ -441,8 +441,8 @@ class TestHandle:
         _, _, html = dashboard.handle("GET", "/", {})
         _, _, js = dashboard.handle("GET", "/app.js", {})
         body = html + js
-        assert '<script src="/app.js" defer></script>' in html
-        assert 'rel="preload" href="/app.js" as="script"' in html
+        assert f'<script src="/app.js?v={_APP_JS_VERSION}" defer></script>' in html
+        assert f'rel="preload" href="/app.js?v={_APP_JS_VERSION}" as="script"' in html
         assert 'fetchpriority="high"' in html
         assert "content-visibility: auto" in html
         assert "const $" in js
@@ -1262,6 +1262,54 @@ class TestHostValidation:
         assert [v for k, v in sent if k == "status"] == [304]
         assert written == []
 
+    @pytest.mark.parametrize(
+        ("path", "cache_control"),
+        [
+            (f"/app.js?v={_APP_JS_VERSION}", "private, max-age=31536000, immutable"),
+            ("/app.js?v=stale", "private, no-cache"),
+            ("/app.js", "private, no-cache"),
+            ("/", "private, no-cache"),
+        ],
+    )
+    def test_handler_caches_only_hashed_app_js_immutable(
+        self, dashboard: Dashboard, path: str, cache_control: str
+    ) -> None:
+        """The shell's hashed /app.js URL skips revalidation; other URLs revalidate."""
+        from rebrew.dashboard import _Handler, allowed_hosts_for
+
+        handler = _Handler.__new__(_Handler)
+        handler.path = path
+        handler.allowed_hosts = allowed_hosts_for("127.0.0.1", 8000)
+        handler.dashboard = dashboard
+        sent: list[tuple] = []
+        handler.send_response = lambda status: sent.append(("status", status))  # type: ignore[method-assign]
+        handler.send_header = lambda name, value: sent.append((name, value))  # type: ignore[method-assign]
+        handler.end_headers = lambda: sent.append(("end", None))  # type: ignore[method-assign]
+
+        class _FakeWFile:
+            def write(self, data: bytes) -> int:
+                return len(data)
+
+        handler.wfile = _FakeWFile()
+        handler.headers = {"Host": "127.0.0.1:8000"}
+        handler._respond("GET")
+        assert [v for k, v in sent if k == "status"] == [200]
+        assert ("Cache-Control", cache_control) in sent
+
+        sent.clear()
+        handler.headers = {
+            "Host": "127.0.0.1:8000",
+            "If-None-Match": dashboard.response_etag(path),
+        }
+        handler._respond("GET")
+        assert [v for k, v in sent if k == "status"] == [304]
+        assert ("Cache-Control", cache_control) in sent
+
+    def test_index_html_links_favicon_inline(self, dashboard: Dashboard) -> None:
+        """An inline icon keeps browsers from requesting /favicon.ico (a 404) per load."""
+        _, _, html = dashboard.handle("GET", "/", {})
+        assert '<link rel="icon" href="data:,">' in html
+
     def test_handler_304_skips_database_query(self, dashboard: Dashboard) -> None:
         """A matching If-None-Match on a JSON route answers 304 without querying."""
         from rebrew.dashboard import _Handler, allowed_hosts_for
@@ -1382,8 +1430,8 @@ class TestHostValidation:
         assert 'get("/api/bootstrap")' in js
         assert 'rel="preload" href="/api/bootstrap" as="fetch" crossorigin' in html
         assert 'fetchpriority="high"' in html
-        assert 'rel="preload" href="/app.js" as="script"' in html
-        assert 'src="/app.js" defer' in html
+        assert f'rel="preload" href="/app.js?v={_APP_JS_VERSION}" as="script"' in html
+        assert f'src="/app.js?v={_APP_JS_VERSION}" defer' in html
         assert 'credentials: "omit"' in js
         assert "Promise.all([loadSummary()," in js
         assert "loadFunctions()" in js

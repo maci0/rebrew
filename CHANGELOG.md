@@ -157,6 +157,11 @@
   documented integrator surface.
 
 ### Changed
+- **`rebrew dashboard` reloads in two requests instead of four.**  The
+  shell now links `/app.js?v=<content hash>`, served `immutable`, so a
+  reload no longer revalidates the client, and an inline `data:,` icon
+  replaces the implicit `/favicon.ico` fetch that answered 404 every load.
+  The CSP allows `data:` images for that icon.
 - **Breaking:** **Unused library helpers removed.**  Nothing in rebrew
   called `fingerprints.function_boundaries_hash` or the ghidra-cli pull
   path `ghidra.cli_backend.fetch_pull_data_via_cli` (pull uses MCP); both
