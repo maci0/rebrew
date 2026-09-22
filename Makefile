@@ -41,7 +41,7 @@ help:
 		'Contributor targets:' \
 		'  make setup              # uv sync (frozen + extras + similarity) + pre-commit/pre-push hooks' \
 		'  make test               # full pytest suite (needs nasm on PATH)' \
-		'  make test-one T=<node>  # one file/nodeid, e.g. T=tests/test_foo.py::TestBar' \
+		'  make test-one T=<node>  # one file/nodeid, e.g. T=tests/test_foo.py::TestBar (nasm optional)' \
 		'  make lint               # ruff check src/ tests/ tools/' \
 		'  make format             # ruff format (writes)' \
 		'  make format-check       # ruff format --check' \
@@ -108,11 +108,11 @@ ensure-nasm:
 	  exit 1; \
 	fi
 
-# Soft check for setup: name the host dep before the first ``make test`` failure.
+# Soft check for setup / test-one: name the host dep before the first ``make test`` failure.
 warn-nasm:
 	@set -eu; \
 	if ! command -v nasm >/dev/null 2>&1; then \
-	  echo "WARNING: nasm not on PATH (required for make test / make test-one, same as CI)."; \
+	  echo "WARNING: nasm not on PATH (required for make test, same as CI; asm round-trip tests skip in make test-one)."; \
 	  echo "Install it before running tests: e.g. apt install nasm / pacman -S nasm / dnf install nasm"; \
 	fi
 
@@ -130,8 +130,9 @@ test: ensure-nasm
 	NO_COLOR=1 TERM=dumb _TYPER_FORCE_DISABLE_TERMINAL=1 \
 		uv run --frozen pytest tests/ -v --tb=short
 
-# Fast edit-test loop: one file or pytest node id
-test-one: ensure-nasm
+# Fast edit-test loop: one file or pytest node id.  Only warns about nasm:
+# the nasm round-trip tests skip without it, so unrelated files still run.
+test-one: warn-nasm
 	NO_COLOR=1 TERM=dumb _TYPER_FORCE_DISABLE_TERMINAL=1 \
 		uv run --frozen pytest $(T) -v --tb=short
 

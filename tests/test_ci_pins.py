@@ -349,6 +349,12 @@ class TestCiPins:
         assert re.search(r"(?m)^setup:\s*ensure-resembl\s+warn-nasm\s*$", text)
         assert "Before a PR: make all && make check && make build" in text
 
+    def test_makefile_test_one_runs_without_nasm(self) -> None:
+        """Single-file loop must not hard-fail on nasm; the nasm tests skip on their own."""
+        text = MAKEFILE.read_text(encoding="utf-8")
+        assert re.search(r"(?m)^test-one:\s*warn-nasm\s*$", text)
+        assert re.search(r"(?m)^test:\s*ensure-nasm\s*$", text)
+
     @pytest.mark.parametrize("path", [CI_YML, SYNC_YML, MAKEFILE, ROOT / ".pre-commit-config.yaml"])
     def test_uv_run_preserves_lockfile(self, path: Path) -> None:
         commands = [
