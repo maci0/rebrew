@@ -1943,12 +1943,18 @@ def main(
             passed = sum(1 for r in file_results if r.passed)
 
     if json_output:
+        # --quiet keeps the counts but lists only failing files, without
+        # their warnings (docs: "Suppress warnings, show errors only").
+        files_out = [r.to_dict() for r in all_results if not r.passed or (r.warnings and not quiet)]
+        if quiet:
+            for entry in files_out:
+                entry["warnings"] = []
         output = {
             "total": total,
             "passed": passed,
             "errors": error_count,
             "warnings": warning_count,
-            "files": [r.to_dict() for r in all_results if not r.passed or r.warnings],
+            "files": files_out,
         }
         json_print(output)
     else:

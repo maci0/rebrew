@@ -699,6 +699,25 @@ class TestLintCli:
         data = json.loads(result.stdout)
         assert data["files"][0]["path"] == str(src / "ok.c")
 
+    def test_json_quiet_lists_errors_only(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import json
+
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "ok.c").write_text(
+            "// FUNCTION: SERVER 0x1000\nint f(void) { return 0; }\n",
+            encoding="utf-8",
+        )
+        (src / "bad.c").write_text("not a c file\n", encoding="utf-8")
+        args = ["--quiet", "--json", str(src / "ok.c"), str(src / "bad.c")]
+        data = json.loads(self._invoke(tmp_path, monkeypatch, args).stdout)
+        assert data["warnings"] > 0
+        assert [f["file"] for f in data["files"]] == ["bad.c"]
+        assert data["files"][0]["errors"]
+        assert data["files"][0]["warnings"] == []
+
     def test_errors_exit_nonzero(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         src = tmp_path / "src"
         src.mkdir()
