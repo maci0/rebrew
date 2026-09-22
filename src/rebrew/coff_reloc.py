@@ -221,6 +221,13 @@ def build_name_to_va(
                 name_to_va[name] = va
         if annotations is not None:
             for ann in annotations:
+                # LIBRARY rows are identifications, not authoritative call
+                # targets: their names come from FLIRT/Ghidra attributions
+                # and were seen swapped (`_fclose` vs `__fflush_lk` at
+                # guild-rebrew), so validating a call against them
+                # false-fails the compare.
+                if getattr(ann, "marker_type", "") == "LIBRARY":
+                    continue
                 ann_name = getattr(ann, "name", None)
                 ann_va = getattr(ann, "va", None)
                 if isinstance(ann_name, str) and ann_name and isinstance(ann_va, int) and ann_va:
@@ -230,6 +237,8 @@ def build_name_to_va(
 
             for path in iter_sources(cfg.reversed_dir, cfg):
                 for ann in parse_c_file_multi(path):
+                    if getattr(ann, "marker_type", "") == "LIBRARY":
+                        continue
                     if ann.name and ann.va:
                         name_to_va[ann.name] = ann.va
     except (ImportError, OSError, ValueError, KeyError, AttributeError) as exc:
