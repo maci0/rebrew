@@ -155,12 +155,11 @@
   documented integrator surface.
 
 ### Changed
-- **Unused library helpers removed.**  Nothing in rebrew called
-  `cli.iter_target_configs`, `demangle.get_vtordisp_name`,
-  `pdb_cvdump.cvdump_available` (use `cvdump_exe_path() is not None`),
-  `fingerprints.function_boundaries_hash`, the `asm_equiv.PATCHERS` dict,
-  or the ghidra-cli pull path `ghidra.cli_backend.fetch_pull_data_via_cli`
-  (pull uses MCP).  `float_const.find_float_consts` now scans through
+- **Breaking:** **Unused library helpers removed.**  Nothing in rebrew
+  called `fingerprints.function_boundaries_hash` or the ghidra-cli pull
+  path `ghidra.cli_backend.fetch_pull_data_via_cli` (pull uses MCP); both
+  shipped in 2.6.0 and importing them now raises `ImportError`.
+  `float_const.find_float_consts` now scans through
   `find_float_instructions_in_buffer` instead of a copy of it.
 - **`coverage.db` drops `idx_functions_marker`.**  Every query filters
   `markerType NOT IN ('GLOBAL', 'DATA')`, which the partial
@@ -186,7 +185,7 @@
   on the next lookup.  Both the helper and the alias are removed, and the
   `_search_dir_mtimes` docstring no longer advertises a hook that never
   fires (CORDIS review, arXiv:2608.25512, final round).
-- **`iter_annotations` moved from `rebrew.cli` to `rebrew.annotation`.**
+- **Breaking:** **`iter_annotations` moved from `rebrew.cli` to `rebrew.annotation`.**
   It is annotation parsing, not a Typer helper; library modules
   (`verify_hash`, `round_trip`, `merge_sweep`, …) no longer import the
   CLI layer to load a batch of sources.  Import it from
@@ -243,10 +242,12 @@
   and Dependabot scans the action's directory so its `setup-uv` SHA
   keeps getting refreshed.  `tests/test_ci_pins.py` fails any workflow
   that re-declares a pin or hand-rolls `setup-uv`.
-- **`parse_library_header()` drops its dead `target_name` argument.**
+- **Breaking:** **`parse_library_header()` drops its dead `target_name` argument.**
   LIBRARY marker modules are library names (MSVCRT, ZLIB, ...), not the
   project marker, so the parser never filtered on it; five call sites
-  computed `target_marker(cfg)` for nothing.
+  computed `target_marker(cfg)` for nothing.  The second parameter is now
+  `metadata_dir`: a 2.6.0 call `parse_library_header(path, "server")`
+  must drop the second argument, and `target_name=` raises `TypeError`.
 - **CLI surface consistency, contract-enforced.**  One `main_entry`
   docstring everywhere (`"Run the Typer CLI application."` — 64 drifted
   modules normalized); `--target` help unified on the shared
@@ -336,8 +337,9 @@
 - **Catalog scan/registry data lives in ``catalog.pipeline``** — ``build_db
   --regen`` no longer imports ``catalog.cli``; ``build_catalog_data`` is the
   shared domain entry.
-- **``load_verify_cache_raw`` moves to ``verify_cache``** — status/todo/
-  residue/build-db read the cache without going through ``cli``.
+- **Breaking:** **``load_verify_cache_raw`` moves to ``verify_cache``** — status/todo/
+  residue/build-db read the cache without going through ``cli``.  Import it
+  from ``rebrew.verify_cache``; ``rebrew.cli`` no longer exports it.
 - **Metadata overlay helpers are public** — ``apply_metadata_entry`` and
   ``FIELD_TO_ATTR`` replace the private cross-module names.
 - **Dashboard entry document no longer inlines the client script** — ``/`` is
