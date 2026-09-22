@@ -1,5 +1,13 @@
 ## [Unreleased]
 ### Fixed
+- **`.coverage` is no longer committed.**  A slipcover run's SQLite
+  database landed in the tree despite being listed in `.gitignore` and
+  `MANIFEST.in`; it is a 176 KB build artifact carrying local absolute
+  paths.  The `check-added-large-files` pre-commit ceiling drops from
+  35 MB to 8 MB at the same time: the MSVC tarballs it was raised for
+  are gitignored and live in the sibling `rebrew-toolchains` repo, and
+  8 MB still clears the largest tracked file (`docs/codegen/corpus.json`,
+  ~3.8 MB) while blocking an accidental toolchain tarball or binary.
 - **`rebrew migrate-markers` is registered.**  The ADR 023 migration
   command existed as `rebrew.migrate_markers` with docs, tests, and an
   agent-skill entry, but it was never added to `BUILTIN_COMPONENTS`, so
@@ -28,6 +36,16 @@
   game-only: "reversed" answers our work, "bytes covered" answers
   deliverable byte identity.
 ### Changed
+- **CI pins live once, in `.github/actions/uv-env`.**  The resembl clone
+  and pinned `setup-uv` step were copy-pasted into five jobs across
+  `ci.yml` and `toolchain-sync.yml`, with `UV_VERSION`, `RESEMBL_REF`,
+  and the `3.13.15` Python patch repeated in both workflow files (they
+  had drifted before).  Both workflows now call one local composite
+  action whose input defaults are the single pin site; the `package`
+  job passes `clone-resembl: "false"` since its sync needs no path dep,
+  and Dependabot scans the action's directory so its `setup-uv` SHA
+  keeps getting refreshed.  `tests/test_ci_pins.py` fails any workflow
+  that re-declares a pin or hand-rolls `setup-uv`.
 - **`parse_library_header()` drops its dead `target_name` argument.**
   LIBRARY marker modules are library names (MSVCRT, ZLIB, ...), not the
   project marker, so the parser never filtered on it; five call sites

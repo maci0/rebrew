@@ -11,14 +11,12 @@ permissions:
   # restores but cannot write, so the cache would stay cold forever.
   actions: write
 
-# Keep in sync with UV_VERSION / RESEMBL_REF in ci.yml: one pinned installer
-# and one sibling tag everywhere, never setup-uv's floating "latest".
+# uv / Python / resembl pins and the shared setup steps come from
+# .github/actions/uv-env — the same ones ci.yml uses, so a scheduled run can
+# never resolve a different installer than a PR run.
 # Third-party Actions are commit-SHA pinned (see ci.yml); Dependabot refreshes.
 # GH_TOKEN is mapped only onto the clone + check-updates steps (not workflow-
 # wide) so other steps never see secrets.GITHUB_TOKEN.
-env:
-  UV_VERSION: "0.12.14"
-  RESEMBL_REF: "v2.0.0"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -33,21 +31,13 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Check out sibling resembl (path dependency of the `similarity` group)
+      - name: Set up uv and the sibling resembl checkout
         # [tool.uv.sources] resolves `resembl` from ../resembl, so every uv
         # command needs the sibling checkout present even though this job never
-        # installs the group.  Keep RESEMBL_REF in step with uv.lock's `resembl`
-        # version (see tools/ci_clone_resembl.sh / the clones in ci.yml).
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: bash tools/ci_clone_resembl.sh ../resembl
-      - name: Set up uv
-        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+        # installs the group.
+        uses: ./.github/actions/uv-env
         with:
-          version: ${{ env.UV_VERSION }}
-          enable-cache: true
-          # Exact patch matches .python-version (same hermetic pin as ci.yml).
-          python-version: "3.13.15"
+          github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Install dependencies
         # --frozen installs exactly the audited uv.lock versions; a raw
         # `pip install -e .` here would resolve fresh from PyPI nightly,

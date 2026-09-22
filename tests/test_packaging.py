@@ -141,9 +141,13 @@ class TestPackagingMetadata:
         assert _project()["requires-python"] == ">=3.13"
         python_version = (ROOT / ".python-version").read_text(encoding="utf-8").strip()
         assert re.fullmatch(r"3\.13\.\d+", python_version)
+        # The package job takes the shared action's default python-version.
         workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
         package_job = workflow.split("\n  package:\n", 1)[1].split("\n  cli-contract:\n", 1)[0]
-        assert f'python-version: "{python_version}"' in package_job
+        assert "uses: ./.github/actions/uv-env" in package_job
+        assert "python-version:" not in package_job
+        action = (ROOT / ".github/actions/uv-env/action.yml").read_text(encoding="utf-8")
+        assert f'default: "{python_version}"' in action
 
     def test_build_system_pins_exact_setuptools(self) -> None:
         """Isolated ``uv build`` resolves build-system.requires from PyPI.

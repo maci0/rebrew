@@ -7,7 +7,12 @@
 version: 2
 updates:
   - package-ecosystem: github-actions
-    directory: /
+    # "/" covers .github/workflows/; a composite action in a subdirectory is
+    # only scanned when its own directory is listed, and the shared setup-uv
+    # pin now lives there.
+    directories:
+      - /
+      - /.github/actions/uv-env
     schedule:
       interval: weekly
     groups:

@@ -1,9 +1,11 @@
 """CI pin contract — workflow pins stay aligned with Makefile / uv.lock.
 
-``RESEMBL_REF`` and ``UV_VERSION`` are duplicated across ``ci.yml``,
-``toolchain-sync.yml``, and (for resembl) the Makefile.  They have drifted
-before (v1.0.0 vs v2.0.0; uv 0.12.2 vs local).  Third-party Actions must stay
-commit-SHA pinned so a retargeted major tag cannot silently change CI.
+The uv / Python / resembl pins live once, as the input defaults of the local
+composite action ``.github/actions/uv-env``; the Makefile mirrors them for the
+contributor path.  They drifted before, when each workflow carried its own copy
+(v1.0.0 vs v2.0.0; uv 0.12.2 vs local), so these tests also fail a workflow that
+re-declares them.  Third-party Actions must stay commit-SHA pinned so a
+retargeted major tag cannot silently change CI.
 """
 
 from __future__ import annotations
@@ -21,6 +23,9 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 CI_YML = ROOT / ".github" / "workflows" / "ci.yml"
 SYNC_YML = ROOT / ".github" / "workflows" / "toolchain-sync.yml"
+UV_ENV_ACTION = ROOT / ".github" / "actions" / "uv-env" / "action.yml"
+UV_ENV_USES = "./.github/actions/uv-env"
+DEPENDABOT_YML = ROOT / ".github" / "dependabot.yml"
 MAKEFILE = ROOT / "Makefile"
 UV_LOCK = ROOT / "uv.lock"
 
@@ -34,6 +39,14 @@ def _workflow_env(path: Path) -> dict[str, str]:
     # Only the top-level workflow ``env:`` block (before ``jobs:``).
     head = text.split("\njobs:", 1)[0]
     return {m.group("key"): m.group("val") for m in _ENV_RE.finditer(head)}
+
+
+def _uv_env_defaults() -> dict[str, str]:
+    """Input-name -> default for the shared composite action (the pin site)."""
+    import yaml
+
+    action = yaml.safe_load(UV_ENV_ACTION.read_text(encoding="utf-8"))
+    return {name: spec["default"] for name, spec in action["inputs"].items()}
 
 
 def _makefile_resembl_ref() -> str:
@@ -61,43 +74,63 @@ def _lock_resembl_version() -> str:
 
 
 class TestCiPins:
-    def test_uv_version_shared_across_workflows(self) -> None:
-        ci = _workflow_env(CI_YML)
-        sync = _workflow_env(SYNC_YML)
-        make_uv = _makefile_uv_version()
-        assert "UV_VERSION" in ci and "UV_VERSION" in sync
-        assert ci["UV_VERSION"] == sync["UV_VERSION"] == make_uv
+    def test_uv_version_pinned_once(self) -> None:
+        """One pin site (the composite action), mirrored by the Makefile."""
+        assert _uv_env_defaults()["uv-version"] == _makefile_uv_version()
+        for path in (CI_YML, SYNC_YML):
+            assert "UV_VERSION" not in _workflow_env(path), (
+                f"{path.name}: uv is pinned in {UV_ENV_ACTION.name}; a workflow copy drifts"
+            )
 
     def test_resembl_ref_aligned(self) -> None:
-        ci = _workflow_env(CI_YML)
-        sync = _workflow_env(SYNC_YML)
         make_ref = _makefile_resembl_ref()
-        lock_ver = _lock_resembl_version()
-        assert ci["RESEMBL_REF"] == sync["RESEMBL_REF"] == make_ref
-        assert make_ref.lstrip("v") == lock_ver
+        assert _uv_env_defaults()["resembl-ref"] == make_ref
+        assert make_ref.lstrip("v") == _lock_resembl_version()
+        for path in (CI_YML, SYNC_YML):
+            assert "RESEMBL_REF" not in _workflow_env(path), (
+                f"{path.name}: resembl is pinned in {UV_ENV_ACTION.name}; a workflow copy drifts"
+            )
 
     def test_hermetic_jobs_pin_exact_python_patch(self) -> None:
-        """Lint / pre-commit / package / cli-contract / toolchain-sync use
-        the exact ``.python-version`` patch.  The test matrix may float on
-        the 3.13/3.14 minors for compatibility coverage.
+        """Every job but the test matrix takes the action's default, which is
+        the exact ``.python-version`` patch.  The matrix may float on the
+        3.13/3.14 minors for compatibility coverage.
         """
         python_version = (ROOT / ".python-version").read_text(encoding="utf-8").strip()
         assert re.fullmatch(r"3\.13\.\d+", python_version), python_version
-        pin = f'python-version: "{python_version}"'
+        assert _uv_env_defaults()["python-version"] == python_version
+        # Only the test matrix may override it, and only with the matrix value
+        # (the first hit is the matrix declaration itself).
+        overrides = re.findall(r"(?m)^\s+python-version: (.+)$", CI_YML.read_text(encoding="utf-8"))
+        assert overrides == ['["3.13", "3.14"]', "${{ matrix.python-version }}"], overrides
+        assert "python-version:" not in SYNC_YML.read_text(encoding="utf-8")
+
+    def test_every_job_uses_the_shared_setup_action(self) -> None:
+        """No job may hand-roll setup-uv: that is how the pins drifted before."""
+        import yaml
+
         for path in (CI_YML, SYNC_YML):
-            text = path.read_text(encoding="utf-8")
-            assert pin in text, f"{path.relative_to(ROOT)} missing {pin}"
-        # setup-uv steps must not float on a bare "3.13" (matrix stays 3.13/3.14).
-        floating = re.findall(
-            r"(?m)^          python-version: \"3\.13\"\s*$",
-            CI_YML.read_text(encoding="utf-8"),
-        )
-        assert floating == [], f"hermetic CI jobs must pin {python_version}, not float on 3.13"
-        assert 'python-version: "3.13"' not in SYNC_YML.read_text(encoding="utf-8")
+            assert "astral-sh/setup-uv@" not in path.read_text(encoding="utf-8"), path.name
+            jobs = yaml.safe_load(path.read_text(encoding="utf-8"))["jobs"]
+            for name, spec in jobs.items():
+                uses = [step.get("uses") for step in spec["steps"]]
+                assert UV_ENV_USES in uses, f"{path.name}:{name} does not use {UV_ENV_USES}"
+
+    def test_dependabot_scans_the_composite_action(self) -> None:
+        """A composite action in a subdirectory is skipped unless listed, so its
+        setup-uv SHA would never be refreshed."""
+        import yaml
+
+        updates = yaml.safe_load(DEPENDABOT_YML.read_text(encoding="utf-8"))["updates"]
+        actions = [u for u in updates if u["package-ecosystem"] == "github-actions"]
+        assert actions, "no github-actions Dependabot entry"
+        scanned = {d for u in actions for d in u.get("directories", [u.get("directory")])}
+        assert "/" in scanned
+        assert "/.github/actions/uv-env" in scanned, scanned
 
     def test_third_party_actions_are_sha_pinned(self) -> None:
         unpinned: list[str] = []
-        for path in (CI_YML, SYNC_YML):
+        for path in (CI_YML, SYNC_YML, UV_ENV_ACTION):
             for m in _USES_RE.finditer(path.read_text(encoding="utf-8")):
                 uses = m.group("uses")
                 if uses.startswith("./") or uses.startswith("docker://"):
@@ -139,18 +172,14 @@ class TestCiPins:
         ci = CI_YML.read_text(encoding="utf-8")
         package_job = ci.split("\n  package:\n", 1)[1].split("\n  cli-contract:\n", 1)[0]
         assert "GH_TOKEN:" not in package_job
-        # Every clone invocation must carry step-level GH_TOKEN in the
-        # preceding step block (env: then run: on consecutive non-empty lines).
-        for path in (CI_YML, SYNC_YML):
-            text = path.read_text(encoding="utf-8")
-            for m in re.finditer(
-                r"(?m)^(?P<block>(?:^      .*\n)*?)^        run: bash tools/ci_clone_resembl\.sh",
-                text,
-            ):
-                block = m.group("block")
-                assert "GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}" in block, (
-                    f"{path.name}: clone step missing step-level GH_TOKEN"
-                )
+        assert "github-token:" not in package_job, (
+            "the package job never clones resembl and must not receive the token"
+        )
+        # Inside the action the token is a step-level env on the clone step only.
+        action = UV_ENV_ACTION.read_text(encoding="utf-8")
+        assert "GH_TOKEN: ${{ inputs.github-token }}" in action
+        clone_step, _, uv_step = action.partition("- name: Set up uv\n")
+        assert "GH_TOKEN" in clone_step and "GH_TOKEN" not in uv_step
         sync = SYNC_YML.read_text(encoding="utf-8")
         drift = sync.rsplit("name: Check toolchain source drift\n", 1)[1]
         assert "GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}" in drift.split("run: |", 1)[0]
@@ -176,9 +205,9 @@ class TestCiPins:
         assert "GIT_CONFIG_GLOBAL" in text
         assert "extraheader = AUTHORIZATION: basic" in text
         assert 'auth_args=(-c "http.https://github.com/.extraheader=' not in text
+        assert "bash tools/ci_clone_resembl.sh" in UV_ENV_ACTION.read_text(encoding="utf-8")
         for path in (CI_YML, SYNC_YML):
             wf = path.read_text(encoding="utf-8")
-            assert "bash tools/ci_clone_resembl.sh" in wf, path.name
             assert "git clone --depth 1 --branch" not in wf, path.name
 
     def test_test_job_fetches_tags(self) -> None:
