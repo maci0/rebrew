@@ -6,7 +6,7 @@ document aims them.
 
 | Field | Value |
 | --- | --- |
-| Last reviewed | 2026-09-21 |
+| Last reviewed | 2026-09-23 |
 | Scope | Python package `src/rebrew/` + CLI entry points in `pyproject.toml` |
 | Owner / review cadence | Not designated in-repo |
 | Disclosure | See repository root [`SECURITY.md`](../SECURITY.md) |
@@ -45,9 +45,9 @@ unauthenticated RCE on a public service.
 | CMake bridge | `rebrew-cmake-{cl,link,lib}` (+ generated `cmake-toolchain` files) | [`cmake_tc.py`](../src/rebrew/cmake_tc.py) `tc_main` / `_docker_run`; scripts in [`pyproject.toml`](../pyproject.toml) |
 | HTTP server (local) | `ThreadingHTTPServer` coverage dashboard | [`dashboard.py`](../src/rebrew/dashboard.py) |
 | HTTP client | Recompile compile API; ReVa MCP (sync, decompiler, skeleton); LLM chat completions; decomp.me scratches; wibo GitHub release fetch; toolchain media/pin HTTP | [`recompile_client.py`](../src/rebrew/recompile_client.py), [`ghidra/client.py`](../src/rebrew/ghidra/client.py), [`ghidra/cli.py`](../src/rebrew/ghidra/cli.py), [`decompiler.py`](../src/rebrew/decompiler.py), [`skeleton.py`](../src/rebrew/skeleton.py), [`llm_seed.py`](../src/rebrew/llm_seed.py), [`decompme.py`](../src/rebrew/decompme.py), [`wibo.py`](../src/rebrew/wibo.py), [`toolchain_cli.py`](../src/rebrew/toolchain_cli.py) |
-| Container / subprocess | Docker/podman toolchain images (`REBREW_CONTAINER_RUNTIME`); cmake wineprefix containers; optional host runner via `REBREW_COMPILER_RUNNER`; optional Xvfb for host-wine helpers (`REBREW_WINE_HEADLESS` / `REBREW_XVFB_DISPLAY`); ghidra-cli when `ghidra_backend = "cli"`; residual host DOSBox via library helpers (not the shipped `compile.py` path) | [`compile.py`](../src/rebrew/compile.py), [`cmake_tc.py`](../src/rebrew/cmake_tc.py), [`utils.py`](../src/rebrew/utils.py) `container_runtime()`, [`matcher/compiler.py`](../src/rebrew/matcher/compiler.py), [`headless.py`](../src/rebrew/headless.py), [`ghidra/cli_backend.py`](../src/rebrew/ghidra/cli_backend.py), [`dosbox.py`](../src/rebrew/dosbox.py) + [`msvc16.py`](../src/rebrew/msvc16.py) / [`tc16.py`](../src/rebrew/tc16.py) / [`delphi16.py`](../src/rebrew/delphi16.py) |
+| Container / subprocess | Docker/podman toolchain images (`REBREW_CONTAINER_RUNTIME`); cmake wineprefix containers; optional host runner via `REBREW_COMPILER_RUNNER`; optional Xvfb for host-wine helpers (`REBREW_WINE_HEADLESS` / `REBREW_XVFB_DISPLAY`); ghidra-cli when `ghidra_backend = "cli"`; residual host DOSBox via library helpers (not the shipped `compile.py` path); host `wine` + `winepath` running `cvdump.exe` (`REBREW_CVDUMP` or `PATH`) against a PDB via the `pdb_cvdump` library helper | [`compile.py`](../src/rebrew/compile.py), [`cmake_tc.py`](../src/rebrew/cmake_tc.py), [`utils.py`](../src/rebrew/utils.py) `container_runtime()`, [`matcher/compiler.py`](../src/rebrew/matcher/compiler.py), [`headless.py`](../src/rebrew/headless.py), [`ghidra/cli_backend.py`](../src/rebrew/ghidra/cli_backend.py), [`dosbox.py`](../src/rebrew/dosbox.py) + [`msvc16.py`](../src/rebrew/msvc16.py) / [`tc16.py`](../src/rebrew/tc16.py) / [`delphi16.py`](../src/rebrew/delphi16.py), [`pdb_cvdump.py`](../src/rebrew/pdb_cvdump.py) |
 | File parsers | PE/ELF/Mach-O/NE via LIEF + loaders; FLIRT `.sig` (`REBREW_FLIRT_SIGS_DIR`); LZEXE unpack; PDB; PE `.rsrc`; coverage SQLite; BinSync state TOML; optional angr blobs via `rebrew prove` | [`binary_loader.py`](../src/rebrew/binary_loader.py), [`flirt.py`](../src/rebrew/flirt.py), [`lzexe.py`](../src/rebrew/lzexe.py), [`pdb_info.py`](../src/rebrew/pdb_info.py), [`resource.py`](../src/rebrew/resource.py), [`binsync/`](../src/rebrew/binsync/), [`prove.py`](../src/rebrew/prove.py) |
-| Config / env | `rebrew-project.toml`, `rebrew-functions.toml`, `REBREW_*` (incl. `REBREW_CONTAINER_RUNTIME`, `REBREW_TOOLCHAINS_DIR`, `REBREW_FLIRT_SIGS_DIR`, `REBREW_COMPILER_RUNNER`, `REBREW_TOOLCHAIN` / `REBREW_WINEPREFIX` for cmake, `REBREW_WINE_HEADLESS` / `REBREW_XVFB_DISPLAY`, `REBREW_RECOMPILE_URL`, `REBREW_LLM_*`, overlays), `GH_TOKEN`/`GITHUB_TOKEN`; `REBREW_RUNNER` is **in-image only** (not read by host Python) | [`config.py`](../src/rebrew/config.py), [`docs/CONFIG.md`](CONFIG.md), [`utils.py`](../src/rebrew/utils.py), [`flirt.py`](../src/rebrew/flirt.py), [`cmake_tc.py`](../src/rebrew/cmake_tc.py), [`toolchain_paths.py`](../src/rebrew/toolchain_paths.py) |
+| Config / env | `rebrew-project.toml`, `rebrew-functions.toml`, `REBREW_*` (incl. `REBREW_CONTAINER_RUNTIME`, `REBREW_TOOLCHAINS_DIR`, `REBREW_FLIRT_SIGS_DIR`, `REBREW_COMPILER_RUNNER`, `REBREW_TOOLCHAIN` / `REBREW_WINEPREFIX` for cmake, `REBREW_WINE_HEADLESS` / `REBREW_XVFB_DISPLAY`, `REBREW_CVDUMP`, `REBREW_RECOMPILE_URL`, `REBREW_LLM_*`, overlays), `GH_TOKEN`/`GITHUB_TOKEN`; `REBREW_RUNNER` is **in-image only** (not read by host Python) | [`config.py`](../src/rebrew/config.py), [`docs/CONFIG.md`](CONFIG.md), [`utils.py`](../src/rebrew/utils.py), [`flirt.py`](../src/rebrew/flirt.py), [`cmake_tc.py`](../src/rebrew/cmake_tc.py), [`toolchain_paths.py`](../src/rebrew/toolchain_paths.py), [`pdb_cvdump.py`](../src/rebrew/pdb_cvdump.py) `cvdump_exe_path` |
 | Plugins | setuptools entry-point groups (`rebrew.toolchains`, `rebrew.mutations`, `rebrew.commands`, `rebrew.cache_backends`, …) + `REBREW_TOOLCHAIN_OVERLAY_DIR` / `REBREW_SKILLS_DIR` | [`registry.py`](../src/rebrew/registry.py), [`toolchain.py`](../src/rebrew/toolchain.py), [`skills.py`](../src/rebrew/skills.py), [`compile_cache.py`](../src/rebrew/compile_cache.py) |
 | Skills render | `rebrew init` copies packaged + overlay `SKILL.md` trees into the project | [`init.py`](../src/rebrew/init.py) (symlink refusal), [`skills.py`](../src/rebrew/skills.py) |
 | Caches / derived | `.rebrew/compile_cache/` (bytes via `NoPickleDisk`), verify cache JSON, `ga_runs.jsonl`, `coverage.db`, cmake wineprefix under `XDG_CACHE_HOME` / `REBREW_WINEPREFIX` | [`compile_cache.py`](../src/rebrew/compile_cache.py), [`verify_cache.py`](../src/rebrew/verify_cache.py), [`matcher/solutions.py`](../src/rebrew/matcher/solutions.py), [`build_db.py`](../src/rebrew/build_db.py), [`cmake_tc.py`](../src/rebrew/cmake_tc.py) `_wineprefix` |
@@ -66,6 +66,7 @@ unauthenticated RCE on a public service.
 - GitHub release JSON for wibo (digest + `browser_download_url` before allow-list) ([`wibo.py`](../src/rebrew/wibo.py)).
 - In-repo toolchain `SOURCES` URLs once the operator accepts a pin rewrite ([`toolchain_data.py`](../src/rebrew/toolchain_data.py)).
 - Host DOSBox + vendored 16-bit trees when library helpers (`msvc16` / `tc16` / `delphi16`) are invoked outside the docker compile path ([`dosbox.py`](../src/rebrew/dosbox.py)).
+- `REBREW_CVDUMP` (or the first `cvdump.exe` on `PATH`) plus host `wine` / `winepath`, executed by the `pdb_cvdump` helper ([`pdb_cvdump.py`](../src/rebrew/pdb_cvdump.py)).
 - Optional angr / Z3 stack when `[prove]` is installed ([`prove.py`](../src/rebrew/prove.py)).
 - Community skill markdown under `REBREW_SKILLS_DIR` (copied into the project on `rebrew init`; content is trusted for agent consumption) ([`init.py`](../src/rebrew/init.py), [`skills.py`](../src/rebrew/skills.py)).
 
@@ -151,11 +152,13 @@ Concrete blast radius of a dashboard leak: function names, virtual addresses, ma
 - **T** `REBREW_COMPILER_RUNNER` prepends an alternate runner ([`matcher/compiler.py`](../src/rebrew/matcher/compiler.py)); `REBREW_CONTAINER_RUNTIME` swaps docker/podman binary ([`utils.py`](../src/rebrew/utils.py)); `REBREW_FLIRT_SIGS_DIR` / `REBREW_TOOLCHAINS_DIR` redirect corpora and Dockerfiles ([`flirt.py`](../src/rebrew/flirt.py), [`toolchain_paths.py`](../src/rebrew/toolchain_paths.py)); `REBREW_WINEPREFIX` relocates cmake's bind-mounted prefix ([`cmake_tc.py`](../src/rebrew/cmake_tc.py)).
 - **T** `REBREW_SKILLS_DIR` supplies agent skill markdown copied on `rebrew init` ([`skills.py`](../src/rebrew/skills.py), [`init.py`](../src/rebrew/init.py)); symlink escape is refused, content is not attested.
 - **E** Calling [`msvc16`](../src/rebrew/msvc16.py) / [`tc16`](../src/rebrew/tc16.py) / [`delphi16`](../src/rebrew/delphi16.py) on the host runs local DOSBox against staged trees ([`dosbox.py`](../src/rebrew/dosbox.py)) — orthogonal to the docker-only shipped `compile.py` path. Host-wine helpers may spawn Xvfb ([`headless.py`](../src/rebrew/headless.py)).
+- **E** [`pdb_cvdump.Cvdump.run`](../src/rebrew/pdb_cvdump.py) spawns host `wine <cvdump.exe>` on a PDB path: `REBREW_CVDUMP` picks the executable and host wine parses the PDB outside any container, so the docker-only guarantee does not cover it.
 
 ### File → parsers
 
 - **D/T** Crafted PE/ELF/NE/LZEXE/FLIRT/`.rsrc` inputs against native parsers ([`binary_loader.py`](../src/rebrew/binary_loader.py), [`lzexe.py`](../src/rebrew/lzexe.py), [`flirt.py`](../src/rebrew/flirt.py), [`resource.py`](../src/rebrew/resource.py)).
 - **D** `rebrew prove` path exploration against crafted blobs ([`prove.py`](../src/rebrew/prove.py); optional `[prove]` / angr).
+- **D** A crafted PDB can wedge `cvdump.exe` under wine: [`Cvdump.run`](../src/rebrew/pdb_cvdump.py) reads the child with no timeout (it is killed and reaped only when parsing aborts).
 
 ### Local multi-user FS
 
@@ -200,13 +203,13 @@ Concrete blast radius of a dashboard leak: function names, virtual addresses, ma
 4. Operator-configured remote endpoints fully trusted once set (URL shape only).
 5. Wibo digest comes from live GitHub release JSON (not an in-repo pin); wibo fetch ignores `GH_TOKEN`.
 6. Packaged compile-cache pickle RCE is mitigated in-code (`NoPickleDisk`); residual gaps are value-file integrity on shared FS and any plugin backend that does not refuse pickle.
-7. Residual host DOSBox library path (`msvc16`/`tc16`/`delphi16`) is outside the docker-only compile guarantee.
+7. Residual host DOSBox library path (`msvc16`/`tc16`/`delphi16`) and host-wine `cvdump.exe` PDB reader (`pdb_cvdump`, no child timeout) are outside the docker-only compile guarantee.
 8. Optional `rebrew prove` / angr has no resource sandbox beyond CLI loop/timeout knobs.
 9. `REBREW_SKILLS_DIR` skill **content** is trusted after path-escape refusal — hostile markdown can still steer agents.
 
 **Single points of failure:** (a) trust in the local Python environment + entry points; (b) trust in the container runtime and image contents; (c) Host allow-list as the sole dashboard browser control; (d) GitHub as the sole publisher of wibo release digests.
 
-**Doc vs code:** This model does not claim mitigations the code lacks. Older prose that implied host wine fallback on the shipped compile path is obsolete (docker-only shipped profiles) — see ADR 008/016, not this model. Optional `rebrew init` wibo download remains a separate supply-chain path ([`wibo.py`](../src/rebrew/wibo.py)), not a compile-host fallback. Host DOSBox helpers remain for library/test use and must not be read as a restored compile fallback. `--network=none` blocks egress during local container compiles; it is **not** a hardened sandbox against a hostile project tree or malicious image ([`SECURITY.md`](../SECURITY.md)). Do **not** read the open upstream diskcache advisory as “rebrew still unpickles cache entries”: the packaged backends refuse pickle modes.
+**Doc vs code:** This model does not claim mitigations the code lacks. Older prose that implied host wine fallback on the shipped compile path is obsolete (docker-only shipped profiles; see ADR 008/016, not this model). Optional `rebrew init` wibo download remains a separate supply-chain path ([`wibo.py`](../src/rebrew/wibo.py)), not a compile-host fallback. Host DOSBox helpers and the host-wine `cvdump.exe` PDB reader ([`pdb_cvdump.py`](../src/rebrew/pdb_cvdump.py)) remain for library/test use and must not be read as a restored compile fallback. `--network=none` blocks egress during local container compiles; it is **not** a hardened sandbox against a hostile project tree or malicious image ([`SECURITY.md`](../SECURITY.md)). Do **not** read the open upstream diskcache advisory as “rebrew still unpickles cache entries”: the packaged backends refuse pickle modes.
 
 ---
 
@@ -226,6 +229,7 @@ Scenarios assume the operator can run CLI commands; there is no separate auth la
 | Re-pin toolchain media to attacker-chosen archive | `rebrew toolchain` pin-update paths that rewrite `SOURCES` / Dockerfile sha ([`toolchain_cli.py`](../src/rebrew/toolchain_cli.py)) |
 | Land hostile agent skills via overlay | `REBREW_SKILLS_DIR` + `rebrew init` ([`skills.py`](../src/rebrew/skills.py), [`init.py`](../src/rebrew/init.py)) — path escape blocked; markdown content is not |
 | Run host DOSBox against staged 16-bit trees | Library helpers [`msvc16.compile_c`](../src/rebrew/msvc16.py) / [`tc16`](../src/rebrew/tc16.py) / [`delphi16`](../src/rebrew/delphi16.py) via [`dosbox.run_dosbox`](../src/rebrew/dosbox.py) (not the shipped docker compile path) |
+| Run an arbitrary Windows binary under host wine | Point `REBREW_CVDUMP` at it, then read a PDB through [`Cvdump`](../src/rebrew/pdb_cvdump.py) (library helper, not a shipped CLI path) |
 
 Client-side enforcement: N/A for core CLI. Dashboard UI filters are convenience only; API query params are server-parsed with caps.
 

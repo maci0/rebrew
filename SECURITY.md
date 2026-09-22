@@ -59,5 +59,6 @@ plugin cache backends or remove the open upstream diskcache advisory.
   open pickle advisory is mitigated for packaged backends by `NoPickleDisk`,
   not by claiming the upstream advisory is fixed.
 - No claim that library helpers which invoke host DOSBox
-  (`rebrew.msvc16` / `tc16` / `delphi16`) are covered by the docker-only
-  compile guarantee on the shipped CLI compile path.
+  (`rebrew.msvc16` / `tc16` / `delphi16`) or host wine (`rebrew.pdb_cvdump`
+  runs `cvdump.exe` from `REBREW_CVDUMP` or `PATH`) are covered by the
+  docker-only compile guarantee on the shipped CLI compile path.
