@@ -91,6 +91,22 @@ class TestUnpack:
         assert words[0x0C] == 0x1C  # lfarlc -> our reloc table position
         assert words[4] * 16 + len(unpack_lzexe(PACKED).image) == len(out)
 
+    def test_alloc_words_wrap_as_u16(self, tmp_path: Path) -> None:
+        """minalloc/maxalloc are rebuilt with 16-bit wraparound like unlzexe's
+        WORD math; a packed minalloc smaller than the stub's reserve must not
+        make ``to_bytes`` fail on a negative header word."""
+        data = bytearray(PACKED.read_bytes())
+        struct.pack_into("<H", data, 0x0A, 0)  # packed minalloc = 0
+        packed = tmp_path / "min0.exe"
+        packed.write_bytes(bytes(data))
+        ihead = _header(packed)
+        inf = struct.unpack_from("<8H", data, (ihead[0x0B] + ihead[4]) * 16)
+        reserve = inf[5] + ((inf[6] + 15) >> 4) + 9
+
+        r = unpack_lzexe(packed)
+        words = struct.unpack_from("<14H", r.to_bytes(), 0)
+        assert words[5] == (-reserve) & 0xFFFF
+
 
 class TestDecompress:
     def test_decompress_stream_offset(self) -> None:

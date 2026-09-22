@@ -402,11 +402,13 @@ def _unpack_impl(data: bytes, version: int) -> LzexeResult:
     image = _decompress(data, stream_off, max_out=max_out)
     loadsize = len(image)
 
-    # Rebuild minalloc/maxalloc/cblp/cp (unlzexe's wrhead).
+    # Rebuild minalloc/maxalloc/cblp/cp (unlzexe's wrhead).  unlzexe does
+    # this in 16-bit WORD arithmetic, so wrap the same way; unbounded ints
+    # went negative for a small packed minalloc and failed in to_bytes().
     if ihead[6] != 0:
-        ohead[5] -= inf[5] + ((inf[6] + 15) >> 4) + 9
+        ohead[5] = (ohead[5] - (inf[5] + ((inf[6] + 15) >> 4) + 9)) & 0xFFFF
         if ihead[6] != 0xFFFF:
-            ohead[6] -= ihead[5] - ohead[5]
+            ohead[6] = (ohead[6] - (ihead[5] - ohead[5])) & 0xFFFF
     ohead[1] = (loadsize + (cparhdr << 4)) & 0x1FF  # cblp
     ohead[2] = (loadsize + (cparhdr << 4) + 0x1FF) >> 9  # cp
 

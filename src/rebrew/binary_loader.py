@@ -1289,10 +1289,12 @@ def parse_mz_header(path: str | Path) -> dict[str, int]:
     # formula would undercount by 512 and yield an empty code region for
     # files whose size is an exact multiple of 512.
     file_size = ((cp - 1) * 512 + cblp) if cp > 0 and cblp > 0 else (cp * 512 if cp > 0 else 0)
-    if file_size == 0:
-        import os
+    import os
 
-        file_size = os.path.getsize(path)
+    # A truncated file holds fewer bytes than its page count claims; the
+    # code region must not run past EOF.
+    actual_size = os.path.getsize(path)
+    file_size = min(file_size, actual_size) if file_size else actual_size
     header_size = cparhdr * 16
     # The code region starts at the end of the header paragraphs — the MZ
     # loader maps the file from cparhdr*16 onward as the load image.  The

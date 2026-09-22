@@ -592,6 +592,24 @@ def test_mz_file_size_exact_512_multiple(tmp_path: Path) -> None:
     assert code == bytes.fromhex("55 8b ec 5d c3")
 
 
+def test_mz_code_size_clamped_to_truncated_file(tmp_path: Path) -> None:
+    """A header claiming more pages than the file holds (truncated copy) must
+    not report a code region past EOF."""
+    import struct
+
+    from rebrew.binary_loader import parse_mz_header
+
+    data = bytearray(600)
+    data[0:2] = b"MZ"
+    struct.pack_into("<H", data, 4, 4)  # cp = 4 pages (2048 bytes claimed)
+    struct.pack_into("<H", data, 8, 2)  # cparhdr = 32 bytes
+    exe = tmp_path / "mz_trunc.exe"
+    exe.write_bytes(bytes(data))
+
+    h = parse_mz_header(exe)
+    assert h["code_offset"] + h["code_size"] == 600
+
+
 # -------------------------------------------------------------------------
 # LIEF logger silencing (round: tooling sweep)
 # -------------------------------------------------------------------------
