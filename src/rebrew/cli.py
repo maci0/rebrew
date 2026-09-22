@@ -71,6 +71,134 @@ TargetOption: str | None = typer.Option(
 )
 
 
+# Re-usable Typer option for --all-targets
+AllTargetsOption: bool = typer.Option(
+    False,
+    "--all-targets",
+    help="Run across EVERY configured target (default: project default target only).",
+)
+
+
+def iter_target_configs(
+    cfg: ProjectConfig, *, json_mode: bool = False
+) -> list[ProjectConfig]:
+    """Per-target configs for an --all-targets run.
+
+    Expands the already-loaded (default or explicit) config to one config
+    per configured target, preserving project root.  Returns ``[cfg]`` when
+    the project has one target.  A broken target raises here — callers that
+    must survive one bad target (batch runners) should iterate
+    ``cfg.all_targets`` with their own try/except instead.
+    """
+    names = list(getattr(cfg, "all_targets", []) or [])
+    if len(names) <= 1:
+        return [cfg]
+    out: list[ProjectConfig] = []
+    for name in names:
+        try:
+            out.append(load_config(root=cfg.root, target=name))
+        except (FileNotFoundError, KeyError, ValueError) as exc:
+            error_exit(f"Config error for target {name!r}: {exc}", json_mode=json_mode)
+    return out
+
+
+def run_for_each_target(
+    names: list[str],
+    run_one: Any,
+    *,
+    json_mode: bool = False,
+) -> int:
+    """Run ``run_one(target_name)`` once per target and aggregate.
+
+    Shared mechanics behind ``--all-targets``: the per-target run is usually
+    the tool's own entry point re-invoked with ``target=<name>``.  One bad
+    target must not discard the others' results, so ``typer.Exit`` and
+    unexpected errors are caught per target and the WORST exit code is
+    returned (0 all ok, 1 any mismatch, 2 any error).
+
+    In JSON mode each run's stdout is captured and nested under a single
+    ``{"targets": {name: <doc>}}`` envelope — the aggregate stays one
+    parseable document instead of interleaved fragments.
+    """
+    import contextlib
+    import io
+    import logging
+
+    collected: dict[str, Any] = {}
+    worst = 0
+    for name in names:
+        buf: Any = None
+        try:
+            if json_mode:
+                buf = io.StringIO()
+                with contextlib.redirect_stdout(buf):
+                    run_one(name)
+            else:
+                _err_console.print(f"\n[bold cyan]=== Target {name} ===[/]")
+                run_one(name)
+        except typer.Exit as exc:
+            worst = max(worst, int(getattr(exc, "exit_code", 0) or 0))
+        except Exception as exc:
+            logging.warning("target %s failed", name, exc_info=True)
+            worst = max(worst, EXIT_ERROR)
+            if not json_mode:
+                _err_console.print(
+                    f"[yellow]warning:[/yellow] target {name} failed: "
+                    f"{type(exc).__name__}: {exc}"
+                )
+        if json_mode:
+            raw = (buf.getvalue() if buf is not None else "").strip()
+            if raw:
+                try:
+                    collected[name] = json.loads(raw)
+                except ValueError:
+                    collected[name] = {"raw": raw}
+            else:
+                collected[name] = None
+    if json_mode:
+        json_print({"targets": collected})
+    return worst
+
+
+def all_targets_run(
+    *,
+    target: str | None,
+    all_targets: bool,
+    json_mode: bool,
+    run_one: Any,
+) -> bool:
+    """Dispatch an ``--all-targets`` sweep; return True when it handled the run.
+
+    Entry points call this first::
+
+        if all_targets_run(
+            target=target, all_targets=all_targets, json_mode=json_output,
+            run_one=lambda n: main(..., target=n, all_targets=False),
+        ):
+            return
+
+    Validates mutual exclusion of ``--target`` and ``--all-targets``, takes
+    the target list from the project config, delegates to
+    :func:`run_for_each_target`, and raises ``typer.Exit`` with the worst
+    per-target code.  Returns False when the caller should run normally for
+    a single target.
+    """
+    if not all_targets:
+        return False
+    if target is not None:
+        error_exit(
+            "--all-targets and --target are mutually exclusive — "
+            "pick one target or sweep them all",
+            json_mode=json_mode,
+        )
+    cfg = require_config(target=None, json_mode=json_mode)
+    names = list(getattr(cfg, "all_targets", []) or []) or [cfg.target_name]
+    code = run_for_each_target(names, run_one, json_mode=json_mode)
+    if code:
+        raise typer.Exit(code=code)
+    return True
+
+
 def require_config(
     target: str | None = None,
     *,

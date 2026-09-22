@@ -26,8 +26,11 @@ from rich.text import Text
 from rebrew.cli import (
     DISPLAY_STATUSES,
     STATUS_COLORS,
+    AllTargetsOption,
     TargetOption,
+    all_targets_run,
     json_print,
+    option_default,
     require_config,
 )
 from rebrew.config import ProjectConfig
@@ -882,8 +885,17 @@ app = typer.Typer(
 def main(
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
+    all_targets: bool = AllTargetsOption,
 ) -> None:
     """Show reversing progress overview for the current project."""
+    all_targets = option_default(all_targets, False)
+    if all_targets_run(
+        target=target,
+        all_targets=all_targets,
+        json_mode=json_output,
+        run_one=lambda n: main(json_output=json_output, target=n, all_targets=False),
+    ):
+        return
     cfg = require_config(target=target, json_mode=json_output)
     report = collect_status(cfg)
 

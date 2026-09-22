@@ -31,7 +31,7 @@ from pathlib import Path
 import typer
 from rich.console import Console
 
-from rebrew.cli import error_exit, json_print
+from rebrew.cli import TargetOption, error_exit, json_print
 from rebrew.pe_headers import find_section
 from rebrew.utils import atomic_write_text, load_tomllib, read_source_text
 from rebrew.workspace import walk_up_to_root
@@ -44,28 +44,35 @@ app = typer.Typer(
 )
 
 
-def _layout_data_vs(root: Path) -> int | None:
-    """Reference ``.data`` VirtualSize from the layout package (default target)."""
+def _layout_data_vs(root: Path, target: str | None = None) -> int | None:
+    """Reference ``.data`` VirtualSize from the layout package.
+
+    *target* selects its ``layout/<target>/`` package; without it the
+    project's ``default_target`` applies (falling back to a package scan).
+    """
     from rebrew.layout_meta import read_layout_geometry
 
-    default = ""
-    with contextlib.suppress(OSError, tomllib.TOMLDecodeError):
-        default = str(
-            load_tomllib(root / "rebrew-project.toml").get("project", {}).get("default_target")
-            or ""
-        )
-    targets = [default] if default else []
-    targets += [
-        p.parent.name
-        for p in sorted((root / "layout").glob("*/rebrew-layout.toml"))
-        if p.parent.name not in targets
-    ]
+    if target:
+        targets = [target]
+    else:
+        default = ""
+        with contextlib.suppress(OSError, tomllib.TOMLDecodeError):
+            default = str(
+                load_tomllib(root / "rebrew-project.toml").get("project", {}).get("default_target")
+                or ""
+            )
+        targets = [default] if default else []
+        targets += [
+            p.parent.name
+            for p in sorted((root / "layout").glob("*/rebrew-layout.toml"))
+            if p.parent.name not in targets
+        ]
     # Default target first — scanning every target and returning the first
     # .data VS silently calibrated against the wrong binary when the project
     # has several targets (link-review F7).
-    for target in targets:
+    for candidate in targets:
         with contextlib.suppress(ValueError):
-            base, _raw_end, section_end = read_layout_geometry(root, target)
+            base, _raw_end, section_end = read_layout_geometry(root, candidate)
             return section_end - base
     return None
 
@@ -107,6 +114,7 @@ def main(
     cflags: str = typer.Option("/O2 /Gd", "--cflags", help="Flags for the stub compile"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    target: str | None = TargetOption,
 ) -> None:
     """Calibrate *symbol* in *stub* so the raw link's .data VirtualSize == *target_vs*."""
     root = walk_up_to_root(Path.cwd())
@@ -116,7 +124,7 @@ def main(
     if not stub.exists():
         error_exit(f"stub file not found: {stub}", json_mode=json_output)
     if target_vs is None:
-        target_vs_int = _layout_data_vs(root)
+        target_vs_int = _layout_data_vs(root, target=target)
         if target_vs_int is None:
             error_exit(
                 "no target VS given and no .data vs in the layout metadata", json_mode=json_output

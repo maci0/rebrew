@@ -36,9 +36,12 @@ from rebrew.cli import (
     EXIT_ERROR,
     EXIT_MISMATCH,
     STATUS_COLORS,
+    AllTargetsOption,
     TargetOption,
+    all_targets_run,
     error_exit,
     json_print,
+    option_default,
     parse_va,
     require_config,
     resolve_source_arg,
@@ -265,6 +268,7 @@ def main(
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
+    all_targets: bool = AllTargetsOption,
 ) -> None:
     """Compile a source file and compare one function against target bytes.
 
@@ -298,6 +302,50 @@ def main(
         target: Optional target profile name from ``rebrew-project.toml``.
 
     """
+    all_targets = option_default(all_targets, False)
+    if all_targets:
+        # --va/--target-bin pin ONE target's address space and --watch blocks
+        # the sweep; none survive a multi-target run.
+        for clash, why in (
+            (watch, "--watch"),
+            (va, "--va"),
+            (target_bin, "--target-bin"),
+        ):
+            if clash:
+                error_exit(
+                    f"--all-targets and {why} are mutually exclusive "
+                    "(each target resolves its own)",
+                    json_mode=json_output,
+                )
+    if all_targets_run(
+        target=target,
+        all_targets=all_targets,
+        json_mode=json_output,
+        run_one=lambda n: main(
+            source=source,
+            va=None,
+            symbol=symbol,
+            target_bin=None,
+            size=size,
+            cflags=cflags,
+            toolchain=toolchain,
+            all_sources=all_sources,
+            batch_dir=batch_dir,
+            origin=origin,
+            dry_run=dry_run,
+            jobs=jobs,
+            no_promote=no_promote,
+            force_status=force_status,
+            fix_sizes=fix_sizes,
+            linked=linked,
+            watch=False,
+            context=context,
+            json_output=json_output,
+            target=n,
+            all_targets=False,
+        ),
+    ):
+        return
     cfg = require_config(target=target, json_mode=json_output)
 
     # The optional compile context: a file of types/prototypes compiled with

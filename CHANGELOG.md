@@ -1,5 +1,21 @@
 ## [Unreleased]
 ### Added
+- **--all-targets for the batch tools (verify/test/lint/status/todo).**
+  Target selection contract: every project-scoped command runs the
+  project's `default_target` when no `--target` is given, `--target NAME`
+  overrides, and `--all-targets` sweeps every configured target with
+  per-target headers, worst-exit-code aggregation (0 ok / 1 mismatch /
+  2 error) and one nested `{"targets": {...}}` JSON envelope. Shared
+  mechanics live in `cli.run_for_each_target`/`cli.all_targets_run`;
+  `--all-targets` is mutually exclusive with `--target` and with
+  per-target artifacts (`--watch`/`--output`/`--built`/`--va`/
+  `--target-bin`). `tests/test_target_defaults.py` pins the contract:
+  every registered command must expose `--target` or join a justified
+  exemption list.
+- **verify-placement/calibrate-bss honor the active target.**
+  `verify-placement --built` defaults to `build/<target>` (was one
+  hardcoded `build/server.dll`), `calibrate-bss` takes `--target` to pick
+  the layout package (was default-target-only).
 - **ADR 023 — markers: TOML single source (pure-C sources).**
   `rebrew migrate-markers` moves inline markers into
   `rebrew-functions.toml` (`file`/`symbol`/`name`/`marker_type` + SIZE/

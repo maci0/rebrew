@@ -13,12 +13,14 @@ Usage:
 
 from __future__ import annotations
 
+import contextlib
 from pathlib import Path
 
 import typer
 from rich.console import Console
 
-from rebrew.cli import EXIT_MISMATCH, error_exit, json_print
+from rebrew.cli import EXIT_MISMATCH, TargetOption, error_exit, json_print
+from rebrew.config import load_config
 from rebrew.data_layout import built_data_va
 
 console = Console(stderr=True)
@@ -34,19 +36,29 @@ def main(
     data_metadata: Path = typer.Option(
         Path("src/rebrew-data.toml"), "--data-metadata", help="Data metadata toml path"
     ),
-    built: Path = typer.Option(
-        Path("build/server.dll"),
+    built: Path | None = typer.Option(
+        None,
         "--built",
-        help="Built binary to inspect (default: build/server.dll)",
+        help="Built binary to inspect (default: build/<target>)",
     ),
     limit: int = typer.Option(15, "--limit", help="Max misplaced symbols to print"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    target: str | None = TargetOption,
 ) -> None:
     """Build-then-compare: .data symbol VAs of the current build vs the metadata."""
     root = Path.cwd()
     metadata = data_metadata if data_metadata.is_absolute() else root / data_metadata
     if not metadata.exists():
         error_exit(f"data metadata not found: {metadata}", json_mode=json_output)
+    if built is not None and not isinstance(built, Path):
+        built = None  # direct-call default guard (see cli.option_default)
+    if built is None:
+        # Default to the ACTIVE target's build output — one project serves
+        # several binaries and each keeps its own build/<target> file.
+        target_name = "server.dll"
+        with contextlib.suppress(FileNotFoundError, KeyError, ValueError):
+            target_name = load_config(root=root, target=target).target_name
+        built = Path("build") / target_name
     dll = built if built.is_absolute() else root / built
     if not dll.exists():
         error_exit(

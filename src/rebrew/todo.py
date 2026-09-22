@@ -30,9 +30,12 @@ from rich.table import Table
 
 from rebrew.annotation import span_contains_factory
 from rebrew.cli import (
+    AllTargetsOption,
     TargetOption,
+    all_targets_run,
     error_exit,
     json_print,
+    option_default,
     require_config,
 )
 from rebrew.compile import NEAR_MATCH_THRESHOLD
@@ -1164,8 +1167,24 @@ def main(
     stats: bool = typer.Option(False, "--stats", "-s", help="Show coverage stats header"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
+    all_targets: bool = AllTargetsOption,
 ) -> None:
     """Show prioritized actions ranked by ROI."""
+    all_targets = option_default(all_targets, False)
+    if all_targets_run(
+        target=target,
+        all_targets=all_targets,
+        json_mode=json_output,
+        run_one=lambda n: main(
+            count=count,
+            category=category,
+            stats=stats,
+            json_output=json_output,
+            target=n,
+            all_targets=False,
+        ),
+    ):
+        return
     cfg = require_config(target=target, json_mode=json_output)
     try:
         ghidra_funcs, existing, covered_vas = load_data(cfg)

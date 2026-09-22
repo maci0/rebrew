@@ -47,9 +47,12 @@ from rebrew.cli import (
     EXIT_ERROR,
     EXIT_MISMATCH,
     STATUS_COLORS,
+    AllTargetsOption,
     TargetOption,
+    all_targets_run,
     error_exit,
     json_print,
+    option_default,
     require_config,
 )
 from rebrew.compile import (
@@ -699,8 +702,57 @@ def main(
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
+    all_targets: bool = AllTargetsOption,
 ) -> None:
     """Rebrew verification pipeline: compile each .c and verify bytes match."""
+    all_targets = option_default(all_targets, False)
+    if all_targets:
+        # Per-target artifacts would collide: one watch loop blocks the
+        # sweep, one --output file is overwritten by every target, one
+        # --built binary cannot be every target's build output.
+        for clash, why in (
+            (watch, "--watch"),
+            (output_path, "--output"),
+            (built, "--built"),
+        ):
+            if clash:
+                error_exit(
+                    f"--all-targets and {why} are mutually exclusive "
+                    "(each target needs its own)",
+                    json_mode=json_output,
+                )
+    if all_targets_run(
+        target=target,
+        all_targets=all_targets,
+        json_mode=json_output,
+        run_one=lambda n: main(
+            file=file,
+            root=root,
+            jobs=jobs,
+            output_path=None,
+            summary=summary,
+            diff_mode=diff_mode,
+            full=full,
+            fix_sizes=fix_sizes,
+            dry_run=dry_run,
+            batch_dir=batch_dir,
+            origin=origin,
+            no_promote=no_promote,
+            watch=False,
+            nolib=nolib,
+            prune_orphans=prune_orphans,
+            data=data,
+            built=None,
+            raw_link=raw_link,
+            text=text,
+            whole_binary=whole_binary,
+            context=context,
+            json_output=json_output,
+            target=n,
+            all_targets=False,
+        ),
+    ):
+        return
     cfg = require_config(target=target, json_mode=json_output, root=root)
     if jobs is None:
         jobs = cfg.default_jobs

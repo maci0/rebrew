@@ -39,8 +39,11 @@ from rebrew.annotation import (
 )
 from rebrew.cli import (
     EXIT_MISMATCH,
+    AllTargetsOption,
     TargetOption,
+    all_targets_run,
     json_print,
+    option_default,
 )
 from rebrew.config import ProjectConfig, inventory_path_for, load_config
 from rebrew.data_metadata import load_data_metadata
@@ -1745,8 +1748,27 @@ def main(
     summary: bool = typer.Option(False, "--summary", help="Print status/origin breakdown"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
+    all_targets: bool = AllTargetsOption,
 ) -> None:
     """Lint source marker standards in decomp C source files."""
+    all_targets = option_default(all_targets, False)
+    if all_targets_run(
+        target=target,
+        all_targets=all_targets,
+        json_mode=json_output,
+        run_one=lambda n: main(
+            fix=fix,
+            dry_run=dry_run,
+            quiet=quiet,
+            pedantic=pedantic,
+            files=files,
+            summary=summary,
+            json_output=json_output,
+            target=n,
+            all_targets=False,
+        ),
+    ):
+        return
     # Intentionally use load_config (not require_config) — lint degrades
     # gracefully when no config is present (e.g. linting standalone files).
     cfg = None
