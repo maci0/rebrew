@@ -27,6 +27,9 @@
   containment guard silently skipped renames/prototypes/markers for every
   `../shared` file; `_inside_project` covers the shared tree too (overlay
   renames ride the same fix).
+- **`link-order` sorts stacked files by the target's own VA.**  The old
+  minimum-across-all-markers could file a shared TU at another target's
+  address; unknown modules fall back to the old minimum.
 - **`merge --shared` collapses twin copies.**  Same-body files with different
   target markers become one stacked block (markers + SIZE lines preserved);
   same-name different-body twins are refused with names, never averaged —

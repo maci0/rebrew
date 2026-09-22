@@ -75,3 +75,28 @@ class TestBlockMarkersAndZeroVa:
         lo = _write(tmp_path / "b.c", "// FUNCTION: T 0x10001000\nint b(void){return 0;}\n")
         ordered, _ = order_sources([hi, lo], first_va={"a.c": 0x0})
         assert ordered == [hi, lo]
+
+
+class TestFileVaMarker:
+    """Stacked shared files order by the requesting target's own marker."""
+
+    def _stacked(self, tmp_path: Path) -> Path:
+        p = tmp_path / "s.c"
+        p.write_text(
+            "// FUNCTION: V2 0x501000\n// SIZE: 11\n"
+            "// FUNCTION: V1 0x401000\n// SIZE: 11\n"
+            "int common(void){return 1;}\n",
+            encoding="utf-8",
+        )
+        return p
+
+    def test_unfiltered_minimum_unchanged(self, tmp_path: Path) -> None:
+        assert file_va(self._stacked(tmp_path)) == 0x401000
+
+    def test_marker_scopes_to_own_va(self, tmp_path: Path) -> None:
+        f = self._stacked(tmp_path)
+        assert file_va(f, "V2") == 0x501000
+        assert file_va(f, "V1") == 0x401000
+
+    def test_unknown_marker_falls_back(self, tmp_path: Path) -> None:
+        assert file_va(self._stacked(tmp_path), "V9") == 0x401000

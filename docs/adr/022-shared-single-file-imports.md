@@ -74,6 +74,8 @@ copy.
   the shared tree, not just `reversed_dir`. Push/export was already
   shared-aware via cfg scans; Ghidra MCP ops create in-Ghidra or write the
   per-target globals header, unaffected.
+- `link-order` sorts a stacked file by the requesting target's own marker
+  VA (unknown modules keep the old cross-marker minimum).
 
 ## Consequences
 

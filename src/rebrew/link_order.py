@@ -38,15 +38,19 @@ app = typer.Typer(
 
 _CMAKE_LISTS = "CMakeLists.txt"
 
-_FUNC_RE = re.compile(r"^(?://|/\*)\s*FUNCTION:\s+\S+\s+0x([0-9A-Fa-f]+)", re.M)
+_FUNC_RE = re.compile(r"^(?://|/\*)\s*FUNCTION:\s+(\S+)\s+0x([0-9A-Fa-f]+)", re.M)
 
 
-def file_va(path: Path) -> int | None:
+def file_va(path: Path, marker: str | None = None) -> int | None:
     """Lowest ``// FUNCTION:``/``/* FUNCTION: */`` VA in *path* (None when none).
 
     Both marker styles are accepted: the block form is what rebrew emits for
     C89-strict 16-bit compilers, and matching only ``//`` dropped those files
     to the unknown-VA tail of the order.
+
+    With *marker*, only that target's markers count: a stacked shared file
+    carries one VA per target in unrelated address spaces, so the minimum
+    across all markers can order the file at another target's address.
     """
     try:
         # Detected encoding (not UTF-8-replace): markers are ASCII, but a
@@ -55,7 +59,15 @@ def file_va(path: Path) -> int | None:
         text, _ = read_source_text(path)
     except OSError:
         return None
-    vas = [int(m.group(1), 16) for m in _FUNC_RE.finditer(text)]
+    if marker is None:
+        vas = [int(m.group(2), 16) for m in _FUNC_RE.finditer(text)]
+    else:
+        matches = [(m.group(1), int(m.group(2), 16)) for m in _FUNC_RE.finditer(text)]
+        own = [va for mod, va in matches if mod.lower() == marker.lower()]
+        # Fall back to all markers when none names this target (legacy files
+        # whose module predates the configured marker) — filtering to empty
+        # would drop every file to the unknown-VA tail.
+        vas = own or [va for _, va in matches]
     return min(vas) if vas else None
 
 
@@ -72,6 +84,7 @@ def order_sources(
     files: list[Path],
     first_va: dict[str, int] | None = None,
     exclude: set[str] | None = None,
+    marker: str | None = None,
 ) -> tuple[list[Path], list[str]]:
     """Order *files* by first-function VA.
 
@@ -79,6 +92,7 @@ def order_sources(
     unknown-VA files in path order; *excluded* files (absent from the
     original) are dropped.  ``first_va`` and ``exclude`` match on basenames,
     so ``zlib/adler32.c=0x10001000`` matches ``src/zlib/adler32.c``.
+    *marker* scopes stacked shared files to one target's VA.
     """
     first_by_base = {_base_key(k): v for k, v in (first_va or {}).items()}
     exclude_bases = {_base_key(e) for e in (exclude or set())}
@@ -92,7 +106,7 @@ def order_sources(
             continue
         # Presence check, not truthiness: an explicit --first-va of 0x0 is a
         # real override and must not fall through to the marker.
-        va = first_by_base[base] if base in first_by_base else file_va(f)
+        va = first_by_base[base] if base in first_by_base else file_va(f, marker)
         if va is None:
             unknown.append(f)
         else:
@@ -363,7 +377,7 @@ def main(
     files = iter_sources(cfg.reversed_dir, cfg)
     if not files:
         error_exit(f"no source files found in {cfg.reversed_dir}", json_mode=json_output)
-    ordered_paths, _excluded = order_sources(files)
+    ordered_paths, _excluded = order_sources(files, marker=getattr(cfg, "marker", None))
     by_key = {_abs_key(cfg.root, str(p)): _rel(cfg.root, p) for p in ordered_paths}
     computed = [_rel(cfg.root, p) for p in ordered_paths]
 
