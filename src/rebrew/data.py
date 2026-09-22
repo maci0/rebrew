@@ -1110,14 +1110,26 @@ def main(
     if gen_header:
         from rebrew.data_annotate import gen_globals_header
 
-        gen_globals_header(
-            cfg,
-            src_dir,
-            out_path=gen_header_out,
-            force=force,
-            dry_run=dry_run,
-            json_output=json_output,
-        )
+        try:
+            result = gen_globals_header(
+                cfg, src_dir, out_path=gen_header_out, force=force, dry_run=dry_run
+            )
+        except FileExistsError as exc:
+            error_exit(str(exc), json_mode=json_output)
+        if json_output:
+            json_print(result)
+            return
+        out_name = Path(result["path"]).name
+        if dry_run:
+            console.print(
+                f"[cyan]dry-run:[/cyan] would write {result['path']} with {result['globals']} globals"
+            )
+        elif not result["written"]:
+            console.print(f"[dim]{out_name} unchanged[/dim] ({result['globals']} globals)")
+        else:
+            console.print(f"[green]Wrote {out_name}[/green] with {result['globals']} globals")
+            for sec, count in result["sections"].items():
+                console.print(f"  {sec}: {count}")
         return
 
     # --layout-audit / --fill-data / --own / --fix-ownership / --converge:

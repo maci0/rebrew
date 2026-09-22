@@ -5,7 +5,6 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-import typer
 from typer.testing import CliRunner
 
 from rebrew.data import (
@@ -295,8 +294,9 @@ class TestGenGlobalsHeader:
         cfg = _cfg(tmp_path)
         out = cfg.reversed_dir / "rebrew_globals.h"
         out.write_text("existing", encoding="utf-8")
-        with pytest.raises(typer.Exit):
+        with pytest.raises(FileExistsError):
             gen_globals_header(cfg, cfg.reversed_dir, out_path=out)
+        assert out.read_text(encoding="utf-8") == "existing"
 
     def test_force_overwrites(self, tmp_path: Path) -> None:
         cfg = _cfg(tmp_path)
@@ -484,6 +484,18 @@ class TestDataCli:
             tmp_path, monkeypatch, ["--gen-header", "--force", "--dry-run", "--json"]
         )
         assert json.loads(result.output)["dry_run"] is True
+
+    def test_gen_header_refuses_overwrite_without_force(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        cfg = _cfg(tmp_path)
+        self._write_global(cfg)
+        out = cfg.reversed_dir / "rebrew_globals.h"
+        out.write_text("existing", encoding="utf-8")
+        result = self._invoke(tmp_path, monkeypatch, ["--gen-header", "--json"])
+        assert result.exit_code == 2, result.output
+        assert "already exists" in json.loads(result.output)["error"]
+        assert out.read_text(encoding="utf-8") == "existing"
 
     def test_gen_header_out_custom_path(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

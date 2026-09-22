@@ -13,14 +13,9 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from rich.console import Console
-
-from rebrew.cli import error_exit, json_print
 from rebrew.config import ProjectConfig, module_marker
 from rebrew.data_metadata import iter_data_symbols
 from rebrew.utils import atomic_write_text, load_tomllib, read_source_text
-
-console = Console(stderr=True)
 
 
 def annotate_globals(
@@ -242,8 +237,7 @@ def gen_globals_header(
     force: bool = False,
     *,
     dry_run: bool = False,
-    json_output: bool = False,
-) -> None:
+) -> dict[str, Any]:
     """Generate rebrew_globals.h from GLOBAL:/DATA: annotations + data metadata.
 
     Writes ``{out_path}`` (default: ``{src_dir}/rebrew_globals.h``) with
@@ -255,10 +249,16 @@ def gen_globals_header(
         cfg: Project configuration.
         src_dir: Reversed sources directory (used for annotation scanning).
         out_path: Output file path.  Defaults to ``src_dir/rebrew_globals.h``.
-        force: When False (default), refuses to overwrite an existing file and
-            exits with an error message.  Pass True to allow overwriting.
+        force: When False (default), refuses to overwrite an existing file.
+            Pass True to allow overwriting.
         dry_run: When True, report what would be written without touching disk.
-        json_output: When True, errors are emitted as JSON.
+
+    Returns:
+        ``path``, ``written``, ``dry_run``, ``globals`` (count) and
+        ``sections`` (count per section, in emission order).
+
+    Raises:
+        FileExistsError: ``out_path`` exists and ``force`` is False.
     """
     from rebrew.annotation import parse_c_file_multi
     from rebrew.data_metadata import load_data_metadata
@@ -396,29 +396,21 @@ def gen_globals_header(
 
     out = out_path if out_path is not None else src_dir / "rebrew_globals.h"
     if out.exists() and not force:
-        error_exit(
-            f"{out} already exists. Use --force to overwrite.",
-            json_mode=json_output,
-        )
+        raise FileExistsError(f"{out} already exists. Use --force to overwrite.")
 
     def _header_payload(written: bool) -> dict[str, Any]:
-        """--json output for every success path (docs/CLI.md: JSON for all modes)."""
+        ordered = [sec for sec in section_order if sec in by_section]
+        ordered += sorted(sec for sec in by_section if sec not in emitted)
         return {
             "path": str(out),
             "written": written,
             "dry_run": dry_run,
             "globals": len(rows),
-            "sections": {
-                (sec or "(unknown)"): len(items) for sec, items in by_section.items() if items
-            },
+            "sections": {(sec or "(unknown)"): len(by_section[sec]) for sec in ordered},
         }
 
     if dry_run:
-        if json_output:
-            json_print(_header_payload(written=False))
-        else:
-            console.print(f"[cyan]dry-run:[/cyan] would write {out} with {len(rows)} globals")
-        return
+        return _header_payload(written=False)
 
     content = "\n".join(header_lines)
     if out.exists():
@@ -431,19 +423,7 @@ def gen_globals_header(
             return "\n".join(line for line in text.splitlines() if "Generated:" not in line)
 
         if _strip_timestamp(existing) == _strip_timestamp(content):
-            if json_output:
-                json_print(_header_payload(written=False))
-            else:
-                console.print(f"[dim]{out.name} unchanged[/dim] ({len(rows)} globals)")
-            return
+            return _header_payload(written=False)
 
     atomic_write_text(out, content, encoding="utf-8")
-
-    if json_output:
-        json_print(_header_payload(written=True))
-        return
-    console.print(f"[green]Wrote {out.name}[/green] with {len(rows)} globals")
-    for sec in section_order:
-        items = by_section.get(sec or "")
-        if items:
-            console.print(f"  {sec or '(unknown)'}: {len(items)}")
+    return _header_payload(written=True)
