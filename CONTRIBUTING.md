@@ -32,7 +32,7 @@ is older than `UV_VERSION`.
 git clone https://github.com/maci0/rebrew.git
 git clone --depth 1 --branch v2.0.0 https://github.com/maci0/resembl.git
 cd rebrew
-make setup                    # uv sync --frozen --all-extras --group similarity + pre-commit install
+make setup                    # uv sync --frozen --all-extras --group similarity + pre-commit/pre-push hooks
 make test-one T=tests/test_annotation.py   # smoke the edit-test loop
 ```
 
@@ -42,7 +42,7 @@ make test-one T=tests/test_annotation.py   # smoke the edit-test loop
 make help                     # list contributor make targets
 make setup                    # frozen sync + pre-commit install (checks uv + ../resembl first)
 make test-one T=tests/foo.py  # single file / nodeid (fast edit-test loop)
-make test                     # full suite (~6700 tests; needs nasm)
+make test                     # full suite (~7800 tests, ~3.5 min; needs nasm)
 make all                      # local mirror of CI lint+test+cli-contract gates
 make check                    # pre-commit hook parity (CI pre-commit job)
 make build                    # reproducible sdist+wheel + dist/rebrew.buildinfo (CI package job)

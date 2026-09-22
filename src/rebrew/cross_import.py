@@ -256,9 +256,12 @@ def _library_vas(cfg: ProjectConfig) -> set[int]:
     from rebrew.annotation import parse_c_file_multi
     from rebrew.sources import iter_library_headers
 
+    reversed_dir = getattr(cfg, "reversed_dir", None)
+    if reversed_dir is None:
+        return set()
     modules = {str(m).upper() for m in (getattr(cfg, "external_libs", None) or ())}
     out: set[int] = set()
-    for path in iter_library_headers(cfg.reversed_dir, cfg):
+    for path in iter_library_headers(reversed_dir, cfg):
         for ann in parse_c_file_multi(path, metadata_dir=cfg.metadata_dir):
             kind = str(getattr(ann, "marker_type", "") or "").upper()
             module = str(getattr(ann, "module", "") or "").upper()
@@ -635,7 +638,7 @@ def import_shared_function(
         }
 
     from rebrew.annotation import Annotation
-    from rebrew.metadata import update_field
+    from rebrew.metadata import get_entry, remove_field, update_field
     from rebrew.verify import apply_status_updates, verify_entry
 
     src_flags = _source_flags(cfg_src, target_path)
@@ -651,8 +654,12 @@ def import_shared_function(
     # one more thing to keep in sync (guild-rebrew round 1293 imported 25
     # functions and 25 W029 rows appeared).
     inherited = str(getattr(cfg_dst, "cflags", "") or "").strip()
+    prior_cflags = ""
+    wrote_cflags = False
     if cflags and cflags != inherited:
+        prior_cflags = str(get_entry(cfg_dst.metadata_dir, dst_va, module).get("cflags") or "")
         update_field(cfg_dst.metadata_dir, dst_va, "cflags", cflags, module)
+        wrote_cflags = True
 
     # The verify filepath resolves against the destination's reversed_dir —
     # a shared file becomes ``../shared/f.c`` via the standard helper.
@@ -669,16 +676,30 @@ def import_shared_function(
         cflags=cflags,
     )
     result = verify_entry(entry, cfg_dst, cache=cache)
-    apply_status_updates([(entry, result.status, result.delta)], cfg_dst)
+    # The stack is withdrawn when it did not verify AND the destination
+    # already claims this VA from its own file: a rolled-back claim must not
+    # promote/demote STATUS either — the stub's earned status stands.
+    revert = not result.matched and dst_file and stacked != text
+    if not revert:
+        apply_status_updates([(entry, result.status, result.delta)], cfg_dst)
 
     action = "imported-shared" if result.matched else "imported-unverified"
     message = result.message
-    if not result.matched and dst_file and stacked != text:
+    if revert:
         # The stacked marker did not verify, and the destination already had
         # its own file for this VA.  Leaving both claims in place is a
         # duplicate VA (lint E013) for a function nobody has matched yet, so
-        # roll the stack back — the stub stays the sole owner.
+        # roll the stack back — the stub stays the sole owner.  The rollback
+        # covers the pre-verify metadata writes too: without restoring the
+        # flags the destination had before this attempt, a withdrawn import
+        # would keep compiling the stub under the SOURCE's cflags (a co-read
+        # contract field) with the original value lost.
         atomic_write_text(target_path, text, encoding=encoding)
+        if wrote_cflags:
+            if prior_cflags:
+                update_field(cfg_dst.metadata_dir, dst_va, "cflags", prior_cflags, module)
+            else:
+                remove_field(cfg_dst.metadata_dir, dst_va, "cflags", module)
         action = "skipped-unverified-duplicate"
         message = f"{message} (destination already annotates this VA; stack reverted)"
     if result.matched and dst_file:

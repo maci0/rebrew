@@ -39,7 +39,7 @@ SOURCE_DATE_EPOCH ?= $(shell git log -1 --pretty=%ct 2>/dev/null || echo 0)
 help:
 	@printf '%s\n' \
 		'Contributor targets:' \
-		'  make setup              # uv sync (frozen + extras + similarity) + pre-commit install' \
+		'  make setup              # uv sync (frozen + extras + similarity) + pre-commit/pre-push hooks' \
 		'  make test               # full pytest suite (needs nasm on PATH)' \
 		'  make test-one T=<node>  # one file/nodeid, e.g. T=tests/test_foo.py::TestBar' \
 		'  make lint               # ruff check src/ tests/ tools/' \

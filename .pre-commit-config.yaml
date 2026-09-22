@@ -2,6 +2,11 @@
 # Install: uv run --frozen pre-commit install
 # Run all: uv run --frozen pre-commit run --all-files
 
+# Plain `pre-commit install` (make setup) installs only the pre-commit hook
+# type; list pre-push too so the pytest hook below actually runs on push.
+# Skip it for one push with `SKIP=pytest git push`.
+default_install_hook_types: [pre-commit, pre-push]
+
 repos:
   # ---------- General file hygiene ----------
   - repo: https://github.com/pre-commit/pre-commit-hooks

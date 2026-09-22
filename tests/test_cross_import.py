@@ -1278,8 +1278,82 @@ class TestSharedSupersede:
         monkeypatch.setattr("rebrew.verify.apply_status_updates", lambda *a, **k: None)
         monkeypatch.setattr("rebrew.cross_import._source_flags", lambda *a, **k: "")
         res = ci.import_shared_function(cfg_dst, cfg_src, B_F1, A_F1, "f1.c", 11, dst_file="stub.c")
-        assert res["action"] == "imported-unverified"
+        # The failed stack is rolled back: leaving it would give the VA two
+        # claimants (lint E013) while the stub is the only matchable owner.
+        assert res["action"] == "skipped-unverified-duplicate"
         assert (cfg_dst.reversed_dir / "stub.c").is_file()
+        assert "FUNCTION: DST" not in (cfg_src.shared_dir / "f1.c").read_text()
+
+    def test_unverified_rollback_restores_cflags_and_status(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """The rollback covers the pre-verify metadata writes: a withdrawn
+        claim restores the destination's own cflags override and leaves the
+        stub's earned STATUS untouched."""
+        from rebrew.compile import CompareResult
+        from rebrew.metadata import get_entry, load_metadata, update_field, update_source_status
+
+        cfg_src, cfg_dst = self._cfgs(tmp_path)
+        (cfg_src.shared_dir / "f1.c").write_text(
+            "// FUNCTION: SRC 0x401000\n// SIZE: 11\nint f1(void){ return 1; }\n"
+        )
+        (cfg_dst.reversed_dir / "stub.c").write_text(
+            "// FUNCTION: DST 0x401040\n// SIZE: 0\nint f1(void){ return 0; }\n"
+        )
+        update_field(tmp_path, 0x401040, "cflags", "/G5", "DST")
+        update_source_status(tmp_path, "EXACT", "DST", 0x401040)
+        monkeypatch.setattr(
+            "rebrew.verify.verify_entry",
+            lambda *a, **k: CompareResult(
+                matched=False,
+                status="NEAR_MATCHING",
+                match_percent=50.0,
+                delta=5,
+                obj_bytes=b"x",
+                reloc_offsets=[],
+                message="NEAR",
+            ),
+        )
+        # Real apply_status_updates: the rollback must make it a no-op.
+        monkeypatch.setattr("rebrew.cross_import._source_flags", lambda *a, **k: "/O2")
+        res = ci.import_shared_function(cfg_dst, cfg_src, B_F1, A_F1, "f1.c", 11, dst_file="stub.c")
+        assert res["action"] == "skipped-unverified-duplicate"
+        assert get_entry(tmp_path, 0x401040, "DST").get("cflags") == "/G5"
+        entry = load_metadata(tmp_path).get(("DST", 0x401040), {})
+        assert entry.get("status") == "EXACT"
+
+    def test_unverified_rollback_removes_new_cflags_override(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """With no prior override, the withdrawn claim's cflags write is
+        retracted entirely — no stale field steers the stub's compiles."""
+        from rebrew.compile import CompareResult
+        from rebrew.metadata import get_entry
+
+        cfg_src, cfg_dst = self._cfgs(tmp_path)
+        (cfg_src.shared_dir / "f1.c").write_text(
+            "// FUNCTION: SRC 0x401000\n// SIZE: 11\nint f1(void){ return 1; }\n"
+        )
+        (cfg_dst.reversed_dir / "stub.c").write_text(
+            "// FUNCTION: DST 0x401040\n// SIZE: 0\nint f1(void){ return 0; }\n"
+        )
+        monkeypatch.setattr(
+            "rebrew.verify.verify_entry",
+            lambda *a, **k: CompareResult(
+                matched=False,
+                status="NEAR_MATCHING",
+                match_percent=50.0,
+                delta=5,
+                obj_bytes=b"x",
+                reloc_offsets=[],
+                message="NEAR",
+            ),
+        )
+        monkeypatch.setattr("rebrew.verify.apply_status_updates", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.cross_import._source_flags", lambda *a, **k: "/O2")
+        res = ci.import_shared_function(cfg_dst, cfg_src, B_F1, A_F1, "f1.c", 11, dst_file="stub.c")
+        assert res["action"] == "skipped-unverified-duplicate"
+        assert get_entry(tmp_path, 0x401040, "DST").get("cflags") is None
 
     def test_same_file_stub_never_deleted(self, tmp_path: Path, monkeypatch) -> None:
         cfg_src, cfg_dst = self._cfgs(tmp_path)

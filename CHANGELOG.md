@@ -336,6 +336,12 @@
   ``one_line``, ``run_git``). Call sites inside the package already updated.
 
 ### Fixed
+- **`make setup` installs the pre-push hook.**  Plain `pre-commit install`
+  installs only the pre-commit hook type, so the `pytest` hook (stage
+  `pre-push`) never ran.  `.pre-commit-config.yaml` now sets
+  `default_install_hook_types: [pre-commit, pre-push]`; a push runs the
+  full suite (`SKIP=pytest git push` skips it once).  Existing checkouts
+  re-run `make setup` to pick it up.
 - **`rebrew dashboard` closes the connection after a request with a body.**
   No route reads a request body, so on a kept-alive HTTP/1.1 connection a
   `POST` body (answered 405) was parsed as the next pipelined request.
