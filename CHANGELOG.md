@@ -336,6 +336,11 @@
   ``one_line``, ``run_git``). Call sites inside the package already updated.
 
 ### Fixed
+- **`rebrew dashboard` closes the connection after a request with a body.**
+  No route reads a request body, so on a kept-alive HTTP/1.1 connection a
+  `POST` body (answered 405) was parsed as the next pipelined request.
+  Responses to a request with `Content-Length` or `Transfer-Encoding` now
+  send `Connection: close`.
 - **Metadata TOML reads see same-mtime rewrites.**  The in-process
   `rebrew-functions.toml` / `rebrew-data.toml` parse cache compared only
   `st_mtime_ns`, so another process's rewrite inside one timestamp tick

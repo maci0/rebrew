@@ -1054,6 +1054,14 @@ def main(
         and (only_va is None or va == only_va)
         and va not in dest_bytes
     ]
+    # A source file is ONE function body: importing it at several destination
+    # VAs stacks several markers onto that one body, which only works when the
+    # destinations really are byte-identical copies.  When they are not, the
+    # extra markers are guaranteed mismatches on a shared body (guild-rebrew
+    # round 1293: one GOLD function was stacked at GOLDTL 0x659fbf and
+    # 0x6508a3 with 9- and 11-byte spans).  Import the best-scoring match per
+    # source file; further destination VAs need a deliberate twin.
+    imported_src_files: dict[str, str] = {}
     for dst_va in sorted(dest_bytes):
         # Check the budget BEFORE importing: the old post-import guard ran with
         # the first import already appended, so ``--limit 0`` still imported one.
@@ -1090,6 +1098,23 @@ def main(
                     "status": "",
                     "filepath": "",
                     "message": "source function has no source file",
+                }
+            )
+            continue
+        prev_dst = imported_src_files.get(src_file)
+        if prev_dst is not None:
+            results.append(
+                {
+                    "dst_va": f"0x{dst_va:08x}",
+                    "src_va": f"0x{src_va:08x}",
+                    "score": score,
+                    "action": "skipped",
+                    "status": "",
+                    "filepath": src_file,
+                    "message": (
+                        f"source already imported for {prev_dst}; a second "
+                        "destination VA needs a deliberate twin"
+                    ),
                 }
             )
             continue
@@ -1138,6 +1163,8 @@ def main(
         )
         res["score"] = score
         merge_sizeless_warning(res, disasm_size)
+        if res["action"] not in ("skipped", "error"):
+            imported_src_files[src_file] = res["dst_va"]
         results.append(res)
 
     for refused_va in refused:

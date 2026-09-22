@@ -919,6 +919,31 @@ class TestHttpMethods:
         assert b'"targets"' in raw
         assert b"Content-Type: application/json" in raw
 
+    def test_request_body_closes_connection(self, dashboard: Dashboard) -> None:
+        """An unread request body must not be parsed as the next pipelined request."""
+        from io import BytesIO
+        from unittest.mock import Mock
+
+        from rebrew.dashboard import _Handler, allowed_hosts_for
+
+        handler = _Handler.__new__(_Handler)
+        handler.rfile = BytesIO(
+            b"POST /api/targets HTTP/1.1\r\nHost: 127.0.0.1:8000\r\n"
+            b"Content-Length: 18\r\n\r\n"
+            b"GET /x HTTP/1.1\r\n\r\n"
+            b"GET /api/targets HTTP/1.1\r\nHost: 127.0.0.1:8000\r\n\r\n"
+        )
+        handler.wfile = BytesIO()
+        handler.allowed_hosts = allowed_hosts_for("127.0.0.1", 8000)
+        handler.dashboard = dashboard
+        handler.log_message = Mock()
+        handler.handle()
+        raw = handler.wfile.getvalue()
+        assert raw.startswith(b"HTTP/1.1 405 ")
+        assert b"Connection: close\r\n" in raw
+        # The body's bytes were never answered as a request of their own.
+        assert raw.count(b"HTTP/1.1 ") == 1
+
 
 class TestEncodingNegotiation:
     @pytest.mark.parametrize(

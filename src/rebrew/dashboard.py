@@ -21,7 +21,8 @@ Target-scoped endpoints return 400 when ``target`` is missing/empty and 404 when
 the target is unknown.  ``GET /api/summary`` returns 500 when the target's
 ``function_stats`` metadata row exists but is unreadable (corrupt JSON or a
 non-object), so clients are not told the target is missing.  Non-GET/HEAD
-methods return 405 with ``Allow: GET, HEAD``.  Requests whose ``Host`` header
+methods return 405 with ``Allow: GET, HEAD``.  A request that carries a body is
+answered with ``Connection: close`` (no route reads one).  Requests whose ``Host`` header
 does not match the bound host (or a loopback alias) are rejected with 403, so
 a web page the analyst visits cannot reach the server via DNS rebinding.
 List endpoints expose ``count`` (rows in this page), ``total`` (matching rows),
@@ -1898,6 +1899,19 @@ class _Handler(BaseHTTPRequestHandler):
             "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; "
             "connect-src 'self'; img-src 'self'; form-action 'none'; base-uri 'none'",
         )
+
+    def end_headers(self) -> None:
+        # Every route is body-less and never reads rfile, so a request body
+        # would be parsed as the next pipelined request.  Close instead.
+        # send_header("Connection", "close") also sets close_connection.
+        # headers is unset when send_error fires before parse_request (414).
+        headers = getattr(self, "headers", None)
+        if headers is not None and (
+            headers.get("Content-Length", "0").strip() not in ("", "0")
+            or headers.get("Transfer-Encoding")
+        ):
+            self.send_header("Connection", "close")
+        super().end_headers()
 
     def do_GET(self) -> None:  # (http.server API)
         self._respond("GET")
