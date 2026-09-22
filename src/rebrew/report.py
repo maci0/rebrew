@@ -858,7 +858,7 @@ def generate_decomp_dev_report(cfg: ProjectConfig, out_path: Path) -> dict[str, 
     ``total_functions``/``total_code`` come from the SHARED progress model
     (``rebrew.status.collect_status`` — ghidra-functions ∪ annotated set and
     the binary's ``.text`` size), so progress is measured against the whole
-    binary and matches what ``rebrew status`` reports (cli-review F4).
+    binary and matches what ``rebrew status`` reports.
 
     Returns the machine-readable summary dict.
     """
@@ -965,7 +965,7 @@ def generate_decomp_dev_report(cfg: ProjectConfig, out_path: Path) -> dict[str, 
     # status`, and the HTML report all agree on the same numbers — the
     # status counts are verify-overlaid (a verify cache that demoted a
     # metadata EXACT is reflected here) and the denominator is the
-    # ghidra-functions ∪ annotated set (cli-review F4).
+    # ghidra-functions ∪ annotated set.
     status = collect_status(cfg)
     registry_total = status.total_functions or 0
     matched_functions = sum(status.status_counts.get(s, 0) for s in ("EXACT", "RELOC", "PROVEN"))

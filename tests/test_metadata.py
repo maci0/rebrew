@@ -757,7 +757,7 @@ class TestWritePathsCorruptToml:
     def test_metadata_file_write_locked_readonly(self, tmp_path: Path) -> None:
         """rebrew-functions.toml is left 0444 after every tool write — hand
         edits fail with Permission denied; the sanctioned CLI path chmods
-        writable, updates, re-locks (metadata-review F1)."""
+        writable, updates, re-locks."""
         from rebrew.metadata import METADATA_FILENAME, get_entry, update_field, update_source_status
 
         update_field(tmp_path, 0x1000, "size", 42, "SERVER")
@@ -1084,7 +1084,7 @@ class TestStatusCasePolicy:
 
 
 # ---------------------------------------------------------------------------
-# Cross-process metadata write safety (concurrency-review; error-review F6)
+# Cross-process metadata write safety
 # ---------------------------------------------------------------------------
 
 
@@ -1107,7 +1107,7 @@ def _write_statuses_child(metadata_dir: str, worker_id: int, count: int) -> None
 
 
 class TestCrossProcessMetadataLock:
-    """Concurrent *processes* must not lose STATUS promotions (error-review F6).
+    """Concurrent *processes* must not lose STATUS promotions.
 
     The thread lock is per-process; without the flock sidecar an interleaved
     read-modify-write from two processes silently drops one side's updates.

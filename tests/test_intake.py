@@ -151,7 +151,7 @@ class TestIntake:
         assert "symlink tools" not in combined
 
     def test_empty_discovery_fails(self, tmp_path: Path, monkeypatch) -> None:
-        """Regression (error-review F2): no discoverer finding functions must not be
+        """Regression: no discoverer finding functions must not be
         reported as a successful 'Intake complete: functions: 0' — onboarding
         with an empty function list is useless and misleading."""
         from typer.testing import CliRunner

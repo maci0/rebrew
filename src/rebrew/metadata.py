@@ -504,7 +504,7 @@ def set_fields(directory: Path, va: int, fields: dict[str, Any], module: str) ->
 def set_fields_batch(metadata_dir: Path, updates: list[dict[str, Any]]) -> int:
     """Set fields for many ``(module, va)`` entries in ONE TOML read-modify-write.
 
-    Perf-review F2 sibling: ``verify --fix-sizes`` called ``_set_field`` per
+    ``verify --fix-sizes`` called ``_set_field`` per
     entry — each a full tomlkit parse + dumps + atomic write under the
     global lock.  Batches the I/O while keeping per-field idempotency.
     Rejects ``status`` (use :func:`update_statuses_batch`, which enforces
@@ -895,7 +895,7 @@ def update_statuses_batch(metadata_dir: Path, updates: list[dict[str, Any]]) -> 
     ``verify``'s STATUS sync and ``test --all`` previously called
     ``update_source_status`` per entry — each a full tomlkit parse + dumps +
     atomic write serialized under the global lock.  Measured: 260 entries ≈
-    9s, extrapolated ≈ 28 min at 3000 entries (perf-review F2).  The
+    9s, extrapolated ≈ 28 min at 3000 entries.  The
     promotion/stickiness rules are identical per entry; only the I/O is
     batched (one parse, N in-memory edits, one write).
 

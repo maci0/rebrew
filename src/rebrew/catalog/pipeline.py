@@ -48,8 +48,8 @@ def build_catalog_data(cfg: Any, *, with_data: bool = True) -> dict[str, Any]:
     # The .text size drives the coverage percentage.  A missing binary used
     # to fall back to a fabricated 0x24000 (92160B) section — coverage was
     # then reported against a made-up denominator, indistinguishable from a
-    # real measurement and ingested as truth by build-db/dashboards
-    # (code-review F9).  Use 0 instead (coverage_pct → 0.0) and say so.
+    # real measurement and ingested as truth by build-db/dashboards.
+    # Use 0 instead (coverage_pct → 0.0) and say so.
     text_size = 0
     binary_missing = bin_path is None or not bin_path.exists()
     if not binary_missing:

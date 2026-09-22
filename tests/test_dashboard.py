@@ -173,7 +173,7 @@ class TestQueryLayer:
         assert s["function_stats"]["by_status"] == {"EXACT": 1, "STUB": 1}
         # Headline coverage = MATCHED bytes only (EXACT/RELOC/PROVEN): the
         # EXACT function's 64B of 128B .text = 50%.  The STUB counts toward
-        # identified_pct (96/128 = 75%), not matched (db-review F1 — the old
+        # identified_pct (96/128 = 75%), not matched (the old
         # coverage_pct counted every function, so an all-STUB binary showed
         # ~100% "coverage").
         assert s["coverage_pct"] == 50.0

@@ -102,7 +102,7 @@ _SECTION_CELL_STATS_SELECT = """
         -- skip, unknown, plus the data drift/unchecked verdicts):
         -- without it total_cells never equals the sum of the counted
         -- columns and per-section stats silently undercount
-        -- (db-review F4).  `verified` is excluded here because it is
+        --.  `verified` is excluded here because it is
         -- counted as exact_count above.
         SUM(CASE WHEN state NOT IN (
             'exact', 'verified', 'reloc', 'near_match', 'near_matching',
@@ -120,7 +120,7 @@ SECTION_CELL_STATS_TABLE = "section_cell_stats"
 #: Per-target retention cap for the history table: only the newest N status-
 #: change rows per target are kept after each rebuild.  The dashboard pages
 #: the newest 100 (max 5000) — keeping 10k per target preserves 2+ full
-#: pages of history while bounding unbounded growth (db-review F7).
+#: pages of history while bounding unbounded growth.
 _HISTORY_RETENTION = 10_000
 
 # Reserved metadata target holding the schema-level db_version stamp, so the
@@ -357,7 +357,7 @@ def _function_stats(
 
     ``covered_bytes`` = sum of EVERY function's size regardless of status
     ("identified bytes" — a STUB placeholder counts fully).  ``matched_bytes``
-    = sum of EXACT/RELOC/PROVEN sizes only (db-review F1: the dashboard
+    = sum of EXACT/RELOC/PROVEN sizes only (the dashboard
     headline used covered_bytes, so an all-STUB binary reported ~100%
     "coverage").  The headline metric is matched bytes; identified bytes is
     the separate "fully documented" figure.
@@ -830,7 +830,7 @@ def build_db(
         # same leftmost prefix (target, section_name) for the view's
         # GROUP BY and any WHERE target=? AND section_name=? query — a second
         # index would be paid for on every cell insert and never be the only
-        # usable one (db-review F6).  Drop any pre-existing copy from older
+        # usable one.  Drop any pre-existing copy from older
         # builds explicitly or it survives every rebuild.
         c.execute("DROP INDEX IF EXISTS idx_cells_section")
 
@@ -911,7 +911,7 @@ def build_db(
         # ORDER BY id).  Growth is bounded by a per-target retention cap —
         # only the newest _HISTORY_RETENTION rows per target are kept, so a
         # long-lived project that regenerates often does not accumulate rows
-        # forever (db-review F7).
+        # forever.
         c.execute("CREATE INDEX IF NOT EXISTS idx_history_target_id ON history(target, id)")
 
         c.execute("""
@@ -1497,7 +1497,7 @@ def build_db(
             # Retention: keep only the newest _HISTORY_RETENTION rows per
             # target.  ROW_NUMBER over (target, id DESC) keeps the newest N;
             # older rows are deleted so the table does not grow unboundedly
-            # across rebuilds (db-review F7).
+            # across rebuilds.
             c.execute(
                 "DELETE FROM history WHERE id NOT IN ("
                 "  SELECT id FROM ("

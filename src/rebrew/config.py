@@ -188,7 +188,7 @@ class LinkConfig:
         Warns on malformed values (``"5"``, ``"abc"``) instead of silently
         dropping them — a typo'd ``linker_version`` otherwise makes
         ``--fix-headers`` skip the patch while the parity report shows a
-        mismatch the user cannot explain (config-review F7).
+        mismatch the user cannot explain.
         """
         if not ver:
             return None
@@ -285,7 +285,7 @@ class ProjectConfig:
     cflags: str = ""  # Default compiler flags (from [compiler] or per-target override)
     # True when `cflags` was EXPLICITLY present in the TOML — an empty
     # string then means "no default flags", not "fall back to /O2 /Gd".
-    # (config-review F5: `cflags = ""` silently compiled with /O2 /Gd.)
+    # (`cflags = ""` silently compiled with /O2 /Gd.)
     cflags_explicit: bool = False
     cflags_presets: dict[str, str] = field(default_factory=dict)
     """Per-module compiler flag overrides (``rebrew cfg set-cflags``).

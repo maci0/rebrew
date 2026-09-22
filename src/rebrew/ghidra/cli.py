@@ -1,7 +1,7 @@
 """ghidra/cli.py — Sync rebrew annotations with Ghidra via the BinSync state dir.
 
 Field-level sync (names, comments/notes, prototypes, structs, globals) is
-**BinSync-primary** (metadata-review R1): ``rebrew sync --push --state-dir D``
+**BinSync-primary**: ``rebrew sync --push --state-dir D``
 exports the annotations to the shared state dir and ``--pull`` imports it
 back; the BinSync Ghidra plugin (or a collaborator's tool) relays the state
 to and from Ghidra.  Structural Ghidra operations BinSync cannot express stay

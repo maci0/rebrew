@@ -185,7 +185,7 @@ def _segment_content_start(raw: bytes, index: int) -> int:
             if off + 1 >= len(raw):
                 # Truncated length-prefixed name string — the content offset
                 # is unrecoverable; clamp so callers never index past the
-                # segment end (same guard as probe_is_code, infra-review F2).
+                # segment end (same guard as probe_is_code).
                 break
         return off
     return 0
@@ -478,8 +478,7 @@ def parse_imports(data: bytes, ne_offset: int, header: NeHeader) -> list[NeImpor
             modules.append(NeImportModule(module=name))
     except (struct.error, IndexError):
         # A malformed module reference table must not propagate — the import
-        # detail below is already best-effort, so degrade to no module names
-        # (infra-review F3).
+        # detail below is already best-effort, so degrade to no module names.
         modules = []
 
     # The named-import region must be within the imported names table.
@@ -557,7 +556,7 @@ def parse_exports(data: bytes, ne_offset: int, header: NeHeader) -> list[NeExpor
             exports.append(NeExport(name=name, ordinal=ordinal))
     except (struct.error, IndexError) as exc:
         # A corrupt resident name table must surface as a parse error, not a
-        # raw traceback (infra-review F4).
+        # raw traceback.
         raise NeParseError(f"corrupt resident name table at 0x{pos:x}") from exc
     return exports
 

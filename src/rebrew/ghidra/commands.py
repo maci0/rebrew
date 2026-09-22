@@ -57,8 +57,7 @@ def build_bookmark_commands(
     """``set-bookmark`` ops for annotated functions with a match status.
 
     The MCP structural-op counterpart to the BinSync field sync: bookmarks
-    are not expressible in the state dir, so they stay on MCP
-    (metadata-review R1).
+    are not expressible in the state dir, so they stay on MCP.
     """
     out: list[dict[str, Any]] = []
     for e in entries:

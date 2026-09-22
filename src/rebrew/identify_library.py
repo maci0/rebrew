@@ -449,7 +449,7 @@ def _resolve_lib_dir(cfg: Any, lib_dir: Path | None) -> Path | None:
     candidates: list[Path] = [cfg.root / "tools" / "msvc-6.0-win32" / "VC98" / "Lib"]
     if getattr(cfg, "root", None):
         # Deeper globs too: tools/msvc6.3/VC98/Lib sits one level beyond
-        # tools/*/VC98/Lib and never matched (infra-review F8).
+        # tools/*/VC98/Lib and never matched.
         for pattern in (
             "tools/*/Lib",
             "tools/*/*/Lib",

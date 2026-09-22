@@ -1231,7 +1231,7 @@ class TestCLISetCompiler:
         assert compiler_tbl["runner"] == ""
         assert "Include" in compiler_tbl["includes"] or "include" in compiler_tbl["includes"]
         # profile is the routing key every tool reads — must be written too
-        # (config-review F1: the old code wrote only command/includes/libs,
+        # (the old code wrote only command/includes/libs,
         # so the target stayed on the default profile with wrong flag routing).
         assert compiler_tbl["profile"] == "msvc-6.0"
 

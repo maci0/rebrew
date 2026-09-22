@@ -134,8 +134,7 @@ def _discover_link_cmd() -> tuple[Path, str] | None:
     txt = hits[0].read_text(encoding="utf-8").strip()
     # redirect /out: to {out}; strip /pdb: (wine link may reject a dup pdb).
     # Case-insensitive — calibrate_bss.find_link_cmd matches /OUT: and /PDB:
-    # with IGNORECASE and the two parsers must agree on the same link line
-    # (link-review F4).
+    # with IGNORECASE and the two parsers must agree on the same link line.
     txt = re.sub(r"/out:[^ ]+", "/out:{out}", txt, flags=re.IGNORECASE)
     txt = re.sub(r"/pdb:[^ ]+", "/pdb:{out}.pdb", txt, flags=re.IGNORECASE)
     txt = f"{txt} {{options}}"
@@ -305,7 +304,7 @@ def main(
         console.print(table)
         if not linked_any:
             # Every candidate failed to link — "differ in every candidate" would
-            # wrongly blame all fields on the metadata/objects (link-review F3).
+            # wrongly blame all fields on the metadata/objects.
             console.print("\n[yellow]No candidate linked — field classification skipped.[/]")
             if keep:
                 console.print(f"\n[dim]Scratch DLLs kept in: {scratch_dir}[/]")

@@ -138,7 +138,7 @@ class TestParseVa:
 
     def test_invalid_exits(self, capsys: pytest.CaptureFixture[str]) -> None:
         # A bad VA argument is a usage error → EXIT_ERROR (2), distinct from
-        # EXIT_MISMATCH (1) which means "needs code work" (exit-taxonomy F11).
+        # EXIT_MISMATCH (1) which means "needs code work".
         from rebrew.cli import EXIT_ERROR
 
         with pytest.raises(typer.Exit) as exc_info:
@@ -404,7 +404,7 @@ class TestAngrAvailable:
         finally:
             # Restore the pre-test level: the probe permanently raises the
             # angr logger to CRITICAL (by design), which must not leak into
-            # later tests in the same process (test-review F8).
+            # later tests in the same process.
             logger.setLevel(original)
 
 
@@ -445,7 +445,7 @@ class TestResolveCflags:
 
     def test_explicit_empty_cflags_means_no_flags(self) -> None:
         """`cflags = ""` in the TOML means "no default flags" — the /O2 /Gd
-        fallback applies only when the key is ABSENT (config-review F5: an
+        fallback applies only when the key is ABSENT (an
         explicitly empty cflags previously compiled with /O2 /Gd silently)."""
         from rebrew.compile_overrides import resolve_cflags
 

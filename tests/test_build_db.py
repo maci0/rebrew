@@ -422,8 +422,8 @@ binary = "test.exe"
 
     def test_verify_results_persist_across_rebuild(self, project_root: Path) -> None:
         """verify_results is a persistent history table (DB_FORMAT.md: "never
-        dropped on rebuild") — a full rebuild must NOT wipe it (db-review F3:
-        the old DROP TABLE wiped every target's rows, keeping only the
+        dropped on rebuild") — a full rebuild must NOT wipe it (the
+        old DROP TABLE wiped every target's rows, keeping only the
         last-verified target's re-import)."""
 
         # First build: import a cache row.
@@ -495,7 +495,7 @@ binary = "test.exe"
     def test_verify_results_unparseable_va_does_not_wipe(self, project_root: Path) -> None:
         """A cache whose every `va` fails to parse must NOT delete the
         target's history — the old prune built `va NOT IN ()`, which SQLite
-        treats as vacuously TRUE and wiped ALL rows (db-review F5)."""
+        treats as vacuously TRUE and wiped ALL rows."""
         # Seed a row with a VALID cache entry first.
         _write_cache(
             project_root,
@@ -549,7 +549,7 @@ binary = "test.exe"
     def test_redundant_cells_section_index_absent(self, project_root: Path) -> None:
         """The UNIQUE (target, section_name, start) constraint already serves
         the (target, section_name) prefix — the old idx_cells_section was a
-        redundant second index paid for on every cell insert (db-review F6)."""
+        redundant second index paid for on every cell insert."""
         build_db(project_root)
         conn = sqlite3.connect(project_root / "db" / "coverage.db")
         c = conn.cursor()
@@ -845,7 +845,7 @@ binary = "test.exe"
 
     def test_history_retention_caps_per_target(self, project_root: Path, monkeypatch) -> None:
         """history must not grow unboundedly across rebuilds — only the
-        newest _HISTORY_RETENTION rows per target survive (db-review F7)."""
+        newest _HISTORY_RETENTION rows per target survive."""
         import rebrew.build_db as bdb
 
         # Tiny cap so the test inserts more than the limit without a huge

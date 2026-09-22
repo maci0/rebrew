@@ -132,7 +132,7 @@ Represents chunks (cells) of memory to be rendered in the UI coverage map.
 **Indexes**:
 - `UNIQUE (target, section_name, start)` serves the `(target, section_name)`
   prefix used by `section_cell_stats` and per-section queries — no separate
-  `idx_cells_section` is created (db-review F6).
+  `idx_cells_section` is created.
 
 #### Cell States
 
@@ -225,7 +225,7 @@ Tracks function status changes over time.
 > This table is persistent — never dropped on rebuild, but retention-capped:
 > only the newest 10,000 rows per target survive each rebuild
 > (`_HISTORY_RETENTION` in `build_db`), so long-lived projects that
-> regenerate often do not accumulate rows forever (db-review F7).  A rebuild
+> regenerate often do not accumulate rows forever.  A rebuild
 > that finds a pre-CHECK DDL recreates the table in place (preserving `id`,
 > clamping negative VAs and unknown statuses) so the guards apply without
 > `--force`.
@@ -363,7 +363,7 @@ Each `data_<target>.json` file is the output of `rebrew catalog --data-json`. It
 >   `coverage_pct` from **matched bytes** `(EXACT + RELOC + PROVEN sizes) /
 >   textSize` — the genuine progress metric — and `identified_pct` from
 >   `covered_bytes` (every function incl. stubs), so "fully documented"
->   stays visible separately (db-review F1: the dashboard previously summed
+>   stays visible separately (the dashboard previously summed
 >   every function's size, so an all-STUB binary showed ~100% "coverage").
 
 > [!NOTE]

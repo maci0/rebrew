@@ -162,7 +162,7 @@ class CompareResult:
     #: Number of differing disassembly lines between the compiled and target
     #: bytes (``None`` when not computed).  Populated by ``rebrew verify`` for
     #: unmatched functions so the recoverage-consumed ``verify_results``
-    #: ``diff_lines`` column carries real data instead of NULL (db-review F2).
+    #: ``diff_lines`` column carries real data instead of NULL.
     diff_lines: int | None = None
     #: Structural code-similarity score (0-100) between the compiled and
     #: target bytes, computed via the optional ``resembl`` scoring core

@@ -37,8 +37,7 @@ class TestCompileCflags:
     """_compile_cflags is the ONE shared flag-glue definition for the
     single-function, flag-sweep, and batch-GA paths — a divergent copy in the
     sweep path silently dropped base_cflags (e.g. /MT), so a sweep-reported
-    exact demoted on the next test/verify.  Every branch needs a test
-    (config-review F8)."""
+    exact demoted on the next test/verify.  Every branch needs a test."""
 
     def test_posix_style_prepends_base(self) -> None:
         from rebrew.match_sweep import _compile_cflags
@@ -268,7 +267,7 @@ class TestComputeFitness:
 
     def test_cached_fitness_skips_rescore(self, tmp_path: Path) -> None:
         """A BuildResult already carrying a fitness returns it without
-        re-scoring (perf-review F6 — the warm-cache fast path)."""
+        re-scoring (the warm-cache fast path)."""
         from rebrew.matcher import BuildResult
 
         ga = _make_ga(tmp_path)
@@ -307,7 +306,7 @@ class TestComputeFitness:
 
     def test_memo_hit_skips_compile_pool(self, tmp_path: Path, monkeypatch: Any) -> None:
         """A generation whose whole population is already in the process-local
-        fitness memo must NOT submit _compile_source (perf-review F5) — the
+        fitness memo must NOT submit _compile_source — the
         old code always ran the disk BuildCache round-trip first and only then
         found the memo.  Prefill the memo for every member and make any
         compile call explode."""
@@ -889,7 +888,7 @@ class TestUpdateStubToMatched:
 class TestFlagSweepMatchValidation:
     """A flag-sweep "exact" is reloc-masked only — the batch driver must
     confirm it against the symbol catalog (compile_and_compare) before
-    promoting EXACT/RELOC (functionality-review F3)."""
+    promoting EXACT/RELOC."""
 
     def _cfg(self, tmp_path: Path) -> SimpleNamespace:
         return SimpleNamespace(

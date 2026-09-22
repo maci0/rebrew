@@ -660,7 +660,7 @@ class TestDecompBody:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """--decomp-body alone was an accepted-but-inert flag: it silently
-        produced a plain stub (functionality-review F7).  The CLI must fail
+        produced a plain stub.  The CLI must fail
         loudly instead of pretending the option applied."""
         from typer.testing import CliRunner
 

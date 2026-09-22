@@ -554,7 +554,7 @@ def atomic_write_locked(filepath: Path | str, text: str, encoding: str = "utf-8"
     (``rebrew-functions.toml``, ``rebrew-data.toml``, the binsync
     ``functions/*.toml`` / ``global_vars.toml`` / ``structs/*.toml``
     exports): **chmod writable before touching, write, chmod read-only
-    after** (metadata-review F1).  Direct edits by hand fail with
+    after**.  Direct edits by hand fail with
     Permission denied; the only sanctioned path is the CLI, which chmods
     writable, updates, and re-locks.
 
@@ -1104,7 +1104,7 @@ def watch_files(
     With *path_provider*, the watched set is re-resolved every poll — new
     files created during the session (e.g. a ``rebrew skeleton`` generating a
     fresh ``.c`` while ``verify --watch`` runs) are picked up instead of the
-    loop silently stopping to cover them (idempotency-review F8).
+    loop silently stopping to cover them.
     """
     from rich.console import Console
 

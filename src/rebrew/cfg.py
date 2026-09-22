@@ -1018,7 +1018,7 @@ def set_compiler(
     # only command/includes/libs — the target's profile stayed whatever it
     # was (default msvc-6.0), so `cfg set-compiler T gcc-14.2.0` compiled with gcc
     # command but MSVC-style /I /Fo flag routing and never engaged the
-    # posix/toolchain branches (config-review F1).
+    # posix/toolchain branches.
     compiler_tbl["profile"] = profile
     # Docker-only execution: image-backed profiles carry no host wine
     # command (the image IS the compiler) — blank command/runner like

@@ -334,7 +334,7 @@ class TestRebrewTestBatchJson:
     def test_failed_batch_raises_mismatch_exit(
         self, monkeypatch: Any, capsys: Any, tmp_path: Path
     ) -> None:
-        """Regression (functionality-review F2): rebrew test --all exited 0
+        """Regression: rebrew test --all exited 0
         even when every function failed — a false green for CI gates.  It must
         exit EXIT_MISMATCH on failures, EXIT_ERROR on compile errors."""
         import typer

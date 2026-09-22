@@ -69,7 +69,7 @@ def _layout_data_vs(root: Path, target: str | None = None) -> int | None:
         ]
     # Default target first — scanning every target and returning the first
     # .data VS silently calibrated against the wrong binary when the project
-    # has several targets (link-review F7).
+    # has several targets.
     for candidate in targets:
         with contextlib.suppress(ValueError):
             base, _raw_end, section_end = read_layout_geometry(root, candidate)

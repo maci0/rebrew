@@ -445,7 +445,7 @@ class TestGenerateDataJsonNoBinary:
         """A PROVEN annotation must be counted as matched (ranked with RELOC)
         — the status-priority groups previously omitted PROVEN, so count_statuses
         dropped it into no bucket and exact+reloc+near+stub undercounted
-        totalFunctions (test-review F2)."""
+        totalFunctions."""
         from rebrew.catalog.grid import count_statuses
 
         entries = [

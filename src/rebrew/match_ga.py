@@ -52,7 +52,7 @@ def _ga_runs_dir(cfg: ProjectConfig, rel: Path | None = None) -> Path:
     path is unchanged — but a project setting ``output_dir = "artifacts"``
     must route GA runs there too.  The old code hardcoded ``cfg.root /
     "output"`` while ``rebrew report`` used the config value, so the same
-    documented option behaved differently per tool (config-review F4).
+    documented option behaved differently per tool.
     """
     base = getattr(cfg, "output_dir", None) or (cfg.root / "output")
     if rel is None:
@@ -261,7 +261,7 @@ def _ga_cache_key(
 
     # Incremental hashing — the old code built a full material buffer per
     # candidate (src.encode() + joins), and the source hash was recomputed
-    # every call despite being constant within a GA run (perf-review F3).
+    # every call despite being constant within a GA run.
     # Path-like fields use surrogateescape so a non-UTF-8 include dir from
     # the filesystem (Linux surrogate filenames) does not raise here.
     def _enc(s: str) -> bytes:
@@ -644,8 +644,8 @@ class BinaryMatchingGA:
 
         # Warm-scoring fast path: a source hash already scored in this
         # process (same stub, same flags → same obj bytes → same score)
-        # skips re-disassembly + re-scoring entirely.  Perf-review F6:
-        # ~2.8s per 300k-candidate warm batch of elite/unchanged sources
+        # skips re-disassembly + re-scoring entirely.  Without it,
+        # ~2.8s went to each 300k-candidate warm batch of elite/unchanged sources
         # that persist across generations.
         with self._memo_lock:
             memoized = self._lru_get(self._fitness_memo, src_hash)
@@ -694,7 +694,7 @@ class BinaryMatchingGA:
         total = sc.total + excess_penalty
         # Memoize the fitness on the BuildResult so a warm-cache rerun (same
         # stub, same source hash → same obj bytes → same score) skips the
-        # re-disassembly + re-scoring entirely (perf-review F6: ~2.8s per
+        # re-disassembly + re-scoring entirely (~2.8s per
         # 300k-candidate warm batch).  getattr guards pickles written before
         # the field existed.
         res.fitness = total
@@ -836,7 +836,7 @@ class BinaryMatchingGA:
                     break
                 gen_start = time.monotonic()
                 scored_pop = []
-                # Perf-review F5: consult the in-process fitness memo BEFORE
+                # Consult the in-process fitness memo BEFORE
                 # submitting — elite/unchanged sources keep their score across
                 # generations, so skipping _compile_source entirely avoids a
                 # cache lookup per generation for every surviving member.

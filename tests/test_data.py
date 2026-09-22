@@ -338,7 +338,7 @@ class TestBssFix:
         first run: the generated file's own DATA annotations close the gaps
         they fill, so a second scan reports FEWER gaps — regenerating from
         scratch would empty bss_padding.c while rebrew-data.toml still
-        claims coverage (idempotency-review F4)."""
+        claims coverage."""
         report1 = BssReport(
             bss_va=0x1000,
             bss_size=0x200,

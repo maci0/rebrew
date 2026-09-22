@@ -50,8 +50,7 @@ class TestEnsureXvfb:
         from rebrew import headless
 
         # A stale REBREW_XVFB_DISPLAY (socket present, no live Xvfb process)
-        # must NOT be reused — only a process-backed display qualifies
-        # (infra-review F5).
+        # must NOT be reused — only a process-backed display qualifies.
         monkeypatch.setattr(headless, "_display_alive", lambda d: d == ":99")
         monkeypatch.setattr(headless, "_running_xvfb_displays", lambda: {":99": 1234})
         monkeypatch.setenv("REBREW_XVFB_DISPLAY", ":99")
@@ -224,7 +223,7 @@ class TestEnsureXvfb:
         monkeypatch.delenv("DISPLAY", raising=False)
         # Stateful /proc scan: once a worker spawns Xvfb, later workers must
         # see the live process (the env-display reuse now requires process
-        # liveness, not just a socket — infra-review F5).
+        # liveness, not just a socket).
         spawned_displays: list[str] = []
 
         def _fake_running() -> dict[str, int]:

@@ -164,7 +164,7 @@ def _ensure_xvfb_locked() -> str | None:
     # The env display is trusted only when a LIVE Xvfb process owns it — a
     # socket check alone can resurrect a stale REBREW_XVFB_DISPLAY whose
     # server died (or whose socket was reused by a non-Xvfb X server),
-    # sending every compile into a dead display (infra-review F5).
+    # sending every compile into a dead display.
     if env_display and env_display in displays and _display_alive(env_display):
         return env_display
 

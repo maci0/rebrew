@@ -1475,8 +1475,7 @@ class TestFixHeaders:
     def test_malformed_link_version_warns(self, tmp_path: Path) -> None:
         """A malformed `linker_version` ("5", "abc") must warn, not silently
         drop the patch — the old `except ValueError: pass` made --fix-headers
-        skip the field while the parity report showed an unexplained mismatch
-        (config-review F7)."""
+        skip the field while the parity report showed an unexplained mismatch."""
         import pytest
 
         from rebrew.config import LinkConfig

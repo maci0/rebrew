@@ -66,7 +66,7 @@ def gen_link_stubs(metadata: Path) -> str:
         if not is_safe_c_ident(name):
             # Non-identifier names (mangled/corrupt metadata) emitted verbatim
             # would produce an uncompilable TU — fall back to an
-            # address-derived identifier (link-review F9).
+            # address-derived identifier.
             name = f"g_data_{addr:x}"
         lines.append(f"char {name}[1] = {{0}};")
     lines.append("")

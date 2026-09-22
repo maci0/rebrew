@@ -200,7 +200,7 @@ def _json_requested(argv: list[str] | None = None) -> bool:
     substring scan (``"--json" in sys.argv``) matched any argument
     containing the literal, e.g. a file named ``x--json.c`` or
     ``--cflags "--json"``, switching the uncaught-exception envelope to
-    JSON mode without the user passing ``--json`` (cli-review F11).
+    JSON mode without the user passing ``--json``.
     """
     return any(arg in ("--json", "--json=true") for arg in (sys.argv if argv is None else argv))
 

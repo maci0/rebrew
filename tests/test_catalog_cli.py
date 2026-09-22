@@ -72,7 +72,7 @@ class TestCatalogCli:
             "total_functions": 0,
             "covered_bytes": 0,
             # No fabricated 0x24000 fallback: with the binary missing the
-            # size is 0 and the payload says so (code-review F9).
+            # size is 0 and the payload says so.
             "text_size": 0,
             "coverage_pct": 0.0,
             "wrote_data_json": False,

@@ -465,7 +465,7 @@ def source_digest(source_content: str) -> str:
 
     Flag sweeps / GA runs call :func:`compile_cache_key` once per combo with
     the *same* source text; re-hashing the full source each time was pure CPU
-    on a warm cache (perf-review F3: 1-8s per 258k-combo sweep).  Python
+    on a warm cache (1-8s per 258k-combo sweep).  Python
     strings cache their own ``hash()`` after the first call, so the
     lru_cache lookup is cheap once a source string has been seen.
 

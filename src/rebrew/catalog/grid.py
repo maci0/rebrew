@@ -41,7 +41,7 @@ _GRID_COLUMNS = 64
 # Highest-priority status group per VA (first matching group wins).
 # PROVEN shares a bucket with RELOC for COVERAGE accounting only: it counts
 # as reversed work so exact+reloc+near+stub cannot undercount totalFunctions
-# and the catalog's "Matched: N/M" line stays honest (test-review F2).
+# and the catalog's "Matched: N/M" line stays honest.
 # This is not a byte-match claim.  PROVEN ranks BELOW RELOC in
 # verify._STATUS_RANK because a proven function compiles to different bytes
 # than the target; only EXACT/RELOC are byte-identical (see the
@@ -86,7 +86,7 @@ def covered_bytes(
     falling back to the annotation's own size.  Both callers previously
     diverged — the CLI counted 0 for registry-missing VAs while the old
     CATALOG.md generator counted the annotation size — so the summary and
-    report disagreed (catalog-review F9).  GLOBAL/DATA markers are excluded.
+    report disagreed.  GLOBAL/DATA markers are excluded.
 
     The ranges are merged and clipped to *section* (``(va, size)``) rather
     than summed.  Both steps are load-bearing on real projects: summing

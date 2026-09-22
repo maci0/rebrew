@@ -70,7 +70,7 @@ def _find_pdb(binary: Path) -> Path | None:
 
     (The second candidate used to be the same expression as the first —
     `with_suffix(".pdb")` and `parent / f"{stem}.pdb"` are identical, so the
-    documented `original/` fallback never existed — infra-review F7.)
+    documented `original/` fallback never existed.)
     """
     candidates = [
         binary.with_suffix(".pdb"),

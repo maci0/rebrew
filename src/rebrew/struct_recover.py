@@ -650,8 +650,7 @@ def recover_project_structs(
 
     # Existing structs in the project, for the merge report.  Library headers
     # are included too — name_decomp.py scans them and recover_structs must
-    # agree, or its "new" structs would duplicate ones already defined
-    # (sync-review F15).
+    # agree, or its "new" structs would duplicate ones already defined.
     from rebrew.sources import iter_library_headers, iter_sources
 
     sources = list(iter_sources(cfg.reversed_dir, cfg))

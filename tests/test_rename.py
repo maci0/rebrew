@@ -120,8 +120,8 @@ class TestRenameEdgeCases:
     def test_primary_file_oserror_warns(self, tmp_path: Path, monkeypatch: Any) -> None:
         """A missing/unreadable primary file aborts the rename BEFORE any
         reference is rewritten — continuing would leave the definition with
-        the old name while every call site got the new one (regression:
-        error-review F9, the old code warned and half-applied the rename)."""
+        the old name while every call site got the new one (regression: the
+        old code warned and half-applied the rename)."""
         import pytest
 
         from rebrew.rename_ops import rename_function_everywhere

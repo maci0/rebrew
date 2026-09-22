@@ -361,7 +361,7 @@ class TestPrepareEntriesCache:
         """A cached result must be re-verified after [compiler].cflags or a
         module preset changes — the entry stores the RESOLVED effective flags
         (config fallback chain applied), so a config edit that changes what a
-        function compiles with invalidates it (config-review F3: the old code
+        function compiles with invalidates it (the old code
         compared only metadata CFLAGS, leaving stale EXACT/RELOC served)."""
         entry = _ann(0x1000)  # annotation cflags "" → resolves from config
         cfg = self._setup(tmp_path, monkeypatch, entry)

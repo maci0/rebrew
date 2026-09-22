@@ -1291,7 +1291,7 @@ class Dashboard:
         # Not byte-identity: PROVEN bytes differ from the target (verify's
         # _STATUS_RANK puts PROVEN below RELOC for that reason). —
         # the old covered_bytes summed every function's size, so an all-STUB
-        # binary reported ~100% "coverage" (db-review F1).  Identified bytes
+        # binary reported ~100% "coverage".  Identified bytes
         # (incl. stubs) stays available as a separate field.
         covered = int(stats.get("matched_bytes") or 0)
         identified = int(stats.get("covered_bytes") or 0)

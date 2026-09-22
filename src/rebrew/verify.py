@@ -269,7 +269,7 @@ def verify_entry(
         # UNMATCHED functions only — matched functions are 0 trivially, and
         # a full disassembly diff per function is wasted work on the common
         # exact/reloc path.  Feeds the recoverage-consumed
-        # verify_results.diff_lines column (db-review F2: it was documented
+        # verify_results.diff_lines column (it was documented
         # but never produced, so every row was NULL).  Best-effort: any
         # disassembly failure leaves it None.
         try:
@@ -808,7 +808,7 @@ def main(
             # Re-resolve every poll so a .c created DURING the session (e.g.
             # `rebrew skeleton` for a newly discovered function) is watched —
             # the old code captured the list once at startup and silently
-            # stopped covering new files (idempotency-review F8).
+            # stopped covering new files.
             return list(iter_sources(cfg.reversed_dir, cfg))
 
         def _retest() -> None:
@@ -1594,7 +1594,7 @@ def _apply_size_fixes(cfg: Any, size_divergences: list[dict[str, Any]], dry_run:
         updates.append({"module": module, "va": va, "fields": {"size": d["binary_size"]}})
     if not dry_run and updates:
         # One TOML read-modify-write for the whole batch (per-entry writes
-        # were N full rewrites — perf-review F2).
+        # were N full rewrites).
         set_fields_batch(cfg.metadata_dir, updates)
         return len(updates)
     return 0
@@ -1966,8 +1966,8 @@ def apply_proven_overlay(
         # cannot support it (source no longer builds, annotation changed, or
         # the status was hand-claimed).  The real byte result stands and a
         # metadata: warning is emitted — a claimed PROVEN is only honored
-        # over the byte states a proven function legitimately produces
-        # (metadata-review F2).  The demotion is written through (force —
+        # over the byte states a proven function legitimately produces.
+        # The demotion is written through (force —
         # PROVEN stickiness protects earned claims, but a STUB/COMPILE_ERROR
         # body demonstrably no longer contains the proven code, so the claim
         # is void and the warning must fire exactly once).
@@ -2552,7 +2552,7 @@ def apply_status_updates(
 
     try:
         # Batch all STATUS writes into one TOML read-modify-write
-        # (perf-review F2: per-entry RMW was ~9s at 260 entries, minutes at
+        # (per-entry RMW was ~9s at 260 entries, minutes at
         # thousands).
         from rebrew.metadata import update_statuses_batch
 

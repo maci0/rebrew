@@ -17,8 +17,7 @@ Layout produced::
 
 The export carries only BinSync-native fields — rebrew's STATUS/CFLAGS
 stay in ``rebrew-functions.toml`` (STATUS is verify-earned; an old
-``[rebrew] STATUS=… CFLAGS=…`` comment was write-only and was removed,
-metadata-review R2).
+``[rebrew] STATUS=… CFLAGS=…`` comment was write-only and was removed).
 """
 
 from __future__ import annotations
@@ -954,7 +953,7 @@ def export_state(
     if module is not None:
         # Catalog-only entries carry no module attribution (""), so under a
         # --module filter they would all be exported unconditionally,
-        # violating the filter contract (sync-review F7).
+        # violating the filter contract.
         catalog_func_entries = []
 
     # Nothing at all to export?

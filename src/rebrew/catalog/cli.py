@@ -301,7 +301,7 @@ def main(
     if export_ghidra:
         # --export-ghidra prints interactive instructions and emits NO JSON
         # document — combining it with --json would produce zero stdout,
-        # breaking the JSON contract (cli-review F9).  Refuse up front like
+        # breaking the JSON contract.  Refuse up front like
         # the --fix-sizes --json guard above.
         if json_output:
             error_exit(

@@ -856,7 +856,7 @@ binary = "test.exe"
     def test_dead_config_keys_warn(self, tmp_path: Path) -> None:
         """Reserved/no-op keys ([compiler.profiles]) must warn at load — a user
         configuring them gets zero effect, so the no-op must be visible, not
-        silent (config-review F5)."""
+        silent."""
         toml = """\
 [project]
 default_target = "main"

@@ -1010,8 +1010,8 @@ missing_typing, for_loops, while_loops, suggestions}]}`.
 ### `rebrew sync`
 
 `rebrew sync` synchronizes annotations with Ghidra. **Field-level sync
-(names, comments/notes, prototypes, structs, globals) is BinSync-primary**
-(metadata-review R1): `--push`/`--pull` go through the shared BinSync state
+(names, comments/notes, prototypes, structs, globals) is BinSync-primary**:
+`--push`/`--pull` go through the shared BinSync state
 dir, and the BinSync Ghidra plugin (or a collaborator's tool) relays the
 state to and from Ghidra.  ReVa MCP remains only for the structural ops the
 state dir cannot express — function creation, bookmarks, data pulls.

@@ -807,7 +807,7 @@ def import_function(
 
         existing = parse_c_file_multi(dst_path, target_name=module)
         # Any annotation on a DIFFERENT VA — not just the first one — makes
-        # the destination file off-limits (sync-review F13).
+        # the destination file off-limits.
         conflicting = next((e for e in existing if e.va != dst_va), None)
         if conflicting is not None:
             return {

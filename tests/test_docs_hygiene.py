@@ -126,7 +126,7 @@ def test_every_project_script_resolves() -> None:
     deleted module, a renamed entry point, or a stale ``main_entry`` would
     make the script fail at runtime while the umbrella still works — the
     same drift class the callback-decorator test catches, at the attribute
-    level (cli-review F3).
+    level.
     """
     import importlib
 

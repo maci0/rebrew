@@ -50,7 +50,7 @@ def main(
         name, sep, va = entry.partition("=")
         if not sep or not name or not va:
             # "file=0xVA" without a '=' (or an empty side) would feed "" to
-            # int("", 0) → a raw ValueError (link-review F8).
+            # int("", 0) → a raw ValueError.
             error_exit(
                 f"--first-va {entry!r}: expected FILE=0xVA (e.g. zlib/adler32.c=0x10001000)",
                 json_mode=json_output,

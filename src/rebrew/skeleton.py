@@ -639,7 +639,7 @@ def _stale_size_note(cfg: ProjectConfig, va: int, size: int) -> str | None:
             # A ret that is the target of a conditional jump is an early
             # return (if/switch exit), NOT a function end — counting every
             # linear ret flagged single functions with early returns as
-            # "merged" (sync-review F9).  Only rets that are not jcc targets
+            # "merged".  Only rets that are not jcc targets
             # count as epilogues: a merged discovery entry has >= 2 such
             # epilogues, a single function with early returns exactly 1.
             jcc_targets: set[int] = set()

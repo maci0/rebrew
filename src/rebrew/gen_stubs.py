@@ -395,8 +395,7 @@ def ensure_param_names(params_str: str) -> str:
         if len(tokens) >= 2:
             # A trailing token like "*p" or "**pp" DOES carry a name — strip
             # the pointer stars before the identifier check, otherwise
-            # "int *p" was "named" with the garbage suffix "int *p a"
-            # (link-review F1).
+            # "int *p" was "named" with the garbage suffix "int *p a".
             last = tokens[-1].lstrip("*")
             if re.match(r"^[a-zA-Z_]\w*$", last) and last not in _C_PRIMITIVES | {"struct"}:
                 has_name = True
@@ -672,8 +671,7 @@ def _run_build(
                 cwd=root,
             )
         except subprocess.TimeoutExpired:
-            # A hung build must surface as a clean error, not a raw traceback
-            # (link-review F5).
+            # A hung build must surface as a clean error, not a raw traceback.
             error_exit(f"build timed out after 600s: {build_cmd}", json_mode=False)
         return result.stdout + result.stderr
     finally:

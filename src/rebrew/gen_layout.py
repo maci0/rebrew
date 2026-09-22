@@ -88,7 +88,7 @@ _WS2_32_ORDINALS: dict[int, str] = {
     # stable through Windows 10).  The previous table was a garbled blend of
     # Win95-era guesses and modern ordinals: WSAStartup appeared at FOUR
     # ordinals (48/112/116/301) and the 51-57 block claimed internal WSAp*
-    # helpers where the real DLL exports gethostbyaddr & co (link-review F2).
+    # helpers where the real DLL exports gethostbyaddr & co.
     1: "accept",
     2: "bind",
     3: "closesocket",

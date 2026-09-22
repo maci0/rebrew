@@ -288,7 +288,7 @@ def _extract_array_suffix(declarator: Any, source_bytes: bytes) -> str:
             break
     # tree-sitter nests array_declarators outermost-bracket-first, so
     # ``foo[10][5]`` collects "[5]" then "[10]" — the source spells
-    # "[10][5]" and the suffix must match (infra-review F1).
+    # "[10][5]" and the suffix must match.
     return "".join(reversed(parts))
 
 

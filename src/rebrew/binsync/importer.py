@@ -469,7 +469,7 @@ def import_state(
                 )
                 if not json_output:
                     # Was an `elif` to the dry_run branch — real runs printed
-                    # "(dry-run)" while actually writing (sync-review F2).
+                    # "(dry-run)" while actually writing.
                     console.print(f"  Would update prototype 0x{va:08x} (dry-run)")
             elif not json_output:
                 console.print(f"  Updating prototype 0x{va:08x}")

@@ -351,7 +351,7 @@ def _docker_run(spec: ToolchainSpec, mode: str, args: list[str]) -> int:
         # Killing the CLI leaves the wine container running under dockerd —
         # kill it by name so a hung compile does not outlive the timeout.
         # (The raised TimeoutExpired is converted to a clean error by the
-        # console-script entry in tc_main — link-review F6.)
+        # console-script entry in tc_main.)
         kill_container(str(cmd[cmd.index("--name") + 1]))
         raise
     sys.stdout.write((r.stdout + r.stderr).replace("\r", ""))
@@ -390,7 +390,7 @@ def tc_main() -> None:
         rc = _docker_run(spec, mode, argv)
     except subprocess.TimeoutExpired:
         # A hung wine build must exit with a clean message, not a raw
-        # traceback polluting CMake's error output (link-review F6).
+        # traceback polluting CMake's error output.
         error_exit(f"rebrew-cmake-{mode}: toolchain command timed out (3600s)")
     sys.exit(rc)
 

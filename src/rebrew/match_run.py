@@ -927,8 +927,8 @@ def _run_all(
         # sweep's reloc-masked score alone cannot certify a match — a
         # candidate differing only in a call/mov displacement scores 0.0
         # without checking the reloc TARGET, so a wrong-callee source could
-        # be promoted EXACT/RELOC and demoted by the next test/verify
-        # (functionality-review F3).  Validate every sweep "exact" against
+        # be promoted EXACT/RELOC and demoted by the next test/verify.
+        # Validate every sweep "exact" against
         # the catalog before promoting.
         name_to_va = build_name_to_va(cfg)
         matched, failed = _run_batch_flag_sweep(
@@ -1303,8 +1303,8 @@ def _run_batch_flag_sweep(
             # differs ONLY in a call/mov displacement scores 0.0 without
             # checking the reloc TARGET — promoting it would write
             # EXACT/RELOC that the next test/verify (which validates reloc
-            # targets against the catalog) immediately demotes
-            # (functionality-review F3).  Re-verify with the authoritative
+            # targets against the catalog) immediately demotes.
+            # Re-verify with the authoritative
             # predicate before touching STATUS.
             try:
                 from rebrew.binary_loader import extract_raw_bytes

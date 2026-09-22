@@ -235,7 +235,7 @@ def run_standalone(main: Any) -> None:
     The group-style ``invoke_without_command`` callback fails to parse
     positional-then-option invocations (``rebrew-<cmd> ARG --opt`` — click
     treats the positional as a command name), while the umbrella's command
-    registration parses both orderings (cli-review F1).
+    registration parses both orderings.
     """
     _standalone = typer.Typer()
     _standalone.command()(main)

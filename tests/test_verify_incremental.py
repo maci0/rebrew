@@ -243,7 +243,7 @@ class TestVerifyCacheMatchesCfg:
 class TestPatchVerifyCacheEntries:
     """The shared STATUS-sync helper behind test/match promotions: after a
     match run promotes metadata, status/todo must read the fresh status from
-    the verify cache (functionality-review F4)."""
+    the verify cache."""
 
     def _make_cache(self, tmp_path: Path, cfg: ProjectConfig, status: str) -> Path:
         cache_path = tmp_path / ".rebrew" / "verify_cache.json"

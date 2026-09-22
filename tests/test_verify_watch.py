@@ -94,8 +94,7 @@ class TestWatchFiles:
     ) -> None:
         """A file created DURING the session (path_provider re-resolves the
         set every poll) must be watched — the old code captured the list
-        once at startup and silently stopped covering new files
-        (idempotency-review F8)."""
+        once at startup and silently stopped covering new files."""
         from rebrew.utils import watch_files
 
         a = tmp_path / "a.c"
