@@ -56,7 +56,6 @@ If the directory does not exist yet:
 
 ```bash
 rebrew binsync init ./binsync-state          # create root + binsync/<user> branches
-# or: rebrew binsync-init ./binsync-state
 ```
 
 Then pass that path as `--state-dir` on every `--push` / `--pull`.

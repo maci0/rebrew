@@ -32,7 +32,7 @@ LoopSeer-bounded exec → Z3 compare EAX (optional EDX).
 **64-bit / EDX**: `long long` / `__int64` / `int64_t` / `uint64_t` use EDX:EAX.
 `--check-edx` forces EDX; PROTOTYPE return types auto-enable it.
 
-Requirements: `pip install 'rebrew[prove]'` or `uv sync --extra prove` (angr);
+Requirements: `uv pip install 'rebrew[prove]'` (in-repo: `uv sync --extra prove`) for angr;
 STATUS NEAR_MATCHING. Stop and install if import fails.
 
 Limitations: float-heavy may not prove; raise `--timeout` / `--loop-bound` for

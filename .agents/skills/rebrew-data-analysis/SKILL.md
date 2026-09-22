@@ -61,10 +61,9 @@ Use `--gen-header` when working offline or before any Ghidra sync — it emits t
 this header with Ghidra-sourced labels when available (same default path
 `{reversed_dir}/rebrew_globals.h`, but `--pull-data` never prompts).
 
-By default `--gen-header` refuses to overwrite an existing file; pass `--force` to
-allow overwriting. Use `--gen-header-out PATH` to write to a custom location instead
-of the default `{reversed_dir}/rebrew_globals.h`. Always run `--fix-bss` / `--gen-header`
-with `--dry-run` first — `--fix-bss` writes both a source file and metadata.
+`--gen-header` refuses to overwrite an existing file without `--force`. Run
+`--fix-bss` / `--gen-header` with `--dry-run` first: `--fix-bss` writes both a
+source file and metadata.
 
 JSON response shapes and failure-mode table: `references/json-and-failures.md`.
 

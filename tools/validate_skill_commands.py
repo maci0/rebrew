@@ -1,10 +1,11 @@
 """validate_skill_commands.py – Validate that rebrew CLI flags referenced in SKILL.md files exist.
 
-Parses each ``src/rebrew/agent-skills/*/SKILL.md``, extracts every ``bash``
-code block, finds lines that start with ``rebrew <subcommand>``, and for each
-unique ``(subcommand, flags)`` combination runs ``uv run rebrew <subcommand>
---help`` to confirm the subcommand resolves AND every long flag mentioned
-(``--flag``) appears in the help output.
+Parses each ``src/rebrew/agent-skills/*/SKILL.md`` and its ``references/*.md``,
+collects every ``rebrew <subcommand>`` invocation from both ``bash`` code
+blocks and inline code spans, and for each unique ``(subcommand, flags)``
+combination runs ``uv run rebrew <subcommand> --help`` to confirm the
+subcommand resolves AND every long flag mentioned (``--flag``) appears in the
+help output.
 
 The script does NOT invoke the actual commands — it only exercises ``--help``.
 
@@ -38,6 +39,7 @@ _SKILLS_DIR = _REPO_ROOT / "src" / "rebrew" / "agent-skills"
 # ---------------------------------------------------------------------------
 
 _BASH_BLOCK_RE = re.compile(r"```bash\n(.*?)```", re.DOTALL)
+_INLINE_SPAN_RE = re.compile(r"`(rebrew [^`]+)`")
 _FLAG_RE = re.compile(r"(--[a-z][a-z0-9-]+)")
 
 # typer colors the help whenever GITHUB_ACTIONS/FORCE_COLOR/PY_COLORS is set
@@ -59,54 +61,71 @@ _SKIP_FLAGS: frozenset[str] = frozenset(
 )
 
 
-# Multi-command subcommands whose top-level --help does not list subcommand
-# flags.  For these, we validate subcommand+subsubcommand pairs instead.
-_MULTI_SUBCOMMANDS: frozenset[str] = frozenset(
-    {"cfg", "cache", "extract", "skills", "types", "blocker", "orphans"}
-)
+def _multi_subcommands() -> frozenset[str]:
+    """CLI groups whose top-level --help does not list subcommand flags.
+
+    For these we validate ``<group> <subcommand>`` pairs instead.  Derived from
+    the component registry so a newly added group is validated without editing
+    this file — a hand-maintained list silently skipped ``binsync``/``library``/
+    ``toolchain``/``resource`` after they were added.
+    """
+    from rebrew.builtins import BUILTIN_COMPONENTS
+
+    return frozenset(c.name for c in BUILTIN_COMPONENTS if c.is_group)
 
 
-def _extract_commands(skill_md: Path) -> list[tuple[str, list[str]]]:
-    """Return list of (subcommand, [flags]) from bash blocks in *skill_md*.
+#: Resolved once at import; see :func:`_multi_subcommands`.
+_MULTI_SUBCOMMANDS: frozenset[str] = _multi_subcommands()
+
+
+def _is_placeholder(token: str) -> bool:
+    """True for ``<va>``-style placeholders and ``a/b`` slash alternations.
+
+    Prose writes ``rebrew toolchain list/status/pull/build`` and ``rebrew
+    diff/match/prove/test 0x<va>`` to name several commands at once; neither
+    resolves as a single subcommand.
+    """
+    return any(c in token for c in "<>/")
+
+
+def _parse_command(line: str) -> tuple[str, list[str]] | None:
+    """Return ``(subcommand, flags)`` for one ``rebrew …`` invocation, or None.
 
     For multi-command groups (e.g. ``rebrew cfg add-target``), the subcommand
     is taken as ``cfg add-target`` so we invoke ``rebrew cfg add-target --help``
     instead of ``rebrew cfg --help`` (which would not list subcommand flags).
     """
+    line = line.split("#", maxsplit=1)[0].strip()
+    if not line.startswith("rebrew "):
+        return None
+    tokens = line.split()
+    if len(tokens) < 2 or _is_placeholder(tokens[1]):
+        return None
+    subcommand = tokens[1]
+
+    # For multi-command groups, absorb the subsubcommand if present
+    if subcommand in _MULTI_SUBCOMMANDS and len(tokens) >= 3:
+        second_sub = tokens[2]
+        if not second_sub.startswith("-") and not _is_placeholder(second_sub):
+            subcommand = f"{subcommand} {second_sub}"
+
+    return subcommand, [f for f in _FLAG_RE.findall(line) if f not in _SKIP_FLAGS]
+
+
+def _extract_commands(skill_md: Path) -> list[tuple[str, list[str]]]:
+    """Return list of (subcommand, [flags]) from *skill_md*.
+
+    Covers both ``bash`` code blocks and inline ``` `rebrew …` ``` spans in
+    prose.  Skills name commands in prose as often as in code blocks, and a
+    block-only check leaves those references unvalidated.
+    """
     text = skill_md.read_text(encoding="utf-8")
-    results: list[tuple[str, list[str]]] = []
-    for block in _BASH_BLOCK_RE.finditer(text):
-        for line in block.group(1).splitlines():
-            # Strip inline comments
-            line = line.split("#")[0].strip()
-            if not line.startswith("rebrew "):
-                continue
-            tokens = line.split()
-            if len(tokens) < 2:
-                continue
-            first_sub = tokens[1]
-            # Skip lines that use placeholder-style subcommands (contain <…>)
-            if "<" in first_sub or ">" in first_sub:
-                continue
-
-            # For multi-command groups, absorb the subsubcommand if present
-            if first_sub in _MULTI_SUBCOMMANDS and len(tokens) >= 3:
-                second_sub = tokens[2]
-                # Skip if second token is a flag or placeholder
-                if (
-                    not second_sub.startswith("-")
-                    and "<" not in second_sub
-                    and ">" not in second_sub
-                ):
-                    subcommand = f"{first_sub} {second_sub}"
-                else:
-                    subcommand = first_sub
-            else:
-                subcommand = first_sub
-
-            flags = [f for f in _FLAG_RE.findall(line) if f not in _SKIP_FLAGS]
-            results.append((subcommand, flags))
-    return results
+    lines = [
+        line for block in _BASH_BLOCK_RE.finditer(text) for line in block.group(1).splitlines()
+    ]
+    # Inline spans wrapping a line break are prose sentences, not invocations.
+    lines += [m.group(1) for m in _INLINE_SPAN_RE.finditer(text) if "\n" not in m.group(1)]
+    return [cmd for line in lines if (cmd := _parse_command(line)) is not None]
 
 
 # ---------------------------------------------------------------------------

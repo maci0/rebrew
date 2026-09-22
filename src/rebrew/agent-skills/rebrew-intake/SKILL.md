@@ -200,7 +200,7 @@ available under the project's `toolchain/` tree (e.g. MSVCRT at
 
 ### 9. Sync to Ghidra (Optional)
 
-If a Ghidra instance is available with ReVa MCP:
+Field sync needs only the shared BinSync state dir — no Ghidra, no MCP:
 
 ```bash
 rebrew sync --push --state-dir <dir>      # export annotations to the BinSync state dir
