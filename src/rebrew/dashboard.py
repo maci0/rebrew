@@ -35,8 +35,8 @@ Successful 200 responses negotiate ``zstd`` then ``gzip`` (``Accept-Encoding``
 quality weights; explicit ``coding;q=0`` beats ``*``), carry an ``ETag`` (HTML
 or ``/app.js`` content hash, or DB mtime), and use ``Cache-Control: private,
 no-cache`` so browsers can 304 without serving a stale body after ``build-db``.
-A matching ``If-None-Match`` on a routed path is answered 304 before any
-SQLite query runs.
+A matching ``If-None-Match`` on a routed path (target-scoped ones need a
+``target``) is answered 304 before any SQLite query runs.
 The static HTML shell and ``/app.js`` client are zstd- and gzip-precompressed at
 import time so entry assets skip per-request compression CPU.  The shell
 ``<head>`` preloads ``/api/bootstrap`` (``as=fetch`` + ``crossorigin`` +
@@ -89,13 +89,9 @@ _MAX_OFFSET = 2**63 - 1
 _FUNCTION_COLS = ("va", "name", "symbol", "size", "status", "module", "files")
 _GLOBAL_COLS = ("va", "name", "decl", "size", "module")
 _HISTORY_COLS = ("va", "name", "old_status", "new_status", "changed_at")
-#: Paths ``Dashboard.handle`` serves; only these may short-circuit to 304.
-_ROUTES = frozenset(
+#: Routes that require ``?target=``.
+_TARGET_ROUTES = frozenset(
     {
-        "/",
-        "/app.js",
-        "/api/bootstrap",
-        "/api/targets",
         "/api/summary",
         "/api/functions",
         "/api/sections",
@@ -103,6 +99,8 @@ _ROUTES = frozenset(
         "/api/history",
     }
 )
+#: Paths ``Dashboard.handle`` serves; only these may short-circuit to 304.
+_ROUTES = frozenset({"/", "/app.js", "/api/bootstrap", "/api/targets"}) | _TARGET_ROUTES
 # Below this size framing usually costs more than it saves on a LAN.
 _MIN_COMPRESS_BYTES = 256
 # Per-request dynamic JSON: mid effort (bodies are rebuilt every request).
@@ -1578,13 +1576,7 @@ class Dashboard:
             )
 
         # All remaining endpoints require ?target=
-        if parsed.path in (
-            "/api/summary",
-            "/api/functions",
-            "/api/sections",
-            "/api/globals",
-            "/api/history",
-        ):
+        if parsed.path in _TARGET_ROUTES:
             target = _opt_query(query, "target") or ""
             if not target:
                 return self._json(400, {"error": "missing required query parameter 'target'"})
@@ -1860,17 +1852,21 @@ class _Handler(BaseHTTPRequestHandler):
         # body with the new ETag, and the browser would revalidate that stale
         # body as fresh until the next rebuild.  An old ETag on a new body
         # only costs one extra refetch.  A matching If-None-Match on a routed
-        # GET/HEAD answers 304 without running the query.
+        # GET/HEAD answers 304 without running the query.  A target-scoped
+        # route without ``?target=`` has no representation to revalidate
+        # (``If-None-Match: *`` included), so it falls through to its 400.
         etag = self.dashboard.response_etag(self.path)
+        parsed = urlparse(self.path)
+        query = parse_qs(parsed.query)
         if (
             method in ("GET", "HEAD")
-            and urlparse(self.path).path in _ROUTES
+            and parsed.path in _ROUTES
+            and (parsed.path not in _TARGET_ROUTES or _opt_query(query, "target"))
             and _if_none_match(self.headers.get("If-None-Match", ""), etag)
         ):
             self._send_not_modified(etag)
             return
 
-        query = parse_qs(urlparse(self.path).query)
         try:
             status, content_type, body = self.dashboard.handle(method, self.path, query)
         except sqlite3.Error as exc:

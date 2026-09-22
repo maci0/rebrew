@@ -1302,6 +1302,14 @@ class TestHostValidation:
         handler._respond("GET")
         assert [v for k, v in sent if k == "status"] == [404]
 
+        # A target-scoped route without ?target= keeps its 400, even for "*".
+        for path in ("/api/functions", "/api/summary?target=%20"):
+            sent.clear()
+            handler.path = path
+            handler.headers = {"Host": "127.0.0.1:8000", "If-None-Match": "*"}
+            handler._respond("GET")
+            assert [v for k, v in sent if k == "status"] == [400]
+
     def test_handler_etag_read_before_query(self, dashboard: Dashboard) -> None:
         """A DB rebuilt mid-query must not tag the old body with the new ETag."""
         import os
