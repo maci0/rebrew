@@ -1,4 +1,4 @@
-# AGENTS.md — catalog/
+# AGENTS.md: catalog/
 
 Merges function sources (discovery inventory, Ghidra JSON, binary exports) into a unified registry, builds cell-level coverage grids, and exports reccmp CSV.
 

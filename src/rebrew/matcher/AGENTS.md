@@ -1,4 +1,4 @@
-# AGENTS.md — matcher/
+# AGENTS.md: matcher/
 
 GA engine for binary-matching decompilation. Compiles C through the docker-backed toolchain abstraction (wine lives inside the image; no host wine/wibo fallback), scores byte similarity against targets, mutates source to converge on exact matches.
 
@@ -35,10 +35,10 @@ Packaged `mut_*` ops under `mutations/` → `ALL_MUTATIONS` in `mutator.py`. New
 
 ## Consumers
 
-- `match_ga.py` — primary GA loop (`build_candidate_obj_only`)
-- `match_sweep.py` — flag sweep
-- `diff.py`, `stack_cmp.py` — compile-for-compare helpers
-- `compile.py` / `test.py` / `prove.py` — import **`rebrew.matcher.parsers`** directly (package `__init__` is lazy so this does not load mutator/compiler)
+- `match_ga.py`: primary GA loop (`build_candidate_obj_only`)
+- `match_sweep.py`: flag sweep
+- `diff.py`, `stack_cmp.py`: compile-for-compare helpers
+- `compile.py` / `test.py` / `prove.py`: import **`rebrew.matcher.parsers`** directly (package `__init__` is lazy so this does not load mutator/compiler)
 
 ## Gotchas
 
@@ -47,4 +47,4 @@ Packaged `mut_*` ops under `mutations/` → `ALL_MUTATIONS` in `mutator.py`. New
 - **Heuristic reloc/register detection**: pattern matching in `scoring.py`, not COFF metadata.
 - **Timeouts**: `build_candidate_obj_only` / `flag_sweep` default 60s; `build_candidate` (compile+link) defaults to 120s. Direct subprocess timeouts return `BuildResult(ok=False)`. Image-backed path: `timeout=` seeds a synthetic cfg when none is passed; a real `cfg` uses `cfg.compile_timeout`.
 - **Wine stderr**: lazy `rebrew.compile.filter_wine_stderr()` (avoids import cycle).
-- **No global state**: each run owns its in-memory memo, `Random`, and temp dirs — safe to run concurrently.
+- **No global state**: each run owns its in-memory memo, `Random`, and temp dirs, safe to run concurrently.
