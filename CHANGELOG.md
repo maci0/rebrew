@@ -381,6 +381,11 @@
   ``one_line``, ``run_git``). Call sites inside the package already updated.
 
 ### Fixed
+- **Nested metadata locks on two roots both take their `flock`.**
+  `metadata_write_lock` tracked reentrancy per filename, so a thread holding
+  one root's `rebrew-functions.toml` lock skipped the `flock` for the same
+  file in another root, letting another process interleave its
+  read-modify-write there.  Depth is now tracked per resolved path.
 - **Merge-sweep search no longer crashes when the initial score exceeds
   `max_compiles`.**  `search_partitions` raised `UnboundLocalError`; it now
   returns the initial partition and its score.  mypy's `possibly-undefined`

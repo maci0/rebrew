@@ -677,7 +677,7 @@ def load_toml_for_write(path: Path, description: str) -> TOMLDocument:
 #: through ``update_source_status`` inside the same critical section).
 _METADATA_WRITE_LOCKS: dict[str, threading.RLock] = {}
 
-#: Per-thread reentrancy depth per metadata filename, so a nested acquisition
+#: Per-thread reentrancy depth per resolved metadata path, so a nested acquisition
 #: skips the ``flock`` (a second fd would deadlock against the first).
 _METADATA_WRITE_DEPTH = threading.local()
 
@@ -733,23 +733,26 @@ def metadata_write_lock(directory: Path, filename: str) -> Iterator[None]:
     if depth is None:
         depth = {}
         _METADATA_WRITE_DEPTH.depth = depth
+    # Depth is per resolved path, not per filename: a nested lock on the
+    # same-named file in another root must still take that root's flock.
+    key = str(path)
     with lock:
-        if depth.get(filename, 0):
+        if depth.get(key, 0):
             # Reentrant: this thread already holds the lock and the flock.
             # Re-opening the sidecar and flocking a second fd would block
             # against the first, so only track the depth here.
-            depth[filename] += 1
+            depth[key] += 1
             try:
                 yield
             finally:
-                depth[filename] -= 1
+                depth[key] -= 1
             return
-        depth[filename] = 1
+        depth[key] = 1
         try:
             with file_lock(path.with_suffix(path.suffix + ".lock")):
                 yield
         finally:
-            depth.pop(filename, None)
+            depth.pop(key, None)
 
 
 #: Serializes in-memory metadata-doc cache mutations (``rebrew-functions.toml``

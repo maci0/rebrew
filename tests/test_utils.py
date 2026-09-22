@@ -515,6 +515,24 @@ class TestMetadataWriteLock:
         assert done.wait(timeout=10), "nested metadata_write_lock deadlocked"
         assert result == ["inner", "outer"]
 
+    def test_nested_lock_on_other_directory_takes_its_flock(self, tmp_path: Path) -> None:
+        """Holding the lock for one metadata root must not skip the ``flock``
+        of a same-named file in another root: another process would then
+        interleave its read-modify-write on the second file."""
+        import fcntl
+
+        from rebrew.utils import metadata_write_lock
+
+        dir_a, dir_b = tmp_path / "a", tmp_path / "b"
+        with (
+            metadata_write_lock(dir_a, "rebrew-functions.toml"),
+            metadata_write_lock(dir_b, "rebrew-functions.toml"),
+            # A second open file description stands in for another process.
+            (dir_b / "rebrew-functions.toml.lock").open("w") as other_fd,
+            pytest.raises(BlockingIOError),
+        ):
+            fcntl.flock(other_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
 
 # ---------------------------------------------------------------------------
 # Source-encoding detection & preservation (R18)
