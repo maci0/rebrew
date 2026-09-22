@@ -10,14 +10,17 @@ Annotation format (reccmp-compatible):
 
 from __future__ import annotations
 
+import bisect
 import contextlib
 import copy
 import functools
 import hashlib
 import logging
+import os
 import re
 import threading
 import warnings
+from collections.abc import Callable
 from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any, ClassVar, Final
@@ -58,6 +61,7 @@ def min_valid_va_for(cfg: Any) -> int:
 __all__ = [
     "ALL_KNOWN_KEYS",
     "Annotation",
+    "span_contains_factory",
     "DATA_MARKERS",
     "FUNCTION_MARKERS",
     "METADATA_KEYS",
@@ -87,7 +91,7 @@ __all__ = [
 # Valid sets
 # ---------------------------------------------------------------------------
 
-VALID_MARKERS = {"FUNCTION", "LIBRARY", "STUB", "GLOBAL", "DATA"}
+VALID_MARKERS = {"FUNCTION", "LIBRARY", "STUB", "GLOBAL", "DATA", "VTABLE", "STRING"}
 
 #: Markers for compilable code (functions + stubs).  Everything else is data.
 FUNCTION_MARKERS: frozenset[str] = frozenset({"FUNCTION", "LIBRARY", "STUB"})
@@ -143,11 +147,11 @@ ALL_KNOWN_KEYS = OPTIONAL_KEYS | METADATA_KEYS | {"MARKER", "VA"}
 # ``/* FUNCTION: ... */`` (emitted for C89-strict 16-bit compilers like
 # Turbo C 2.0 that reject ``//`` comments).
 NEW_FUNC_RE = re.compile(
-    r"(?://|/\*)\s*(?:FUNCTION|LIBRARY|STUB|GLOBAL|DATA):\s*\S+\s+0x[0-9a-fA-F]+"
+    r"(?://|/\*)\s*(?:FUNCTION|LIBRARY|STUB|GLOBAL|DATA|VTABLE|STRING):\s*\S+\s+0x[0-9a-fA-F]+"
 )
 # Full capture: extracts the marker type and VA.
 NEW_FUNC_CAPTURE_RE = re.compile(
-    r"(?://|/\*)\s*(?P<type>FUNCTION|LIBRARY|STUB|GLOBAL|DATA):\s*(?P<module>\S+)\s+(?P<va>0x[0-9a-fA-F]+)"
+    r"(?://|/\*)\s*(?P<type>FUNCTION|LIBRARY|STUB|GLOBAL|DATA|VTABLE|STRING):\s*(?P<module>\S+)\s+(?P<va>0x[0-9a-fA-F]+)"
 )
 # Key-value comment lines (``// KEY: value``) — used by library headers
 # (``// STATUS: EXACT``, ``// SIZE: 120``).  Metadata-owned fields are
@@ -1029,7 +1033,15 @@ def parse_new_format_multi(lines: list[str]) -> list[Annotation]:
         is_comment = stripped.startswith("//") or stripped.startswith("/*")
 
         m = NEW_FUNC_CAPTURE_RE.match(stripped) if is_comment else None
-        if m and m.group("type") in ("FUNCTION", "LIBRARY", "STUB", "GLOBAL", "DATA"):
+        if m and m.group("type") in (
+            "FUNCTION",
+            "LIBRARY",
+            "STUB",
+            "GLOBAL",
+            "DATA",
+            "VTABLE",
+            "STRING",
+        ):
             # Save pending KV before flush (flush clears pending_kv)
             saved_pending = dict(pending_kv)
             _flush()
@@ -1117,6 +1129,67 @@ def parse_new_format_multi(lines: list[str]) -> list[Annotation]:
     return results
 
 
+def _annotations_from_metadata(
+    filepath: Path,
+    target_name: str | None,
+    base_dir: Path | None,
+    metadata_dir: Path | None,
+) -> list[Annotation]:
+    """Synthesize Annotations for a marker-less (pure C) file from metadata.
+
+    In the TOML-single-source model (ADR 023) a migrated ``.c`` file carries
+    no ``// FUNCTION:`` markers at all; its function identities live in
+    ``rebrew-functions.toml`` entries tagged with a ``file`` field.  This
+    builds one Annotation per metadata entry whose ``file`` matches
+    *filepath* (exact relative path from the metadata root, the stored
+    relative display path, or the bare filename).
+
+    Returns [] when *metadata_dir* is None or no entry matches — callers
+    then behave exactly as before (a marker-less file is simply ignored).
+    """
+    if metadata_dir is None:
+        return []
+    from rebrew.metadata import apply_metadata_entry, load_metadata
+
+    try:
+        entries_by_key = load_metadata(metadata_dir, deepcopy=False)
+    except Exception:  # unreadable metadata → behave like the inline path
+        logger.debug("metadata load failed for %s", metadata_dir, exc_info=True)
+        return []
+    if not entries_by_key:
+        return []
+
+    rel_md = os.path.relpath(filepath, metadata_dir).replace(os.sep, "/")
+    name = filepath.name
+    matches: list[tuple[str, int, dict[str, Any]]] = []
+    for (module, va), entry in entries_by_key.items():
+        stored = str(entry.get("file", "")).replace("\\", "/")
+        if not stored:
+            continue
+        # Exact relative path from the metadata root, the stored display
+        # path itself, or the stored path appearing as a trailing suffix of
+        # the real one (projects that moved the metadata root).
+        if stored in (rel_md, name) or rel_md.endswith("/" + stored):
+            matches.append((module, va, entry))
+
+    rel = rel_display_path(filepath, base_dir)
+    results: list[Annotation] = []
+    for module, va, entry in sorted(matches, key=lambda m: m[1]):
+        if target_name and module and module.lower() != target_name.lower():
+            continue
+        ann = Annotation(
+            va=va,
+            module=module,
+            marker_type=str(entry.get("marker_type", "FUNCTION")),
+            symbol=str(entry.get("symbol", "")),
+            name=str(entry.get("name", "")),
+            filepath=rel,
+        )
+        apply_metadata_entry(ann, entry)
+        results.append(ann)
+    return results
+
+
 def parse_c_file_multi(
     filepath: Path,
     target_name: str | None = None,
@@ -1147,6 +1220,9 @@ def parse_c_file_multi(
         logger.warning("Skipping unreadable source %s: %s", filepath, exc)
         return []
 
+    # ADR 023: a migrated (marker-less, pure C) file has no inline blocks —
+    # fall back to synthesizing Annotations from its rebrew-functions.toml
+    # entries.  Files that still carry markers parse exactly as before.
     # Structural parses are deterministic per file content — memoize them
     # for the process lifetime so repeated scans (verify's prepare_entries
     # + build_name_to_va + scan_reversed_dir, test --all) don't parse the
@@ -1176,6 +1252,11 @@ def parse_c_file_multi(
                     oldest = next(iter(_PARSE_MEMO))
                     _PARSE_MEMO.pop(oldest, None)
                 _PARSE_MEMO[memo_key] = structural
+    if not structural and metadata_dir is not None:
+        # ADR 023: a migrated (marker-less, pure C) file synthesizes its
+        # Annotations from rebrew-functions.toml entries tagged with a
+        # `file` field.  Files that still carry markers never reach this.
+        return _annotations_from_metadata(filepath, target_name, base_dir, metadata_dir)
     return _finalize_entries(structural, filepath, target_name, base_dir, metadata_dir)
 
 
@@ -1241,9 +1322,11 @@ def parse_c_file_text(
     metadata_dir: Path | None,
 ) -> list[Annotation]:
     """Parse annotation blocks from pre-read *text* with per-call overlays."""
-    return _finalize_entries(
-        _parse_structural_entries(text), filepath, target_name, base_dir, metadata_dir
-    )
+    structural = _parse_structural_entries(text)
+    if not structural:
+        # ADR 023: marker-less (pure C) file — synthesize from metadata.
+        return _annotations_from_metadata(filepath, target_name, base_dir, metadata_dir)
+    return _finalize_entries(structural, filepath, target_name, base_dir, metadata_dir)
 
 
 # ---------------------------------------------------------------------------
@@ -1299,6 +1382,24 @@ def parse_source_metadata(
     if anno.callers:
         meta["CALLERS"] = anno.callers
     return meta
+
+
+def span_contains_factory(spans: list[tuple[int, int]]) -> Callable[[int], bool]:
+    """Build a bisect predicate over sorted ``(start, end)`` spans.
+
+    Shared by the todo recommender and the BinSync exporter: heuristic
+    discovery emits switch arms and split bodies as pseudo-functions, so a
+    bare start-VA membership check is not enough — anything strictly inside
+    an already-annotated function must be recognized as covered.  The
+    returned predicate is O(log n) per probe; *spans* must be sortable.
+    """
+    spans_sorted = sorted(spans)
+
+    def contains(probe: int) -> bool:
+        i = bisect.bisect_right(spans_sorted, (probe, 1 << 62)) - 1
+        return i >= 0 and spans_sorted[i][0] < probe < spans_sorted[i][1]
+
+    return contains
 
 
 def update_annotation_key(
@@ -1430,11 +1531,7 @@ def update_annotation_key(
 # ---------------------------------------------------------------------------
 
 
-def parse_library_header(
-    filepath: Path,
-    target_name: str | None = None,
-    metadata_dir: Path | None = None,
-) -> list[Annotation]:
+def parse_library_header(filepath: Path, metadata_dir: Path | None = None) -> list[Annotation]:
     """Parse a ``library_*.h`` file for LIBRARY markers.
 
     Supports two formats per entry:
@@ -1486,9 +1583,8 @@ def parse_library_header(
             module = m.group("module")
             va = int(m.group("va"), 16)
 
-            # NOTE: no target-module filter here — the LIBRARY module is the
-            # library name (MSVCRT, ZLIB, ...), not the project marker, so a
-            # filter against target_name would silently drop every entry.
+            # No target-module filter: the LIBRARY module is the library name
+            # (MSVCRT, ZLIB, ...), not the project marker.
 
             # Look for symbol on next non-blank comment line
             symbol = ""

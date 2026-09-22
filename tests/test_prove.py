@@ -1281,11 +1281,12 @@ class TestMaxDeltaFilter:
         )
         annos = [self._anno(0x1000, 2), self._anno(0x2000, 40), self._anno(0x3000, None)]
         monkeypatch.setattr("rebrew.prove.parse_c_file_multi", lambda *a, **k: annos)
-        # Capture which candidates reach the proving loop.
+        # Capture which candidates reach the proving loop, and that
+        # --stub-thunks is forwarded to each _prove_single call.
         seen: list[int] = []
 
         def _fake_prove_one(*a, **k):  # type: ignore[no-untyped-def]
-            seen.append(0)
+            seen.append(k.get("stub_thunks", False))
             return False
 
         monkeypatch.setattr("rebrew.prove._prove_single", _fake_prove_one)
@@ -1297,9 +1298,11 @@ class TestMaxDeltaFilter:
             dry_run=True,
             json_output=True,
             max_delta=10,
+            stub_thunks=True,
         )
         # Only the delta-2 candidate (and the unknown-delta one) pass the gate.
         assert len(seen) == 2
+        assert seen == [True, True]
 
 
 @pytest.mark.skipif(

@@ -297,11 +297,7 @@ def load_data(
 
     # Scan library_*.h files for identified CRT/zlib functions
     for hfile in iter_library_headers(src_dir, cfg):
-        lib_entries = parse_library_header(
-            hfile,
-            target_name=target_marker(cfg),
-            metadata_dir=cfg.metadata_dir if cfg else None,
-        )
+        lib_entries = parse_library_header(hfile, metadata_dir=cfg.metadata_dir if cfg else None)
         for entry in lib_entries:
             if entry.va < min_valid_va_for(cfg):
                 continue
@@ -407,11 +403,7 @@ def load_existing_vas(src_dir: str | Path, cfg: ProjectConfig | None = None) -> 
     # Scan library_*.h files for identified CRT/zlib functions (plus the
     # project's shared root when cfg says this directory is the target tree).
     for hfile in iter_library_headers(src_path, cfg):
-        lib_entries = parse_library_header(
-            hfile,
-            target_name=target_marker(cfg),
-            metadata_dir=cfg.metadata_dir if cfg else None,
-        )
+        lib_entries = parse_library_header(hfile, metadata_dir=cfg.metadata_dir if cfg else None)
         for entry in lib_entries:
             if entry.va < min_valid_va_for(cfg):
                 continue

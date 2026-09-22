@@ -8,6 +8,7 @@ import pytest
 from typer.testing import CliRunner
 
 import rebrew.catalog.cli as catalog_cli
+import rebrew.catalog.pipeline as catalog_pipeline
 from rebrew.catalog import run_catalog
 from rebrew.config import load_config
 
@@ -27,12 +28,14 @@ def _patch(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> SimpleNamespace:
     monkeypatch.setattr(
         catalog_cli, "require_config", lambda target=None, json_mode=False, root=None: cfg
     )
-    monkeypatch.setattr(catalog_cli, "scan_reversed_dir", lambda _d, cfg=None: [])
-    monkeypatch.setattr(catalog_cli, "cached_function_list", lambda _cfg: [])
-    monkeypatch.setattr(catalog_cli, "build_function_registry", lambda *a, **k: {})
-    monkeypatch.setattr(catalog_cli, "get_text_section_size", lambda _p: 0x1000)
+    import rebrew.catalog.pipeline as catalog_pipeline
+
+    monkeypatch.setattr(catalog_pipeline, "scan_reversed_dir", lambda _d, cfg=None: [])
+    monkeypatch.setattr(catalog_pipeline, "cached_function_list", lambda _cfg: [])
+    monkeypatch.setattr(catalog_pipeline, "build_function_registry", lambda *a, **k: {})
+    monkeypatch.setattr(catalog_pipeline, "get_text_section_size", lambda _p: 0x1000)
     monkeypatch.setattr(
-        catalog_cli,
+        catalog_pipeline,
         "generate_data_json",
         lambda *a, **k: {"sections": {".text": {"va": 0, "cells": []}}, "summary": {}},
     )
@@ -118,7 +121,7 @@ class TestCatalogCli:
             encoding="utf-8",
         )
         monkeypatch.setattr(
-            catalog_cli,
+            catalog_pipeline,
             "build_function_registry",
             lambda *a, **k: {
                 0x1000: {
@@ -210,7 +213,9 @@ class TestCatalogCliSummary:
 
     def test_summary_counts(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         _patch(monkeypatch, tmp_path)
-        monkeypatch.setattr(catalog_cli, "scan_reversed_dir", lambda _d, cfg=None: self._entries())
+        monkeypatch.setattr(
+            catalog_pipeline, "scan_reversed_dir", lambda _d, cfg=None: self._entries()
+        )
         registry = {
             0x1000: {
                 "canonical_size": 64,
@@ -237,7 +242,7 @@ class TestCatalogCliSummary:
                 "size_by_tool": {"list": 8, "ghidra": 8},
             },
         }
-        monkeypatch.setattr(catalog_cli, "build_function_registry", lambda *a, **k: registry)
+        monkeypatch.setattr(catalog_pipeline, "build_function_registry", lambda *a, **k: registry)
         result = runner.invoke(catalog_cli.app, ["--summary"])
         assert result.exit_code == 0
         assert "EXACT: 1" in result.output
@@ -255,7 +260,7 @@ class TestCatalogCliSummary:
 
         cfg = _patch(monkeypatch, tmp_path)
         monkeypatch.setattr(
-            catalog_cli,
+            catalog_pipeline,
             "generate_data_json",
             lambda *a, **k: {
                 "sections": {

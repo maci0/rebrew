@@ -322,7 +322,7 @@ def objdiff_build_entry() -> None:
 
 
 def main_entry() -> None:
-    """Run the Typer CLI application (standalone single-command form)."""
+    """Run the Typer CLI application."""
     from rebrew.cli import run_standalone
 
     run_standalone(main)

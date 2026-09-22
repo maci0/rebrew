@@ -101,9 +101,7 @@ def _emit_text(windows: list[DriftWindow], derived: list[DerivedRegion]) -> None
 @app.callback(invoke_without_command=True)
 def main(
     source: str = typer.Argument(..., help="C source file containing the function."),
-    va: str = typer.Option(
-        None, "--va", help="Target VA in hex (default: from annotation)"
-    ),
+    va: str = typer.Option(None, "--va", help="Target VA in hex (default: from annotation)"),
     size: int = typer.Option(None, "--size", help="Function size (default: from metadata)."),
     cflags: str = typer.Option(None, "--cflags", help="Override compiler flags."),
     toolchain: str = typer.Option(None, "--toolchain", help="Override toolchain profile."),

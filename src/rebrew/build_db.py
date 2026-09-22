@@ -706,7 +706,7 @@ def build_db(
                 cflags TEXT,
                 symbol TEXT,
                 markerType TEXT NOT NULL DEFAULT 'FUNCTION'
-                    CHECK (markerType IN ('FUNCTION', 'LIBRARY', 'STUB', 'GLOBAL', 'DATA')),
+                    CHECK (markerType IN ('FUNCTION', 'LIBRARY', 'STUB', 'GLOBAL', 'DATA', 'VTABLE', 'STRING')),
                 ghidra_name TEXT,
                 list_name TEXT,
                 is_thunk INTEGER NOT NULL DEFAULT 0 CHECK (is_thunk IN (0, 1)),
@@ -1172,7 +1172,15 @@ def build_db(
                     blocker_delta = 0
                 fn_similarity = fn.get("similarity")
                 fn_marker = str(fn.get("markerType") or "FUNCTION")
-                if fn_marker not in ("FUNCTION", "LIBRARY", "STUB", "GLOBAL", "DATA"):
+                if fn_marker not in (
+                    "FUNCTION",
+                    "LIBRARY",
+                    "STUB",
+                    "GLOBAL",
+                    "DATA",
+                    "VTABLE",
+                    "STRING",
+                ):
                     fn_marker = "FUNCTION"
                 fn_status = canonical_status(str(fn.get("status") or "UNKNOWN"))
                 if fn_status not in _FUNCTION_DB_STATUSES:

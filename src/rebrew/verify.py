@@ -59,6 +59,7 @@ from rebrew.compile import (
     is_matched,
 )
 from rebrew.config import ProjectConfig, inventory_path_for
+from rebrew.match_semantics import EFFECTIVE_MATCH_NOTE, is_effective_match
 from rebrew.metadata import should_promote_status
 from rebrew.utils import atomic_write_text
 from rebrew.verify_cache import (
@@ -301,15 +302,12 @@ def verify_entry(
                 # cause is compiler register allocation, not source logic —
                 # name it so the user does not chase a phantom source bug.
                 # Exposed to recoverage via the result row (effective_match).
-                if d["summary"]["structural"] == 0 and d["summary"]["reg"] > 0:
+                # Classification is shared with near-diag (match_semantics).
+                if is_effective_match(
+                    structural=int(d["summary"]["structural"]), register=int(d["summary"]["reg"])
+                ):
                     result.effective_match = True
-                    note = (
-                        "effective match: differs only in register allocation — "
-                        "not byte-identical; reccmp counts this as 100% (run "
-                        "'rebrew prove' for PROVEN, or register-nudging C "
-                        "tweaks for byte-identity)"
-                    )
-                    result.message = f"{result.message} {note}".strip()
+                    result.message = f"{result.message} {EFFECTIVE_MATCH_NOTE}".strip()
         except Exception as exc:  # diff_lines is best-effort
             # The logging call itself is inside the guard on purpose: a bad
             # format argument here would otherwise escape this handler and
@@ -717,8 +715,7 @@ def main(
         ):
             if clash:
                 error_exit(
-                    f"--all-targets and {why} are mutually exclusive "
-                    "(each target needs its own)",
+                    f"--all-targets and {why} are mutually exclusive (each target needs its own)",
                     json_mode=json_output,
                 )
     if all_targets_run(
@@ -758,9 +755,9 @@ def main(
         jobs = cfg.default_jobs
 
     # The optional compile context (see `rebrew test --context`).  It is a
-    # compile input: merged into every compile unit, hashed into each result,
-    # and never combined with the result cache (the entry type carries no
-    # context digest, so a cached verdict cannot be attributed to it).
+    # compile input: merged into every compile unit and hashed into each
+    # result; the cache identity records the digest, so a cached verdict is
+    # only served to a run pinned to the same context.
     from rebrew.context import load_compile_context
 
     try:
@@ -1146,6 +1143,9 @@ class BatchResult:
     library_excluded: int
     excluded_keys: set[str]
     cached_count: int
+    #: Functions named by the discovery inventory (function_structure.json) —
+    #: the denominator "how much is not yet reversed" for the report summary.
+    inventory_count: int = 0
 
 
 def run_batch(
@@ -1181,6 +1181,7 @@ def run_batch(
         missing_sizes,
         duplicate_vas,
         name_to_va,
+        inventory_count,
     ) = prepare_entries(cfg, full, json_output, context=context)
     (
         unique_entries,
@@ -1254,6 +1255,7 @@ def run_batch(
         library_excluded=library_excluded,
         excluded_keys=excluded_keys,
         cached_count=cached_count,
+        inventory_count=inventory_count,
     )
 
 
@@ -1282,6 +1284,7 @@ def build_report(
     data_report: dict[str, Any] | None = None,
     text_report: dict[str, Any] | None = None,
     whole_report: dict[str, Any] | None = None,
+    inventory_count: int = 0,
 ) -> dict[str, Any]:
     """Assemble the batch report — one shape for ``verify`` and ``test --all``.
 
@@ -1323,6 +1326,9 @@ def build_report(
             "byte_matched": _status_counts.get("EXACT", 0) + _status_counts.get("RELOC", 0),
             "library_excluded": library_excluded,
             "orphans_pruned": orphans_pruned,
+            # Not-yet-reversed denominator: functions the inventory names but
+            # no reversed source covers yet (0 when no inventory file exists).
+            "inventory_count": inventory_count,
         },
         "size_divergences": size_divergences,
         "missing_sizes": missing_sizes,
@@ -1374,6 +1380,7 @@ def _save_report(
         data_report=data_report,
         text_report=text_report,
         whole_report=whole_report,
+        inventory_count=batch.inventory_count,
     )
 
     # Warn only on ACTIONABLE divergences.  An EXACT/RELOC/PROVEN annotation
@@ -1463,12 +1470,12 @@ def _save_report(
         whole_failed=whole_failed,
     )
 
-    # A context-scoped run stores nothing: its verdicts were earned under
-    # declarations the cache entry type cannot record, so writing them would
-    # serve them back to a later context-free run that never compiled them.
+    # Context-scoped runs save like bare runs: each entry carries the
+    # context digest it was earned under, and the hit check serves a row
+    # only when the supplied context matches exactly (prepare_entries).
     # --no-promote still saves the cache/baseline/report; it only skips
     # rebrew-functions.toml (STATUS, SIZE, orphan prune).
-    if not dry_run and not (diff_mode and gate_failed) and compile_context is None:
+    if not dry_run and not (diff_mode and gate_failed):
         cache_path = cfg.root / ".rebrew" / "verify_cache.json"
         try:
             _save_verify_cache(
@@ -2011,6 +2018,23 @@ def apply_proven_overlay(
     return fail_details, raw_statuses, stale_proven, [passed, failed]
 
 
+def _inventory_count(cfg: ProjectConfig, reversed_dir: Path) -> int:
+    """Number of functions in the discovery inventory (0 when unavailable).
+
+    Per-target override aware (ADR: ``inventory_file``); a missing or
+    corrupt file is a 0, not a scan failure — the count is reporting
+    context, not a gate.
+    """
+    import json as _json
+
+    path = inventory_path_for(reversed_dir, cfg)
+    try:
+        data = _json.loads(path.read_text(encoding="utf-8"))
+        return len(data) if isinstance(data, list) else 0
+    except (OSError, _json.JSONDecodeError, ValueError):
+        return 0
+
+
 def prepare_entries(
     cfg: ProjectConfig,
     full: bool,
@@ -2027,21 +2051,24 @@ def prepare_entries(
     list[dict[str, Any]],
     list[dict[str, str]],
     dict[str, int],
+    int,
 ]:
     """Scan reversed_dir, deduplicate entries, and check the verify cache.
 
     Returns (unique_entries, passed, failed, fail_details, results,
-    cached_count, size_divergences, missing_sizes, duplicate_vas, name_to_va).
+    cached_count, size_divergences, missing_sizes, duplicate_vas, name_to_va,
+    inventory_count).  ``inventory_count`` is the number of functions named
+    by the discovery inventory (0 when the file is missing/corrupt) — the
+    report summary's denominator for not-yet-reversed functions.
     ``duplicate_vas`` names the dropped sources: ``{"va", "kept", "dropped"}``
     per duplicate-VA annotation (first source wins, the rest never compile).
     ``name_to_va`` is the symbol catalog built from the same scan (plus
     globals/metadata) so ``run_verification`` does not re-parse the tree.
 
-    With *context* set the result cache is not consulted at all: a cached
-    verdict was earned by compiling the bare source, and the cache entry type
-    records no context digest to compare against, so serving it under a
-    context would report a match the context never produced.  Re-verifying is
-    the only correct answer until the entry type carries the digest.
+    With *context* set the cache is still consulted, but only entries whose
+    stored ``context_hash`` equals the supplied digest hit: a cached verdict
+    was earned under one specific set of declarations, and a changed digest
+    is a different compile input, not a still-valid match.
     """
     reversed_dir = cfg.reversed_dir
     ghidra_json_path = inventory_path_for(reversed_dir, cfg)
@@ -2123,9 +2150,7 @@ def prepare_entries(
     results: list[dict[str, Any]] = []
 
     cache_path = cfg.root / ".rebrew" / "verify_cache.json"
-    verify_cache_obj = (
-        None if (full or context is not None) else _load_verify_cache(cache_path, cfg)
-    )
+    verify_cache_obj = None if full else _load_verify_cache(cache_path, cfg)
     entries_cache: dict[str, VerifyCacheEntry] = (
         verify_cache_obj.entries if verify_cache_obj else {}
     )
@@ -2173,6 +2198,13 @@ def prepare_entries(
         if cached_entry.size != fp.size:
             continue
         if not cached_entry.headers_fp or cached_entry.headers_fp != fp.headers_fp:
+            continue
+        # Context digest must match exactly: a cached verdict earned bare
+        # (None) is a different compile input than one earned under
+        # declarations, and vice versa.  Legacy entries record the hit only
+        # when the current run is also context-free (pre-digest rows carry
+        # None and were only ever written by bare-source runs).
+        if cached_entry.context_hash != (context.sha256 if context is not None else None):
             continue
         try:
             current_mtime = (cfg.reversed_dir / getattr(entry, "filepath", "")).stat().st_mtime_ns
@@ -2255,6 +2287,7 @@ def prepare_entries(
         missing_sizes,
         duplicate_rows,
         name_to_va,
+        _inventory_count(cfg, reversed_dir),
     )
 
 

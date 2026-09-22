@@ -23,7 +23,6 @@ metadata-review R2).
 
 from __future__ import annotations
 
-import bisect
 import datetime
 import logging
 import re
@@ -35,6 +34,7 @@ import tomlkit
 import typer
 from rich.console import Console
 
+from rebrew.annotation import span_contains_factory
 from rebrew.binsync import serial
 from rebrew.c_parser import type_from_declaration
 from rebrew.catalog import scan_reversed_dir
@@ -902,10 +902,7 @@ def export_state(
             for e in func_entries
             if int(getattr(e, "size", 0) or 0) > 0
         )
-
-        def _inside_annotated(probe: int) -> bool:
-            i = bisect.bisect_right(annotated_spans, (probe, 1 << 62)) - 1
-            return i >= 0 and annotated_spans[i][0] < probe < annotated_spans[i][1]
+        _inside_annotated = span_contains_factory(annotated_spans)
 
         for va, reg_entry in registry.items():
             if va in reversed_vas or _inside_annotated(va):

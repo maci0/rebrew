@@ -329,11 +329,7 @@ def _collect_functions(cfg: ProjectConfig) -> list[dict[str, Any]]:
     # were missing from this table: iter_sources does not glob library_*.h, and
     # their minimal marker format needs parse_library_header.
     for header in iter_library_headers(reversed_path, cfg):
-        for ann in parse_library_header(
-            header,
-            target_name=target_marker(cfg),
-            metadata_dir=cfg.metadata_dir,
-        ):
+        for ann in parse_library_header(header, metadata_dir=cfg.metadata_dir):
             if ann.va < min_valid_va_for(cfg):
                 continue
             functions.append(
@@ -1106,7 +1102,7 @@ def main(
 
 
 def main_entry() -> None:
-    """Run the Typer CLI application (standalone single-command form)."""
+    """Run the Typer CLI application."""
     from rebrew.cli import run_standalone
 
     run_standalone(main)

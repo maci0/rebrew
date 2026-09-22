@@ -1,8 +1,8 @@
 """Unit tests for rebrew.analysis — shared recon primitives.
 
-Uses ``bin_util.make_pe`` to build a synthetic PE whose ``.text`` section
-contains hand-assembled instructions with known absolute references plus an
-appended string blob (ASCII and UTF-16LE).
+Uses ``bin_util.make_xref_probe`` to build a synthetic PE whose ``.text``
+section contains hand-assembled instructions with known absolute references
+plus an appended string blob (ASCII and UTF-16LE).
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))  # tests/ on path for bin_util
-from bin_util import make_pe
+from bin_util import PROBE_IMAGE_BASE, PROBE_TEXT_VA, make_pe, make_xref_probe
 
 from rebrew.analysis import (
     Insn,
@@ -29,97 +29,6 @@ from rebrew.analysis import (
 )
 from rebrew.binary_loader import load_binary
 
-TEXT_VA = 0x401000
-IMAGE_BASE = 0x400000
-
-
-def _build_code() -> tuple[bytes, dict[str, int]]:
-    """Assemble the probe code; return ``(code_bytes, symbols)``.
-
-    Layout (VAs are relative to ``TEXT_VA``), each reference target patched
-    after the layout is known:
-      0x000  e8 rel32      call <lea insn>     (direct call)
-      0x005  68 imm32      push <hello>        ("Hello World")
-      0x00a  b8 imm32      mov eax, <game>     ("Game Boy")
-      0x00f  ff 15 imm32   call [iat_slot]     (IAT call, fixed by caller)
-      0x015  8d 05 imm32   lea eax, [<wide>]   ("Wide" utf16)
-      0x01b  8b 05 imm32   mov eax, [<wide>]   (data read)
-      0x021  83 25 imm32 00 and [<hello>+4], 0 (generic mem)
-      0x028  c3            ret
-      <blob> "Hello World\\0" "Game Boys\\0" "\\0" "W\\0i\\0d\\0e\\0\\0\\0"
-    """
-    refs: dict[str, int] = {}
-
-    def emit(raw: bytes, name: str | None = None) -> None:
-        if name is not None:
-            refs[name] = TEXT_VA + len(pre)
-        pre.extend(raw)
-
-    pre = bytearray()
-    emit(b"\xe8" + b"\x00\x00\x00\x00", "call")  # rel patched below
-    emit(b"\x68" + b"\x00\x00\x00\x00", "push")
-    emit(b"\xb8" + b"\x00\x00\x00\x00", "mov")
-    emit(b"\xff\x15" + b"\x00\x00\x00\x00", "iat_call")
-    emit(b"\x8d\x05" + b"\x00\x00\x00\x00", "lea")
-    emit(b"\x8b\x05" + b"\x00\x00\x00\x00", "mov_mem")
-    emit(b"\x83\x25" + b"\x00\x00\x00\x00" + b"\x00", "and_mem")
-    emit(b"\xc3")
-
-    blob_start = TEXT_VA + len(pre)
-    # Blob layout is parity-controlled so the UTF-16 run lands on an even raw
-    # offset (visible to the even-aligned UTF-16 scan) while the last ASCII
-    # byte sits on an odd offset (no merge into the UTF-16 run):
-    #   "Hello World\0" (12B) + "Game Boys\0" (10B) + "\0" (1B) + UTF-16 (10B)
-    hello = blob_start
-    game = blob_start + 12
-    wide = blob_start + 23
-    blob = b"Hello World\x00" + b"Game Boys\x00" + b"\x00" + b"W\x00i\x00d\x00e\x00\x00\x00"
-
-    def patch(at: int, value: int, imm_off: int = 1) -> None:
-        pre[at + imm_off : at + imm_off + 4] = struct.pack("<I", value)
-
-    # 1-byte opcodes: imm starts at +1.  Two-byte opcodes (opcode+modrm):
-    # imm starts at +2.
-    patch(refs["call"] - TEXT_VA, refs["lea"] - (refs["call"] + 5), imm_off=1)
-    patch(refs["push"] - TEXT_VA, hello, imm_off=1)
-    patch(refs["mov"] - TEXT_VA, game, imm_off=1)
-    patch(refs["lea"] - TEXT_VA, wide, imm_off=2)
-    patch(refs["mov_mem"] - TEXT_VA, wide, imm_off=2)
-    patch(refs["and_mem"] - TEXT_VA, hello, imm_off=2)
-
-    syms = {
-        **refs,
-        "hello": hello,
-        "game": game,
-        "wide": wide,
-    }
-    return bytes(pre) + blob, syms
-
-
-def _resolve_iat_slot(pe_bytes: bytes) -> int:
-    """Find the IAT slot VA for ``HeapCreate`` in a built probe PE."""
-    import lief
-
-    pe = lief.PE.parse(bytes(pe_bytes))
-    for imp in pe.imports:
-        for entry in imp.entries:
-            if entry.name == "HeapCreate":
-                return IMAGE_BASE + entry.iat_address
-    raise AssertionError("HeapCreate import not found")
-
-
-def _make_binary(tmp_path: Path) -> tuple[Path, dict[str, int]]:
-    code, syms = _build_code()
-    proto = make_pe(code, imports=[("KERNEL32.dll", ["HeapCreate"])])
-    slot = _resolve_iat_slot(proto)
-    code2 = bytearray(code)
-    code2[0x0F + 2 : 0x0F + 6] = struct.pack("<I", slot)
-    final = make_pe(bytes(code2), imports=[("KERNEL32.dll", ["HeapCreate"])])
-    path = tmp_path / "probe.exe"
-    path.write_bytes(final)
-    return path, {**syms, "iat_slot": slot}
-
-
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
@@ -127,7 +36,7 @@ def _make_binary(tmp_path: Path) -> tuple[Path, dict[str, int]]:
 
 class TestScanReferences:
     def test_finds_all_abs_refs(self, tmp_path: Path) -> None:
-        path, syms = _make_binary(tmp_path)
+        path, syms = make_xref_probe(tmp_path)
         info = load_binary(path)
         refs = scan_references(info)
         by_from = {r.from_va: r for r in refs}
@@ -169,7 +78,7 @@ class TestScanReferences:
         assert by_from[0x10008].to_va == (2 << 16) | 0x1234
 
     def test_target_filter(self, tmp_path: Path) -> None:
-        path, syms = _make_binary(tmp_path)
+        path, syms = make_xref_probe(tmp_path)
         info = load_binary(path)
         refs = scan_references(info, target_va=syms["wide"])
         kinds = sorted(r.kind for r in refs)
@@ -177,7 +86,7 @@ class TestScanReferences:
         assert all(r.to_va == syms["wide"] for r in refs)
 
     def test_sorted_by_from_va(self, tmp_path: Path) -> None:
-        path, _ = _make_binary(tmp_path)
+        path, _ = make_xref_probe(tmp_path)
         info = load_binary(path)
         refs = scan_references(info)
         froms = [r.from_va for r in refs]
@@ -194,7 +103,7 @@ class TestScanReferences:
 
 class TestIterStrings:
     def test_ascii_and_utf16(self, tmp_path: Path) -> None:
-        path, syms = _make_binary(tmp_path)
+        path, syms = make_xref_probe(tmp_path)
         info = load_binary(path)
         strings = iter_strings(info, min_len=4, section_names=[".text"])
         by_va = {s.va: s for s in strings}
@@ -226,7 +135,7 @@ class TestIterStrings:
 
 class TestStringRefs:
     def test_maps_strings_to_refs(self, tmp_path: Path) -> None:
-        path, syms = _make_binary(tmp_path)
+        path, syms = make_xref_probe(tmp_path)
         info = load_binary(path)
         strings = iter_strings(info, min_len=4, section_names=[".text"])
         refs = string_refs(info, strings)
@@ -237,7 +146,7 @@ class TestStringRefs:
 
 class TestInsnAndBytes:
     def test_iter_instructions(self, tmp_path: Path) -> None:
-        path, syms = _make_binary(tmp_path)
+        path, syms = make_xref_probe(tmp_path)
         info = load_binary(path)
         insns = iter_instructions(info, syms["call"], 0x29)
         assert insns[0].mnemonic == "call"
@@ -246,14 +155,14 @@ class TestInsnAndBytes:
         assert all(isinstance(i, Insn) for i in insns)
 
     def test_section_range(self, tmp_path: Path) -> None:
-        path, _ = _make_binary(tmp_path)
+        path, _ = make_xref_probe(tmp_path)
         info = load_binary(path)
         start, size = section_range(info, ".text")
-        assert start == TEXT_VA
+        assert start == PROBE_TEXT_VA
         assert size >= 0x45
 
     def test_va_to_file_offset_roundtrip(self, tmp_path: Path) -> None:
-        path, syms = _make_binary(tmp_path)
+        path, syms = make_xref_probe(tmp_path)
         info = load_binary(path)
         offset = va_to_file_offset(info, syms["hello"])
         assert offset >= 0
@@ -261,15 +170,15 @@ class TestInsnAndBytes:
         assert raw[offset : offset + 11] == b"Hello World"
 
     def test_extract_bytes(self, tmp_path: Path) -> None:
-        path, syms = _make_binary(tmp_path)
+        path, syms = make_xref_probe(tmp_path)
         info = load_binary(path)
         assert extract_bytes(info, syms["hello"], 11) == b"Hello World"
 
     def test_is_inside(self, tmp_path: Path) -> None:
-        path, _ = _make_binary(tmp_path)
+        path, _ = make_xref_probe(tmp_path)
         info = load_binary(path)
-        assert is_inside(info, TEXT_VA + 0x10)
-        assert not is_inside(info, IMAGE_BASE + 0x9000)
+        assert is_inside(info, PROBE_TEXT_VA + 0x10)
+        assert not is_inside(info, PROBE_IMAGE_BASE + 0x9000)
 
 
 class TestCapstoneHandle:
@@ -359,7 +268,7 @@ class TestDataReferences:
     def test_refs_are_limited_to_the_extent(self, tmp_path: Path) -> None:
         """The per-function scan stops at the extent: only the caller's own
         instructions contribute references."""
-        path, syms = _make_binary(tmp_path)
+        path, syms = make_xref_probe(tmp_path)
         info = load_binary(path)
         refs = data_references(info, syms["call"], 5)
         assert [(r.kind, r.to_va) for r in refs] == [("call", syms["call"] + 5 + 0x10)]
@@ -369,13 +278,13 @@ class TestDataReferences:
         """A function following a non-code blob still contributes its own
         references: only that function's bytes are decoded."""
         filler = bytes(range(256))
-        func = b"\xa1" + struct.pack("<I", TEXT_VA) + b"\xc3"  # mov eax, [TEXT_VA]; ret
+        func = b"\xa1" + struct.pack("<I", PROBE_TEXT_VA) + b"\xc3"  # mov eax, [PROBE_TEXT_VA]; ret
         path = tmp_path / "filler.exe"
         path.write_bytes(make_pe(b"\xc3" * 4 + filler + func))
         info = load_binary(path)
         func_va = info.text_va + 4 + len(filler)
         refs = data_references(info, func_va, len(func))
-        assert [(r.kind, r.to_va) for r in refs] == [("mov_mem", TEXT_VA)]
+        assert [(r.kind, r.to_va) for r in refs] == [("mov_mem", PROBE_TEXT_VA)]
 
     def test_out_of_image_targets_are_dropped(self, tmp_path: Path) -> None:
         """A reference to an address outside every section is not a datum."""
@@ -386,7 +295,7 @@ class TestDataReferences:
         assert data_references(info, info.text_va, len(func)) == []
 
     def test_zero_size_yields_nothing(self, tmp_path: Path) -> None:
-        path, syms = _make_binary(tmp_path)
+        path, syms = make_xref_probe(tmp_path)
         info = load_binary(path)
         assert data_references(info, syms["call"], 0) == []
 

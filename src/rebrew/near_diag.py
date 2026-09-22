@@ -30,6 +30,7 @@ from rich.console import Console
 from rich.table import Table
 
 from rebrew.analysis import Insn, capstone_handle  # re-exported: nd.Insn is analysis.Insn
+from rebrew.asm_equiv import jump_swap_ok  # re-exported: asm text-equivalence checks
 from rebrew.cli import (
     TargetOption,
     error_exit,
@@ -37,6 +38,7 @@ from rebrew.cli import (
     parse_va,
     require_config,
 )
+from rebrew.match_semantics import is_effective_match
 from rebrew.pinned_diff import SequenceMatcherWithPins
 from rebrew.stack_cmp import analyze_frame, compare_frames
 
@@ -148,6 +150,13 @@ def classify_pair(target: Insn, compiled: Insn) -> str:
     """Classify one aligned (target, compiled) instruction pair."""
     if target.raw == compiled.raw:
         return "match"
+    # Mirrored conditional jump with the same displacement — the compiler
+    # flipped the cmp operand order (reccmp's jump-swap equivalence).  Must
+    # be checked before the same-mnemonic branch: ja/jb differ by mnemonic.
+    if target.op_str == compiled.op_str and jump_swap_ok(
+        f"{target.mnemonic} {target.op_str}", f"{compiled.mnemonic} {compiled.op_str}"
+    ):
+        return "equivalent"
     if target.mnemonic == compiled.mnemonic:
         if target.op_str == compiled.op_str:
             # Identical disassembly, different bytes → the same instruction
@@ -214,12 +223,12 @@ def align_and_classify(
     The mnemonic LCS only decides *pairing*; every aligned pair is then
     classified individually (identical bytes → match, same mnemonic with
     different registers → register, semantic-family swap → equivalent,
-    anything else → structural).  Unique byte-identical instructions pin
-    the alignment (:class:`~rebrew.pinned_diff.SequenceMatcherWithPins`),
-    so structural churn in one island cannot scramble later blocks.
-    Target bytes at relocation sites are neutralised and counted as
-    ``reloc``.  Unpaired target instructions (insertion/deletion) count as
-    structural.
+    mirrored conditional jump → equivalent, anything else → structural).
+    Unique byte-identical instructions pin the alignment
+    (:class:`~rebrew.pinned_diff.SequenceMatcherWithPins`), so structural
+    churn in one island cannot scramble later blocks.  Target bytes at
+    relocation sites are neutralised and counted as ``reloc``.  Unpaired
+    target instructions (insertion/deletion) count as structural.
 
     Returns ``(byte_counts, first_mismatch)`` — *first_mismatch* is the
     earliest non-match (dtk ``dol diff``-style decisive diagnosis): the
@@ -306,37 +315,48 @@ def _verdict(counts: dict[str, int], raw_total: int) -> tuple[str, str]:
     non_match = raw_total - counts["match"]
     if non_match <= 0:
         return "MATCH", "Bytes are identical."
+    # ENCODING-ONLY: the strictest near-match class — identical disassembly,
+    # only the opcode bytes differ.  No C tweak changes a compiler's encoding
+    # preference; only the exact compiler version (or PROVEN) closes this.
+    # Effective/encoding-only verdicts take priority over the dominant-
+    # category logic below (original near-diag semantics, now expressed via
+    # the shared classifier in match_semantics).
+    encoding = counts.get("encoding", 0)
+    if (
+        counts["structural"] == 0
+        and counts["equivalent"] == 0
+        and counts["register"] == 0
+        and encoding > 0
+    ):
+        return (
+            "ENCODING-ONLY (same instructions, different opcode bytes)",
+            "Every differing byte is the same instruction re-encoded with "
+            "a different opcode form — semantically identical, but NOT "
+            "byte-identical.  Byte-identity needs the original compiler "
+            "version's encodings, or 'rebrew prove' for PROVEN "
+            "equivalence.",
+        )
     # Effective match (reccmp parity): every real delta byte is register
     # allocation and/or encoding choice — same instructions, no structural
     # churn, no instruction-selection swaps, no invalid relocs (reloc bytes
     # are masked before classification).  reccmp counts this as a 100%
     # effective match; rebrew keeps it a real (non-byte-identical)
-    # NEAR_MATCHING with a named cause.
-    if counts["structural"] == 0 and counts["equivalent"] == 0:
-        encoding = counts.get("encoding", 0)
-        if encoding > 0 and counts["register"] == 0:
-            # The strictest near-match class: identical disassembly, only the
-            # opcode bytes differ.  No C tweak changes a compiler's encoding
-            # preference — only the exact compiler version (or PROVEN) closes
-            # this.
-            return (
-                "ENCODING-ONLY (same instructions, different opcode bytes)",
-                "Every differing byte is the same instruction re-encoded with "
-                "a different opcode form — semantically identical, but NOT "
-                "byte-identical.  Byte-identity needs the original compiler "
-                "version's encodings, or 'rebrew prove' for PROVEN "
-                "equivalence.",
-            )
-        if counts["register"] > 0:
-            return (
-                "EFFECTIVE (matches modulo register allocation)",
-                "Every differing byte is a register-allocation difference — the "
-                "same instructions, different registers.  reccmp counts this as a "
-                "100% effective match, but it is NOT byte-identical: 'rebrew "
-                "prove' can establish semantic equivalence (PROVEN), or try "
-                "register-nudging C tweaks (reorder expressions, swap loop "
-                "counters) if byte-identity is required.",
-            )
+    # NEAR_MATCHING with a named cause.  Classification is shared with
+    # verify (match_semantics); encoding-only deltas are handled above.
+    if is_effective_match(
+        structural=counts["structural"],
+        register=counts["register"],
+        equivalent=counts["equivalent"],
+    ):
+        return (
+            "EFFECTIVE (matches modulo register allocation)",
+            "Every differing byte is a register-allocation difference — the "
+            "same instructions, different registers.  reccmp counts this as a "
+            "100% effective match, but it is NOT byte-identical: 'rebrew "
+            "prove' can establish semantic equivalence (PROVEN), or try "
+            "register-nudging C tweaks (reorder expressions, swap loop "
+            "counters) if byte-identity is required.",
+        )
     dominant = max(
         ("register", "equivalent", "reloc", "structural", "encoding"),
         key=lambda k: counts.get(k, 0),

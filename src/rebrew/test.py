@@ -83,6 +83,25 @@ console = Console(stderr=True)
 _NEAR_MATCHING_BOLD_THRESHOLD = 0.97
 
 
+def _cmake_pin_for(source: str | Path, cfg: ProjectConfig) -> tuple[str | None, str]:
+    """The CMake per-file toolchain + flags pin for *source*, if any.
+
+    ``test``/``verify`` normally resolve toolchain/flags from metadata →
+    libraries → project defaults, never reading the generated CMake build
+    tree.  But the shipped link compiles a CMake-pinned file with
+    ``/REBREW_TOOLCHAIN:...`` + ``COMPILE_FLAGS``, so a per-function number
+    describing the default compile does not describe the shipped bytes.
+    Returns ``(toolchain, flags)`` from ``flags.make``, both empty/None when
+    the file is not pinned or there is no configured build tree.
+    """
+    build_dir = Path(getattr(cfg, "build_dir", "build"))
+    try:
+        from rebrew.build_check import per_file_pin
+    except ImportError:
+        return None, ""
+    return per_file_pin(Path(source), build_dir)
+
+
 def _expand_reloc_offsets(relocs: list[int], limit: int) -> set[int]:
     """Expand 4-byte relocation start offsets into a set of individual byte offsets."""
     return {r + j for r in relocs for j in range(4) if r + j < limit}
@@ -920,6 +939,15 @@ def _run_test_impl(
         cflags or _ann_cflags,
         _mod,
     )
+    # Honour the CMake per-file pin when it exists and no metadata/library
+    # override already named a toolchain: the real link compiles this file with
+    # the pin, so a number describing the default compile does not describe the
+    # shipped bytes.  (Flags follow too when the metadata was silent.)
+    cm_pin_tc, cm_pin_flags = _cmake_pin_for(source, cfg)
+    if cm_pin_flags and not (cflags or _ann_cflags):
+        cflags_str = cm_pin_flags
+    if cm_pin_tc and not toolchain_name:
+        toolchain_name = cm_pin_tc
 
     section_va: int | None = None
     if va_str is not None and size_val is not None:
@@ -1128,6 +1156,18 @@ def _run_test_impl(
         # Persist an EXPLICIT --cflags override so `rebrew verify` recompiles
         # with the flags that produced the match — without this, verify uses
         # the project defaults and demotes an EXACT /O1 match to NEAR_MATCHING.
+        # A CMake-pinned file is excluded: writing here both lies about the
+        # build (the link ignores metadata) and can break it (documented
+        # C1001/C1083 from persisting the build's own flag pair).  Refuse
+        # loudly instead of silently corrupting the metadata.
+        cm_pin_tc, cm_pin_flags = _cmake_pin_for(source, cfg)
+        if cflags and cm_pin_flags and not no_promote and not dry_run:
+            error_exit(
+                f"{source} is CMake-pinned (flags: {cm_pin_flags!r}); --cflags"
+                " would be recorded but never shipped — refuse to write it. "
+                "Edit the CMakeLists.txt pin instead.",
+                json_mode=json_output,
+            )
         if cflags and not no_promote and not dry_run:
             try:
                 update_field(

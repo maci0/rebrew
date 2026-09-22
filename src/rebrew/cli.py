@@ -79,9 +79,7 @@ AllTargetsOption: bool = typer.Option(
 )
 
 
-def iter_target_configs(
-    cfg: ProjectConfig, *, json_mode: bool = False
-) -> list[ProjectConfig]:
+def iter_target_configs(cfg: ProjectConfig, *, json_mode: bool = False) -> list[ProjectConfig]:
     """Per-target configs for an --all-targets run.
 
     Expands the already-loaded (default or explicit) config to one config
@@ -143,8 +141,7 @@ def run_for_each_target(
             worst = max(worst, EXIT_ERROR)
             if not json_mode:
                 _err_console.print(
-                    f"[yellow]warning:[/yellow] target {name} failed: "
-                    f"{type(exc).__name__}: {exc}"
+                    f"[yellow]warning:[/yellow] target {name} failed: {type(exc).__name__}: {exc}"
                 )
         if json_mode:
             raw = (buf.getvalue() if buf is not None else "").strip()
@@ -187,8 +184,7 @@ def all_targets_run(
         return False
     if target is not None:
         error_exit(
-            "--all-targets and --target are mutually exclusive — "
-            "pick one target or sweep them all",
+            "--all-targets and --target are mutually exclusive — pick one target or sweep them all",
             json_mode=json_mode,
         )
     cfg = require_config(target=None, json_mode=json_mode)

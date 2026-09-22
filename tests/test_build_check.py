@@ -257,3 +257,47 @@ def test_cli_json_goes_to_stdout_status_to_stderr(tmp_path) -> None:
     assert coded.stderr == ""
     payload = json.loads(coded.stdout)
     assert payload["status"] == "ok"
+
+
+def test_per_file_pin_reads_toolchain_and_flags(tmp_path: Path) -> None:
+    """A CMake-pinned file exposes its /REBREW_TOOLCHAIN + COMPILE_FLAGS so
+    test/verify can match the linked compile."""
+    from rebrew.build_check import per_file_pin
+
+    build = _tree(tmp_path, BUILD_MAKE)
+    tc, flags = per_file_pin(tmp_path / "src/a/one.c", build)
+    assert tc == "msvc-6.0-sp5-pp"
+    assert "O2" in flags and "Gd" in flags
+
+    # Flags-only pin (no /REBREW_TOOLCHAIN).
+    tc2, flags2 = per_file_pin(tmp_path / "src/b/two.c", build)
+    assert tc2 is None
+    assert "Ox" in flags2 and "Gd" in flags2
+
+
+def test_per_file_pin_unpinned_file_returns_empty(tmp_path: Path) -> None:
+    """A source with no Custom comment is not pinned -- caller keeps defaults."""
+    from rebrew.build_check import per_file_pin
+
+    build = _tree(tmp_path, BUILD_MAKE)
+    tc, flags = per_file_pin(tmp_path / "src/c/three.c", build)
+    assert tc is None and flags == ""
+
+
+def test_per_file_pin_absent_build_returns_empty(tmp_path: Path) -> None:
+    from rebrew.build_check import per_file_pin
+
+    assert per_file_pin(tmp_path / "f.c", tmp_path / "no-build") == (None, "")
+
+
+def test_cmake_pin_for_honours_cfg_build_dir(tmp_path: Path) -> None:
+    """test._cmake_pin_for reads the configured build tree for one source."""
+    from types import SimpleNamespace
+
+    from rebrew.test import _cmake_pin_for
+
+    build = _tree(tmp_path, BUILD_MAKE)
+    cfg = SimpleNamespace(build_dir=str(build))
+    tc, flags = _cmake_pin_for(tmp_path / "src/a/one.c", cfg)
+    assert tc == "msvc-6.0-sp5-pp"
+    assert "O2" in flags

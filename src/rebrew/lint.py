@@ -274,7 +274,7 @@ def _check_E013_duplicate_va(
             defines and (seen_va_defines or {}).get(key, False)
         ):
             if seen_va_defines is not None:
-                seen_va_defines[key] = (seen_va_defines.get(key, False) or defines)
+                seen_va_defines[key] = seen_va_defines.get(key, False) or defines
             seen_vas[key] = f"{rel_display_path(filepath)}"
             return
         result.error(result.marker_line, "E013", f"Duplicate VA {va_str} — also in {seen_vas[key]}")
@@ -537,11 +537,16 @@ def _check_E015_marker_consistency(
     else:
         expected_marker = "FUNCTION"
         allowed = {"FUNCTION"}
-    if marker not in allowed and marker in VALID_MARKERS and marker not in (
-        "GLOBAL",
-        "DATA",
-        "VTABLE",
-        "STRING",
+    if (
+        marker not in allowed
+        and marker in VALID_MARKERS
+        and marker
+        not in (
+            "GLOBAL",
+            "DATA",
+            "VTABLE",
+            "STRING",
+        )
     ):
         result.error(
             result.marker_line,
@@ -2190,7 +2195,7 @@ def main(
 
 
 def main_entry() -> None:
-    """Run the Typer CLI application (standalone single-command form)."""
+    """Run the Typer CLI application."""
     from rebrew.cli import run_standalone
 
     run_standalone(main)

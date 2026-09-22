@@ -330,7 +330,9 @@ def ensure_stock_lib(dest: Path, *, profile: str, name: str) -> bool:
     return True
 
 
-def assert_library_is_stock(path: Path, *, profile: str, name: str) -> None:
+def assert_library_is_stock(
+    path: Path, *, profile: str, name: str, json_mode: bool = False
+) -> None:
     """Refuse *path* when it differs from the image's copy of *name*.
 
     One container run hashes both files, so the image's archive and the local
@@ -376,6 +378,7 @@ def assert_library_is_stock(path: Path, *, profile: str, name: str) -> None:
         kill_container(container)
         error_exit(
             f"verifying {path.name} against {image} timed out",
+            json_mode=json_mode,
             code=EXIT_ERROR,
         )
     digests = [line.split()[0] for line in result.stdout.splitlines() if line.strip()]
@@ -468,7 +471,9 @@ def main(
                     f"[yellow]skipping {name}: {container_runtime()} is not available[/yellow]"
                 )
                 continue
-            assert_library_is_stock(cached, profile=cfg.compiler_profile, name=name)
+            assert_library_is_stock(
+                cached, profile=cfg.compiler_profile, name=name, json_mode=json_output
+            )
         except ToolchainError as exc:
             error_exit(str(exc), json_mode=json_output, code=EXIT_ERROR)
         archives.append(cached)

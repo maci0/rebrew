@@ -166,9 +166,7 @@ class TestRunForEachTarget:
     def test_sweeps_all_targets(self) -> None:
         seen: list[str] = []
 
-        code = run_for_each_target(
-            ["alpha", "beta"], lambda n: seen.append(n), json_mode=False
-        )
+        code = run_for_each_target(["alpha", "beta"], lambda n: seen.append(n), json_mode=False)
         assert seen == ["alpha", "beta"]
         assert code == 0
 

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import struct
 from collections.abc import Sequence
+from pathlib import Path
 
 _TEXT_CHARS = 0x60000020  # CODE | EXECUTE | READ | CNT_CODE
 
@@ -756,3 +757,101 @@ def append_pe_section(pe: bytes, name: str, data: bytes) -> bytes:
     struct.pack_into("<H", out, lfanew + 6, n_sections + 1)
     struct.pack_into("<I", out, lfanew + 24 + 0x50, va + len(data))
     return bytes(out)
+
+
+# ---------------------------------------------------------------------------
+# Cross-reference probe PE
+# ---------------------------------------------------------------------------
+
+PROBE_TEXT_VA = 0x401000
+PROBE_IMAGE_BASE = 0x400000
+
+
+def _build_probe_code() -> tuple[bytes, dict[str, int]]:
+    """Assemble the probe code; return ``(code_bytes, symbols)``.
+
+    Layout (VAs are relative to ``PROBE_TEXT_VA``), each reference target
+    patched after the layout is known:
+      0x000  e8 rel32      call <lea insn>     (direct call)
+      0x005  68 imm32      push <hello>        ("Hello World")
+      0x00a  b8 imm32      mov eax, <game>     ("Game Boy")
+      0x00f  ff 15 imm32   call [iat_slot]     (IAT call, fixed by caller)
+      0x015  8d 05 imm32   lea eax, [<wide>]   ("Wide" utf16)
+      0x01b  8b 05 imm32   mov eax, [<wide>]   (data read)
+      0x021  83 25 imm32 00 and [<hello>+4], 0 (generic mem)
+      0x028  c3            ret
+      <blob> "Hello World\\0" "Game Boys\\0" "\\0" "W\\0i\\0d\\0e\\0\\0\\0"
+    """
+    refs: dict[str, int] = {}
+
+    def emit(raw: bytes, name: str | None = None) -> None:
+        if name is not None:
+            refs[name] = PROBE_TEXT_VA + len(pre)
+        pre.extend(raw)
+
+    pre = bytearray()
+    emit(b"\xe8" + b"\x00\x00\x00\x00", "call")  # rel patched below
+    emit(b"\x68" + b"\x00\x00\x00\x00", "push")
+    emit(b"\xb8" + b"\x00\x00\x00\x00", "mov")
+    emit(b"\xff\x15" + b"\x00\x00\x00\x00", "iat_call")
+    emit(b"\x8d\x05" + b"\x00\x00\x00\x00", "lea")
+    emit(b"\x8b\x05" + b"\x00\x00\x00\x00", "mov_mem")
+    emit(b"\x83\x25" + b"\x00\x00\x00\x00" + b"\x00", "and_mem")
+    emit(b"\xc3")
+
+    blob_start = PROBE_TEXT_VA + len(pre)
+    # Blob layout is parity-controlled so the UTF-16 run lands on an even raw
+    # offset (visible to the even-aligned UTF-16 scan) while the last ASCII
+    # byte sits on an odd offset (no merge into the UTF-16 run):
+    #   "Hello World\0" (12B) + "Game Boys\0" (10B) + "\0" (1B) + UTF-16 (10B)
+    hello = blob_start
+    game = blob_start + 12
+    wide = blob_start + 23
+    blob = b"Hello World\x00" + b"Game Boys\x00" + b"\x00" + b"W\x00i\x00d\x00e\x00\x00\x00"
+
+    def patch(at: int, value: int, imm_off: int = 1) -> None:
+        pre[at + imm_off : at + imm_off + 4] = struct.pack("<I", value)
+
+    # 1-byte opcodes: imm starts at +1.  Two-byte opcodes (opcode+modrm):
+    # imm starts at +2.
+    patch(refs["call"] - PROBE_TEXT_VA, refs["lea"] - (refs["call"] + 5), imm_off=1)
+    patch(refs["push"] - PROBE_TEXT_VA, hello, imm_off=1)
+    patch(refs["mov"] - PROBE_TEXT_VA, game, imm_off=1)
+    patch(refs["lea"] - PROBE_TEXT_VA, wide, imm_off=2)
+    patch(refs["mov_mem"] - PROBE_TEXT_VA, wide, imm_off=2)
+    patch(refs["and_mem"] - PROBE_TEXT_VA, hello, imm_off=2)
+
+    syms = {**refs, "hello": hello, "game": game, "wide": wide}
+    return bytes(pre) + blob, syms
+
+
+def _resolve_probe_iat_slot(pe_bytes: bytes) -> int:
+    """Find the IAT slot VA for ``HeapCreate`` in a built probe PE."""
+    import lief
+
+    pe = lief.PE.parse(bytes(pe_bytes))
+    if pe is None:
+        raise AssertionError("probe PE failed to parse")
+    for imp in pe.imports:
+        for entry in imp.entries:
+            if entry.name == "HeapCreate":
+                return PROBE_IMAGE_BASE + entry.iat_address
+    raise AssertionError("HeapCreate import not found")
+
+
+def make_xref_probe(tmp_path: Path) -> tuple[Path, dict[str, int]]:
+    """Build the cross-reference probe PE on disk; return ``(path, symbols)``.
+
+    The IAT slot VA is only known after a probe build, so the PE is built
+    twice: once to learn the slot, once with the ``call [iat_slot]`` operand
+    patched to it.
+    """
+    code, syms = _build_probe_code()
+    proto = make_pe(code, imports=[("KERNEL32.dll", ["HeapCreate"])])
+    slot = _resolve_probe_iat_slot(proto)
+    code2 = bytearray(code)
+    code2[0x0F + 2 : 0x0F + 6] = struct.pack("<I", slot)
+    final = make_pe(bytes(code2), imports=[("KERNEL32.dll", ["HeapCreate"])])
+    path = tmp_path / "probe.exe"
+    path.write_bytes(final)
+    return path, {**syms, "iat_slot": slot}

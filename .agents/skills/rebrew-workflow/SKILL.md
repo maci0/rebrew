@@ -171,6 +171,7 @@ rebrew link-order --check
 rebrew layout-map
 rebrew rename old_func new_func [--dry-run]
 rebrew graph --cu-map --json              # infer TU boundaries for merge decisions
+rebrew recommend --json                   # all lanes: TU layout + hygiene + next action
 ```
 
 Split for different CFLAGS; merge for shared TU (statics/file globals).

@@ -134,6 +134,7 @@ def _enumerate_functions(binary: Path) -> list[tuple[int, int, str]]:
 
 
 def blocker_reason(family: str, size: int, version_hint: str) -> str:
+    """Why an enumerated function is documented-only (too small, vendor-specific, ...)."""
     if size <= 8:
         return "IAT import thunk / jump stub — not a decomp target"
     if family == "delphi":

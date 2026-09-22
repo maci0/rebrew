@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import contextlib
 from pathlib import Path
+from typing import Any
 
 import typer
 from rich.console import Console
@@ -72,11 +73,25 @@ def main(
 
     here: dict[str, int] = {}
     tot = 0
+    # Per-object drift tallies (reccmp `roadmap`-style placement statistics):
+    # which linked object contributes how many misplaced .data symbols and
+    # how far off the whole object sits — one drifted TU shifts everything
+    # after it by the same delta.
+    per_object: dict[str, dict[str, int]] = {}
     try:
         for obj in link_objects(root):
             dsize, syms = obj_data_symbol_offsets(obj)
+            obj_stats = per_object.setdefault(
+                str(obj), {"symbols": 0, "misplaced": 0, "delta_sum": 0}
+            )
             for sym, off in syms.items():
-                here.setdefault(sym, data_va + tot + off)
+                va = data_va + tot + off
+                here.setdefault(sym, va)
+                if sym in expected:
+                    obj_stats["symbols"] += 1
+                    if va != expected[sym]:
+                        obj_stats["misplaced"] += 1
+                        obj_stats["delta_sum"] += va - expected[sym]
             tot += dsize
     except (RuntimeError, OSError) as exc:
         error_exit(f"cannot inventory build objects: {exc}", json_mode=json_output)
@@ -92,6 +107,16 @@ def main(
                 bads.append((sym, expected[sym], addr))
     bads.sort(key=lambda t: -abs(t[1] - t[2]))
 
+    # Only objects with at least one misplaced symbol, worst delta first.
+    drifted: list[dict[str, Any]] = sorted(
+        (
+            {"object": obj, **stats, "mean_delta": stats["delta_sum"] // stats["misplaced"]}
+            for obj, stats in per_object.items()
+            if stats["misplaced"]
+        ),
+        key=lambda s: -abs(s["mean_delta"]),
+    )
+
     if json_output:
         json_print(
             {
@@ -103,6 +128,7 @@ def main(
                     {"symbol": s, "expected": f"0x{e:x}", "actual": f"0x{a:x}", "delta": a - e}
                     for s, e, a in bads[:limit]
                 ],
+                "per_object": drifted,
             }
         )
     else:
@@ -111,6 +137,14 @@ def main(
         )
         for sym, exp, act in bads[:limit]:
             console.print(f"  {sym:32} exp {exp:#010x}  our {act:#010x}  d {act - exp:+#x}")
+        if drifted:
+            console.print("  [dim]placement drift by object (roadmap-style):[/dim]")
+            for stats in drifted[:limit]:
+                console.print(
+                    f"    {Path(stats['object']).name:32} "
+                    f"{stats['misplaced']}/{stats['symbols']} misplaced  "
+                    f"mean delta {stats['mean_delta']:+#x}"
+                )
     if bad:
         raise typer.Exit(code=EXIT_MISMATCH)
 

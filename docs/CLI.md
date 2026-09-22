@@ -91,7 +91,7 @@ for `--compare` (not “better than EXACT”).
 | `rebrew status` | `status.py` | At-a-glance reversing progress overview (per-module coverage, status ladder counts) |
 | `rebrew similar` | `similar.py` | Find structurally similar functions in the target binary (clone detection) |
 | `rebrew binary-similarity` | `binary_similarity.py` | Whole-binary structural similarity vs another binary — per-function best matches aggregated into a byte-weighted score (versions/DLL+EXE) |
-| `rebrew near-diag` | `near_diag.py` | Classify why a `NEAR_MATCHING` function does not byte-match — categories: register / equivalent / reloc / structural, plus the `EFFECTIVE` verdict when the entire delta is register allocation (reccmp's 100% effective-match case); JSON carries a `frame` stack-comparison field; `--fix-blocker` auto-writes BLOCKER |
+| `rebrew near-diag` | `near_diag.py` | Classify why a `NEAR_MATCHING` function does not byte-match — categories: register / equivalent / reloc / structural, plus the `EFFECTIVE` verdict, reccmp-adapted equivalences (mirrored conditional jumps) and unique-byte pinning of the alignment when the entire delta is register allocation (reccmp's 100% effective-match case); JSON carries a `frame` stack-comparison field; `--fix-blocker` auto-writes BLOCKER |
 | `rebrew gap-trace` | `gap_trace.py` | Trace length-gap drift between object and reference instruction streams — running our-minus-reference offset per equal block, exposing LENGTH hypotheses (short COMDAT, early jump table) that flat scores hide; window defaults to the real body (next VA); `--json` |
 | `rebrew drift` | `drift_cmd.py` | Localise where compiled bytes drift from the reference, from branch targets; `--json` |
 | `rebrew climb` | `climb.py` | Deterministic single-statement hill-climb for one function (`--passes`, `--dry-run`, `--json`) |
@@ -104,9 +104,10 @@ for `--compare` (not “better than EXACT”).
 | `rebrew round-trip` | `round_trip.py` | Splice matched functions back into the target PE and verify byte equality |
 | `rebrew skills` | `skills.py` | Discover and display agent skills (`list`, `show`); community skills merge via `REBREW_SKILLS_DIR` (drop directories by hand — no install/remove commands) |
 | `rebrew blocker` | `blocker.py` | Manage `BLOCKER` / `BLOCKER_DELTA` in `rebrew-functions.toml` (`set`/`clear`/`show` by file, VA, or symbol; `--delta`, `--va`, `--dry-run`, `--json`) — ad-hoc BLOCKER for STUBs `diff --fix-blocker` cannot classify; every write via `rebrew.metadata` (locked + atomic, never hand-edited) |
+| `rebrew migrate-markers` | `migrate_markers.py` | ADR 023: move inline markers into `rebrew-functions.toml`, strip `.c` to pure C (per-file, flag-free reader fallback) |
 | `rebrew orphans` | `orphans.py` | List or prune metadata blocks whose VA has no source marker (`--prune`, `--include-matched`, `drop 0xVA`; `--dry-run`, `--json`) — every delete via `rebrew.metadata` batch helpers (locked + atomic) |
 | `rebrew types` | `types_cli.py` | Check declared struct layouts vs decompiler evidence; `apply-type` rewrites one param type in source (`--param N --type T`, `--dry-run`, `--json`) |
-| `rebrew analyze` | `analyze.py` | One-shot binary dossier (toolchain, strings, imports, dispatch, FLIRT, blockers) |
+| `rebrew analyze` | `analyze.py` | One-shot binary dossier (toolchain, strings, imports, dispatch, vtordisp thunks, float-constant pool, FLIRT, blockers) |
 | `rebrew build-check` | `build_check.py` | Verify `build/` still matches what CMake generated |
 | `rebrew calibrate-bss` | `calibrate_bss.py` | Size the BSS tail pad so raw-link `.data` VirtualSize matches |
 | `rebrew cmake-toolchain` | `cmake_tc.py` | Generate a CMake toolchain file running the image's tools via docker |
@@ -522,7 +523,7 @@ graph TD
 | `--raw-link` | Ack that `--built` is the raw link, not a postlinked deliverable. Without it, `--data` suppresses DRIFT status write-backs (a raw link's `.data` divergence is postlink-supplied and would flip wrong statuses) |
 | `--text` | Check built `.text` function placement against the `// FUNCTION:` markers via `text-audit` (needs `--built`); exit 1 on any misplaced function |
 | `--whole-binary` | Compare built binary against the reference: section sizes, exports, imports, `.rsrc` bytes, headers, plus layout-freshness check (needs `--built`) |
-| `--context FILE` | Compile every source with these declarations merged ahead of it under `#line` directives (see `rebrew test --context`); each result and the report carry `context_hash`. A context run bypasses the result cache in both directions: no cached verdict is served, and nothing is written back, because a cache entry records no context digest |
+| `--context FILE` | Compile every source with these declarations merged ahead of it under `#line` directives (see `rebrew test --context`); each result and the report carry `context_hash`. Each entry records the context digest it was earned under, so a cached verdict is served only to a run pinned to the exact same context (a changed or absent digest re-verifies); context runs write back like bare runs |
 | `--dir TEXT` | Restrict to this subdirectory — project-relative first (`src/shared` scopes the shared tree), then relative to reversed_dir |
 | `--origin TEXT` | Restrict to one module (e.g. GAME) |
 | `--no-promote` | Measure only: write NOTHING to rebrew-functions.toml (report + cache still save) |
@@ -920,6 +921,37 @@ computed order (preview); `--apply` rewrites the `set(SOURCES ...)` block
 keywords, quoting, and surrounding text; `--dry-run` previews without
 writing; `--check` exits 1 with a unified diff on drift (CI gate).
 
+### `rebrew cmake-sources`
+
+`rebrew cmake-sources [--output PATH] [--json] [--target NAME]`
+
+Write the target's marker-selected source list as a CMake include fragment
+(the `reversed_dir` files that carry at least one marker for this target),
+so a CMake build compiles exactly the reversed tree without hand-listing
+files. Pairs with `rebrew cmake-flags` (per-file CFLAGS) and
+`rebrew cmake-toolchain` (toolchain file).
+
+### `rebrew migrate-markers`
+
+`rebrew migrate-markers [--dry-run] [--json] [--target NAME]`
+
+ADR 023: move inline markers into `rebrew-functions.toml` and strip them
+from the `.c` sources — the result is pure C. Each function's identity
+(`file`, `symbol`, `name`, `marker_type`) and compile-contract fields
+(`SIZE`, `CFLAGS`, `TOOLCHAIN`) are copied into the TOML entry before the
+marker block (marker line, attached `// KEY:` comments, bare name hints)
+is removed. Per-file, flag-free: `parse_c_file_multi` synthesizes
+Annotations from the TOML entries for any marker-less file, so a project
+migrates file-by-file and every consumer keeps working. Idempotent — a
+second run finds nothing to strip. See
+[adr/023-markers-toml-single-source.md](adr/023-markers-toml-single-source.md).
+
+| Flag | Description |
+|------|-------------|
+| `--dry-run` | Preview changes without writing |
+| `--json` | Output results as JSON |
+| `--target NAME` | Select a target from `rebrew-project.toml` |
+
 ### `rebrew verify-placement`
 
 `rebrew verify-placement [--data-metadata src/rebrew-data.toml] [--json]`
@@ -928,6 +960,14 @@ Post-edit check: walk the link's object files (objdump, link order), compute
 each symbol's current `.data` VA, and compare against the data metadata.
 Misplaced symbols mean the object order or a TU's layout drifted (the reccmp
 "0 aligned" symptom); exits 1 when any symbol is misplaced.
+
+Output also carries reccmp `roadmap`-style placement statistics: per-object
+drift tallies (`symbols`, `misplaced`, `mean_delta`) for every linked object
+that misplaced at least one symbol, worst mean delta first — one drifted TU
+shifts everything after it by the same delta, so the object rows point at
+the culprit while the symbol rows show the victims. Terminal mode prints a
+"placement drift by object" table; JSON carries the same rows under
+`per_object`.
 
 ### `rebrew text-audit`
 
@@ -1128,6 +1168,30 @@ Merge multiple single-function `.c` files into one multi-function file. Preamble
 | `--consolidate` | Hoist unique includes/externs/typedefs/`#pragma intrinsic` to the top of the merged TU, resolving conflicting extern signatures by specificity (companion cleanup for multi-function merges) |
 | `--shared` | Collapse twin files (same body, different target markers) into one stacked block per body — the migration from per-target copies to `src/shared`. Bodies that differ are refused, never merged |
 | `--json` | Structured JSON output |
+
+### `rebrew recommend`
+
+`rebrew recommend [-c tu|hygiene|next] [--min-confidence F] [--apply] [--dry-run] [--json] [--target NAME]`
+
+Deterministic project advice across lanes (read-only by default):
+
+| Lane | Kinds | Source |
+|------|-------|--------|
+| TU layout | `merge`, `split`, `move`, `flag-split`, `fix-sizes`, `cluster-fill` | `cu-map` clusters vs source files; merges carry the exact `rebrew merge ... --consolidate` command, CFLAGS-divergent merges flagged to reconcile first; `flag-split` fires when one file mixes per-function flag sets; `fix-sizes` points at unsized functions; `cluster-fill` skeletons unreversed VAs inside a reversed cluster via `--append` |
+| Hygiene | `link-order`, `orphans`, `matched-orphans`, `lint-fixable`, `lint-errors`, `duplicate-globals`, `stale-markers`, `shared-twins`, `foreign-sources`, `data-drift`, `start-data`, `build-check`, `stale-cache` | CMake VA-order drift, prunable metadata orphans (matched held back), matched orphans needing re-attached markers, `lint --fix` codes (W019/W029/W016), E-code errors per file, W021 global collisions, W028 stale markers, identical per-target twins for `merge --shared`, files excluded from this target's build, DRIFT/unchecked data symbols, stale build/ flags, sources newer than verify cache |
+| Next | `stub-sort`, `verify-failures`, `missing-externs`, `default-names`, `backfill-blockers`, `next-action`, `merge-sweep` | Unannotated inventory functions, COMPILE/EXTRACT/MISSING_SIZE cache failures, undefined extern callees, decompiler default names, bare STUBs, highest-ROI `todo` item pointer, `merge-sweep --dry-run` when partitions unproven |
+
+`--apply` executes only safe mechanical lanes (`lint --fix`,
+`link-order --apply`, `orphans --prune`, `merge --shared` twins); TU
+merge/split/move stay advisory.
+
+| Flag | Description |
+|------|-------------|
+| `-c` / `--category` | Filter lanes: `tu`, `hygiene`, `next` |
+| `--min-confidence F` | Skip TU clusters below this confidence |
+| `--apply` | Auto-fix safe lanes |
+| `--dry-run` | Preview changes without writing |
+| `--json` | Output results as JSON |
 
 ### `rebrew merge-sweep`
 
@@ -1794,7 +1858,8 @@ Compile the source and classify why it does not byte-match the target —
 which category of compiler choice is blocking the match. Every mismatching
 byte is bucketed into `register` (same instruction, different register
 allocation), `equivalent` (semantically equal instruction selection, e.g.
-`lea` vs `mov`), `reloc` (relocation-masked site), or `structural` (different
+`lea` vs `mov`, a mirrored conditional jump after a flipped `cmp` operand
+order), `reloc` (relocation-masked site), or `structural` (different
 layout/block order). When the *entire* delta is register allocation the
 verdict is `EFFECTIVE` — reccmp's 100% effective-match case: the same
 instructions with different registers, not byte-identical, so `rebrew prove`
@@ -1805,7 +1870,11 @@ output also carries a `frame` field: the stack-frame comparison (see
 `rebrew stack-cmp`) between the compiled and target bytes, plus a
 `first_mismatch` field — the earliest differing instruction with its
 category and both sides' text (dtk `dol diff`-style decisive diagnosis:
-fix the first mismatch and the rest usually follows).
+fix the first mismatch and the rest usually follows).  The alignment is
+pinned (reccmp-adapted): instructions whose raw encoding is byte-identical
+and unique on both sides act as anchors, so structural churn in one block
+cannot scramble the classification of later blocks.  See
+[RECCMP_ADAPTATIONS.md](RECCMP_ADAPTATIONS.md).
 `--fix-blocker` writes the verdict as `BLOCKER` metadata (skipped on a
 match), closing the classify → document loop in one command.  The written
 blocker text includes the top GA mutation operators to try next (the
@@ -1985,7 +2054,8 @@ rebuild verification where the linker layout differs from the original.
 
 One-shot intelligence dossier: binary layout, toolchain detection (diec →
 PDB → heuristics), strings + references, imports + IAT stubs, reversed-function
-coverage, dispatch tables, FLIRT matches (when `flirt_sigs/` exists), and
+coverage, dispatch tables, vtordisp (MI thunk) detection, the float-constant
+pool referenced from code, FLIRT matches (when `flirt_sigs/` exists), and
 NEAR_MATCHING blockers. Best-effort by design — every section is optional.
 
 Works **standalone**: `rebrew analyze some_unknown.exe --json` runs outside

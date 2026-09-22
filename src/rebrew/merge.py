@@ -356,15 +356,18 @@ def _collapse_twins(
 
     # Divergent twins: same C symbol, different bodies.  Find them by name
     # across groups (a name appearing in ≥2 groups with different bodies).
+    # Candidate lines must look like definitions: block-comment continuations
+    # (`* ...`) fool the extractor into prose symbols (`adjacent`), masking
+    # the real divergence (guild ls_LoadSavegameHeader merged two full TUs).
     names: dict[str, set[str]] = {}
     for key in order:
         for _, block in groups[key]:
             sym = ""
             for line in block.splitlines():
                 stripped = line.strip()
-                if not stripped or stripped.startswith(("//", "/*", "#")):
+                if not stripped or stripped.startswith(("//", "/*", "#", "*")):
                     continue
-                if stripped.rstrip().endswith(";"):
+                if stripped.rstrip().endswith(";") or "(" not in stripped:
                     continue
                 got = extract_function_name_from_line(stripped)
                 if got:
@@ -398,14 +401,20 @@ def _block_metadata(block: str) -> dict[str, Any] | None:
 
 
 def _merge_preambles(preambles: list[str]) -> str:
-    """Merge preambles with exact-line dedup and collapsed blank lines.
+    """Merge preambles with include-line dedup and collapsed blank lines.
 
     Comment blocks (e.g. Ghidra decompilation references) are stripped before
-    dedup: they are per-function noise, and a naive union of multiple
+    merging: they are per-function noise, and a naive union of multiple
     preambles leaves the ``/* */`` nesting malformed so the merged file does
     not compile (C2143 on orphaned comment lines).
+
+    Only ``#include`` lines dedup: exact-line union of anything else eats
+    repeated structural lines (a lone ``{`` opening five different structs
+    collapses to one, corrupting every struct after the first).  Divergent
+    typedefs/prototypes from different inputs are all kept — the compiler,
+    not the merge, arbitrates conflicts.
     """
-    seen: set[str] = set()
+    seen_decl: set[str] = set()
     merged_lines: list[str] = []
 
     for preamble in preambles:
@@ -414,9 +423,15 @@ def _merge_preambles(preambles: list[str]) -> str:
                 if merged_lines and merged_lines[-1]:
                     merged_lines.append("")
                 continue
-            if line in seen:
-                continue
-            seen.add(line)
+            if (
+                _INCLUDE_RE.match(line)
+                or _EXTERN_RE.match(line)
+                or _TYPEDEF_RE.match(line)
+                or _PRAGMA_INTRINSIC_RE.match(line)
+            ):
+                if line in seen_decl:
+                    continue
+                seen_decl.add(line)
             merged_lines.append(line)
 
     while merged_lines and not merged_lines[-1]:
