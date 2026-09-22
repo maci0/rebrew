@@ -331,6 +331,16 @@
   ``one_line``, ``run_git``). Call sites inside the package already updated.
 
 ### Fixed
+- **The reloc VA map and the global scan are marker-scoped across every
+  source.**  `build_name_to_va` took its data half from `rebrew-data.toml`
+  without comparing the entry's module, and `scan_globals` matched every
+  `// GLOBAL:`/`// DATA:` marker whatever its target.  A shared tree annotates
+  one symbol once per target (SERVER `g_log_level_table` at `0x10027078`, the
+  client's at `0x677918`), so the last marker won the name in every target's
+  map and DIR32 validation failed on bytes that are correct for that binary
+  (guild-rebrew round 1292).  Both now skip annotations belonging to another
+  target (`cfg.all_markers`); library-module markers are still kept.  Lint
+  W021 keys its duplicate-global check by `marker:name` for the same reason.
 - **Dispose is terminal for `fork()`, and the batch atexit backstop is
   test-pinned.**  `provide` and `effect` refuse a disposed context but
   `fork()` did not, so a dead context could gain a child whose inverses
