@@ -25,7 +25,7 @@ import typer
 from rich.console import Console
 
 from rebrew.cli import TargetOption, error_exit, json_print, require_config
-from rebrew.config import ProjectConfig
+from rebrew.config import ProjectConfig, inventory_path_for
 from rebrew.utils import atomic_write_text, read_source_text
 
 console = Console(stderr=True)
@@ -493,11 +493,10 @@ def build_dispatch_known_functions(cfg: ProjectConfig, src_dir: Path) -> dict[in
 
     try:
         from rebrew.catalog import build_function_registry, cached_function_list
-        from rebrew.config import FUNCTION_STRUCTURE_JSON
 
         funcs = cached_function_list(cfg)
         registry = build_function_registry(
-            funcs, cfg, src_dir / FUNCTION_STRUCTURE_JSON, cfg.target_binary
+            funcs, cfg, inventory_path_for(cfg.reversed_dir, cfg), cfg.target_binary
         )
         for va, reg_entry in registry.items():
             name = reg_entry.get("list_name") or reg_entry.get("ghidra_name")

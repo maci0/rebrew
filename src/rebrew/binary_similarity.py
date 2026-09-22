@@ -44,6 +44,7 @@ from rebrew.cli import (
     json_print,
     require_config,
 )
+from rebrew.config import inventory_path_for
 from rebrew.similar import DEFAULT_CS_ARCH, DEFAULT_CS_MODE, disasm_signature
 
 console = Console(stderr=True)
@@ -260,10 +261,8 @@ def run_binary_similarity(
     cs_arch = getattr(cfg, "capstone_arch", DEFAULT_CS_ARCH)
     cs_mode = getattr(cfg, "capstone_mode", DEFAULT_CS_MODE)
 
-    from rebrew.config import FUNCTION_STRUCTURE_JSON
-
     funcs_a = _load_side(
-        cfg.target_binary, cfg.reversed_dir / FUNCTION_STRUCTURE_JSON, cs_arch, cs_mode
+        cfg.target_binary, inventory_path_for(cfg.reversed_dir, cfg), cs_arch, cs_mode
     )
     funcs_b = _load_side(other_binary, other_list, cs_arch, cs_mode)
 
@@ -358,7 +357,7 @@ def main(
         )
 
     if other_target:
-        from rebrew.config import FUNCTION_STRUCTURE_JSON, load_config
+        from rebrew.config import load_config
 
         try:
             other_cfg = load_config(target=other_target)
@@ -366,7 +365,7 @@ def main(
             error_exit(f"cannot load target {other_target!r}: {exc}", json_mode=json_output)
         run_binary_similarity(
             other_cfg.target_binary,
-            other_cfg.reversed_dir / FUNCTION_STRUCTURE_JSON,
+            inventory_path_for(other_cfg.reversed_dir, other_cfg),
             json_output,
             low,
             target,

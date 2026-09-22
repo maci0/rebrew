@@ -45,7 +45,7 @@ from rebrew.cli import (
 )
 from rebrew.coff_reloc import build_name_to_va
 from rebrew.compile_overrides import resolve_compile_overrides
-from rebrew.config import FUNCTION_STRUCTURE_JSON, ProjectConfig
+from rebrew.config import ProjectConfig, inventory_path_for
 from rebrew.sources import iter_sources, target_marker
 
 console = Console(stderr=True)
@@ -610,7 +610,7 @@ def main(
     info = load_binary(cfg.target_binary)
 
     funcs = cached_function_list(cfg)
-    ghidra_path = cfg.reversed_dir / FUNCTION_STRUCTURE_JSON if cfg.reversed_dir else None
+    ghidra_path = inventory_path_for(cfg.reversed_dir, cfg) if cfg.reversed_dir else None
     registry = build_function_registry(
         funcs, cfg, ghidra_path=ghidra_path, bin_path=cfg.target_binary
     )

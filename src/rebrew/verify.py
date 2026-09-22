@@ -55,7 +55,7 @@ from rebrew.cli import (
 from rebrew.compile import (
     is_matched,
 )
-from rebrew.config import FUNCTION_STRUCTURE_JSON, ProjectConfig
+from rebrew.config import ProjectConfig, inventory_path_for
 from rebrew.metadata import should_promote_status
 from rebrew.utils import atomic_write_text
 from rebrew.verify_cache import (
@@ -671,6 +671,13 @@ def main(
         "--built",
         help="Built binary for --data/--whole-binary/--text comparison (default: build/<target>)",
     ),
+    raw_link: bool = typer.Option(
+        False,
+        "--raw-link",
+        help="Ack that --built is the raw link, not a postlinked deliverable. "
+        "Without it, --data suppresses DRIFT status write-backs (a raw link's "
+        ".data divergence is postlink-supplied and would flip wrong statuses)",
+    ),
     text: bool = typer.Option(
         False,
         "--text",
@@ -768,6 +775,7 @@ def main(
                 prune_orphans=prune_orphans,
                 data=data,
                 built=built,
+                raw_link=raw_link,
                 text=text,
                 whole_binary=whole_binary,
                 context=context,
@@ -921,7 +929,20 @@ def main(
                         {"module": module, "va": va, "fields": {"status": status}}
                     )
             if status_updates:
-                set_data_fields_batch(cfg.metadata_dir, status_updates)
+                if raw_link:
+                    set_data_fields_batch(cfg.metadata_dir, status_updates)
+                else:
+                    # A raw link's .data divergence is postlink-supplied by
+                    # design (AMBIGUOUS).  Without an explicit --raw-link ack we
+                    # cannot tell DRIFT from the shipped deliverable, so writing
+                    # DRIFT (or VERIFIED) statuses would corrupt the tool-owned
+                    # rebrew-data.toml.  Suppress the write-back and say so.
+                    data_report["raw_link_status_suppressed"] = True
+                    if not json_output:
+                        console.print(
+                            "[yellow]warning:[/yellow] --built looks like a raw link; "
+                            "status write-back suppressed (pass --raw-link to write DRIFT/VERIFIED)"
+                        )
         if not json_output:
             console.print(
                 f"data: {data_report['matched']} matched, "
@@ -1961,7 +1982,7 @@ def prepare_entries(
     the only correct answer until the entry type carries the digest.
     """
     reversed_dir = cfg.reversed_dir
-    ghidra_json_path = reversed_dir / FUNCTION_STRUCTURE_JSON
+    ghidra_json_path = inventory_path_for(reversed_dir, cfg)
 
     console.print(f"Scanning {reversed_dir}...")
     entries = scan_reversed_dir(reversed_dir, cfg=cfg)

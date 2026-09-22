@@ -20,6 +20,7 @@ import typer
 from rich.console import Console
 
 from rebrew.cli import TargetOption, error_exit, json_print, require_config
+from rebrew.config import inventory_path_for
 from rebrew.ghidra.commands import (
     build_bookmark_commands,
     build_new_function_commands,
@@ -277,11 +278,10 @@ def main(
 
     if create_functions:
         from rebrew.catalog import build_function_registry, cached_function_list
-        from rebrew.config import FUNCTION_STRUCTURE_JSON
 
         funcs = cached_function_list(cfg)
         registry = build_function_registry(
-            funcs, cfg, cfg.reversed_dir / FUNCTION_STRUCTURE_JSON, cfg.target_binary
+            funcs, cfg, inventory_path_for(cfg.reversed_dir, cfg), cfg.target_binary
         )
         ops = build_new_function_commands(registry, program_path, iat_thunks=set(cfg.iat_thunks))
         if dry_run:

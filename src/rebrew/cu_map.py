@@ -60,7 +60,7 @@ from rebrew.catalog import (
     is_jump_table,
 )
 from rebrew.cli import TargetOption, error_exit, json_print, require_config
-from rebrew.config import FUNCTION_STRUCTURE_JSON, ProjectConfig
+from rebrew.config import ProjectConfig, inventory_path_for
 
 console = Console(stderr=True)
 
@@ -713,7 +713,7 @@ def main(
         )
 
     reversed_dir = cfg.reversed_dir
-    ghidra_path = reversed_dir / FUNCTION_STRUCTURE_JSON if reversed_dir else None
+    ghidra_path = inventory_path_for(reversed_dir, cfg) if reversed_dir else None
 
     registry = build_function_registry(funcs, cfg, ghidra_path=ghidra_path, bin_path=bin_path)
 

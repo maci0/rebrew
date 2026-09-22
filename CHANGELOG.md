@@ -1,5 +1,12 @@
 ## [Unreleased]
 ### Changed
+- **Per-target `inventory_file` key.**  `[targets.<name>].inventory_file`
+  overrides where one target's function inventory lives (default:
+  `reversed_dir/function_structure.json`), so several targets can share a
+  single source tree while keeping separate VA/size inventories. All 27
+  inventory touch points route through `cfg.inventory_path` /
+  `inventory_path_for` (mock-safe: namespace cfgs without the attribute
+  fall back to the legacy join).
 - **Shared sources see the shared root.**  Compiling a file under
   `src/shared` adds the shared root to the include path (both the docker
   path via `_effective_compile_flags` and the matcher's raw path), so a

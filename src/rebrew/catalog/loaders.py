@@ -12,7 +12,7 @@ from typing import Any
 
 from rebrew.annotation import Annotation, parse_c_file_multi, parse_library_header
 from rebrew.catalog.models import FunctionEntry, GhidraDataLabel
-from rebrew.config import ProjectConfig
+from rebrew.config import ProjectConfig, inventory_path_for
 from rebrew.sources import iter_library_headers, iter_sources, target_marker
 
 # ---------------------------------------------------------------------------
@@ -152,10 +152,8 @@ def cached_function_list(cfg: ProjectConfig) -> list[dict[str, Any]]:
     """
     import logging
 
-    from rebrew.config import FUNCTION_STRUCTURE_JSON
-
     reversed_dir = getattr(cfg, "reversed_dir", "")
-    path = str(Path(reversed_dir) / FUNCTION_STRUCTURE_JSON) if reversed_dir else ""
+    path = str(inventory_path_for(reversed_dir, cfg)) if reversed_dir else ""
     fp = _inventory_fingerprint(path)
     cache_key = path if path else ""
     with _function_list_cache_lock:
@@ -197,10 +195,8 @@ def cached_function_vas(cfg: ProjectConfig) -> frozenset[int]:
     Shares invalidation with :func:`cached_function_list`.  Prefer this over
     rebuilding a set comprehension from the list on hot membership checks.
     """
-    from rebrew.config import FUNCTION_STRUCTURE_JSON
-
     reversed_dir = getattr(cfg, "reversed_dir", "")
-    path = str(Path(reversed_dir) / FUNCTION_STRUCTURE_JSON) if reversed_dir else ""
+    path = str(inventory_path_for(reversed_dir, cfg)) if reversed_dir else ""
     fp = _inventory_fingerprint(path)
     cache_key = path if path else ""
     with _function_list_cache_lock:

@@ -11,13 +11,13 @@ there and accumulate silently.
 ``rebrew orphans drop`` removes one VA's block on demand.
 """
 
-from pathlib import Path
 from typing import Any
 
 import typer
 from rich.console import Console
 
 from rebrew.cli import TargetOption, error_exit, json_print, require_config
+from rebrew.config import inventory_path_for
 
 console = Console(stderr=True)
 
@@ -53,7 +53,6 @@ def find_orphans(cfg: Any) -> tuple[list[tuple[str, int, str]], list[tuple[str, 
     """
     from rebrew.catalog import scan_reversed_dir
     from rebrew.catalog.loaders import load_function_structure
-    from rebrew.config import FUNCTION_STRUCTURE_JSON
     from rebrew.data_metadata import load_data_metadata
     from rebrew.metadata import load_metadata
     from rebrew.sources import target_marker
@@ -69,7 +68,7 @@ def find_orphans(cfg: Any) -> tuple[list[tuple[str, int, str]], list[tuple[str, 
     # treating it as empty would make every metadata-only block look prunable
     # and ``--prune`` / ``verify --prune-orphans`` would delete earned STATUS.
     known_vas: set[int] = set()
-    structure_path = Path(cfg.reversed_dir) / FUNCTION_STRUCTURE_JSON
+    structure_path = inventory_path_for(cfg.reversed_dir, cfg)
     if structure_path.is_file():
         try:
             for struct_func in load_function_structure(structure_path):

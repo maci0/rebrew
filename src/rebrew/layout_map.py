@@ -36,7 +36,7 @@ from rebrew.binary_loader import BinaryInfo, extract_bytes_at_va, load_binary
 from rebrew.catalog.loaders import cached_function_list
 from rebrew.catalog.registry import RegistryEntry, build_function_registry
 from rebrew.cli import TargetOption, error_exit, json_print, require_config
-from rebrew.config import FUNCTION_STRUCTURE_JSON, ProjectConfig
+from rebrew.config import ProjectConfig, inventory_path_for
 from rebrew.cu_map import _classify_gap
 from rebrew.toolchain_detect import detect_toolchain
 from rebrew.utils import atomic_write_text
@@ -120,7 +120,7 @@ def _catalog_vas(cfg: ProjectConfig) -> dict[int, RegistryEntry]:
     """Function VAs from the catalog registry (list + Ghidra + exports)."""
     funcs: list[dict[str, Any]] = cached_function_list(cfg)
     reversed_dir = cfg.reversed_dir
-    ghidra_path = reversed_dir / FUNCTION_STRUCTURE_JSON if reversed_dir else None
+    ghidra_path = inventory_path_for(reversed_dir, cfg) if reversed_dir else None
     return build_function_registry(funcs, cfg, ghidra_path=ghidra_path, bin_path=cfg.target_binary)
 
 

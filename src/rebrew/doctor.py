@@ -33,7 +33,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from rebrew.cli import EXIT_MISMATCH, TargetOption, json_print, require_config
-from rebrew.config import ProjectConfig, load_config
+from rebrew.config import ProjectConfig, inventory_path_for, load_config
 from rebrew.utils import md5_file
 
 console = Console(stderr=True)
@@ -863,9 +863,8 @@ def check_libs(cfg: ProjectConfig) -> CheckResult:
 def check_function_list(cfg: ProjectConfig) -> CheckResult:
     """Check that the discovery inventory exists and parses."""
     from rebrew.catalog import cached_function_list
-    from rebrew.config import FUNCTION_STRUCTURE_JSON
 
-    inv_path = Path(cfg.reversed_dir) / FUNCTION_STRUCTURE_JSON if cfg.reversed_dir else None
+    inv_path = inventory_path_for(cfg.reversed_dir, cfg) if cfg.reversed_dir else None
     if inv_path is None or not inv_path.exists():
         return CheckResult(
             name="Function inventory",

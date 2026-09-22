@@ -1587,3 +1587,54 @@ class TestConfigPublicExports:
         exported = {k for k in ns if not k.startswith("_")}
         assert "load_config" in exported
         assert not {"os", "re", "sys", "Path", "Any"} & exported
+
+
+class TestInventoryFile:
+    """Per-target ``inventory_file`` lets targets share one source tree."""
+
+    INV_TOML = """\
+[project]
+default_target = "V1"
+
+[targets.V1]
+binary = "v1.exe"
+reversed_dir = "src/shared"
+inventory_file = "db/inventory-V1.json"
+
+[targets.V2]
+binary = "v2.exe"
+reversed_dir = "src/shared"
+
+[compiler]
+profile = "gcc-14.2.0"
+command = "gcc"
+includes = "/usr/include"
+libs = "/usr/lib"
+"""
+
+    def test_default_is_reversed_dir_join(self, tmp_path: Path) -> None:
+        root = _make_project(tmp_path, self.INV_TOML)
+        cfg = load_config(root, target="V2")
+        assert cfg.inventory_file == ""
+        assert cfg.inventory_path == root / "src" / "shared" / "function_structure.json"
+
+    def test_override_resolves_against_root(self, tmp_path: Path) -> None:
+        root = _make_project(tmp_path, self.INV_TOML)
+        cfg = load_config(root, target="V1")
+        assert cfg.inventory_path == root / "db" / "inventory-V1.json"
+
+    def test_helper_prefers_override_for_own_dir(self, tmp_path: Path) -> None:
+        from rebrew.config import inventory_path_for
+
+        root = _make_project(tmp_path, self.INV_TOML)
+        cfg = load_config(root, target="V1")
+        assert inventory_path_for(root / "src" / "shared", cfg) == root / "db" / "inventory-V1.json"
+
+    def test_helper_falls_back_for_other_dirs(self, tmp_path: Path) -> None:
+        from rebrew.config import inventory_path_for
+
+        root = _make_project(tmp_path, self.INV_TOML)
+        cfg = load_config(root, target="V1")
+        other = root / "elsewhere"
+        assert inventory_path_for(other, cfg) == other / "function_structure.json"
+        assert inventory_path_for(other) == other / "function_structure.json"

@@ -39,7 +39,7 @@ from rebrew.binsync import serial
 from rebrew.c_parser import type_from_declaration
 from rebrew.catalog import scan_reversed_dir
 from rebrew.cli import TargetOption, error_exit, json_print, require_config
-from rebrew.config import ProjectConfig
+from rebrew.config import ProjectConfig, inventory_path_for
 from rebrew.utils import atomic_write_locked, md5_file, strip_body
 
 app = typer.Typer(
@@ -881,12 +881,11 @@ def export_state(
         import warnings
 
         from rebrew.catalog import build_function_registry, cached_function_list
-        from rebrew.config import FUNCTION_STRUCTURE_JSON
 
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", UserWarning)
             funcs = cached_function_list(cfg)
-        ghidra_path = cfg.reversed_dir / FUNCTION_STRUCTURE_JSON
+        ghidra_path = inventory_path_for(cfg.reversed_dir, cfg)
         bin_path = cfg.target_binary
         registry = build_function_registry(funcs, cfg, ghidra_path, bin_path)
         reversed_vas = {e.va for e in func_entries}

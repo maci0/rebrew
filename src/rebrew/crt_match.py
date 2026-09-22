@@ -31,7 +31,7 @@ from rebrew.cli import (
     parse_va,
     require_config,
 )
-from rebrew.config import ProjectConfig
+from rebrew.config import ProjectConfig, inventory_path_for
 from rebrew.naming import normalize_name
 from rebrew.sources import (
     iter_library_headers,
@@ -365,10 +365,9 @@ def _canonical_size(cfg: ProjectConfig, va: int) -> int:
     registry's canonical size; returns 0 when unavailable.
     """
     from rebrew.catalog import cached_function_list
-    from rebrew.config import FUNCTION_STRUCTURE_JSON
 
     reversed_dir = getattr(cfg, "reversed_dir", "") or ""
-    path = str(Path(reversed_dir) / FUNCTION_STRUCTURE_JSON) if reversed_dir else ""
+    path = str(inventory_path_for(reversed_dir, cfg)) if reversed_dir else ""
     mtime_ns = 0
     fsize = 0
     if path:

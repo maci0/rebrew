@@ -352,6 +352,9 @@ class ProjectConfig:
     ghidra_program_path: str = ""
     ghidra_backend: str = "reva"  # "reva" (MCP) or "cli" (ghidra-cli binary)
     binsync_state_dir: str = ""  # BinSync state dir for field sync (--state-dir default)
+    inventory_file: str = (
+        ""  # Function inventory path override (default: reversed_dir/function_structure.json)
+    )
 
     # --- Lint configuration ---
     lint_naming_convention: str = "none"  # "snake_case", "camelCase", or "none"
@@ -395,6 +398,44 @@ class ProjectConfig:
         go through this property so the location is centralized.
         """
         return self.reversed_dir.parent
+
+    @property
+    def inventory_path(self) -> Path:
+        """Path of the function inventory (function_structure.json).
+
+        Defaults to ``reversed_dir/function_structure.json``; a per-target
+        ``inventory_file`` override (relative to the project root, or
+        absolute) lets several targets share one source tree while keeping
+        separate VA/size inventories — e.g. ``db/inventory-server.dll.json``.
+        """
+        if self.inventory_file.strip():
+            p = config_path(self.inventory_file.strip())
+            return p if p.is_absolute() else self.root / p
+        return self.reversed_dir / FUNCTION_STRUCTURE_JSON
+
+
+def inventory_path_for(reversed_dir: Path | str, cfg: Any = None) -> Path:
+    """Inventory path for a source dir, honouring a target's override.
+
+    Drop-in for the ``X / FUNCTION_STRUCTURE_JSON`` joins scattered across
+    the tools: when *cfg* names an ``inventory_file`` override AND *X* is
+    that target's own ``reversed_dir``, the override wins; otherwise the
+    legacy join.  Always returns a Path (possibly non-existent — callers
+    check existence as before, and the old ``... if X else None`` guards
+    stay at the call sites); mock-safe via getattr.
+    """
+    rd = Path(reversed_dir)
+    override = str(getattr(cfg, "inventory_file", "") or "").strip() if cfg is not None else ""
+    cfg_reversed = getattr(cfg, "reversed_dir", "") if cfg is not None else ""
+    if override and cfg_reversed:
+        try:
+            if rd.resolve() == Path(cfg_reversed).resolve():
+                p = config_path(override)
+                root = getattr(cfg, "root", None)
+                return p if p.is_absolute() else (Path(root) / p if root else p)
+        except (OSError, ValueError, TypeError):
+            pass
+    return rd / FUNCTION_STRUCTURE_JSON
 
 
 def _parse_int_list(values: list[Any] | None, field_name: str) -> list[int]:
@@ -907,6 +948,7 @@ _KNOWN_TARGET_KEYS = {
     "ghidra_program_path",
     "ghidra_backend",
     "binsync_state_dir",
+    "inventory_file",
     "origins",  # written by `rebrew cfg add-target`; editor/UI only — NOT
     # used for annotation filtering (module filters come from the
     # annotations themselves).
@@ -1312,6 +1354,7 @@ def load_config(
         binsync_state_dir=_as_str(
             tgt.get("binsync_state_dir"), "", f"targets.{target}.binsync_state_dir"
         ),
+        inventory_file=_as_str(tgt.get("inventory_file"), "", f"targets.{target}.inventory_file"),
         all_targets=all_target_names,
         all_markers={
             _as_str(

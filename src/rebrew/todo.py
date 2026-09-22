@@ -36,7 +36,7 @@ from rebrew.cli import (
     require_config,
 )
 from rebrew.compile import NEAR_MATCH_THRESHOLD
-from rebrew.config import FUNCTION_STRUCTURE_JSON, ProjectConfig
+from rebrew.config import ProjectConfig, inventory_path_for
 from rebrew.metadata import GA_CEILING_PREFIX
 from rebrew.naming import (
     detect_unmatchable,
@@ -219,7 +219,7 @@ def _collect_setup_steps(
     step = 0
 
     src_dir = Path(cfg.reversed_dir)
-    ghidra_json = src_dir / FUNCTION_STRUCTURE_JSON
+    ghidra_json = inventory_path_for(src_dir, cfg)
 
     # 2. No discovery inventory → need to generate it
     if not ghidra_json.exists():

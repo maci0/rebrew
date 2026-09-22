@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 from rebrew.analysis import capstone_handle
 from rebrew.annotation import min_valid_va_for, parse_c_file_multi, parse_library_header
 from rebrew.binary_loader import BinaryInfo, extract_bytes_at_va
-from rebrew.config import FUNCTION_STRUCTURE_JSON, ProjectConfig
+from rebrew.config import ProjectConfig, inventory_path_for
 from rebrew.sources import (
     iter_library_headers,
     iter_sources,
@@ -261,7 +261,7 @@ def load_data(
     from rebrew.catalog import load_function_structure
 
     src_dir = Path(cfg.reversed_dir)
-    ghidra_json = src_dir / FUNCTION_STRUCTURE_JSON
+    ghidra_json = inventory_path_for(src_dir, cfg)
 
     # Ghidra functions
     ghidra_funcs = load_function_structure(ghidra_json)

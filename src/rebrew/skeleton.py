@@ -45,7 +45,7 @@ from rebrew.cli import (
     require_config,
 )
 from rebrew.compile_overrides import resolve_cflags
-from rebrew.config import FUNCTION_STRUCTURE_JSON, ProjectConfig
+from rebrew.config import FUNCTION_STRUCTURE_JSON, ProjectConfig, inventory_path_for
 from rebrew.decompiler import fetch_decompilation
 from rebrew.naming import (
     load_existing_vas,
@@ -1384,7 +1384,7 @@ def main(
     cfg = require_config(target=target, json_mode=json_output)
     src_dir = cfg.reversed_dir
 
-    ghidra_json = src_dir / FUNCTION_STRUCTURE_JSON
+    ghidra_json = inventory_path_for(src_dir, cfg)
     try:
         ghidra_funcs = load_function_structure(ghidra_json)
     except ValueError as exc:

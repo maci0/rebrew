@@ -15,7 +15,7 @@ from rich.console import Console
 from rebrew.catalog.grid import generate_data_json
 from rebrew.catalog.loaders import cached_function_list, scan_reversed_dir
 from rebrew.catalog.registry import build_function_registry, count_detection_sources
-from rebrew.config import FUNCTION_STRUCTURE_JSON
+from rebrew.config import inventory_path_for
 from rebrew.sections import get_text_section_size
 
 console = Console(stderr=True)
@@ -33,7 +33,7 @@ def build_catalog_data(cfg: Any, *, with_data: bool = True) -> dict[str, Any]:
     """
     bin_path = cfg.target_binary
     reversed_dir = cfg.reversed_dir
-    ghidra_json_path = reversed_dir / FUNCTION_STRUCTURE_JSON
+    ghidra_json_path = inventory_path_for(reversed_dir, cfg)
 
     console.print(f"Scanning {reversed_dir}...", style="dim")
     entries = scan_reversed_dir(reversed_dir, cfg=cfg)

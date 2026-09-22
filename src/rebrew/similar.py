@@ -19,7 +19,7 @@ from rich.console import Console
 from rich.table import Table
 
 from rebrew.cli import TargetOption, error_exit, json_print, parse_va, require_config
-from rebrew.config import FUNCTION_STRUCTURE_JSON, ProjectConfig
+from rebrew.config import ProjectConfig, inventory_path_for
 from rebrew.instruction_clones import (
     MIN_RUN_INSTRUCTIONS,
     cluster_units,
@@ -145,7 +145,7 @@ def find_similar(
     registry = build_function_registry(
         funcs,
         cfg,
-        cfg.reversed_dir / FUNCTION_STRUCTURE_JSON,
+        inventory_path_for(cfg.reversed_dir, cfg),
         cfg.target_binary,
     )
 

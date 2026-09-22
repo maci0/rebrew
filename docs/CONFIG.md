@@ -19,7 +19,9 @@ format = "pe"                            # Binary format: pe, elf, macho, ne, mz
 arch = "x86_32"                          # Architecture: x86_16, x86_32, x86_64, arm32, arm64
 # marker = "TARGET_NAME"                 # Defaults to target key uppercased (see below)
 reversed_dir = "src/target_name"         # Where reversed .c files live
-# (discovery lives in src/<target>/function_structure.json — no config key)
+# inventory_file = "db/inventory-target.json"  # Function-inventory override
+# (default: reversed_dir/function_structure.json). Set it when several
+# targets share one source tree so each keeps its own VA/size inventory.
 bin_dir = "bin/target_name"
 # source_ext = ".c"                      # Source file extension (default: ".c")
 # ghidra_program_path = ""               # Ghidra program path for ReVa MCP sync
@@ -55,6 +57,7 @@ libs = "toolchain/msvc/6.0-win32/source/VC98/Lib"
 | `image_base` | Auto-detected from PE | `0x10000000` for example DLL |
 | `text_va` | Auto-detected from PE | `.text` section virtual address |
 | `reversed_dir` | `[targets.<name>].reversed_dir` | Where `.c` files are stored |
+| `inventory_file` | `[targets.<name>].inventory_file` | Function-inventory path override, relative to project root (default: `reversed_dir/function_structure.json`); per-target inventories for one shared source tree |
 | `shared_dir` | `[project].shared_dir` | Project-level shared-sources root (`src/shared` by default); sources here are scanned for every target and may carry one `// FUNCTION: <target> <va>` marker per target. Empty value disables shared sources |
 | `metadata_dir` | Derived: parent of `reversed_dir` | Canonical home of `rebrew-functions.toml` / `rebrew-data.toml`; callers must pass it explicitly (no walk-up) |
 | `capstone_arch` / `capstone_mode` | Derived from `arch` | Capstone disassembly constants |

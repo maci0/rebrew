@@ -42,7 +42,7 @@ from rebrew.cli import (
     TargetOption,
     json_print,
 )
-from rebrew.config import ProjectConfig, load_config
+from rebrew.config import ProjectConfig, inventory_path_for, load_config
 from rebrew.data_metadata import load_data_metadata
 from rebrew.lint_cflags import (
     RedundantFunctionCflags,
@@ -334,11 +334,9 @@ def _staleness_fix(cfg: ProjectConfig | None) -> str:
     """
     binary_newer: bool | None = None
     try:
-        from rebrew.config import FUNCTION_STRUCTURE_JSON
-
         bin_path = Path(str(getattr(cfg, "target_binary", "")))
         rev_dir = getattr(cfg, "reversed_dir", None)
-        inv_path = Path(rev_dir) / FUNCTION_STRUCTURE_JSON if rev_dir else None
+        inv_path = inventory_path_for(rev_dir, cfg) if rev_dir else None
         if inv_path is not None and bin_path.is_file() and inv_path.is_file():
             # Nanosecond mtimes: second-granularity floats tie when a rebuild
             # and inventory refresh land in the same wall-clock second (common

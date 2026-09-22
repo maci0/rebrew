@@ -29,7 +29,7 @@ from rebrew.cli import (
     parse_va,
     require_config,
 )
-from rebrew.config import ProjectConfig
+from rebrew.config import ProjectConfig, inventory_path_for
 
 log = logging.getLogger(__name__)
 
@@ -62,9 +62,8 @@ def detect_reversed_vas(src_dir: Path, cfg: ProjectConfig | None = None) -> set[
 
 def load_functions(cfg: ProjectConfig) -> list[dict[str, int | str]]:
     """Load the discovery inventory (function_structure.json)."""
-    from rebrew.config import FUNCTION_STRUCTURE_JSON
 
-    inv = Path(cfg.reversed_dir) / FUNCTION_STRUCTURE_JSON if cfg.reversed_dir else None
+    inv = inventory_path_for(cfg.reversed_dir, cfg) if cfg.reversed_dir else None
     if inv is None or not inv.exists():
         raise FileNotFoundError(
             f"No function inventory at {inv} — run `rebrew intake` or "

@@ -20,7 +20,7 @@ from typing import Any
 import tomlkit
 
 from rebrew.catalog import build_function_registry, cached_function_list, scan_reversed_dir
-from rebrew.config import FUNCTION_STRUCTURE_JSON, ProjectConfig
+from rebrew.config import ProjectConfig, inventory_path_for
 
 log = logging.getLogger(__name__)
 
@@ -300,7 +300,7 @@ def index_local_and_catalog(
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", UserWarning)
             funcs = cached_function_list(cfg)
-        ghidra_path = cfg.reversed_dir / FUNCTION_STRUCTURE_JSON
+        ghidra_path = inventory_path_for(cfg.reversed_dir, cfg)
         registry = build_function_registry(funcs, cfg, ghidra_path, cfg.target_binary)
         for va, reg_entry in registry.items():
             if va in local_by_va:

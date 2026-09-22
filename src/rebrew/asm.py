@@ -56,7 +56,7 @@ from rebrew.cli import (
     parse_va,
     require_config,
 )
-from rebrew.config import FUNCTION_STRUCTURE_JSON, ProjectConfig
+from rebrew.config import ProjectConfig, inventory_path_for
 from rebrew.sources import (
     iter_sources,
     target_marker,
@@ -149,7 +149,7 @@ def build_function_lookup(cfg: ProjectConfig) -> dict[int, tuple[str, str]]:
     """Build a VA → (name, status) lookup from Ghidra JSON and existing .c files."""
     lookup: dict[int, tuple[str, str]] = {}
 
-    ghidra_json = cfg.reversed_dir / FUNCTION_STRUCTURE_JSON
+    ghidra_json = inventory_path_for(cfg.reversed_dir, cfg)
     ghidra_funcs = load_function_structure(ghidra_json)
     for func in ghidra_funcs:
         if func.va and func.name:

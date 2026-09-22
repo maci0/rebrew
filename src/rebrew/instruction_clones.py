@@ -57,7 +57,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
-from rebrew.config import FUNCTION_STRUCTURE_JSON
+from rebrew.config import inventory_path_for
 from rebrew.near_diag import disasm_insns, normalized_operands
 
 #: Shortest common instruction run reported by sub-function matching.  A run
@@ -335,7 +335,7 @@ def _registry(cfg: Any) -> dict[int, Any]:
     return build_function_registry(
         cached_function_list(cfg),
         cfg,
-        cfg.reversed_dir / FUNCTION_STRUCTURE_JSON,
+        inventory_path_for(cfg.reversed_dir, cfg),
         cfg.target_binary,
     )
 

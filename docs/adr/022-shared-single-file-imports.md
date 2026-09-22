@@ -113,3 +113,9 @@ Every other surface checked shared-correct, no change needed:
   via `resolve_source_arg` + target filter; verify/test/match watch modes
   poll `iter_sources`; rename operates in place with shared-aware
   candidates; link-order fix above. No changes needed.
+- Per-target `inventory_file`: the last blocker for a pure single tree.
+  `reversed_dir` doubles as scan root and inventory home, so one shared
+  `reversed_dir` collides all targets' `function_structure.json`.
+  `[targets.<name>].inventory_file` (project-root-relative) overrides the
+  home per target; `cfg.inventory_path` / `inventory_path_for` centralize
+  all 27 touch points (mock-safe via getattr).

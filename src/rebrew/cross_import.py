@@ -39,7 +39,7 @@ from rebrew.cli import (
     parse_va,
     require_config,
 )
-from rebrew.config import ProjectConfig
+from rebrew.config import ProjectConfig, inventory_path_for
 from rebrew.similar import DEFAULT_CS_ARCH, DEFAULT_CS_MODE, disasm_signature, similarity_score
 from rebrew.sources import iter_sources, target_marker
 from rebrew.utils import atomic_write_text, read_source_text, rel_display_path
@@ -133,11 +133,10 @@ def _annotations_by_va(cfg: ProjectConfig) -> dict[int, tuple[str, str]]:
 def _registry(cfg: ProjectConfig) -> dict[int, RegistryEntry]:
     """The target's function catalog (VA -> entry with ``canonical_size``)."""
     from rebrew.catalog import build_function_registry, cached_function_list
-    from rebrew.config import FUNCTION_STRUCTURE_JSON
 
     funcs = cached_function_list(cfg)
     return build_function_registry(
-        funcs, cfg, cfg.reversed_dir / FUNCTION_STRUCTURE_JSON, cfg.target_binary
+        funcs, cfg, inventory_path_for(cfg.reversed_dir, cfg), cfg.target_binary
     )
 
 
