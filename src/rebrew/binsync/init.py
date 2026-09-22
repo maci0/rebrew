@@ -23,7 +23,7 @@ import typer
 from rich.console import Console
 
 from rebrew.cli import TargetOption, error_exit, json_print, require_config
-from rebrew.utils import atomic_write_text, md5_file
+from rebrew.utils import atomic_write_locked, atomic_write_text, md5_file
 
 log = logging.getLogger(__name__)
 
@@ -87,7 +87,7 @@ def _default_user(directory: Path) -> str:
 def _write_root_files(directory: Path, digest: str) -> None:
     """Write the two files the root commit must carry."""
     atomic_write_text(directory / ".gitignore", _GITIGNORE_CONTENT, encoding="utf-8")
-    atomic_write_text(directory / "binary_hash", digest, encoding="utf-8")
+    atomic_write_locked(directory / "binary_hash", digest, encoding="utf-8")
 
 
 def _report(

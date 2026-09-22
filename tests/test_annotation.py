@@ -1281,6 +1281,17 @@ class TestUpdateAnnotationKeyFile:
         # NOTE is metadata-owned → writes to metadata, returns True.
         assert update_annotation_key(f, 0x1000, "NOTE", "keep me", metadata_dir=tmp_path) is True
 
+    @pytest.mark.parametrize("held", ["PROVEN", "SKIP"])
+    def test_status_goes_through_promotion_gate(self, tmp_path: Path, held: str) -> None:
+        from rebrew.annotation import update_annotation_key
+        from rebrew.metadata import get_entry, update_source_status
+
+        f = tmp_path / "f.c"
+        f.write_text("// FUNCTION: SERVER 0x1000\nint f(void) { return 0; }\n", encoding="utf-8")
+        update_source_status(tmp_path, held, "SERVER", 0x1000)
+        update_annotation_key(f, 0x1000, "STATUS", "NEAR_MATCHING", metadata_dir=tmp_path)
+        assert get_entry(tmp_path, 0x1000, "SERVER")["status"] == held
+
     def test_unknown_key_inserted(self, tmp_path: Path) -> None:
         from rebrew.annotation import update_annotation_key
 

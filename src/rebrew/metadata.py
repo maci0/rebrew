@@ -553,7 +553,8 @@ def remove_fields_batch(metadata_dir: Path, updates: list[dict[str, Any]]) -> in
 
     Sibling of :func:`set_fields_batch` for bulk deletes (``lint --fix`` W029
     dropping redundant per-function ``cflags``).  Rejects ``status`` (use
-    :func:`update_statuses_batch`).  Returns the number of entries that lost
+    :func:`update_statuses_batch`) and keys outside :data:`METADATA_FIELDS`,
+    like :func:`remove_field`.  Returns the number of entries that lost
     at least one named field.  Missing entries / missing keys are no-ops.
     """
     if not updates:
@@ -585,6 +586,10 @@ def remove_fields_batch(metadata_dir: Path, updates: list[dict[str, Any]]) -> in
                 key = key.lower() if isinstance(key, str) else key
                 if key == "status":
                     raise ValueError("Cannot delete STATUS directly")
+                if not isinstance(key, str) or key.upper() not in METADATA_FIELDS:
+                    raise ValueError(
+                        f"unknown metadata field {key!r} (expected one of {sorted(METADATA_FIELDS)})"
+                    )
                 if key in entry:
                     del entry[key]
                     changed = True

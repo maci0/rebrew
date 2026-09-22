@@ -72,6 +72,8 @@ class TestInit:
         assert "binsync/__root__" in branches
         assert "binsync/tester" in branches
         assert _git(state, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip() == "binsync/tester"
+        # Same 0444 lock as the export writes onto this tool-owned file.
+        assert (state / "binary_hash").stat().st_mode & 0o777 == 0o444
 
     def test_running_twice_converges(self, tmp_path: Path, monkeypatch) -> None:
         _make_project(tmp_path)

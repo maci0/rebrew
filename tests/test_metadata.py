@@ -526,6 +526,11 @@ class TestRemoveField:
         with pytest.raises(ValueError, match="Cannot delete STATUS"):
             remove_fields_batch(tmp_path, [{"module": "SERVER", "va": 0x1000, "keys": ["status"]}])
 
+    def test_remove_fields_batch_rejects_unknown_key(self, tmp_path: Path) -> None:
+        save_metadata(tmp_path, {("SERVER", 0x1000): {"status": "EXACT", "cflags": "/O2"}})
+        with pytest.raises(ValueError, match="unknown metadata field"):
+            remove_fields_batch(tmp_path, [{"module": "SERVER", "va": 0x1000, "keys": ["cflag"]}])
+
 
 # ---------------------------------------------------------------------------
 # merge_into_annotation
