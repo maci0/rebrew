@@ -357,3 +357,22 @@ def test_tc_main_dispatch_and_run(monkeypatch: pytest.MonkeyPatch, tmp_path: Pat
         tc.tc_main()
     assert exc.value.code == 7
     assert calls == [("cl", ["/c", "x.c"])]
+
+
+def test_docker_run_rejects_relative_wineprefix(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A relative REBREW_WINEPREFIX exits before any docker call."""
+    import typer
+
+    (tmp_path / "rebrew-project.toml").write_text("", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("REBREW_WINEPREFIX", "prefix")
+    calls: list[list[str]] = []
+    monkeypatch.setattr("rebrew.cmake_tc.subprocess.run", lambda cmd, **_: calls.append(cmd))
+
+    with pytest.raises(typer.Exit):
+        _docker_run(TOOLCHAINS["msvc-6.0"], "cl", ["/c", "x.c"])
+    assert calls == []
+    assert not (tmp_path / "prefix").exists()
+    assert "must be an absolute path" in capsys.readouterr().err

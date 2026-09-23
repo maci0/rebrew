@@ -635,6 +635,10 @@
   in emission order.
 
 ### Fixed
+- **`REBREW_WINEPREFIX` must be absolute.**  The cmake bridge passed a
+  relative value straight to `docker -v`, which mounts it as a named volume
+  and resolves it against each CMake build dir.  It now exits with
+  `REBREW_WINEPREFIX=... must be an absolute path`; `~` expands.
 - **`rebrew cross-import` reports an unreadable target binary.**  A missing
   or unparseable binary was swallowed per function, so the run ended with
   "no matched functions in source target" instead of the real cause.  It

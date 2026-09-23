@@ -241,9 +241,17 @@ def _rewrite_args(mode: str, args: list[str]) -> list[str]:
 
 
 def _wineprefix(spec: ToolchainSpec) -> Path:
-    env = os.environ.get("REBREW_WINEPREFIX")
+    """``REBREW_WINEPREFIX`` (must be absolute), else the per-toolchain XDG cache dir.
+
+    A relative prefix would resolve against CMake's per-target build dir and
+    reach ``docker -v`` as a named volume instead of a bind mount.
+    """
+    env = os.environ.get("REBREW_WINEPREFIX", "").strip()
     if env:
-        return Path(env)
+        path = Path(env).expanduser()
+        if not path.is_absolute():
+            error_exit(f"REBREW_WINEPREFIX={env!r} must be an absolute path")
+        return path
     return xdg_cache_home() / f"rebrew-{spec.name}-wineprefix"
 
 

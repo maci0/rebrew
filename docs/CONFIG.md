@@ -358,6 +358,8 @@ by the CLI layer and win for that invocation.
   headless wine uses.  Set by rebrew itself on first use; override to pin
   a specific display (it must host a live Xvfb).
 - `REBREW_WINEPREFIX` — Wine prefix for cmake toolchain bridge scripts.
+  Must be an absolute path (`~` expands); a relative value is an error.
+  Default: `$XDG_CACHE_HOME/rebrew-<toolchain>-wineprefix`.
 - `REBREW_TOOLCHAIN` — cmake bridge pin for the active profile name.
 - `REBREW_COMPILER_RUNNER` — host PE runner path/name (set by `msvc_env`).
 - `REBREW_CVDUMP`: path to `cvdump.exe` for the `pdb_cvdump` helper.
