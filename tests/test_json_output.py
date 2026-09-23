@@ -1197,9 +1197,25 @@ class TestForceStatus:
 
         cfg = self._patch(monkeypatch, tmp_path, "STUB")
         src = cfg.reversed_dir / "my_func.c"
-        CliRunner().invoke(app, ["--va", "0x1000", "--size", "3", "--json", str(src)])
-        # PROVEN is sticky — without --force-status the stale entry is kept.
+        result = CliRunner().invoke(app, ["--va", "0x1000", "--size", "3", "--json", str(src)])
+        # PROVEN is sticky — without --force-status the stale entry is kept,
+        # but the unbacked claim is reported, as verify does.
         assert get_entry(cfg.metadata_dir, 0x1000, "SERVER").get("status") == "PROVEN"
+        assert "metadata: warning:" in result.output
+        assert "compiled: STUB" in result.output
+
+    def test_proven_over_near_matching_no_warning(self, tmp_path: Path, monkeypatch: Any) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.metadata import get_entry
+        from rebrew.test import app
+
+        cfg = self._patch(monkeypatch, tmp_path, "NEAR_MATCHING")
+        src = cfg.reversed_dir / "my_func.c"
+        result = CliRunner().invoke(app, ["--va", "0x1000", "--size", "3", "--json", str(src)])
+        # NEAR_MATCHING is a byte state a proven function legitimately produces.
+        assert get_entry(cfg.metadata_dir, 0x1000, "SERVER").get("status") == "PROVEN"
+        assert "metadata: warning:" not in result.output
 
     def test_force_status_rejected_in_batch(self, tmp_path: Path, monkeypatch: Any) -> None:
         from typer.testing import CliRunner

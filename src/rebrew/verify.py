@@ -62,7 +62,7 @@ from rebrew.compile import (
 )
 from rebrew.config import ProjectConfig, inventory_path_for
 from rebrew.match_semantics import EFFECTIVE_MATCH_NOTE, is_effective_match
-from rebrew.metadata import should_promote_status
+from rebrew.metadata import PROVEN_COMPATIBLE_STATUSES, is_stale_proven, should_promote_status
 from rebrew.utils import atomic_write_text
 from rebrew.verify_cache import (
     VerifyCacheEntry,
@@ -1930,12 +1930,8 @@ def apply_proven_overlay(
         f"0x{entry.va:08x}" for entry in unique_entries if getattr(entry, "status", "") == "PROVEN"
     }
     # A PROVEN claim is honored over the byte states a proven function
-    # legitimately produces: NEAR_MATCHING / SIZE_MISMATCH (bytes differ
-    # structurally). A blocker-documented STUB is also legitimate now —
-    # `rebrew prove` accepts those (developed function parked at a wall,
-    # classifier <60% on a real body), so verify must not demote a fresh
-    # prove-earned PROVEN back to STUB.
-    _proven_compatible = ("NEAR_MATCHING", "SIZE_MISMATCH")
+    # legitimately produces (is_stale_proven): NEAR_MATCHING / SIZE_MISMATCH
+    # and a blocker-documented STUB, which `rebrew prove` accepts.
     _blocker_documented_stub_vas: set[str] = {
         f"0x{entry.va:08x}"
         for entry in unique_entries
@@ -1952,7 +1948,7 @@ def apply_proven_overlay(
     stale_proven: list[str] = []
     if proven_vas:
         for r in results:
-            compatible = r["status"] in _proven_compatible or (
+            compatible = r["status"] in PROVEN_COMPATIBLE_STATUSES or (
                 r["status"] == "STUB" and r["va"] in _blocker_documented_stub_vas
             )
             if r["va"] in proven_vas and compatible:
@@ -1979,19 +1975,19 @@ def apply_proven_overlay(
         # PROVEN stickiness protects earned claims, but a STUB/COMPILE_ERROR
         # body demonstrably no longer contains the proven code, so the claim
         # is void and the warning must fire exactly once).
-        # A stale claim is a byte state that cannot support PROVEN.  Two
-        # statuses are excluded: EXACT/RELOC are the documented PROVEN upgrade
-        # (`should_promote_status` allows PROVEN → EXACT/RELOC, and the
-        # promotion above already wrote it), and INTERNAL_ERROR is a tooling
-        # crash, not a verdict — it is not in metadata's KNOWN_STATUSES, so
-        # persisting it over PROVEN would store an invalid status (and log a
-        # phantom demotion for a function whose bytes were never compared).
+        # EXACT/RELOC (the PROVEN upgrade, already written by the promotion
+        # above) and INTERNAL_ERROR (not a verdict, not in KNOWN_STATUSES)
+        # are never stale; see is_stale_proven.
         stale_proven = sorted(
             r["va"]
             for r in results
             if r["va"] in proven_vas
             and r["va"] not in overlaid_vas
-            and r["status"] not in ("EXACT", "RELOC", "INTERNAL_ERROR")
+            and is_stale_proven(
+                "PROVEN",
+                r["status"],
+                blocker_documented=r["va"] in _blocker_documented_stub_vas,
+            )
         )
         if stale_proven:
             by_va = {r["va"]: r for r in results}

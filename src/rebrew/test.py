@@ -65,6 +65,7 @@ from rebrew.compile_context import CompileContext
 from rebrew.config import ProjectConfig
 from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
 from rebrew.metadata import (
+    is_stale_proven,
     is_status_parked,
     is_status_sticky,
     set_fields_batch,
@@ -105,6 +106,21 @@ def _cmake_pin_for(source: str | Path, cfg: ProjectConfig) -> tuple[str | None, 
 def _expand_reloc_offsets(relocs: list[int], limit: int) -> set[int]:
     """Expand 4-byte relocation start offsets into a set of individual byte offsets."""
     return {r + j for r in relocs for j in range(4) if r + j < limit}
+
+
+def _warn_stale_proven(ann: Any, old_status: str, new_status: str, va: int) -> None:
+    """Emit ``metadata: warning`` when a kept PROVEN is not backed by the bytes.
+
+    ``rebrew test`` keeps PROVEN without ``--force-status``; ``rebrew verify``
+    demotes the same claim, so the kept claim must not pass silently.
+    """
+    blocker_documented = bool(getattr(ann, "blocker", "") or getattr(ann, "blocker_delta", None))
+    if is_stale_proven(old_status, new_status, blocker_documented=blocker_documented):
+        console.print(
+            f"[yellow]metadata: warning:[/yellow] PROVEN claim for 0x{va:08x} not "
+            f"backed by a byte-match (compiled: {new_status}); kept — rebrew verify "
+            "demotes it, or re-run with --force-status"
+        )
 
 
 def _patch_verify_cache(
@@ -1220,6 +1236,7 @@ def _run_test_impl(
         if not force_status and not should_promote_status(old_status, new_status):
             if (is_status_sticky(old_status) or is_status_parked(old_status)) and not json_output:
                 console.print(f"[dim]STATUS → skipped ({old_status})[/dim]")
+            _warn_stale_proven(promote_ann, old_status, new_status, va_int_for_promote)
             # A refused promotion with the SAME status still carries fresh
             # metrics: status/todo rank ROI from the cache's match_percent and
             # byte delta, so a NEAR_MATCHING improved from 60% to 92% must land
@@ -1642,6 +1659,7 @@ def _test_multi(
                         is_status_sticky(old_status) or is_status_parked(old_status)
                     ) and not json_output:
                         console.print(f"[dim]  STATUS → skipped ({old_status})[/dim]")
+                    _warn_stale_proven(ann, old_status, new_status, ann.va)
                     # A refused promotion with the SAME status still carries fresh
                     # metrics: status/todo rank ROI from the cache's match_percent
                     # and byte delta (same rule as the single-file path).

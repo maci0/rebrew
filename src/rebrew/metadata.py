@@ -205,6 +205,7 @@ __all__ = [
     "MATCHED_STATUSES",
     "METADATA_FIELDS",
     "METADATA_FILENAME",
+    "PROVEN_COMPATIBLE_STATUSES",
     "all_library_presets",
     "apply_library_presets",
     "canonical_status",
@@ -217,6 +218,7 @@ __all__ = [
     "find_library_override",
     "get_entry",
     "is_metadata_key",
+    "is_stale_proven",
     "is_status_parked",
     "is_status_sticky",
     "is_table_field",
@@ -910,6 +912,29 @@ def should_promote_status(current_status: str, new_status: str) -> bool:
         # evaluation — that would erase the user's classification.
         return False
     return current != new
+
+
+#: Byte results a PROVEN function legitimately produces (bytes differ
+#: structurally), so a PROVEN claim stands over them.
+PROVEN_COMPATIBLE_STATUSES: frozenset[str] = frozenset({"NEAR_MATCHING", "SIZE_MISMATCH"})
+
+
+def is_stale_proven(current_status: str, byte_status: str, *, blocker_documented: bool) -> bool:
+    """True when a PROVEN claim is not backed by the byte result *byte_status*.
+
+    PROVEN stands over :data:`PROVEN_COMPATIBLE_STATUSES` and over a STUB
+    whose entry carries a blocker (``rebrew prove`` accepts those).
+    EXACT/RELOC are the PROVEN upgrade, not a stale claim, and
+    ``INTERNAL_ERROR`` is a tooling crash, not a verdict.  Everything else
+    (COMPILE_ERROR, a bare STUB, MISSING_*) means the source no longer holds
+    the proven code.
+    """
+    if canonical_status(current_status) != "PROVEN":
+        return False
+    byte = canonical_status(byte_status)
+    if byte in PROVEN_COMPATIBLE_STATUSES or byte in ("EXACT", "RELOC", "INTERNAL_ERROR"):
+        return False
+    return not (byte == "STUB" and blocker_documented)
 
 
 def update_source_status(

@@ -1071,6 +1071,26 @@ class TestStatusCasePolicy:
         assert should_promote_status("skip", "EXACT") is False
         assert should_promote_status("SKIP", "RELOC") is False
 
+    @pytest.mark.parametrize(
+        ("current", "byte", "blocker", "stale"),
+        [
+            ("PROVEN", "COMPILE_ERROR", False, True),
+            ("proven", "STUB", False, True),
+            ("PROVEN", "MISSING_FILE", True, True),
+            ("PROVEN", "STUB", True, False),
+            ("PROVEN", "NEAR_MATCHING", False, False),
+            ("PROVEN", "SIZE_MISMATCH", False, False),
+            ("PROVEN", "EXACT", False, False),
+            ("PROVEN", "RELOC", False, False),
+            ("PROVEN", "INTERNAL_ERROR", False, False),
+            ("NEAR_MATCHING", "COMPILE_ERROR", False, False),
+        ],
+    )
+    def test_is_stale_proven(self, current: str, byte: str, blocker: bool, stale: bool) -> None:
+        from rebrew.metadata import is_stale_proven
+
+        assert is_stale_proven(current, byte, blocker_documented=blocker) is stale
+
     def test_merge_normalizes_near_match_alias(self, tmp_path: Path) -> None:
         from rebrew.annotation import Annotation
         from rebrew.metadata import merge_into_annotation, save_metadata
