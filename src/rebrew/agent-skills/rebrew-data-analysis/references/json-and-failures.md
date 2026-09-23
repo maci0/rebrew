@@ -44,7 +44,7 @@ good next-matching candidates.
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `rebrew-project.toml not found` / config error | Running outside a project | `cd` into the project root, or pass `--target NAME` |
+| `rebrew-project.toml not found` / config error | Running outside a project | `cd` into the project (config discovery walks up to `rebrew-project.toml`) |
 | `target binary not found` / `could not be parsed (needed for --dispatch)` | Binary missing or unparseable | Fix `target_binary` in `rebrew-project.toml`; only `--dispatch` hard-requires the binary (plain scans degrade gracefully) |
 | `already exists. Use --force to overwrite.` | `--gen-header` clobber guard | Pass `--force`, or `--gen-header-out` to a new path |
 | `No annotated BSS globals — nothing to verify` | No `// GLOBAL:`/`extern` with a `.bss` VA | Add annotations first, then re-run `--bss` |

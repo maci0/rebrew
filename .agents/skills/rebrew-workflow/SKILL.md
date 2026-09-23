@@ -38,7 +38,6 @@ For annotation syntax details, see `references/annotation-format.md`.
 - Deep byte-level matching / GA / flag sweep / prove → use `rebrew-matching`
 - Global variables, `.bss` gaps, dispatch tables → use `rebrew-data-analysis`
 - Ghidra push/pull operations → use `rebrew-ghidra-sync`
-Also note `rebrew types` in §8 for struct/signature rewrites.
 
 ## 1. Pick a Function
 
@@ -105,8 +104,9 @@ void my_func() {}
 > [!CAUTION]
 > **Volatile metadata lives only in `rebrew-functions.toml` at `cfg.metadata_dir`
 > — never inline in `.c`, never hand-edit the TOML.** Keys: STATUS, SIZE, CFLAGS,
-> BLOCKER/BLOCKER_DELTA, NOTE, GHIDRA, ORIGIN, SOURCE, SECTION, SKIP, GLOBALS,
-> prove_constraints. STATUS via `rebrew test`/`verify` only; use `rebrew blocker
+> TOOLCHAIN, BLOCKER/BLOCKER_DELTA, NOTE, GHIDRA, ANALYSIS, SOURCE, SKIP, GLOBALS,
+> LOCALS, COMMENTS, PROVE_CONSTRAINTS, UPDATED_BY/UPDATED_AT (SECTION lives in
+> `rebrew-data.toml`). STATUS via `rebrew test`/`verify` only; use `rebrew blocker
 > set/clear`, `rebrew lint --fix` for migrations. Files are mode 0444
 > (`atomic_write_locked`). Full rules: `references/annotation-format.md`.
 

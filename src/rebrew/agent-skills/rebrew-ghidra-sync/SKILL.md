@@ -78,9 +78,7 @@ rebrew sync --push --state-dir D --watch               # re-export on every sour
 
 Notes:
 - `--push`/`--pull` require `--state-dir`; they are mutually exclusive.
-- The exported TOMLs are **write-locked (0444)** — rebrew chmods, writes, and
-  re-locks; a collaborator's tool chmods writable first.  STATUS is NOT in the
-  state (it is verify-earned in `rebrew-functions.toml`).
+- A collaborator's tool must chmod the 0444 state TOMLs writable first (§5).
 - **`--pull --create-functions` is the chain**: functions imported from the
   state dir are created in Ghidra via MCP, so "add a function to the state →
   it appears in Ghidra" needs no external plugin.

@@ -70,18 +70,12 @@ function at once (objdiff rebuilds base objects via `rebrew-objdiff-build`).
 - `**` structural difference (needs fixing)
 - `XX` invalid relocation difference (wrong target VA — counts as MISMATCH)
 
+Relocations are resolved from the COFF object's symbols against the data catalog.
 If the diff shows only `~~` lines, the function is already RELOC — `rebrew test` will promote it.
 
 Exit codes: `0` = no structural differences (EXACT/RELOC), `1` = structural `**` lines
 found (fix them), `2` = build error. With `--json`, read `summary.exact / summary.reloc /
 summary.reg / summary.structural` instead of parsing lines.
-
-### How Relocations are Scored
-Rebrew parses the COFF object's relocation and symbol tables. It resolves symbols against
-the Data Catalog to find their intended VAs.
-- `~~` means the relocation points to the correct global variable.
-- `XX` means it points to the wrong variable (forces MISMATCH).
-Use `-r` / `--register-aware` to see if remaining `**` diffs are register allocation differences.
 
 ### Auto-Classified Blockers
 
@@ -173,7 +167,7 @@ qualifier variants. Batch flag/GA details: `references/flag-sweep.md`.
   `rebrew library set <dir> --preset msvcrt-static` (`/O2 /Gd /MT`), not per-function CFLAGS.
 - While iterating on a single function, `--watch` (on `diff`, `prove`, or `match`) re-runs on every
   file save — faster than re-typing the command.
-- Do not start long GA (`-g` large / `--all`) or thorough/full sweeps without user confirmation.
+- Do not start long GA (`-g` large / `--all`) without user confirmation.
 
 ## 6. Symbolic Equivalence Proving
 
