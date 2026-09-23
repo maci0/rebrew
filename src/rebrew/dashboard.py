@@ -326,38 +326,8 @@ function setModuleOptions(byModule) {
   if (previous && names.includes(previous)) select.value = previous;
   else select.value = "";
 }
-function setResultsMessage(count, total) {
-  const hint = $("results-hint");
-  const more = $("show-more-wrap");
-  if (!total) {
-    $("results-status").textContent = "No functions match";
-    hint.hidden = true;
-    hint.textContent = "";
-    more.hidden = true;
-    return;
-  }
-  if (count < total) {
-    const msg = "Showing " + count + " of " + total + " matching functions (page limit)";
-    const capped = count >= PAGE_MAX;
-    $("results-status").textContent = msg;
-    hint.textContent = capped
-      ? msg + ". Narrow Status, Module, or Search — display stops at "
-        + PAGE_MAX + " rows."
-      : msg + ". Use Show more below, or narrow Status, Module, or Search.";
-    hint.hidden = false;
-    const next = Math.min(count + PAGE_STEP, total, PAGE_MAX);
-    more.hidden = capped;
-    $("show-more").textContent = "Show more (up to " + next + ")";
-  } else {
-    const msg = count + " function" + (count === 1 ? "" : "s") + " shown";
-    $("results-status").textContent = msg;
-    hint.hidden = true;
-    hint.textContent = "";
-    more.hidden = true;
-  }
-}
 function setListPageMessage(opts) {
-  const { count, total, noun, hintId, moreWrapId, moreBtnId, tip, tipCapped } = opts;
+  const { count, total, noun, nounOne, hintId, moreWrapId, moreBtnId, tip, tipCapped } = opts;
   const hint = $(hintId);
   const more = $(moreWrapId);
   if (!total) {
@@ -377,7 +347,7 @@ function setListPageMessage(opts) {
     more.hidden = capped;
     $(moreBtnId).textContent = "Show more (up to " + next + ")";
   } else {
-    $("results-status").textContent = count + " " + noun + " shown";
+    $("results-status").textContent = count + " " + (count === 1 ? nounOne : noun) + " shown";
     hint.hidden = true;
     hint.textContent = "";
     more.hidden = true;
@@ -417,7 +387,17 @@ function renderFunctions(data, options) {
   }
   const total = data.total ?? data.count;
   const shown = append ? loadedCount : data.count;
-  setResultsMessage(shown, total);
+  setListPageMessage({
+    count: shown,
+    total,
+    noun: "functions",
+    nounOne: "function",
+    hintId: "results-hint",
+    moreWrapId: "show-more-wrap",
+    moreBtnId: "show-more",
+    tip: "Use Show more below, or narrow Status, Module, or Search.",
+    tipCapped: "Narrow Status, Module, or Search: display stops at " + PAGE_MAX + " rows.",
+  });
   setFunctionsEmptyMessage();
   $("empty-state").hidden = shown !== 0;
   $("results").hidden = shown === 0;
@@ -484,7 +464,8 @@ function renderSummary(s) {
     ["Identified", (s.identified_pct ?? 0).toFixed(1) + "%", null,
       "Share of .text bytes covered by any known function, including stubs"],
   ];
-  for (const [k, v] of Object.entries(byStatus)) cards.push([k, v, k, "Filter by " + k]);
+  // Same order as the Status select.
+  for (const k of Object.keys(byStatus).sort()) cards.push([k, byStatus[k], k, "Filter by " + k]);
   // The title text rides in a visually-hidden span, not aria-label: a div
   // cannot be named, and the name must start with the visible text (WCAG 2.5.3).
   $("cards").innerHTML = cards.map(([k, v, status, title]) => {
@@ -561,7 +542,10 @@ function renderSections(data) {
     + esc(s.size ?? "") + "</td><td>" + esc(s.total_cells ?? "") + "</td><td>"
     + esc(s.exact ?? 0) + "</td><td>" + esc(s.reloc ?? 0) + "</td><td>"
     + esc(s.near_match ?? 0) + "</td><td>" + esc(s.stub ?? 0) + "</td><td>"
-    + esc(s.proven ?? 0) + "</td><td>" + esc(s.other ?? 0) + "</td></tr>").join("");
+    + esc(s.proven ?? 0) + "</td><td>" + esc(s.size_mismatch ?? 0) + "</td><td>"
+    + esc(s.thunk ?? 0) + "</td><td>" + esc(s.data ?? 0) + "</td><td>"
+    + esc(s.padding ?? 0) + "</td><td>" + esc(s.none ?? 0) + "</td><td>"
+    + esc(s.other ?? 0) + "</td></tr>").join("");
   $("sections-empty").hidden = rows.length !== 0;
   $("sections-results").hidden = rows.length === 0;
   $("results-status").textContent = rows.length
@@ -595,11 +579,12 @@ function renderGlobals(data, options) {
     count: loadedGlobalsCount,
     total,
     noun: "globals",
+    nounOne: "global",
     hintId: "globals-hint",
     moreWrapId: "globals-show-more-wrap",
     moreBtnId: "show-more-globals",
     tip: "Use Show more below, or narrow the search.",
-    tipCapped: "Narrow the search — display stops at " + PAGE_MAX + " rows.",
+    tipCapped: "Narrow the search: display stops at " + PAGE_MAX + " rows.",
   });
   updateFilterActions();
 }
@@ -629,6 +614,7 @@ function renderHistory(data, options) {
     count: loadedHistoryCount,
     total,
     noun: "history entries",
+    nounOne: "history entry",
     hintId: "history-hint",
     moreWrapId: "history-show-more-wrap",
     moreBtnId: "show-more-history",
@@ -1098,7 +1084,9 @@ _INDEX_HTML = """<!doctype html>
 <table id="sections-rows"><caption class="visually-hidden">Per-section cell stats</caption><thead><tr>
   <th scope="col">Section</th><th scope="col">Size</th><th scope="col">Cells</th>
   <th scope="col">Exact</th><th scope="col">Reloc</th><th scope="col">Near</th>
-  <th scope="col">Stub</th><th scope="col">Proven</th><th scope="col">Other</th>
+  <th scope="col">Stub</th><th scope="col">Proven</th><th scope="col">Size mismatch</th>
+  <th scope="col">Thunk</th><th scope="col">Data</th><th scope="col">Padding</th>
+  <th scope="col">Unclassified</th><th scope="col">Other</th>
 </tr></thead><tbody></tbody></table>
 </div>
 </div>

@@ -154,6 +154,23 @@ def status_cmd(
         )
 
 
+def _external_ranges(cfg: Any) -> list[tuple[int, int]]:
+    """The project's library bands as ``[(lo, hi)]`` (empty without a project)."""
+    out: list[tuple[int, int]] = []
+    for entry in getattr(cfg, "external_ranges", None) or ():
+        if isinstance(entry, (tuple, list)) and len(entry) == 2:
+            out.append((int(entry[0]), int(entry[1])))
+            continue
+        text = str(entry).strip()
+        if "-" in text:
+            lo, _, hi = text.partition("-")
+            try:
+                out.append((int(lo, 16), int(hi.strip(), 16)))
+            except ValueError:
+                continue
+    return out
+
+
 @app.command("detect")
 def detect_cmd(
     binary: str = typer.Argument(..., help="Path to the target binary (PE/NE/ELF/Mach-O)"),
@@ -170,8 +187,19 @@ def detect_cmd(
     binary_path = Path(binary)
     if not binary_path.is_file():
         error_exit(f"Binary not found: {binary}", json_mode=json_output, code=EXIT_ERROR)
+    # Load the project first (best effort): its external_ranges pad the
+    # library bands, and library objects were compiled with Microsoft's own
+    # settings — the code-generator family must be read from GAME code only.
+    cfg = None
     try:
-        info = detect_toolchain(binary_path)
+        from rebrew.config import load_config
+
+        cfg = load_config(target=target)
+    except (FileNotFoundError, KeyError, ValueError):
+        cfg = None
+    exclude = _external_ranges(cfg)
+    try:
+        info = detect_toolchain(binary_path, exclude_ranges=exclude)
     except Exception as exc:  # detection is best-effort
         error_exit(f"Detection failed: {exc}", json_mode=json_output, code=EXIT_ERROR)
 
@@ -189,6 +217,7 @@ def detect_cmd(
         "crt_linkage": info.crt_linkage or None,
         "base_cflags_hint": info.base_cflags or None,
         "packed": info.packed or None,
+        "codegen": info.codegen or None,
         "msvc_version": info.msvc_version or None,
         "suggested_profiles": info.suggested_profiles or None,
         "compatible_profiles": sorted(compat) if compat else None,
@@ -196,18 +225,6 @@ def detect_cmd(
 
     # Alignment against a configured project profile (optional — detect works
     # standalone; the check is what init/intake/doctor surface per-project).
-    cfg = None
-    try:
-        from rebrew.config import load_config
-
-        cfg = load_config(target=target)
-    except FileNotFoundError:
-        pass  # no project — report detection only
-    except (KeyError, ValueError) as exc:
-        if not json_output:
-            console.print(
-                f"[yellow]warning:[/yellow] config error ({exc}); alignment check disabled"
-            )
     if cfg is not None:
         profile = getattr(cfg, "compiler_profile", "") or "msvc-6.0"
         aligned, explanation = profile_matches_detection(profile, info)
@@ -229,6 +246,8 @@ def detect_cmd(
         console.print(f"  arch:      {info.arch}")
     if info.msvc_version:
         console.print(f"  msvc:      {info.msvc_version}")
+    if info.codegen:
+        console.print(f"  codegen:   {info.codegen}")
     if info.suggested_profiles:
         console.print(f"  suggest:   {', '.join(info.suggested_profiles)}")
     if info.packed:

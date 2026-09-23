@@ -239,3 +239,87 @@ class TestIs16bitTarget:
     def test_arch_x86_16_is_16bit(self, tmp_path: Path) -> None:
         info = ToolchainInfo(family="msvc", arch="x86_16")
         assert _is_16bit_target(info, self._write(tmp_path, b"not-mz")) is True
+
+
+class TestCodeGeneratorFamily:
+    """The VC6 code generator (Processor Pack vs plain), read from game code.
+
+    Every VC6 service pack ships the same cl.exe (12.00.8804) but the
+    Processor Pack replaces c2.dll, which rewrites the x87 compare idiom:
+    pack code emits `fnstsw ax; test ah,0x44; jp` / `test ah,5`, plain code
+    emits `test ah,0x40` / `test ah,0x01`.  A profile check that only compares
+    compiler versions accepts the wrong generator silently.
+    """
+
+    PP = bytes.fromhex("d9 45 08 d8 5d 08 df e0 f6 c4 44 7a 05")
+    PLAIN = bytes.fromhex("d9 45 08 d8 5d 08 df e0 f6 c4 40 75 05")
+    PLAIN_01 = bytes.fromhex("d9 45 08 d8 5d 08 df e0 f6 c4 01 75 05")
+    # A bare strength-reduced integer test — NOT a compare idiom.
+    INTEGER_TEST = bytes.fromhex("a9 00 40 00 00 f6 c4 40 74 05")
+
+    def test_family_classification(self) -> None:
+        from rebrew.toolchain_detect import (
+            CodegenSignals,
+            x87_codegen_family,
+        )
+
+        assert x87_codegen_family(CodegenSignals(pp_compares=3)) == "processor-pack"
+        assert x87_codegen_family(CodegenSignals(plain_compares=3)) == "plain"
+        assert x87_codegen_family(CodegenSignals(pp_compares=1, plain_compares=1)) == "mixed"
+        assert x87_codegen_family(CodegenSignals()) == "unknown"
+
+    def test_signal_counter_needs_the_fnstsw_prefix(self) -> None:
+        from rebrew.toolchain_detect import _count_codegen_signals
+
+        assert _count_codegen_signals(self.PP).pp_compares == 1
+        assert _count_codegen_signals(self.PLAIN).plain_compares == 1
+        assert _count_codegen_signals(self.PLAIN_01).plain_compares == 1
+        # `f6 c4 40` alone (integer test eax,0x4000 strength reduction) is not
+        # a compare and must not be counted.
+        assert _count_codegen_signals(self.INTEGER_TEST).plain_compares == 0
+        assert _count_codegen_signals(self.INTEGER_TEST).pp_compares == 0
+
+    def test_excluded_band_is_not_counted(self) -> None:
+        """Library bands compiled by Microsoft must not decide the family."""
+        from rebrew.toolchain_detect import _count_codegen_signals
+
+        base = 0x5E0000
+        text = b"\x90" * 0x100 + self.PLAIN + b"\x90" * 0x100 + self.PP
+        signals = _count_codegen_signals(text, base, [(base, base + 0x1FF)])
+        assert signals.plain_compares == 0  # inside the excluded library band
+        assert signals.pp_compares == 1  # game code, outside it
+
+    def test_processor_pack_profiles_come_from_the_registry(self) -> None:
+        from rebrew.toolchain_detect import processor_pack_profiles
+
+        assert "msvc-6.0-sp5-pp" in processor_pack_profiles()
+
+    def test_pack_profile_is_family_compatible(self) -> None:
+        """A correctly configured pack project must not be reported misaligned."""
+        from rebrew.toolchain_detect import _PROFILE_COMPAT
+
+        assert "msvc-6.0-sp5-pp" in (_PROFILE_COMPAT["msvc"] or set())
+
+    def _info(self, codegen: str) -> ToolchainInfo:
+        info = ToolchainInfo(family="msvc", codegen=codegen, msvc_version="12.00.8804")
+        info.suggested_profiles = ["msvc-6.0-sp6", "msvc-6.0-sp5-pp"]
+        return info
+
+    def test_pack_binary_rejects_a_plain_profile(self) -> None:
+        ok, why = profile_matches_detection("msvc-6.0-sp6", self._info("processor-pack"))
+        assert not ok
+        assert why is not None and "Processor-Pack" in why
+        assert "msvc-6.0-sp5-pp" in why
+
+    def test_plain_binary_rejects_the_pack_profile(self) -> None:
+        ok, why = profile_matches_detection("msvc-6.0-sp5-pp", self._info("plain"))
+        assert not ok
+        assert why is not None and "plain VC6" in why
+
+    def test_matching_families_align(self) -> None:
+        assert profile_matches_detection("msvc-6.0-sp5-pp", self._info("processor-pack"))[0]
+        assert profile_matches_detection("msvc-6.0-sp6", self._info("plain"))[0]
+
+    def test_unknown_codegen_never_blocks(self) -> None:
+        assert profile_matches_detection("msvc-6.0-sp6", self._info(""))[0]
+        assert profile_matches_detection("msvc-6.0-sp5-pp", self._info("mixed"))[0]

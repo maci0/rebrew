@@ -42,8 +42,8 @@ globalThis.AbortController = class {
     this.aborted = true;
   }
 };
-const { loadSummary, bindControls } = await import(
-  "data:text/javascript;base64," + Buffer.from(source + "\nexport { loadSummary, bindControls };\n").toString("base64")
+const { loadSummary, bindControls, renderSections, renderGlobals } = await import(
+  "data:text/javascript;base64," + Buffer.from(source + "\nexport { loadSummary, bindControls, renderSections, renderGlobals };\n").toString("base64")
 );
 const element = (id) => document.getElementById(id);
 const summary = (status) => ({
@@ -208,3 +208,18 @@ assert.match(finalRows, /0x3/);
 assert.equal(element("show-more-wrap").hidden, true);
 assert.equal(element("retry-functions").hidden, true);
 assert.equal(pending.length, 0);
+
+// Every counted cell state gets a column, so a row's cells sum to its Cells total.
+renderSections({ sections: [{
+  name: ".text", size: 64, total_cells: 66, exact: 1, reloc: 2, near_match: 3, stub: 4,
+  proven: 5, size_mismatch: 6, thunk: 7, data: 8, padding: 9, none: 10, other: 11,
+}] });
+const cells = [...element("sections-rows").innerHTML.matchAll(/<td>([^<]*)<\/td>/g)].map(m => m[1]);
+assert.deepEqual(cells, [".text", "64", "66", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"]);
+assert.equal(cells.slice(3).reduce((sum, n) => sum + Number(n), 0), 66);
+
+// One row reads "1 global shown", not "1 globals shown".
+renderGlobals({ total: 1, globals: [["0x10", "g_one", "int g_one", 4, ""]] });
+assert.equal(element("results-status").textContent, "1 global shown");
+renderGlobals({ total: 2, globals: [["0x10", "g_a", "", 4, ""], ["0x14", "g_b", "", 4, ""]] });
+assert.equal(element("results-status").textContent, "2 globals shown");

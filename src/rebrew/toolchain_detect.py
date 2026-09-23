@@ -358,6 +358,7 @@ class ToolchainInfo:
     msvc_version: str = ""  # exact compiler version, e.g. "12.00.8168" (PE metadata)
     suggested_profiles: list[str] = field(default_factory=list)  # version-exact rebrew profiles
     packed: str = ""  # packer name/version when the binary is packed ("lzexe 0.91")
+    codegen: str = ""  # VC6 code generator: processor-pack | plain | mixed ("" = unknown)
 
     def add(self, text: str) -> None:
         self.evidence.append(text)
@@ -711,6 +712,15 @@ _FP_PROLOGUE = bytes.fromhex("55 8b ec")
 #: (VC5 corpus binaries show 0; VC6+ show ~10 per 15KB of .text).
 _MOV_EDI_EDI = bytes.fromhex("8b ff")
 
+#: x87 compare idioms, each PREFIXED by `fnstsw ax` (df e0) so an unrelated
+#: `test ah,N` never counts: the Processor Pack code generator (c2 13.00.9044)
+#: rewrites every plain VC6 float compare to `test ah,0x44; jp` / `test ah,5`,
+#: while the plain generators use `test ah,0x40` / `test ah,0x01`.  Verified
+#: against nine registered VC6 code generators x nine flag sets; see
+#: docs/general-knowledge.md in guild-rebrew and docs/codegen/ in this repo.
+_PP_COMPARES = tuple(bytes.fromhex(h) for h in ("df e0 f6 c4 44", "df e0 f6 c4 05"))
+_PLAIN_COMPARES = tuple(bytes.fromhex(h) for h in ("df e0 f6 c4 40", "df e0 f6 c4 01"))
+
 #: Stack-probe / security-cookie symbol names -> (family, evidence).
 #: These survive in COFF symbol tables, .drectve records and unstripped
 #: binaries — the byte shapes alone cannot tell __chkstk from
@@ -817,13 +827,43 @@ class CodegenSignals:
     x87_fp: int = 0  # fld [esp+N] — x87 FPU loads
     fp_prologues: int = 0  # push ebp; mov ebp,esp — /Oy- or unoptimized
     mov_edi_edi: int = 0  # 2-byte mov edi,edi nops (MSVC-style padding)
+    pp_compares: int = 0  # df e0 f6 c4 44|05 — Processor Pack x87 compare
+    plain_compares: int = 0  # df e0 f6 c4 40|01 — pre-Processor-Pack x87 compare
 
     @property
     def rep_string_ops(self) -> int:
         return self.rep_stosd + self.rep_movsd + self.rep_stosb + self.rep_movsb
 
 
-def _count_codegen_signals(text: bytes) -> CodegenSignals:
+def _count_masked(
+    text: bytes, patterns: tuple[bytes, ...], base_va: int, exclude: list[tuple[int, int]]
+) -> int:
+    """Count *patterns* in *text* at VAs outside every excluded band.
+
+    *base_va* is the VA of ``text[0]``; *exclude* holds ``(lo, hi)`` VA ranges
+    the project fills from a linked library (``external_ranges``).  Library
+    objects were compiled with Microsoft's own settings, so they must not
+    decide the GAME code's code-generator family.
+    """
+    if not exclude:
+        return sum(text.count(p) for p in patterns)
+    total = 0
+    for pattern in patterns:
+        start = 0
+        while True:
+            i = text.find(pattern, start)
+            if i < 0:
+                break
+            va = base_va + i
+            if not any(lo <= va <= hi for lo, hi in exclude):
+                total += 1
+            start = i + 1
+    return total
+
+
+def _count_codegen_signals(
+    text: bytes, base_va: int = 0, exclude: list[tuple[int, int]] | None = None
+) -> CodegenSignals:
     """Count every byte-level codegen fingerprint in *text* (pure)."""
     s = CodegenSignals()
     s.lea_esp_nops = text.count(_LEA_ESP_NOP)
@@ -837,7 +877,49 @@ def _count_codegen_signals(text: bytes) -> CodegenSignals:
     s.x87_fp = sum(text.count(p) for p in _X87_ESP_LOADS)
     s.fp_prologues = text.count(_FP_PROLOGUE)
     s.mov_edi_edi = text.count(_MOV_EDI_EDI)
+    s.pp_compares = _count_masked(text, _PP_COMPARES, base_va, exclude or [])
+    s.plain_compares = _count_masked(text, _PLAIN_COMPARES, base_va, exclude or [])
     return s
+
+
+def x87_codegen_family(signals: CodegenSignals) -> str:
+    """``"processor-pack"`` | ``"plain"`` | ``"mixed"`` | ``"unknown"``.
+
+    The VC6 Processor Pack replaced the code generator (c2.dll 13.00.9044) and
+    that replacement is visible in the x87 compare idiom: the pack emits
+    ``fnstsw ax; test ah,0x44; jp`` / ``test ah,5``, while every plain VC6
+    generator emits ``test ah,0x40`` / ``test ah,0x01`` — verified across nine
+    registered VC6 code generators and nine flag sets, and independent of
+    ``/Od``..``/Ox``.  Both counts are taken AFTER ``fnstsw ax``: a bare
+    ``f6 c4 40`` is usually the integer ``test eax,0x4000`` strength reduction,
+    which every generator emits.
+
+    A binary that contains both idioms is ``mixed`` (a project that switched
+    generators mid-build, or hand-written asm); one that contains neither is
+    ``unknown`` — the profile cannot be narrowed from this signal alone.
+    """
+    pp = signals.pp_compares
+    plain = signals.plain_compares
+    if pp and plain:
+        return "mixed"
+    if pp:
+        return "processor-pack"
+    if plain:
+        return "plain"
+    return "unknown"
+
+
+def processor_pack_profiles() -> set[str]:
+    """Registered MSVC profile names whose code generator is the Processor Pack.
+
+    Read from the toolchain registry (``init_profiles``) so a future pack
+    variant is covered without a second list to keep in sync.
+    """
+    try:
+        from rebrew.init_profiles import COMPILER_DEFAULTS
+    except Exception:  # pragma: no cover - registry always importable
+        return {"msvc-6.0-sp5-pp"}
+    return {str(name) for name in COMPILER_DEFAULTS if str(name).endswith("-pp")}
 
 
 def _pdb_compile_record(path: Path) -> dict[str, str] | None:
@@ -1066,7 +1148,9 @@ def detect_with_pe_meta(path: Path) -> ToolchainInfo | None:
 _CONFIDENCE_RANK: dict[str, int] = {"low": 0, "medium": 1, "high": 2}
 
 
-def _detect_toolchain_core(path: Path | str) -> ToolchainInfo:
+def _detect_toolchain_core(
+    path: Path | str, exclude_ranges: list[tuple[int, int]] | None = None
+) -> ToolchainInfo:
     """The packaged detection pipeline (DIE/PDB/PE-meta/heuristics).
 
     Public entry is :func:`detect_toolchain`, which runs the plugin binary
@@ -1449,7 +1533,9 @@ def _detect_toolchain_core(path: Path | str) -> ToolchainInfo:
         o1_wrappers += text_bytes.count(bytes.fromhex("ff 74 24 04 e8"))
         o1_wrappers += text_bytes.count(bytes.fromhex("ff 74 24 08 ff 74 24 04"))
         const_hoists = _count_const_hoists(text_bytes)
-        signals = _count_codegen_signals(text_bytes)
+        signals = _count_codegen_signals(
+            text_bytes, binfo.text_va if binfo.text_size else 0, exclude_ranges
+        )
     except Exception:
         logger.debug("codegen scan failed for %s", path, exc_info=True)
 
@@ -1518,6 +1604,20 @@ def _detect_toolchain_core(path: Path | str) -> ToolchainInfo:
         )
     if signals.mov_edi_edi >= 2:
         info.add(f"{signals.mov_edi_edi} mov edi,edi 2-byte nops (MSVC-style padding)")
+    # --- VC6 code-generator family (Processor Pack vs plain) ---
+    # The pack replaces c2.dll and rewrites every x87 compare; the two idiom
+    # sets are disjoint across all nine registered VC6 generators and all nine
+    # flag sets probed, so this narrows a VC6 target to one generator family
+    # even though the cl.exe version is identical (12.00.8804).
+    if info.family == "msvc":
+        codegen = x87_codegen_family(signals)
+        if codegen != "unknown":
+            info.codegen = codegen
+            info.add(
+                f"{signals.pp_compares} Processor-Pack x87 compares "
+                f"(fnstsw+test ah,0x44/0x05) vs {signals.plain_compares} plain "
+                f"(fnstsw+test ah,0x40/0x01) → {codegen} code generator"
+            )
 
     # Codegen may pin a NEWER compiler than the CRT/linker era: the era
     # fingerprints (Rich header, DIE) name the build, but the codegen can
@@ -1632,7 +1732,9 @@ def _detect_toolchain_core(path: Path | str) -> ToolchainInfo:
     return info
 
 
-def detect_toolchain(path: Path | str) -> ToolchainInfo:
+def detect_toolchain(
+    path: Path | str, exclude_ranges: list[tuple[int, int]] | None = None
+) -> ToolchainInfo:
     """Detect the compiler family behind *path*.
 
     Backends run best-first and their evidence merges:
@@ -1649,7 +1751,7 @@ def detect_toolchain(path: Path | str) -> ToolchainInfo:
     Never raises: an unreadable or unrecognized binary yields
     ``ToolchainInfo(family="unknown", confidence="low")``.
     """
-    info = _detect_toolchain_core(path)
+    info = _detect_toolchain_core(path, exclude_ranges)
     if info.family != "unknown" or not _PLUGIN_DETECTORS:
         return info
     path = Path(path)
@@ -1711,6 +1813,7 @@ _PROFILE_COMPAT: dict[str, set[str] | None] = {
         "msvc-6.0-sp3",
         "msvc-6.0-sp4",
         "msvc-6.0-sp5",
+        "msvc-6.0-sp5-pp",
         "msvc-6.0-sp6",
         "msvc-7.0",
         "msvc-7.0-rtm",
@@ -1819,6 +1922,29 @@ def profile_matches_detection(profile: str, info: ToolchainInfo) -> tuple[bool, 
             "different compiler build; switch to one of: "
             f"{', '.join(sorted(info.suggested_profiles))}",
         )
+    # Code-generator check: the VC6 service packs share cl.exe 12.00.8804 but
+    # NOT the code generator, and the difference is visible in the x87 compare
+    # idiom (Processor Pack vs plain).  Version-exact checks cannot see it —
+    # every VC6 profile carries the same cl version — so a project whose
+    # binary shows one family and configures the other compiles the whole tree
+    # with the wrong generator and every FP-comparing function stops matching.
+    if info.family == "msvc" and info.codegen in ("processor-pack", "plain"):
+        pack_profiles = processor_pack_profiles()
+        is_pack = profile in pack_profiles
+        if info.codegen == "processor-pack" and not is_pack:
+            return (
+                False,
+                f"binary's x87 compares are Processor-Pack codegen — profile '{profile}' is a "
+                f"plain VC6 generator; switch to {', '.join(sorted(pack_profiles))} "
+                "(game code compiled with the pack cannot be reproduced by an SP6 profile)",
+            )
+        if info.codegen == "plain" and is_pack:
+            return (
+                False,
+                f"binary's x87 compares are plain VC6 codegen — profile '{profile}' carries the "
+                "Processor Pack; switch to a plain VC6 profile "
+                "(e.g. msvc-6.0-sp6) or the FP-comparing functions will not match",
+            )
     # Arch dimension: a 16-bit DOS/NE binary can only be byte-matched by
     # 16-bit-capable profiles; conversely msvc-1.52 cannot match a 32/64-bit
     # PE/ELF.  This catches the "msvc-6.0 profile on a 16-bit project"

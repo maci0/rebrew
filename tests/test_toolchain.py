@@ -519,7 +519,7 @@ class TestCli:
             detected_by="die",
             evidence=["Compiler: Microsoft Visual C/C++"],
         )
-        monkeypatch.setattr("rebrew.toolchain_detect.detect_toolchain", lambda p: info)
+        monkeypatch.setattr("rebrew.toolchain_detect.detect_toolchain", lambda p, **k: info)
         result = CliRunner().invoke(umbrella, ["toolchain", "detect", str(bin_path), "--json"])
         assert result.exit_code == 0, result.output
         data = json.loads(result.stdout)
@@ -553,7 +553,7 @@ class TestCli:
             detected_by="heuristics",
             arch="x86_16",
         )
-        monkeypatch.setattr("rebrew.toolchain_detect.detect_toolchain", lambda p: info)
+        monkeypatch.setattr("rebrew.toolchain_detect.detect_toolchain", lambda p, **k: info)
         result = CliRunner().invoke(umbrella, ["toolchain", "detect", "x.exe", "--json"])
         assert result.exit_code == 0, result.output
         data = json.loads(result.stdout)

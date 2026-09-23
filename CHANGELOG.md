@@ -5,6 +5,11 @@
   first target, the Functions view, and no filters.  The target, view,
   Status, Module, and both searches now live in the URL hash and are
   restored on load; the hash also works as a shareable link.
+- **`rebrew dashboard` Sections columns add up to Cells.**  The table
+  hid the size-mismatch, thunk, data, padding, and unclassified counts
+  that `/api/sections` already returned, so a row's columns fell short of
+  its Cells total.  Each now has a column.  Status cards follow the
+  Status select's sorted order, and one-row pages read "1 global shown".
 - **`rebrew dashboard` History names the function.**  History rows showed
   only a VA, so telling which function changed status meant a trip to the
   Functions tab.  `/api/history` now carries `name` (joined from

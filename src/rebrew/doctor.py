@@ -528,10 +528,13 @@ def check_toolchain_alignment(cfg: ProjectConfig) -> CheckResult:
     if binary is None or not Path(binary).exists():
         return CheckResult(name="Toolchain alignment", status=_SKIP, message="binary not available")
 
+    from rebrew.toolchain_cli import _external_ranges
     from rebrew.toolchain_detect import detect_toolchain, profile_matches_detection
 
     try:
-        info = detect_toolchain(binary)
+        # Game code only: library bands (`external_ranges`) were compiled with
+        # Microsoft's own settings and must not decide the code-generator family.
+        info = detect_toolchain(binary, exclude_ranges=_external_ranges(cfg))
     except Exception as exc:  # a broken detector must not kill the doctor
         return CheckResult(
             name="Toolchain alignment", status=_SKIP, message=f"detection failed: {exc}"
@@ -547,6 +550,8 @@ def check_toolchain_alignment(cfg: ProjectConfig) -> CheckResult:
 
     aligned, explanation = profile_matches_detection(profile, info)
     detail = f"detected {info.family} ({info.version_hint or 'unknown version'})"
+    if info.codegen:
+        detail += f"; code generator: {info.codegen}"
     if info.detected_by:
         from rebrew.toolchain_detect import backend_display_name
 

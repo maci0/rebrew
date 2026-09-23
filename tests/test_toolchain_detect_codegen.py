@@ -308,3 +308,38 @@ class TestMZDetection:
         monkeypatch.setattr(td, "_scan_strings", lambda *a, **k: [])
         info = detect_toolchain(Path("/tmp/prog.exe"))
         assert any("leave epilogues" in e for e in info.evidence)
+
+
+class TestCodeGeneratorFamilyEvidence:
+    """`info.codegen` narrows a VC6 target to Processor Pack vs plain."""
+
+    PP = bytes.fromhex("df e0 f6 c4 44 7a 05 df e0 f6 c4 05 7a 05")
+    PLAIN = bytes.fromhex("df e0 f6 c4 40 75 05 df e0 f6 c4 01 75 05")
+
+    def test_pack_binary_sets_codegen(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        info = _run(monkeypatch, self.PP)
+        assert info.codegen == "processor-pack"
+        assert any("Processor-Pack x87 compares" in e for e in info.evidence)
+
+    def test_plain_binary_sets_codegen(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        info = _run(monkeypatch, self.PLAIN)
+        assert info.codegen == "plain"
+        assert any("plain" in e and "code generator" in e for e in info.evidence)
+
+    def test_no_fp_code_leaves_codegen_unset(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        info = _run(monkeypatch, bytes.fromhex("55 8b ec 5d c3"))
+        assert info.codegen == ""
+
+    def test_excluded_library_band_is_ignored(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The D3DX8-style band is Microsoft's codegen, not the game's."""
+        import rebrew.toolchain_detect as td
+
+        text = self.PP + b"\x90" * 8 + self.PLAIN
+        info = _run(monkeypatch, text)
+        assert info.codegen == "mixed"  # both visible without a mask
+
+        monkeypatch.setattr(td, "load_binary", lambda *a, **k: _fake_binary([".text"], text=text))
+        info = td.detect_toolchain(
+            Path("/tmp/nonexistent-prog.exe"), exclude_ranges=[(0x1014, 0x10FF)]
+        )
+        assert info.codegen == "processor-pack"
