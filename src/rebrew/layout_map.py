@@ -38,7 +38,6 @@ from rebrew.catalog.registry import RegistryEntry, build_function_registry
 from rebrew.cli import TargetOption, error_exit, json_print, require_config
 from rebrew.config import ProjectConfig, inventory_path_for
 from rebrew.cu_map import _classify_gap
-from rebrew.toolchain_detect import detect_toolchain
 from rebrew.utils import atomic_write_text
 
 console = Console(stderr=True)
@@ -260,6 +259,8 @@ def _pe_header(pe: lief.PE.Binary | None) -> dict[str, Any]:
 
 def _toolchain_row(path: Path) -> dict[str, Any]:
     """The Rich-header toolchain guess for *path*."""
+    from rebrew.toolchain_detect import detect_toolchain  # deferred: ~6 ms of startup
+
     info = detect_toolchain(path)
     return {
         "family": info.family,

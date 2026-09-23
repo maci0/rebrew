@@ -4,13 +4,15 @@ Usage:
     rebrew init [--target NAME] [--binary FILENAME] [--toolchain PROFILE]
 """
 
+from __future__ import annotations
+
 import logging
 import re
 import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import tomlkit
 import typer
@@ -28,7 +30,9 @@ from rebrew.init_profiles import (
     profile_defaults,
     profile_families,
 )
-from rebrew.toolchain_detect import ToolchainInfo
+
+if TYPE_CHECKING:
+    from rebrew.toolchain_detect import ToolchainInfo
 from rebrew.utils import atomic_write_text, toolchain_link_candidates
 
 console = Console(stderr=True)

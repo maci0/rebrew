@@ -143,8 +143,8 @@ class LintResult:
         """True if no errors were recorded."""
         return len(self.errors) == 0
 
-    def display(self, quiet: bool = False) -> None:
-        """Print errors (and optionally warnings) to the console."""
+    def _display_lines(self, quiet: bool = False) -> list[str]:
+        """Formatted error/warning lines; callers batch them into one print."""
         rel = self.filepath.name
         lines = [
             f"  [bold]{rel}[/bold]:{line}: [red]{code}[/red]: {msg}"
@@ -155,8 +155,13 @@ class LintResult:
                 f"  [bold]{rel}[/bold]:{line}: [yellow]{code}[/yellow]: {msg}"
                 for line, code, msg in self.warnings
             ]
+        return lines
+
+    def display(self, quiet: bool = False) -> None:
+        """Print errors (and optionally warnings) to the console."""
+        lines = self._display_lines(quiet)
         if lines:
-            # One console.print per file: per-line prints each paid Rich's
+            # One console.print per call: per-line prints each paid Rich's
             # full markup+highlight+wrap pipeline (2401 calls — half of
             # batch-lint time).  highlight=False drops the ReprHighlighter
             # decoration only; the explicit colour tags above still apply.
@@ -1913,6 +1918,7 @@ def main(
     warning_count = 0
     all_results: list[LintResult] = []
 
+    display_buf: list[str] = []
     for cfile in c_files:
         total += 1
         result = lint_file(
@@ -1932,9 +1938,16 @@ def main(
         if result.passed:
             passed += 1
         if not json_output and (not result.passed or (not quiet and result.warnings)):
-            result.display(quiet=quiet)
+            display_buf.extend(result._display_lines(quiet))
         error_count += len(result.errors)
         warning_count += len(result.warnings)
+
+    if display_buf:
+        # One Rich print for the whole batch: nothing else prints during the
+        # loop, so the output bytes are identical — one markup+wrap pass
+        # instead of ~400 per-file envelopes (the largest remaining lint
+        # cost after the W029 batching).
+        console.print("\n".join(display_buf), highlight=False)
 
     # W029: redundant cflags across metadata + presets — batch-level, since
     # no single .c file owns a preset and the redundancy is about the fallback
