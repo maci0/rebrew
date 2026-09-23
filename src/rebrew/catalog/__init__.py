@@ -1,13 +1,9 @@
 """catalog - Unified function catalog and reporting package.
 
-Re-exports all public names so that
-``from rebrew.catalog import X`` works.
+Re-exports the library API so that ``from rebrew.catalog import X`` works
+without loading the Typer command in ``rebrew.catalog.cli``.
 """
 
-from rebrew.catalog.cli import app as app
-from rebrew.catalog.cli import main as main
-from rebrew.catalog.cli import main_entry as main_entry
-from rebrew.catalog.cli import run_catalog as run_catalog
 from rebrew.catalog.export import (
     generate_reccmp_csv as generate_reccmp_csv,
 )
@@ -58,7 +54,6 @@ __all__ = [
     "FunctionEntry",
     "GhidraDataLabel",
     "RegistryEntry",
-    "app",
     "build_catalog_data",
     "build_function_registry",
     "cached_function_list",
@@ -69,9 +64,6 @@ __all__ = [
     "is_jump_table",
     "load_function_structure",
     "load_ghidra_data_labels",
-    "main",
-    "main_entry",
     "parse_rizin_afl",
-    "run_catalog",
     "scan_reversed_dir",
 ]

@@ -1,6 +1,8 @@
 """Tests for catalog/cli.py — the catalog orchestrator command surface."""
 
 import json
+import subprocess
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -9,7 +11,7 @@ from typer.testing import CliRunner
 
 import rebrew.catalog.cli as catalog_cli
 import rebrew.catalog.pipeline as catalog_pipeline
-from rebrew.catalog import run_catalog
+from rebrew.catalog.cli import run_catalog
 from rebrew.config import load_config
 
 runner = CliRunner()
@@ -345,3 +347,14 @@ class TestRunCatalog:
         assert payload["wrote_data_json"] is True
         assert payload["wrote_csv"] is False
         assert (root / "db" / "data_GAME.json").exists()
+
+
+class TestPackageLayering:
+    @pytest.mark.parametrize("package", ["rebrew.catalog", "rebrew.ghidra"])
+    def test_package_import_does_not_load_cli(self, package: str) -> None:
+        code = f"import sys, {package}; print(sorted(m for m in sys.modules if m.endswith('.cli')))"
+        out = subprocess.run(
+            [sys.executable, "-c", code], capture_output=True, text=True, check=True, timeout=60
+        ).stdout
+        assert f"{package}.cli" not in out
+        assert "'rebrew.cli'" not in out

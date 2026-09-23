@@ -510,7 +510,7 @@ BUILTIN_COMPONENTS: tuple[CliComponent, ...] = (
     ),
     CliComponent(
         name="catalog",
-        module="rebrew.catalog",
+        module="rebrew.catalog.cli",
         help="Build coverage catalog, data JSON, CSV/Ghidra exports, and DB.",
         panel=Panel.EXPORT_SYNC,
         is_group=False,
