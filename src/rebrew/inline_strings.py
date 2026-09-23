@@ -306,7 +306,8 @@ def main(
     else:
         scan_files = sorted(src_dir.rglob("*.c"))
     if files:
-        scan_files = [f for f in scan_files if f.name in {p.name for p in files}]
+        wanted = {p.name for p in files}
+        scan_files = [f for f in scan_files if f.name in wanted]
     if not scan_files:
         from rebrew.cli import error_exit
 

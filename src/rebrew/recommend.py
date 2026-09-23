@@ -869,7 +869,8 @@ def _collect_hygiene(
             if block is not None:
                 current = normalize_listed(cfg.root, block.managed, by_key)
                 want = [by_key.get(str(p.resolve()), p.name) for p in ordered]
-                want = [w for w in want if w in set(block.managed) | set(current)]
+                listed = set(block.managed) | set(current)
+                want = [w for w in want if w in listed]
                 rec = recommend_link_order(current, want)
                 if rec:
                     recs.append(rec)
