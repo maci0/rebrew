@@ -9,6 +9,7 @@ from typing import Any
 import httpx
 import pytest
 
+import rebrew.compile as compile_mod
 from rebrew.compile import _compile_via_recompile, recompile_url
 from rebrew.recompile_client import RecompileError, _same_origin_artifact_url, compile_source
 
@@ -366,6 +367,40 @@ class TestCompileViaRecompile:
         assert seen["filename"] == "f.c"
         assert seen["retries"] == 2
 
+    def test_compiles_share_one_http_client(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """One pooled client serves every compile; a per-compile client
+        leaves a TIME_WAIT socket behind per GA candidate."""
+        body = {"status": "ok", "artifact_url": "/api/v1/artifacts/x.obj"}
+        made: list[_FakeClient] = []
+
+        def factory(**kwargs: Any) -> _FakeClient:
+            client = _FakeClient(
+                httpx.Response(200, json=body), httpx.Response(200, content=b"OBJ")
+            )
+            made.append(client)
+            return client
+
+        monkeypatch.delenv("REBREW_RECOMPILE_URL", raising=False)
+        monkeypatch.setattr(compile_mod, "_recompile_client", None)
+        monkeypatch.setattr(httpx, "Client", factory)
+        for name in ("a.obj", "b.obj"):
+            out, err = _compile_via_recompile(
+                self._cfg(),
+                tmp_path / "f.c",
+                [],
+                tmp_path,
+                name,
+                "msvc-6.0",
+                False,
+                source_text="int f(void) { return 0; }",
+            )
+            assert err == "" and out is not None
+            assert Path(out).read_bytes() == b"OBJ"
+        assert len(made) == 1
+        assert [c for c, _ in made[0].calls] == ["post", "get", "post", "get"]
+
     def test_service_failure_returns_the_log(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -402,6 +437,7 @@ class TestCompileViaRecompile:
         message: str,
     ) -> None:
         monkeypatch.delenv("REBREW_RECOMPILE_URL", raising=False)
+        monkeypatch.setattr(compile_mod, "_recompile_client", None)
         client = _patch(monkeypatch, httpx.Response(200, content=response))
 
         out, err = _compile_via_recompile(

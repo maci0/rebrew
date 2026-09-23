@@ -974,6 +974,44 @@ def recompile_url(cfg: ProjectConfig) -> str | None:
     return validate_http_url(candidate, label)
 
 
+_recompile_client_lock = threading.Lock()
+_recompile_client: tuple[float, Any] | None = None
+
+
+def _shared_recompile_client(timeout: float) -> Any:
+    """Return the process-wide ``httpx.Client`` for the recompile backend.
+
+    A client per compile opened a fresh TCP/TLS connection each time and
+    left one TIME_WAIT socket behind per candidate, so a long GA run on the
+    remote backend could exhaust ephemeral ports.  One pooled client is
+    reused by every thread (``httpx.Client`` is thread-safe), replaced only
+    when *timeout* changes, and closed at exit.
+    """
+    global _recompile_client
+    import httpx
+
+    with _recompile_client_lock:
+        if _recompile_client is not None and _recompile_client[0] == timeout:
+            return _recompile_client[1]
+        if _recompile_client is not None:
+            _recompile_client[1].close()
+        client = httpx.Client(timeout=timeout)
+        _recompile_client = (timeout, client)
+        return client
+
+
+def _close_recompile_client() -> None:
+    """Close the shared recompile client (``atexit`` hook)."""
+    global _recompile_client
+    with _recompile_client_lock:
+        if _recompile_client is not None:
+            _recompile_client[1].close()
+            _recompile_client = None
+
+
+atexit.register(_close_recompile_client)
+
+
 def _compile_via_recompile(
     cfg: ProjectConfig,
     source_path: Path,
@@ -1006,6 +1044,10 @@ def _compile_via_recompile(
             source_text = source_path.read_text(encoding="utf-8", errors="surrogateescape")
         except OSError as exc:
             return None, f"Failed to read source for recompile upload: {exc}"
+    timeout = (
+        float(getattr(cfg, "compile_timeout", DEFAULT_COMPILE_TIMEOUT) or DEFAULT_COMPILE_TIMEOUT)
+        + 120.0
+    )
     try:
         res = compile_source(
             url,
@@ -1013,11 +1055,9 @@ def _compile_via_recompile(
             source=source_text,
             flags=all_flags,
             filename=source_path.name,
-            timeout=float(
-                getattr(cfg, "compile_timeout", DEFAULT_COMPILE_TIMEOUT) or DEFAULT_COMPILE_TIMEOUT
-            )
-            + 120.0,
+            timeout=timeout,
             emit_assembly=emit_assembly,
+            client=_shared_recompile_client(timeout),
             # Transient 503/timeout on the compile service is common under
             # load; two retries with backoff beat a hard COMPILE_ERROR that
             # would demote STATUS for a healthy source.

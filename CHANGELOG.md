@@ -462,6 +462,11 @@
   in emission order.
 
 ### Fixed
+- **The recompile backend reuses one HTTP connection pool.**  Each remote
+  compile built its own `httpx.Client`, so every GA candidate opened a
+  fresh connection and left a TIME_WAIT socket behind; long runs could
+  exhaust ephemeral ports.  One process-wide client now serves every
+  compile and is closed at exit.
 - **`rebrew fingerprints` finds real Rich headers.**  The decoder looked
   for a plaintext `DanS` marker, but linkers store it XORed with the key,
   so `rich_header_hash` was `null` for every MSVC-linked binary.  It now
