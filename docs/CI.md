@@ -11,8 +11,9 @@ offline `--json` CLI surface — a pre-commit hook-parity job (`make check` with
 the ruff and mypy hooks skipped, since the lint job runs them), a package job
 that builds the sdist/wheel via `make build` (SOURCE_DATE_EPOCH, umask 022, C/UTC,
 `PYTHONHASHSEED=0`, sdist tar metadata normalized by
-`tools/normalize_sdist.py`), checks both artifacts hash the same on a second
-`--no-cache` build, emits a CycloneDX 1.5 SBOM (`dist/rebrew.cdx.json` from
+`tools/normalize_sdist.py`), checks both artifacts hash the same when
+`make build` reruns from a `git archive` copy at another path under another
+TZ/locale/umask, emits a CycloneDX 1.5 SBOM (`dist/rebrew.cdx.json` from
 `uv.lock` via `tools/generate_sbom.py`), writes `dist/rebrew.buildinfo`
 (uv/python/`.python-version`/setuptools parsed from `pyproject.toml` + epoch
 knobs), and installs the

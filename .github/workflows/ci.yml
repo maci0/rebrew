@@ -190,29 +190,23 @@ jobs:
           set -euo pipefail
           make sbom
           uv run --frozen --no-project --offline python -c "import json,sys; d=json.load(open('dist/rebrew.cdx.json')); assert d['bomFormat']=='CycloneDX'; assert len(d['components'])>10; print(len(d['components']), 'components')"
-      - name: Verify wheel and sdist reproducibility (second clean build)
-        # Both artifacts must be byte-identical across builds of the same
-        # commit: --no-cache + a fresh out-dir forces a real second build (no
-        # cache hit), and the same SOURCE_DATE_EPOCH must yield the same hash.
-        # The sdist goes through the same normalize_sdist.py pass as make build.
-        env:
-          TZ: UTC
-          LC_ALL: C
-          PYTHONHASHSEED: "0"
+      - name: Verify wheel and sdist reproducibility (second build, other path)
+        # Rebuild the same commit with `make build` from a `git archive` copy
+        # at a different path under a different TZ/locale/umask: both
+        # artifacts must be byte-identical, proving the Makefile pins (not the
+        # runner) own path, time, locale, and mode normalization.  The copy
+        # has no .git, so SOURCE_DATE_EPOCH must come from the env.
         run: |
           set -euo pipefail
-          shopt -s nullglob
           SOURCE_DATE_EPOCH="$(git log -1 --pretty=%ct)"
           export SOURCE_DATE_EPOCH
-          # Do not pipe through tail: under pipefail a failing uv build must
-          # surface its full log, not a truncated last line.
-          umask 022
-          uv build --no-cache --out-dir dist-repro
-          rm -rf build rebrew.egg-info
-          uv run --frozen --no-project python tools/normalize_sdist.py dist-repro/*.tar.gz
+          mkdir ../rebrew-repro
+          git archive HEAD | tar -x -C ../rebrew-repro
+          umask 077
+          TZ=Asia/Tokyo LC_ALL=C.UTF-8 make -C ../rebrew-repro build
           for ext in whl tar.gz; do
             first_sha=$(sha256sum dist/*.$ext | cut -d' ' -f1)
-            second_sha=$(sha256sum dist-repro/*.$ext | cut -d' ' -f1)
+            second_sha=$(sha256sum ../rebrew-repro/dist/*.$ext | cut -d' ' -f1)
             if [[ "$first_sha" != "$second_sha" ]]; then
               echo "::error::$ext is not reproducible (first=$first_sha second=$second_sha)" >&2
               exit 1

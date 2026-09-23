@@ -161,6 +161,11 @@
   documented integrator surface.
 
 ### Changed
+- **CI's reproducibility check varies the build path.**  The package
+  job's second build re-inlined the `uv build` recipe in the same
+  checkout.  It now runs `make build` from a `git archive` copy at
+  another path under another TZ, locale, and umask, so the check covers
+  path, time, and mode leaks and cannot drift from the Makefile.
 - **An unknown target `format` or `arch` fails config load.**  A typo
   such as `arch = "x86-64"` or `format = "ELF"` used to warn and
   continue as `x86_32` / `pe`, disassembling and laying out the binary

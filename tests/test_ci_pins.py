@@ -246,8 +246,10 @@ class TestCiPins:
         assert "uv pip install --python .venv-pkg --no-deps" in package_job
         assert 'uv pip install --python .venv-pkg "${wheels[0]}"' not in package_job
         assert "dist/rebrew.buildinfo" in package_job
-        # Repro check must not hide a failing build behind `tail`.
-        assert "dist-repro" in package_job
+        # Repro check rebuilds through `make build` at another path (no
+        # re-inlined recipe) and must not hide a failing build behind `tail`.
+        assert "make -C ../rebrew-repro build" in package_job
+        assert "uv build" not in package_job
         assert "| tail" not in package_job
 
     def test_makefile_build_writes_buildinfo_and_cleans_residue(self) -> None:
