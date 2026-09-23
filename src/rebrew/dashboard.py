@@ -1001,7 +1001,7 @@ _INDEX_HTML = """<!doctype html>
   table { border-collapse: collapse; width: 100%; margin-top: 1rem; font-size: .85rem; }
   th, td { border: 1px solid #767676; padding: .3rem .5rem; text-align: left; }
   th { background: #f5f5f5; }
-  td.va { font-family: monospace; }
+  td.va { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; }
   #dashboard-error { color: #9a3412; background: #fff7ed; border: 1px solid #9a3412;
     border-radius: 6px; padding: .6rem .8rem; margin: .75rem 0; }
   #empty-state, #no-targets { color: #555; margin: 1rem 0; }
