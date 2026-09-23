@@ -953,8 +953,7 @@ def mut_switch_add_explicit_default(s: str, rng: random.Random) -> str | None:
                 if any(c.type == "default" for c in child.children):
                     has_default = True
                     break
-                else:
-                    cases.append(child)
+                cases.append(child)
 
         if not has_default and cases:
             valid_switches.append(body)

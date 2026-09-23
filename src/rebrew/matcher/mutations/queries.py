@@ -27,7 +27,7 @@ class _LazyQuery:
     ``Query`` constructor can release the GIL).
     """
 
-    __slots__ = ("_lang", "_source", "_query", "_lock")
+    __slots__ = ("_lang", "_lock", "_query", "_source")
 
     def __init__(self, lang: ts.Language, source: str) -> None:
         self._lang = lang

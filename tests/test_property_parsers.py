@@ -858,7 +858,7 @@ def test_count_statuses_invariants(statuses: dict[int, list[str]]) -> None:
     assert set(out) == {"EXACT", "RELOC", "NEAR_MATCHING", "STUB"}
     assert sum(out.values()) <= len(statuses)
     # EXACT outranks STUB wherever both appear for the same VA.
-    for _va, slist in statuses.items():
+    for slist in statuses.values():
         if "EXACT" in slist and "STUB" in slist:
             assert out["EXACT"] >= 1
     # Spot-check priority: a VA with EXACT+STUB counts under EXACT.

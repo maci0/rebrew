@@ -464,11 +464,9 @@ class TestSuggestProfileBorland:
     wrongly defaulting to msvc-6.0 before the unification)."""
 
     def test_borlandc_suggests_borland_3_1_from_real_exe(self) -> None:
-        import pytest as _pt
-
         fixture = Path(__file__).parent / "fixtures" / "tc16_hello.exe"
         if not fixture.exists():
-            _pt.skip("tc16_hello.exe fixture not present")
+            pytest.skip("tc16_hello.exe fixture not present")
         profile, family, _, notes = _suggest_profile(fixture)
         assert family == "borlandc"
         assert profile == "borland-3.1"

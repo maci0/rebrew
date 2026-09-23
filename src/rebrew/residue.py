@@ -126,7 +126,7 @@ def _nonmatching_from_cache(cfg: Any, image_base: int, text_rva: int) -> list[tu
 
     raw = load_verify_cache_raw(cfg) or {}
     out = []
-    for _key, entry in (raw.get("functions") or {}).items():
+    for entry in (raw.get("functions") or {}).values():
         status = entry.get("status")
         delta = entry.get("delta") or 0
         if delta > 0 or status in ("STUB", "SIZE_MISMATCH"):

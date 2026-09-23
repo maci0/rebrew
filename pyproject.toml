@@ -214,7 +214,7 @@ line-length = 100
 # only; PLE after the mutator `__all__` extend() fix).
 # Individual RUF codes below are the stable (non-preview) subset of the RUF
 # family the tree already passes; debt codes
-# (RUF001/002/003/005/007/010/012/021–023/043/046/059) stay off until
+# (RUF001/002/003/005/007/012/021/022/043/059) stay off until
 # clean — no repo-wide ignore for them.  Preview-only RUF/FURB codes are
 # omitted (selecting them is a no-op without preview=true).
 # Bandit/tryceratops/refurb/pie/ret/flake8-builtins/logging/unused-arg codes
@@ -246,13 +246,13 @@ select = [
     "PLC0105", "PLC0131", "PLC0132", "PLC0205", "PLC0207", "PLC0208", "PLC1802",
     "PLC2401", "PLC2403", "PLC3002",
     "PLR0124", "PLR0133", "PLR0206", "PLR1704", "PLR1708", "PLR1716", "PLR1722",
-    "PLR1733", "PLR1736", "PLR2044",
+    "PLR1730", "PLR1733", "PLR1736", "PLR2044",
     "RUF006", "RUF008", "RUF009", "RUF013", "RUF015", "RUF016", "RUF017",
     "RUF018", "RUF019", "RUF020", "RUF024", "RUF026", "RUF028", "RUF030",
     "RUF032", "RUF033", "RUF034", "RUF036", "RUF037", "RUF040", "RUF041",
     "RUF048", "RUF049", "RUF051", "RUF053", "RUF057", "RUF058", "RUF060",
     "RUF061", "RUF063", "RUF064", "RUF068", "RUF100", "RUF101", "RUF102",
-    "RUF103", "RUF104", "RUF200",
+    "RUF103", "RUF104", "RUF200", "RUF010", "RUF023", "RUF046",
     "S102", "S103", "S106", "S107", "S110", "S113", "S201", "S202", "S301",
     "S302", "S303", "S304", "S305", "S306", "S307", "S308", "S310", "S312",
     "S313", "S314", "S315", "S316", "S317", "S318", "S319", "S321", "S323",
@@ -263,7 +263,8 @@ select = [
     "FURB105", "FURB116", "FURB122", "FURB129", "FURB132", "FURB157", "FURB161",
     "FURB162", "FURB163", "FURB164", "FURB166", "FURB168", "FURB169", "FURB177",
     "FURB181", "FURB187",
-    "PERF101", "PERF203", "RET502", "RET503", "RET507",
+    "PERF101", "PERF102", "PERF203", "RET501", "RET502", "RET503", "RET506",
+    "RET507", "RET508",
     "PIE790", "PIE794", "PIE796", "PIE800", "PIE804", "PIE808",
     "A001", "A003", "A004", "A005", "A006",
     "ANN205", "ANN206",
@@ -277,9 +278,10 @@ select = [
     "PTH206", "PTH207", "PTH208", "PTH210", "PTH211",
     "PT002", "PT003", "PT007", "PT008", "PT009", "PT010", "PT015", "PT016",
     "PT020", "PT021", "PT022", "PT023", "PT024", "PT025", "PT026", "PT027",
-    "PT028", "PT031",
+    "PT028", "PT031", "PT001", "PT013",
     "D100", "D104", "D106", "D200", "D201", "D204", "D207", "D208", "D214",
-    "D211", "D215", "D402", "D405", "D406", "D407", "D408", "D409", "D410",
+    "D210", "D211", "D212", "D215", "D402", "D404", "D405", "D406", "D407",
+    "D408", "D409", "D410",
     "D411", "D412", "D414", "D416", "D418", "D419", "COM818",
     "N801", "N803", "N804", "N805", "N807", "N811", "N813", "N816", "N999",
     "TD001", "TD005", "TD007", "TID252", "FIX001", "FIX003", "FIX004",

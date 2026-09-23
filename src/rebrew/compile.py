@@ -236,7 +236,7 @@ def matched_byte_count(
         return match_count
     if compared_len <= 0:
         return 0
-    return int(round(match_percent / 100.0 * compared_len))
+    return round(match_percent / 100.0 * compared_len)
 
 
 def is_matched(status: str) -> bool:
@@ -1364,7 +1364,7 @@ def compile_to_obj(
             args = all_flags + [f"-fo={obj_name}", "-zq", src_name]
         elif arg_style == "posix":
             inc_flags = [f"-I{inc_path}"] if inc_path else []
-            args = all_flags + inc_flags + [f"-I{str(src_parent)}", "-c", "-o", obj_name, src_name]
+            args = all_flags + inc_flags + [f"-I{src_parent!s}", "-c", "-o", obj_name, src_name]
         else:
             args = all_flags + [f"/Fo{obj_name}", src_name]
         try:

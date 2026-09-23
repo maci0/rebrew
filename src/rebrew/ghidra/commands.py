@@ -424,8 +424,7 @@ def pull_data(
                 length = int(length_raw)
             else:
                 length = 0
-            if length < 0:
-                length = 0
+            length = max(length, 0)
             data_type = str(data_info.get("dataType") or "")
             decl, type_note = _build_extern_decl(data_type, symbol_name, length)
             section_name = _find_section(va, sections)

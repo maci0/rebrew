@@ -189,7 +189,7 @@ class _BitReader:
     words and data bytes aligned with the original stub.
     """
 
-    __slots__ = ("data", "si", "bp", "bits")
+    __slots__ = ("bits", "bp", "data", "si")
 
     def __init__(self, data: bytes, offset: int) -> None:
         self.data = data

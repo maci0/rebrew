@@ -70,7 +70,7 @@ class TestResolveIncludeFlags:
         assert out == [f"-I{inc.resolve()}"]
 
     def test_two_token_space_separated(self, tmp_path: Path) -> None:
-        """ "/I ../Units" (split by shlex into two tokens) must merge into
+        """Split "/I ../Units" (two shlex tokens) merges into
         one resolved include flag instead of corrupting the bare /I.
         The next token may carry a trailing comma separator (/I,<dir>)."""
         src_parent = tmp_path / "src"

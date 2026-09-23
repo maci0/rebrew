@@ -1,5 +1,4 @@
-"""
-Relative project-include regression: the docker-only compile path must
+"""Relative project-include regression: the docker-only compile path must
 resolve project-relative includes (the /work source copy is flat, so the
 project root + include dirs are same-path mounted into the container).
 """

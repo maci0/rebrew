@@ -213,14 +213,14 @@ def _build_cells(
     col = 0
     for seg_start, seg_end, state, seg_fns, seg_label, seg_parent in segments:
         remaining = seg_end - seg_start
-        seg_cols = max(1, int(math.ceil(remaining / unit_bytes)))
+        seg_cols = max(1, math.ceil(remaining / unit_bytes))
         cur = seg_start
         cols_left = seg_cols
 
         while cols_left > 0:
             take_cols = min(cols_left, columns - col)
             take_bytes = min(seg_end - cur, take_cols * unit_bytes)
-            span = max(1, int(math.ceil(take_bytes / unit_bytes)))
+            span = max(1, math.ceil(take_bytes / unit_bytes))
             cell_end = cur + take_bytes
             cell_dict: dict[str, Any] = {
                 "start": cur,

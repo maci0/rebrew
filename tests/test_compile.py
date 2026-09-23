@@ -209,7 +209,7 @@ class TestCompileToObj:
         class _FakeCache:
             def get(self, key: str):
                 seen.append(key)
-                return None
+                return
 
             def put(self, key: str, data: bytes) -> None:
                 pass

@@ -102,7 +102,7 @@ class TestCalibrateLoop:
         def fake_run(cmd: object, **kwargs: object) -> None:
             if isinstance(cmd, list):
                 raise subprocess.CalledProcessError(1, cmd, stderr=b"boom")
-            return None
+            return
 
         monkeypatch.setattr(cb.subprocess, "run", fake_run)
 
@@ -140,7 +140,7 @@ class TestCalibrateLoop:
         def fake_run(cmd: object, **kwargs: object) -> None:
             if isinstance(cmd, list):
                 raise subprocess.CalledProcessError(1, cmd, stderr=b"boom")
-            return None
+            return
 
         monkeypatch.setattr(cb.subprocess, "run", fake_run)
 

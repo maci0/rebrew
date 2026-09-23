@@ -115,7 +115,7 @@ def _write_data(db_dir: Path, target: str = "server_dll") -> Path:
     return path
 
 
-@pytest.fixture()
+@pytest.fixture
 def dashboard(tmp_path: Path) -> Dashboard:
     _write_data(tmp_path / "db")
     build_db(tmp_path)

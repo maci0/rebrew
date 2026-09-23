@@ -563,7 +563,7 @@ def cluster_functions(
                 f"overlapping functions 0x{prev_va:08x} (ends 0x{prev_end:08x}) "
                 f"and 0x{curr_va:08x}: fix the registry before clustering"
             )
-        elif gap_len == 0:
+        if gap_len == 0:
             gc = "padding"
         else:
             gap_data = extract_bytes_at_va(info, gap_start, gap_len, trim_padding=False)

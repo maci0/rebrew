@@ -18,7 +18,7 @@ from rebrew.matcher.solutions import (
 )
 
 
-@pytest.fixture()
+@pytest.fixture
 def project_root(tmp_path: Path) -> Path:
     """Create a fake project root with .rebrew dir."""
     (tmp_path / ".rebrew").mkdir()

@@ -247,7 +247,7 @@ class Context:
             self._effects.pop().revert()
 
     def _scope_chain(self) -> Iterator[Context]:
-        """This context, its enclosing contexts, and every derived context.
+        """Yield this context, its enclosing contexts, and every derived context.
 
         One visited-guarded traversal: both a table change (``_changed``) and
         a withdrawal (``unprovide``) must reach every scope whose components

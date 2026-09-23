@@ -343,7 +343,7 @@ class TestBinsyncRoundTrip:
         if gv.exists():
             gv.chmod(0o644)
             doc = tomlkit.parse(gv.read_text(encoding="utf-8"))
-            for _k, entry in doc.items():
+            for entry in doc.values():
                 if isinstance(entry, dict) and "name" in entry:
                     entry["name"] = "g_renamed"
             gv.write_text(tomlkit.dumps(doc), encoding="utf-8")

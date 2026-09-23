@@ -894,7 +894,7 @@ def _definition_text(name: str, entry: dict[str, object]) -> str:
     fields = entry.get("fields")
     if isinstance(fields, dict) and fields:
         lines = [
-            f"\t{str(f.get('type', 'int'))} {fname};"
+            f"\t{f.get('type', 'int')!s} {fname};"
             for fname, f in fields.items()
             if isinstance(f, dict)
         ]

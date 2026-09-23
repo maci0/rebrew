@@ -52,7 +52,7 @@ def _pe_with_stub(work_dir: Path) -> tuple[bytes, int, int]:
     )
 
 
-@pytest.fixture()
+@pytest.fixture
 def pe_path(tmp_path: Path) -> Path:
     pe_bytes, _, _ = _pe_with_stub(tmp_path)
     path = tmp_path / "game.exe"

@@ -1020,7 +1020,7 @@ def detect_with_pdb(path: Path) -> ToolchainInfo | None:
 
 
 def _msvc_version_hint(version: str, profiles: tuple[str, ...] | None) -> str:
-    """ "MSVC 5.0 (cl 11.00.7022)" (+ the rebrew profiles carrying that
+    """Return "MSVC 5.0 (cl 11.00.7022)" (+ the rebrew profiles carrying that
     build).  The version is CL's own version string, whose scheme is NOT the
     product-era number (cl 11.00 = VC 5.0, cl 17.00 = VC 11.0) — prefix the
     era name so "MSVC 11.00.0" never reads as VS2012 when it means VC 5.0."""

@@ -504,8 +504,7 @@ def iter_strings(
     prefixed) strings are recognized in addition to plain ASCII runs —
     Borland Delphi stores its UI strings as Pascal strings.
     """
-    if min_len < 1:
-        min_len = 1
+    min_len = max(min_len, 1)
     names: list[str]
     if info.format == "ne":
         data_segs = [s for s in info.ne_segments if not s.is_code]  # type: ignore[attr-defined]

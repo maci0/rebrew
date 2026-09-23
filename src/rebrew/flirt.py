@@ -319,8 +319,7 @@ def find_func_size(code_data: bytes, offset: int, arch: str = "x86_32", endian: 
     the signature family — mis-decoding MIPS as x86 silently returns the whole
     4096-byte scan window for every function.
     """
-    if offset < 0:
-        offset = 0
+    offset = max(offset, 0)
     max_scan = min(_MAX_FUNC_SCAN, max(0, len(code_data) - offset))
     if max_scan <= 0:
         return 0

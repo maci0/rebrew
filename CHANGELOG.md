@@ -140,6 +140,10 @@
   plus the zero-finding ``PTH*`` pathlib subset — codes the tree already
   passes.  ``B904`` is dropped from ``ignore`` after the raise sites
   gained ``from`` clauses; remaining PTH debt stays off until clean.
+- **Ruff ratchets on 13 more codes** after fixing their few findings:
+  ``D210``/``D212``/``D404``, ``RUF010``/``RUF023``/``RUF046``,
+  ``RET501``/``RET506``/``RET508``, ``PT001``/``PT013``, ``PLR1730``, and
+  ``PERF102``.
 - **Coverage dashboard views for sections, globals, and history**, plus a
   Module filter fed by ``by_module_counts``. Summary failures offer Retry
   summary (same pattern as functions) instead of forcing a full reload;
