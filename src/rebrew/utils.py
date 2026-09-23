@@ -39,11 +39,11 @@ def is_safe_c_ident(name: str) -> bool:
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
-# Process-lifetime source text memo keyed by (resolved path, mtime_ns, size).
+# Process-lifetime source text memo keyed by (resolved path, mtime_ns, size, inode).
 # verify/test/catalog re-read the same tree multiple times per run; a bounded
 # LRU collapses those duplicate syscalls without pinning unbounded content.
 # Guarded: verify -j N reads the same sources from worker threads.
-_SOURCE_TEXT_MEMO: OrderedDict[tuple[str, int, int], tuple[str, str]] = OrderedDict()
+_SOURCE_TEXT_MEMO: OrderedDict[tuple[str, int, int, int], tuple[str, str]] = OrderedDict()
 _SOURCE_TEXT_MEMO_MAX = 512
 _SOURCE_TEXT_MEMO_LOCK = threading.Lock()
 
@@ -420,7 +420,7 @@ def read_source_text(filepath: Path) -> tuple[str, str]:
         data = filepath.read_bytes()
         encoding = detect_source_encoding(data)
         return data.decode(encoding, errors="replace"), encoding
-    memo_key = (str(resolved), st.st_mtime_ns, st.st_size)
+    memo_key = (str(resolved), st.st_mtime_ns, st.st_size, st.st_ino)
     with _SOURCE_TEXT_MEMO_LOCK:
         hit = _SOURCE_TEXT_MEMO.get(memo_key)
         if hit is not None:

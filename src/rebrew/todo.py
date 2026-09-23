@@ -565,7 +565,8 @@ def _collect_prover_candidates(
     verify_entries: dict[str, Any],
 ) -> list[TodoItem]:
     """Collect functions suitable for symbolic equivalence proving."""
-    # Check if angr is importable (without angr's import-time log spam).
+    # Check if the angr extra is installed — find_spec probe; never import
+    # angr here (the real import costs ~0.5 s and this lane runs per todo).
     from rebrew.prove import angr_available
 
     has_angr = angr_available()

@@ -80,29 +80,37 @@ _ANGR_MISSING_MSG = (
 
 
 def angr_available() -> bool:
-    """Return True when angr imports cleanly, without angr's import-time log spam.
+    """Return True when the optional angr extra is installed.
 
-    angr logs an ERROR about its optional unicorn engine at import time; a
-    bare capability probe (``with contextlib.suppress(ImportError): import
-    angr``) would print that alarming line to stderr on every CLI run that
-    merely checks for the optional dependency.  Silence the ``angr`` logger
-    for the duration of the probe — nothing else in the process uses it.
+    A ``find_spec`` probe, not an import: importing angr costs ~0.5 s and
+    every capability check on a hot path (``rebrew todo`` probes the prover
+    lane on each run) would pay it, plus angr logs an ERROR about its
+    optional unicorn engine at import time.  The probe never imports, so it
+    never needs to silence the logger — ``rebrew prove`` silences angr
+    before its own real import instead (see the ``rebrew prove`` entry
+    point).  A broken install still fails fast there, via
+    :func:`_require_angr`.
     """
-    import contextlib
-    import logging
+    import importlib.util
+    import sys
 
-    with contextlib.suppress(ImportError):
-        logging.getLogger("angr").setLevel(logging.CRITICAL)
-        import angr  # noqa: F401  # presence probe; name unused
-
-        return True
-    return False
+    if "angr" in sys.modules:
+        # Already loaded (or a test-poisoned None) — answer from the cache,
+        # never triggering the import ourselves.
+        return sys.modules["angr"] is not None
+    try:
+        return importlib.util.find_spec("angr") is not None
+    except (ImportError, ValueError):
+        # find_spec can also raise when the spec machinery is unusable.
+        return False
 
 
 def _require_angr() -> None:
-    """Raise a clear error if angr is not installed."""
-    if not angr_available():
-        raise ImportError(_ANGR_MISSING_MSG)
+    """Raise a clear error if angr cannot be imported."""
+    try:
+        import angr  # noqa: F401  # real import: proves the install works
+    except ImportError as exc:
+        raise ImportError(_ANGR_MISSING_MSG) from exc
 
 
 # ---------------------------------------------------------------------------

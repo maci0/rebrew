@@ -109,6 +109,28 @@ class TestSourceHash:
         assert hash_a != hash_b
         assert path.stat().st_mtime_ns == st.st_mtime_ns
 
+    def test_hash_busts_on_same_size_rename_over_at_same_mtime(self, tmp_path: Path) -> None:
+        """A same-size rename-over (editor save, atomic_write_text) in one mtime
+        tick changes only the inode; the memo must not serve the old bytes."""
+        import os
+
+        from rebrew.utils import read_source_text
+
+        path = tmp_path / "func.c"
+        path.write_text("int foo(void) { return 1; }\n", encoding="utf-8")
+        hash_a = _source_hash(path)
+        text_a, _ = read_source_text(path)
+        st = path.stat()
+        tmp = tmp_path / "func.c.tmp"
+        tmp.write_text("int foo(void) { return 2; }\n", encoding="utf-8")
+        os.utime(tmp, ns=(st.st_atime_ns, st.st_mtime_ns))
+        os.replace(tmp, path)
+        st_b = path.stat()
+        assert (st_b.st_mtime_ns, st_b.st_size) == (st.st_mtime_ns, st.st_size)
+        assert _source_hash(path) != hash_a
+        text_b, _ = read_source_text(path)
+        assert text_b != text_a
+
 
 class TestLoadVerifyCache:
     def test_load_valid_cache(self, tmp_path: Path) -> None:

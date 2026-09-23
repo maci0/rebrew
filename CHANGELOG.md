@@ -179,6 +179,21 @@
   documented integrator surface.
 
 ### Changed
+- **`rebrew todo` runs in half the time; `rebrew lint` prints in one
+  pass.**  Measured on a 400-file/1600-function project (medians of 5
+  cold runs): the prover-lane probe ran a full `import angr` (~0.5 s
+  CPU plus its whole package graph) on every `rebrew todo`; lint issued
+  one Rich `console.print` per warning line (2401 calls — markup parse,
+  default highlighter, word-wrap each time, ~50% of the profiled run)
+  and eagerly loaded LIEF for the W016 section resolver even when no
+  marker queried it.  `angr_available()` is now a `find_spec` probe over
+  `sys.modules` (`_require_angr` keeps the real import and its friendly
+  error, after prove silences the angr logger), `LintResult.display`
+  emits one batched `print(..., highlight=False)` per file — explicit
+  colour tags unchanged, only ReprHighlighter decoration dropped — and
+  the section resolver loads the binary on first use.  todo 1.10 s →
+  0.58 s real (user 1.02 → 0.54); lint 1.09 s → 0.96 s (user 1.04 →
+  0.91); status unchanged.  `TestAngrAvailable` pins the probe contract.
 - **Every `rebrew` command stops burning ~2 CPU-seconds on startup.**
   Importing NumPy spawns OpenBLAS's full-width thread pool (64 threads
   on a Ryzen 9950X) and spins it while the rest of the interpreter
@@ -523,6 +538,12 @@
   in emission order.
 
 ### Fixed
+- **Same-size source rewrites no longer serve stale bytes.**  The source
+  text, source hash, naked-fence, and `rebrew-libraries.toml` memos keyed
+  on path, mtime, and size, so a same-length edit saved by rename within
+  one mtime tick kept the old content, and `rebrew verify` could keep a
+  stale verdict for a changed source.  The keys now include the inode,
+  matching the metadata TOML cache.
 - **Parallel runs no longer let thread timing pick the winner.**  The
   flag sweep sorted by score only, so combos that compiled to identical
   bytes kept worker completion order and `--flag-sweep-then-ga` could

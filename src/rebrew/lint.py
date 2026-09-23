@@ -143,11 +143,21 @@ class LintResult:
     def display(self, quiet: bool = False) -> None:
         """Print errors (and optionally warnings) to the console."""
         rel = self.filepath.name
-        for line, code, msg in self.errors:
-            console.print(f"  [bold]{rel}[/bold]:{line}: [red]{code}[/red]: {msg}")
+        lines = [
+            f"  [bold]{rel}[/bold]:{line}: [red]{code}[/red]: {msg}"
+            for line, code, msg in self.errors
+        ]
         if not quiet:
-            for line, code, msg in self.warnings:
-                console.print(f"  [bold]{rel}[/bold]:{line}: [yellow]{code}[/yellow]: {msg}")
+            lines += [
+                f"  [bold]{rel}[/bold]:{line}: [yellow]{code}[/yellow]: {msg}"
+                for line, code, msg in self.warnings
+            ]
+        if lines:
+            # One console.print per file: per-line prints each paid Rich's
+            # full markup+highlight+wrap pipeline (2401 calls — half of
+            # batch-lint time).  highlight=False drops the ReprHighlighter
+            # decoration only; the explicit colour tags above still apply.
+            console.print("\n".join(lines), highlight=False)
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize for JSON output."""
@@ -1856,26 +1866,36 @@ def main(
     # Pre-load the function list once for the whole batch (W028).
     function_index = _build_function_index(cfg) if cfg else None
     # Section resolver for W016 autofix (DATA/GLOBAL markers missing SECTION):
-    # one binary parse per batch, mapping VA -> section name.  None when the
-    # binary is unavailable — W016 then stays warn-only.
+    # one binary parse per batch, mapping VA -> section name.  The load is
+    # deferred to the first VA actually queried: a run without a SECTION-less
+    # DATA/GLOBAL marker never pays LIEF's ~0.13 s import, and an unusable
+    # binary just leaves the resolver returning "" (W016 stays warn-only).
     section_for_va: Any = None
     if cfg is not None and getattr(cfg, "target_binary", None):
-        with contextlib.suppress(Exception):
-            from rebrew.binary_loader import load_binary
+        _bin_path = cfg.target_binary
+        _loaded = False
+        _ranges: list[tuple[int, int, str]] = []
 
-            _info = load_binary(cfg.target_binary)
-            _ranges = sorted(
-                ((s.va, s.va + s.size, s.name) for s in _info.sections.values()),
-                key=lambda t: t[0],
-            )
+        def section_for_va(va: int) -> str:
+            nonlocal _loaded, _ranges
+            if not _loaded:
+                _loaded = True  # an unusable binary must not retry per VA
+                try:
+                    from rebrew.binary_loader import load_binary
 
-            def section_for_va(va: int, _ranges: list[tuple[int, int, str]] = _ranges) -> str:
-                idx = bisect.bisect_right([r[0] for r in _ranges], va) - 1
-                if idx >= 0:
-                    start, end, name = _ranges[idx]
-                    if start <= va < end:
-                        return name
-                return ""
+                    _info = load_binary(_bin_path)
+                    _ranges = sorted(
+                        ((s.va, s.va + s.size, s.name) for s in _info.sections.values()),
+                        key=lambda t: t[0],
+                    )
+                except Exception:
+                    _ranges = []
+            idx = bisect.bisect_right([r[0] for r in _ranges], va) - 1
+            if idx >= 0:
+                start, end, name = _ranges[idx]
+                if start <= va < end:
+                    return name
+            return ""
 
     section_hits: list[MissingSection] = []
 

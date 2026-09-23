@@ -1340,12 +1340,12 @@ def all_library_presets() -> dict[str, dict[str, str]]:
 
 
 #: Process-level memo for :func:`parse_library_metadata`, keyed by file path.
-#: Entries hold ``((mtime_ns, size), parsed_dict)`` so a repeated resolution
+#: Entries hold ``((mtime_ns, size, inode), parsed_dict)`` so a repeated resolution
 #: skips the read+parse while any rewrite (new mtime/size) re-parses.  Cleared
 #: wholesale when full — library files per project are few.
 #: Guarded: ``rebrew verify -j N`` resolves overrides from worker threads and
 #: the clear-then-store eviction is a multi-step mutation on a shared dict.
-_LIBRARY_META_CACHE: dict[str, tuple[tuple[int, int], dict[str, Any]]] = {}
+_LIBRARY_META_CACHE: dict[str, tuple[tuple[int, int, int], dict[str, Any]]] = {}
 _LIBRARY_META_CACHE_MAX = 64
 _LIBRARY_CACHE_LOCK = threading.Lock()
 
@@ -1356,7 +1356,7 @@ def parse_library_metadata(path: Path) -> dict[str, Any]:
     Returns ``{}`` for an absent file.  Raises :class:`LibraryOverrideError`
     on malformed TOML or a non-dict document.
 
-    Memoized per process behind an ``mtime_ns``+``size`` stat guard:
+    Memoized per process behind an ``mtime_ns``+``size``+inode stat guard:
     override resolution runs once per function (verify's cache-hit check,
     per-entry save, and every compile site re-resolve), so a batch over a
     library directory re-read and re-parsed the same small TOML thousands
@@ -1371,7 +1371,7 @@ def parse_library_metadata(path: Path) -> dict[str, Any]:
         with _LIBRARY_CACHE_LOCK:
             _LIBRARY_META_CACHE.pop(key, None)
         return {}
-    fp = (st.st_mtime_ns, st.st_size)
+    fp = (st.st_mtime_ns, st.st_size, st.st_ino)
     with _LIBRARY_CACHE_LOCK:
         cached = _LIBRARY_META_CACHE.get(key)
         if cached is not None and cached[0] == fp:

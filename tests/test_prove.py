@@ -1521,26 +1521,40 @@ class TestSharedArgConstraintSymbols:
 
 
 class TestAngrAvailable:
-    def test_probe_silences_angr_logger(self) -> None:
-        """The capability probe must not print angr's import-time ERROR spam.
+    def test_probe_is_find_spec_not_import(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The capability probe must never import angr.
 
-        angr logs about its optional unicorn engine at import; a plain
-        ``import angr`` probe pollutes stderr of unrelated CLIs (todo,
-        doctor).  The helper silences the angr logger during the probe.
+        The prover-lane check runs on every `rebrew todo`; a real import
+        costs ~0.5 s and drags angr's whole package graph into a CLI that
+        only asks "is the extra installed?".  find_spec answers without
+        touching sys.modules or the angr logger.
         """
         import logging
+        import sys
 
+        monkeypatch.delitem(sys.modules, "angr", raising=False)
         logger = logging.getLogger("angr")
-        original = logger.getEffectiveLevel()
-        try:
-            logger.setLevel(logging.NOTSET)
-            result = angr_available()
-            if result:  # angr installed — verify the silencing side-effect
-                assert logger.getEffectiveLevel() == logging.CRITICAL
-            # Either way the probe returns a bool without raising.
-            assert isinstance(result, bool)
-        finally:
-            # Restore the pre-test level: the probe permanently raises the
-            # angr logger to CRITICAL (by design), which must not leak into
-            # later tests in the same process.
-            logger.setLevel(original)
+        level_before = logger.getEffectiveLevel()
+        result = angr_available()
+        assert isinstance(result, bool)
+        assert "angr" not in sys.modules, "probe must not import angr"
+        assert logger.getEffectiveLevel() == level_before, "probe must not touch the logger"
+
+    def test_probe_false_when_module_poisoned(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """sys.modules['angr'] = None (partial uninstall) reads as absent."""
+        import sys
+
+        monkeypatch.setitem(sys.modules, "angr", None)
+        assert angr_available() is False
+
+    def test_require_angr_still_raises_the_friendly_error(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The real import probe keeps its actionable message for broken installs."""
+        import sys
+
+        from rebrew.prove import _require_angr
+
+        monkeypatch.setitem(sys.modules, "angr", None)
+        with pytest.raises(ImportError, match="rebrew prove"):
+            _require_angr()
