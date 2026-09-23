@@ -895,24 +895,30 @@ async function init() {
   const bootFits = $("target").value === targets[0];
   bindControls();
   syncViewChrome();
+  let summaryLoad = null;
   if (boot.summary && bootFits) {
     setLoadError("summary", "");
     renderSummary(boot.summary);
   } else {
-    await loadSummary();
+    summaryLoad = loadSummary();
+    // Restored Status/Module values become options only once the summary
+    // renders; without them, functions and the view load alongside it.
+    if (pendingStatus || pendingModule) await summaryLoad;
   }
   hashReady = true;
   updateFilterActions();
   const unfiltered = !$("status").value && !$("module").value && !$("q").value.trim();
+  let functionsLoad = null;
   if (boot.functions && bootFits && unfiltered) {
     setLoadError("functions", "");
     $("results").hidden = false;
     viewLoaded.functions = true;
     renderFunctions(boot.functions);
   } else {
-    await loadFunctions();
+    functionsLoad = loadFunctions();
   }
-  loadCurrentView(false);
+  const viewLoad = currentView === "functions" ? null : loadCurrentView(false);
+  await Promise.all([summaryLoad, functionsLoad, viewLoad]);
 }
 function start() {
   return init().catch(error => {

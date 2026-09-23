@@ -174,6 +174,11 @@
   documented integrator surface.
 
 ### Changed
+- **`rebrew dashboard` restores a saved target in one round trip.**  When
+  the URL hash picked a target other than the first, the client fetched
+  the summary, then functions, then the active view, one after another.
+  They now load in parallel; only a restored Status or Module filter still
+  waits for the summary that lists its options.
 - **`make build` hash-verifies the build backend.**  `uv build` fetched
   the pinned setuptools from PyPI with no hash check.  It now runs with
   `--build-constraints build-constraints.txt --require-hashes`, and fails
