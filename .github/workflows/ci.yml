@@ -143,6 +143,13 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Install dependencies
         run: uv sync --frozen --all-extras --group similarity
+      - name: Cache pre-commit hook environments
+        # Remote hook repos (pre-commit-hooks) are cloned and installed on
+        # first use; the key changes whenever a `rev:` pin does.
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ runner.os }}-${{ hashFiles('.pre-commit-config.yaml') }}
       - name: Run pre-commit hooks
         env:
           SKIP: ruff-check,ruff-format,mypy
