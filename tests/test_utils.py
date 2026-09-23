@@ -719,6 +719,33 @@ class TestWritableTempDir:
 
             shutil.rmtree(d, ignore_errors=True)
 
+    def test_wheel_install_skips_install_tree(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Without a source checkout, fall through to the system temp dir,
+        never into the interpreter's lib/ (the wheel install prefix)."""
+        import tempfile
+
+        import rebrew.utils as utils
+
+        blocked = tmp_path / "file"
+        blocked.write_text("")
+        monkeypatch.setenv("XDG_CACHE_HOME", str(blocked))
+        monkeypatch.setattr(utils, "SOURCE_CHECKOUT", None)
+        d = utils.writable_temp_dir("rebrew_test_")
+        try:
+            assert d.parent == Path(tempfile.gettempdir())
+        finally:
+            import shutil
+
+            shutil.rmtree(d, ignore_errors=True)
+
+    def test_wheel_install_has_no_vendored_tools(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import rebrew.utils as utils
+
+        monkeypatch.setattr(utils, "SOURCE_CHECKOUT", None)
+        assert utils.find_install_tool("tools/diec") is None
+
 
 class TestRemoveTempDir:
     def test_removes_dir(self, tmp_path: Path) -> None:

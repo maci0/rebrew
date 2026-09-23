@@ -37,7 +37,11 @@ def is_safe_c_ident(name: str) -> bool:
     return bool(_C_IDENT_RE.match(name))
 
 
-_REPO_ROOT = Path(__file__).resolve().parents[2]
+_CHECKOUT = Path(__file__).resolve().parents[2]
+#: The rebrew source checkout (editable install), or None for a wheel install,
+#: where ``parents[2]`` is the interpreter's ``lib/python3.X`` and must be
+#: neither searched for vendored tools nor written to.
+SOURCE_CHECKOUT: Path | None = _CHECKOUT if (_CHECKOUT / "pyproject.toml").is_file() else None
 
 # Process-lifetime source text memo keyed by (resolved path, mtime_ns, size, inode).
 # verify/test/catalog re-read the same tree multiple times per run; a bounded
@@ -69,7 +73,9 @@ def find_install_tool(rel: str | Path) -> Path | None:
     (via ``rebrew init --link-tools-from``) still takes precedence because
     callers check the project path first.
     """
-    p = _REPO_ROOT / rel
+    if SOURCE_CHECKOUT is None:
+        return None
+    p = SOURCE_CHECKOUT / rel
     return p if p.exists() else None
 
 
@@ -1281,7 +1287,7 @@ def writable_temp_dir(prefix: str) -> Path:
     sandbox under the system temp dir (often tmpfs, and invisible to
     docker in sandboxed environments) silently breaks the compile.  The
     user's cache dir is preferred when writable; when it is read-only
-    (sandboxed homes / CI) fall back to the rebrew workspace ``.cache``
+    (sandboxed homes / CI) fall back to the source checkout's ``.cache`` (editable installs only)
     (a real disk, visible to docker) and then the system temp dir.
 
     Cache sandboxes live under ``$XDG_CACHE_HOME/rebrew/tmp`` when that
@@ -1292,9 +1298,9 @@ def writable_temp_dir(prefix: str) -> Path:
     Raises :class:`OSError` when no candidate is writable."""
     import tempfile
 
-    workspace = Path(__file__).resolve().parents[2] / ".cache"
-    home_tmp = xdg_cache_home() / "rebrew" / "tmp"
-    candidates = [home_tmp, workspace]
+    candidates = [xdg_cache_home() / "rebrew" / "tmp"]
+    if SOURCE_CHECKOUT is not None:
+        candidates.append(SOURCE_CHECKOUT / ".cache")
     with contextlib.suppress(Exception):
         candidates.append(Path(tempfile.gettempdir()))
     for base in candidates:

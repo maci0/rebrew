@@ -538,6 +538,13 @@
   in emission order.
 
 ### Fixed
+- **Wheel installs stay out of the interpreter's `lib/`.**  Under
+  `uv tool install` (no source checkout) the vendored-tool lookups and the
+  compile-sandbox fallback resolved `parents[2]` of the package to
+  `lib/python3.X`, so a read-only cache dir made `writable_temp_dir` create
+  `lib/python3.X/.cache`.  Those paths now apply only to an editable
+  checkout (`pyproject.toml` next to `src/`); a wheel install falls through
+  to the system temp dir.
 - **`rebrew build-db --force` deletes the WAL files too.**  A schema
   mismatch (or a schema-less leftover) deleted `coverage.db` but kept
   `coverage.db-wal` / `-shm`, so a WAL left by a killed build was replayed

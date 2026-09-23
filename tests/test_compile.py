@@ -45,7 +45,7 @@ class TestResolveClCommand:
         fake = tmp_path / "toolchain" / "msvc" / "6.0-win32" / "VC98" / "Bin" / "CL.EXE"
         fake.parent.mkdir(parents=True)
         fake.write_bytes(b"MZ")
-        monkeypatch.setattr(rebrew_utils, "_REPO_ROOT", tmp_path)
+        monkeypatch.setattr(rebrew_utils, "SOURCE_CHECKOUT", tmp_path)
         cfg = ProjectConfig(
             root=tmp_path / "project",
             compiler_command="wine toolchain/msvc/6.0-win32/VC98/Bin/CL.EXE",

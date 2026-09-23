@@ -39,7 +39,7 @@ from rebrew.annotation import iter_annotations
 from rebrew.cli import EXIT_OK, error_exit, json_print
 from rebrew.skeleton import C89_STRICT_PROFILES
 from rebrew.sources import iter_sources
-from rebrew.utils import atomic_write_text
+from rebrew.utils import SOURCE_CHECKOUT, atomic_write_text
 
 console = Console(stderr=True)
 
@@ -66,7 +66,7 @@ def _link_names_for(profile: str) -> tuple[str, str] | None:
     return name, name
 
 
-REPO_TOOLS = Path(__file__).resolve().parents[2] / "tools"
+REPO_TOOLS: Path | None = SOURCE_CHECKOUT / "tools" if SOURCE_CHECKOUT is not None else None
 
 
 @dataclass
@@ -315,9 +315,11 @@ def _link_toolchain(project: Path, profile: str) -> str | None:
     tools = project / "tools"
     tools.mkdir(exist_ok=True)
     link = tools / link_name
-    src = REPO_TOOLS / src_name
     if link.exists():
         return str(link)
+    if REPO_TOOLS is None:
+        return None
+    src = REPO_TOOLS / src_name
     if not src.exists():
         return None
     try:
@@ -560,7 +562,7 @@ def main(
                 )
             elif spec is None or spec.image is None:
                 console.print(
-                    f"[yellow]  toolchain: not found in {REPO_TOOLS} — symlink "
+                    f"[yellow]  toolchain: not found in {REPO_TOOLS or 'the rebrew install'} — symlink "
                     "tools/ yourself or run rebrew doctor[/yellow]"
                 )
         for note in notes:

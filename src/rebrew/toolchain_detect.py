@@ -61,6 +61,7 @@ from typing import Any, cast
 
 from rebrew.binary_loader import REAL_MODE_ADDRESS_MASK, load_binary
 from rebrew.pe_headers import pe_lfanew
+from rebrew.utils import SOURCE_CHECKOUT
 
 logger = logging.getLogger(__name__)
 
@@ -146,9 +147,10 @@ _BORLANDC_IMPORTS = {
     "borlndmm.dll",
 }
 
-#: Where a vendored Detect It Easy lives inside the rebrew repo (tools/diec).
-_REPO_ROOT = Path(__file__).resolve().parents[2]
-_VENDORED_DIEC = _REPO_ROOT / "tools" / "diec" / "diec"
+#: Vendored Detect It Easy in a rebrew source checkout (tools/diec); None in a wheel install.
+_VENDORED_DIEC = (
+    SOURCE_CHECKOUT / "tools" / "diec" / "diec" if SOURCE_CHECKOUT is not None else None
+)
 
 #: MSVC version strings DIE reports (e.g. "12.00.9782" = MSVC 6.0) mapped to
 #: the era rebrew profiles care about.  Only used to pick a version hint —
@@ -445,7 +447,7 @@ def _find_diec() -> Path | None:
     found = shutil.which("diec")
     if found:
         return Path(found)
-    if _VENDORED_DIEC.exists():
+    if _VENDORED_DIEC is not None and _VENDORED_DIEC.exists():
         return _VENDORED_DIEC
     return None
 

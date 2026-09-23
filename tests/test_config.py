@@ -1630,7 +1630,7 @@ command = "wine toolchain/msvc/6.0-win32/VC98/Bin/CL.EXE"
         fake = tmp_path / "toolchain" / "msvc" / "6.0-win32" / "source" / "VC98" / "Include"
         fake.mkdir(parents=True)
         (fake / "stdio.h").write_text("")
-        monkeypatch.setattr(rebrew_utils, "_REPO_ROOT", tmp_path)
+        monkeypatch.setattr(rebrew_utils, "SOURCE_CHECKOUT", tmp_path)
         root = _make_project(tmp_path, self.TOML)
         cfg = load_config(root)
         assert cfg.compiler_includes == fake
@@ -1648,7 +1648,7 @@ command = "wine toolchain/msvc/6.0-win32/VC98/Bin/CL.EXE"
         (mirror / "Bin" / "CL.EXE").write_bytes(b"MZ")
         (mirror / "Include").mkdir()
         (mirror / "Include" / "stdio.h").write_text("")
-        monkeypatch.setattr(rebrew_utils, "_REPO_ROOT", tmp_path)
+        monkeypatch.setattr(rebrew_utils, "SOURCE_CHECKOUT", tmp_path)
         root = _make_project(tmp_path, self.TOML)
         cfg = load_config(root)
         assert (
@@ -1673,7 +1673,7 @@ command = "wine toolchain/msvc/6.0-win32/VC98/Bin/CL.EXE"
             / "Include"
             / "stdio.h"
         ).write_text("")
-        monkeypatch.setattr(rebrew_utils, "_REPO_ROOT", tmp_path)
+        monkeypatch.setattr(rebrew_utils, "SOURCE_CHECKOUT", tmp_path)
         root = _make_project(tmp_path, self.TOML)
         cfg = load_config(root)
         assert (
