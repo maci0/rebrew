@@ -694,11 +694,11 @@ def recommend_default_names(
 
 
 def recommend_stale_cache(
-    cache_mtime: float,
-    newest_source_mtime: float,
+    cache_mtime_ns: int,
+    newest_source_mtime_ns: int,
 ) -> Recommendation | None:
     """Advise ``rebrew verify`` when sources are newer than the verify cache."""
-    if newest_source_mtime <= cache_mtime:
+    if newest_source_mtime_ns <= cache_mtime_ns:
         return None
     return Recommendation(
         kind="stale-cache",
@@ -994,16 +994,16 @@ def _collect_hygiene(
 
         cache_path = cfg.root / ".rebrew" / "verify_cache.json"
         try:
-            cache_mtime = cache_path.stat().st_mtime
+            cache_mtime_ns = cache_path.stat().st_mtime_ns
         except OSError:
-            cache_mtime = 0.0
-        newest = 0.0
+            cache_mtime_ns = 0
+        newest_ns = 0
         for cfile in iter_sources(cfg.reversed_dir, cfg):
             try:
-                newest = max(newest, cfile.stat().st_mtime)
+                newest_ns = max(newest_ns, cfile.stat().st_mtime_ns)
             except OSError:
                 continue
-        rec = recommend_stale_cache(cache_mtime, newest)
+        rec = recommend_stale_cache(cache_mtime_ns, newest_ns)
         if rec:
             recs.append(rec)
 
