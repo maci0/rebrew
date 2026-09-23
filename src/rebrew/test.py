@@ -61,8 +61,8 @@ from rebrew.compile import (
     is_matched,
     matched_byte_count,
 )
+from rebrew.compile_context import CompileContext
 from rebrew.config import ProjectConfig
-from rebrew.context import CompileContext
 from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
 from rebrew.metadata import (
     is_status_parked,
@@ -393,7 +393,7 @@ def main(
     # the source (typically `rebrew context -o ctx.c`).  It is a compile
     # input (merged into the compile unit and hashed into the result), so a
     # missing file fails loud instead of silently compiling without it.
-    from rebrew.context import load_compile_context
+    from rebrew.compile_context import load_compile_context
 
     try:
         compile_context = load_compile_context(context)

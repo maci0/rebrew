@@ -68,8 +68,8 @@ import numpy as np
 from rebrew.binary_loader import BinaryInfo, SectionInfo, load_binary
 from rebrew.coff_reloc import build_iat_region, smart_reloc_compare
 from rebrew.compile_cache import CacheBackend, compile_cache_key, get_compile_cache
+from rebrew.compile_context import CONTEXT_UNIT_NAME, CompileContext
 from rebrew.config import DEFAULT_COMPILE_TIMEOUT, ProjectConfig, validate_http_url
-from rebrew.context import CONTEXT_UNIT_NAME, CompileContext
 from rebrew.headless import _XVFB_RUN_SERVER_ARGS, ensure_xvfb
 from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
 from rebrew.metadata import canonical_status
@@ -1228,7 +1228,7 @@ def compile_to_obj(
             diff source's parent, for relative #include resolution) -
             same-path mounted into the container like the other /I dirs.
         context: Project-supplied declarations to compile with the source
-            (:class:`rebrew.context.CompileContext`).  Merged into the
+            (:class:`rebrew.compile_context.CompileContext`).  Merged into the
             compile unit under ``#line`` directives, so the compiler reads the
             merged text (not the bare source) and the compile-cache key hashes
             that same text.  ``None`` compiles the source alone.
@@ -1945,7 +1945,7 @@ def compile_and_compare(
             (same catalog used by ``rebrew test``).
         section_va: Optional function start VA for precise REL32 validation.
         context: Project-supplied declarations to compile with the source
-            (:class:`rebrew.context.CompileContext`); the resulting
+            (:class:`rebrew.compile_context.CompileContext`); the resulting
             ``CompareResult.context_hash`` records the digest the verdict was
             earned under.
 

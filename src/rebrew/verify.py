@@ -30,7 +30,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from rebrew.compile import CompareResult, CompareStatus
     from rebrew.compile_cache import CacheBackend
-    from rebrew.context import CompileContext
+    from rebrew.compile_context import CompileContext
 
 import typer
 from rich.console import Console
@@ -760,7 +760,7 @@ def main(
     # compile input: merged into every compile unit and hashed into each
     # result; the cache identity records the digest, so a cached verdict is
     # only served to a run pinned to the same context.
-    from rebrew.context import load_compile_context
+    from rebrew.compile_context import load_compile_context
 
     try:
         compile_context = load_compile_context(context)

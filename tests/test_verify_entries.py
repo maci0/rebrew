@@ -231,7 +231,7 @@ class TestPrepareEntriesCache:
         pinned to a different (or no) context must re-verify, and a bare
         run must not serve a context-earned row.
         """
-        from rebrew.context import CompileContext
+        from rebrew.compile_context import CompileContext
 
         entry = _ann(0x1000)
         cfg = self._setup(tmp_path, monkeypatch, entry)

@@ -20,7 +20,7 @@ from rebrew.compile import (
     contextualized_source,
 )
 from rebrew.compile_cache import CompileCache
-from rebrew.context import CompileContext, context_sha256, load_compile_context
+from rebrew.compile_context import CompileContext, context_sha256, load_compile_context
 from rebrew.toolchain_spec import ToolchainSpec
 
 SOURCE = "int f(int a) { return a + 1; }\n"
