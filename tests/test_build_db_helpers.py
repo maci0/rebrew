@@ -281,6 +281,24 @@ class TestCheckDbVersion:
         _check_db_version(db, force=True)
         assert not db.exists()
 
+    def test_force_delete_removes_wal_sidecars(self, tmp_path: Path) -> None:
+        """A leftover -wal from a crashed build would be replayed into the
+        freshly created database, so the sidecars go with the main file."""
+        from rebrew.build_db import _check_db_version
+
+        db = self._db(tmp_path, "999")
+        sidecars = [db.with_name(db.name + s) for s in ("-wal", "-shm")]
+        # An open writer keeps its committed frames in -wal, as a killed build would.
+        with contextlib.closing(sqlite3.connect(db)) as writer:
+            writer.execute("PRAGMA journal_mode=WAL")
+            writer.execute("PRAGMA wal_autocheckpoint=0")
+            writer.execute("INSERT INTO metadata VALUES ('t', 'k', 'v')")
+            writer.commit()
+            assert all(s.exists() for s in sidecars)
+            _check_db_version(db, force=True)
+        assert not db.exists()
+        assert [s for s in sidecars if s.exists()] == []
+
     def test_missing_metadata_table_rebuilds(self, tmp_path: Path) -> None:
         """A DB file with no schema is rebuild debris (a failed build rolls
         back its DDL) — it must be unlinked for rebuild, not wedge every

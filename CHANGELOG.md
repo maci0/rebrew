@@ -538,6 +538,11 @@
   in emission order.
 
 ### Fixed
+- **`rebrew build-db --force` deletes the WAL files too.**  A schema
+  mismatch (or a schema-less leftover) deleted `coverage.db` but kept
+  `coverage.db-wal` / `-shm`, so a WAL left by a killed build was replayed
+  into the freshly created database.  The side files are now deleted along
+  with the main file.
 - **Same-size source rewrites no longer serve stale bytes.**  The source
   text, source hash, naked-fence, and `rebrew-libraries.toml` memos keyed
   on path, mtime, and size, so a same-length edit saved by rename within

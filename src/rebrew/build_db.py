@@ -450,6 +450,18 @@ def resolve_db_dir(root_dir: Path, *, json_output: bool = False) -> Path:
     return db_dir(root_dir)
 
 
+#: SQLite side files that belong to one database file.  A -wal left behind
+#: by a killed build is replayed into whatever database next opens that path.
+_SQLITE_SIDECAR_SUFFIXES = ("-wal", "-shm", "-journal")
+
+
+def _unlink_db(db_path: Path) -> None:
+    """Delete *db_path* and its SQLite side files."""
+    db_path.unlink()
+    for suffix in _SQLITE_SIDECAR_SUFFIXES:
+        db_path.with_name(db_path.name + suffix).unlink(missing_ok=True)
+
+
 def _check_db_version(db_path: Path, *, force: bool = False, json_output: bool = False) -> None:
     """Raise SystemExit (via error_exit) if DB exists with an incompatible schema version.
 
@@ -504,7 +516,7 @@ def _check_db_version(db_path: Path, *, force: bool = False, json_output: bool =
             "[yellow]warning:[/yellow] existing database has no schema (likely a "
             "failed build); deleting and rebuilding."
         )
-        db_path.unlink()
+        _unlink_db(db_path)
         return
 
     if stored_version == _CURRENT_DB_VERSION:
@@ -537,7 +549,7 @@ def _check_db_version(db_path: Path, *, force: bool = False, json_output: bool =
             f"[yellow]warning:[/yellow] schema mismatch (stored={stored_version!r}, "
             f"required={_CURRENT_DB_VERSION!r}); deleting '{db_path}' and rebuilding (--force)."
         )
-        db_path.unlink()
+        _unlink_db(db_path)
 
 
 def _missing_required_objects(db_path: Path) -> set[str]:
