@@ -191,7 +191,7 @@ profile = "msvc-7.0"
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `profile` | `string` | `"msvc-6.0"` | Selects the toolchain's docker image and the flag-sweep axes for `rebrew match` |
+| `profile` | `string` | `"msvc-6.0"` | Selects the toolchain's docker image and the flag-sweep axes for `rebrew match`. Must name a registered toolchain (`rebrew toolchain list`); an unknown or retired name warns and falls back to `msvc-6.0` |
 | `command` | `string` | `"wine CL.EXE"` | Host compiler invocation (resolved relative to project root). **Empty for docker-backed profiles** — the image IS the compiler (that is what `rebrew init` writes for every shipped profile); only a plugin toolchain registered without an image sets a real command. The `wine CL.EXE` fallback default is inert under docker-only execution |
 | `includes` | `string` | `"toolchain/msvc/6.0-win32/source/VC98/Include"` | Path to compiler include directory. For `msvc-6.0`/`msvc-7.0` the default resolves the best layout actually present (full master, then the vendored compile-only mirrors `toolchain/msvc/6.0-sp6-win32`/`toolchain/msvc/6.0-sp3-win32`/`toolchain/msvc/7.0-win32`) — see `rebrew init` output and docs/TOOLCHAIN.md. Empty is valid ("no extra dir"; e.g. `mingw-16.2.0` ships its own headers) |
 | `libs` | `string` | `"toolchain/msvc/6.0-win32/source/VC98/Lib"` | Path to compiler lib directory (empty is valid — the compile-only mirrors ship no `Lib/`) |
