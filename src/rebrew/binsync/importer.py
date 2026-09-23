@@ -571,6 +571,7 @@ def import_state(
                         "action": "conflict (accept-binsync)",
                     }
                 )
+                applied_names += 1
             else:
                 try:
                     if _apply_binsync_func_name(cfg, local, bs_stripped, local_filepath):

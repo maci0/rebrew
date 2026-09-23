@@ -365,10 +365,16 @@ def overlay_state(
                 _strip_cdecl_prefix(local_name) if local_name.startswith("_") else local_name
             )
             if bs_name and is_meaningful(bs_name) and bs_stripped != local_stripped:
-                if not is_meaningful(local_name):
+                local_meaningful = is_meaningful(local_name)
+                if local_meaningful:
+                    conflicts.append(_conflict(dst_va, src_va, "name", local_name, bs_name))
+                if not local_meaningful or accept_binsync:
                     if dry_run:
+                        action = (
+                            "would rename (accept-binsync)" if local_meaningful else "would rename"
+                        )
                         proposed.append(
-                            _proposal(dst_va, src_va, "name", local_name, bs_name, "would rename")
+                            _proposal(dst_va, src_va, "name", local_name, bs_name, action)
                         )
                         applied_names += 1
                         applied.append("name")
@@ -383,59 +389,29 @@ def overlay_state(
                         except Exception:
                             log.debug("name overlay failed for VA %s", _hex(dst_va), exc_info=True)
                             skipped += 1
-                else:
-                    conflicts.append(_conflict(dst_va, src_va, "name", local_name, bs_name))
-                    if accept_binsync:
-                        if dry_run:
-                            proposed.append(
-                                _proposal(
-                                    dst_va,
-                                    src_va,
-                                    "name",
-                                    local_name,
-                                    bs_name,
-                                    "would rename (accept-binsync)",
-                                )
+                elif accept_local:
+                    if not dry_run:
+                        try:
+                            update_field(cfg.metadata_dir, dst_va, "ghidra", bs_name, local_module)
+                            touched.add(dst_va)
+                            applied.append("ghidra")
+                        except Exception:
+                            log.debug(
+                                "GHIDRA provenance write failed for VA %s",
+                                _hex(dst_va),
+                                exc_info=True,
                             )
-                            applied.append("name")
-                        else:
-                            try:
-                                if _apply_binsync_func_name(cfg, local, bs_stripped, filepath):
-                                    applied_names += 1
-                                    touched.add(dst_va)
-                                    applied.append("name")
-                                else:
-                                    skipped += 1
-                            except Exception:
-                                log.debug(
-                                    "name overlay failed for VA %s", _hex(dst_va), exc_info=True
-                                )
-                                skipped += 1
-                    elif accept_local:
-                        if not dry_run:
-                            try:
-                                update_field(
-                                    cfg.metadata_dir, dst_va, "ghidra", bs_name, local_module
-                                )
-                                touched.add(dst_va)
-                                applied.append("ghidra")
-                            except Exception:
-                                log.debug(
-                                    "GHIDRA provenance write failed for VA %s",
-                                    _hex(dst_va),
-                                    exc_info=True,
-                                )
-                                skipped += 1
-                        proposed.append(
-                            _proposal(
-                                dst_va,
-                                src_va,
-                                "name",
-                                local_name,
-                                bs_name,
-                                "keep local (accept-local)",
-                            )
+                            skipped += 1
+                    proposed.append(
+                        _proposal(
+                            dst_va,
+                            src_va,
+                            "name",
+                            local_name,
+                            bs_name,
+                            "keep local (accept-local)",
                         )
+                    )
 
         if "prototype" in fields:
             bs_proto = (remote.get("prototype") or "").strip()

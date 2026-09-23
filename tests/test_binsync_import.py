@@ -142,7 +142,7 @@ class TestBinsyncImportDryRun:
         assert result.exit_code == 0
         data = json.loads(result.stdout)
         assert data["dry_run"] is True
-        assert data["applied_names"] == 0
+        assert data["applied_names"] == 1  # counts the would-be rename
         assert _src_files(tmp_path) == before
 
     def test_json_output(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

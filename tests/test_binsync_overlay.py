@@ -212,6 +212,15 @@ class TestConflict:
         assert payload["applied_names"] == 1
         assert "RemoteName" in _dest_text(tmp_path)
 
+    def test_accept_binsync_dry_run_counts_rename(self, tmp_path: Path, monkeypatch) -> None:
+        dest, state = self._setup(tmp_path, monkeypatch)
+        result = _invoke(tmp_path, state, "--accept-binsync", "--dry-run", "--json")
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.output)
+        assert payload["applied_names"] == 1
+        assert payload["proposed"][0]["action"] == "would rename (accept-binsync)"
+        assert "LocalName" in dest.read_text(encoding="utf-8")
+
     def test_accept_local_keeps_and_records_provenance(self, tmp_path: Path, monkeypatch) -> None:
         from rebrew.metadata import get_entry
 

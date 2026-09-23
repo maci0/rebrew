@@ -496,6 +496,10 @@
   in emission order.
 
 ### Fixed
+- **`binsync-import` / `binsync-overlay` `--dry-run --accept-binsync`
+  count conflict renames.**  The preview listed the rename in `proposed`
+  but left it out of `applied_names`, while the real run and the
+  generic-name and prototype previews counted it.
 - **Recompile backend: a timeout change no longer closes an in-use
   client.**  The shared `httpx.Client` was closed and replaced when
   `compile_timeout` differed between calls, failing any request another
