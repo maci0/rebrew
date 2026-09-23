@@ -1492,6 +1492,24 @@ class TestRefreshAll:
         assert counts["toolchain_detectors"] >= 1
         assert counts["msvc_versions"] >= 1
 
+    def test_refresh_all_keys_are_group_names(self) -> None:
+        """Every count key is an entry-point group minus the ``rebrew.`` prefix."""
+        from rebrew.registry import refresh_all
+
+        assert set(refresh_all()) == {
+            "toolchains",
+            "decompiler_backends",
+            "mutations",
+            "flag_sets",
+            "library_presets",
+            "binary_detectors",
+            "toolchain_detectors",
+            "msvc_versions",
+            "binary_loaders",
+            "cache_backends",
+            "discoverers",
+        }
+
     def test_toolchain_refresh_never_empties_registry(self) -> None:
         """Concurrent readers must not observe TOOLCHAINS mid-clear.
 

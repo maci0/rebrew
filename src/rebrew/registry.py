@@ -308,8 +308,10 @@ def refresh_all() -> dict[str, int]:
 
     Registration is import-time by default; a long-lived process (a
     dashboard, an agent harness) that installs a plugin after startup calls
-    this to pick it up without a restart.  Returns ``{registry: entry
-    count}``.  Each module also exposes a single-registry ``refresh_*``
+    this to pick it up without a restart.  Returns ``{group: entry
+    count}``, keyed by entry-point group without the ``rebrew.`` prefix
+    (``toolchains``, ``binary_detectors``, ...).  CLI command groups are not
+    refreshed: the umbrella app mounts them once.  Each module also exposes a single-registry ``refresh_*``
     (e.g. :func:`rebrew.toolchain.refresh_toolchain_registry`).
     """
     from rebrew import (
@@ -330,7 +332,7 @@ def refresh_all() -> dict[str, int]:
     counts["flag_sets"] = len(compiler.refresh_flag_sets()[0])
     counts["library_presets"] = len(metadata.refresh_library_presets())
     toolchain_detect.refresh_detection_tables()
-    counts["detectors"] = len(toolchain_detect._PLUGIN_DETECTORS)
+    counts["binary_detectors"] = len(toolchain_detect._PLUGIN_DETECTORS)
     counts["toolchain_detectors"] = len(toolchain_detect._PROFILE_COMPAT_ALL)
     counts["msvc_versions"] = len(toolchain_detect._RICH_BUILD_PROFILES_ALL) + len(
         toolchain_detect._LINKER_ERA_PROFILES_ALL

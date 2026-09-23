@@ -508,13 +508,29 @@ def _mz_capstone_sweep(binary: Path) -> list[tuple[int, int, str]]:
     return out
 
 
+def _is_discovery_result(found: Any) -> bool:
+    """True when *found* is a list of ``(va >= 0, size >= 0, name: str)`` rows."""
+    return isinstance(found, list) and all(
+        isinstance(row, tuple)
+        and len(row) == 3
+        and isinstance(row[0], int)
+        and isinstance(row[1], int)
+        and isinstance(row[2], str)
+        and row[0] >= 0
+        and row[1] >= 0
+        for row in found
+    )
+
+
 def _run_providers(
     names: list[str], binary: Path, d: Discovery
 ) -> dict[str, list[tuple[int, int, str]]]:
     """Run named providers, recording per-source counts on *d*.
 
-    A provider that raises is recorded as empty (one broken backend cannot
-    abort the merge).  Returns ``{name: [(va, size, name)]}``.
+    A provider that raises, or returns anything but a list of
+    ``(va: int >= 0, size: int >= 0, name: str)`` rows, is recorded as empty
+    (one broken backend cannot abort the merge).  Returns
+    ``{name: [(va, size, name)]}``.
     """
     out: dict[str, list[tuple[int, int, str]]] = {}
     for name in names:
@@ -525,6 +541,13 @@ def _run_providers(
             found = fn(binary)
         except Exception as exc:
             logger.warning("discoverer %r failed (skipped): %s", name, exc)
+            found = []
+        if not _is_discovery_result(found):
+            logger.warning(
+                "discoverer %r returned %s (expected list[(va, size, name)]; skipped)",
+                name,
+                type(found).__name__,
+            )
             found = []
         d.sources[name] = len(found)
         out[name] = found

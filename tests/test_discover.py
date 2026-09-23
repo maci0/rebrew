@@ -179,6 +179,23 @@ class TestDiscovererPlugins:
         assert d.sources["broken"] == 0
         assert d.functions == []
 
+    @pytest.mark.parametrize(
+        "result",
+        [None, "fcn", [(0x401000, 40)], [("0x401000", 40, "f")], [(0x401000, -1, "f")]],
+    )
+    def test_malformed_plugin_result_skipped(self, monkeypatch, result: object) -> None:
+        """A plugin returning the wrong shape is skipped, not a crash in the merge."""
+        import rebrew.discover as disc
+
+        monkeypatch.setattr("rebrew.discover._rizin_functions", lambda b, c: [])
+        monkeypatch.setattr("rebrew.discover._capstone_sweep", lambda b: [])
+        monkeypatch.setitem(disc._DISCOVERER_MAP, "bad", lambda b: result)
+        monkeypatch.setattr("rebrew.discover.load_binary", lambda b: _mk_info(b""))
+        monkeypatch.setattr("rebrew.discover._validate_and_refine", lambda info, funcs: funcs)
+        d = disc.discover_functions(Path("x.exe"))
+        assert d.sources["bad"] == 0
+        assert d.functions == []
+
     def test_plugin_entry_point_merge(self, monkeypatch) -> None:
         """Entry-point registrations join the map; conflicts are skipped."""
         import rebrew.discover as disc

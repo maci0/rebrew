@@ -177,7 +177,7 @@ discovered components merge on top.  Conflict and failure policy per group:
 | Binary loader | `rebrew.binary_loaders` | `module:attr` — `(path, fmt) -> BinaryInfo \| None`; runs when LIEF cannot parse the file, so a novel container format can be loaded |
 | MSVC version table | `rebrew.msvc_versions` | `module:attr` — zero-arg callable returning `dict["build:<n>" \| "linker:<M>.<m>", list[profile]]`; a plugin MSVC-derivative declares which exact builds it byte-matches, joining the version-exact `suggested_profiles` (union per key) |
 | Compile-cache backend | `rebrew.cache_backends` | `module:attr` — factory `(cache_dir, size_limit) -> CacheBackend` (get/put/volume/count/clear/close/stats); selected via `[cache] backend` in `rebrew-project.toml`; the keying semantics are shared and not pluggable |
-| Function discoverer | `rebrew.discoverers` | `module:attr`: `(binary: Path) -> list[(va, size, name)]`; merged into `rebrew discover-functions` by entry-point name; return `[]` on failure, never raise |
+| Function discoverer | `rebrew.discoverers` | `module:attr`: `(binary: Path) -> list[(va, size, name)]`; merged into `rebrew discover-functions` by entry-point name; return `[]` when nothing is found (a raise, or anything but a list of `(int >= 0, int >= 0, str)` tuples, is skipped with a warning) |
 
 CLI tools (packaged and third-party) mount through `rebrew.plugin`.
 `main.compose()` provides the `cli` and `console` services, then
@@ -2116,7 +2116,8 @@ garbage file-offset "functions").
 
 Discoverers are plugins: `rebrew.discoverers` entry points
 (`fn(binary: Path) -> [(va, size, name)]`) join every format branch under
-their entry-point name; a broken plugin is skipped with a warning.
+their entry-point name; a plugin that raises or returns another shape is
+skipped with a warning and counted as 0.
 
 ### `rebrew drift`
 

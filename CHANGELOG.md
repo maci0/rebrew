@@ -183,6 +183,10 @@
   documented integrator surface.
 
 ### Changed
+- **`registry.refresh_all()` reports `binary_detectors`, not `detectors`.**
+  Every other count key was its entry-point group name without the
+  `rebrew.` prefix; the `rebrew.binary_detectors` count was the one
+  exception.  Callers reading `counts["detectors"]` now get a `KeyError`.
 - **mypy enforces `truthy-bool` and `explicit-override`.**  Fifteen
   `if cfg`/`if path` guards on non-optional `ProjectConfig` and `Path`
   values were always true (an unset `Path()` is `.`, not falsy) and are
@@ -639,6 +643,13 @@
   in emission order.
 
 ### Fixed
+- **A malformed `rebrew.discoverers` plugin no longer crashes discovery.**
+  A discoverer returning `None`, a non-list, or rows that are not
+  `(va, size, name)` triples raised `TypeError` inside `discover_functions`
+  and aborted `rebrew discover-functions` and `rebrew intake`.  The result
+  is now checked like `rebrew.binary_detectors` and `rebrew.binary_loaders`
+  results: anything but a list of `(int >= 0, int >= 0, str)` rows is
+  skipped with a warning and counted as 0 in `Discovery.sources`.
 - **`rebrew match --all -j N` validates each stub's own champion.**  Every
   stub of one `.c` file shares `output/ga_runs/<file>/best.c`, so a sibling
   GA could overwrite it between a win and its reloc validation, and the
