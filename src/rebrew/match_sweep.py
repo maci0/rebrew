@@ -35,6 +35,7 @@ from rebrew.matcher import (
     score_candidate,
     structural_similarity,
 )
+from rebrew.matcher.core import EXACT_SCORE_THRESHOLD
 from rebrew.sources import target_marker
 from rebrew.toolchain import TOOLCHAINS
 from rebrew.utils import read_compile_source
@@ -413,7 +414,8 @@ def _run_single_flag_sweep(
 
     if json_output:
         sweep_items = [
-            {"score": round(s, 2), "flags": f, "exact": s < 0.1} for s, f in results[:20]
+            {"score": round(s, 2), "flags": f, "exact": s < EXACT_SCORE_THRESHOLD}
+            for s, f in results[:20]
         ]
         payload: dict[str, Any] = {
             "source": str(p.seed_c),
@@ -422,7 +424,7 @@ def _run_single_flag_sweep(
             "tier": tier,
             "best_score": round(best_score, 2) if best_score < float("inf") else None,
             "best_flags": results[0][1] if results else None,
-            "exact": best_score < 0.1,
+            "exact": best_score < EXACT_SCORE_THRESHOLD,
             "results": sweep_items,
         }
         if sim_res is not None:
@@ -443,7 +445,7 @@ def _run_single_flag_sweep(
         if sim_res is not None:
             print_structural_similarity(sim_res)
 
-    if best_score < 0.1:
+    if best_score < EXACT_SCORE_THRESHOLD:
         return
     raise typer.Exit(code=EXIT_MISMATCH)
 
@@ -718,7 +720,7 @@ def _run_single_toolchain_flag_sweep(
                 "toolchain": profile,
                 "best_score": best_score if best_score < float("inf") else None,
                 "flags": best_flags,
-                "exact": best_score < 0.1,
+                "exact": best_score < EXACT_SCORE_THRESHOLD,
             }
         )
 

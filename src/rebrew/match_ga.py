@@ -24,7 +24,7 @@ from rich.console import Console
 from rebrew.compile_cache import CacheBackend, source_digest
 from rebrew.config import ProjectConfig
 from rebrew.matcher.compiler import build_candidate, build_candidate_obj_only
-from rebrew.matcher.core import BuildResult, GACheckpoint
+from rebrew.matcher.core import EXACT_SCORE_THRESHOLD, BuildResult, GACheckpoint
 from rebrew.matcher.mutator import (
     compute_population_diversity,
     crossover,
@@ -889,7 +889,10 @@ class BinaryMatchingGA:
                         f"gen={gen:03d} best={best_score:.2f} div={diversity:.2f} stag={self.stagnant_gens}"
                     )
 
-                if best_score < 0.1 or self.stagnant_gens >= self.stagnation_limit:
+                if (
+                    best_score < EXACT_SCORE_THRESHOLD
+                    or self.stagnant_gens >= self.stagnation_limit
+                ):
                     self.elapsed_sec += time.monotonic() - gen_start
                     break
 

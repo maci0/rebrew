@@ -468,7 +468,7 @@ def score_candidate(
     # source-level mismatch.  Built once and applied to BOTH the byte and
     # reloc scores.  Without the byte_score exclusion every reloc-bearing
     # candidate sits at a floor of ~N reloc bytes, so the GA/flag-sweep
-    # `exact: score < 0.1` gate could never accept a RELOC match.
+    # `exact: score < EXACT_SCORE_THRESHOLD` gate could never accept a RELOC match.
     reloc_mask: np.ndarray | None = None
     if reloc_offsets is not None and min_len > 0:
         reloc_mask = np.zeros(min_len, dtype=bool)

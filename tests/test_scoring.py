@@ -3,7 +3,7 @@
 import capstone
 import pytest
 
-from rebrew.matcher.core import Score, StructuralSimilarity
+from rebrew.matcher.core import EXACT_SCORE_THRESHOLD, Score, StructuralSimilarity
 from rebrew.matcher.scoring import (
     _mask_registers_x86_32,
     _normalize_reloc_x86_32,
@@ -189,7 +189,7 @@ class TestScoreCandidate:
         """A candidate whose ONLY diffs are at known reloc sites must score
         ~0 — the byte score excludes relocation bytes too, not just the
         reloc score.  Previously byte_score counted the 4 reloc bytes raw
-        (floor of ~4000) so the GA/flag-sweep `exact: score < 0.1` gate
+        (floor of ~4000) so the GA/flag-sweep `exact: score < EXACT_SCORE_THRESHOLD` gate
         never accepted a RELOC match and kept mutating a perfect candidate."""
         target = b"\x55\x8b\xec\xe8\x01\x02\x03\x04\xc3"
         cand = b"\x55\x8b\xec\xe8\xff\xfe\xfd\xfc\xc3"
@@ -197,7 +197,17 @@ class TestScoreCandidate:
         assert score.byte_score == 0.0
         assert score.reloc_score == 0.0
         assert score.mnemonic_score == 0.0
-        assert score.total < 0.1  # the GA/sweep exact gate
+        assert score.total < EXACT_SCORE_THRESHOLD
+
+    def test_exact_threshold_separates_one_byte_diff(self) -> None:
+        """Exact candidates (with and without the prologue bonus) score below
+        the gate; one differing body byte past the prologue scores above it."""
+        long_body = b"\x55\x8b\xec" + b"\x90" * 30 + b"\xc3"
+        assert score_candidate(long_body, long_body).total < EXACT_SCORE_THRESHOLD
+        short = b"\x55\x8b\xec\xc3"
+        assert score_candidate(short, short).total < EXACT_SCORE_THRESHOLD
+        one_off = long_body[:25] + b"\x91" + long_body[26:]
+        assert score_candidate(long_body, one_off).total >= EXACT_SCORE_THRESHOLD
 
     def test_non_reloc_diff_still_counts(self) -> None:
         """Masking must not hide REAL mismatches: a plain byte diff outside

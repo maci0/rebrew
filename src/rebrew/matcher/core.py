@@ -10,6 +10,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+#: A total below this is a byte-exact (or reloc-only) match.  Any non-reloc
+#: byte difference costs >= 1000 while the prologue bonus is -100, so every
+#: non-exact score sits far above it and every exact one is 0 or -100.
+EXACT_SCORE_THRESHOLD = 0.1
+
 
 @dataclass
 class Score:

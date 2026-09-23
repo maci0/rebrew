@@ -42,6 +42,7 @@ from rebrew.match_sweep import (
     run_flag_sweep,
 )
 from rebrew.matcher import GACheckpoint, SolutionEntry, load_ga_runs
+from rebrew.matcher.core import EXACT_SCORE_THRESHOLD
 from rebrew.utils import atomic_write_text, metadata_write_lock, read_compile_source
 
 log = logging.getLogger(__name__)
@@ -186,7 +187,7 @@ def _run_single_ga(
         # GA exhausted without a match: if the champion's residual delta is
         # register-only (effective match), document the ceiling (needs the
         # warm build cache, so run before ga.close()).
-        if best_src is not None and best_score >= 0.1:
+        if best_src is not None and best_score >= EXACT_SCORE_THRESHOLD:
             try:
                 annos = parse_c_file_multi(p.seed_c, metadata_dir=p.cfg.metadata_dir)
             except Exception as exc:
@@ -221,7 +222,7 @@ def _run_single_ga(
             "generations": generations,
             "pop_size": pop_size,
             "best_score": round(best_score, 2),
-            "exact": best_score < 0.1,
+            "exact": best_score < EXACT_SCORE_THRESHOLD,
             "elapsed_sec": round(ga.elapsed_sec, 2),
             "stagnant_gens": ga.stagnant_gens,
             "restarts": ga.restarts,
@@ -233,10 +234,10 @@ def _run_single_ga(
         json_print(ga_payload)
     else:
         console.print(f"\nDone. Best score: {best_score:.2f}")
-        if best_score < 0.1:
+        if best_score < EXACT_SCORE_THRESHOLD:
             console.print("[bold green]EXACT MATCH[/]")
 
-    if best_score < 0.1:
+    if best_score < EXACT_SCORE_THRESHOLD:
         _save_solution(
             p.cfg,
             p.symbol,
@@ -425,7 +426,7 @@ def _run_one_stub_ga(
     deadline = time.monotonic() + timeout_min * 60 + 60
     try:
         best_src, best_score = ga.run(deadline=deadline)
-        matched = best_score < 0.1
+        matched = best_score < EXACT_SCORE_THRESHOLD
         output_summary = f"best_score={best_score:.2f}"
 
         if matched and best_src is not None:
@@ -1275,7 +1276,7 @@ def _run_batch_flag_sweep(
             stub, cfg, tier=tier, jobs=jobs, **_sweep_kw
         )
 
-        is_exact = best_score < 0.1
+        is_exact = best_score < EXACT_SCORE_THRESHOLD
         # Whether the authoritative re-verify below can run at all.  It needs
         # --fix-cflags, a winning flag combo, and the catalog used to validate
         # reloc targets.
@@ -1356,8 +1357,9 @@ def _run_batch_flag_sweep(
                     exc,
                 )
         # The report's `exact` field is the sweep's score-based finding and is
-        # NEVER downgraded — the console marks every score<0.1 row EXACT, so
-        # the JSON must agree.  Promotion is the separate, gated action below.
+        # NEVER downgraded — the console marks every row scoring below
+        # EXACT_SCORE_THRESHOLD as EXACT, so the JSON must agree.  Promotion is the
+        # separate, gated action below.
         result_entry["promoted"] = bool(confirmed)
         if confirmed:
             # Validated exact: the authoritative compare agreed with the
@@ -1427,7 +1429,7 @@ def _run_batch_flag_sweep(
             else:
                 top_n = min(5, len(all_results))
                 for score, flags_str in all_results[:top_n]:
-                    marker = " ← [bold green]EXACT[/]" if score < 0.1 else ""
+                    marker = " ← [bold green]EXACT[/]" if score < EXACT_SCORE_THRESHOLD else ""
                     console.print(f"  {score:8.2f}: [dim]{flags_str}[/]{marker}")
                 if is_exact:
                     console.print(f"  [bold green]EXACT MATCH[/] with flags: {best_flags}")
