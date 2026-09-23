@@ -12,7 +12,7 @@ from rebrew.compile import (
     maybe_headless_wine,
     resolve_cl_command,
 )
-from rebrew.config import ProjectConfig
+from rebrew.config import ConfigError, ProjectConfig
 
 # ---------------------------------------------------------------------------
 # resolve_cl_command
@@ -675,7 +675,7 @@ class TestMaybeHeadlessWine:
     def test_headless_malformed_value_raises(self, monkeypatch) -> None:
         """A typo must not silently leave headless on."""
         monkeypatch.setattr("rebrew.compile.ensure_xvfb", lambda: ":99")
-        with pytest.raises(ValueError, match="REBREW_WINE_HEADLESS"):
+        with pytest.raises(ConfigError, match="REBREW_WINE_HEADLESS"):
             maybe_headless_wine(["wine", "/opt/CL.EXE"], {"REBREW_WINE_HEADLESS": "nope"})
 
     def test_empty_command_untouched(self, monkeypatch) -> None:

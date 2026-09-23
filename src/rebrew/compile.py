@@ -72,7 +72,7 @@ from rebrew.compile_cache import (
     get_compile_cache,
 )
 from rebrew.compile_context import CONTEXT_UNIT_NAME, CompileContext
-from rebrew.config import DEFAULT_COMPILE_TIMEOUT, ProjectConfig, validate_http_url
+from rebrew.config import DEFAULT_COMPILE_TIMEOUT, ConfigError, ProjectConfig, validate_http_url
 from rebrew.headless import _XVFB_RUN_SERVER_ARGS, ensure_xvfb
 from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
 from rebrew.metadata import canonical_status
@@ -536,7 +536,8 @@ def maybe_headless_wine(
     Set ``REBREW_WINE_HEADLESS=0`` (or ``false``/``no``/``off``) in the
     environment to force bare wine (e.g. when you genuinely want the window).
     Any other non-empty value that is not ``1``/``true``/``yes``/``on``
-    raises ``ValueError`` so a typo cannot silently keep headless on.
+    raises ``ConfigError`` (a ``ValueError``) so a typo cannot silently keep
+    headless on.
 
     Falls back to wrapping the command in ``xvfb-run`` when no ``Xvfb``
     binary is available, then to bare wine when neither exists.
@@ -551,7 +552,7 @@ def maybe_headless_wine(
     if flag in _HEADLESS_OFF:
         return cmd, env
     if flag and flag not in _HEADLESS_ON:
-        raise ValueError(f"REBREW_WINE_HEADLESS={raw!r} is not a boolean (use 0 or 1)")
+        raise ConfigError(f"REBREW_WINE_HEADLESS={raw!r} is not a boolean (use 0 or 1)")
     display = ensure_xvfb()
     if display is not None:
         env = dict(env) if env is not None else {**os.environ}

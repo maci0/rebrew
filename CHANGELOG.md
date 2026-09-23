@@ -648,6 +648,10 @@
   in emission order.
 
 ### Fixed
+- **A malformed `REBREW_WINE_HEADLESS` raises `ConfigError`.**  It raised a
+  bare `ValueError`, which escaped an `except RebrewError` handler despite
+  `RebrewError` being documented as the base of every rebrew error.
+  `ConfigError` is still a `ValueError`, so existing handlers keep working.
 - **Ctrl+C no longer orphans a compile container.**  Interrupting a
   docker compile or LINK.EXE run killed only the docker CLI, leaving the
   container running under dockerd.  The container is now killed by name
