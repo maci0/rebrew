@@ -31,7 +31,6 @@ Usage::
 
 from __future__ import annotations
 
-import functools
 import re
 from typing import Any
 
@@ -39,6 +38,7 @@ import capstone  # module-level: analyze_frame is a hot path (near-diag calls it
 import typer
 from rich.console import Console
 
+from rebrew.analysis import capstone_handle
 from rebrew.binary_loader import capstone_mode_for_arch
 from rebrew.cli import (
     EXIT_ERROR,
@@ -55,16 +55,6 @@ console = Console(stderr=True)
 _EBP_SLOT_RE = re.compile(r"\[(?:[er]?bp)\s*([+-])\s*(0x[0-9a-fA-F]+|\d+)\]")
 _ESP_DELTA_RE = re.compile(r"\[(?:[er]?sp)\s*([+-])\s*(0x[0-9a-fA-F]+|\d+)\]")
 _ENTER_SIZE_RE = re.compile(r"(0x[0-9a-fA-F]+|\d+)")
-
-
-@functools.lru_cache(maxsize=8)
-def _cs_detail_handle(arch: int, mode: int) -> capstone.Cs:
-    """A cached detail capstone handle — constructing ``capstone.Cs`` per call
-    was a measurable cost in the per-pair hot path (near-diag calls
-    ``analyze_frame`` twice per classification)."""
-    md = capstone.Cs(arch, mode)
-    md.detail = True
-    return md
 
 
 def analyze_frame(code: bytes, va: int, cs_mode: int) -> dict[str, Any]:
@@ -85,7 +75,9 @@ def analyze_frame(code: bytes, va: int, cs_mode: int) -> dict[str, Any]:
     Robust to garbage/undecodable input (empty result, never raises).
     """
     word = {capstone.CS_MODE_64: 8, capstone.CS_MODE_32: 4}.get(cs_mode, 2)
-    md = _cs_detail_handle(capstone.CS_ARCH_X86, cs_mode)
+    # Per-thread handle: near-diag runs analyze_frame from GA/match worker
+    # threads, and a shared ``Cs`` races on its libcapstone handle.
+    md = capstone_handle(capstone.CS_ARCH_X86, cs_mode, detail=True)
 
     esp = 0
     min_esp = 0

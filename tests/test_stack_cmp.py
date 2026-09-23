@@ -84,6 +84,17 @@ class TestAnalyzeFrame:
             "slots": [],
         }
 
+    def test_worker_threads_match_sequential(self) -> None:
+        # near-diag calls analyze_frame from GA/match worker threads; a
+        # process-wide capstone handle would be shared (and raced) there.
+        from concurrent.futures import ThreadPoolExecutor
+
+        inputs = [EBP_FRAME_0X28, ESP_FRAME_0X20, EBP_STDCALL_RET4, NOFRAME] * 50
+        expected = [analyze_frame(code, 0x1000, 4) for code in inputs]
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            got = list(pool.map(lambda code: analyze_frame(code, 0x1000, 4), inputs))
+        assert got == expected
+
 
 class TestCompareFrames:
     def test_match(self) -> None:
