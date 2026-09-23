@@ -79,8 +79,8 @@ Stores details regarding decompiled and original functions.
 **Primary Key**: `(target, va)`
 **Indexes**:
 - `idx_functions_name` on `(target, name)`
-- `idx_functions_status` on `(target, status)`
-- `idx_functions_module` on `(target, module)`
+- `idx_functions_status_va` on `(target, status, va)`: serves the dashboard's status-filtered page (`ORDER BY va`) without a sort
+- `idx_functions_module_va` on `(target, module, va)`: same for the module filter
 - `idx_functions_list` on `(target, va) WHERE markerType NOT IN ('GLOBAL', 'DATA')` — serves the dashboard / `_function_stats` list path (`WHERE target = ? AND markerType NOT IN (…) ORDER BY va`)
 
 ### `globals` Table

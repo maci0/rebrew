@@ -837,8 +837,19 @@ def build_db(
         """)
 
         c.execute("CREATE INDEX IF NOT EXISTS idx_functions_name ON functions(target, name)")
-        c.execute("CREATE INDEX IF NOT EXISTS idx_functions_status ON functions(target, status)")
-        c.execute("CREATE INDEX IF NOT EXISTS idx_functions_module ON functions(target, module)")
+        # The dashboard filters by status or module and pages ORDER BY va; the
+        # trailing va lets the index serve the sort, so the planner seeks the
+        # filter instead of walking idx_functions_list over the whole target.
+        # Scoped rebuilds keep the table: drop the (target, status|module)
+        # copies older builds created.
+        c.execute("DROP INDEX IF EXISTS idx_functions_status")
+        c.execute("DROP INDEX IF EXISTS idx_functions_module")
+        c.execute(
+            "CREATE INDEX IF NOT EXISTS idx_functions_status_va ON functions(target, status, va)"
+        )
+        c.execute(
+            "CREATE INDEX IF NOT EXISTS idx_functions_module_va ON functions(target, module, va)"
+        )
         # Dashboard + _function_stats always exclude GLOBAL/DATA and ORDER BY
         # va: a partial (target, va) index matches that filter+sort without
         # scanning markerType rows that the UI never lists.  It also serves the

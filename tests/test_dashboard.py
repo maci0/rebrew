@@ -350,6 +350,41 @@ class TestQueryLayer:
         assert any("idx_functions_list" in row[3] for row in plan)
         assert not any("TEMP B-TREE" in row[3] for row in plan)
 
+    @pytest.mark.parametrize(
+        ("kwargs", "index"),
+        [
+            ({"status": "EXACT"}, "idx_functions_status_va"),
+            ({"module": "SERVER"}, "idx_functions_module_va"),
+        ],
+    )
+    def test_filtered_functions_list_seeks_filter_index(
+        self,
+        dashboard: Dashboard,
+        monkeypatch: pytest.MonkeyPatch,
+        kwargs: dict[str, str],
+        index: str,
+    ) -> None:
+        """A status/module page seeks its filter index and needs no sort."""
+        import sqlite3
+
+        import rebrew.dashboard as dashboard_mod
+
+        statements: list[str] = []
+        real_open = dashboard_mod.open_sqlite_ro
+
+        def _traced_open(path: Path) -> sqlite3.Connection:
+            conn = real_open(path)
+            conn.set_trace_callback(statements.append)
+            return conn
+
+        monkeypatch.setattr(dashboard_mod, "open_sqlite_ro", _traced_open)
+        dashboard.functions("server_dll", **kwargs)
+        list_sql = next(s for s in statements if s.startswith("SELECT va, name"))
+        with sqlite3.connect(dashboard.db_path) as conn:
+            plan = conn.execute(f"EXPLAIN QUERY PLAN {list_sql}").fetchall()
+        assert any(index in row[3] for row in plan)
+        assert not any("TEMP B-TREE" in row[3] for row in plan)
+
     def test_functions_total_excludes_global_markers(self, tmp_path: Path) -> None:
         """total must apply the same markerType filter as the row query."""
         db_dir = tmp_path / "db"

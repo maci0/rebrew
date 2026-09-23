@@ -161,6 +161,12 @@
   documented integrator surface.
 
 ### Changed
+- **Filtered dashboard function pages seek their filter.**  The
+  `(target, status)` and `(target, module)` indexes could not serve the
+  page's `ORDER BY va`, so SQLite walked `idx_functions_list` over the
+  whole target and tested each row.  They are now `idx_functions_status_va`
+  and `idx_functions_module_va` on `(…, va)`; any `build-db` run drops the
+  old indexes, including a scoped `--target` rebuild.
 - **CI's reproducibility check varies the build path.**  The package
   job's second build re-inlined the `uv build` recipe in the same
   checkout.  It now runs `make build` from a `git archive` copy at
