@@ -610,6 +610,17 @@ class TestCLIAddRemoveTarget:
         doc, _ = load_toml(tmp_path)
         assert "server.dll" in doc.get("targets", {})
 
+    def test_remove_target_confirm_prompts_on_stderr(self, tmp_path: Path, monkeypatch) -> None:
+        """The confirm prompt must not pollute stdout; declining keeps the target."""
+        _make_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(cfg_app, ["remove-target", "server.dll"], input="n\n")
+        assert result.exit_code == 1
+        assert "Remove target 'server.dll'" in result.stderr
+        assert "Remove target" not in result.stdout
+        doc, _ = load_toml(tmp_path)
+        assert "server.dll" in doc.get("targets", {})
+
     def test_remove_target_idempotent(self, tmp_path: Path, monkeypatch) -> None:
         _make_project(tmp_path)
         monkeypatch.chdir(tmp_path)

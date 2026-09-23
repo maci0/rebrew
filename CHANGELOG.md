@@ -538,6 +538,10 @@
   in emission order.
 
 ### Fixed
+- **Confirm prompts go to stderr.**  `rebrew cfg remove-target`,
+  `cfg remove-module`, `merge --delete`, and `split --va` wrote their
+  interactive confirm to stdout, so `rebrew ... > out.txt` hid the prompt
+  and put its text into the captured output.
 - **Wheel installs stay out of the interpreter's `lib/`.**  Under
   `uv tool install` (no source checkout) the vendored-tool lookups and the
   compile-sandbox fallback resolved `parents[2]` of the package to

@@ -254,6 +254,7 @@ def main(
             typer.confirm(
                 f"Extract will remove 0x{target_va:08x} from {source_path.name}. Continue?",
                 abort=True,
+                err=True,
             )
 
         if not dry_run:

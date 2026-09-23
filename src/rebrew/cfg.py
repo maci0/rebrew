@@ -700,7 +700,7 @@ def remove_target(
                 "(no interactive confirm)",
                 json_mode=True,
             )
-        typer.confirm(f"Remove target '{name}' from rebrew-project.toml?", abort=True)
+        typer.confirm(f"Remove target '{name}' from rebrew-project.toml?", abort=True, err=True)
     del targets[name]
     save_toml(doc, toml_path, json_mode=json_output)
     if json_output:
@@ -911,7 +911,9 @@ def remove_module(
                 "(no interactive confirm)",
                 json_mode=True,
             )
-        typer.confirm(f"Remove module '{module_upper}' from target '{target}'?", abort=True)
+        typer.confirm(
+            f"Remove module '{module_upper}' from target '{target}'?", abort=True, err=True
+        )
     origins.remove(module_upper)
     save_toml(doc, toml_path, json_mode=json_output)
     if json_output:
