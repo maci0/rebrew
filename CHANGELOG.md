@@ -635,6 +635,13 @@
   in emission order.
 
 ### Fixed
+- **`rebrew qual-sweep` and `rebrew climb` compile with the function's
+  overrides.**  `qual-sweep` scored every candidate with the project
+  `[compiler]` cflags and default profile, and `climb` dropped the
+  per-function `TOOLCHAIN`, so both could optimize a source for a compiler
+  `rebrew test`/`verify` never use.  Both now resolve through
+  `resolve_compile_overrides` (function TOML, then `rebrew-libraries.toml`,
+  then project defaults).
 - **`REBREW_WINEPREFIX` must be absolute.**  The cmake bridge passed a
   relative value straight to `docker -v`, which mounts it as a named volume
   and resolves it against each CMake build dir.  It now exits with

@@ -38,6 +38,7 @@ from rebrew.cli import (
 )
 from rebrew.climb import _function_span as climb_function_span
 from rebrew.compile import compile_and_compare
+from rebrew.compile_overrides import resolve_compile_overrides
 from rebrew.utils import atomic_write_text, read_source_text
 
 console = Console(stderr=True)
@@ -89,12 +90,25 @@ def _is_decl(unit: str) -> bool:
     )
 
 
-def score_fn(cfg: Any, path: Path, va: int, size: int, symbol: str) -> tuple[float, int]:
-    """(match_percent, obj_len) via the project's compile-and-compare path."""
+def score_fn(
+    cfg: Any,
+    path: Path,
+    va: int,
+    size: int,
+    symbol: str,
+    toolchain: str | None,
+    cflags: str,
+) -> tuple[float, int]:
+    """(match_percent, obj_len) via the project's compile-and-compare path.
+
+    *toolchain*/*cflags* are the function's resolved overrides
+    (:func:`rebrew.compile_overrides.resolve_compile_overrides`), so the sweep
+    scores with the compiler ``rebrew test``/``verify`` use.
+    """
     from rebrew.binary_loader import extract_raw_bytes
 
     target_bytes = extract_raw_bytes(cfg.target_binary, va, size)
-    res = compile_and_compare(cfg, path, symbol, target_bytes, cfg.cflags or "")
+    res = compile_and_compare(cfg, path, symbol, target_bytes, cflags, toolchain=toolchain)
     obj_len = len(res.obj_bytes) if res.obj_bytes else -1
     if res.full_obj_size is not None:
         obj_len = res.full_obj_size
@@ -169,7 +183,16 @@ def main(
             console.print(f"  [{k:3d}] {lab}: {text[:70]}")
         return
 
-    base = score_fn(cfg, path, va_int, size, sym)
+    # Resolved from the real source dir: candidates compile from a scratch
+    # dir whose walk-up would miss the function's rebrew-libraries.toml.
+    toolchain, cflags = resolve_compile_overrides(
+        cfg,
+        path.resolve().parent,
+        getattr(sel, "toolchain", None),
+        getattr(sel, "cflags", None),
+        getattr(sel, "module", ""),
+    )
+    base = score_fn(cfg, path, va_int, size, sym, toolchain, cflags)
     baseline = base
     console.print(f"baseline {base[0]} matched, object size {base[1]} vs target {size}")
     moves: list[dict[str, Any]] = []
@@ -188,7 +211,7 @@ def main(
             # Compile a copy: parallel candidates must not share one path.
             tmp = _tmpdir / f"{sym}_{k}_{lab}.c"
             tmp.write_text("".join(head) + "".join(alt) + "".join(tail), encoding=encoding)
-            return (k, lab, new), score_fn(cfg, tmp, va_int, size, sym)
+            return (k, lab, new), score_fn(cfg, tmp, va_int, size, sym, toolchain, cflags)
 
         # Private dir per round: a concurrent sweep of the same symbol (another
         # target sharing this root) would otherwise overwrite a candidate

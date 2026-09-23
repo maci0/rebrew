@@ -469,7 +469,7 @@ def main(
     toolchain_name, cflags_str = resolve_compile_overrides(
         cfg,
         path.resolve().parent,
-        None,
+        getattr(selected, "toolchain", None),
         cflags or getattr(selected, "cflags", None),
         selected.module,
     )

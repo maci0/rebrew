@@ -75,6 +75,42 @@ class TestQualSweepCandidateFiles:
         assert list(sweep_root.iterdir()) == []
 
 
+class TestQualSweepCompileOverrides:
+    def test_scores_with_per_function_toolchain_and_cflags(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The sweep compiles with the function's TOML TOOLCHAIN/CFLAGS, not
+        the project default: scoring under another compiler optimizes the
+        source for flags ``rebrew test``/``verify`` never use."""
+        from types import SimpleNamespace
+
+        from typer.testing import CliRunner
+
+        import rebrew.binary_loader
+        from rebrew import qual_sweep
+
+        src = tmp_path / "f.c"
+        src.write_text("int f(void) {\n  int a;\n  return a;\n}\n", encoding="utf-8")
+        cfg = SimpleNamespace(root=tmp_path, cflags="/O2 /Gd", target_binary=tmp_path / "t.bin")
+        sel = SimpleNamespace(
+            symbol="f", size=16, module="SERVER", toolchain="msvc-4.2", cflags="/O1"
+        )
+        monkeypatch.setattr(qual_sweep, "require_config", lambda **_: cfg)
+        monkeypatch.setattr(qual_sweep, "select_annotation", lambda *_a, **_k: (src, sel, 0x1000))
+        monkeypatch.setattr(rebrew.binary_loader, "extract_raw_bytes", lambda *_a: b"\x90" * 16)
+        seen: list[tuple[object, object]] = []
+
+        def _compare(*args: object, toolchain: object = None, **_k: object) -> SimpleNamespace:
+            seen.append((toolchain, args[4]))
+            return SimpleNamespace(match_percent=0.0, obj_bytes=b"\x90" * 16, full_obj_size=16)
+
+        monkeypatch.setattr(qual_sweep, "compile_and_compare", _compare)
+        r = CliRunner().invoke(qual_sweep.app, ["--rounds", "1", "--jobs", "1", "f.c"])
+        assert r.exit_code == 0, r.output
+        assert seen
+        assert set(seen) == {("msvc-4.2", "/O1")}
+
+
 class TestGapTraceHelpers:
     def test_masked_key_reloc(self) -> None:
         from rebrew.gap_trace import _masked_key
