@@ -278,15 +278,11 @@ def _block_signature(mnems: list[str]) -> Counter[str]:
 
 
 def _cosine(a: Counter[str], b: Counter[str]) -> float:
-    keys = set(a) | set(b)
-    va = math.sqrt(float(sum(a.get(k, 0) ** 2 for k in keys)))
-    vb = math.sqrt(float(sum(b.get(k, 0) ** 2 for k in keys)))
+    va = math.sqrt(sum(v * v for v in a.values()))
+    vb = math.sqrt(sum(v * v for v in b.values()))
     if va == 0 or vb == 0:
         return 0.0
-    dot = 0.0
-    for k in keys:
-        dot += a.get(k, 0) * b.get(k, 0)
-    return dot / (va * vb)
+    return sum(a[k] * b[k] for k in a.keys() & b.keys()) / (va * vb)
 
 
 def cfg_similarity(

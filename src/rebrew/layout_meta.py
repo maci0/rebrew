@@ -245,13 +245,19 @@ def extract_layout(data: bytes, target: str = "") -> LayoutMetadata:
 
     iat_rva, iat_size = _data_dir(data, opt, 12)  # IAT
     imp_rva, _ = _data_dir(data, opt, 1)  # IMPORT_TABLE
-    exp_rva, _ = _data_dir(data, opt, 0)  # EXPORT_TABLE
+    exp_rva, exp_sz = _data_dir(data, opt, 0)  # EXPORT_TABLE
 
     def region(rva: int, size: int) -> bytes:
         o = off(rva)
         if o is None or o + size > len(data):
             raise ValueError(f"region rva=0x{rva:x} size={size:#x} out of range")
         return data[o : o + size]
+
+    def cstr(o: int) -> str:
+        end = data.find(b"\0", o)
+        if end < 0:
+            end = len(data)  # unterminated — read to EOF, not to -1
+        return data[o:end].decode("latin1", "replace")
 
     header = data[:header_size]
     iat = region(iat_rva, iat_size) if iat_rva else b""
@@ -267,17 +273,13 @@ def extract_layout(data: bytes, target: str = "") -> LayoutMetadata:
     # the built binary.
     bookkeeping = region(imp_rva, exp_rva - imp_rva) if imp_rva and exp_rva > imp_rva else b""
 
-    def find_sec(name: str) -> SectionMeta:
-        for s in sections:
-            if s.name == name:
-                return s
-        raise ValueError(f"missing section {name!r} (layout needs .text/.data/.rdata)")
-
     def find_sec_opt(name: str) -> SectionMeta | None:
-        for s in sections:
-            if s.name == name:
-                return s
-        return None
+        return next((s for s in sections if s.name == name), None)
+
+    def find_sec(name: str) -> SectionMeta:
+        if (s := find_sec_opt(name)) is None:
+            raise ValueError(f"missing section {name!r} (layout needs .text/.data/.rdata)")
+        return s
 
     data_sec = find_sec(".data")
     reloc_sec = find_sec_opt(".reloc")
@@ -351,12 +353,7 @@ def extract_layout(data: bytes, target: str = "") -> LayoutMetadata:
                 if oft == 0 and name_rva == 0:
                     break
                 dll_off = off(name_rva)
-                dll = "?"
-                if dll_off is not None:
-                    end = data.find(b"\0", dll_off)
-                    if end < 0:
-                        end = len(data)  # unterminated — read to EOF
-                    dll = data[dll_off:end].decode("latin1", "replace")
+                dll = "?" if dll_off is None else cstr(dll_off)
                 lookup_rva = oft or iat_va
                 oo = off(lookup_rva) if lookup_rva else None
                 if oo is None:
@@ -373,21 +370,10 @@ def extract_layout(data: bytes, target: str = "") -> LayoutMetadata:
                     else:
                         no = off(nm)
                         if no is not None:
-                            end = data.find(b"\0", no + 2)
-                            if end < 0:
-                                end = len(data)  # unterminated — read to EOF
-                            imports.append(
-                                ImportMeta(
-                                    dll,
-                                    data[no + 2 : end].decode("latin1", "replace"),
-                                    None,
-                                    iat_va + 4 * j,
-                                )
-                            )
+                            imports.append(ImportMeta(dll, cstr(no + 2), None, iat_va + 4 * j))
 
     exports: list[dict[str, Any]] = []
-    exp_rva_dir, exp_sz = _data_dir(data, opt, 0)
-    eo = off(exp_rva_dir)
+    eo = off(exp_rva)
     # IMAGE_EXPORT_DIRECTORY is 40 bytes; require the full header before
     # reading counts / RVAs, and cap table walks like the import path.
     if eo is not None and exp_sz and eo + 40 <= len(data):
@@ -407,17 +393,14 @@ def extract_layout(data: bytes, target: str = "") -> LayoutMetadata:
             ord_idx = struct.unpack_from("<H", data, ords_off + 2 * k)[0] if ords_off else 0
             nm_off = off(nrva)
             if nm_off is not None:
-                end = data.find(b"\0", nm_off)
-                if end < 0:
-                    end = len(data)  # unterminated — read to EOF, not to -1
-                name_by_ord[ordinal_base + ord_idx] = data[nm_off:end].decode("latin1", "replace")
+                name_by_ord[ordinal_base + ord_idx] = cstr(nm_off)
         for k in range(nfuncs):
             if funcs_off is not None and funcs_off + 4 * (k + 1) > len(data):
                 break
             addr = struct.unpack_from("<I", data, funcs_off + 4 * k)[0] if funcs_off else 0
             if addr == 0:
                 continue
-            if exp_rva_dir <= addr < exp_rva_dir + exp_sz:
+            if exp_rva <= addr < exp_rva + exp_sz:
                 # Forwarder: the RVA points at a forwarder string inside the
                 # export directory, not at code (gen_layout.parse_pe drops
                 # these too).  Recording it would claim a function at a .rdata VA.
