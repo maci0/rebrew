@@ -177,6 +177,16 @@ class TestScanGlobals:
         assert "int" in result.type_conflicts[0]["types"]
         assert "char *" in result.type_conflicts[0]["types"]
 
+    def test_type_conflict_flags_entry_and_keeps_type(self, tmp_path: Path) -> None:
+        """A conflict sets ``conflict``; ``type_str`` stays a parseable C type."""
+        _write_c(tmp_path, "a.c", TYPE_CONFLICT_A)
+        _write_c(tmp_path, "b.c", TYPE_CONFLICT_B)
+        entry = scan_globals(tmp_path).globals["g_shared"]
+        assert entry.conflict
+        assert entry.type_str == "int"
+        assert entry.to_dict()["conflict"] is True
+        assert entry.to_dict()["type"] == "int"
+
     def test_no_conflict_same_type(self, tmp_path: Path) -> None:
         content_a = TYPE_CONFLICT_A  # extern int g_shared;
         content_b = TYPE_CONFLICT_B.replace("extern char *g_shared;", "extern int g_shared;")

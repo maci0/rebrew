@@ -648,6 +648,11 @@
   in emission order.
 
 ### Fixed
+- **A type conflict no longer corrupts the global's type.**  `scan_globals`
+  appended `" ⚠ CONFLICT"` to `type_str`, so `rebrew data --json` reported
+  `"type": "int ⚠ CONFLICT"` and BSS/section byte estimates sized the
+  marked string.  `GlobalEntry` now carries a `conflict` flag (JSON
+  `"conflict": true`); `type` stays the declared C type.
 - **A failed inventory read no longer sticks for the process.**
   `cached_function_list` memoized `[]` after a read error on
   `function_structure.json`, and crt-match cached the resulting empty size

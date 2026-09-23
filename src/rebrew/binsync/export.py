@@ -172,9 +172,8 @@ def _resolve_global_types(
 
         scan = _scan_globals(cfg.reversed_dir, cfg=cfg)
         for ge in scan.globals.values():
-            t = getattr(ge, "type_str", "")
-            if t and "CONFLICT" not in t and ge.name and ge.name != "unknown":
-                name_to_type[ge.name] = t
+            if ge.type_str and not ge.conflict and ge.name and ge.name != "unknown":
+                name_to_type[ge.name] = ge.type_str
     except Exception:
         logger.debug("scan_globals unavailable for type resolution", exc_info=True)
 

@@ -202,11 +202,6 @@ def build_name_to_va(
         active_marker = module_marker(cfg)
 
         scan = scan_globals(cfg.reversed_dir, cfg)
-        for entry in scan.data_annotations:
-            name = entry.get("name", "")
-            va_int = entry.get("va")
-            if isinstance(name, str) and isinstance(va_int, int) and name:
-                name_to_va[name] = va_int
         for name, glob in scan.globals.items():
             if glob.va:
                 name_to_va[name] = glob.va

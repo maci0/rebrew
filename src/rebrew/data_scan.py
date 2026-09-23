@@ -74,6 +74,7 @@ class GlobalEntry:
     section: str = ""  # .data, .rdata, .bss, or ""
     declared_in: list[str] = field(default_factory=list)
     annotated: bool = False  # True if has a // GLOBAL: annotation
+    conflict: bool = False  # True if files declare this name with different types
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a plain dict for JSON output."""
@@ -84,6 +85,8 @@ class GlobalEntry:
             d["section"] = self.section
         d["declared_in"] = self.declared_in
         d["annotated"] = self.annotated
+        if self.conflict:
+            d["conflict"] = True
         return d
 
 
@@ -189,9 +192,8 @@ def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
     1. ``// GLOBAL: MODULE 0xVA`` reccmp annotations (+ next line for declaration)
     2. ``extern <type> <name>;`` data globals (via tree-sitter, filtering functions)
 
-    Returns a ScanResult with all discovered globals and type conflicts.
-    Mutates ``entry.type_str`` by appending ``" ⚠ CONFLICT"`` when conflicting
-    type declarations are found across files.
+    Returns a ScanResult with all discovered globals and type conflicts;
+    every entry of a conflicting name has ``conflict`` set.
     """
     from rebrew.c_parser import find_extern_variables
     from rebrew.sources import iter_sources
@@ -377,7 +379,7 @@ def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
             }
             result.type_conflicts.append(conflict)
             for entry in entries_by_name.get(name, ()):
-                entry.type_str += " ⚠ CONFLICT"
+                entry.conflict = True
 
     return result
 
@@ -404,10 +406,8 @@ def scan_data_annotations(src_dir: Path, cfg: ProjectConfig | None = None) -> li
             cfile, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir if cfg else None
         ):
             if ann.is_data:
-                # Metadata root is cfg.metadata_dir — passing cfile.parent
-                # silently no-ops the overlay when the metadata dir differs
-                # from the source dir (the sibling call at line ~1000 uses
-                # cfg.metadata_dir correctly).
+                # Metadata root is cfg.metadata_dir; cfile.parent would
+                # silently no-op the overlay when the two dirs differ.
                 merge_into_data_annotation(ann, cfg.metadata_dir if cfg else cfile.parent)
                 entries.append(
                     {
@@ -690,6 +690,10 @@ class BssReport:
         }
 
 
+# Smaller BSS gaps are alignment padding, not an undeclared global.
+_BSS_GAP_BYTES_MIN = 4
+
+
 def verify_bss_layout(
     scan: ScanResult,
     sections: dict[str, dict[str, Any]],
@@ -738,7 +742,7 @@ def verify_bss_layout(
     # First gap: from bss_va to first entry
     if bss_entries[0].va > bss_va:
         gap_size = bss_entries[0].va - bss_va
-        if gap_size >= 4:  # ignore alignment padding < 4
+        if gap_size >= _BSS_GAP_BYTES_MIN:
             report.gaps.append(
                 BssGap(
                     offset=bss_va,
@@ -754,7 +758,7 @@ def verify_bss_layout(
         expected_end = curr.va + curr.size_hint
         if nxt.va > expected_end:
             gap_size = nxt.va - expected_end
-            if gap_size >= 4:
+            if gap_size >= _BSS_GAP_BYTES_MIN:
                 report.gaps.append(
                     BssGap(
                         offset=expected_end,

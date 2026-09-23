@@ -150,10 +150,9 @@ def render_globals(console: Console, scan: ScanResult, conflicts_only: bool = Fa
         files_str = ", ".join(entry.declared_in[:3])
         if len(entry.declared_in) > 3:
             files_str += f" (+{len(entry.declared_in) - 3})"
-        style = "red" if "CONFLICT" in entry.type_str else ""
-        tbl.add_row(
-            va_str, entry.name, entry.type_str, entry.section or "—", files_str, style=style
-        )
+        type_cell = f"{entry.type_str} ⚠ CONFLICT" if entry.conflict else entry.type_str
+        style = "red" if entry.conflict else ""
+        tbl.add_row(va_str, entry.name, type_cell, entry.section or "—", files_str, style=style)
 
     title = "[bold]Type Conflicts[/]" if conflicts_only else "[bold]Global Data Inventory[/]"
     console.print(Panel(tbl, title=title, border_style="blue"))
