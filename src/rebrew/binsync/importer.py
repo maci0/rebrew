@@ -125,11 +125,6 @@ def _global_field_updates(local: Any, bs_entry: dict[str, str]) -> list[tuple[st
     return updates
 
 
-def _global_type_size_drift(local: Any, bs_entry: dict[str, str]) -> bool:
-    """True when BinSync's global type/size/section differs from the local entry."""
-    return bool(_global_field_updates(local, bs_entry))
-
-
 def _apply_global_type_size(
     metadata_dir: Path, va: int, module: str, local: Any, bs_entry: dict[str, str]
 ) -> None:
@@ -633,9 +628,7 @@ def import_state(
         # For DATA/GLOBAL, update rebrew-data.toml
         if local is not None:
             local_name = getattr(local, "name", "") or getattr(local, "symbol", "") or ""
-            if local_name.strip() == bs_name.strip() and not _global_type_size_drift(
-                local, bs_entry
-            ):
+            if local_name.strip() == bs_name.strip() and not _global_field_updates(local, bs_entry):
                 continue
             if dry_run:
                 proposed.append(

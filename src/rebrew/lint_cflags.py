@@ -28,6 +28,18 @@ def _cflags_key(cflags: str) -> frozenset[str]:
     return frozenset(cflags.split())
 
 
+def _codegen_cflags_key(cflags: str) -> frozenset[str]:
+    """The flags that decide emitted code — order-insensitive, no defines.
+
+    ``/D`` is a compilation input, not an optimization decision, and this
+    project's metadata carries ``/DREBREW_ALLOW_NAKED`` on some functions of a
+    file and not others (the guard travels with the file, and the shipped build
+    compiles neither).  A define alone therefore cannot make a translation unit
+    ambiguous; a different ``/O``/``/G`` set can.
+    """
+    return frozenset(t for t in _cflags_key(cflags) if not t.startswith(("/D", "-D")))
+
+
 def _inline_equals_store(found_key: str, inline_value: str, store_value: str) -> bool:
     """Whether an inline annotation duplicates its metadata-store value.
 

@@ -56,6 +56,7 @@ from rebrew.lint_cflags import (
     RedundantFunctionCflags,
     RedundantPreset,
     _cflags_key,
+    _codegen_cflags_key,
     _drop_redundant_presets,
     _inline_equals_store,
     check_redundant_cflags,
@@ -706,11 +707,6 @@ def _check_W016_section(
             section = section_for_va(va_int)
             if section:
                 section_hits.append(MissingSection(module=module, va=va_int, section=section))
-
-
-def _codegen_cflags_key(cflags: str) -> frozenset[str]:
-    """The CFLAGS tokens that change emitted code (see W019's CFLAGS case)."""
-    return frozenset(t for t in _cflags_key(cflags) if not t.startswith(("/D", "-D")))
 
 
 def _check_W019_inline_metadata(

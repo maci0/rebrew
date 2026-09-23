@@ -42,6 +42,7 @@ from rebrew.cli import (
 )
 from rebrew.compile_overrides import resolve_compile_overrides
 from rebrew.config import ProjectConfig
+from rebrew.lint_cflags import _codegen_cflags_key
 from rebrew.sources import iter_sources
 from rebrew.utils import atomic_write_text, config_path
 
@@ -55,18 +56,6 @@ HEADER = """# Per-file compile flags from rebrew-functions.toml.
 # A translation unit is compiled with one flag set, so a file whose functions
 # resolve to different flags is an error (see the command's output).
 """
-
-
-def _codegen_key(cflags: str) -> frozenset[str]:
-    """The flags that decide emitted code — order-insensitive, no defines.
-
-    ``/D`` is a compilation input, not an optimization decision, and this
-    project's metadata carries ``/DREBREW_ALLOW_NAKED`` on some functions of a
-    file and not others (the guard travels with the file, and the shipped build
-    compiles neither).  A define alone therefore cannot make a translation unit
-    ambiguous; a different ``/O``/``/G`` set can.
-    """
-    return frozenset(t for t in cflags.split() if not t.startswith(("/D", "-D")))
 
 
 def _defines(cflags: str) -> set[str]:
@@ -124,7 +113,7 @@ def collect(cfg: ProjectConfig, marker: str) -> tuple[dict[Path, str], list[str]
                     f"only, never the linked bytes."
                 )
             seen.append((entry.symbol or f"0x{entry.va:08x}", flags))
-        distinct = {_codegen_key(f) for _, f in seen}
+        distinct = {_codegen_cflags_key(f) for _, f in seen}
         if len(distinct) > 1:
             detail = "; ".join(f"{n} = '{f}'" for n, f in seen)
             problems.append(f"{src.relative_to(cfg.root)}: {detail}")
