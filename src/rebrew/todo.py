@@ -718,12 +718,17 @@ def _collect_new_functions(
     # were LIBCMT (`_ftell`, `_strncnt`, `___ld12mul`).  Reuse lib_match's own
     # index so `todo` and `lib-match` cannot disagree.
     _lib_index = None
-    with contextlib.suppress(Exception):
-        from rebrew.lib_match import index_library, stock_lib_cache
+    from rebrew.lib_match import index_library, stock_lib_cache
 
-        _cached = stock_lib_cache(cfg.root, "LIBCMT.LIB")
-        if _cached.exists():
+    _cached = stock_lib_cache(cfg.root, "LIBCMT.LIB")
+    if _cached.exists():
+        try:
             _lib_index = index_library(_cached)
+        except Exception as exc:  # any archive parse failure; the filter is advisory
+            console.print(
+                f"[yellow]WARNING: cannot index {_cached} ({exc}); "
+                "library functions are not filtered from the list[/yellow]"
+            )
 
     def _is_library_code(probe: int, probe_size: int) -> bool:
         if _lib_index is None:

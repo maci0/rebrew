@@ -462,6 +462,13 @@
   in emission order.
 
 ### Fixed
+- **`rebrew residue` applies the postlink fixers.**  It looked for the
+  layout package under a config attribute that does not exist, so every
+  fixer was skipped and the residue was measured on the unpatched image.
+  It now reads `layout/<target>/`, fails when that package cannot be
+  loaded, and warns when it is absent or the layout-map coverage cannot be
+  computed.  `rebrew todo` also warns when the cached `LIBCMT.LIB` cannot
+  be indexed instead of silently listing library functions as work.
 - **`rebrew build-db` survives two keys for one VA.**  A `data_*.json`
   whose function or global keys spell the same VA (`"0x401000"` and
   `"4198400"`) aborted the whole rebuild on the `(target, va)` primary

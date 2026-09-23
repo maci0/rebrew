@@ -186,3 +186,28 @@ class TestCommandWiring:
         r = CliRunner().invoke(app, ["--json"])
         assert r.exit_code == 2
         assert json.loads(r.stdout)["error"] == f"Built image not found: {root / 'build' / 'game'}"
+
+    def test_residue_rejects_unloadable_layout_package(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import json
+
+        from typer.testing import CliRunner
+
+        from rebrew.residue import app
+
+        root = tmp_path
+        (root / "rebrew-project.toml").write_text(
+            '[project]\ndefault_target = "game"\n[targets.game]\nbinary = "game.exe"\nreversed_dir = "src"\n',
+            encoding="utf-8",
+        )
+        (root / "build").mkdir()
+        (root / "build" / "game").write_bytes(b"MZ")
+        layout = root / "layout" / "game"
+        layout.mkdir(parents=True)
+        monkeypatch.chdir(root)
+        r = CliRunner().invoke(app, ["--json"])
+        assert r.exit_code == 2
+        error = json.loads(r.stdout)["error"]
+        assert error.startswith(f"cannot load layout package {layout}:")
+        assert "rebrew-layout.toml" in error

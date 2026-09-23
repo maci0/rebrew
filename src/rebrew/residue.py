@@ -170,14 +170,26 @@ def main(
         _map_coverage,
     )
 
-    layout_dir = Path(cfg.root) / "layout" / cfg.target if hasattr(cfg, "target") else None
+    layout_dir = Path(cfg.root) / "layout" / cfg.target_name
     meta = None
-    if layout_dir and layout_dir.is_dir():
-        with contextlib.suppress(Exception):
+    if layout_dir.is_dir():
+        try:
             meta = load_package(layout_dir)
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            # Without the package every fixer is skipped, so the residue would
+            # be measured on the unpatched image.
+            error_exit(f"cannot load layout package {layout_dir}: {exc}", json_mode=json_output)
+    else:
+        console.print(
+            f"WARNING: no layout package at {layout_dir}; postlink fixers skipped "
+            "(run 'rebrew gen-layout')"
+        )
     info_b = load_binary(built_path)
-    with contextlib.suppress(Exception):
+    try:
         cover = _map_coverage(bytes(info_b.data), meta, info_b) if meta else (1, 1, 1, 1)
+    except KeyError as exc:
+        console.print(f"WARNING: layout-map coverage unavailable (missing section {exc})")
+    else:
         op_ok, op_tot, call_ok, call_tot = cover
         frac = (op_ok + call_ok) / max(1, op_tot + call_tot)
         if frac < MIN_LAYOUT_MAP_COVERAGE:
