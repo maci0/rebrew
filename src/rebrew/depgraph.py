@@ -209,7 +209,7 @@ def build_graph(
         reversed_dir: Directory containing reversed .c source files.
         cfg: Optional project configuration.
         dispatch_tables: Optional list of ``DispatchTable`` objects (from
-            ``rebrew.data.find_dispatch_tables``).  When provided, a virtual
+            ``rebrew.data_scan.find_dispatch_tables``).  When provided, a virtual
             ``dispatch_0x<VA>`` node is created per table and connected to each
             entry function target via dispatch edges.
 
@@ -698,7 +698,7 @@ def main(
         try:
             from rebrew.annotation import parse_c_file_multi
             from rebrew.binary_loader import load_binary, section_dict
-            from rebrew.data import find_dispatch_tables
+            from rebrew.data_scan import find_dispatch_tables
             from rebrew.sources import iter_sources, target_marker
             from rebrew.utils import rel_display_path
 

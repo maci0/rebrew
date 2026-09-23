@@ -2679,6 +2679,7 @@ See [CI.md](CI.md) for workspace CI recipes (`verify --compare`,
 | Module | Purpose |
 |--------|---------|
 | `cu_map.py` | Compilation unit boundary inference (contiguity clustering + call-graph refinement) |
+| `data_scan.py` | Global data scanner library behind `rebrew data`: `scan_globals`, dispatch-table detection, BSS layout verification (no CLI imports; used by `coff_reloc` reloc validation) |
 
 ### Library Identification
 

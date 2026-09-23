@@ -4,10 +4,10 @@ import struct
 from pathlib import Path
 from types import SimpleNamespace
 
-from rebrew.data import (
+from rebrew.data import _generate_bss_fix
+from rebrew.data_scan import (
     BssGap,
     BssReport,
-    _generate_bss_fix,
     classify_section,
     enrich_with_sections,
     find_dispatch_tables,
@@ -540,20 +540,20 @@ class TestEstimateTypeSize:
 
 class TestVerifyBssLayoutGaps:
     def _scan(self, globals_list: list) -> SimpleNamespace:
-        from rebrew.data import ScanResult
+        from rebrew.data_scan import ScanResult
 
         g = {e.va: e for e in globals_list}
         return ScanResult(globals=g, data_annotations=[])
 
     def test_no_bss_section(self) -> None:
-        from rebrew.data import verify_bss_layout
+        from rebrew.data_scan import verify_bss_layout
 
         report = verify_bss_layout(self._scan([]), {})
         assert report.bss_va == 0
         assert report.gaps == []
 
     def test_start_gap_detected(self) -> None:
-        from rebrew.data import GlobalEntry, verify_bss_layout
+        from rebrew.data_scan import GlobalEntry, verify_bss_layout
 
         g = GlobalEntry(name="g_first", va=0x2010, type_str="int", declared_in=["a.c"])
         report = verify_bss_layout(self._scan([g]), {".bss": {"va": 0x2000, "size": 0x100}})
@@ -562,7 +562,7 @@ class TestVerifyBssLayoutGaps:
         assert report.gaps[0].size == 0x10
 
     def test_between_entry_gap_detected(self) -> None:
-        from rebrew.data import GlobalEntry, verify_bss_layout
+        from rebrew.data_scan import GlobalEntry, verify_bss_layout
 
         g1 = GlobalEntry(name="g_a", va=0x2000, type_str="int", declared_in=["a.c"])  # 4 bytes
         g2 = GlobalEntry(name="g_b", va=0x2010, type_str="int", declared_in=["a.c"])
@@ -573,7 +573,7 @@ class TestVerifyBssLayoutGaps:
         assert report.gaps[0].size == 0x10 - 4  # gap after g_a's 4-byte hint
 
     def test_small_gaps_ignored(self) -> None:
-        from rebrew.data import GlobalEntry, verify_bss_layout
+        from rebrew.data_scan import GlobalEntry, verify_bss_layout
 
         g1 = GlobalEntry(name="g_a", va=0x2000, type_str="int", declared_in=["a.c"])
         g2 = GlobalEntry(name="g_b", va=0x2002, type_str="int", declared_in=["a.c"])
@@ -581,7 +581,7 @@ class TestVerifyBssLayoutGaps:
         assert report.gaps == []  # 2-byte overlap/alignment, < 4 threshold
 
     def test_coverage_sum(self) -> None:
-        from rebrew.data import GlobalEntry, verify_bss_layout
+        from rebrew.data_scan import GlobalEntry, verify_bss_layout
 
         g1 = GlobalEntry(name="g_a", va=0x2000, type_str="int", declared_in=["a.c"])
         g2 = GlobalEntry(name="g_b", va=0x2004, type_str="char", declared_in=["a.c"])
@@ -591,7 +591,8 @@ class TestVerifyBssLayoutGaps:
 
 class TestBssFixDryRun:
     def test_dry_run_does_not_write(self, tmp_path: Path) -> None:
-        from rebrew.data import BssReport, _generate_bss_fix
+        from rebrew.data import _generate_bss_fix
+        from rebrew.data_scan import BssReport
 
         report = BssReport(
             gaps=[type("Gap", (), {"offset": 0x5000, "size": 0x100, "before": "a", "after": "b"})()]
@@ -601,7 +602,8 @@ class TestBssFixDryRun:
         assert not (tmp_path / "rebrew-data.toml").exists()
 
     def test_fix_writes(self, tmp_path: Path) -> None:
-        from rebrew.data import BssReport, _generate_bss_fix
+        from rebrew.data import _generate_bss_fix
+        from rebrew.data_scan import BssReport
 
         report = BssReport(
             gaps=[type("Gap", (), {"offset": 0x5000, "size": 0x100, "before": "a", "after": "b"})()]
@@ -642,7 +644,7 @@ class TestBuildDispatchKnownFunctions:
         )
 
     def test_source_annotations_take_precedence(self, tmp_path: Path) -> None:
-        from rebrew.data import build_dispatch_known_functions
+        from rebrew.data_scan import build_dispatch_known_functions
 
         cfg = self._cfg(tmp_path)
         src = cfg.reversed_dir / "f.c"
@@ -656,7 +658,7 @@ class TestBuildDispatchKnownFunctions:
         assert known[0x1000]["status"] == "STUB"  # no STATUS line in the block
 
     def test_registry_names_merged(self, tmp_path: Path) -> None:
-        from rebrew.data import build_dispatch_known_functions
+        from rebrew.data_scan import build_dispatch_known_functions
 
         cfg = self._cfg(tmp_path)
         known = build_dispatch_known_functions(cfg, cfg.reversed_dir)  # type: ignore[arg-type]
@@ -665,7 +667,7 @@ class TestBuildDispatchKnownFunctions:
         assert known[0x2000]["status"] == ""
 
     def test_missing_function_list_tolerated(self, tmp_path: Path) -> None:
-        from rebrew.data import build_dispatch_known_functions
+        from rebrew.data_scan import build_dispatch_known_functions
 
         cfg = self._cfg(tmp_path)
         cfg.reversed_dir = tmp_path / "empty_src"
@@ -679,7 +681,8 @@ class TestBssFixMessage:
     verify (zero annotated BSS globals)."""
 
     def test_no_gaps_with_known_entries_perfect(self, tmp_path: Path, capsys) -> None:
-        from rebrew.data import BssEntry, BssReport, _generate_bss_fix
+        from rebrew.data import _generate_bss_fix
+        from rebrew.data_scan import BssEntry, BssReport
 
         report = BssReport(
             bss_va=0x1000,
@@ -690,7 +693,8 @@ class TestBssFixMessage:
         assert "Layout is perfect" in capsys.readouterr().err
 
     def test_no_gaps_without_entries_not_perfect(self, tmp_path: Path, capsys) -> None:
-        from rebrew.data import BssReport, _generate_bss_fix
+        from rebrew.data import _generate_bss_fix
+        from rebrew.data_scan import BssReport
 
         report = BssReport(bss_va=0x1000, bss_size=0x100)
         _generate_bss_fix(report, tmp_path, "TEST")
@@ -709,7 +713,7 @@ class TestFindDispatchTablesSparse:
     _DATA_VA = 0x10010000
 
     def test_sparse_table_within_stride(self) -> None:
-        from rebrew.data import find_dispatch_tables
+        from rebrew.data_scan import find_dispatch_tables
 
         # 3 pointers at slots 0, 8, 16 with garbage (0) at 4 and 12, stride=8.
         data = bytearray(64)
@@ -731,7 +735,7 @@ class TestFindDispatchTablesSparse:
         assert tables[0].num_entries == 3
 
     def test_entries_beyond_stride_split_runs(self) -> None:
-        from rebrew.data import find_dispatch_tables
+        from rebrew.data_scan import find_dispatch_tables
 
         # Two groups of 3 pointers, 0x40 apart (> stride) — two tables.
         data = bytearray(128)

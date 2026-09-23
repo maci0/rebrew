@@ -160,7 +160,7 @@ def _resolve_global_types(
     Uses :func:`rebrew.c_parser.find_extern_variables` on the declaration
     line that follows each ``// GLOBAL:`` / ``// DATA:`` marker, which is
     the authoritative source (also handles non-extern DATA declarations).
-    Falls back to :func:`rebrew.data.scan_globals` name→type index when
+    Falls back to :func:`rebrew.data_scan.scan_globals` name→type index when
     the direct parse finds no extern.
     """
     va_to_type: dict[int, str] = {}
@@ -168,7 +168,7 @@ def _resolve_global_types(
     # Build a name→type index from scan_globals as a supplementary source
     name_to_type: dict[str, str] = {}
     try:
-        from rebrew.data import scan_globals as _scan_globals
+        from rebrew.data_scan import scan_globals as _scan_globals
 
         scan = _scan_globals(cfg.reversed_dir, cfg=cfg)
         for ge in scan.globals.values():

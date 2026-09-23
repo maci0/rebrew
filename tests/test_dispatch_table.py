@@ -4,7 +4,7 @@ import re
 import struct
 from pathlib import Path
 
-from rebrew.data import DispatchEntry, DispatchTable, find_dispatch_tables
+from rebrew.data_scan import DispatchEntry, DispatchTable, find_dispatch_tables
 from rebrew.match_batch import find_near_miss, parse_matching_info
 
 
@@ -205,7 +205,7 @@ class TestNeDispatchTables:
         info = load_binary(p)
 
         from rebrew.binary_loader import section_dict
-        from rebrew.data import find_dispatch_tables
+        from rebrew.data_scan import find_dispatch_tables
 
         sec_dict = section_dict(info)
         tables = find_dispatch_tables(info.data, sec_dict, {}, min_entries=3, info=info)
@@ -243,7 +243,7 @@ class TestNeDispatchTables:
         info = load_binary(p)
 
         from rebrew.binary_loader import section_dict
-        from rebrew.data import find_dispatch_tables
+        from rebrew.data_scan import find_dispatch_tables
 
         sec_dict = section_dict(info)
         tables = find_dispatch_tables(info.data, sec_dict, {}, min_entries=3, info=info)

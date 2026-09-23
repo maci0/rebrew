@@ -73,8 +73,8 @@ def test_function_catalog_scan_is_marker_scoped(tmp_path: Path, monkeypatch) -> 
 
     import rebrew.annotation as annotation_mod
     import rebrew.coff_reloc as cr
-    import rebrew.data as data_mod
     import rebrew.data_metadata as dm_mod
+    import rebrew.data_scan as data_mod
 
     src = tmp_path / "src"
     src.mkdir()

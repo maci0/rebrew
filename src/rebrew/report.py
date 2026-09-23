@@ -393,7 +393,7 @@ def _ne_summary(cfg: ProjectConfig) -> dict[str, Any] | None:
         return None
     try:
         from rebrew.binary_loader import load_binary, section_dict
-        from rebrew.data import find_dispatch_tables
+        from rebrew.data_scan import find_dispatch_tables
         from rebrew.ne_loader import enumerate_ne_functions
 
         info = load_binary(bin_path)

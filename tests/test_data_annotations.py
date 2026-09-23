@@ -7,7 +7,8 @@ from rebrew.annotation import (
     Annotation,
     parse_new_format,
 )
-from rebrew.data import (
+from rebrew.data_layout import estimate_type_size as _estimate_type_size
+from rebrew.data_scan import (
     BssEntry,
     BssGap,
     BssReport,
@@ -15,7 +16,6 @@ from rebrew.data import (
     ScanResult,
     verify_bss_layout,
 )
-from rebrew.data_layout import estimate_type_size as _estimate_type_size
 
 # ---------------------------------------------------------------------------
 # Idea #15: DATA annotation marker

@@ -319,7 +319,7 @@ def _collect_dispatch(info: Any, cfg: Any) -> list[dict[str, Any]]:
     ``rebrew data --dispatch`` uses — passing ``{}`` made every ``resolved``
     count 0).
     """
-    from rebrew.data import build_dispatch_known_functions, find_dispatch_tables
+    from rebrew.data_scan import build_dispatch_known_functions, find_dispatch_tables
 
     try:
         known = build_dispatch_known_functions(cfg, cfg.reversed_dir)

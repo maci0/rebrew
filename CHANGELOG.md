@@ -183,6 +183,11 @@
   documented integrator surface.
 
 ### Changed
+- **Data scanning moved from `rebrew.data` to `rebrew.data_scan`.** `scan_globals`,
+  `scan_data_annotations`, `find_dispatch_tables`, `verify_bss_layout` and their
+  dataclasses now live in a module with no CLI imports, so `coff_reloc` (compile
+  compare), `analyze`, `report`, `depgraph` and `binsync.export` no longer load the
+  `rebrew data` Typer app. `rebrew.data` keeps only the command.
 - **`registry.refresh_all()` reports `binary_detectors`, not `detectors`.**
   Every other count key was its entry-point group name without the
   `rebrew.` prefix; the `rebrew.binary_detectors` count was the one

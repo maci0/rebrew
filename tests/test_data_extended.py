@@ -7,15 +7,7 @@ from types import SimpleNamespace
 import pytest
 from typer.testing import CliRunner
 
-from rebrew.data import (
-    BssEntry,
-    BssGap,
-    BssReport,
-    _generate_bss_fix,
-    enrich_with_sections,
-    scan_data_annotations,
-    scan_globals,
-)
+from rebrew.data import _generate_bss_fix
 from rebrew.data_annotate import (
     _emit_extern_decl,
     gen_globals_header,
@@ -27,6 +19,14 @@ from rebrew.data_render import (
     render_globals,
     render_summary,
     section_summary,
+)
+from rebrew.data_scan import (
+    BssEntry,
+    BssGap,
+    BssReport,
+    enrich_with_sections,
+    scan_data_annotations,
+    scan_globals,
 )
 
 
@@ -594,7 +594,7 @@ class TestSectionSummary:
         )
         scan = scan_globals(cfg.reversed_dir, cfg)
         sections = {".data": {"va": 0x1000, "size": 0x100}}
-        from rebrew.data import enrich_with_sections
+        from rebrew.data_scan import enrich_with_sections
 
         enrich_with_sections(scan, sections)
         rows = section_summary(scan, sections)
@@ -630,8 +630,8 @@ class TestRenderDispatchAndBss:
     def testrender_dispatch_with_tables(self) -> None:
         from io import StringIO
 
-        from rebrew.data import DispatchEntry, DispatchTable
         from rebrew.data_render import render_dispatch
+        from rebrew.data_scan import DispatchEntry, DispatchTable
 
         buf = StringIO()
         tbl = DispatchTable(
@@ -763,8 +763,8 @@ class TestGenGlobalsHeaderMetadata:
 
 class TestDataMoreBranches:
     def testrender_summary_with_conflicts(self, tmp_path: Path) -> None:
-        from rebrew.data import scan_globals
         from rebrew.data_render import render_summary
+        from rebrew.data_scan import scan_globals
 
         cfg = _cfg(tmp_path)
         (cfg.reversed_dir / "a.c").write_text(

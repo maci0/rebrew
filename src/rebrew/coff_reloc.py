@@ -191,7 +191,7 @@ def build_name_to_va(
     name_to_va: dict[str, int] = {}
     try:
         from rebrew.config import module_marker
-        from rebrew.data import scan_globals
+        from rebrew.data_scan import scan_globals
 
         # Every source of pairs below is scoped to the ACTIVE target's marker.
         # A shared file carries one `// DATA:`/`// GLOBAL:` marker per target

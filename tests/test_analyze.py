@@ -374,7 +374,7 @@ class TestDispatchTablesShape:
         from types import SimpleNamespace
 
         from rebrew.analyze import _collect_dispatch
-        from rebrew.data import DispatchEntry, DispatchTable
+        from rebrew.data_scan import DispatchEntry, DispatchTable
 
         tables = [
             DispatchTable(
@@ -386,7 +386,7 @@ class TestDispatchTablesShape:
                 ],
             )
         ]
-        monkeypatch.setattr("rebrew.data.find_dispatch_tables", lambda *a, **k: tables)
+        monkeypatch.setattr("rebrew.data_scan.find_dispatch_tables", lambda *a, **k: tables)
         cfg = SimpleNamespace(
             reversed_dir=tmp_path / "src",
             metadata_dir=None,
@@ -420,7 +420,7 @@ class TestDispatchTablesShape:
             seen["known"] = known
             return []
 
-        monkeypatch.setattr("rebrew.data.find_dispatch_tables", _fake)
+        monkeypatch.setattr("rebrew.data_scan.find_dispatch_tables", _fake)
         cfg = SimpleNamespace(
             reversed_dir=src,
             metadata_dir=None,

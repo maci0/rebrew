@@ -2,7 +2,7 @@
 
 from types import SimpleNamespace
 
-from rebrew.data import DispatchEntry, DispatchTable
+from rebrew.data_scan import DispatchEntry, DispatchTable
 from rebrew.depgraph import (
     NodeInfo,
     _extract_callees,

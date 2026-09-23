@@ -14,7 +14,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 if TYPE_CHECKING:
-    from rebrew.data import BssReport, DispatchTable, ScanResult
+    from rebrew.data_scan import BssReport, DispatchTable, ScanResult
 
 
 def render_dispatch(console: Console, tables: list[DispatchTable]) -> None:
