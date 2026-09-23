@@ -309,6 +309,12 @@
   computed `target_marker(cfg)` for nothing.  The second parameter is now
   `metadata_dir`: a 2.6.0 call `parse_library_header(path, "server")`
   must drop the second argument, and `target_name=` raises `TypeError`.
+- **Breaking:** **Three library functions drop parameters they ignored.**
+  `rebrew.binsync.export.export_state` loses keyword `json_output`,
+  `rebrew.diff.run_diff` loses its first positional `seed_c`, and
+  `rebrew.doctor.check_optional_tools` takes no `cfg`.  A 2.6.0 call
+  passing any of them raises `TypeError`: drop the argument
+  (`run_diff(mismatches_only, ...)`, `check_optional_tools()`).
 - **CLI surface consistency, contract-enforced.**  One `main_entry`
   docstring everywhere (`"Run the Typer CLI application."` — 64 drifted
   modules normalized); `--target` help unified on the shared
