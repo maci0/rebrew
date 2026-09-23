@@ -41,8 +41,6 @@ class TestParsePe:
     def test_zero_stack_reserve_is_not_treated_as_absent(self) -> None:
         """A reference whose SizeOfStackReserve is 0 is a real value, not a
         missing one: the option (and toml key) must still be derived."""
-        import struct as _struct  # noqa: F401  (fixture is binary; kept for clarity)
-
         _, _, _, pe = parse_pe(_FIXTURE.read_bytes())
         pe["stack_reserve"] = 0
         opts, toml = derive_link_options(pe)

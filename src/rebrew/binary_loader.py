@@ -1104,7 +1104,11 @@ def detect_source_language(binary_path: Path) -> tuple[str, str]:
 
 
 @functools.cache
-def _arch_maps() -> tuple[dict[Any, str], dict[Any, str], dict[Any, str]]:
+def _arch_maps() -> tuple[
+    dict[lief.PE.Header.MACHINE_TYPES, str],
+    dict[lief.ELF.ARCH, str],
+    dict[lief.MachO.Header.CPU_TYPE, str],
+]:
     """LIEF-enum-keyed ``(PE, ELF, Mach-O)`` arch maps, built on first use
     (LIEF import is deferred).
 

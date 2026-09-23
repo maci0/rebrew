@@ -340,6 +340,7 @@ m2c = [
 strict = true
 # Zero-finding extras beyond --strict: keep enabled so regressions fail CI.
 extra_checks = true
+disallow_any_decorated = true
 enable_error_code = [
     "ignore-without-code",
     "unused-awaitable",

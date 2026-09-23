@@ -183,6 +183,9 @@
   documented integrator surface.
 
 ### Changed
+- **mypy enables `disallow_any_decorated`.**  The one finding, the
+  `functools.cache`d LIEF arch maps in `binary_loader`, now carries LIEF enum
+  key types instead of `Any`.
 - **Data scanning moved from `rebrew.data` to `rebrew.data_scan`.** `scan_globals`,
   `scan_data_annotations`, `find_dispatch_tables`, `verify_bss_layout` and their
   dataclasses now live in a module with no CLI imports, so `coff_reloc` (compile
