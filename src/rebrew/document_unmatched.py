@@ -18,6 +18,7 @@ unmatched and feeds them in.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
@@ -65,9 +66,13 @@ def _documented_vas(src_dir: Path, cfg: Any) -> set[int]:
             documented.add(ann["va"])
     # Intake's stub convention — also covers files the annotation parser
     # could not read (e.g. a stale/corrupt source) so we never double-write.
-    for stub in src_dir.glob("fcn_*.c"):
+    # A tree that names its files per target (``GOLDTL.fcn_0040e920.c``) must
+    # count too, so match the trailing ``fcn_<8 hex>`` in either shape.
+    for stub in (*src_dir.glob("fcn_*.c"), *src_dir.glob("*.fcn_*.c")):
+        m = re.search(r"fcn_([0-9a-fA-F]{8})$", stub.stem)
         try:
-            documented.add(int(stub.stem[len("fcn_") :], 16))
+            if m:
+                documented.add(int(m.group(1), 16))
         except ValueError:
             continue
     return documented

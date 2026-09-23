@@ -197,3 +197,19 @@ class TestDocumentUnmatched:
         assert json.loads(result.stdout)["backfilled_blockers"] == 2
         assert not get_entry(project / "src", 0x401000, "SERVER").get("blocker")
         assert not get_entry(project / "src", 0x401010, "SERVER").get("blocker")
+
+    def test_target_prefixed_stub_counts_as_documented(self, project: Path) -> None:
+        """A per-target file name (``SERVER.fcn_<va>.c``) still covers its VA.
+
+        The tree moved to ``<TARGET>.fcn_<va>.c``; the intake glob must not
+        re-document a function whose stub is already there under that name.
+        """
+        (project / "src" / "SERVER" / "SERVER.fcn_00401020.c").write_text(
+            "// STUB: SERVER 0x00401020\nvoid fcn_00401020(void) {}\n",
+            encoding="utf-8",
+        )
+        result = CliRunner().invoke(app, ["document-unmatched"])
+        assert result.exit_code == 0, result.output
+        assert not (project / "src" / "SERVER" / "fcn_00401020.c").exists(), (
+            "the target-prefixed stub already documents this VA"
+        )
