@@ -1274,9 +1274,9 @@ class TestCLISetCompiler:
         result = runner.invoke(cfg_app, ["set-compiler", "server.dll", "boguscompiler"])
         assert result.exit_code != 0
         combined = result.output + (result.stderr or "")
-        assert "Unknown" in combined or "unknown" in combined
+        assert "unknown" in combined.lower()
         # Must list valid options
-        assert "msvc-6.0" in combined or "gcc" in combined or "clang" in combined
+        assert "msvc-6.0" in combined
 
     def test_set_compiler_missing_target_rejected(self, tmp_path: Path, monkeypatch) -> None:
         """set-compiler on a non-existent target must fail."""

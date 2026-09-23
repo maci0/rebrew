@@ -17,9 +17,11 @@ class TestLintFileEdgeCases:
         f = tmp_path / "unreadable.c"
         f.write_text("data", encoding="utf-8")
         f.chmod(0)
-        result = lint_file(f)
+        try:
+            result = lint_file(f)
+        finally:
+            f.chmod(0o644)
         assert not result.passed
-        f.chmod(420)
 
     def test_old_format_header(self, tmp_path: Path) -> None:
         f = _write(
@@ -28,9 +30,9 @@ class TestLintFileEdgeCases:
             "/* my_func @ 10001000 (64) - /O2 /Gd - matching [GAME] */\nvoid my_func() {}\n",
         )
         result = lint_file(f)
-        has_old_warning = any((code == "W002" for _, code, _ in result.warnings))
-        has_missing_error = any((code == "E001" for _, code, _ in result.errors))
-        assert has_old_warning or has_missing_error
+        # The legacy block header is not a recognized annotation form.
+        assert [code for _, code, _ in result.errors] == ["E001"]
+        assert result.warnings == []
 
     def test_invalid_va(self, tmp_path: Path) -> None:
         f = _write(

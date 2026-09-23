@@ -215,8 +215,7 @@ class TestCollectEvidence:
             encoding="utf-8",
         )
         ev = collect_evidence([dec])
-        assert set(ev) == {"Player"} or "Player" in ev
-        assert ev["Player"][0] >= 1
+        assert ev == {"Player": {0: 4, 4: 4}}
 
 
 class TestRewriteParamType:

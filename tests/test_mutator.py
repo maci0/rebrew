@@ -1166,8 +1166,7 @@ class TestFlattenNestedIf:
     def test_trailing_code_prevents_flatten(self) -> None:
         src = "if (a) {\n    if (b) { x = 1; }\n    y = 2;\n}"
         # Cannot flatten because there's code after the inner if
-        result = mut_merge_nested_ifs(src, _rng())
-        assert result is None or "&&" not in result
+        assert mut_merge_nested_ifs(src, _rng()) is None
 
     def test_no_match(self) -> None:
         assert mut_merge_nested_ifs("x = 1;", _rng()) is None

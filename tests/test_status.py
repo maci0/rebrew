@@ -1174,7 +1174,7 @@ class TestRenderTerminal:
         _render_terminal(StatusReport(target="X"))  # zeroed → no divide-by-zero
         out = buf.getvalue()
         assert "X" in out
-        assert "0/0" in out or "0%" in out
+        assert "0/0  (0.0%)" in out
 
     def test_other_statuses(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from rebrew.status import _render_terminal

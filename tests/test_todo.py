@@ -611,17 +611,14 @@ class TestCollectors:
         items = _collect_new_functions(ghidra_funcs, existing, {0x1000: "f.c"}, cfg)
         assert [i.va for i in items] == [0x1100], [(hex(i.va), i.name) for i in items]
 
-    def test_prover_candidates(self) -> None:
+    def test_prover_candidates_empty_without_angr(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setitem(sys.modules, "angr", None)
         existing = {
             0x1000: {"status": "NEAR_MATCHING", "symbol": "a", "size": "50"},
             0x2000: {"status": "STUB", "symbol": "b", "size": "50"},
             0x3000: {"status": "NEAR_MATCHING", "symbol": "c", "size": "600"},
         }
-        items = _collect_prover_candidates(existing, {0x1000: 50, 0x2000: 50, 0x3000: 600}, {})
-        # If angr is not installed, it returns 0. If it is, 1.
-        assert len(items) in (0, 1)
-        if items:
-            assert items[0].va == 0x1000
+        assert _collect_prover_candidates(existing, {0x1000: 50, 0x2000: 50, 0x3000: 600}, {}) == []
 
 
 # ---------------------------------------------------------------------------

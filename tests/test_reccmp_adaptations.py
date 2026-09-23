@@ -3,6 +3,7 @@ vtordisp/float-const scans, demangle helpers, cvdump PDB parser, and the
 near_diag wiring (pins + jump-swap equivalence)."""
 
 import struct
+import sys
 from pathlib import Path
 
 import pytest
@@ -215,11 +216,15 @@ class TestDemangle:
     def test_demangle_vtable_simple(self) -> None:
         assert demangle_vtable("??_7Foo@@6B@") == "Foo"
 
-    def test_function_arg_string_fallback(self) -> None:
-        # Without pydemumble the fallback strips decoration only; the
-        # function must not raise either way.
-        result = get_function_arg_string("?fn@@YAXXZ")
-        assert result is None or isinstance(result, str)
+    def test_function_arg_string_fallback(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Without pydemumble the fallback strips decoration only, leaving no
+        # parameter list to extract.
+        monkeypatch.setitem(sys.modules, "pydemumble", None)
+        assert get_function_arg_string("?fn@@YAXXZ") is None
+
+    def test_function_arg_string_demangled(self) -> None:
+        pytest.importorskip("pydemumble")
+        assert get_function_arg_string("?fn@@YAXXZ") == "(void)"
 
 
 # ---------------------------------------------------------------------------
