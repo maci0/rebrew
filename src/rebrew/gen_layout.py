@@ -706,6 +706,7 @@ def gen_data_restore(data: bytes, marker: str, raw_start: int) -> str:
     return "\n".join(lines) + "\n"
 
 
+@app.callback(invoke_without_command=True)
 def main(
     def_only: bool = typer.Option(False, "--def-only", help="Only emit <target>.def"),
     link_config: bool = typer.Option(
@@ -869,5 +870,12 @@ def main(
             console.print(f"  wrote {w}")
 
 
+def main_entry() -> None:
+    """Run the Typer CLI application."""
+    from rebrew.cli import run_standalone
+
+    run_standalone(main)
+
+
 if __name__ == "__main__":
-    app()
+    main_entry()

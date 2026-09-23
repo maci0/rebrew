@@ -450,6 +450,13 @@
   in emission order.
 
 ### Fixed
+- **`python -m rebrew.<module>` runs every builtin command.**
+  `gen_layout` and `link_sweep` never registered `main` on their Typer
+  app, so running the module crashed with "Could not get a command for
+  this Typer instance"; `cmake_flags` and `build_check` had no
+  `main_entry`.  All four now run through `run_standalone` with the
+  141/130/2 exit contract, and `tests/test_cli_contract.py` checks every
+  builtin.
 - **Error messages cannot drive the terminal.**  `error_exit` escaped Rich
   markup but printed raw ESC and other control characters, and its text
   carries remote response bodies (decomp.me, the recompile service) and

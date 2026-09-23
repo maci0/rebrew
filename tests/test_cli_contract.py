@@ -132,6 +132,25 @@ class TestEntryPointDocstrings:
                 bad.append((comp.name, doc))
         assert not bad, f"main_entry docstring must be exactly {CANONICAL_MAIN_ENTRY_DOC!r}: {bad}"
 
+    def test_standalone_app_is_runnable(self) -> None:
+        """`python -m <module>` resolves a command and keeps the exit contract."""
+        import typer
+
+        bad = []
+        for comp in BUILTIN_COMPONENTS:
+            module = importlib.import_module(comp.module)
+            app = getattr(module, "app", None)
+            if app is None:
+                continue
+            if getattr(module, "main_entry", None) is None:
+                bad.append((comp.name, "no main_entry"))
+                continue
+            try:
+                typer.main.get_command(app)
+            except RuntimeError as exc:
+                bad.append((comp.name, str(exc)))
+        assert not bad, f"standalone app not runnable: {bad}"
+
 
 class TestGroupWithoutSubcommand:
     def test_group_without_subcommand_is_usage_error_on_stderr(self) -> None:

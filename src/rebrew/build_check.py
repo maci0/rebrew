@@ -306,9 +306,21 @@ def main(
 __all__ = [
     "app",
     "main",
+    "main_entry",
     "check",
     "parse_compile_lines",
     "parse_recorded",
     "parse_sources",
     "per_file_pin",
 ]
+
+
+def main_entry() -> None:
+    """Run the Typer CLI application."""
+    from rebrew.cli import run_standalone
+
+    run_standalone(main)
+
+
+if __name__ == "__main__":
+    main_entry()

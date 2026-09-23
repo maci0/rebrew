@@ -179,6 +179,7 @@ def _candidates(pe: dict[str, Any]) -> list[_Candidate]:
     ]
 
 
+@app.callback(invoke_without_command=True)
 def main(
     link_cmd: str | None = typer.Option(
         None,
