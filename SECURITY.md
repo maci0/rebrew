@@ -77,3 +77,8 @@ plugin cache backends or remove the open upstream diskcache advisory.
   analysis helpers run host rizin/r2, kuna, objconv, llvm-pdbutil, diec, and
   objdump against target binaries. Treat a project tree from an untrusted
   source as able to run code on the host through these paths.
+- No claim that the project tree cannot redirect outbound traffic. A
+  project's `[compiler] recompile_url` applies unless `REBREW_RECOMPILE_URL`
+  is set, and its `[llm] endpoint` overrides `REBREW_LLM_ENDPOINT` while an
+  exported `REBREW_LLM_API_KEY` is still sent to it (`llm_config` in
+  `src/rebrew/llm_seed.py`).
