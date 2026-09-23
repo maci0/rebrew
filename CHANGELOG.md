@@ -462,6 +462,10 @@
   in emission order.
 
 ### Fixed
+- **Every force-include spelling invalidates the compile cache.**  Only
+  `/FI` and `-include` switched the key to whole-directory header
+  fingerprints, so editing a header injected by `-FI`, `--include`,
+  `-imacros`, or Watcom `-fi=` could serve a stale object.
 - **Integer literals parse one way everywhere.**  Hex-keyed config tables
   and drift branch targets rejected an uppercase `0X` prefix while
   `rebrew cfg set` and `ret N` parsing accepted it.  All now go through

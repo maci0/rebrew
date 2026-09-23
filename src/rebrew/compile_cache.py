@@ -839,6 +839,12 @@ def canonicalize_cflags(cflags: list[str]) -> list[str]:
 #: no-deps fingerprint must be a non-empty, stable value.
 _NO_DEPS_HASH = hashlib.sha256(b"").hexdigest()
 
+#: Flag prefixes that inject a header the source never ``#include``s:
+#: MSVC ``/FI`` (also spelled ``-FI``), GCC/Clang ``-include`` /
+#: ``--include`` / ``-imacros``, Watcom ``-fi=``.  Case-sensitive: MSVC
+#: ``/Fi`` names the preprocessor output file instead.
+_FORCE_INCLUDE_PREFIXES = ("/FI", "-FI", "-include", "--include", "-imacros", "-fi=")
+
 
 def header_dependency_hash(
     source_content: str, source_dir: str | None, include_dirs: list[str]
@@ -930,10 +936,10 @@ def compile_cache_key(
         )
     )
     h.update(f"\0includes={chr(0).join(include_dirs)}\0".encode("utf-8", errors="surrogateescape"))
-    # A /FI/-include force-include pulls a header's content into every
-    # compile regardless of the source's directives — resolution cannot see
-    # it, so fall back to conservative per-directory fingerprints.
-    force_include = any(f.startswith(("/FI", "-include")) for f in cflags)
+    # A force-include pulls a header's content into every compile regardless
+    # of the source's directives — resolution cannot see it, so fall back to
+    # conservative per-directory fingerprints.
+    force_include = any(f.startswith(_FORCE_INCLUDE_PREFIXES) for f in cflags)
     headers = (
         header_dependency_hash(source_content, source_dir, include_dirs)
         if not force_include

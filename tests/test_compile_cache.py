@@ -530,18 +530,20 @@ class TestHeaderDependencyHash:
         k2 = compile_cache_key(src, "f.c", ["/O2"], [str(inc)], "wine CL")
         assert k1 != k2
 
-    def test_force_include_flag_falls_back(self, tmp_path: Path) -> None:
-        """/FI pulls a header into every compile invisibly — conservative
-        whole-directory fingerprints are used instead."""
+    @pytest.mark.parametrize("prefix", ["/FI", "-FI", "-include", "--include=", "-imacros", "-fi="])
+    def test_force_include_flag_falls_back(self, tmp_path: Path, prefix: str) -> None:
+        """A force-include pulls a header into every compile invisibly —
+        conservative whole-directory fingerprints are used instead."""
         inc = tmp_path / "inc"
         inc.mkdir()
         (inc / "a.h").write_text("typedef int A;\n")
         src = "int f(void){return 1;}\n"
-        k1 = compile_cache_key(src, "f.c", ["/O2", f"/FI{inc}/a.h"], [str(inc)], "wine CL")
+        flags = ["/O2", f"{prefix}{inc}/a.h"]
+        k1 = compile_cache_key(src, "f.c", flags, [str(inc)], "wine CL")
 
         (inc / "a.h").write_text("typedef long A;\n")
         include_fingerprint.cache_clear()
-        k2 = compile_cache_key(src, "f.c", ["/O2", f"/FI{inc}/a.h"], [str(inc)], "wine CL")
+        k2 = compile_cache_key(src, "f.c", flags, [str(inc)], "wine CL")
         assert k1 != k2
 
 
