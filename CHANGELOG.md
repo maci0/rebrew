@@ -15,6 +15,11 @@
   Functions tab.  `/api/history` now carries `name` (joined from
   `functions`, `''` once the VA has no function row) and the History table
   shows it next to the VA.
+- **`rebrew dashboard` load errors say why.**  A failed load showed only
+  "could not be loaded" (or `/api/bootstrap -> 500` on boot) and dropped
+  the server's `{"error": ...}` reason.  Each error now carries it, e.g.
+  "(server returned 404, unknown target 'x')", and a stopped server reads
+  "the dashboard server did not respond" instead of a raw fetch error.
 - **Every GA run is replayable from its seed.**  An unseeded `rebrew match`
   used an OS-entropy RNG and never reported it, so a lucky match could not
   be reproduced.  The GA now draws the seed itself and reports it: printed

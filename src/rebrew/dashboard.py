@@ -159,10 +159,27 @@ const viewLoaded = { functions: false, sections: false, globals: false, history:
 async function get(path, signal) {
   // Default credentials ("same-origin") match <link rel=preload as=fetch
   // crossorigin> (anonymous), so the cold-start bootstrap reuses the preload.
-  const r = await fetch(path, { signal });
-  if (!r.ok) throw new Error(path + " -> " + r.status);
+  let r;
+  try {
+    r = await fetch(path, { signal });
+  } catch (error) {
+    if (signal && signal.aborted) throw error;
+    throw new Error("the dashboard server did not respond; check that rebrew dashboard is still running");
+  }
+  if (!r.ok) {
+    // Error bodies are {"error": "<message>"}; show that reason to the user.
+    let detail = "";
+    try {
+      detail = (await r.json()).error || "";
+    } catch (error) {
+      detail = "";  // Non-JSON body (proxy page): the status code alone is all we have.
+    }
+    throw new Error("server returned " + r.status + (detail ? ", " + detail : ""));
+  }
   return r.json();
 }
+// " (reason)" suffix for a load-error message; empty when there is none.
+const reason = (error) => (error && error.message ? " (" + error.message + ")" : "");
 async function whileBusy(id, operation) {
   const element = $(id);
   const count = (busyCounts.get(id) || 0) + 1;
@@ -446,9 +463,9 @@ async function loadFunctions(options) {
     $("show-more-wrap").hidden = true;
     $("results-hint").hidden = true;
     if (grow && loadedCount > 0) {
-      setLoadError("functions", "Could not load more functions. The rows already shown are unchanged; use Retry functions to fetch the next page again.");
+      setLoadError("functions", "Could not load more functions" + reason(error) + ". The rows already shown are unchanged; use Retry functions to fetch the next page again.");
     } else {
-      setLoadError("functions", "Functions could not be loaded. Use Retry functions to try again with the same filters.");
+      setLoadError("functions", "Functions could not be loaded" + reason(error) + ". Use Retry functions to try again with the same filters.");
     }
   }
 }
@@ -512,7 +529,7 @@ async function loadSummary() {
     if (seq !== summarySeq || signal.aborted) return;
     $("cards").innerHTML = "";
     $("summary").hidden = true;
-    setLoadError("summary", "Coverage summary could not be loaded. Use Retry summary to try again.");
+    setLoadError("summary", "Coverage summary could not be loaded" + reason(error) + ". Use Retry summary to try again.");
   }
 }
 function scheduleSearch() {
@@ -646,7 +663,7 @@ async function loadSections() {
     if (seq !== viewSeq || signal.aborted) return;
     $("sections-results").hidden = true;
     $("sections-empty").hidden = true;
-    setLoadError("view", "Sections could not be loaded. Use Retry sections to try again.");
+    setLoadError("view", "Sections could not be loaded" + reason(error) + ". Use Retry sections to try again.");
   }
 }
 async function loadGlobals(options) {
@@ -687,9 +704,9 @@ async function loadGlobals(options) {
     $("globals-hint").hidden = true;
     $("globals-show-more-wrap").hidden = true;
     if (grow && loadedGlobalsCount > 0) {
-      setLoadError("view", "Could not load more globals. The rows already shown are unchanged; use Retry globals to fetch the next page again.");
+      setLoadError("view", "Could not load more globals" + reason(error) + ". The rows already shown are unchanged; use Retry globals to fetch the next page again.");
     } else {
-      setLoadError("view", "Globals could not be loaded. Use Retry globals to try again.");
+      setLoadError("view", "Globals could not be loaded" + reason(error) + ". Use Retry globals to try again.");
     }
   }
 }
@@ -729,9 +746,9 @@ async function loadHistory(options) {
     $("history-hint").hidden = true;
     $("history-show-more-wrap").hidden = true;
     if (grow && loadedHistoryCount > 0) {
-      setLoadError("view", "Could not load more history. The rows already shown are unchanged; use Retry history to fetch the next page again.");
+      setLoadError("view", "Could not load more history" + reason(error) + ". The rows already shown are unchanged; use Retry history to fetch the next page again.");
     } else {
-      setLoadError("view", "History could not be loaded. Use Retry history to try again.");
+      setLoadError("view", "History could not be loaded" + reason(error) + ". Use Retry history to try again.");
     }
   }
 }
@@ -924,7 +941,7 @@ function start() {
   return init().catch(error => {
     $("boot-status").hidden = true;
     $("retry-summary").textContent = "Reload dashboard";
-    setLoadError("summary", "Dashboard failed to load: " + error.message
+    setLoadError("summary", "Dashboard failed to load" + reason(error)
       + ". Use Reload dashboard to try again.");
     $("retry-summary").onclick = async () => {
       setLoadError("summary", "");

@@ -479,6 +479,22 @@ class TestFocusManagement:
         assert result.returncode == 0, result.stdout + result.stderr
 
 
+class TestLoadErrors:
+    def test_error_messages_carry_the_server_reason(self) -> None:
+        node = shutil.which("node")
+        if node is None:
+            pytest.skip("Node.js is required for dashboard interaction tests")
+        result = subprocess.run(
+            [node, str(Path(__file__).with_name("dashboard_errors.mjs"))],
+            input=_APP_JS,
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+
+
 class TestHandle:
     def test_index_html(self, dashboard: Dashboard) -> None:
         status, content_type, body = dashboard.handle("GET", "/", {})
