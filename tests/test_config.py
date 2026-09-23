@@ -307,7 +307,7 @@ tsaware = "false"
             cfg = load_config(root)
         assert cfg.link.tsaware is None
 
-    def test_unknown_arch_falls_back(self, tmp_path: Path) -> None:
+    def test_unknown_arch_raises(self, tmp_path: Path) -> None:
         toml = """\
 [project]
 default_target = "main"
@@ -317,9 +317,8 @@ binary = "test.exe"
 arch = "riscv32"
 """
         root = _make_project(tmp_path, toml)
-        with pytest.warns(UserWarning, match="unknown arch"):
-            cfg = load_config(root)
-        assert cfg.pointer_size == 4
+        with pytest.raises(ValueError, match=r"unknown arch 'riscv32'"):
+            load_config(root)
 
     def test_wrong_list_types_fall_back(self, tmp_path: Path) -> None:
         toml = """\
@@ -943,21 +942,20 @@ binary = "test.exe"
         with pytest.warns(UserWarning, match=r"unrecognized keys.*bogus"):
             load_config(root)
 
-    def test_unknown_arch_warns(self, tmp_path: Path) -> None:
+    def test_non_string_arch_raises(self, tmp_path: Path) -> None:
         toml = """\
 [project]
 default_target = "main"
 
 [targets.main]
 binary = "test.exe"
-arch = "sparc64"
+arch = 64
 """
         root = _make_project(tmp_path, toml)
-        with pytest.warns(UserWarning, match=r"unknown arch 'sparc64'"):
-            cfg = load_config(root)
-        assert cfg.pointer_size == 4  # falls back to x86_32
+        with pytest.raises(ValueError, match=r"unknown arch 64"):
+            load_config(root)
 
-    def test_unknown_format_falls_back_to_pe(self, tmp_path: Path) -> None:
+    def test_unknown_format_raises(self, tmp_path: Path) -> None:
         toml = """\
 [project]
 default_target = "main"
@@ -967,9 +965,8 @@ binary = "test.exe"
 format = "coff"
 """
         root = _make_project(tmp_path, toml)
-        with pytest.warns(UserWarning, match=r"unknown format 'coff'"):
-            cfg = load_config(root)
-        assert cfg.binary_format == "pe"
+        with pytest.raises(ValueError, match=r"unknown format 'coff'"):
+            load_config(root)
 
     def test_unknown_cache_backend_raises(self, tmp_path: Path) -> None:
         toml = """\

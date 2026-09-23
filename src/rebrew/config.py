@@ -1247,31 +1247,21 @@ def load_config(
     sources = tgt
 
     # --- Validate value types for known fields ---
-    # Unknown/invalid format must not be stored: layout detection would fail
-    # silently (image_base/text_va left at 0) and break VA→offset math.
+    # A typo'd format or arch fails here: substituting pe / x86_32 would run
+    # the wrong layout detection, disassembler, and pointer size on the binary.
     fmt_val = tgt.get("format", "pe")
     if not isinstance(fmt_val, str) or fmt_val not in _KNOWN_FORMATS:
-        _config_warn(
+        raise ValueError(
             f"rebrew-project.toml [targets.{target}]: unknown format {fmt_val!r} "
-            f"(known: {', '.join(sorted(_KNOWN_FORMATS))}); falling back to pe",
+            f"(known: {', '.join(sorted(_KNOWN_FORMATS))})"
         )
-        fmt_val = "pe"
 
-    arch_raw = tgt.get("arch", "x86_32")
-    if not isinstance(arch_raw, str):
-        _config_warn(
-            f"rebrew-project.toml [targets.{target}]: arch must be a string, "
-            f"got {type(arch_raw).__name__}; falling back to x86_32",
+    arch_name = tgt.get("arch", "x86_32")
+    if not isinstance(arch_name, str) or arch_name not in _ARCH_PRESETS:
+        raise ValueError(
+            f"rebrew-project.toml [targets.{target}]: unknown arch {arch_name!r} "
+            f"(known: {', '.join(sorted(_ARCH_PRESETS))})"
         )
-        arch_name = "x86_32"
-    else:
-        arch_name = arch_raw
-    if arch_name not in _ARCH_PRESETS:
-        _config_warn(
-            f"rebrew-project.toml [targets.{target}]: unknown arch '{arch_name}' "
-            f"(known: {', '.join(sorted(_ARCH_PRESETS))}); falling back to x86_32",
-        )
-        arch_name = "x86_32"
 
     # Unknown profiles are kept only as a warning elsewhere historically; store
     # a known default so flag sweeps / doctor report a real profile.  A name is
@@ -1289,7 +1279,7 @@ def load_config(
         )
         profile_val = "msvc-6.0"
 
-    arch_preset = _ARCH_PRESETS.get(arch_name, _ARCH_PRESETS["x86_32"])
+    arch_preset = _ARCH_PRESETS[arch_name]
     bin_rel = tgt.get("binary")
     if bin_rel is None:
         raise KeyError(f"Target '{target}' in rebrew-project.toml is missing 'binary' path")

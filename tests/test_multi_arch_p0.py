@@ -61,13 +61,11 @@ class TestArchPresets:
 
         assert 0x00 in load_config(_make_project(tmp_path, "mips32")).padding_bytes
 
-    def test_unknown_arch_warns_and_falls_back(self, tmp_path: Path) -> None:
+    def test_unknown_arch_raises(self, tmp_path: Path) -> None:
         from rebrew.config import load_config
 
-        with pytest.warns(UserWarning, match="unknown arch"):
-            cfg = load_config(_make_project(tmp_path, "notanarch"))
-        assert cfg.arch == "x86_32"
-        assert cfg.pointer_size == 4
+        with pytest.raises(ValueError, match="unknown arch 'notanarch'"):
+            load_config(_make_project(tmp_path, "notanarch"))
 
 
 class TestArchDetection:

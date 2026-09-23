@@ -156,6 +156,11 @@
   documented integrator surface.
 
 ### Changed
+- **An unknown target `format` or `arch` fails config load.**  A typo
+  such as `arch = "x86-64"` or `format = "ELF"` used to warn and
+  continue as `x86_32` / `pe`, disassembling and laying out the binary
+  wrongly.  `load_config` now raises `ValueError` naming the known
+  values.
 - **`CompareResult` rejects a `matched` flag that contradicts `status`.**
   `matched` and `status` carried the same verdict twice, so a result
   built as `matched=False, status="EXACT"` passed silently and callers

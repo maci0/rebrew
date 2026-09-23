@@ -396,6 +396,8 @@ The config loader fail-fasts on missing/invalid structure:
   subprocess is launched). `includes`/`libs` may be empty — that means "no extra
   dir" (e.g. `mingw-16.2.0` ships its own headers).
 - Empty or unregistered `[cache].backend` (must name a `rebrew.cache_backends` member).
+- `format` not one of `pe`, `elf`, `macho`, `ne`, `mz`, or `arch` not a known
+  preset (a silent `pe` / `x86_32` substitute would disassemble the binary wrongly).
 
 It emits warnings (and applies safe defaults) if:
 - Unrecognized keys are found in top-level, project, global compiler, target,
@@ -404,8 +406,6 @@ It emits warnings (and applies safe defaults) if:
   without an endpoint.
 - A legacy `[targets.<name>.cflags_presets]` table is present (wrong place —
   still honoured; move to `[targets.<name>.compiler.cflags_presets]`).
-- `format` is not one of `pe`, `elf`, `macho`, `ne`, `mz` (falls back to `pe` — never stores the bad value).
-- `arch` is not one of the known presets (falls back to `x86_32`).
 - `profile` is not a known compiler profile (falls back to `msvc-6.0`).
 - `[project.lint]` enum fields are not in their known set (falls back to `none`).
 - String/bool fields have non-string/non-bool types (e.g. `recompile_emit_assembly = "false"`
