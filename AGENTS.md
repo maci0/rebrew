@@ -4,7 +4,7 @@
 
 **Rebrew** is a compiler-in-the-loop decompilation workbench for binary-matching game reversing. Python package (`src/rebrew/`) with CLI tools to compile, compare, and match C source against target binary functions.
 
-Install editable (`uv pip install -e .`) inside a workspace containing binaries, sources, and toolchains. Contributor/dev install: `make setup` (or `uv sync --frozen --all-extras --group similarity`). Needs sibling `../resembl` at the `RESEMBL_REF` pin (see `Makefile` / CI) and **nasm** on `PATH` for the test suite. `make help` lists targets.
+Install editable (`uv pip install -e .`) inside a workspace containing binaries, sources, and toolchains. Contributor install: `make setup`; needs sibling `../resembl` at the `Makefile` `RESEMBL_REF` pin and **nasm** on `PATH` for the test suite. `make help` lists targets.
 
 ## Compiler Profiles
 
@@ -21,26 +21,19 @@ Docker build source lives in the sibling **rebrew-toolchains** checkout (`REBREW
 ## Build & Test Commands
 
 ```bash
-make setup                                # frozen sync + pre-commit; checks uv + ../resembl
-make test-one T=tests/test_annotation.py  # single-file edit-test loop
-make lint                                 # ruff check src/ tests/ tools/
-make format                               # ruff format src/ tests/ tools/
-make all                                  # format-check lint mypy audit test gen-fixtures-check cycles-check idempotency-check cli-contract
-make check                                # pre-commit hook parity (before a PR: make all && make check && make build)
+make test-one T=tests/test_annotation.py  # edit-test loop; T takes a node id (::TestClass)
+make test                                 # full suite (needs nasm)
+make lint / make format / make mypy
 make gen-fixtures                         # regenerate tests/fixtures/ after editing the generator
-
-uv run --frozen pytest tests/ -v --tb=short # needs nasm
-uv run --frozen pytest tests/test_annotation.py -v # or ::TestClass / -k name
-uv run --frozen pre-commit run --all-files
+make all && make check && make build      # before a PR: CI gates + pre-commit + reproducible build
 uv run --frozen python -m slipcover --fail-under 80 -m pytest  # coverage floor; ratchet up, never down
 ```
 
-**pytest** (`pyproject.toml`): `testpaths = ["tests"]`, `pythonpath = ["src", ".", "tests"]` (`.` exposes `tools/`; `tests` loads `-p pytest_ansi_env` so bare `uv run pytest` matches `make test` under `FORCE_COLOR`/`GITHUB_ACTIONS`).
+Bare `uv run pytest` matches `make test` (`pyproject.toml` pytest config loads `tests/pytest_ansi_env.py`; `.` on `pythonpath` exposes `tools/`).
 
 ## Code Style
 
 - **Python 3.13+**; ruff/mypy gates in `pyproject.toml`; do not weaken them
-- Naming: `mut_` for GA mutations
 - Types: `T | None` not `Optional`; config as `ProjectConfig` (`getattr` defensively); prefer `Any` over bare `object`
 - CLI: `error_exit(..., json_mode=...)`, `json_print`, `parse_va`, `EXIT_*` from `rebrew.cli`; `Console(stderr=True)`; library code raises specific exceptions; no bare `except`
 - Docstrings on every module; section separators `# ---...---`
@@ -68,7 +61,7 @@ Multi-command groups: `is_group=True` in `builtins.py`.
 
 ## Adding a GA Mutation
 
-See `src/rebrew/matcher/AGENTS.md` and `docs/GA_MUTATIONS.md`. Test in `tests/test_mutator_p*.py`. Numeric constants need explicit ops (`mut_tweak_integer_literal` covers small ±deltas).
+Name it `mut_*`; see `src/rebrew/matcher/AGENTS.md` and `docs/GA_MUTATIONS.md`. Test in `tests/test_mutator_p*.py`. Numeric constants need explicit ops (`mut_tweak_integer_literal` covers small ±deltas).
 
 ## Test Patterns
 
