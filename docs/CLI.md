@@ -2446,7 +2446,8 @@ compact row arrays under `cols`), `/api/sections?target=`,
 `/api/globals?target=` (q/limit/offset; compact arrays under `cols`),
 `/api/history?target=` (limit/offset; compact arrays under `cols`).
 Missing `target` → 400; unknown target → 404. Corrupt `function_stats` on
-`/api/summary` → 500 (not 404).
+`/api/summary` → 500 (not 404). Any other method → 405 with `Allow: GET, HEAD`.
+Every error body is `{"error": "<message>"}`, malformed requests included.
 A request that carries a body gets its response with `Connection: close`.
 The page keeps the selected target, view, and filters in the URL hash
 (`#target=…&view=globals&status=EXACT&q=…`), so a reload after

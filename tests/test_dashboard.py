@@ -928,7 +928,7 @@ class TestEscapeLike:
 
 class TestHttpMethods:
     @pytest.mark.parametrize(
-        "method", ["POST", "PUT", "DELETE", "PATCH", "OPTIONS", "TRACE", "CONNECT"]
+        "method", ["POST", "PUT", "DELETE", "PATCH", "OPTIONS", "TRACE", "CONNECT", "PROPFIND"]
     )
     @pytest.mark.parametrize(
         "path",
@@ -1021,6 +1021,28 @@ class TestHttpMethods:
         assert b"Connection: close\r\n" in raw
         # The body's bytes were never answered as a request of their own.
         assert raw.count(b"HTTP/1.1 ") == 1
+
+    def test_malformed_request_line_returns_json(self) -> None:
+        """http.server's own parse errors use the JSON envelope, not its HTML page."""
+        from io import BytesIO
+        from unittest.mock import Mock
+
+        from rebrew.dashboard import _Handler, allowed_hosts_for
+
+        handler = _Handler.__new__(_Handler)
+        handler.rfile = BytesIO(b"GET / HTTP/9.9\r\nHost: 127.0.0.1:8000\r\n\r\n")
+        handler.wfile = BytesIO()
+        handler.allowed_hosts = allowed_hosts_for("127.0.0.1", 8000)
+        handler.dashboard = Dashboard(Path("/nonexistent/coverage.db"))
+        handler.log_message = Mock()
+        handler.handle()
+
+        headers, body = handler.wfile.getvalue().split(b"\r\n\r\n", 1)
+        assert headers.startswith(b"HTTP/1.1 505 ")
+        assert b"Content-Type: application/json; charset=utf-8\r\n" in headers
+        assert b"Connection: close\r\n" in headers
+        assert b"Cache-Control: no-store\r\n" in headers
+        assert json.loads(body) == {"error": "Invalid HTTP version (9.9)"}
 
 
 class TestEncodingNegotiation:

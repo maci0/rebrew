@@ -115,19 +115,19 @@ void my_func() {}
 Iteratively edit source and compile-compare against the target binary:
 
 ```bash
-rebrew test src/<target>/<file>.c          # compile + byte-compare; auto-updates STATUS
-rebrew test src/<target>/<file>.c --json   # JSON output with byte-level mismatches
-rebrew test src/<target>/<file>.c --no-promote          # skip STATUS update
+rebrew test src/server.dll/<file>.c          # compile + byte-compare; auto-updates STATUS
+rebrew test src/server.dll/<file>.c --json   # JSON output with byte-level mismatches
+rebrew test src/server.dll/<file>.c --no-promote          # skip STATUS update
 rebrew test 0x<VA> --json                  # find by VA (also accepts a symbol name)
-rebrew test src/<target>/<file>.c --va 0x10001000 \
+rebrew test src/server.dll/<file>.c --va 0x10001000 \
     --symbol _myfunc --size 64 --cflags "/O1 /Gd"        # override metadata for ad-hoc tests
 rebrew test --all --json                   # batch test all reversed .c files
 rebrew test --all --origin GAME --json     # batch mode, filter by origin
-rebrew test --all --dir src/<target>/ --json    # restrict to subdir
+rebrew test --all --dir src/server.dll/ --json    # restrict to subdir
 rebrew test --all -j 8 --json              # parallel compile (default from config)
 rebrew test --all --dry-run                # list candidates without compiling
-rebrew test src/<target>/<file>.c --dry-run  # compile but PREVIEW the STATUS change (no write)
-rebrew probe src/<target>/<file>.c --json    # read-only ruler: strict + generous + aligned, never writes
+rebrew test src/server.dll/<file>.c --dry-run  # compile but PREVIEW the STATUS change (no write)
+rebrew probe src/server.dll/<file>.c --json    # read-only ruler: strict + generous + aligned, never writes
 ```
 
 On a multi-function file, `--va` selects the annotation AT that VA (its symbol
@@ -146,15 +146,15 @@ BLOCKER; NEAR_MATCHING (≥60%) updates; STUB (<60%) demotes; PROVEN is sticky
 For a byte diff of the current state:
 
 ```bash
-rebrew diff src/<target>/<file>.c                # byte diff vs target
-rebrew diff src/<target>/<file>.c -m             # mismatches only (** lines)
-rebrew diff src/<target>/<file>.c -r             # register-aware (mark RR encoding diffs)
-rebrew diff src/<target>/<file>.c --fix-blocker  # auto-write BLOCKER to rebrew-functions.toml
-rebrew diff src/<target>/<file>.c --format csv   # CSV for spreadsheet analysis
+rebrew diff src/server.dll/<file>.c                # byte diff vs target
+rebrew diff src/server.dll/<file>.c -m             # mismatches only (** lines)
+rebrew diff src/server.dll/<file>.c -r             # register-aware (mark RR encoding diffs)
+rebrew diff src/server.dll/<file>.c --fix-blocker  # auto-write BLOCKER to rebrew-functions.toml
+rebrew diff src/server.dll/<file>.c --format csv   # CSV for spreadsheet analysis
 rebrew diff 0x<VA> --json                        # JSON diff + structural similarity + blockers
-rebrew blocker set src/<target>/<file>.c "needs RE structs"   # programmatic BLOCKER for STUBs diff cannot classify
+rebrew blocker set src/server.dll/<file>.c "needs RE structs"   # programmatic BLOCKER for STUBs diff cannot classify
 rebrew blocker set 0x<VA> "SEH helper -- not matchable from C"
-rebrew blocker clear src/<target>/<file>.c       # remove BLOCKER again
+rebrew blocker clear src/server.dll/<file>.c       # remove BLOCKER again
 ```
 
 `rebrew diff` accepts VA/symbol. Exit: `0` clean · `1` structural `**` · `2` build fail.
@@ -164,7 +164,7 @@ Deep GA/prove → `rebrew-matching`.
 ## 5. File Organization
 
 ```bash
-rebrew split src/<target>/multi.c [--dry-run] [--va 0x...]
+rebrew split src/server.dll/multi.c [--dry-run] [--va 0x...]
 rebrew merge a.c b.c -o merged.c
 rebrew merge-sweep --dry-run
 rebrew link-order --check

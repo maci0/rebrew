@@ -13,12 +13,12 @@ first. `thorough`/`full` product counts are huge; the engine stride-samples to a
 ## Single-function sweep
 
 ```bash
-rebrew match src/<target>/<file>.c --flag-sweep-only                      # targeted tier (default)
-rebrew match src/<target>/<file>.c --flag-sweep-only --tier quick         # 192 combos, < 1 min
-rebrew match src/<target>/<file>.c --flag-sweep-only --tier targeted      # 1,152 combos, adds /Oy /Op
-rebrew match src/<target>/<file>.c --flag-sweep-only --tier normal        # 5,376 combos, adds /ML-/MTd
-rebrew match src/<target>/<file>.c --flag-sweep-only --tier thorough      # product 258k; auto-sampled — ask first
-rebrew match src/<target>/<file>.c --flag-sweep-only --tier full          # product 6.2M; auto-sampled to ~100k — ask first
+rebrew match src/server.dll/<file>.c --flag-sweep-only                      # targeted tier (default)
+rebrew match src/server.dll/<file>.c --flag-sweep-only --tier quick         # 192 combos, < 1 min
+rebrew match src/server.dll/<file>.c --flag-sweep-only --tier targeted      # 1,152 combos, adds /Oy /Op
+rebrew match src/server.dll/<file>.c --flag-sweep-only --tier normal        # 5,376 combos, adds /ML-/MTd
+rebrew match src/server.dll/<file>.c --flag-sweep-only --tier thorough      # product 258k; auto-sampled — ask first
+rebrew match src/server.dll/<file>.c --flag-sweep-only --tier full          # product 6.2M; auto-sampled to ~100k — ask first
 ```
 
 | Tier | Combinations (product) | When to use |
@@ -51,10 +51,10 @@ rebrew match --all --timeout-min 5
 rebrew match --all --dry-run
 rebrew match --ga-history --json
 rebrew merge-sweep --dry-run                         # TU-partition search (original was amalgamated)
-rebrew climb src/<target>/<file>.c --json            # statement-order hill-climb
-rebrew climb src/<target>/<file>.c --objective aligned --json
-rebrew qual-sweep src/<target>/<file>.c --json       # declaration qualifier sweep
-rebrew qual-sweep src/<target>/<file>.c --dry-run --json
+rebrew climb src/server.dll/<file>.c --json            # statement-order hill-climb
+rebrew climb src/server.dll/<file>.c --objective aligned --json
+rebrew qual-sweep src/server.dll/<file>.c --json       # declaration qualifier sweep
+rebrew qual-sweep src/server.dll/<file>.c --dry-run --json
 ```
 
 Check `--ga-history` before long batches; `--skip-recent N` resumes; `--seed-solved`

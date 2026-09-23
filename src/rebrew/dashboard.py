@@ -21,8 +21,11 @@ Target-scoped endpoints return 400 when ``target`` is missing/empty and 404 when
 the target is unknown.  ``GET /api/summary`` returns 500 when the target's
 ``function_stats`` metadata row exists but is unreadable (corrupt JSON or a
 non-object), so clients are not told the target is missing.  Non-GET/HEAD
-methods return 405 with ``Allow: GET, HEAD``.  A request that carries a body is
-answered with ``Connection: close`` (no route reads one).  Requests whose ``Host`` header
+methods (including ones http.server does not know) return 405 with
+``Allow: GET, HEAD``.  Every error body is ``{"error": "<message>"}``,
+including malformed requests (400/414/431/505) rejected before routing.
+A request that carries a body is answered with ``Connection: close`` (no
+route reads one).  Requests whose ``Host`` header
 does not match the bound host (or a loopback alias) are rejected with 403, so
 a web page the analyst visits cannot reach the server via DNS rebinding.
 List endpoints expose ``count`` (rows in this page), ``total`` (matching rows),
@@ -64,6 +67,7 @@ import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
+from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, ClassVar, Literal
@@ -1998,26 +2002,28 @@ class _Handler(BaseHTTPRequestHandler):
     def do_HEAD(self) -> None:
         self._respond("HEAD")
 
-    def do_POST(self) -> None:
-        self._respond("POST")
+    def send_error(self, code: int, message: str | None = None, explain: str | None = None) -> None:
+        """Answer http.server's own errors with the routes' JSON envelope.
 
-    def do_PUT(self) -> None:
-        self._respond("PUT")
-
-    def do_DELETE(self) -> None:
-        self._respond("DELETE")
-
-    def do_PATCH(self) -> None:
-        self._respond("PATCH")
-
-    def do_OPTIONS(self) -> None:
-        self._respond("OPTIONS")
-
-    def do_TRACE(self) -> None:
-        self._respond("TRACE")
-
-    def do_CONNECT(self) -> None:
-        self._respond("CONNECT")
+        http.server raises 501 only for a method with no ``do_*`` handler;
+        every method but GET/HEAD goes through ``_respond`` for the documented
+        405 + ``Allow``.  Parse errors (400/414/431/505) keep their status but
+        drop the stdlib HTML page and close the connection.
+        """
+        if code == HTTPStatus.NOT_IMPLEMENTED and self.command:
+            self._respond(self.command)
+            return
+        self.log_error("code %d, message %s", code, message)
+        status = HTTPStatus(code)
+        body = json.dumps({"error": message or status.phrase}, separators=(",", ":")).encode()
+        self.send_response(code, message)
+        self.send_header("Connection", "close")
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self._write_security_headers(cache_control="no-store")
+        self.end_headers()
+        if self.command != "HEAD":
+            self.wfile.write(body)
 
     def log_message(self, fmt: str, *args: Any) -> None:  # quiet default logging
         # markup=False: the logged request line is remote-controlled text; a

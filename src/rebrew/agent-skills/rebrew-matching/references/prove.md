@@ -4,13 +4,13 @@ Use when STATUS is NEAR_MATCHING and structural diffs (register alloc, reorder,
 loop layout) block EXACT/RELOC. Classify first, then prove.
 
 ```bash
-rebrew near-diag src/<target>/<file>.c --json    # classify: register/equivalent/reloc/structural
-rebrew near-diag src/<target>/<file>.c --fix-blocker
+rebrew near-diag src/server.dll/<file>.c --json    # classify: register/equivalent/reloc/structural
+rebrew near-diag src/server.dll/<file>.c --fix-blocker
 rebrew near-diag --all --fix-blocker --json
-rebrew prove src/<target>/<file>.c --json
-rebrew prove src/<target>/<file>.c --dry-run --json
-rebrew prove src/<target>/<file>.c --timeout 120 --json
-rebrew prove src/<target>/<file>.c --loop-bound 50
+rebrew prove src/server.dll/<file>.c --json
+rebrew prove src/server.dll/<file>.c --dry-run --json
+rebrew prove src/server.dll/<file>.c --timeout 120 --json
+rebrew prove src/server.dll/<file>.c --loop-bound 50
 rebrew prove my_func --start-offset 0 --end-offset 48
 rebrew prove --all --json
 rebrew prove my_func --check-edx --json

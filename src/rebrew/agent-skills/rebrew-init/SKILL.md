@@ -43,7 +43,7 @@ mkdir original && cp /path/to/<binary> original/
 rebrew init --target <name> --binary <filename> --guess-compiler
 ```
 
-Target naming: bare binary stem, no extension (`server.dll` → `server`, `game.exe` → `game`; lowercased, non-alnum → `_`). Same default as `rebrew intake`. Override with `--target` only when MODULE markers already use a different form (e.g. legacy `server.dll`). Paths are `layout/<target>/`, `src/<target>/`.
+Target naming: bare binary stem, no extension (`server.dll` → `server`, `game.exe` → `game`; lowercased, non-alnum → `_`). Same default as `rebrew intake`. Override with `--target` only when MODULE markers already use a different form (e.g. legacy `server.dll`). Paths are `layout/server.dll/`, `src/server.dll/`.
 
 ## Profile selection
 
