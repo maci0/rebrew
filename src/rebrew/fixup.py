@@ -307,7 +307,7 @@ def main(
     compile_check: bool = typer.Option(
         False,
         "--compile-check",
-        help="Compile the fixed source before writing; refuse to ship uncompilable output.",
+        help="Compile the fixed source; on failure, banner the error into the output and exit nonzero.",
     ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
@@ -343,7 +343,7 @@ def main(
             dest.write_text(result.source, encoding="utf-8")
             payload["wrote"] = str(dest)
         json_print(payload)
-        if compile_error:
+        if compile_error or result.error:
             raise typer.Exit(code=EXIT_ERROR)
         return
 

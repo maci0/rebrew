@@ -372,6 +372,12 @@ class TestStripCommentBlocks:
         src = 'const char *s = "a/*b";\nint code(void);\n'
         assert strip_comment_blocks(src) == 'const char *s = "a/*b";\nint code(void);'
 
+    def test_other_quote_kind_inside_literal_does_not_close_it(self) -> None:
+        from rebrew.utils import strip_comment_blocks
+
+        src = "if (c == '\"') x = 1; /* a */\nconst char *s = \"it's\"; /* b */\n"
+        assert strip_comment_blocks(src) == ("if (c == '\"') x = 1; \nconst char *s = \"it's\"; ")
+
     def test_same_line_comment_keeps_trailing_code(self) -> None:
         from rebrew.utils import strip_comment_blocks
 

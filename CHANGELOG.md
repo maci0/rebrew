@@ -468,6 +468,25 @@
   in emission order.
 
 ### Fixed
+- **`--json` failures exit nonzero.**  `rebrew toolchain smoke --json`
+  (and `--print-goldens` in either mode) exited 0 on a mismatch, timeout,
+  or missing object, and `rebrew fix --json` exited 0 when the fixup
+  reported an error.  Both now exit 2, as in text mode.
+- **`rebrew link-order --json` prints only JSON.**  The preview path wrote
+  the file list and diff to stdout ahead of the JSON object.
+- **`rebrew diff --fix-blocker` works on marker-less sources.**  It parsed
+  the source without the metadata overlay, so an ADR 023 file had no
+  annotation and the write failed on an empty module.  The COFF reloc
+  name scan had the same gap and missed those functions' names.
+- **`__stdcall`/`__fastcall` decoration counts pointers as 4 bytes.**
+  `double *p`, a parameter named `doubled`, and each comma inside a
+  function-pointer parameter inflated the `@N` suffix.
+- **Metadata writes find the module for every marker the parser reads.**
+  A module with a `-` (`MY-DLL`) or a `VTABLE`/`STRING` marker resolved to
+  an empty module, and SIZE/field writes failed.
+- **Comment stripping tracks the opening quote.**  A `'` inside a string
+  (`"it's"`) or a `"` inside a char literal closed the literal, so later
+  comments were kept.
 - **`--seed-llm` rejects pragma operators.**  A model seed could carry
   `_Pragma("optimize(...)")` or `__pragma(...)` inside the function body,
   which passed the `#`-line check and let a pragma, not the C, produce a

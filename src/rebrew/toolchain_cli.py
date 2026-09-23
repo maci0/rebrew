@@ -1111,10 +1111,14 @@ def smoke_cmd(
             json_print(
                 {"goldens": results} if print_goldens else {"results": results, "passed": ok}
             )
+            if not ok:
+                raise typer.Exit(code=EXIT_ERROR)
             return
         if print_goldens:
             for tool, h in results.items():
                 console.print(f"  {tool:12s} {h}")
+            if not ok:
+                raise typer.Exit(code=EXIT_ERROR)
             return
         for tool, status in results.items():
             console.print(f"  [{'green' if status == 'OK' else 'red'}]{tool:12s}[/] {status}")

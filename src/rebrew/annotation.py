@@ -169,7 +169,7 @@ FUNC_NAME_HINT_RE = re.compile(r"^//\s+(?P<name>[$?A-Za-z_][$?A-Za-z0-9_@]*)\s*$
 
 # Module-level compiled patterns for annotation mutation helpers.
 _MARKER_VA_RE = re.compile(
-    r"(?://|/\*)\s*(?:FUNCTION|STUB|LIBRARY|DATA|GLOBAL):\s*([\w.]+)\s+(0x[0-9a-fA-F]+)",
+    r"(?://|/\*)\s*(?:FUNCTION|STUB|LIBRARY|DATA|GLOBAL|VTABLE|STRING):\s*(\S+)\s+(0x[0-9a-fA-F]+)",
     re.IGNORECASE,
 )
 _MARKER_BLOCK_RE = re.compile(
@@ -762,17 +762,34 @@ def _calc_stdcall_param_size(proto: str) -> int | None:
         prev = params_str
         params_str = _TEMPLATE_STRIP_RE.sub("", params_str)
 
+    # Split on top-level commas only: a function-pointer parameter
+    # ``int (*cb)(int, int)`` is one parameter.
+    params: list[str] = []
+    depth = 0
+    start = 0
+    for i, ch in enumerate(params_str):
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+        elif ch == "," and depth == 0:
+            params.append(params_str[start:i])
+            start = i + 1
+    params.append(params_str[start:])
+
     total = 0
-    for param in params_str.split(","):
+    for param in params:
         param = param.strip()
         if not param:
             continue
-        # Check if any known large type is in the parameter declaration
         matched_size = _STDCALL_DEFAULT_SIZE
-        for type_name, size in _STDCALL_TYPE_SIZES.items():
-            if type_name in param:
-                matched_size = size
-                break
+        # Pointers, references, arrays (decay to pointers), and function
+        # pointers push 4 bytes whatever they point to.
+        if not any(c in param for c in "*&[("):
+            for type_name, size in _STDCALL_TYPE_SIZES.items():
+                if re.search(rf"\b{re.escape(type_name)}\b", param):
+                    matched_size = size
+                    break
         total += matched_size
 
     return total

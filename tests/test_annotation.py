@@ -983,6 +983,22 @@ class TestAuditAnnotation:
         size = _calc_stdcall_param_size("void __stdcall bar(std::pair<int,int> a, int b)")
         assert size == 8
 
+    @pytest.mark.parametrize(
+        ("proto", "expected"),
+        [
+            ("int __stdcall f(double *p)", 4),
+            ("int __stdcall f(int doubled)", 4),
+            ("int __stdcall f(int (*cb)(int, int))", 4),
+            ("int __stdcall f(int (*cb)(int, int), double d)", 12),
+            ("int __stdcall f(double d, __int64 q)", 16),
+        ],
+    )
+    def test_stdcall_pointer_and_name_params(self, proto: str, expected: int) -> None:
+        """Pointers and function pointers push 4 bytes; type names match whole words."""
+        from rebrew.annotation import _calc_stdcall_param_size  # type: ignore[attr-defined]
+
+        assert _calc_stdcall_param_size(proto) == expected
+
     # to_dict completeness: inline_error must be serialised
     def test_to_dict_contains_inline_error(self) -> None:
         """to_dict() must include inline_error for faithful round-tripping."""
@@ -1448,6 +1464,14 @@ class TestModuleForVa:
         f = tmp_path / "f.c"
         f.write_text("// FUNCTION: SERVER 0x1000\nint f(void) { return 0; }\n", encoding="utf-8")
         assert module_for_va(f, 0x1000) == "SERVER"
+
+    def test_matches_every_module_and_marker_the_parser_accepts(self, tmp_path: Path) -> None:
+        from rebrew.annotation import module_for_va
+
+        f = tmp_path / "f.c"
+        f.write_text("// FUNCTION: MY-DLL 0x1000\n// VTABLE: SERVER 0x2000\n", encoding="utf-8")
+        assert module_for_va(f, 0x1000) == "MY-DLL"
+        assert module_for_va(f, 0x2000) == "SERVER"
 
 
 class TestUpdateSizeAnnotation:

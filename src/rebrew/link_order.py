@@ -429,6 +429,9 @@ def main(
             json_print(_payload(cmake, computed, current, in_sync, True, dropped, diff))
         return
 
+    if json_output:
+        json_print(_payload(cmake, computed, current, in_sync, False, dropped, diff))
+        return
     for entry in computed:
         print(entry)
     if dry_run and diff:
@@ -438,8 +441,6 @@ def main(
             f"[yellow]{_CMAKE_LISTS} SOURCES differ from VA order "
             "— re-run with --apply to enforce[/yellow]"
         )
-    if json_output:
-        json_print(_payload(cmake, computed, current, in_sync, False, dropped, diff))
 
 
 def main_entry() -> None:

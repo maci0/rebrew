@@ -1180,7 +1180,7 @@ def strip_comment_blocks(text: str) -> str:
     """
     out: list[str] = []
     in_block = False
-    in_string_global = False
+    in_string_global = ""  # the open quote character, "" outside a literal
     for line in text.splitlines():
         stripped = line.strip()
         if stripped == "*/":
@@ -1188,7 +1188,7 @@ def strip_comment_blocks(text: str) -> str:
             # Also reset global string state — we are outside any string on a new line
             # after a block comment close; the per-line scanner handles the rest.
             in_block = False
-            in_string_global = False
+            in_string_global = ""
             continue
         if stripped.startswith("* ") and not in_block:
             # Orphaned comment-continuation lines (malformed /* */ nesting).
@@ -1221,8 +1221,8 @@ def strip_comment_blocks(text: str) -> str:
                     buf.append(line[i + 1])
                     i += 2
                     continue
-                if ch in ('"', "'"):
-                    in_string = False
+                if ch == in_string:
+                    in_string = ""
                 i += 1
                 continue
             if line.startswith("//", i):
@@ -1243,7 +1243,7 @@ def strip_comment_blocks(text: str) -> str:
                 continue
             buf.append(ch)
             if ch in ('"', "'"):
-                in_string = True
+                in_string = ch
             i += 1
         in_string_global = in_string
         joined = "".join(buf)

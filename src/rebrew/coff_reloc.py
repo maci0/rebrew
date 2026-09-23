@@ -248,7 +248,9 @@ def build_name_to_va(
             from rebrew.annotation import parse_c_file_multi
 
             for path in iter_sources(cfg.reversed_dir, cfg):
-                for ann in parse_c_file_multi(path, target_name=active_marker):
+                for ann in parse_c_file_multi(
+                    path, target_name=active_marker, metadata_dir=cfg.metadata_dir
+                ):
                     if getattr(ann, "marker_type", "") == "LIBRARY":
                         continue
                     if ann.name and ann.va:
