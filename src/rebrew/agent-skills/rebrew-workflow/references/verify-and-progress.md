@@ -10,7 +10,7 @@ rebrew verify -j 8 -o report.json       # parallel compile, save report
 rebrew verify --compare --json          # regressions vs last baseline
 rebrew verify --watch                   # re-verify on every file change
 rebrew verify --full --json             # ignore cache
-rebrew lint src/server.dll/<file>.c       # lint one file (files are POSITIONAL)
+rebrew lint src/<target>/<file>.c       # lint one file (files are POSITIONAL)
 rebrew lint --json                      # annotation correctness
 rebrew lint --fix                       # migrate inline metadata; drop W029-redundant cflags
 rebrew lint --fix --dry-run
@@ -20,11 +20,11 @@ rebrew orphans                          # metadata blocks with no source marker
 rebrew orphans --prune --dry-run        # preview prune (EXACT/RELOC/PROVEN held back)
 rebrew types                            # struct layouts vs decompiler evidence
 rebrew types apply-type <file> --param N --type T
-rebrew verify --data --built build/server.dll
-rebrew verify --whole-binary --built build/server.dll
-rebrew verify --text --built build/server.dll
-rebrew text-audit --built build/server.dll
-rebrew verify-placement --built build/server.dll
+rebrew verify --data --built build/<target>
+rebrew verify --whole-binary --built build/<target>
+rebrew verify --text --built build/<target>
+rebrew text-audit --built build/<target>
+rebrew verify-placement --built build/<target>
 ```
 
 `rebrew verify` syncs STATUS (PROVEN preserved); exit 1 if any function fails.

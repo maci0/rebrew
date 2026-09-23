@@ -42,13 +42,13 @@ For the overall reversing workflow, see the `rebrew-workflow` skill.
 ## 1. Diff Analysis (Always Start Here)
 
 ```bash
-rebrew diff src/server.dll/<file>.c --json         # structured diff + structural similarity
-rebrew diff src/server.dll/<file>.c -m --json      # mismatches only (** lines)
-rebrew diff src/server.dll/<file>.c -r --json      # register-aware (mark RR encoding diffs)
-rebrew diff src/server.dll/<file>.c --format csv   # CSV for spreadsheet analysis
+rebrew diff src/<target>/<file>.c --json         # structured diff + structural similarity
+rebrew diff src/<target>/<file>.c -m --json      # mismatches only (** lines)
+rebrew diff src/<target>/<file>.c -r --json      # register-aware (mark RR encoding diffs)
+rebrew diff src/<target>/<file>.c --format csv   # CSV for spreadsheet analysis
 rebrew diff 0x10009310 --json                    # resolve a VA directly (no .c path needed)
-rebrew near-diag src/server.dll/<file>.c --json    # classify WHY it doesn't match (first-mismatch diagnosis)
-rebrew gap-trace src/server.dll/<file>.c --json    # length-gap trace (short body? early table?) when scores stall flat
+rebrew near-diag src/<target>/<file>.c --json    # classify WHY it doesn't match (first-mismatch diagnosis)
+rebrew gap-trace src/<target>/<file>.c --json    # length-gap trace (short body? early table?) when scores stall flat
 rebrew objdiff --output objdiff.json                # GUI diffing project (objdiff) from target objects
 ```
 
@@ -90,12 +90,12 @@ Use `-r` / `--register-aware` to see if remaining `**` diffs are register alloca
 Use `--fix-blocker` to auto-write these to the `rebrew-functions.toml` metadata file:
 
 ```bash
-rebrew diff --fix-blocker src/server.dll/<file>.c        # auto-write BLOCKER to metadata file
-rebrew diff --fix-blocker --json src/server.dll/<file>.c # with JSON output
-rebrew near-diag src/server.dll/<file>.c --fix-blocker   # BLOCKER from the near-miss classification
+rebrew diff --fix-blocker src/<target>/<file>.c        # auto-write BLOCKER to metadata file
+rebrew diff --fix-blocker --json src/<target>/<file>.c # with JSON output
+rebrew near-diag src/<target>/<file>.c --fix-blocker   # BLOCKER from the near-miss classification
 # Ad-hoc BLOCKERs that diff cannot classify (needs structs, SEH helper, etc.):
-rebrew blocker set src/server.dll/<file>.c "needs RE structs -- see rebrew recover-structs" --delta 3
-rebrew blocker clear src/server.dll/<file>.c
+rebrew blocker set src/<target>/<file>.c "needs RE structs -- see rebrew recover-structs" --delta 3
+rebrew blocker clear src/<target>/<file>.c
 ```
 
 BLOCKER/BLOCKER_DELTA land in `rebrew-functions.toml` under `["<MODULE>.0x<VA>"]`.
@@ -109,7 +109,7 @@ Use this to quickly rule out structural issues before running the GA.
 For automated matching when manual tuning and diffs are insufficient:
 
 ```bash
-rebrew match src/server.dll/<file>.c --generations 200 --pop-size 64 -j 16
+rebrew match src/<target>/<file>.c --generations 200 --pop-size 64 -j 16
 ```
 
 Key flags: `-g/--generations` (default 100), `-p/--pop-size` (64), `-j/--jobs`,
@@ -127,8 +127,8 @@ batch `--all` flags, and safety stops:
 `references/flag-sweep.md`.
 
 ```bash
-rebrew match src/server.dll/<file>.c --flag-sweep-only              # targeted (default)
-rebrew match src/server.dll/<file>.c --flag-sweep-only --tier quick # first pass
+rebrew match src/<target>/<file>.c --flag-sweep-only              # targeted (default)
+rebrew match src/<target>/<file>.c --flag-sweep-only --tier quick # first pass
 ```
 
 Do **not** run `--tier thorough` / `--tier full` or long `--all` sweeps unless
@@ -159,10 +159,10 @@ When kinds match but residue remains (statement order / qualifiers), prefer thes
 over another GA pass:
 
 ```bash
-rebrew climb src/server.dll/<file>.c --json                 # adjacent statement-order hill-climb
-rebrew climb src/server.dll/<file>.c --objective aligned --json
-rebrew qual-sweep src/server.dll/<file>.c --json            # declaration qualifier sweep
-rebrew qual-sweep src/server.dll/<file>.c --dry-run --json
+rebrew climb src/<target>/<file>.c --json                 # adjacent statement-order hill-climb
+rebrew climb src/<target>/<file>.c --objective aligned --json
+rebrew qual-sweep src/<target>/<file>.c --json            # declaration qualifier sweep
+rebrew qual-sweep src/<target>/<file>.c --dry-run --json
 ```
 
 `climb` = adjacent statement swaps; `qual-sweep` = exhaustive per-declaration
@@ -183,8 +183,8 @@ qualifier variants. Batch flag/GA details: `references/flag-sweep.md`.
 When stuck at NEAR_MATCHING (register alloc / reorder / loop layout):
 
 ```bash
-rebrew near-diag src/server.dll/<file>.c --json
-rebrew prove src/server.dll/<file>.c --json
+rebrew near-diag src/<target>/<file>.c --json
+rebrew prove src/<target>/<file>.c --json
 ```
 
 `REGISTER (N% of delta)` verdicts are prime PROVEN candidates — prefer

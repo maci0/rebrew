@@ -52,7 +52,7 @@ rebrew data --gen-header                        # write rebrew_globals.h from lo
 rebrew data --gen-header --gen-header-out /path/to/my_globals.h  # override output path
 rebrew data --gen-header --force                # overwrite existing file without prompting
 rebrew data --layout-audit --section .rdata     # per-TU span/order audit for .rdata (default .data)
-rebrew verify --data --built build/server.dll     # byte-compare built .data/.rdata per symbol (VERIFIED/DRIFT/UNCHECKED)
+rebrew verify --data --built build/<target>     # byte-compare built .data/.rdata per symbol (VERIFIED/DRIFT/UNCHECKED)
 rebrew todo -c data-drift --json                # data symbols whose built bytes differ from the reference
 ```
 
@@ -125,13 +125,13 @@ Two diff signals point at globals:
 
 ### Workflow
 
-1. `rebrew diff --json src/server.dll/<file>.c`: note `XX` rows and `missing_globals`
+1. `rebrew diff --json src/<target>/<file>.c`: note `XX` rows and `missing_globals`
 2. Add the missing `extern` declarations with `// GLOBAL:` annotations
 3. `rebrew data --bss --json`: gaps between known globals mean more missing externs
 4. `rebrew data --fix-bss --dry-run`, then `rebrew data --fix-bss` to generate
    `bss_padding.c` (writes SIZE/SECTION/NOTE into `{metadata_dir}/rebrew-data.toml`)
 5. Re-run `rebrew data --bss --json` until no gaps remain, then
-   `rebrew test src/server.dll/<file>.c --json`
+   `rebrew test src/<target>/<file>.c --json`
 
 ## Dispatch Tables and Vtables
 

@@ -231,7 +231,7 @@ For GA matching and batch processing, see the `rebrew-matching` skill.
 ## Toolchains
 
 Shipped profiles (`msvc-*`, `mingw-*`, …) compile only through their docker image —
-`rebrew toolchain list/status/pull/build`. No host wine/wibo fallback. See `docs/TOOLCHAIN.md`.
+`rebrew toolchain list/status/pull/build`. No host wine/wibo fallback. See rebrew repo `docs/TOOLCHAIN.md`.
 
 ## Advanced commands
 

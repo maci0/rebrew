@@ -8,7 +8,7 @@ NEAR_MATCHING sweeps. Start with `quick`/`targeted`; escalate only if needed.
 Do **not** run `--tier thorough`, `--tier full`, or multi-hour `--all` GA/sweep
 batches unless the user explicitly asks. Prefer `--dry-run` / `--ga-history`
 first. `thorough`/`full` product counts are huge; the engine stride-samples to a
-~100k combo bound (see `docs/FLAG_SWEEP_TIERS.md`).
+~100k combo bound (see rebrew repo `docs/FLAG_SWEEP_TIERS.md`).
 
 ## Single-function sweep
 
@@ -32,7 +32,7 @@ rebrew match src/bench/<file>.c --flag-sweep-only --tier full          # product
 Axes are per-profile (MSVC `/` flags, Watcom `-os/-ot/…`, Borland `-O1/-O2`,
 16-bit MSVC). Docker-only images: `rebrew toolchain pull <profile>`. Try `/O2`
 or `/O1` by hand before a blind sweep; heuristics:
-`references/codegen-hints.md`. Counts: `docs/FLAG_SWEEP_TIERS.md`.
+`references/codegen-hints.md`. Counts: rebrew repo `docs/FLAG_SWEEP_TIERS.md`.
 
 ## Batch mode (`--all`)
 

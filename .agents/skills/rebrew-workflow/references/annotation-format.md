@@ -54,7 +54,7 @@ source = "ENVIRON.C"
 ```
 
 The metadata file lives at `cfg.metadata_dir` (the parent of `reversed_dir` — e.g. `src/`
-for sources under `src/server.dll/`). There is no walk-up: tools must be passed the correct
+for sources under `src/bench/`). There is no walk-up: tools must be passed the correct
 metadata root. This includes **`rebrew lint`**,
 which reads the metadata file before validation so that STATUS, SIZE, CFLAGS etc. are accessible
 even when not present inline.
@@ -80,7 +80,7 @@ void my_func() {}
 Each target has its own metadata file entry, keyed by `MODULE.0xVA`:
 
 ```toml
-# A single rebrew-functions.toml at cfg.metadata_dir (e.g. src/ for src/server.dll/):
+# A single rebrew-functions.toml at cfg.metadata_dir (e.g. src/ for src/bench/):
 ["LEGO1.0x1009a8c0"]
 status = "EXACT"
 size = 42

@@ -43,7 +43,7 @@ mkdir original && cp /path/to/<binary> original/
 rebrew init --target <name> --binary <filename> --guess-compiler
 ```
 
-Target naming: bare binary stem, no extension (`server.dll` → `server`, `game.exe` → `game`; lowercased, non-alnum → `_`). Same default as `rebrew intake`. Override with `--target` only when MODULE markers already use a different form (e.g. legacy `server.dll`). Paths are `layout/server.dll/`, `src/server.dll/`.
+Target naming: bare binary stem, no extension (`server.dll` → `server`, `game.exe` → `game`; lowercased, non-alnum → `_`). Same default as `rebrew intake`. Override with `--target` only when MODULE markers already use a different form (e.g. legacy `server.dll`). Paths are `layout/<target>/`, `src/<target>/`.
 
 ## Profile selection
 
@@ -55,7 +55,7 @@ right for standard builds. Override with `--toolchain <profile>` when:
 - You already know the exact toolchain (matching SP-level profile matters:
   `msvc-6.0-sp6` vs `msvc-6.0` is a different code generator).
 - 16-bit DOS/NE binaries where the heuristic prefers wrong (see
-  `docs/TOOLCHAIN.md` for the `watcom-2.0-win16` / `msvc-1.52` / `borland-3.1`
+  rebrew repo `docs/TOOLCHAIN.md` for the `watcom-2.0-win16` / `msvc-1.52` / `borland-3.1`
   decision tree).
 
 ```bash

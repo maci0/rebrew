@@ -70,9 +70,9 @@ above the same body — do not duplicate `.c` files.
 rebrew gen-layout --target <name>
 ```
 
-Writes `src/server.dll/server.dll.def`, `src/server.dll/crt_region/crt_imports.c`, and
-`layout/server.dll/` (`rebrew-layout.toml` + hex dumps). Then
-`rebrew postlink <built.dll> --layout layout/server.dll` can converge without the
+Writes `src/<target>/<target>.def`, `src/<target>/crt_region/crt_imports.c`, and
+`layout/<target>/` (`rebrew-layout.toml` + hex dumps). Then
+`rebrew postlink <built.dll> --layout layout/<target>` can converge without the
 original DLL. Keep `layout/` in VCS.
 
 ## Intake Procedure
@@ -124,13 +124,13 @@ Needs `cfg detect-crt` first or `crt-match --all` finds nothing. FLIRT JSON:
 ### 3. Build Function Catalog + Coverage DB
 
 ```bash
-rebrew catalog --data-json              # write db/data_server.dll.json
+rebrew catalog --data-json              # write db/data_<target>.json
 rebrew catalog --export-ghidra-labels   # write ghidra_data_labels.json (switch tables etc.)
 rebrew catalog --fix-sizes              # backfill SIZE in rebrew-functions.toml from catalog
 rebrew build-db                         # build SQLite coverage database (db/coverage.db)
 ```
 
-`--data-json` → `db/data_server.dll.json` (+ `function_structure.json` when no Ghidra
+`--data-json` → `db/data_<target>.json` (+ `function_structure.json` when no Ghidra
 export). `--fix-sizes` prompts unless `--force` (required with `--json`).
 `build-db` needs `--force` to rebuild on schema mismatch.
 
