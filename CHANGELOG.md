@@ -165,6 +165,12 @@
   documented integrator surface.
 
 ### Changed
+- **`rebrew binsync-import --create-missing` writes metadata once.**
+  Each created stub did three full `rebrew-functions.toml`
+  read-modify-writes (STATUS, SIZE, NOTE), quadratic in stub count.  The
+  stubs' fields are now collected and written in one
+  `update_statuses_batch` plus one `set_fields_batch` after the function
+  pass.
 - **Filtered dashboard function pages seek their filter.**  The
   `(target, status)` and `(target, module)` indexes could not serve the
   page's `ORDER BY va`, so SQLite walked `idx_functions_list` over the

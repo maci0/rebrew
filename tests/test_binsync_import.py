@@ -462,16 +462,20 @@ reversed_dir = "src/server"
                 [
                     {"va": 0x10001000, "size": 10, "name": "foo"},
                     {"va": 0x10002000, "size": 16, "name": "bar_func"},
+                    {"va": 0x10003000, "size": 24, "name": "baz_func"},
                 ]
             ),
             encoding="utf-8",
         )
 
-        state = _make_state(tmp_path, funcs={0x10002000: "_FromBinSync"})
+        state = _make_state(
+            tmp_path, funcs={0x10002000: "_FromBinSync", 0x10003000: "_AlsoBinSync"}
+        )
         result = _invoke_import(tmp_path, state, monkeypatch, "--create-missing", "--json")
         assert result.exit_code == 0, result.output
         data = json.loads(result.stdout)
-        assert data["applied_names"] == 1
+        assert data["applied_names"] == 2
+        assert (src / "AlsoBinSync.c").exists()
         assert (src / "FromBinSync.c").exists()
         # The stub carries only the marker — STATUS/SIZE/NOTE are
         # metadata-owned keys and must land in rebrew-functions.toml, not
@@ -483,6 +487,14 @@ reversed_dir = "src/server"
         assert "SERVER.0x10002000" in meta
         assert 'status = "STUB"' in meta
         assert "imported from BinSync" in meta
+        # Every stub's fields land (written in one batch after the loop).
+        from rebrew.metadata import get_entry
+
+        for va, size, name in ((0x10002000, 16, "_FromBinSync"), (0x10003000, 24, "_AlsoBinSync")):
+            entry = get_entry(tmp_path / "src", va, "SERVER")
+            assert entry["status"] == "STUB"
+            assert entry["size"] == size
+            assert entry["note"] == f"imported from BinSync as {name}"
 
 
 class TestGlobalTypeSizeImport:

@@ -324,6 +324,8 @@ def import_state(
     applied_notes = 0
     skipped = 0
     touched_vas: list[int] = []
+    stub_statuses: list[dict[str, Any]] = []
+    stub_field_updates: list[dict[str, Any]] = []
 
     # --- Function names + prototypes ---
     for va, bs_entry in sorted(funcs_by_va.items()):
@@ -387,23 +389,24 @@ def import_state(
                             f"// FUNCTION: {cfg.marker or 'SERVER'} 0x{va:08x}\n{body_proto} {{}}\n"
                         )
                         _awt(out_path, stub, encoding="utf-8")
-                        # Route the volatile fields through the canonical metadata
-                        # writers (STATUS via the promotion gate).
+                        # Volatile fields go through the canonical batch writers
+                        # after the loop (STATUS via the promotion gate): one TOML
+                        # read-modify-write for all stubs instead of three each.
                         mod = cfg.marker or "SERVER"
-                        from rebrew.metadata import update_field, update_source_status
-
-                        update_source_status(
-                            cfg.metadata_dir, "STUB", mod, va, updated_by="binsync-import"
+                        stub_statuses.append(
+                            {
+                                "module": mod,
+                                "va": va,
+                                "new_status": "STUB",
+                                "updated_by": "binsync-import",
+                            }
                         )
+                        stub_fields: dict[str, Any] = {
+                            "note": f"imported from BinSync as {bs_name}"
+                        }
                         if size_hint:
-                            update_field(cfg.metadata_dir, va, "size", size_hint, mod)
-                        update_field(
-                            cfg.metadata_dir,
-                            va,
-                            "note",
-                            f"imported from BinSync as {bs_name}",
-                            mod,
-                        )
+                            stub_fields["size"] = size_hint
+                        stub_field_updates.append({"module": mod, "va": va, "fields": stub_fields})
                         applied_names += 1
                         touched_vas.append(va)
                     except Exception:
@@ -609,6 +612,12 @@ def import_state(
         # No resolution flag → report conflict, no write
         if not json_output and not dry_run:
             console.print(f"  CONFLICT 0x{va:08x}: local={local_name!r} vs binsync={bs_name!r}")
+
+    if stub_statuses:
+        from rebrew.metadata import set_fields_batch, update_statuses_batch
+
+        update_statuses_batch(cfg.metadata_dir, stub_statuses)
+        set_fields_batch(cfg.metadata_dir, stub_field_updates)
 
     # --- Global names ---
     for va, bs_entry in sorted(globals_by_va.items()):
