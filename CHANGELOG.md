@@ -417,6 +417,10 @@
   in emission order.
 
 ### Fixed
+- **`rebrew dashboard` tab panels take keyboard focus.**  A panel whose
+  first content was a hint or empty-state message had no tab stop, so a
+  keyboard or screen-reader user could not move from a tab into it.  Each
+  tab panel now has `tabindex="0"` (WAI-ARIA tabs pattern, WCAG 2.1.1).
 - **`rebrew qual-sweep` finds declarations.**  The statement splitter
   counted the function's own braces, so it never reached depth 0 inside
   the body, found no declarations, and swept nothing.  It now splits at

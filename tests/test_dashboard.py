@@ -470,7 +470,8 @@ class TestHandle:
         assert body.count('aria-busy="false"') == 5
         assert 'aria-selected="true"' in body
         assert 'role="tablist"' in body
-        assert 'role="tabpanel"' in body
+        # APG tabs: panels open with non-focusable hints, so each is a tab stop.
+        assert body.count('role="tabpanel" tabindex="0"') == 4
         assert "aria-pressed" in body
         assert "ArrowRight" in body  # tablist keyboard nav
         assert 'aria-label="Retry failed loads"' in body

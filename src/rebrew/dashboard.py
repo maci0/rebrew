@@ -1075,7 +1075,7 @@ _INDEX_HTML = """<!doctype html>
 <button type="button" id="retry-functions" hidden>Retry functions</button>
 <button type="button" id="retry-view" hidden>Retry</button>
 </div>
-<div id="view-functions" class="view-panel" role="tabpanel" aria-labelledby="tab-functions">
+<div id="view-functions" class="view-panel" role="tabpanel" tabindex="0" aria-labelledby="tab-functions">
 <p id="results-hint" hidden></p>
 <p id="empty-state" hidden></p>
 <div id="results" class="table-scroll" tabindex="0" role="region"
@@ -1090,7 +1090,7 @@ _INDEX_HTML = """<!doctype html>
 <button type="button" id="show-more">Show more functions</button>
 </div>
 </div>
-<div id="view-sections" class="view-panel" role="tabpanel" aria-labelledby="tab-sections" hidden>
+<div id="view-sections" class="view-panel" role="tabpanel" tabindex="0" aria-labelledby="tab-sections" hidden>
 <p id="sections-empty" hidden>No section stats for this target. Run
   <code>rebrew build-db</code> for this project, then reload.</p>
 <div id="sections-results" class="table-scroll" tabindex="0" role="region"
@@ -1102,7 +1102,7 @@ _INDEX_HTML = """<!doctype html>
 </tr></thead><tbody></tbody></table>
 </div>
 </div>
-<div id="view-globals" class="view-panel" role="tabpanel" aria-labelledby="tab-globals" hidden>
+<div id="view-globals" class="view-panel" role="tabpanel" tabindex="0" aria-labelledby="tab-globals" hidden>
 <p id="globals-hint" hidden></p>
 <p id="globals-empty" hidden></p>
 <div id="globals-results" class="table-scroll" tabindex="0" role="region"
@@ -1116,7 +1116,7 @@ _INDEX_HTML = """<!doctype html>
 <button type="button" id="show-more-globals">Show more globals</button>
 </div>
 </div>
-<div id="view-history" class="view-panel" role="tabpanel" aria-labelledby="tab-history" hidden>
+<div id="view-history" class="view-panel" role="tabpanel" tabindex="0" aria-labelledby="tab-history" hidden>
 <p id="history-hint" hidden></p>
 <p id="history-empty" hidden>No status changes recorded yet. History appears after
   <code>rebrew build-db</code> when function statuses change.</p>
