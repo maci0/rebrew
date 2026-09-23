@@ -261,6 +261,8 @@ class TestCiPins:
         assert "setuptools=80.10.2" not in text
         assert r"setuptools==\(" in text or "setuptools==" in text
         assert "python-version=" in text
+        assert "source-commit=" in text
+        assert "source-dirty=" in text
 
     def test_buildinfo_setuptools_matches_pyproject_pin(self) -> None:
         """Static contract: Makefile sed pattern matches the exact pyproject pin."""
@@ -377,7 +379,10 @@ class TestCiPins:
             for match in re.finditer(r"\buv run\s+(\S+)", line)
         ]
         assert commands, path
-        assert all(command in {"--frozen", "--locked", "--no-sync"} for command in commands), (
+        # --no-project never reads or writes uv.lock (uv warns that --frozen
+        # is a no-op beside it).
+        allowed = {"--frozen", "--locked", "--no-sync", "--no-project"}
+        assert all(command in allowed for command in commands), (
             f"{path.relative_to(ROOT)} has uv run commands that can rewrite uv.lock"
         )
 

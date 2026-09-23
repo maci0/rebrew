@@ -189,13 +189,13 @@ jobs:
           ls -la dist/
       - name: Generate CycloneDX SBOM from uv.lock
         # Offline inventory for consumers/scanners.  `make sbom` owns the
-        # command line (`uv run --frozen --no-project --offline`): no prior
+        # command line (`uv run --no-project --offline`): no prior
         # `uv sync` needed, and it still uses the setup-uv Python pin (not the
         # runner's unpinned /usr/bin/python3).
         run: |
           set -euo pipefail
           make sbom
-          uv run --frozen --no-project --offline python -c "import json,sys; d=json.load(open('dist/rebrew.cdx.json')); assert d['bomFormat']=='CycloneDX'; assert len(d['components'])>10; print(len(d['components']), 'components')"
+          uv run --no-project --offline python -c "import json,sys; d=json.load(open('dist/rebrew.cdx.json')); assert d['bomFormat']=='CycloneDX'; assert len(d['components'])>10; print(len(d['components']), 'components')"
       - name: Verify wheel and sdist reproducibility (second build, other path)
         # Rebuild the same commit with `make build` from a `git archive` copy
         # at a different path under a different TZ/locale/umask: both

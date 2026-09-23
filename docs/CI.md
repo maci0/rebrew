@@ -17,7 +17,7 @@ that builds the sdist/wheel via `make build` (SOURCE_DATE_EPOCH, umask 022, C/UT
 TZ/locale/umask, emits a CycloneDX 1.5 SBOM (`dist/rebrew.cdx.json` from
 `uv.lock` via `tools/generate_sbom.py`), writes `dist/rebrew.buildinfo`
 (uv/python/`.python-version`/setuptools parsed from `pyproject.toml` + epoch
-knobs), and installs the
+knobs, source commit and dirty flag), and installs the
 wheel into a clean venv for a smoke import — runtime deps come from
 `uv sync --frozen --no-install-project`, then the wheel is overlaid with
 `--no-deps` so the smoke cannot drift past `uv.lock` — and a `cli-contract`

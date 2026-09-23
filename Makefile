@@ -185,7 +185,7 @@ cli-contract:
 # Drop prior package artifacts so a bumped version cannot leave multiple
 # wheels/sdists in dist/ (CI's package job expects exactly one of each).
 # After the build, remove setuptools' in-tree egg-info / build/ residue and
-# record a buildinfo manifest (toolchain + SOURCE_DATE_EPOCH) next to the
+# record a buildinfo manifest (toolchain, SOURCE_DATE_EPOCH, source commit) next to the
 # artifacts so a rebuild can be attempted with the same environment knobs.
 # Toolchain lines record versions, never host paths (the manifest ships).
 # The build backend is hash-verified against build-constraints.txt, whose
@@ -203,7 +203,7 @@ build: ensure-uv
 	fi
 	umask 022 && SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) TZ=UTC LC_ALL=C PYTHONHASHSEED=0 \
 		uv build --build-constraints build-constraints.txt --require-hashes
-	SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) uv run --frozen --no-project python tools/normalize_sdist.py dist/*.tar.gz
+	SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) uv run --no-project --offline python tools/normalize_sdist.py dist/*.tar.gz
 	@rm -rf build rebrew.egg-info
 	@set -eu; \
 	st=$$(sed -n 's/^requires = \["setuptools==\([0-9.][0-9.]*\)"\]/\1/p' pyproject.toml | head -1); \
@@ -217,6 +217,8 @@ build: ensure-uv
 	  echo "python=$$("$$(uv python find)" --version)"; \
 	  echo "python-version=$$(cat .python-version)"; \
 	  echo "setuptools=$$st"; \
+	  echo "source-commit=$$(git rev-parse HEAD 2>/dev/null || echo n/a)"; \
+	  echo "source-dirty=$$(if ! git rev-parse --git-dir >/dev/null 2>&1; then echo n/a; elif [ -n "$$(git status --porcelain)" ]; then echo yes; else echo no; fi)"; \
 	} > dist/rebrew.buildinfo
 
 # CycloneDX 1.5 SBOM from the committed lock (no network).  Writes
@@ -225,7 +227,7 @@ build: ensure-uv
 # its ../resembl path dep), --offline keeps the no-network promise.
 sbom:
 	@mkdir -p dist
-	uv run --frozen --no-project --offline python tools/generate_sbom.py -o dist/rebrew.cdx.json
+	uv run --no-project --offline python tools/generate_sbom.py -o dist/rebrew.cdx.json
 
 # Run all non-mutating verification gates (mirrors CI lint + test +
 # cli-contract jobs: ruff, mypy, uv audit, pytest, fixture freshness,

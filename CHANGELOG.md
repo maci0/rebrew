@@ -179,6 +179,19 @@
   documented integrator surface.
 
 ### Changed
+- **`status` and `lint` answer header facts from the layout package —
+  LIEF's 0.11 s import leaves both.**  Every `load_config` parsed the
+  target binary through LIEF just for `image_base`/`text_va`, and
+  `status` re-parsed for the `.text` size (A/B stub: 0.28 → 0.16 s
+  cold-invoke CPU).  `layout_meta.read_layout_header` now reads the
+  committed `layout/<target>/rebrew-layout.toml` first — stale (older
+  than the binary), missing, or malformed layouts fall back to the LIEF
+  parse exactly as before, and `todo`/`catalog`/`report` keep their own
+  binary paths (they need bytes, not headers).  Medians of 5 cold runs
+  on a 400-file project: status 0.52 → 0.37 s real (user 0.48 → 0.35),
+  lint 0.91 → 0.73 (user 0.88 → 0.70); todo/catalog unchanged.
+  `tests/test_layout_header.py` pins fresh/stale/missing/malformed plus
+  both callers answering with `load_binary` monkeypatched to explode.
 - **Every command starts ~50-100 ms lighter: numpy, httpx, lief and angr
   stay out of CLI activation.**  Component activation eagerly imported the
   compile/GA stack (`rebrew.compile` → numpy), the MCP/decomp.me HTTP
@@ -555,6 +568,13 @@
   in emission order.
 
 ### Fixed
+- **`dist/rebrew.buildinfo` names the source revision.**  The manifest
+  recorded toolchain and epoch knobs but not which tree was built, so a
+  rebuild could not be pointed at the right commit and a build from
+  uncommitted edits looked like a clean one.  It now carries
+  `source-commit=` and `source-dirty=yes|no` (`n/a` outside git).  The
+  `--no-project` `uv run` lines in `make build`, `make sbom`, and the CI
+  SBOM check drop `--frozen`, which uv ignored there with a warning.
 - **`rebrew dashboard` revalidation answers what a GET would.**  An
   `If-None-Match` on a target-scoped route probed the database before the
   500 guard, so a vanished or locked `coverage.db` reset the connection
