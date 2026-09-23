@@ -53,12 +53,6 @@ class VtordispFunction:
     func_addr: int
     size: int
 
-    @property
-    def name_hint(self) -> str:
-        """MSVC's spelling for this thunk, for stub/annotation naming."""
-        parts = [str(self.disp), str(self.addend)]
-        return f"vtordisp{{{', '.join(parts)}}}"
-
 
 def find_vtordisps(code: bytes, base_addr: int = 0) -> Iterator[VtordispFunction]:
     """Yield every vtordisp thunk in *code* (``base_addr`` + offset = VA)."""

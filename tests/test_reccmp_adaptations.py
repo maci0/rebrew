@@ -7,15 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from rebrew.asm_equiv import (
-    get_patched_jump,
-    is_operand_swap,
-    jump_swap_ok,
-    patch_cmp_jmp,
-    patch_fld_fmul,
-    patch_mov_cmp_jmp,
-    patch_mov_commutative,
-)
+from rebrew.asm_equiv import jump_swap_ok
 from rebrew.demangle import (
     InvalidEncodedNumberError,
     demangle_string_const,
@@ -73,50 +65,6 @@ class TestAsmEquiv:
         assert not jump_swap_ok("ja 0x10", "jg 0x10")
         assert not jump_swap_ok("mov eax, ebx", "jb 0x10")
 
-    def test_operand_swap(self) -> None:
-        assert is_operand_swap("cmp eax, ebx", "cmp ebx, eax")
-        assert not is_operand_swap("cmp eax, ebx", "cmp eax, ebx")
-        # Same char multiset but genuinely different operands (memory refs).
-        assert is_operand_swap(
-            "cmp eax, dword ptr [ecx + 0x1234]", "cmp ecx, dword ptr [eax + 0x1234]"
-        )
-
-    def test_get_patched_jump_keeps_operand(self) -> None:
-        assert get_patched_jump("ja 0x10", "jb 0x20") == "ja 0x20"
-
-    def test_patch_cmp_jmp_equal_condition(self) -> None:
-        orig = ["cmp eax, ebx", "je 0x5"]
-        recomp = ["cmp ebx, eax", "je 0x5"]
-        assert patch_cmp_jmp(orig, recomp) == {0, 1}
-
-    def test_patch_cmp_jmp_mirrored_condition(self) -> None:
-        orig = ["cmp eax, ebx", "ja 0x5"]
-        recomp = ["cmp ebx, eax", "jb 0x5"]
-        assert patch_cmp_jmp(orig, recomp) == {0, 1}
-
-    def test_patch_cmp_jmp_wrong_jump(self) -> None:
-        orig = ["cmp eax, ebx", "ja 0x5"]
-        recomp = ["cmp ebx, eax", "jg 0x5"]
-        assert patch_cmp_jmp(orig, recomp) == set()
-
-    def test_patch_mov_cmp_jmp(self) -> None:
-        orig = ["mov eax, [ebp - 4]", "cmp eax, [ebp - 8]", "ja 0x10"]
-        recomp = ["mov eax, [ebp - 8]", "cmp eax, [ebp - 4]", "jb 0x10"]
-        assert patch_mov_cmp_jmp(orig, recomp) == {0, 1, 2}
-
-    def test_patch_mov_commutative(self) -> None:
-        orig = ["mov eax, [ebp - 4]", "add eax, [ebp - 8]"]
-        recomp = ["mov eax, [ebp - 8]", "add eax, [ebp - 4]"]
-        assert patch_mov_commutative(orig, recomp) == {0, 1}
-
-    def test_patch_mov_commutative_needs_two_operand_ops(self) -> None:
-        assert patch_mov_commutative(["mov eax, 1", "inc eax"], ["mov eax, 1", "inc eax"]) == set()
-
-    def test_patch_fld_fmul(self) -> None:
-        orig = ["fld [ebp - 4]", "fmul [ebp - 8]"]
-        recomp = ["fld [ebp - 8]", "fmul [ebp - 4]"]
-        assert patch_fld_fmul(orig, recomp) == {0, 1}
-
 
 # ---------------------------------------------------------------------------
 # vtordisp
@@ -136,7 +84,6 @@ class TestVtordisp:
         assert t.addend == 0
         assert t.size == 8
         assert t.func_addr == 0x401100
-        assert t.name_hint == "vtordisp{16, 0}"
 
     def test_vtordisp_add_addend(self) -> None:
         # sub ecx, 4 ; add ecx, 0x20 ; jmp rel32

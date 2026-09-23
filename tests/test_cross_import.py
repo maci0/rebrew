@@ -1467,3 +1467,295 @@ class TestSharedDryRunPath:
         assert res["action"] == "would-import-shared"
         assert res["filepath"] == "../shared/f1.c"
         assert str(tmp_path) not in res["filepath"]
+
+
+class TestUnifiedTreeMarkerMove:
+    """Unified tree (``shared_dir`` == ``reversed_dir``): one file holds the
+    source body AND the destination's own claim.
+
+    The copy path must never write one extracted function over such a file —
+    that deletes every co-resident function and duplicates the body.  The
+    shared path must MOVE the destination marker onto the source block instead
+    of the old idempotent no-op, which verified the stale body.
+    """
+
+    SRC_FILE = (
+        "// FUNCTION: SRC 0x401000\n"
+        "// SIZE: 11\n"
+        "int f1(void){ return 1; }\n"
+        "\n"
+        "// FUNCTION: SRC 0x401010\n"
+        "// SIZE: 11\n"
+        "int f2(void){ return 2; }\n"
+    )
+
+    def _cfg(self, tmp_path: Path) -> SimpleNamespace:
+        rev = tmp_path / "src"
+        rev.mkdir(parents=True)
+        return SimpleNamespace(
+            root=tmp_path,
+            target_name="SRC",
+            reversed_dir=rev,
+            shared_dir=rev,
+            metadata_dir=tmp_path,
+            target_binary=tmp_path / "a.exe",
+            source_ext=".c",
+            marker="SRC",
+            posix_style=False,
+        )
+
+    def _cfgs(self, tmp_path: Path) -> tuple[SimpleNamespace, SimpleNamespace]:
+        """SRC and DST configs over ONE tree — the unified layout."""
+        src = self._cfg(tmp_path)
+        dst = SimpleNamespace(**{**vars(src), "target_name": "DST", "marker": "DST"})
+        return src, dst
+
+    def test_stack_marker_on_block_moves_onto_named_block(self) -> None:
+        text = (
+            "#include <stdio.h>\n"
+            "// FUNCTION: SRC 0x401000\n"
+            "// SIZE: 11\n"
+            "int f1(void){ return 1; }\n"
+            "\n"
+            "// FUNCTION: SRC 0x401010\n"
+            "// SIZE: 11\n"
+            "int f2(void){ return 2; }\n"
+        )
+        out = ci.stack_marker_on_block(text, "DST", 0x401040, 11, "SRC", 0x401010)
+        assert out is not None
+        lines = out.splitlines()
+        # The destination marker sits directly above the SECOND block's body.
+        assert lines[lines.index("// FUNCTION: DST 0x401040") + 2] == "// FUNCTION: SRC 0x401010"
+        assert lines[lines.index("// FUNCTION: DST 0x401040") + 4].startswith("int f2")
+        assert out.count("FUNCTION: DST") == 1
+        assert "#include <stdio.h>" in out
+
+    def test_stack_marker_on_block_drops_superseded_claim(self) -> None:
+        text = (
+            "// FUNCTION: SRC 0x401000\n// SIZE: 11\nint f1(void){ return 1; }\n"
+            "\n// FUNCTION: DST 0x401040\n// SIZE: 3\nint f1(void){ return 0; }\n"
+        )
+        out = ci.stack_marker_on_block(
+            text, "DST", 0x401040, 11, "SRC", 0x401000, drop=("DST", 0x401040)
+        )
+        assert out is not None
+        assert out.count("FUNCTION: DST") == 1
+        assert "return 0" not in out  # the stale destination body is gone
+        assert out.splitlines()[0] == "// FUNCTION: DST 0x401040"
+
+    def test_stack_marker_on_block_absent_source(self) -> None:
+        text = "// FUNCTION: SRC 0x401000\nint f1(void){ return 1; }\n"
+        assert ci.stack_marker_on_block(text, "DST", 0x401040, 11, "SRC", 0x409999) is None
+
+    def test_copy_refuses_when_source_body_is_in_destination_file(self, tmp_path: Path) -> None:
+        src, dst = self._cfgs(tmp_path)
+        (src.reversed_dir / "f1.c").write_text(self.SRC_FILE, encoding="utf-8")
+        before = (src.reversed_dir / "f1.c").read_text(encoding="utf-8")
+
+        res = ci.import_function(dst, src, 0x401040, 0x401000, "f1.c", 11, dry_run=True)
+        assert res["action"] == "error"
+        assert res["status"] == "TARGET_CONFLICT"
+        assert "--shared" in res["message"]
+        assert (src.reversed_dir / "f1.c").read_text(encoding="utf-8") == before
+
+    def test_copy_refuses_destination_file_without_this_va(self, tmp_path: Path) -> None:
+        src, dst = self._cfgs(tmp_path)
+        (src.reversed_dir / "f1.c").write_text(self.SRC_FILE, encoding="utf-8")
+        (src.reversed_dir / "other.c").write_text("int unrelated(void){ return 0; }\n")
+        res = ci.import_function(
+            dst, src, 0x401040, 0x401000, "f1.c", 11, dst_file="other.c", dry_run=True
+        )
+        assert res["status"] == "TARGET_CONFLICT"
+        assert "overwrite" in res["message"]
+
+    def test_copy_reports_source_without_the_marker(self, tmp_path: Path) -> None:
+        """One bad annotation row must not abort a whole-inventory run."""
+        src, dst = self._cfgs(tmp_path)
+        (src.reversed_dir / "f1.c").write_text(self.SRC_FILE, encoding="utf-8")
+        res = ci.import_function(dst, src, 0x401040, 0x409999, "f1.c", 11, dry_run=True)
+        assert res["action"] == "error"
+        assert res["status"] == "NO_MARKER"
+
+    def test_shared_import_moves_marker_onto_same_file_body(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        from rebrew.compile import CompareResult
+
+        src, dst = self._cfgs(tmp_path)
+        path = src.reversed_dir / "f1.c"
+        path.write_text(
+            "// FUNCTION: SRC 0x401000\n// SIZE: 11\nint f1(void){ return 1; }\n"
+            "\n// FUNCTION: DST 0x401040\n// SIZE: 3\nint f1(void){ return 0; }\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(
+            "rebrew.verify.verify_entry",
+            lambda *a, **k: CompareResult(
+                matched=True,
+                status="EXACT",
+                match_percent=100.0,
+                delta=0,
+                obj_bytes=b"x",
+                reloc_offsets=[],
+                message="EXACT MATCH",
+            ),
+        )
+        monkeypatch.setattr("rebrew.verify.apply_status_updates", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.cross_import._source_flags", lambda *a, **k: "")
+
+        res = ci.import_shared_function(dst, src, 0x401040, 0x401000, "f1.c", 11)
+        assert res["action"] == "imported-shared"
+        assert "moved the DST marker" in res["message"]
+        text = path.read_text(encoding="utf-8")
+        assert text.count("FUNCTION: DST") == 1
+        assert "return 0" not in text
+        assert "return 1" in text
+
+    def test_shared_import_dry_run_announces_the_move(self, tmp_path: Path) -> None:
+        src, dst = self._cfgs(tmp_path)
+        (src.reversed_dir / "f1.c").write_text(
+            "// FUNCTION: SRC 0x401000\n// SIZE: 11\nint f1(void){ return 1; }\n"
+            "\n// FUNCTION: DST 0x401040\n// SIZE: 3\nint f1(void){ return 0; }\n",
+            encoding="utf-8",
+        )
+        res = ci.import_shared_function(dst, src, 0x401040, 0x401000, "f1.c", 11, dry_run=True)
+        assert res["action"] == "would-import-shared"
+        assert "move the DST marker" in res["message"]
+
+    def test_failed_move_is_reverted(self, tmp_path: Path, monkeypatch) -> None:
+        from rebrew.compile import CompareResult
+
+        src, dst = self._cfgs(tmp_path)
+        path = src.reversed_dir / "f1.c"
+        original = (
+            "// FUNCTION: SRC 0x401000\n// SIZE: 11\nint f1(void){ return 1; }\n"
+            "\n// FUNCTION: DST 0x401040\n// SIZE: 3\nint f1(void){ return 0; }\n"
+        )
+        path.write_text(original, encoding="utf-8")
+        monkeypatch.setattr(
+            "rebrew.verify.verify_entry",
+            lambda *a, **k: CompareResult(
+                matched=False,
+                status="NEAR_MATCHING",
+                match_percent=50.0,
+                delta=5,
+                obj_bytes=b"x",
+                reloc_offsets=[],
+                message="NEAR",
+            ),
+        )
+        monkeypatch.setattr("rebrew.verify.apply_status_updates", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.cross_import._source_flags", lambda *a, **k: "")
+
+        res = ci.import_shared_function(dst, src, 0x401040, 0x401000, "f1.c", 11)
+        assert res["action"] == "skipped-unverified"
+        assert path.read_text(encoding="utf-8") == original
+
+
+class TestCandidatesOnly:
+    """The "what is already reversed elsewhere?" listing.
+
+    A whole-inventory run prints one row per destination function (thousands of
+    "no unambiguous match" rows) with a handful of findings.  ``--candidates-only``
+    keeps the findings and counts the rest, so the answer is readable in both
+    the table and JSON modes.
+    """
+
+    def _project(self, tmp_path: Path) -> Path:
+        (tmp_path / "rebrew-project.toml").write_text(
+            "[project]\nname = 'probe'\ndefault_target = 'DST'\n"
+            "[compiler]\nprofile = 'msvc-6.0'\ncommand = 'CL.EXE'\n"
+            "[targets.SRC]\nbinary = 'a.exe'\n"
+            "[targets.DST]\nbinary = 'b.exe'\n",
+            encoding="utf-8",
+        )
+        (tmp_path / "a.exe").write_bytes(_pe_a())
+        (tmp_path / "b.exe").write_bytes(_pe_b())
+        return tmp_path
+
+    def _patch(self, monkeypatch) -> None:
+        monkeypatch.setattr(
+            "rebrew.cross_import.matched_source_bytes", lambda cfg: {A_F1: F1, A_F2: F2}
+        )
+        monkeypatch.setattr(
+            "rebrew.cross_import.unmatched_dest_bytes",
+            lambda cfg, only_va=None: {B_F1: F1, B_F2: F2},
+        )
+        monkeypatch.setattr(
+            "rebrew.cross_import.cross_match", lambda d, s, **k: {B_F1: (A_F1, 100.0)}
+        )
+        monkeypatch.setattr("rebrew.cross_import._registry", lambda cfg: {})
+        monkeypatch.setattr(
+            "rebrew.cross_import._annotations_by_va",
+            lambda cfg: {A_F1: ("EXACT", "Units/vfs/f1.c")},
+        )
+
+    def test_json_lists_findings_and_names_the_source_file(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        import json as json_mod
+
+        from typer.testing import CliRunner
+
+        from rebrew.main import app as umbrella
+
+        self._project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        self._patch(monkeypatch)
+        monkeypatch.setattr(
+            "rebrew.cross_import.import_function",
+            lambda *a, **k: {
+                "dst_va": "0x401040",
+                "src_va": "0x401000",
+                "score": 100.0,
+                "action": "would-import",
+                "status": "",
+                "filepath": "Units/vfs/f1.c",
+                "message": "",
+            },
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(
+            umbrella,
+            ["cross-import", "--from", "SRC", "--json", "--dry-run", "--candidates-only"],
+        )
+        assert result.exit_code == 0, result.output
+        payload = json_mod.loads(result.output)
+        rows = {r["dst_va"]: r for r in payload["results"]}
+        assert set(rows) == {"0x401040"}  # the matchless destination is hidden
+        assert payload["skipped_count"] == 1
+        assert rows["0x401040"]["src_file"] == "Units/vfs/f1.c"
+        assert rows["0x401040"]["src_status"] == "EXACT"
+
+    def test_without_the_flag_every_destination_is_listed(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        import json as json_mod
+
+        from typer.testing import CliRunner
+
+        from rebrew.main import app as umbrella
+
+        self._project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        self._patch(monkeypatch)
+        monkeypatch.setattr(
+            "rebrew.cross_import.import_function",
+            lambda *a, **k: {
+                "dst_va": "0x401040",
+                "src_va": "0x401000",
+                "score": 100.0,
+                "action": "would-import",
+                "status": "",
+                "filepath": "Units/vfs/f1.c",
+                "message": "",
+            },
+        )
+
+        runner = CliRunner()
+        result = runner.invoke(umbrella, ["cross-import", "--from", "SRC", "--json", "--dry-run"])
+        assert result.exit_code == 0, result.output
+        payload = json_mod.loads(result.output)
+        assert len(payload["results"]) == 2
+        assert "skipped_count" not in payload

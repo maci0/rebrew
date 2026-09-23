@@ -74,9 +74,8 @@
 - **reccmp-adapted modules** (all MIT-attributed, see
   `docs/RECCMP_ADAPTATIONS.md`): `pinned_diff` (pin-seeded sequence matcher,
   now drives near-diag's alignment via unique byte-identical anchors),
-  `asm_equiv` (swapped cmp/jump, mov+commutative, fld/fmul equivalence
-  patterns; mirrored conditional jumps classify as `equivalent` in
-  near-diag), `vtordisp` (MI thunk detection, new `vtordisp` section in
+  `asm_equiv` (mirrored conditional jumps after a swapped `cmp` classify
+  as `equivalent` in near-diag), `vtordisp` (MI thunk detection, new `vtordisp` section in
   `rebrew analyze`), `float_const` (float-constant pool from x87 code
   references, new `float_consts` dossier section), `demangle` (MSVC string-
   const/vtable symbol helpers; optional pydemumble), and `pdb_cvdump` (MSVC
@@ -270,8 +269,7 @@
   overrides where one target's function inventory lives (default:
   `reversed_dir/function_structure.json`), so several targets can share a
   single source tree while keeping separate VA/size inventories. All 27
-  inventory touch points route through `cfg.inventory_path` /
-  `inventory_path_for` (mock-safe: namespace cfgs without the attribute
+  inventory touch points route through `inventory_path_for` (mock-safe: namespace cfgs without the attribute
   fall back to the legacy join).
 - **Shared sources see the shared root.**  Compiling a file under
   `src/shared` adds the shared root to the include path (both the docker

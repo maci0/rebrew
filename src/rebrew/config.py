@@ -435,20 +435,6 @@ class ProjectConfig:
             return self.reversed_dir
         return parent
 
-    @property
-    def inventory_path(self) -> Path:
-        """Path of the function inventory (function_structure.json).
-
-        Defaults to ``reversed_dir/function_structure.json``; a per-target
-        ``inventory_file`` override (relative to the project root, or
-        absolute) lets several targets share one source tree while keeping
-        separate VA/size inventories — e.g. ``db/inventory-server.dll.json``.
-        """
-        if self.inventory_file.strip():
-            p = config_path(self.inventory_file.strip())
-            return p if p.is_absolute() else self.root / p
-        return self.reversed_dir / FUNCTION_STRUCTURE_JSON
-
 
 #: Characters stripped from a target name when deriving its module marker:
 #: ``server.dll`` yields ``SERVERDLL``, an identifier-shaped module name.

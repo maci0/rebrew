@@ -11,6 +11,7 @@ from rebrew.config import (
     _detect_binary_layout,
     _resolve,
     find_root,
+    inventory_path_for,
     load_config,
 )
 
@@ -1707,12 +1708,15 @@ libs = "/usr/lib"
         root = _make_project(tmp_path, self.INV_TOML)
         cfg = load_config(root, target="V2")
         assert cfg.inventory_file == ""
-        assert cfg.inventory_path == root / "src" / "shared" / "function_structure.json"
+        assert (
+            inventory_path_for(cfg.reversed_dir, cfg)
+            == root / "src" / "shared" / "function_structure.json"
+        )
 
     def test_override_resolves_against_root(self, tmp_path: Path) -> None:
         root = _make_project(tmp_path, self.INV_TOML)
         cfg = load_config(root, target="V1")
-        assert cfg.inventory_path == root / "db" / "inventory-V1.json"
+        assert inventory_path_for(cfg.reversed_dir, cfg) == root / "db" / "inventory-V1.json"
 
     def test_helper_prefers_override_for_own_dir(self, tmp_path: Path) -> None:
         from rebrew.config import inventory_path_for

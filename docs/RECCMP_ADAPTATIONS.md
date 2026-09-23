@@ -1,3 +1,11 @@
+`jump_swap_ok(a, b)` checks two `"mnemonic operands"` lines: both are
+conditional jumps compatible with a flipped `cmp` operand order
+(`ja`↔`jb`, `jg`↔`jl`, `je`↔`je`, …).
+
+reccmp's whole-pattern fixes (`patch_cmp_jmp`, `patch_mov_cmp_jmp`,
+`patch_mov_commutative`, `patch_fld_fmul`) are not ported: no command
+consumes their orig-line index sets.
+
 # Reccmp Adaptations
 
 Rebrew reimplements reccmp's toolset natively (see [ECOSYSTEM.md](ECOSYSTEM.md)).
@@ -9,7 +17,7 @@ equivalent, without adding a reccmp dependency.
 | Module | Adapted from | What it adds |
 |---|---|---|
 | `pinned_diff.py` | `compare/pinned_sequences.py` | difflib-compatible matcher seeded with known line pins |
-| `asm_equiv.py` | `compare/asm/fixes.py` | instruction-equivalence patterns (swapped cmp/jump, mov+commutative, fld/fmul) |
+| `asm_equiv.py` | `compare/asm/fixes.py` | mirrored-jump check for a swapped `cmp` operand order |
 | `vtordisp.py` | `analysis/vtordisp.py` | multiple-inheritance thunk (vtordisp) detection |
 | `float_const.py` | `analysis/float_const.py` | float-constant pool discovery from code references |
 | `demangle.py` | `cvdump/demangler.py` | MSVC symbol helpers (string consts, vtable names) |
@@ -77,7 +85,7 @@ to the base implementation. Three shapes: `{disp, 0}` (8 bytes),
 from rebrew.vtordisp import find_vtordisps
 
 for t in find_vtordisps(code_bytes, base_va):
-    t.name_hint        # "vtordisp{16, 0}" — MSVC's spelling, for stub naming
+    t.disp, t.addend   # MSVC spells this thunk "vtordisp{16, 0}"
     t.func_addr        # resolved jump target
 ```
 

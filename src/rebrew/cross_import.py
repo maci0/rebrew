@@ -533,8 +533,18 @@ def stack_marker_on_block(
         if drop is not None and owner == drop:
             continue  # superseded claim: the marker moves onto the source body
         if owner == (src_module, src_va) and not inserted:
+            # Insert directly above the source MARKER line: a split block
+            # carries the blank lines that preceded its marker (annotation
+            # runs keep their leading blanks), and a marker separated from the
+            # one below by a blank line leaves the destination claim an empty
+            # block — the pattern every shared file in the tree avoids.
+            lines = block.splitlines(keepends=True)
+            cut = next(i for i, line in enumerate(lines) if _block_marker(line) is not None)
+            out.append("".join(lines[:cut]))
             out.append(marker)
+            out.append("".join(lines[cut:]))
             inserted = True
+            continue
         out.append(block)
     if not inserted:
         return None
@@ -690,6 +700,12 @@ def import_shared_function(
         stacked = _stack_marker(text, module, dst_va, dst_size)
 
     if dry_run:
+        if moved is not None:
+            note = f"would move the {module} marker onto the 0x{src_va:x} body (same file)"
+        elif dst_file:
+            note = f"would supersede {dst_file}"
+        else:
+            note = ""
         return {
             "dst_va": f"0x{dst_va:08x}",
             "src_va": f"0x{src_va:08x}",
@@ -697,12 +713,7 @@ def import_shared_function(
             "action": "would-import-shared",
             "status": "",
             "filepath": rel_display_path(target_path, cfg_dst.reversed_dir),
-            "message": (f"would supersede {dst_file}" if dst_file else "")
-            or (
-                f"would move the {module} marker onto the 0x{src_va:x} body (same file)"
-                if moved is not None
-                else ""
-            ),
+            "message": note,
         }
 
     try:
@@ -745,10 +756,14 @@ def import_shared_function(
     # The verify filepath resolves against the destination's reversed_dir —
     # a shared file becomes ``../shared/f.c`` via the standard helper.
     rel_dst = rel_display_path(target_path, cfg_dst.reversed_dir)
+    # The symbol verified is the one the SOURCE VA's block defines — not the
+    # file's first definition, which is a different function in a
+    # multi-function file whose marker moved onto a later block.
+    name = _name_for_va(text, src_va) or _source_name(target_path)
     entry = Annotation(
         va=dst_va,
-        name=_source_name(target_path),
-        symbol=_source_symbol(target_path),
+        name=name,
+        symbol=name if name.startswith("_") else "_" + name,
         size=dst_size,
         filepath=rel_dst,
         marker_type="FUNCTION",
@@ -770,6 +785,8 @@ def import_shared_function(
 
     action = "imported-shared" if result.matched else "imported-unverified"
     message = result.message
+    if moved is not None and result.matched:
+        message = (f"{message} (moved the {module} marker onto the 0x{src_va:x} body)").strip()
     if revert:
         # The stacked marker did not verify, and the destination already had
         # its own file for this VA.  Leaving both claims in place is a
@@ -865,9 +882,19 @@ def import_function(
     # co-resident marker into the destination tree (lint E012) and duplicate
     # the other functions.
     extracted = _extract_function_text(text, src_va)
-    rewritten = _rewrite_marker(
-        extracted if extracted is not None else text, module, dst_va, dst_size
-    )
+    if extracted is None:
+        # The source annotation and the file disagree (the VA has no marker
+        # block).  A whole-inventory run must not abort on one bad row.
+        return {
+            "dst_va": f"0x{dst_va:08x}",
+            "src_va": f"0x{src_va:08x}",
+            "score": None,
+            "action": "error",
+            "status": "NO_MARKER",
+            "filepath": src_file,
+            "message": (f"source {src_file} has no FUNCTION marker for 0x{src_va:x}"),
+        }
+    rewritten = _rewrite_marker(extracted, module, dst_va, dst_size)
     if dst_file is None:
         # Keep the source's path relative to its own reversed_dir: it gives
         # one destination file per source file (two imports out of one
@@ -1007,6 +1034,33 @@ def import_function(
     }
 
 
+def _name_for_va(text: str, va: int) -> str | None:
+    """C function name owned by the marker block for *va*.
+
+    :func:`_source_name` reads the file's FIRST definition — correct for the
+    copy path (the copy holds one function) and for a marker prepended above
+    the first block, but wrong for a marker moved onto a LATER block of a
+    multi-function file: verification then compiles the file, finds the first
+    function and compares ITS bytes against this VA.  That is the "Size 33B vs
+    235B" failure on ``ErrorModule.c``.  A marker-only block (the stacked
+    pattern) borrows the name from the block below it.
+    """
+    from rebrew.annotation import split_annotation_sections
+    from rebrew.c_parser import find_c_function_definitions
+
+    _preamble, blocks = split_annotation_sections(text)
+    for i, block in enumerate(blocks):
+        owner = _block_marker(block)
+        if owner is None or owner[1] != va:
+            continue
+        for candidate in blocks[i:]:
+            definitions = find_c_function_definitions(candidate)
+            if definitions:
+                return definitions[0][0]
+        return None
+    return None
+
+
 def _source_name(src_path: Path) -> str:
     """Best-effort C function name from the source file's text.
 
@@ -1113,6 +1167,14 @@ def main(
         "without importing — the manual step before --shared",
     ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
+    candidates_only: bool = typer.Option(
+        False,
+        "--candidates-only",
+        help="Report only destination functions with a match: the per-function "
+        "'no match' rows for the whole inventory are hidden (use with "
+        "--dry-run to answer 'is this code already reversed in another target, "
+        "and where?')",
+    ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
@@ -1241,6 +1303,8 @@ def main(
                     "action": "skipped",
                     "status": "",
                     "filepath": src_file,
+                    "src_file": src_file,
+                    "src_status": src_status,
                     "message": (
                         f"source already imported for {prev_dst}; a second "
                         "destination VA needs a deliberate twin"
@@ -1292,6 +1356,13 @@ def main(
             )
         )
         res["score"] = score
+        # The question this command answers is "is this code already reversed
+        # somewhere, and where?".  The destination path alone cannot answer it
+        # in a unified tree (both are often the same file), so every row names
+        # the SOURCE function, its file and its earned STATUS.
+        res["src_file"] = src_file
+        res["src_status"] = src_status
+        res["dst_status"] = dst_status
         merge_sizeless_warning(res, disasm_size)
         if res["action"] not in ("skipped", "error"):
             imported_src_files[src_file] = res["dst_va"]
@@ -1311,12 +1382,34 @@ def main(
             }
         )
 
+    skipped = sum(1 for r in results if r["action"] == "skipped")
+    if candidates_only:
+        # A "find what is already reversed elsewhere" run has four thousand
+        # destination functions and a handful of findings: the per-function
+        # "no match" rows are noise in both the table and the JSON.
+        results = [r for r in results if r["action"] != "skipped"]
+
     if json_output:
-        json_print({"target": cfg.target_name, "from": from_target, "results": results})
+        payload: dict[str, Any] = {
+            "target": cfg.target_name,
+            "from": from_target,
+            "results": results,
+        }
+        if candidates_only:
+            payload["skipped_count"] = skipped
+        json_print(payload)
         return
 
     table = Table(title=f"cross-import {from_target} → {cfg.target_name}", header_style="bold")
-    for col in ("Dest VA", "Src VA", "Score", "Action", "Status", "File"):
+    for col in (
+        "Dest VA",
+        "Src VA",
+        "Score",
+        "Action",
+        "Status",
+        "Src File",
+        "Dest File",
+    ):
         table.add_column(col)
     for r in results:
         table.add_row(
@@ -1325,9 +1418,15 @@ def main(
             f"{r['score']:.1f}" if r["score"] is not None else "-",
             r["action"],
             r["status"] or "-",
+            r.get("src_file") or "-",
             r["filepath"] or "-",
         )
     console.print(table)
+    if candidates_only:
+        console.print(
+            f"[dim]{skipped} destination function(s) had no match above the "
+            "threshold (hidden by --candidates-only)[/dim]"
+        )
     if not shared and not dry_run and getattr(cfg, "shared_dir", None) is not None:
         imported = sum(1 for r in results if r["action"] in ("imported", "imported-unverified"))
         if imported:
