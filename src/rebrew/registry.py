@@ -40,9 +40,11 @@ from __future__ import annotations
 
 import importlib
 import logging
+import sys
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from importlib.metadata import entry_points
+from pathlib import Path
 from typing import Any
 
 from rebrew.errors import RebrewError
@@ -89,6 +91,45 @@ class Registration:
         return f"{self.module}:{self.attr}" if self.attr else self.module
 
 
+#: ``(key, entry_points())`` from the last scan; see :func:`_installed_entry_points`.
+_entry_points_snapshot: tuple[tuple[Any, ...], Any] | None = None
+
+
+def _sys_path_fingerprint() -> tuple[tuple[str, int | None], ...]:
+    """``(abspath, st_mtime_ns)`` per ``sys.path`` entry (``None`` if unstat-able).
+
+    Installing, upgrading, or removing a distribution adds or removes a
+    ``*.dist-info`` entry in its site directory, which bumps that directory's
+    mtime.
+    """
+    out: list[tuple[str, int | None]] = []
+    for entry in sys.path:
+        path = Path(entry).absolute()
+        try:
+            out.append((str(path), path.stat().st_mtime_ns))
+        except OSError:
+            out.append((str(path), None))
+    return tuple(out)
+
+
+def _installed_entry_points() -> Any:
+    """``entry_points()``, rescanned only when an import directory changes.
+
+    Each ``entry_points()`` call re-reads every installed distribution's
+    metadata, and one CLI start queries about ten groups.  The key includes
+    the discovery function itself, so a replaced ``entry_points`` takes
+    effect on the next call.
+    """
+    global _entry_points_snapshot
+    key = (entry_points, _sys_path_fingerprint())
+    snapshot = _entry_points_snapshot
+    if snapshot is not None and snapshot[0] == key:
+        return snapshot[1]
+    eps = entry_points()
+    _entry_points_snapshot = (key, eps)
+    return eps
+
+
 def entry_point_registrations(group: str) -> list[Registration]:
     """Every entry point declared in *group*, as registrations.
 
@@ -99,7 +140,7 @@ def entry_point_registrations(group: str) -> list[Registration]:
     """
     out: list[Registration] = []
     log = logging.getLogger(__name__)
-    for ep in entry_points().select(group=group):
+    for ep in _installed_entry_points().select(group=group):
         module, sep, attr = ep.value.partition(":")
         if not module:
             log.warning(

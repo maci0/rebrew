@@ -146,6 +146,26 @@ class TestEntryPointRegistrations:
         assert [r.name for r in regs] == ["good"]
         assert any("bad" in r.message for r in caplog.records)
 
+    def test_scans_once_until_import_dir_changes(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Querying many groups re-reads distribution metadata only after sys.path changes."""
+        fake = _fake_entry_points(**{"rebrew.commands": [("a", "rebrew.diagnose")]})
+        calls: list[int] = []
+
+        def _counting() -> Any:
+            calls.append(1)
+            return fake()
+
+        monkeypatch.setattr("rebrew.registry.entry_points", _counting)
+        monkeypatch.setattr(sys, "path", [*sys.path, str(tmp_path)])
+        assert [r.name for r in entry_point_registrations("rebrew.commands")] == ["a"]
+        assert entry_point_registrations("rebrew.toolchains") == []
+        assert len(calls) == 1
+        (tmp_path / "new.dist-info").mkdir()  # an install bumps the site dir mtime
+        entry_point_registrations("rebrew.commands")
+        assert len(calls) == 2
+
 
 class TestImportRegistration:
     def test_imports_module(self) -> None:
