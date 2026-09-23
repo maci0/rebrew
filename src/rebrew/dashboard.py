@@ -19,8 +19,8 @@ Endpoints
 
 Target-scoped endpoints return 400 when ``target`` is missing/empty and 404 when
 the target is unknown.  ``GET /api/summary`` returns 500 when the target's
-``function_stats`` metadata row exists but is unreadable (corrupt JSON or a
-non-object), so clients are not told the target is missing.  Non-GET/HEAD
+``function_stats`` metadata row exists but is unreadable (corrupt JSON, a
+non-object, or a non-numeric byte count), so clients are not told the target is missing.  Non-GET/HEAD
 methods (including ones http.server does not know) return 405 with
 ``Allow: GET, HEAD``.  Every error body is ``{"error": "<message>"}``,
 including malformed requests (400/414/431/505) rejected before routing.
@@ -1356,12 +1356,18 @@ class Dashboard:
         # the old covered_bytes summed every function's size, so an all-STUB
         # binary reported ~100% "coverage".  Identified bytes
         # (incl. stubs) stays available as a separate field.
-        covered = int(stats.get("matched_bytes") or 0)
-        identified = int(stats.get("covered_bytes") or 0)
         # total_b comes solely from function_stats — the old fallback read a
         # second metadata row (key='summary') and probed its ".text" size, but
         # nothing writes a ".text" key there, so the branch never fired.
-        total_b = int(stats.get("total_bytes") or 0)
+        try:
+            covered = int(stats.get("matched_bytes") or 0)
+            identified = int(stats.get("covered_bytes") or 0)
+            total_b = int(stats.get("total_bytes") or 0)
+        except (TypeError, ValueError, OverflowError) as exc:
+            # A non-numeric byte count (text, NaN, Infinity, a list) is the
+            # same unreadable row as corrupt JSON, not a handler crash.
+            log.warning("Ignoring function_stats with bad byte count for %r: %s", target, exc)
+            return "corrupt", None
         return "ok", {
             "target": target,
             "function_stats": stats,

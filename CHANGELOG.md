@@ -643,6 +643,13 @@
   in emission order.
 
 ### Fixed
+- **`/api/summary` reports a bad byte count as corrupt stats.**  A
+  `function_stats` row whose `matched_bytes`, `covered_bytes`, or
+  `total_bytes` was not a finite number (text, `NaN`, `Infinity`, a list)
+  crashed the route into a generic `internal server error` 500, and took
+  `/api/bootstrap` down with it.  It now answers the documented
+  `corrupt function_stats metadata` 500, and bootstrap returns
+  `summary: null` like it does for invalid JSON.
 - **The compile cache sees edits to source-local headers under `/FI` or
   `#include MACRO`.**  When the include closure cannot be resolved (a
   force-include flag or a non-literal `#include`), the key fell back to

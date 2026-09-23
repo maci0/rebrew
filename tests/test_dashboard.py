@@ -223,6 +223,39 @@ class TestQueryLayer:
         assert status == 200
         assert json.loads(body)["target"] == "broken"
 
+    def test_api_summary_non_numeric_byte_count_is_corrupt(self, tmp_path: Path) -> None:
+        """A non-numeric byte count answers the documented corrupt 500, and
+        bootstrap degrades to ``summary: null`` instead of failing whole."""
+        import sqlite3
+
+        db = tmp_path / "coverage.db"
+        with sqlite3.connect(db) as conn:
+            conn.execute(
+                "CREATE TABLE functions (target TEXT, va INT, name TEXT, symbol TEXT, "
+                "size INT, status TEXT, module TEXT, files TEXT, markerType TEXT)"
+            )
+            conn.execute("CREATE TABLE metadata (target TEXT, key TEXT, value TEXT)")
+            for target, stats in (
+                ("a_text", '{"total_bytes": "lots"}'),
+                ("b_nan", '{"total_bytes": NaN}'),
+                ("c_inf", '{"matched_bytes": Infinity, "total_bytes": 10}'),
+                ("d_list", '{"covered_bytes": [1], "total_bytes": 10}'),
+            ):
+                conn.execute(
+                    "INSERT INTO metadata VALUES (?, 'function_stats', ?)", (target, stats)
+                )
+        dashboard = Dashboard(db)
+        for target in ("a_text", "b_nan", "c_inf", "d_list"):
+            status, _, body = dashboard.handle("GET", "/api/summary", {"target": [target]})
+            assert status == 500, target
+            assert json.loads(body) == {"error": "corrupt function_stats metadata"}
+        status, _, body = dashboard.handle("GET", "/api/bootstrap", {})
+        assert status == 200
+        boot = json.loads(body)
+        assert boot["target"] == "a_text"
+        assert boot["summary"] is None
+        assert boot["functions"] is None
+
     def test_functions_all(self, dashboard: Dashboard) -> None:
         data = dashboard.functions("server_dll")
         assert data["total"] == 2
