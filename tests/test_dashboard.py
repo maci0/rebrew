@@ -1699,6 +1699,62 @@ class TestHostValidation:
         assert "/api/targets\\x1b" in stderr
         assert "secrets\\x1b" in stderr
 
+    def test_handler_revalidation_sqlite_error_answers_500(self) -> None:
+        """A DB failure during the 304 target probe is a 500 JSON, not a reset."""
+        from rebrew.dashboard import Dashboard, _Handler, allowed_hosts_for
+
+        handler = _Handler.__new__(_Handler)
+        handler.headers = {"Host": "127.0.0.1:8000", "If-None-Match": "*"}
+        handler.path = "/api/functions?target=server_dll"
+        handler.allowed_hosts = allowed_hosts_for("127.0.0.1", 8000)
+        handler.dashboard = Dashboard(Path("/nonexistent/coverage.db"))
+        sent: list[tuple] = []
+        handler.send_response = lambda status: sent.append(("status", status))  # type: ignore[method-assign]
+        handler.send_header = lambda name, value: sent.append((name, value))  # type: ignore[method-assign]
+        handler.end_headers = lambda: sent.append(("end", None))  # type: ignore[method-assign]
+        written: list[bytes] = []
+
+        class _FakeWFile:
+            def write(self, data: bytes) -> int:
+                written.append(data)
+                return len(data)
+
+        handler.wfile = _FakeWFile()
+        handler._respond("GET")
+        assert [v for k, v in sent if k == "status"] == [500]
+        assert b'"database error"' in b"".join(written)
+
+    def test_handler_revalidation_corrupt_summary_answers_500(self, dashboard: Dashboard) -> None:
+        """``If-None-Match: *`` on a corrupt summary gets the GET's 500, not 304."""
+        import sqlite3
+
+        from rebrew.dashboard import _Handler, allowed_hosts_for
+
+        conn = sqlite3.connect(dashboard.db_path)
+        conn.execute(
+            "UPDATE metadata SET value = '[1]' WHERE target = 'server_dll' "
+            "AND key = 'function_stats'"
+        )
+        conn.commit()
+        conn.close()
+        handler = _Handler.__new__(_Handler)
+        handler.headers = {"Host": "127.0.0.1:8000", "If-None-Match": "*"}
+        handler.path = "/api/summary?target=server_dll"
+        handler.allowed_hosts = allowed_hosts_for("127.0.0.1", 8000)
+        handler.dashboard = dashboard
+        sent: list[tuple] = []
+        handler.send_response = lambda status: sent.append(("status", status))  # type: ignore[method-assign]
+        handler.send_header = lambda name, value: sent.append((name, value))  # type: ignore[method-assign]
+        handler.end_headers = lambda: sent.append(("end", None))  # type: ignore[method-assign]
+
+        class _FakeWFile:
+            def write(self, data: bytes) -> int:
+                return len(data)
+
+        handler.wfile = _FakeWFile()
+        handler._respond("GET")
+        assert [v for k, v in sent if k == "status"] == [500]
+
 
 class TestKeepAliveTimeout:
     """Idle keep-alive clients must not pin a handler thread forever."""

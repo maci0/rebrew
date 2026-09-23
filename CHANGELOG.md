@@ -555,6 +555,12 @@
   in emission order.
 
 ### Fixed
+- **`rebrew dashboard` revalidation answers what a GET would.**  An
+  `If-None-Match` on a target-scoped route probed the database before the
+  500 guard, so a vanished or locked `coverage.db` reset the connection
+  instead of answering `{"error": "database error"}`.  A corrupt
+  `function_stats` row with `If-None-Match: *` got 304 on `/api/summary`
+  where a GET answers 500; it now gets the 500.
 - **Remote compile retries no longer duplicate training rows.**  With
   `recompile_emit_assembly` on, a read timeout or HTTP 500/502/504 on the
   compile POST was retried, and the service may already have compiled

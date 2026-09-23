@@ -40,8 +40,9 @@ or ``/app.js`` content hash, or DB mtime), and use ``Cache-Control: private,
 no-cache`` so browsers can 304 without serving a stale body after ``build-db``;
 the shell links ``/app.js?v=<content hash>``, which alone is ``immutable``.
 An inline ``data:,`` icon stops the per-load ``/favicon.ico`` 404.
-A matching ``If-None-Match`` on a routed path (target-scoped ones need a
-``target``) is answered 304 before any SQLite query runs.
+A matching ``If-None-Match`` on a routed path is answered 304 only when a GET
+would answer 200 (target-scoped ones need a known ``target``; ``/api/summary``
+a readable ``function_stats``), without running the route's query.
 The static HTML shell and ``/app.js`` client are zstd- and gzip-precompressed at
 import time so entry assets skip per-request compression CPU.  The shell
 ``<head>`` preloads ``/api/bootstrap`` (``as=fetch`` + ``crossorigin`` +
@@ -1568,6 +1569,15 @@ class Dashboard:
             ).fetchone()
         return row is not None
 
+    def has_representation(self, path: str, query: dict[str, list[str]]) -> bool:
+        """True when a GET of routed *path* would answer 200 (so 304 may stand in)."""
+        if path not in _TARGET_ROUTES:
+            return True
+        target = _opt_query(query, "target") or ""
+        if path == "/api/summary":
+            return bool(target) and self._summary_lookup(target)[0] == "ok"
+        return self.target_known(target)
+
     def response_etag(self, path: str) -> str:
         """Strong shell/asset etag; weak DB etag so rebuilds invalidate JSON caches."""
         parsed = urlparse(path)
@@ -1900,20 +1910,17 @@ class _Handler(BaseHTTPRequestHandler):
         etag = self.dashboard.response_etag(self.path)
         parsed = urlparse(self.path)
         query = parse_qs(parsed.query)
-        if (
-            method in ("GET", "HEAD")
-            and parsed.path in _ROUTES
-            and _if_none_match(self.headers.get("If-None-Match", ""), etag)
-            and (
-                parsed.path not in _TARGET_ROUTES
-                or self.dashboard.target_known(_opt_query(query, "target") or "")
-            )
-        ):
-            self._send_not_modified(etag, _success_cache_control(parsed.path, query))
-            return
-
         try:
-            status, content_type, body = self.dashboard.handle(method, self.path, query)
+            # The target probe queries SQLite, so it shares the 500 guard below.
+            if (
+                method in ("GET", "HEAD")
+                and parsed.path in _ROUTES
+                and _if_none_match(self.headers.get("If-None-Match", ""), etag)
+                and self.dashboard.has_representation(parsed.path, query)
+            ):
+                status, content_type, body = HTTPStatus.NOT_MODIFIED, "", ""
+            else:
+                status, content_type, body = self.dashboard.handle(method, self.path, query)
         except sqlite3.Error as exc:
             # A vanished/corrupt database must answer 500 JSON instead of
             # killing the handler thread with no response at all.  Keep the
@@ -1938,6 +1945,9 @@ class _Handler(BaseHTTPRequestHandler):
             status, content_type, body = self.dashboard._json(
                 500, {"error": "internal server error"}
             )
+        if status == HTTPStatus.NOT_MODIFIED:
+            self._send_not_modified(etag, _success_cache_control(parsed.path, query))
+            return
 
         body_bytes = body.encode("utf-8")
         encoding: _WireEncoding | None = None
