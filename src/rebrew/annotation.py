@@ -168,7 +168,6 @@ NEW_KV_RE = re.compile(r"(?://|/\*)\s*(?P<key>[A-Z_]+):\s*(?P<value>.*?)\s*(?:\*
 FUNC_NAME_HINT_RE = re.compile(r"^//\s+(?P<name>[$?A-Za-z_][$?A-Za-z0-9_@]*)\s*$")
 
 # Module-level compiled patterns for annotation mutation helpers.
-# These were previously compiled inside functions on every call.
 _MARKER_VA_RE = re.compile(
     r"(?://|/\*)\s*(?:FUNCTION|STUB|LIBRARY|DATA|GLOBAL):\s*([\w.]+)\s+(0x[0-9a-fA-F]+)",
     re.IGNORECASE,

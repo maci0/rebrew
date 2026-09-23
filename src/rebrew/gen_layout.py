@@ -466,9 +466,8 @@ def _resolve_imports(imports: list[_Import], lib_symbols: set[str]) -> list[dict
             "dll": imp.dll,
             "name": name,
             "ordinal": imp.ordinal,
-            # Always present: gen_crt_imports indexes it unconditionally, and an
-            # ordinal-only import (name None) from any DLL other than WS2_32
-            # previously left the key out and raised KeyError there.
+            # Always present: gen_crt_imports indexes it unconditionally, even
+            # for an ordinal-only import (name None) from a DLL other than WS2_32.
             "include": None,
         }
         if name:

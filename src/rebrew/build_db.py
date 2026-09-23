@@ -96,7 +96,7 @@ _GLOBAL_STATUS_CHECK_SQL: str = ", ".join(repr(s) for s in sorted(_GLOBAL_DB_STA
 # (including the catch-all that keeps total_cells reconcilable) exist in
 # exactly one place.
 #
-# This is a build-time TABLE, not the view it used to be.  As a view, every
+# This is a build-time TABLE, not a view.  As a view, every
 # reader re-aggregated the whole cells table: 13 SUM(CASE state = '<text>')
 # over 64k rows measured 17.3 ms per request — 92% of the remaining cold
 # /data build once the cell JSON was materialized.  A covering index did not

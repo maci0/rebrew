@@ -1872,7 +1872,7 @@ def _run_all_batch(
         if json_output:
             # Same schema as the non-empty branch: a script reading
             # `schema_version`/`already_matched` must not KeyError on an empty
-            # result (the two branches used to emit different key sets).
+            # result.
             json_print(
                 {
                     "schema_version": 1,

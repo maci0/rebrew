@@ -609,8 +609,8 @@ def _scan_utf16(raw: bytes, va: int, section: str, min_len: int) -> list[StringE
         i += 2
     if start >= 0:
         # Only COMPLETE pairs: the loop stops before an unpaired trailing byte,
-        # but the flush used to include it in both the text and the size (an
-        # odd-length region reported a bogus final character, e.g. "ABCDE" for
+        # so the flush must drop it from both the text and the size (else an
+        # odd-length region reports a bogus final character, e.g. "ABCDE" for
         # raw "A\0B\0C\0D\0E").
         end = start + ((len(raw) - start) // 2) * 2
         if (end - start) // 2 >= min_len:

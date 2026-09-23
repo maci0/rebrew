@@ -2457,8 +2457,8 @@ def run_verification(
 
                         # An INTERNAL_ERROR is a tooling failure, not a verification
                         # verdict — never let it overwrite the function's real STATUS
-                        # in rebrew-functions.toml (previously EXACT/NEAR_MATCHING were
-                        # permanently demoted to COMPILE_ERROR).
+                        # in rebrew-functions.toml (an EXACT/NEAR_MATCHING function would
+                        # be permanently demoted to COMPILE_ERROR).
                         if not is_internal_error:
                             deferred_fixes.append((entry, result.status, result.delta))
 

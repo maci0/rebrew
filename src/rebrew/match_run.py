@@ -97,8 +97,8 @@ def _run_single_ga(
                 "(set \\[llm] endpoint or REBREW_LLM_ENDPOINT) — running without LLM seeds"
             )
             # --dry-run promised "preview, no GA" — without an endpoint there
-            # is nothing to preview and the GA must NOT run (it used to fall
-            # through here and burn hours of Wine compiles despite --dry-run).
+            # is nothing to preview and the GA must NOT run (falling through
+            # would burn hours of Wine compiles despite --dry-run).
             if dry_run:
                 console.print(
                     "\n[bold]Dry run:[/bold] --seed-llm with no LLM endpoint — "

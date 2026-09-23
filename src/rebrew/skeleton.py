@@ -1376,8 +1376,8 @@ def main(
     """Generate .c skeleton files for uncovered target binary functions."""
     # --decomp-body is meaningless without --decomp: the body option only
     # changes how the decompiled C is embedded, and without a decompiler
-    # pass the user gets a silent no-op stub (previously an accepted-but-
-    # inert flag).  Fail loudly instead of pretending the option applied.
+    # pass the user gets a silent no-op stub.  Fail loudly instead of
+    # pretending the option applied.
     if decomp_body and not decomp:
         # Flag-combination usage error — exit 2, not "needs code work" (1).
         error_exit(

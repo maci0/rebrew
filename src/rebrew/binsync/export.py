@@ -990,7 +990,6 @@ def export_state(
     # Collect struct definitions: prefer real definitions from headers/sources,
     # fall back to annotation STRUCT: names for any not found in sources
     struct_defs = _collect_struct_definitions(cfg)
-    # Add any STRUCT: names that weren't found via file scanning (keeps old behavior)
     for e in func_entries:
         if e.struct and e.struct not in struct_defs:
             struct_defs[e.struct] = (f"/* placeholder for {e.struct} */", [])

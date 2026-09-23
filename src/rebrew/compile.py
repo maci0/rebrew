@@ -1571,7 +1571,7 @@ def precompile_batch(
         base_spec = TOOLCHAINS.get(spec_profile) if spec_profile else None
     except Exception:
         # Batch is an optimization; degrade to the per-function path, but
-        # never silently — a broken profile lookup used to vanish here.
+        # log the broken profile lookup.
         log.debug("batch precompile skipped: toolchain lookup failed", exc_info=True)
         return {}
     if base_spec is not None and base_spec.effective_arg_style not in ("posix", "msvc"):
@@ -1845,8 +1845,7 @@ def _extract_and_compare(
     Post-compile stage of :func:`compile_and_compare`, isolated so a failure
     here is labeled EXTRACT_ERROR instead of masquerading as a compile error.
     """
-    # Single LIEF parse for both the symbol bytes and the typed relocs
-    # (previously two lief.COFF.parse calls on the same .obj).
+    # Single LIEF parse for both the symbol bytes and the typed relocs.
     obj_bytes, reloc_dict, full_relocs = parse_obj_symbol_and_relocs(obj_path, symbol)
     if obj_bytes is None:
         # Post-compile extraction failure: the .obj compiled fine but the

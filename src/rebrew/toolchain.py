@@ -680,7 +680,7 @@ def vendored_binary(spec: ToolchainSpec) -> Path | None:
             # Product trees nest the compiler one level deeper (VC98/Bin for
             # the MSVC 6 master and SP5, Vc7/bin for 7.0/7.1, VC/bin for
             # 8.0+): look for <top>/<wrapper>/<host_bin>/<binary> so those
-            # resolve too (msvc-6.0's wrapped layout previously never did).
+            # resolve too.
             for wrapper in host.iterdir():
                 if not wrapper.is_dir():
                     continue

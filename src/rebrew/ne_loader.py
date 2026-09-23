@@ -603,7 +603,7 @@ def load_ne_binary(path: Path) -> BinaryInfo:
         )
         if seg.is_code:
             # Aggregate code segments so tools (catalog coverage, report)
-            # see a non-zero text_size for NE targets — previously 0.
+            # see a non-zero text_size for NE targets.
             if code_va is None:
                 code_va = seg.base_va
                 code_raw_offset = seg.file_offset

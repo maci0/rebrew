@@ -1080,8 +1080,7 @@ def smoke_cmd(
                 # image-less native compiler): gate its reproducibility through
                 # the uniform host runner (resolves the vendored binary, sets
                 # the wine env).  The same fixed-workdir + fixed-mtime
-                # determinism contract applies — previously these had NO
-                # reproducibility gate at all.
+                # determinism contract applies.
                 from rebrew.toolchain import ToolchainError, run_toolchain
 
                 try:

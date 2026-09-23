@@ -517,9 +517,8 @@ def set_fields(directory: Path, va: int, fields: dict[str, Any], module: str) ->
 def set_fields_batch(metadata_dir: Path, updates: list[dict[str, Any]]) -> int:
     """Set fields for many ``(module, va)`` entries in ONE TOML read-modify-write.
 
-    ``verify --fix-sizes`` called ``_set_field`` per
-    entry — each a full tomlkit parse + dumps + atomic write under the
-    global lock.  Batches the I/O while keeping per-field idempotency.
+    Avoids a full tomlkit parse + dumps + atomic write under the global
+    lock per entry, while keeping per-field idempotency.
     Rejects ``status`` (use :func:`update_statuses_batch`, which enforces
     promotion rules).  Returns the number of entries whose fields changed.
     """

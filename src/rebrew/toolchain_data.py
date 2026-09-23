@@ -405,8 +405,8 @@ SOURCES: dict[str, ToolchainSource] = {
     "msvc-4.2": ToolchainSource(
         # archaic-msvc snapshot — the vendored toolchain/msvc/4.2-win32 tree
         # is a byte-identical extraction of this repo tarball (verified: file
-        # list + CL.EXE match).  Previously vendored but NOT pinned, so a
-        # fresh clone could not reproduce it via `rebrew toolchain vendor`.
+        # list + CL.EXE match), pinned so a fresh clone can reproduce it via
+        # `rebrew toolchain vendor`.
         url="https://codeload.github.com/archaic-msvc/msvc420/tar.gz/refs/heads/master",
         sha256="651db241202416be7e870ff8d98928179b94515068e7895008b8a82cb0b7001c",
         commit="b42c244f0a83ba15ba2ffb62b0dc240d7b2dea50",

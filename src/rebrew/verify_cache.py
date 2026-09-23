@@ -578,7 +578,7 @@ def _save_verify_cache(
     #
     # If the prior cache exists but cannot be read (corrupt JSON, I/O error,
     # wrong shape), refuse to overwrite: falling back to `previous = {}` and
-    # writing anyway used to wipe every preserved VA with no signal.
+    # writing anyway would wipe every preserved VA with no signal.
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     with _verify_cache_write_lock(cache_path):
         if preserve_keys and cache_path.exists():
