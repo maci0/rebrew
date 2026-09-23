@@ -4,6 +4,7 @@ import pytest
 
 from rebrew.compile import (
     NEAR_MATCH_THRESHOLD,
+    CompareResult,
     classify_compare_result,
     classify_match_status,
     is_matched,
@@ -314,3 +315,20 @@ class TestIsMatched:
             full_target_size=8,
         )
         assert r.status == "SIZE_MISMATCH"
+
+
+class TestCompareResultInvariant:
+    @pytest.mark.parametrize(
+        ("matched", "status"),
+        [(False, "EXACT"), (False, "RELOC"), (True, "NEAR_MATCHING"), (True, "PROVEN")],
+    )
+    def test_rejects_matched_contradicting_status(self, matched: bool, status: str) -> None:
+        with pytest.raises(ValueError, match="contradicts status"):
+            CompareResult(
+                matched=matched,
+                status=status,  # type: ignore[arg-type]  # parametrized Literal
+                match_percent=0.0,
+                delta=0,
+                obj_bytes=None,
+                reloc_offsets=None,
+            )

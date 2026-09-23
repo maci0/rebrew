@@ -156,6 +156,12 @@
   documented integrator surface.
 
 ### Changed
+- **`CompareResult` rejects a `matched` flag that contradicts `status`.**
+  `matched` and `status` carried the same verdict twice, so a result
+  built as `matched=False, status="EXACT"` passed silently and callers
+  reading different fields disagreed.  Construction now raises
+  `ValueError` unless `matched` is true exactly for `EXACT`/`RELOC`
+  (PROVEN is not a byte match).
 - **Composition docs state the contracts the code actually keeps.**
   ADR 014 no longer claims `builtins.py` is the only component manifest
   (`import-splat` lives in `main.py::_EXTRA_COMPONENTS`, pinned by the

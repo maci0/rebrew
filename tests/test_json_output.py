@@ -1320,7 +1320,7 @@ class TestSinglePathExitCodes:
 
     def _cmp(self, status: str) -> CompareResult:
         return CompareResult(
-            matched=False,
+            matched=status in ("EXACT", "RELOC"),
             status=status,
             match_percent=10.0,
             delta=2,

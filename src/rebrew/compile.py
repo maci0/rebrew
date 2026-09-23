@@ -188,6 +188,17 @@ class CompareResult:
     #: about a build under another.
     context_hash: str | None = None
 
+    def __post_init__(self) -> None:
+        """Reject a ``matched`` flag that contradicts ``status``."""
+        if self.matched != (self.status in _BYTE_MATCH_STATUSES):
+            raise ValueError(
+                f"CompareResult matched={self.matched} contradicts status={self.status!r}"
+            )
+
+
+#: Compare statuses that mean the compiled bytes equal the target (after
+#: reloc masking).  PROVEN is not a byte match and never sets ``matched``.
+_BYTE_MATCH_STATUSES: frozenset[CompareStatus] = frozenset({"EXACT", "RELOC"})
 
 #: Match-quality threshold for NEAR_MATCHING vs STUB classification.
 #: A function that matches >= 60 % of bytes is NEAR_MATCHING; below is STUB.
