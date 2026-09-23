@@ -159,6 +159,27 @@ class TestFloatConst:
         )
         assert len(consts) == 1
 
+    def test_double_straddling_region_end_skipped(self) -> None:
+        # fld qword ptr [0x4030fc]: 8 bytes would run past .rdata end 0x403100
+        code = b"\xdd\x05" + struct.pack("<I", 0x4030FC)
+        consts = list(
+            find_float_consts([(0x401000, code)], [(0x403000, 0x403100)], lambda va, s: b"\x00" * 4)
+        )
+        assert consts == []
+
+    def test_unrelocated_hit_does_not_mask_real_reference(self) -> None:
+        ref = b"\xd9\x05" + struct.pack("<I", 0x403000)
+        code = ref + ref  # first copy is not a reloc site, second is
+        consts = list(
+            find_float_consts(
+                [(0x401000, code)],
+                [(0x403000, 0x403100)],
+                lambda va, s: b"\x00" * s,
+                reloc_sites={0x401000 + len(ref) + 2},
+            )
+        )
+        assert [c.address for c in consts] == [0x403000]
+
 
 # ---------------------------------------------------------------------------
 # demangle

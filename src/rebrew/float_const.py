@@ -101,6 +101,9 @@ def find_float_consts(
     *reloc_sites* — absolute addresses (VAs) of relocation sites; when
     given, an instruction's operand must sit in one (an immediate that
     happens to look like an address is not a real reference).
+
+    A constant must lie wholly inside one const region, and a short read
+    from *read_at* (truncated image) skips it rather than raising.
     """
     seen: set[int] = set()
     for region_va, region_data in code_regions:
@@ -108,16 +111,15 @@ def find_float_consts(
             pointer = inst.pointer
             if pointer in seen:
                 continue
-            seen.add(pointer)
             if reloc_sites is not None and inst.address + 2 not in reloc_sites:
                 continue
-            if not any(start <= pointer < end for start, end in const_regions):
+            single = inst.opcode in SINGLE_PRECISION_OPCODES
+            size = 4 if single else 8
+            if not any(start <= pointer and pointer + size <= end for start, end in const_regions):
                 continue
-            if inst.opcode in SINGLE_PRECISION_OPCODES:
-                raw = read_at(pointer, 4)
-                (value,) = struct.unpack("<f", raw)
-                yield FloatConstant(pointer, 4, value)
-            else:
-                raw = read_at(pointer, 8)
-                (value,) = struct.unpack("<d", raw)
-                yield FloatConstant(pointer, 8, value)
+            raw = read_at(pointer, size)
+            if len(raw) != size:
+                continue
+            seen.add(pointer)
+            (value,) = struct.unpack("<f" if single else "<d", raw)
+            yield FloatConstant(pointer, size, value)

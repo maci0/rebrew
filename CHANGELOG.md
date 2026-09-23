@@ -568,6 +568,12 @@
   in emission order.
 
 ### Fixed
+- **`rebrew analyze` keeps the float constant pool on a truncated
+  `.rdata`.**  An x87 `qword` operand in the last 7 bytes of `.rdata`
+  read short and raised in `struct.unpack`, and the dossier dropped every
+  float constant.  Such a constant is now skipped; a constant must fit
+  wholly inside its region.  An operand that is not a relocation site
+  also no longer hides a later relocated reference to the same address.
 - **`dist/rebrew.buildinfo` names the source revision.**  The manifest
   recorded toolchain and epoch knobs but not which tree was built, so a
   rebuild could not be pointed at the right commit and a build from

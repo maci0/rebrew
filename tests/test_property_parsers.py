@@ -1368,3 +1368,83 @@ def test_find_func_size_within_scan_window(
 
     size = find_func_size(code, offset, arch, endian)
     assert 0 <= size <= max(0, len(code) - max(offset, 0))
+
+
+# ---------------------------------------------------------------------------
+# float_const.find_float_consts: x87 operand scan over untrusted code/data
+# ---------------------------------------------------------------------------
+
+_FC_CODE_VA = 0x401000
+_FC_DATA_VA = 0x403000
+
+
+@st.composite
+def _float_const_image(draw: st.DrawFn) -> tuple[bytes, bytes, int, set[int] | None]:
+    """Code seeded with x87 operands pointing near/inside/past a short data blob."""
+    from rebrew.float_const import FLOAT_OPCODES
+
+    data = draw(st.binary(max_size=24))
+    region_end = _FC_DATA_VA + draw(st.integers(min_value=0, max_value=32))
+    chunks: list[bytes] = []
+    for _ in range(draw(st.integers(min_value=0, max_value=6))):
+        if draw(st.booleans()):
+            op = draw(st.sampled_from(sorted(FLOAT_OPCODES)))
+            ptr = _FC_DATA_VA + draw(st.integers(min_value=-4, max_value=36))
+            chunks.append(bytes(op) + (ptr & 0xFFFFFFFF).to_bytes(4, "little"))
+        else:
+            chunks.append(draw(st.binary(max_size=6)))
+    code = b"".join(chunks)
+    relocs = None
+    if draw(st.booleans()):
+        relocs = {_FC_CODE_VA + i for i in range(len(code)) if draw(st.booleans())}
+    return code, data, region_end, relocs
+
+
+@settings(max_examples=300, deadline=None)
+@given(_float_const_image())
+def test_find_float_consts_invariants(data: tuple[bytes, bytes, int, set[int] | None]) -> None:
+    """Never raises; each constant is unique, fully in-region, relocated, and read back exactly."""
+    import math
+    import struct
+
+    from rebrew.float_const import (
+        SINGLE_PRECISION_OPCODES,
+        find_float_consts,
+        find_float_instructions_in_buffer,
+    )
+
+    code, blob, region_end, relocs = data
+
+    def read_at(va: int, size: int) -> bytes:
+        off = va - _FC_DATA_VA
+        return blob[off : off + size] if off >= 0 else b""
+
+    consts = list(
+        find_float_consts([(_FC_CODE_VA, code)], [(_FC_DATA_VA, region_end)], read_at, relocs)
+    )
+    assert len({c.address for c in consts}) == len(consts)
+
+    insts = list(find_float_instructions_in_buffer(code, _FC_CODE_VA))
+    for c in consts:
+        assert c.address >= _FC_DATA_VA and c.address + c.size <= region_end
+        raw = read_at(c.address, c.size)
+        (want,) = struct.unpack("<f" if c.size == 4 else "<d", raw)
+        assert c.value == want or (math.isnan(c.value) and math.isnan(want))
+        assert any(
+            i.pointer == c.address
+            and (4 if i.opcode in SINGLE_PRECISION_OPCODES else 8) == c.size
+            and (relocs is None or i.address + 2 in relocs)
+            for i in insts
+        )
+
+    # Every qualifying reference yields its pointer: a filtered-out hit on the
+    # same pointer must not mask a later real one.
+    for i in insts:
+        size = 4 if i.opcode in SINGLE_PRECISION_OPCODES else 8
+        if (
+            (relocs is None or i.address + 2 in relocs)
+            and i.pointer >= _FC_DATA_VA
+            and i.pointer + size <= region_end
+            and len(read_at(i.pointer, size)) == size
+        ):
+            assert i.pointer in {c.address for c in consts}
