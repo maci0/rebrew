@@ -656,6 +656,11 @@
   in emission order.
 
 ### Fixed
+- **`rebrew report` summary cards pair each label with its value.**  The
+  cards were loose `<div>`s read number-first with no relationship, so a
+  screen reader heard "1, Total functions" as two unrelated strings.  They
+  are now a `<dl>` (label as `<dt>`, value as `<dd>`, WCAG 1.3.1); the
+  value still shows on top.
 - **Big-endian targets decode data in their own byte order.**  Dispatch
   table scans (`rebrew data`, `analyze`, `depgraph`, `report`) and the
   `.data` initializers written by `own_data_globals` / `fix_ownership`

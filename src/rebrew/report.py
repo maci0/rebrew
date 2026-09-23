@@ -107,9 +107,12 @@ header nav a.active { color: #fff; font-weight: 600; text-decoration-thickness: 
 :focus-visible { outline: 3px solid #005fcc; outline-offset: 2px; }
 header nav a:focus-visible { outline-color: #9dc4f5; }
 main { max-width: 1100px; margin: 1.5rem auto; padding: 0 1.5rem; }
-.cards { display: flex; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.5rem; }
+.cards { display: flex; flex-wrap: wrap; gap: 1rem; margin: 0 0 1.5rem; }
+/* Label reads first (dt before dd); column-reverse shows the value on top. */
 .card { background: #fff; border: 1px solid #767676; border-radius: 6px;
-        padding: 0.9rem 1.1rem; min-width: 140px; }
+        padding: 0.9rem 1.1rem; min-width: 140px;
+        display: flex; flex-direction: column-reverse; }
+.card dd { margin: 0; }
 .card .value { font-size: 1.5rem; font-weight: 700; }
 .card .label { color: #444; font-size: 0.85rem; }
 .table-scroll { overflow-x: auto; margin-bottom: 1.5rem; }
@@ -239,6 +242,16 @@ def _table_scroll(table_html: str, aria_label: str = "Scrollable table") -> str:
         f"<div class='table-scroll' tabindex='0' role='region' "
         f"aria-label='{html.escape(aria_label, quote=True)}'>{table_html}</div>"
     )
+
+
+def _cards(pairs: list[tuple[str, str]]) -> str:
+    """Render (label, value) summary cards as a description list."""
+    items = "".join(
+        f"<div class='card'><dt class='label'>{html.escape(label)}</dt>"
+        f"<dd class='value'>{html.escape(value)}</dd></div>"
+        for label, value in pairs
+    )
+    return f"<dl class='cards'>{items}</dl>"
 
 
 def _data_table(caption: str, headers: list[str], rows_html: str) -> str:
@@ -451,23 +464,13 @@ def _render_index(
         (status, str(count)) for status, count in sorted(sc.items()) if status not in standard
     )
 
-    card_html = "".join(
-        "<div class='card'>"
-        f"<div class='value'>{html.escape(value)}</div>"
-        f"<div class='label'>{html.escape(label)}</div>"
-        "</div>"
-        for label, value in cards
-    )
+    card_html = _cards(cards)
 
     # 16-bit NE targets get their own card set (segments, VMTs).
     ne_html = ""
     if ne:
-        ne_cards = "".join(
-            "<div class='card'>"
-            f"<div class='value'>{html.escape(str(v))}</div>"
-            f"<div class='label'>{html.escape(k)}</div>"
-            "</div>"
-            for k, v in (
+        ne_cards = _cards(
+            [
                 ("Format", "16-bit NE"),
                 (
                     "Segments",
@@ -475,16 +478,16 @@ def _render_index(
                 ),
                 ("Functions", str(ne["functions"])),
                 ("VMTs", str(ne["vmt_tables"])),
-            )
+            ]
         )
-        ne_html = f"<h2>16-bit NE target</h2><div class='cards'>{ne_cards}</div>"
+        ne_html = f"<h2>16-bit NE target</h2>{ne_cards}"
 
     if not functions:
         table = (
             "<p class='note'>No reversed functions found. Add annotated sources under "
             "the project's reversed directory, then regenerate this report.</p>"
         )
-        body = f"<h2>Function index</h2><div class='cards'>{card_html}</div>{ne_html}{table}"
+        body = f"<h2>Function index</h2>{card_html}{ne_html}{table}"
         return [("index.html", _page("Function index", target, "index.html", body))]
 
     total = len(functions)
@@ -503,10 +506,7 @@ def _render_index(
             "index", page_num, total_pages, total, "functions", label="Table pages, bottom"
         )
         if page_num == 1:
-            body = (
-                f"<h2>Function index</h2><div class='cards'>{card_html}</div>"
-                f"{ne_html}{pager}{table}{pager_end}"
-            )
+            body = f"<h2>Function index</h2>{card_html}{ne_html}{pager}{table}{pager_end}"
             title = "Function index"
         else:
             body = f"<h2>Function index (continued)</h2>{pager}{table}{pager_end}"

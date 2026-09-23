@@ -491,3 +491,19 @@ class TestReportPayloadShape:
         last = _pager_nav("index", 5, 5, total, "functions")
         assert "Last</a>" not in last
         assert "Next</a>" not in last
+
+
+class TestSummaryCards:
+    def test_cards_pair_each_label_with_its_value(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Summary cards are a <dl> so assistive tech reads each label with its value."""
+        _write_project(tmp_path, pe_bytes=make_pe(b"\x90" * 32))
+        monkeypatch.chdir(tmp_path)
+        site = tmp_path / "site"
+        result = runner.invoke(app, ["--output", str(site)])
+        assert result.exit_code == 0, result.output
+        page = (site / "index.html").read_text(encoding="utf-8")
+        assert "<dl class='cards'>" in page
+        assert "<dt class='label'>Total functions</dt><dd class='value'>" in page
+        assert "<div class='value'>" not in page
