@@ -465,8 +465,6 @@ class TestSuggestProfileBorland:
 
     def test_borlandc_suggests_borland_3_1_from_real_exe(self) -> None:
         fixture = Path(__file__).parent / "fixtures" / "tc16_hello.exe"
-        if not fixture.exists():
-            pytest.skip("tc16_hello.exe fixture not present")
         profile, family, _, notes = _suggest_profile(fixture)
         assert family == "borlandc"
         assert profile == "borland-3.1"

@@ -556,10 +556,6 @@ def test_mz_extent_uses_16bit_disasm() -> None:
     from rebrew.binary_loader import function_extent_from_disasm
 
     fixture = Path(__file__).parent / "fixtures" / "tc16_hello.exe"
-    if not fixture.exists():
-        import pytest
-
-        pytest.skip("tc16_hello.exe fixture not present")
     # `add` at VA 0x291 is 13 bytes; the `eb 00` jmp idiom (offset 9) is
     # the first terminator the walk sees, so the extent is conservatively
     # 11 (kind jmp) — a sane 16-bit result.  The 32-bit misparse that this

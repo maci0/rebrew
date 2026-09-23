@@ -802,8 +802,7 @@ class TestNoopBlock:
     def test_insert(self) -> None:
         src = "int f() {\n    int x = 0;\n    return x;\n}"
         result = mut_insert_noop_block(src, _rng())
-        assert result is not None
-        assert "if" in result
+        assert result == "int f() {\n    int x = 0;\n    if (0) {} return x;\n}"
 
 
 class TestBoolToggle:
@@ -842,8 +841,9 @@ class TestReturnGoto:
     def test_return_to_goto(self) -> None:
         src = "int f() {\n  if (err) return 0;\n  return 1;\n}"
         result = mut_return_to_goto(src, _rng())
-        assert result is not None
-        assert "goto" in result
+        assert result == (
+            "int f() {\n  if (err) goto ret_false;\n  return 1;\nret_false:\n    return 0;\n}"
+        )
 
     def test_goto_to_return(self) -> None:
         src = "int f() {\n  goto ret_false;\nret_false:\n  return FALSE;\n}"
@@ -871,16 +871,19 @@ class TestReturnGoto:
         """The narrowed predicate keeps every zero spelling (0x0 here)."""
         src = "int f() {\n  if (err) return 0x0;\n  return 1;\n}"
         result = mut_return_to_goto(src, _rng())
-        assert result is not None
-        assert "goto" in result
+        assert result == (
+            "int f() {\n  if (err) goto ret_false;\n  return 1;\nret_false:\n    return 0;\n}"
+        )
 
 
 class TestLocalAlias:
     def test_introduce(self) -> None:
         src = "int f(int param1) {\n  int x;\n  x = param1;\n  return x;\n}"
         result = mut_introduce_local_alias(src, _rng())
-        assert result is not None
-        assert "_alias_param1" in result
+        assert result == (
+            "int f(int param1) {\n  int x;\n"
+            "  int _alias_param1 = param1; x = _alias_param1;\n  return x;\n}"
+        )
 
 
 class TestReorderDeclarations:
@@ -900,45 +903,37 @@ class TestSwapIfElse:
 class TestCastMutations:
     def test_add_cast(self) -> None:
         result = mut_add_cast("void f() { x = value; }", _rng())
-        assert result is not None
-        assert "int" in result
+        assert result == "void f() { x = (int)value; }"
 
     def test_remove_cast(self) -> None:
         result = mut_remove_cast("x = (int)y;", _rng())
-        assert result is not None
-        assert "(int)" not in result
-        assert "y" in result
+        assert result == "x = y;"
 
 
 class TestVolatileRegister:
     def test_toggle_volatile(self) -> None:
         result = mut_toggle_volatile("int f() {\n    int x = 0;\n    return x;\n}", _rng())
-        assert result is not None
-        assert "volatile" in result
+        assert result == "int f() {\n    volatile int x = 0;\n    return x;\n}"
 
     def test_add_register(self) -> None:
         result = mut_add_register_keyword("int f() {\n    int x = 0;\n    return x;\n}", _rng())
-        assert result is not None
-        assert "register" in result
+        assert result == "int f() {\n    register int x = 0;\n    return x;\n}"
 
     def test_remove_register(self) -> None:
         result = mut_remove_register_keyword("    register int x = 0;", _rng())
-        assert result is not None
-        assert "register" not in result
+        assert result == "    int x = 0;"
 
 
 class TestBitandIfFalse:
     def test_if_false_to_bitand(self) -> None:
         src = "void f() { if (!check()) { var = 0; } }"
         result = mut_if_false_to_bitand(src, _rng())
-        assert result is not None
-        assert "&=" in result
+        assert result == "void f() { var &= check(); }"
 
     def test_bitand_to_if_false(self) -> None:
         src = "var &= check();"
         result = mut_bitand_to_if_false(src, _rng())
-        assert result is not None
-        assert "if" in result
+        assert result == "if (!(check()))\n            var = 0;"
 
     def test_nonzero_assignment_not_matched(self) -> None:
         """`0x100` is not false; the unanchored `^0` predicate matched it."""
@@ -950,8 +945,10 @@ class TestTempVar:
     def test_introduce_temp(self) -> None:
         src = "int f() {\n  result = FuncCall(a, b);\n  return result;\n}"
         result = mut_introduce_temp_for_call(src, _rng())
-        assert result is not None
-        assert "tmp" in result
+        assert result == (
+            "int f() {\n    BOOL tmp;\n  tmp = FuncCall(a, b);\n    result = tmp;\n"
+            "  return result;\n}"
+        )
 
     def test_remove_temp(self) -> None:
         src = "int f() {\n  tmp = expr;\n  var = tmp;\n}"
@@ -964,8 +961,7 @@ class TestTempVar:
 class TestSignedness:
     def test_toggle_remove(self) -> None:
         result = mut_toggle_signedness("unsigned int x;", _rng())
-        assert result is not None
-        assert "unsigned" not in result
+        assert result == "int x;"
 
     def test_no_match(self) -> None:
         assert mut_toggle_signedness("// nothing", _rng()) is None
@@ -975,9 +971,7 @@ class TestDeclarationSplit:
     def test_swap_adjacent(self) -> None:
         src = "int f() {\n  int a;\n  int b;\n  return a + b;\n}"
         result = mut_swap_adjacent_declarations(src, _rng())
-        assert result is not None
-        # Declarations should be swapped — "int b" should come before "int a"
-        assert result.index("int b") < result.index("int a")
+        assert result == "int f() {\n  int b;\n  int a;\n  return a + b;\n}"
 
     def test_split(self) -> None:
         src = "int f() {\n  int a = 5;\n  return a;\n}"
@@ -989,92 +983,74 @@ class TestDeclarationSplit:
     def test_merge(self) -> None:
         src = "int f() {\n  int a;\n  a = 5;\n  return a;\n}"
         result = mut_merge_declaration_init(src, _rng())
-        assert result is not None
-        assert "int a = 5" in result
+        assert result == "int f() {\n  int a = 5;\n  return a;\n}"
 
 
 class TestLoopMutations:
     def test_duplicate_body(self) -> None:
         src = "while (i < n) {\n  x = x + 1;\n}"
         result = mut_duplicate_loop_body(src, _rng())
-        assert result is not None
-        assert result.count("x + 1") >= 2  # body should be duplicated
+        assert result == "while (i < n) {\n    x = x + 1;\n    x = x + 1;\n}"
 
 
 class TestConstantFolding:
     def test_fold(self) -> None:
         src = "void f() { x = x + 1;\nx = x + 1; }"
         result = mut_fold_constant_add(src, _rng())
-        assert result is not None
-        assert "2" in result
+        assert result == "void f() { x = x + 2; }"
 
     def test_unfold(self) -> None:
         src = "x = x + 4;"
         result = mut_unfold_constant_add(src, _rng())
-        assert result is not None
-        assert "x =" in result
+        assert result == "x = x + 1; x = x + 1; x = x + 1; x = x + 1;"
 
 
 class TestArrayAndStruct:
     def test_array_index_order(self) -> None:
         src = "x = array[i];"
         result = mut_change_array_index_order(src, _rng())
-        assert result is not None
-        assert "i[array]" in result
+        assert result == "x = i[array];"
 
     def test_struct_vs_ptr(self) -> None:
         src = "x = ptr->field;"
         result = mut_struct_vs_ptr_access(src, _rng())
-        assert result is not None
-        assert "(*ptr).field" in result
+        assert result == "x = (*ptr).field;"
 
 
 class TestCmpChain:
     def test_split(self) -> None:
         src = "if (foo && bar) {\n  x = 1;\n}"
         result = mut_split_and_condition(src, _rng())
-        assert result is not None
-        # Should produce nested ifs with balanced braces
-        assert "if (foo)" in result
-        assert "if (bar)" in result
-        assert result.count("{") == result.count("}")
+        assert result == "if (foo) {\n        if (bar) {\n  x = 1;\n}\n    }"
 
     def test_split_three_conditions(self) -> None:
         src = "if (a && b && c) {\n  x = 1;\n}"
         result = mut_split_and_condition(src, _rng())
-        assert result is not None
-        # At least one split should happen
-        assert result.count("if") >= 2
-        assert result.count("{") == result.count("}")
+        assert result == "if (a && b) {\n        if (c) {\n  x = 1;\n}\n    }"
 
     def test_merge(self) -> None:
         src = "void f() { if (a) { if (b) { x = 1; } } }"
         result = mut_merge_nested_ifs(src, _rng())
-        assert result is not None
-        assert "&&" in result
+        assert result == "void f() { if ((a) && (b)) { x = 1; } }"
 
 
 class TestPtrArith:
     def test_combine(self) -> None:
         src = "void f() { p = p + 4;\np = p + 8; }"
         result = mut_combine_ptr_arith(src, _rng())
-        assert result is not None
-        assert "12" in result
+        assert result == "void f() { p = p + 12; }"
 
     def test_split(self) -> None:
         src = "p = p + 10;"
         result = mut_split_ptr_arith(src, _rng())
-        assert result is not None
-        assert "p =" in result
+        assert result == "p = p + 5; p = p + 5;"
 
 
 class TestReturnType:
     def test_change(self) -> None:
         src = "int my_func() {\n  return 0;\n}"
         result = mut_change_return_type(src, _rng())
-        assert result is not None
-        assert result != src  # type should change
-        assert "my_func" in result  # function name preserved
+        assert result == "char my_func() {\n  return 0;\n}"
 
 
 class TestPointerParam:
@@ -1087,23 +1063,19 @@ class TestPointerParam:
     def test_int_to_pointer(self) -> None:
         src = "int f(int param) {\n  return param;\n}"
         result = mut_int_to_pointer_param(src, _rng())
-        assert result is not None
-        assert "*" in result  # pointer added
+        assert result == "int f(char *param) {\n  return param;\n}"
 
 
 class TestEarlyReturn:
     def test_to_accum(self) -> None:
         src = "int f() {\n  int ret = 1;\n  if (!check()) return 0;\n  return ret;\n}"
         result = mut_early_return_to_accum(src, _rng())
-        assert result is not None
-        assert "&=" in result
+        assert result == "int f() {\n  int ret = 1;\n  ret &= check();\n  return ret;\n}"
 
-    @pytest.mark.skipif(mut_accum_to_early_return is None, reason="not exported")
     def test_to_early_return(self) -> None:
         src = "int f() {\n  ret &= check();\n  return ret;\n}"
         result = mut_accum_to_early_return(src, _rng())
-        assert result is not None
-        assert "if" in result
+        assert result == "int f() {\n  if (!(check()))\n        return 0;\n  return ret;\n}"
 
 
 # -------------------------------------------------------------------------
@@ -1111,27 +1083,21 @@ class TestEarlyReturn:
 # -------------------------------------------------------------------------
 
 
-@pytest.mark.skipif(mut_toggle_calling_convention is None, reason="not exported")
 class TestToggleCallingConvention:
     def test_cdecl_to_stdcall(self) -> None:
         src = "int __cdecl my_func(int a) {\n  return a;\n}"
         result = mut_toggle_calling_convention(src, _rng())
-        assert result is not None
-        assert "__stdcall" in result
-        assert "__cdecl" not in result
+        assert result == "int __stdcall my_func(int a) {\n  return a;\n}"
 
     def test_stdcall_to_cdecl(self) -> None:
         src = "int __stdcall my_func(int a) {\n  return a;\n}"
         result = mut_toggle_calling_convention(src, _rng())
-        assert result is not None
-        assert "__cdecl" in result
-        assert "__stdcall" not in result
+        assert result == "int __cdecl my_func(int a) {\n  return a;\n}"
 
     def test_no_convention_adds_one(self) -> None:
         src = "int my_func(int a) {\n  return a;\n}"
         result = mut_toggle_calling_convention(src, _rng())
-        assert result is not None
-        assert "__cdecl" in result or "__stdcall" in result
+        assert result == "int __cdecl my_func(int a) {\n  return a;\n}"
 
     def test_no_function_returns_none(self) -> None:
         assert mut_toggle_calling_convention("// just a comment", _rng()) is None
@@ -1159,7 +1125,6 @@ class TestToggleCharSignedness:
         assert result is None
 
 
-@pytest.mark.skipif(mut_comparison_boundary is None, reason="not exported")
 class TestComparisonBoundary:
     def test_ge_one_to_gt_zero(self) -> None:
         result = mut_comparison_boundary("if (x >= 1)", _rng())

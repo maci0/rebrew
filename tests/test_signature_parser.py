@@ -2,25 +2,7 @@
 
 from pathlib import Path
 
-import pytest
-
 from rebrew.signature_parser import extract_function_signatures
-
-
-def _tree_sitter_available() -> bool:
-    try:
-        import tree_sitter  # noqa: F401  # presence probe; name unused
-        import tree_sitter_c  # noqa: F401  # presence probe; name unused
-
-        return True
-    except ImportError:
-        return False
-
-
-_SKIP_NO_TS = pytest.mark.skipif(
-    not _tree_sitter_available(),
-    reason="tree-sitter-c not installed",
-)
 
 
 class TestExtractFunctionSignatures:
@@ -34,7 +16,6 @@ class TestExtractFunctionSignatures:
         result = list(extract_function_signatures(f))
         assert result == []
 
-    @_SKIP_NO_TS
     def test_simple_function_extracted(self, tmp_path: Path) -> None:
         f = tmp_path / "func.c"
         f.write_text("int add(int a, int b) { return a + b; }\n", encoding="utf-8")
@@ -45,7 +26,6 @@ class TestExtractFunctionSignatures:
         assert "int" in sig
         assert sig.endswith(")")  # no trailing semicolon (Ghidra CParser rejects them)
 
-    @_SKIP_NO_TS
     def test_void_function(self, tmp_path: Path) -> None:
         f = tmp_path / "void.c"
         f.write_text("void noop(void) { }\n", encoding="utf-8")
@@ -55,7 +35,6 @@ class TestExtractFunctionSignatures:
         assert name == "noop"
         assert "void" in sig
 
-    @_SKIP_NO_TS
     def test_multiple_functions(self, tmp_path: Path) -> None:
         f = tmp_path / "multi.c"
         f.write_text(
@@ -67,7 +46,6 @@ class TestExtractFunctionSignatures:
         names = {r[0] for r in result}
         assert names == {"foo", "bar"}
 
-    @_SKIP_NO_TS
     def test_no_functions_in_file(self, tmp_path: Path) -> None:
         f = tmp_path / "types.c"
         f.write_text("typedef struct { int x; } Point;\n", encoding="utf-8")
@@ -141,7 +119,6 @@ class TestSignatureParserBranches:
         # A bare declaration is not a function_definition → nothing extracted.
         assert list(extract_function_signatures(f)) == []
 
-    @_SKIP_NO_TS
     def test_cp1252_undefined_byte_in_comment_does_not_crash(self, tmp_path: Path) -> None:
         """0x81+space is not Shift-JIS and is undefined in cp1252.
 

@@ -1058,8 +1058,6 @@ class TestInitGuessCompiler:
         from rebrew.init import main
 
         fixture = Path(__file__).parent / "fixtures" / "tc16_hello.exe"
-        if not fixture.exists():
-            pytest.skip("tc16_hello.exe fixture not present")
         (tmp_path / "original").mkdir()
         import shutil
 

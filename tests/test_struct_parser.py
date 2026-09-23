@@ -2,28 +2,10 @@
 
 from pathlib import Path
 
-import pytest
-
 from rebrew.struct_parser import (
     extract_enums_from_file,
     extract_structs_from_file,
     extract_type_definitions,
-)
-
-
-def _tree_sitter_available() -> bool:
-    try:
-        import tree_sitter  # noqa: F401  # presence probe; name unused
-        import tree_sitter_c  # noqa: F401  # presence probe; name unused
-
-        return True
-    except ImportError:
-        return False
-
-
-_SKIP_NO_TS = pytest.mark.skipif(
-    not _tree_sitter_available(),
-    reason="tree-sitter-c not installed",
 )
 
 
@@ -38,7 +20,6 @@ class TestExtractStructsFromFile:
         result = list(extract_structs_from_file(f))
         assert result == []
 
-    @_SKIP_NO_TS
     def test_typedef_struct_extracted(self, tmp_path: Path) -> None:
         f = tmp_path / "types.c"
         f.write_text(
@@ -50,7 +31,6 @@ class TestExtractStructsFromFile:
         assert "Point" in result[0]
         assert "int x" in result[0]
 
-    @_SKIP_NO_TS
     def test_standalone_struct_extracted(self, tmp_path: Path) -> None:
         f = tmp_path / "standalone.c"
         f.write_text(
@@ -61,7 +41,6 @@ class TestExtractStructsFromFile:
         assert len(result) == 1
         assert "Foo" in result[0]
 
-    @_SKIP_NO_TS
     def test_no_struct_in_file(self, tmp_path: Path) -> None:
         f = tmp_path / "funcs.c"
         f.write_text("int add(int a, int b) { return a + b; }\n", encoding="utf-8")
@@ -119,14 +98,12 @@ class TestExtractTypeDefinitions:
         f.write_text(content, encoding="utf-8")
         return f
 
-    @_SKIP_NO_TS
     def test_standalone_typedef_captured(self, tmp_path: Path) -> None:
         f = self._write(tmp_path, "typedef unsigned int uint32_t;\n")
         out = list(extract_type_definitions(f))
         assert len(out) == 1
         assert "uint32_t" in out[0]
 
-    @_SKIP_NO_TS
     def test_struct_typedef_captured(self, tmp_path: Path) -> None:
         f = self._write(tmp_path, "typedef struct { int x; } Point;\n")
         out = list(extract_type_definitions(f))
@@ -134,7 +111,6 @@ class TestExtractTypeDefinitions:
         assert "Point" in out[0]
         assert "int x" in out[0]
 
-    @_SKIP_NO_TS
     def test_non_type_code_ignored(self, tmp_path: Path) -> None:
         src = "int counter;\nint add(int a, int b) { return a + b; }\n"
         f = self._write(tmp_path, src)
@@ -143,7 +119,6 @@ class TestExtractTypeDefinitions:
     def test_missing_file_yields_nothing(self, tmp_path: Path) -> None:
         assert list(extract_type_definitions(tmp_path / "missing.c")) == []
 
-    @_SKIP_NO_TS
     def test_cp1252_undefined_byte_in_comment_does_not_crash(self, tmp_path: Path) -> None:
         """0x81+space is not Shift-JIS and is undefined in cp1252; must not raise."""
         f = tmp_path / "legacy.c"
