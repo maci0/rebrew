@@ -11,6 +11,7 @@ instead of just str.  Returns original source unchanged if all attempts fail.
 
 import logging
 import random
+import threading
 from collections.abc import Callable
 from functools import lru_cache
 from typing import Literal, overload
@@ -370,6 +371,10 @@ def _merge_entry_point_mutations() -> list[Callable[..., str | None]]:
 
 
 ALL_MUTATIONS = _merge_entry_point_mutations()
+#: Pairs each ``ALL_MUTATIONS`` rebind with its weight-memo clear, so a GA
+#: thread in :func:`mutate_code` never reads weights built for another list
+#: (``rng.choices`` raises on a length mismatch).
+_MUTATIONS_LOCK = threading.Lock()
 
 
 def refresh_mutations() -> list[Callable[..., str | None]]:
@@ -379,10 +384,12 @@ def refresh_mutations() -> list[Callable[..., str | None]]:
     without a restart."""
     global ALL_MUTATIONS
 
-    ALL_MUTATIONS = _merge_entry_point_mutations()
-    # The weight memo is positional over ALL_MUTATIONS.
-    _mutation_weight_list.cache_clear()
-    return ALL_MUTATIONS
+    merged = _merge_entry_point_mutations()
+    with _MUTATIONS_LOCK:
+        ALL_MUTATIONS = merged
+        # The weight memo is positional over ALL_MUTATIONS.
+        _mutation_weight_list.cache_clear()
+    return merged
 
 
 # Only the PACKAGED operators are re-exported: their names are module
@@ -414,6 +421,7 @@ def _mutation_weight_list(
     dict lookup per mutation function on every call was pure overhead in
     the per-generation mutation loop).  Returns ``None`` when no weight is
     positive (caller then falls back to uniform ``rng.choice``).
+    Positional over ``ALL_MUTATIONS``: call under :data:`_MUTATIONS_LOCK`.
     """
     mapping = dict(weights_items)
     weights = [mapping.get(m.__name__, 1.0) for m in ALL_MUTATIONS]
@@ -473,14 +481,16 @@ def mutate_code(
 
     try:
         weights: tuple[float, ...] | None = None
-        if mutation_weights:
-            weights = _mutation_weight_list(tuple(sorted(mutation_weights.items())))
+        with _MUTATIONS_LOCK:
+            population = ALL_MUTATIONS
+            if mutation_weights:
+                weights = _mutation_weight_list(tuple(sorted(mutation_weights.items())))
 
         for _ in range(_MUTATION_ATTEMPTS):
             if weights:
-                mut_func = rng.choices(ALL_MUTATIONS, weights=weights, k=1)[0]
+                mut_func = rng.choices(population, weights=weights, k=1)[0]
             else:
-                mut_func = rng.choice(ALL_MUTATIONS)
+                mut_func = rng.choice(population)
             try:
                 new_body = mut_func(body, rng)
             except Exception as exc:

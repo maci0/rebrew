@@ -32,7 +32,7 @@ from rebrew.matcher.mutator import (
     quick_validate,
 )
 from rebrew.matcher.scoring import score_candidate
-from rebrew.utils import atomic_write_text
+from rebrew.utils import atomic_write_text, file_lock
 
 if TYPE_CHECKING:
     from rebrew.match_sweep import BuildParams
@@ -40,10 +40,11 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 console = Console(stderr=True)
 
-#: Serializes appends to ``--collect-pairs`` JSONL.  Parallel
+#: Serializes in-process appends to ``--collect-pairs`` JSONL.  Parallel
 #: ``match --all -j N`` stubs share one pairs file; each record embeds the
 #: full source plus hex obj bytes and routinely exceeds PIPE_BUF, so bare
-#: O_APPEND can interleave lines into corrupt JSON.
+#: O_APPEND can interleave lines into corrupt JSON.  Concurrent processes
+#: are serialized by a ``flock`` on a ``.lock`` sidecar (see ``_write_pair``).
 _COLLECT_PAIRS_LOCK = threading.Lock()
 
 
@@ -798,7 +799,12 @@ class BinaryMatchingGA:
             "symbol": self.symbol,
         }
         assert self.collect_pairs_path is not None  # caller guards it
-        with _COLLECT_PAIRS_LOCK, open(self.collect_pairs_path, "a", encoding="utf-8") as f:
+        pairs_lock = Path(str(self.collect_pairs_path) + ".lock")
+        with (
+            _COLLECT_PAIRS_LOCK,
+            file_lock(pairs_lock),
+            open(self.collect_pairs_path, "a", encoding="utf-8") as f,
+        ):
             f.write(json.dumps(record) + "\n")
             self._pair_keys.add(key)
             self._pairs_count += 1
