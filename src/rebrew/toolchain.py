@@ -774,7 +774,7 @@ def run_toolchain(
             process cwd (native).  Required for docker.
         mounts: Extra ``(host_dir, container_dir)`` bind mounts, used to
             expose project include trees to the container (each host dir is
-            mounted read-write at the container path).
+            mounted read-only at the container path).
         timeout: Subprocess timeout.
 
     Raises:
@@ -826,7 +826,9 @@ def run_toolchain(
             "/work",
         ]
         for host_dir, container_dir in mounts or []:
-            cmd += ["-v", f"{Path(host_dir).resolve()}:{container_dir}"]
+            # Read-only: include trees are only read, and the compiler
+            # must not be able to rewrite the project tree (e.g. .git/hooks).
+            cmd += ["-v", f"{Path(host_dir).resolve()}:{container_dir}:ro"]
         for key, value in image_msvc_env(spec).items():
             cmd += ["-e", f"{key}={value}"]
         if spec.image_entrypoint is not None:

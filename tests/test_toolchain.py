@@ -284,6 +284,20 @@ class TestRunToolchain:
         assert calls[0][13] == "rebrew/t:latest"
         assert calls[0][14:] == ["/c", "f.c"]
 
+    def test_docker_extra_mounts_are_read_only(self, tmp_path: Path, monkeypatch) -> None:
+        """Include trees (the project root included) are mounted read-only so
+        the compiler cannot rewrite the host project tree."""
+        spec = ToolchainSpec(name="t", image="rebrew/t:latest", binary="cl")
+        inc = tmp_path / "inc"
+        inc.mkdir()
+        calls = _monkey_docker(monkeypatch)
+        run_toolchain(spec, ["/c", "f.c"], workdir=tmp_path, mounts=[(str(inc), str(inc))])
+        cmd = calls[0]
+        assert cmd[cmd.index("-w") + 2 : cmd.index("-w") + 4] == [
+            "-v",
+            f"{inc.resolve()}:{inc}:ro",
+        ]
+
     def test_docker_msvc_image_exports_include_and_lib(self, tmp_path: Path, monkeypatch) -> None:
         """An image-backed MSVC spec carries its own INCLUDE/LIB (the SP
         wrappers that do not export them would otherwise fail with C1083)."""

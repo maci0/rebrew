@@ -635,6 +635,11 @@
   in emission order.
 
 ### Fixed
+- **Compiler containers get the project tree read-only.**  `run_toolchain`
+  bind-mounted the project root and every `/I` include tree read-write
+  into the compiler container, so a hostile `CFLAGS` output path could
+  write anywhere in the checkout the image user can reach (`.git/hooks`
+  included).  Extra mounts are now `:ro`; only `/work` stays writable.
 - **`rewrite_param_type` keeps legacy source bytes.**  It parsed the
   source with `surrogateescape` but decoded the rewritten file with
   `errors="replace"`, so a cp1252 or Shift-JIS byte read through
