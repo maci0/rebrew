@@ -422,6 +422,11 @@
   in emission order.
 
 ### Fixed
+- **`rebrew dashboard` no longer downloads `/api/bootstrap` twice on cold
+  start.**  The client fetched with `credentials: "omit"`, which does not
+  match the `same-origin` credentials mode of the `crossorigin` preload, so
+  browsers discarded the preload and re-requested the payload.  The client
+  now uses the default credentials mode.
 - **Compile-cache keys no longer merge different flag lists.**  Flag
   canonicalization dropped repeated tokens keeping the first, so
   `/O1 /O2 /O1` (built at `/O1`) keyed as `/O2`, and `-O2 -O0 -O2` or

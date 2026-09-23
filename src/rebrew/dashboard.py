@@ -43,8 +43,8 @@ The static HTML shell and ``/app.js`` client are zstd- and gzip-precompressed at
 import time so entry assets skip per-request compression CPU.  The shell
 ``<head>`` preloads ``/api/bootstrap`` (``as=fetch`` + ``crossorigin`` +
 ``fetchpriority=high``) and ``/app.js`` (``as=script``); the deferred client
-fetches with ``credentials: omit`` so the cold-start payload can reuse that
-preload.  Keeping JS out of the document lets the browser paint the loading
+fetches with the default ``same-origin`` credentials, the mode ``crossorigin``
+(anonymous) preloads with, so the cold-start payload reuses that preload.  Keeping JS out of the document lets the browser paint the loading
 chrome before the script finishes downloading.
 JSON uses compact separators; function/global/history rows are arrays under
 ``cols``.  The handler speaks HTTP/1.1 so browsers reuse one TCP connection for
@@ -153,9 +153,9 @@ const loadErrors = { summary: "", functions: "", view: "" };
 const busyCounts = new Map();
 const viewLoaded = { functions: false, sections: false, globals: false, history: false };
 async function get(path, signal) {
-  // credentials:omit matches <link rel=preload as=fetch crossorigin> so the
-  // cold-start bootstrap fetch can reuse the preload cache.
-  const r = await fetch(path, { signal, credentials: "omit" });
+  // Default credentials ("same-origin") match <link rel=preload as=fetch
+  // crossorigin> (anonymous), so the cold-start bootstrap reuses the preload.
+  const r = await fetch(path, { signal });
   if (!r.ok) throw new Error(path + " -> " + r.status);
   return r.json();
 }

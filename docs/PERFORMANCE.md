@@ -106,9 +106,10 @@ bytes. Gates: `TestEncodingNegotiation`,
 Shell HTML (zstd-19): ~2.7 KB on the wire (was ~8.2 KB with inlined JS) —
 under one congestion window so the loading chrome can paint before `/app.js`
 (~5.9 KB zstd) finishes. `<link rel="preload" href="/api/bootstrap" as="fetch"
-crossorigin fetchpriority="high">` plus `/app.js` script preload and
-`fetch(..., {credentials: "omit"})` lets bootstrap overlap the deferred
-client download. Gate: `test_index_html_bootstraps_in_one_round_trip`.
+crossorigin fetchpriority="high">` plus `/app.js` script preload lets
+bootstrap overlap the deferred client download. The client `fetch()` keeps
+the default `same-origin` credentials, the mode `crossorigin` (anonymous)
+preloads with; any other mode misses the preload and fetches bootstrap twice. Gate: `test_index_html_bootstraps_in_one_round_trip`.
 
 Repeat loads: the shell links `/app.js?v=<content hash>`, served
 `private, max-age=31536000, immutable`, and an inline `data:,` icon replaces

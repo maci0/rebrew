@@ -1433,7 +1433,10 @@ class TestHostValidation:
         assert 'fetchpriority="high"' in html
         assert f'rel="preload" href="/app.js?v={_APP_JS_VERSION}" as="script"' in html
         assert f'src="/app.js?v={_APP_JS_VERSION}" defer' in html
-        assert 'credentials: "omit"' in js
+        # preload crossorigin=anonymous uses credentials "same-origin"; any other
+        # fetch credentials mode misses the preload and downloads bootstrap twice.
+        assert "await fetch(path, { signal })" in js
+        assert "credentials:" not in js
         assert "Promise.all([loadSummary()," in js
         assert "loadFunctions()" in js
         assert "loadCurrentView(true)" in js
