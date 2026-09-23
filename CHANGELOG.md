@@ -395,6 +395,11 @@
   ``one_line``, ``run_git``). Call sites inside the package already updated.
 
 ### Fixed
+- **`rebrew report` strings page: truncated cells open from the keyboard.**
+  Strings over 80 characters and reference lists over 5 entries kept the
+  full value only in a `title` tooltip, which keyboard and touch users
+  cannot open and screen readers announce inconsistently.  Those cells
+  are now a native `<details>` disclosure.
 - **Headers created in include subdirectories reach compile-cache keys.**
   The include-dir path list was reused while the root directory's mtime
   held, but a new `sys/types.h` bumps only `sys/`.  The header stayed out

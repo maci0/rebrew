@@ -214,7 +214,8 @@ class TestReportCli:
 
 class TestAdjacencyListLabels:
     def test_truncated_string_cells_expose_full_text(self) -> None:
-        """Long strings and xref lists truncate in the cell but keep a title tooltip."""
+        """Long strings and xref lists truncate into a keyboard-operable <details>,
+        not a title tooltip that keyboard and touch users cannot open."""
         from types import SimpleNamespace
 
         from rebrew.report import _string_row
@@ -225,13 +226,26 @@ class TestAdjacencyListLabels:
             SimpleNamespace(va=0x2000, section=".rdata", kind="ascii", text=long_text),
             xrefs,
         )
-        assert f'title="{long_text}"' in row
-        assert "…" in row
-        assert "(+2 more)" in row
+        assert "title=" not in row
+        assert f"<details><summary>{'A' * 80}…</summary>{long_text}</details>" in row
         assert (
-            'title="0x00001000, 0x00001001, 0x00001002, 0x00001003, 0x00001004, 0x00001005, 0x00001006"'
-            in row
+            "<details><summary>0x00001000, 0x00001001, 0x00001002, 0x00001003, 0x00001004"
+            " (+2 more)</summary>0x00001000, 0x00001001, 0x00001002, 0x00001003, 0x00001004,"
+            " 0x00001005, 0x00001006</details>" in row
         )
+
+    def test_short_string_cells_stay_plain(self) -> None:
+        from types import SimpleNamespace
+
+        from rebrew.report import _string_row
+
+        row = _string_row(
+            SimpleNamespace(va=0x2000, section=".rdata", kind="ascii", text="a<b"),
+            [],
+        )
+        assert "<details>" not in row
+        assert "<td class='mono'>a&lt;b</td>" in row
+        assert "<td class='mono'>&mdash;</td>" in row
 
     def test_prints_symbols_not_internal_keys(self) -> None:
         """Node keys are `va:0x…`/`sym:…` internal identifiers; the adjacency

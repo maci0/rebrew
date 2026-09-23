@@ -80,6 +80,9 @@ _PAGES: list[tuple[str, str]] = [
 # HTML parse budget small on large projects (thousands of functions/strings);
 # extra pages are linked via a no-JS pager.
 _TABLE_PAGE_SIZE = 250
+# Strings-table cells longer than these collapse into a <details> disclosure.
+_STRING_CELL_CHARS = 80
+_REFS_CELL_COUNT = 5
 # Max-effort gzip/zstd for build-once static assets (mirrors dashboard precompress).
 _GZIP_PRECOMPRESS_LEVEL = 9
 _ZSTD_PRECOMPRESS_LEVEL = 19
@@ -124,6 +127,8 @@ caption { caption-side: top; text-align: left; padding: 0.5rem 0.75rem;
 tr:last-child td { border-bottom: none; }
 td.mono, code { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; }
 td.blocker { max-width: 28rem; overflow-wrap: anywhere; }
+td details { max-width: 40rem; overflow-wrap: anywhere; }
+td summary { cursor: pointer; padding: 0.25rem 0; }
 .status-EXACT { color: #15803d; font-weight: 600; }
 .status-RELOC { color: #0369a1; font-weight: 600; }
 .status-PROVEN { color: #0e7490; font-weight: 600; }
@@ -574,28 +579,31 @@ def _render_strings(cfg: ProjectConfig) -> list[tuple[str, str]]:
     return pages
 
 
+def _disclosure(short: str, full: str) -> str:
+    """``<details>`` showing *short*, expanding to *full* (keyboard/AT reachable, unlike ``title``)."""
+    return f"<details><summary>{html.escape(short)}</summary>{html.escape(full)}</details>"
+
+
 def _string_row(s: StringEntry, xrefs: list[Xref]) -> str:
     """Render one string table row with ref count and first referencing VAs."""
-    truncated = len(s.text) > 80
-    text = s.text if not truncated else s.text[:80] + "\u2026"
-    text_title = f' title="{html.escape(s.text, quote=True)}"' if truncated else ""
+    if len(s.text) > _STRING_CELL_CHARS:
+        text = _disclosure(s.text[:_STRING_CELL_CHARS] + "\u2026", s.text)
+    else:
+        text = html.escape(s.text)
     all_refs = ", ".join(f"0x{x.from_va:08x}" for x in xrefs)
-    first = ", ".join(f"0x{x.from_va:08x}" for x in xrefs[:5])
-    refs_title = ""
-    if len(xrefs) > 5:
-        first += f" (+{len(xrefs) - 5} more)"
-        refs_title = f' title="{html.escape(all_refs, quote=True)}"'
-    text_attrs = text_title
-    if truncated:
-        text_attrs += f' aria-label="{html.escape(s.text, quote=True)}"'
+    if len(xrefs) > _REFS_CELL_COUNT:
+        first = ", ".join(f"0x{x.from_va:08x}" for x in xrefs[:_REFS_CELL_COUNT])
+        refs = _disclosure(f"{first} (+{len(xrefs) - _REFS_CELL_COUNT} more)", all_refs)
+    else:
+        refs = html.escape(all_refs) or "&mdash;"
     return (
         "<tr>"
         f"<td class='mono'>0x{s.va:08x}</td>"
         f"<td>{html.escape(s.section)}</td>"
         f"<td>{html.escape(s.kind)}</td>"
-        f"<td class='mono'{text_attrs}>{html.escape(text)}</td>"
+        f"<td class='mono'>{text}</td>"
         f"<td>{len(xrefs)}</td>"
-        f"<td class='mono'{refs_title}>{html.escape(first) or '&mdash;'}</td>"
+        f"<td class='mono'>{refs}</td>"
         "</tr>"
     )
 
