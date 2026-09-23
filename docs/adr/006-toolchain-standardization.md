@@ -52,7 +52,7 @@ finicky installer — build once, share).
   reproducible from a clean checkout with only docker.
 - The shared `rebrew.dosbox` runner (mount a sandbox as `C:`, run
   autoexec, read FAT-uppercased outputs) is reused by both 16-bit
-  compilers (delphi-1.0, msvc16).
+  compilers (delphi-1.0, msvc-1.52).
 - Toolchains through the abstraction (as of 2026-08): `watcom-2.0-win32` (native
   Open Watcom 2.0), `msvc-1.52` (DOSBox), `watcom-2.0-win16` (native wcc),
   `borland-3.1` (Turbo C++ 3.1, DOSBox), `borland-5.5` (bcc32, wine),

@@ -327,4 +327,4 @@ divergent git merge as the default sync substrate (ff-only + local commit /
 - [`rebrew sync`](07-ghidra-sync.md) — Ghidra ReVa sync; complementary, not replaced.
 - [BinSync](https://github.com/binsync/binsync) — the upstream plugin.
 - [declib](https://github.com/binsync/declib) — BinSync's artifact layer (this PRD originally named it `libbs`).
-- IDEAS.md entry #24 — ghidra-cli alternative (orthogonal; addresses ReVa-MCP dependency).
+- `ghidra_backend = "cli"` ([CONFIG.md](../CONFIG.md)): the shipped ghidra-cli alternative to the ReVa MCP transport (orthogonal to BinSync).
