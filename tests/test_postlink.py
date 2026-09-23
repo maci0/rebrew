@@ -721,3 +721,42 @@ class TestLayoutPackage:
         patched, reports = run_fixers(built, None, None, layout_dir=pkg)
         assert patched == ref.read_bytes()
         assert len(reports) == len(FIXER_ORDER)
+
+
+class TestExactLayout:
+    """`EXACT_LAYOUT` writes .reloc at the reference's file offset and trims.
+
+    A converged link can still sit one FileAlignment block later than the
+    reference (guild-rebrew: built .reloc at 0x36000 against 0x35000), which
+    makes the delivered file 4096 bytes too long even though every byte of
+    content matches.  The flag is off by default — see
+    `test_reloc_written_at_built_offset_not_reference` for the conservative
+    contract a non-converged layout needs.
+    """
+
+    def test_reloc_moves_to_reference_offset_and_file_shrinks(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        import rebrew.postlink as pl
+        from rebrew.binary_loader import load_binary
+        from rebrew.layout_meta import extract_layout
+
+        reloc = struct.pack("<II", 0x1000, 8) + struct.pack("<HH", 0x123, 0x3000)
+        ref = _write(tmp_path, "ref.dll", make_full_pe(reloc_bytes=reloc))
+        meta = extract_layout(ref.read_bytes(), "ref.dll")
+
+        sec_reloc = 0x178 + 40 * 3
+        new_ptr = _RELOC_VA + 0x200
+        raw = bytearray(make_full_pe(reloc_bytes=reloc))
+        raw[new_ptr:new_ptr] = b"\x00" * 0x200
+        struct.pack_into("<I", raw, sec_reloc + 20, new_ptr)
+        built = _write(tmp_path, "built.dll", bytes(raw))
+        assert len(built.read_bytes()) > len(ref.read_bytes())
+
+        monkeypatch.setattr(pl, "EXACT_LAYOUT", True)
+        blob = bytearray(built.read_bytes())
+        pl._fix_data(blob, meta, load_binary(built))
+
+        assert bytes(blob[_RELOC_VA : _RELOC_VA + len(meta.reloc)]) == meta.reloc
+        assert struct.unpack_from("<I", blob, sec_reloc + 20)[0] == _RELOC_VA
+        assert len(blob) == _RELOC_VA + meta.section(".reloc").raw

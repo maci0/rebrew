@@ -435,9 +435,16 @@ def _fix_data(built: bytearray, meta: LayoutMetadata, info_b: BinaryInfo) -> Fix
     built_raw_end = text_b.file_offset + text_b.raw_size
     if trim_start < built_raw_end:
         built[trim_start:built_raw_end] = b"\x00" * (built_raw_end - trim_start)
-        struct.pack_into("<I", built, _section_header_offset(info_b, ".text") + 16, text_m.raw)
-        struct.pack_into("<I", built, _section_header_offset(info_b, ".text") + 8, text_m.vs)
         report.changed = True
+    # The header must carry the REFERENCE's geometry whether or not there was
+    # a tail to trim: a link whose .text raw size already matches still reports
+    # its own VirtualSize (guild-rebrew: 0x22ad8 against the reference's
+    # 0x22846 after the overshoot was zeroed), and `verify_objective` checks
+    # that field.
+    _text_hdr = _section_header_offset(info_b, ".text")
+    struct.pack_into("<I", built, _text_hdr + 16, text_m.raw)
+    struct.pack_into("<I", built, _text_hdr + 8, text_m.vs)
+    report.changed = True
 
     # The trim above starts at the reference's RAW size, so anything the link
     # emitted between the reference's VirtualSize and its raw size survives it.
@@ -470,18 +477,47 @@ def _fix_data(built: bytearray, meta: LayoutMetadata, info_b: BinaryInfo) -> Fix
     if len(meta.data) > len(built) - data_b.file_offset:
         built.extend(b"\x00" * (data_b.file_offset + len(meta.data) - len(built)))
     built[data_b.file_offset : data_b.file_offset + len(meta.data)] = meta.data
-    struct.pack_into("<I", built, _section_header_offset(info_b, ".data") + 16, len(meta.data))
+    _data_hdr = _section_header_offset(info_b, ".data")
+    struct.pack_into("<I", built, _data_hdr + 16, len(meta.data))
+    # .data's VirtualSize is the reference's (24 MB: the section's zero-fill
+    # tail), not the built link's — the raw copy above only fills the raw
+    # extent, so the header value has to come from the layout package.
+    struct.pack_into("<I", built, _data_hdr + 8, meta.section(".data").vs)
 
     # ---- 5. replace .reloc (at the built file's own .reloc offset) ----
     # The built file's .reloc raw pointer comes from its own headers —
     # the reference's raw_ptr belongs to the reference's layout.
     reloc_b = info_b.sections[".reloc"]
     reloc_m = meta.section(".reloc")
+    # Two contracts:
+    #  * default — keep the BUILT link's own raw pointer.  A layout that has
+    #    not converged (sections shifted, .data longer than the reference's)
+    #    must not have the reference's pointers copied over bytes the fixer
+    #    never wrote.
+    #  * EXACT_LAYOUT — write at the REFERENCE's raw pointer and trim the file
+    #    to the reference's section end.  A converged link can still sit one
+    #    FileAlignment block later (guild-rebrew: .reloc at 0x36000 against
+    #    0x35000), which makes the delivered file 4096 bytes too long and
+    #    shifts every byte after it in a whole-file compare.  Guarded: only
+    #    when the reference's offset is past every other built section's raw
+    #    extent, i.e. there is nothing to clobber.
     new_rptr = reloc_b.file_offset
+    if EXACT_LAYOUT:
+        others_end = max(s.raw_ptr + s.raw for s in meta.sections if s.name != ".reloc")
+        # Compare against the REFERENCE extents: the fixers have already
+        # written every section at the reference raw size (a built .data one
+        # FileAlignment block longer is trimmed by the .data copy), so the
+        # reference's own extents are what the finished file contains.
+        if reloc_m.raw_ptr >= others_end and reloc_m.raw_ptr <= reloc_b.file_offset:
+            new_rptr = reloc_m.raw_ptr
     reloc_raw = meta.reloc + b"\x00" * max(0, reloc_m.raw - len(meta.reloc))
     if new_rptr + len(reloc_raw) > len(built):
         built.extend(b"\x00" * (new_rptr + len(reloc_raw) - len(built)))
     built[new_rptr : new_rptr + len(reloc_raw)] = reloc_raw
+    if EXACT_LAYOUT:
+        ref_end = new_rptr + len(reloc_raw)
+        if len(built) > ref_end:
+            del built[ref_end:]
     h = _section_header_offset(info_b, ".reloc")
     struct.pack_into("<I", built, h + 8, reloc_m.vs)  # VirtualSize
     struct.pack_into("<I", built, h + 16, len(reloc_raw))
@@ -618,6 +654,15 @@ def _fix_pe_metadata(built: bytearray, meta: LayoutMetadata, info_b: BinaryInfo)
 # ---------------------------------------------------------------------------
 # Fixer registry + runner
 # ---------------------------------------------------------------------------
+
+#: When True, ``_fix_data`` writes ``.reloc`` at the REFERENCE's file offset and
+#: trims the file to the reference's section end, instead of preserving the
+#: built link's geometry.  The deliverable pipeline (which must reproduce the
+#: reference file byte-for-byte, size included) sets it; the default keeps the
+#: conservative behaviour that a non-converged built layout is never given the
+#: reference's raw pointers.
+EXACT_LAYOUT = False
+
 
 FIXERS: dict[str, Fixer] = {
     "imports": _fix_imports,
