@@ -241,7 +241,7 @@ rebrew test [SOURCE]
   -j, --jobs N
       --no-promote
       --force-status
-      --fix-size
+      --fix-sizes
       --watch
       --json
   -t, --target TEXT

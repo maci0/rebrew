@@ -118,9 +118,9 @@ named the layer `libbs`; the shipped dependency is `declib>=4.5`.)*
 For each function in the BinSync state:
 
 - **Name** → if generic (FUN_/SUB_/sub_), skip. If meaningful and rebrew already has a meaningful different name, report CONFLICT. Else update `ann.name` (writes `// FUNCTION: <module> 0x<va>` doesn't change; symbol declaration in `.c` does change, plus cross-references like `rebrew rename` does today).
-- **Prototype** → update the C function declaration via `rebrew sync --pull-signatures`'s existing prototype-rewrite path.
+- **Prototype** → update the C function declaration via the prototype-rewrite path in `rebrew.binsync.importer` (the `--pull-signatures` flag it replaced is removed).
 - **Stack frame / locals** → write to a new `[locals]` block in `rebrew-functions.toml`. See F4.
-- **Per-instruction comments** → write as `// ANALYSIS:` style markers in the C body (matches existing `rebrew sync --pull-comments` shape).
+- **Per-instruction comments** → write as `// ANALYSIS:` style markers in the C body (the shape the removed `rebrew sync --pull-comments` flag wrote).
 - **Struct** → write field-by-field into `types.h` (or per-module `types_<module>.h` per E16).
 - **Enum / typedef** → write into `types.h` (or `enums.h` if the user wants split).
 - **Global variable** → write `name`/`size`/`type` into `rebrew-data.toml` (canonical data metadata file).

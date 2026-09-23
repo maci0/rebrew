@@ -45,7 +45,7 @@ documented fallback.
 - **Breaking:** every existing `rebrew-project.toml` and toolchain override
   naming a profile must be updated.  The CHANGELOG carries the full mapping.
 - Profile names appear in `rebrew-libraries.toml`, `TOOLCHAIN` metadata fields,
-  entry-point registrations and `_IMAGE_ENTRYPOINTS`, so plugins and projects
+  entry-point registrations and `IMAGE_ENTRYPOINTS`, so plugins and projects
   pinning those values must move with them.  Where a profile name is a TOML
   table header (the `REBREW_TOOLCHAIN_OVERLAY_DIR` files), a dotted name must
   be quoted: `["msvc-6.0"]`, not `[msvc-6.0]`.

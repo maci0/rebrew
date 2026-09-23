@@ -102,7 +102,7 @@ Three subcommands:
   un-reversed functions (N defaults to 20), optionally offset into the
   sorted list.
 
-All three accept `--exe`/`--min-size`/`--max-size` filters and `--json`.
+All three accept `--binary`/`--min-size`/`--max-size` filters and `--json`.
 Output `.bin` files land in the configured `bin_dir`.
 
 ### `rebrew flirt`
@@ -113,7 +113,7 @@ Output `.bin` files land in the configured `bin_dir`.
 - `--va VA` checks a single function VA (hex) instead of the whole `.text`.
 - `--show-ambiguous` reports ambiguous matches (offsets with >3 candidate
   names) as well.
-- `--exe PATH` overrides the binary; `--target` selects from
+- `--binary PATH` overrides the binary; `--target` selects from
   `rebrew-project.toml`.
 - `--json` emits structured matches.
 
@@ -180,7 +180,6 @@ Output `.bin` files land in the configured `bin_dir`.
 ```
 rebrew catalog [OPTIONS]
       --data-json
-      --catalog
       --summary
       --csv
       --export-ghidra
@@ -196,7 +195,7 @@ rebrew extract show VA [--size N] [--json] [-t TARGET]
 rebrew extract batch [N] [--start M] [--dry-run] [--json] [-t TARGET]
 
 rebrew flirt [SIG_DIR]
-      --exe PATH
+      --binary PATH
       --min-size N           (default 16)
       --va VA
       --show-ambiguous

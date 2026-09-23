@@ -145,7 +145,7 @@ PRD 05 collects these into `verify`, `status`, `graph`, and `cache`.
   byte-identical by design).
 - Verify the result is byte-identical to the original PE (sha256 hash match).
 - Writes reassembled PE to disk next to the target binary (suffix
-  `.reasm`), or to a custom path with `--out`.
+  `.reasm`), or to a custom path with `-o/--output`.
 - `--dry-run` skips writing the `.reasm` file; report still emitted.
 - `--filter SUBSTR` restricts to functions whose symbol contains the
   substring.
@@ -245,7 +245,7 @@ rebrew cache stats [--json] [-t TARGET]
 rebrew cache clear [--force] [--json] [-t TARGET]
 
 rebrew round-trip [OPTIONS]
-      --out PATH
+  -o, --output PATH
       --dry-run
       --filter SUBSTR
       --strict-catalog

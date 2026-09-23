@@ -685,7 +685,7 @@ def _run_single_toolchain_flag_sweep(
 
     Answers "which MSVC version AND which flags built this function" in one
     run — the two-dimension question a decompiler faces when the configured
-    profile does not byte-match (``--sweep-toolchain`` alone only tries the
+    profile does not byte-match (``--flag-sweep-toolchains`` alone only tries the
     project's cflags; ``--flag-sweep`` alone only tries the project's
     compiler).
     """

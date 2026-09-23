@@ -76,7 +76,7 @@ per ADR-011 and is no longer xfail).
   host-path smoke remains only for image-less plugin specs.)*
 - The msvc line (4.0/4.2/5.0/6.0-sp3/sp6/7.0) is now a first-class,
   gated, roundtrip-tested set (compile → parse → compare → EXACT), with
-  `--sweep-toolchain` covering the full range.
+  `match --flag-sweep-toolchains` covering the full range.
 - The git-tracked Dockerfile guard is a hard, non-xfail test; the
   previously-uncommitted borland-3.1/borland-2.0 Dockerfiles and wrapper scripts are now
   committed in the rebrew-toolchains checkout (ADR-011) — the 16-bit media
