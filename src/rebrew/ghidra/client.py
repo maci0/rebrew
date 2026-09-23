@@ -84,6 +84,9 @@ MCP_HEADERS = {
     "Accept": "application/json, text/event-stream",
 }
 MCP_REQUEST_TIMEOUT_S = 30
+#: Budget for the session-termination ``DELETE``; it runs on every exit path,
+#: so a stalled server must not hold up the caller for a full request timeout.
+MCP_SESSION_END_TIMEOUT_S = 5
 
 #: Hard cap on MCP list pages.  ``totalCount`` / ``nextStartIndex`` already
 #: stop a well-behaved server; this bounds a server that keeps advancing
@@ -322,6 +325,30 @@ def init_mcp_session(client: httpx.Client, endpoint: str) -> str:
         return str(resp.headers.get("Mcp-Session-Id", ""))
     finally:
         _close_response(resp)
+
+
+def end_mcp_session(client: httpx.Client, endpoint: str, session_id: str) -> None:
+    """Terminate *session_id* with an MCP ``DELETE`` so the server frees it.
+
+    Every :func:`init_mcp_session` caller pairs it with this call on all exit
+    paths: the server keeps per-session state until told otherwise, so one
+    unterminated session per command (or per function in batch decompiles)
+    accumulates for the server's lifetime.  Best-effort: a server may answer
+    405 (termination unsupported) and a transport failure here must not mask
+    the caller's result or exception.  An empty id (no session) is a no-op.
+    """
+    if not session_id:
+        return
+    try:
+        resp = client.delete(
+            endpoint,
+            headers={**MCP_HEADERS, "Mcp-Session-Id": session_id},
+            timeout=MCP_SESSION_END_TIMEOUT_S,
+        )
+    except httpx.HTTPError as exc:
+        logger.debug("MCP session %s termination failed at %s: %s", session_id, endpoint, exc)
+        return
+    _close_response(resp)
 
 
 def _paginate_mcp_list(
@@ -594,9 +621,13 @@ def apply_commands_via_mcp(
     errors = 0
     total = len(commands)
 
-    with httpx.Client(timeout=MCP_REQUEST_TIMEOUT_S) as client:
+    with (
+        httpx.Client(timeout=MCP_REQUEST_TIMEOUT_S) as client,
+        contextlib.ExitStack() as session_cleanup,
+    ):
         try:
             session_id = init_mcp_session(client, endpoint)
+            session_cleanup.callback(end_mcp_session, client, endpoint, session_id)
         except httpx.HTTPStatusError as exc:
             code = exc.response.status_code
             raise McpError(
@@ -795,6 +826,7 @@ __all__ = [
     "McpError",
     "McpErrorKind",
     "apply_commands_via_mcp",
+    "end_mcp_session",
     "fetch_all_functions",
     "fetch_all_symbols",
     "fetch_mcp_tool",

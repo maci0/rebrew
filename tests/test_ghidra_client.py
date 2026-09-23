@@ -22,6 +22,7 @@ def test_ghidra_client_public_all() -> None:
         "McpError",
         "McpErrorKind",
         "apply_commands_via_mcp",
+        "end_mcp_session",
         "fetch_all_functions",
         "fetch_all_symbols",
         "fetch_mcp_tool",
@@ -466,6 +467,8 @@ class _FakeClient:
 
     def __init__(self, script: list[object]) -> None:
         self._script = list(script)
+        #: ``Mcp-Session-Id`` of every DELETE (session termination).
+        self.deleted: list[str] = []
 
     def __enter__(self) -> "_FakeClient":
         return self
@@ -478,6 +481,10 @@ class _FakeClient:
         if isinstance(item, Exception):
             raise item
         return item
+
+    def delete(self, *_a: object, headers: dict[str, str], **_k: object) -> _FakeResp:
+        self.deleted.append(headers["Mcp-Session-Id"])
+        return _FakeResp(text="")
 
 
 def _ok_rpc() -> _FakeResp:
@@ -540,10 +547,13 @@ class TestApplyCommandsViaMcp:
             _FakeResp(headers={"Mcp-Session-Id": "s1"}),  # init
             _ok_rpc(),  # initialized
         ] + [_ok_rpc()] * 100  # 100 create-function commands
-        monkeypatch.setattr("rebrew.ghidra.client.httpx.Client", lambda **kw: _FakeClient(script))
+        fake = _FakeClient(script)
+        monkeypatch.setattr("rebrew.ghidra.client.httpx.Client", lambda **kw: fake)
         cmds = [self._cmd("create-function", address=f"0x{i:x}") for i in range(100)]
         success, errors = apply_commands_via_mcp(cmds)
         assert (success, errors) == (100, 0)
+        # The server-side session is terminated, not left to accumulate.
+        assert fake.deleted == ["s1"]
 
     def test_phase_transition_and_tool_error_suppression(
         self, monkeypatch: pytest.MonkeyPatch
@@ -904,3 +914,32 @@ class TestApplyAbort:
         monkeypatch.setattr("rebrew.ghidra.client.httpx.Client", lambda **kw: _FakeClient(script))
         success, errors = apply_commands_via_mcp([self._cmd("create-function", address="0x1000")])
         assert (success, errors) == (0, 1)
+
+
+class TestEndMcpSession:
+    """``end_mcp_session`` releases the server-side session, best-effort."""
+
+    def test_sends_delete_with_session_id(self) -> None:
+        from rebrew.ghidra.client import end_mcp_session
+
+        fake = _FakeClient([])
+        end_mcp_session(fake, "http://x", "sess-9")  # type: ignore[arg-type]
+        assert fake.deleted == ["sess-9"]
+
+    def test_empty_session_id_is_noop(self) -> None:
+        from rebrew.ghidra.client import end_mcp_session
+
+        fake = _FakeClient([])
+        end_mcp_session(fake, "http://x", "")  # type: ignore[arg-type]
+        assert fake.deleted == []
+
+    def test_transport_error_is_swallowed(self) -> None:
+        import httpx
+
+        from rebrew.ghidra.client import end_mcp_session
+
+        class _Down:
+            def delete(self, *_a: object, **_k: object) -> None:
+                raise httpx.ConnectError("refused")
+
+        end_mcp_session(_Down(), "http://x", "sess-9")  # type: ignore[arg-type]

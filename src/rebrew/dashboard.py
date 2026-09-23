@@ -66,7 +66,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, ClassVar, Literal
 from urllib.parse import parse_qs, urlparse
 
 import typer
@@ -103,6 +103,8 @@ _TARGET_ROUTES = frozenset(
 )
 #: Paths ``Dashboard.handle`` serves; only these may short-circuit to 304.
 _ROUTES = frozenset({"/", "/app.js", "/api/bootstrap", "/api/targets"}) | _TARGET_ROUTES
+# Seconds a keep-alive connection may sit idle before its handler thread exits.
+_KEEPALIVE_IDLE_TIMEOUT_S = 30.0
 # Below this size framing usually costs more than it saves on a LAN.
 _MIN_COMPRESS_BYTES = 256
 # Per-request dynamic JSON: mid effort (bodies are rebuilt every request).
@@ -1846,6 +1848,10 @@ class _Handler(BaseHTTPRequestHandler):
     # handshake per request.  Content-Length is set on every response so
     # persistent connections stay framed correctly.
     protocol_version = "HTTP/1.1"
+    # Socket timeout (StreamRequestHandler.setup): an idle or half-open
+    # keep-alive client is dropped instead of pinning its handler thread and
+    # descriptor for the server's lifetime.
+    timeout: ClassVar[float | None] = _KEEPALIVE_IDLE_TIMEOUT_S
 
     def _respond(self, method: str) -> None:
         if not _host_allowed(self.headers.get("Host", ""), self.allowed_hosts):

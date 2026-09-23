@@ -67,12 +67,15 @@ def _probe_program_path(endpoint: str, program_path: str, json_output: bool) -> 
     """Validate the MCP program path (best-effort) — refuse when MCP is down."""
     import httpx
 
-    from rebrew.ghidra.client import init_mcp_session
+    from rebrew.ghidra.client import end_mcp_session, init_mcp_session
 
     try:
         with httpx.Client(timeout=10.0) as probe_client:
             session = init_mcp_session(probe_client, endpoint)
-            return validate_program_path(probe_client, endpoint, program_path, session)
+            try:
+                return validate_program_path(probe_client, endpoint, program_path, session)
+            finally:
+                end_mcp_session(probe_client, endpoint, session)
     except (httpx.HTTPError, OSError, RuntimeError, ValueError) as exc:
         detail = str(exc).strip() or type(exc).__name__
         error_exit(

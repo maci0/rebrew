@@ -5,6 +5,7 @@ command building for push operations and direct MCP communication for pull
 operations.
 """
 
+import contextlib
 import re
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
@@ -17,6 +18,7 @@ from rich.console import Console
 from rebrew.config import ProjectConfig
 from rebrew.ghidra.client import (
     MAX_MCP_PAGES,
+    end_mcp_session,
     fetch_mcp_tool_raw,
     init_mcp_session,
 )
@@ -296,9 +298,10 @@ def pull_data(
     except (ImportError, OSError, ValueError, AttributeError) as e:
         console.print(f"[yellow]warning:[/yellow] Could not load binary sections: {e}")
 
-    with httpx.Client(timeout=30.0) as client:
+    with httpx.Client(timeout=30.0) as client, contextlib.ExitStack() as session_cleanup:
         try:
             session_id = init_mcp_session(client, endpoint)
+            session_cleanup.callback(end_mcp_session, client, endpoint, session_id)
         except httpx.RequestError as e:
             console.print(f"[yellow]warning:[/yellow] Could not connect to MCP endpoint: {e}")
             return

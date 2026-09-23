@@ -17,6 +17,7 @@ Usage:
 
 from __future__ import annotations
 
+import contextlib
 import importlib
 import logging
 import warnings
@@ -461,8 +462,12 @@ def fetch_xref_context(
     _init_mcp_session = _sync_mod.init_mcp_session
 
     try:
-        with httpx.Client(timeout=_sync_mod.MCP_REQUEST_TIMEOUT_S) as client:
+        with (
+            httpx.Client(timeout=_sync_mod.MCP_REQUEST_TIMEOUT_S) as client,
+            contextlib.ExitStack() as cleanup,
+        ):
             session_id = _init_mcp_session(client, endpoint)
+            cleanup.callback(_sync_mod.end_mcp_session, client, endpoint, session_id)
             xrefs = _fetch_mcp_tool_raw(
                 client,
                 endpoint,

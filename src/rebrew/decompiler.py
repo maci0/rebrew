@@ -482,8 +482,9 @@ def fetch_ghidra(
         program_path = f"/{binary.name}"
 
     try:
-        with httpx.Client(timeout=_MCP_TIMEOUT_S) as client:
+        with httpx.Client(timeout=_MCP_TIMEOUT_S) as client, contextlib.ExitStack() as cleanup:
             session_id = _init_session(client, endpoint)
+            cleanup.callback(_sync_mod.end_mcp_session, client, endpoint, session_id)
             result = _fetch_raw(
                 client,
                 endpoint,

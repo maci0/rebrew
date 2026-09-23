@@ -1598,3 +1598,30 @@ class TestHostValidation:
         assert "\x1b" not in stderr
         assert "/api/targets\\x1b" in stderr
         assert "secrets\\x1b" in stderr
+
+
+class TestKeepAliveTimeout:
+    """Idle keep-alive clients must not pin a handler thread forever."""
+
+    def test_idle_connection_is_closed_by_server(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import socket
+        import threading
+        from http.server import ThreadingHTTPServer
+
+        from rebrew.dashboard import _KEEPALIVE_IDLE_TIMEOUT_S, _Handler
+
+        assert _Handler.timeout == _KEEPALIVE_IDLE_TIMEOUT_S
+        monkeypatch.setattr(_Handler, "timeout", 0.2)
+        server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
+        server.daemon_threads = True
+        serve = threading.Thread(target=server.serve_forever, daemon=True)
+        serve.start()
+        try:
+            with socket.create_connection(server.server_address[:2], timeout=5) as client:
+                # Send nothing: the server must hang up once its idle timeout
+                # fires, well before the client's own 5s guard.
+                assert client.recv(1) == b""
+        finally:
+            server.shutdown()
+            server.server_close()
+            serve.join(timeout=5)

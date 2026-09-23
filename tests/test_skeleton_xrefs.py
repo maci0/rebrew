@@ -19,6 +19,9 @@ class _DummyClient:
     def __exit__(self, exc_type, exc, tb) -> None:
         return None
 
+    def delete(self, *_a: object, **_k: object) -> None:
+        return None
+
 
 def _make_import_mock(sync_mod: object) -> object:
     """Return an import_module replacement that returns sync_mod for rebrew.ghidra.client."""
