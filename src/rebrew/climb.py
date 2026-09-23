@@ -57,7 +57,7 @@ from rebrew.utils import atomic_write_text, read_source_text
 console = Console(stderr=True)
 
 app = typer.Typer(
-    help="Deterministic single-statement hill-climb for one function", rich_markup_mode="rich"
+    help="Deterministic single-statement hill-climb for one function.", rich_markup_mode="rich"
 )
 
 # ---------------------------------------------------------------------------

@@ -50,7 +50,6 @@ _TOOLCHAIN_DOWNLOAD_HOST_SUFFIXES = frozenset(
 app = typer.Typer(
     help="Standardized toolchain management (Windows/DOS profiles run in docker).",
     rich_markup_mode="rich",
-    no_args_is_help=True,
 )
 
 

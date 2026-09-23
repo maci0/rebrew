@@ -23,6 +23,7 @@ import json
 import os
 import stat
 import sys
+import warnings
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, NoReturn
@@ -32,7 +33,7 @@ from rich.console import Console
 from rich.markup import escape
 
 from rebrew.annotation import Annotation, parse_c_file_multi
-from rebrew.config import ProjectConfig, load_config
+from rebrew.config import ConfigWarning, ProjectConfig, load_config
 from rebrew.sources import iter_sources, target_marker
 from rebrew.utils import parse_int_literal
 from rebrew.workspace.status import MATCHED_STATUSES
@@ -288,7 +289,10 @@ def run_cli(app: Callable[[], Any]) -> None:
     - an uncaught ``ValueError`` / ``OSError`` / ``KeyError`` / ``RuntimeError``:
       one-line error (JSON envelope under ``--json``) and ``EXIT_ERROR``
     - Ctrl+C: ``EXIT_INTERRUPTED``
+    - ``ConfigWarning`` stays out of Python's warning display: ``_config_warn``
+      already printed it to stderr
     """
+    warnings.simplefilter("ignore", ConfigWarning)
     stdout_was_fifo = _stdout_is_fifo()
     try:
         try:

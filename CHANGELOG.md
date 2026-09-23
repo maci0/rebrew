@@ -417,6 +417,14 @@
   in emission order.
 
 ### Fixed
+- **Config warnings print once.**  Every config warning (e.g. `target
+  binary not found`) reached stderr twice: the `warning:` line and again
+  through Python's `UserWarning` display with a source excerpt.  They now
+  raise `rebrew.config.ConfigWarning` (a `UserWarning` subclass), which
+  the CLI entry point hides from the warning display.
+- **`rebrew binsync` and `rebrew toolchain` without a subcommand** printed
+  their help to stdout and exited 2.  They now report `Missing command.`
+  on stderr with exit 2, like every other command group.
 - **`rebrew test --all` no longer caches PROVEN.**  The batch patched the
   verify cache from results after the PROVEN overlay, so a function whose
   bytes compiled NEAR_MATCHING was cached as a passing PROVEN, and a later

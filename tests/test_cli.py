@@ -1,6 +1,7 @@
 """Tests for the shared CLI helpers in rebrew.cli."""
 
 import json
+import warnings
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -14,8 +15,10 @@ from rebrew.cli import (
     parse_va,
     require_config,
     resolve_source_arg,
+    run_cli,
     select_annotation,
 )
+from rebrew.config import _config_warn
 
 # ---------------------------------------------------------------------------
 # error_exit()
@@ -51,6 +54,17 @@ class TestErrorExit:
         captured = capsys.readouterr()
         data = json.loads(captured.out)
         assert data == {"error": "nope", "code": 3}
+
+
+class TestRunCliConfigWarning:
+    def test_config_warning_printed_once(self, capsys: pytest.CaptureFixture[str]) -> None:
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            run_cli(lambda: _config_warn("target binary not found"))
+        assert caught == []
+        captured = capsys.readouterr()
+        assert captured.err.count("target binary not found") == 1
+        assert captured.out == ""
 
 
 # ---------------------------------------------------------------------------

@@ -131,3 +131,23 @@ class TestEntryPointDocstrings:
             if doc != CANONICAL_MAIN_ENTRY_DOC:
                 bad.append((comp.name, doc))
         assert not bad, f"main_entry docstring must be exactly {CANONICAL_MAIN_ENTRY_DOC!r}: {bad}"
+
+
+class TestGroupWithoutSubcommand:
+    def test_group_without_subcommand_is_usage_error_on_stderr(self) -> None:
+        """A bare group invocation exits 2 with nothing on stdout, like any usage error."""
+        from typer.testing import CliRunner
+
+        from rebrew.main import app as umbrella
+
+        bad = []
+        for comp in BUILTIN_COMPONENTS:
+            if not comp.is_group:
+                continue
+            app = getattr(importlib.import_module(comp.module), "app", None)
+            if app is None or app.registered_callback is not None:
+                continue  # a group callback may run a default action
+            result = CliRunner().invoke(umbrella, [comp.name])
+            if result.exit_code != 2 or result.stdout:
+                bad.append((comp.name, result.exit_code, result.stdout[:80]))
+        assert not bad, f"bare group must exit 2 with empty stdout: {bad}"

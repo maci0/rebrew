@@ -60,7 +60,6 @@ _PULL_COUNTS: tuple[str, ...] = (
 app = typer.Typer(
     help="BinSync state sync: push/pull/summary plus the flat commands.",
     rich_markup_mode="rich",
-    no_args_is_help=True,
 )
 
 

@@ -38,11 +38,19 @@ from rebrew.utils import config_path, load_tomllib, parse_int_literal
 from rebrew.workspace import walk_up_to_root
 
 
+class ConfigWarning(UserWarning):
+    """Config problem already printed to stderr by :func:`_config_warn`.
+
+    :func:`rebrew.cli.run_cli` ignores this category so a CLI run shows each
+    warning once, not a second time through Python's warning display.
+    """
+
+
 def _config_warn(msg: str) -> None:
-    """Emit a UserWarning and print a user-facing config warning to stderr."""
+    """Emit a ConfigWarning and print a user-facing config warning to stderr."""
     import warnings
 
-    warnings.warn(msg, UserWarning, stacklevel=2)
+    warnings.warn(msg, ConfigWarning, stacklevel=2)
     try:
         from rich.console import Console
 
