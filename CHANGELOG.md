@@ -648,6 +648,10 @@
   in emission order.
 
 ### Fixed
+- **`make build` no longer ships stale `build/lib` files.**  It removed
+  `build/` and the egg-info only after a successful build, so residue from
+  an aborted build or a bare `uv build` (e.g. a since-deleted module) went
+  into the next wheel.  The recipe now cleans them before building too.
 - **A malformed `REBREW_WINE_HEADLESS` raises `ConfigError`.**  It raised a
   bare `ValueError`, which escaped an `except RebrewError` handler despite
   `RebrewError` being documented as the base of every rebrew error.

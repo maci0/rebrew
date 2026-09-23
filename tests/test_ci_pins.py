@@ -262,6 +262,11 @@ class TestCiPins:
         text = MAKEFILE.read_text(encoding="utf-8")
         assert "dist/rebrew.buildinfo" in text
         assert "rm -rf build rebrew.egg-info" in text
+        # Clean before building too: setuptools packs leftover build/lib files
+        # into the wheel.
+        assert text.index("rm -rf build rebrew.egg-info") < text.index(
+            "uv build --build-constraints"
+        )
         # setuptools pin must be read from pyproject.toml, not hardcoded —
         # otherwise bumping build-system.requires leaves a lying buildinfo.
         assert "setuptools=80.10.2" not in text

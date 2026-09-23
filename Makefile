@@ -183,7 +183,9 @@ cli-contract:
 # Build sdist + wheel under a pinned umask/locale/timezone for deterministic
 # wheels (setuptools copies the umask-filtered file modes into wheel entries).
 # Drop prior package artifacts so a bumped version cannot leave multiple
-# wheels/sdists in dist/ (CI's package job expects exactly one of each).
+# wheels/sdists in dist/ (CI's package job expects exactly one of each), and
+# drop build/ + egg-info first: setuptools packs every file left in build/lib
+# into the wheel, so residue from an aborted or bare `uv build` would ship.
 # After the build, remove setuptools' in-tree egg-info / build/ residue and
 # record a buildinfo manifest (toolchain, SOURCE_DATE_EPOCH, source commit) next to the
 # artifacts so a rebuild can be attempted with the same environment knobs.
@@ -195,6 +197,7 @@ cli-contract:
 build: ensure-uv
 	@mkdir -p dist
 	@rm -f dist/*.whl dist/*.tar.gz dist/*.buildinfo
+	@rm -rf build rebrew.egg-info
 	@set -eu; \
 	st=$$(sed -n 's/^requires = \["setuptools==\([0-9.][0-9.]*\)"\]/\1/p' pyproject.toml | head -1); \
 	if [ -z "$$st" ] || ! grep -q "^setuptools==$$st " build-constraints.txt; then \
