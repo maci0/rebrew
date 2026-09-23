@@ -991,6 +991,8 @@ _INDEX_HTML = """<!doctype html>
   button.card { font: inherit; color: inherit; text-align: left; cursor: pointer; }
   button.card:hover { border-color: #444; }
   button.card.active { border-color: #005fcc; border-width: 2px; box-shadow: 0 0 0 2px rgba(0,95,204,.25); }
+  /* Weight marks the selected card and tab without relying on border colour (WCAG 1.4.1). */
+  button.card.active .label, .views button.active { font-weight: 700; }
   .card .value { font-size: 1.4rem; font-weight: 700; display: block; }
   .card .label { color: #444; }
   .table-scroll { overflow-x: auto; position: relative; }

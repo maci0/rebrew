@@ -635,6 +635,9 @@
   in emission order.
 
 ### Fixed
+- **`rebrew dashboard` marks the selected tab and status card without
+  colour.**  They differed from their siblings mainly by a blue border
+  (WCAG 1.4.1); the selected tab and the pressed card's label are now bold.
 - **`cross-import --shared` promotes across filesystems.**  Moving a source
   into `shared_dir` used a plain rename, which fails with `EXDEV` when
   `shared_dir` is on a different mount than the target's source tree.  The
