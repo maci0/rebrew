@@ -393,12 +393,9 @@ class BinaryMatchingGA:
         self.compile_cache = compile_cache
         self.extra_seeds = extra_seeds or []
 
-        # Process-local fitness memo keyed by source hash.  The disk-backed
-        # BuildCache stores BuildResult objects WITHOUT the fitness field
-        # (it is populated after scoring, and put() already ran in
-        # _compile_source), so a cache.get() always returns a fresh
-        # unpickled object whose getattr(res, "fitness", None) is None —
-        # the warm-scoring fast path in _compute_fitness could never fire.
+        # Process-local fitness memo keyed by source hash.  A fresh
+        # BuildResult carries fitness=None (it is populated after scoring),
+        # so the warm-scoring path in _compute_fitness needs this memo.
         # Elite sources persist across generations unchanged, so a dict
         # here (no extra disk write) captures the real win.
         # Guarded: ``num_jobs`` workers read/write this dict and ``self.cache``

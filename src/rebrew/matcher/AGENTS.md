@@ -6,7 +6,7 @@ GA engine for binary-matching decompilation. Compiles C through the docker-backe
 
 | Module | Role |
 |--------|------|
-| `core.py` | Types: `Score`, `BuildResult`, `GACheckpoint`, `StructuralSimilarity`; `BuildCache` (compat only) |
+| `core.py` | Types: `Score`, `BuildResult`, `GACheckpoint`, `StructuralSimilarity` |
 | `compiler.py` | `build_candidate_obj_only` (default timeout 60s), `build_candidate` (120s), `flag_sweep`, `generate_flag_combinations` |
 | `scoring.py` | `score_candidate`, `diff_functions`, `structural_similarity` (pure) |
 | `mutator.py` | `mutate_code` / `ALL_MUTATIONS` (128 packaged ops) + GA helpers |
@@ -19,14 +19,13 @@ Flag axes (`rebrew.flags` / `rebrew.flag_data`) live at the package root so comp
 
 ## Data flow (GA path)
 
-`build_candidate_obj_only` → cache miss → docker compile (60s default) → `parse_obj_symbol_bytes` → `score_candidate` (reloc zero + register mask + numpy/capstone) → `mutate_code` → loop in `match_ga.py`.
+`build_candidate_obj_only` → miss in same-run memo and shared compile cache → docker compile (60s default) → `parse_obj_symbol_bytes` → `score_candidate` (reloc zero + register mask + numpy/capstone) → `mutate_code` → loop in `match_ga.py`.
 
 ## Non-obvious types
 
 - **Score**: lower is better; `byte_score` 0.0 = perfect; `total` is weighted.
 - **BuildResult**: check `ok` before using bytes; reported compiler failures use `ok=False`. Build helpers can still raise during argument parsing, filesystem operations, or backend calls.
 - **StructuralSimilarity**: `exact` / `reloc_only` / `register_only` / `structural`; `flag_sensitive` means flags alone may fix it.
-- **BuildCache**: legacy diskcache type (import/tests only; JSON bytes + ``NoPickleDisk``). GA same-run memo is an in-memory dict; cross-run persistence is the shared compile cache.
 - **GACheckpoint**: JSON resume state; `args_hash` rejects stale checkpoints.
 
 ## Mutations

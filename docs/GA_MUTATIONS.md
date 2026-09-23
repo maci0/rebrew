@@ -47,7 +47,7 @@ Source (.c) ──→ mutate_code(source, rng)
 - **Mutation**: One random mutation per child (35% chance of 2–3 chained mutations); the per-child rate rises 0.05 per generation without a new best, up to +0.25 and never past 0.95
 - **Crossover**: Line-level crossover between two parents
 - **Stagnation**: After half the stagnation budget (20 generations by default) without improvement, a quarter of the population is reseeded from the seed, at most twice per run; the run stops after 40 flat generations
-- **Caching**: Same-run memo is an in-memory dict; cross-run persistence is the shared compile cache (`.rebrew/compile_cache/`). `BuildCache` in `matcher/core.py` is import-compat only
+- **Caching**: Same-run memo is an in-memory dict; cross-run persistence is the shared compile cache (`.rebrew/compile_cache/`).
 
 ---
 

@@ -2652,7 +2652,7 @@ See [CI.md](CI.md) for workspace CI recipes (`verify --compare`,
 | `flags.py` / `flag_data.py` | Package-root flag primitives + axes (shared by compile-cache and matcher) |
 | `matcher/parsers.py` | COFF `.obj` and PE byte extraction (LIEF-based) |
 | `matcher/mutator.py` | 128 C mutation operators for GA |
-| `matcher/core.py` | GA types (`Score`, `BuildResult`, `GACheckpoint`); `BuildCache` kept for import compatibility only (same-run compiles memoize in memory, cross-run persistence lives in the shared compile cache) |
+| `matcher/core.py` | GA types (`Score`, `BuildResult`, `GACheckpoint`) |
 | `solutions.py` | Cross-function solution transfer database (`.rebrew/ga_runs.jsonl` win records) |
 
 ### Source Markers, Metadata & Sync

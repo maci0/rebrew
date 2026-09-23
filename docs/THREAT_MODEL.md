@@ -196,7 +196,7 @@ Concrete blast radius of a dashboard leak: function names, virtual addresses, ma
 | Dashboard default `127.0.0.1` | Accidental LAN exposure | `--host` default in [`dashboard.py`](../src/rebrew/dashboard.py) |
 | List `limit` max 5000 | Unbounded list DoS | `_MAX_LIMIT` in [`dashboard.py`](../src/rebrew/dashboard.py) |
 | Binary size 512 MiB | Trivial memory DoS via huge files | `_MAX_BINARY_SIZE` in [`binary_loader.py`](../src/rebrew/binary_loader.py) |
-| Compile cache `NoPickleDisk` | Pickle-gadget RCE via poisoned diskcache entry (GHSA-w8v5-vhqr-4h9v) on packaged backends | [`NoPickleDisk`](../src/rebrew/compile_cache.py); also [`BuildCache`](../src/rebrew/matcher/core.py) |
+| Compile cache `NoPickleDisk` | Pickle-gadget RCE via poisoned diskcache entry (GHSA-w8v5-vhqr-4h9v) on packaged backends | [`NoPickleDisk`](../src/rebrew/compile_cache.py) |
 | Compile cache dir `0o700` | Cross-user plant of value files / SQLite DB | [`compile_cache.py`](../src/rebrew/compile_cache.py), [`matcher/core.py`](../src/rebrew/matcher/core.py) |
 | Skills copy refuses symlinks | Overlay skill tree escapes project via symlink during `rebrew init` | [`init.py`](../src/rebrew/init.py) regular-file / non-symlink walk |
 | LLM fence sanitize + tree-sitter seed gate + size caps + `REBREW_LLM_MAX_REQUESTS` | Prompt breakout → arbitrary seed text; huge responses; `#include` / multi-def ride-alongs; request amplification | [`llm_seed.py`](../src/rebrew/llm_seed.py) |

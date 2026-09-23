@@ -394,6 +394,11 @@
   (``is_meaningful``, ``normalize_prototype``, ``print_import_result``,
   ``one_line``, ``run_git``). Call sites inside the package already updated.
 
+### Removed
+- **`rebrew.matcher.BuildCache`.**  Nothing in rebrew instantiated it
+  once the GA moved to an in-memory memo plus the shared compile cache;
+  it survived only as an import-compat shim.
+
 ### Fixed
 - **`REBREW_TOOLCHAINS_DIR` has one resolution path.**  `rebrew toolchain
   build`/`vendor`/`update` read the checkout from a `REPO_TOOLS` constant

@@ -31,7 +31,6 @@ _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
     "build_candidate_obj_only": (".compiler", "build_candidate_obj_only"),
     "flag_sweep": (".compiler", "flag_sweep"),
     "generate_flag_combinations": (".compiler", "generate_flag_combinations"),
-    "BuildCache": (".core", "BuildCache"),
     "BuildResult": (".core", "BuildResult"),
     "GACheckpoint": (".core", "GACheckpoint"),
     "Score": (".core", "Score"),
@@ -67,7 +66,6 @@ _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
 }
 
 __all__ = [
-    "BuildCache",
     "GACheckpoint",
     "BuildResult",
     "Checkbox",
