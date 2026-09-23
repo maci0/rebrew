@@ -866,15 +866,15 @@ class TestPluginToolchainConfig:
         assert cfg.posix_style is True
         assert cfg.base_cflags == ""
 
-    def test_plugin_profile_without_overlay_falls_back(
+    def test_plugin_profile_without_overlay_is_error(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.config import load_config
+        from rebrew.config import ConfigError, load_config
 
         monkeypatch.delenv("REBREW_TOOLCHAIN_OVERLAY_DIR", raising=False)
         root = self._project(tmp_path, "not-a-real-toolchain")
-        cfg = load_config(root=root)
-        assert cfg.compiler_profile == "msvc-6.0"  # unknown → historic fallback
+        with pytest.raises(ConfigError, match=r"unknown profile 'not-a-real-toolchain'"):
+            load_config(root=root)
 
 
 class TestBinaryDetectorRegistry:
@@ -1342,24 +1342,20 @@ class TestRealEntryPointMetadata:
         assert "demo-cmd" in [c.name for c in fresh.registered_commands]
 
 
-class TestUnknownProfileFallback:
-    """A retired or unknown profile name warns and falls back to msvc-6.0."""
+class TestUnknownProfile:
+    """A retired or unknown profile name is a config error, not msvc-6.0."""
 
-    def test_unknown_profile_still_falls_back(self, tmp_path: Path) -> None:
-        import warnings
-
-        from rebrew.config import load_config
+    def test_retired_alias_is_error(self, tmp_path: Path) -> None:
+        from rebrew.config import ConfigError, load_config
 
         (tmp_path / "rebrew-project.toml").write_text(
             f'[project]\nroot = "{tmp_path}"\ndefault_target = "T"\n'
             f'[targets.T]\nbinary = "{tmp_path}/t.exe"\n'
-            f'[compiler]\nprofile = "not-a-real-toolchain"\n',
+            f'[compiler]\nprofile = "msvc6.3"\n',
             encoding="utf-8",
         )
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            cfg = load_config(root=tmp_path)
-        assert cfg.compiler_profile == "msvc-6.0"
+        with pytest.raises(ConfigError, match=r"unknown profile 'msvc6.3'"):
+            load_config(root=tmp_path)
 
 
 class TestDecompilerAutoProbe:

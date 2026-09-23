@@ -716,7 +716,7 @@ Notes:
   compiler the `archaic-msvc` org carries.
 - **Retired names**: the old `msvc6.3` / `msvc6.6` aliases are gone — the
   registry names are `msvc-6.0-sp3` / `msvc-6.0-sp6`, and a config naming the
-  old aliases is an unknown profile (falls back to msvc-6.0 RTM with a warning).
+  old aliases is an unknown profile and fails to load.
   The `msvc6.3` string still appears in doctor's legacy-path download hints,
   where it names the decomp.me tarball, not a profile.  `msvc-7.0` keeps its
   historical 13.10.3077 compiler (the canonical `7.0-win32` dir), while

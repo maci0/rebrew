@@ -1047,7 +1047,7 @@ arch = "x86_16"
             cfg = load_config(root)
         assert cfg.binary_format == "ne"
 
-    def test_unknown_profile_falls_back_to_msvc_6_0(self, tmp_path: Path) -> None:
+    def test_unknown_profile_is_error(self, tmp_path: Path) -> None:
         toml = """\
 [project]
 default_target = "main"
@@ -1059,9 +1059,21 @@ binary = "test.exe"
 profile = "turbo_c"
 """
         root = _make_project(tmp_path, toml)
-        with pytest.warns(UserWarning, match=r"unknown profile 'turbo_c'"):
-            cfg = load_config(root)
-        assert cfg.compiler_profile == "msvc-6.0"
+        with pytest.raises(ConfigError, match=r"unknown profile 'turbo_c'"):
+            load_config(root)
+
+    def test_unknown_ghidra_backend_is_error(self, tmp_path: Path) -> None:
+        toml = """\
+[project]
+default_target = "main"
+
+[targets.main]
+binary = "test.exe"
+ghidra_backend = "CLI"
+"""
+        root = _make_project(tmp_path, toml)
+        with pytest.raises(ConfigError, match=r"unknown ghidra_backend 'CLI'"):
+            load_config(root)
 
     def test_registered_toolchain_profile_accepted(self, tmp_path: Path) -> None:
         """A registered profile (delphi-1.0) must not be rejected and silently

@@ -70,7 +70,7 @@ libs = "toolchain/msvc/6.0-win32/source/VC98/Lib"
 | `library_modules` | `[targets.<name>].library_modules` | Module names that use `LIBRARY` markers |
 | `source_ext` | `[targets.<name>].source_ext` | Source extension used when discovering and creating files |
 | `ghidra_program_path` | `[targets.<name>].ghidra_program_path` | ReVa MCP program path override |
-| `ghidra_backend` | `[targets.<name>].ghidra_backend` | Ghidra transport: `reva` (MCP, default) or `cli`; an unknown value warns and falls back to `reva` |
+| `ghidra_backend` | `[targets.<name>].ghidra_backend` | Ghidra transport: `reva` (MCP, default) or `cli`; an unknown value is a config error |
 | `binsync_state_dir` | `[targets.<name>].binsync_state_dir` | BinSync state directory (default for `--state-dir`) |
 | `iat_thunks` / `dll_exports` / `ignored_symbols` / `r2_bogus_vas` | `[targets.<name>]` | Project-specific VA lists (`iat_thunks`, `r2_bogus_vas`: VAs with known-bad r2 size data), VA → name export map, and symbol names to ignore |
 | `compiler_profile` | `[compiler].profile` | Selects the toolchain's docker image and flag-sweep axes |
@@ -403,6 +403,9 @@ The config loader fail-fasts on missing/invalid structure:
 - Empty or unregistered `[cache].backend` (must name a `rebrew.cache_backends` member).
 - `format` not one of `pe`, `elf`, `macho`, `ne`, `mz`, or `arch` not a known
   preset (a silent `pe` / `x86_32` substitute would disassemble the binary wrongly).
+- `[compiler] profile` not a registered toolchain (a silent `msvc-6.0` substitute
+  would compile with the wrong toolchain; repair with `rebrew cfg set-compiler`),
+  or `ghidra_backend` not `reva` / `cli`.
 
 It emits warnings (and applies safe defaults) if:
 - Unrecognized keys are found in top-level, project, global compiler, target,
@@ -411,7 +414,6 @@ It emits warnings (and applies safe defaults) if:
   without an endpoint.
 - A legacy `[targets.<name>.cflags_presets]` table is present (wrong place —
   still honoured; move to `[targets.<name>.compiler.cflags_presets]`).
-- `profile` is not a known compiler profile (falls back to `msvc-6.0`).
 - `[project.lint]` enum fields are not in their known set (falls back to `none`).
 - String/bool fields have non-string/non-bool types (e.g. `recompile_emit_assembly = "false"`
   would otherwise become `True` via Python `bool()`).

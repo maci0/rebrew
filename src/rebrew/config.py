@@ -1307,21 +1307,19 @@ def load_config(
             f"(known: {', '.join(sorted(_ARCH_PRESETS))})"
         )
 
-    # Unknown profiles are kept only as a warning elsewhere historically; store
-    # a known default so flag sweeps / doctor report a real profile.  A name is
-    # valid when it is a packaged profile OR a registered toolchain (plugins add
-    # toolchains via rebrew.registry — they must be selectable as a project
-    # default without editing config.py).
+    # A typo'd profile fails too: substituting msvc-6.0 would compile with the
+    # wrong toolchain and let `rebrew test` demote earned STATUS.  A name is
+    # valid when it is a registered toolchain (plugins add toolchains via
+    # rebrew.registry without editing config.py).  `rebrew cfg set-compiler`
+    # edits the TOML without loading it, so a bad profile stays repairable.
     from rebrew.toolchain import TOOLCHAINS
 
-    _known_profiles = set(TOOLCHAINS)
     profile_val = compiler.get("profile", "msvc-6.0")
-    if not isinstance(profile_val, str) or profile_val not in _known_profiles:
-        _config_warn(
+    if not isinstance(profile_val, str) or profile_val not in TOOLCHAINS:
+        raise ConfigError(
             f"rebrew-project.toml [compiler]: unknown profile {profile_val!r} "
-            f"(known: {', '.join(sorted(_known_profiles))}); falling back to msvc-6.0",
+            f"(known: {', '.join(sorted(TOOLCHAINS))})"
         )
-        profile_val = "msvc-6.0"
 
     arch_preset = _ARCH_PRESETS[arch_name]
     bin_rel = tgt.get("binary")
@@ -1402,16 +1400,13 @@ def load_config(
 
     defines = _parse_defines(tgt.get("defines"), f"targets.{target}.defines")
 
-    # ghidra_backend must be one of the known transports; a typo silently
-    # switching to the wrong backend would be confusing, so validate.
-    ghidra_backend_raw = tgt.get("ghidra_backend", "reva")
-    if not isinstance(ghidra_backend_raw, str) or ghidra_backend_raw not in ("reva", "cli"):
-        _config_warn(
+    # A typo'd ghidra_backend fails instead of silently using the other transport.
+    ghidra_backend_val = tgt.get("ghidra_backend", "reva")
+    if not isinstance(ghidra_backend_val, str) or ghidra_backend_val not in ("reva", "cli"):
+        raise ConfigError(
             f"rebrew-project.toml [targets.{target}]: unknown ghidra_backend "
-            f"{ghidra_backend_raw!r} (known: reva, cli); falling back to reva",
+            f"{ghidra_backend_val!r} (known: reva, cli)"
         )
-        ghidra_backend_raw = "reva"
-    ghidra_backend_val = _as_str(ghidra_backend_raw, "reva", f"targets.{target}.ghidra_backend")
 
     cfg = ProjectConfig(
         root=root,

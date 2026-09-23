@@ -738,7 +738,7 @@
         <mxCell id="p-link" value="&lt;b&gt;[link] + [targets.&amp;lt;t&amp;gt;.layout]&lt;/b&gt;&lt;br&gt;file_align · stack_* · tsaware · timestamp&lt;br&gt;layout copy for UI + bss calibration&lt;br&gt;written by gen-layout / calibrate-bss" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fefce8;strokeColor=#ca8a04;fontColor=#713f12;align=left;spacingLeft=8;fontSize=10;" vertex="1" parent="1">
           <mxGeometry x="80" y="356" width="370" height="80" as="geometry"/>
         </mxCell>
-        <mxCell id="p-note" value="Fail-fast: missing [targets], empty binary, unknown format/arch. Unknown keys warn. Unknown profile falls back to msvc-6.0. --target selects among [targets.*]. command/runner keys are retired (ignored)." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff7ed;strokeColor=#ea580c;fontColor=#7c2d12;align=left;spacingLeft=8;fontSize=10;" vertex="1" parent="1">
+        <mxCell id="p-note" value="Fail-fast: missing [targets], empty binary, unknown format/arch/profile/ghidra_backend. Unknown keys warn. --target selects among [targets.*]. command/runner keys are retired (ignored)." style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff7ed;strokeColor=#ea580c;fontColor=#7c2d12;align=left;spacingLeft=8;fontSize=10;" vertex="1" parent="1">
           <mxGeometry x="470" y="356" width="370" height="80" as="geometry"/>
         </mxCell>
 

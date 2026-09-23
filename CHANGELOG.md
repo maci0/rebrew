@@ -183,6 +183,13 @@
   documented integrator surface.
 
 ### Changed
+- **Unknown `[compiler] profile` or `ghidra_backend` fails config load.**
+  A typo'd profile (or a retired alias like `msvc6.3`) used to warn and
+  compile with `msvc-6.0`, so `rebrew test` could demote earned STATUS
+  against the wrong toolchain; a typo'd `ghidra_backend` silently used
+  `reva`.  Both now raise `ConfigError` like an unknown `format`/`arch`.
+  `rebrew cfg set-compiler` edits the TOML without loading it, so the
+  profile stays repairable.
 - **mypy enables `disallow_any_decorated`.**  The one finding, the
   `functools.cache`d LIEF arch maps in `binary_loader`, now carries LIEF enum
   key types instead of `Any`.
