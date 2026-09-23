@@ -13,6 +13,7 @@ convention documented in docs/DEVELOPMENT.md:
 
 from __future__ import annotations
 
+import inspect
 from pathlib import Path
 
 from typer.models import OptionInfo
@@ -54,6 +55,7 @@ class TestConventionEnforced:
         from rebrew import match
 
         captured: dict = {}
+        main_params = inspect.signature(match.main).parameters
 
         def _fake_main(**kwargs) -> None:  # type: ignore[no-untyped-def]
             captured.update(kwargs)
@@ -88,16 +90,11 @@ class TestConventionEnforced:
         from typer.testing import CliRunner
 
         result = CliRunner().invoke(match.app, ["--watch", "/tmp/f.c"])
-        assert result.exit_code in (0, 1), result.output
-        for key in (
-            "flag_sweep_toolchains",
-            "flag_sweep_then_ga",
-            "skip_recent_hours",
-            "mutation_focus",
-            "sweep_toolchains",
-            "sweep_exclude_toolchains",
-        ):
-            assert key in captured, f"_retest did not forward {key} (OptionInfo leak)"
+        assert result.exit_code == 0, result.output
+        missing = set(main_params) - set(captured)
+        assert not missing, f"_retest did not forward {sorted(missing)} (OptionInfo leak)"
+        leaked = sorted(k for k, v in captured.items() if isinstance(v, OptionInfo))
+        assert not leaked, f"_retest forwarded OptionInfo for {leaked}"
         assert captured["flag_sweep_toolchains"] is False
         assert captured["mutation_focus"] is None
         assert captured["sweep_toolchains"] == ""

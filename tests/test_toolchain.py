@@ -207,6 +207,7 @@ class TestImageMsvcEnv:
         6.0-sp3 build had is gone now that the image is rebuilt from its
         Dockerfile.
         """
+        checked: list[str] = []
         for name, spec in TOOLCHAINS.items():
             if not (
                 spec.image and spec.image.startswith("rebrew/msvc:") and spec.runtime == "wine"
@@ -215,6 +216,7 @@ class TestImageMsvcEnv:
             tag = spec.image.split(":", 1)[1]
             if not tag.endswith("-win32"):
                 continue
+            checked.append(name)
             install_root = "/opt/msvc" + tag[: -len("-win32")]
             assert spec.tool_root, f"{name} has no tool_root"
             assert spec.tool_root.startswith(install_root + "/"), (
@@ -225,6 +227,8 @@ class TestImageMsvcEnv:
                 assert spec.tool_root.lower() == f"{install_root.lower()}/vc98/bin", (
                     f"{name}: tool_root {spec.tool_root!r} is not the image's VC98/Bin dir"
                 )
+        # A renamed image tag or runtime must not turn the loop into a no-op.
+        assert "msvc-6.0" in checked, checked
 
     def test_dirs_are_derived_from_tool_root(self) -> None:
         spec = ToolchainSpec(

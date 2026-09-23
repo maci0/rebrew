@@ -54,14 +54,15 @@ class TestDiffFunctionsAsDict:
         code = b"\x55\x8b\xec\x5d\xc3"
         result = diff_functions(code, code, as_dict=True)
         assert result is not None
+        assert result["instructions"]
         for insn in result["instructions"]:
             assert "index" in insn
             assert "match" in insn
-            assert "target" in insn
-            assert "candidate" in insn
-            if insn["target"] is not None:
-                assert "bytes" in insn["target"]
-                assert "disasm" in insn["target"]
+            # Identical inputs: both sides are present on every row.
+            for side in ("target", "candidate"):
+                assert insn[side] is not None
+                assert "bytes" in insn[side]
+                assert "disasm" in insn[side]
 
     def test_returns_none_when_not_as_dict(self) -> None:
         """Without as_dict, diff_functions prints and returns None."""

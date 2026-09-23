@@ -758,13 +758,11 @@ class TestCrossover:
 class TestCommuteMutations:
     def test_commute_add(self) -> None:
         result = mut_commute_add_general("x = a + b;", _rng())
-        assert result is not None
-        assert "b + a" in result
+        assert result == "x = b + a;"
 
     def test_commute_mul(self) -> None:
         result = mut_commute_mul_general("x = a * b;", _rng())
-        assert result is not None
-        assert "b * a" in result
+        assert result == "x = b * a;"
 
     def test_no_match_add(self) -> None:
         assert mut_commute_add_general("x = a;", _rng()) is None
@@ -776,18 +774,15 @@ class TestCommuteMutations:
 class TestFlipMutations:
     def test_flip_eq_zero(self) -> None:
         result = mut_flip_eq_zero("if (x == 0)", _rng())
-        assert result is not None
-        assert "!x" in result
+        assert result == "if (!x)"
 
     def test_flip_ne_zero(self) -> None:
         result = mut_flip_eq_zero("if (x != 0)", _rng())
-        assert result is not None
-        assert "!!x" in result
+        assert result == "if (!!x)"
 
     def test_flip_lt_ge(self) -> None:
         result = mut_flip_lt_ge("if (x < y)", _rng())
-        assert result is not None
-        assert ">=" in result
+        assert result == "if (!(x >= y))"
 
     def test_no_match(self) -> None:
         assert mut_flip_eq_zero("nothing to flip", _rng()) is None
@@ -796,13 +791,11 @@ class TestFlipMutations:
 class TestParenAndReassociate:
     def test_add_parens(self) -> None:
         result = mut_add_redundant_parens("x = a + b;", _rng())
-        assert result is not None
-        assert "(" in result
+        assert result in {"(x) = a + b;", "x = (a) + b;", "x = a + (b);"}
 
     def test_reassociate(self) -> None:
         result = mut_reassociate_add("x = (a + b) + c;", _rng())
-        assert result is not None
-        assert "(b + c)" in result
+        assert result == "x = a + (b + c);"
 
 
 class TestNoopBlock:
@@ -816,35 +809,27 @@ class TestNoopBlock:
 class TestBoolToggle:
     def test_toggle(self) -> None:
         result = mut_toggle_bool_not("if (!!condition)", _rng())
-        assert result is not None
-        assert "condition" in result
-        assert "!!" not in result
+        assert result == "if (condition)"
 
 
 class TestSwapOperands:
     def test_swap_eq(self) -> None:
         result = mut_swap_eq_operands("if (a == b)", _rng())
-        assert result is not None
-        assert "b == a" in result
+        assert result == "if (b == a)"
 
     def test_swap_ne(self) -> None:
         result = mut_swap_ne_operands("if (a != b)", _rng())
-        assert result is not None
-        assert "b != a" in result
+        assert result == "if (b != a)"
 
 
 class TestSwapLogical:
     def test_swap_or(self) -> None:
         result = mut_swap_or_operands("x = a || b;", _rng())
-        assert result is not None
-        assert "||" in result
-        assert result != "x = a || b;"
+        assert result == "x = b || a;"
 
     def test_swap_and(self) -> None:
         result = mut_swap_and_operands("x = a && b;", _rng())
-        assert result is not None
-        assert "&&" in result
-        assert result != "x = a && b;"
+        assert result == "x = b && a;"
 
     def test_no_or(self) -> None:
         assert mut_swap_or_operands("no logical ops", _rng()) is None
@@ -864,7 +849,9 @@ class TestReturnGoto:
         src = "int f() {\n  goto ret_false;\nret_false:\n  return FALSE;\n}"
         result = mut_goto_to_return(src, _rng())
         assert result is not None
-        assert "return" in result
+        assert "goto" not in result
+        assert "ret_false:" not in result
+        assert "return 0;" in result
 
     def test_goto_to_return_crlf(self) -> None:
         """Label+newline strip must match CRLF or the label line is left behind."""
@@ -900,17 +887,14 @@ class TestReorderDeclarations:
     def test_reorder(self) -> None:
         src = "int f() {\n  int a;\n  int b;\n  a = 1;\n  b = 2;\n  return a + b;\n}"
         result = mut_reorder_declarations(src, _rng())
-        assert result is not None
-        assert "int a" in result and "int b" in result
+        assert result == "int f() {\n  int b;\n  int a;\n  a = 1;\n  b = 2;\n  return a + b;\n}"
 
 
 class TestSwapIfElse:
     def test_basic(self) -> None:
         src = "if (x > 0) {\n  a = 1;\n} else {\n  a = 2;\n}"
         result = mut_swap_if_else(src, _rng())
-        assert result is not None
-        assert "if" in result
-        assert result != src
+        assert result == "if (!(x > 0)) {\n  a = 2;\n} else {\n  a = 1;\n}"
 
 
 class TestCastMutations:
@@ -973,7 +957,8 @@ class TestTempVar:
         src = "int f() {\n  tmp = expr;\n  var = tmp;\n}"
         result = mut_remove_temp_var(src, _rng())
         assert result is not None
-        assert "var" in result
+        assert "var = expr;" in result
+        assert "tmp" not in result
 
 
 class TestSignedness:
