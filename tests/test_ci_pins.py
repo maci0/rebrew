@@ -96,16 +96,22 @@ class TestCiPins:
 
     def test_hermetic_jobs_pin_exact_python_patch(self) -> None:
         """Every job but the test matrix takes the action's default, which is
-        the exact ``.python-version`` patch.  The matrix may float on the
-        3.13/3.14 minors for compatibility coverage.
+        the exact ``.python-version`` patch.  The matrix's 3.13 entry (which
+        runs the coverage gate) pins that same patch; only 3.14 floats on its
+        minor for forward-compat coverage.
         """
         python_version = (ROOT / ".python-version").read_text(encoding="utf-8").strip()
         assert re.fullmatch(r"3\.13\.\d+", python_version), python_version
         assert _uv_env_defaults()["python-version"] == python_version
         # Only the test matrix may override it, and only with the matrix value
         # (the first hit is the matrix declaration itself).
-        overrides = re.findall(r"(?m)^\s+python-version: (.+)$", CI_YML.read_text(encoding="utf-8"))
-        assert overrides == ['["3.13", "3.14"]', "${{ matrix.python-version }}"], overrides
+        ci = CI_YML.read_text(encoding="utf-8")
+        overrides = re.findall(r"(?m)^\s+python-version: (.+)$", ci)
+        assert overrides == [f'["{python_version}", "3.14"]', "${{ matrix.python-version }}"], (
+            overrides
+        )
+        assert f"matrix.python-version == '{python_version}'" in ci
+        assert f"matrix.python-version != '{python_version}'" in ci
         assert "python-version:" not in SYNC_YML.read_text(encoding="utf-8")
 
     def test_every_job_uses_the_shared_setup_action(self) -> None:

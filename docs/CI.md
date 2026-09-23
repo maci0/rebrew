@@ -29,8 +29,9 @@ one `uv-version` / `python-version` / `resembl-ref` pin set both workflows
 share (commit-SHA-pinned `setup-uv` / `checkout` Actions; Dependabot scans the
 action's directory as well as `.github/workflows/`).
 Lint, pre-commit, package, cli-contract, and toolchain-sync pin the exact
-Python patch from `.python-version`; the test matrix covers the 3.13/3.14
-minors for compatibility. Jobs run on pinned `ubuntu-24.04` (not
+Python patch from `.python-version`; the test matrix pins that patch for its
+3.13 entry (the coverage gate) and floats on the 3.14 minor for forward-compat
+coverage. Jobs run on pinned `ubuntu-24.04` (not
 `ubuntu-latest`). Workflow `permissions` are `contents: read` only:
 `setup-uv`'s `enable-cache` saves through the runner's cache token, not
 `GITHUB_TOKEN`. It does **not**

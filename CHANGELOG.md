@@ -179,6 +179,11 @@
   documented integrator surface.
 
 ### Changed
+- **CI's 3.13 test entry pins the `.python-version` patch.**  The matrix
+  said `"3.13"`, so the coverage gate ran on whatever 3.13.x setup-uv
+  resolved rather than 3.13.15.  It now pins `3.13.15`
+  (`tests/test_ci_pins.py` holds it to `.python-version`); 3.14 still
+  floats on its minor for forward-compat coverage.
 - **One Rich print for a whole lint run; `toolchain_detect` leaves CLI
   activation.**  `LintResult.display` now yields its lines
   (`_display_lines`) and the batch loop emits every file's diagnostics

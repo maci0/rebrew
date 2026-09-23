@@ -74,7 +74,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.13", "3.14"]
+        # 3.13 entry = exact .python-version patch (it runs the coverage gate);
+        # 3.14 floats on its minor for forward-compat coverage.
+        python-version: ["3.13.15", "3.14"]
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -111,12 +113,12 @@ jobs:
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends nasm
           nasm -v
       - name: Run tests
-        if: matrix.python-version != '3.13'
+        if: matrix.python-version != '3.13.15'
         run: make test
       - name: Run tests under the coverage floor
         # Same suite as `make test`, plus the COV_FLOOR fail-under gate
         # (AGENTS.md: coverage ratchets). One matrix entry is enough.
-        if: matrix.python-version == '3.13'
+        if: matrix.python-version == '3.13.15'
         run: make coverage
       - name: Fixture freshness (checked-in fixtures match the generator)
         run: make gen-fixtures-check
