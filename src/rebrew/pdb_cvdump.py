@@ -26,6 +26,7 @@ import re
 import shutil
 import signal
 import subprocess
+import threading
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -45,6 +46,9 @@ _CVDUMP_FLAGS: dict[str, str] = {
 
 #: Upper bound for ``winepath``; a first run may initialise a wine prefix.
 _WINEPATH_TIMEOUT_S = 120
+
+#: Upper bound for one cvdump run; a wedged wine must fail, not hang the caller.
+_CVDUMP_TIMEOUT_S = 600
 
 
 def cvdump_exe_path() -> str | None:
@@ -265,6 +269,16 @@ class Cvdump:
             # Own session so an abort can kill wine's children with the loader.
             start_new_session=True,
         )
+        timed_out = threading.Event()
+
+        def _expire() -> None:
+            timed_out.set()
+            with contextlib.suppress(ProcessLookupError):
+                os.killpg(proc.pid, signal.SIGKILL)
+
+        watchdog = threading.Timer(_CVDUMP_TIMEOUT_S, _expire)
+        watchdog.daemon = True
+        watchdog.start()
         assert proc.stdout is not None
         # cvdump prints PDB names as raw ANSI bytes (cp1252/Shift-JIS paths).
         # surrogateescape keeps each byte, so two paths differing only in
@@ -275,6 +289,7 @@ class Cvdump:
                 parser.read_section(name, section)
             returncode = proc.wait()
         finally:
+            watchdog.cancel()
             # An abort mid-parse must not leave the cvdump/wine child running
             # or hold the stdout pipe: kill and reap it, then drop the wrap.
             if proc.poll() is None:
@@ -284,6 +299,8 @@ class Cvdump:
             wrap.close()
         # A failed dump (missing wine, unreadable PDB) yields no sections;
         # returning that empty parse would read as "PDB has no symbols".
+        if timed_out.is_set():
+            raise RuntimeError(f"cvdump timed out after {_CVDUMP_TIMEOUT_S}s reading {self._pdb}")
         if returncode != 0:
             raise RuntimeError(f"cvdump exited with status {returncode} reading {self._pdb}")
         return parser

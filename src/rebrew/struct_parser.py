@@ -4,12 +4,15 @@ Walks the AST of a C file and yields raw text of any ``typedef struct { ... }``
 or standalone ``struct { ... };`` definitions.
 """
 
+import logging
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
 from rebrew.c_parser import get_ts_parser
 from rebrew.utils import detect_source_encoding
+
+logger = logging.getLogger(__name__)
 
 
 def _iter_definitions(
@@ -31,7 +34,8 @@ def _iter_definitions(
 
     try:
         code_bytes = filepath.read_bytes()
-    except OSError:
+    except OSError as exc:
+        logger.warning("cannot read %s for type definitions: %s", filepath, exc)
         return
 
     encoding = detect_source_encoding(code_bytes)
@@ -65,7 +69,8 @@ def extract_structs_from_file(filepath: Path) -> Iterator[str]:
     """Parse a C file and yield struct/typedef-struct definitions with bodies.
 
     Does not include standalone typedefs (use ``extract_type_definitions`` for those).
-    Returns empty if tree-sitter is unavailable or file unreadable.
+    Returns empty if tree-sitter is unavailable or the file is unreadable
+    (logged as a warning).
     """
     yield from _iter_definitions(filepath, keyword=b"struct")
 
@@ -87,6 +92,7 @@ def extract_enums_from_file(filepath: Path) -> Iterator[str]:
         enum Color { RED, GREEN, BLUE };
         typedef enum { UP, DOWN } Direction;
 
-    Returns empty if tree-sitter is unavailable or the file is unreadable.
+    Returns empty if tree-sitter is unavailable or the file is unreadable
+    (logged as a warning).
     """
     yield from _iter_definitions(filepath, keyword=b"enum")

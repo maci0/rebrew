@@ -874,6 +874,30 @@ class TestBinaryHashAndSharedTypes:
         assert result.exit_code == 0, result.output
         assert (outdir / "structs" / "Point.toml").exists()
 
+    def test_failing_header_does_not_drop_later_structs(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import rebrew.binsync.export as export_mod
+
+        _make_project(tmp_path, {"foo.c": self._FOO})
+        src = tmp_path / "src"
+        (src / "a_bad.h").write_text("typedef struct {\n    int b;\n} Bad;\n", encoding="utf-8")
+        (src / "point.h").write_text(
+            "typedef struct {\n    int x;\n    int y;\n} Point;\n", encoding="utf-8"
+        )
+        real_parse = export_mod._parse_struct_fields
+
+        def _parse(text: str) -> list[dict[str, Any]]:
+            if "Bad" in text:
+                raise ValueError("boom")
+            return real_parse(text)
+
+        monkeypatch.setattr(export_mod, "_parse_struct_fields", _parse)
+        result, outdir = _invoke(tmp_path, monkeypatch)
+        assert result.exit_code == 0, result.output
+        assert (outdir / "structs" / "Point.toml").exists()
+        assert not (outdir / "structs" / "Bad.toml").exists()
+
 
 class TestBinsyncEnumsAndTypedefs:
     _FOO = "// FUNCTION: SERVER 0x10001000\n// STATUS: EXACT\n// SIZE: 4\nint foo() { return 1; }\n"

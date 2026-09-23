@@ -376,6 +376,15 @@ class TestCvdumpRunLifecycle:
             assert time.monotonic() < deadline, "grandchild survived the abort"
             time.sleep(0.05)
 
+    def test_hung_child_times_out(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A wedged wine must fail the run, not hang the caller."""
+        from rebrew import pdb_cvdump as pv
+
+        monkeypatch.setattr(pv.Cvdump, "cmd_line", lambda self: ["sh", "-c", "sleep 60"])
+        monkeypatch.setattr(pv, "_CVDUMP_TIMEOUT_S", 0.2)
+        with pytest.raises(RuntimeError, match="timed out after 0.2s reading x.pdb"):
+            pv.Cvdump("x.pdb").publics().run()
+
     def test_clean_run_returns_without_killing(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from rebrew import pdb_cvdump as pv
 

@@ -451,58 +451,34 @@ def _parse_struct_fields(typedef_text: str) -> list[dict[str, Any]]:
     return out
 
 
+def _struct_name(typedef_text: str) -> str:
+    """Struct name: the typedef alias before ``;``, else the ``struct Name {`` tag."""
+    name_match = re.search(r"\}\s*([A-Za-z_][A-Za-z0-9_]*)\s*;", typedef_text)
+    if name_match:
+        return name_match.group(1)
+    sm = re.search(r"struct\s+([A-Za-z_][A-Za-z0-9_]*)\s*\{", typedef_text)
+    return sm.group(1) if sm else ""
+
+
 def _collect_struct_definitions(cfg: ProjectConfig) -> dict[str, tuple[str, list[dict[str, Any]]]]:
     """Collect struct definitions from ``reversed_dir`` headers and sources.
 
     Returns ``{struct_name: (raw_typedef_text, fields)}``.  Prefers the
     header definition when a name appears in both.
     """
-    result: dict[str, tuple[str, list[dict[str, Any]]]] = {}
-    try:
-        from rebrew.sources import iter_sources as _iter_sources
-        from rebrew.struct_parser import (
-            extract_structs_from_file,
-        )
+    from rebrew.struct_parser import extract_structs_from_file
 
-        reversed_dir = getattr(cfg, "reversed_dir", None)
-        if reversed_dir is None:
-            return result
-        rd = Path(reversed_dir)
-        # Headers first (preferred): target-local ones, then the project-shared
-        # tree (``cfg.shared_dir``) every target compiles against.  A name
-        # declared in both keeps the target-local definition.
-        header_files = sorted(rd.rglob("*.h"))
-        shared_dir = getattr(cfg, "shared_dir", None)
-        if shared_dir is not None:
-            header_files += sorted(Path(shared_dir).rglob("*.h"))
-        for hfile in header_files:
-            for typedef_text in extract_structs_from_file(hfile):
-                # Derive struct name from the typedef: last identifier before ;
-                name_match = re.search(r"\}\s*([A-Za-z_][A-Za-z0-9_]*)\s*;", typedef_text)
-                name = name_match.group(1) if name_match else ""
-                # Also try "struct Name {"
-                if not name:
-                    sm = re.search(r"struct\s+([A-Za-z_][A-Za-z0-9_]*)\s*\{", typedef_text)
-                    name = sm.group(1) if sm else ""
-                if not name:
-                    continue
-                if name not in result:
-                    fields = _parse_struct_fields(typedef_text)
-                    result[name] = (typedef_text.strip(), fields)
-        # Then sources (if header didn't already provide it)
-        for cfile in _iter_sources(rd, cfg):
-            for typedef_text in extract_structs_from_file(cfile):
-                name_match = re.search(r"\}\s*([A-Za-z_][A-Za-z0-9_]*)\s*;", typedef_text)
-                name = name_match.group(1) if name_match else ""
-                if not name:
-                    sm = re.search(r"struct\s+([A-Za-z_][A-Za-z0-9_]*)\s*\{", typedef_text)
-                    name = sm.group(1) if sm else ""
+    result: dict[str, tuple[str, list[dict[str, Any]]]] = {}
+    for path in _iter_definition_files(cfg):
+        try:
+            for typedef_text in extract_structs_from_file(path):
+                name = _struct_name(typedef_text)
                 if not name or name in result:
                     continue
-                fields = _parse_struct_fields(typedef_text)
-                result[name] = (typedef_text.strip(), fields)
-    except Exception:
-        logger.debug("struct collection failed", exc_info=True)
+                result[name] = (typedef_text.strip(), _parse_struct_fields(typedef_text))
+        except Exception:
+            # One malformed file must not drop every later definition from the export.
+            logger.warning("struct collection failed for %s; skipped", path, exc_info=True)
     return result
 
 
@@ -560,6 +536,9 @@ def _iter_definition_files(cfg: ProjectConfig) -> list[Path]:
 
         return header_files + list(iter_sources(rd, cfg))
     except OSError:
+        logger.warning(
+            "cannot list sources under %s; exporting header types only", rd, exc_info=True
+        )
         return header_files
 
 
@@ -625,11 +604,11 @@ def _enum_members(definition: str) -> dict[str, int]:
 
 def _collect_enum_definitions(cfg: ProjectConfig) -> dict[str, tuple[str, dict[str, int]]]:
     """Collect ``{enum_name: (raw_definition, {member: value})}``."""
-    result: dict[str, tuple[str, dict[str, int]]] = {}
-    try:
-        from rebrew.struct_parser import extract_enums_from_file
+    from rebrew.struct_parser import extract_enums_from_file
 
-        for path in _iter_definition_files(cfg):
+    result: dict[str, tuple[str, dict[str, int]]] = {}
+    for path in _iter_definition_files(cfg):
+        try:
             for text in extract_enums_from_file(path):
                 name = _enum_name(text)
                 if not name or name in result:
@@ -638,8 +617,8 @@ def _collect_enum_definitions(cfg: ProjectConfig) -> dict[str, tuple[str, dict[s
                 if not members:
                     continue
                 result[name] = (text.strip(), members)
-    except Exception:
-        logger.debug("enum collection failed", exc_info=True)
+        except Exception:
+            logger.warning("enum collection failed for %s; skipped", path, exc_info=True)
     return result
 
 
@@ -662,11 +641,11 @@ def _collect_typedef_definitions(cfg: ProjectConfig) -> dict[str, tuple[str, str
 
     Struct and enum typedefs are excluded (the struct/enum collectors own them).
     """
-    result: dict[str, tuple[str, str]] = {}
-    try:
-        from rebrew.struct_parser import extract_type_definitions
+    from rebrew.struct_parser import extract_type_definitions
 
-        for path in _iter_definition_files(cfg):
+    result: dict[str, tuple[str, str]] = {}
+    for path in _iter_definition_files(cfg):
+        try:
             for text in extract_type_definitions(path):
                 if re.search(r"\b(?:struct|enum)\b", text) or "{" in text:
                     continue
@@ -676,8 +655,8 @@ def _collect_typedef_definitions(cfg: ProjectConfig) -> dict[str, tuple[str, str
                 name, underlying = parsed
                 if name and name not in result:
                     result[name] = (text.strip(), underlying)
-    except Exception:
-        logger.debug("typedef collection failed", exc_info=True)
+        except Exception:
+            logger.warning("typedef collection failed for %s; skipped", path, exc_info=True)
     return result
 
 

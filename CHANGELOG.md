@@ -611,6 +611,15 @@
   in emission order.
 
 ### Fixed
+- **BinSync export no longer drops types after one bad file.**  A failure
+  parsing one header or source aborted struct, enum, and typedef
+  collection for every later file, logged only at debug level, so the
+  export shipped a partial type set.  Each file now fails alone with a
+  warning naming it; an unreadable file and an unlistable source tree
+  are warned about too.
+- **cvdump runs time out.**  A wedged wine under `Cvdump(...).run()`
+  hung the caller forever.  The run is now bounded (600 s): the process
+  group is killed and a `cvdump timed out` error names the PDB.
 - **Plugin native compilers key the matcher cache on binary content.**
   The GA/diff raw-compiler path (image-less plugin toolchains) keyed the
   compile cache on the command string, so a compiler upgraded in place
