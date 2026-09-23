@@ -484,6 +484,63 @@ def _stack_marker(text: str, module: str, va: int, size: int) -> str:
     return "".join(lines[:marker_idx] + [block] + lines[marker_idx:])
 
 
+def _block_marker(block: str) -> tuple[str, int] | None:
+    """``(module, va)`` of a block's first marker line, or ``None``."""
+    from rebrew.annotation import NEW_FUNC_CAPTURE_RE
+
+    for line in block.splitlines():
+        m = NEW_FUNC_CAPTURE_RE.match(line.strip())
+        if m:
+            return str(m.group("module")), int(m.group("va"), 16)
+    return None
+
+
+def stack_marker_on_block(
+    text: str,
+    module: str,
+    va: int,
+    size: int,
+    src_module: str,
+    src_va: int,
+    drop: tuple[str, int] | None = None,
+) -> str | None:
+    """Stack the destination marker directly above the source function's block.
+
+    The unified (``shared_dir``) layout puts every target's sources in ONE tree
+    and often in ONE file: ``src/Develop/Units/vfs/vfs.c`` holds the GOLDTL
+    block *and* the SERVER block for the same function.  Importing there is not
+    a copy — the body is already in the file, so the destination marker must
+    move onto it (ADR-010 one body, one marker per target).  ``_stack_marker``
+    cannot do that: it prepends above the file's FIRST marker, so a source
+    block in the middle of a multi-function file would leave the destination
+    marker on an empty block, and a destination block that already claims *va*
+    elsewhere must be dropped or the file has two claims (lint E013).
+
+    Returns the new text, or ``None`` when no block for *src_module*/*src_va*
+    exists (the caller falls back to the plain stack / reports the conflict).
+    *drop* names an existing block to remove (the superseded destination
+    claim).
+    """
+    from rebrew.annotation import split_annotation_sections
+
+    preamble, blocks = split_annotation_sections(text)
+    eol = "\r\n" if "\r\n" in text else "\n"
+    marker = f"// FUNCTION: {module} 0x{va:x}{eol}// SIZE: {size}{eol}"
+    out: list[str] = []
+    inserted = False
+    for block in blocks:
+        owner = _block_marker(block)
+        if drop is not None and owner == drop:
+            continue  # superseded claim: the marker moves onto the source body
+        if owner == (src_module, src_va) and not inserted:
+            out.append(marker)
+            inserted = True
+        out.append(block)
+    if not inserted:
+        return None
+    return preamble + "".join(out)
+
+
 def promote_to_shared(
     cfg_src: ProjectConfig,
     src_file: str,
@@ -608,8 +665,27 @@ def import_shared_function(
     from rebrew.annotation import parse_c_file_multi
 
     existing = parse_c_file_multi(target_path, target_name=module)
-    if any(e.va == dst_va for e in existing):
-        stacked = text  # idempotent: marker already present
+    src_module = target_marker(cfg_src) or cfg_src.target_name
+    superseded = any(e.va == dst_va for e in existing)
+    # The destination's own claim can live in THIS file — the unified tree's
+    # normal case, where the source body and the destination marker share one
+    # file.  Move the marker onto the source body (dropping the old claim)
+    # instead of the no-op idempotent stack, which would verify the stale body.
+    moved: str | None = None
+    if superseded:
+        moved = stack_marker_on_block(
+            text,
+            module,
+            dst_va,
+            dst_size,
+            src_module,
+            src_va,
+            drop=(module, dst_va),
+        )
+    if moved is not None:
+        stacked = moved
+    elif superseded:
+        stacked = text  # idempotent: marker already on the source block
     else:
         stacked = _stack_marker(text, module, dst_va, dst_size)
 
@@ -621,7 +697,12 @@ def import_shared_function(
             "action": "would-import-shared",
             "status": "",
             "filepath": rel_display_path(target_path, cfg_dst.reversed_dir),
-            "message": f"would supersede {dst_file}" if dst_file else "",
+            "message": (f"would supersede {dst_file}" if dst_file else "")
+            or (
+                f"would move the {module} marker onto the 0x{src_va:x} body (same file)"
+                if moved is not None
+                else ""
+            ),
         }
 
     try:
@@ -796,20 +877,44 @@ def import_function(
     dst_path = Path(cfg_dst.reversed_dir) / dst_file
     rel_dst = str(Path(dst_file))
 
-    # Refuse to clobber: the target file may already belong to a DIFFERENT
-    # destination VA (a same-named source for another function).  The
-    # destination's OWN annotation file (dst_file from the VA's filepath)
-    # always matches dst_va and is overwritten as intended; a name collision
-    # on a file with no annotation for this VA is reported, never silently
-    # deleted.  Checked before the dry-run return so the preview lists it.
+    # Refuse to clobber.  The copy path writes ONE extracted function over
+    # whatever the destination path holds, so it is only safe when that file
+    # holds exactly the destination's own single block and nothing else.  In
+    # the unified tree (``shared_dir``) the destination path is usually the
+    # SOURCE file itself, holding this function's SERVER block plus every
+    # co-resident function: a whole-file write there deletes them all and
+    # duplicates the body (C2084).  Those cases need ``--shared``, which moves
+    # the marker onto the body already in the file.  Checked before the
+    # dry-run return so the preview lists it.
     if dst_path.exists():
         from rebrew.annotation import parse_c_file_multi
 
         existing = parse_c_file_multi(dst_path, target_name=module)
-        # Any annotation on a DIFFERENT VA — not just the first one — makes
-        # the destination file off-limits.
-        conflicting = next((e for e in existing if e.va != dst_va), None)
-        if conflicting is not None:
+        own = [e for e in existing if e.va == dst_va]
+        other = [e for e in existing if e.va != dst_va]
+        src_module = target_marker(cfg_src) or cfg_src.target_name
+        src_in_file = any(
+            e.va == src_va for e in parse_c_file_multi(dst_path, target_name=src_module)
+        )
+        if not own or other or src_in_file:
+            if src_in_file:
+                why = (
+                    f"the source body already lives in {rel_dst} — stacking the "
+                    "destination marker onto it (--shared) is a marker move, not "
+                    "a copy; copying would delete the file's other functions and "
+                    "duplicate this body"
+                )
+            elif other:
+                why = (
+                    f"destination {rel_dst} already annotates VA "
+                    f"0x{other[0].va:x} — remove/rename it or import to a "
+                    "different file"
+                )
+            else:
+                why = (
+                    f"destination {rel_dst} exists without a marker for this VA "
+                    "— copying would overwrite a file this VA does not own"
+                )
             return {
                 "dst_va": f"0x{dst_va:08x}",
                 "src_va": f"0x{src_va:08x}",
@@ -817,11 +922,7 @@ def import_function(
                 "action": "error",
                 "status": "TARGET_CONFLICT",
                 "filepath": rel_dst,
-                "message": (
-                    f"destination {rel_dst} already annotates VA "
-                    f"0x{conflicting.va:x} — remove/rename it or import "
-                    "to a different file"
-                ),
+                "message": why,
             }
 
     if dry_run:

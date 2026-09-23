@@ -1,5 +1,6 @@
 """Tests for rebrew.match — BinaryMatchingGA initialization and population logic."""
 
+import time
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -365,17 +366,14 @@ class TestGAReplay:
         for reverse, warm_cache in ((False, False), (True, False), (False, True), (True, True)):
             ga = _make_ga(tmp_path / f"{reverse}-{warm_cache}", num_jobs=4, num_generations=5)
             ga.population = [f"int f(void) {{ return {i}; }}" for i in range(8)]
-            monkeypatch.setattr(
-                ga,
-                "_compile_source",
-                lambda src: BuildResult(ok=True, obj_bytes=b"\x90", fitness=100.0),
-            )
-            monkeypatch.setattr(
-                "rebrew.match_ga.as_completed",
-                lambda futures, reverse=reverse: iter(
-                    list(futures)[::-1] if reverse else list(futures)
-                ),
-            )
+
+            def _compile(src: str, reverse: bool = reverse) -> BuildResult:
+                # Stagger worker finish times so completion order differs.
+                if reverse:
+                    time.sleep(0.002 * (sum(src.encode()) % 5))
+                return BuildResult(ok=True, obj_bytes=b"\x90", fitness=100.0)
+
+            monkeypatch.setattr(ga, "_compile_source", _compile)
             if warm_cache:
                 ga._fitness_memo[source_digest(ga.population[-1])] = 100.0
 

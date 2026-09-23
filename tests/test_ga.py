@@ -712,6 +712,46 @@ class TestRunAllParallel:
         ga2._write_pair(src, b"\x55\x8c", 3.0)  # different bytes → append
         assert pairs.read_text(encoding="utf-8").count("\n") == 2
 
+    def test_scoring_follows_population_order_not_completion_order(self, tmp_path: Path) -> None:
+        """Parallel compiles finishing out of order must still be scored in
+        population order, so --collect-pairs lines replay under one seed."""
+        import time
+
+        from rebrew.match_ga import BinaryMatchingGA
+        from rebrew.matcher import BuildResult
+
+        ga = BinaryMatchingGA(
+            seed_source="int f(void){return 0;}",
+            target_bytes=b"\x90\x90",
+            cl_cmd="cl",
+            inc_dir=str(tmp_path),
+            cflags="/O2",
+            symbol="_f",
+            out_dir=tmp_path,
+            pop_size=4,
+            num_generations=1,
+            num_jobs=4,
+            rng_seed=1,
+            verbose=0,
+        )
+        ga.population = [f"int f(void){{return {i};}}" for i in range(4)]
+        delays = {src: 0.05 * (3 - i) for i, src in enumerate(ga.population)}
+        scored: list[str] = []
+
+        def _compile(src: str) -> BuildResult:
+            time.sleep(delays[src])  # first member finishes last
+            return BuildResult(ok=False, error_msg="stub")
+
+        def _fitness(res: BuildResult, src_hash: str, src: str) -> float:
+            scored.append(src)
+            return 1.0
+
+        ga._compile_source = _compile  # type: ignore[method-assign]
+        ga._compute_fitness = _fitness  # type: ignore[method-assign]
+        expected = list(ga.population)
+        ga.run()
+        assert scored == expected
+
     def test_collect_pairs_is_forwarded_to_each_stub_ga(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

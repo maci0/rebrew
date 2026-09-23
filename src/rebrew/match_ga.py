@@ -14,7 +14,7 @@ import re
 import subprocess
 import threading
 import time
-from concurrent.futures import Future, ThreadPoolExecutor, as_completed
+from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, cast
 
@@ -852,8 +852,10 @@ class BinaryMatchingGA:
                         scored_pop.append((memoized, src))
                         continue
                     futures[executor.submit(self._compile_source, src)] = (src, src_hash)
-                for fut in as_completed(futures):
-                    src, src_hash = futures[fut]
+                # Collect in submission order, not completion order: scoring
+                # appends --collect-pairs lines and updates the LRU memo, so
+                # thread timing must not decide their order under one seed.
+                for fut, (src, src_hash) in futures.items():
                     try:
                         res = fut.result()
                     except (
