@@ -44,7 +44,7 @@ dependencies = [
     "tomlkit>=0.15.1",  # round-trip-preserving TOML writes (metadata.py, cfg.py, library.py)
     "tree-sitter>=0.26.0",  # C AST parsing (c_parser.py, struct_parser.py, matcher/ast_engine.py) — never regex-parse C
     "tree-sitter-c>=0.24.2",  # C grammar for tree-sitter
-    "typer>=0.27.2",  # rich_markup_mode requires 0.10.0
+    "typer>=0.27.2",  # CLI framework (every main_entry); floor tracks lock
     "zstandard>=0.25.0",  # coverage.db codec for the materialized per-section cell JSON (build_db), and the dashboard's wire compression
 ]
 
