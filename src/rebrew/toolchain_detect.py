@@ -1657,7 +1657,7 @@ def detect_toolchain(path: Path | str) -> ToolchainInfo:
         try:
             plugin_info = fn(path)
         except Exception:
-            logger.debug("plugin detector %r failed for %s", name, path, exc_info=True)
+            logger.warning("plugin detector %r failed for %s", name, path, exc_info=True)
             continue
         if plugin_info is None:
             continue

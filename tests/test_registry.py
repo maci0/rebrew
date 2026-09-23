@@ -1024,6 +1024,23 @@ class TestBinaryLoaderRegistry:
         with pytest.raises(ValueError, match="unknown format"):
             bl.load_binary(junk)
 
+    def test_wrong_return_type_loader_skipped(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        import rebrew.binary_loader as bl
+
+        _install_fake_module("loader_plugin_dict", load=lambda path, fmt: {"format": "plugin"})
+        monkeypatch.setattr(
+            "rebrew.registry.entry_points",
+            _fake_entry_points(**{"rebrew.binary_loaders": [("dict", "loader_plugin_dict:load")]}),
+        )
+        monkeypatch.setattr(bl, "_PLUGIN_LOADERS", bl._discover_binary_loaders())
+        junk = tmp_path / "junk.bin"
+        junk.write_bytes(b"\x00" * 64)
+        with pytest.raises(ValueError, match="unknown format"):
+            bl.load_binary(junk)
+        assert "expected BinaryInfo | None" in caplog.text
+
     def test_non_callable_loader_skipped(self, monkeypatch: pytest.MonkeyPatch) -> None:
         import rebrew.binary_loader as bl
 

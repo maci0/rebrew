@@ -556,11 +556,19 @@ def load_binary(path: Path, fmt: str = "auto") -> BinaryInfo:
                 try:
                     candidate = fn(path, fmt)
                 except Exception:
-                    log.debug("plugin loader %r failed for %s", name, path, exc_info=True)
+                    log.warning("plugin loader %r failed for %s", name, path, exc_info=True)
                     continue
-                if candidate is not None:
-                    result = candidate
-                    break
+                if candidate is None:
+                    continue
+                if not isinstance(candidate, BinaryInfo):
+                    log.warning(
+                        "plugin loader %r returned %s (expected BinaryInfo | None)",
+                        name,
+                        type(candidate).__name__,
+                    )
+                    continue
+                result = candidate
+                break
             if result is None:
                 raise
 

@@ -594,7 +594,9 @@ Three companion extension points make a plugin toolchain fully first-class:
   not an identity).
 - **`rebrew.binary_loaders`** — parsing of novel container formats.  A
   callable `(path, fmt) -> BinaryInfo | None` runs when LIEF cannot parse
-  the file (NE/MZ are already native); the first non-None result is used.
+  the file (NE/MZ are already native); the first `BinaryInfo` result is used.
+  A loader or detector that raises, or returns another type, is skipped
+  with a warning.
 
 A registered toolchain may declare `bits = 16` in its spec (entry-point or
 overlay TOML) to join the 16-bit arch-alignment set — it is then accepted on

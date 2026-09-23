@@ -81,13 +81,13 @@ def _rizin_functions(binary: Path, cmds: list[str]) -> list[tuple[int, int, str]
             timeout=300,
         )
     except OSError as exc:
-        logging.warning("rizin %s unavailable for %s: %s", cmds, binary, exc)
+        logger.warning("rizin %s unavailable for %s: %s", cmds, binary, exc)
         return []
     except subprocess.TimeoutExpired:
-        logging.warning("rizin %s timed out after 300s on %s", cmds, binary)
+        logger.warning("rizin %s timed out after 300s on %s", cmds, binary)
         return []
     if r.returncode != 0:
-        logging.debug("rizin %s failed (rc=%d): %s", cmds, r.returncode, r.stderr[:500])
+        logger.debug("rizin %s failed (rc=%d): %s", cmds, r.returncode, r.stderr[:500])
         return []
     return parse_rizin_afl(r.stdout)
 
@@ -109,7 +109,7 @@ def _discover_capstone_sweep(binary: Path) -> list[tuple[int, int, str]]:
     except Exception as exc:
         # A fallback source's absence must not be silent — without it,
         # rizin-derived sizes go unvalidated.
-        logging.warning("capstone linear sweep failed (sizes unvalidated): %s", exc)
+        logger.warning("capstone linear sweep failed (sizes unvalidated): %s", exc)
         return []
 
 
@@ -344,7 +344,7 @@ def _is_padding(info: Any, va: int, end: int) -> bool:
     try:
         raw = extract_bytes(info, va, end - va)
     except Exception:
-        logging.debug("extract_bytes failed at 0x%x", va, exc_info=True)
+        logger.debug("extract_bytes failed at 0x%x", va, exc_info=True)
         return False
     i = 0
     while i < len(raw):
@@ -394,7 +394,7 @@ def _validate_and_refine(
             # Disassembly failure at this candidate: ret_end stays None, so the
             # size falls back to the raw gap. Log it — a mis-sized function in
             # the catalog is otherwise indistinguishable from a correct one.
-            logging.debug(
+            logger.debug(
                 "instruction sweep failed at candidate 0x%x (size = raw gap)", va, exc_info=True
             )
 
@@ -521,7 +521,7 @@ def _run_providers(
         try:
             found = fn(binary)
         except Exception as exc:
-            logging.warning("discoverer %r failed (skipped): %s", name, exc)
+            logger.warning("discoverer %r failed (skipped): %s", name, exc)
             found = []
         d.sources[name] = len(found)
         out[name] = found
@@ -614,7 +614,7 @@ def discover_functions(binary: Path, *, min_size: int = 8) -> Discovery:
     except Exception as exc:
         # Unvalidated gap-based sizes are still emitted, but the user must
         # know the refine pass was skipped.
-        logging.warning("size refine step failed (emitting unvalidated sizes): %s", exc)
+        logger.warning("size refine step failed (emitting unvalidated sizes): %s", exc)
 
     funcs = [f for f in funcs if f[1] >= min_size]
     d.functions = funcs

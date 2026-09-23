@@ -417,6 +417,12 @@
   in emission order.
 
 ### Fixed
+- **Plugin binary loaders and detectors fail visibly.**  A
+  `rebrew.binary_loaders` member returning anything but `BinaryInfo | None`
+  was accepted and crashed later with an unrelated `AttributeError`; it is
+  now skipped with a warning, like a mistyped `rebrew.binary_detectors`
+  result.  A raising loader or detector is logged at warning level (was
+  debug, so plugin authors never saw it).
 - **`rebrew gen-stubs` recovers from a killed build.**  A run killed
   during `--build-cmd` skipped its restore, leaving `CMakeLists.txt` with
   the `--cmake-stub-var` line blanked and the `--exclude-file` TU at
