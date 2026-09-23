@@ -825,6 +825,38 @@ def test_converge_layout_preserves_source_encoding(
     assert b"_dlead_a" in raw
 
 
+def test_converge_layout_negative_delta_without_pad_leaves_tu_alone(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A TU placed too late with no lead pad has nothing to shrink: no edit, every run."""
+    from rebrew import data_layout as dl
+
+    src = tmp_path / "src"
+    src.mkdir()
+    f = src / "a.c"
+    original = b"// FUNCTION: SERVER 0x10027000\nint g_a = 1;\n"
+    f.write_bytes(original)
+    (tmp_path / "build").mkdir()
+    (tmp_path / "build" / "server.dll").write_bytes(b"MZ")
+
+    data_base = 0x10027000
+    monkeypatch.setattr(dl, "layout_geometry", lambda p, target=None: (data_base, 0x1000, 0x1000))
+    monkeypatch.setattr(dl, "data_raw_from_binary", lambda p: b"\x00" * 0x40)
+    monkeypatch.setattr(dl, "data_symbols", lambda m: {"g_a": data_base})
+    monkeypatch.setattr(dl, "_converge_target", lambda root, target: "server.dll")
+    monkeypatch.setattr(dl, "built_data_va", lambda d: data_base)
+    monkeypatch.setattr(dl, "link_objects", lambda root: [tmp_path / "a.obj"])
+    monkeypatch.setattr(dl, "obj_data_symbol_offsets", lambda o: (0x10, {"g_a": 0x20}))
+    monkeypatch.setattr(dl, "_obj_to_source", lambda o, root, src_dir: f)
+
+    for _ in range(2):
+        result = dl.converge_layout(
+            tmp_path, tmp_path / "m.toml", tmp_path / "orig.dll", src, target="server.dll"
+        )
+        assert result["adjustments"] == []
+    assert f.read_bytes() == original
+
+
 def test_layout_geometry_honours_the_requested_target(tmp_path: Path) -> None:
     """A multi-target project must read the REQUESTED target's .data geometry.
 

@@ -1179,6 +1179,10 @@ def converge_layout(
             m = _DLEAD_RE.search(text)
             old_size = int(m.group(2)) if m else 0
             new_size = max(0, old_size + delta)
+            if m is None and new_size == 0:
+                # No lead pad to shrink: the TU starts too late for a pad to
+                # fix.  Inserting an empty line here grew the TU on every run.
+                continue
             pad_name = "_dlead_" + re.sub(r"\W", "_", f.stem)
             if new_size > 0 and exp - new_size >= data_base:
                 off = (exp - new_size) - data_base

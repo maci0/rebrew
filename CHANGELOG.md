@@ -663,6 +663,10 @@
   in emission order.
 
 ### Fixed
+- **`rebrew data --converge` no longer grows a TU on every run.**  A TU
+  placed too late with no `_dlead_` pad got an empty line inserted and was
+  reported as adjusted each run.  With no pad to shrink it is now left
+  alone.
 - **`rebrew report` summary cards pair each label with its value.**  The
   cards were loose `<div>`s read number-first with no relationship, so a
   screen reader heard "1, Total functions" as two unrelated strings.  They
