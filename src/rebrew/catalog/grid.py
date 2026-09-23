@@ -725,7 +725,7 @@ def generate_data_json(
     original_dll_path = ""
     if bin_path and root_dir:
         try:
-            original_dll_path = f"/{bin_path.relative_to(root_dir)}"
+            original_dll_path = f"/{bin_path.relative_to(root_dir).as_posix()}"
         except ValueError:
             original_dll_path = f"/{bin_path.name}"
 
@@ -735,7 +735,7 @@ def generate_data_json(
     source_root = ""
     if src_dir and root_dir:
         try:
-            source_root = f"/{src_dir.relative_to(root_dir)}"
+            source_root = f"/{src_dir.relative_to(root_dir).as_posix()}"
         except ValueError:
             source_root = "/" + src_dir.name
 
