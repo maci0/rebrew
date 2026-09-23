@@ -37,6 +37,15 @@
   is named `*Error`.  `tests/test_errors.py` AST-scans the package by
   base class rather than by name suffix, so a future exception type
   cannot escape the base by what it is called.
+- **`rebrew.config.ConfigError` — `load_config` failures reach
+  `except RebrewError`.**  `load_config` / `find_root` raised bare
+  `FileNotFoundError` / `KeyError` / `ValueError` (and an unparsable
+  file leaked `tomllib.TOMLDecodeError`), so the documented
+  `except RebrewError` handler missed every config failure.  They now
+  raise `ConfigNotFoundError` (a `FileNotFoundError`), `ConfigKeyError`
+  (a `KeyError`), or `ConfigError` (a `ValueError`, base of both), so
+  existing handlers still match.  `ConfigKeyError` messages are no longer
+  wrapped in quotes.
 - **`targets.<name>.external_libs` — one flag for external .lib code.**
   `module = "link-spec"` table (`LIBCMT = "LIBCMT.lib"`,
   `D3DX8 = "references/dxsdk8/lib/d3dx8.lib"`, `MSVCRT = ""` for

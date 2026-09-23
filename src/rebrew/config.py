@@ -27,15 +27,37 @@ import math
 import re
 import shlex
 import sys
+import tomllib
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, TypedDict
 from urllib.parse import urlparse
 
+from rebrew.errors import RebrewError
 from rebrew.toolchain_spec import FlagsStyle
 from rebrew.utils import config_path, load_tomllib, parse_int_literal
 from rebrew.workspace import walk_up_to_root
+
+
+class ConfigError(RebrewError, ValueError):
+    """``rebrew-project.toml`` is unparsable or holds an invalid value.
+
+    Base of every error :func:`load_config` / :func:`find_root` raise, so
+    ``except ConfigError`` (or ``except RebrewError``) catches them all.
+    """
+
+    def __str__(self) -> str:
+        # KeyError.__str__ would repr-quote the message for ConfigKeyError.
+        return Exception.__str__(self)
+
+
+class ConfigNotFoundError(ConfigError, FileNotFoundError):
+    """No ``rebrew-project.toml`` at the given root or above the cwd."""
+
+
+class ConfigKeyError(ConfigError, KeyError):
+    """A required key or the requested target is missing from the config."""
 
 
 class ConfigWarning(UserWarning):
@@ -730,7 +752,7 @@ def _as_table(value: Any, field_name: str) -> dict[str, Any]:
     if value is None:
         return {}
     if not isinstance(value, dict):
-        raise ValueError(f"rebrew-project.toml [{field_name}] must be a TOML table")
+        raise ConfigError(f"rebrew-project.toml [{field_name}] must be a TOML table")
     return value
 
 
@@ -770,9 +792,9 @@ def validate_http_url(value: str, field_name: str) -> str:
             or any(char.isspace() or ord(char) < 32 or ord(char) == 127 for char in text)
             or (parsed.port is not None and not 1 <= parsed.port <= 65535)
         ):
-            raise ValueError(message)
+            raise ConfigError(message)
     except ValueError:
-        raise ValueError(message) from None
+        raise ConfigError(message) from None
     return text
 
 
@@ -811,10 +833,10 @@ def _required_path(root: Path, value: Any, default: str, field_name: str) -> Pat
     if value is None:
         value = default
     if isinstance(value, str) and not value.strip():
-        raise ValueError(f"rebrew-project.toml {field_name} must not be empty")
+        raise ConfigError(f"rebrew-project.toml {field_name} must not be empty")
     resolved = _resolve(root, value)
     if resolved is None:
-        raise ValueError(f"rebrew-project.toml {field_name} must be a path string")
+        raise ConfigError(f"rebrew-project.toml {field_name} must be a path string")
     return resolved
 
 
@@ -849,7 +871,7 @@ def _split_compiler_runner(compiler: dict[str, Any]) -> tuple[str, str]:
             spec = None
         if spec is not None and spec.image is not None:
             return "", ""
-        raise ValueError("rebrew-project.toml compiler.command must not be empty")
+        raise ConfigError("rebrew-project.toml compiler.command must not be empty")
     if "runner" in compiler:
         return _as_str(compiler.get("runner"), "", "compiler.runner"), command_raw
 
@@ -897,7 +919,7 @@ def _merge_cflags_presets(
         presets = _as_table(value, label)
         for key, val in presets.items():
             if not isinstance(val, str):
-                raise ValueError(f"rebrew-project.toml {label}.{key} must be a string")
+                raise ConfigError(f"rebrew-project.toml {label}.{key} must be a string")
             merged[key.upper()] = val
         if presets and label == f"{where}.cflags_presets":
             _config_warn(
@@ -999,7 +1021,7 @@ def find_root(start: Path | None = None) -> Path:
         return start
     found = walk_up_to_root(Path.cwd())
     if found is None:
-        raise FileNotFoundError(
+        raise ConfigNotFoundError(
             "Could not find rebrew-project.toml in any parent of the current directory. "
             "Run rebrew commands from within a project that contains rebrew-project.toml."
         )
@@ -1165,9 +1187,12 @@ def load_config(
     root = find_root(root)
     toml_path = root / "rebrew-project.toml"
     if not toml_path.exists():
-        raise FileNotFoundError(f"Config not found: {toml_path}")
+        raise ConfigNotFoundError(f"Config not found: {toml_path}")
 
-    raw = load_tomllib(toml_path)
+    try:
+        raw = load_tomllib(toml_path)
+    except (tomllib.TOMLDecodeError, UnicodeDecodeError) as exc:
+        raise ConfigError(f"{toml_path}: {exc}") from exc
 
     project_raw = _as_table(raw.get("project", {}), "project")
     targets_dict = _as_table(raw.get("targets", {}), "targets")
@@ -1209,35 +1234,35 @@ def load_config(
                     f"unrecognized keys: {unknown_target_compiler}",
                 )
         else:
-            raise ValueError(f"rebrew-project.toml [targets.{tgt_name}] must be a TOML table")
+            raise ConfigError(f"rebrew-project.toml [targets.{tgt_name}] must be a TOML table")
 
     if not targets_dict:
-        raise KeyError("rebrew-project.toml has no [targets] section")
+        raise ConfigKeyError("rebrew-project.toml has no [targets] section")
     all_target_names = [k for k in targets_dict if isinstance(k, str)]
     if not all_target_names:
-        raise KeyError("rebrew-project.toml [targets] section has no valid target names")
+        raise ConfigKeyError("rebrew-project.toml [targets] section has no valid target names")
 
     global_compiler = global_compiler_raw
 
     if target is None:
         target = project_raw.get("default_target")
         if target is None:
-            raise KeyError(
+            raise ConfigKeyError(
                 "rebrew-project.toml [project] is missing 'default_target'. "
                 f'Add: default_target = "{all_target_names[0]}"'
             )
         if not isinstance(target, str):
-            raise ValueError(
+            raise ConfigError(
                 f"rebrew-project.toml [project].default_target must be a string, "
                 f"got {type(target).__name__}"
             )
         if not target.strip():
-            raise ValueError(
+            raise ConfigError(
                 "rebrew-project.toml [project].default_target must not be empty. "
                 f'Add: default_target = "{all_target_names[0]}"'
             )
     if target not in targets_dict:
-        raise KeyError(
+        raise ConfigKeyError(
             f"Target '{target}' not found in rebrew-project.toml.  Available targets: {all_target_names}"
         )
     tgt = targets_dict[target]
@@ -1252,14 +1277,14 @@ def load_config(
     # the wrong layout detection, disassembler, and pointer size on the binary.
     fmt_val = tgt.get("format", "pe")
     if not isinstance(fmt_val, str) or fmt_val not in _KNOWN_FORMATS:
-        raise ValueError(
+        raise ConfigError(
             f"rebrew-project.toml [targets.{target}]: unknown format {fmt_val!r} "
             f"(known: {', '.join(sorted(_KNOWN_FORMATS))})"
         )
 
     arch_name = tgt.get("arch", "x86_32")
     if not isinstance(arch_name, str) or arch_name not in _ARCH_PRESETS:
-        raise ValueError(
+        raise ConfigError(
             f"rebrew-project.toml [targets.{target}]: unknown arch {arch_name!r} "
             f"(known: {', '.join(sorted(_ARCH_PRESETS))})"
         )
@@ -1283,12 +1308,12 @@ def load_config(
     arch_preset = _ARCH_PRESETS[arch_name]
     bin_rel = tgt.get("binary")
     if bin_rel is None:
-        raise KeyError(f"Target '{target}' in rebrew-project.toml is missing 'binary' path")
+        raise ConfigKeyError(f"Target '{target}' in rebrew-project.toml is missing 'binary' path")
     if isinstance(bin_rel, str) and not bin_rel.strip():
-        raise KeyError(f"Target '{target}' in rebrew-project.toml has empty 'binary' path")
+        raise ConfigKeyError(f"Target '{target}' in rebrew-project.toml has empty 'binary' path")
     resolved_bin = _resolve(root, bin_rel)
     if resolved_bin is None:
-        raise KeyError(f"Target '{target}' in rebrew-project.toml has invalid 'binary' path")
+        raise ConfigKeyError(f"Target '{target}' in rebrew-project.toml has invalid 'binary' path")
     bin_path: Path = resolved_bin
 
     reversed_dir = _required_path(
@@ -1317,7 +1342,7 @@ def load_config(
     def _explicit_empty(key: str) -> bool:
         raw = compiler.get(key)
         if raw is not None and not isinstance(raw, str):
-            raise ValueError(f"rebrew-project.toml compiler.{key} must be a path string")
+            raise ConfigError(f"rebrew-project.toml compiler.{key} must be a path string")
         return raw is not None and not raw.strip()
 
     from rebrew.utils import resolve_msvc_toolchain
@@ -1567,14 +1592,14 @@ def load_config(
     if "backend" in cache_raw:
         backend = _as_str(cache_raw.get("backend"), "", "cache.backend").strip()
         if not backend:
-            raise ValueError("rebrew-project.toml [cache].backend must not be empty")
+            raise ConfigError("rebrew-project.toml [cache].backend must not be empty")
     else:
         backend = "diskcache"
     from rebrew.compile_cache import available_cache_backends
 
     known_backends = available_cache_backends()
     if backend not in known_backends:
-        raise ValueError(
+        raise ConfigError(
             f"rebrew-project.toml [cache].backend = {backend!r} is not a "
             f"registered backend (known: {', '.join(known_backends)})"
         )
@@ -1584,6 +1609,9 @@ def load_config(
 
 
 __all__ = [
+    "ConfigError",
+    "ConfigKeyError",
+    "ConfigNotFoundError",
     "DEFAULT_COMPILE_TIMEOUT",
     "DEFAULT_LINT_MAX_LINE_LENGTH",
     "FUNCTION_STRUCTURE_JSON",

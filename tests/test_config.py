@@ -7,6 +7,9 @@ import pytest
 # Import from the rebrew package
 from rebrew.config import (
     _ARCH_PRESETS,
+    ConfigError,
+    ConfigKeyError,
+    ConfigNotFoundError,
     ProjectConfig,
     _detect_binary_layout,
     _resolve,
@@ -14,6 +17,7 @@ from rebrew.config import (
     inventory_path_for,
     load_config,
 )
+from rebrew.errors import RebrewError
 
 # ---------------------------------------------------------------------------
 # Helper: create a temp rebrew-project.toml and return the root dir
@@ -232,6 +236,25 @@ profile = "gcc-14.2.0"
 
 
 class TestLoadConfigEdgeCases:
+    def test_errors_share_rebrew_base_and_keep_builtin_bases(self, tmp_path: Path) -> None:
+        """One ``except RebrewError`` catches every load failure; old bases still match."""
+        with pytest.raises(ConfigNotFoundError) as missing:
+            load_config(tmp_path)
+        assert isinstance(missing.value, FileNotFoundError)
+        assert isinstance(missing.value, RebrewError)
+
+        root = _make_project(tmp_path, "[project]\n[targets.main]\nbinary = 'a.exe'\n")
+        with pytest.raises(ConfigKeyError) as no_default:
+            load_config(root)
+        assert isinstance(no_default.value, KeyError)
+        assert isinstance(no_default.value, RebrewError)
+        assert str(no_default.value).startswith("rebrew-project.toml [project]")
+
+        _make_project(tmp_path, "[[[\n")
+        with pytest.raises(ConfigError, match="rebrew-project.toml") as bad_toml:
+            load_config(root)
+        assert isinstance(bad_toml.value, ValueError)
+
     def test_missing_toml_raises(self, tmp_path: Path) -> None:
         with pytest.raises(FileNotFoundError):
             load_config(tmp_path)

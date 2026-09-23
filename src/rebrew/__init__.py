@@ -8,7 +8,7 @@ Library consumers typically import submodules directly, for example:
 
 * ``rebrew.errors`` — ``RebrewError``, the base of every error raised below
 * ``rebrew.compile`` — ``CompareResult``, ``compile_and_compare``
-* ``rebrew.config`` — ``ProjectConfig``, ``load_config``
+* ``rebrew.config`` — ``ProjectConfig``, ``load_config``, ``ConfigError``
 * ``rebrew.sources`` — ``iter_sources``, ``iter_library_headers``
 * ``rebrew.toolchain`` — ``ToolchainError``, ``get_toolchain``, ``require_toolchains_repo``
 * ``rebrew.recompile_client`` — remote compile transport
