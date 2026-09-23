@@ -156,6 +156,17 @@
   documented integrator surface.
 
 ### Changed
+- **Composition docs state the contracts the code actually keeps.**
+  ADR 014 no longer claims `builtins.py` is the only component manifest
+  (`import-splat` lives in `main.py::_EXTRA_COMPONENTS`, pinned by the
+  agent-skill gate); `docs/CLI.md` names import-time composition and the
+  retained `_COMPOSED` fiber instead of a vague "composes once";
+  `docs/ARCHITECTURE.md` points at `_EXTRA_COMPONENTS`;
+  `docs/ADDING_A_COMMAND.md` stops calling `[project.scripts]` required
+  (only `builtins.py` makes `rebrew <name>` exist — 32 commands ship
+  scriptless); `docs/DEFENSIVE_PATTERNS.md` stops claiming the hygiene
+  test pins the scripts↔builtins pairing (nothing does — the pin is the
+  per-command mount test).
 - **Toolchain containers run with `no-new-privileges`.**  Every `docker
   run` of a toolchain image (compile, link, cmake bridge, smoke, layout
   grep, lib hash/copy) now passes `--security-opt=no-new-privileges`

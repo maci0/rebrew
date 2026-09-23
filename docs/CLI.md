@@ -185,7 +185,9 @@ CLI tools (packaged and third-party) mount through `rebrew.plugin`.
 A component whose `needs` are missing stays inactive until those
 services appear; withdrawing a service unmounts its dependents.
 Disposing the context closes the scope; inverses fire at most once.
-A CLI process composes once; there is no hot-reload. See
+Composition runs at `rebrew.main` import, and the module keeps the
+context and scope (`_COMPOSED`) for the process lifetime — nothing
+unmounts before interpreter exit, and there is no hot-reload. See
 [ADR 014](adr/014-component-composition.md).
 
 A CLI plugin whose module cannot be imported degrades to a stub command that

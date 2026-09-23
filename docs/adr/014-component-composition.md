@@ -35,8 +35,12 @@ Composability", arXiv:2608.25512):
   component's specification: a component activates when its dependencies
   appear, and is deactivated, reverting exactly the effects that activation
   installed, when a needed service is withdrawn.
-- `rebrew.builtins` declares every built-in tool as one `CliComponent`
-  (name, module, help, panel, group flag).  There is no second table.
+- `rebrew.builtins` is the packaged manifest: every tool it lists is one
+  `CliComponent` (name, module, help, panel, group flag), so the help
+  panel lives on the tool's own row rather than a separate name-keyed
+  table.  The one packaged component outside the manifest
+  (`import-splat`) is declared in `rebrew.main._EXTRA_COMPONENTS` with
+  the same shape, because the manifest is pinned to bundled agent skills.
 - `rebrew.main` builds the app, publishes it as the `cli` service, and
   activates the packaged components plus any third-party components from the
   `rebrew.commands` / `rebrew.multicommands` entry-point groups.

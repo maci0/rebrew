@@ -75,6 +75,19 @@ _GHIDRA_GENERIC_RE = re.compile(r"^(FUN_|DAT_|switchdata|thunk_)")
 _PLACEHOLDER_GLOBAL_RE = re.compile(r"^g_[0-9a-fA-F]{4,8}$")
 
 
+def resolve_state_dir(state_dir: Path, *, json_mode: bool) -> Path:
+    """Resolve *state_dir*; abort when it is not an existing directory."""
+    try:
+        resolved = state_dir.resolve()
+    except OSError as exc:
+        error_exit(f"Cannot resolve state directory {state_dir}: {exc}", json_mode=json_mode)
+    if not resolved.exists():
+        error_exit(f"State directory not found: {state_dir}", json_mode=json_mode)
+    if not resolved.is_dir():
+        error_exit(f"Not a directory: {state_dir}", json_mode=json_mode)
+    return resolved
+
+
 def is_meaningful(name: str) -> bool:
     """Return True when *name* looks user-assigned rather than an auto-label.
 
@@ -240,15 +253,7 @@ def main(
             "--accept-binsync and --accept-local are mutually exclusive", json_mode=json_output
         )
 
-    try:
-        resolved = state_dir.resolve()
-    except OSError as exc:
-        error_exit(f"Cannot resolve state directory {state_dir}: {exc}", json_mode=json_output)
-    if not resolved.exists():
-        error_exit(f"State directory not found: {state_dir}", json_mode=json_output)
-    if not resolved.is_dir():
-        error_exit(f"Not a directory: {state_dir}", json_mode=json_output)
-    state_dir = resolved
+    state_dir = resolve_state_dir(state_dir, json_mode=json_output)
 
     cfg = require_config(target=target, json_mode=json_output)
 

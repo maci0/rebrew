@@ -25,14 +25,18 @@ Conventions (CLI review will flag drift):
 
 ## 2. Registration
 
-Two places, both required:
-
 - `src/rebrew/builtins.py`: append a `CliComponent` (name, module, help,
   panel, group). The `help` string shows in `--help`; keep it one line.
   Default `needs` are `cli` and `console`; `apply()` mounts only while
   those services are provided. Unmount is a tracked inverse (ADR 014).
+  This is what makes `rebrew <name>` exist — no gate adds it for you.
 - `pyproject.toml` `[project.scripts]`: add
-  `rebrew-<name> = "rebrew.<module>:main_entry"` for the standalone script.
+  `rebrew-<name> = "rebrew.<module>:main_entry"` only when the command
+  should also run standalone. `rebrew <name>` works from the umbrella
+  either way, and many packaged commands ship without a script (bridge
+  binaries like `rebrew-cmake-cl` are scripts but not commands). When an
+  entry exists, `tests/test_docs_hygiene.py` pins it to a live attribute
+  on a `@app.callback`/`@app.command` module.
 
 Third-party commands skip both: they register through the
 `rebrew.commands` entry-point group and are discovered at startup

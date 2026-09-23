@@ -46,6 +46,7 @@ from rebrew.binsync.importer import (
     is_meaningful,
     normalize_prototype,
     normalize_stack_vars,
+    resolve_state_dir,
 )
 from rebrew.binsync.state import (
     load_binsync_comments,
@@ -811,15 +812,7 @@ def main(
             "--accept-binsync and --accept-local are mutually exclusive", json_mode=json_output
         )
 
-    try:
-        resolved = state_dir.resolve()
-    except OSError as exc:
-        error_exit(f"Cannot resolve state directory {state_dir}: {exc}", json_mode=json_output)
-    if not resolved.exists():
-        error_exit(f"State directory not found: {state_dir}", json_mode=json_output)
-    if not resolved.is_dir():
-        error_exit(f"Not a directory: {state_dir}", json_mode=json_output)
-    state_dir = resolved
+    state_dir = resolve_state_dir(state_dir, json_mode=json_output)
 
     cfg = require_config(target=target, json_mode=json_output)
 

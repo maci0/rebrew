@@ -1588,6 +1588,7 @@ def precompile_batch(
             workdir = writable_temp_dir("rebrew_batch_")
             staged: dict[str, list[Any]] = {}
             member_includes: list[str] = []
+            member_cflags: dict[int, str] = {}
             # Relative includes can reach OUTSIDE the group (a header with
             # no annotation of its own), so copy the whole reversed_dir
             # tree first and overlay staged copies on top: every sibling
@@ -1634,12 +1635,10 @@ def precompile_batch(
                     getattr(e, "cflags", ""),
                     getattr(e, "module", ""),
                 )
-                own_flags = (
-                    safe_shlex_split(own_cflags)
-                    if isinstance(own_cflags, str)
-                    else list(own_cflags)
+                member_cflags[id(e)] = own_cflags
+                member_includes.extend(
+                    f for f in safe_shlex_split(own_cflags) if f.startswith(("/I", "-I"))
                 )
-                member_includes.extend(f for f in own_flags if f.startswith(("/I", "-I")))
             if len(staged) < 2:
                 return group_out
             # Union of include dirs: grouping ignores /I (they shatter
@@ -1683,6 +1682,11 @@ def precompile_batch(
                 # Partial group: keep the good objects, fall back per file
                 # for the rest (their errors are in the log).
                 log.debug("batch group partial (%d/%d): %s", len(objs), len(staged), err[:120])
+            # Union /I from siblings means these bytes were compiled under a
+            # wider include search set than a single-file build of one member.
+            # Pinning under that member's own key would serve the wrong object
+            # on a later compile_to_obj hit.
+            union_includes = set(member_includes)
             for name, obj in objs.items():
                 # Promote the .obj out of the staged tree before the workdir
                 # is removed: callers (verify) keep these paths until they
@@ -1693,32 +1697,16 @@ def precompile_batch(
                 lasting = lasting_root / f"{uuid.uuid4().hex[:12]}{Path(obj).suffix}"
                 lasting.write_bytes(obj_bytes)
                 lasting_path = str(lasting)
-                # Union /I from siblings means these bytes were compiled under
-                # a wider include search set than a single-file build of one
-                # member.  Pinning under that member's own key would serve the
-                # wrong object on a later compile_to_obj hit.
-                union_includes = {
-                    f for f in dict.fromkeys(member_includes) if f.startswith(("/I", "-I"))
-                }
                 for e in staged[name]:
                     group_out[id(e)] = lasting_path
                     if cache is None:
                         continue
                     with contextlib.suppress(OSError, ValueError):
                         src = Path(cfg.reversed_dir) / e.filepath
-                        _, own_cflags = resolve_compile_overrides(
-                            cfg,
-                            src.parent,
-                            getattr(e, "toolchain", ""),
-                            getattr(e, "cflags", ""),
-                            getattr(e, "module", ""),
-                        )
-                        own_flags = (
-                            safe_shlex_split(own_cflags)
-                            if isinstance(own_cflags, str)
-                            else list(own_cflags)
-                        )
-                        own_includes = {f for f in own_flags if f.startswith(("/I", "-I"))}
+                        own_cflags = member_cflags[id(e)]
+                        own_includes = {
+                            f for f in safe_shlex_split(own_cflags) if f.startswith(("/I", "-I"))
+                        }
                         if own_includes != union_includes:
                             continue
                         src_parent = src.resolve().parent

@@ -71,19 +71,6 @@ app.command(name="diff")(diff.main)
 app.command(name="overlay")(overlay.main)
 
 
-def _resolve_state_dir(state_dir: Path, *, json_mode: bool) -> Path:
-    """Resolve *state_dir*; abort when it is not an existing directory."""
-    try:
-        resolved = state_dir.resolve()
-    except OSError as exc:
-        error_exit(f"Cannot resolve state directory {state_dir}: {exc}", json_mode=json_mode)
-    if not resolved.exists():
-        error_exit(f"State directory not found: {state_dir}", json_mode=json_mode)
-    if not resolved.is_dir():
-        error_exit(f"Not a directory: {state_dir}", json_mode=json_mode)
-    return resolved
-
-
 def _git_failure(action: str, result: subprocess.CompletedProcess[str]) -> str:
     """One-line error for a failed git *action*."""
     detail = one_line(result.stderr or result.stdout) or f"git exited with {result.returncode}"
@@ -175,7 +162,7 @@ def pull(
             "--accept-binsync and --accept-local are mutually exclusive", json_mode=json_output
         )
 
-    resolved = _resolve_state_dir(state_dir, json_mode=json_output)
+    resolved = importer.resolve_state_dir(state_dir, json_mode=json_output)
     cfg: ProjectConfig = require_config(target=target, json_mode=json_output)
 
     if not no_git and not dry_run:
@@ -209,7 +196,7 @@ def summary(
     target: str | None = TargetOption,
 ) -> None:
     """Preview what push and pull would change, without writing or touching git."""
-    resolved = _resolve_state_dir(state_dir, json_mode=json_output)
+    resolved = importer.resolve_state_dir(state_dir, json_mode=json_output)
     cfg: ProjectConfig = require_config(target=target, json_mode=json_output)
 
     push_result = export.export_state(

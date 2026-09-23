@@ -6,14 +6,13 @@ rebrew's composition points.  A unit of functionality is a *component*:
 
 * it publishes services under stable keys in a :class:`Context` and reaches
   sibling services by key rather than importing an implementation;
-* it declares the services it needs (its *coeffects*) in ``needs``, so
+* it declares the services it needs (its *coeffects*) in ``needs``, and the
+  runtime reacts to their availability: :class:`CoeffectScope` re-classifies
+  every change to the service table against each component's ``needs``
+  (Definition 22), activating the component when the specification becomes
+  satisfied and deactivating it when a needed service is withdrawn — so
   activation order falls out of the declaration instead of a hand-maintained
-  sequence;
-* it declares services it needs and the runtime reacts to their availability:
-  :class:`CoeffectScope` re-classifies every change to the service table
-  against each component's ``needs`` (Definition 22), activating the component
-  when the specification becomes satisfied and deactivating it when a needed
-  service is withdrawn; and
+  sequence; and
 * every change it makes is an *effect* with an inverse the context holds, run
   in reverse on disposal (Theorem 16), so deactivation reverts exactly what the
   component added and leaves its siblings' effects interleaved but untouched.

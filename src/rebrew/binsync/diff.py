@@ -15,7 +15,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from rebrew.binsync.importer import is_meaningful, normalize_prototype
+from rebrew.binsync.importer import is_meaningful, normalize_prototype, resolve_state_dir
 from rebrew.binsync.state import index_local_and_catalog, load_binsync_state, load_manifest
 from rebrew.cli import (
     EXIT_MISMATCH,
@@ -53,10 +53,7 @@ def main(
     target: str | None = TargetOption,
 ) -> None:
     """Show where rebrew and a BinSync state diverge (read-only, no writes)."""
-    if not state_dir.exists():
-        error_exit(f"State directory not found: {state_dir}", json_mode=json_output)
-    if not state_dir.is_dir():
-        error_exit(f"Not a directory: {state_dir}", json_mode=json_output)
+    state_dir = resolve_state_dir(state_dir, json_mode=json_output)
 
     cfg = require_config(target=target, json_mode=json_output)
 

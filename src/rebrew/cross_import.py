@@ -620,6 +620,21 @@ def promote_to_shared(
     }
 
 
+def _import_result(
+    dst_va: int, src_va: int, *, action: str, status: str, filepath: str, message: str
+) -> dict[str, Any]:
+    """Per-function import result row for the CLI/JSON report."""
+    return {
+        "dst_va": f"0x{dst_va:08x}",
+        "src_va": f"0x{src_va:08x}",
+        "score": None,
+        "action": action,
+        "status": status,
+        "filepath": filepath,
+        "message": message,
+    }
+
+
 def import_shared_function(
     cfg_dst: ProjectConfig,
     cfg_src: ProjectConfig,
@@ -661,15 +676,14 @@ def import_shared_function(
     try:
         text, encoding = read_source_text(target_path)
     except OSError as exc:
-        return {
-            "dst_va": f"0x{dst_va:08x}",
-            "src_va": f"0x{src_va:08x}",
-            "score": None,
-            "action": "error",
-            "status": "READ_ERROR",
-            "filepath": src_file,
-            "message": str(exc),
-        }
+        return _import_result(
+            dst_va,
+            src_va,
+            action="error",
+            status="READ_ERROR",
+            filepath=src_file,
+            message=str(exc),
+        )
     module = target_marker(cfg_dst) or cfg_dst.target_name
 
     from rebrew.annotation import parse_c_file_multi
@@ -706,28 +720,26 @@ def import_shared_function(
             note = f"would supersede {dst_file}"
         else:
             note = ""
-        return {
-            "dst_va": f"0x{dst_va:08x}",
-            "src_va": f"0x{src_va:08x}",
-            "score": None,
-            "action": "would-import-shared",
-            "status": "",
-            "filepath": rel_display_path(target_path, cfg_dst.reversed_dir),
-            "message": note,
-        }
+        return _import_result(
+            dst_va,
+            src_va,
+            action="would-import-shared",
+            status="",
+            filepath=rel_display_path(target_path, cfg_dst.reversed_dir),
+            message=note,
+        )
 
     try:
         atomic_write_text(target_path, stacked, encoding=encoding)
     except OSError as exc:
-        return {
-            "dst_va": f"0x{dst_va:08x}",
-            "src_va": f"0x{src_va:08x}",
-            "score": None,
-            "action": "error",
-            "status": "WRITE_ERROR",
-            "filepath": str(target_path),
-            "message": str(exc),
-        }
+        return _import_result(
+            dst_va,
+            src_va,
+            action="error",
+            status="WRITE_ERROR",
+            filepath=str(target_path),
+            message=str(exc),
+        )
 
     from rebrew.annotation import Annotation
     from rebrew.metadata import get_entry, remove_field, update_field
@@ -815,24 +827,22 @@ def import_shared_function(
                 stub_path.unlink()
                 message = f"{message} (superseded {dst_file})".strip()
             except OSError as exc:
-                return {
-                    "dst_va": f"0x{dst_va:08x}",
-                    "src_va": f"0x{src_va:08x}",
-                    "score": None,
-                    "action": "error",
-                    "status": result.status,
-                    "filepath": rel_dst,
-                    "message": f"shared import verified but stub removal failed: {exc}",
-                }
-    return {
-        "dst_va": f"0x{dst_va:08x}",
-        "src_va": f"0x{src_va:08x}",
-        "score": None,
-        "action": action,
-        "status": result.status,
-        "filepath": rel_dst,
-        "message": message,
-    }
+                return _import_result(
+                    dst_va,
+                    src_va,
+                    action="error",
+                    status=result.status,
+                    filepath=rel_dst,
+                    message=f"shared import verified but stub removal failed: {exc}",
+                )
+    return _import_result(
+        dst_va,
+        src_va,
+        action=action,
+        status=result.status,
+        filepath=rel_dst,
+        message=message,
+    )
 
 
 def import_function(
@@ -866,15 +876,14 @@ def import_function(
     try:
         text, src_encoding = read_source_text(src_path)
     except OSError as exc:
-        return {
-            "dst_va": f"0x{dst_va:08x}",
-            "src_va": f"0x{src_va:08x}",
-            "score": None,
-            "action": "error",
-            "status": "READ_ERROR",
-            "filepath": src_file,
-            "message": str(exc),
-        }
+        return _import_result(
+            dst_va,
+            src_va,
+            action="error",
+            status="READ_ERROR",
+            filepath=src_file,
+            message=str(exc),
+        )
 
     module = target_marker(cfg_dst) or cfg_dst.target_name
     # Emit only the matched function (preamble + its block), re-tagged to the
@@ -885,15 +894,14 @@ def import_function(
     if extracted is None:
         # The source annotation and the file disagree (the VA has no marker
         # block).  A whole-inventory run must not abort on one bad row.
-        return {
-            "dst_va": f"0x{dst_va:08x}",
-            "src_va": f"0x{src_va:08x}",
-            "score": None,
-            "action": "error",
-            "status": "NO_MARKER",
-            "filepath": src_file,
-            "message": (f"source {src_file} has no FUNCTION marker for 0x{src_va:x}"),
-        }
+        return _import_result(
+            dst_va,
+            src_va,
+            action="error",
+            status="NO_MARKER",
+            filepath=src_file,
+            message=f"source {src_file} has no FUNCTION marker for 0x{src_va:x}",
+        )
     rewritten = _rewrite_marker(extracted, module, dst_va, dst_size)
     if dst_file is None:
         # Keep the source's path relative to its own reversed_dir: it gives
@@ -942,26 +950,24 @@ def import_function(
                     f"destination {rel_dst} exists without a marker for this VA "
                     "— copying would overwrite a file this VA does not own"
                 )
-            return {
-                "dst_va": f"0x{dst_va:08x}",
-                "src_va": f"0x{src_va:08x}",
-                "score": None,
-                "action": "error",
-                "status": "TARGET_CONFLICT",
-                "filepath": rel_dst,
-                "message": why,
-            }
+            return _import_result(
+                dst_va,
+                src_va,
+                action="error",
+                status="TARGET_CONFLICT",
+                filepath=rel_dst,
+                message=why,
+            )
 
     if dry_run:
-        return {
-            "dst_va": f"0x{dst_va:08x}",
-            "src_va": f"0x{src_va:08x}",
-            "score": None,
-            "action": "would-import",
-            "status": "",
-            "filepath": rel_dst,
-            "message": "",
-        }
+        return _import_result(
+            dst_va,
+            src_va,
+            action="would-import",
+            status="",
+            filepath=rel_dst,
+            message="",
+        )
 
     # Write with the destination file's own encoding when it exists, else the
     # source's detected encoding.  The old hardcoded-UTF-8, non-atomic write
@@ -977,15 +983,14 @@ def import_function(
     try:
         atomic_write_text(dst_path, rewritten, encoding=dst_encoding)
     except OSError as exc:
-        return {
-            "dst_va": f"0x{dst_va:08x}",
-            "src_va": f"0x{src_va:08x}",
-            "score": None,
-            "action": "error",
-            "status": "WRITE_ERROR",
-            "filepath": rel_dst,
-            "message": str(exc),
-        }
+        return _import_result(
+            dst_va,
+            src_va,
+            action="error",
+            status="WRITE_ERROR",
+            filepath=rel_dst,
+            message=str(exc),
+        )
 
     # Verify against the destination binary through the shared flow, then
     # promote STATUS exactly like `rebrew verify` would.  A wrong match
@@ -1023,15 +1028,14 @@ def import_function(
     apply_status_updates([(entry, result.status, result.delta)], cfg_dst)
 
     action = "imported" if result.matched else "imported-unverified"
-    return {
-        "dst_va": f"0x{dst_va:08x}",
-        "src_va": f"0x{src_va:08x}",
-        "score": None,
-        "action": action,
-        "status": result.status,
-        "filepath": rel_dst,
-        "message": result.message,
-    }
+    return _import_result(
+        dst_va,
+        src_va,
+        action=action,
+        status=result.status,
+        filepath=rel_dst,
+        message=result.message,
+    )
 
 
 def _name_for_va(text: str, va: int) -> str | None:
