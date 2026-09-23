@@ -33,7 +33,7 @@ dependencies = [
     # Floors track the audited uv.lock versions: a lock-free `pip install`
     # cannot resolve older advisories this tree already left behind.
     "capstone>=5.0.9",  # PYSEC-2026-3544 fixed in 5.0.8; lock is 5.0.9
-    "click>=8.5.0",  # direct import (init.py shell completion, tests); 8.3.3 fixes CVE-2025-6143/6144
+    "click>=8.5.0",  # direct import (init.py shell completion); 8.3.3 fixes CVE-2025-6143/6144
     "diskcache>=5.6.3",  # GHSA-w8v5-vhqr-4h9v unfixed upstream; NoPickleDisk + chmod 0o700 mitigate (compile_cache / matcher.core)
     "httpx>=0.28.1",  # ReVa MCP / remote-tooling HTTP client (ghidra/, skeleton.py, decompiler.py, wibo.py)
     "idna>=3.19",  # NO direct import — transitive security pin: idna <3.15 has a Unicode-property DoS advisory; this floor forces the fixed version through httpx's tree
