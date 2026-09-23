@@ -395,6 +395,17 @@
   ``one_line``, ``run_git``). Call sites inside the package already updated.
 
 ### Fixed
+- **Headers created in include subdirectories reach compile-cache keys.**
+  The include-dir path list was reused while the root directory's mtime
+  held, but a new `sys/types.h` bumps only `sys/`.  The header stayed out
+  of the fingerprint for the process lifetime, so later edits to it served
+  stale objects in GA and `verify --watch` runs.  Every subdirectory mtime
+  now guards the list.
+- **A closer `rebrew-libraries.toml` wins mid-process.**  The override
+  walk memoized its first hit, so a library file created later in a
+  nearer directory (hand-written, not via `rebrew library set`) was ignored
+  until restart and the outer toolchain/cflags applied.  The walk is no
+  longer memoized; parsed contents still are.
 - **A failed `rebrew init` can be rerun.**  Init wrote
   `rebrew-project.toml` first, and that file is what makes a second init
   refuse ("already exists").  A later step failing (`--link-tools-from`

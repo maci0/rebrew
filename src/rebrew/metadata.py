@@ -1279,9 +1279,8 @@ def all_library_presets() -> dict[str, dict[str, str]]:
 #: Entries hold ``((mtime_ns, size), parsed_dict)`` so a repeated resolution
 #: skips the read+parse while any rewrite (new mtime/size) re-parses.  Cleared
 #: wholesale when full — library files per project are few.
-#: Guarded: ``rebrew verify -j N`` resolves overrides from worker threads; the
-#: walk cache's check-then-``del`` and the meta cache's clear-then-store are
-#: multi-step mutations on shared dicts.
+#: Guarded: ``rebrew verify -j N`` resolves overrides from worker threads and
+#: the clear-then-store eviction is a multi-step mutation on a shared dict.
 _LIBRARY_META_CACHE: dict[str, tuple[tuple[int, int], dict[str, Any]]] = {}
 _LIBRARY_META_CACHE_MAX = 64
 _LIBRARY_CACHE_LOCK = threading.Lock()
@@ -1347,14 +1346,9 @@ def apply_library_presets(meta: dict[str, Any]) -> tuple[dict[str, Any], tuple[s
     return merged, (name,)
 
 
-_LIBRARY_WALK_CACHE: dict[tuple[str, str], Path | None] = {}
-_LIBRARY_WALK_CACHE_MAX = 256
-
-
 def clear_library_override_cache() -> None:
-    """Forget cached ``rebrew-libraries.toml`` walk + parse results (call after writes)."""
+    """Forget cached ``rebrew-libraries.toml`` parse results (call after writes)."""
     with _LIBRARY_CACHE_LOCK:
-        _LIBRARY_WALK_CACHE.clear()
         _LIBRARY_META_CACHE.clear()
 
 
@@ -1367,73 +1361,33 @@ def find_library_override(
     the merged override (explicit fields + known-library presets) or ``None``
     when no library file exists on the path.
 
-    The located path is memoized per ``(start_dir, root)`` so bulk callers
-    (verify/match over thousands of functions) pay the directory walk once
-    on a hit; misses are never stored so a newly created library file is
-    visible on the next call without requiring
-    :func:`clear_library_override_cache`.  Field values still re-parse
-    through :func:`parse_library_metadata`, whose mtime/size validation
-    picks up content edits.  Cap the memo so a long-lived process over
-    many library trees cannot grow the dict without bound."""
+    The walk is not memoized: a remembered hit would have to re-stat every
+    directory between *start_dir* and the hit to honor nearest-wins (a closer
+    library file created mid-process must take over), which is the walk
+    itself.  Field values go through :func:`parse_library_metadata`, whose
+    mtime/size memo skips re-parsing unchanged files."""
     cur = Path(start_dir).resolve()
     root_p = Path(root).resolve() if root is not None else None
-    key = (str(cur), str(root_p) if root_p is not None else "")
 
-    with _LIBRARY_CACHE_LOCK:
-        cached = _LIBRARY_WALK_CACHE.get(key)
-        present = key in _LIBRARY_WALK_CACHE
+    found: Path | None = None
+    walk = cur
+    while True:
+        candidate = walk / LIBRARY_METADATA_FILE
+        if candidate.exists():
+            found = candidate
+            break
+        if root_p is not None and walk == root_p:
+            break
+        if walk.parent == walk:
+            break
+        walk = walk.parent
 
-    # Stale-path check outside the lock so a deleted library file does not
-    # serialize every worker on a filesystem round-trip.
-    if present and cached is not None and not cached.exists():
-        with _LIBRARY_CACHE_LOCK:
-            # pop, not del: concurrent workers can both observe a deleted path
-            # and race the invalidate — del would KeyError the loser.
-            _LIBRARY_WALK_CACHE.pop(key, None)
-        present = False
-        cached = None
-
-    # Drop legacy negative entries (None was cached before positive-only
-    # memoization): a newly created rebrew-libraries.toml must not stay
-    # invisible for the process lifetime.
-    if present and cached is None:
-        with _LIBRARY_CACHE_LOCK:
-            _LIBRARY_WALK_CACHE.pop(key, None)
-        present = False
-
-    if not present:
-        found: Path | None = None
-        walk = cur
-        while True:
-            candidate = walk / LIBRARY_METADATA_FILE
-            if candidate.exists():
-                found = candidate
-                break
-            if root_p is not None and walk == root_p:
-                break
-            if walk.parent == walk:
-                break
-            walk = walk.parent
-        # Positive-only: never memoize a miss.  Caching None hid a library
-        # file created later in the same process (hand-edit, sibling tool,
-        # or a writer that skipped clear_library_override_cache) and served
-        # project defaults until restart — wrong toolchain/cflags.
-        if found is not None:
-            with _LIBRARY_CACHE_LOCK:
-                if key not in _LIBRARY_WALK_CACHE:
-                    if len(_LIBRARY_WALK_CACHE) >= _LIBRARY_WALK_CACHE_MAX:
-                        _LIBRARY_WALK_CACHE.clear()
-                    _LIBRARY_WALK_CACHE[key] = found
-                cached = _LIBRARY_WALK_CACHE[key]
-        else:
-            cached = None
-
-    if cached is None:
+    if found is None:
         return None
-    meta = parse_library_metadata(cached)
+    meta = parse_library_metadata(found)
     merged, presets = apply_library_presets(meta)
     return LibraryOverride(
-        path=cached,
+        path=found,
         toolchain=str(merged.get("toolchain") or "").strip(),
         cflags=str(merged.get("cflags") or "").strip(),
         library=str(merged.get("library") or "").strip(),

@@ -227,12 +227,28 @@ class TestLibraryCacheConcurrency:
         ovr = find_library_override(lib, tmp_path)
         assert ovr is not None and ovr.toolchain == "msvc-6.0"
 
-    def test_concurrent_stale_path_invalidate_does_not_keyerror(self, tmp_path: Path) -> None:
-        """Workers that all observe a deleted library file must not KeyError on del.
+    def test_nearer_library_file_created_later_wins(self, tmp_path: Path) -> None:
+        """Nearest-wins must hold after an outer hit was already resolved."""
+        from rebrew.metadata import (
+            LIBRARY_METADATA_FILE,
+            clear_library_override_cache,
+            find_library_override,
+        )
 
-        ``find_library_override`` used ``del _LIBRARY_WALK_CACHE[key]`` after an
-        exists() miss; two threads both passing the check raced the delete.
-        """
+        inner = tmp_path / "lib" / "crt"
+        inner.mkdir(parents=True)
+        (tmp_path / "lib" / LIBRARY_METADATA_FILE).write_text(
+            'toolchain = "msvc-6.0"\n', encoding="utf-8"
+        )
+        clear_library_override_cache()
+        ovr = find_library_override(inner, tmp_path)
+        assert ovr is not None and ovr.toolchain == "msvc-6.0"
+        (inner / LIBRARY_METADATA_FILE).write_text('toolchain = "msvc-4.2"\n', encoding="utf-8")
+        ovr = find_library_override(inner, tmp_path)
+        assert ovr is not None and ovr.toolchain == "msvc-4.2"
+
+    def test_concurrent_deleted_library_file_lookup_does_not_raise(self, tmp_path: Path) -> None:
+        """Workers that all observe a deleted library file must not raise."""
         import threading
 
         from rebrew.metadata import (

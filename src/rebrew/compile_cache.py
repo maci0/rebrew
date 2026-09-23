@@ -360,14 +360,25 @@ def available_cache_backends() -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-# Path-list memo for :func:`include_fingerprint`: ``dir → (dir_mtime_ns, paths)``.
-# The list is reused only while the directory's own mtime is unchanged (create /
-# delete / rename of children bumps it).  Each call still re-stats every
-# listed header so an edit that preserves the directory mtime still changes
-# the digest.  Bounded + locked: verify -j N and GA workers share this map.
-_INCLUDE_FP_PATHS: dict[str, tuple[int, tuple[str, ...]]] = {}
+# Path-list memo for :func:`include_fingerprint`:
+# ``dir → (((subdir, mtime_ns), ...), paths)``.  The list is reused only while
+# the mtime of the root AND every subdirectory is unchanged: a create / delete /
+# rename bumps only the immediate parent's mtime, so a header added under
+# ``sys/`` must invalidate even though the root mtime is stable.  Each call
+# still re-stats every listed header so an edit that preserves the directory
+# mtimes still changes the digest.  Bounded + locked: verify -j N and GA
+# workers share this map.
+_INCLUDE_FP_PATHS: dict[str, tuple[tuple[tuple[str, int], ...], tuple[str, ...]]] = {}
 _INCLUDE_FP_PATHS_MAX = 64
 _INCLUDE_FP_LOCK = threading.Lock()
+
+
+def _dir_mtimes_match(dir_mtimes: tuple[tuple[str, int], ...]) -> bool:
+    """True when every recorded directory still exists with the same mtime."""
+    try:
+        return all(Path(d).stat().st_mtime_ns == m for d, m in dir_mtimes)
+    except OSError:
+        return False
 
 
 def _clear_include_fingerprint_cache() -> None:
@@ -386,8 +397,9 @@ def include_fingerprint(include_dir: str) -> str:
     ccache makes in its default mode — it can only be fooled by an edit that
     preserves both size and mtime.
 
-    The header *path list* is memoized per directory while the directory's
-    own mtime is stable (membership changes invalidate); each call re-stats
+    The header *path list* is memoized per directory while the mtimes of the
+    directory and all its subdirectories are stable (membership changes at any
+    depth invalidate); each call re-stats
     those paths so content edits are visible mid-run without a process
     restart.  Returns ``""`` for a path that is not an existing directory.
     An ``OSError`` while walking an existing directory returns a distinct
@@ -397,23 +409,20 @@ def include_fingerprint(include_dir: str) -> str:
     root = Path(include_dir)
     if not root.is_dir():
         return ""
-    try:
-        dir_mtime = root.stat().st_mtime_ns
-    except OSError as exc:
-        logging.getLogger(__name__).warning(
-            "include fingerprint failed for %s: %s — treating as unreadable", include_dir, exc
-        )
-        return hashlib.sha256(f"\0unreadable\0{include_dir}\0".encode()).hexdigest()
-
     with _INCLUDE_FP_LOCK:
         cached = _INCLUDE_FP_PATHS.get(include_dir)
-        paths = cached[1] if cached is not None and cached[0] == dir_mtime else None
+    paths = cached[1] if cached is not None and _dir_mtimes_match(cached[0]) else None
 
     if paths is None:
         try:
-            path_list = sorted(
-                p for p in root.rglob("*") if p.suffix.lower() in _HEADER_SUFFIXES and p.is_file()
-            )
+            dir_mtimes = [(str(root), root.stat().st_mtime_ns)]
+            path_list = []
+            for p in root.rglob("*"):
+                if p.is_dir():
+                    dir_mtimes.append((str(p), p.stat().st_mtime_ns))
+                elif p.suffix.lower() in _HEADER_SUFFIXES and p.is_file():
+                    path_list.append(p)
+            path_list.sort()
         except OSError as exc:
             # "" is reserved for a missing dir.  Returning it here drops header
             # deps from the cache key and can serve a stale .obj after edits.
@@ -425,18 +434,13 @@ def include_fingerprint(include_dir: str) -> str:
             return hashlib.sha256(f"\0unreadable\0{include_dir}\0".encode()).hexdigest()
         paths = tuple(str(p) for p in path_list)
         with _INCLUDE_FP_LOCK:
-            # Re-check: another worker may have filled a fresher entry.
-            cached = _INCLUDE_FP_PATHS.get(include_dir)
-            if cached is None or cached[0] != dir_mtime:
-                if (
-                    len(_INCLUDE_FP_PATHS) >= _INCLUDE_FP_PATHS_MAX
-                    and include_dir not in _INCLUDE_FP_PATHS
-                ):
-                    oldest = next(iter(_INCLUDE_FP_PATHS))
-                    _INCLUDE_FP_PATHS.pop(oldest, None)
-                _INCLUDE_FP_PATHS[include_dir] = (dir_mtime, paths)
-            else:
-                paths = cached[1]
+            if (
+                len(_INCLUDE_FP_PATHS) >= _INCLUDE_FP_PATHS_MAX
+                and include_dir not in _INCLUDE_FP_PATHS
+            ):
+                oldest = next(iter(_INCLUDE_FP_PATHS))
+                _INCLUDE_FP_PATHS.pop(oldest, None)
+            _INCLUDE_FP_PATHS[include_dir] = (tuple(dir_mtimes), paths)
 
     h = hashlib.sha256()
     for p_str in paths:

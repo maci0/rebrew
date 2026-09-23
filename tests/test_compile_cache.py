@@ -241,6 +241,23 @@ class TestIncludeFingerprint:
         (inc / "b.h").write_text("y\n")
         assert include_fingerprint(str(inc)) != first
 
+    def test_new_header_in_subdir_tracked_without_cache_clear(self, tmp_path: Path) -> None:
+        """A header created under a subdirectory leaves the root mtime alone.
+
+        It must still join the memoized path list, so later edits to it change
+        the digest instead of serving objects compiled against the old header.
+        """
+        inc = tmp_path / "inc"
+        (inc / "sys").mkdir(parents=True)
+        (inc / "a.h").write_text("x\n")
+        include_fingerprint.cache_clear()
+        include_fingerprint(str(inc))
+        new = inc / "sys" / "types.h"
+        new.write_text("y\n")
+        second = include_fingerprint(str(inc))
+        new.write_text("yyyy\n")
+        assert include_fingerprint(str(inc)) != second
+
     def test_missing_dir_is_empty(self, tmp_path: Path) -> None:
         assert include_fingerprint(str(tmp_path / "nope")) == ""
 
