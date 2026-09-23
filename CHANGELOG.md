@@ -648,6 +648,13 @@
   in emission order.
 
 ### Fixed
+- **`rebrew binsync-import` no longer splices shared state into C.**  A
+  collaborator's BinSync prototype went verbatim into `--create-missing`
+  stubs and `PROTOTYPE` metadata, so a `{`, `;`, `#`, comment, or newline
+  in it injected code or a preprocessor line.  Such prototypes are now
+  ignored with a warning.  In `binsync_types.h`, a type definition with a
+  preprocessor line imports as an `UNPARSED` comment, and `*/` inside that
+  comment is broken to `* /` so it cannot close the comment early.
 - **`rebrew dashboard` no longer counts `VTABLE`/`STRING` rows as
   functions.**  The Functions list and `function_stats` (total,
   identified bytes) excluded only `GLOBAL`/`DATA`, so the data markers

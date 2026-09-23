@@ -52,6 +52,11 @@ from rebrew.utils import is_safe_c_ident, strip_body
 
 log = logging.getLogger(__name__)
 
+#: BinSync state is written by collaborators.  A prototype is one declarator
+#: line, so a body, statement end, comment, preprocessor, or control character
+#: in it is refused before it is spliced into a ``.c`` file or PROTOTYPE.
+_UNSAFE_PROTOTYPE_RE = re.compile(r"[{};#\x00-\x08\x0a-\x1f\x7f]|/\*|\*/|//")
+
 app = typer.Typer(
     help="Import a BinSync state directory into rebrew metadata.",
     rich_markup_mode="rich",
@@ -159,6 +164,14 @@ def _inside_project(fp: Path, cfg: Any) -> bool:
         except (OSError, ValueError):
             continue
     return False
+
+
+def is_safe_prototype(proto: str) -> bool:
+    """Whether a BinSync *proto* (trailing ``;`` allowed) is a bare declarator."""
+    text = proto.strip()
+    if text.endswith(";"):
+        text = text[:-1]
+    return not _UNSAFE_PROTOTYPE_RE.search(text)
 
 
 def normalize_prototype(proto: str) -> str:
@@ -326,6 +339,9 @@ def import_state(
     for va, bs_entry in sorted(funcs_by_va.items()):
         bs_name = bs_entry.get("name", "")
         bs_proto = bs_entry.get("prototype", "")
+        if bs_proto and not is_safe_prototype(bs_proto):
+            log.warning("ignoring unsafe BinSync prototype for VA 0x%x: %r", va, bs_proto)
+            bs_proto = ""
 
         # Module filter: only import entries whose local module matches filter
         local = local_by_va.get(va)
@@ -373,7 +389,7 @@ def import_state(
                         # Preserve BinSync's prototype when present (keeps calling convention / args);
                         # otherwise synthesize a minimal void stub.  The SIZE comes from the
                         # catalog canonical size, not the compiled body.
-                        bs_proto = bs_entry.get("prototype", "").strip()
+                        bs_proto = bs_proto.strip()
                         if bs_proto and bs_proto.endswith(";"):
                             bs_proto = bs_proto[:-1].strip()
                         body_proto = bs_proto if bs_proto else f"void {target_func}(void)"
@@ -909,6 +925,10 @@ def _definition_is_valid(definition: str, name: str, entry: dict[str, object]) -
     """Whether *definition* is a complete, non-breaking declaration for *name*."""
     from rebrew.types import parse_structs
 
+    # Shared state must not smuggle preprocessor lines into binsync_types.h.
+    if re.search(r"^\s*#", definition, re.MULTILINE):
+        return False
+
     if name in parse_structs(definition):
         return True
     kind = _definition_kind(entry)
@@ -965,7 +985,9 @@ def _import_type_definitions(
         if not definition:
             continue
         if not _definition_is_valid(definition, name, new[name]):
-            definition = f"/* UNPARSED from BinSync (no known layout):\n{definition}\n*/"
+            # Break ``*/`` so the definition cannot close the comment early.
+            inert = definition.replace("*/", "* /")
+            definition = f"/* UNPARSED from BinSync (no known layout):\n{inert}\n*/"
         if name not in existing:
             blocks.append(definition + "\n\n")
 

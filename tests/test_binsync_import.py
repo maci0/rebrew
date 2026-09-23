@@ -437,6 +437,26 @@ reversed_dir = "src/server"
         text = (src / "MyApiFunc.c").read_text()
         assert "__stdcall" in text or "MyApiFunc" in text
 
+    def test_create_missing_refuses_injected_prototype(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A BinSync prototype carrying code or a directive falls back to a void stub."""
+        _make_project(tmp_path, {"foo.c": "// FUNCTION: SERVER 0x1000\nint foo(void){return 0;}\n"})
+        src = tmp_path / "src"
+        src.joinpath("function_structure.json").write_text(
+            json.dumps([{"va": 0x1000, "size": 10, "name": "foo"}, {"va": 0x2000, "size": 16}]),
+            encoding="utf-8",
+        )
+        state = tmp_path / "state"
+        _write_state_function(
+            state, 0x2000, "evil", 'void evil(void) {}\n#include "/etc/passwd"\nvoid x(void)'
+        )
+        result = _invoke_import(tmp_path, state, monkeypatch, "--create-missing", "--json")
+        assert result.exit_code == 0, result.output
+        text = (src / "evil.c").read_text(encoding="utf-8")
+        assert "#include" not in text
+        assert "void evil(void) {}" in text
+
     def test_create_missing_materializes_stub(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -661,6 +681,29 @@ class TestUnparsedTypeComment:
         text = (src / "binsync_types.h").read_text(encoding="utf-8")
         assert "UNPARSED" in text
         assert "not a struct at all {{{" in text
+
+    def test_definition_cannot_escape_comment(self, tmp_path: Path) -> None:
+        from types import SimpleNamespace
+
+        from rebrew.binsync.importer import _import_type_definitions
+
+        src = tmp_path / "src"
+        src.mkdir()
+        cfg = SimpleNamespace(reversed_dir=src, metadata_dir=tmp_path, source_ext=".c")
+        _import_type_definitions(
+            cfg,
+            {
+                "Esc": {"definition": "x */ int injected(void) { return 1; } /*"},
+                "Pp": {"definition": 'typedef int Pp;\n#include "/etc/passwd"\ntypedef int Q;'},
+            },
+            dry_run=False,
+            proposed=[],
+        )
+        text = (src / "binsync_types.h").read_text(encoding="utf-8")
+        # Only the header banner and the two wrappers close a comment.
+        assert text.count("*/") == 3
+        assert "x * / int injected" in text
+        assert "\n/* UNPARSED from BinSync (no known layout):\ntypedef int Pp;\n#include" in text
 
 
 class TestEnumTypedefImport:
