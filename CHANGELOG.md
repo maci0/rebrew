@@ -635,6 +635,10 @@
   in emission order.
 
 ### Fixed
+- **`cross-import --shared` promotes across filesystems.**  Moving a source
+  into `shared_dir` used a plain rename, which fails with `EXDEV` when
+  `shared_dir` is on a different mount than the target's source tree.  The
+  move now falls back to copy-and-delete.
 - **Compiler containers get the project tree read-only.**  `run_toolchain`
   bind-mounted the project root and every `/I` include tree read-write
   into the compiler container, so a hostile `CFLAGS` output path could

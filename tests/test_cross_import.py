@@ -9,6 +9,8 @@ round-trip when the native toolchain is installed (it is on this host).
 
 from __future__ import annotations
 
+import errno
+import os
 import shutil
 from pathlib import Path
 from types import SimpleNamespace
@@ -1049,6 +1051,22 @@ class TestPromoteToShared:
         assert res["action"] == "promoted"
         assert (cfg.shared_dir / "Units" / "vfs" / "f1.c").is_file()
         assert not (cfg.reversed_dir / "Units" / "vfs" / "f1.c").exists()
+
+    def test_promote_moves_across_filesystems(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """shared_dir on another mount: rename raises EXDEV, the move still lands."""
+        cfg = self._cfg(tmp_path)
+        (cfg.reversed_dir / "f1.c").write_text("x")
+
+        def _exdev(src: Any, dst: Any, *args: Any, **kwargs: Any) -> None:
+            raise OSError(errno.EXDEV, "Invalid cross-device link")
+
+        monkeypatch.setattr(os, "rename", _exdev)
+        res = ci.promote_to_shared(cfg, "f1.c")
+        assert res["action"] == "promoted"
+        assert (cfg.shared_dir / "f1.c").read_text() == "x"
+        assert not (cfg.reversed_dir / "f1.c").exists()
 
     def test_promote_dry_run_moves_nothing(self, tmp_path: Path) -> None:
         cfg = self._cfg(tmp_path)

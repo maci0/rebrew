@@ -24,6 +24,7 @@ are left untouched and reported.
 from __future__ import annotations
 
 import re
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -621,7 +622,8 @@ def promote_to_shared(
         }
     try:
         dst_path.parent.mkdir(parents=True, exist_ok=True)
-        src_path.rename(dst_path)
+        # shared_dir is config-set and may sit on another mount; rename raises EXDEV there.
+        shutil.move(src_path, dst_path)
     except OSError as exc:
         return {
             "action": "error",
