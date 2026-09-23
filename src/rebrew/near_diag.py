@@ -22,14 +22,21 @@ from __future__ import annotations
 import logging
 import re
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any
 
 import capstone  # module-level: per-call `import capstone` was ~half of analyze() time
 import typer
 from rich.console import Console
 from rich.table import Table
 
-from rebrew.analysis import Insn, capstone_handle  # re-exported: nd.Insn is analysis.Insn
+from rebrew.analysis import (  # re-exported: nd.Insn is analysis.Insn
+    DEFAULT_CS_ARCH,
+    DEFAULT_CS_MODE,
+    Insn,
+    disasm_insns,
+    normalized_operands,
+    resolve_capstone,
+)
 from rebrew.asm_equiv import jump_swap_ok  # re-exported: asm text-equivalence checks
 from rebrew.cli import (
     TargetOption,
@@ -45,8 +52,6 @@ from rebrew.stack_cmp import analyze_frame, compare_frames
 console = Console(stderr=True)
 logger = logging.getLogger(__name__)
 
-_DEFAULT_CS_ARCH = "CS_ARCH_X86"
-_DEFAULT_CS_MODE = "CS_MODE_32"
 
 # Mnemonic families treated as semantically equivalent instruction selection.
 _EQUIV_FAMILIES: dict[str, tuple[str, ...]] = {
@@ -67,30 +72,6 @@ _EQUIV_FAMILIES: dict[str, tuple[str, ...]] = {
     "jnz": ("jne", "jnz"),
 }
 
-# x86 register names (32-bit and 64-bit GPRs, r8-r15 variants, vector regs),
-# collapsed to ``R`` when comparing operands.
-_REGISTER_RE = re.compile(
-    r"\b(?:"
-    r"r(?:ax|bx|cx|dx|si|di|bp|sp)|"
-    r"r(?:8|9|1[0-5])(?:d|w|b)?|"
-    r"[xyz]mm\d+|"
-    r"eax|ebx|ecx|edx|esi|edi|ebp|esp|"
-    r"ax|bx|cx|dx|si|di|bp|sp|"
-    r"al|bl|cl|dl|ah|bh|ch|dh|sil|dil|spl|bpl"
-    r")\b",
-)
-
-
-def _resolve_capstone(value: str | int) -> int:
-    """Resolve a capstone constant-name string ("CS_MODE_32") or int to an int."""
-    if isinstance(value, int):
-        return value
-    try:
-        return int(getattr(capstone, value))
-    except (AttributeError, TypeError):
-        # A numeric string ("3" or "0x3") is a valid capstone constant.
-        return int(value, 0)
-
 
 def _is_x86_16_or_32(cs_arch: str | int, cs_mode: str | int) -> bool:
     """True when (arch, mode) are the x86 16/32-bit disassembly modes.
@@ -101,49 +82,11 @@ def _is_x86_16_or_32(cs_arch: str | int, cs_mode: str | int) -> bool:
     then disassemble those bytes as x86.
     """
     try:
-        arch = _resolve_capstone(cs_arch)
-        mode = _resolve_capstone(cs_mode)
+        arch = resolve_capstone(cs_arch)
+        mode = resolve_capstone(cs_mode)
     except (AttributeError, TypeError, ValueError):
         return False
     return arch == capstone.CS_ARCH_X86 and mode in (capstone.CS_MODE_16, capstone.CS_MODE_32)
-
-
-def disasm_insns(
-    code: bytes,
-    va: int,
-    cs_arch: str | int = _DEFAULT_CS_ARCH,
-    cs_mode: str | int = _DEFAULT_CS_MODE,
-) -> list[Insn]:
-    """Disassemble *code* into :class:`Insn` records.
-
-    *cs_arch*/*cs_mode* accept capstone constant-name strings (the module
-    defaults), the int constants that ``cfg.capstone_arch``/``cfg.capstone_mode``
-    return, or a bare numeric string ("3") — both config styles must work.
-    """
-    md = capstone_handle(_resolve_capstone(cs_arch), _resolve_capstone(cs_mode))
-    return [
-        Insn(va=i.address, size=i.size, mnemonic=i.mnemonic, op_str=i.op_str, raw=bytes(i.bytes))
-        for i in md.disasm(code, va)
-    ]
-
-
-class _OperandCarrier(Protocol):
-    """Anything with an operand string: the diff path's ``Insn`` or a view over one."""
-
-    op_str: str
-
-
-def normalized_operands(insn: _OperandCarrier) -> str:
-    """Operand string with register names stripped — detects register-alloc churn.
-
-    ``mov eax, ebx`` vs ``mov ecx, edx`` both normalise to ``mov R, R``.
-
-    Takes anything with an ``op_str`` (not just ``Insn``) because the codegen
-    comparison surfaces share it: ``instruction_clones`` normalises through a lightweight
-    view and masks immediates on top, and any future instruction-level matcher
-    should normalise registers the same way rather than growing a second rule.
-    """
-    return _REGISTER_RE.sub("R", insn.op_str)
 
 
 def classify_pair(target: Insn, compiled: Insn) -> str:
@@ -522,8 +465,8 @@ def analyze(
     compiled_bytes: bytes,
     reloc_offsets: set[int] | None,
     va: int,
-    cs_arch: str = _DEFAULT_CS_ARCH,
-    cs_mode: str = _DEFAULT_CS_MODE,
+    cs_arch: str = DEFAULT_CS_ARCH,
+    cs_mode: str = DEFAULT_CS_MODE,
 ) -> dict[str, Any]:
     """Full classification of a NEAR_MATCHING pair.
 
@@ -584,7 +527,7 @@ def _cfg_score(
     compiled_bytes: bytes,
     va: int,
     cs_mode: str | int,
-    cs_arch: str | int = _DEFAULT_CS_ARCH,
+    cs_arch: str | int = DEFAULT_CS_ARCH,
 ) -> dict[str, Any] | None:
     """CFG structural similarity (cfg_ged) for the pair — best-effort.
 
@@ -596,7 +539,7 @@ def _cfg_score(
     try:
         if not _is_x86_16_or_32(cs_arch, cs_mode):
             return None
-        mode = _resolve_capstone(cs_mode)
+        mode = resolve_capstone(cs_mode)
         from rebrew.cfg_ged import cfg_similarity
 
         return cfg_similarity(target_bytes, compiled_bytes, va, mode)
@@ -622,7 +565,7 @@ def _frame_comparison(
     try:
         if not _is_x86_16_or_32(cs_arch, cs_mode):
             return None
-        mode = _resolve_capstone(cs_mode)
+        mode = resolve_capstone(cs_mode)
 
         return compare_frames(
             analyze_frame(target_bytes, va, mode),
@@ -724,8 +667,8 @@ def _diagnose_one(
         compiled_bytes,
         reloc_offsets,
         va_int,
-        cs_arch=getattr(cfg, "capstone_arch", _DEFAULT_CS_ARCH),
-        cs_mode=getattr(cfg, "capstone_mode", _DEFAULT_CS_MODE),
+        cs_arch=getattr(cfg, "capstone_arch", DEFAULT_CS_ARCH),
+        cs_mode=getattr(cfg, "capstone_mode", DEFAULT_CS_MODE),
     )
     blocker_written = False
     if fix_blocker and not result["verdict"].startswith("MATCH"):
@@ -956,8 +899,6 @@ def main(
     if catalog:
         print(catalog_markdown(), end="")
         return
-
-    import re
 
     from rebrew.annotation import parse_c_file_multi
     from rebrew.sources import target_marker

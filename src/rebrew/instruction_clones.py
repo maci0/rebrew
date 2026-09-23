@@ -28,7 +28,7 @@ MinHash inside rebrew would be a second answer to that question.
 Normalization
 -------------
 Keys are built from the diff path's register stripping
-(:func:`rebrew.near_diag.normalized_operands`) plus immediate masking, so two
+(:func:`rebrew.analysis.normalized_operands`) plus immediate masking, so two
 thunks that differ only in the address they jump to land in one cluster.
 
 resembl's ``string_normalize``/``code_tokenize`` normalize too, but they are
@@ -57,8 +57,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+from rebrew.analysis import disasm_insns, normalized_operands
 from rebrew.config import inventory_path_for
-from rebrew.near_diag import disasm_insns, normalized_operands
 
 #: Shortest common instruction run reported by sub-function matching.  A run
 #: of fewer instructions is noise: a shared prologue of two or three

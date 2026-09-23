@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from rebrew.analysis import disasm_insns
 from rebrew.asm_equiv import jump_swap_ok
 from rebrew.demangle import (
     InvalidEncodedNumberError,
@@ -16,7 +17,7 @@ from rebrew.demangle import (
     parse_encoded_number,
 )
 from rebrew.float_const import find_float_consts, find_float_instructions_in_buffer
-from rebrew.near_diag import align_and_classify, disasm_insns
+from rebrew.near_diag import align_and_classify
 from rebrew.pdb_cvdump import CvdumpParser
 from rebrew.pinned_diff import SequenceMatcherWithPins
 from rebrew.vtordisp import find_vtordisps

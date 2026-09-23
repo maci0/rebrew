@@ -103,11 +103,11 @@ class TestScoreAligned:
     def _result(self, monkeypatch):
         from types import SimpleNamespace
 
-        import rebrew.near_diag
+        import rebrew.analysis
 
         result = SimpleNamespace(obj_bytes=b"obj", full_obj_size=12, reloc_offsets=[])
         monkeypatch.setattr(rebrew.climb, "compile_and_compare", lambda *a, **k: result)
-        return result, rebrew.near_diag
+        return result, rebrew.analysis
 
     def test_score_is_pairs_dominated_with_hunks_as_tie_break(self, monkeypatch, tmp_path) -> None:
         """pairs * 1000 - hunks: distance first, region count breaks ties.

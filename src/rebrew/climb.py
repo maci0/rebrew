@@ -290,8 +290,7 @@ def _score_aligned(
     if result.obj_bytes is None:
         return -1.0, 0
     obj_len = result.full_obj_size if result.full_obj_size is not None else len(result.obj_bytes)
-    from rebrew.analysis import Insn
-    from rebrew.near_diag import disasm_insns
+    from rebrew.analysis import Insn, disasm_insns
 
     arch = getattr(cfg, "capstone_arch", "CS_ARCH_X86")
     mode = getattr(cfg, "capstone_mode", "CS_MODE_32")

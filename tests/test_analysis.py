@@ -18,6 +18,7 @@ from rebrew.analysis import (
     Insn,
     Xref,
     data_references,
+    disasm_insns,
     extract_bytes,
     is_inside,
     iter_instructions,
@@ -331,3 +332,43 @@ class TestScanUtf16TrailingByte:
 
         out = _scan_utf16(b"A\x00B\x00C\x00D\x00", 0x1000, ".rdata", 4)
         assert [(s.text, s.size) for s in out] == [("ABCD", 8)]
+
+
+class TestDisasmInsnsCapstoneConstants:
+    """disasm_insns must accept BOTH capstone constant-name strings (module
+    defaults) and the int constants cfg.capstone_arch/mode return (the config
+    property returns ints — a raw getattr(capstone, int) used to crash)."""
+
+    _CODE = bytes.fromhex("558bec83ec08b801000000c9c3")
+
+    def test_string_names(self) -> None:
+        insns = disasm_insns(self._CODE, 0x1000, "CS_ARCH_X86", "CS_MODE_32")
+        assert len(insns) == 6
+        assert [(i.mnemonic, i.op_str) for i in insns] == [
+            ("push", "ebp"),
+            ("mov", "ebp, esp"),
+            ("sub", "esp, 8"),
+            ("mov", "eax, 1"),
+            ("leave", ""),
+            ("ret", ""),
+        ]
+
+    def test_int_constants(self) -> None:
+        import capstone
+
+        insns = disasm_insns(self._CODE, 0x1000, capstone.CS_ARCH_X86, capstone.CS_MODE_32)
+        assert len(insns) == 6
+        assert insns[0].mnemonic == "push"
+        assert insns[0].op_str == "ebp"
+        assert insns[-1].mnemonic == "ret"
+
+    def test_both_forms_equal(self) -> None:
+        a = [
+            (i.mnemonic, i.op_str)
+            for i in disasm_insns(self._CODE, 0x1000, "CS_ARCH_X86", "CS_MODE_32")
+        ]
+        b = [
+            (i.mnemonic, i.op_str)
+            for i in disasm_insns(self._CODE, 0x1000, 3, 4)  # CS_ARCH_X86=3, CS_MODE_32=4
+        ]
+        assert a == b

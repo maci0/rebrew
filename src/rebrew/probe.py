@@ -65,10 +65,11 @@ def main(
             "Need symbol, VA and SIZE (from the annotation or --va/--size)", json_mode=json_output
         )
 
+    from rebrew.analysis import disasm_insns
     from rebrew.coff_reloc import smart_reloc_compare
     from rebrew.compile_overrides import resolve_compile_overrides
     from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
-    from rebrew.near_diag import align_and_classify, disasm_insns
+    from rebrew.near_diag import align_and_classify
 
     load_binary(cfg.target_binary)
     ref_raw = extract_raw_bytes(cfg.target_binary, va_int, size_val)

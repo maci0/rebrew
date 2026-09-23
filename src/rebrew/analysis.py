@@ -13,15 +13,37 @@ Architecture notes:
 - ``iter_strings`` extracts printable ASCII / UTF-16LE runs from data
   sections.  ``.text`` is skipped by default (embedded immediates are noise);
   pass ``section_names`` explicitly to scan it.
+- ``disasm_insns`` / ``normalized_operands`` disassemble raw byte buffers
+  (compiled objects, extracted target bytes) without a ``BinaryInfo``; the
+  diff, clone, and climb tools share them.
 """
 
 from __future__ import annotations
 
+import re
 import threading
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Protocol
+
+import capstone
 
 from rebrew.binary_loader import BinaryInfo, section_extent, va_to_file_offset
+
+DEFAULT_CS_ARCH = "CS_ARCH_X86"
+DEFAULT_CS_MODE = "CS_MODE_32"
+
+# x86 register names (32-bit and 64-bit GPRs, r8-r15 variants, vector regs),
+# collapsed to ``R`` when comparing operands.
+_REGISTER_RE = re.compile(
+    r"\b(?:"
+    r"r(?:ax|bx|cx|dx|si|di|bp|sp)|"
+    r"r(?:8|9|1[0-5])(?:d|w|b)?|"
+    r"[xyz]mm\d+|"
+    r"eax|ebx|ecx|edx|esi|edi|ebp|esp|"
+    r"ax|bx|cx|dx|si|di|bp|sp|"
+    r"al|bl|cl|dl|ah|bh|ch|dh|sil|dil|spl|bpl"
+    r")\b",
+)
 
 # ---------------------------------------------------------------------------
 # Data types
@@ -174,6 +196,55 @@ def capstone_handle(cs_arch: int, cs_mode: int, *, detail: bool = False) -> Any:
         md.detail = detail
         cache[key] = md
     return md
+
+
+def resolve_capstone(value: str | int) -> int:
+    """Resolve a capstone constant-name string ("CS_MODE_32") or int to an int."""
+    if isinstance(value, int):
+        return value
+    try:
+        return int(getattr(capstone, value))
+    except (AttributeError, TypeError):
+        # A numeric string ("3" or "0x3") is a valid capstone constant.
+        return int(value, 0)
+
+
+def disasm_insns(
+    code: bytes,
+    va: int,
+    cs_arch: str | int = DEFAULT_CS_ARCH,
+    cs_mode: str | int = DEFAULT_CS_MODE,
+) -> list[Insn]:
+    """Disassemble *code* into :class:`Insn` records.
+
+    *cs_arch*/*cs_mode* accept capstone constant-name strings (the module
+    defaults), the int constants that ``cfg.capstone_arch``/``cfg.capstone_mode``
+    return, or a bare numeric string ("3") — both config styles must work.
+    """
+    md = capstone_handle(resolve_capstone(cs_arch), resolve_capstone(cs_mode))
+    return [
+        Insn(va=i.address, size=i.size, mnemonic=i.mnemonic, op_str=i.op_str, raw=bytes(i.bytes))
+        for i in md.disasm(code, va)
+    ]
+
+
+class _OperandCarrier(Protocol):
+    """Anything with an operand string: the diff path's ``Insn`` or a view over one."""
+
+    op_str: str
+
+
+def normalized_operands(insn: _OperandCarrier) -> str:
+    """Operand string with register names stripped — detects register-alloc churn.
+
+    ``mov eax, ebx`` vs ``mov ecx, edx`` both normalise to ``mov R, R``.
+
+    Takes anything with an ``op_str`` (not just ``Insn``) because the codegen
+    comparison surfaces share it: ``instruction_clones`` normalises through a lightweight
+    view and masks immediates on top, and any future instruction-level matcher
+    should normalise registers the same way rather than growing a second rule.
+    """
+    return _REGISTER_RE.sub("R", insn.op_str)
 
 
 _OP_CONSTANTS: tuple[Any, Any, Any] | None = None
