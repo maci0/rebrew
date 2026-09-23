@@ -43,7 +43,7 @@ make help                     # list contributor make targets
 make setup                    # frozen sync + pre-commit install (checks uv + ../resembl first)
 make test-one T=tests/foo.py  # single file / nodeid (fast edit-test loop)
 make coverage                 # full suite under slipcover; fails below the COV_FLOOR floor
-make test                     # full suite (~7800 tests, ~3.5 min; needs nasm)
+make test                     # full suite (a few minutes; needs nasm)
 make all                      # local mirror of CI lint+test+cli-contract gates
 make check                    # pre-commit hook parity (CI pre-commit job)
 make build                    # reproducible sdist+wheel + dist/rebrew.buildinfo (CI package job)
