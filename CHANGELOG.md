@@ -648,6 +648,12 @@
   in emission order.
 
 ### Fixed
+- **`rebrew dashboard` no longer counts `VTABLE`/`STRING` rows as
+  functions.**  The Functions list and `function_stats` (total,
+  identified bytes) excluded only `GLOBAL`/`DATA`, so the data markers
+  added in ADR 023 showed up as functions and disagreed with recoverage.
+  Both now select `FUNCTION`/`LIBRARY`/`STUB` rows, and the `markerType`
+  CHECK and sanitizer come from the annotation parser's marker set.
 - **`rebrew split` output filenames are ASCII.**  A symbol with a
   non-ASCII letter kept it in the filename, so the NFC and NFD spellings
   of one name (`café` / `cafe` + U+0301) split into two different files.

@@ -17,6 +17,7 @@ from typing import Any
 import typer
 from rich.console import Console
 
+from rebrew.annotation import FUNCTION_MARKERS, VALID_MARKERS
 from rebrew.cli import (
     EXIT_ERROR,
     TargetOption,
@@ -45,6 +46,16 @@ console = Console(stderr=True)
 
 
 _CURRENT_DB_VERSION = "10"
+
+#: ``functions.markerType`` vocabulary, from the annotation parser's set so the
+#: CHECK and the insert-time sanitizer cannot drift from what sources may carry.
+_MARKER_CHECK_SQL: str = ", ".join(repr(m) for m in sorted(VALID_MARKERS))
+
+#: WHERE term selecting code rows of ``functions`` (``FUNCTION_MARKERS``);
+#: every other marker (GLOBAL/DATA/VTABLE/STRING) is data.  Shared verbatim by
+#: ``idx_functions_list``'s predicate and every list/stats query: SQLite uses a
+#: partial index only when the query repeats its WHERE term.
+FUNCTION_ROWS_SQL: str = f"markerType IN ({', '.join(repr(m) for m in sorted(FUNCTION_MARKERS))})"
 
 #: Statuses allowed in ``functions.status``.  ``KNOWN_STATUSES`` plus
 #: ``UNKNOWN`` (the DEFAULT when a catalog row omits STATUS).  Kept in one
@@ -410,7 +421,7 @@ def _function_stats(
     """
     c.execute(
         "SELECT va, name, size, status, module, symbol, markerType, files "
-        "FROM functions WHERE target = ? AND markerType NOT IN ('GLOBAL', 'DATA') ORDER BY va",
+        f"FROM functions WHERE target = ? AND {FUNCTION_ROWS_SQL} ORDER BY va",
         (target_name,),
     )
     total: int = 0
@@ -764,7 +775,7 @@ def build_db(
                 cflags TEXT,
                 symbol TEXT,
                 markerType TEXT NOT NULL DEFAULT 'FUNCTION'
-                    CHECK (markerType IN ('FUNCTION', 'LIBRARY', 'STUB', 'GLOBAL', 'DATA', 'VTABLE', 'STRING')),
+                    CHECK (markerType IN ({_MARKER_CHECK_SQL})),
                 ghidra_name TEXT,
                 list_name TEXT,
                 is_thunk INTEGER NOT NULL DEFAULT 0 CHECK (is_thunk IN (0, 1)),
@@ -883,15 +894,18 @@ def build_db(
         c.execute(
             "CREATE INDEX IF NOT EXISTS idx_functions_module_va ON functions(target, module, va)"
         )
-        # Dashboard + _function_stats always exclude GLOBAL/DATA and ORDER BY
-        # va: a partial (target, va) index matches that filter+sort without
-        # scanning markerType rows that the UI never lists.  It also serves the
-        # COUNT(*), so a (target, markerType) index would only cost writes:
+        # Dashboard + _function_stats list only FUNCTION_ROWS_SQL rows and
+        # ORDER BY va: a partial (target, va) index matches that filter+sort
+        # without scanning data rows that the UI never lists.  It also serves
+        # the COUNT(*), so a (target, markerType) index would only cost writes:
         # drop the copy older builds created (scoped rebuilds keep the table).
+        # idx_functions_list is dropped and recreated every run so a scoped
+        # rebuild cannot keep an older build's predicate, which no current
+        # query matches.
         c.execute("DROP INDEX IF EXISTS idx_functions_marker")
+        c.execute("DROP INDEX IF EXISTS idx_functions_list")
         c.execute(
-            "CREATE INDEX IF NOT EXISTS idx_functions_list ON functions(target, va) "
-            "WHERE markerType NOT IN ('GLOBAL', 'DATA')"
+            f"CREATE INDEX idx_functions_list ON functions(target, va) WHERE {FUNCTION_ROWS_SQL}"
         )
         c.execute("CREATE INDEX IF NOT EXISTS idx_globals_name ON globals(target, name)")
         # idx_cells_section is deliberately NOT created: the
@@ -1175,15 +1189,7 @@ def build_db(
                     blocker_delta = 0
                 fn_similarity = fn.get("similarity")
                 fn_marker = str(fn.get("markerType") or "FUNCTION")
-                if fn_marker not in (
-                    "FUNCTION",
-                    "LIBRARY",
-                    "STUB",
-                    "GLOBAL",
-                    "DATA",
-                    "VTABLE",
-                    "STRING",
-                ):
+                if fn_marker not in VALID_MARKERS:
                     fn_marker = "FUNCTION"
                 fn_status = canonical_status(str(fn.get("status") or "UNKNOWN"))
                 if fn_status not in _FUNCTION_DB_STATUSES:

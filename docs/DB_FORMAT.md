@@ -59,7 +59,7 @@ Stores details regarding decompiled and original functions.
 | `module` | `TEXT` | Origin module/library — config-driven (e.g., `GAME`, `ZLIB`, `MSVCRT`). |
 | `cflags` | `TEXT` | Compilation flags (if any). |
 | `symbol` | `TEXT` | The raw mangled or internal symbol name. |
-| `markerType` | `TEXT` | Annotation marker type: `FUNCTION`, `LIBRARY`, `STUB`, `GLOBAL`, `DATA`. |
+| `markerType` | `TEXT` | Annotation marker type: `FUNCTION`, `LIBRARY`, `STUB` (code rows), `GLOBAL`, `DATA`, `VTABLE`, `STRING` (data rows). |
 | `ghidra_name` | `TEXT` | Function name as defined in Ghidra. |
 | `list_name` | `TEXT` | Function name from the function list. |
 | `is_thunk` | `BOOLEAN` | True if the function is an IAT thunk (`jmp [IAT]` stub). |
@@ -81,7 +81,7 @@ Stores details regarding decompiled and original functions.
 - `idx_functions_name` on `(target, name)`
 - `idx_functions_status_va` on `(target, status, va)`: serves the dashboard's status-filtered page (`ORDER BY va`) without a sort
 - `idx_functions_module_va` on `(target, module, va)`: same for the module filter
-- `idx_functions_list` on `(target, va) WHERE markerType NOT IN ('GLOBAL', 'DATA')` — serves the dashboard / `_function_stats` list path (`WHERE target = ? AND markerType NOT IN (…) ORDER BY va`)
+- `idx_functions_list` on `(target, va) WHERE markerType IN ('FUNCTION', 'LIBRARY', 'STUB')` — serves the dashboard / `_function_stats` list path (`WHERE target = ? AND markerType IN (…) ORDER BY va`); dropped and recreated on every build
 
 ### `globals` Table
 Tracks global variables mapped during the decompilation effort.

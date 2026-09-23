@@ -12,7 +12,7 @@ from typing import Any
 
 import pytest
 
-from rebrew.build_db import build_db
+from rebrew.build_db import FUNCTION_ROWS_SQL, build_db
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -577,11 +577,17 @@ binary = "test.exe"
 
     def test_stale_marker_index_dropped_on_scoped_rebuild(self, project_root: Path) -> None:
         """idx_functions_list serves every markerType filter; a scoped rebuild
-        keeps the functions table, so an older DB's marker index must be dropped."""
+        keeps the functions table, so an older DB's marker index must be dropped
+        and an older idx_functions_list predicate replaced."""
         build_db(project_root)
         db_path = project_root / "db" / "coverage.db"
         conn = sqlite3.connect(db_path)
         conn.execute("CREATE INDEX idx_functions_marker ON functions(target, markerType)")
+        conn.execute("DROP INDEX idx_functions_list")
+        conn.execute(
+            "CREATE INDEX idx_functions_list ON functions(target, va) "
+            "WHERE markerType NOT IN ('GLOBAL', 'DATA')"
+        )
         conn.commit()
         conn.close()
         build_db(project_root, target="testbin")
@@ -594,7 +600,7 @@ binary = "test.exe"
             assert "idx_functions_list" in names
             plan = conn.execute(
                 "EXPLAIN QUERY PLAN SELECT COUNT(*) FROM functions "
-                "WHERE target = 'testbin' AND markerType NOT IN ('GLOBAL', 'DATA')"
+                f"WHERE target = 'testbin' AND {FUNCTION_ROWS_SQL}"
             ).fetchall()
             assert any("idx_functions_list" in row[3] for row in plan)
         finally:
@@ -746,7 +752,7 @@ binary = "test.exe"
         conn.close()
 
     def test_functions_list_partial_index_exists(self, project_root: Path) -> None:
-        """Dashboard / _function_stats exclude GLOBAL/DATA and ORDER BY va —
+        """Dashboard / _function_stats list code markers and ORDER BY va —
         idx_functions_list is the partial index that serves that path."""
         build_db(project_root)
         conn = sqlite3.connect(project_root / "db" / "coverage.db")
@@ -754,7 +760,7 @@ binary = "test.exe"
         c.execute("SELECT sql FROM sqlite_master WHERE type='index' AND name='idx_functions_list'")
         row = c.fetchone()
         assert row is not None
-        assert "markerType NOT IN ('GLOBAL', 'DATA')" in row[0]
+        assert row[0].endswith(f"WHERE {FUNCTION_ROWS_SQL}")
         conn.close()
 
     def test_section_cells_agg_orders_by_start(self, project_root: Path) -> None:

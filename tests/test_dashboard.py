@@ -449,6 +449,32 @@ class TestQueryLayer:
         assert data["count"] == 2
         assert data["total"] == 2  # not 3
 
+    def test_vtable_and_string_markers_are_not_functions(self, tmp_path: Path) -> None:
+        """VTABLE/STRING rows are data: neither listed nor counted in function_stats."""
+        db_dir = tmp_path / "db"
+        path = _write_data(db_dir)
+        data = json.loads(path.read_text(encoding="utf-8"))
+        for va, marker in (("0x50003000", "VTABLE"), ("0x50004000", "STRING")):
+            data["functions"][va] = {
+                "name": f"d_{marker.lower()}",
+                "vaStart": va,
+                "size": 16,
+                "status": "EXACT",
+                "module": "SERVER",
+                "files": ["d.c"],
+                "markerType": marker,
+            }
+        path.write_text(json.dumps(data), encoding="utf-8")
+        build_db(tmp_path)
+        dash = Dashboard(db_dir / "coverage.db")
+        listed = dash.functions("server_dll")
+        assert [row[1] for row in listed["functions"]] == ["func_a", "func_b"]
+        assert listed["total"] == 2
+        summary = dash.summary("server_dll")
+        assert summary is not None
+        assert summary["function_stats"]["total"] == 2
+        assert summary["function_stats"]["covered_bytes"] == 96
+
 
 class TestSummaryRequests:
     def test_latest_summary_wins(self) -> None:

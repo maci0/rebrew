@@ -82,7 +82,7 @@ import zstandard
 from rich.console import Console
 from rich.markup import escape
 
-from rebrew.build_db import resolve_db_dir
+from rebrew.build_db import FUNCTION_ROWS_SQL, resolve_db_dir
 from rebrew.cli import error_exit, json_print
 from rebrew.workspace import open_sqlite_ro
 
@@ -1401,8 +1401,8 @@ class Dashboard:
         if q:
             where.append("(name LIKE ? ESCAPE '\\' OR symbol LIKE ? ESCAPE '\\')")
             args.extend([f"%{_escape_like(q)}%", f"%{_escape_like(q)}%"])
-        # Exclude non-function rows; must remain in *where* for the COUNT total.
-        where.append("markerType NOT IN ('GLOBAL', 'DATA')")
+        # Code rows only; must remain in *where* for the COUNT total.
+        where.append(FUNCTION_ROWS_SQL)
         where_sql = " AND ".join(where)
         # (target, va) is the primary key, so va alone is a total order; a
         # second sort key stops idx_functions_list from serving the ORDER BY.
