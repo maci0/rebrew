@@ -1893,6 +1893,65 @@ class TestRunOneStubGaPersistsFlags:
         # Raw swept flags, WITHOUT the base prefix, land in metadata.
         assert persisted.get("cf") == "/O2 /G3"
 
+    def test_validation_ignores_sibling_best_c(self, tmp_path: Path, monkeypatch: Any) -> None:
+        """A sibling stub's champion in the shared best.c must not be validated."""
+        import rebrew.match_run as M
+        from rebrew.match_batch import StubInfo
+
+        stub = StubInfo(
+            filepath=tmp_path / "s.c",
+            va="0x10001000",
+            size=16,
+            symbol="_s",
+            cflags="/O2",
+            status="STUB",
+            module="SERVER",
+        )
+        (tmp_path / "s.c").write_text("// FUNCTION: SERVER 0x10001000\nint s(void) { return 0; }\n")
+        out = tmp_path / "output" / "ga_runs" / "s"
+        out.mkdir(parents=True)
+        # Written by a concurrent GA for another stub of the same file.
+        (out / "best.c").write_text("int s(void) { return 0; } int t(void) { return 7; }\n")
+        champion = "int s(void) { return 42; }\n"
+
+        class FakeGA:
+            elapsed_sec = 1.0
+            stagnant_gens = 0
+            _pairs_count = 0
+            generation = 3
+            rng_seed = 0
+
+            def __init__(self, *a: Any, **k: Any) -> None:
+                pass
+
+            def run(self, deadline: Any = None) -> tuple[str, float]:
+                return champion, 0.0
+
+            def close(self) -> None:
+                pass
+
+        import rebrew.coff_reloc as core
+
+        validated: list[str] = []
+
+        def _cmp(cfg: Any, path: Path, *a: Any, **k: Any) -> SimpleNamespace:
+            validated.append(Path(path).read_text())
+            return SimpleNamespace(matched=True, status="EXACT", message="")
+
+        monkeypatch.setattr(M, "BinaryMatchingGA", FakeGA)
+        monkeypatch.setattr(M, "extract_raw_bytes", lambda *a, **k: b"\xc3" * 16)
+        monkeypatch.setattr(M, "resolve_compiler_env", lambda cfg: ("cl", "", {}, None))
+        monkeypatch.setattr(core, "build_name_to_va", lambda cfg: {"_s": 0x10001000})
+        monkeypatch.setattr("rebrew.compile_overrides.resolve_cflags", lambda *a, **k: "/O2")
+        monkeypatch.setattr("rebrew.compile.compile_and_compare", _cmp)
+        monkeypatch.setattr(M, "update_stub_to_matched", lambda *a, **k: True)
+        monkeypatch.setattr(M, "_save_solution", lambda *a, **k: None)
+        monkeypatch.setattr(M, "update_cflags_annotation", lambda *a, **k: None)
+
+        matched, *_ = M._run_one_stub_ga(stub, self._cfg(tmp_path), 1, 4, 1, 5)
+        assert matched
+        assert validated == [champion]
+
     def test_splice_failure_does_not_claim_match(self, tmp_path: Path, monkeypatch: Any) -> None:
         import rebrew.match_run as M
         from rebrew.match_batch import StubInfo

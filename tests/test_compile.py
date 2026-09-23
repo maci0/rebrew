@@ -139,10 +139,8 @@ class TestSafeShlex:
 
 class TestCompileToObj:
     def test_returns_copy_error_when_source_copy_fails(self, tmp_path: Path, monkeypatch) -> None:
-        def _boom(*_args: object, **_kwargs: object) -> None:
-            raise PermissionError("no write access")
-
-        monkeypatch.setattr("rebrew.compile.shutil.copy2", _boom)
+        # A directory squatting on the workdir source name fails the write.
+        (tmp_path / "f.c").mkdir()
         cfg: Any = SimpleNamespace(
             compiler_includes=tmp_path,
             base_cflags="/nologo",
@@ -251,6 +249,58 @@ class TestCompileToObj:
         )
         assert len(seen) == 2
         assert seen[0] != seen[1], "cache key must differ with extra_include_dirs"
+
+    def test_compiles_keyed_text_when_source_rewritten(self, tmp_path: Path, monkeypatch) -> None:
+        """A source rewritten after the key is computed (GA splice, editor
+        save) must not be compiled and stored under the pre-rewrite key."""
+        import rebrew.compile as C
+
+        old = "int f(void){return 1;}\n"
+        compiled: list[str] = []
+        stored: dict[str, bytes] = {}
+        real_key = C._cache_key_for
+
+        def _key_then_rewrite(*args: Any, **kwargs: Any) -> str:
+            key = real_key(*args, **kwargs)
+            source.write_text("int f(void){return 2;}\n", encoding="utf-8")
+            return key
+
+        class _FakeCache:
+            def get(self, key: str) -> None:
+                return None
+
+            def put(self, key: str, data: bytes) -> None:
+                stored[key] = data
+
+        def _fake_run(spec, args, *, workdir, timeout, mounts=None):
+            compiled.append((workdir / "f.c").read_text(encoding="utf-8"))
+            (workdir / "f.obj").write_bytes(b"\x00")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        monkeypatch.setattr(C, "_cache_key_for", _key_then_rewrite)
+        monkeypatch.setattr(C, "run_toolchain", _fake_run)
+        cfg: Any = SimpleNamespace(
+            root=tmp_path,
+            compiler_includes=tmp_path,
+            base_cflags="/nologo",
+            compile_timeout=3,
+            compiler_command="CL.EXE",
+            compiler_runner="",
+            compiler_libs=tmp_path,
+            compiler_profile="msvc-6.0",
+            posix_style=False,
+            msvc_env=lambda: {},
+        )
+        src_dir = tmp_path / "src"
+        src_dir.mkdir()
+        source = src_dir / "f.c"
+        source.write_text(old, encoding="utf-8")
+        workdir = tmp_path / "work"
+        workdir.mkdir()
+
+        compile_to_obj(cast(ProjectConfig, cfg), source, ["/O2"], workdir, cache=_FakeCache())
+        assert compiled == [old]
+        assert len(stored) == 1
 
 
 class TestCompileToObjPosix:

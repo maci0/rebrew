@@ -42,7 +42,7 @@ from rebrew.match_sweep import (
     run_flag_sweep,
 )
 from rebrew.matcher import GACheckpoint, SolutionEntry, load_ga_runs
-from rebrew.utils import metadata_write_lock, read_compile_source
+from rebrew.utils import atomic_write_text, metadata_write_lock, read_compile_source
 
 log = logging.getLogger(__name__)
 console = Console(stderr=True)
@@ -429,7 +429,12 @@ def _run_one_stub_ga(
         output_summary = f"best_score={best_score:.2f}"
 
         if matched and best_src is not None:
-            best_c = out_dir / "best.c"
+            # Validate this stub's own champion, not the shared ``best.c``:
+            # every stub of one .c file shares *out_dir*, so under
+            # ``match --all -j N`` a sibling GA may have overwritten
+            # ``best.c`` with its champion (this stub's body still unmatched).
+            best_c = out_dir / f"{stub.symbol}.best.c"
+            atomic_write_text(best_c, best_src, encoding="utf-8", errors="surrogateescape")
             # Persist the RAW user-facing flags (swept override or the stub's
             # own metadata) — never the base-prefixed compile string.  The
             # metadata convention stores user-facing flags only; compile_to_obj

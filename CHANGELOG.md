@@ -635,6 +635,17 @@
   in emission order.
 
 ### Fixed
+- **`rebrew match --all -j N` validates each stub's own champion.**  Every
+  stub of one `.c` file shares `output/ga_runs/<file>/best.c`, so a sibling
+  GA could overwrite it between a win and its reloc validation, and the
+  real match was dropped as "not confirmed".  Validation now compiles
+  `<symbol>.best.c`, written from the winning source.
+- **A source rewritten mid-compile no longer poisons the compile cache.**
+  `compile_to_obj` keyed the cache on one read of the source and compiled a
+  second copy, and the batch precompile keyed on a fresh read after
+  staging; a rewrite in between (GA splice, an editor save under
+  `verify --watch`) stored the new object under the old text's key.  Both
+  now key the exact bytes the compiler reads.
 - **`rebrew qual-sweep` and `rebrew climb` compile with the function's
   overrides.**  `qual-sweep` scored every candidate with the project
   `[compiler]` cflags and default profile, and `climb` dropped the

@@ -1338,13 +1338,12 @@ def compile_to_obj(
     # A source already inside the workdir (compile in place) is not copied:
     # copy2 would fail with "same file".  The docker mount / workdir then
     # serves the source directly.
+    # The workdir gets the keyed text, never a second read of *source_path*:
+    # a rewrite between the two reads (GA splice, editor save under
+    # ``verify --watch``) would store the new object under the old key.
     try:
-        if context is not None:
-            # The merged unit goes to the workdir verbatim (no copy: the
-            # compiler must read the context as part of the source).
-            local_src.write_text(compile_text, encoding="utf-8", errors="surrogateescape")
-        elif local_src.resolve() != source_path.resolve():
-            shutil.copy2(source_path, local_src)
+        if context is not None or local_src.resolve() != source_path.resolve():
+            local_src.write_bytes(compile_text.encode("utf-8", errors="surrogateescape"))
     except OSError as e:
         return None, f"Failed to copy source into workdir: {e}"
 
@@ -1791,10 +1790,12 @@ def precompile_batch(
                             continue
                         src_parent = src.resolve().parent
                         key_flags = _effective_compile_flags(cfg, spec, own_cflags, src_parent)
+                        # Key the staged bytes the compiler read, not a
+                        # fresh read of a source rewritten since staging.
                         key = _cache_key_for(
                             cfg,
                             spec,
-                            src.read_bytes().decode("utf-8", errors="surrogateescape"),
+                            (workdir / name).read_bytes().decode("utf-8", errors="surrogateescape"),
                             src.name,
                             key_flags,
                             str(cfg.compiler_includes),
