@@ -7,10 +7,10 @@ GA engine for binary-matching decompilation. Compiles C through the docker-backe
 | Module | Role |
 |--------|------|
 | `core.py` | Types: `Score`, `BuildResult`, `GACheckpoint`, `StructuralSimilarity` |
-| `compiler.py` | `build_candidate_obj_only` (default timeout 60s), `build_candidate` (120s), `flag_sweep`, `generate_flag_combinations` |
+| `compiler.py` | `build_candidate_obj_only`, `build_candidate`, `flag_sweep`, `generate_flag_combinations` |
 | `scoring.py` | `score_candidate`, `diff_functions`, `structural_similarity` (pure) |
-| `mutator.py` | `mutate_code` / `ALL_MUTATIONS` (128 packaged ops) + GA helpers |
-| `mutations/` | Operators by file (`basic` 65, `structural` 25, `advanced` 18, `enhancements` 13, `pragmas` 7) + `queries` / `runtime` |
+| `mutator.py` | `mutate_code` / `ALL_MUTATIONS` + GA helpers |
+| `mutations/` | Operators by file (`basic`, `structural`, `advanced`, `enhancements`, `pragmas`) + `queries` / `runtime` |
 | `parsers.py` | Object/binary symbol extraction (LIEF) |
 | `solutions.py` | Solution-transfer DB (seed GA from solved lookalikes) |
 | `ast_engine.py` | tree-sitter C AST for mutations |
@@ -19,7 +19,7 @@ Flag axes (`rebrew.flags` / `rebrew.flag_data`) live at the package root so comp
 
 ## Data flow (GA path)
 
-`build_candidate_obj_only` → miss in same-run memo and shared compile cache → docker compile (60s default) → `parse_obj_symbol_bytes` → `score_candidate` (reloc zero + register mask + numpy/capstone) → `mutate_code` → loop in `match_ga.py`.
+`build_candidate_obj_only` → miss in same-run memo and shared compile cache → docker compile → `parse_obj_symbol_bytes` → `score_candidate` (reloc zero + register mask + numpy/capstone) → `mutate_code` → loop in `match_ga.py`.
 
 ## Non-obvious types
 
