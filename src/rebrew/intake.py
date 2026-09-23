@@ -303,7 +303,7 @@ def _set_target_arch(project: Path, target_name: str, arch: str, fmt: str) -> No
     if targets is not None and target_name in targets:
         targets[target_name]["arch"] = arch
         targets[target_name]["format"] = fmt
-        toml_path.write_text(tomlkit.dumps(doc), encoding="utf-8")
+        atomic_write_text(toml_path, tomlkit.dumps(doc), encoding="utf-8")
 
 
 def _link_toolchain(project: Path, profile: str) -> str | None:

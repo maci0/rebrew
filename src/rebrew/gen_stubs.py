@@ -677,7 +677,7 @@ def _run_build(
                 # Backup first: a kill before the ``finally`` restore leaves
                 # it for the next run to put back.
                 atomic_write_text(cmake_backup, original_cmake, encoding="utf-8")
-                cmake_path.write_text(patched, encoding="utf-8")
+                atomic_write_text(cmake_path, patched, encoding="utf-8")
             else:
                 error_exit(
                     f"--cmake-stub-var {cmake_stub_var}: no 'set({cmake_stub_var} \"...\")' "

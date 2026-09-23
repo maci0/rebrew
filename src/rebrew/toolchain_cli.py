@@ -26,7 +26,7 @@ from rebrew.toolchain import (
     list_toolchains,
     pull_toolchain,
 )
-from rebrew.utils import container_runtime
+from rebrew.utils import atomic_write_text, container_runtime
 
 console = Console(stderr=True)
 
@@ -1434,7 +1434,7 @@ def _rewrite_source_pin(name: str, sha256: str, commit: str) -> None:
         + text[block.start() : block.end()].replace(block.group(1), body)
         + text[block.end() :]
     )
-    path.write_text(text, encoding="utf-8")
+    atomic_write_text(path, text, encoding="utf-8")
 
 
 def _rewrite_golden(name: str, golden: str) -> None:
@@ -1457,7 +1457,7 @@ def _rewrite_golden(name: str, golden: str) -> None:
         + text[block.start() : block.end()].replace(block.group(1), body)
         + text[block.end() :]
     )
-    path.write_text(text, encoding="utf-8")
+    atomic_write_text(path, text, encoding="utf-8")
 
 
 def _rewrite_dockerfile_sha(name: str, sha256: str) -> None:
@@ -1483,7 +1483,7 @@ def _rewrite_dockerfile_sha(name: str, sha256: str) -> None:
     if m is None:
         return
     text = text[: m.start()] + sha256 + text[m.end() :]
-    df.write_text(text, encoding="utf-8")
+    atomic_write_text(df, text, encoding="utf-8")
 
 
 @app.command("update")
