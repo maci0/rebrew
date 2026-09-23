@@ -59,10 +59,6 @@ Single-command tools: `@app.callback(invoke_without_command=True)` + `main_entry
 
 Multi-command groups: `is_group=True` in `builtins.py`.
 
-## Adding a GA Mutation
-
-Name it `mut_*`; see `src/rebrew/matcher/AGENTS.md` and `docs/GA_MUTATIONS.md`. Test in `tests/test_mutator_p*.py`. Numeric constants need explicit ops (`mut_tweak_integer_literal` covers small ±deltas).
-
 ## Test Patterns
 
 No `conftest.py`: use `tmp_path` + inline helpers. Group by class; helpers `_`-prefixed; annotate tests `-> None`; mock config with `SimpleNamespace`; type config params as `Any`.
