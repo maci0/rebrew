@@ -35,7 +35,7 @@ import time
 import warnings
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, override
 
 import typer
 from rich.console import Console
@@ -988,6 +988,7 @@ def prove_equivalence(
 
         ARGS_MISMATCH = True
 
+        @override
         def run(self, *args: Any, **kwargs: Any) -> Any:
             stub_addr = self.addr
             assert stub_addr is not None  # angr sets addr before invoking run()

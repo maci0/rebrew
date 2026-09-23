@@ -11,6 +11,7 @@ import tomllib
 import warnings
 from collections import Counter
 from pathlib import Path
+from typing import override
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
@@ -101,6 +102,7 @@ def main(argv: list[str] | None = None) -> int:
     buf: list[str] = []
 
     class _Buf(logging.Handler):
+        @override
         def emit(self, record: logging.LogRecord) -> None:
             buf.append(f"log: {record.getMessage()}")
 

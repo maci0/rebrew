@@ -746,14 +746,14 @@ def main(
     # to the toolchain image's own Lib dir (docker-only setups have no host
     # MSVC tree anymore).
     lib_symbols: set[str] = set()
-    libs_dir = cfg.compiler_libs if cfg.compiler_libs else None
+    libs_dir = cfg.compiler_libs
     for dll in {i.dll for i in imports_raw}:
         # binary names imports "KERNEL32.dll"; the import libs on disk are
         # "KERNEL32.LIB" (case and extension differ, and Linux is
         # case-sensitive) — match "<stem>.lib", then the DLL name, ignoring case.
         stem = Path(dll).stem
         lib: Path | None = None
-        if libs_dir and libs_dir.is_dir():
+        if libs_dir.is_dir():
             by_name = {p.name.casefold(): p for p in libs_dir.iterdir() if p.is_file()}
             lib = by_name.get(f"{stem}.lib".casefold()) or by_name.get(dll.casefold())
         if lib is not None:

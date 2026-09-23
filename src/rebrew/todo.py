@@ -745,7 +745,7 @@ def _collect_new_functions(
     # Load binary for unmatchable detection
     binary_info = None
     bin_path = cfg.target_binary
-    if bin_path and bin_path.exists():
+    if bin_path.exists():
         with contextlib.suppress(OSError, ValueError, RuntimeError):
             from rebrew.binary_loader import load_binary
 

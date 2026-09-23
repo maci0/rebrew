@@ -1325,7 +1325,7 @@ def main(
 
     sections: dict[str, dict[str, Any]] = {}
     bin_info: Any = None  # single lazy binary parse, shared with --dispatch
-    if bin_path and bin_path.exists():
+    if bin_path.exists():
         try:
             from rebrew.binary_loader import load_binary
             from rebrew.sections import sections_from_info
@@ -1394,7 +1394,7 @@ def main(
         return
 
     if dispatch:
-        if not bin_path or not bin_path.exists():
+        if not bin_path.exists():
             error_exit("target binary not found (needed for --dispatch)", json_mode=json_output)
 
         if bin_info is None:

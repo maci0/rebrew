@@ -8,7 +8,7 @@ comparing only a prefix.  Imported lazily by prove.py because angr is optional.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, override
 
 _WIN32_SIMPROCS: dict[str, type] | None = None  # lazily populated
 
@@ -76,12 +76,14 @@ def _get_win32_simprocs() -> dict[str, type]:
     class ReturnSymbolicDword(angr.SimProcedure):
         """Generic: return a fresh unconstrained 32-bit symbolic value."""
 
+        @override
         def run(self, *args: Any, **kwargs: Any) -> Any:
             return self.state.solver.BVS("api_retval", 32)  # type: ignore[no-untyped-call]
 
     class ReturnSymbolicHandle(angr.SimProcedure):
         """Return a symbolic HANDLE (non-zero, non-INVALID_HANDLE_VALUE)."""
 
+        @override
         def run(self, *args: Any, **kwargs: Any) -> Any:
             h = self.state.solver.BVS("handle", 32)  # type: ignore[no-untyped-call]
             self.state.solver.add(h != 0)
@@ -91,6 +93,7 @@ def _get_win32_simprocs() -> dict[str, type]:
     class ReturnSymbolicBool(angr.SimProcedure):
         """Return 0 or 1 (symbolic BOOL)."""
 
+        @override
         def run(self, *args: Any, **kwargs: Any) -> Any:
             b = self.state.solver.BVS("bool_ret", 32)  # type: ignore[no-untyped-call]
             self.state.solver.add(claripy.ULE(b, 1))
@@ -99,12 +102,14 @@ def _get_win32_simprocs() -> dict[str, type]:
     class ReturnVoid(angr.SimProcedure):
         """Void return — no value, no side effects."""
 
+        @override
         def run(self, *args: Any, **kwargs: Any) -> None:
             return
 
     class SimAllocZeroed(angr.SimProcedure):
         """LocalAlloc/GlobalLock: return a freshly zeroed 256-byte block."""
 
+        @override
         def run(self, *args: Any, **kwargs: Any) -> Any:
             ptr = self.state.heap.allocate(256)  # type: ignore[attr-defined]
             for i in range(256):
@@ -114,6 +119,7 @@ def _get_win32_simprocs() -> dict[str, type]:
     class SimMemcpy(angr.SimProcedure):
         """Model memcpy: copy src→dst symbolically, return dst."""
 
+        @override
         def run(self, dst: Any, src: Any, n: Any) -> Any:
             # Copy the full admissible length, capped at _MEMCPY_MAX_LEN.
             # A symbolic length unbounded above the cap refuses the proof
@@ -131,6 +137,7 @@ def _get_win32_simprocs() -> dict[str, type]:
     class SimMemset(angr.SimProcedure):
         """Model memset: fill dst with byte value, return dst."""
 
+        @override
         def run(self, dst: Any, val: Any, n: Any) -> Any:
             # Same fail-closed policy as SimMemcpy: an unbounded symbolic
             # length errors the state rather than no-op'ing the memset on
@@ -148,6 +155,7 @@ def _get_win32_simprocs() -> dict[str, type]:
     class SimStrlen(angr.SimProcedure):
         """Model strlen: return symbolic non-negative length."""
 
+        @override
         def run(self, s: Any) -> Any:
             result = self.state.solver.BVS("strlen_ret", 32)  # type: ignore[no-untyped-call]
             self.state.solver.add(claripy.ULE(result, 0x10000))  # bound to 64K

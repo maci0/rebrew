@@ -21,6 +21,7 @@ from __future__ import annotations
 import struct
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import override
 
 from rebrew.binary_loader import BinaryInfo, SectionInfo
 from rebrew.errors import RebrewError
@@ -330,6 +331,7 @@ class NeImport:
     name: str | None = None
     ordinal: int | None = None
 
+    @override
     def __str__(self) -> str:
         return self.name if self.name is not None else f"ordinal {self.ordinal}"
 

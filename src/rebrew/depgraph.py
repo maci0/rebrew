@@ -690,7 +690,7 @@ def main(
     dispatch_tables = None
     if include_dispatch:
         bin_path = cfg.target_binary
-        if not bin_path or not bin_path.exists():
+        if not bin_path.exists():
             error_exit(
                 "--include-dispatch requires a target binary (target_binary not set or missing).",
                 json_mode=json_output,
@@ -739,7 +739,7 @@ def main(
     # intake'd NE target).  Only edges between known function VAs are kept.
     if from_binary:
         bin_path = cfg.target_binary
-        if not bin_path or not bin_path.exists():
+        if not bin_path.exists():
             error_exit(
                 "--from-binary requires a target binary (target_binary not set or missing).",
                 json_mode=json_output,

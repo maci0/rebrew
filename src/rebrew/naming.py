@@ -272,7 +272,7 @@ def load_data(
     covered_vas: dict[int, str] = {}
     for cfile in iter_sources(src_dir, cfg):
         entries = parse_c_file_multi(
-            cfile, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir if cfg else None
+            cfile, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir
         )
         rel_name = rel_display_path(cfile, src_dir)
         for entry in entries:
@@ -297,7 +297,7 @@ def load_data(
 
     # Scan library_*.h files for identified CRT/zlib functions
     for hfile in iter_library_headers(src_dir, cfg):
-        lib_entries = parse_library_header(hfile, metadata_dir=cfg.metadata_dir if cfg else None)
+        lib_entries = parse_library_header(hfile, metadata_dir=cfg.metadata_dir)
         for entry in lib_entries:
             if entry.va < min_valid_va_for(cfg):
                 continue

@@ -179,6 +179,11 @@
   documented integrator surface.
 
 ### Changed
+- **mypy enforces `truthy-bool` and `explicit-override`.**  Fifteen
+  `if cfg`/`if path` guards on non-optional `ProjectConfig` and `Path`
+  values were always true (an unset `Path()` is `.`, not falsy) and are
+  gone; every method override now carries `@override`, so a renamed base
+  method fails the type check instead of leaving a dead subclass method.
 - **CI's 3.13 test entry pins the `.python-version` patch.**  The matrix
   said `"3.13"`, so the coverage gate ran on whatever 3.13.x setup-uv
   resolved rather than 3.13.15.  It now pins `3.13.15`

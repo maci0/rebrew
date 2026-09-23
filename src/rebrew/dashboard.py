@@ -71,7 +71,7 @@ from contextvars import ContextVar
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any, ClassVar, Literal
+from typing import Any, ClassVar, Literal, override
 from urllib.parse import parse_qs, urlparse
 
 import typer
@@ -2025,6 +2025,7 @@ class _Handler(BaseHTTPRequestHandler):
             "connect-src 'self'; img-src 'self' data:; form-action 'none'; base-uri 'none'",
         )
 
+    @override
     def end_headers(self) -> None:
         # Every route is body-less and never reads rfile, so a request body
         # would be parsed as the next pipelined request.  Close instead.
@@ -2044,6 +2045,7 @@ class _Handler(BaseHTTPRequestHandler):
     def do_HEAD(self) -> None:
         self._respond("HEAD")
 
+    @override
     def send_error(self, code: int, message: str | None = None, explain: str | None = None) -> None:
         """Answer http.server's own errors with the routes' JSON envelope.
 
@@ -2067,6 +2069,7 @@ class _Handler(BaseHTTPRequestHandler):
         if self.command != "HEAD":
             self.wfile.write(body)
 
+    @override
     def log_message(self, fmt: str, *args: Any) -> None:  # quiet default logging
         # markup=False: the logged request line is remote-controlled text; a
         # path like "/[bold]x" must not be interpreted as Rich markup (log

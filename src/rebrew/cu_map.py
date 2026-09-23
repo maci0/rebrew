@@ -713,7 +713,7 @@ def main(
         )
 
     reversed_dir = cfg.reversed_dir
-    ghidra_path = inventory_path_for(reversed_dir, cfg) if reversed_dir else None
+    ghidra_path = inventory_path_for(reversed_dir, cfg)
 
     registry = build_function_registry(funcs, cfg, ghidra_path=ghidra_path, bin_path=bin_path)
 

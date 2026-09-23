@@ -1156,7 +1156,7 @@ def main(
             "No function inventory (needed here) — run `rebrew intake` first",
             json_mode=json_output,
         )
-    ghidra_path = inventory_path_for(cfg.reversed_dir, cfg) if cfg.reversed_dir else None
+    ghidra_path = inventory_path_for(cfg.reversed_dir, cfg)
     info = load_binary(bin_path)
     registry = build_function_registry(funcs, cfg, ghidra_path=ghidra_path, bin_path=bin_path)
     clusters = cluster_functions(registry, info, cfg)

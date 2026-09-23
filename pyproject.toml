@@ -351,6 +351,8 @@ enable_error_code = [
     "deprecated",
     "narrowed-type-not-subtype",
     "possibly-undefined",
+    "truthy-bool",
+    "explicit-override",
 ]
 # src/ is the shipped library; tools/ are the repo's own dev scripts (CI and
 # the pre-commit hook both run plain `uv run mypy`, which checks both).

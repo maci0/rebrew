@@ -31,7 +31,7 @@ import tomllib
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, TypedDict
+from typing import Any, TypedDict, override
 from urllib.parse import urlparse
 
 from rebrew.errors import RebrewError
@@ -47,6 +47,7 @@ class ConfigError(RebrewError, ValueError):
     ``except ConfigError`` (or ``except RebrewError``) catches them all.
     """
 
+    @override
     def __str__(self) -> str:
         # KeyError.__str__ would repr-quote the message for ConfigKeyError.
         return Exception.__str__(self)

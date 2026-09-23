@@ -306,8 +306,8 @@ def gen_globals_header(
     # outside reversed_dir, so scan it too: stub-held globals (e.g. .rdata
     # constants owned by the rdata_restore blob) have their markers and
     # VA-anchored declarations only there.
-    stub_path = cfg.root / "src" / "link_stubs.c" if cfg else None
-    source_decls = _source_decls_by_va(src_dir, cfg, extra_files=[stub_path] if stub_path else [])
+    stub_path = cfg.root / "src" / "link_stubs.c"
+    source_decls = _source_decls_by_va(src_dir, cfg, extra_files=[stub_path])
     source_types = {va: typ for va, (_name, typ) in source_decls.items()}
     source_names = {va: name for va, (name, _typ) in source_decls.items()}
 

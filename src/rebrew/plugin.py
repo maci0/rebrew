@@ -33,7 +33,7 @@ from __future__ import annotations
 import contextlib
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Protocol, override, runtime_checkable
 
 import typer
 from rich.console import Console
@@ -522,6 +522,7 @@ class CliComponent(Component):
     def group(self) -> str:
         return MULTI_COMMANDS_GROUP if self.is_group else COMMANDS_GROUP
 
+    @override
     def apply(self, ctx: Context) -> None:
         app: typer.Typer = ctx.resolve(CLI_SERVICE)
         console: Console = ctx.resolve(CONSOLE_SERVICE)

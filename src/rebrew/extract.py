@@ -63,8 +63,8 @@ def detect_reversed_vas(src_dir: Path, cfg: ProjectConfig | None = None) -> set[
 def load_functions(cfg: ProjectConfig) -> list[dict[str, int | str]]:
     """Load the discovery inventory (function_structure.json)."""
 
-    inv = inventory_path_for(cfg.reversed_dir, cfg) if cfg.reversed_dir else None
-    if inv is None or not inv.exists():
+    inv = inventory_path_for(cfg.reversed_dir, cfg)
+    if not inv.exists():
         raise FileNotFoundError(
             f"No function inventory at {inv} — run `rebrew intake` or "
             "`rebrew discover-functions` first"

@@ -879,8 +879,8 @@ def check_function_list(cfg: ProjectConfig) -> CheckResult:
     """Check that the discovery inventory exists and parses."""
     from rebrew.catalog import cached_function_list
 
-    inv_path = inventory_path_for(cfg.reversed_dir, cfg) if cfg.reversed_dir else None
-    if inv_path is None or not inv_path.exists():
+    inv_path = inventory_path_for(cfg.reversed_dir, cfg)
+    if not inv_path.exists():
         return CheckResult(
             name="Function inventory",
             status=_WARN,
