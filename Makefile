@@ -205,9 +205,11 @@ build: ensure-uv
 
 # CycloneDX 1.5 SBOM from the committed lock (no network).  Writes
 # dist/rebrew.cdx.json so package CI / release consumers share one inventory.
+# generate_sbom.py is stdlib-only: --no-project skips the project sync (and
+# its ../resembl path dep), --offline keeps the no-network promise.
 sbom:
 	@mkdir -p dist
-	uv run --frozen python tools/generate_sbom.py -o dist/rebrew.cdx.json
+	uv run --frozen --no-project --offline python tools/generate_sbom.py -o dist/rebrew.cdx.json
 
 # Run all non-mutating verification gates (mirrors CI lint + test +
 # cli-contract jobs: ruff, mypy, uv audit, pytest, fixture freshness,
