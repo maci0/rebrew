@@ -284,11 +284,35 @@ class TestLoadVerifyCacheRaw:
         cfg = SimpleNamespace(root=tmp_path, target_name="GAME", reversed_dir=tmp_path)
         monkeypatch.setattr(vc_mod, "_cache_identity_matches", lambda _raw, _cfg: True)
         patch_cache_from_results(
-            cfg, [{"va": "0x00001000", "status": "NEAR_MATCHING", "match_percent": 72.3}]
+            cfg, [{"va": "0x00001000", "status": "NEAR_MATCHING", "match_percent": 72.3}], {}
         )
         patched = json.loads(path.read_text(encoding="utf-8"))["entries"]["0x00001000"]
         assert patched["match_percent"] == 72.3
         assert patched["delta"] == 7
+
+    def test_proven_overlay_row_patches_raw_byte_status(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An overlaid PROVEN row must be cached as its raw byte status, never PROVEN."""
+        import json
+        from types import SimpleNamespace
+
+        import rebrew.verify_cache as vc_mod
+        from rebrew.verify import patch_cache_from_results
+
+        monkeypatch.setattr(vc_mod, "_VERIFY_CACHE_MEMO", {})
+        cache_dir = tmp_path / ".rebrew"
+        cache_dir.mkdir()
+        path = cache_dir / "verify_cache.json"
+        entry = {"status": "STUB", "va": "0x00001000", "match_percent": 0.0, "delta": 7}
+        path.write_text(json.dumps({"entries": {"0x00001000": entry}}), encoding="utf-8")
+        cfg = SimpleNamespace(root=tmp_path, target_name="GAME", reversed_dir=tmp_path)
+        monkeypatch.setattr(vc_mod, "_cache_identity_matches", lambda _raw, _cfg: True)
+        overlaid = {"va": "0x00001000", "status": "PROVEN", "passed": True, "match_percent": 72.3}
+        patch_cache_from_results(cfg, [overlaid], {"0x00001000": ("NEAR_MATCHING", False)})
+        patched = json.loads(path.read_text(encoding="utf-8"))["entries"]["0x00001000"]
+        assert patched["status"] == "NEAR_MATCHING"
+        assert patched["passed"] is False
 
 
 # ---------------------------------------------------------------------------

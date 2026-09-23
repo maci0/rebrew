@@ -1735,12 +1735,19 @@ def _size_divergence_action(ann_size: int, canonical: int, status: str | None) -
     return "warn"
 
 
-def patch_cache_from_results(cfg: Any, v_results: list[dict[str, Any]]) -> None:
+def patch_cache_from_results(
+    cfg: Any,
+    v_results: list[dict[str, Any]],
+    raw_statuses: dict[str, tuple[str, bool]],
+) -> None:
     """Sync the verify cache from batch results (one read + one write).
 
-    Shared by ``rebrew verify`` (via the report save) and ``rebrew test
-    --all`` so promoted statuses show up in status/todo immediately.  A
-    worker crash (INTERNAL_ERROR) is not a verdict and is never patched.
+    Used by ``rebrew test --all`` so promoted statuses show up in status/todo
+    immediately.  *raw_statuses* is :attr:`BatchResult.raw_statuses`: rows the
+    PROVEN overlay rewrote are patched with their byte-level status, so the
+    cache never bakes in a metadata-derived PROVEN that would mask a later
+    demotion.  A worker crash (INTERNAL_ERROR) is not a verdict and is never
+    patched.
     """
     from rebrew.verify_cache import patch_verify_cache_entries
 
@@ -1753,10 +1760,11 @@ def patch_cache_from_results(cfg: Any, v_results: list[dict[str, Any]]) -> None:
         if r.get("status") == "INTERNAL_ERROR":
             continue
         pct = r.get("match_percent") or 0.0
+        status = raw_statuses[r["va"]][0] if r["va"] in raw_statuses else r.get("status", "")
         patches.append(
             {
                 "va": va_int,
-                "status": r.get("status", ""),
+                "status": status,
                 # No byte counts: the row carries only a percent, and a
                 # percent-scale total would fill a missing byte delta with
                 # 100 - percent (todo.py's ROI thresholds read it as bytes).

@@ -1816,7 +1816,7 @@ def emit_test_batch(
     # Sync the verify cache so status/todo don't keep reporting stale
     # pre-batch statuses (the single-file path patches per function).
     if not no_promote:
-        patch_cache_from_results(cfg, batch.results)
+        patch_cache_from_results(cfg, batch.results, batch.raw_statuses)
     if json_output:
         # Same shape as `rebrew verify --json` (see build_report) —
         # verify-only extras are null on this path.  ``dry_run`` is the

@@ -417,6 +417,11 @@
   in emission order.
 
 ### Fixed
+- **`rebrew test --all` no longer caches PROVEN.**  The batch patched the
+  verify cache from results after the PROVEN overlay, so a function whose
+  bytes compiled NEAR_MATCHING was cached as a passing PROVEN, and a later
+  STATUS demotion was masked by that entry.  The patch now stores the raw
+  byte status, as `rebrew verify` already does.
 - **`rebrew dashboard` tab panels take keyboard focus.**  A panel whose
   first content was a hint or empty-state message had no tab stop, so a
   keyboard or screen-reader user could not move from a tab into it.  Each
