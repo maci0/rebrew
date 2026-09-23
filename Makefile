@@ -56,7 +56,7 @@ help:
 		'  make cli-contract       # high-value --help greps (CI cli-contract job)' \
 		'  make build              # reproducible sdist+wheel + dist/rebrew.buildinfo' \
 		'  make sbom               # CycloneDX 1.5 JSON from uv.lock (offline)' \
-		'  make all                # local mirror of CI lint+test+cli-contract gates' \
+		'  make all                # local mirror of CI lint+test(+coverage floor)+cli-contract gates' \
 		'  make gen-fixtures       # regenerate tests/fixtures/ from tools/gen_fixtures.py' \
 		'  make gen-fixtures-check # tools/gen_fixtures.py --check' \
 		'  make cycles-check       # tools/detect_cycles.py (also in pre-commit / make check)' \
@@ -230,11 +230,12 @@ sbom:
 	uv run --no-project --offline python tools/generate_sbom.py -o dist/rebrew.cdx.json
 
 # Run all non-mutating verification gates (mirrors CI lint + test +
-# cli-contract jobs: ruff, mypy, uv audit, pytest, fixture freshness,
-# idempotency sweep, CLI help greps, plus the import-cycle hook that the CI
-# pre-commit job also runs).  For full hook parity (hygiene + skills validate)
-# also run `make check` before a PR.
-all: format-check lint mypy audit test gen-fixtures-check cycles-check idempotency-check cli-contract
+# cli-contract jobs: ruff, mypy, uv audit, pytest under the COV_FLOOR gate
+# (CI's 3.13 test entry runs `make coverage`, not `make test`), fixture
+# freshness, idempotency sweep, CLI help greps, plus the import-cycle hook
+# that the CI pre-commit job also runs).  For full hook parity (hygiene +
+# skills validate) also run `make check` before a PR.
+all: format-check lint mypy audit coverage gen-fixtures-check cycles-check idempotency-check cli-contract
 
 # Regenerate checked-in binary fixtures (run after editing tools/gen_fixtures.py).
 gen-fixtures:
