@@ -68,6 +68,12 @@ On-disk format bumps (`coverage.db` `db_version`, compile-cache schema) and a
 raised minimum Python are also `**Breaking:**` — they may ship in a minor when
 the migration is a documented `--force` rebuild or a cold cache (as with
 schema `"7"` in 2.4.0 and the Python 3.13 floor in 2.3.0).
+The Python import surface (module paths, functions, classes, `__all__`) and
+the `rebrew dashboard` `/api/*` JSON are not frozen: a removal, move, or
+signature change there ships in a minor with a `**Breaking:**` entry naming
+the old and new import path or shape (as with the helper removals in 2.1.0
+and 2.2.0).  There is no deprecation window; pin the minor version if you
+import rebrew as a library.
 
 - **One version, one place.**  `__version__` in `src/rebrew/__init__.py` is the
   source of truth; `pyproject.toml` reads it via `[tool.setuptools.dynamic]`.

@@ -172,12 +172,14 @@
   checkout.  It now runs `make build` from a `git archive` copy at
   another path under another TZ, locale, and umask, so the check covers
   path, time, and mode leaks and cannot drift from the Makefile.
-- **An unknown target `format` or `arch` fails config load.**  A typo
+- **Breaking:** **An unknown target `format` or `arch` fails config load.**  A typo
   such as `arch = "x86-64"` or `format = "ELF"` used to warn and
   continue as `x86_32` / `pe`, disassembling and laying out the binary
   wrongly.  `load_config` now raises `ValueError` naming the known
-  values.
-- **`CompareResult` rejects a `matched` flag that contradicts `status`.**
+  values, so a project that loaded with that warning in 2.6.0 stops
+  loading: set the value to one the error lists (or delete the key to
+  get `pe` / `x86_32`).
+- **Breaking:** **`CompareResult` rejects a `matched` flag that contradicts `status`.**
   `matched` and `status` carried the same verdict twice, so a result
   built as `matched=False, status="EXACT"` passed silently and callers
   reading different fields disagreed.  Construction now raises
