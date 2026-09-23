@@ -38,7 +38,7 @@ def build_catalog_data(cfg: Any, *, with_data: bool = True) -> dict[str, Any]:
     console.print(f"Scanning {reversed_dir}...", style="dim")
     entries = scan_reversed_dir(reversed_dir, cfg=cfg)
 
-    # Load the discovery inventory in parallel
+    # Load the discovery inventory
     jobs = getattr(cfg, "default_jobs", 4) or 4
 
     with ThreadPoolExecutor(max_workers=jobs) as pool:

@@ -906,8 +906,9 @@ def compile_cache_key(
       editing a header invalidates exactly the entries that reach it.
       ``/FI``/``-include`` force-includes and non-literal ``#include``
       directives fall back to whole-directory fingerprints.
-    - **toolchain_id** — identifies the compiler binary and runner
-      (e.g. ``"wine /abs/path/CL.EXE"``)
+    - **toolchain_id** — identifies the compiler: the docker image tag plus
+      its content id when available (``compile._toolchain_cache_id``), or
+      ``native:<name>[@<sha16>]`` for an image-less plugin toolchain
     - **source_ext** — file extension (``.c``, ``.cpp``)
     - **source_dir** — directory of the real source file (quote-include
       search anchor; may be ``None`` when compiling a bare source string)

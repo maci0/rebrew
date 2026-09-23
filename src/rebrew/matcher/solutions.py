@@ -1,8 +1,8 @@
 """solutions.py – Cross-function solution transfer database.
 
 Records GA solution fingerprints (cflags, size) when functions reach
-EXACT match. Seeds new GA runs from structurally similar solved functions to
-reduce convergence time.
+EXACT match. Seeds new GA runs from solved functions of the closest size
+(same target first, matching cflags as tie-break) to reduce convergence time.
 
 Storage: ``.rebrew/ga_runs.jsonl`` — one append-only log for every GA
 outcome.  A win record carries the full solution fingerprint (cflags, size,

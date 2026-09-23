@@ -52,7 +52,7 @@ class BuildResult:
     reloc_offsets: dict[int, str] | None = None
     error_msg: str = ""
     #: Memoized GA fitness (score.total + excess penalty).  Populated by
-    #: rebrew.match's _compute_fitness; a warm-cache rerun of the same stub
+    #: rebrew.match_ga's _compute_fitness; a warm-cache rerun of the same stub
     #: skips re-scoring.  ``None`` = not scored yet.  Backward-compatible:
     #: reads use getattr(res, "fitness", None) for pre-field pickles.
     fitness: float | None = None

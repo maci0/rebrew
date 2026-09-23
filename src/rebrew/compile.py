@@ -2068,7 +2068,7 @@ def linked_shell_source(function_source: str, pad: int) -> str:
 def linked_pad_size(fn_rva: int, section_rva: int) -> int:
     """Padding that places a function at *fn_rva* inside its section.
 
-    The function is *section_rva* bytes into the code section in the target;
+    The function is ``fn_rva - section_rva`` bytes into the code section in the target;
     the shell reproduces that offset with a zero pad of the same length.
     Returns -1 when the function precedes the section start (unsupported -
     the linked shell cannot move the section's own RVA).

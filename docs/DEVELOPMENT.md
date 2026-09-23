@@ -25,7 +25,7 @@ see [`AGENTS.md`](../AGENTS.md); for the CLI surface see [`CLI.md`](CLI.md).
    typer's wrapper **leaks `typer.models.OptionInfo` as the value of omitted
    params** on direct Python calls — an `OptionInfo` is truthy and not a
    `Path`, so `if x is not None:` and `Path(x)` misbehave.  This caused two
-   real bugs (a truthy `--sweep-toolchain` leaking into `match`'s watch
+   real bugs (a truthy `--flag-sweep-toolchains` leaking into `match`'s watch
    re-test; `rebrew init` crashing on a leaked `--link-tools-from`).
    **Convention:**
    - Callbacks that unit tests invoke directly must guard every new option
@@ -82,8 +82,8 @@ see [`AGENTS.md`](../AGENTS.md); for the CLI surface see [`CLI.md`](CLI.md).
   image — covered with stubs at the pure-helper level only.
 - `prove.py` needs `angr` (the `prove` extra).  `uv sync --all-extras` (the
   documented dev install) enables the full prove test classes for real
-  (81 tests in `tests/test_prove.py`; the 42 angr-gated ones are skipped
-  when angr is absent).  The
+  (the angr-gated tests in `tests/test_prove.py` are skipped when angr is
+  absent).  The
   module-level `_run_simulation` is patchable so tests can inject crafted
   states and still exercise the real `_compare_state_pairs` logic.
 - The FLIRT pipeline (`flirt.py`, `gen_flirt_pat.py`) needs real `.sig`/`.pat`

@@ -199,7 +199,7 @@ profile = "msvc-7.0"
 | `base_cflags` | `string` | `"/nologo /c /MT"` | Always-on flags prepended to every compile. Posix-style profiles (`gcc-14.2.0`, `gcc-12.3.0`, `mingw-16.2.0`, `mingw-14.2.0`, `clang-18.1.8`, `clang-16.0.4`, `ido-5.3`, `ido-7.1`, `watcom-2.0-win32`, `watcom-2.0-win16`, `borland-5.5`, `borland-3.1`, `borland-2.0`) default to `""` — the MSVC glue would break them |
 | `runner` | `string` | `""` | Win32 PE runner (`wine`, `wibo`, or empty). Auto-detected from `command` if not set explicitly. Under docker-only execution the runner is empty for image-backed profiles; `rebrew init --install-wibo` writes `tools/wibo` only for native (non-image) profiles — it is ignored for docker-backed ones. A relative runner path resolves against the project root and needs a `command` without the runner prefix |
 | `recompile_url` | `string` | `""` | Base URL of the recompile compile service (e.g. `http://localhost:8000`). When set (or `REBREW_RECOMPILE_URL`), every compile routes through `POST /api/v1/compile` instead of local docker images: the same pinned images, plus the opt-in training tap |
-| `recompile_emit_assembly` | `bool` | `false` | Pass `emit_assembly=true` on remote compiles (the training-data tap). Off by default; the GA `--collect-pairs` path enables it per run |
+| `recompile_emit_assembly` | `bool` | `false` | Pass `emit_assembly=true` on remote compiles (the training-data tap). Off by default; when on, every remote compile sends it (`match --collect-pairs` is unrelated) |
 | `timeout` | `integer` | `60` | Compile subprocess timeout in seconds |
 
 Per-target compiler settings (`rebrew cfg set-compiler <target> <profile>`) are

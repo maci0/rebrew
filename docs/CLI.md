@@ -1016,7 +1016,7 @@ missing_typing, for_loops, while_loops, suggestions}]}`.
 | `--json` | Print catalog summary as JSON to stdout |
 | `--summary` | Print summary table to stderr |
 | `--csv` | Generate reccmp-compatible CSV (written to `db/<target>_functions.csv`) |
-| `--export-ghidra` | Cache Ghidra function list |
+| `--export-ghidra` | Print instructions for exporting the Ghidra function list (no `--json`) |
 | `--export-ghidra-labels` | Generate `ghidra_data_labels.json` from detected tables |
 | `--fix-sizes` | Update `SIZE` entries in `rebrew-functions.toml` metadata to match canonical sizes — fixes both stale sizes (false `SIZE_MISMATCH`) and missing sizes (`MISSING_SIZE` stubs that `rebrew test` refuses) |
 | `--force` | Skip the `--fix-sizes` confirmation prompt |

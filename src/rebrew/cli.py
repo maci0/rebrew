@@ -343,7 +343,7 @@ def option_default(value: Any, default: Any) -> Any:
     non-CLI invocations.  An ``OptionInfo`` object is truthy and not a
     ``Path``/``str``, so ``if x is not None`` and ``Path(x)`` both misbehave
     (this crashed ``rebrew init --link-tools-from`` when tests omitted the
-    new option, and leaked a truthy ``--sweep-toolchain`` into ``match``'s
+    new option, and leaked a truthy ``--flag-sweep-toolchains`` into ``match``'s
     watch re-test).
 
     Callbacks that unit tests invoke directly must guard every new option::

@@ -1,10 +1,12 @@
 """Object file and binary parsers for rebrew.
 
 Provides functions to extract symbol bytes and relocation offsets from
-object files (COFF ``.obj``, ELF ``.o``, Mach-O ``.o``) and to extract
+object files (COFF and OMF ``.obj``, ELF ``.o``, Mach-O ``.o``) and to extract
 function bytes from linked binaries (PE, ELF, Mach-O).
 
-All format parsing is backed by LIEF.
+COFF, ELF, and Mach-O parsing is backed by LIEF.  LIEF cannot read OMF:
+OMF16 objects go through :mod:`rebrew.omf16`, other OMF objects are
+converted to COFF with objconv first.
 """
 
 import bisect

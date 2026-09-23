@@ -11,8 +11,9 @@ error mapping.  Routing policy (when the remote backend is used) lives in
 Every compile sent with ``emit_assembly=True`` also appends a
 ``{source, assembly, compiler, image, flags, ...}`` row to the service's
 ``train_data/train.jsonl`` — the opt-in tap that feeds resembl and LLM
-training.  rebrew passes it through only when the caller asks (the GA's
-``--collect-pairs`` path); ordinary test/verify compiles never set it.
+training.  rebrew sets it on every remote compile (test, verify, match)
+when ``[compiler] recompile_emit_assembly = true``; it is off by default and
+no CLI flag toggles it per run.
 """
 
 from __future__ import annotations

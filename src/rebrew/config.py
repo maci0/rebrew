@@ -319,9 +319,10 @@ class ProjectConfig:
     recompile_emit_assembly: bool = False
     """Pass ``emit_assembly=true`` on remote compiles (training-data tap).
 
-    Off by default: ordinary test/verify compiles must not grow the
-    service's ``train_data/train.jsonl``.  The GA's ``--collect-pairs`` path
-    enables it per run.
+    Off by default so compiles do not grow the service's
+    ``train_data/train.jsonl``.  When on, every remote compile (test, verify,
+    match) sends it; ``match --collect-pairs`` writes local pairs and does
+    not touch this flag.
     """
 
     # --- per-target version defines ---
@@ -1075,7 +1076,7 @@ _KNOWN_COMPILER_KEYS = {
     "timeout",
     "recompile_url",  # remote compile backend (or REBREW_RECOMPILE_URL env)
     "recompile_emit_assembly",  # training-data tap for remote compiles
-    "cflags_presets",  # written by `rebrew cfg set-cflags --global` (per-origin compiler flag overrides)
+    "cflags_presets",  # written by `rebrew cfg set-cflags` without --target (per-origin compiler flag overrides)
 }
 
 _KNOWN_PROJECT_KEYS = {

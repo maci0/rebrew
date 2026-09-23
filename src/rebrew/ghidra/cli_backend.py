@@ -1,8 +1,9 @@
 """ghidra-cli backend for sync push — alternative to ReVa MCP.
 
-Translates the sync operation list (``ghidra_commands.json``) into
-``ghidra-cli`` subprocess invocations.  Select via ``ghidra_backend = "cli"``
-in ``rebrew-project.toml`` (default stays ``"reva"``).  ghidra-cli keeps a
+Translates the in-memory sync operation list into ``ghidra-cli`` subprocess
+invocations.  Select via ``ghidra_backend = "cli"`` in ``rebrew-project.toml``
+(default stays ``"reva"``); ``rebrew sync`` also falls back to it when MCP
+fails before any operation is applied.  ghidra-cli keeps a
 bridge with Ghidra loaded in memory, so the first call is slow (headless
 spawn) and subsequent per-op calls are cheap TCP round-trips.
 

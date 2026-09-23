@@ -154,7 +154,7 @@ support TU only when nothing in the reversed tree can carry it.
 | Marker line | **Mandatory** | E001 | `// FUNCTION:`, `// LIBRARY:`, `// STUB:`, `// GLOBAL:`, or `// DATA:` with MODULE and VA — or `// SUPPORT:` (see below) for link-only files. Note: `SUPPORT` is lint-only (blesses against E001); the annotation parser does not yield an `Annotation` for support files |
 | `STATUS` | Metadata-owned | — | Match quality (see below); lives in rebrew-functions.toml, never parsed inline |
 | `SIZE` | Co-read (inline + override) | — | Function size in bytes from the original binary; `// SIZE:` is the reccmp contract in the `.c`, TOML `SIZE` is an override (W019 warns only on disagreement) |
-| `CFLAGS` | Co-read (inline + override) | W018 | Per-function compiler flag override, read both inline and from metadata. Falls back to the target's `base_cflags` in `rebrew-project.toml`. Only needed for functions compiled with non-default flags (e.g. a static lib linked with `/O1` into an `/O2` binary). |
+| `CFLAGS` | Co-read (inline + override) | W018 | Per-function compiler flag override, read both inline and from metadata. Falls back to the module's `[compiler].cflags_presets` entry, then `[compiler].cflags` (`/O2 /Gd` for MSVC profiles when unset); `base_cflags` is always prepended, never the fallback. Only needed for functions compiled with non-default flags (e.g. a static lib linked with `/O1` into an `/O2` binary). |
 | `SOURCE` | Conditional | W006 | **Required for library modules** — reference file (e.g. `SBHEAP.C:195`, `deflate.c`). Use `rebrew crt-match --fix-source` to auto-populate. |
 | `BLOCKER` | Conditional | W005 | **Required for STUB** — explain why the function doesn't match yet. Lives in `rebrew-functions.toml` metadata; set via `rebrew blocker set <file|0xVA> "<reason>"` or auto-written by `rebrew diff --fix-blocker` — never hand-edit the TOML. |
 | `NOTE` | Optional | — | Freeform notes (e.g. `NOTE: uses SSE2 intrinsics`) — lives in metadata |
@@ -428,8 +428,8 @@ Errors indicate broken annotations that will cause `rebrew test`, `rebrew verify
 | E003 | *(deprecated)* | STATUS is metadata-only — no longer validated inline |
 | E004 | Unknown STATUS value | A persisted metadata `status` outside `metadata.KNOWN_STATUSES` (typo or legacy value). `canonical_status` only upper-cases, so the unknown word would otherwise be treated as a real classification |
 | E006 | *(reserved)* | Unused — was ORIGIN validation |
-| E007 | *(deprecated)* | SIZE is metadata-only — no longer validated inline |
-| E008 | Invalid SIZE value | A metadata `size` that is not an integer (`size = "abc"`). SIZE is metadata-only, so a non-numeric spelling would make consumers slice the wrong byte count |
+| E007 | *(deprecated)* | Inline SIZE is co-read (reccmp contract); W019 covers inline/metadata disagreement |
+| E008 | Invalid SIZE value | A metadata `size` that is not an integer (`size = "abc"`). Inline `// SIZE:` is covered by W019, not E008; a non-numeric metadata spelling would make consumers slice the wrong byte count |
 | E014 | *(not implemented)* | Reserved for corrupted annotation value detection |
 | E015 | Marker/module mismatch | `// FUNCTION:` with a library-configured module (expected `LIBRARY`). Library modules defined by `library_modules` config |
 | E017 | Contradictory status/marker | `// STUB:` marker carrying any matched STATUS (`EXACT`, `RELOC`, `NEAR_MATCHING`, …) — a stub by definition has no matching bytes |
@@ -480,7 +480,7 @@ Warnings indicate style issues, missing optional fields, or format migration opp
 | Code | Description | Triggered by |
 |------|-------------|--------------|
 | W008 | *(not implemented)* | Reserved for CFLAGS preset validation |
-| W018 | Missing CFLAGS with no config fallback | No CFLAGS in metadata **and** no `base_cflags` in project config — compile may use wrong flags |
+| W018 | Missing CFLAGS with no config fallback | No CFLAGS in metadata **and** no `[compiler].cflags` default in project config — compile may use wrong flags |
 | W019 | Inline metadata annotation | `// STATUS:`, `// ORIGIN:`, `// BLOCKER:`, `// NOTE:`, `// GHIDRA:`, etc. inline — run `--fix` to move to `rebrew-functions.toml`. `SIZE`/`CFLAGS` exempt from migration (co-read; W019 warns only on inline↔metadata disagreement). `// SOURCE: naked` exempt (file-borne) |
 | W010 | Unknown annotation key | `// FOOBAR: value` — key not in the known set. `--fix` strips only retired derived keys (`SYMBOL`, `PROTOTYPE` — recomputed from the C source); anything else stays until a human decides |
 | W015 | Mixed-case VA hex digits | `0x10003Da0` — prefer consistent `0x10003da0` or `0x10003DA0` |

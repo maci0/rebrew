@@ -263,7 +263,9 @@ def main(
     csv: bool = typer.Option(
         False, "--csv", help="Generate reccmp-compatible CSV (written to db/<target>_functions.csv)"
     ),
-    export_ghidra: bool = typer.Option(False, "--export-ghidra", help="Cache Ghidra function list"),
+    export_ghidra: bool = typer.Option(
+        False, "--export-ghidra", help="Print instructions for exporting the Ghidra function list"
+    ),
     export_ghidra_labels: bool = typer.Option(
         False,
         "--export-ghidra-labels",

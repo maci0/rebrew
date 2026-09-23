@@ -323,7 +323,8 @@ def main(
 
     Comparison is relocation-aware: COFF relocation records are used to mask
     relocation-dependent byte spans before scoring exactness. Output status is
-    reported as EXACT, RELOC, STUB, or an error state.
+    reported as EXACT, RELOC, NEAR_MATCHING, SIZE_MISMATCH, STUB, or an error
+    state.
 
     Args:
         source: Path to the C source file to compile.

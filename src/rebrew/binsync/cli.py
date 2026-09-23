@@ -1,7 +1,7 @@
 """cli.py: the ``rebrew binsync`` umbrella (push/pull/summary + flat commands).
 
-Reuses the existing flat BinSync commands as subcommands and adds the
-git-automation trio:
+Registers the flat ``init`` / ``diff`` / ``overlay`` commands as subcommands
+and adds the git-automation trio (``push`` / ``pull`` wrap export / import):
 
 * ``push`` exports the project into a state directory and commits it, with an
   optional ``--git-push`` of the root and current branches.
