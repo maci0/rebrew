@@ -42,8 +42,8 @@ globalThis.AbortController = class {
     this.aborted = true;
   }
 };
-const { loadSummary, bindControls, renderSections, renderGlobals } = await import(
-  "data:text/javascript;base64," + Buffer.from(source + "\nexport { loadSummary, bindControls, renderSections, renderGlobals };\n").toString("base64")
+const { loadSummary, bindControls, renderSections, renderGlobals, renderHistory } = await import(
+  "data:text/javascript;base64," + Buffer.from(source + "\nexport { loadSummary, bindControls, renderSections, renderGlobals, renderHistory };\n").toString("base64")
 );
 const element = (id) => document.getElementById(id);
 const summary = (status) => ({
@@ -226,3 +226,14 @@ renderGlobals({ total: 1, globals: [["0x10", "g_one", "int g_one", 4, ""]] });
 assert.equal(element("results-status").textContent, "1 global shown");
 renderGlobals({ total: 2, globals: [["0x10", "g_a", "", 4, ""], ["0x14", "g_b", "", 4, ""]] });
 assert.equal(element("results-status").textContent, "2 globals shown");
+
+// History timestamps: zone-less UTC instants format like toLocaleString, on
+// every row (the formatter is shared); unparseable values pass through.
+const when = (iso) => new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+renderHistory({ total: 3, history: [
+  ["0x10", "f", "STUB", "EXACT", "2026-01-02T03:04:05"],
+  ["0x14", "g", "STUB", "RELOC", "2026-03-04T05:06:00Z"],
+  ["0x18", "h", "STUB", "EXACT", "not a date"],
+] });
+const stamps = [...element("history-rows").innerHTML.matchAll(/<td>([^<]*)<\/td><\/tr>/g)].map(m => m[1]);
+assert.deepEqual(stamps, [when("2026-01-02T03:04:05Z"), when("2026-03-04T05:06:00Z"), "not a date"]);

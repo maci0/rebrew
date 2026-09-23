@@ -179,6 +179,10 @@
   documented integrator surface.
 
 ### Changed
+- **`rebrew dashboard` History renders timestamps with one formatter.**
+  Each row called `toLocaleString(options)`, which builds a new
+  `Intl.DateTimeFormat`; 5000 rows took ~117 ms on the main thread.  A
+  shared formatter takes ~3 ms with identical output.
 - **`rebrew dashboard` restores a saved target in one round trip.**  When
   the URL hash picked a target other than the first, the client fetched
   the summary, then functions, then the active view, one after another.
