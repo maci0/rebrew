@@ -621,6 +621,9 @@
   in emission order.
 
 ### Fixed
+- **`rebrew-objdiff-build --help` prints usage.**  It failed with a usage
+  error and exit 2; `-h`/`--help` now print the usage line on stdout and
+  exit 0.
 - **BinSync export no longer drops types after one bad file.**  A failure
   parsing one header or source aborted struct, enum, and typedef
   collection for every later file, logged only at debug level, so the

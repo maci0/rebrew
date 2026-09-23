@@ -213,6 +213,16 @@ class TestObjdiffProject:
         assert calls[0][0] == src_file
         assert calls[0][3] == base.name
 
+    def test_build_entry_help_prints_usage(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """``--help`` prints usage on stdout and exits 0 instead of a usage error."""
+        import sys
+
+        monkeypatch.setattr(sys, "argv", ["rebrew-objdiff-build", "--help"])
+        objdiff_project.objdiff_build_entry()
+        assert capsys.readouterr().out.startswith("usage: rebrew-objdiff-build")
+
     def test_build_entry_uses_annotation_overrides(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

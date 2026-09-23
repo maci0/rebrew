@@ -317,9 +317,15 @@ def objdiff_build_entry() -> None:
     run_cli(_objdiff_build)
 
 
+_OBJDIFF_BUILD_USAGE = "usage: rebrew-objdiff-build <target> <base-object>"
+
+
 def _objdiff_build() -> None:
+    if len(sys.argv) >= 2 and sys.argv[1] in ("-h", "--help"):
+        print(_OBJDIFF_BUILD_USAGE)
+        return
     if len(sys.argv) < 3:
-        error_exit("usage: rebrew-objdiff-build <target> <base-object>")
+        error_exit(_OBJDIFF_BUILD_USAGE)
     target_name = sys.argv[1]
     base_object = Path(sys.argv[2])
     cfg = require_config(target=target_name)
