@@ -49,7 +49,14 @@ plugin cache backends or remove the open upstream diskcache advisory.
   HTTP API without credentials).
 - No claim that docker toolchain or cmake-bridge execution is a hardened
   sandbox against a hostile project tree or malicious image. Local container
-  runs use `--network=none` (no egress); that does not imply escape resistance.
+  runs use `--network=none` (no egress) and `no-new-privileges`; that does
+  not imply escape resistance. The compile path passes no `--user`, so the
+  compiler runs as the image's default user with a read-write mount of the
+  project root.
+- No claim that "docker-only" covers toolchains registered by an entry point
+  or a `REBREW_TOOLCHAIN_OVERLAY_DIR` TOML file: a spec without `image` runs
+  its `binary` on the host with the full process environment
+  (`run_toolchain` in `src/rebrew/toolchain.py`).
 - No claim that optional wibo / toolchain-media downloads are attested beyond
   the in-code host allow-list and hash checks described in
   [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md). Wibo integrity uses the live
