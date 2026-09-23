@@ -369,6 +369,22 @@ class TestRequestSeeds:
         assert client.last_payload["n"] == 1
         assert client.last_payload["stream"] is False
 
+    def test_duplicate_seeds_dropped(self) -> None:
+        source = "int f(void) { return 0; }"
+        alt = "int f(void) { int r = 0; return r; }"
+        client = _FakeClient(
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "content": (f"```c\n{alt}\n```\n```c\n{alt.replace(' ', '  ')}\n```\n")
+                        }
+                    }
+                ]
+            }
+        )
+        assert request_seeds(_cfg("https://llm/v1"), source, client=client) == [alt]
+
     @pytest.mark.parametrize("finish_reason", ["length", "content_filter", "tool_calls", "error"])
     def test_incomplete_completion_dropped(self, finish_reason: str) -> None:
         snippet = "int f(void) { return 0; }"
@@ -819,7 +835,8 @@ class TestLlmSeedDryRun:
                 llm_endpoint="https://llm/v1",
                 llm_api_key="k",
             ),
-            seed_src="int f(void){return 0;}",
+            # C subscripts read as Rich markup would be eaten or crash the preview.
+            seed_src="int f(int *b,int i){return b[i]+b[/*x*/0];}",
             seed_c=tmp_path / "f.c",
             target_bytes=b"\xc3",
             cl="cl",
@@ -851,6 +868,7 @@ class TestLlmSeedDryRun:
         assert calls == []  # GA never constructed
         assert llm_calls == []  # endpoint never billed
         out = capsys.readouterr().err
+        assert "return b[i]+b[/*x*/0];" in out  # preview is verbatim
         assert "LLM seed prompt (dry-run)" in out
         assert "no LLM request" in out
 

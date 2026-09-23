@@ -109,7 +109,8 @@ def _run_single_ga(
             if dry_run:
                 # Prompt preview only — never bill the endpoint or run the GA.
                 console.print("\n[bold]LLM seed prompt (dry-run):[/bold]\n")
-                console.print(build_prompt(p.seed_src))
+                # Verbatim: C subscripts like b[i] would otherwise parse as markup.
+                console.print(build_prompt(p.seed_src), markup=False, highlight=False)
                 console.print("\n[dim]Dry run: prompt only — no LLM request and no GA run.[/dim]")
                 return
             llm_snippets = request_seeds(p.cfg, p.seed_src)

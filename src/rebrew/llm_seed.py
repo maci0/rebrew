@@ -462,11 +462,15 @@ def _request(
         data = _load_response_json(resp)
     _log_usage(data, model)
     text = _parse_response(data)
-    seeds = [
-        s
-        for s in extract_seeds(text)
-        if valid_c_source(s, expect_name=expect_name, expect_proto=expect_proto)
-    ]
+    # Drop whitespace-insensitive repeats: duplicates waste population slots.
+    seen: set[str] = set()
+    seeds: list[str] = []
+    for s in extract_seeds(text):
+        key = " ".join(s.split())
+        if key in seen or not valid_c_source(s, expect_name=expect_name, expect_proto=expect_proto):
+            continue
+        seen.add(key)
+        seeds.append(s)
     return seeds[:count]
 
 

@@ -417,6 +417,11 @@
   in emission order.
 
 ### Fixed
+- **`rebrew match --seed-llm --dry-run` prints the prompt verbatim.**  The
+  preview went through Rich markup, so `b[i]` in the source vanished as a
+  style tag and `b[/*x*/0]` crashed with `MarkupError`.  LLM seeds that
+  repeat (whitespace-insensitive) are now dropped instead of taking extra
+  GA population slots.
 - **A corrupt verify cache no longer crashes STATUS promotion.**  A
   `.rebrew/verify_cache.json` holding non-UTF-8 bytes or a non-object JSON
   document crashed `rebrew test`/`match` when they patched the cache
