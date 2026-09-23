@@ -51,8 +51,9 @@ plugin cache backends or remove the open upstream diskcache advisory.
   sandbox against a hostile project tree or malicious image. Local container
   runs use `--network=none` (no egress) and `no-new-privileges`; that does
   not imply escape resistance. The compile path passes no `--user`, so the
-  compiler runs as the image's default user with a read-write mount of the
-  project root.
+  compiler runs as the image's default user; it mounts the project root
+  read-only but can read all of it. The cmake bridge mounts the project root
+  and wineprefix read-write.
 - No claim that "docker-only" covers toolchains registered by an entry point
   or a `REBREW_TOOLCHAIN_OVERLAY_DIR` TOML file: a spec without `image` runs
   its `binary` on the host with the full process environment
