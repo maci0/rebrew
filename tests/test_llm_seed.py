@@ -217,6 +217,19 @@ class TestValidCSource:
     @pytest.mark.parametrize(
         "body",
         [
+            '  __asm__ volatile (".byte 0x55");\n',
+            '  asm(".byte 0x55");\n',
+            "  __asm { _emit 0x55 }\n",
+        ],
+    )
+    def test_inline_asm_rejected(self, body: str) -> None:
+        """Inline asm emits target bytes verbatim, faking a byte match."""
+        src = f"int f(int a) {{\n{body}  return a;\n}}\n"
+        assert not valid_c_source(src, expect_name="f", expect_proto="int f(int a)")
+
+    @pytest.mark.parametrize(
+        "body",
+        [
             "  /* x */ #define Y 1\n",
             '/*\n*/#include "/etc/passwd"\n',
         ],

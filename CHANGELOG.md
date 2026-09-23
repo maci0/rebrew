@@ -685,6 +685,10 @@
   `_Pragma("optimize(...)")` or `__pragma(...)` inside the function body,
   which passed the `#`-line check and let a pragma, not the C, produce a
   byte match.  Seeds containing either operator are now dropped.
+- **`--seed-llm` and Kuna seeds reject inline asm.**  `asm(".byte ...")`
+  and `__asm__` passed validation, so on GCC-family toolchains a model
+  seed could emit the target bytes verbatim and fake a match.  Seeds with
+  `asm`, `_asm`, `__asm`, `__asm__`, or `_emit` are now dropped.
 - **`rebrew residue` applies the postlink fixers.**  It looked for the
   layout package under a config attribute that does not exist, so every
   fixer was skipped and the residue was measured on the unpatched image.

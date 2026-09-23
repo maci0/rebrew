@@ -15,7 +15,7 @@ Untrusted boundaries: the seed source is project C (may contain adversarial
 fence breakouts if copied from elsewhere); the model response is never executed
 — only tree-sitter-valid snippets that are a single top-level function
 definition (comments allowed), matching name *and* prototype, with no
-preprocessor directives or pragma operators, and size caps.  Request cost is bounded by source
+preprocessor directives, pragma operators, or inline asm, and size caps.  Request cost is bounded by source
 truncation, ``max_tokens``, ``n=1``, an HTTP body ceiling before JSON parse,
 and a process-wide request budget (``REBREW_LLM_MAX_REQUESTS``, default 32;
 ``0`` disables further calls; a set-but-invalid value raises ``ValueError``)
@@ -57,6 +57,9 @@ _PREPROC_RE = re.compile(r"^\s*#", re.MULTILINE)
 # Pragma operators (C99 ``_Pragma``, MSVC ``__pragma``) act like ``#pragma``
 # without a ``#`` line: an ``optimize``/``pack`` pragma fakes a byte match.
 _PRAGMA_OP_RE = re.compile(r"\b(?:_Pragma|__pragma)\s*\(")
+# Inline asm (GNU ``asm``/``__asm__``, MSVC ``__asm``/``_asm``/``_emit``) lets
+# model output emit the target bytes verbatim: a faked match, not a C seed.
+_INLINE_ASM_RE = re.compile(r"\b(?:asm|_asm|__asm|__asm__|_emit)\b")
 # Root children allowed beside the single function_definition.
 _ALLOWED_TOP_LEVEL = frozenset({"function_definition", "comment"})
 
@@ -275,7 +278,7 @@ def valid_c_source(
     Snippets must contain exactly one ``function_definition`` at the
     translation-unit root (comments allowed; no globals, typedefs, structs,
     preprocessor directives (including ones hidden behind a comment), or
-    ``_Pragma`` / ``__pragma`` operators).  When *expect_name* / *expect_proto* are set, both must
+    ``_Pragma`` / ``__pragma`` operators, or inline asm).  When *expect_name* / *expect_proto* are set, both must
     match — so a hallucinated helper, wrong arity, or Trojan second
     definition cannot ride into the GA population.
 
@@ -306,7 +309,11 @@ def valid_c_source(
         if tree.root_node.has_error:
             return False
         uncommented = _without_comments(code, tree.root_node)
-        if _PREPROC_RE.search(uncommented) or _PRAGMA_OP_RE.search(uncommented):
+        if (
+            _PREPROC_RE.search(uncommented)
+            or _PRAGMA_OP_RE.search(uncommented)
+            or _INLINE_ASM_RE.search(uncommented)
+        ):
             return False
         top = list(tree.root_node.children)
         if any(c.type not in allowed for c in top):
