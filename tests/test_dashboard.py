@@ -1213,6 +1213,39 @@ class TestEncodingNegotiation:
         assert zstandard.ZstdDecompressor().decompress(body) == _INDEX_HTML_BYTES
         assert len(body) < len(_INDEX_HTML_BYTES)
 
+    @pytest.mark.parametrize("accept", ["gzip", "zstd"])
+    def test_entry_assets_fit_initial_congestion_window(
+        self, dashboard: Dashboard, accept: str
+    ) -> None:
+        """Shell + /app.js wire bytes stay inside a 10-segment initcwnd (RFC 6928).
+
+        Past it, first paint costs an extra round trip on a cold connection.
+        The budget reserves ~2 KB of the 14600-byte window for both responses'
+        headers.
+        """
+        from io import BytesIO
+        from unittest.mock import Mock
+
+        from rebrew.dashboard import _Handler, allowed_hosts_for
+
+        budget_bytes = 12 * 1024
+        wire = 0
+        for path in ("/", f"/app.js?v={_APP_JS_VERSION}"):
+            handler = _Handler.__new__(_Handler)
+            handler.headers = {"Host": "127.0.0.1:8000", "Accept-Encoding": accept}
+            handler.path = path
+            handler.allowed_hosts = allowed_hosts_for("127.0.0.1", 8000)
+            handler.dashboard = dashboard
+            handler.send_response = Mock()
+            handler.send_header = Mock()
+            handler.end_headers = Mock()
+            handler.wfile = BytesIO()
+            handler._respond("GET")
+            headers = dict(call.args for call in handler.send_header.call_args_list)
+            assert headers["Content-Encoding"] == accept
+            wire += len(handler.wfile.getvalue())
+        assert wire <= budget_bytes, f"entry assets {wire} B over {budget_bytes} B budget"
+
 
 class TestHostValidation:
     """Requests with a foreign Host header must be rejected (DNS rebinding)."""

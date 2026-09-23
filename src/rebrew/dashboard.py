@@ -44,7 +44,9 @@ A matching ``If-None-Match`` on a routed path is answered 304 only when a GET
 would answer 200 (target-scoped ones need a known ``target``; ``/api/summary``
 a readable ``function_stats``), without running the route's query.
 The static HTML shell and ``/app.js`` client are zstd- and gzip-precompressed at
-import time so entry assets skip per-request compression CPU.  The shell
+import time so entry assets skip per-request compression CPU.  Their combined
+wire size stays under 12 KB (gzip or zstd) so a cold connection paints from the
+initial congestion window; a test pins that budget.  The shell
 ``<head>`` preloads ``/api/bootstrap`` (``as=fetch`` + ``crossorigin`` +
 ``fetchpriority=high``) and ``/app.js`` (``as=script``); the deferred client
 fetches with the default ``same-origin`` credentials, the mode ``crossorigin``
