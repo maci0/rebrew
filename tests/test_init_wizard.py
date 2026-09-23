@@ -258,6 +258,22 @@ class TestToolchainImageStep:
         assert "not present" in result.stderr
         assert "rebrew toolchain build msvc-6.0" in result.stderr
 
+    def test_daemon_error_reports_cause(self, tmp_path: Path, monkeypatch) -> None:
+        from rebrew.toolchain import ToolchainError
+
+        _place_mini_pe(tmp_path)
+        _force_wizard(monkeypatch)
+
+        def _raise(tag: str) -> bool:
+            raise ToolchainError("docker image inspect timed out [30s]")
+
+        monkeypatch.setattr("rebrew.toolchain.image_present", _raise)
+        monkeypatch.chdir(tmp_path)
+        result = CliRunner().invoke(app, _FLAGGED)
+        assert result.exit_code == 0, result.output + result.stderr
+        assert "not reachable" in result.stderr
+        assert "timed out [30s]" in result.stderr
+
     def test_missing_image_accepted_runs_build(self, tmp_path: Path, monkeypatch) -> None:
         _place_mini_pe(tmp_path)
         _force_wizard(monkeypatch)

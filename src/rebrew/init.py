@@ -589,7 +589,9 @@ def _toolchain_image_followup(compiler_profile: str) -> None:
     Missing image → print the exact build command and offer to run it
     (streamed output; failure/wibo/docker errors only warn — never crash
     init).  Native PATH toolchains have no image, so nothing to build."""
-    from rebrew.toolchain import TOOLCHAINS, image_present
+    from rich.markup import escape
+
+    from rebrew.toolchain import TOOLCHAINS, ToolchainError, image_present
 
     spec = TOOLCHAINS.get(compiler_profile)
     if spec is None:
@@ -602,9 +604,9 @@ def _toolchain_image_followup(compiler_profile: str) -> None:
         return
     try:
         present = image_present(image)
-    except Exception:
+    except ToolchainError as exc:
         console.print(
-            f"[yellow]toolchain: docker daemon not reachable — check later with "
+            f"[yellow]toolchain: docker daemon not reachable ({escape(str(exc))}) — check later with "
             f"'rebrew toolchain build {compiler_profile}'[/]"
         )
         return

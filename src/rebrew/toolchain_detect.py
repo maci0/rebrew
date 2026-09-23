@@ -789,6 +789,7 @@ def _mz_codegen_scan(data: bytes) -> dict[str, int]:
         md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_16)
         md.skipdata = True
     except Exception:
+        logger.debug("capstone 16-bit disassembler unavailable", exc_info=True)
         return {}
     counts = {"leave": 0, "loop": 0, "retf": 0, "fp_prologue": 0}
     prev_m: str | None = None
@@ -1055,6 +1056,7 @@ def detect_with_pe_meta(path: Path) -> ToolchainInfo | None:
     try:
         pe = lief.parse(str(path))
     except Exception:
+        logger.debug("LIEF parse failed for %s", path, exc_info=True)
         return None
     # PE-only: only PE binaries expose an optional_header (ELF/Mach-O do
     # not); duck-typing also keeps the backend testable with mocks.

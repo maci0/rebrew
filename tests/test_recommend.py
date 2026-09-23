@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import logging
 from types import SimpleNamespace
+from typing import Any
 
 from rebrew.recommend import (
     FIXABLE_LINT,
@@ -382,3 +384,23 @@ class TestRound4Lanes:
 
     def test_backfill_blockers_zero_is_silent(self) -> None:
         assert recommend_backfill_blockers(0) is None
+
+
+class TestLaneIsolation:
+    def test_failing_lane_is_logged_not_raised(
+        self, tmp_path: Any, monkeypatch: Any, caplog: Any
+    ) -> None:
+        import rebrew.recommend as rec
+
+        def _boom(_pairs: Any) -> list[Any]:
+            raise RuntimeError("boom")
+
+        monkeypatch.setattr(rec, "recommend_default_names", _boom)
+        cfg = SimpleNamespace(
+            root=tmp_path, reversed_dir=tmp_path, metadata_dir=tmp_path, target_name="t"
+        )
+        with caplog.at_level(logging.WARNING, logger="rebrew.recommend"):
+            recs = rec._collect_hygiene(cfg, set(), {0x1000: "FUN_00001000"})
+        assert "default-names lane failed" in caplog.text
+        assert "boom" in caplog.text
+        assert isinstance(recs, list)

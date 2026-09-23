@@ -31,7 +31,10 @@ build semantics and need a human.
 
 from __future__ import annotations
 
+import logging
 import re
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -44,6 +47,7 @@ from rebrew.cli import TargetOption, error_exit, json_print, require_config
 from rebrew.config import ProjectConfig, inventory_path_for
 
 console = Console(stderr=True)
+log = logging.getLogger(__name__)
 
 #: Symbol inside a W021 message (``global '<name>' is also annotated in ...``).
 _W021_SYMBOL_RE = re.compile(r"global '([^']+)'")
@@ -837,18 +841,29 @@ def load_layout(
     return va_to_file, names, flags, flagsets, sizes
 
 
+@contextmanager
+def _lane(name: str) -> Iterator[None]:
+    """Isolate one hygiene lane: its failure drops only its recommendations.
+
+    Logged at WARNING so a broken lane (bad input, renamed helper) is visible
+    instead of silently producing no advice forever.
+    """
+    try:
+        yield
+    except Exception:
+        log.warning("recommend: %s lane failed, its advice is omitted", name, exc_info=True)
+
+
 def _collect_hygiene(
     cfg: ProjectConfig,
     covered: set[int] | None = None,
     names: dict[int, str] | None = None,
 ) -> list[Recommendation]:
-    """Run the cheap hygiene lanes; every lane fails soft to []."""
-    import contextlib
-
+    """Run the cheap hygiene lanes; a failing lane logs a warning and adds nothing."""
     recs: list[Recommendation] = []
     names = names or {}
 
-    with contextlib.suppress(Exception):
+    with _lane("link-order"):
         from rebrew.link_order import find_sources_block, normalize_listed, order_sources
         from rebrew.sources import iter_sources, source_exts
         from rebrew.utils import rel_display_path
@@ -875,7 +890,7 @@ def _collect_hygiene(
                 if rec:
                     recs.append(rec)
 
-    with contextlib.suppress(Exception):
+    with _lane("orphans"):
         from rebrew.orphans import find_orphans, split_prunable
 
         fn, data = find_orphans(cfg)
@@ -886,7 +901,7 @@ def _collect_hygiene(
 
         recs.extend(recommend_matched_orphans(_orphan_dicts(cfg, fn, data)))
 
-    with contextlib.suppress(Exception):
+    with _lane("lint"):
         from rebrew.lint import lint_file
         from rebrew.sources import iter_sources
 
@@ -917,7 +932,7 @@ def _collect_hygiene(
         recs.extend(recommend_duplicate_globals(dup_globals))
         recs.extend(recommend_stale_markers(stale))
 
-    with contextlib.suppress(Exception):
+    with _lane("shared-twins"):
         from rebrew.annotation import split_annotation_sections
         from rebrew.merge import _block_metadata, _normalize_body
         from rebrew.sources import iter_sources
@@ -939,7 +954,7 @@ def _collect_hygiene(
         twins = [sorted(v) for v in bodies.values() if len(v) > 1]
         recs.extend(recommend_shared_twins(twins))
 
-    with contextlib.suppress(Exception):
+    with _lane("data-status"):
         from rebrew.data_metadata import load_data_metadata
 
         drift = [
@@ -959,7 +974,7 @@ def _collect_hygiene(
         if start:
             recs.append(start)
 
-    with contextlib.suppress(Exception):
+    with _lane("build-check"):
         from rebrew.build_check import check as build_check
 
         result = build_check()
@@ -968,12 +983,12 @@ def _collect_hygiene(
             if rec:
                 recs.append(rec)
 
-    with contextlib.suppress(Exception):
+    with _lane("verify-failures"):
         from rebrew.todo import _load_verify_entries
 
         recs.extend(recommend_verify_failures(_load_verify_entries(cfg)))
 
-    with contextlib.suppress(Exception):
+    with _lane("stale-cache"):
         from rebrew.sources import iter_sources
 
         cache_path = cfg.root / ".rebrew" / "verify_cache.json"
@@ -991,7 +1006,7 @@ def _collect_hygiene(
         if rec:
             recs.append(rec)
 
-    with contextlib.suppress(Exception):
+    with _lane("missing-externs"):
         from rebrew.c_parser import find_extern_function_names
         from rebrew.sources import iter_sources
         from rebrew.utils import read_source_text, rel_display_path
@@ -1010,10 +1025,10 @@ def _collect_hygiene(
                 refs.append((rel, callee))
         recs.extend(recommend_missing_externs(refs, known))
 
-    with contextlib.suppress(Exception):
+    with _lane("default-names"):
         recs.extend(recommend_default_names([(va, n) for va, n in names.items()]))
 
-    with contextlib.suppress(Exception):
+    with _lane("todo"):
         from rebrew.naming import load_data
         from rebrew.todo import collect_all
 
@@ -1042,7 +1057,7 @@ def _collect_hygiene(
             if rec:
                 recs.append(rec)
 
-    with contextlib.suppress(Exception):
+    with _lane("foreign-sources"):
         from rebrew.cmake_sources import collect as collect_sources
         from rebrew.sources import target_marker
         from rebrew.utils import rel_display_path
