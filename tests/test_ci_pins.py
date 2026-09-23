@@ -305,6 +305,17 @@ class TestCiPins:
         assert "tests" in pytest_ini["pythonpath"]
         assert pytest_ini["addopts"] == ["-p", "pytest_ansi_env"]
 
+    def test_coverage_floor_matches_pyproject(self) -> None:
+        """slipcover ignores [tool.slipcover]; ``make coverage`` passes the floor."""
+        import tomllib
+
+        text = MAKEFILE.read_text(encoding="utf-8")
+        m = re.search(r"(?m)^COV_FLOOR\s*\?=\s*(\d+)\s*$", text)
+        assert m is not None, "COV_FLOOR missing from Makefile"
+        assert "--fail-under $(COV_FLOOR)" in text
+        ini = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+        assert int(m.group(1)) == ini["tool"]["slipcover"]["fail_under"]
+
     def test_bare_pytest_survives_force_color(self) -> None:
         """Regression: FORCE_COLOR alone used to break --version / skills show."""
         env = {

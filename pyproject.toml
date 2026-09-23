@@ -195,14 +195,10 @@ filterwarnings = [
 
 [tool.slipcover]
 source = ["src/rebrew"]
-# Run: uv run python -m slipcover --fail-under 80 -m pytest
-# (fail-under enforced: AGENTS.md coverage ratchets — coverage may rise, never
-# fall. Current suite coverage is ~92%; the floor sits below it so legitimate
-# drops fail the gate instead of passing silently. NOTE: slipcover reads only
-# CLI flags, not this section — always pass --fail-under explicitly; this key
-# documents the floor. Check with
-# `uv run python -m slipcover --json cov.json -m pytest`.)
-fail_under = 80
+# Run: make coverage.  slipcover reads only CLI flags, not this section, so
+# the Makefile's COV_FLOOR passes --fail-under; keep the two equal.  The floor
+# ratchets (AGENTS.md): coverage may rise, never fall.
+fail_under = 85
 # Or for JSON output: uv run python -m slipcover --json cov.json -m pytest
 
 [tool.ruff]

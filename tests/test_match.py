@@ -1670,6 +1670,21 @@ class TestLiveMutationFocus:
         assert _live_mutation_weights(self._params(tmp_path)) is None
 
 
+def _increment_counter_child(lock_dir: str, n: int) -> None:
+    """Child-process worker: bump count.txt *n* times under match's write lock.
+
+    Module-level so multiprocessing can import it under the spawn context
+    (fork breaks slipcover's fork shim, which then skips the coverage gate).
+    """
+    from rebrew.match_run import metadata_write_lock
+
+    counter = Path(lock_dir) / "count.txt"
+    for _ in range(n):
+        with metadata_write_lock(Path(lock_dir), "rebrew-functions.toml"):
+            value = int(counter.read_text(encoding="utf-8"))
+            counter.write_text(str(value + 1), encoding="utf-8")
+
+
 class TestBatchWriteLock:
     """match's batch write path must serialize across processes, not just
     threads: the old threading.Lock lived in one process, so parallel batch
@@ -1687,19 +1702,13 @@ class TestBatchWriteLock:
         drop each other's increments (flock, not just a thread lock)."""
         import multiprocessing as mp
 
-        from rebrew.match_run import metadata_write_lock
-
         counter = tmp_path / "count.txt"
         counter.write_text("0", encoding="utf-8")
 
-        def _work(n: int) -> None:
-            for _ in range(n):
-                with metadata_write_lock(tmp_path, "rebrew-functions.toml"):
-                    value = int(counter.read_text(encoding="utf-8"))
-                    counter.write_text(str(value + 1), encoding="utf-8")
-
-        ctx = mp.get_context("fork")
-        procs = [ctx.Process(target=_work, args=(25,)) for _ in range(2)]
+        ctx = mp.get_context("spawn")
+        procs = [
+            ctx.Process(target=_increment_counter_child, args=(str(tmp_path), 25)) for _ in range(2)
+        ]
         for p in procs:
             p.start()
         for p in procs:

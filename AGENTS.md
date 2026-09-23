@@ -26,7 +26,7 @@ make test                                 # full suite (needs nasm)
 make lint / make format / make mypy
 make gen-fixtures                         # regenerate tests/fixtures/ after editing the generator
 make all && make check && make build      # before a PR: CI gates + pre-commit + reproducible build
-uv run --frozen python -m slipcover --fail-under 80 -m pytest  # coverage floor; ratchet up, never down
+make coverage                             # slipcover fail-under floor (COV_FLOOR); ratchet up, never down
 ```
 
 Bare `uv run pytest` matches `make test` (`pyproject.toml` pytest config loads `tests/pytest_ansi_env.py`; `.` on `pythonpath` exposes `tools/`).

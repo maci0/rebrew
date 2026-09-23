@@ -115,7 +115,7 @@ make check                              # pre-commit hook parity (CI pre-commit 
 make cli-contract                       # high-value --help greps (CI cli-contract job)
 make gen-fixtures                       # regenerate tests/fixtures/ (then commit)
 make build                              # sdist+wheel (CI package job; run before a PR)
-uv run --frozen python -m slipcover --fail-under 80 -m pytest tests/ -q   # coverage
+make coverage                           # full suite under slipcover, fails below COV_FLOOR
 # Bare pytest is also ANSI-safe (pytest_ansi_env plugin); prefer make test-one.
 ```
 

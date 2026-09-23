@@ -42,6 +42,7 @@ make test-one T=tests/test_annotation.py   # smoke the edit-test loop
 make help                     # list contributor make targets
 make setup                    # frozen sync + pre-commit install (checks uv + ../resembl first)
 make test-one T=tests/foo.py  # single file / nodeid (fast edit-test loop)
+make coverage                 # full suite under slipcover; fails below the COV_FLOOR floor
 make test                     # full suite (~7800 tests, ~3.5 min; needs nasm)
 make all                      # local mirror of CI lint+test+cli-contract gates
 make check                    # pre-commit hook parity (CI pre-commit job)
@@ -101,8 +102,8 @@ import rebrew as a library.
    gates, the pre-commit job, and the package job's `make build` (sdist/wheel +
    `dist/rebrew.buildinfo`).
 2. Keep changes minimal and scoped; match the surrounding style.
-3. Add tests for new behavior — the suite sits at ~92% coverage, and new
-   pure logic is expected to keep it there.
+3. Add tests for new behavior — the suite sits at ~86% line coverage
+   (`make coverage`), and new pure logic is expected to keep it there.
 4. Record user-visible change under `## [Unreleased]` in `CHANGELOG.md` when
    the change affects installs, CLI, config, or on-disk formats (see Versioning
    above).  If you edit `tools/gen_fixtures.py`, run `make gen-fixtures` and

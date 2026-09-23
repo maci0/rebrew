@@ -1,6 +1,6 @@
 .PHONY: help setup test test-one lint format format-check check build sbom all \
 	gen-fixtures gen-fixtures-check cycles-check idempotency-check mypy audit \
-	cli-contract release-check ensure-uv ensure-resembl ensure-nasm warn-nasm
+	cli-contract release-check coverage ensure-uv ensure-resembl ensure-nasm warn-nasm
 
 # Force POSIX sh for recipes (ignore a caller-exported SHELL=bash).  Recipes
 # below use only POSIX constructs so Alpine/busybox ash and Debian dash work.
@@ -28,6 +28,10 @@ UV_VERSION ?= 0.12.14
 #   make test-one T=tests/test_annotation.py::TestAnnotationDataclass
 T ?= tests/
 
+# `make coverage` fail-under percentage; keep in step with [tool.slipcover]
+# fail_under in pyproject.toml.
+COV_FLOOR ?= 85
+
 # Reproducible package builds: honor SOURCE_DATE_EPOCH when set; otherwise use
 # the committer timestamp (or 0 for a non-git tree). Wheel builds with this set
 # are byte-identical across runs; `make build` then rewrites the sdist with
@@ -42,6 +46,7 @@ help:
 		'  make setup              # uv sync (frozen + extras + similarity) + pre-commit/pre-push hooks' \
 		'  make test               # full pytest suite (needs nasm on PATH)' \
 		'  make test-one T=<node>  # one file/nodeid, e.g. T=tests/test_foo.py::TestBar (nasm optional)' \
+		'  make coverage           # full suite under slipcover with the COV_FLOOR fail-under gate' \
 		'  make lint               # ruff check src/ tests/ tools/' \
 		'  make format             # ruff format (writes)' \
 		'  make format-check       # ruff format --check' \
@@ -135,6 +140,12 @@ test: ensure-nasm
 test-one: warn-nasm
 	NO_COLOR=1 TERM=dumb _TYPER_FORCE_DISABLE_TERMINAL=1 \
 		uv run --frozen pytest $(T) -v --tb=short
+
+# Coverage floor (AGENTS.md: ratchet up, never down).  slipcover ignores
+# [tool.slipcover] fail_under, so the floor is passed on the command line.
+coverage: ensure-nasm
+	NO_COLOR=1 TERM=dumb _TYPER_FORCE_DISABLE_TERMINAL=1 \
+		uv run --frozen python -m slipcover --fail-under $(COV_FLOOR) -m pytest tests/ -q --tb=short
 
 # Run linting
 lint:
