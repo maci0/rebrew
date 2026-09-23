@@ -1023,10 +1023,18 @@ def _collect_start_data(cfg: ProjectConfig) -> list[TodoItem]:
     tail, 84 import slots, 7 without a size).
     """
     from rebrew.data_metadata import load_data_metadata
+    from rebrew.sources import target_marker
 
+    marker = target_marker(cfg)
     in_zero_fill_tail = _zero_fill_tail_checker(cfg)
     items: list[TodoItem] = []
     for (module, va), fields in load_data_metadata(cfg.metadata_dir).items():
+        # One metadata file serves every target in a unified tree, so a row's
+        # module decides whether THIS target still owes work.  Without the
+        # filter the server's todo listed 20 GOLDTL data symbols (0x6624a0,
+        # 0x773d80, …) -- VAs no server marker can ever clear.
+        if marker and module != marker:
+            continue
         if str(fields.get("status") or "").upper() not in ("", "UNCHECKED"):
             continue
         name = str(fields.get("name") or "")
@@ -1067,8 +1075,16 @@ def collect_all(
     ghidra_funcs: list["FunctionEntry"],
     existing: dict[int, dict[str, str]],
     covered_vas: dict[int, str],
+    exclude_vas: set[int] | None = None,
 ) -> list[TodoItem]:
-    """Collect and rank all todo items by ROI score (descending)."""
+    """Collect and rank all todo items by ROI score (descending).
+
+    *exclude_vas* holds VA rows that are linked library code (``external_vas``:
+    ``LIBRARY`` markers plus configured external modules).  They are not work:
+    the bytes come from the archive, so neither "improve this match" nor
+    "start this function" is a runnable action — the server's ``library_msvc.h``
+    rows alone filled 11 of the top 20 slots before this filter.
+    """
     items: list[TodoItem] = []
 
     # Setup steps for fresh/incomplete projects (scored highest)
@@ -1099,6 +1115,11 @@ def collect_all(
     items.extend(_collect_library_candidates(ghidra_funcs, existing, cfg))
     items.extend(_collect_data_drift(cfg))
     items.extend(_collect_start_data(cfg))
+
+    # Library rows are never actions (see the docstring): drop them before
+    # ranking so they cannot displace real work.
+    if exclude_vas:
+        items = [item for item in items if item.va not in exclude_vas]
 
     # Deduplicate by VA — keep only the highest-ROI item per function.
     # Setup items (va=0) are category-level, not per-function, so they skip dedup.
@@ -1199,9 +1220,15 @@ def main(
         # `targets.<name>.external_libs` (same rule as `rebrew status`).
         library_vas = external_vas(existing, getattr(cfg, "external_libs", None))
         existing = scope_to_target(existing, cfg)
+        # Library rows are NOT work: their bytes come from the linked archive,
+        # so "improve-match / needs implementation" is a false action item.
+        # The server's `library_msvc.h` alone contributed 11 of the top 20
+        # items before this filter (round 1380: `_ftell`, `__ftell_lk`,
+        # `_realloc`, … all correctly attributed, all unrunnable).
+        existing = {va: info for va, info in existing.items() if va not in library_vas}
     except (OSError, json.JSONDecodeError, KeyError) as exc:
         error_exit(f"Failed to load project data: {exc}", json_mode=json_output)
-    all_items = collect_all(cfg, ghidra_funcs, existing, covered_vas)
+    all_items = collect_all(cfg, ghidra_funcs, existing, covered_vas, exclude_vas=library_vas)
 
     # Coverage stats (always computed for JSON, optional for terminal)
     # Overlay verify cache on annotation statuses (same logic + target guard

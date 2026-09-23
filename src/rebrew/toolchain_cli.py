@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import shutil
+import subprocess
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -468,7 +469,6 @@ def vendor_cmd(
     unexpected non-meta content still refuses to clobber.
     """
     import hashlib
-    import subprocess
     import tempfile
 
     from rebrew.toolchain import get_toolchain, require_toolchains_repo, vendored_binary
@@ -1015,7 +1015,6 @@ def smoke_cmd(
     new hashes are stable across a second run, then paste them in.
     """
     import os
-    import subprocess
 
     from rebrew.toolchain import get_toolchain
 
@@ -1024,7 +1023,7 @@ def smoke_cmd(
     ok = True
     # A real-disk, docker-visible workdir (the system temp dir may be
     # tmpfs or docker-invisible in sandboxed environments).
-    from rebrew.utils import container_runtime, remove_temp_dir, writable_temp_dir
+    from rebrew.utils import remove_temp_dir, writable_temp_dir
 
     workdir = writable_temp_dir("rebrew_smoke_")
     try:
@@ -1039,41 +1038,12 @@ def smoke_cmd(
             src_path.write_text(src, encoding="utf-8")
             os.utime(src_path, (_SDE, _SDE))
             if spec.image is not None:
-                # Unique name: a fixed ``rebrew-smoke-{tool}`` collided under
-                # parallel smoke / left an orphan that blocked the next run.
-                import uuid
-
-                container = f"rebrew-smoke-{spec.name}-{uuid.uuid4().hex[:12]}"
                 try:
-                    r = subprocess.run(
-                        [
-                            container_runtime(),
-                            "run",
-                            "--rm",
-                            "--network=none",  # compile-only container
-                            "--security-opt=no-new-privileges",  # no setuid escalation inside the image
-                            # Named so the timeout path can kill it (a killed
-                            # docker CLI leaves the container under dockerd).
-                            "--name",
-                            container,
-                            "-v",
-                            f"{workdir}:/work",
-                            "-w",
-                            "/work",
-                            spec.image,
-                            *flags,
-                        ],
-                        capture_output=True,
-                        text=True,
-                        encoding="utf-8",
-                        errors="replace",
-                        timeout=300,
+                    r = _run_smoke_container(
+                        spec.image, f"rebrew-smoke-{spec.name}", workdir, flags
                     )
                 except subprocess.TimeoutExpired:
-                    from rebrew.toolchain import kill_container
-
-                    kill_container(container)
-                    results[tool] = "FAIL (docker run timed out after 300s)"
+                    results[tool] = f"FAIL (docker run timed out after {_SMOKE_TIMEOUT_S}s)"
                     ok = False
                     continue
                 detail = (r.stdout + r.stderr)[-120:].strip()
@@ -1086,7 +1056,7 @@ def smoke_cmd(
                 from rebrew.toolchain import ToolchainError, run_toolchain
 
                 try:
-                    rr = run_toolchain(spec, flags, workdir=workdir, timeout=300)
+                    rr = run_toolchain(spec, flags, workdir=workdir, timeout=_SMOKE_TIMEOUT_S)
                     detail = (rr.stdout + rr.stderr)[-120:].strip()
                 except ToolchainError as exc:
                     results[tool] = "FAIL (" + str(exc)[-120:] + ")"
@@ -1140,7 +1110,6 @@ def build_cmd(
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
     """Build a toolchain's docker image from the rebrew-toolchains checkout."""
-    import subprocess
 
     from rebrew.toolchain import (
         ToolchainError,
@@ -1214,6 +1183,52 @@ def build_cmd(
         console.print(f"[green]Built[/green] {spec.image}")
 
 
+_SMOKE_TIMEOUT_S = 300
+
+
+def _run_smoke_container(
+    image: str, name_prefix: str, workdir: Path, flags: list[str]
+) -> subprocess.CompletedProcess[str]:
+    """Compile *flags* in *image* with *workdir* mounted at /work, offline.
+
+    The container gets a unique name so the timeout path can kill it (a killed
+    docker CLI leaves the container under dockerd); a fixed name collided under
+    parallel runs and a timed-out orphan blocked retries.  Re-raises
+    :class:`subprocess.TimeoutExpired` after the kill.
+    """
+    import uuid
+
+    from rebrew.toolchain import kill_container
+
+    container = f"{name_prefix}-{uuid.uuid4().hex[:12]}"
+    try:
+        return subprocess.run(
+            [
+                container_runtime(),
+                "run",
+                "--rm",
+                "--network=none",  # compile-only container
+                "--security-opt=no-new-privileges",  # no setuid escalation inside the image
+                "--name",
+                container,
+                "-v",
+                f"{workdir}:/work",
+                "-w",
+                "/work",
+                image,
+                *flags,
+            ],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=_SMOKE_TIMEOUT_S,
+        )
+    except subprocess.TimeoutExpired:
+        kill_container(container)
+        raise
+
+
 def _masked_obj_sha256(obj: Path, mask: tuple[int, int] | list[tuple[int, int]] | None) -> str:
     """sha256 of *obj* with the masked byte ranges zeroed (golden hashing)."""
     import hashlib
@@ -1237,7 +1252,6 @@ def _image_smoke_hash(tool: str, workdir: Path) -> str | None:
     after re-pinning and rebuilding an image.  Returns None when the
     compile produced no object."""
     import os
-    import subprocess
 
     from rebrew.toolchain import get_toolchain
 
@@ -1249,40 +1263,9 @@ def _image_smoke_hash(tool: str, workdir: Path) -> str | None:
     src_path = workdir / src_name
     src_path.write_text(src, encoding="utf-8")
     os.utime(src_path, (_SDE, _SDE))
-    # Named so the timeout path can kill it (a killed docker CLI leaves the
-    # container under dockerd) — same discipline as smoke_cmd above.  Unique
-    # suffix: a fixed ``rebrew-smoke-hash-{tool}`` collided under parallel
-    # update/smoke and blocked retries after a timed-out orphan.
-    import uuid
-
-    container = f"rebrew-smoke-hash-{tool}-{uuid.uuid4().hex[:12]}"
     try:
-        subprocess.run(
-            [
-                container_runtime(),
-                "run",
-                "--rm",
-                "--network=none",  # compile-only container
-                "--security-opt=no-new-privileges",  # no setuid escalation inside the image
-                "--name",
-                container,
-                "-v",
-                f"{workdir}:/work",
-                "-w",
-                "/work",
-                spec.image,
-                *flags,
-            ],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=300,
-        )
+        _run_smoke_container(spec.image, f"rebrew-smoke-hash-{tool}", workdir, flags)
     except subprocess.TimeoutExpired:
-        from rebrew.toolchain import kill_container
-
-        kill_container(container)
         return None
     except OSError:
         # A hung daemon or missing docker degrades to "no object" — the

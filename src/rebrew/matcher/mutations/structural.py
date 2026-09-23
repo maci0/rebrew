@@ -38,6 +38,7 @@ from rebrew.matcher.mutations.queries import (
 )
 from rebrew.matcher.mutations.runtime import (
     _apply_query_once,
+    _cap_bytes,
     _capture,
     _cursor,
     _find_function_body_insert_pos,
@@ -233,8 +234,8 @@ def mut_array_to_ptr_arith(s: str, rng: random.Random) -> str | None:
     b_source = encode_source(s)
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
-        arr = b_source[captures["arr"].start_byte : captures["arr"].end_byte]
-        idx = b_source[captures["idx"].start_byte : captures["idx"].end_byte]
+        arr = _cap_bytes(b_source, captures, "arr")
+        idx = _cap_bytes(b_source, captures, "idx")
         return b"*((" + arr + b") + (" + idx + b"))"
 
     res = _apply_query_once(b_source, _QUERY_ARRAY_INDEX, _repl, rng)
@@ -249,8 +250,8 @@ def mut_ptr_arith_to_array(s: str, rng: random.Random) -> str | None:
     b_source = encode_source(s)
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
-        ptr = b_source[captures["ptr"].start_byte : captures["ptr"].end_byte]
-        idx = b_source[captures["idx"].start_byte : captures["idx"].end_byte]
+        ptr = _cap_bytes(b_source, captures, "ptr")
+        idx = _cap_bytes(b_source, captures, "idx")
         return ptr + b"[" + idx + b"]"
 
     res = _apply_query_once(b_source, _QUERY_DEREF_PTR_ADD, _repl, rng)
@@ -358,11 +359,11 @@ def mut_cast_to_bitmask(s: str, rng: random.Random) -> str | None:
     }
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
-        type_text = b_source[captures["type"].start_byte : captures["type"].end_byte]
-        val = b_source[captures["val"].start_byte : captures["val"].end_byte]
+        type_text = _cap_bytes(b_source, captures, "type")
+        val = _cap_bytes(b_source, captures, "val")
         mask = _MASK_MAP.get(type_text.strip())
         if mask is None:
-            return b_source[captures["expr"].start_byte : captures["expr"].end_byte]
+            return _cap_bytes(b_source, captures, "expr")
         return b"((" + val + b") & " + mask + b")"
 
     res = _apply_query_once(b_source, _QUERY_BYTE_CAST, _repl, rng)

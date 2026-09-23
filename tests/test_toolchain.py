@@ -1261,6 +1261,30 @@ class TestSmokePrintGoldens:
         masked[4:8] = b"\x00" * 4
         assert payload["goldens"]["msvc-6.0"] == hashlib.sha256(bytes(masked)).hexdigest()
 
+    def test_docker_timeout_kills_named_container(self, monkeypatch) -> None:
+        import json
+        import subprocess
+
+        from typer.testing import CliRunner
+
+        from rebrew.main import app as umbrella
+
+        names: list[str] = []
+        killed: list[str] = []
+
+        def _fake_run(cmd, **kwargs):
+            names.append(cmd[cmd.index("--name") + 1])
+            raise subprocess.TimeoutExpired(cmd, kwargs["timeout"])
+
+        monkeypatch.setattr(subprocess, "run", _fake_run)
+        monkeypatch.setattr("rebrew.toolchain.kill_container", killed.append)
+        result = CliRunner().invoke(umbrella, ["toolchain", "smoke", "msvc-6.0", "--json"])
+        payload = json.loads(result.stdout)
+        assert payload["results"] == {"msvc-6.0": "FAIL (docker run timed out after 300s)"}
+        assert payload["passed"] is False
+        assert killed == names
+        assert names[0].startswith("rebrew-smoke-msvc-6.0-")
+
 
 class TestPullToolchainHint:
     """pull on an absent locally-built image must point at `toolchain

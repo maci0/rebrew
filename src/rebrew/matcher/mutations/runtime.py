@@ -47,14 +47,13 @@ _MUTATION_ATTEMPTS = 10
 _RE_RET_FALSE_LABEL_NL = re.compile(r"^[ \t]*ret_false:[ \t]*\r?\n", flags=re.MULTILINE)
 _RE_RET_FALSE_LABEL = re.compile(r"^[ \t]*ret_false:[ \t]*", flags=re.MULTILINE)
 
-# Pre-compiled regex for mut_return_to_goto (GA hot path).
-# Pre-compiled regex for mut_sink_return (GA hot path).
+# Function-level pragma line, kept with the function body by _split_preamble_body.
 _RE_FUNC_PRAGMA = re.compile(
     r"^[ \t]*#pragma[ \t]+(?:optimize|intrinsic|function|check_stack|auto_inline)\b",
     re.MULTILINE,
 )
 
-
+# Pre-compiled regex for mut_sink_return (GA hot path).
 _RE_SINK_RETURN = re.compile(rb"(\w+)\s*=\s*([^;]+);\s*\n\s*goto\s+end\s*;")
 
 # Pre-compiled regex for mut_guard_clause (GA hot path).
@@ -66,6 +65,12 @@ _RE_GUARD_CLAUSE = re.compile(
 def _first_caps(capture_dict: dict[str, list[ts.Node]]) -> dict[str, ts.Node]:
     """Extract the first node from each capture group in a tree-sitter match."""
     return {k: v[0] for k, v in capture_dict.items()}
+
+
+def _cap_bytes(source: bytes, captures: dict[str, ts.Node], name: str) -> bytes:
+    """Return the *source* bytes spanned by capture *name*."""
+    node = captures[name]
+    return source[node.start_byte : node.end_byte]
 
 
 def brace_block(body: bytes) -> bytes:
@@ -183,10 +188,10 @@ def _commute_operands(
     b_source = encode_source(s)
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
-        left = b_source[captures["left"].start_byte : captures["left"].end_byte]
-        right = b_source[captures["right"].start_byte : captures["right"].end_byte]
+        left = _cap_bytes(b_source, captures, "left")
+        right = _cap_bytes(b_source, captures, "right")
         if left == right:
-            return b_source[captures["expr"].start_byte : captures["expr"].end_byte]
+            return _cap_bytes(b_source, captures, "expr")
         return right + b" " + op_str + b" " + left
 
     res = _apply_query_once(b_source, query, _repl, rng)

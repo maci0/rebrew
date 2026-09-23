@@ -899,7 +899,7 @@ class TestLoadVerifyEntries:
         }
         (d / "verify_cache.json").write_text(json.dumps(cache), encoding="utf-8")
 
-        assert _load_verify_entries(SimpleNamespace(root=tmp_path, target_name="SERVER")) == {}
+        assert _load_verify_entries(SimpleNamespace(root=tmp_path, target_name="TEST")) == {}
         # A minimal config with no target still accepts a target-less cache.
         assert len(_load_verify_entries(SimpleNamespace(root=tmp_path))) == 1
 
@@ -1530,10 +1530,10 @@ class TestDataDrift:
         from rebrew.todo import CAT_DATA_DRIFT, _collect_data_drift
 
         cfg = _make_cfg(tmp_path)
-        set_data_field(tmp_path, 0x1000, "name", "g_a", "SERVER")
-        set_data_field(tmp_path, 0x1000, "status", "DRIFT", "SERVER")
-        set_data_field(tmp_path, 0x2000, "name", "g_b", "SERVER")
-        set_data_field(tmp_path, 0x2000, "status", "VERIFIED", "SERVER")
+        set_data_field(tmp_path, 0x1000, "name", "g_a", "TEST")
+        set_data_field(tmp_path, 0x1000, "status", "DRIFT", "TEST")
+        set_data_field(tmp_path, 0x2000, "name", "g_b", "TEST")
+        set_data_field(tmp_path, 0x2000, "status", "VERIFIED", "TEST")
         items = _collect_data_drift(cfg)
         assert len(items) == 1
         assert items[0].category == CAT_DATA_DRIFT
@@ -1557,9 +1557,9 @@ class TestDataDrift:
             (0x10024004, "__imp__CreateFileA@28", ".idata"),
             (0x10027000, "g_real_global", ".data"),
         ):
-            set_data_field(tmp_path, va, "name", name, "SERVER")
-            set_data_field(tmp_path, va, "section", section, "SERVER")
-            set_data_field(tmp_path, va, "status", "UNCHECKED", "SERVER")
+            set_data_field(tmp_path, va, "name", name, "TEST")
+            set_data_field(tmp_path, va, "section", section, "TEST")
+            set_data_field(tmp_path, va, "status", "UNCHECKED", "TEST")
         items = _collect_start_data(cfg)
         assert [i.name for i in items] == ["g_real_global"]
         assert [i.va for i in items] == [0x10027000]
@@ -1570,8 +1570,8 @@ class TestDataDrift:
         from rebrew.todo import _collect_start_data
 
         cfg = _make_cfg(tmp_path)
-        set_data_field(tmp_path, 0x10024008, "section", ".idata", "SERVER")
-        set_data_field(tmp_path, 0x10024008, "status", "UNCHECKED", "SERVER")
+        set_data_field(tmp_path, 0x10024008, "section", ".idata", "TEST")
+        set_data_field(tmp_path, 0x10024008, "status", "UNCHECKED", "TEST")
         assert _collect_start_data(cfg) == []
 
     def test_verified_symbol_not_start_data(self, tmp_path: Path) -> None:
@@ -1580,9 +1580,9 @@ class TestDataDrift:
         from rebrew.todo import _collect_start_data
 
         cfg = _make_cfg(tmp_path)
-        set_data_field(tmp_path, 0x10027000, "name", "g_done", "SERVER")
-        set_data_field(tmp_path, 0x10027000, "section", ".data", "SERVER")
-        set_data_field(tmp_path, 0x10027000, "status", "VERIFIED", "SERVER")
+        set_data_field(tmp_path, 0x10027000, "name", "g_done", "TEST")
+        set_data_field(tmp_path, 0x10027000, "section", ".data", "TEST")
+        set_data_field(tmp_path, 0x10027000, "status", "VERIFIED", "TEST")
         assert _collect_start_data(cfg) == []
 
     def test_bss_label_skipped(self, tmp_path: Path) -> None:
@@ -1591,10 +1591,10 @@ class TestDataDrift:
         from rebrew.todo import _collect_start_data
 
         cfg = _make_cfg(tmp_path)
-        set_data_field(tmp_path, 0x10035000, "name", "g_bss", "SERVER")
-        set_data_field(tmp_path, 0x10035000, "section", ".bss", "SERVER")
-        set_data_field(tmp_path, 0x10035000, "status", "UNCHECKED", "SERVER")
-        set_data_field(tmp_path, 0x10035000, "size", "4", "SERVER")
+        set_data_field(tmp_path, 0x10035000, "name", "g_bss", "TEST")
+        set_data_field(tmp_path, 0x10035000, "section", ".bss", "TEST")
+        set_data_field(tmp_path, 0x10035000, "status", "UNCHECKED", "TEST")
+        set_data_field(tmp_path, 0x10035000, "size", "4", "TEST")
         assert _collect_start_data(cfg) == []
 
     def test_symbol_past_raw_size_is_skipped(self, tmp_path: Path) -> None:
@@ -1646,10 +1646,10 @@ class TestDataDrift:
         cfg = _make_cfg(tmp_path)
         cfg.target_binary = tmp_path / "ref.dll"
         for va, name in ((0x10028000, "g_raw"), (0x10300000, "g_tail")):
-            set_data_field(tmp_path, va, "name", name, "SERVER")
-            set_data_field(tmp_path, va, "section", ".data", "SERVER")
-            set_data_field(tmp_path, va, "status", "UNCHECKED", "SERVER")
-            set_data_field(tmp_path, va, "size", "4", "SERVER")
+            set_data_field(tmp_path, va, "name", name, "TEST")
+            set_data_field(tmp_path, va, "section", ".data", "TEST")
+            set_data_field(tmp_path, va, "status", "UNCHECKED", "TEST")
+            set_data_field(tmp_path, va, "size", "4", "TEST")
 
         blob = SimpleNamespace(
             sections={".data": SimpleNamespace(va=0x10027000, size=0x174059C, raw_size=0xE000)}
@@ -1729,3 +1729,55 @@ class TestPlaceholderLaneVerifyState:
         items = _collect_new_functions(ghidra_funcs, {}, {}, cfg)
         assert len(items) == 1
         assert "reference source" in items[0].description
+
+
+class TestLibraryAndCrossTargetScoping:
+    """Library rows and other targets' rows are never THIS target's work.
+
+    Two measured leaks (guild-rebrew round 1380): `library_msvc.h`'s
+    annotation-only `// LIBRARY: SERVER 0x…` rows filled 11 of the server's top
+    20 todo slots with unrunnable "improve this match" items, and the
+    start-data lane listed 20 GOLDTL data symbols (0x6624a0, 0x773d80, …) in
+    the server's todo because one metadata file serves the whole unified tree.
+    """
+
+    def _funcs(self) -> list:
+        from rebrew.catalog import FunctionEntry
+
+        return [
+            FunctionEntry(va=0x1000, size=100, name="game_init"),
+            FunctionEntry(va=0x1A140, size=40, name="_ftell"),
+        ]
+
+    def test_library_va_excluded_from_every_lane(self, tmp_path: Path) -> None:
+        existing = {
+            0x1A140: {
+                "marker_type": "LIBRARY",
+                "module": "SERVER",
+                "status": "STUB",
+                "filename": "library_msvc.h",
+                "size": "40",
+            }
+        }
+        items = collect_all(_make_cfg(tmp_path), self._funcs(), existing, {}, exclude_vas={0x1A140})
+        vas = [i.va for i in items]
+        assert 0x1000 in vas
+        assert 0x1A140 not in vas
+        # Without the exclusion the library row is offered as work (the lane's
+        # own filter only knows about module-level externals).
+        leaked = collect_all(_make_cfg(tmp_path), self._funcs(), existing, {})
+        assert 0x1A140 in [i.va for i in leaked]
+
+    def test_start_data_scoped_to_the_active_module(self, tmp_path: Path) -> None:
+        from rebrew.data_metadata import set_data_field
+        from rebrew.todo import _collect_start_data
+
+        cfg = _make_cfg(tmp_path)  # marker TEST
+        set_data_field(tmp_path, 0x627000, "name", "g_other_target", "OTHER")
+        set_data_field(tmp_path, 0x627000, "section", ".data", "OTHER")
+        set_data_field(tmp_path, 0x627000, "status", "UNCHECKED", "OTHER")
+        set_data_field(tmp_path, 0x10027000, "name", "g_mine", "TEST")
+        set_data_field(tmp_path, 0x10027000, "section", ".data", "TEST")
+        set_data_field(tmp_path, 0x10027000, "status", "UNCHECKED", "TEST")
+        items = _collect_start_data(cfg)
+        assert [i.name for i in items] == ["g_mine"]

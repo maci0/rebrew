@@ -93,6 +93,7 @@ from rebrew.matcher.mutations.runtime import (
     _RE_RET_FALSE_LABEL_NL,
     _RE_SINK_RETURN,
     _apply_query_once,
+    _cap_bytes,
     _capture,
     _commute_operands,
     _cursor,
@@ -110,8 +111,8 @@ def mut_flip_eq_zero(s: str, rng: random.Random) -> str | None:
     b_source = encode_source(s)
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
-        left = b_source[captures["left"].start_byte : captures["left"].end_byte]
-        op = b_source[captures["op"].start_byte : captures["op"].end_byte]
+        left = _cap_bytes(b_source, captures, "left")
+        op = _cap_bytes(b_source, captures, "op")
 
         if op == b"==":
             return b"!" + left
@@ -127,8 +128,8 @@ def mut_flip_lt_ge(s: str, rng: random.Random) -> str | None:
     b_source = encode_source(s)
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
-        left = b_source[captures["left"].start_byte : captures["left"].end_byte]
-        right = b_source[captures["right"].start_byte : captures["right"].end_byte]
+        left = _cap_bytes(b_source, captures, "left")
+        right = _cap_bytes(b_source, captures, "right")
         return b"!(" + left + b" >= " + right + b")"
 
     res = _apply_query_once(b_source, _QUERY_FLIP_LT_GE, _repl, rng)
@@ -178,9 +179,9 @@ def mut_reassociate_add(s: str, rng: random.Random) -> str | None:
     b_source = encode_source(s)
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
-        a = b_source[captures["a"].start_byte : captures["a"].end_byte]
-        b = b_source[captures["b"].start_byte : captures["b"].end_byte]
-        c = b_source[captures["c"].start_byte : captures["c"].end_byte]
+        a = _cap_bytes(b_source, captures, "a")
+        b = _cap_bytes(b_source, captures, "b")
+        c = _cap_bytes(b_source, captures, "c")
         return a + b" + (" + b + b" + " + c + b")"
 
     res = _apply_query_once(b_source, _QUERY_REASSOCIATE, _repl, rng)
@@ -202,7 +203,7 @@ def mut_toggle_bool_not(s: str, rng: random.Random) -> str | None:
     b_source = encode_source(s)
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
-        return b_source[captures["ident"].start_byte : captures["ident"].end_byte]
+        return _cap_bytes(b_source, captures, "ident")
 
     res = _apply_query_once(b_source, _QUERY_DOUBLE_NOT, _repl, rng)
     return decode_source(res) if res else None
@@ -362,7 +363,7 @@ def mut_remove_cast(s: str, rng: random.Random) -> str | None:
     b_source = encode_source(s)
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
-        return b_source[captures["val"].start_byte : captures["val"].end_byte]
+        return _cap_bytes(b_source, captures, "val")
 
     res = _apply_query_once(b_source, _QUERY_REMOVE_CAST, _repl, rng)
     return decode_source(res) if res else None
@@ -373,7 +374,7 @@ def mut_toggle_volatile(s: str, rng: random.Random) -> str | None:
     b_source = encode_source(s)
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
-        decl = b_source[captures["expr"].start_byte : captures["expr"].end_byte]
+        decl = _cap_bytes(b_source, captures, "expr")
 
         # Try removing volatile first
         if b"volatile " in decl and rng.random() < 0.5:
@@ -410,8 +411,8 @@ def mut_volatile_access(s: str, rng: random.Random) -> str | None:
     b_source = encode_source(s)
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
-        ty = b_source[captures["ty"].start_byte : captures["ty"].end_byte]
-        expr = b_source[captures["expr"].start_byte : captures["expr"].end_byte]
+        ty = _cap_bytes(b_source, captures, "ty")
+        expr = _cap_bytes(b_source, captures, "expr")
         if b"volatile" in ty:
             return expr.replace(b"volatile ", b"", 1)
         return expr.replace(ty, b"volatile " + ty, 1)
@@ -428,7 +429,7 @@ def mut_add_register_keyword(s: str, rng: random.Random) -> str | None:
     b_source = encode_source(s)
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
-        decl = b_source[captures["expr"].start_byte : captures["expr"].end_byte]
+        decl = _cap_bytes(b_source, captures, "expr")
         if b"register" not in decl:
             return b"register " + decl
         return decl
@@ -445,7 +446,7 @@ def mut_remove_register_keyword(s: str, rng: random.Random) -> str | None:
     b_source = encode_source(s)
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
-        decl = b_source[captures["expr"].start_byte : captures["expr"].end_byte]
+        decl = _cap_bytes(b_source, captures, "expr")
         if b"register " in decl:
             return decl.replace(b"register ", b"")
         return decl
@@ -462,8 +463,8 @@ def mut_if_false_to_bitand(s: str, rng: random.Random) -> str | None:
     b_source = encode_source(s)
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
-        cond = b_source[captures["cond"].start_byte : captures["cond"].end_byte]
-        var = b_source[captures["var"].start_byte : captures["var"].end_byte]
+        cond = _cap_bytes(b_source, captures, "cond")
+        var = _cap_bytes(b_source, captures, "var")
 
         return var + b" &= " + cond + b";"
 
@@ -482,10 +483,10 @@ def mut_reorder_elseif(s: str, rng: random.Random) -> str | None:
     b_source = encode_source(s)
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
-        cond1 = b_source[captures["cond1"].start_byte : captures["cond1"].end_byte]
-        cons1 = b_source[captures["cons1"].start_byte : captures["cons1"].end_byte]
-        cond2 = b_source[captures["cond2"].start_byte : captures["cond2"].end_byte]
-        cons2 = b_source[captures["cons2"].start_byte : captures["cons2"].end_byte]
+        cond1 = _cap_bytes(b_source, captures, "cond1")
+        cons1 = _cap_bytes(b_source, captures, "cons1")
+        cond2 = _cap_bytes(b_source, captures, "cond2")
+        cons2 = _cap_bytes(b_source, captures, "cons2")
 
         replacement = (
             b"if ("
@@ -514,8 +515,8 @@ def mut_bitand_to_if_false(s: str, rng: random.Random) -> str | None:
     b_source = encode_source(s)
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
-        var = b_source[captures["var"].start_byte : captures["var"].end_byte]
-        expr = b_source[captures["expr"].start_byte : captures["expr"].end_byte]
+        var = _cap_bytes(b_source, captures, "var")
+        expr = _cap_bytes(b_source, captures, "expr")
 
         return b"if (!(" + expr + b"))\n            " + var + b" = 0;"
 
@@ -543,8 +544,8 @@ def mut_introduce_temp_for_call(s: str, rng: random.Random) -> str | None:
     if not target_node:
         return None
 
-    var = b_source[single_captures["var"].start_byte : single_captures["var"].end_byte]
-    call = b_source[single_captures["call"].start_byte : single_captures["call"].end_byte]
+    var = _cap_bytes(b_source, single_captures, "var")
+    call = _cap_bytes(b_source, single_captures, "call")
 
     # Inline replacement: tmp = call(); var = tmp;
     inline_repl = b"tmp = " + call + b";\n    " + var + b" = tmp;"
@@ -588,8 +589,8 @@ def mut_remove_temp_var(s: str, rng: random.Random) -> str | None:
     stmt1 = captures["stmt1"]
     stmt2 = captures["stmt2"]
 
-    var = b_source[captures["var"].start_byte : captures["var"].end_byte]
-    expr = b_source[captures["stmt"].start_byte : captures["stmt"].end_byte]
+    var = _cap_bytes(b_source, captures, "var")
+    expr = _cap_bytes(b_source, captures, "stmt")
 
     replacement = var + b" = " + expr + b";"
 
@@ -602,7 +603,7 @@ def mut_toggle_signedness(s: str, rng: random.Random) -> str | None:
     b_source = encode_source(s)
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
-        decl = b_source[captures["expr"].start_byte : captures["expr"].end_byte]
+        decl = _cap_bytes(b_source, captures, "expr")
         if b"unsigned " in decl:
             return decl.replace(b"unsigned ", b"")
         else:
@@ -698,9 +699,9 @@ def mut_merge_declaration_init(s: str, rng: random.Random) -> str | None:
     d1 = captures["d1"]
     d2 = captures["d2"]
 
-    type_ = b_source[captures["type"].start_byte : captures["type"].end_byte]
-    var = b_source[captures["var"].start_byte : captures["var"].end_byte]
-    expr = b_source[captures["init_expr"].start_byte : captures["init_expr"].end_byte]
+    type_ = _cap_bytes(b_source, captures, "type")
+    var = _cap_bytes(b_source, captures, "var")
+    expr = _cap_bytes(b_source, captures, "init_expr")
 
     replacement = type_ + b" " + var + b" = " + expr + b";"
     res = b_source[: d1.start_byte] + replacement + b_source[d2.end_byte :]
@@ -712,8 +713,8 @@ def mut_while_to_dowhile(s: str, rng: random.Random) -> str | None:
     b_source = encode_source(s)
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
-        cond = b_source[captures["cond"].start_byte : captures["cond"].end_byte]
-        body = b_source[captures["body"].start_byte : captures["body"].end_byte]
+        cond = _cap_bytes(b_source, captures, "cond")
+        body = _cap_bytes(b_source, captures, "body")
         return b"if " + cond + b" {\n    do " + body + b" while " + cond + b";\n    }"
 
     res = _apply_query_once(b_source, _QUERY_WHILE, _repl, rng)
@@ -725,8 +726,8 @@ def mut_dowhile_to_while(s: str, rng: random.Random) -> str | None:
     b_source = encode_source(s)
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
-        cond = b_source[captures["cond"].start_byte : captures["cond"].end_byte]
-        body = b_source[captures["body"].start_byte : captures["body"].end_byte]
+        cond = _cap_bytes(b_source, captures, "cond")
+        body = _cap_bytes(b_source, captures, "body")
         return b"while " + cond + b" " + body
 
     res = _apply_query_once(b_source, _QUERY_DO_WHILE, _repl, rng)
@@ -749,7 +750,7 @@ def mut_early_return_to_accum(s: str, rng: random.Random) -> str | None:
         return None
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
-        expr = b_source[captures["expr"].start_byte : captures["expr"].end_byte]
+        expr = _cap_bytes(b_source, captures, "expr")
         var = b"retcode" if b"retcode" in b_source else b"ret"
         return var + b" &= " + expr + b";"
 
@@ -762,7 +763,7 @@ def mut_accum_to_early_return(s: str, rng: random.Random) -> str | None:
     b_source = encode_source(s)
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
-        expr = b_source[captures["expr"].start_byte : captures["expr"].end_byte]
+        expr = _cap_bytes(b_source, captures, "expr")
         return b"if (!(" + expr + b"))\n        return 0;"
 
     res = _apply_query_once(b_source, _QUERY_ACCUM, _repl, rng)
@@ -774,7 +775,7 @@ def mut_pointer_to_int_param(s: str, rng: random.Random) -> str | None:
     b_source = encode_source(s)
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
-        var = b_source[captures["var"].start_byte : captures["var"].end_byte]
+        var = _cap_bytes(b_source, captures, "var")
         return b"int " + var
 
     res = _apply_query_once(b_source, _QUERY_PTR_PARAM, _repl, rng)
@@ -786,7 +787,7 @@ def mut_int_to_pointer_param(s: str, rng: random.Random) -> str | None:
     b_source = encode_source(s)
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
-        var = b_source[captures["var"].start_byte : captures["var"].end_byte]
+        var = _cap_bytes(b_source, captures, "var")
         return b"char *" + var
 
     res = _apply_query_once(b_source, _QUERY_INT_PARAM, _repl, rng)
@@ -798,8 +799,8 @@ def mut_duplicate_loop_body(s: str, rng: random.Random) -> str | None:
     b_source = encode_source(s)
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
-        cond = b_source[captures["cond"].start_byte : captures["cond"].end_byte]
-        body = b_source[captures["body"].start_byte : captures["body"].end_byte]
+        cond = _cap_bytes(b_source, captures, "cond")
+        body = _cap_bytes(b_source, captures, "body")
 
         inner = body[1:-1].strip()
         if not inner:
@@ -826,12 +827,8 @@ def mut_fold_constant_add(s: str, rng: random.Random) -> str | None:
         captures = _first_caps(match[1])
         if captures["stmt1"].next_named_sibling == captures["stmt2"]:
             try:
-                n1 = int(
-                    decode_source(b_source[captures["n1"].start_byte : captures["n1"].end_byte])
-                )
-                n2 = int(
-                    decode_source(b_source[captures["n2"].start_byte : captures["n2"].end_byte])
-                )
+                n1 = int(decode_source(_cap_bytes(b_source, captures, "n1")))
+                n2 = int(decode_source(_cap_bytes(b_source, captures, "n2")))
                 valid_matches.append((captures, n1, n2))
             except ValueError:
                 pass
@@ -840,7 +837,7 @@ def mut_fold_constant_add(s: str, rng: random.Random) -> str | None:
         return None
 
     captures, n1, n2 = rng.choice(valid_matches)
-    v1 = b_source[captures["v1"].start_byte : captures["v1"].end_byte]
+    v1 = _cap_bytes(b_source, captures, "v1")
 
     new_sum = encode_source(str(n1 + n2))
     replacement = v1 + b" = " + v1 + b" + " + new_sum + b";"
@@ -1026,7 +1023,7 @@ def mut_unfold_constant_add(s: str, rng: random.Random) -> str | None:
     for match in matches:
         captures = _first_caps(match[1])
         try:
-            n = int(decode_source(b_source[captures["n"].start_byte : captures["n"].end_byte]))
+            n = int(decode_source(_cap_bytes(b_source, captures, "n")))
             if 1 < n <= 16:
                 valid_matches.append((captures, n))
         except ValueError:
@@ -1036,7 +1033,7 @@ def mut_unfold_constant_add(s: str, rng: random.Random) -> str | None:
         return None
 
     captures, n = rng.choice(valid_matches)
-    v1 = b_source[captures["v1"].start_byte : captures["v1"].end_byte]
+    v1 = _cap_bytes(b_source, captures, "v1")
 
     incs = b"; ".join([v1 + b" = " + v1 + b" + 1" for _ in range(n)]) + b";"
 
@@ -1050,8 +1047,8 @@ def mut_change_array_index_order(s: str, rng: random.Random) -> str | None:
     b_source = encode_source(s)
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
-        arr = b_source[captures["arr"].start_byte : captures["arr"].end_byte]
-        idx = b_source[captures["idx"].start_byte : captures["idx"].end_byte]
+        arr = _cap_bytes(b_source, captures, "arr")
+        idx = _cap_bytes(b_source, captures, "idx")
         return idx + b"[" + arr + b"]"
 
     res = _apply_query_once(b_source, _QUERY_ARRAY_INDEX, _repl, rng)
@@ -1063,8 +1060,8 @@ def mut_struct_vs_ptr_access(s: str, rng: random.Random) -> str | None:
     b_source = encode_source(s)
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
-        ptr = b_source[captures["ptr"].start_byte : captures["ptr"].end_byte]
-        field = b_source[captures["field"].start_byte : captures["field"].end_byte]
+        ptr = _cap_bytes(b_source, captures, "ptr")
+        field = _cap_bytes(b_source, captures, "field")
         return b"(*" + ptr + b")." + field
 
     res = _apply_query_once(b_source, _QUERY_PTR_ARROW, _repl, rng)
@@ -1076,7 +1073,7 @@ def mut_change_return_type(s: str, rng: random.Random) -> str | None:
     b_source = encode_source(s)
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
-        current = decode_source(b_source[captures["expr"].start_byte : captures["expr"].end_byte])
+        current = decode_source(_cap_bytes(b_source, captures, "expr"))
         types = ["int", "char", "short", "long"]
         candidates = [t for t in types if t != current]
         if not candidates:
@@ -1099,8 +1096,8 @@ def mut_combine_ptr_arith(s: str, rng: random.Random) -> str | None:
     for match in matches:
         captures = _first_caps(match[1])
         try:
-            n1 = int(decode_source(b_source[captures["n1"].start_byte : captures["n1"].end_byte]))
-            n2 = int(decode_source(b_source[captures["n2"].start_byte : captures["n2"].end_byte]))
+            n1 = int(decode_source(_cap_bytes(b_source, captures, "n1")))
+            n2 = int(decode_source(_cap_bytes(b_source, captures, "n2")))
             s1 = captures["stmt1"]
             s2 = captures["stmt2"]
             between = b_source[s1.end_byte : s2.start_byte].strip()
@@ -1113,7 +1110,7 @@ def mut_combine_ptr_arith(s: str, rng: random.Random) -> str | None:
         return None
 
     captures, n1, n2 = rng.choice(valid_matches)
-    v1 = b_source[captures["v1"].start_byte : captures["v1"].end_byte]
+    v1 = _cap_bytes(b_source, captures, "v1")
     new_sum = encode_source(str(n1 + n2))
     replacement = v1 + b" = " + v1 + b" + " + new_sum + b";"
     start = captures["stmt1"].start_byte
@@ -1137,7 +1134,7 @@ def mut_split_ptr_arith(s: str, rng: random.Random) -> str | None:
         if "n1" not in captures or "v1" not in captures:
             continue
         try:
-            n = int(decode_source(b_source[captures["n1"].start_byte : captures["n1"].end_byte]))
+            n = int(decode_source(_cap_bytes(b_source, captures, "n1")))
             if n > 1:
                 valid_matches.append((captures, n))
         except ValueError:
@@ -1147,7 +1144,7 @@ def mut_split_ptr_arith(s: str, rng: random.Random) -> str | None:
         return None
 
     captures, n = rng.choice(valid_matches)
-    v1 = b_source[captures["v1"].start_byte : captures["v1"].end_byte]
+    v1 = _cap_bytes(b_source, captures, "v1")
     n1 = n // 2
     n2 = n - n1
     replacement = (
@@ -1192,7 +1189,7 @@ def mut_toggle_calling_convention(s: str, rng: random.Random) -> str | None:
     b_source = encode_source(s)
 
     def _repl_existing(captures: dict[str, ts.Node]) -> bytes:
-        conv = b_source[captures["expr"].start_byte : captures["expr"].end_byte]
+        conv = _cap_bytes(b_source, captures, "expr")
         if conv == b"__cdecl":
             return b"__stdcall"
         elif conv == b"__stdcall":
@@ -1207,7 +1204,7 @@ def mut_toggle_calling_convention(s: str, rng: random.Random) -> str | None:
     # captures the TYPE node as `expr` (see _QUERY_NO_CALL_CONV): splicing the
     # whole function_definition destroyed the body.
     def _repl_insert(captures: dict[str, ts.Node]) -> bytes:
-        t = b_source[captures["expr"].start_byte : captures["expr"].end_byte]
+        t = _cap_bytes(b_source, captures, "expr")
         conv = rng.choice([b"__cdecl", b"__stdcall"])
         return t + b" " + conv
 
@@ -1220,7 +1217,7 @@ def mut_toggle_char_signedness(s: str, rng: random.Random) -> str | None:
     b_source = encode_source(s)
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
-        t = b_source[captures["expr"].start_byte : captures["expr"].end_byte]
+        t = _cap_bytes(b_source, captures, "expr")
         mapping = {
             b"char": b"unsigned char",
             b"unsigned char": b"signed char",
@@ -1241,13 +1238,13 @@ def mut_comparison_boundary(s: str, rng: random.Random) -> str | None:
     b_source = encode_source(s)
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
-        left = b_source[captures["left"].start_byte : captures["left"].end_byte]
-        op = b_source[captures["op"].start_byte : captures["op"].end_byte]
-        num_str = b_source[captures["num"].start_byte : captures["num"].end_byte]
+        left = _cap_bytes(b_source, captures, "left")
+        op = _cap_bytes(b_source, captures, "op")
+        num_str = _cap_bytes(b_source, captures, "num")
         try:
             num = int(decode_source(num_str))
         except ValueError:
-            return b_source[captures["expr"].start_byte : captures["expr"].end_byte]
+            return _cap_bytes(b_source, captures, "expr")
         if op == b">" and num == 0:
             return left + b" >= 1"
         elif op == b">=" and num == 1:
@@ -1256,7 +1253,7 @@ def mut_comparison_boundary(s: str, rng: random.Random) -> str | None:
             return left + b" <= 0"
         elif op == b"<=" and num == 0:
             return left + b" < 1"
-        return b_source[captures["expr"].start_byte : captures["expr"].end_byte]
+        return _cap_bytes(b_source, captures, "expr")
 
     res = _apply_query_once(b_source, _QUERY_CMP_BOUNDARY, _repl, rng)
     return decode_source(res) if res is not None else None
@@ -1630,8 +1627,8 @@ def mut_while_to_for(s: str, rng: random.Random) -> str | None:
     b_source = encode_source(s)
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
-        cond = b_source[captures["cond"].start_byte : captures["cond"].end_byte]
-        body = b_source[captures["body"].start_byte : captures["body"].end_byte]
+        cond = _cap_bytes(b_source, captures, "cond")
+        body = _cap_bytes(b_source, captures, "body")
         # Strip parens from condition
         cond_inner = cond
         if cond_inner.startswith(b"(") and cond_inner.endswith(b")"):

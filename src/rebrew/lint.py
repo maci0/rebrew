@@ -799,10 +799,15 @@ def _check_W019_inline_metadata(
 def _check_E023_naked_asm(
     result: LintResult,
     lines: list[str],
+    code_lines: list[str],
     claimed_statuses: set[str] | None = None,
     metadata_cflags: str = "",
 ) -> None:
     """Flag whole-function ``__declspec(naked)`` + ``__asm`` dumps (E023).
+
+    *code_lines* is the shared ``_strip_all`` view of *lines*; the raw
+    *lines* are still read for the ``REBREW_ALLOW_NAKED`` guard and the
+    padding checks below, which inspect literal source text.
 
     ``__declspec(naked)`` is only allowed for *minor padding* (1-2 alignment
     ``nop``/``int3`` bytes, e.g. ``_emit 0x90`` / ``_emit 0xCC`` or
@@ -835,9 +840,7 @@ def _check_E023_naked_asm(
     # a naked declaration that is not in the source at all.
     has_naked = False
     naked_line = 0
-    in_block_comment = False
-    for idx, line in enumerate(lines, start=1):
-        code, in_block_comment = _strip_c_comments_strings(line, in_block_comment)
+    for idx, code in enumerate(code_lines, start=1):
         if "__declspec(naked)" in code or "__declspec( naked" in code:
             has_naked = True
             naked_line = idx
@@ -845,19 +848,16 @@ def _check_E023_naked_asm(
     if not has_naked:
         return
 
-    asm_lines: list[int] = []
     emit_lines: list[int] = []
     meaningful_asm: list[int] = []
-    in_block_comment = False
-    for idx, line in enumerate(lines, start=1):
-        # Scan CODE, not raw lines: a block comment's interior lines need not
-        # start with `*`, so a commented-out body was counted as an asm dump.
-        code, in_block_comment = _strip_c_comments_strings(line, in_block_comment)
+    for idx, code in enumerate(code_lines, start=1):
+        # Scan the stripped CODE view, not raw lines: a block comment's
+        # interior lines need not start with `*`, so a commented-out body
+        # was counted as an asm dump.
         # Use "_emit" so both "_emit" and "__emit" variants are caught.
         has_asm = "__asm" in code
         has_emit = "_emit" in code
         if has_asm:
-            asm_lines.append(idx)
             payload = code.lower().split("__asm", 1)[1]
             payload = payload.replace("{", "").replace("}", "").replace(";", "").strip()
             # Only count as meaningful if it carries a mnemonic, not just braces.
@@ -915,7 +915,7 @@ def _check_E023_naked_asm(
 
 def _check_W020_asm_dump(
     result: LintResult,
-    lines: list[str],
+    code_lines: list[str],
     claimed_statuses: set[str] | None = None,
     has_blocker: bool = False,
 ) -> None:
@@ -943,15 +943,11 @@ def _check_W020_asm_dump(
     # Whole-function naked asm is handled by E023 — don't double-report W020.
     # Scan CODE, not raw lines: a block comment's interior lines need not start
     # with `*`, and counting them reported an asm dump that is only commented out.
-    in_block_comment = False
-    for line in lines:
-        code, in_block_comment = _strip_c_comments_strings(line, in_block_comment)
+    for code in code_lines:
         if "__declspec(naked)" in code:
             return
     claimed = sorted((claimed_statuses or set()) - {"STUB", "SKIP"})
-    in_block_comment = False
-    for i, line in enumerate(lines, start=1):
-        code, in_block_comment = _strip_c_comments_strings(line, in_block_comment)
+    for i, code in enumerate(code_lines, start=1):
         if "__emit" in code:
             if claimed:
                 result.warning(
@@ -1054,6 +1050,10 @@ def _strip_c_comments_strings(line: str, in_block_comment: bool) -> tuple[str, b
     ``(cleaned, new_block_state)``; literal contents become spaces so they
     never match code patterns.
     """
+    # Fast path: outside a block comment, a line without `"`, `'` or `/`
+    # cannot open or close a comment or literal — return it untouched.
+    if not in_block_comment and '"' not in line and "'" not in line and "/" not in line:
+        return line, False
     out: list[str] = []
     i = 0
     n = len(line)
@@ -1108,8 +1108,23 @@ def _strip_c_comments_strings(line: str, in_block_comment: bool) -> tuple[str, b
     return "".join(out), in_block_comment
 
 
+def _strip_all(lines: list[str]) -> list[str]:
+    """Return the comment/string-stripped *code view* of every line.
+
+    One stateful pass over the whole file.  E023, W020 and W022 read this
+    shared view instead of each re-stripping every line themselves —
+    previously four full strip passes per file on the batch-lint hot path.
+    """
+    out: list[str] = []
+    in_block = False
+    for line in lines:
+        code, in_block = _strip_c_comments_strings(line, in_block)
+        out.append(code)
+    return out
+
+
 def _check_W022_zero_init_bss(
-    result: LintResult, lines: list[str], data_section_names: frozenset[str] = frozenset()
+    result: LintResult, code_lines: list[str], data_section_names: frozenset[str] = frozenset()
 ) -> None:
     """Flag file-scope zero initializers (W022).
 
@@ -1125,9 +1140,7 @@ def _check_W022_zero_init_bss(
     is suppressed for it.
     """
     depth = 0
-    in_block_comment = False
-    for i, line in enumerate(lines, start=1):
-        cleaned, in_block_comment = _strip_c_comments_strings(line, in_block_comment)
+    for i, cleaned in enumerate(code_lines, start=1):
         depth += cleaned.count("{") - cleaned.count("}")
         if depth == 0 and _ZERO_INIT_RE.match(cleaned.strip()):
             if data_section_names:
@@ -1664,10 +1677,11 @@ def lint_file(
         for entry in _data_metadata_entries.values()
         if entry.get("section") == ".data" and entry.get("name")
     )
-    _check_E023_naked_asm(result, lines, _file_statuses, " ".join(_file_cflags))
-    _check_W020_asm_dump(result, lines, _file_statuses, _file_has_blocker)
+    code_lines = _strip_all(lines)  # one strip pass shared by E023/W020/W022
+    _check_E023_naked_asm(result, lines, code_lines, _file_statuses, " ".join(_file_cflags))
+    _check_W020_asm_dump(result, code_lines, _file_statuses, _file_has_blocker)
     _check_W021_duplicate_globals(result, lines, filepath, seen_globals)
-    _check_W022_zero_init_bss(result, lines, _data_section_names)
+    _check_W022_zero_init_bss(result, code_lines, _data_section_names)
     _check_body_rules(result, lines, all_headers[0][1]["has_new"] if all_headers else False)
     _check_W023_default_func_names(result, lines, pedantic)
     _check_style_rules(result, cfg)
