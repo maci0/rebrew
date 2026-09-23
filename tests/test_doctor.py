@@ -477,6 +477,18 @@ class TestCheckFlirtSigs:
         assert "problem file(s)" in result.message
         assert "broken.pat" in result.fix
 
+    def test_non_utf8_pat_warns(self, tmp_path: Path) -> None:
+        from rebrew.doctor import check_flirt_sigs
+        from rebrew.gen_flirt_pat import bytes_to_pat_line
+
+        sig_dir = tmp_path / "flirt_sigs"
+        sig_dir.mkdir()
+        line = bytes_to_pat_line("_f", bytes(range(40)), set()).encode("utf-8")
+        (sig_dir / "latin1.pat").write_bytes(line.replace(b"_f", b"_f\xe9") + b"\n---\n")
+        result = check_flirt_sigs(self._cfg(tmp_path))
+        assert result.status == _WARN
+        assert "latin1.pat (corrupt:" in result.fix
+
     def test_zero_signature_pat_warns(self, tmp_path: Path) -> None:
         from rebrew.doctor import check_flirt_sigs
 

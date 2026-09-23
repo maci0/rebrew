@@ -1378,7 +1378,9 @@ def check_flirt_sigs(cfg: ProjectConfig) -> CheckResult:
             if filepath.suffix == ".sig":
                 parsed = flirt.parse_sig(content)
             else:
-                parsed = flirt.parse_pat(content.decode("utf-8", errors="ignore"))
+                # Strict: rebrew writes .pat as UTF-8, so an undecodable
+                # byte is corruption (the scan paths would show it as U+FFFD).
+                parsed = flirt.parse_pat(content.decode("utf-8"))
             total += len(parsed)
             if not parsed:
                 problems.append(f"{filepath.name} (0 signatures)")

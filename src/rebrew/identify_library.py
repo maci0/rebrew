@@ -254,7 +254,7 @@ def _flirt_candidates(cfg: Any, default_module: str) -> list[LibCandidate]:
             if sig_file.suffix == ".sig":
                 sigs = flirt.parse_sig(sig_file.read_bytes())
             else:
-                sigs = flirt.parse_pat(sig_file.read_text(encoding="utf-8", errors="ignore"))
+                sigs = flirt.parse_pat(sig_file.read_text(encoding="utf-8", errors="replace"))
         except Exception as exc:  # one bad file must not abort the rest
             console.print(f"[yellow]warning:[/yellow] unreadable signature {sig_file.name}: {exc}")
             continue

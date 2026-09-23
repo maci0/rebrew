@@ -450,6 +450,11 @@
   in emission order.
 
 ### Fixed
+- **FLIRT `.pat` names keep their invalid bytes visible.**  `rebrew flirt`
+  and `identify-library` decoded `.pat` files with `errors="ignore"`, so a
+  non-UTF-8 name like `foo\xe9` silently became `foo` and could match an
+  unrelated symbol; they now decode with `errors="replace"` (U+FFFD).
+  `rebrew doctor` decodes strictly and reports such files as corrupt.
 - **`python -m rebrew.<module>` runs every builtin command.**
   `gen_layout` and `link_sweep` never registered `main` on their Typer
   app, so running the module crashed with "Could not get a command for

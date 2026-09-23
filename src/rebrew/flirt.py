@@ -169,7 +169,9 @@ def _parse_sig_files(files: list[Path]) -> list[Any]:
             if filepath.suffix.lower() == ".sig":
                 parsed = flirt.parse_sig(content)
             else:
-                parsed = flirt.parse_pat(content.decode("utf-8", errors="ignore"))
+                # "replace", not "ignore": dropping a byte merges distinct
+                # names (b"foo\xe9" would become the unrelated "foo").
+                parsed = flirt.parse_pat(content.decode("utf-8", errors="replace"))
             sigs.extend(parsed)
             console.print(f"Loaded {len(parsed)} signatures from {filepath.name}")
         except (OSError, ValueError, TypeError) as e:
