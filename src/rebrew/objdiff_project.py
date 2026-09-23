@@ -8,7 +8,7 @@ so rebrew's MSVC/mingw-16.2.0 targets fit natively.
 
 This module provides two entry points:
 
-- ``rebrew objdiff --out objdiff.json`` — synthesize one target COFF object
+- ``rebrew objdiff --output objdiff.json`` — synthesize one target COFF object
   per annotated source file (the functions' bytes from the reference binary
   at their original VAs, with the annotation symbols) and emit an objdiff
   project configuration with one unit per file.  Opening ``objdiff.json`` in

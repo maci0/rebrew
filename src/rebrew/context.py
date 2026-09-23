@@ -9,8 +9,8 @@ and reversed source contributes its structs, typedefs, enums, and function
 signatures, deduplicated into one compilable ``ctx.c``.
 
 Usage:
-    rebrew context --out ctx.c
-    rebrew context -t mygame --out include/ctx.c
+    rebrew context --output ctx.c
+    rebrew context -t mygame --output include/ctx.c
 
 The output is a plain C translation unit of declarations (no bodies) —
 safe to ``#include`` from a single-purpose TU or to paste into a
@@ -113,7 +113,7 @@ def main(
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
-    """Write the deduplicated context to *out*."""
+    """Write the deduplicated context to *output*."""
     cfg = require_config(target=target, json_mode=json_output)
     blocks, file_count = _collect_context(cfg, include_headers=not sources_only)
     text = render_context_text(blocks)

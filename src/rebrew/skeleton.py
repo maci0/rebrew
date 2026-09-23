@@ -44,7 +44,6 @@ from rebrew.cli import (
     parse_va,
     require_config,
 )
-from rebrew.compile_overrides import resolve_cflags
 from rebrew.config import FUNCTION_STRUCTURE_JSON, ProjectConfig, inventory_path_for
 from rebrew.decompiler import fetch_decompilation
 from rebrew.naming import (
@@ -682,9 +681,13 @@ def _stale_size_note(cfg: ProjectConfig, va: int, size: int) -> str | None:
     return None
 
 
-def generate_diff_command(filepath: str, symbol: str, cflags: str) -> str:
-    """Generate the rebrew diff command for byte-level comparison."""
-    return f'rebrew diff {filepath} --symbol "{symbol}" --cflags "{cflags}"'
+def generate_diff_command(filepath: str) -> str:
+    """Generate the rebrew diff command for byte-level comparison.
+
+    Only the path: ``diff`` resolves symbol, VA, size, and flags from the
+    file's marker and ``rebrew-functions.toml``.
+    """
+    return f"rebrew diff {filepath}"
 
 
 #: First-2-byte prefixes that plausibly start a real x86-32 function.  A
@@ -1279,13 +1282,8 @@ def _run_single_va_mode(
 
     # Compute test commands
     symbol_val = "_" + name if name else "_" + sanitize_name(ghidra_name)
-    # User-facing cflags only — base_cflags (/nologo /c /MT) are prepended by compile_to_obj.
-    # resolve_cflags keeps the suggested TEST/DIFF commands in sync with what
-    # test/verify actually compile with (no MSVC fallback on posix profiles).
-    cflags_val = resolve_cflags(cfg, "")
-
     test_cmd = generate_test_command(str(rel_path_val), symbol_val, va_int, size)
-    diff_cmd = generate_diff_command(str(rel_path_val), symbol_val, cflags_val)
+    diff_cmd = generate_diff_command(str(rel_path_val))
 
     if json_output:
         json_print(

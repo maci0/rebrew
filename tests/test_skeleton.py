@@ -145,9 +145,8 @@ class TestStaleSizeNote:
 
 class TestGenerateDiffCommand:
     def test_basic(self) -> None:
-        cmd = generate_diff_command("src/game_func.c", "_my_func", "/O2")
-        assert "rebrew diff" in cmd
-        assert "src/game_func.c" in cmd
+        # rebrew diff takes no --symbol/--cflags; it reads them from the file's marker.
+        assert generate_diff_command("src/game_func.c") == "rebrew diff src/game_func.c"
 
 
 # -------------------------------------------------------------------------

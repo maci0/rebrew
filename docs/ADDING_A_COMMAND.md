@@ -29,7 +29,7 @@ Conventions (CLI review will flag drift):
   panel, group). The `help` string shows in `--help`; keep it one line.
   Default `needs` are `cli` and `console`; `apply()` mounts only while
   those services are provided. Unmount is a tracked inverse (ADR 014).
-  This is what makes `rebrew <name>` exist — no gate adds it for you.
+  This is what makes `rebrew <name>` exist; no gate adds it for you.
 - `pyproject.toml` `[project.scripts]`: add
   `rebrew-<name> = "rebrew.<module>:main_entry"` only when the command
   should also run standalone. `rebrew <name>` works from the umbrella
@@ -48,8 +48,8 @@ ignored with a warning — built-ins win.
 - `docs/CLI.md`: one table row + one `### rebrew <name>` detail section
   with the full invocation line and an options table.
 - `README.md` tool table: one row if user-facing.
-- Agent skill: name the command in the relevant
-  `src/rebrew/agent-skills/*/SKILL.md`, or add the carve-out to
+- Agent skill: name the command in a `SKILL.md` or `references/*.md`
+  under `src/rebrew/agent-skills/`, or add the carve-out to
   `_SKILL_OUT_OF_SCOPE` in `tests/test_docs_hygiene.py` with a reason.
   Then re-render: `rm -rf .agents/skills && cp -r
   src/rebrew/agent-skills .agents/skills` (+ target substitution per

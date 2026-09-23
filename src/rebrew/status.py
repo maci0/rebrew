@@ -151,9 +151,9 @@ class StatusReport:
 
         NOT a byte-match percentage: PROVEN is a semantic promotion and its
         bytes still differ from the target (``verify._STATUS_RANK`` puts PROVEN
-        below RELOC for exactly this reason).  Use :attr:`exact_pct`-style
-        accounting, or the byte residue itself, when the question is
-        byte-identity rather than reversed work.
+        below RELOC for exactly this reason).  Count only the EXACT and RELOC
+        entries of :attr:`status_counts`, or the byte residue itself, when the
+        question is byte-identity rather than reversed work.
         """
         if self.total_functions == 0:
             return 0.0

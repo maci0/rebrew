@@ -837,7 +837,7 @@ def _merge_entry_point_backends() -> tuple[dict[str, Callable[..., str | None]],
     backend is skipped with a warning (backends degrade to the packaged
     set) instead of bricking ``rebrew skeleton --decomp``.
 
-    The second element is the ``--auto`` probe order: the curated packaged
+    The second element is the ``"auto"`` backend probe order: the curated packaged
     ``BACKENDS`` plus every plugin backend whose callable carries the
     ``__rebrew_auto_probe__ = True`` marker (a plugin backend may opt into
     auto-probing; without the marker it stays name-selectable only)."""

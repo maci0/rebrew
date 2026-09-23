@@ -325,7 +325,7 @@ class TestRound3Lanes:
             {"known", "_known"},
         )
         assert len(recs) == 1
-        assert recs[0].command == "rebrew skeleton --symbol helper"
+        assert recs[0].command == "rebrew skeleton <va> --name helper"
         assert "2 file(s)" in recs[0].evidence[0]
 
     def test_missing_externs_silent_when_defined(self) -> None:

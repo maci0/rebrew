@@ -166,7 +166,7 @@ discovered components merge on top.  Conflict and failure policy per group:
 | Component | Entry-point group | Registration shape |
 |-----------|-------------------|--------------------|
 | Toolchain | `rebrew.toolchains` | `module:attr` — a zero-arg callable returning `dict[str, ToolchainSpec]` |
-| Decompiler backend | `rebrew.decompiler_backends` | `module:attr` — `fn(binary, va, root, **kwargs) -> str \| None`; selectable by name, and joins the `--auto` probe order when the callable carries `__rebrew_auto_probe__ = True` |
+| Decompiler backend | `rebrew.decompiler_backends` | `module:attr` — `fn(binary, va, root, **kwargs) -> str \| None`; selectable by name, and joins the `auto` backend probe order (`skeleton --decomp-backend auto`) when the callable carries `__rebrew_auto_probe__ = True` |
 | CLI single command | `rebrew.commands` | `module` (uses `main`/`app` help, like built-ins) or `module:callable` |
 | CLI multi-command group | `rebrew.multicommands` | `module` (a Typer app) or `module:app` |
 | GA mutation | `rebrew.mutations` | `module:attr` — `(source, rng) -> str \| None`; `None` or an exception counts as a failed attempt (an exception is warned once per process) |

@@ -363,7 +363,8 @@ def scan_references(
 
     With *target_va* set, only references pointing at that address are kept.
     Without it, every absolute reference found is returned (in address order).
-    The scan covers *section_names* (default ``[".text"]``).
+    The scan covers *section_names* (default: the NE code segments for NE
+    binaries, else ``[".text"]``).
     """
     names = section_names if section_names is not None else _default_scan_sections(info)
     md = _capstone(skipdata=True, info=info)

@@ -11,7 +11,7 @@ reference's VirtualSize.  This module provides the shared machinery used by
 - ``obj_data_symbols`` — a TU's .data/.bss size + owned symbol offsets;
 - ``data_symbols`` — the .data symbol map from ``rebrew-data.toml``;
 - ``owner_of`` — the most-referencing TU for a set of symbols;
-- ``emit_pad`` / ``insert_definition`` — write ``_dpad_<addr>[N]`` pads into
+- ``fill_data`` / ``insert_definition`` — write ``_dpad_<addr>[N]`` pads into
   an owning TU's source.
 
 All addresses are full image VAs; the section geometry (``data_base``,

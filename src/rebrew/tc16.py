@@ -78,8 +78,9 @@ def compile_c(
 
     Args:
         c_source: Path to the C source (or source text).
-        workdir: Sandbox dir (default: a fresh dir under the user home —
-            DOSBox breaks on tmpfs mounts).
+        workdir: Sandbox dir (default: this thread's reused
+            :func:`rebrew.dosbox.make_sandbox_dir` dir on real disk, since DOSBox
+            breaks on tmpfs mounts; removed at process exit).
         cflags: Extra TCC flags (default ``["-c"]``).
         timeout: DOSBox subprocess timeout.
 

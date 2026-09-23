@@ -11,7 +11,7 @@ Run ``rebrew calibrate-bss`` afterwards to size the tail so the raw link's
 ``.data`` VirtualSize matches the reference exactly.
 
 Usage:
-    rebrew gen-link-stubs [--data-metadata src/rebrew-data.toml] [--out src/link_stubs.c]
+    rebrew gen-link-stubs [--data-metadata src/rebrew-data.toml] [--output src/link_stubs.c]
 """
 
 from __future__ import annotations

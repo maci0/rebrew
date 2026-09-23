@@ -662,7 +662,7 @@ def recommend_missing_externs(
             functions=[],
             files=[],
             evidence=[f"declared by {len(callers)} file(s): {sorted(callers)[:3]}"],
-            command=f"rebrew skeleton --symbol {callee}",
+            command=f"rebrew skeleton <va> --name {callee}",
         )
         for callee, callers in sorted(by_callee.items())
     ]
