@@ -111,7 +111,13 @@ jobs:
           sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends nasm
           nasm -v
       - name: Run tests
+        if: matrix.python-version != '3.13'
         run: make test
+      - name: Run tests under the coverage floor
+        # Same suite as `make test`, plus the COV_FLOOR fail-under gate
+        # (AGENTS.md: coverage ratchets). One matrix entry is enough.
+        if: matrix.python-version == '3.13'
+        run: make coverage
       - name: Fixture freshness (checked-in fixtures match the generator)
         run: make gen-fixtures-check
       - name: Idempotency sweep (every --json command, run twice)

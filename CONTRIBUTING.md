@@ -42,7 +42,7 @@ make test-one T=tests/test_annotation.py   # smoke the edit-test loop
 make help                     # list contributor make targets
 make setup                    # frozen sync + pre-commit install (checks uv + ../resembl first)
 make test-one T=tests/foo.py  # single file / nodeid (fast edit-test loop)
-make coverage                 # full suite under slipcover; fails below the COV_FLOOR floor
+make coverage                 # full suite under slipcover; fails below COV_FLOOR (CI test job, 3.13)
 make test                     # full suite (a few minutes; needs nasm)
 make all                      # local mirror of CI lint+test+cli-contract gates
 make check                    # pre-commit hook parity (CI pre-commit job)

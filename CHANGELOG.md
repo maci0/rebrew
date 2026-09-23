@@ -179,6 +179,14 @@
   documented integrator surface.
 
 ### Changed
+- **Batch `rebrew lint` strips each source line once.**  E023, W020 and
+  W022 each re-ran the comment/string strip over the whole file — four
+  full passes per file, ~70% of batch-lint CPU.  They now share one
+  `_strip_all` code view, and a no-quote/no-slash fast path returns plain
+  body lines untouched.  Identical diagnostics (3196 on a 400-file
+  corpus): comment-heavy files lint at 2.0 s → 0.58 s CPU p50 (−71%),
+  plain bodies 1.46 s → 0.08 s.  `TestStripWorkCounter` gates one strip
+  call per line.
 - **`rebrew dashboard` History renders timestamps with one formatter.**
   Each row called `toLocaleString(options)`, which builds a new
   `Intl.DateTimeFormat`; 5000 rows took ~117 ms on the main thread.  A

@@ -2196,3 +2196,47 @@ class TestStackedSharedMarkers:
         f = _write_c(tmp_path, "bad.c", "// FUNCTION: NOPE 0x401000\nint f(void){ return 1; }\n")
         result = lint_file(f, cfg=cfg)
         assert any((c == "E012" for _, c, _ in result.errors))
+
+
+class TestStripWorkCounter:
+    """Deterministic perf gate: one shared strip pass per file.
+
+    E023/W020/W022 read one ``_strip_all`` code view; before, each check
+    re-stripped every line (four full passes per file — ~70% of batch-lint
+    CPU).  The counter is load-independent, so this holds on busy CI.
+    """
+
+    def test_one_strip_call_per_line(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        from rebrew import lint as lint_mod
+
+        calls = 0
+        orig = lint_mod._strip_c_comments_strings
+
+        def counting(line: str, in_block_comment: bool) -> tuple[str, bool]:
+            nonlocal calls
+            calls += 1
+            return orig(line, in_block_comment)
+
+        monkeypatch.setattr(lint_mod, "_strip_c_comments_strings", counting)
+        content = (
+            "// FUNCTION: SERVER 0x10008880\n"
+            "// SIZE: 0x20\n"
+            "\n"
+            "int g_zero = {0};   /* file-scope zero init — W022 */\n"
+            "\n"
+            "int __cdecl helper(int x)\n"
+            "{\n"
+            "    // __declspec(naked) only inside this comment — no E023\n"
+            "    return x / 2;   // divide\n"
+            "}\n"
+        )
+        f = _write_c(tmp_path, "strip_counter.c", content)
+        lines = content.splitlines()
+        result = lint_file(f, cfg=None)
+        assert calls == len(lines), (
+            f"expected one strip call per line ({len(lines)}), got {calls} — "
+            "a check is re-stripping lines instead of reading the shared view"
+        )
+        # The shared view keeps the checks correct, not just fast.
+        assert any((c == "W022" for _, c, _ in result.warnings))
+        assert not any((c == "E023" for _, c, _ in result.errors))
