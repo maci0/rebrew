@@ -804,6 +804,7 @@ def run_toolchain(
             "run",
             "--rm",
             "--network=none",  # compile-only containers — no egress needed
+            "--security-opt=no-new-privileges",  # no setuid escalation inside the image
             # A stable name lets the timeout path kill the container: when the
             # docker CLI is killed, dockerd keeps the (attached) container
             # running, so a hung compile would linger forever and accumulate

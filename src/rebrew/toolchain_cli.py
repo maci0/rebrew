@@ -1032,6 +1032,7 @@ def smoke_cmd(
                             "run",
                             "--rm",
                             "--network=none",  # compile-only container
+                            "--security-opt=no-new-privileges",  # no setuid escalation inside the image
                             # Named so the timeout path can kill it (a killed
                             # docker CLI leaves the container under dockerd).
                             "--name",
@@ -1241,6 +1242,7 @@ def _image_smoke_hash(tool: str, workdir: Path) -> str | None:
                 "run",
                 "--rm",
                 "--network=none",  # compile-only container
+                "--security-opt=no-new-privileges",  # no setuid escalation inside the image
                 "--name",
                 container,
                 "-v",

@@ -2097,6 +2097,7 @@ def build_linked_link_cmd(
         "run",
         "--rm",
         "--network=none",  # link-only container - no egress needed
+        "--security-opt=no-new-privileges",  # no setuid escalation inside the image
         # Named so the timeout path can kill it (a killed docker CLI leaves
         # the container under dockerd - same discipline as run_toolchain).
         "--name",

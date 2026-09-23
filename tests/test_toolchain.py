@@ -264,15 +264,21 @@ class TestRunToolchain:
         r = run_toolchain(spec, ["/c", "f.c"], workdir=tmp_path)
         assert r.backend == "docker"
         assert r.ok
-        assert calls[0][:4] == ["docker", "run", "--rm", "--network=none"]
+        assert calls[0][:5] == [
+            "docker",
+            "run",
+            "--rm",
+            "--network=none",
+            "--security-opt=no-new-privileges",
+        ]
         # Named container: the timeout path must be able to kill it (a killed
         # docker CLI alone leaves the container running under dockerd).
-        assert calls[0][4] == "--name"
-        assert calls[0][5].startswith("rebrew-")
-        assert calls[0][6:10] == ["-v", f"{tmp_path.resolve()}:/work", "-w", "/work"]
-        assert calls[0][10:12] == ["--entrypoint", "/usr/local/bin/cl"]
-        assert calls[0][12] == "rebrew/t:latest"
-        assert calls[0][13:] == ["/c", "f.c"]
+        assert calls[0][5] == "--name"
+        assert calls[0][6].startswith("rebrew-")
+        assert calls[0][7:11] == ["-v", f"{tmp_path.resolve()}:/work", "-w", "/work"]
+        assert calls[0][11:13] == ["--entrypoint", "/usr/local/bin/cl"]
+        assert calls[0][13] == "rebrew/t:latest"
+        assert calls[0][14:] == ["/c", "f.c"]
 
     def test_docker_msvc_image_exports_include_and_lib(self, tmp_path: Path, monkeypatch) -> None:
         """An image-backed MSVC spec carries its own INCLUDE/LIB (the SP
@@ -299,7 +305,7 @@ class TestRunToolchain:
         spec = ToolchainSpec(name="t", image="rebrew/t:latest", binary="wcc386")
         calls = _monkey_docker(monkeypatch)
         run_toolchain(spec, ["-zq", "f.c"], workdir=tmp_path)
-        assert calls[0][11:] == ["-zq", "f.c"]
+        assert calls[0][12:] == ["-zq", "f.c"]
 
     def test_docker_passes_entrypoint_wrapper(self, tmp_path: Path, monkeypatch) -> None:
         """An explicit image_entrypoint is passed as ``--entrypoint``
@@ -313,9 +319,9 @@ class TestRunToolchain:
         )
         calls = _monkey_docker(monkeypatch)
         run_toolchain(spec, ["hello.dpr"], workdir=tmp_path)
-        assert calls[0][10:12] == ["--entrypoint", "/usr/local/bin/dcc"]
-        assert calls[0][12] == "rebrew/t:latest"
-        assert calls[0][13:] == ["hello.dpr"]
+        assert calls[0][11:13] == ["--entrypoint", "/usr/local/bin/dcc"]
+        assert calls[0][13] == "rebrew/t:latest"
+        assert calls[0][14:] == ["hello.dpr"]
 
     def test_wine_runtime_without_image_raises(self, tmp_path: Path, monkeypatch) -> None:
         """A wine-runtime spec without an image is not runnable — execution
@@ -364,7 +370,7 @@ class TestRunToolchain:
             run_toolchain(spec, ["/c", "f.c"], workdir=tmp_path, timeout=1)
 
         assert len(calls) == 2
-        assert calls[0][4:6] == ["--name", calls[1][2]], "kill must target the run's container"
+        assert calls[0][5:7] == ["--name", calls[1][2]], "kill must target the run's container"
         assert calls[1][:2] == ["docker", "kill"]
 
     def test_docker_os_error_skips_kill(self, tmp_path: Path, monkeypatch) -> None:

@@ -902,19 +902,25 @@ class TestLinkedLinkCmd:
         cmd, _script = build_linked_link_cmd(
             self._spec(), base=0x10000000, obj_name="f.obj", out_name="out.dll", workdir="/tmp/w"
         )
-        assert cmd[:4] == ["docker", "run", "--rm", "--network=none"]
+        assert cmd[:5] == [
+            "docker",
+            "run",
+            "--rm",
+            "--network=none",
+            "--security-opt=no-new-privileges",
+        ]
         # Named so a timed-out run can be killed instead of leaking under dockerd.
-        assert cmd[4] == "--name"
-        assert cmd[5].startswith("rebrew-link-")
+        assert cmd[5] == "--name"
+        assert cmd[6].startswith("rebrew-link-")
         # The MSVC include/lib trees and LINK.EXE travel as env vars, never
         # spliced into the script body.
-        assert cmd[6] == "--env"
-        assert cmd[8] == "--env"
-        assert cmd[10] == "--env"
-        assert cmd[12:18] == ["-v", "/tmp/w:/work", "-w", "/work", "--entrypoint", "sh"]
-        assert cmd[18] == "rebrew/msvc:6.0-win32"
+        assert cmd[7] == "--env"
+        assert cmd[9] == "--env"
+        assert cmd[11] == "--env"
+        assert cmd[13:19] == ["-v", "/tmp/w:/work", "-w", "/work", "--entrypoint", "sh"]
+        assert cmd[19] == "rebrew/msvc:6.0-win32"
         # LINK flags: DLL / NOENTRY at the target base, /OPT:NOREF + /OPT:NOICF.
-        args = cmd[22:]
+        args = cmd[23:]
         assert "/DLL" in args and "/NOENTRY" in args
         assert "/BASE:0x10000000" in args
         assert "/ALIGN:4096" in args and "/FILEALIGN:4096" in args

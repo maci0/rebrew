@@ -156,6 +156,11 @@
   documented integrator surface.
 
 ### Changed
+- **Toolchain containers run with `no-new-privileges`.**  Every `docker
+  run` of a toolchain image (compile, link, cmake bridge, smoke, layout
+  grep, lib hash/copy) now passes `--security-opt=no-new-privileges`
+  beside `--network=none`, so a setuid binary in an image cannot raise
+  privileges inside the container.
 - **`rebrew dashboard` reloads in two requests instead of four.**  The
   shell now links `/app.js?v=<content hash>`, served `immutable`, so a
   reload no longer revalidates the client, and an inline `data:,` icon

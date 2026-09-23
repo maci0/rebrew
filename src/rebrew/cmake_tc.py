@@ -265,6 +265,7 @@ def _ensure_wineprefix(prefix: Path, spec: ToolchainSpec) -> None:
                     "run",
                     "--rm",
                     "--network=none",  # wineboot needs no network
+                    "--security-opt=no-new-privileges",  # no setuid escalation inside the image
                     "--name",
                     name,
                     *_docker_user_args(),
@@ -311,6 +312,7 @@ def _docker_run(spec: ToolchainSpec, mode: str, args: list[str]) -> int:
         "run",
         "--rm",
         "--network=none",  # compile-only containers — no egress needed
+        "--security-opt=no-new-privileges",  # no setuid escalation inside the image
         "--name",
         f"rebrew-{spec.name}-{mode}-{uuid.uuid4().hex[:12]}",
         *_docker_user_args(),

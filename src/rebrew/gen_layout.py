@@ -416,6 +416,7 @@ def _import_lib_symbols_from_image(dll_stem: str) -> set[str]:
                 "run",
                 "--rm",
                 "--network=none",  # read-only grep inside the image
+                "--security-opt=no-new-privileges",  # no setuid escalation inside the image
                 # Named so the timeout path can kill it (a killed docker CLI
                 # leaves the container running under dockerd).
                 "--name",

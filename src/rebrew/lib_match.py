@@ -304,6 +304,7 @@ def ensure_stock_lib(dest: Path, *, profile: str, name: str) -> bool:
                 "run",
                 "--rm",
                 "--network=none",  # local file copy - no egress needed
+                "--security-opt=no-new-privileges",  # no setuid escalation inside the image
                 "--name",
                 container,
                 "--entrypoint",
@@ -359,6 +360,7 @@ def assert_library_is_stock(
                 "run",
                 "--rm",
                 "--network=none",  # local hash - no egress needed
+                "--security-opt=no-new-privileges",  # no setuid escalation inside the image
                 "--name",
                 container,
                 "--entrypoint",
