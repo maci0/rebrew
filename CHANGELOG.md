@@ -179,6 +179,16 @@
   documented integrator surface.
 
 ### Changed
+- **Every `rebrew` command stops burning ~2 CPU-seconds on startup.**
+  Importing NumPy spawns OpenBLAS's full-width thread pool (64 threads
+  on a Ryzen 9950X) and spins it while the rest of the interpreter
+  loads: `import rebrew.main` measured 1.7-2.1 CPU-seconds against 0.19
+  with a single thread.  `rebrew/__init__.py` now defaults
+  `OPENBLAS_NUM_THREADS`/`OMP_NUM_THREADS` to `1`; an explicit user
+  setting stays authoritative.  `rebrew --help` user time 1.99 s → 0.29 s
+  (wall 0.36 s → 0.32 s), and `--jobs` verify / GA batches stop fighting
+  the pool for cores.  `tests/test_startup_blas.py` gates it: env
+  semantics plus a process-CPU-time band (not wall clock).
 - **The lint strip scanner jumps between special characters.**
   `_strip_c_comments_strings` walked every character of every line even
   though quotes, slashes and backslashes are the only characters that
@@ -513,6 +523,13 @@
   in emission order.
 
 ### Fixed
+- **Parallel runs no longer let thread timing pick the winner.**  The
+  flag sweep sorted by score only, so combos that compiled to identical
+  bytes kept worker completion order and `--flag-sweep-then-ga` could
+  seed the GA with different flags under the same `--seed`.  Ties now
+  break by flag string.  Batch `rebrew match --all` also appended solved
+  entries in completion order, and `--seed-from-solved` breaks ties by
+  that order; the batch now appends in (target, symbol) order.
 - **`REBREW_WINE_HEADLESS` rejects typos.**  Only the literal `0`
   disabled headless wine; `false` or `off` were silently ignored.
   `0`/`false`/`no`/`off` now disable it, `1`/`true`/`yes`/`on` keep it,

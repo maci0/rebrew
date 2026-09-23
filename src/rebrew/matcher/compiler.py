@@ -852,5 +852,8 @@ def flag_sweep(
             "\n".join(_compile_errors) if _compile_errors else "(none — see warnings above)",
         )
 
-    results.sort(key=lambda x: x[0])
+    # Full-tuple sort: results arrive in thread-completion order, and flag
+    # combos that compile to identical bytes tie on score, so a score-only
+    # sort would let thread timing pick the winning flags.
+    results.sort()
     return results

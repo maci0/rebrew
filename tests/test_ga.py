@@ -892,6 +892,50 @@ class TestFlagSweepIncludeDirs:
         )
         assert seen.get("extra_include_dirs") == ["/src/fn_dir"]
 
+    def test_tied_scores_order_by_flags_not_completion(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Combos that tie on score come back ordered by flag string, so the
+        winning flags do not depend on which worker thread finished first."""
+        import threading
+        import time
+
+        from rebrew.matcher.compiler import flag_sweep, generate_flag_combinations
+
+        combos = generate_flag_combinations(tier="quick")
+        assert len(combos) >= 2
+        # Force completion in reverse flag order: each combo waits until every
+        # later-sorted combo has finished.
+        done: list[str] = []
+        done_lock = threading.Lock()
+
+        def _fake_build(src: str, cl: str, inc: str, flags: str, *a: Any, **k: Any) -> Any:
+            combo = flags.removeprefix("/O2 ")
+            later = [c for c in combos if c > combo]
+            deadline = time.monotonic() + 5
+            while time.monotonic() < deadline:
+                with done_lock:
+                    if all(c in done for c in later):
+                        break
+                time.sleep(0.001)
+            with done_lock:
+                done.append(combo)
+            return SimpleNamespace(ok=True, obj_bytes=b"\x55\x8b\xec\x5d\xc3", reloc_offsets=None)
+
+        monkeypatch.setattr("rebrew.matcher.compiler.build_candidate_obj_only", _fake_build)
+        results = flag_sweep(
+            "int f(void){return 0;}",
+            b"\x55\x8b\xec\x5d\xc3",
+            "cl",
+            "",
+            "/O2",
+            "_f",
+            n_jobs=len(combos),
+            tier="quick",
+        )
+        assert done == sorted(combos, reverse=True)
+        assert [flags for _score, flags in results] == sorted(combos)
+
     def test_sweep_scoring_params_from_config(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

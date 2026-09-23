@@ -148,6 +148,17 @@ class TestLoadSave:
         assert by_sym["_a"].cflags == "/O1"
         assert by_sym["_b"].size == 128
 
+    def test_batch_save_order_independent_of_caller(self, project_root: Path) -> None:
+        """Parallel batch workers fill the list in completion order; the log
+        (whose order breaks find_similar ties) must not depend on it."""
+        entries = [
+            SolutionEntry(symbol=sym, cflags="/O2", size=64, source_file=f"{sym}.c")
+            for sym in ("_c", "_a", "_b")
+        ]
+        save_solutions(project_root, entries)
+        assert [e.symbol for e in load_solutions(project_root)] == ["_a", "_b", "_c"]
+        assert [e.symbol for e in find_similar(project_root, size=64, top_k=1)] == ["_a"]
+
     def test_batch_save_empty_noop(self, project_root: Path) -> None:
         save_solutions(project_root, [])
         assert load_solutions(project_root) == []

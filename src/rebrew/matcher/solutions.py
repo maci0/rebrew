@@ -260,8 +260,14 @@ def save_solutions(project_root: Path, entries: list[SolutionEntry]) -> None:
 
     Same record as :func:`save_solution`; the log is append-only so a batch
     costs N line-appends, never a whole-file read-modify-write.
+
+    Entries append in (target, symbol) order, not caller order: parallel
+    batch workers fill the list in completion order, and
+    :func:`find_similar` breaks ties by file order.
     """
-    for entry in entries:
+    # Stable sort: a duplicate (target, symbol) keeps its caller order, so
+    # the later entry still wins.
+    for entry in sorted(entries, key=lambda e: (e.target, e.symbol)):
         save_solution(project_root, entry)
 
 
