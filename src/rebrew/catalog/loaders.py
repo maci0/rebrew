@@ -160,19 +160,22 @@ def cached_function_list(cfg: ProjectConfig) -> list[dict[str, Any]]:
         cached = _function_list_cache.get(cache_key)
         if cached is not None and cached[0] == fp:
             return list(cached[1])
-    try:
-        funcs = [
-            {"va": e.va, "size": e.size, "name": e.name or e.tool_name}
-            for e in load_function_structure(Path(path))
-            if path and Path(path).is_file()
-        ]
-    except (OSError, ValueError, KeyError) as exc:
-        logging.getLogger(__name__).warning(
-            "Failed to load function inventory %s (%s); treating as empty",
-            path or "<unset>",
-            exc,
-        )
-        funcs = []
+    funcs: list[dict[str, Any]] = []
+    if path and Path(path).is_file():
+        try:
+            funcs = [
+                {"va": e.va, "size": e.size, "name": e.name or e.tool_name}
+                for e in load_function_structure(Path(path))
+            ]
+        except (OSError, ValueError, KeyError) as exc:
+            logging.getLogger(__name__).warning(
+                "Failed to load function inventory %s (%s); treating as empty",
+                path,
+                exc,
+            )
+            # Not memoized: a transient read error under an unchanged
+            # mtime/size would otherwise pin [] until the file is rewritten.
+            return []
     with _function_list_cache_lock:
         if (
             len(_function_list_cache) >= _FUNCTION_LIST_CACHE_MAX

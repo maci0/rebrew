@@ -3,6 +3,7 @@
 import json
 import warnings
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -267,6 +268,32 @@ class TestCachedFunctionList:
             {"va": 0x2000, "size": 16, "name": "b"},
             {"va": 0x3000, "size": 4, "name": ""},
         ]
+
+    def test_failed_load_is_not_memoized(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A transient read error must not pin [] under an unchanged mtime/size."""
+        from types import SimpleNamespace
+
+        from rebrew.catalog import loaders as loaders_mod
+        from rebrew.config import FUNCTION_STRUCTURE_JSON
+
+        monkeypatch.setattr(loaders_mod, "_function_list_cache", {})
+        (tmp_path / FUNCTION_STRUCTURE_JSON).write_text(
+            json.dumps([{"va": "0x1000", "size": 8, "name": "a"}]),
+            encoding="utf-8",
+        )
+        cfg = SimpleNamespace(reversed_dir=str(tmp_path))
+        real_load = loaders_mod.load_function_structure
+
+        def _failing_load(_path: Path) -> list[Any]:
+            raise OSError("transient")
+
+        monkeypatch.setattr(loaders_mod, "load_function_structure", _failing_load)
+        assert loaders_mod.cached_function_list(cfg) == []
+        assert loaders_mod._function_list_cache == {}
+        monkeypatch.setattr(loaders_mod, "load_function_structure", real_load)
+        assert loaders_mod.cached_function_list(cfg) == [{"va": 0x1000, "size": 8, "name": "a"}]
 
     def test_evicts_when_full(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         from types import SimpleNamespace

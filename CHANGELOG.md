@@ -648,6 +648,12 @@
   in emission order.
 
 ### Fixed
+- **A failed inventory read no longer sticks for the process.**
+  `cached_function_list` memoized `[]` after a read error on
+  `function_structure.json`, and crt-match cached the resulting empty size
+  map, so every later lookup got empty results until the file changed.
+  A failed load now retries on the next call.  An unset `reversed_dir` no
+  longer logs a spurious "Failed to load function inventory" warning.
 - **`/api/summary` reports a bad byte count as corrupt stats.**  A
   `function_stats` row whose `matched_bytes`, `covered_bytes`, or
   `total_bytes` was not a finite number (text, `NaN`, `Infinity`, a list)

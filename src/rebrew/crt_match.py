@@ -382,7 +382,10 @@ def _canonical_size(cfg: ProjectConfig, va: int) -> int:
         try:
             sizes = {f["va"]: int(f["size"]) for f in cached_function_list(cfg)}
         except (OSError, ValueError, KeyError, TypeError):
-            sizes = {}
+            return 0
+        if not sizes:
+            # Empty is also what a failed inventory load returns; never pin it.
+            return 0
         with _canonical_sizes_lock:
             if cache_key not in _canonical_sizes:
                 if len(_canonical_sizes) >= _CANONICAL_SIZES_MAX:
