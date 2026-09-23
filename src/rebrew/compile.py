@@ -893,6 +893,15 @@ def _native_toolchain_id(spec: "ToolchainSpec") -> str:
     if resolved is None:
         found = shutil.which(name)
         resolved = Path(found) if found else None
+    return native_binary_id(name, resolved)
+
+
+def native_binary_id(name: str, resolved: Path | None) -> str:
+    """``native:<name>@<content digest>`` for the executable at *resolved*.
+
+    ``native:<name>`` when *resolved* is None or unreadable.  Memoized per
+    ``(path, mtime, size)`` in :data:`_native_binary_cache`.
+    """
     if resolved is None:
         return f"native:{name}"
 
@@ -2428,6 +2437,7 @@ __all__ = [
     "linked_shell_source",
     "matched_byte_count",
     "maybe_headless_wine",
+    "native_binary_id",
     "precompile_batch",
     "recompile_url",
     "resolve_cl_command",

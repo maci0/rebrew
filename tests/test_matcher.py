@@ -374,3 +374,44 @@ class TestDockerPathForwardsExtraIncludes:
         )
         assert res.ok is True
         assert seen.get("extra") == ["/proj/src/server_c"]
+
+
+class TestRawCompilerCacheKey:
+    def test_cache_key_tracks_compiler_binary_content(self, tmp_path, monkeypatch) -> None:
+        """An in-place compiler upgrade must not be served the old binary's objects."""
+        from rebrew.matcher.compiler import build_candidate_obj_only
+
+        compiler = tmp_path / "cc"
+        compiler.write_bytes(b"compiler v1")
+        keys: list[str] = []
+
+        class _RecordingCache:
+            def get(self, key: str) -> bytes:
+                keys.append(key)
+                return b"obj"
+
+            def put(self, key: str, value: bytes) -> None:
+                raise AssertionError("cache hit expected")
+
+        monkeypatch.setattr(
+            "rebrew.matcher.compiler.parse_obj_symbol_bytes",
+            lambda obj, sym: (b"\xc3", []),
+        )
+
+        def _build() -> None:
+            res = build_candidate_obj_only(
+                "int f(void){return 1;}",
+                str(compiler),
+                "",
+                "/O2",
+                "_f",
+                cache=_RecordingCache(),
+            )
+            assert res.ok is True
+
+        _build()
+        _build()
+        compiler.write_bytes(b"compiler v2, a different build")
+        _build()
+        assert keys[0] == keys[1]
+        assert keys[2] != keys[1]

@@ -274,6 +274,18 @@ def _compiler_cmd_parts(cl_cmd: str, env: dict[str, str] | None) -> list[str]:
     return parts
 
 
+def _resolve_executable(part: str) -> Path | None:
+    """The file a compiler command part names (a path, or a name on PATH), else None.
+
+    A wine-run ``cl.exe`` has no exec bit, so an existing file counts
+    before the ``PATH`` lookup.
+    """
+    if Path(part).is_file():
+        return Path(part)
+    found = shutil.which(part)
+    return Path(found) if found else None
+
+
 def _flags_to_axes(flags: Flags, tier_ids: list[str] | None = None) -> list[list[str]]:
     """Convert FlagSet/Checkbox list to list of axes (each axis = list of options).
 
@@ -527,10 +539,15 @@ def build_candidate_obj_only(
 
     cache_key: str | None = None
     if cache is not None:
-        from rebrew.compile import extract_include_dirs
+        from rebrew.compile import extract_include_dirs, native_binary_id
 
-        cmd_parts = _compiler_cmd_parts(cl_cmd, env)
-        toolchain_id = " ".join(cmd_parts)
+        # Key each command part on its executable's content (as compile_to_obj
+        # does for native specs): a compiler upgraded in place must never be
+        # served objects built by the old binary.
+        toolchain_id = " ".join(
+            native_binary_id(part, _resolve_executable(part))
+            for part in _compiler_cmd_parts(cl_cmd, env)
+        )
         cache_key = compile_cache_key(
             source_content=source_code,
             source_filename=src_name,

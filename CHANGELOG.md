@@ -606,6 +606,12 @@
   in emission order.
 
 ### Fixed
+- **Plugin native compilers key the matcher cache on binary content.**
+  The GA/diff raw-compiler path (image-less plugin toolchains) keyed the
+  compile cache on the command string, so a compiler upgraded in place
+  kept serving objects built by the old binary.  Each command part now
+  keys on its executable's content digest, as `compile_to_obj` already
+  did for native specs.
 - **`rebrew report` paging and string refs.**  The help example used
   `--out`, which the command rejects; it now reads `--output`.  Paged
   index and strings tables repeat the pager below the table and add
