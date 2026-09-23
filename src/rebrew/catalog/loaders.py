@@ -236,7 +236,7 @@ def parse_rizin_afl(text: str) -> list[tuple[int, int, str]]:
             va = int(p[0], 16)
         except ValueError:
             continue
-        if len(p) >= 4 and p[2].isdigit():
+        if len(p) >= 4 and p[2].isdecimal():
             size, name = int(p[2]), p[3]
         elif len(p) >= 3:
             try:

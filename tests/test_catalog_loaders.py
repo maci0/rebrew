@@ -179,6 +179,13 @@ class TestParseRizinAfl:
         out = parse_rizin_afl("0x1000 0x1000 16 func_a\n")
         assert out == [(0x1000, 16, "func_a")]
 
+    def test_non_decimal_digit_column_does_not_crash(self) -> None:
+        from rebrew.catalog.loaders import parse_rizin_afl
+
+        # "\u00b2".isdigit() is True but int() rejects it.
+        out = parse_rizin_afl("0x1000 16 \u00b2 func_a\n")
+        assert out == [(0x1000, 16, "\u00b2")]
+
     def test_hex_sizes_tolerated(self) -> None:
         from rebrew.catalog.loaders import parse_rizin_afl
 

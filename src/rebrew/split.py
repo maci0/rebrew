@@ -9,6 +9,7 @@ its own file while the block is removed from the original source.
 from __future__ import annotations
 
 import shutil
+import unicodedata
 from pathlib import Path
 from typing import TypedDict
 
@@ -115,12 +116,15 @@ def _block_metadata(block: str) -> _BlockMeta | None:
 
 def _build_output_name(symbol: str, va: int, ext: str) -> str:
     """Generate output filename from symbol or fallback VA."""
-    stem = symbol.lstrip("_").strip()
+    stem = unicodedata.normalize("NFC", symbol).lstrip("_").strip()
     if not stem:
         stem = f"func_{va:08x}"
-    # Sanitize: keep only filename-safe characters so a hostile symbol
-    # (e.g. "../../x") cannot escape the output directory.
-    stem = "".join(c if (c.isalnum() or c in "_$?.-") else "_" for c in stem).strip(".")
+    # Sanitize: keep only ASCII filename-safe characters so a hostile symbol
+    # (e.g. "../../x") cannot escape the output directory and non-ASCII
+    # letters (NFC vs NFD spellings, DOS 8.3 toolchains) never reach a filename.
+    stem = "".join(
+        c if ((c.isascii() and c.isalnum()) or c in "_$?.-") else "_" for c in stem
+    ).strip(".")
     if not stem:
         stem = f"func_{va:08x}"
     return f"{stem}{ext}"

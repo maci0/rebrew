@@ -705,7 +705,7 @@ def _collect_new_functions(
     annotated_spans: list[tuple[int, int]] = sorted(
         (va, va + int(str(info.get("size", "0") or 0)))
         for va, info in existing.items()
-        if str(info.get("size", "") or "").strip().isdigit()
+        if str(info.get("size", "") or "").strip().isdecimal()
     )
 
     _inside_annotated = span_contains_factory(annotated_spans)

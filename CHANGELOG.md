@@ -648,6 +648,14 @@
   in emission order.
 
 ### Fixed
+- **`rebrew split` output filenames are ASCII.**  A symbol with a
+  non-ASCII letter kept it in the filename, so the NFC and NFD spellings
+  of one name (`café` / `cafe` + U+0301) split into two different files.
+  The symbol is NFC-normalized and every non-ASCII character becomes `_`.
+- **Digit checks match what `int()` parses.**  `parse_rizin_afl` and
+  `rebrew todo`'s annotated-span scan tested sizes with `str.isdigit()`,
+  which accepts `²`; the following `int()` then raised `ValueError`.
+  Both use `str.isdecimal()`.
 - **A type conflict no longer corrupts the global's type.**  `scan_globals`
   appended `" ⚠ CONFLICT"` to `type_str`, so `rebrew data --json` reported
   `"type": "int ⚠ CONFLICT"` and BSS/section byte estimates sized the

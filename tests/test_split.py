@@ -498,6 +498,15 @@ class TestSplitHelpers:
 
         assert _build_output_name("_my_func", 0x1000, ".c") == "my_func.c"
 
+    def test_output_name_non_ascii_symbol_is_ascii(self) -> None:
+        from rebrew.split import _build_output_name
+
+        # NFC and NFD spellings must not yield two different filenames.
+        nfc = _build_output_name("Stra\u00dfe_caf\u00e9", 0x1000, ".c")
+        nfd = _build_output_name("Stra\u00dfe_cafe\u0301", 0x1000, ".c")
+        assert nfc.isascii() and nfd.isascii()
+        assert nfc == nfd == "Stra_e_caf_.c"
+
     def test_output_name_fallback_va(self) -> None:
         from rebrew.split import _build_output_name
 
