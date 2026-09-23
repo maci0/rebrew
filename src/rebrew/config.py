@@ -36,8 +36,9 @@ from urllib.parse import urlparse
 
 from rebrew.errors import RebrewError
 from rebrew.toolchain_spec import FlagsStyle
-from rebrew.utils import config_path, load_tomllib, parse_int_literal
+from rebrew.utils import load_tomllib, parse_int_literal
 from rebrew.workspace import walk_up_to_root
+from rebrew.workspace.config import config_path
 
 
 class ConfigError(RebrewError, ValueError):

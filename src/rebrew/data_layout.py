@@ -32,7 +32,8 @@ from typing import Any
 
 from rebrew.binary_loader import load_binary
 from rebrew.data_metadata import iter_data_symbols
-from rebrew.utils import atomic_write_text, config_path, load_tomllib, read_source_text
+from rebrew.utils import atomic_write_text, load_tomllib, read_source_text
+from rebrew.workspace.config import config_path
 
 
 def _scan_files(src_dir: Path, shared_dir: Path | None = None) -> list[Path]:

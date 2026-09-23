@@ -96,7 +96,8 @@ from rebrew.cli import (
 )
 from rebrew.layout_meta import SectionMeta
 from rebrew.sources import iter_sources, target_marker
-from rebrew.utils import atomic_write_text, config_path, parse_int_literal
+from rebrew.utils import atomic_write_text, parse_int_literal
+from rebrew.workspace.config import config_path
 
 if TYPE_CHECKING:
     from rebrew.symbol_addrs import SymbolRow

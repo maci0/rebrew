@@ -44,7 +44,8 @@ from rebrew.compile_overrides import resolve_compile_overrides
 from rebrew.config import ProjectConfig
 from rebrew.lint_cflags import _codegen_cflags_key
 from rebrew.sources import iter_sources
-from rebrew.utils import atomic_write_text, config_path
+from rebrew.utils import atomic_write_text
+from rebrew.workspace.config import config_path
 
 app = typer.Typer(add_completion=False, help=__doc__)
 console = Console(stderr=True)

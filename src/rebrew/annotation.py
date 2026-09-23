@@ -294,6 +294,20 @@ def split_annotation_sections(text: str) -> tuple[str, list[str]]:
     return preamble, blocks
 
 
+def block_markers(block: str) -> list[tuple[str, int]]:
+    """Every ``// FUNCTION: <MODULE> 0x<VA>`` marker in one block, in order.
+
+    A shared source stacks one marker per target above a single body
+    (ADR-010/022), so callers must not stop at the first marker.
+    """
+    out: list[tuple[str, int]] = []
+    for line in block.splitlines():
+        m = NEW_FUNC_CAPTURE_RE.match(line.strip())
+        if m:
+            out.append((m.group("module"), int(m.group("va"), 16)))
+    return out
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------

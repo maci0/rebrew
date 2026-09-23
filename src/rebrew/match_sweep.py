@@ -37,7 +37,8 @@ from rebrew.matcher import (
 )
 from rebrew.sources import target_marker
 from rebrew.toolchain import TOOLCHAINS
-from rebrew.utils import config_path, read_compile_source
+from rebrew.utils import read_compile_source
+from rebrew.workspace.config import config_path
 
 log = logging.getLogger(__name__)
 console = Console(stderr=True)

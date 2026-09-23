@@ -707,10 +707,6 @@ def _run_build(
             renamed[1].rename(renamed[0])
 
 
-def _load_specials(path: Path) -> dict[str, typing.Any]:
-    return typing.cast(dict[str, typing.Any], load_tomllib(path))
-
-
 @app.callback(invoke_without_command=True)
 def main(
     output: Path = typer.Option(Path("src/link_stubs.c"), "--output", "-o", help="Output TU path"),
@@ -770,12 +766,12 @@ def main(
             json_mode=json_output,
         )
 
+    spec_dict: dict[str, typing.Any] = load_tomllib(specials) if specials is not None else {}
+
     # 2. Filter CRT library symbols (provided by the static lib).
     if library_csv is not None:
         library_symbols = load_library_symbols(library_csv)
-        exceptions: set[str] = set()
-        if specials is not None:
-            exceptions = set(_load_specials(specials).get("keep_stub_exceptions", []))
+        exceptions = set(spec_dict.get("keep_stub_exceptions", []))
         stubbed: set[str] = set()
         skipped = 0
         for sym in unresolved:
@@ -800,7 +796,6 @@ def main(
     called = collect_called_symbols(src)
 
     # 4. Generate.
-    spec_dict = _load_specials(specials) if specials is not None else {}
     footer_text = read_source_text(footer)[0] if footer is not None else ""
     content = generate_stubs(unresolved, extern_info, spec_dict, footer_text, called=called)
 

@@ -79,7 +79,8 @@ from rebrew.toolchain import (
     cached_image_digest,
     run_toolchain,
 )
-from rebrew.utils import config_path, container_runtime, safe_shlex_split
+from rebrew.utils import container_runtime, safe_shlex_split
+from rebrew.workspace.config import config_path
 from rebrew.workspace.status import MATCHED_STATUSES
 
 # ---------------------------------------------------------------------------

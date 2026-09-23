@@ -67,7 +67,8 @@ from rebrew.cli import (
 )
 from rebrew.config import module_marker
 from rebrew.gen_flirt_pat import parse_archive, parse_coff_obj
-from rebrew.utils import config_path, container_runtime
+from rebrew.utils import container_runtime
+from rebrew.workspace.config import config_path
 
 console = Console(stderr=True)
 

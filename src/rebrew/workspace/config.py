@@ -24,14 +24,14 @@ from rebrew.errors import RebrewError
 CONFIG_NAME = "rebrew-project.toml"
 
 
-def _config_path(rel: str | Path) -> Path:
-    """Build a :class:`~pathlib.Path` from a config path string.
+def config_path(rel: str | Path) -> Path:
+    """Build a :class:`~pathlib.Path` from a config / YAML / CLI path string.
 
-    Local copy of the ``rebrew.utils.config_path`` one-liner: project files
-    may use Windows separators, and on POSIX ``Path("src\\\\foo.c")`` is a
-    single component with a literal backslash.  Kept here (not imported) so
-    ``rebrew.workspace`` stays free of the metadata / utils / registry stack
-    (see ``test_submodules_import_without_rebrew_stack``).
+    Project files and splat YAML may use Windows separators.  On POSIX,
+    ``Path("src\\\\foo.c")`` is a single name component containing a
+    literal backslash, so ``src\\\\foo.c`` never resolves to ``src/foo.c``.
+    Absolute Windows drive paths (``C:/…``) stay non-absolute on POSIX and
+    are left for the caller to reject.
     """
     return Path(os.fspath(rel).replace("\\", "/"))
 
@@ -143,7 +143,7 @@ def target_reversed_dir(root: Path, name: str, entry: dict[str, Any]) -> Path:
     """Reversed-source directory: ``reversed_dir``, else ``root/src/<name>``."""
     configured = entry.get("reversed_dir")
     if isinstance(configured, str) and configured.strip():
-        return root / _config_path(configured)
+        return root / config_path(configured)
     return root / DEFAULT_REVERSED_ROOT / name
 
 
@@ -156,7 +156,7 @@ def target_binary(root: Path, entry: dict[str, Any]) -> Path | None:
     configured = entry.get("binary")
     if not isinstance(configured, str) or not configured.strip():
         return None
-    path = _config_path(configured)
+    path = config_path(configured)
     return path if path.is_absolute() else root / path
 
 
@@ -164,7 +164,7 @@ def db_dir(root: Path) -> Path:
     """Directory holding coverage.db: ``[project].db_dir``, else ``root/db``."""
     configured = project_table(read_config(root)).get("db_dir")
     if isinstance(configured, str) and configured.strip():
-        return (root / _config_path(configured.strip())).resolve()
+        return (root / config_path(configured.strip())).resolve()
     return (root / DEFAULT_DB_DIR).resolve()
 
 

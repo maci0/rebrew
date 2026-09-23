@@ -21,6 +21,7 @@ from rich.console import Console
 from rebrew.annotation import (
     NEW_FUNC_CAPTURE_RE,
     NEW_KV_RE,
+    block_markers,
     parse_c_file_text,
     split_annotation_sections,
 )
@@ -253,16 +254,6 @@ def consolidate_declarations(text: str) -> tuple[str, ExternReport]:
     return out, report
 
 
-def _block_markers(block: str) -> list[tuple[str, int]]:
-    """Every ``(module, va)`` marker in one block, in order."""
-    out: list[tuple[str, int]] = []
-    for line in block.splitlines():
-        m = NEW_FUNC_CAPTURE_RE.match(line.strip())
-        if m:
-            out.append((m.group("module"), int(m.group("va"), 16)))
-    return out
-
-
 def _normalize_body(block: str) -> str:
     """The block minus identity lines: markers and their SIZE lines.
 
@@ -347,7 +338,7 @@ def _collapse_twins(
     out: list[tuple[int, str]] = []
     for key in order:
         group = groups[key]
-        modules = {mod for _, b in group for mod, _ in _block_markers(b)}
+        modules = {mod for _, b in group for mod, _ in block_markers(b)}
         if len(modules) < 2:
             out.extend(group)
             continue
