@@ -35,7 +35,7 @@ Bare `uv run pytest` matches `make test` (`pyproject.toml` pytest config loads `
 
 - **Python 3.13+**; ruff/mypy gates in `pyproject.toml`; do not weaken them
 - Types: `T | None` not `Optional`; config as `ProjectConfig` (`getattr` defensively); prefer `Any` over bare `object`
-- CLI: `error_exit(..., json_mode=...)`, `json_print`, `parse_va`, `EXIT_*` from `rebrew.cli`; `Console(stderr=True)`; library code raises specific exceptions; no bare `except`
+- Library code raises specific exceptions; no bare `except`
 - Docstrings on every module; section separators `# ---...---`
 - Use imported libs' APIs: LIEF (never hand-unpack headers), httpx for MCP (never `urllib.request`), tree-sitter for C AST (no new regex C parsers; legacy mutation regex stays), angr only behind `[prove]`
 
@@ -51,11 +51,11 @@ src/rebrew/          # package; discover modules there; do not rely on an inline
 tests/               # pytest; typically test_<module>.py
 ```
 
-Dockerfiles / wrappers / 16-bit media: sibling **rebrew-toolchains** (not vendored here). `rebrew init` renders `agent-skills/` into a project's `.agents/skills/`; this repo's `.agents/skills/` is a rendered copy (target `bench`). Edit `src/rebrew/agent-skills/`, re-render; `tests/test_skills_sync.py` and `tools/validate_skill_commands.py` gate drift.
+Dockerfiles / wrappers / 16-bit media: sibling **rebrew-toolchains** (not vendored here). `rebrew init` renders `agent-skills/` into a project's `.agents/skills/`; this repo's `.agents/skills/` is a rendered copy (target `bench`). Edit `src/rebrew/agent-skills/`, re-render (command in the `tests/test_skills_sync.py` docstring); `tests/test_skills_sync.py` and `tools/validate_skill_commands.py` gate drift.
 
 ## CLI Conventions
 
-Single-command tools: `@app.callback(invoke_without_command=True)` + `main_entry()` in `[project.scripts]`; `TargetOption` + `require_config()` from `rebrew.cli` (use `rebrew.config.load_config` only for optional loads; not re-exported from `cli`). Param order: `--json` before `--target`, both last. Help strings exact: `--json` → `"Output results as JSON"`; `--dry-run` → `"Preview changes without writing"`. Output via `Console(stderr=True)`; raw `print()` only for piped data. `main_entry` docstring always `"""Run the Typer CLI application."""`; its body is `run_standalone(main)` (single-command) or `run_cli(app)` (group), never a bare `app()` (that loses the 141/130/2 exit contract). JSON errors: `error_exit(..., json_mode=json_output)`.
+Single-command tools: `@app.callback(invoke_without_command=True)` + `main_entry()` in `[project.scripts]`; from `rebrew.cli`: `TargetOption`, `require_config()`, `error_exit(..., json_mode=json_output)`, `json_print`, `parse_va`, `EXIT_*` (use `rebrew.config.load_config` only for optional loads; not re-exported from `cli`). Param order: `--json` before `--target`, both last. Help strings exact: `--json` → `"Output results as JSON"`; `--dry-run` → `"Preview changes without writing"`. Output via `Console(stderr=True)`; raw `print()` only for piped data. `main_entry` docstring always `"""Run the Typer CLI application."""`; its body is `run_standalone(main)` (single-command) or `run_cli(app)` (group), never a bare `app()` (that loses the 141/130/2 exit contract).
 
 Multi-command groups: `is_group=True` in `builtins.py`.
 
