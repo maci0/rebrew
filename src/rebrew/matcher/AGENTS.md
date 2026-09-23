@@ -1,6 +1,6 @@
 # AGENTS.md: matcher/
 
-GA engine for binary-matching decompilation. Compiles C through the docker-backed toolchain abstraction (wine lives inside the image; no host wine/wibo fallback), scores byte similarity against targets, mutates source to converge on exact matches.
+GA engine for binary-matching decompilation. Compiles C through the docker-backed toolchain abstraction, scores byte similarity against targets, mutates source to converge on exact matches.
 
 ## Modules
 
