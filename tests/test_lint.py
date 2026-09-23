@@ -2240,3 +2240,155 @@ class TestStripWorkCounter:
         # The shared view keeps the checks correct, not just fast.
         assert any((c == "W022" for _, c, _ in result.warnings))
         assert not any((c == "E023" for _, c, _ in result.errors))
+
+
+def _reference_strip(line: str, in_block_comment: bool) -> tuple[str, bool]:
+    """The original per-character stripper, pinned verbatim as the oracle.
+
+    ``_strip_c_comments_strings`` now jumps between special characters with
+    regex ``search`` and copies ordinary runs as slices; this naive loop is
+    the behaviour it must match exactly, quirks included (a backslash escape
+    inside a literal emits nothing, literal content becomes one space per
+    character, ``//`` drops the rest of the line).
+    """
+    if not in_block_comment and '"' not in line and "'" not in line and "/" not in line:
+        return line, False
+    out: list[str] = []
+    i = 0
+    n = len(line)
+    in_str = False
+    in_char = False
+    while i < n:
+        c = line[i]
+        nxt = line[i + 1] if i + 1 < n else ""
+        if in_block_comment:
+            if c == "*" and nxt == "/":
+                in_block_comment = False
+                i += 2
+            else:
+                i += 1
+            continue
+        if in_str:
+            if c == "\\":
+                i += 2
+                continue
+            if c == '"':
+                in_str = False
+            out.append(" ")
+            i += 1
+            continue
+        if in_char:
+            if c == "\\":
+                i += 2
+                continue
+            if c == "'":
+                in_char = False
+            out.append(" ")
+            i += 1
+            continue
+        if c == '"':
+            in_str = True
+            out.append(" ")
+            i += 1
+            continue
+        if c == "'":
+            in_char = True
+            out.append(" ")
+            i += 1
+            continue
+        if c == "/" and nxt == "*":
+            in_block_comment = True
+            i += 2
+            continue
+        if c == "/" and nxt == "/":
+            break  # line comment — rest of the line is not code
+        out.append(c)
+        i += 1
+    return "".join(out), in_block_comment
+
+
+class TestStripOracle:
+    """Differential gate: fast stripper == pinned per-character oracle."""
+
+    def test_edge_cases(self) -> None:
+        from rebrew.lint import _strip_c_comments_strings
+
+        lines = [
+            "",
+            "plain code;",
+            "a / b; c++",
+            "// whole line /* not a block",
+            "x = 1;   // trailing",
+            's = "// not a comment"; y',
+            "c = '/'; d = '\\'';",
+            'str = "a/*b"; /* real */ tail',
+            'unterminated "string at eol',
+            "unterminated 'c at eol",
+            'escape at end "\\\\',
+            'escape quote "a\\"b" next',
+            "/* block opens here",
+            "still in block */ code /* again */ more",
+            "char with slash '/' and quote with slash \"//\"",
+            "/* inline */ a /* b */ c",
+            "#define M(x) ((x) / 2) // divide",
+            "L\"wide\" u8'n'",
+        ]
+        state = False
+        for line in lines:
+            want_out, want_state = _reference_strip(line, state)
+            got_out, got_state = _strip_c_comments_strings(line, state)
+            assert (got_out, got_state) == (want_out, want_state), (
+                f"line={line!r} state={state}: got {(got_out, got_state)!r}, "
+                f"want {(want_out, want_state)!r}"
+            )
+            state = want_state
+
+    def test_fuzz_matches_oracle(self) -> None:
+        import random
+
+        from rebrew.lint import _strip_c_comments_strings
+
+        rng = random.Random(1337)
+        pool = [
+            "a",
+            " ",
+            "/*",
+            "*/",
+            "//",
+            '"',
+            "'",
+            "\\",
+            "/",
+            "*",
+            "0x1F",
+            "\\'",
+            '\\"',
+            '"a',
+            "b'",
+            "*/c",
+            "/*d",
+            "//e",
+            "'/'",
+            '"//"',
+            "i++",
+            "--",
+            "/*f*/",
+            "\\\\",
+            "{",
+            "}",
+            ";",
+            "g_zero = {0}",
+            "'\\''",
+            '"\\""',
+            "  ",
+            "x",
+            "//",
+            "*/",
+        ]
+        state = False
+        for _ in range(400):
+            line = "".join(rng.choice(pool) for _ in range(rng.randrange(0, 12)))
+            want = _reference_strip(line, state)
+            got = _strip_c_comments_strings(line, state)
+            assert got == want, f"line={line!r} state={state}: got {got!r}, want {want!r}"
+            state = want[1]

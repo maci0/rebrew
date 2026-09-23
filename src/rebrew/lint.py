@@ -1040,6 +1040,16 @@ _ZERO_INIT_RE = re.compile(
 _GLOBAL_NAME_RE = re.compile(r"\b([A-Za-z_]\w*)\s*(?:\[[^\]]*\]\s*)?[;=]")
 
 
+# Event scanning for _strip_c_comments_strings: the characters that can change
+# state, per state.  Ordinary runs between events are copied as bulk slices;
+# the per-character loop this replaced was ~70% of batch-lint CPU.
+_STRIP_CODE_RE = re.compile(r"""["'/]""")
+_STRIP_BLOCK_RE = re.compile(r"\*/")
+_STRIP_STR_RE = re.compile(r"""[\\"]""")
+_STRIP_CHR_RE = re.compile(r"""[\\']""")
+_STRIP_CODE, _STRIP_BLOCK, _STRIP_STR, _STRIP_CHR = range(4)
+
+
 def _strip_c_comments_strings(line: str, in_block_comment: bool) -> tuple[str, bool]:
     """Remove C comments and string/char literals from *line*.
 
@@ -1057,55 +1067,62 @@ def _strip_c_comments_strings(line: str, in_block_comment: bool) -> tuple[str, b
     out: list[str] = []
     i = 0
     n = len(line)
-    in_str = False
-    in_char = False
+    state = _STRIP_BLOCK if in_block_comment else _STRIP_CODE
     while i < n:
-        c = line[i]
-        nxt = line[i + 1] if i + 1 < n else ""
-        if in_block_comment:
-            if c == "*" and nxt == "/":
-                in_block_comment = False
-                i += 2
+        if state == _STRIP_BLOCK:
+            m = _STRIP_BLOCK_RE.search(line, i)
+            if m is None:
+                i = n  # rest of the line stays inside the block comment
             else:
-                i += 1
+                i = m.end()
+                state = _STRIP_CODE
             continue
-        if in_str:
-            if c == "\\":
-                i += 2
+        if state in (_STRIP_STR, _STRIP_CHR):
+            # Literal: ordinary chars and the closing quote become one space
+            # each; a backslash escape (and the char it escapes) emits
+            # nothing — the oracle's exact behaviour, quirks included.
+            special = _STRIP_STR_RE if state == _STRIP_STR else _STRIP_CHR_RE
+            start = i
+            while True:
+                m = special.search(line, i) if i < n else None
+                if m is None:
+                    out.append(" " * (n - start))  # unterminated at EOL
+                    i = n
+                    break
+                pos = m.start()
+                if line[pos] == "\\":
+                    out.append(" " * (pos - start))
+                    i = pos + 2
+                    start = i
+                    continue
+                out.append(" " * (pos - start + 1))  # run + closing quote
+                i = pos + 1
+                state = _STRIP_CODE
+                break
+            continue
+        # state == _STRIP_CODE
+        m = _STRIP_CODE_RE.search(line, i)
+        if m is None:
+            out.append(line[i:])
+            break
+        pos = m.start()
+        c = line[pos]
+        out.append(line[i:pos])
+        if c == "/":
+            nxt = line[pos + 1] if pos + 1 < n else ""
+            if nxt == "*":
+                i = pos + 2
+                state = _STRIP_BLOCK
                 continue
-            if c == '"':
-                in_str = False
-            out.append(" ")
-            i += 1
+            if nxt == "/":
+                break  # line comment — rest of the line is not code
+            out.append("/")
+            i = pos + 1
             continue
-        if in_char:
-            if c == "\\":
-                i += 2
-                continue
-            if c == "'":
-                in_char = False
-            out.append(" ")
-            i += 1
-            continue
-        if c == '"':
-            in_str = True
-            out.append(" ")
-            i += 1
-            continue
-        if c == "'":
-            in_char = True
-            out.append(" ")
-            i += 1
-            continue
-        if c == "/" and nxt == "*":
-            in_block_comment = True
-            i += 2
-            continue
-        if c == "/" and nxt == "/":
-            break  # line comment — rest of the line is not code
-        out.append(c)
-        i += 1
-    return "".join(out), in_block_comment
+        out.append(" ")  # opening quote of a string/char literal
+        i = pos + 1
+        state = _STRIP_STR if c == '"' else _STRIP_CHR
+    return "".join(out), state == _STRIP_BLOCK
 
 
 def _strip_all(lines: list[str]) -> list[str]:

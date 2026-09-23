@@ -165,6 +165,9 @@ from rebrew.matcher.mutations.structural import (
 
 logger = logging.getLogger(__name__)
 
+#: Names of mutations that raised; each is warned about once per process.
+_FAILED_MUTATIONS: set[str] = set()
+
 
 _BUILTIN_MUTATIONS = [
     mut_hoist_repeated_deref,
@@ -478,7 +481,20 @@ def mutate_code(
                 mut_func = rng.choices(ALL_MUTATIONS, weights=weights, k=1)[0]
             else:
                 mut_func = rng.choice(ALL_MUTATIONS)
-            new_body = mut_func(body, rng)
+            try:
+                new_body = mut_func(body, rng)
+            except Exception as exc:
+                # A plugin mutation is an optional registration: one that
+                # raises is a failed attempt, not a GA abort.
+                if mut_func.__name__ not in _FAILED_MUTATIONS:
+                    _FAILED_MUTATIONS.add(mut_func.__name__)
+                    logger.warning(
+                        "mutation %s raised %s: %s (treated as no-op)",
+                        mut_func.__name__,
+                        type(exc).__name__,
+                        exc,
+                    )
+                continue
             if new_body and new_body != body:
                 new_source = preamble + "\n" + new_body
                 if quick_validate(new_source):

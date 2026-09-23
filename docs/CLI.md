@@ -169,7 +169,7 @@ discovered components merge on top.  Conflict and failure policy per group:
 | Decompiler backend | `rebrew.decompiler_backends` | `module:attr` — `fn(binary, va, root, **kwargs) -> str \| None`; selectable by name, and joins the `--auto` probe order when the callable carries `__rebrew_auto_probe__ = True` |
 | CLI single command | `rebrew.commands` | `module` (uses `main`/`app` help, like built-ins) or `module:callable` |
 | CLI multi-command group | `rebrew.multicommands` | `module` (a Typer app) or `module:app` |
-| GA mutation | `rebrew.mutations` | `module:attr` — `(source, rng) -> str \| None` |
+| GA mutation | `rebrew.mutations` | `module:attr` — `(source, rng) -> str \| None`; `None` or an exception counts as a failed attempt (an exception is warned once per process) |
 | Sweep flag set | `rebrew.flag_sets` | `module:attr` — zero-arg callable returning `dict[profile, (Flags, tiers)]`; tuning data — may override a packaged profile's axes |
 | Library preset | `rebrew.library_presets` | `module:attr` — zero-arg callable returning `dict[name, {toolchain, cflags}]`; tuning data — may override a packaged preset |
 | Detection alignment | `rebrew.toolchain_detectors` | `module:attr` — zero-arg callable returning `dict[family, list[profile]]`; lets a plugin toolchain align with a detected family (or open an un-matchable one) |

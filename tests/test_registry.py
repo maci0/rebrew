@@ -463,6 +463,34 @@ class TestMutationRegistry:
             monkeypatch.undo()
             mutator.refresh_mutations()
 
+    def test_raising_plugin_mutation_skipped_not_fatal(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A plugin mutation that raises is a failed attempt, warned once,
+        like the other optional plugin call sites; it must not abort the GA."""
+        from rebrew.matcher import mutator
+
+        def _mut_raising(s: str, rng: Any) -> str | None:
+            raise ValueError("plugin bug")
+
+        weights = dict.fromkeys((m.__name__ for m in mutator._BUILTIN_MUTATIONS), 0.0)
+        weights[_mut_raising.__name__] = 1.0
+        src = "int f(int a) { return a + 1; }\n"
+        monkeypatch.setattr(mutator, "ALL_MUTATIONS", [*mutator._BUILTIN_MUTATIONS, _mut_raising])
+        mutator._mutation_weight_list.cache_clear()
+        try:
+            with caplog.at_level("WARNING", logger="rebrew.matcher.mutator"):
+                out = mutator.mutate_code(
+                    src, random.Random(1), track_mutation=True, mutation_weights=weights
+                )
+                mutator.mutate_code(src, random.Random(2), mutation_weights=weights)
+        finally:
+            mutator._mutation_weight_list.cache_clear()
+        assert out == (src, "none")
+        warned = [r for r in caplog.records if "_mut_raising" in r.getMessage()]
+        assert len(warned) == 1
+        assert "plugin bug" in warned[0].getMessage()
+
     def test_entry_point_conflict_skipped_with_warning(
         self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
     ) -> None:
@@ -1440,6 +1468,8 @@ class TestRefreshAll:
         assert counts["mutations"] > 100
         assert counts["cache_backends"] >= 1
         assert counts["library_presets"] >= 5
+        assert counts["toolchain_detectors"] >= 1
+        assert counts["msvc_versions"] >= 1
 
     def test_toolchain_refresh_never_empties_registry(self) -> None:
         """Concurrent readers must not observe TOOLCHAINS mid-clear.

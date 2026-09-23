@@ -161,11 +161,14 @@ def discoverer_map() -> dict[str, Discoverer]:
     merged: dict[str, Discoverer] = dict(_PACKAGED_DISCOVERERS)
     for reg in entry_point_registrations(DISCOVERER_ENTRY_POINT_GROUP):
         fn = load_registration_optional(reg, logger)
-        if fn is None or not callable(fn):
+        if fn is None:
+            continue
+        if not callable(fn):
             logger.warning(
-                "skipping %s registration %r: expected a callable discoverer",
+                "skipping %s registration %r: expected a callable discoverer, got %s",
                 reg.group,
                 reg.name,
+                type(fn).__name__,
             )
             continue
         try:

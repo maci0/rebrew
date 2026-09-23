@@ -179,6 +179,15 @@
   documented integrator surface.
 
 ### Changed
+- **The lint strip scanner jumps between special characters.**
+  `_strip_c_comments_strings` walked every character of every line even
+  though quotes, slashes and backslashes are the only characters that
+  change state; it now regex-searches for the next special character and
+  bulk-copies the runs between events.  Comment-heavy corpus: 0.57 s →
+  0.17 s CPU p50 on the same 400 files (−71%); plain files unchanged at
+  0.08 s; diagnostics identical (3196).  `TestStripOracle` pins the old
+  per-character loop as a differential oracle — fixed edge cases, seeded
+  fuzz, plus a 218 800-line corpus sweep at development time.
 - **Batch `rebrew lint` strips each source line once.**  E023, W020 and
   W022 each re-ran the comment/string strip over the whole file — four
   full passes per file, ~70% of batch-lint CPU.  They now share one
@@ -504,6 +513,14 @@
   in emission order.
 
 ### Fixed
+- **A raising plugin mutation no longer aborts `rebrew match`.**  Every
+  other optional plugin call site (loaders, detectors, discoverers)
+  skipped a plugin that raised, but `mutate_code` let a `rebrew.mutations`
+  exception end the GA run.  A raising mutation now counts as a failed
+  attempt and is warned about once per process.  A broken discoverer
+  registration logs one warning (naming the offending type) instead of
+  two, and `registry.refresh_all()` also reports `toolchain_detectors`
+  and `msvc_versions` counts.
 - **`calibrate-bss` and cvdump no longer orphan grandchildren.**  A link
   or stub-compile timeout in `rebrew calibrate-bss`, and an aborted cvdump
   parse, killed only the direct child, so a wrapper's linker or wine's
