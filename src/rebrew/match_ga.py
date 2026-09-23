@@ -16,14 +16,13 @@ import threading
 import time
 from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import capstone
 from rich.console import Console
 
 from rebrew.compile_cache import CacheBackend, source_digest
 from rebrew.config import ProjectConfig
-from rebrew.match_sweep import BuildParams
 from rebrew.matcher.compiler import build_candidate, build_candidate_obj_only
 from rebrew.matcher.core import BuildResult, GACheckpoint
 from rebrew.matcher.mutator import (
@@ -34,6 +33,9 @@ from rebrew.matcher.mutator import (
 )
 from rebrew.matcher.scoring import score_candidate
 from rebrew.utils import atomic_write_text
+
+if TYPE_CHECKING:
+    from rebrew.match_sweep import BuildParams
 
 log = logging.getLogger(__name__)
 console = Console(stderr=True)

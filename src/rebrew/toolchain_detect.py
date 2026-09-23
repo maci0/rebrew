@@ -1440,7 +1440,7 @@ def _detect_toolchain_core(
             imports.add(dll.lower())
     if not imports and getattr(binfo, "format", "") == "pe":
         try:
-            from rebrew.imports import parse_imports
+            from rebrew.import_table import parse_imports
 
             for entry in parse_imports(path):
                 dll = str(entry.get("dll") or "").lower()

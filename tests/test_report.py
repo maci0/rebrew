@@ -11,7 +11,7 @@ from typer.testing import CliRunner
 sys.path.insert(0, str(Path(__file__).parent))  # tests/ on path for bin_util
 from bin_util import make_pe
 
-from rebrew.imports import parse_import_table
+from rebrew.import_table import parse_import_table
 from rebrew.report import app
 
 runner = CliRunner()

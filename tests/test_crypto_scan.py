@@ -242,7 +242,7 @@ class TestCryptoScan:
             _data=blob,
         )
         monkeypatch.setattr("rebrew.binary_loader.load_binary", lambda *a, **k: info)
-        monkeypatch.setattr("rebrew.imports.parse_imports", lambda *a, **k: [])
+        monkeypatch.setattr("rebrew.import_table.parse_imports", lambda *a, **k: [])
         result = crypto_scan(path)
         assert result["count"] == 1
         finding = result["findings"][0]
@@ -268,7 +268,7 @@ class TestCryptoScan:
         )
         monkeypatch.setattr("rebrew.binary_loader.load_binary", lambda *a, **k: info)
         monkeypatch.setattr(
-            "rebrew.imports.parse_imports",
+            "rebrew.import_table.parse_imports",
             lambda *a, **k: [{"name": "CryptGenRandom"}, {"name": "MD5_Init"}],
         )
         result = crypto_scan(path, ["md5_helper"])

@@ -132,7 +132,7 @@ def _collect_strings(info: Any, min_len: int, top_n: int) -> dict[str, Any]:
 def _collect_imports(binary: Path) -> dict[str, Any]:
     """Import table + IAT stub summary (PE only; empty otherwise)."""
     from rebrew.binary_loader import is_ne, load_binary
-    from rebrew.imports import find_import_stubs, parse_imports
+    from rebrew.import_table import find_import_stubs, parse_imports
 
     # 16-bit NE: the loader parses the module reference + imported names
     # tables directly (Borland Delphi/Turbo Pascal Windows targets).  The

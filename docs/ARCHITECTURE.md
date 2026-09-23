@@ -56,7 +56,7 @@ flowchart LR
     CATALOG --> DB["build_db.py → coverage.db"]
     DB --> DASH["dashboard.py<br/>read-only web UI"]
 
-    LOAD --> IMPORTS["imports.py<br/>PE import table + stubs"]
+    LOAD --> IMPORTS["import_table.py<br/>PE/ELF/NE import table + stubs"]
     DIFF --> SOL["matcher/solutions.py<br/>target-scoped seeds + ga_runs.jsonl"]
 ```
 
@@ -106,7 +106,8 @@ flowchart LR
 | `rebrew/pdb_info.py` | PDB metadata extraction (S_COMPILE3 compiler + command line) |
 | `rebrew/identify_library.py` | Library-function identification backends (CRT/ZLIB marking) |
 | `rebrew/dashboard.py` | Read-only web dashboard over `db/coverage.db` |
-| `rebrew/imports.py` | Import-table symbol listing — PE IAT + `jmp [iat]` stub detection, 16-bit NE module references |
+| `rebrew/import_table.py` | Import-table parsing (PE IAT, ELF dynamic imports, 16-bit NE module references) and `jmp [iat]` stub detection; library layer shared by analysis passes |
+| `rebrew/imports.py` | `rebrew imports` CLI over `import_table.py`, plus `--mark` LIBRARY annotation of import stubs |
 | `rebrew/skills.py` | Agent-skill discovery CLI (`list`/`show` subcommands) |
 | `rebrew/agent-skills/` | Bundled `SKILL.md` workflows (init, intake, workflow, matching, data analysis, ghidra sync) |
 

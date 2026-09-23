@@ -175,7 +175,7 @@ def build_function_lookup(cfg: ProjectConfig) -> dict[int, tuple[str, str]]:
 def _build_import_map(bin_path: Path) -> dict[int, str]:
     """IAT slot VA -> import name, best-effort."""
     try:
-        from rebrew.imports import parse_import_table
+        from rebrew.import_table import parse_import_table
 
         return parse_import_table(bin_path)
     except Exception:  # recon aid, never block disasm

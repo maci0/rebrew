@@ -17,7 +17,7 @@ Sources, in order of preference:
 
 - LIEF through :func:`rebrew.binary_loader.load_binary` for the structures it
   parses (entry point, exports, TLS callbacks, the load config).
-- :func:`rebrew.imports.parse_imports` for the import table, which already
+- :func:`rebrew.import_table.parse_imports` for the import table, which already
   covers PE, ELF and 16-bit NE and names ordinal-only slots.
 - The documented byte layout for three structures LIEF parses but does not
   enumerate.  The SafeSEH handler table and the ``/guard:cf`` target table are
@@ -49,7 +49,7 @@ from pathlib import Path, PureWindowsPath
 from typing import Any
 
 from rebrew.binary_loader import BinaryInfo, extract_bytes_at_va, load_binary
-from rebrew.imports import parse_imports
+from rebrew.import_table import parse_imports
 from rebrew.pe_headers import pe_layout
 
 # ---------------------------------------------------------------------------

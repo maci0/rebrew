@@ -401,11 +401,11 @@ class TestImportModuleFromDll:
         from rebrew.identify_library import _import_candidates
 
         monkeypatch.setattr(
-            "rebrew.imports.find_import_stubs",
+            "rebrew.import_table.find_import_stubs",
             lambda path: {0x40DCE0: "DirectDrawCreate", 0x40DC00: "_malloc"},
         )
         monkeypatch.setattr(
-            "rebrew.imports.parse_imports",
+            "rebrew.import_table.parse_imports",
             lambda path: [
                 {"dll": "DDRAW.dll", "name": "DirectDrawCreate", "iat_va": 1},
                 {"dll": "msvcrt.dll", "name": "_malloc", "iat_va": 2},
@@ -419,8 +419,10 @@ class TestImportModuleFromDll:
     def test_unknown_import_falls_back_to_heuristic(self, tmp_path: Path, monkeypatch) -> None:
         from rebrew.identify_library import _import_candidates
 
-        monkeypatch.setattr("rebrew.imports.find_import_stubs", lambda path: {0x1000: "WeirdAPI"})
-        monkeypatch.setattr("rebrew.imports.parse_imports", lambda path: [])
+        monkeypatch.setattr(
+            "rebrew.import_table.find_import_stubs", lambda path: {0x1000: "WeirdAPI"}
+        )
+        monkeypatch.setattr("rebrew.import_table.parse_imports", lambda path: [])
         out = _import_candidates(self._cfg(tmp_path), "MSVCRT")
         assert out[0].module == "MSVCRT"  # heuristic default
 

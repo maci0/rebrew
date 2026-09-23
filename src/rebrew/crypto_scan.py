@@ -327,7 +327,7 @@ def crypto_scan(
         raise FileNotFoundError(f"Binary not found: {path}")
 
     from rebrew.binary_loader import load_binary
-    from rebrew.imports import parse_imports
+    from rebrew.import_table import parse_imports
 
     try:
         info = load_binary(path)

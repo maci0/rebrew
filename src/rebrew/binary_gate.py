@@ -76,7 +76,7 @@ def snapshot_binary(binary_path: Path) -> dict[str, Any]:
             rsrc = None
     try:
         from rebrew.binary_loader import parse_exports
-        from rebrew.imports import parse_imports
+        from rebrew.import_table import parse_imports
 
         exports = parse_exports(binary_path)
         imports = sorted(

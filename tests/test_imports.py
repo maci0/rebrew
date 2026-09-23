@@ -12,7 +12,8 @@ from typer.testing import CliRunner
 sys.path.insert(0, str(Path(__file__).parent))  # tests/ on path for bin_util
 from bin_util import make_elf, make_pe
 
-from rebrew.imports import find_import_stubs, imports_payload, parse_import_table, parse_imports
+from rebrew.import_table import find_import_stubs, parse_import_table, parse_imports
+from rebrew.imports import imports_payload
 
 IMAGE_BASE = 0x400000
 TEXT_VA = 0x1000
@@ -285,7 +286,7 @@ def _ne_with_modules(tmp_path: Path, modules: list[str]) -> Path:
 
 class TestNeImports:
     def test_module_level_imports(self, tmp_path: Path) -> None:
-        from rebrew.imports import parse_imports
+        from rebrew.import_table import parse_imports
 
         p = _ne_with_modules(tmp_path, ["KERNEL", "GDI", "USER"])
         recs = parse_imports(p)
@@ -296,7 +297,7 @@ class TestNeImports:
         assert all(r["name"] == "" for r in recs)
 
     def test_pe_imports_unchanged(self, tmp_path: Path) -> None:
-        from rebrew.imports import parse_imports
+        from rebrew.import_table import parse_imports
 
         pe_bytes, _, _ = _pe_with_stub(tmp_path)
         p = tmp_path / "game.exe"

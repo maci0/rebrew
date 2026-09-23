@@ -49,7 +49,7 @@ from rebrew.cli import (
 )
 from rebrew.config import ProjectConfig
 from rebrew.depgraph import NodeInfo, build_graph, render_mermaid
-from rebrew.imports import find_import_stubs, parse_imports
+from rebrew.import_table import find_import_stubs, parse_imports
 from rebrew.sources import (
     iter_library_headers,
     iter_sources,

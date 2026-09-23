@@ -123,7 +123,7 @@ class TestCompareSnapshots:
         monkeypatch.setattr("rebrew.binary_loader.load_binary", lambda path: info)
         monkeypatch.setattr("lief.PE.parse", lambda path: pe)
         monkeypatch.setattr(
-            "rebrew.imports.parse_imports",
+            "rebrew.import_table.parse_imports",
             lambda path: [{"dll": "kernel32.dll", "name": "ExitProcess"}],
         )
         monkeypatch.setitem(sys.modules, "rebrew.exports", None)
@@ -164,7 +164,7 @@ class TestCompareSnapshots:
         def _boom(path: Path) -> list[dict[str, str]]:
             raise ValueError("bad import table")
 
-        monkeypatch.setattr("rebrew.imports.parse_imports", _boom)
+        monkeypatch.setattr("rebrew.import_table.parse_imports", _boom)
         snap = snapshot_binary(Path("x.dll"))
         assert "bad import table" in snap["error"]
         assert compare_snapshots(snap, dict(snap))["match"] is False

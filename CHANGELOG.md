@@ -236,6 +236,12 @@
   on the next lookup.  Both the helper and the alias are removed, and the
   `_search_dir_mtimes` docstring no longer advertises a hook that never
   fires (CORDIS review, arXiv:2608.25512, final round).
+- **Breaking:** **Import-table parsing moved from `rebrew.imports` to `rebrew.import_table`.**
+  `parse_imports`, `parse_import_table`, `find_import_stubs`, and
+  `elf_import_records` are library code; `pe_symbols`, `binary_gate`,
+  `toolchain_detect`, and the other analysis passes no longer import the
+  `rebrew imports` Typer module to read an import table.  `rebrew.imports`
+  keeps the CLI, `imports_payload`, and `mark_import_stubs`.
 - **Breaking:** **`iter_annotations` moved from `rebrew.cli` to `rebrew.annotation`.**
   It is annotation parsing, not a Typer helper; library modules
   (`verify_hash`, `round_trip`, `merge_sweep`, …) no longer import the

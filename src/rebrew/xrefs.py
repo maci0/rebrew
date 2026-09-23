@@ -25,7 +25,7 @@ from rich.table import Table
 from rebrew.analysis import Xref, iter_instructions, scan_references
 from rebrew.binary_loader import BinaryInfo, load_binary
 from rebrew.cli import EXIT_ERROR, TargetOption, error_exit, json_print, parse_va, require_config
-from rebrew.imports import parse_import_table
+from rebrew.import_table import parse_import_table
 
 console = Console(stderr=True)
 

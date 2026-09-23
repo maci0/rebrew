@@ -51,7 +51,7 @@ from rebrew.cli import (
     require_config,
 )
 from rebrew.config import ProjectConfig
-from rebrew.imports import parse_import_table
+from rebrew.import_table import parse_import_table
 from rebrew.sources import (
     iter_sources,
     target_marker,

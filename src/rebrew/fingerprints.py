@@ -127,7 +127,7 @@ def imphash(path: str | Path) -> str | None:
     """Mandiant import hash of a PE, or ``None``.
 
     Parses the import table directly (LIEF) instead of
-    :func:`rebrew.imports.parse_imports`, which drops ordinal imports:
+    :func:`rebrew.import_table.parse_imports`, which drops ordinal imports:
     every entry keeps its declaration order and ordinals become
     ``dll.ord<N>``.  Returns ``None`` for a missing, non-PE, unparseable,
     or import-less binary.
