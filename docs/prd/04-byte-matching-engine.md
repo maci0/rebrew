@@ -119,7 +119,7 @@ prover that promotes NEAR_MATCHING → PROVEN.
    "register allocation".
 3. `rebrew match foo.c --flag-sweep-only --tier targeted` cycles register
    allocation flags and reports `/O1 /Gd` produces EXACT.
-4. `rebrew cfg set-cflags main GAME "/O1 /Gd"` (or a per-function CFLAGS
+4. `rebrew cfg set-cflags GAME "/O1 /Gd" --target main` (or a per-function CFLAGS
    write) saves the win.
 
 ### Story 2 — GA on a STUB
@@ -247,10 +247,10 @@ rebrew prove [SOURCE]
   that write there can still be falsely promoted if those writes differ.
 - angr is a heavy optional dependency (~500 MB) and must be installed via
   the `prove` extra (`uv pip install -e ".[prove]"`).
-- The flag-sweep tier definitions are MSVC-specific
-  (`flag_data.py`; tier grid, axes and combinations are documented
-  in `docs/FLAG_SWEEP_TIERS.md`); GCC/Clang sweeps would require new flag
-  presets.
+- The flag-sweep tier definitions cover MSVC, Watcom, Borland and GCC-style
+  (posix) profiles only (`flag_data.py`; tier grid, axes and combinations
+  are documented in `docs/FLAG_SWEEP_TIERS.md`); other families need new
+  flag presets.
 - `--no-compare-obj` (full link) is slow; default object-only comparison
   trades a few false negatives (link-time deduplication) for speed.
 - Batch flag sweep with `--fix-cflags` writes CFLAGS per function; this

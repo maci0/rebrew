@@ -1,6 +1,7 @@
 # ADR-017: Standardized toolchain profile names
 
-- **Status**: Accepted
+- **Status**: Accepted. Amends [ADR-016](016-image-backed-native-profiles.md)
+  (its profile names and the `rebrew/gcc-pe` image family).
 - **Date**: 2026-09
 
 ## Context

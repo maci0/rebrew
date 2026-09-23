@@ -141,8 +141,9 @@ order across all translation units at once.
   owns one contiguous address run (fixes `--layout-audit` SPAN/ORDER
   violations).
 - `--converge` runs fixed-point `.data` placement: insert/adjust
-  `_dlead_<tu>[N]` leading pads and re-measure; `--rounds N` iterates
-  (rebuild per round).
+  `_dlead_<tu>[N]` leading pads and re-measure; `--rounds N` repeats the
+  measure/adjust pass in one invocation without re-linking (rebrew does not
+  invoke the build, so rebuild and re-run for the next fixed-point round).
 
 ## User Stories / Workflows
 

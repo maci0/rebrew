@@ -39,7 +39,7 @@ Project Onboarding solves all of this with `rebrew init`, `rebrew doctor`, and t
 - One-command project bootstrap that creates a working directory layout
   (`original/`, `src/<target>/`, `bin/<target>/`), an empty function list,
   metadata TOMLs, and a valid `rebrew-project.toml`.
-- Compiler profile selection: `--compiler` picks the profile explicitly
+- Compiler profile selection: `--toolchain` picks the profile explicitly
   (default `msvc-6.0`; full list via `rebrew toolchain list`), or `--guess-compiler`
   auto-selects from the target binary (diec → PDB → heuristics; prefers the
   16-bit profile for DOS/NE binaries).
@@ -85,7 +85,7 @@ Project Onboarding solves all of this with `rebrew init`, `rebrew doctor`, and t
 - Writes an `AGENTS.md` from the bundled template so AI agents have project
   context, copies the bundled `agent-skills/` into `.agents/skills/` (with
   `<target>` substituted), and copies `PRINCIPLES.md`.
-- Picks the compiler profile from `--compiler` (default `msvc-6.0`). Accepted
+- Picks the compiler profile from `--toolchain` (default `msvc-6.0`). Accepted
   profiles are the full toolchain list — MSVC 1.0–11.0 variants (`msvc-6.0`,
   `msvc-7.0`, `msvc-6.0-sp6`, ...), Borland/Turbo C (`borland-5.5`, `borland-3.1`, `borland-2.0`),
   Open Watcom (`watcom-2.0-win32`, `watcom-2.0-win16`), `delphi-1.0`, `mingw-16.2.0`, `gcc-14.2.0`, `clang-18.1.8`
@@ -116,8 +116,9 @@ Project Onboarding solves all of this with `rebrew init`, `rebrew doctor`, and t
   metadata TOMLs, FLIRT signatures, Ghidra sync setup, and optional prove tools.
 - Exits non-zero on any failure (CI gate).
 - `--json` mode emits the full check list with per-check `status` + `message`.
-- `--install-wibo` fetches the legacy host runner if missing; it is a no-op for
-  docker-backed profiles (the runner config is left untouched).
+- `--install-wibo` downloads the legacy host runner into `tools/wibo`; for
+  docker-backed profiles it then prints a note and returns without running the
+  checks (the runner config is left untouched).
 
 ### `rebrew cfg`
 
@@ -184,7 +185,7 @@ Project Onboarding solves all of this with `rebrew init`, `rebrew doctor`, and t
 rebrew init [OPTIONS]
   -t, --target TEXT          Name of the initial target (default: main)
   -b, --binary TEXT          Binary filename; an 'original/' prefix is accepted (default: program.exe)
-  -c, --compiler TEXT        Compiler profile to use (default: msvc-6.0)
+      --toolchain TEXT       Compiler profile to use (default: msvc-6.0)
       --guess-compiler       Auto-select the profile from the target binary (diec → PDB → heuristics)
       --install-wibo         Download wibo runner to tools/wibo (legacy; ignored for image-backed profiles)
       --install-completions  Write bash/zsh/fish completion scripts into completions/

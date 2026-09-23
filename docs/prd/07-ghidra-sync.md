@@ -7,7 +7,9 @@
 > (`--create-functions`, `--bookmarks`, `--pull-data`). The removed
 > `--pull-signatures`, `--pull-structs`, `--pull-datatypes`, `--pull-params`,
 > `--pull-comments`, `--accept-ghidra`, `--export`, `--apply`, `--force`,
-> `--refresh-cache` flags in the Functional Requirements below are superseded —
+> `--refresh-cache`, `--sync-sizes`, `--sync-new-functions`, `--sync-data`,
+> `--sync-structs`, `--sync-signatures`, `--skip-generic`, `--types-out`,
+> `--by-module`, `--module` flags in the Functional Requirements below are superseded —
 > see the CLI Surface section (verified against `rebrew sync --help`) and
 > `rebrew sync --help`. Functional Requirements / Open Questions below the
 > banner remain a historical ReVa-era record.
@@ -54,9 +56,9 @@ to a running Ghidra instance via the ReVa MCP server.
     NOTE.
 - Bulk operations for labels, sizes, new function creation, struct
   pushes, signature pushes, and data-label syncing.
-- Offline fallback: if Ghidra is not reachable, `--pull` name/data-label sync
-  falls back to the cached `function_structure.json` / `ghidra_data_labels.json`
-  for read-only operations.
+- Offline field sync: `--push`/`--pull` read and write only the BinSync state
+  dir (`--state-dir`, required), so they work with Ghidra not running; only
+  the MCP structural ops need a live connection.
 - Dry-run for every mode.
 
 ## Non-Goals
@@ -139,7 +141,8 @@ to a running Ghidra instance via the ReVa MCP server.
 - Tangential to Ghidra sync but lives in the same export family.
 - Writes a BinSync-compatible state directory
   (`functions/`, `global_vars.toml`).
-- Rebrew-specific metadata (STATUS, CFLAGS) is preserved as comments.
+- The export carries only BinSync-native fields; rebrew's STATUS/CFLAGS stay
+  in `rebrew-functions.toml` (STATUS is verify-earned, never exported).
 - Import back into rebrew metadata is supported via
   `rebrew binsync-import STATE_DIR` (reads `functions/*.toml`,
   `global_vars.toml`, `structs/*.toml`; `--accept-binsync` / `--accept-local`
@@ -169,13 +172,11 @@ to a running Ghidra instance via the ReVa MCP server.
 
 ### Story 3 — Working offline
 
-1. The user travels with no Ghidra running. `rebrew sync --pull` warns
-   that ReVa MCP is unreachable and falls back to the cached
-   `function_structure.json` / `ghidra_data_labels.json` for read-only
-   name/data-label sync (comments and the other pull modes need a live
-   connection).
-2. The cache still seeds `rebrew todo` priorities and shows expected
-   sizes.
+1. The user travels with no Ghidra running. `rebrew sync --pull --state-dir
+   ./state` imports names, comments, prototypes, structs and globals from the
+   BinSync state dir; no MCP connection is involved.
+2. `--create-functions`, `--bookmarks` and `--pull-data` wait until ReVa MCP
+   is reachable again.
 
 ### Story 4 — BinSync exchange with a teammate
 
@@ -183,7 +184,7 @@ to a running Ghidra instance via the ReVa MCP server.
    `rebrew binsync-export ./binsync_state --dry-run` to preview, then
    without `--dry-run` to write.
 2. The teammate consumes the state directory in their own decompiler;
-   STATUS / CFLAGS metadata is preserved in comments.
+   STATUS / CFLAGS stay local in `rebrew-functions.toml`.
 
 ## CLI Surface
 
@@ -237,8 +238,8 @@ rebrew binsync {init,diff,overlay,push,pull,summary}
   reversed source (no orphan references after `--pull --state-dir D --accept-binsync`).
 - Offline runs (Ghidra not reachable) degrade to read-only operations
   with a clear error rather than corrupting state.
-- BinSync export round-trips through `binsync-cli` without losing
-  STATUS/CFLAGS information.
+- BinSync export round-trips through `binsync-cli` without losing the
+  exported BinSync fields.
 
 ## Open Questions / Known Limitations
 
@@ -249,10 +250,8 @@ rebrew binsync {init,diff,overlay,push,pull,summary}
 - The MCP endpoint default is `http://localhost:8080/mcp/message` everywhere
   (code, skills, examples) — the earlier 8080-vs-8089 disagreement is
   resolved. Override with `--endpoint`.
-- Offline fallback is partial: only `--pull` name/data-label sync reads the
-  local caches; `--pull-signatures` / `--pull-structs` / `--pull-datatypes` /
-  `--pull-params` / `--pull-comments` / `--pull-data` require a live MCP
-  connection, and pulled comments are not cached.
+- The MCP structural ops (`--create-functions`, `--bookmarks`,
+  `--pull-data`) require a live ReVa connection; they have no offline path.
 - `rebrew sync` does not currently support pulling Ghidra *bookmarks*
   back into source; the push direction is one-way for bookmarks.
 - `--pull-structs --by-module` splits structs into per-module files; structs

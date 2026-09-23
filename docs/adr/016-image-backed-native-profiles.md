@@ -1,6 +1,11 @@
 # ADR-016: Image-backed native compiler profiles (gcc-14.2.0, clang-18.1.8, mingw-16.2.0, watcom-2.0-win16)
 
-- **Status**: Accepted. Amends [ADR-006](006-toolchain-standardization.md),
+- **Status**: Amended by [ADR-017](017-standardized-toolchain-names.md)
+  (profile names below use the `<image-family>-<version>` form; at
+  acceptance they were `gcc`, `gcc12`, `clang`, `clang16`, `gcc-pe`,
+  `gcc-pe14`, `watcom16`, and the MinGW images were `rebrew/gcc-pe:*`).
+  Amends
+  [ADR-006](006-toolchain-standardization.md),
   [ADR-007](007-complete-containerization-reproducibility.md),
   [ADR-008](008-docker-only-execution.md), and
   [ADR-015](015-compile-backends.md) (every shipped profile is image-backed).
@@ -40,10 +45,11 @@ Every shipped compiler profile is image-backed:
 | `mingw-14.2.0` | `rebrew/mingw:14.2.0-win32` | MinGW-w64 GCC 14.2.0 (PE/x86_32) |
 | `watcom-2.0-win16` | `rebrew/watcom:2.0-win16` | Open Watcom 2.0 `wcc` (16-bit OMF) |
 
-- The generic names keep the newest version (`gcc-14.2.0` → 14.2.0, `clang-18.1.8` →
-  18.1.8, `mingw-16.2.0` → 16.2.0), so the default `mingw-16.2.0` still resolves the
-  same compiler family and version the host PATH binary did; the versioned
-  profiles select the older build.
+- At acceptance the unversioned names kept the newest version (`gcc` →
+  14.2.0, `clang` → 18.1.8, `gcc-pe` → 16.2.0), so the default `gcc-pe`
+  still resolved the same compiler family and version the host PATH binary
+  did; the versioned profiles selected the older build.  ADR-017 replaced
+  every name with an explicit version (`gcc-14.2.0`, `mingw-16.2.0`, …).
 - `clang-16.0.4` pins 16.0.4: it is the newest 16.x with a published x86_64 Linux
   asset (16.0.5 and 16.0.6 shipped aarch64 and powerpc64le only).
 - The mingw-builds driver is a Windows PE binary (PE32 i386), so the `mingw-16.2.0`

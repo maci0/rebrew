@@ -57,7 +57,7 @@ PRD 05 collects these into `verify`, `status`, `graph`, and `cache`.
   matches the canonical promotion ladder.
 - `graph` does not run dataflow analysis; direct call edges come from
   identifiers found in reversed source files, optionally augmented with
-  binary-derived edges (`--include-dispatch`, `--binary`).
+  binary-derived edges (`--include-dispatch`, `--from-binary`).
 - `cache` does not manage other on-disk artifacts (e.g. `db/coverage.db`
   belongs to PRD 02). It only handles `.rebrew/compile_cache/`.
 - Coverage in `status` is computed from local annotations and metadata,
@@ -122,7 +122,7 @@ PRD 05 collects these into `verify`, `status`, `graph`, and `cache`.
   (dashed edges in mermaid/dot).
 - `--min-table-len N` / `--max-pointer-stride N` tune dispatch-table
   detection (with `--include-dispatch`).
-- `--binary` builds call edges from the target binary's xrefs instead of
+- `--from-binary` builds call edges from the target binary's xrefs instead of
   the reversed C sources (16-bit NE support included).
 - `-o PATH` writes output to a file.
 - `--json` emits a structured graph.
@@ -236,7 +236,7 @@ rebrew graph [OPTIONS]
       --include-dispatch
       --min-table-len N (default 3)
       --max-pointer-stride N (default 4)
-      --binary
+      --from-binary
   -o, --output PATH
       --json
   -t, --target TEXT
@@ -290,7 +290,7 @@ rebrew round-trip [OPTIONS]
 - `graph` direct call edges rely on identifier matching; macros and inline
   assembly are not resolved. (Partially fixed: function-pointer targets are
   now recoverable via `--include-dispatch` dispatch-table scanning of the
-  binary, and `--binary` adds xref-derived edges — both opt-in.)
+  binary, and `--from-binary` adds xref-derived edges — both opt-in.)
 - `cache stats` does not break down hit rate (only count + size); logging
   hit/miss telemetry across the session was not exposed. (FIXED: `cache
   stats` now reports session hits/misses and hit rate.)

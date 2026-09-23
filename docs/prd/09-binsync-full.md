@@ -101,14 +101,15 @@ rebrew binsync overlay ...           # overlay a related target's BinSync data
 Flat commands remain as peers (not only aliases): `binsync-export`,
 `binsync-import`, `binsync-diff`, `binsync-init`, `binsync-overlay`.
 
-Shared flags: `--target`, `--json`, `--dry-run`, `--module FILTER` (mirroring `rebrew sync --module`).
+Shared flags: `--target`, `--json`; `--module FILTER` on every subcommand except `init`; `--dry-run` on the writing subcommands (`push`, `pull`, `init`, `overlay`; `summary` and `diff` are read-only).
 
 ### F2 — `push` writes via declib
 
 All artifact writing goes through declib serializers (struct field, enum,
 typedef, function header, stack frame). No more hand-rolled TOML for these.
-Rebrew's existing `[rebrew]` / `[rebrew:note]` synthetic comments stay —
-they're orthogonal and BinSync-clients ignore them. *(This PRD originally
+Rebrew's `[rebrew:note]` synthetic comment stays: it is orthogonal, and
+BinSync clients ignore it (the write-only `[rebrew] STATUS=… CFLAGS=…`
+comment was removed; see `rebrew/binsync/export.py`). *(This PRD originally
 named the layer `libbs`; the shipped dependency is `declib>=4.5`.)*
 
 `push` adds an auto-commit step after writing: `git -C <state-dir> add -A && git commit -m "rebrew push: <target> @ <utc>"`. With `--git-push`, also `git push`. With `--no-git`, skip git entirely (current `binsync-export` behaviour).
@@ -121,8 +122,7 @@ For each function in the BinSync state:
 - **Prototype** → update the C function declaration via the prototype-rewrite path in `rebrew.binsync.importer` (the `--pull-signatures` flag it replaced is removed).
 - **Stack frame / locals** → write to a new `[locals]` block in `rebrew-functions.toml`. See F4.
 - **Per-instruction comments** → write as `// ANALYSIS:` style markers in the C body (the shape the removed `rebrew sync --pull-comments` flag wrote).
-- **Struct** → write field-by-field into `types.h` (or per-module `types_<module>.h` per E16).
-- **Enum / typedef** → write into `types.h` (or `enums.h` if the user wants split).
+- **Struct / enum / typedef** → write unknown type definitions into `binsync_types.h` in `reversed_dir` (see F5).
 - **Global variable** → write `name`/`size`/`type` into `rebrew-data.toml` (canonical data metadata file).
 
 `pull` does `git pull` on the state directory first unless `--no-git`. On merge conflicts (in git itself), abort with a helpful error pointing the user at the state dir.
@@ -222,7 +222,7 @@ rebrew binsync diff <state-dir>                  # show divergences without writ
 rebrew binsync overlay <state-dir>               # overlay a related target's BinSync data
 ```
 
-Common flags across all: `--target NAME`, `--json`, `--dry-run`.
+Common flags across all: `--target NAME`, `--json`; `--dry-run` everywhere except the read-only `summary` and `diff`.
 The existing `binsync-export` stays as a peer of `binsync push --no-git`.
 
 ## User Stories
@@ -257,7 +257,7 @@ rebrew binsync push git@team:binsync-state.git --git-push   # push back
 Someone with an IDA Pro + BinSync project decides to migrate to rebrew.
 
 ```bash
-rebrew init --target legacy --binary original/legacy.dll --compiler msvc-6.0
+rebrew init --target legacy --binary original/legacy.dll --toolchain msvc-6.0
 rebrew binsync init ./binsync_state                   # initialises a state dir if migrating from scratch
 # OR if they already have one from IDA:
 rebrew binsync pull /path/to/ida_binsync_state        # imports names, types, locals, comments
