@@ -317,6 +317,7 @@ dev = [
     "pre-commit>=4.6.2",
     "hypothesis>=6.168.0",
     "skills-ref>=0.1.1",  # the pre-commit "Validate Agent Skills" hook binary
+    "pyyaml>=6.0.3",  # direct import in tests/test_ci_pins.py; was only reachable via pre-commit
 ]
 # Optional code-similarity scoring (rebrew verify "Sim %"): sibling `resembl`
 # scoring core + rapidfuzz.  Path-pinned via [tool.uv.sources] — never an
