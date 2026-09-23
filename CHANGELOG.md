@@ -648,6 +648,10 @@
   in emission order.
 
 ### Fixed
+- **The pre-push hook fails without nasm.**  It ran bare pytest, so on a
+  host without nasm the asm round-trip tests skipped and a push passed
+  that CI rejects.  It now runs `make test`, whose `ensure-nasm` names the
+  missing dependency.
 - **`rebrew binsync-import` no longer splices shared state into C.**  A
   collaborator's BinSync prototype went verbatim into `--create-missing`
   stubs and `PROTOTYPE` metadata, so a `{`, `;`, `#`, comment, or newline

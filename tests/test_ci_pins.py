@@ -376,6 +376,13 @@ class TestCiPins:
         assert re.search(r"(?m)^test-one:\s*warn-nasm\s*$", text)
         assert re.search(r"(?m)^test:\s*ensure-nasm\s*$", text)
 
+    def test_pre_push_pytest_hook_runs_make_test(self) -> None:
+        """Pre-push must hit ``ensure-nasm``; a bare pytest skips asm tests CI runs."""
+        text = (ROOT / ".pre-commit-config.yaml").read_text(encoding="utf-8")
+        hook = text.split("- id: pytest\n", 1)[1].split("- id:", 1)[0]
+        assert re.search(r"(?m)^\s*entry: make --no-print-directory test\s*$", hook)
+        assert "stages: [pre-push]" in hook
+
     @pytest.mark.parametrize("path", [CI_YML, SYNC_YML, MAKEFILE, ROOT / ".pre-commit-config.yaml"])
     def test_uv_run_preserves_lockfile(self, path: Path) -> None:
         commands = [

@@ -70,9 +70,11 @@ repos:
         pass_filenames: false
         always_run: true
 
+      # `make test` (same as CI) fails without nasm instead of letting the
+      # asm round-trip tests skip and pass a push CI would reject.
       - id: pytest
-        name: pytest (fast)
-        entry: env NO_COLOR=1 TERM=dumb _TYPER_FORCE_DISABLE_TERMINAL=1 uv run --frozen pytest tests/ -q --tb=short
+        name: pytest (full suite, make test)
+        entry: make --no-print-directory test
         language: system
         pass_filenames: false
         always_run: true

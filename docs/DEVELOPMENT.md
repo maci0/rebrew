@@ -101,7 +101,7 @@ lists every contributor target.
 
 ```bash
 make setup                              # frozen lock + pre-commit/pre-push hooks (push runs
-                                        # the full suite; SKIP=pytest git push to skip)
+                                        # make test, needs nasm; SKIP=pytest git push to skip)
 make test-one T=tests/test_annotation.py  # single file / pytest nodeid
 make test                               # full suite (ANSI-safe; same as CI)
 uv run --frozen ruff check src/ tests/ tools/    # lint
