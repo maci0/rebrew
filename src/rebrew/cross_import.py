@@ -145,14 +145,20 @@ def _registry(cfg: ProjectConfig) -> dict[int, RegistryEntry]:
 
 
 def _target_bytes_by_va(cfg: ProjectConfig, vas: dict[int, int]) -> dict[int, bytes]:
-    """``va -> target-binary bytes`` for the given ``va -> size`` map."""
-    from rebrew.binary_loader import extract_raw_bytes
+    """``va -> target-binary bytes`` for the given ``va -> size`` map.
+
+    Raises ``OSError`` / ``ValueError`` when the binary itself is missing or
+    unparseable; only a VA whose own extraction fails is skipped.
+    """
+    from rebrew.binary_loader import extract_raw_bytes, load_binary
 
     out: dict[int, bytes] = {}
+    if vas:
+        load_binary(cfg.target_binary)
     for va, size in vas.items():
         try:
             out[va] = extract_raw_bytes(cfg.target_binary, va, size)
-        except (OSError, ValueError):
+        except ValueError:
             continue
     return out
 
@@ -1212,8 +1218,11 @@ def main(
 
     only_va = parse_va(va, json_mode=json_output) if va else None
 
-    dest_bytes = unmatched_dest_bytes(cfg, only_va)
-    src_bytes = matched_source_bytes(cfg_src)
+    try:
+        dest_bytes = unmatched_dest_bytes(cfg, only_va)
+        src_bytes = matched_source_bytes(cfg_src)
+    except (OSError, ValueError) as exc:
+        error_exit(f"cannot read target binary: {exc}", json_mode=json_output)
     if not dest_bytes:
         error_exit(
             f"no unmatched functions in target {cfg.target_name!r} "

@@ -318,6 +318,18 @@ class TestOnlyVaGuard:
         assert set(ci.unmatched_dest_bytes(cfg, only_va=0x401040)) == {0x401040}
 
 
+class TestTargetBytes:
+    def test_missing_binary_raises(self, tmp_path: Path) -> None:
+        """A missing binary is an error, not an empty catalog of bytes."""
+        cfg = SimpleNamespace(target_binary=tmp_path / "gone.exe")
+        with pytest.raises(FileNotFoundError):
+            ci._target_bytes_by_va(cfg, {0x401000: 16})
+
+    def test_no_vas_skips_binary_load(self, tmp_path: Path) -> None:
+        cfg = SimpleNamespace(target_binary=tmp_path / "gone.exe")
+        assert ci._target_bytes_by_va(cfg, {}) == {}
+
+
 class TestImportMechanics:
     def _cfg(
         self, tmp_path: Path, target: str, binary: Path, marker: str | None = None

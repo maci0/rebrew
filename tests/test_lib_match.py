@@ -277,6 +277,17 @@ class TestVendoredObjects:
 
         assert vendored_objects(tmp_path / "nope.json", tmp_path) == []
 
+    def test_malformed_database_warns(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        from rebrew.lib_match import vendored_objects
+
+        db = tmp_path / "compile_commands.json"
+        db.write_text("[{", encoding="utf-8")
+        with caplog.at_level("WARNING", logger="rebrew.lib_match"):
+            assert vendored_objects(db, tmp_path) == []
+        assert "unreadable build database" in caplog.text
+
     def test_relative_output_resolves_against_directory(self, tmp_path: Path) -> None:
         from rebrew.lib_match import vendored_objects
 

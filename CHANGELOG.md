@@ -635,6 +635,13 @@
   in emission order.
 
 ### Fixed
+- **`rebrew cross-import` reports an unreadable target binary.**  A missing
+  or unparseable binary was swallowed per function, so the run ended with
+  "no matched functions in source target" instead of the real cause.  It
+  now exits with `cannot read target binary: <reason>`.
+- **`rebrew lib-match` warns on a corrupt `compile_commands.json`.**  An
+  unreadable or malformed build database was ignored like a missing one,
+  silently dropping every source-vendored object; it now logs a warning.
 - **The suite passes from a source archive (no `.git`).**  The tag→changelog
   and `toolchain/`-gitignored tests crashed on `git`'s exit 128 outside a
   checkout; they now skip there.

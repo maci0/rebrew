@@ -229,11 +229,17 @@ def vendored_objects(
     The list comes from the build database rather than a glob over the build
     directory: a stale object whose source was dropped would otherwise report
     as a duplicate of the project's own source.  A missing or malformed
-    database yields no objects, and so does an entry with no ``/Fo`` output.
+    database yields no objects (a malformed one logs a warning), and so does
+    an entry with no ``/Fo`` output.
     """
     try:
         entries = json.loads(compile_commands.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+    except FileNotFoundError:
+        return []
+    except (OSError, ValueError) as exc:
+        logging.getLogger(__name__).warning(
+            "ignoring unreadable build database %s: %s", compile_commands, exc
+        )
         return []
     if not isinstance(entries, list):
         return []
