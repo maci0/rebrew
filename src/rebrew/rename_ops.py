@@ -14,7 +14,7 @@ from pathlib import Path
 from rebrew.annotation import parse_c_file_multi
 from rebrew.config import ProjectConfig
 from rebrew.sources import iter_sources
-from rebrew.utils import atomic_write_text, read_source_text
+from rebrew.utils import atomic_write_text, is_safe_c_ident, read_source_text
 
 logger = logging.getLogger(__name__)
 
@@ -29,8 +29,10 @@ def substitute_name(pattern: re.Pattern[str], replacement: str, text: str) -> st
     plain ``pattern.sub`` over the raw text rewrote ``puts("foo")``, changing
     the data a byte-matched function emits.  Spans come from
     :func:`rebrew.c_parser.protected_spans` (string/char literals and ``#define``
-    names) and the substitution runs over the gaps between them, on BYTES so a
-    multibyte character before a span cannot shift it.
+    names). Gaps are cut by BYTE offset, so a multibyte character before a span
+    cannot shift it, then decoded and substituted with the original ``str``
+    pattern: a bytes regex would make ``\\b`` ASCII-only (``éfoo`` matched) and
+    drop the pattern's flags.
 
     Falls back to the plain substitution (with a warning) when tree-sitter is
     unavailable, so a rename still works without the optional parser.
@@ -47,17 +49,20 @@ def substitute_name(pattern: re.Pattern[str], replacement: str, text: str) -> st
     if not spans:
         return pattern.sub(replacement, text)
 
-    data = text.encode("utf-8")
-    byte_pattern = re.compile(pattern.pattern.encode("utf-8"))
-    byte_replacement = replacement.encode("utf-8")
-    out: list[bytes] = []
+    # Same encoding and handler as c_parser._parse, so the spans line up.
+    data = text.encode("utf-8", errors="surrogateescape")
+
+    def _str(chunk: bytes) -> str:
+        return chunk.decode("utf-8", errors="surrogateescape")
+
+    out: list[str] = []
     pos = 0
     for start, end in spans:
-        out.append(byte_pattern.sub(byte_replacement, data[pos:start]))
-        out.append(data[start:end])
+        out.append(pattern.sub(replacement, _str(data[pos:start])))
+        out.append(_str(data[start:end]))
         pos = end
-    out.append(byte_pattern.sub(byte_replacement, data[pos:]))
-    return b"".join(out).decode("utf-8")
+    out.append(pattern.sub(replacement, _str(data[pos:])))
+    return "".join(out)
 
 
 def collect_matching_files(
@@ -106,7 +111,7 @@ def rename_function_everywhere(
     # collision must abort the rename with nothing mutated on disk (the old
     # order renamed references in every file, then hit the unguarded
     # parse_c_file_multi and left a half-applied rename behind).
-    if not target_func.isidentifier():
+    if not is_safe_c_ident(target_func):
         raise ValueError(f"target function name {target_func!r} is not a valid C identifier")
     rename_target: Path | None = None
     if rename_file and not dry_run:

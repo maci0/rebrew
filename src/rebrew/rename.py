@@ -24,12 +24,12 @@ from rebrew.rename_ops import (
     rename_function_everywhere,
     substitute_name,
 )
-from rebrew.utils import rel_display_path
+from rebrew.utils import is_safe_c_ident, rel_display_path
 
 # MSVC stdcall decoration (`foo@8`) — strip before matching C identifiers.
 _AT_DECORATION_RE = re.compile(r"@\d+$")
 
-# C89 keywords cannot be used as function names; `str.isidentifier()` alone
+# C89 keywords cannot be used as function names; `is_safe_c_ident()` alone
 # would let `if`, `int`, `struct`, ... through and generate uncompilable C.
 _C_KEYWORDS = frozenset(
     {
@@ -181,7 +181,7 @@ def main(
     actual_old_name = _AT_DECORATION_RE.sub("", actual_old_name)
 
     target_func = new_name
-    if not target_func.isidentifier() or target_func in _C_KEYWORDS:
+    if not is_safe_c_ident(target_func) or target_func in _C_KEYWORDS:
         error_exit(
             f"'{target_func}' is not a valid C identifier — use letters, digits, "
             f"and underscores (not starting with a digit, not a C keyword).",
@@ -264,7 +264,7 @@ def _rename_data(
     """
     from rebrew.data_metadata import get_data_entry, load_data_metadata, set_data_field
 
-    if not new_name.isidentifier() or new_name in _C_KEYWORDS:
+    if not is_safe_c_ident(new_name) or new_name in _C_KEYWORDS:
         error_exit(
             f"'{new_name}' is not a valid C identifier — use letters, digits, "
             "and underscores (not starting with a digit, not a C keyword).",

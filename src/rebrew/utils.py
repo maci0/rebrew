@@ -5,6 +5,7 @@ import copy
 import fcntl
 import logging
 import os
+import re
 import shlex
 import signal
 import subprocess
@@ -25,6 +26,17 @@ logger = logging.getLogger(__name__)
 # The rebrew package's own vendored toolchains (toolchain/msvc/5.0-win32, toolchain/watcom/2.0-win32,
 # ...).  Projects resolve compiler paths project-relative first, then fall
 # back here so a freshly-inited project works without a local tools/ symlink.
+#: A C89 identifier: ASCII only.  ``str.isidentifier()`` follows Python's
+#: Unicode rules and accepts ``café`` or ``名前``, which MSVC6-era compilers
+#: reject.  Names from linker output, BinSync, or the CLI are external text.
+_C_IDENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
+
+
+def is_safe_c_ident(name: str) -> bool:
+    """True when *name* can be emitted verbatim as a C identifier."""
+    return bool(_C_IDENT_RE.match(name))
+
+
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
 # Process-lifetime source text memo keyed by (resolved path, mtime_ns, size).

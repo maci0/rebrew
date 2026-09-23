@@ -15,7 +15,7 @@ from typing import Any
 
 from rebrew.config import ProjectConfig, module_marker
 from rebrew.data_metadata import iter_data_symbols
-from rebrew.utils import atomic_write_text, load_tomllib, read_source_text
+from rebrew.utils import atomic_write_text, is_safe_c_ident, load_tomllib, read_source_text
 
 
 def annotate_globals(
@@ -202,10 +202,6 @@ def set_data_sections(
 
 
 _VA_COMMENT_RE = re.compile(r"/\*\s*(0x[0-9a-fA-F]+)")
-# A valid C identifier.  The generated header is compiled, so anything else
-# (notably `@`-decorated import symbols such as `__imp__GetLocalTime@4`) must
-# not be emitted as a declaration.
-_C_IDENT_RE = re.compile(r"[A-Za-z_]\w*")
 
 
 def _source_decls_by_va(
@@ -366,7 +362,7 @@ def gen_globals_header(
             # IAT slot and an instant syntax error in C.  Those slots are
             # supplied by the import library anyway, so skip rather than emit
             # something that will not compile.
-            if not _C_IDENT_RE.fullmatch(name):
+            if not is_safe_c_ident(name):
                 continue
 
             section = ann.section or str(se.get("section", ""))

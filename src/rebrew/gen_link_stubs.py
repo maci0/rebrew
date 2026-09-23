@@ -23,8 +23,7 @@ from rich.console import Console
 
 from rebrew.cli import error_exit, json_print
 from rebrew.data_metadata import iter_data_symbols
-from rebrew.gen_stubs import is_safe_c_ident
-from rebrew.utils import load_tomllib
+from rebrew.utils import is_safe_c_ident, load_tomllib
 
 console = Console(stderr=True)
 

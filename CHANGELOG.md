@@ -446,6 +446,17 @@
   in emission order.
 
 ### Fixed
+- **Renames accept only ASCII C identifiers.**  `rebrew rename` (with or
+  without `--data`) and BinSync import validated names with
+  `str.isidentifier()`, which follows Python's Unicode rules, so `café` or
+  `名前` was written into C89 sources the compiler rejects.  The data
+  header generator had the same gap through a Unicode `\w`.  All now use
+  `rebrew.utils.is_safe_c_ident`.
+- **`rebrew rename` word boundaries no longer depend on string literals.**
+  A file containing a literal was substituted with a bytes regex, where
+  `\b` is ASCII-only, so `éfoo` in a comment was renamed to `ébar`; the
+  same file without a literal was left alone.  Gaps between protected
+  spans now use the original `str` pattern.
 - **`rebrew cfg show` reads bare scoped keys where `cfg set` writes
   them.**  `cfg set binary x.exe` writes `[targets.<default>]`, but
   `cfg show binary` reported "not found" and `--target` was ignored.

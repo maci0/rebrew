@@ -48,7 +48,7 @@ from rebrew.cli import (
 )
 from rebrew.config import ProjectConfig, module_marker
 from rebrew.naming import avoid_windows_reserved
-from rebrew.utils import strip_body
+from rebrew.utils import is_safe_c_ident, strip_body
 
 log = logging.getLogger(__name__)
 
@@ -212,7 +212,7 @@ def _apply_binsync_func_name(
         return False
     old_name = getattr(local, "name", "") or ""
     old_sym = getattr(local, "symbol", "") or old_name
-    if not bs_name.isidentifier():
+    if not is_safe_c_ident(bs_name):
         return False
     rename_function_everywhere(
         cfg=cfg,
@@ -361,7 +361,7 @@ def import_state(
                     # metadata logic that doesn't fit this batch path).
                     try:
                         target_func = (
-                            bs_stripped if bs_stripped.isidentifier() else f"func_{va:08x}"
+                            bs_stripped if is_safe_c_ident(bs_stripped) else f"func_{va:08x}"
                         )
                         cat = catalog_by_va.get(va)
                         size_hint = int(getattr(cat, "size", 0) or 0) if cat else 0

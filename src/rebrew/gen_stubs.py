@@ -47,7 +47,13 @@ import typer
 from rich.console import Console
 
 from rebrew.cli import error_exit, json_print
-from rebrew.utils import atomic_write_text, load_tomllib, read_source_text, run_process_group
+from rebrew.utils import (
+    atomic_write_text,
+    is_safe_c_ident,
+    load_tomllib,
+    read_source_text,
+    run_process_group,
+)
 
 console = Console(stderr=True)
 
@@ -67,12 +73,6 @@ _EXCLUDED_SUFFIX = ".c.off"
 
 _DEMANGLE_RE = re.compile(r"@\d+$")
 
-#: A name storable as a C identifier.  Unresolved-symbol names come from
-#: linker output (ultimately the analyzed binary's symbol/import tables), so
-#: they are attacker-influenced text; only identifier-shaped names may be
-#: emitted verbatim into generated C.
-_SAFE_C_IDENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
-
 
 def demangle_cdecl(mangled: str) -> str:
     """Strip MSVC cdecl/stdcall mangling: ``_name`` -> ``name``, ``_name@N`` -> ``name``."""
@@ -80,11 +80,6 @@ def demangle_cdecl(mangled: str) -> str:
     if name.startswith("_"):
         name = name[1:]
     return _DEMANGLE_RE.sub("", name)
-
-
-def is_safe_c_ident(name: str) -> bool:
-    """True when *name* can be emitted verbatim as a C identifier."""
-    return bool(_SAFE_C_IDENT_RE.match(name))
 
 
 # --- linker output parsing ---------------------------------------------------

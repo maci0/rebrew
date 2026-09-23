@@ -323,6 +323,13 @@ class TestRenameCli:
         assert result.exit_code != 0
         assert "not a valid C identifier" in result.output
 
+    def test_non_ascii_identifier_rejected(self, tmp_path: Path, monkeypatch: Any) -> None:
+        # `str.isidentifier()` accepts these; a C89 compiler does not.
+        for name in ("café", "名前"):
+            result = self._invoke(tmp_path, monkeypatch, "--json", "old_fn", name)
+            assert result.exit_code != 0
+            assert "not a valid C identifier" in result.output
+
     def test_rename_by_va(self, tmp_path: Path, monkeypatch: Any) -> None:
         import json
 
@@ -561,6 +568,22 @@ class TestProtectedSpans:
         # Literal and macro definition keep the old name.
         assert 'puts("foo")' in out
         assert "#define foo(x)" in out
+
+    def test_word_boundary_is_unicode_with_or_without_literals(self) -> None:
+        """A file with a literal must match exactly like one without: a bytes
+        regex treats the UTF-8 bytes of `é` as non-word, so `\\b` split
+        `éfoo` and renamed it only when the file also held a string."""
+        import re
+
+        from rebrew.rename_ops import substitute_name
+
+        pattern = re.compile(r"\bfoo\b")
+        plain = "/* éfoo */ int foo(void);\n"
+        with_literal = plain + 'char *s = "x";\n'
+        assert substitute_name(pattern, "bar", plain) == "/* éfoo */ int bar(void);\n"
+        assert substitute_name(pattern, "bar", with_literal) == (
+            "/* éfoo */ int bar(void);\n" + 'char *s = "x";\n'
+        )
 
     def test_macro_name_spans_cover_defines(self) -> None:
         from rebrew.c_parser import protected_spans
