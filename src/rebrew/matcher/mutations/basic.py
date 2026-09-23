@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import random
 import re
+from collections.abc import Callable
 from typing import Any
 
 import tree_sitter as ts
@@ -814,37 +815,46 @@ def mut_duplicate_loop_body(s: str, rng: random.Random) -> str | None:
         return None
 
 
-def mut_fold_constant_add(s: str, rng: random.Random) -> str | None:
-    """Fold two consecutive constant additions into a single statement."""
+def _fold_add_pair(
+    s: str,
+    rng: random.Random,
+    query: _LazyQuery,
+    adjacent: Callable[[bytes, ts.Node, ts.Node], bool],
+) -> str | None:
+    """Rewrite a random ``v = v + n1; v = v + n2;`` match of *query* whose
+    statements pass *adjacent* as ``v = v + (n1+n2);``."""
     b_source = encode_source(s)
-    cursor = _cursor(_QUERY_CONST_ADD_FOLD)
-
     tree = parse_c_ast(b_source)
-    matches = cursor.matches(tree.root_node)
 
-    valid_matches = []
-    for match in matches:
+    valid_matches: list[tuple[dict[str, ts.Node], int, int]] = []
+    for match in _cursor(query).matches(tree.root_node):
         captures = _first_caps(match[1])
-        if captures["stmt1"].next_named_sibling == captures["stmt2"]:
-            try:
-                n1 = int(decode_source(_cap_bytes(b_source, captures, "n1")))
-                n2 = int(decode_source(_cap_bytes(b_source, captures, "n2")))
-                valid_matches.append((captures, n1, n2))
-            except ValueError:
-                pass
+        if not adjacent(b_source, captures["stmt1"], captures["stmt2"]):
+            continue
+        try:
+            n1 = int(decode_source(_cap_bytes(b_source, captures, "n1")))
+            n2 = int(decode_source(_cap_bytes(b_source, captures, "n2")))
+        except ValueError:
+            continue
+        valid_matches.append((captures, n1, n2))
 
     if not valid_matches:
         return None
 
     captures, n1, n2 = rng.choice(valid_matches)
     v1 = _cap_bytes(b_source, captures, "v1")
-
     new_sum = encode_source(str(n1 + n2))
     replacement = v1 + b" = " + v1 + b" + " + new_sum + b";"
-
     start = captures["stmt1"].start_byte
     end = captures["stmt2"].end_byte
     return decode_source(b_source[:start] + replacement + b_source[end:])
+
+
+def mut_fold_constant_add(s: str, rng: random.Random) -> str | None:
+    """Fold two consecutive constant additions into a single statement."""
+    return _fold_add_pair(
+        s, rng, _QUERY_CONST_ADD_FOLD, lambda _src, s1, s2: s1.next_named_sibling == s2
+    )
 
 
 def _parse_int_literal(raw: str) -> int | None:
@@ -1086,36 +1096,12 @@ def mut_change_return_type(s: str, rng: random.Random) -> str | None:
 
 def mut_combine_ptr_arith(s: str, rng: random.Random) -> str | None:
     """Combine two consecutive pointer arithmetic additions into one."""
-    b_source = encode_source(s)
-    cursor = _cursor(_QUERY_COMBINE_PTR_ARITH)
-
-    tree = parse_c_ast(b_source)
-    matches = cursor.matches(tree.root_node)
-
-    valid_matches: list[tuple[dict[str, ts.Node], int, int]] = []
-    for match in matches:
-        captures = _first_caps(match[1])
-        try:
-            n1 = int(decode_source(_cap_bytes(b_source, captures, "n1")))
-            n2 = int(decode_source(_cap_bytes(b_source, captures, "n2")))
-            s1 = captures["stmt1"]
-            s2 = captures["stmt2"]
-            between = b_source[s1.end_byte : s2.start_byte].strip()
-            if not between:
-                valid_matches.append((captures, n1, n2))
-        except ValueError:
-            pass
-
-    if not valid_matches:
-        return None
-
-    captures, n1, n2 = rng.choice(valid_matches)
-    v1 = _cap_bytes(b_source, captures, "v1")
-    new_sum = encode_source(str(n1 + n2))
-    replacement = v1 + b" = " + v1 + b" + " + new_sum + b";"
-    start = captures["stmt1"].start_byte
-    end = captures["stmt2"].end_byte
-    return decode_source(b_source[:start] + replacement + b_source[end:])
+    return _fold_add_pair(
+        s,
+        rng,
+        _QUERY_COMBINE_PTR_ARITH,
+        lambda src, s1, s2: not src[s1.end_byte : s2.start_byte].strip(),
+    )
 
 
 def mut_split_ptr_arith(s: str, rng: random.Random) -> str | None:
