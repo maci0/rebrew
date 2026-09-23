@@ -1510,6 +1510,60 @@ class TestW029RedundantCflags:
         assert "W029" in result.output
         assert "redundant cflags" in result.output.lower()
 
+    def test_w029_emits_one_batched_print(self, tmp_path: Path) -> None:
+        """Work counter: every attributed W029 line rides ONE console.print.
+
+        The per-hit loop used to print each W029 separately (1600 Rich
+        calls on a 400-file tree — ~21% of lint's runtime); this pins the
+        batching without touching a clock.
+        """
+        from unittest.mock import patch
+
+        from typer.testing import CliRunner
+
+        import rebrew.lint as lint_mod
+        from rebrew.lint import app
+
+        src = tmp_path / "reversed"
+        src.mkdir()
+        for i, va in enumerate((0x1000, 0x2000)):
+            (src / f"f{i}.c").write_text(
+                f"// FUNCTION: SERVER 0x{va:x}\nint f{i}(void){{return 0;}}\n", encoding="utf-8"
+            )
+        (tmp_path / "rebrew-functions.toml").write_text(
+            '["SERVER.0x1000"]\ncflags = "/O2 /Gd"\n\n["SERVER.0x2000"]\ncflags = "/O2 /Gd"\n',
+            encoding="utf-8",
+        )
+        cfg = SimpleNamespace(
+            root=tmp_path,
+            reversed_dir=src,
+            metadata_dir=tmp_path,
+            source_ext=".c",
+            cflags="/O2 /Gd",
+            cflags_presets={},
+            marker="SERVER",
+            library_modules=set(),
+        )
+        w029_prints: list[str] = []
+        orig_print = lint_mod.console.print
+
+        def _spy(*args: object, **kwargs: object) -> object:
+            if args and isinstance(args[0], str) and "W029" in args[0]:
+                w029_prints.append(args[0])
+            return orig_print(*args, **kwargs)
+
+        with (
+            patch("rebrew.lint.load_config", return_value=cfg),
+            patch.object(lint_mod.console, "print", _spy),
+        ):
+            result = CliRunner().invoke(app, [])
+        assert result.exit_code == 0, result.output
+        assert len(w029_prints) == 1, (
+            f"expected exactly one batched W029 print, got {len(w029_prints)} — "
+            "a per-hit print loop is back"
+        )
+        assert w029_prints[0].count("W029") == 2, "both files' W029 lines must share the batch"
+
     def test_passed_never_exceeds_total(self, tmp_path: Path) -> None:
         """The synthetic W029 entries carry no file: counting them as passed
         printed 'Checked 1 files: 2 passed' and a JSON passed > total."""

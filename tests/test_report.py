@@ -252,6 +252,34 @@ class TestAdjacencyListLabels:
         assert "<td class='mono'>a&lt;b</td>" in row
         assert "<td class='mono'>&mdash;</td>" in row
 
+    def test_failed_ref_scan_reads_na_not_zero(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A failed xref scan must not render as '0 refs' (a faked healthy zero)."""
+        from types import SimpleNamespace
+
+        import rebrew.report as report_mod
+
+        (tmp_path / "game.exe").write_bytes(b"MZ")
+        monkeypatch.setattr(report_mod, "load_binary", lambda path: SimpleNamespace())
+        monkeypatch.setattr(
+            report_mod,
+            "iter_strings",
+            lambda info, min_len: [
+                SimpleNamespace(va=0x2000, section=".rdata", kind="ascii", text="hello")
+            ],
+        )
+
+        def _boom(info: object, strings: object) -> None:
+            raise ValueError("bad section")
+
+        monkeypatch.setattr(report_mod, "string_refs", _boom)
+        cfg = SimpleNamespace(target_name="T", target_binary=tmp_path / "game.exe")
+        ((_, page),) = report_mod._render_strings(cfg)
+        assert "could not be scanned" in page
+        assert "<td>n/a</td><td class='mono'>n/a</td>" in page
+        assert "<td>0</td>" not in page
+
     def test_prints_symbols_not_internal_keys(self) -> None:
         """Node keys are `va:0x…`/`sym:…` internal identifiers; the adjacency
         fallback must print the symbol (mermaid/dot already do)."""
@@ -445,3 +473,21 @@ class TestReportPayloadShape:
         assert index.count("<tr>") < _TABLE_PAGE_SIZE + 5
         assert "extra_0" in index
         assert "extra_249" in page2
+        # The pager repeats below the table so a reader at the bottom can move on.
+        assert index.count("aria-label='Next page of functions'") == 2
+        assert "aria-label='Table pages, bottom'" in index
+
+    def test_pager_offers_first_and_last_on_middle_pages(self) -> None:
+        from rebrew.report import _TABLE_PAGE_SIZE, _pager_nav
+
+        total = _TABLE_PAGE_SIZE * 5
+        middle = _pager_nav("index", 3, 5, total, "functions")
+        assert "<a href='index.html' aria-label='First page of functions'>First</a>" in middle
+        assert "<a href='index-p5.html' aria-label='Last page of functions'>Last</a>" in middle
+        # Adjacent to an end, First/Last would duplicate Previous/Next.
+        second = _pager_nav("index", 2, 5, total, "functions")
+        assert "First</a>" not in second
+        assert "Last</a>" in second
+        last = _pager_nav("index", 5, 5, total, "functions")
+        assert "Last</a>" not in last
+        assert "Next</a>" not in last

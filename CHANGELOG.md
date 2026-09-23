@@ -179,6 +179,17 @@
   documented integrator surface.
 
 ### Changed
+- **`rebrew lint`'s W029 batch prints once, not once per hit — and the
+  batch VA index stops re-parsing every file.**  A per-hit
+  `console.print` after the file loop fired 1600 times on a 400-file
+  tree (instrumented call-site counter), each paying Rich's full
+  markup/highlight/wrap pipeline, and the VA→file index re-ran
+  `_parse_multi_headers` over every result's lines even though
+  `lint_file` already parsed them.  W029 lines are now collected and
+  emitted as one batched print (identical text and order), and
+  `LintResult._headers` carries the parsed headers to the index.
+  lint 0.75 → 0.60 s real on the 400-file project (user 0.71 → 0.56,
+  −21%); output byte-count and the `2401 warnings` tally unchanged.
 - **`status` and `lint` answer header facts from the layout package —
   LIEF's 0.11 s import leaves both.**  Every `load_config` parsed the
   target binary through LIEF just for `image_base`/`text_va`, and
@@ -568,6 +579,12 @@
   in emission order.
 
 ### Fixed
+- **`rebrew report` paging and string refs.**  The help example used
+  `--out`, which the command rejects; it now reads `--output`.  Paged
+  index and strings tables repeat the pager below the table and add
+  First/Last links, so the last of twenty pages is one click away.  A
+  failed xref scan showed every string as "0" refs; the Refs columns now
+  read n/a under a note saying the scan failed.
 - **The aligned climb score ranks by pairs on large functions.**  The
   score was `pairs * 1000 - hunks`, so once a candidate had more than
   1000 differing hunks (reachable above ~1000 aligned instructions) a

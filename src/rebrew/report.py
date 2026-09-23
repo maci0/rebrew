@@ -23,7 +23,7 @@ instead of aborting the whole report.
 
 Usage:
     rebrew report                       # Write site to <output_dir>/report
-    rebrew report --out site            # Write site to ./site
+    rebrew report --output site         # Write site to ./site
     rebrew report --json                # Machine-readable summary
 """
 
@@ -172,26 +172,42 @@ def _paged_href(stem: str, page: int) -> str:
     return f"{stem}.html" if page <= 1 else f"{stem}-p{page}.html"
 
 
-def _pager_nav(stem: str, page: int, total_pages: int, total_rows: int, noun: str) -> str:
-    """No-JS prev/next pager for multi-page report tables."""
+def _pager_nav(
+    stem: str,
+    page: int,
+    total_pages: int,
+    total_rows: int,
+    noun: str,
+    label: str = "Table pages",
+) -> str:
+    """No-JS first/prev/next/last pager for multi-page report tables."""
     if total_pages <= 1:
         return ""
     start = (page - 1) * _TABLE_PAGE_SIZE + 1
     end = min(page * _TABLE_PAGE_SIZE, total_rows)
+    esc_noun = html.escape(noun, quote=True)
     links: list[str] = []
+    if page > 2:
+        links.append(
+            f"<a href='{_paged_href(stem, 1)}' aria-label='First page of {esc_noun}'>First</a>"
+        )
     if page > 1:
         links.append(
             f"<a href='{_paged_href(stem, page - 1)}' "
-            f"aria-label='Previous page of {html.escape(noun, quote=True)}'>Previous</a>"
+            f"aria-label='Previous page of {esc_noun}'>Previous</a>"
         )
     links.append(f"Page {page} of {total_pages}")
     if page < total_pages:
         links.append(
-            f"<a href='{_paged_href(stem, page + 1)}' "
-            f"aria-label='Next page of {html.escape(noun, quote=True)}'>Next</a>"
+            f"<a href='{_paged_href(stem, page + 1)}' aria-label='Next page of {esc_noun}'>Next</a>"
+        )
+    if page < total_pages - 1:
+        links.append(
+            f"<a href='{_paged_href(stem, total_pages)}' "
+            f"aria-label='Last page of {esc_noun}'>Last</a>"
         )
     return (
-        f"<nav class='pager' aria-label='Table pages'>"
+        f"<nav class='pager' aria-label='{html.escape(label, quote=True)}'>"
         f"Showing {start}\u2013{end} of {total_rows} {html.escape(noun)}. "
         f"{' · '.join(links)}</nav>"
     )
@@ -482,14 +498,17 @@ def _render_index(
             _function_rows_html(chunk),
         )
         pager = _pager_nav("index", page_num, total_pages, total, "functions")
+        pager_end = _pager_nav(
+            "index", page_num, total_pages, total, "functions", label="Table pages, bottom"
+        )
         if page_num == 1:
             body = (
                 f"<h2>Function index</h2><div class='cards'>{card_html}</div>"
-                f"{ne_html}{pager}{table}"
+                f"{ne_html}{pager}{table}{pager_end}"
             )
             title = "Function index"
         else:
-            body = f"<h2>Function index (continued)</h2>{pager}{table}"
+            body = f"<h2>Function index (continued)</h2>{pager}{table}{pager_end}"
             title = f"Function index ({page_num}/{total_pages})"
         pages.append((_paged_href("index", page_num), _page(title, target, "index.html", body)))
     return pages
@@ -550,30 +569,41 @@ def _render_strings(cfg: ProjectConfig) -> list[tuple[str, str]]:
             )
         ]
 
+    refs: dict[int, list[Xref]] | None
     try:
         refs = string_refs(info, strings)
     except (OSError, ValueError, RuntimeError):
-        refs = {}
+        refs = None
 
     total = len(strings)
     total_pages = max(1, (total + _TABLE_PAGE_SIZE - 1) // _TABLE_PAGE_SIZE)
     pages: list[tuple[str, str]] = []
     intro = "<p>Strings extracted from the binary's data sections (min length 4).</p>"
+    if refs is None:
+        intro += (
+            "<p class='note'>Code references to these strings could not be scanned; "
+            "the Refs columns read n/a.</p>"
+        )
     for page_num in range(1, total_pages + 1):
         start = (page_num - 1) * _TABLE_PAGE_SIZE
         chunk = strings[start : start + _TABLE_PAGE_SIZE]
-        rows = "".join(_string_row(s, refs.get(s.va) or []) for s in chunk)
+        rows = "".join(
+            _string_row(s, None if refs is None else refs.get(s.va) or []) for s in chunk
+        )
         table = _data_table(
             "Strings from data sections",
             ["VA", "Section", "Kind", "Text", "Refs", "Referenced from"],
             rows,
         )
         pager = _pager_nav("strings", page_num, total_pages, total, "strings")
+        pager_end = _pager_nav(
+            "strings", page_num, total_pages, total, "strings", label="Table pages, bottom"
+        )
         if page_num == 1:
-            body = f"<h2>Strings</h2>{intro}{pager}{table}"
+            body = f"<h2>Strings</h2>{intro}{pager}{table}{pager_end}"
             title = "Strings"
         else:
-            body = f"<h2>Strings (continued)</h2>{pager}{table}"
+            body = f"<h2>Strings (continued)</h2>{pager}{table}{pager_end}"
             title = f"Strings ({page_num}/{total_pages})"
         pages.append((_paged_href("strings", page_num), _page(title, target, "strings.html", body)))
     return pages
@@ -584,25 +614,33 @@ def _disclosure(short: str, full: str) -> str:
     return f"<details><summary>{html.escape(short)}</summary>{html.escape(full)}</details>"
 
 
-def _string_row(s: StringEntry, xrefs: list[Xref]) -> str:
-    """Render one string table row with ref count and first referencing VAs."""
+def _string_row(s: StringEntry, xrefs: list[Xref] | None) -> str:
+    """Render one string table row with ref count and first referencing VAs.
+
+    *xrefs* is None when the reference scan failed: both cells read ``n/a``
+    rather than a count of 0.
+    """
     if len(s.text) > _STRING_CELL_CHARS:
         text = _disclosure(s.text[:_STRING_CELL_CHARS] + "\u2026", s.text)
     else:
         text = html.escape(s.text)
-    all_refs = ", ".join(f"0x{x.from_va:08x}" for x in xrefs)
-    if len(xrefs) > _REFS_CELL_COUNT:
+    if xrefs is None:
+        count = refs = "n/a"
+    elif len(xrefs) > _REFS_CELL_COUNT:
+        count = str(len(xrefs))
+        all_refs = ", ".join(f"0x{x.from_va:08x}" for x in xrefs)
         first = ", ".join(f"0x{x.from_va:08x}" for x in xrefs[:_REFS_CELL_COUNT])
         refs = _disclosure(f"{first} (+{len(xrefs) - _REFS_CELL_COUNT} more)", all_refs)
     else:
-        refs = html.escape(all_refs) or "&mdash;"
+        count = str(len(xrefs))
+        refs = html.escape(", ".join(f"0x{x.from_va:08x}" for x in xrefs)) or "&mdash;"
     return (
         "<tr>"
         f"<td class='mono'>0x{s.va:08x}</td>"
         f"<td>{html.escape(s.section)}</td>"
         f"<td>{html.escape(s.kind)}</td>"
         f"<td class='mono'>{text}</td>"
-        f"<td>{len(xrefs)}</td>"
+        f"<td>{count}</td>"
         f"<td class='mono'>{refs}</td>"
         "</tr>"
     )
@@ -1048,7 +1086,7 @@ def generate_decomp_dev_report(cfg: ProjectConfig, out_path: Path) -> dict[str, 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"
     "  rebrew report · · · · · · · · · · · · · · Write site to <output_dir>/report\n\n"
-    "  rebrew report --out site · · · · · · · · · Write site to ./site\n\n"
+    "  rebrew report --output site · · · · · · · · Write site to ./site\n\n"
     "  rebrew report --decomp-dev report.json · · Write an objdiff-format\n"
     "                                            report.json for decomp.dev\n\n"
     "  rebrew report --json · · · · · · · · · · · Machine-readable summary\n\n"

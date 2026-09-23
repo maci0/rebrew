@@ -126,6 +126,9 @@ class LintResult:
     _inline_dup_strips: list[tuple[str, int, str]] = field(default_factory=list)
     # Lines of the file for style checks
     _lines: list[str] = field(default_factory=list)
+    # Marker headers parsed from _lines — reused by the batch W029 VA index
+    # instead of re-parsing every file (was a second full header pass).
+    _headers: list[tuple[dict[str, str], dict[str, bool]]] | None = None
 
     def error(self, line: int, code: str, msg: str) -> None:
         """Record an error diagnostic at *line*."""
@@ -1440,6 +1443,7 @@ def lint_file(
         # Totally broken file — no recognisable marker format found.
         # Synthesise a minimal entry so the loop below can report E001.
         all_headers = [({}, {"has_new": False})]
+    result._headers = all_headers
 
     # Load per-directory metadata (keys: (module, va_int) -> {toml_field: value}).
     # Accept pre-loaded dicts from callers that process many files in the same directory
@@ -1943,7 +1947,8 @@ def main(
             # Build VA -> file index from this run, for per-function attribution.
             va_to_result: dict[tuple[str, int], LintResult] = {}
             for r in all_results:
-                for keys, _flags in _parse_multi_headers(r._lines):
+                headers = r._headers if r._headers is not None else _parse_multi_headers(r._lines)
+                for keys, _flags in headers:
                     m = keys.get("MODULE", "")
                     v = keys.get("VA", "")
                     if not m or not v:
@@ -1961,6 +1966,7 @@ def main(
                 warning_count += len(syn.warnings)
             # Per-function redundancies: attribute per file when we can.
             unattributed: list[RedundantFunctionCflags] = []
+            w029_inline: list[str] = []
             for fn_hit in fn_redundant:
                 dest = va_to_result.get((fn_hit.module, fn_hit.va))
                 msg = fn_hit.message()
@@ -1969,14 +1975,19 @@ def main(
                         dest.warning(dest.marker_line, "W029", f"redundant cflags: {msg}")
                         warning_count += 1
                         if not json_output and not quiet:
-                            # Show the newly added warning inline (the batch
-                            # loop already printed this file — emit just this).
-                            console.print(
+                            # Show the newly added warnings inline (the batch
+                            # loop already printed these files) — collected
+                            # and emitted as ONE Rich print below: per-hit
+                            # prints were 1600 console calls on a
+                            # 400-file tree, ~27% of lint's runtime.
+                            w029_inline.append(
                                 f"  [bold]{dest.filepath.name}[/bold]:{dest.marker_line}: "
                                 f"[yellow]W029[/yellow]: redundant cflags: {msg}"
                             )
                 else:
                     unattributed.append(fn_hit)
+            if w029_inline:
+                console.print("\n".join(w029_inline), highlight=False)
             if unattributed:
                 syn2 = LintResult(Path("rebrew-functions.toml"))
                 for fn_hit in unattributed:
