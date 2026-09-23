@@ -19,10 +19,12 @@ needs struct layouts should use the Ghidra/BinSync path instead.
 
 from __future__ import annotations
 
+import contextlib
 import io
 import os
 import re
 import shutil
+import signal
 import subprocess
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
@@ -260,6 +262,8 @@ class Cvdump:
             self.cmd_line(),
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
+            # Own session so an abort can kill wine's children with the loader.
+            start_new_session=True,
         )
         assert proc.stdout is not None
         # cvdump prints PDB names as raw ANSI bytes (cp1252/Shift-JIS paths).
@@ -274,7 +278,8 @@ class Cvdump:
             # An abort mid-parse must not leave the cvdump/wine child running
             # or hold the stdout pipe: kill and reap it, then drop the wrap.
             if proc.poll() is None:
-                proc.kill()
+                with contextlib.suppress(ProcessLookupError):
+                    os.killpg(proc.pid, signal.SIGKILL)
                 proc.wait()
             wrap.close()
         # A failed dump (missing wine, unreadable PDB) yields no sections;

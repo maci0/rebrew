@@ -496,6 +496,10 @@
   in emission order.
 
 ### Fixed
+- **`calibrate-bss` and cvdump no longer orphan grandchildren.**  A link
+  or stub-compile timeout in `rebrew calibrate-bss`, and an aborted cvdump
+  parse, killed only the direct child, so a wrapper's linker or wine's
+  helper processes kept running.  Both now kill the whole process group.
 - **`binsync-import` / `binsync-overlay` `--dry-run --accept-binsync`
   count conflict renames.**  The preview listed the rename in `proposed`
   but left it out of `applied_names`, while the real run and the

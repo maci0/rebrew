@@ -289,7 +289,9 @@ class TestCvdumpRunLifecycle:
         def poll(self) -> int | None:
             return self.returncode
 
-        def kill(self) -> None:
+        pid = 0
+
+        def killpg(self, pid: int, sig: int) -> None:
             self.killed = True
             self.returncode = -9
 
@@ -304,6 +306,7 @@ class TestCvdumpRunLifecycle:
         proc = self._FakeProc()
         monkeypatch.setattr(pv.Cvdump, "cmd_line", lambda self: ["cvdump"])
         monkeypatch.setattr(pv.subprocess, "Popen", lambda *a, **k: proc)
+        monkeypatch.setattr(pv.os, "killpg", proc.killpg)
         return proc
 
     def test_child_reaped_when_parse_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -318,6 +321,39 @@ class TestCvdumpRunLifecycle:
         with pytest.raises(RuntimeError, match="parse exploded"):
             pv.Cvdump("x.pdb").publics().run()
         assert proc.killed, "an abort mid-parse must kill the cvdump child"
+
+    def test_abort_kills_grandchildren(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """wine forks helpers; killing only the loader orphaned them."""
+        import io
+        import time
+
+        from rebrew import pdb_cvdump as pv
+
+        pidfile = tmp_path / "pid"
+        script = f"sleep 60 & echo $! > {pidfile}; echo x; wait"
+        monkeypatch.setattr(pv.Cvdump, "cmd_line", lambda self: ["sh", "-c", script])
+
+        def _boom(wrap: io.TextIOWrapper) -> None:
+            wrap.readline()  # the pid is written before "x"
+            raise RuntimeError("parse exploded")
+
+        monkeypatch.setattr(pv, "iter_cvdump_sections", _boom)
+        with pytest.raises(RuntimeError, match="parse exploded"):
+            pv.Cvdump("x.pdb").publics().run()
+        stat = Path(f"/proc/{int(pidfile.read_text())}/stat")
+
+        def _alive() -> bool:
+            try:
+                return stat.read_text().rsplit(") ", 1)[1][0] != "Z"
+            except FileNotFoundError:
+                return False
+
+        deadline = time.monotonic() + 5
+        while _alive():
+            assert time.monotonic() < deadline, "grandchild survived the abort"
+            time.sleep(0.05)
 
     def test_clean_run_returns_without_killing(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from rebrew import pdb_cvdump as pv

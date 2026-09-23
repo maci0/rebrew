@@ -99,12 +99,12 @@ class TestCalibrateLoop:
         # before the compile that then fails.
         monkeypatch.setattr(cb, "read_data_vs", lambda path: 0x10)
 
-        def fake_run(cmd: object, **kwargs: object) -> None:
-            if isinstance(cmd, list):
-                raise subprocess.CalledProcessError(1, cmd, stderr=b"boom")
-            return
+        def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[bytes]:
+            # The raw link ("true ...") succeeds; the stub compile fails.
+            rc = 0 if cmd[0] == "true" else 1
+            return subprocess.CompletedProcess(cmd, rc, b"", b"boom")
 
-        monkeypatch.setattr(cb.subprocess, "run", fake_run)
+        monkeypatch.setattr(cb, "run_process_group", fake_run)
 
         result = self._invoke(
             tmp_path, monkeypatch, "--stub", str(stub), "--target-vs", "0x20", "--json"
@@ -137,12 +137,12 @@ class TestCalibrateLoop:
         )
         monkeypatch.setattr(cb, "read_data_vs", lambda path: 0x10)
 
-        def fake_run(cmd: object, **kwargs: object) -> None:
-            if isinstance(cmd, list):
-                raise subprocess.CalledProcessError(1, cmd, stderr=b"boom")
-            return
+        def fake_run(cmd: list[str], **kwargs: object) -> subprocess.CompletedProcess[bytes]:
+            # The raw link ("true ...") succeeds; the stub compile fails.
+            rc = 0 if cmd[0] == "true" else 1
+            return subprocess.CompletedProcess(cmd, rc, b"", b"boom")
 
-        monkeypatch.setattr(cb.subprocess, "run", fake_run)
+        monkeypatch.setattr(cb, "run_process_group", fake_run)
 
         result = self._invoke(
             tmp_path, monkeypatch, "--stub", str(stub), "--target-vs", "0x20", "--json"

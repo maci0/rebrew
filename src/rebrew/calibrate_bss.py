@@ -33,7 +33,7 @@ from rich.console import Console
 
 from rebrew.cli import TargetOption, error_exit, json_print
 from rebrew.pe_headers import find_section
-from rebrew.utils import atomic_write_text, load_tomllib, read_source_text
+from rebrew.utils import atomic_write_text, load_tomllib, read_source_text, run_process_group
 from rebrew.workspace import walk_up_to_root
 
 console = Console(stderr=True)
@@ -186,13 +186,10 @@ def main(
             # metacharacters in CMake's link.txt cannot execute.
             cmd = cmd_tpl.format(out=shlex.quote(str(scratch)), options="")
             try:
-                subprocess.run(
-                    shlex.split(cmd),
-                    cwd=link_cwd,
-                    check=True,
-                    capture_output=True,
-                    timeout=600,
-                )
+                # Group kill: a wrapper's linker must not outlive a timeout.
+                run_process_group(
+                    shlex.split(cmd), cwd=link_cwd, capture_output=True, timeout=600
+                ).check_returncode()
             except subprocess.TimeoutExpired:
                 error_exit(
                     f"raw link timed out after 600s (iter {it}): {cmd}", json_mode=json_output
@@ -231,13 +228,12 @@ def main(
             )
             obj = target_dir / stub.relative_to(root).with_suffix(".obj")
             try:
-                subprocess.run(
+                run_process_group(
                     [compile_cmd, "/nologo", "/c", *cflags.split(), f"/Fo{obj}", str(stub)],
                     cwd=root,
-                    check=True,
                     capture_output=True,
                     timeout=300,
-                )
+                ).check_returncode()
             except subprocess.TimeoutExpired:
                 error_exit(
                     f"stub compile timed out after 300s: {compile_cmd}", json_mode=json_output
