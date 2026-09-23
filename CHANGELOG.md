@@ -399,11 +399,22 @@
 - **Cross-module binsync helpers drop the leading underscore**
   (``is_meaningful``, ``normalize_prototype``, ``print_import_result``,
   ``one_line``, ``run_git``). Call sites inside the package already updated.
-
-### Removed
-- **`rebrew.matcher.BuildCache`.**  Nothing in rebrew instantiated it
-  once the GA moved to an in-memory memo plus the shared compile cache;
-  it survived only as an import-compat shim.
+- **Breaking:** **`rebrew.matcher.BuildCache` removed.**  Nothing in
+  rebrew instantiated it once the GA moved to an in-memory memo plus the
+  shared compile cache.  It was in `rebrew.matcher.__all__` in 2.6.0;
+  importing it now raises `ImportError`.  Use
+  `rebrew.compile_cache` for cached compiles.
+- **Breaking:** **`angr_available` moved from `rebrew.cli` to
+  `rebrew.prove`.**  The probe belongs with the prover that needs it.
+  Import it from `rebrew.prove`; `rebrew.cli` no longer defines it.
+- **Breaking:** **`data_annotate.gen_globals_header` returns its result
+  instead of printing it.**  The `json_output` keyword is gone; the
+  function returns a dict (`path`, `written`, `dry_run`, `globals`,
+  `sections`) and raises `FileExistsError` where it used to call
+  `error_exit`.  Callers
+  that passed `json_output=` get a `TypeError`.  `rebrew data
+  --gen-header --json` keeps its fields; `sections` now lists sections
+  in emission order.
 
 ### Fixed
 - **`REBREW_TOOLCHAINS_DIR` has one resolution path.**  `rebrew toolchain
