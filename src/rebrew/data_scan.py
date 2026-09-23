@@ -221,6 +221,8 @@ def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
         if not any(e is entry for e in bucket):
             bucket.append(entry)
 
+    other_markers = {m.lower() for m in (getattr(cfg, "all_markers", None) or set())}
+    active_marker = str(getattr(cfg, "marker", "") or "").lower()
     for cfile in iter_sources(src_dir, cfg):
         try:
             # Tolerant read: a legacy-encoded source must not have its
@@ -257,9 +259,7 @@ def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
                 # are not targets and carry no competing VA.
                 if cfg is not None and gm.group("module"):
                     mod = gm.group("module").lower()
-                    others = {m.lower() for m in (getattr(cfg, "all_markers", None) or set())}
-                    active = str(getattr(cfg, "marker", "") or "").lower()
-                    if mod in others and mod != active:
+                    if mod in other_markers and mod != active_marker:
                         continue
                 va = int(gm.group("va"), 16)
                 # Next line should be the declaration

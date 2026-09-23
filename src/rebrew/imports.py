@@ -74,9 +74,10 @@ def mark_import_stubs(
     out_file = Path(cfg.reversed_dir) / "library_imports.h"
     existing, encoding = read_source_text(out_file) if out_file.exists() else ("", "utf-8")
 
+    existing_upper = existing.upper()
     blocks: list[str] = []
     for va in sorted(stubs):
-        if f"0x{va:08X}".upper() in existing.upper():
+        if f"0X{va:08X}" in existing_upper:
             continue
         blocks.append(f"// LIBRARY: {marker} 0x{va:08X}\n// {stubs[va]}\n")
     if not blocks:

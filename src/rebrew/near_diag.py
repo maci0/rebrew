@@ -588,8 +588,12 @@ def _diagnose_one(
     size_val: int,
     fix_blocker: bool,
     dry_run: bool = False,
+    name_to_va: dict[str, int] | None = None,
 ) -> dict[str, Any]:
     """Compile and classify ONE function; returns the analysis result.
+
+    *name_to_va* is the ``build_name_to_va`` map; batch mode builds it once
+    and passes it in, since building it rescans every source.
 
     The result dict gains a ``blocker_written`` key (bool).  Raises
     :class:`_DiagnoseError` when the target bytes cannot be extracted or the
@@ -644,7 +648,8 @@ def _diagnose_one(
     reloc_offsets: set[int] = set()
     coff_relocs = full_relocs if full_relocs else reloc_dict
     if coff_relocs:
-        name_to_va = build_name_to_va(cfg)
+        if name_to_va is None:
+            name_to_va = build_name_to_va(cfg)
         cmp_obj = compiled_bytes
         cmp_tgt = target_bytes
         if len(cmp_obj) > len(cmp_tgt):
@@ -781,6 +786,9 @@ def _run_all_batch(cfg: Any, fix_blocker: bool, json_output: bool, dry_run: bool
     if not json_output:
         console.print(f"\n[bold]Diagnosing {len(candidates)} NEAR_MATCHING function(s)[/bold]\n")
 
+    from rebrew.coff_reloc import build_name_to_va
+
+    name_to_va = build_name_to_va(cfg)
     classified = 0
     failed = 0
     results: list[dict[str, Any]] = []
@@ -799,7 +807,9 @@ def _run_all_batch(cfg: Any, fix_blocker: bool, json_output: bool, dry_run: bool
             "error": None,
         }
         try:
-            result = _diagnose_one(cfg, src, ann, ann.va, ann.size, fix_blocker, dry_run)
+            result = _diagnose_one(
+                cfg, src, ann, ann.va, ann.size, fix_blocker, dry_run, name_to_va=name_to_va
+            )
         except _DiagnoseError as e:
             failed += 1
             if not json_output:
