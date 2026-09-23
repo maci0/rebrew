@@ -364,7 +364,11 @@ def _compute_text_size(cfg: ProjectConfig) -> int:
     try:
         from rebrew.sections import get_text_section_size
 
-        return get_text_section_size(cfg.target_binary)
+        return get_text_section_size(
+            cfg.target_binary,
+            root=getattr(cfg, "root", None),
+            target=str(getattr(cfg, "target_name", "") or ""),
+        )
     except (ImportError, OSError, ValueError):
         return 0
 

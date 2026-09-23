@@ -177,8 +177,19 @@ def get_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> dict[int, di
     return globals_dict
 
 
-def get_text_section_size(bin_path: Path) -> int:
-    """Get .text section virtual size from binary headers."""
+def get_text_section_size(bin_path: Path, root: Path | None = None, target: str = "") -> int:
+    """Get .text section virtual size from binary headers.
+
+    With *root*/*target*, the committed layout package answers first
+    (LIEF-free — keeps ``status``/``lint`` startup ~0.11 s lighter); LIEF
+    on *bin_path* remains the fallback.
+    """
+    if root is not None and target:
+        from rebrew.layout_meta import read_layout_header
+
+        hdr = read_layout_header(root, target, bin_path)
+        if hdr is not None:
+            return int(hdr["text_size"])
     try:
         from rebrew.binary_loader import load_binary
 

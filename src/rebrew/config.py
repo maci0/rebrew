@@ -930,11 +930,27 @@ def _merge_cflags_presets(
     return merged
 
 
-def _detect_binary_layout(bin_path: Path, fmt: str = "auto") -> dict[str, int]:
+def _detect_binary_layout(
+    bin_path: Path, fmt: str = "auto", root: Path | None = None, target: str = ""
+) -> dict[str, int]:
     """Read image base and .text section from binary headers.
 
-    Uses ``binary_loader`` to support PE, ELF, and Mach-O.
+    Layout-package first: when ``layout/<target>/rebrew-layout.toml`` is
+    present and fresher than *bin_path*, its committed facts answer the
+    question (~1 ms) instead of importing LIEF (~0.11 s) — every command
+    pays this at ``load_config``.  Falls back to ``binary_loader`` (PE,
+    ELF, Mach-O) when there is no usable package.
     """
+    if root is not None and target:
+        from rebrew.layout_meta import read_layout_header
+
+        hdr = read_layout_header(root, target, bin_path)
+        if hdr is not None:
+            return {
+                "image_base": hdr["image_base"],
+                "text_va": hdr["text_va"],
+                "text_raw_offset": hdr["text_raw_offset"],
+            }
     try:
         from rebrew.binary_loader import load_binary
 
@@ -1503,7 +1519,12 @@ def load_config(
 
     # Auto-detect binary layout if the binary exists
     if cfg.target_binary.exists():
-        layout = _detect_binary_layout(cfg.target_binary, fmt=cfg.binary_format)
+        layout = _detect_binary_layout(
+            cfg.target_binary,
+            fmt=cfg.binary_format,
+            root=root,
+            target=str(getattr(cfg, "target_name", "") or ""),
+        )
         cfg.image_base = layout["image_base"]
         cfg.text_va = layout["text_va"]
     else:

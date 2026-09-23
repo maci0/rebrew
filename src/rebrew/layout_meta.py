@@ -190,6 +190,53 @@ def read_layout_geometry(root: Path, target: str) -> tuple[int, int, int]:
     raise ValueError(f"no .data section in {txt} (run rebrew gen-layout first)")
 
 
+def read_layout_header(root: Path, target: str, bin_path: Path) -> dict[str, Any] | None:
+    """Header facts from ``layout/<target>/rebrew-layout.toml`` — no LIEF.
+
+    Returns ``{"image_base", "text_va", "text_size", "text_raw_offset",
+    "sections": [(name, va, vs, raw, ptr), ...]}`` with every section
+    ``va`` as an absolute VA, or ``None`` when the package is missing,
+    malformed, or **stale** (older than *bin_path*) — callers then fall
+    back to LIEF on the binary.  Reading the committed layout package
+    instead of parsing the binary removes LIEF's ~0.11 s import from
+    status/lint startup.
+    """
+    import tomllib
+
+    txt = Path(root) / "layout" / target / "rebrew-layout.toml"
+    try:
+        if txt.stat().st_mtime_ns < bin_path.stat().st_mtime_ns:
+            return None  # binary rebuilt after gen-layout — parse it instead
+        lay = tomllib.loads(txt.read_text(encoding="utf-8-sig"))["layout"]
+        base = int(lay.get("image_base", 0) or 0)
+        sections: list[tuple[str, int, int, int, int]] = []
+        text_va = text_size = text_raw = 0
+        for s in lay.get("sections", []):
+            name = str(s.get("name") or "")
+            va = base + int(s.get("va", 0) or 0)
+            rec = (
+                name,
+                va,
+                int(s.get("vs", 0) or 0),
+                int(s.get("raw", 0) or 0),
+                int(s.get("ptr", 0) or 0),
+            )
+            sections.append(rec)
+            if name == ".text":
+                text_va, text_size, text_raw = rec[1], rec[2], rec[4]
+    except (OSError, KeyError, TypeError, ValueError, tomllib.TOMLDecodeError):
+        return None
+    if not sections:
+        return None
+    return {
+        "image_base": base,
+        "text_va": text_va,
+        "text_size": text_size,
+        "text_raw_offset": text_raw,
+        "sections": sections,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Extraction from a binary
 # ---------------------------------------------------------------------------

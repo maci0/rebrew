@@ -998,7 +998,7 @@ class TestVerifyCacheHelpers:
         from rebrew.status import _compute_text_size
 
         (tmp_path / "x.dll").write_bytes(b"MZ")
-        monkeypatch.setattr("rebrew.sections.get_text_section_size", lambda _p: 0x1234)
+        monkeypatch.setattr("rebrew.sections.get_text_section_size", lambda _p, **_kw: 0x1234)
         assert _compute_text_size(self._cfg(tmp_path)) == 0x1234
 
 
