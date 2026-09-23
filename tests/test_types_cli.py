@@ -87,3 +87,17 @@ class TestApplyType:
         )
         assert result.exit_code == 0, result.output
         assert f.read_text(encoding="utf-8") == before
+
+    def test_second_run_is_noop(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        import json
+
+        f = self._project(tmp_path)
+        args = (str(f), "--param", "1", "--type", "PlayerInfo *", "--json")
+        first = self._invoke(tmp_path, monkeypatch, *args)
+        assert first.exit_code == 0, first.output
+        assert json.loads(first.stdout)["changed"] is True
+        once = f.read_text(encoding="utf-8")
+        second = self._invoke(tmp_path, monkeypatch, *args)
+        assert second.exit_code == 0, second.output
+        assert json.loads(second.stdout)["changed"] is False
+        assert f.read_text(encoding="utf-8") == once

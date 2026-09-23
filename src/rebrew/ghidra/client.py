@@ -4,15 +4,19 @@ Handles MCP session initialization, JSON-RPC tool invocation, and bulk function
 and data fetching via ReVa HTTP endpoints.
 """
 
+from __future__ import annotations
+
 import contextlib
 import json
 import logging
 import re
 import time
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
-import httpx
 from rich.console import Console
+
+if TYPE_CHECKING:
+    import httpx
 
 from rebrew.errors import RebrewError
 from rebrew.ghidra.models import JsonRpcResponse, McpToolResult
@@ -115,6 +119,8 @@ def _call_mcp_tool(
     session_id: str,
 ) -> McpToolResult | None:
     """POST a ``tools/call`` request and return the tool result, or None on failure."""
+    import httpx  # deferred: ~46 ms of startup for non-Ghidra commands
+
     payload = {
         "jsonrpc": "2.0",
         "id": request_id,
@@ -337,6 +343,8 @@ def end_mcp_session(client: httpx.Client, endpoint: str, session_id: str) -> Non
     405 (termination unsupported) and a transport failure here must not mask
     the caller's result or exception.  An empty id (no session) is a no-op.
     """
+    import httpx  # deferred: ~46 ms of startup for non-Ghidra commands
+
     if not session_id:
         return
     try:
@@ -617,6 +625,8 @@ def apply_commands_via_mcp(
 
     Returns (success_count, error_count).
     """
+    import httpx  # deferred: ~46 ms of startup for non-Ghidra commands
+
     success = 0
     errors = 0
     total = len(commands)

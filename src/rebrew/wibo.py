@@ -16,10 +16,11 @@ import stat
 import sys
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import urljoin, urlparse
 
-import httpx
+if TYPE_CHECKING:
+    import httpx
 
 _WIBO_API_URL = "https://api.github.com/repos/decompals/wibo/releases/latest"
 _WIBO_DEFAULT_PATH = Path("tools/wibo")
@@ -90,6 +91,8 @@ def _get_with_trusted_redirects(url: str) -> httpx.Response:
     download does not pin one connection (and its pool slot) per hop until GC.
     The final response is owned by the caller.
     """
+    import httpx  # deferred: ~46 ms of startup for non-wibo commands
+
     current = _trusted_wibo_download_url(url)
     for _ in range(10):
         resp = httpx.get(current, timeout=_NETWORK_TIMEOUT_S, follow_redirects=False)
@@ -107,6 +110,8 @@ def _get_with_trusted_redirects(url: str) -> httpx.Response:
 
 def _read_release_metadata() -> dict[str, Any]:
     """Fetch and parse latest release metadata from GitHub."""
+    import httpx  # deferred: ~46 ms of startup for non-wibo commands
+
     try:
         resp = httpx.get(_WIBO_API_URL, timeout=_NETWORK_TIMEOUT_S, follow_redirects=True)
     except httpx.HTTPError as exc:
@@ -134,6 +139,8 @@ def download_wibo(dest: Path) -> str:
     Raises RuntimeError if the asset is not found, download fails,
     or SHA-256 verification fails.
     """
+    import httpx  # deferred: ~46 ms of startup for non-wibo commands
+
     release = _read_release_metadata()
     tag_name = str(release.get("tag_name", ""))
     asset_name = _wibo_asset_name()

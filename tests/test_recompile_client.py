@@ -224,6 +224,62 @@ class TestCompileSource:
         assert [c[0] for c in client.calls] == ["post", "get", "get"]
         assert sleeps == [0.25]
 
+    @pytest.mark.parametrize(
+        "first",
+        [_Resp(502, text="bad gateway"), httpx.ReadTimeout("lost reply")],
+        ids=["http-502", "read-timeout"],
+    )
+    def test_emit_assembly_no_repost_after_ambiguous_failure(
+        self, monkeypatch: pytest.MonkeyPatch, first: Any
+    ) -> None:
+        """A 5xx or lost reply may follow a compile that already appended its
+        train.jsonl row, so an ``emit_assembly`` POST is not re-sent."""
+
+        class _SeqClient(_FakeClient):
+            def post(self, url: str, json: Any = None) -> Any:
+                self.calls.append(("post", url))
+                if isinstance(first, Exception):
+                    raise first
+                return first
+
+        client = _SeqClient(None)
+        monkeypatch.setattr(httpx, "Client", lambda **kwargs: client)
+        monkeypatch.setattr("rebrew.recompile_client.time.sleep", lambda s: None)
+        with pytest.raises(RecompileError) as ei:
+            compile_source("http://svc/", "msvc-6.0", "x", ["/c"], emit_assembly=True, retries=2)
+        assert ei.value.retryable is False
+        assert [c[0] for c in client.calls] == ["post"]
+
+    @pytest.mark.parametrize(
+        "first",
+        [_Resp(503, text="busy"), httpx.ConnectError("refused")],
+        ids=["http-503", "connect-error"],
+    )
+    def test_emit_assembly_reposts_when_never_processed(
+        self, monkeypatch: pytest.MonkeyPatch, first: Any
+    ) -> None:
+        body = {"status": "ok", "artifact_url": "/api/v1/artifacts/x.obj"}
+        posts: list[Any] = [first, _Resp(200, json_body=body)]
+
+        class _SeqClient(_FakeClient):
+            def post(self, url: str, json: Any = None) -> Any:
+                self.calls.append(("post", url))
+                nxt = posts.pop(0)
+                if isinstance(nxt, Exception):
+                    raise nxt
+                return nxt
+
+            def get(self, url: str) -> Any:
+                self.calls.append(("get", url))
+                return _Resp(200, content=b"OBJ")
+
+        client = _SeqClient(None)
+        monkeypatch.setattr(httpx, "Client", lambda **kwargs: client)
+        monkeypatch.setattr("rebrew.recompile_client.time.sleep", lambda s: None)
+        res = compile_source("http://svc/", "msvc-6.0", "x", ["/c"], emit_assembly=True, retries=1)
+        assert res.ok and res.obj_bytes == b"OBJ"
+        assert [c[0] for c in client.calls] == ["post", "post", "get"]
+
     def test_retries_do_not_retry_validation(self) -> None:
         with pytest.raises(RecompileError, match="too many flags") as ei:
             compile_source("http://svc", "msvc-6.0", "x", ["/c"] * 65, retries=3)

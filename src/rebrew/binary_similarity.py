@@ -31,12 +31,14 @@ Usage::
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import numpy as np
 import typer
 from rich.console import Console
 from rich.table import Table
+
+if TYPE_CHECKING:
+    import numpy as np
 
 from rebrew.cli import (
     TargetOption,
@@ -56,6 +58,8 @@ def _pair_ratio(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     ``a`` is ``(N, 1)``, ``b`` is ``(1, M)``.  Equal values (including both
     zero) → 1.0; one side zero → 0.0; otherwise min/max.
     """
+    import numpy as np  # deferred: ~60 ms of startup for non-similarity commands
+
     denom = np.maximum(a, b)
     out = np.divide(np.minimum(a, b), denom, out=np.zeros_like(denom), where=denom > 0)
     return np.where(a == b, 1.0, out)
@@ -73,6 +77,8 @@ def score_matrix(sigs_a: list[dict[str, Any]], sigs_b: list[dict[str, Any]]) -> 
     one shared mnemonic vocabulary, normalised histogram rows, and a single
     matrix product for all cosine pairs.
     """
+    import numpy as np  # deferred: ~60 ms of startup for non-similarity commands
+
     if not sigs_a or not sigs_b:
         return np.zeros((len(sigs_a), len(sigs_b)), dtype=float)
 
@@ -123,6 +129,8 @@ def aggregate_similarity(
     ``mean``/``median``, threshold buckets with byte shares, and the
     *low_count* lowest-scoring A functions with their B match).
     """
+    import numpy as np  # deferred: ~60 ms of startup for non-similarity commands
+
     sig_a: list[dict[str, Any]] = []
     meta_a: list[tuple[int, int, str]] = []  # (va, size, name)
     for f in funcs_a:

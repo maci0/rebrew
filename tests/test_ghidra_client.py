@@ -519,7 +519,7 @@ class TestApplyCommandsViaMcp:
         from rebrew.ghidra.client import McpError, apply_commands_via_mcp
 
         script: list[object] = [httpx.ConnectError("conn refused")]
-        monkeypatch.setattr("rebrew.ghidra.client.httpx.Client", lambda **kw: _FakeClient(script))
+        monkeypatch.setattr("httpx.Client", lambda **kw: _FakeClient(script))
         with pytest.raises(McpError, match="Failed to initialize MCP session") as ei:
             apply_commands_via_mcp([self._cmd("create-function", address="0x1000")])
         assert ei.value.kind == "network"
@@ -534,7 +534,7 @@ class TestApplyCommandsViaMcp:
             _ok_rpc(),  # initialized notification
             _ok_rpc(),  # the one command
         ]
-        monkeypatch.setattr("rebrew.ghidra.client.httpx.Client", lambda **kw: _FakeClient(script))
+        monkeypatch.setattr("httpx.Client", lambda **kw: _FakeClient(script))
         success, errors = apply_commands_via_mcp([self._cmd("create-function", address="0x1000")])
         assert (success, errors) == (1, 0)
 
@@ -548,7 +548,7 @@ class TestApplyCommandsViaMcp:
             _ok_rpc(),  # initialized
         ] + [_ok_rpc()] * 100  # 100 create-function commands
         fake = _FakeClient(script)
-        monkeypatch.setattr("rebrew.ghidra.client.httpx.Client", lambda **kw: fake)
+        monkeypatch.setattr("httpx.Client", lambda **kw: fake)
         cmds = [self._cmd("create-function", address=f"0x{i:x}") for i in range(100)]
         success, errors = apply_commands_via_mcp(cmds)
         assert (success, errors) == (100, 0)
@@ -564,7 +564,7 @@ class TestApplyCommandsViaMcp:
             _FakeResp(headers={"Mcp-Session-Id": "s1"}),
             _ok_rpc(),
         ] + [_err_rpc()] * 31  # 31 failing commands of two tools
-        monkeypatch.setattr("rebrew.ghidra.client.httpx.Client", lambda **kw: _FakeClient(script))
+        monkeypatch.setattr("httpx.Client", lambda **kw: _FakeClient(script))
         cmds = [self._cmd("create-function", address="0x1")] * 30 + [
             self._cmd("create-label", address="0x2")
         ]
@@ -579,7 +579,7 @@ class TestApplyCommandsViaMcp:
             _ok_rpc(),
             _err_rpc("Label already exists", is_error=True),
         ]
-        monkeypatch.setattr("rebrew.ghidra.client.httpx.Client", lambda **kw: _FakeClient(script))
+        monkeypatch.setattr("httpx.Client", lambda **kw: _FakeClient(script))
         success, errors = apply_commands_via_mcp([self._cmd("create-label", address="0x1000")])
         assert (success, errors) == (1, 0)
 
@@ -594,7 +594,7 @@ class TestApplyCommandsViaMcp:
             _ok_rpc(),
             no_content,
         ]
-        monkeypatch.setattr("rebrew.ghidra.client.httpx.Client", lambda **kw: _FakeClient(script))
+        monkeypatch.setattr("httpx.Client", lambda **kw: _FakeClient(script))
         success, errors = apply_commands_via_mcp([self._cmd("create-function", address="0x1000")])
         assert (success, errors) == (0, 1)
 
@@ -607,7 +607,7 @@ class TestApplyCommandsViaMcp:
             _err_rpc("parse error", is_error=True),  # first attempt fails
             _ok_rpc(),  # retry succeeds
         ]
-        monkeypatch.setattr("rebrew.ghidra.client.httpx.Client", lambda **kw: _FakeClient(script))
+        monkeypatch.setattr("httpx.Client", lambda **kw: _FakeClient(script))
         cmd = self._cmd("parse-c-structure", address="0x1000", cDefinition="struct A { int x; };")
         success, errors = apply_commands_via_mcp([cmd])
         assert (success, errors) == (1, 0)
@@ -633,7 +633,7 @@ class TestApplyCommandsViaMcp:
             # retry 2 (last): A fails → PERMANENT FAIL
             _err_rpc("no such struct"),
         ]
-        monkeypatch.setattr("rebrew.ghidra.client.httpx.Client", lambda **kw: _FakeClient(script))
+        monkeypatch.setattr("httpx.Client", lambda **kw: _FakeClient(script))
         cmds = [
             self._cmd("parse-c-structure", address="0x1", cDefinition="struct A { int x; };"),
             self._cmd("parse-c-structure", address="0x2", cDefinition="struct B { int y; };"),
@@ -670,7 +670,7 @@ class TestApplyCommandsViaMcp:
                 text="event: x\ndata: {bad\n\n", headers={"content-type": "text/event-stream"}
             ),
         ]
-        monkeypatch.setattr("rebrew.ghidra.client.httpx.Client", lambda **kw: _FakeClient(script))
+        monkeypatch.setattr("httpx.Client", lambda **kw: _FakeClient(script))
         success, errors = apply_commands_via_mcp([self._cmd("create-function", address="0x1")])
         assert (success, errors) == (0, 1)
 
@@ -686,7 +686,7 @@ class TestApplyCommandsViaMcp:
                 )
             ),
         ]
-        monkeypatch.setattr("rebrew.ghidra.client.httpx.Client", lambda **kw: _FakeClient(script))
+        monkeypatch.setattr("httpx.Client", lambda **kw: _FakeClient(script))
         success, errors = apply_commands_via_mcp([self._cmd("create-function", address="0x1")])
         assert (success, errors) == (0, 1)
 
@@ -701,7 +701,7 @@ class TestApplyCommandsViaMcp:
             httpx.ConnectError("socket closed"),  # cmd loop
             httpx.ConnectError("socket closed"),  # retry 0 → no resolve → break
         ]
-        monkeypatch.setattr("rebrew.ghidra.client.httpx.Client", lambda **kw: _FakeClient(script))
+        monkeypatch.setattr("httpx.Client", lambda **kw: _FakeClient(script))
         success, errors = apply_commands_via_mcp(
             [self._cmd("parse-c-structure", address="0x1", cDefinition="struct A { int x; };")]
         )
@@ -716,7 +716,7 @@ class TestApplyCommandsViaMcp:
             _FakeResp(headers={"Mcp-Session-Id": "s1"}),
             _ok_rpc(),
         ] + [httpx.ConnectError("socket closed")] * 31
-        monkeypatch.setattr("rebrew.ghidra.client.httpx.Client", lambda **kw: _FakeClient(script))
+        monkeypatch.setattr("httpx.Client", lambda **kw: _FakeClient(script))
         cmds = [self._cmd("set-bookmark", address=f"0x{i:x}") for i in range(31)]
         success, errors = apply_commands_via_mcp(cmds)
         assert (success, errors) == (0, 31)
@@ -730,7 +730,7 @@ class TestApplyCommandsViaMcp:
             _FakeResp(text=""),  # empty body
             _FakeResp(text="not json"),  # invalid JSON
         ]
-        monkeypatch.setattr("rebrew.ghidra.client.httpx.Client", lambda **kw: _FakeClient(script))
+        monkeypatch.setattr("httpx.Client", lambda **kw: _FakeClient(script))
         cmds = [
             self._cmd("create-function", address="0x1"),
             self._cmd("create-function", address="0x2"),
@@ -753,7 +753,7 @@ class TestApplyCommandsViaMcp:
             sse_ok,  # command ok via SSE body
             httpx.ConnectError("socket closed"),  # command raises HTTPError
         ]
-        monkeypatch.setattr("rebrew.ghidra.client.httpx.Client", lambda **kw: _FakeClient(script))
+        monkeypatch.setattr("httpx.Client", lambda **kw: _FakeClient(script))
         cmds = [
             self._cmd("set-comment", address="0x1"),
             self._cmd("set-comment", address="0x2"),
@@ -889,7 +889,7 @@ class TestApplyAbort:
             _ok_rpc(),  # first op lands
             httpx.ConnectError("conn reset"),  # transport dies on the second
         ]
-        monkeypatch.setattr("rebrew.ghidra.client.httpx.Client", lambda **kw: _FakeClient(script))
+        monkeypatch.setattr("httpx.Client", lambda **kw: _FakeClient(script))
         cmds = [
             self._cmd("create-function", address="0x1000"),
             self._cmd("create-function", address="0x2000"),
@@ -911,7 +911,7 @@ class TestApplyAbort:
             _ok_rpc(),
             httpx.ConnectError("conn refused"),  # first op, nothing applied
         ]
-        monkeypatch.setattr("rebrew.ghidra.client.httpx.Client", lambda **kw: _FakeClient(script))
+        monkeypatch.setattr("httpx.Client", lambda **kw: _FakeClient(script))
         success, errors = apply_commands_via_mcp([self._cmd("create-function", address="0x1000")])
         assert (success, errors) == (0, 1)
 

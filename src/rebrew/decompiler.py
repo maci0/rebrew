@@ -37,8 +37,6 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-import httpx
-
 from rebrew.registry import RegistryError
 
 # ANSI escape code stripper
@@ -471,6 +469,8 @@ def fetch_ghidra(
 
     Requires a running ReVa MCP server connected to Ghidra.
     """
+    import httpx  # deferred: ~46 ms of startup for non-MCP commands
+
     endpoint: str = kwargs.get("endpoint") or _DEFAULT_MCP_ENDPOINT
     program_path: str | None = kwargs.get("program_path")
 

@@ -231,7 +231,7 @@ class TestUpload:
                 close=lambda: closed.append(True),
             )
 
-        monkeypatch.setattr("rebrew.decompme.httpx.post", _fake_post)
+        monkeypatch.setattr("httpx.post", _fake_post)
         result = decompme.upload_scratch(
             {"data": {"compiler": "x"}, "files": {"target_obj": ("a.o", b"\x00", "x")}}
         )
@@ -250,7 +250,7 @@ class TestUpload:
                 close=lambda: closed.append(True),
             )
 
-        monkeypatch.setattr("rebrew.decompme.httpx.post", _fake_post)
+        monkeypatch.setattr("httpx.post", _fake_post)
         with pytest.raises(RuntimeError, match="Unknown compiler"):
             decompme.upload_scratch({"data": {}, "files": {}})
         assert closed == [True]
@@ -261,7 +261,7 @@ class TestUpload:
         def _fake_post(url, **kwargs):
             raise httpx.ConnectError("boom")
 
-        monkeypatch.setattr("rebrew.decompme.httpx.post", _fake_post)
+        monkeypatch.setattr("httpx.post", _fake_post)
         with pytest.raises(RuntimeError, match="boom"):
             decompme.upload_scratch({"data": {}, "files": {}})
 
@@ -278,7 +278,7 @@ class TestUpload:
     )
     def test_untrusted_reply_rejected(self, monkeypatch: pytest.MonkeyPatch, body: object) -> None:
         monkeypatch.setattr(
-            "rebrew.decompme.httpx.post",
+            "httpx.post",
             lambda url, **kw: SimpleNamespace(
                 status_code=201, json=lambda: body, close=lambda: None
             ),
@@ -388,7 +388,7 @@ class TestCli:
     def test_upload_success(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         cfg, src = self._patch(tmp_path, monkeypatch)
         monkeypatch.setattr(
-            "rebrew.decompme.httpx.post",
+            "httpx.post",
             lambda url, **kw: SimpleNamespace(
                 status_code=201,
                 json=lambda: {"slug": "abc", "claim_token": "tok"},
@@ -402,7 +402,7 @@ class TestCli:
     def test_upload_rejection(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         cfg, src = self._patch(tmp_path, monkeypatch)
         monkeypatch.setattr(
-            "rebrew.decompme.httpx.post",
+            "httpx.post",
             lambda url, **kw: SimpleNamespace(
                 status_code=400, text="Unknown platform: nope", close=lambda: None
             ),

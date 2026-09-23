@@ -447,6 +447,7 @@ narrowly. No writes; exit 0 with findings listed (JSON carries
 
 Rewrite one parameter's type in project C source, so recovered struct types
 reach the compiler (tree-sitter span edit, encoding-preserving atomic write).
+Re-running with the same type is a no-op (exit 0, JSON `changed: false`).
 
 ### `rebrew todo`
 

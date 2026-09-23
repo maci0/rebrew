@@ -5,14 +5,17 @@ command building for push operations and direct MCP communication for pull
 operations.
 """
 
+from __future__ import annotations
+
 import contextlib
 import re
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    import httpx
+
     from rebrew.catalog import RegistryEntry
-import httpx
 from rich.console import Console
 
 from rebrew.config import ProjectConfig
@@ -131,7 +134,7 @@ def parse_ghidra_va(va_raw: str | int | None) -> int | None:
 
 
 def build_new_function_commands(
-    registry: dict[int, "RegistryEntry"],
+    registry: dict[int, RegistryEntry],
     program_path: str,
     iat_thunks: set[int] | None = None,
 ) -> list[dict[str, Any]]:
@@ -177,6 +180,7 @@ def pull_data(
     then queries data type info for each (get-data), and writes a header file
     with extern declarations.
     """
+    import httpx  # deferred: ~46 ms of startup for non-Ghidra commands
 
     def _canonical_section_name(section_name: str) -> str:
         name = section_name.lower()

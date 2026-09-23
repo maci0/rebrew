@@ -59,6 +59,12 @@ RecompileErrorKind = Literal[
 #: Transient HTTP statuses that are safe to retry after a backoff.
 _RETRYABLE_HTTP = frozenset({408, 425, 429, 500, 502, 503, 504})
 
+#: Subset of :data:`_RETRYABLE_HTTP` meaning the service never ran the
+#: compile.  500/502/504 may arrive after the compile (and its train.jsonl
+#: append) already happened, so an ``emit_assembly`` POST is re-sent only on
+#: these or on a connect failure.
+_UNPROCESSED_HTTP = frozenset({408, 425, 429, 503})
+
 #: Base delay (seconds) for exponential backoff between retryable attempts.
 #: ``delay = min(_RETRY_BACKOFF_BASE * 2**attempt, _RETRY_BACKOFF_CAP)``.
 _RETRY_BACKOFF_BASE = 0.25
@@ -220,7 +226,10 @@ def compile_source(
     ``emit_assembly=True`` appends a ``train_data/train.jsonl`` row per
     successful compile, so a lost artifact GET must not create a duplicate
     row.  Only the artifact download is retried against the same
-    ``artifact_url``.
+    ``artifact_url``.  A failed ``emit_assembly`` POST is re-sent only when
+    the service provably did not run it (connect failure, 408/425/429/503);
+    a read timeout or 500/502/504 may follow a compile that already appended
+    its row, so it fails instead.
     """
     import httpx
 
@@ -272,10 +281,11 @@ def compile_source(
                     try:
                         resp = http.post(f"{url}/api/v1/compile", json=payload)
                     except Exception as exc:
+                        never_sent = isinstance(exc, (httpx.ConnectError, httpx.ConnectTimeout))
                         raise RecompileError(
                             f"recompile service at {url} unreachable: {exc}",
                             kind="network",
-                            retryable=True,
+                            retryable=never_sent or not emit_assembly,
                         ) from exc
                     try:
                         if resp.status_code != 200:
@@ -284,7 +294,8 @@ def compile_source(
                                 f"{resp.text[:300]}",
                                 kind="http",
                                 status_code=resp.status_code,
-                                retryable=resp.status_code in _RETRYABLE_HTTP,
+                                retryable=resp.status_code
+                                in (_UNPROCESSED_HTTP if emit_assembly else _RETRYABLE_HTTP),
                             )
                         try:
                             body = resp.json()

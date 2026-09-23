@@ -139,26 +139,10 @@ def apply_type(
             f"Cannot rewrite param {param} of {func_name} — function or index not found",
             json_mode=json_output,
         )
-    if rewritten == text:
-        error_exit("New type identical to current spelling — nothing to do", json_mode=json_output)
-    if dry_run:
-        if json_output:
-            json_print(
-                {
-                    "file": str(source_path),
-                    "function": func_name,
-                    "param": param,
-                    "type": type_name,
-                    "dry_run": True,
-                }
-            )
-        else:
-            console.print(
-                f"  [dim]Would rewrite[/dim] {source_path.name} "
-                f"{func_name} param {param} → {type_name}"
-            )
-        return
-    atomic_write_text(source_path, rewritten, encoding=encoding)
+    # Re-applying the same type is a converged no-op, not an error.
+    changed = rewritten != text
+    if changed and not dry_run:
+        atomic_write_text(source_path, rewritten, encoding=encoding)
     if json_output:
         json_print(
             {
@@ -166,13 +150,18 @@ def apply_type(
                 "function": func_name,
                 "param": param,
                 "type": type_name,
-                "dry_run": False,
+                "changed": changed,
+                "dry_run": dry_run,
             }
         )
         return
-    console.print(
-        f"[green]Rewrote:[/green] {source_path.name} {func_name} param {param} → {type_name}"
-    )
+    where = f"{source_path.name} {func_name} param {param}"
+    if not changed:
+        console.print(f"  [dim]Unchanged:[/dim] {where} is already {type_name}")
+    elif dry_run:
+        console.print(f"  [dim]Would rewrite[/dim] {where} → {type_name}")
+    else:
+        console.print(f"[green]Rewrote:[/green] {where} → {type_name}")
 
 
 def _first_function_name(text: str) -> str:

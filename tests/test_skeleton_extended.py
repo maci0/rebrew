@@ -137,7 +137,7 @@ class TestFetchXrefContext:
             def delete(self, *a: object, **k: object) -> None:
                 return None
 
-        monkeypatch.setattr(client.httpx, "Client", _FakeClient)
+        monkeypatch.setattr("httpx.Client", _FakeClient)
         monkeypatch.setattr(client, "init_mcp_session", lambda *a, **k: "sess")
         monkeypatch.setattr(client, "fetch_mcp_tool_raw", lambda *a, **k: responses.pop(0))
 
@@ -213,7 +213,7 @@ class TestFetchXrefContext:
             def delete(self, *a: object, **k: object) -> None:
                 return None
 
-        monkeypatch.setattr(client.httpx, "Client", _FakeClient)
+        monkeypatch.setattr(httpx, "Client", _FakeClient)
         monkeypatch.setattr(
             client,
             "init_mcp_session",

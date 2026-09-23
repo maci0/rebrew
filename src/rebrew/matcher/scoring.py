@@ -10,7 +10,6 @@ import threading
 from typing import Any
 
 import capstone
-import numpy as np
 
 from .core import Score, StructuralSimilarity
 
@@ -454,6 +453,8 @@ def score_candidate(
             prologue_bonus=prologue_bonus,
             total=prologue_bonus,
         )
+
+    import numpy as np  # deferred: ~60 ms of startup for non-GA commands
 
     if min_len > 0:
         t_arr = np.frombuffer(target_bytes[:min_len], dtype=np.uint8)

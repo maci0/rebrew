@@ -179,6 +179,23 @@
   documented integrator surface.
 
 ### Changed
+- **Every command starts ~50-100 ms lighter: numpy, httpx, lief and angr
+  stay out of CLI activation.**  Component activation eagerly imported the
+  compile/GA stack (`rebrew.compile` → numpy), the MCP/decomp.me HTTP
+  leaves (httpx), and probed binary/config paths — measured
+  `import rebrew.main` at 0.20 CPU-seconds before any command ran.  The
+  heavy leaves now sit behind first use: numpy in `classify_compare_result`,
+  `_cosine`, `smart_reloc_compare`, `score_candidate` and
+  `binary_similarity`'s three kernels; httpx in the MCP/decomp.me/wibo
+  fetch functions (TYPE_CHECKING stubs keep annotations typed).  New gate:
+  `TestDeferredHeavyImports` asserts the app import leaves
+  numpy/httpx/lief/angr out of `sys.modules` (work counter, no clock).
+  App import 0.20 → 0.15 CPU; medians of 5 cold runs — catalog 0.62 →
+  0.51 s, status 0.61 → 0.56, todo 0.65 → 0.60, lint 0.96 → 0.92,
+  `--help` 0.32 → 0.28.  capstone stays: `scoring` binds
+  `capstone.CS_ARCH_*` at import and per-call imports were measured
+  slower in near-diag/stack-cmp; zstandard stays: the dashboard
+  precompresses its index at import and tests pin that contract.
 - **`rebrew todo` runs in half the time; `rebrew lint` prints in one
   pass.**  Measured on a 400-file/1600-function project (medians of 5
   cold runs): the prover-lane probe ran a full `import angr` (~0.5 s
@@ -538,6 +555,14 @@
   in emission order.
 
 ### Fixed
+- **Remote compile retries no longer duplicate training rows.**  With
+  `recompile_emit_assembly` on, a read timeout or HTTP 500/502/504 on the
+  compile POST was retried, and the service may already have compiled
+  and appended a `train.jsonl` row.  Such a POST now fails instead; it is
+  re-sent only after a connect failure or HTTP 408/425/429/503.
+- **`rebrew types apply-type` converges on re-run.**  Applying a type
+  the parameter already has exited with an error; it is now a no-op
+  (exit 0), and the JSON payload carries `changed`.
 - **Confirm prompts go to stderr.**  `rebrew cfg remove-target`,
   `cfg remove-module`, `merge --delete`, and `split --va` wrote their
   interactive confirm to stdout, so `rebrew ... > out.txt` hid the prompt

@@ -20,11 +20,17 @@ class _FakeClient:
     def post(self, *args: Any, **kwargs: Any) -> Any:
         return SimpleNamespace(headers={"Mcp-Session-Id": "sess123"})
 
+    def delete(self, *args: Any, **kwargs: Any) -> Any:
+        # Session teardown (end_mcp_session) runs on every exit path; the
+        # fake client answers it so no real httpx is ever needed.
+        return SimpleNamespace()
+
 
 def _mock_httpx(monkeypatch: Any) -> None:
     fake_httpx = SimpleNamespace(
         Client=lambda timeout: _FakeClient(timeout),
         RequestError=RuntimeError,
+        HTTPError=RuntimeError,
     )
     monkeypatch.setitem(sys.modules, "httpx", fake_httpx)
 

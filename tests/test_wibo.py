@@ -67,7 +67,7 @@ def _mock_wibo_http(monkeypatch: pytest.MonkeyPatch, payload: str, binary: bytes
             return _FakeHTTPResponse(payload)
         return _FakeHTTPResponse(binary)
 
-    monkeypatch.setattr("rebrew.wibo.httpx.get", _fake_httpx_get)
+    monkeypatch.setattr("httpx.get", _fake_httpx_get)
 
 
 class TestWiboAssetName:
@@ -155,7 +155,7 @@ class TestDownloadWibo:
         monkeypatch.setattr(sys, "platform", "linux", raising=False)
         monkeypatch.setattr("platform.machine", lambda: "x86_64")
         monkeypatch.setattr(
-            "rebrew.wibo.httpx.get",
+            "httpx.get",
             lambda _url, **kwargs: _FakeHTTPResponse(payload),
         )
 
@@ -167,7 +167,7 @@ class TestDownloadWibo:
     ) -> None:
         dest = tmp_path / "tools" / "wibo"
         monkeypatch.setattr(
-            "rebrew.wibo.httpx.get",
+            "httpx.get",
             lambda _url, **kwargs: _FakeHTTPResponse("{not json"),
         )
 
@@ -247,18 +247,18 @@ class TestDownloadWiboErrors:
         def boom(url: str, **kw: object) -> SimpleNamespace:
             raise httpx.HTTPError("net down")
 
-        monkeypatch.setattr("rebrew.wibo.httpx.get", boom)
+        monkeypatch.setattr("httpx.get", boom)
         with pytest.raises(RuntimeError, match="Failed to fetch wibo release metadata"):
             wibo_mod.download_wibo(Path("/tmp/wibo"))
 
     def test_metadata_not_dict(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr("rebrew.wibo.httpx.get", lambda url, **kw: self._meta([1, 2]))
+        monkeypatch.setattr("httpx.get", lambda url, **kw: self._meta([1, 2]))
         with pytest.raises(RuntimeError, match="Invalid wibo release metadata response"):
             wibo_mod.download_wibo(Path("/tmp/wibo"))
 
     def test_assets_not_a_list(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(
-            "rebrew.wibo.httpx.get",
+            "httpx.get",
             lambda url, **kw: self._meta({"tag_name": "v1", "assets": "nope"}),
         )
         with pytest.raises(RuntimeError, match="assets is not a list"):
@@ -266,7 +266,7 @@ class TestDownloadWiboErrors:
 
     def test_missing_download_url(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(
-            "rebrew.wibo.httpx.get",
+            "httpx.get",
             lambda url, **kw: self._meta(
                 {
                     "tag_name": "v1",
@@ -279,7 +279,7 @@ class TestDownloadWiboErrors:
 
     def test_missing_digest(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(
-            "rebrew.wibo.httpx.get",
+            "httpx.get",
             lambda url, **kw: self._meta(
                 {
                     "tag_name": "v1",
@@ -324,7 +324,7 @@ class TestDownloadWiboErrors:
 
         monkeypatch.setattr(sys, "platform", "linux", raising=False)
         monkeypatch.setattr("platform.machine", lambda: "x86_64")
-        monkeypatch.setattr("rebrew.wibo.httpx.get", _fake_httpx_get)
+        monkeypatch.setattr("httpx.get", _fake_httpx_get)
 
         with pytest.raises(RuntimeError, match="not a trusted GitHub https host"):
             download_wibo(dest)
@@ -352,7 +352,7 @@ class TestDownloadWiboErrors:
                 )
             raise httpx.HTTPError("dl failed")
 
-        monkeypatch.setattr("rebrew.wibo.httpx.get", get)
+        monkeypatch.setattr("httpx.get", get)
         with pytest.raises(RuntimeError, match="Failed to download wibo asset"):
             wibo_mod.download_wibo(Path("/tmp/wibo"))
 
@@ -376,7 +376,7 @@ class TestTrustedRedirects:
             responses.append(r)
             return r
 
-        monkeypatch.setattr("rebrew.wibo.httpx.get", _fake_httpx_get)
+        monkeypatch.setattr("httpx.get", _fake_httpx_get)
         final = wibo_mod._get_with_trusted_redirects(hops[0])
         assert final is responses[1]
         assert responses[0].closed is True

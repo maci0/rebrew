@@ -314,7 +314,7 @@ class TestGhidraBackend:
                 "rebrew.decompiler.importlib.import_module",
                 side_effect=_make_sync_import_mock(),
             ),
-            patch("rebrew.decompiler.httpx.Client", return_value=mock_client),
+            patch("httpx.Client", return_value=mock_client),
         ):
             result = fetch_ghidra(Path("/fake/target.dll"), 0x1000)
 
@@ -332,7 +332,7 @@ class TestGhidraBackend:
                 "rebrew.decompiler.importlib.import_module",
                 side_effect=_make_sync_import_mock(),
             ),
-            patch("rebrew.decompiler.httpx.Client", return_value=mock_client),
+            patch("httpx.Client", return_value=mock_client),
         ):
             result = fetch_ghidra(Path("/fake/target.dll"), 0x1000)
 
@@ -348,7 +348,7 @@ class TestGhidraBackend:
                 "rebrew.decompiler.importlib.import_module",
                 side_effect=_make_sync_import_mock(),
             ),
-            patch("rebrew.decompiler.httpx.Client", return_value=mock_client),
+            patch("httpx.Client", return_value=mock_client),
         ):
             result = fetch_ghidra(Path("/fake/target.dll"), 0x1000)
 
@@ -362,7 +362,7 @@ class TestGhidraBackend:
                 "rebrew.decompiler.importlib.import_module",
                 side_effect=_make_sync_import_mock(),
             ),
-            patch("rebrew.decompiler.httpx.Client", return_value=mock_client),
+            patch("httpx.Client", return_value=mock_client),
         ):
             result = fetch_ghidra(Path("/fake/target.dll"), 0x1000)
 
@@ -380,7 +380,7 @@ class TestGhidraBackend:
                 "rebrew.decompiler.importlib.import_module",
                 side_effect=_make_sync_import_mock(),
             ),
-            patch("rebrew.decompiler.httpx.Client", return_value=mock_client),
+            patch("httpx.Client", return_value=mock_client),
             warnings.catch_warnings(record=True) as caught,
         ):
             warnings.simplefilter("always")
@@ -402,7 +402,7 @@ class TestGhidraBackend:
                 "rebrew.decompiler.importlib.import_module",
                 side_effect=_make_sync_import_mock(),
             ),
-            patch("rebrew.decompiler.httpx.Client", return_value=mock_client),
+            patch("httpx.Client", return_value=mock_client),
         ):
             fetch_ghidra(Path("/fake/target.dll"), 0x1000, endpoint=custom_ep)
 
@@ -419,7 +419,7 @@ class TestGhidraBackend:
                 "rebrew.decompiler.importlib.import_module",
                 side_effect=_make_sync_import_mock(),
             ),
-            patch("rebrew.decompiler.httpx.Client", return_value=mock_client),
+            patch("httpx.Client", return_value=mock_client),
         ):
             fetch_ghidra(Path("/fake/target.dll"), 0x1000)
 
@@ -436,7 +436,7 @@ class TestGhidraBackend:
                 "rebrew.decompiler.importlib.import_module",
                 side_effect=_make_sync_import_mock(),
             ),
-            patch("rebrew.decompiler.httpx.Client", return_value=mock_client),
+            patch("httpx.Client", return_value=mock_client),
         ):
             fetch_ghidra(Path("/some/dir/LEGO1.DLL"), 0xABCD)
 
@@ -486,7 +486,7 @@ class TestGhidraBackend:
                 "rebrew.decompiler.importlib.import_module",
                 side_effect=_make_sync_import_mock(),
             ),
-            patch("rebrew.decompiler.httpx.Client", return_value=mock_client),
+            patch("httpx.Client", return_value=mock_client),
         ):
             result = fetch_ghidra(Path("/fake/target.dll"), 0x1000)
 

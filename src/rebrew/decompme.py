@@ -35,7 +35,6 @@ import re
 from pathlib import Path
 from typing import Any
 
-import httpx
 import typer
 from rich.console import Console
 
@@ -200,6 +199,8 @@ def upload_scratch(
     (the body is included — decomp.me validation errors explain the reason),
     or a reply whose ``slug`` / ``claim_token`` are not URL-safe tokens.
     """
+    import httpx  # deferred: ~46 ms of startup for non-decomp.me commands
+
     try:
         resp = httpx.post(
             f"{api}/api/scratch",

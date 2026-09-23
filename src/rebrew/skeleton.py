@@ -27,7 +27,6 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from rebrew.catalog import FunctionEntry
 
-import httpx
 import typer
 from rich.console import Console
 
@@ -458,6 +457,8 @@ def fetch_xref_context(
 
     Returns a formatted comment block string, or None if MCP is unavailable.
     """
+    import httpx  # deferred: ~46 ms of startup for non-MCP commands
+
     _sync_mod = importlib.import_module("rebrew.ghidra.client")
     _fetch_mcp_tool_raw = _sync_mod.fetch_mcp_tool_raw
     _init_mcp_session = _sync_mod.init_mcp_session
