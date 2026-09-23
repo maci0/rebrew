@@ -160,6 +160,24 @@ class TestCompileCacheKey:
         k2 = compile_cache_key("src", "f.c", ["/O2"], ["/inc"], "wine CL")
         assert k1 == k2
 
+    def test_repeated_group_flag_keeps_last_occurrence(self) -> None:
+        """/O1 /O2 /O1 compiles as /O1: a keep-first dedupe would key it as /O2."""
+        k1 = compile_cache_key("src", "f.c", ["/O1", "/O2", "/O1"], ["/inc"], "wine CL")
+        k2 = compile_cache_key("src", "f.c", ["/O1"], ["/inc"], "wine CL")
+        k3 = compile_cache_key("src", "f.c", ["/O2"], ["/inc"], "wine CL")
+        assert k1 == k2
+        assert k1 != k3
+
+    def test_repeated_unknown_flag_not_deduped(self) -> None:
+        """Unknown tokens are not idempotent: -O2 -O0 -O2 builds at -O2, and
+        /D A /D B defines B where /D A B does not."""
+        k1 = compile_cache_key("src", "f.c", ["-O2", "-O0", "-O2"], ["/inc"], "gcc")
+        k2 = compile_cache_key("src", "f.c", ["-O2", "-O0"], ["/inc"], "gcc")
+        assert k1 != k2
+        k3 = compile_cache_key("src", "f.c", ["/D", "A", "/D", "B"], ["/inc"], "wine CL")
+        k4 = compile_cache_key("src", "f.c", ["/D", "A", "B"], ["/inc"], "wine CL")
+        assert k3 != k4
+
     def test_unknown_flag_order_preserved(self) -> None:
         """A flag outside the synced definitions is an anchor: reordering it
         against a known flag could change compilation, so it must not."""

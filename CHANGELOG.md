@@ -422,6 +422,13 @@
   in emission order.
 
 ### Fixed
+- **Compile-cache keys no longer merge different flag lists.**  Flag
+  canonicalization dropped repeated tokens keeping the first, so
+  `/O1 /O2 /O1` (built at `/O1`) keyed as `/O2`, and `-O2 -O0 -O2` or
+  `/D A /D B` shared a key with `-O2 -O0` or `/D A B`, returning an
+  object built under other flags.  Only repeats within one known option
+  group now collapse, to the last occurrence.  `CACHE_SCHEMA_VERSION` is
+  6, so entries written under the old keys are not reused.
 - **`rebrew match --seed-llm --dry-run` prints the prompt verbatim.**  The
   preview went through Rich markup, so `b[i]` in the source vanished as a
   style tag and `b[/*x*/0]` crashed with `MarkupError`.  LLM seeds that

@@ -19,7 +19,7 @@ Cache key
 SHA-256 of ``(schema_version, source_content, source_filename, source_ext,
 cflags, include_dirs, header_dependencies, toolchain_id)``.  Flags are
 canonicalized first (see :func:`canonicalize_cflags`): order-insensitive
-flag classes and duplicates collapse to one key, while order-sensitive
+flag classes and repeats within one option group collapse to one key, while order-sensitive
 input (``/I`` search order, ``/D`` redefinitions, last-wins flag values)
 keeps its order and still separates compilations.  Include dirs are hashed
 in **order** because order affects search semantics.
@@ -64,7 +64,7 @@ import diskcache
 logger = logging.getLogger(__name__)
 
 # Bump on key semantics changes to invalidate stale entries.
-CACHE_SCHEMA_VERSION = 5
+CACHE_SCHEMA_VERSION = 6
 
 # Warn once per process: a corrupt/contended store degrades every get/put,
 # and one line per lookup would flood a GA batch's log without adding info.
@@ -781,13 +781,11 @@ def canonicalize_cflags(cflags: list[str]) -> list[str]:
     """Reduce a flag list to a canonical form that preserves compilation.
 
     Two flag lists that differ only in the **order of flags that set distinct
-    compiler options**, or in **duplicated flags**, canonicalize to the same
+    compiler options**, or in **repeats within one option group**, canonicalize to the same
     list — so :func:`compile_cache_key` yields one key per equivalence class,
     the equivalence being "the compiler produces the same object" (the paper's
     observational equivalence, read through the compiler as observer).  Sound:
 
-    - identical flags are deduplicated (repeating a flag never changes the
-      object);
     - within one option group (one ``FlagSet``/``Checkbox``, e.g. ``/O1`` vs
       ``/O2`` or ``/Gd`` vs ``/Gz``) only the LAST occurrence matters (MSVC
       last-wins), so earlier members are dropped;
@@ -804,14 +802,11 @@ def canonicalize_cflags(cflags: list[str]) -> list[str]:
     """
     groups = _flag_group_ids()
 
-    # 1) Normalize + dedupe identical tokens (keep first).
-    normalized: list[str] = []
-    seen: set[str] = set()
-    for flag in cflags:
-        tok = flag.strip().strip('"').strip("'")
-        if tok and tok not in seen:
-            seen.add(tok)
-            normalized.append(tok)
+    # 1) Normalize.  No token dedupe: keeping the first of `/O1 /O2 /O1`
+    #    drops the winning `/O1`, and an unknown repeated token (`-O2 -O0
+    #    -O2`, `/D A /D B`) is not idempotent.  Known-group repeats collapse
+    #    in step 2.
+    normalized = [tok for flag in cflags if (tok := flag.strip().strip('"').strip("'"))]
 
     # 2) Collapse last-wins groups; sort across groups between unknown
     #    anchors (which act as fixed boundaries).
@@ -893,8 +888,8 @@ def compile_cache_key(
       ``__FILE__`` expansion); use the basename, not a temp path
     - **cflags** — all compiler flags in order (base + user + include).
       Canonicalized via :func:`canonicalize_cflags` before hashing: flags
-      that set distinct compiler options may appear in any order, duplicates
-      are dropped, and last-wins groups collapse to their final value —
+      that set distinct compiler options may appear in any order,
+      and last-wins groups collapse to their final value —
       so the key is shared by flag lists the compiler cannot tell apart,
       while genuinely different compilations (e.g. ``/O1`` vs ``/O2``, or
       ``/O1 /O2`` vs ``/O2 /O1``) still get distinct keys.
