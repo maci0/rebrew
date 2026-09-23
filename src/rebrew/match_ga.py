@@ -797,7 +797,8 @@ class BinaryMatchingGA:
             "cflags": self.cflags,
             "symbol": self.symbol,
         }
-        with _COLLECT_PAIRS_LOCK, open(self.collect_pairs_path, "a", encoding="utf-8") as f:  # type: ignore[arg-type]
+        assert self.collect_pairs_path is not None  # caller guards it
+        with _COLLECT_PAIRS_LOCK, open(self.collect_pairs_path, "a", encoding="utf-8") as f:
             f.write(json.dumps(record) + "\n")
             self._pair_keys.add(key)
             self._pairs_count += 1

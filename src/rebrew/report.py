@@ -384,7 +384,7 @@ def _ne_summary(cfg: ProjectConfig) -> dict[str, Any] | None:
             return None
         funcs = enumerate_ne_functions(info)
         vmt = find_dispatch_tables(info.data, section_dict(info), {}, min_entries=3, info=info)
-        ne_segs = info.ne_segments  # type: ignore[attr-defined]
+        ne_segs = info.ne_segments
         return {
             "segments": len(ne_segs),
             "code_segments": sum(1 for s in ne_segs if s.is_code),

@@ -26,6 +26,8 @@ from typing import TYPE_CHECKING, Any, Literal, overload
 if TYPE_CHECKING:
     import lief
 
+    from rebrew.ne_loader import NeExport, NeHeader, NeImportModule, NeSegment
+
 
 def __getattr__(name: str) -> Any:
     """Lazily import LIEF on first attribute use.
@@ -157,6 +159,12 @@ class BinaryInfo:
     text_raw_offset: int = 0
 
     sections: dict[str, SectionInfo] = field(default_factory=dict)
+
+    # NE tables, filled by the NE loader; unset for every other format.
+    ne_header: NeHeader | None = None
+    ne_segments: list[NeSegment] = field(default_factory=list)
+    ne_imports: list[NeImportModule] = field(default_factory=list)
+    ne_exports: list[NeExport] = field(default_factory=list)
 
     # Lazy-loaded; shared across workers via ``_load_binary_cache``.
     _data: bytes | None = field(default=None, repr=False)

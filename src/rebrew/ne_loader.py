@@ -236,7 +236,7 @@ def enumerate_ne_functions(info: BinaryInfo) -> list[NeFunction]:
     data = info.data
     md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_16)
     funcs: list[NeFunction] = []
-    for seg in info.ne_segments:  # type: ignore[attr-defined]
+    for seg in info.ne_segments:
         if not seg.is_code:
             continue
         raw = data[seg.file_offset : seg.file_offset + seg.length]
@@ -308,7 +308,7 @@ def enumerate_ne_functions(info: BinaryInfo) -> list[NeFunction]:
             if f.va > prev.va and f.va - prev.va >= 3:
                 new_size = f.va - prev.va
                 # Verify the truncated outer body ends at a ret/jmp.
-                seg_off = info.ne_segments[prev.segment - 1].file_offset  # type: ignore[attr-defined]
+                seg_off = info.ne_segments[prev.segment - 1].file_offset
                 body = data[seg_off + prev.offset : seg_off + prev.offset + new_size]
                 last_mnem = ""
                 for insn in _md.disasm(body, prev.va):
@@ -609,7 +609,7 @@ def load_ne_binary(path: Path) -> BinaryInfo:
                 code_raw_offset = seg.file_offset
             code_size += seg.length
 
-    info = BinaryInfo(
+    return BinaryInfo(
         path=path,
         format="ne",
         image_base=0,
@@ -617,11 +617,9 @@ def load_ne_binary(path: Path) -> BinaryInfo:
         text_size=code_size,
         text_raw_offset=code_raw_offset or 0,
         sections=sections,
+        ne_header=header,
+        ne_segments=segments,
+        ne_imports=parse_imports(data, ne_offset, header),
+        ne_exports=parse_exports(data, ne_offset, header),
         _data=data,
     )
-    # Attach parsed NE tables for tools that need them.
-    info.ne_header = header  # type: ignore[attr-defined]
-    info.ne_segments = segments  # type: ignore[attr-defined]
-    info.ne_imports = parse_imports(data, ne_offset, header)  # type: ignore[attr-defined]
-    info.ne_exports = parse_exports(data, ne_offset, header)  # type: ignore[attr-defined]
-    return info

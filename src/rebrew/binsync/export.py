@@ -26,6 +26,7 @@ import datetime
 import logging
 import re
 import subprocess
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -152,7 +153,7 @@ def _extract_global_name_and_type(
 
 def _resolve_global_types(
     cfg: ProjectConfig,
-    global_entries: list[object],
+    global_entries: Sequence[object],
 ) -> dict[int, str]:
     """Map VA → C type string for each global entry.
 
@@ -196,7 +197,7 @@ def _resolve_global_types(
 
 def _resolve_global_names(
     cfg: ProjectConfig,
-    global_entries: list[object],
+    global_entries: Sequence[object],
 ) -> dict[int, str]:
     """Map VA → variable name for each DATA/GLOBAL entry.
 
@@ -978,8 +979,8 @@ def export_state(
         }
 
     # Collect global vars with real names + types
-    va_to_name = _resolve_global_names(cfg, global_entries)  # type: ignore[arg-type]
-    va_to_type = _resolve_global_types(cfg, global_entries)  # type: ignore[arg-type]
+    va_to_name = _resolve_global_names(cfg, global_entries)
+    va_to_type = _resolve_global_types(cfg, global_entries)
     globals_list: list[tuple[int, str, int, str, str | None]] = []
     for e in global_entries:
         gname = va_to_name.get(e.va) or e.symbol or e.name or f"g_{e.va:08x}"

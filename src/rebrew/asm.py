@@ -654,9 +654,9 @@ def _hex_view(
         from rebrew.binary_loader import load_binary
 
         info = load_binary(bin_path)
-        if info.format == "ne":
-            ne_segment_count = info.ne_header.segment_count  # type: ignore[attr-defined]
-            for s in info.ne_segments:  # type: ignore[attr-defined]
+        if info.ne_header is not None:
+            ne_segment_count = info.ne_header.segment_count
+            for s in info.ne_segments:
                 if s.base_va <= va_int < s.base_va + s.length:
                     ne_seg = s.index
                     ne_seg_name = "code" if s.is_code else "data"

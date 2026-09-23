@@ -302,7 +302,8 @@ def _docker_run(spec: ToolchainSpec, mode: str, args: list[str]) -> int:
     prefix = _wineprefix(spec)
     _ensure_wineprefix(prefix, spec)
 
-    tool_root = Path(spec.tool_root)  # type: ignore[arg-type]  # validated above
+    assert spec.tool_root is not None  # _resolve_spec validated it
+    tool_root = Path(spec.tool_root)
     assert spec.image is not None  # _resolve_spec validated it
     inc = "Z:" + str(tool_root.parent / "Include").replace("/", "\\")
     lib = "Z:" + str(tool_root.parent / "Lib").replace("/", "\\")

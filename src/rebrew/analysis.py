@@ -355,7 +355,7 @@ def data_references(info: BinaryInfo, va: int, size: int) -> list[Xref]:
 
 def ne_code_segments(info: BinaryInfo) -> list[str]:
     """Section names of an NE binary's code segments (for scans)."""
-    return [f"SEG{s.index}" for s in info.ne_segments if s.is_code]  # type: ignore[attr-defined]
+    return [f"SEG{s.index}" for s in info.ne_segments if s.is_code]
 
 
 def _default_scan_sections(info: BinaryInfo) -> list[str]:
@@ -367,7 +367,7 @@ def _default_scan_sections(info: BinaryInfo) -> list[str]:
 
 def _ne_segment_of(info: BinaryInfo, va: int) -> int | None:
     """Segment index (1-based) containing a synthetic VA, or None."""
-    for seg in info.ne_segments:  # type: ignore[attr-defined]
+    for seg in info.ne_segments:
         if seg.base_va <= va < seg.base_va + seg.length:
             return int(seg.index)
     return None
@@ -507,7 +507,7 @@ def iter_strings(
     min_len = max(min_len, 1)
     names: list[str]
     if info.format == "ne":
-        data_segs = [s for s in info.ne_segments if not s.is_code]  # type: ignore[attr-defined]
+        data_segs = [s for s in info.ne_segments if not s.is_code]
         names = section_names if section_names is not None else [f"SEG{s.index}" for s in data_segs]
     else:
         default: list[str] = [n for n in (".rdata", ".data", ".rodata") if n in info.sections]

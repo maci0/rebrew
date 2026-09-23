@@ -142,7 +142,7 @@ def _collect_imports(binary: Path) -> dict[str, Any]:
     if is_ne(binary):
         info = load_binary(binary)
         dlls = Counter[str]()
-        for mod in info.ne_imports:  # type: ignore[attr-defined]
+        for mod in info.ne_imports:
             dlls[mod.module] += 1
         return {
             "count": sum(dlls.values()),
@@ -213,8 +213,10 @@ def _collect_far_calls(binary: Path) -> list[dict[str, Any]] | None:
     except Exception:  # best-effort dossier section
         logger.debug("NE load failed for %s", binary, exc_info=True)
         return None
+    if info.ne_header is None:
+        return None
 
-    seg_count = info.ne_header.segment_count  # type: ignore[attr-defined]
+    seg_count = info.ne_header.segment_count
     import capstone
 
     md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_16)
