@@ -99,13 +99,13 @@ body { font-family: system-ui, sans-serif;
 header { background: #1a1a1a; color: #fff; padding: 0.75rem 1.5rem;
          display: flex; flex-wrap: wrap; align-items: baseline; gap: 1rem 2rem; }
 header h1 { font-size: 1.05rem; margin: 0; }
-nav { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; }
-nav a { color: #c8c8c8; text-decoration: underline; min-height: 2.75rem; padding: 0.5rem 0.35rem;
+header nav { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; }
+header nav a { color: #c8c8c8; text-decoration: underline; min-height: 2.75rem; padding: 0.5rem 0.35rem;
         display: inline-flex; align-items: center; }
-nav a:hover { color: #fff; }
-nav a.active { color: #fff; font-weight: 600; text-decoration-thickness: 2px; }
+header nav a:hover { color: #fff; }
+header nav a.active { color: #fff; font-weight: 600; text-decoration-thickness: 2px; }
 :focus-visible { outline: 3px solid #005fcc; outline-offset: 2px; }
-nav a:focus-visible { outline-color: #9dc4f5; }
+header nav a:focus-visible { outline-color: #9dc4f5; }
 main { max-width: 1100px; margin: 1.5rem auto; padding: 0 1.5rem; }
 .cards { display: flex; flex-wrap: wrap; gap: 1rem; margin-bottom: 1.5rem; }
 .card { background: #fff; border: 1px solid #767676; border-radius: 6px;
@@ -138,7 +138,7 @@ td summary { cursor: pointer; padding: 0.25rem 0; }
 @media (forced-colors: active) {
   .status-EXACT, .status-RELOC, .status-PROVEN, .status-NEAR_MATCHING,
   .status-STUB, .status-UNKNOWN { color: CanvasText; font-weight: 700; }
-  nav a.active { text-decoration: underline; }
+  header nav a.active { text-decoration: underline; }
   :focus-visible { outline-color: Highlight; }
 }
 .note { background: #fff7ed; border: 1px solid #9a3412; border-radius: 6px;

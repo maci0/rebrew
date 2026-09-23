@@ -97,6 +97,11 @@ class TestReportCli:
         assert "forced-colors" in index
         assert "text-decoration: underline" in index  # nav links not color-only (1.4.1)
         assert "max-width: 40rem" in index  # narrow-viewport reflow (1.4.10)
+        # Dark-header link colors must not reach the pager nav on the light
+        # body: white hover text and a pale focus ring fail 1.4.3 / 1.4.11.
+        assert "\nnav a" not in index
+        assert "header nav a:hover { color: #fff; }" in index
+        assert "header nav a:focus-visible { outline-color: #9dc4f5; }" in index
         graph = (site / "graph.html").read_text(encoding="utf-8")
         assert "<h2>Call graph</h2>" in graph
         assert "<h3>" not in graph
