@@ -17,6 +17,7 @@ Usage::
 from __future__ import annotations
 
 import contextlib
+import functools
 import logging
 import threading
 from dataclasses import dataclass, field, replace
@@ -1102,25 +1103,24 @@ def detect_source_language(binary_path: Path) -> tuple[str, str]:
     return ("C", ".c")
 
 
-_PE_MACHINE_TO_ARCH: dict[Any, str] | None = None
-_ELF_MACHINE_TO_ARCH: dict[Any, str] | None = None
-_MACHO_CPU_TO_ARCH: dict[Any, str] | None = None
-
-
+@functools.cache
 def _arch_maps() -> tuple[dict[Any, str], dict[Any, str], dict[Any, str]]:
-    """LIEF-enum-keyed arch maps, built on first use (LIEF import is deferred)."""
-    global _PE_MACHINE_TO_ARCH, _ELF_MACHINE_TO_ARCH, _MACHO_CPU_TO_ARCH
-    if _PE_MACHINE_TO_ARCH is None:
-        import lief as _lf  # deferred: the 148ms native load happens here, not at import
+    """LIEF-enum-keyed ``(PE, ELF, Mach-O)`` arch maps, built on first use
+    (LIEF import is deferred).
 
-        _PE_MACHINE_TO_ARCH = {
+    Returned as one tuple so concurrent first callers never see a partly
+    built set; a racing duplicate build is harmless."""
+    import lief as _lf  # deferred: the 148ms native load happens here, not at import
+
+    return (
+        {
             _lf.PE.Header.MACHINE_TYPES.I386: "x86_32",
             _lf.PE.Header.MACHINE_TYPES.AMD64: "x86_64",
             _lf.PE.Header.MACHINE_TYPES.ARM: "arm32",
             _lf.PE.Header.MACHINE_TYPES.ARM64: "arm64",
             _lf.PE.Header.MACHINE_TYPES.MIPS16: "mips32",
-        }
-        _ELF_MACHINE_TO_ARCH = {
+        },
+        {
             _lf.ELF.ARCH.I386: "x86_32",
             _lf.ELF.ARCH.X86_64: "x86_64",
             _lf.ELF.ARCH.ARM: "arm32",
@@ -1130,19 +1130,16 @@ def _arch_maps() -> tuple[dict[Any, str], dict[Any, str], dict[Any, str]]:
             _lf.ELF.ARCH.PPC: "ppc32",
             _lf.ELF.ARCH.PPC64: "ppc64",
             _lf.ELF.ARCH.SH: "sh2",
-        }
-        _MACHO_CPU_TO_ARCH = {
+        },
+        {
             _lf.MachO.Header.CPU_TYPE.X86: "x86_32",
             _lf.MachO.Header.CPU_TYPE.X86_64: "x86_64",
             _lf.MachO.Header.CPU_TYPE.ARM: "arm32",
             _lf.MachO.Header.CPU_TYPE.ARM64: "arm64",
             _lf.MachO.Header.CPU_TYPE.POWERPC: "ppc32",
             _lf.MachO.Header.CPU_TYPE.POWERPC64: "ppc64",
-        }
-    assert _PE_MACHINE_TO_ARCH is not None
-    assert _ELF_MACHINE_TO_ARCH is not None
-    assert _MACHO_CPU_TO_ARCH is not None
-    return _PE_MACHINE_TO_ARCH, _ELF_MACHINE_TO_ARCH, _MACHO_CPU_TO_ARCH
+        },
+    )
 
 
 def _elf_endian(identity_data: Any) -> str:

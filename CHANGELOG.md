@@ -496,6 +496,15 @@
   in emission order.
 
 ### Fixed
+- **Recompile backend: a timeout change no longer closes an in-use
+  client.**  The shared `httpx.Client` was closed and replaced when
+  `compile_timeout` differed between calls, failing any request another
+  worker thread still had in flight on it.  Each timeout now keeps its own
+  pooled client until exit.
+- **Binary arch lookup is safe on first concurrent use.**  The PE, ELF,
+  and Mach-O arch maps were published as three separate globals, so a
+  second thread could see the PE map set and read a still-`None` ELF map
+  (`AssertionError` in `load_binary`).  They are now built as one tuple.
 - **`rebrew test --fix-sizes --no-promote` no longer writes SIZE.**
   `--no-promote` promises to write nothing to `rebrew-functions.toml`, but
   the fixed SIZE was still persisted (single- and multi-function paths).

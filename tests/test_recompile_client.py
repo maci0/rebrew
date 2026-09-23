@@ -383,7 +383,7 @@ class TestCompileViaRecompile:
             return client
 
         monkeypatch.delenv("REBREW_RECOMPILE_URL", raising=False)
-        monkeypatch.setattr(compile_mod, "_recompile_client", None)
+        monkeypatch.setattr(compile_mod, "_recompile_clients", {})
         monkeypatch.setattr(httpx, "Client", factory)
         for name in ("a.obj", "b.obj"):
             out, err = _compile_via_recompile(
@@ -400,6 +400,30 @@ class TestCompileViaRecompile:
             assert Path(out).read_bytes() == b"OBJ"
         assert len(made) == 1
         assert [c for c, _ in made[0].calls] == ["post", "get", "post", "get"]
+
+    def test_timeout_change_keeps_the_in_use_client_open(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A second timeout gets its own client; closing the first would fail
+        a request another thread still has in flight on it."""
+        closed: list[float] = []
+
+        class _Closable:
+            def __init__(self, timeout: float) -> None:
+                self.timeout = timeout
+
+            def close(self) -> None:
+                closed.append(self.timeout)
+
+        monkeypatch.setattr(compile_mod, "_recompile_clients", {})
+        monkeypatch.setattr(httpx, "Client", lambda timeout: _Closable(timeout))
+        first = compile_mod._shared_recompile_client(10.0)
+        second = compile_mod._shared_recompile_client(20.0)
+        assert first is not second
+        assert compile_mod._shared_recompile_client(10.0) is first
+        assert closed == []
+        compile_mod._close_recompile_client()
+        assert sorted(closed) == [10.0, 20.0]
 
     def test_service_failure_returns_the_log(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -437,7 +461,7 @@ class TestCompileViaRecompile:
         message: str,
     ) -> None:
         monkeypatch.delenv("REBREW_RECOMPILE_URL", raising=False)
-        monkeypatch.setattr(compile_mod, "_recompile_client", None)
+        monkeypatch.setattr(compile_mod, "_recompile_clients", {})
         client = _patch(monkeypatch, httpx.Response(200, content=response))
 
         out, err = _compile_via_recompile(

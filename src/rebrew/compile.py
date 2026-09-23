@@ -975,7 +975,10 @@ def recompile_url(cfg: ProjectConfig) -> str | None:
 
 
 _recompile_client_lock = threading.Lock()
-_recompile_client: tuple[float, Any] | None = None
+#: One pooled client per request timeout.  Never closed before exit: another
+#: thread may still be mid-request on it.  Keyed by timeout, so entries are
+#: bounded by the distinct ``compile_timeout`` values a process sees.
+_recompile_clients: dict[float, Any] = {}
 
 
 def _shared_recompile_client(timeout: float) -> Any:
@@ -983,30 +986,26 @@ def _shared_recompile_client(timeout: float) -> Any:
 
     A client per compile opened a fresh TCP/TLS connection each time and
     left one TIME_WAIT socket behind per candidate, so a long GA run on the
-    remote backend could exhaust ephemeral ports.  One pooled client is
-    reused by every thread (``httpx.Client`` is thread-safe), replaced only
-    when *timeout* changes, and closed at exit.
+    remote backend could exhaust ephemeral ports.  One pooled client per
+    *timeout* is reused by every thread (``httpx.Client`` is thread-safe)
+    and closed at exit.
     """
-    global _recompile_client
     import httpx
 
     with _recompile_client_lock:
-        if _recompile_client is not None and _recompile_client[0] == timeout:
-            return _recompile_client[1]
-        if _recompile_client is not None:
-            _recompile_client[1].close()
-        client = httpx.Client(timeout=timeout)
-        _recompile_client = (timeout, client)
+        client = _recompile_clients.get(timeout)
+        if client is None:
+            client = httpx.Client(timeout=timeout)
+            _recompile_clients[timeout] = client
         return client
 
 
 def _close_recompile_client() -> None:
-    """Close the shared recompile client (``atexit`` hook)."""
-    global _recompile_client
+    """Close the shared recompile clients (``atexit`` hook)."""
     with _recompile_client_lock:
-        if _recompile_client is not None:
-            _recompile_client[1].close()
-            _recompile_client = None
+        for client in _recompile_clients.values():
+            client.close()
+        _recompile_clients.clear()
 
 
 atexit.register(_close_recompile_client)
