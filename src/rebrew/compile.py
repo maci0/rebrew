@@ -57,6 +57,7 @@ import shutil
 import subprocess
 import threading
 import uuid
+from collections import Counter
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -1409,6 +1410,13 @@ def compile_batch_objs(
     style = spec.effective_arg_style
     if style not in ("posix", "msvc"):
         return {}, f"batch compile needs posix/msvc style, got {style!r}"
+    # Objects land in the workdir root by stem, so same-stem sources from
+    # different dirs would overwrite each other (case-insensitive: CL runs
+    # on a Windows filesystem).  Leave them out; callers compile them singly.
+    stem_counts = Counter(Path(s).stem.lower() for s in src_names)
+    src_names = [s for s in src_names if stem_counts[Path(s).stem.lower()] == 1]
+    if not src_names:
+        return {}, ""
     args = all_flags + (["-c", *src_names] if style == "posix" else ["/c", *src_names])
     try:
         tr = run_toolchain(spec, args, workdir=workdir, timeout=timeout, mounts=mounts)

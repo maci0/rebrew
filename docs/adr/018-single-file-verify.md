@@ -17,7 +17,8 @@ per-entry comparison.
 ## Decision
 
 - `rebrew verify <file.c> --compare` restricts the run to one source file
-  (exact path match after `resolve_source_arg`) and compares only that
+  (exact resolved-path match; a relative path is tried against the
+  project root, then `reversed_dir`) and compares only that
   file's entries against the baseline. Entries for other files are neither
   verified nor reported — the gate answers "did *this file* regress".
 - The baseline stays whole-project (`verify_baseline.json` unchanged);

@@ -1052,6 +1052,31 @@ class TestCompileBatchObjs:
         assert out == {}
         assert "boom" in err
 
+    def test_duplicate_stems_left_out(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """a/foo.c and b/FOO.c share one default object name in the workdir
+        root, so neither joins the batch; the unique stem still does."""
+        from types import SimpleNamespace
+
+        from rebrew.compile import compile_batch_objs
+
+        calls: list[list[str]] = []
+
+        def _fake_run(spec, args, *, workdir, timeout, mounts=None):
+            calls.append(args)
+            for name in ("foo.o", "bar.o"):
+                (workdir / name).write_bytes(b"\x00")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        monkeypatch.setattr("rebrew.compile.run_toolchain", _fake_run)
+        out, err = compile_batch_objs(
+            self._spec(), ["a/foo.c", "b/FOO.c", "bar.c"], ["-O2"], tmp_path, [], 60
+        )
+        assert err == ""
+        assert out == {"bar.c": str(tmp_path / "bar.o")}
+        assert calls == [["-O2", "-c", "bar.c"]]
+
     def test_exotic_style_refused(self, tmp_path: Path) -> None:
         from types import SimpleNamespace
 

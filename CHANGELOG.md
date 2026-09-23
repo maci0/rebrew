@@ -395,6 +395,11 @@
   ``one_line``, ``run_git``). Call sites inside the package already updated.
 
 ### Fixed
+- **Batch compiles no longer mix up same-stem sources.**  `a/foo.c` and
+  `b/foo.c` in one flag group both compiled to `foo.obj` in the batch
+  workdir root, so one entry was compared (and could be cached) against
+  the other file's object.  Sources whose stem repeats in a group now
+  compile individually (ADR-021).
 - **`rebrew report` strings page: truncated cells open from the keyboard.**
   Strings over 80 characters and reference lists over 5 entries kept the
   full value only in a `title` tooltip, which keyboard and touch users

@@ -21,8 +21,8 @@ hundreds.
 - Only `posix`/`msvc` arg styles batch. dos/borland/watcom profiles, the
   recompile backend, context-merged units, and groups of one compile
   individually.
-  GCC: `gcc -O2 -c a.c b.c ...` in one workdir (objects land beside
-  sources); MSVC: `cl /c a.c b.c ...` (same). Per-file `/Fo`/`-o` is
+  GCC: `gcc -O2 -c a.c b.c ...` in one workdir (objects land in the
+  workdir root); MSVC: `cl /c a.c b.c ...` (same). Per-file `/Fo`/`-o` is
   dropped — outputs are renamed from defaults after the run.
 - Cache hits are filtered BEFORE grouping (their files never enter a
   batch); cache writes happen per file after collection, under the same
@@ -32,10 +32,10 @@ hundreds.
 - Single-file callers keep `compile_to_obj` unchanged. No caller migration
   required; `run_verification` calls `precompile_batch` first, and entries
   it did not build compile individually in `verify_entry`.
-- A group failure (nonzero exit) falls back to per-file compiles to
-  attribute the error — batch output interleaves stderr, so the failing
-  file is identified by re-running individually (rare path, correctness
-  over speed).
+- A group failure (nonzero exit) keeps the objects the run did emit and
+  falls back to per-file compiles for the rest, to attribute the error:
+  batch output interleaves stderr, so the failing file is identified by
+  re-running individually (rare path, correctness over speed).
 
 ## Consequences
 
@@ -45,5 +45,6 @@ hundreds.
 - Docker is still one-shot per group (no daemon); the recompile service
   remains the persistent alternative.
 - MSVC `/Fo` per-file naming is lost inside a batch — outputs are matched
-  by stem (`foo.c` → `foo.obj`), so duplicate stems across directories
-  must be disambiguated by copying into per-file subdirs (same as today).
+  by stem (`foo.c` → `foo.obj`) in the workdir root. Sources whose stem
+  (case-insensitive) appears more than once in a group stay out of the
+  batch and compile individually.
