@@ -27,7 +27,7 @@ from rebrew.toolchain import (
     list_toolchains,
     pull_toolchain,
 )
-from rebrew.utils import atomic_write_text, container_runtime
+from rebrew.utils import SOURCE_CHECKOUT, atomic_write_text, container_runtime
 
 console = Console(stderr=True)
 
@@ -1500,6 +1500,11 @@ def update_cmd(
     from rebrew.toolchain_data import SOURCES
 
     repo = require_toolchains_repo()
+    if apply and SOURCE_CHECKOUT is None:
+        # --apply rewrites pins in rebrew's own .py sources; in a wheel
+        # install those live in site-packages and must not be mutated.
+        msg = "toolchain update --apply needs an editable rebrew checkout (uv pip install -e .)"
+        error_exit(msg, json_mode=json_output)
     src = SOURCES.get(name)
     if src is None:
         msg = f"no pinned source for toolchain {name!r} (known: {sorted(SOURCES)})"

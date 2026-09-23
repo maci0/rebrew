@@ -600,6 +600,24 @@ class TestCli:
         assert result.exit_code == 2
         assert "Dockerfile" in result.output
 
+    def test_update_apply_refuses_wheel_install(self, monkeypatch, tmp_path: Path) -> None:
+        """--apply rewrites rebrew's own sources; a wheel install must not
+        mutate site-packages, and must fail before any download."""
+        from typer.testing import CliRunner
+
+        from rebrew.main import app as umbrella
+
+        monkeypatch.setattr("rebrew.toolchain.require_toolchains_repo", lambda: tmp_path)
+        monkeypatch.setattr("rebrew.toolchain_cli.SOURCE_CHECKOUT", None)
+
+        def _no_download(*_a: Any, **_k: Any) -> None:
+            raise AssertionError("download attempted")
+
+        monkeypatch.setattr("rebrew.toolchain_cli._download_pinned_url", _no_download)
+        result = CliRunner().invoke(umbrella, ["toolchain", "update", "msvc-6.0", "--apply"])
+        assert result.exit_code == 2
+        assert "editable rebrew checkout" in result.output
+
 
 class TestPullToolchain:
     """pull_toolchain treats locally-present images as a successful no-op

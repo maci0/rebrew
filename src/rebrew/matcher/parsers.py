@@ -251,14 +251,12 @@ def _omf_to_coff(obj_path: str | Path, out_path: str | Path) -> None:
 
     # Prefer the vendored (pinned) objconv over a PATH binary — the vendored
     # copy is the byte-reproducible one and carries the 16-bit OMF fix; a
-    # system objconv may be an arbitrary version.  parents[3] is the repo
-    # root for the editable install (parsers.py → matcher → rebrew → src).
-    vendored_objconv = Path(__file__).resolve().parents[3] / "tools" / "objconv" / "objconv"
+    # system objconv may be an arbitrary version (vendored only in a checkout).
+    from rebrew.utils import find_install_tool
+
     path_objconv = shutil.which("objconv")
-    objconv: Path | None = (
-        vendored_objconv
-        if vendored_objconv.exists()
-        else (Path(path_objconv) if path_objconv else None)
+    objconv: Path | None = find_install_tool("tools/objconv/objconv") or (
+        Path(path_objconv) if path_objconv else None
     )
     if objconv is None or not objconv.exists():
         raise FileNotFoundError(
