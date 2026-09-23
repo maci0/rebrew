@@ -20,6 +20,10 @@
   the server's `{"error": ...}` reason.  Each error now carries it, e.g.
   "(server returned 404, unknown target 'x')", and a stopped server reads
   "the dashboard server did not respond" instead of a raw fetch error.
+- **`rebrew dashboard` explains a taken port.**  Starting a second
+  dashboard (or any server on 8000) failed with a bare
+  `[Errno 98] Address already in use`.  It now names the port and host
+  and points at `--port`.
 - **Every GA run is replayable from its seed.**  An unseeded `rebrew match`
   used an OS-entropy RNG and never reported it, so a lucky match could not
   be reproduced.  The GA now draws the seed itself and reports it: printed

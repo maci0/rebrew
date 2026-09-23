@@ -946,6 +946,27 @@ class TestCli:
         assert "serving" not in result.output.lower()
         assert "Rebrew dashboard" not in result.output
 
+    def test_port_in_use_names_port_and_fix(self, tmp_path: Path) -> None:
+        """A taken port says which one and how to pick another, not a bare errno."""
+        import socket
+        import sqlite3
+
+        from rebrew.dashboard import app
+
+        db_dir = tmp_path / "db"
+        db_dir.mkdir()
+        with sqlite3.connect(db_dir / "coverage.db") as conn:
+            conn.execute("CREATE TABLE metadata (target TEXT, key TEXT, value TEXT)")
+
+        with socket.socket() as busy:
+            busy.bind(("127.0.0.1", 0))
+            busy.listen()
+            port = busy.getsockname()[1]
+            result = CliRunner().invoke(app, ["--root", str(tmp_path), "--port", str(port)])
+        assert result.exit_code == 2
+        assert f"Port {port} on 127.0.0.1 is already in use" in result.output
+        assert "pick a free port with --port" in result.output
+
 
 class TestIntParam:
     """limit query parsing: non-positive / invalid → default, else clamp."""

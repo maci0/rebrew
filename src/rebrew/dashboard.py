@@ -62,6 +62,7 @@ exercise it without opening a socket.
 
 from __future__ import annotations
 
+import errno
 import gzip
 import hashlib
 import json
@@ -2145,7 +2146,15 @@ def main(
             "— any client that can reach this host can read coverage.db"
         )
 
-    server = ThreadingHTTPServer((host, port), _Handler)
+    try:
+        server = ThreadingHTTPServer((host, port), _Handler)
+    except OSError as exc:
+        if exc.errno == errno.EADDRINUSE:
+            error_exit(
+                f"Port {port} on {host} is already in use (another dashboard or server?). "
+                "Stop it, or pick a free port with --port.",
+            )
+        raise
     # Request handlers must not keep the process alive after Ctrl+C:
     # ThreadingMixIn defaults to non-daemon threads + block_on_close, so
     # server_close() waited on every in-flight (or stuck) client until the
