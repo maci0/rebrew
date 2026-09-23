@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import concurrent.futures as cf
 import re
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -130,14 +131,17 @@ def main(
     except ValueError as exc:
         error_exit(str(exc), json_mode=json_output)
     head, body_lines, tail = lines[:lo], lines[lo:hi], lines[hi:]
-    # Split body into top-level `;`-terminated units (declarations live there).
+    # Split the definition into units at the function body's top level
+    # (brace depth 1): the signature through its `{`, each `;`-terminated
+    # statement, each nested block through its `}`, then the closing brace.
     units: list[str] = []
     depth = 0
     cur: list[str] = []
     for ln in body_lines:
         cur.append(ln)
+        prev = depth
         depth += ln.count("{") - ln.count("}")
-        if depth == 0 and ";" in ln:
+        if depth == 1 and (prev != 1 or ";" in ln):
             units.append("".join(cur))
             cur = []
     if cur:
@@ -170,13 +174,13 @@ def main(
     console.print(f"baseline {base[0]} matched, object size {base[1]} vs target {size}")
     moves: list[dict[str, Any]] = []
 
+    sweep_root = Path(cfg.root) / ".rebrew" / "qualsweep"
+    sweep_root.mkdir(parents=True, exist_ok=True)
     for rnd in range(rounds):
         cands = [(k, lab, new) for k in decls for lab, new in variants(units[k])]
-        tmpdir = Path(cfg.root) / ".rebrew" / "qualsweep"
-        tmpdir.mkdir(parents=True, exist_ok=True)
 
         def submit(
-            c: tuple[int, str, str], _tmpdir: Path = tmpdir
+            c: tuple[int, str, str], _tmpdir: Path
         ) -> tuple[tuple[int, str, str], tuple[float, int]]:
             k, lab, new = c
             alt = units[:]
@@ -186,8 +190,14 @@ def main(
             tmp.write_text("".join(head) + "".join(alt) + "".join(tail), encoding=encoding)
             return (k, lab, new), score_fn(cfg, tmp, va_int, size, sym)
 
-        with cf.ThreadPoolExecutor(max_workers=jobs) as ex:
-            results = list(ex.map(submit, cands))
+        # Private dir per round: a concurrent sweep of the same symbol (another
+        # target sharing this root) would otherwise overwrite a candidate
+        # between its write and its compile, scoring the wrong source.
+        with (
+            tempfile.TemporaryDirectory(dir=sweep_root, prefix=f"{sym}-") as rnd_dir,
+            cf.ThreadPoolExecutor(max_workers=jobs) as ex,
+        ):
+            results = list(ex.map(lambda c: submit(c, Path(rnd_dir)), cands))
 
         best, best_c = base, None
         for (_k, _lab, _new), sc in results:

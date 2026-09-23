@@ -36,6 +36,45 @@ class TestQualSweepVariants:
         assert _function_span(lines, "f") == (0, 3)
 
 
+class TestQualSweepCandidateFiles:
+    def test_candidates_live_in_private_dir_removed_after_run(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from types import SimpleNamespace
+
+        from typer.testing import CliRunner
+
+        from rebrew import qual_sweep
+
+        src = tmp_path / "f.c"
+        src.write_text("int f(void) {\n  int a;\n  int b;\n  return a + b;\n}\n", encoding="utf-8")
+        cfg = SimpleNamespace(root=tmp_path)
+        monkeypatch.setattr(qual_sweep, "require_config", lambda **_: cfg)
+        monkeypatch.setattr(
+            qual_sweep,
+            "select_annotation",
+            lambda *_a, **_k: (src, SimpleNamespace(symbol="f", size=16), 0x1000),
+        )
+        sweep_root = tmp_path / ".rebrew" / "qualsweep"
+        seen: list[tuple[Path, str]] = []
+
+        def _score(_cfg: object, path: Path, *_a: object) -> tuple[float, int]:
+            if path != src:
+                seen.append((path.parent, path.read_text(encoding="utf-8")))
+            return 0.0, 16
+
+        monkeypatch.setattr(qual_sweep, "score_fn", _score)
+        r = CliRunner().invoke(qual_sweep.app, ["--rounds", "1", "--jobs", "2", "f.c"])
+        assert r.exit_code == 0, r.output
+        assert len(seen) == 2, r.output
+        # Each candidate was compiled from its own rewrite, in a per-run
+        # directory rather than a path a concurrent sweep could share.
+        assert {p for p, _ in seen} != {sweep_root}
+        assert all(p.parent == sweep_root for p, _ in seen)
+        assert sorted(t.count("volatile") for _, t in seen) == [1, 1]
+        assert list(sweep_root.iterdir()) == []
+
+
 class TestGapTraceHelpers:
     def test_masked_key_reloc(self) -> None:
         from rebrew.gap_trace import _masked_key

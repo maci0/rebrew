@@ -417,6 +417,13 @@
   in emission order.
 
 ### Fixed
+- **`rebrew qual-sweep` finds declarations.**  The statement splitter
+  counted the function's own braces, so it never reached depth 0 inside
+  the body, found no declarations, and swept nothing.  It now splits at
+  the body's top level.  Candidates compile from a private directory per
+  round (removed afterwards) instead of fixed `.rebrew/qualsweep/`
+  paths, so two concurrent sweeps of one symbol no longer overwrite each
+  other's candidate between write and compile.
 - **`REBREW_TOOLCHAINS_DIR` has one resolution path.**  `rebrew toolchain
   build`/`vendor`/`update` read the checkout from a `REPO_TOOLS` constant
   frozen at import, while `require_toolchains_repo()` resolved it at call
