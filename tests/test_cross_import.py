@@ -1759,3 +1759,83 @@ class TestCandidatesOnly:
         payload = json_mod.loads(result.output)
         assert len(payload["results"]) == 2
         assert "skipped_count" not in payload
+
+
+class TestVerifiedSymbolFollowsTheBlock:
+    """The verified symbol is the one the SOURCE VA's block defines.
+
+    ``_source_name`` returns the file's FIRST definition.  In a multi-function
+    file that is a different function, so a marker moved onto a later block
+    compiled the file, found the first function and compared ITS bytes
+    (guild-rebrew: "Size 33B vs 235B" on ErrorModule.c — the import could never
+    verify).
+    """
+
+    MULTI = (
+        "// FUNCTION: SRC 0x401000\n"
+        "// SIZE: 11\n"
+        "int first(void){ return 1; }\n"
+        "\n"
+        "// FUNCTION: SRC 0x401010\n"
+        "// SIZE: 13\n"
+        "int second(void){ return 2; }\n"
+    )
+
+    def test_name_for_va_picks_the_blocks_definition(self) -> None:
+        assert ci._name_for_va(self.MULTI, 0x401010) == "second"
+        assert ci._name_for_va(self.MULTI, 0x401000) == "first"
+
+    def test_name_for_va_unknown_va(self) -> None:
+        assert ci._name_for_va(self.MULTI, 0x409999) is None
+
+    def test_name_for_va_marker_only_block_borrows_below(self) -> None:
+        """A marker prepended above another block owns no body of its own."""
+        text = (
+            "// FUNCTION: DST 0x401040\n// SIZE: 13\n"
+            "// FUNCTION: SRC 0x401010\n// SIZE: 13\nint second(void){ return 2; }\n"
+        )
+        assert ci._name_for_va(text, 0x401040) == "second"
+
+    def test_shared_import_verifies_the_blocks_symbol(self, tmp_path: Path, monkeypatch) -> None:
+        from rebrew.compile import CompareResult
+
+        rev = tmp_path / "src"
+        rev.mkdir()
+        cfg_src = SimpleNamespace(
+            root=tmp_path,
+            target_name="SRC",
+            reversed_dir=rev,
+            shared_dir=rev,
+            metadata_dir=tmp_path,
+            target_binary=tmp_path / "a.exe",
+            source_ext=".c",
+            marker="SRC",
+            posix_style=False,
+        )
+        cfg_dst = SimpleNamespace(**{**vars(cfg_src), "target_name": "DST", "marker": "DST"})
+        (rev / "f.c").write_text(
+            self.MULTI + "\n// FUNCTION: DST 0x401040\n// SIZE: 3\nint second(void){ return 0; }\n",
+            encoding="utf-8",
+        )
+        seen: dict[str, Any] = {}
+
+        def fake_verify(entry, cfg, cache=None, **kw):
+            seen["entry"] = entry
+            return CompareResult(
+                matched=True,
+                status="EXACT",
+                match_percent=100.0,
+                delta=0,
+                obj_bytes=b"x",
+                reloc_offsets=[],
+                message="EXACT MATCH",
+            )
+
+        monkeypatch.setattr("rebrew.verify.verify_entry", fake_verify)
+        monkeypatch.setattr("rebrew.verify.apply_status_updates", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.cross_import._source_flags", lambda *a, **k: "")
+
+        res = ci.import_shared_function(cfg_dst, cfg_src, 0x401040, 0x401010, "f.c", 13)
+        assert res["action"] == "imported-shared"
+        assert seen["entry"].symbol == "_second"
+        assert seen["entry"].name == "second"
