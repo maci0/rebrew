@@ -462,6 +462,11 @@
   in emission order.
 
 ### Fixed
+- **`rebrew split` writes nothing when it refuses.**  A file whose second
+  block's first marker names another target counted one block for this
+  target: split wrote that block's file, then failed with "Need at least
+  two matching blocks", and every rerun failed on "Output file already
+  exists".  The count is now checked before any write.
 - **The recompile backend reuses one HTTP connection pool.**  Each remote
   compile built its own `httpx.Client`, so every GA candidate opened a
   fresh connection and left a TIME_WAIT socket behind; long runs could

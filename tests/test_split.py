@@ -231,6 +231,27 @@ class TestSplitBasic:
         assert "Output file already exists" in result.output
         assert not (tmp_path / "func_a.c").exists()
 
+    def test_single_target_block_writes_nothing_and_reruns_same(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """Only one block for this target: refuse before writing, so a re-run
+        gets the same error instead of "Output file already exists"."""
+        # Second block is shared: its first marker is CLIENT, so split skips
+        # it, while the SERVER annotation parser still counts two entries.
+        _write(
+            tmp_path / "multi.c",
+            _multi_two().replace(
+                "// FUNCTION: SERVER 0x10002000\n",
+                "// FUNCTION: CLIENT 0x20002000\n// FUNCTION: SERVER 0x10002000\n",
+            ),
+        )
+
+        for _ in range(2):
+            result, src = _invoke(tmp_path, monkeypatch)
+            assert result.exit_code != 0
+            assert "Need at least two matching blocks" in result.output
+            assert not (tmp_path / "func_a.c").exists()
+
     def test_force_overwrites_existing_files(self, tmp_path: Path, monkeypatch: Any) -> None:
         _write(tmp_path / "multi.c", _multi_two())
         existing = _write(tmp_path / "func_a.c", "stale\n")

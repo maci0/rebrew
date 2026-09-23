@@ -389,6 +389,12 @@ def main(
             json_mode=json_output,
         )
 
+    if split_count < 2:
+        error_exit(
+            f"Need at least two matching blocks for target '{cfg.marker}' to split",
+            json_mode=json_output,
+        )
+
     # Phase 2 — all paths validated: write every block.
     if not dry_run and to_write:
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -396,12 +402,6 @@ def main(
         for block, out_path in to_write:
             out_content = out_preamble + "\n" + block if out_preamble else block
             atomic_write_text(out_path, out_content, encoding=encoding)
-
-    if split_count < 2:
-        error_exit(
-            f"Need at least two matching blocks for target '{cfg.marker}' to split",
-            json_mode=json_output,
-        )
 
     if json_output:
         json_print(
