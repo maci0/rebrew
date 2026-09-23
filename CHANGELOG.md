@@ -438,6 +438,11 @@
   in emission order.
 
 ### Fixed
+- **`rebrew cfg show` reads bare scoped keys where `cfg set` writes
+  them.**  `cfg set binary x.exe` writes `[targets.<default>]`, but
+  `cfg show binary` reported "not found" and `--target` was ignored.
+  Bare target-scoped keys now resolve under `--target` (or the default
+  target), and project-scoped keys under `[project]`.
 - **`rebrew match --seed-llm` no longer sends the API key over plain
   HTTP.**  An `http://` endpoint on a non-loopback host with
   `[llm] api_key` / `REBREW_LLM_API_KEY` set now raises `ValueError`

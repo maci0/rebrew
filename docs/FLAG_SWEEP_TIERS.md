@@ -124,7 +124,7 @@ and `rebrew-matching/SKILL.md` for the AI-agent workflow that wraps the GA engin
 The MSVC6 tier definitions above are the CLI sweep.  The other grids in
 `flag_data.py` are reached only through the toolchain sweep
 (`--flag-sweep-only --flag-sweep-toolchains`), which enumerates the image-backed
-**MSVC** toolchains (`--sweep-only`/`--sweep-exclude` filter by profile
+**MSVC** toolchains (`--sweep-toolchains`/`--sweep-exclude-toolchains` filter by profile
 name or version prefix, e.g. `msvc-6.0,6.0,win16`).
 
 ### MSVC 1.52 (16-bit)

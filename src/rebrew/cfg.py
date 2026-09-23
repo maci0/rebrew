@@ -411,6 +411,12 @@ def show(
             print(tomlkit.dumps(_redact_secrets(raw_doc)))
         return
 
+    # Bare scoped keys resolve where `cfg set` writes them.
+    if "." not in key and "targets" in doc and key in _TARGET_SCOPED_KEYS:
+        key = f"targets.{_resolve_target(doc, target, json_mode=json_output)}.{key}"
+    elif "." not in key and key in _PROJECT_SCOPED_KEYS:
+        key = f"project.{key}"
+
     # Resolve dotted key path (handles keys containing dots like target names)
     parent, final_key, _ = _resolve_dotted_key(doc, key, json_mode=json_output)
     if not isinstance(parent, dict) or final_key not in parent:
