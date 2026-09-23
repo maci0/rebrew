@@ -417,6 +417,13 @@
   in emission order.
 
 ### Fixed
+- **`rebrew gen-stubs` recovers from a killed build.**  A run killed
+  during `--build-cmd` skipped its restore, leaving `CMakeLists.txt` with
+  the `--cmake-stub-var` line blanked and the `--exclude-file` TU at
+  `.c.off`; the next run read the blanked file as the original, failed with
+  `no 'set(...)' line found`, and never restored either.  The original is
+  now kept in `CMakeLists.txt.gen-stubs.orig` while patched, and each run
+  first puts back what an interrupted run left.
 - **Config warnings print once.**  Every config warning (e.g. `target
   binary not found`) reached stderr twice: the `warning:` line and again
   through Python's `UserWarning` display with a source excerpt.  They now

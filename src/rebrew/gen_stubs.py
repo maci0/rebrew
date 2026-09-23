@@ -34,6 +34,7 @@ Usage:
 
 from __future__ import annotations
 
+import os
 import re
 import shlex
 import subprocess
@@ -54,6 +55,12 @@ app = typer.Typer(
     help="Generate a stub TU for unresolved linker symbols (LNK2001/LNK2019).",
     rich_markup_mode="rich",
 )
+
+#: Sibling copy of ``CMakeLists.txt`` held while ``--cmake-stub-var`` blanks
+#: it; its presence at startup means a previous build was killed mid-run.
+_CMAKE_BACKUP_SUFFIX = ".gen-stubs.orig"
+#: Name ``--exclude`` TUs are moved to while the build runs.
+_EXCLUDED_SUFFIX = ".c.off"
 
 # Symbol name helpers ----------------------------------------------------------
 
@@ -606,6 +613,25 @@ def _defined_symbols(text: str) -> set[str]:
     return set(_DEFINED_FUNC_RE.findall(text)) | set(_DEFINED_DATA_RE.findall(text))
 
 
+def _recover_interrupted_build(
+    cmake_path: Path, cmake_backup: Path, exclude_file: Path | None
+) -> None:
+    """Undo what a killed ``_run_build`` left behind, before patching again.
+
+    Without this a rerun would read the blanked ``CMakeLists.txt`` as the
+    original (and fail: nothing left to blank) and never restore the
+    ``.c.off`` stub TU.
+    """
+    if cmake_backup.exists():
+        os.replace(cmake_backup, cmake_path)
+        console.print(f"[yellow]Restored {cmake_path.name} from an interrupted run[/yellow]")
+    if exclude_file is not None and not exclude_file.exists():
+        off = exclude_file.with_suffix(_EXCLUDED_SUFFIX)
+        if off.exists():
+            off.rename(exclude_file)
+            console.print(f"[yellow]Restored {exclude_file.name} from an interrupted run[/yellow]")
+
+
 def _run_build(
     root: Path,
     build_cmd: str,
@@ -632,13 +658,15 @@ def _run_build(
         error_exit("--build-cmd is empty", json_mode=False)
 
     cmake_path = root / "CMakeLists.txt"
+    cmake_backup = cmake_path.with_name(cmake_path.name + _CMAKE_BACKUP_SUFFIX)
+    _recover_interrupted_build(cmake_path, cmake_backup, exclude_file)
     original_cmake = cmake_path.read_text(encoding="utf-8") if cmake_path.exists() else None
     patched_cmake: str | None = None
     renamed: tuple[Path, Path] | None = None
 
     try:
         if exclude_file is not None and exclude_file.exists():
-            renamed = (exclude_file, exclude_file.with_suffix(".c.off"))
+            renamed = (exclude_file, exclude_file.with_suffix(_EXCLUDED_SUFFIX))
             exclude_file.rename(renamed[1])
 
         if cmake_stub_var and original_cmake is not None:
@@ -651,6 +679,9 @@ def _run_build(
             )
             if patched != original_cmake:
                 patched_cmake = patched
+                # Backup first: a kill before the ``finally`` restore leaves
+                # it for the next run to put back.
+                atomic_write_text(cmake_backup, original_cmake, encoding="utf-8")
                 cmake_path.write_text(patched, encoding="utf-8")
             else:
                 error_exit(
@@ -675,8 +706,8 @@ def _run_build(
             error_exit(f"build timed out after 600s: {build_cmd}", json_mode=False)
         return result.stdout + result.stderr
     finally:
-        if patched_cmake is not None and original_cmake is not None:
-            cmake_path.write_text(original_cmake, encoding="utf-8")
+        if patched_cmake is not None:
+            os.replace(cmake_backup, cmake_path)
         if renamed is not None:
             renamed[1].rename(renamed[0])
 

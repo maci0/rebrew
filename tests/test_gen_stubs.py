@@ -432,6 +432,54 @@ class TestCli:
         assert "int g_counter = 0;" in out.read_text(encoding="utf-8")
         assert stub.read_text(encoding="utf-8") == "int something = 1;\n"
 
+    def test_rerun_after_killed_build_restores_tree(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A run killed mid-build leaves CMakeLists blanked and the TU at .c.off;
+        the next run must put both back instead of failing or losing them."""
+        from rebrew.gen_stubs import app
+
+        monkeypatch.chdir(tmp_path)
+        _write_src(tmp_path, "extern int g_counter;\nextern int __cdecl write_log(char*);\n")
+        original = (
+            'set(LINK_STUBS "${PROJECT_SOURCE_DIR}/link_stubs.c")\n'
+            "add_library(x SHARED ${SOURCES} ${LINK_STUBS})\n"
+        )
+        cmake = tmp_path / "CMakeLists.txt"
+        cmake.write_text(original.replace("${PROJECT_SOURCE_DIR}/link_stubs.c", ""), "utf-8")
+        (tmp_path / "CMakeLists.txt.gen-stubs.orig").write_text(original, encoding="utf-8")
+        stub = tmp_path / "link_stubs.c"
+        (tmp_path / "link_stubs.c.off").write_text("int something = 1;\n", encoding="utf-8")
+        helper = tmp_path / "_gen_stubs_build.py"
+        helper.write_text(
+            "from pathlib import Path\n"
+            "text = Path('CMakeLists.txt').read_text(encoding='utf-8')\n"
+            "print(\n"
+            "    'error LNK2019: unresolved external symbol _g_counter'\n"
+            "    if 'set(LINK_STUBS \"\")' in text and not Path('link_stubs.c').exists()\n"
+            "    else 'clean'\n"
+            ")\n",
+            encoding="utf-8",
+        )
+        args = [
+            "--build-cmd",
+            f"{sys.executable} {helper.name}",
+            "--cmake-stub-var",
+            "LINK_STUBS",
+            "--exclude-file",
+            str(stub),
+            "--output",
+            str(tmp_path / "stubs.c"),
+        ]
+        for _ in range(2):
+            result = CliRunner().invoke(app, args)
+            assert result.exit_code == 0, result.output
+            assert "int g_counter = 0;" in (tmp_path / "stubs.c").read_text(encoding="utf-8")
+            assert cmake.read_text(encoding="utf-8") == original
+            assert stub.read_text(encoding="utf-8") == "int something = 1;\n"
+            assert not (tmp_path / "CMakeLists.txt.gen-stubs.orig").exists()
+            assert not (tmp_path / "link_stubs.c.off").exists()
+
 
 class TestUnsafeSymbolFilter:
     """Non-identifier names (from linker output / the binary's symbol tables)

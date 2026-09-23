@@ -901,7 +901,9 @@ keep_stub_exceptions = ["_vfs_Crc32Update"]
 Build integration: `--exclude-file PATH` renames the stub TU out of the
 build for the duration (`.off`, restored after); `--cmake-stub-var LINK_STUBS`
 temporarily blanks a `set(LINK_STUBS "...")` line in `CMakeLists.txt` so the
-stub drops out of the link — both restore on failure.
+stub drops out of the link — both restore on failure.  The unpatched file is
+held in `CMakeLists.txt.gen-stubs.orig` meanwhile; if a run is killed before
+restoring, the next run puts back that file and the `.off` TU before building.
 
 ### `rebrew inline-strings`
 
