@@ -509,7 +509,8 @@ def find_dispatch_tables(
         min_entries: Minimum entries to qualify as a dispatch table.
         max_stride: Maximum byte distance between consecutive pointer-sized slots to still
             be considered part of the same table.  Defaults to ``ptr_size`` (contiguous).
-        info: Optional BinaryInfo; enables NE-aware section selection.
+        info: Optional BinaryInfo; enables NE-aware section selection and
+            decodes pointers in its byte order (``endian == "big"``).
 
     """
     stride = max_stride if max_stride is not None else ptr_size
@@ -533,7 +534,8 @@ def find_dispatch_tables(
             (name, sec) for name, sec in sections.items() if name in (".data", ".rdata")
         ]
 
-    fmt = "<I" if ptr_size == 4 else "<Q"
+    byte_order = ">" if getattr(info, "endian", "") == "big" else "<"
+    fmt = byte_order + ("I" if ptr_size == 4 else "Q")
     tables: list[DispatchTable] = []
 
     for sec_name, sec in data_sections:

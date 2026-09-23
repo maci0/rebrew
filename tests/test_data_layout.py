@@ -257,6 +257,17 @@ def test_typed_array_literal_rejects_non_finite_element() -> None:
         typed_array_literal("float", good + inf)
 
 
+def test_typed_array_literal_big_endian_target() -> None:
+    """Big-endian targets (GameCube PPC, N64 MIPS) decode MSB-first."""
+    import struct
+
+    from rebrew.data_layout import typed_array_literal
+
+    data = struct.pack(">HH", 1, 0x1234) + struct.pack(">f", 2.5)
+    assert typed_array_literal("short", data[:4], ">") == ("{\n    1, 4660,\n}", 2)
+    assert typed_array_literal("float", data[4:], ">") == ("{\n    2.5f,\n}", 1)
+
+
 def test_own_data_globals_skips_nan_float_and_materializes_finite(tmp_path: Path) -> None:
     import struct
 

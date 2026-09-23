@@ -399,6 +399,7 @@ def _make_dispatch_binary(
     text_size: int,
     data_va: int,
     pointers: list[int],
+    ptr_fmt: str = "<I",
 ) -> tuple[bytes, dict[str, dict[str, int]]]:
     """Build a minimal fake binary with .text and .data sections for dispatch tests.
 
@@ -406,7 +407,6 @@ def _make_dispatch_binary(
     .data starts immediately after and contains the packed ``pointers`` list.
     Returns (binary_bytes, sections_dict).
     """
-    ptr_fmt = "<I"
 
     text_file_offset = 0
     text_content = bytes(text_size)
@@ -454,6 +454,17 @@ class TestFindDispatchTables:
         tables = find_dispatch_tables(binary, sections, {})
         assert len(tables) == 1
         assert tables[0].num_entries == 3
+
+    def test_big_endian_target_pointers_decode_in_target_order(self) -> None:
+        """A big-endian ELF (GameCube PPC, N64 MIPS) stores pointers MSB first."""
+        ptrs = self._ptrs_in_text(3)
+        binary, sections = _make_dispatch_binary(
+            self._TEXT_VA, self._TEXT_SIZE, self._DATA_VA, ptrs, ptr_fmt=">I"
+        )
+        info = SimpleNamespace(format="elf", endian="big")
+        tables = find_dispatch_tables(binary, sections, {}, info=info)
+        assert len(tables) == 1
+        assert [e.target_va for e in tables[0].entries] == ptrs
 
     def test_default_rejects_table_of_two(self) -> None:
         """A run of 2 entries is below the default min_entries=3 threshold."""

@@ -253,6 +253,11 @@ def data_raw_from_binary(bin_path: Path) -> bytes:
     return info.data[sec.file_offset : sec.file_offset + sec.raw_size]
 
 
+def data_byte_order(bin_path: Path) -> str:
+    """The reference's ``struct`` byte-order prefix (``">"`` for big-endian targets)."""
+    return ">" if load_binary(bin_path).endian == "big" else "<"
+
+
 # ---------------------------------------------------------------------------
 # Ownership + source edits
 # ---------------------------------------------------------------------------
@@ -670,12 +675,13 @@ def estimate_type_size(type_str: str) -> int:
     return c_type_size(type_str) * elem_count
 
 
-def typed_array_literal(ctype: str, data: bytes) -> tuple[str, int]:
+def typed_array_literal(ctype: str, data: bytes, byte_order: str = "<") -> tuple[str, int]:
     """C initializer text + element count for *data* read as *ctype* elements.
 
     Byte-sized elements keep :func:`hex_list`'s raw-byte layout; wider
     elements are formatted per element so ``int arr[3]`` emits three ints
-    instead of twelve bytes under an inflated dimension.
+    instead of twelve bytes under an inflated dimension.  *byte_order* is the
+    target's ``struct`` prefix (:func:`data_byte_order`).
 
     Raises ``ValueError`` when an element has no valid C89 literal
     (a non-finite float/double — ``nan``/``inf`` are not constant
@@ -688,7 +694,7 @@ def typed_array_literal(ctype: str, data: bytes) -> tuple[str, int]:
     usable = len(data) - len(data) % elemsize
     elems = []
     for off in range(0, usable, elemsize):
-        lit = _scalar_literal(data[off : off + elemsize], ctype, elemsize)
+        lit = _scalar_literal(data[off : off + elemsize], ctype, elemsize, byte_order)
         if lit is None:
             raise ValueError(
                 f"{ctype} element at byte {off} has no C89 literal (non-finite float/double bytes)"
@@ -698,7 +704,7 @@ def typed_array_literal(ctype: str, data: bytes) -> tuple[str, int]:
     return "{\n" + "\n".join(lines) + "\n}", len(elems)
 
 
-def _scalar_literal(data: bytes, ctype: str, size: int) -> str | None:
+def _scalar_literal(data: bytes, ctype: str, size: int, byte_order: str = "<") -> str | None:
     """A C initializer for *data* as *ctype* (None when the bytes don't fit).
 
     Floats and doubles (including the ``FLOAT``/``DOUBLE`` Windows typedefs)
@@ -709,29 +715,29 @@ def _scalar_literal(data: bytes, ctype: str, size: int) -> str | None:
     """
     if "*" in ctype:
         if len(data) >= 4:
-            v = struct.unpack_from("<I", data)[0]
+            v = struct.unpack_from(byte_order + "I", data)[0]
             return "0" if v == 0 else f"(void*) 0x{v:08x}"
         return None
     base = ctype.rstrip("*").strip().lower()
     if base == "float":
         if len(data) < 4:
             return None
-        v = struct.unpack_from("<f", data)[0]
+        v = struct.unpack_from(byte_order + "f", data)[0]
         return f"{v!r}f" if math.isfinite(v) else None
     if base == "double":
         if len(data) < 8:
             return None
-        v = struct.unpack_from("<d", data)[0]
+        v = struct.unpack_from(byte_order + "d", data)[0]
         return repr(v) if math.isfinite(v) else None
     if size == 1:
         return str(data[0])
     if size == 2:
-        return str(struct.unpack_from("<H", data)[0])
+        return str(struct.unpack_from(byte_order + "H", data)[0])
     if size == 4:
-        v = struct.unpack_from("<I", data)[0]
+        v = struct.unpack_from(byte_order + "I", data)[0]
         return f"0x{v:08x}" if v >= 0x10000000 else str(v)
     if size == 8:
-        v = struct.unpack_from("<Q", data)[0]
+        v = struct.unpack_from(byte_order + "Q", data)[0]
         return f"0x{v:016x}" if v else "0"
     return None
 
@@ -762,6 +768,7 @@ def own_data_globals(
     """
     data_base, raw_end, _section_end = layout_geometry(root / "rebrew-project.toml", target=target)
     orig = data_raw_from_binary(bin_path)
+    byte_order = data_byte_order(bin_path)
     toml = data_symbols(metadata)
     stub_resolved = stub_file.resolve()
     files = [f for f in _scan_files(src_dir, shared_dir) if f.resolve() != stub_resolved]
@@ -792,7 +799,7 @@ def own_data_globals(
             # scalar placeholder (TYPE name = 0;); pointers read their full
             # 4-byte value, not the pointee's size.
             size = elemsize
-            value = _scalar_literal(orig[off : off + size], base, size)
+            value = _scalar_literal(orig[off : off + size], base, size, byte_order)
             if value is None:
                 skipped.append(name)
                 continue
@@ -813,7 +820,7 @@ def own_data_globals(
                 skipped.append(name)
                 continue
             try:
-                value, dim = typed_array_literal(base, data)
+                value, dim = typed_array_literal(base, data, byte_order)
             except ValueError:
                 skipped.append(name)  # non-finite float bytes — no C89 literal exists
                 continue
@@ -963,6 +970,7 @@ def fix_ownership(
     toml = _data_symbol_types(metadata)
     data_base, raw_end, _section_end = layout_geometry(root / "rebrew-project.toml", target=target)
     orig = data_raw_from_binary(bin_path)
+    byte_order = data_byte_order(bin_path)
     files = _scan_files(src_dir, shared_dir)
 
     def_re = re.compile(r"^[ \t]*[\w\s\*]+\s+(\w+)(?:\[\d+\])?\s*=")
@@ -1010,7 +1018,7 @@ def fix_ownership(
             size = end - off + 1 if elemsize == 1 and 0 <= end < raw_end - data_base else elemsize
             data = orig[off : off + size]
             try:
-                init, count = typed_array_literal(typ, data)
+                init, count = typed_array_literal(typ, data, byte_order)
             except ValueError:
                 # Non-finite float bytes have no C89 literal — leave the
                 # definition in its current TU rather than emit invalid C.

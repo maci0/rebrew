@@ -656,6 +656,12 @@
   in emission order.
 
 ### Fixed
+- **Big-endian targets decode data in their own byte order.**  Dispatch
+  table scans (`rebrew data`, `analyze`, `depgraph`, `report`) and the
+  `.data` initializers written by `own_data_globals` / `fix_ownership`
+  always read pointers and scalars little-endian, so a GameCube PPC or
+  N64 MIPS ELF found no tables and got byte-swapped literals.  Both now
+  follow the binary's `endian`.
 - **Incremental verify no longer rounds match percent.**  Patched verify
   cache rows were rounded to one decimal, so 59.96 became 60.0 and crossed
   the `NEAR_MATCHING` threshold `rebrew todo` ranks by.  They now store the
