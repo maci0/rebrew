@@ -592,7 +592,6 @@ class TestCli:
         # No checkout needed: point the build source at an empty dir so the
         # command reaches the Dockerfile check (a real checkout has the file).
         monkeypatch.setattr("rebrew.toolchain.require_toolchains_repo", lambda: tmp_path)
-        monkeypatch.setattr("rebrew.toolchain_paths.REPO_TOOLS", tmp_path)
         result = CliRunner().invoke(umbrella, ["toolchain", "build", "watcom-2.0-win32"])
         assert result.exit_code == 2
         assert "Dockerfile" in result.output
@@ -1521,7 +1520,7 @@ class TestVendorRetryAfterPartialFailure:
         host = tmp_path / "fake" / "1.0-win32"
         (host / "source").mkdir(parents=True)
         (host / "Dockerfile").write_text("# meta\n", encoding="utf-8")
-        # Archive lives outside host_dir (still under REPO_TOOLS) so it is not
+        # Archive lives outside host_dir (still under the toolchains checkout) so it is not
         # treated as vendored content by the clobber check.
         tarball = tmp_path / "pins" / "fake.tar"
         tarball.parent.mkdir(parents=True)
@@ -1542,7 +1541,6 @@ class TestVendorRetryAfterPartialFailure:
         orig_gt = get_toolchain
 
         monkeypatch.setattr("rebrew.toolchain.require_toolchains_repo", lambda: tmp_path)
-        monkeypatch.setattr("rebrew.toolchain_paths.REPO_TOOLS", tmp_path)
         monkeypatch.setattr("rebrew.toolchain_data.SOURCES", {"fake-1.0": src})
         monkeypatch.setattr(
             "rebrew.toolchain.get_toolchain",

@@ -37,9 +37,6 @@ def toolchains_repo() -> Path:
     return Path("__no_rebrew_toolchains_checkout__")
 
 
-REPO_TOOLS = toolchains_repo()
-
-
 def vendored_path(sub: str) -> Path:
     """A path inside the rebrew-toolchains checkout, resolved at call time."""
     return toolchains_repo() / sub

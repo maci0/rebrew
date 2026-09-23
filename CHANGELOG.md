@@ -395,6 +395,11 @@
   ``one_line``, ``run_git``). Call sites inside the package already updated.
 
 ### Fixed
+- **`REBREW_TOOLCHAINS_DIR` has one resolution path.**  `rebrew toolchain
+  build`/`vendor`/`update` read the checkout from a `REPO_TOOLS` constant
+  frozen at import, while `require_toolchains_repo()` resolved it at call
+  time, so the two could disagree.  The commands now use the path
+  `require_toolchains_repo()` returns; `REPO_TOOLS` is gone.
 - **Batch compiles no longer mix up same-stem sources.**  `a/foo.c` and
   `b/foo.c` in one flag group both compiled to `foo.obj` in the batch
   workdir root, so one entry was compared (and could be cached) against

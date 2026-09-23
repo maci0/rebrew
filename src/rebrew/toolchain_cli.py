@@ -453,15 +453,14 @@ def vendor_cmd(
 
     from rebrew.toolchain import get_toolchain, require_toolchains_repo, vendored_binary
     from rebrew.toolchain_data import SOURCES
-    from rebrew.toolchain_paths import REPO_TOOLS
 
-    require_toolchains_repo()
+    repo = require_toolchains_repo()
     src = SOURCES.get(name)
     if src is None:
         msg = f"no pinned source for toolchain {name!r} (known: {sorted(SOURCES)})"
         error_exit(msg, json_mode=json_output)
 
-    host = REPO_TOOLS / src.host_dir
+    host = repo / src.host_dir
     extract_dir = host / "source"
     # Canonical layout: every vendored tree nests the actual toolchain one
     # level under ``source/`` (<family>/<ver>-<arch>/source/...), so all
@@ -507,7 +506,7 @@ def vendor_cmd(
 
     try:
         if src.is_in_repo():
-            tarball = REPO_TOOLS / src.in_repo
+            tarball = repo / src.in_repo
             # No explicit compression mode: tarfile auto-detects gzip/xz, so
             # in-repo .tar.xz and remote codeload .tar.gz both extract.  PEP 706
             # filter='data' blocks zip-slip even if the sha256 pin is wrong.
@@ -1126,7 +1125,6 @@ def build_cmd(
         require_toolchains_repo,
         swap_toolchain_image,
     )
-    from rebrew.toolchain_paths import REPO_TOOLS
 
     spec = get_toolchain(name)
     if spec.image is None:
@@ -1135,17 +1133,17 @@ def build_cmd(
     if spec.image is None or ":" not in spec.image:
         msg = f"toolchain {name!r} image tag {spec.image!r} has no version-arch tag"
         error_exit(msg, json_mode=json_output)
-    require_toolchains_repo()
+    repo = require_toolchains_repo()
     tag, verarch = spec.image.rsplit(":", 1)
     image = spec.image  # narrowed local — mypy does not narrow into the closure
-    build_dir = REPO_TOOLS / spec.family / verarch
+    build_dir = repo / spec.family / verarch
     if not (build_dir / "Dockerfile").exists():
         msg = f"no Dockerfile at {build_dir}"
         error_exit(msg, json_mode=json_output)
 
     # Every toolchain image inherits FROM rebrew/base — build it first so a
     # fresh docker daemon resolves the dependency.
-    base_dir = REPO_TOOLS / "base"
+    base_dir = repo / "base"
     base_from = None
     for line in (build_dir / "Dockerfile").read_text(encoding="utf-8").splitlines():
         if line.upper().startswith("FROM "):
@@ -1453,13 +1451,13 @@ def _rewrite_dockerfile_sha(name: str, sha256: str) -> None:
     import re
 
     from rebrew.toolchain import get_toolchain
-    from rebrew.toolchain_paths import REPO_TOOLS
+    from rebrew.toolchain_paths import toolchains_repo
 
     spec = get_toolchain(name)
     if spec.image is None or ":" not in spec.image:
         return
     tag, verarch = spec.image.rsplit(":", 1)
-    df = REPO_TOOLS / spec.family / verarch / "Dockerfile"
+    df = toolchains_repo() / spec.family / verarch / "Dockerfile"
     if not df.exists():
         return
     text = df.read_text(encoding="utf-8")
@@ -1494,9 +1492,8 @@ def update_cmd(
 
     from rebrew.toolchain import get_toolchain, require_toolchains_repo
     from rebrew.toolchain_data import SOURCES
-    from rebrew.toolchain_paths import REPO_TOOLS
 
-    require_toolchains_repo()
+    repo = require_toolchains_repo()
     src = SOURCES.get(name)
     if src is None:
         msg = f"no pinned source for toolchain {name!r} (known: {sorted(SOURCES)})"
@@ -1561,7 +1558,7 @@ def update_cmd(
             _rewrite_dockerfile_sha(name, actual_sha)
             SOURCES[name] = replace(src, sha256=actual_sha, commit=live_commit)
             # 2. clear the vendored host tree (keep Dockerfile/wrappers) + re-vendor.
-            host = REPO_TOOLS / src.host_dir
+            host = repo / src.host_dir
             _META_PATTERNS = (
                 "Dockerfile",
                 "pak_extract.py",
