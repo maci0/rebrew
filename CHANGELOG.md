@@ -468,6 +468,10 @@
   in emission order.
 
 ### Fixed
+- **`--seed-llm` rejects pragma operators.**  A model seed could carry
+  `_Pragma("optimize(...)")` or `__pragma(...)` inside the function body,
+  which passed the `#`-line check and let a pragma, not the C, produce a
+  byte match.  Seeds containing either operator are now dropped.
 - **`rebrew residue` applies the postlink fixers.**  It looked for the
   layout package under a config attribute that does not exist, so every
   fixer was skipped and the residue was measured on the unpatched image.

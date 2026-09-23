@@ -204,6 +204,19 @@ class TestValidCSource:
     @pytest.mark.parametrize(
         "body",
         [
+            '  _Pragma("optimize(\\"\\", off)");\n',
+            '  __pragma(comment(linker, "/x"));\n',
+            '  _Pragma /* c */ ("pack(1)");\n',
+        ],
+    )
+    def test_pragma_operator_rejected(self, body: str) -> None:
+        """A pragma operator changes codegen like ``#pragma`` without a ``#`` line."""
+        src = f"int f(int a) {{\n{body}  return a;\n}}\n"
+        assert not valid_c_source(src, expect_name="f", expect_proto="int f(int a)")
+
+    @pytest.mark.parametrize(
+        "body",
+        [
             "  /* x */ #define Y 1\n",
             '/*\n*/#include "/etc/passwd"\n',
         ],
