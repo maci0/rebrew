@@ -126,6 +126,3 @@ class ToolchainSource:
     commit: str = ""  # GitHub default-branch commit sha the pin was taken from
     # (codeload URLs).  `rebrew toolchain check-updates` compares the live
     # branch sha against this to detect upstream drift cheaply (no download).
-
-    def is_in_repo(self) -> bool:
-        return bool(self.in_repo)

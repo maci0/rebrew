@@ -88,11 +88,8 @@ def md5_file(path: Path) -> str:
     """
     import hashlib
 
-    digest = hashlib.md5()
     with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+        return hashlib.file_digest(stream, "md5").hexdigest()
 
 
 #: Candidate MSVC toolchain layouts per profile, best first: the full master

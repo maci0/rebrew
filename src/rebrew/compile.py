@@ -939,13 +939,10 @@ def _native_toolchain_id(spec: "ToolchainSpec") -> str:
 def _native_binary_digest(path: Path) -> str | None:
     """Short SHA-256 of a native compiler binary, or None when unreadable."""
     try:
-        h = hashlib.sha256()
         with path.open("rb") as fh:
-            for chunk in iter(lambda: fh.read(1 << 20), b""):
-                h.update(chunk)
+            return hashlib.file_digest(fh, "sha256").hexdigest()[:16]
     except OSError:
         return None
-    return h.hexdigest()[:16]
 
 
 def _toolchain_cache_id(spec: "ToolchainSpec") -> str:

@@ -525,7 +525,7 @@ def vendor_cmd(
     extract_dir.mkdir()
 
     try:
-        if src.is_in_repo():
+        if src.in_repo:
             tarball = repo / src.in_repo
             # No explicit compression mode: tarfile auto-detects gzip/xz, so
             # in-repo .tar.xz and remote codeload .tar.gz both extract.  PEP 706

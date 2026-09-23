@@ -273,10 +273,6 @@ def _add_edge(
             edges.append(edge)
 
 
-def _block_signature(mnems: list[str]) -> Counter[str]:
-    return Counter(mnems)
-
-
 def _cosine(a: Counter[str], b: Counter[str]) -> float:
     va = math.sqrt(sum(v * v for v in a.values()))
     vb = math.sqrt(sum(v * v for v in b.values()))
@@ -309,8 +305,8 @@ def cfg_similarity(
         }
 
     # Greedy best-match blocks by mnemonic-multiset cosine, weighted by size.
-    sigs_t = [_block_signature(m) for _, _, m in tb]
-    sigs_c = [_block_signature(m) for _, _, m in cb]
+    sigs_t = [Counter(m) for _, _, m in tb]
+    sigs_c = [Counter(m) for _, _, m in cb]
     sizes_t = [s for _, s, _ in tb]
     total_weights = sum(sizes_t)
     matched_t: set[int] = set()

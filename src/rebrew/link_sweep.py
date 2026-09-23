@@ -49,37 +49,38 @@ console = Console(stderr=True)
 
 app = typer.Typer(help="Sweep LINK options to reproduce the reference PE header.")
 
-#: Header fields the sweep compares, in a stable order.
-_FIELDS = [
-    ("e_lfanew", "u32@0x3c"),
-    ("Machine", "u16@coff+0"),
-    ("NumberOfSections", "u16@coff+2"),
-    ("TimeDateStamp", "u32@coff+4"),
-    ("Characteristics", "u16@coff+18"),
-    ("Magic", "u16@opt+0"),
-    ("SizeOfCode", "u32@opt+4"),
-    ("SizeOfInitData", "u32@opt+8"),
-    ("SizeOfUninitData", "u32@opt+12"),
-    ("AddressOfEntryPoint", "u32@opt+16"),
-    ("BaseOfCode", "u32@opt+20"),
-    ("BaseOfData", "u32@opt+24"),
-    ("ImageBase", "u32@opt+28"),
-    ("SectionAlignment", "u32@opt+32"),
-    ("FileAlignment", "u32@opt+36"),
-    # Packed `major<<8 | minor`.  The minor field is a u16 at opt+42 / opt+50 —
-    # opt+41 / opt+49 are the high byte of the *major* u16 (always 0), so a
-    # minor-version delta was invisible to the sweep.
-    ("OSVersion", "u8@opt+40:u8@opt+42"),
-    ("SubsystemVersion", "u8@opt+48:u8@opt+50"),
-    ("SizeOfImage", "u32@opt+56"),
-    ("SizeOfHeaders", "u32@opt+60"),
-    ("CheckSum", "u32@opt+64"),
-    ("Subsystem", "u16@opt+68"),
-    ("DllCharacteristics", "u16@opt+70"),
-    ("StackReserve", "u32@opt+72"),
-    ("StackCommit", "u32@opt+76"),
-    ("HeapReserve", "u32@opt+80"),
-    ("HeapCommit", "u32@opt+84"),
+#: Header fields the sweep compares, in a stable order:
+#: ``(name, struct format, base, offset)`` with base ``file``/``coff``/``opt``.
+_FIELDS: list[tuple[str, str, str, int]] = [
+    ("e_lfanew", "<I", "file", 0x3C),
+    ("Machine", "<H", "coff", 0),
+    ("NumberOfSections", "<H", "coff", 2),
+    ("TimeDateStamp", "<I", "coff", 4),
+    ("Characteristics", "<H", "coff", 18),
+    ("Magic", "<H", "opt", 0),
+    ("SizeOfCode", "<I", "opt", 4),
+    ("SizeOfInitData", "<I", "opt", 8),
+    ("SizeOfUninitData", "<I", "opt", 12),
+    ("AddressOfEntryPoint", "<I", "opt", 16),
+    ("BaseOfCode", "<I", "opt", 20),
+    ("BaseOfData", "<I", "opt", 24),
+    ("ImageBase", "<I", "opt", 28),
+    ("SectionAlignment", "<I", "opt", 32),
+    ("FileAlignment", "<I", "opt", 36),
+    # Packed `major<<8 | minor` from the low bytes of the major u16 and the
+    # minor u16 at opt+42 / opt+50 (``x`` skips the major's always-zero high
+    # byte, which would hide a minor-version delta).
+    ("OSVersion", "<BxB", "opt", 40),
+    ("SubsystemVersion", "<BxB", "opt", 48),
+    ("SizeOfImage", "<I", "opt", 56),
+    ("SizeOfHeaders", "<I", "opt", 60),
+    ("CheckSum", "<I", "opt", 64),
+    ("Subsystem", "<H", "opt", 68),
+    ("DllCharacteristics", "<H", "opt", 70),
+    ("StackReserve", "<I", "opt", 72),
+    ("StackCommit", "<I", "opt", 76),
+    ("HeapReserve", "<I", "opt", 80),
+    ("HeapCommit", "<I", "opt", 84),
 ]
 
 
@@ -88,34 +89,10 @@ def _read_fields(path: Path) -> dict[str, int]:
     layout = pe_layout(d)
     if layout is None:
         raise ValueError(f"not a PE binary: {path}")
-    e = layout.e_lfanew
-    coff = e + 4
-    opt = layout.optional_header_offset
+    bases = {"file": 0, "coff": layout.e_lfanew + 4, "opt": layout.optional_header_offset}
     out: dict[str, int] = {}
-
-    def u32(off: int) -> int:
-        return int(struct.unpack_from("<I", d, off)[0])
-
-    def u16(off: int) -> int:
-        return int(struct.unpack_from("<H", d, off)[0])
-
-    def u8(off: int) -> int:
-        return d[off]
-
-    for name, spec in _FIELDS:
-        parts = spec.split(":")
-        vals = []
-        for p in parts:
-            kind, loc = p.split("@")
-            if loc.startswith("0x"):
-                off = int(loc, 16)
-            elif loc.startswith("coff+"):
-                off = coff + int(loc[5:])
-            elif loc.startswith("opt+"):
-                off = opt + int(loc[4:])
-            else:
-                raise ValueError(loc)
-            vals.append({"u32": u32, "u16": u16, "u8": u8}[kind](off))
+    for name, fmt, base, off in _FIELDS:
+        vals = struct.unpack_from(fmt, d, bases[base] + off)
         out[name] = vals[0] if len(vals) == 1 else (vals[0] << 8) | vals[1]
     return out
 
