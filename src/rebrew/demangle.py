@@ -25,16 +25,18 @@ class InvalidEncodedNumberError(RebrewError, Exception):
 
 
 _encoded_number_translate = str.maketrans("ABCDEFGHIJKLMNOP", "0123456789ABCDEF")
+_HEX_DIGITS = frozenset("0123456789ABCDEF")
 
 
 def parse_encoded_number(string: str) -> int:
     """Parse an MSVC encoded length (decimal digits or A-P hex letters)."""
     if string.endswith("@"):
         string = string[:-1]
-    try:
-        return int(string.translate(_encoded_number_translate), 16)
-    except ValueError as e:
-        raise InvalidEncodedNumberError(string) from e
+    digits = string.translate(_encoded_number_translate)
+    # int(_, 16) alone also takes a sign, whitespace, `_`, and a `0x` prefix.
+    if not digits or not _HEX_DIGITS.issuperset(digits):
+        raise InvalidEncodedNumberError(string)
+    return int(digits, 16)
 
 
 _string_const_regex = re.compile(

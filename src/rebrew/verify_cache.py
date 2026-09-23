@@ -62,6 +62,18 @@ def _memo_path_key(cache_path: Path) -> str:
         return str(cache_path)
 
 
+def _read_cache_document(cache_path: Path) -> dict[str, Any]:
+    """Parse *cache_path* as a JSON object.
+
+    Raises ``OSError`` or ``ValueError``; the latter covers malformed JSON,
+    non-UTF-8 bytes (``UnicodeDecodeError``), and a non-object document.
+    """
+    raw = json.loads(cache_path.read_text(encoding="utf-8"))
+    if not isinstance(raw, dict):
+        raise ValueError(f"not a JSON object: {type(raw).__name__}")
+    return raw
+
+
 def _invalidate_verify_cache_memo(cache_path: Path) -> None:
     """Drop every memo entry for *cache_path* after a write.
 
@@ -99,12 +111,10 @@ def load_verify_cache_raw(cfg: Any) -> dict[str, Any] | None:
         if key in _VERIFY_CACHE_MEMO:
             cached = _VERIFY_CACHE_MEMO[key]
             return copy.deepcopy(cached) if cached is not None else None
+    raw: dict[str, Any] | None
     try:
-        raw: dict[str, Any] | None = json.loads(cache_path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError, UnicodeDecodeError) as exc:
-        # UnicodeDecodeError is a ValueError, not an OSError: a cache holding
-        # non-UTF-8 bytes (truncated/tampered) used to escape this guard and
-        # crash `status`/`todo` instead of degrading to "no cache".
+        raw = _read_cache_document(cache_path)
+    except (OSError, ValueError) as exc:
         # Log so a corrupt cache is not mistaken for a cold start.
         logging.getLogger(__name__).warning("Ignoring corrupt verify cache %s: %s", cache_path, exc)
         raw = None
@@ -332,8 +342,8 @@ def verify_cache_matches_cfg(cache_path: Path, cfg: ProjectConfig) -> bool:
     if not cache_path.exists():
         return False
     try:
-        data = json.loads(cache_path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
+        data = _read_cache_document(cache_path)
+    except (OSError, ValueError):
         return False
     return _cache_identity_matches(data, cfg)
 
@@ -375,8 +385,8 @@ def patch_verify_cache_entries(cfg: ProjectConfig, patches: list[dict[str, Any]]
         return
     with _verify_cache_write_lock(cache_path):
         try:
-            raw = json.loads(cache_path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError) as exc:
+            raw = _read_cache_document(cache_path)
+        except (OSError, ValueError) as exc:
             logging.warning(
                 "Could not read verify cache %s — status may be stale: %s", cache_path, exc
             )
@@ -472,8 +482,8 @@ def _load_verify_cache(cache_path: Path, cfg: ProjectConfig) -> VerifyCache | No
     if not cache_path.exists():
         return None
     try:
-        data = VerifyCache.from_dict(json.loads(cache_path.read_text(encoding="utf-8")))
-    except (json.JSONDecodeError, OSError, TypeError, ValueError, AttributeError) as exc:
+        data = VerifyCache.from_dict(_read_cache_document(cache_path))
+    except (OSError, ValueError, TypeError, AttributeError) as exc:
         # A corrupt cache must not look like a cold start: status/todo would
         # silently fall back to metadata and the next verify would recompile
         # everything without explaining why the on-disk cache was ignored.

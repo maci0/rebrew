@@ -298,6 +298,20 @@ class TestPatchVerifyCacheEntries:
         assert entry["match_percent"] == 100.0
         assert entry["delta"] == 0
 
+    @pytest.mark.parametrize("payload", [b"\xff\xfe not utf-8", b"[1, 2]"])
+    def test_patch_ignores_unreadable_cache(self, tmp_path: Path, payload: bytes) -> None:
+        """A non-UTF-8 or non-object cache degrades to "nothing to patch"."""
+        from rebrew.verify_cache import patch_verify_cache_entries, verify_cache_matches_cfg
+
+        cfg = _make_cfg(tmp_path)
+        cache_path = self._make_cache(tmp_path, cfg, status="STUB")
+        cache_path.write_bytes(payload)
+        patch_verify_cache_entries(
+            cfg, [{"va": 0x1000, "status": "RELOC", "match_count": 8, "total": 8}]
+        )
+        assert cache_path.read_bytes() == payload
+        assert verify_cache_matches_cfg(cache_path, cfg) is False
+
     def test_patch_refreshes_metrics_without_status_change(self, tmp_path: Path) -> None:
         """A same-status patch still refreshes percent/delta.
 

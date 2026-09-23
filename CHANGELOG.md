@@ -417,6 +417,15 @@
   in emission order.
 
 ### Fixed
+- **A corrupt verify cache no longer crashes STATUS promotion.**  A
+  `.rebrew/verify_cache.json` holding non-UTF-8 bytes or a non-object JSON
+  document crashed `rebrew test`/`match` when they patched the cache
+  (`status`/`todo` already ignored it).  All cache readers now share one
+  parser and treat such a file as unreadable.
+- **`parse_encoded_number` rejects non-digit input.**  It relied on
+  `int(s, 16)`, which also accepts a sign, whitespace, `_`, `0x`, and
+  lowercase `a`-`f`, so `-1` decoded as a negative length.  Anything but
+  `0-9`/`A-P` now raises `InvalidEncodedNumberError`.
 - **Plugin binary loaders and detectors fail visibly.**  A
   `rebrew.binary_loaders` member returning anything but `BinaryInfo | None`
   was accepted and crashed later with an unrelated `AttributeError`; it is

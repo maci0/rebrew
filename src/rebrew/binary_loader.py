@@ -19,7 +19,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import threading
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, overload
 
@@ -261,6 +261,12 @@ def _sections_from_exec_segments(load_segments: Any) -> list[SectionInfo]:
     return found
 
 
+def _text_alias(source: SectionInfo) -> SectionInfo:
+    """A `.text` alias of *source*, not flagged code so a scanner that walks
+    `is_code` sections does not visit the region twice."""
+    return replace(source, name=".text", is_code=False)
+
+
 def _load_elf(binary: lief.ELF.Binary, path: Path) -> BinaryInfo:
     """Extract layout information from an ELF binary."""
     import lief
@@ -314,16 +320,8 @@ def _load_elf(binary: lief.ELF.Binary, path: Path) -> BinaryInfo:
             best_raw = max(code_sections, key=lambda sec: sec.size)
             alias = sections.get(_decode_lief_name(best_raw.name))
             if alias is not None:
-                sections[".text"] = SectionInfo(
-                    name=".text",
-                    va=alias.va,
-                    size=alias.size,
-                    file_offset=alias.file_offset,
-                    raw_size=alias.raw_size,
-                )
-                text_va = alias.va
-                text_size = alias.size
-                text_raw_offset = alias.file_offset
+                sections[".text"] = _text_alias(alias)
+                text_va, text_size, text_raw_offset = alias.va, alias.size, alias.file_offset
 
     if not any(section.is_code for section in sections.values()):
         # sstrip'd images — every OpenWrt package, and most stripped firmware —
@@ -337,17 +335,10 @@ def _load_elf(binary: lief.ELF.Binary, path: Path) -> BinaryInfo:
         for synth in _sections_from_exec_segments(load_segments):
             sections[synth.name] = synth
         if sections and ".text" not in sections:
-            # Same alias the section path uses, for the consumers that still
-            # ask for `.text` by name.  It is not flagged code, so the scanner
-            # does not visit the region twice.
+            # Same alias the section path uses, for consumers that ask for
+            # `.text` by name.
             best = max(sections.values(), key=lambda info: info.raw_size)
-            sections[".text"] = SectionInfo(
-                name=".text",
-                va=best.va,
-                size=best.size,
-                file_offset=best.file_offset,
-                raw_size=best.raw_size,
-            )
+            sections[".text"] = _text_alias(best)
             text_va, text_size, text_raw_offset = best.va, best.size, best.file_offset
 
     return BinaryInfo(
@@ -387,7 +378,6 @@ def _load_macho(fat_or_binary: lief.MachO.FatBinary | lief.MachO.Binary, path: P
         if seg.name == "__TEXT":
             image_base = seg.virtual_address
             break
-    import lief
 
     _zerofill = frozenset(
         t
@@ -426,7 +416,7 @@ def _load_macho(fat_or_binary: lief.MachO.FatBinary | lief.MachO.Binary, path: P
         )
 
         # __text is the Mach-O equivalent of .text
-        if section.name == "__text":
+        if sec_name == "__text":
             text_va = va
             text_size = vsize
             text_raw_offset = raw_offset
