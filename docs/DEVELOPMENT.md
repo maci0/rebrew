@@ -58,7 +58,7 @@ see [`AGENTS.md`](../AGENTS.md); for the CLI surface see [`CLI.md`](CLI.md).
   NOT the real metadata root (`cfg.metadata_dir`).  Always pass
   `metadata_dir=cfg.metadata_dir` explicitly (this bit `crt-match
   --fix-source`, which created a stray rebrew-functions.toml next to the
-  header).  Same trap in `match._parse_annotations` — pass cfg.metadata_dir
+  header).  Same trap in `match_batch._parse_annotations` — pass cfg.metadata_dir
   through.
 - **Compile paths need the source directory as an extra include dir.**  A
   `.c` using relative includes (`#include "../../Units/..."`) fails to

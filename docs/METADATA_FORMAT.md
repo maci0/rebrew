@@ -42,13 +42,13 @@ Variants for different marker types:
 - `// SIZE: N` — the **reccmp-native** compile contract (reccmp reads it
   from the `.c`).  The TOML `SIZE` is an *override*; lint W019 warns only
   when the two disagree.
-- `// CFLAGS:` — same co-read contract: an external build reads the `.c`
-  directly, so W019 warns only on inline↔metadata disagreement, never
-  migrates.
-- `// TOOLCHAIN:` / `// SOURCE:` / `// SECTION:` / `// STRUCT:` /
-  `// CALLERS:` — structural/file-borne keys still read inline by
-  `_kv_to_annotation` (the toolchain override and `// SOURCE: naked`
-  must travel with the file; SECTION is owned by `rebrew-data.toml` for
+- `// CFLAGS:` — co-read like SIZE when the metadata also has CFLAGS:
+  W019 then warns only on disagreement.  An inline CFLAGS with no metadata
+  value gets the generic deprecation W019 and `--fix` migrates it.
+- `// SOURCE: naked` — the file-borne naked-reconstruction marker, exempt
+  from W019.  Any other inline `// SOURCE:` value warns.
+- `// SECTION:` / `// STRUCT:` / `// CALLERS:` — structural keys read
+  inline by `_kv_to_annotation` (SECTION is owned by `rebrew-data.toml` for
   DATA/GLOBAL entries and never lands in `rebrew-functions.toml`).
 
 ### What does **not** stay inline
@@ -60,12 +60,15 @@ W029-redundant per-function `cflags` that only repeat the inherited ladder.
 `ORIGIN` (legacy everywhere) and `SECTION` on FUNCTION/LIBRARY/STUB markers
 are never stored — `--fix` strips them instead of migrating.
 
-`STATUS`, `SKIP`, `GLOBALS`, `BLOCKER`, `BLOCKER_DELTA`, `NOTE`, `GHIDRA`,
-`ANALYSIS`, `PROVE_CONSTRAINTS`, `LOCALS`, `COMMENTS`
+`STATUS`, `TOOLCHAIN`, `SKIP`, `GLOBALS`, `BLOCKER`, `BLOCKER_DELTA`, `NOTE`,
+`GHIDRA`, `ANALYSIS`, `SOURCE` (except `naked`), `PROVE_CONSTRAINTS`, `LOCALS`,
+`COMMENTS`
 (`ORIGIN` also warns but is stripped, never stored; `SECTION` on
 FUNCTION/LIBRARY/STUB markers is stripped — DATA/GLOBAL SECTION lives in
-`rebrew-data.toml`.  `SIZE`/`CFLAGS`/`TOOLCHAIN`/`SOURCE` stay inline per
-the co-read / file-borne rules above, not this list.)
+`rebrew-data.toml`.  `SIZE`, `CFLAGS` and `SOURCE: naked` follow the
+co-read / file-borne rules above.  `LOCALS`, `COMMENTS` and
+`PROVE_CONSTRAINTS` are tables, so `--fix` warns but cannot migrate an inline
+scalar.)
 
 ## Layer 2: Metadata TOML Files
 

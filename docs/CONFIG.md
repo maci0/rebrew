@@ -17,7 +17,7 @@ default_target = "target_name"           # Default target when --target is not p
 binary = "original/target.dll"          # Target binary (relative to project root)
 format = "pe"                            # Binary format: pe, elf, macho, ne, mz
 arch = "x86_32"                          # Architecture: x86_16, x86_32, x86_64, arm32, arm64, mips32, mips64, ppc32, ppc64, sh2
-# marker = "TARGET_NAME"                 # Defaults to target key uppercased (see below)
+# marker = "TARGET_NAME"                 # Defaults to target key uppercased, non-[A-Za-z0-9_] stripped
 reversed_dir = "src/target_name"         # Where reversed .c files live
 # inventory_file = "db/inventory-target.json"  # Function-inventory override
 # (default: reversed_dir/function_structure.json). Set it when several
@@ -105,7 +105,7 @@ The `marker` field identifies which target a source file's markers belong to. It
 
 When a project has multiple targets (e.g. `server.dll` and `client.exe`), the same `.c` file may contain markers for both targets. Tools use `marker` to filter markers to the active target — only markers matching `cfg.marker` are processed.
 
-By default, `marker` is the target key uppercased — so `[targets.server_dll]` gets marker `SERVER_DLL`. Override it when the marker prefix differs from the target key:
+By default, `marker` is the target key uppercased with every character outside `[A-Za-z0-9_]` stripped, so `[targets.server_dll]` gets marker `SERVER_DLL` and `[targets."server.dll"]` gets `SERVERDLL`. Override it when the marker prefix differs from the target key:
 
 ```toml
 [targets.server_dll]

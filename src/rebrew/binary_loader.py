@@ -1,8 +1,8 @@
 """Unified binary format loader for rebrew.
 
-Provides a format-agnostic interface for reading PE, ELF, and Mach-O binaries.
-Backed by LIEF for all format parsing.  This module replaces direct ``pefile``
-usage throughout the codebase.
+Provides a format-agnostic interface for reading PE, ELF, Mach-O, NE, and MZ
+binaries.  PE/ELF/Mach-O parse through LIEF; NE goes to ``rebrew.ne_loader``
+and MZ to :func:`_load_mz`, which parses the DOS header itself.
 
 Usage::
 

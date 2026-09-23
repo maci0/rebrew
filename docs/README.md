@@ -36,6 +36,7 @@
 | [STYLE.md](STYLE.md) | Documentation style: one-home-per-fact, slop checklist |
 | [ADDING_A_COMMAND.md](ADDING_A_COMMAND.md) | Checklist for adding a `rebrew` command |
 | [DEFENSIVE_PATTERNS.md](DEFENSIVE_PATTERNS.md) | Bug classes that bit this repo, as prevention rules |
+| [THREAT_MODEL.md](THREAT_MODEL.md) | Trust boundaries, attacker-controlled inputs, and their mitigations |
 
 ## Integration
 
@@ -59,3 +60,6 @@
 | Document | Description |
 |----------|-------------|
 | [PRINCIPLES.md](PRINCIPLES.md) | Core architectural philosophy (idempotency, score monotonicity, snowball effect) |
+| [adr/](adr/README.md) | Architecture decision records (settled decisions, Nygard format) |
+| [prd/](prd/README.md) | Product requirements per subsystem |
+| [codegen/](codegen/README.md) | Per-compiler-version codegen reference (prologues, registers, FPU, loops) |

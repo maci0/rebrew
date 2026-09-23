@@ -75,8 +75,8 @@ flowchart LR
 | `rebrew/annotation.py` | Marker/KV annotation parsing (`// FUNCTION: MOD 0xVA`), key classification (file-only vs metadata), `iter_annotations` batch loader |
 | `rebrew/metadata.py` | `rebrew-functions.toml` store + routing (`METADATA_FIELDS`, `update_source_status` / `update_field` / `remove_field`); typed facade in `metadata_model.py` (`MetadataEntry`) |
 | `rebrew/compile.py` | Compile (docker image by default; host binary only for plugin toolchains without `image`) + compare → `CompareResult` |
-| `rebrew/binary_loader.py` | PE/ELF/Mach-O loading via LIEF → `BinaryInfo` (sections, VAs, raw bytes) |
-| `rebrew/matcher/` | GA engine: `scoring.py` (numpy + capstone), `mutator.py` (128 tree-sitter mutations), `compiler.py` (flag sweep), `solutions.py` (cross-function seeding + run history) |
+| `rebrew/binary_loader.py` | PE/ELF/Mach-O via LIEF, NE via `ne_loader.py`, MZ via its own header parser → `BinaryInfo` (sections, VAs, raw bytes) |
+| `rebrew/matcher/` | GA engine: `scoring.py` (numpy + capstone), `mutator.py` (`ALL_MUTATIONS`: the 128 tree-sitter mutations from `mutations/*.py` plus plugin entry points), `compiler.py` (flag sweep), `solutions.py` (cross-function seeding + run history) |
 | `rebrew/catalog/` | Function registry, coverage grid (`grid.py`), `data_*.json` export, `coverage.db` schema consumers |
 | `rebrew/ghidra/` | BinSync-primary field sync + ReVa MCP structural ops (function create/delete and similar) |
 | `rebrew/coff_reloc.py` | Relocation-aware byte comparison (COFF/ELF reloc masking) |
@@ -160,18 +160,21 @@ would be a second answer to that question. See
 ## Metadata routing rules (file-only vs metadata-only)
 
 - **metadata-owned**: STATUS, TOOLCHAIN, BLOCKER, BLOCKER_DELTA,
-  NOTE, GHIDRA, ANALYSIS, SKIP, GLOBALS, SOURCE, PROVE_CONSTRAINTS,
-  UPDATED_BY, UPDATED_AT (STATUS-write provenance) — live in
-  `rebrew-functions.toml`; inline use fires lint W019. SIZE/CFLAGS are also
-  metadata fields but co-read inline (reccmp contract — W019 warns only on
-  disagreement, never migrates); `// SOURCE: naked` is file-borne and
+  NOTE, GHIDRA, ANALYSIS, SKIP, GLOBALS, LOCALS, COMMENTS, SOURCE,
+  PROVE_CONSTRAINTS — live in `rebrew-functions.toml`; inline use fires lint
+  W019. UPDATED_BY/UPDATED_AT (STATUS-write provenance) are written by the
+  status writers only and are not lint-checked inline. SIZE is co-read
+  inline (reccmp contract: W019 warns only on disagreement, never migrates);
+  CFLAGS gets the same disagreement-only check when the metadata has a value,
+  and otherwise the deprecation W019; `// SOURCE: naked` is file-borne and
   exempt.
 - **file-only**: MARKER, VA, MODULE, SYMBOL — live in the `.c` block.
 - **legacy**: ORIGIN (derived from module) — inline → W019, never stored in function metadata.
 - **data-owned**: SECTION (owned by `rebrew-data.toml` for DATA/GLOBAL
   entries) — deliberately absent from function `METADATA_FIELDS`.
-- `metadata.METADATA_FIELDS` is the single routing table (annotation.py keeps
-  `METADATA_KEYS` in sync so lint W019 fires on inline metadata keys; the
+- `metadata.METADATA_FIELDS` is the single routing table. `annotation.METADATA_KEYS`
+  is the W019 key set: `METADATA_FIELDS` minus UPDATED_BY/UPDATED_AT, plus the
+  legacy ORIGIN and data-owned SECTION (the
   `SIZE`/`CFLAGS`/`SOURCE:naked` exemptions live in W019's check, not the
   key set);
   `metadata_model.MetadataEntry.apply` rejects writes of any other key with

@@ -1547,6 +1547,20 @@ delta — the prove queue). Data verdicts from `verify --data` show as
 
 Find functions in the target binary that are structurally similar to the function at `<VA>`. The score (0–100) blends the mnemonic histogram cosine (60%) with call-count and branch-count agreement (20% each). Useful for finding which STUBs likely share the same source and optimisation approach as a solved function.
 
+| Flag | Description |
+|------|-------------|
+| `<VA>` | Query function address in hex (positional; required except with `--cluster`) |
+| `--size N` | Query function size in bytes (default: catalog size) |
+| `--top N` | Number of results to show (default: 10) |
+| `--min-score N` | Minimum similarity score (0–100) to include (default: 0) |
+| `--submatch` | Report common instruction runs between `<VA>` and `--other` instead of ranking |
+| `--other VA2` | Second function for `--submatch` |
+| `--min-run N` | Shortest common run `--submatch` reports (default: 4 instructions) |
+| `--cluster` | Group this target's functions with identical normalized instruction sequences |
+| `--min-cluster-size N` | Smallest group `--cluster` reports (default: 2) |
+| `--json` | JSON structured output |
+| `--target NAME` | Select a target from `rebrew-project.toml` |
+
 **Ranking similarity is not the same question as reporting structure.**
 Ranking is what this command does by default, and what the sibling
 [resembl](ECOSYSTEM.md#resembl--assembly-similarity-search) project does over
@@ -1651,15 +1665,6 @@ For the "keep the same `.c` for multiple target versions" workflow (binary versi
   ```
   Set them with `rebrew cfg set targets.V2.defines '["V2"]'` or edit `rebrew-project.toml` directly. A defines edit invalidates the target's verify cache automatically.
 - Functions that differ too much to `#ifdef` stay in one target's own `reversed_dir` (or use `rebrew cross-import` to copy them).
-
-| Flag | Description |
-|------|-------------|
-| `<VA>` | Query function address in hex (positional, required) |
-| `--size N` | Query function size in bytes (default: catalog size) |
-| `--top N` | Number of results to show (default: 10) |
-| `--min-score N` | Minimum similarity score (0–100) to include (default: 0) |
-| `--json` | JSON structured output |
-| `--target NAME` | Select a target from `rebrew-project.toml` |
 
 ### `rebrew cache`
 

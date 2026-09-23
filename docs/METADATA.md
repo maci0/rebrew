@@ -39,10 +39,11 @@ same tiers and the data/globals/layout pipeline.
 1. **Metadata wins over inline `.c` annotations** for owned fields (STATUS,
    TOOLCHAIN, BLOCKER, NOTE, GHIDRA, …).  Inline forms of
    those keys are deprecated — lint **W019** flags them, `--fix` migrates.
-   `SIZE`/`CFLAGS` are co-read, not migrated: `// SIZE:`/`// CFLAGS:` are the
-   reccmp-native contract in the `.c` (an external build reads the file
-   directly) and the TOML value is an override — W019 warns only on
-   inline↔metadata **disagreement**.  `// SOURCE: naked` is likewise
+   `SIZE` is co-read, not migrated: `// SIZE:` is the reccmp-native contract
+   in the `.c` (an external build reads the file directly) and the TOML value
+   is an override, so W019 warns only on inline↔metadata **disagreement**.
+   `// CFLAGS:` gets the same disagreement-only check when the metadata has a
+   CFLAGS value; without one it is deprecated and migrated like the rest.  `// SOURCE: naked` is likewise
    file-borne and exempt (it must travel with the file; self-clears when the
    C body replaces it).  The `.c` marker line keeps only identity: `// FUNCTION: MODULE 0xVA`.
 2. **STATUS display precedence**: metadata STATUS > `.rebrew/verify_cache.json`
