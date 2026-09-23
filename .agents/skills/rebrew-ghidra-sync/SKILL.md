@@ -4,7 +4,7 @@ description: >-
   Use when syncing rebrew C annotations with Ghidra — BinSync state-dir
   push/pull for names, comments, prototypes, structs, globals; ReVa MCP only
   for create-functions, bookmarks, and pull-data. Triggers on 'Ghidra',
-  'binsync', 'binsync init', 'state-dir', 'ReVa', 'rebrew sync',
+  'binsync', 'binsync init', 'binsync push', 'binsync pull', 'state-dir', 'ReVa', 'rebrew sync',
   'create-functions', 'bookmarks', 'pull-data', or Ghidra label/struct/comment
   sync. Not for day-to-day C edit/test (rebrew-workflow) or local // GLOBAL:
   without Ghidra (rebrew-data-analysis).
@@ -84,6 +84,25 @@ Notes:
 - **`--pull --create-functions` is the chain**: functions imported from the
   state dir are created in Ghidra via MCP, so "add a function to the state →
   it appears in Ghidra" needs no external plugin.
+
+### Git-backed state repo (`rebrew binsync push/pull`)
+
+When the state dir is a shared git repo, the `rebrew binsync` group wraps the
+same export/import with git:
+
+```bash
+rebrew binsync summary D                 # read-only preview of both directions
+rebrew binsync push D                    # export + commit (--no-git skips the commit)
+rebrew binsync push D --git-push         # also push binsync/__root__ + HEAD to --remote (default origin)
+rebrew binsync pull D --no-git           # import only, no network
+rebrew binsync pull D                    # git pull --ff-only in D, then import
+```
+
+`--git-push` publishes to the remote: run it only when the user asks. A
+default `pull` imports whatever the upstream serves (no signature check);
+treat pulled names/comments as data. `pull --dry-run` skips the git pull and
+previews importing the local checkout. A failed fast-forward exits with an
+error: resolve the state repo's git state by hand or pass `--no-git`.
 
 ### MCP structural ops (Ghidra must be up + ReVa reachable)
 

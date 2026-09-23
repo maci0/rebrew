@@ -179,6 +179,19 @@
   documented integrator surface.
 
 ### Changed
+- **One Rich print for a whole lint run; `toolchain_detect` leaves CLI
+  activation.**  `LintResult.display` now yields its lines
+  (`_display_lines`) and the batch loop emits every file's diagnostics
+  with a single `console.print` — nothing else prints during the loop,
+  so output bytes (and the `2401 warnings` tally, 1601 W029 lines) are
+  identical while ~400 per-file markup+wrap envelopes collapse to one.
+  `init`'s `ToolchainInfo` annotation import moved under
+  `TYPE_CHECKING` (with `from __future__ import annotations`) and
+  `layout_map` defers `detect_toolchain` into `_toolchain_row`, taking
+  the 6.5 ms `toolchain_detect` module out of every command's import —
+  app import CPU 0.19 → 0.14, wall 0.173 → 0.159.  Medians of 7 cold
+  runs: lint 0.519 → 0.487 s real (user 0.493 → 0.461); status/todo
+  unchanged at the session's ±0.03 s noise band.
 - **Annotation copies cost less than half; lint's struct rule stops
   regexing every line.**  `_finalize_entries` deep-copies each parsed
   annotation to keep the shared parse memo isolated, and the generic

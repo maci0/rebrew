@@ -39,8 +39,8 @@ Run from the project root (config discovery walks up to `rebrew-project.toml`). 
 
 ```bash
 rebrew data --json                              # full inventory: globals, data_annotations, type_conflicts, summary, sections
-rebrew data --summary --json                    # terminal table is section-level; JSON is still the full inventory
-rebrew data --conflicts --json                  # type conflicts: same name, different types across files
+rebrew data --summary --json                    # per-section progress: JSON `summary` becomes {sections, conflicts}
+rebrew data --conflicts --json                  # only globals with type conflicts (same name, different types across files)
 rebrew data --dispatch --json                   # detect dispatch tables / vtables in .data/.rdata
 rebrew data --dispatch --min-table-len 5 --json # require >= 5 entries per table
 rebrew data --dispatch --max-pointer-stride 8   # allow 8-byte stride between slots (sparse tables)

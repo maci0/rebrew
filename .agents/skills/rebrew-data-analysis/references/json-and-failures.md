@@ -5,8 +5,10 @@ with `jq` or Python; do not parse the terminal output.
 
 ## Inventory (`--json` / `--conflicts` / `--summary`)
 
-All three emit the same full inventory; `--summary` and `--conflicts` only change
-the terminal table:
+All three emit this inventory. `--conflicts` keeps only conflicting names in
+`globals` (and recounts `summary`); `--summary` replaces `summary` with
+`{"sections": [{"name", "globals", "annotated", "annotated_bytes", "section_size",
+"coverage_pct"}], "conflicts"}`:
 
 ```json
 {"globals": {"g_name": {"name": "g_name", "type": "int *", "va": "0x10025000",
@@ -43,7 +45,7 @@ good next-matching candidates.
 | Symptom | Cause | Fix |
 |---|---|---|
 | `rebrew-project.toml not found` / config error | Running outside a project | `cd` into the project root, or pass `--target NAME` |
-| `target binary not found (needed for --dispatch)` | Binary missing or unparseable | Fix `target_binary` in `rebrew-project.toml`; only `--dispatch` hard-requires the binary (plain scans degrade gracefully) |
+| `target binary not found` / `could not be parsed (needed for --dispatch)` | Binary missing or unparseable | Fix `target_binary` in `rebrew-project.toml`; only `--dispatch` hard-requires the binary (plain scans degrade gracefully) |
 | `already exists. Use --force to overwrite.` | `--gen-header` clobber guard | Pass `--force`, or `--gen-header-out` to a new path |
 | `No annotated BSS globals — nothing to verify` | No `// GLOBAL:`/`extern` with a `.bss` VA | Add annotations first, then re-run `--bss` |
 | Gap size looks wrong | `size_hint` is estimated from the C type (int=4, char=1, …) | Verify the declared types of the globals on either side of the gap |
