@@ -432,6 +432,11 @@
   compile-context model and loader; `compile`, `test`, and `verify` no
   longer import the `rebrew context` Typer module to read one.  Import
   them from `rebrew.compile_context`; `rebrew.context` keeps the CLI.
+- **Breaking:** **`rebrew.catalog` and `rebrew.ghidra` no longer re-export
+  their CLI.**  Importing either package loaded the Typer stack.
+  `rebrew.catalog` drops `app`, `main`, `main_entry`, and `run_catalog`,
+  and `rebrew.ghidra` drops `app`; import them from `rebrew.catalog.cli`
+  and `rebrew.ghidra.cli`.
 - **Breaking:** **Dashboard ``/api/globals`` and ``/api/history`` rows are
   compact arrays** under ``cols`` (same shape as ``/api/functions``). Zip
   ``cols`` with each array; built-in HTML accepts both arrays and legacy
@@ -651,6 +656,20 @@
   in emission order.
 
 ### Fixed
+- **Incremental verify no longer rounds match percent.**  Patched verify
+  cache rows were rounded to one decimal, so 59.96 became 60.0 and crossed
+  the `NEAR_MATCHING` threshold `rebrew todo` ranks by.  They now store the
+  unrounded value, as a full verify does.
+- **Parallel `rebrew match --collect-pairs` runs no longer interleave
+  records.**  Appends to the pairs JSONL now hold a lock on a `.lock`
+  sidecar, so large records from concurrent processes stay whole.
+- **`rebrew prove` reports a corrupt verify cache.**  It treated an
+  unreadable or malformed `.rebrew/verify_cache.json` as a cold start;
+  it now warns through the shared cache loader.
+- **`rebrew todo` warns when its library filter cannot read the target.**
+  Every exception in the probe was swallowed, so an unreadable binary
+  silently listed library functions as new work.  A read failure now
+  warns once; other errors propagate.
 - **`make build` no longer ships stale `build/lib` files.**  It removed
   `build/` and the egg-info only after a successful build, so residue from
   an aborted build or a bare `uv build` (e.g. a since-deleted module) went
