@@ -31,7 +31,7 @@ from rich.console import Console
 
 from rebrew.annotation import FUNC_NAME_HINT_RE, NEW_FUNC_RE, NEW_KV_RE
 from rebrew.cli import TargetOption, error_exit, json_print, require_config
-from rebrew.utils import atomic_write_text, metadata_write_lock, read_source_text
+from rebrew.utils import atomic_write_text, read_source_text
 
 console = Console(stderr=True)
 
@@ -77,7 +77,7 @@ def _migrate_file(
 ) -> dict[str, Any] | None:
     """Migrate one source file; returns a result row or None when skipped."""
     from rebrew.annotation import parse_c_file_multi
-    from rebrew.metadata import METADATA_FILENAME, load_metadata, save_metadata
+    from rebrew.metadata import record_migrated_markers
 
     annos = parse_c_file_multi(filepath, target_name=target_name, metadata_dir=cfg.metadata_dir)
     if not annos:
@@ -91,31 +91,33 @@ def _migrate_file(
 
     file_rel = filepath.resolve().relative_to(Path(cfg.metadata_dir).resolve()).as_posix()
     if not dry_run:
-        # save_metadata rewrites the whole store, so load and save under one
-        # lock: a STATUS promoted by a concurrent verify/test in between would
-        # otherwise be dropped.
-        with metadata_write_lock(cfg.metadata_dir, METADATA_FILENAME):
-            doc = load_metadata(cfg.metadata_dir)
-            for ann in annos:
-                entry = doc.setdefault((ann.module, ann.va), {})
-                entry.update(
-                    {
-                        "file": file_rel,
-                        "symbol": ann.symbol or entry.get("symbol", ""),
-                        "marker_type": ann.marker_type or "FUNCTION",
-                    }
+        rows: list[dict[str, Any]] = []
+        for ann in annos:
+            # Compile-contract fields read inline before migration: the .c
+            # copy is about to be stripped, so the TOML entry must carry them.
+            fields = {
+                key: value
+                for key, value in (
+                    ("size", ann.size),
+                    ("cflags", ann.cflags),
+                    ("toolchain", ann.toolchain),
                 )
-                if ann.name:
-                    entry.setdefault("name", ann.name)
-                # Compile-contract fields read inline before migration: the .c
-                # copy is about to be stripped, so the TOML entry must carry them.
-                if ann.size:
-                    entry["size"] = ann.size
-                if ann.cflags:
-                    entry["cflags"] = ann.cflags
-                if ann.toolchain:
-                    entry["toolchain"] = ann.toolchain
-            save_metadata(cfg.metadata_dir, doc)
+                if value
+            }
+            rows.append(
+                {
+                    "module": ann.module,
+                    "va": ann.va,
+                    "identity": {
+                        "file": file_rel,
+                        "symbol": ann.symbol,
+                        "marker_type": ann.marker_type or "FUNCTION",
+                        "name": ann.name,
+                    },
+                    "fields": fields,
+                }
+            )
+        record_migrated_markers(cfg.metadata_dir, rows)
         # Strip only once the TOML holds the values: a failed metadata write
         # must leave the inline markers in place.
         atomic_write_text(filepath, "".join(kept))

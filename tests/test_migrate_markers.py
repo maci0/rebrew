@@ -104,18 +104,18 @@ class TestMigrateMarkersEndToEnd:
         md.update_source_status(tmp_path, "STUB", "S", 0x1000)
         cfg = SimpleNamespace(reversed_dir=src, metadata_dir=tmp_path, marker="S", source_ext=".c")
 
-        real_save = md.save_metadata
+        real_record = md.record_migrated_markers
         writer = threading.Thread(
             target=md.update_source_status, args=(tmp_path, "EXACT", "S", 0x1000)
         )
 
-        def _race_then_save(directory: Path, data: Any) -> None:
-            # A verify promotion landing between migrate's load and save.
+        def _race_then_record(directory: Path, rows: Any) -> None:
+            # A verify promotion landing just before the migrate write.
             writer.start()
             writer.join(timeout=0.5)
-            real_save(directory, data)
+            real_record(directory, rows)
 
-        monkeypatch.setattr(md, "save_metadata", _race_then_save)
+        monkeypatch.setattr(md, "record_migrated_markers", _race_then_record)
         _migrate_file(cfg, src / "f.c", "S", dry_run=False)
         writer.join(timeout=5)
         assert not writer.is_alive()
@@ -140,7 +140,7 @@ class TestMigrateMarkersEndToEnd:
         def _fail(*_a: Any, **_kw: Any) -> None:
             raise OSError("disk full")
 
-        monkeypatch.setattr(md, "save_metadata", _fail)
+        monkeypatch.setattr(md, "record_migrated_markers", _fail)
         with pytest.raises(OSError):
             _migrate_file(cfg, src / "f.c", "S", dry_run=False)
         assert "// SIZE: 4" in (src / "f.c").read_text(encoding="utf-8")
@@ -162,6 +162,35 @@ class TestMigrateMarkersEndToEnd:
             _migrate_file(cfg, src / "f.c", "S", dry_run=False)
         assert store.read_text(encoding="utf-8") == corrupt
         assert "// SIZE: 4" in (src / "f.c").read_text(encoding="utf-8")
+
+    def test_unrelated_store_content_survives(self, tmp_path: Path) -> None:
+        from rebrew.metadata import load_metadata
+        from rebrew.migrate_markers import _migrate_file
+
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "f.c").write_text(
+            "// FUNCTION: S 0x1000\n// SIZE: 4\nint f(void) { return 0; }\n", encoding="utf-8"
+        )
+        store = tmp_path / "rebrew-functions.toml"
+        store.write_text(
+            '# hand note kept by tomlkit\n["S.0x2000"]\nstatus = "EXACT"\n\n'
+            '["unqualified"]\nnote = "loader skips this key"\n',
+            encoding="utf-8",
+        )
+        cfg = SimpleNamespace(reversed_dir=src, metadata_dir=tmp_path, marker="S", source_ext=".c")
+
+        assert _migrate_file(cfg, src / "f.c", "S", dry_run=False) is not None
+
+        text = store.read_text(encoding="utf-8")
+        assert "# hand note kept by tomlkit" in text
+        assert '["unqualified"]' in text
+        meta = load_metadata(tmp_path)
+        assert meta[("S", 0x2000)]["status"] == "EXACT"
+        assert meta[("S", 0x1000)]["size"] == 4
+        assert meta[("S", 0x1000)]["file"] == "src/f.c"
+        assert "status" not in meta[("S", 0x1000)]
+        assert oct(store.stat().st_mode & 0o777) == "0o444"
 
     def test_cli_app_runs_help(self) -> None:
         result = runner.invoke(app, ["--help"])

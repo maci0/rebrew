@@ -201,6 +201,7 @@ __all__ = [
     "LIBRARY_PRESET_ENTRY_POINT_GROUP",
     "LibraryOverride",
     "LibraryOverrideError",
+    "MARKER_IDENTITY_FIELDS",
     "MATCHED_STATUSES",
     "METADATA_FIELDS",
     "METADATA_FILENAME",
@@ -223,6 +224,7 @@ __all__ = [
     "merge_into_annotation",
     "metadata_path",
     "parse_library_metadata",
+    "record_migrated_markers",
     "refresh_library_presets",
     "remove_field",
     "remove_fields_batch",
@@ -557,6 +559,69 @@ def set_fields_batch(metadata_dir: Path, updates: list[dict[str, Any]]) -> int:
             atomic_write_locked(path, tomlkit.dumps(doc))
         pop_metadata_doc_cache(_metadata_cache, path)
     return changed_entries
+
+
+#: ADR 023 identity keys that ``rebrew migrate-markers`` moves out of ``.c``
+#: markers.  Deliberately outside :data:`METADATA_FIELDS`: inline KV routing
+#: and the typed writers never touch them; only :func:`record_migrated_markers`
+#: writes them.
+MARKER_IDENTITY_FIELDS: tuple[str, ...] = ("file", "symbol", "name", "marker_type")
+
+
+def record_migrated_markers(metadata_dir: Path, rows: list[dict[str, Any]]) -> None:
+    """Write ``migrate-markers`` rows into ``rebrew-functions.toml`` in one edit.
+
+    Each row carries ``module``, ``va``, ``identity`` (keys from
+    :data:`MARKER_IDENTITY_FIELDS`; empty values are skipped and ``name`` is
+    only set when absent) and ``fields`` (metadata fields validated like
+    :func:`set_fields`; STATUS is rejected).  The document is edited in place,
+    so comments and entries the loader skips survive.
+
+    Raises:
+        ValueError: The existing store cannot be parsed (it is left untouched),
+            a row has no module, or a field fails validation.
+
+    """
+    if not rows:
+        return
+    path = (metadata_dir / METADATA_FILENAME).resolve()
+    with metadata_write_lock(metadata_dir, METADATA_FILENAME):
+        if path.exists():
+            try:
+                load_tomllib(path)
+            except (tomllib.TOMLDecodeError, UnicodeDecodeError) as exc:
+                raise ValueError(f"refusing to overwrite unparseable {path}: {exc}") from exc
+        doc = load_toml_for_write(path, "metadata")
+        doc_dict = typing.cast(dict[str, Any], doc)
+        key_index = build_metadata_key_index(doc_dict)
+        changed = False
+        for row in rows:
+            module = str(row.get("module") or "")
+            _require_module(module)
+            va_int = int(row["va"])
+            toml_key = resolve_metadata_key(doc_dict, module, va_int, index=key_index)
+            if toml_key not in doc_dict:
+                doc_dict[toml_key] = tomlkit.table()
+                key_index[(module, va_int)] = toml_key
+            entry = typing.cast(dict[str, Any], doc_dict[toml_key])
+            updates: dict[str, Any] = {}
+            for key, value in (row.get("fields") or {}).items():
+                key = key.lower()
+                if key == "status":
+                    raise ValueError("Use update_statuses_batch() for STATUS changes")
+                updates[key] = toml_safe(_validate_field(key, value))
+            for key, value in (row.get("identity") or {}).items():
+                if key not in MARKER_IDENTITY_FIELDS:
+                    raise ValueError(f"unknown marker identity field {key!r}")
+                if value and not (key == "name" and entry.get("name")):
+                    updates[key] = toml_safe(str(value))
+            for key, value in updates.items():
+                if entry.get(key) != value:
+                    entry[key] = value
+                    changed = True
+        if changed:
+            atomic_write_locked(path, tomlkit.dumps(doc))
+        pop_metadata_doc_cache(_metadata_cache, path)
 
 
 def remove_fields_batch(metadata_dir: Path, updates: list[dict[str, Any]]) -> int:

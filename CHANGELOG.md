@@ -450,6 +450,12 @@
   in emission order.
 
 ### Fixed
+- **`rebrew migrate-markers` edits `rebrew-functions.toml` in place.**  It
+  loaded the store into a dict and rewrote the whole file, dropping every
+  comment and every entry whose key is not `MODULE.0xVA`.  The new
+  `record_migrated_markers` writer edits the tomlkit document under the
+  metadata lock, validates SIZE/CFLAGS/TOOLCHAIN like `set_fields`, and
+  rejects STATUS.
 - **FLIRT `.pat` names keep their invalid bytes visible.**  `rebrew flirt`
   and `identify-library` decoded `.pat` files with `errors="ignore"`, so a
   non-UTF-8 name like `foo\xe9` silently became `foo` and could match an
