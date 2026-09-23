@@ -34,7 +34,8 @@ Operators should treat project source, configured HTTP endpoints
 (recompile, LLM, ReVa MCP, decomp.me), GitHub release and toolchain-media
 downloads (wibo, SDK tarballs), docker/podman images (`REBREW_CONTAINER_RUNTIME`),
 cmake bridge wineprefix / profile pins (`REBREW_WINEPREFIX`, `REBREW_TOOLCHAIN`),
-`REBREW_SKILLS_DIR` overlays, and installed Python entry-point plugins
+`REBREW_SKILLS_DIR` overlays, BinSync state-repo git remotes (`rebrew binsync pull`
+fast-forwards and imports by default), and installed Python entry-point plugins
 (including `rebrew.cache_backends`) as part of the trust boundary.
 
 The packaged compile-cache backends refuse pickle deserialize
