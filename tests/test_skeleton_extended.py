@@ -274,9 +274,15 @@ class TestSkeletonCli:
     def test_single_va_mode(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         from rebrew.skeleton import app
 
-        self._setup(tmp_path, monkeypatch)
-        result = CliRunner().invoke(app, ["0x1000", "--name", "my_func", "--json"])
-        assert result.exit_code != 0  # VA not in catalog → error path
+        cfg = self._setup(tmp_path, monkeypatch)
+        # Options precede VA: the callback app parses a token after it as a subcommand.
+        result = CliRunner().invoke(app, ["--name", "my_func", "--json", "0x1000"])
+        assert result.exit_code == 2, result.output
+        assert json.loads(result.stdout) == {
+            "error": "VA 0x00001000 not found in function_structure.json",
+            "code": 2,
+        }
+        assert not (cfg.reversed_dir / "my_func.c").exists()
 
 
 class TestSkeletonCliModes:

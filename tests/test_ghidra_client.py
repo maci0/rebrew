@@ -939,7 +939,12 @@ class TestEndMcpSession:
         from rebrew.ghidra.client import end_mcp_session
 
         class _Down:
+            calls = 0
+
             def delete(self, *_a: object, **_k: object) -> None:
+                self.calls += 1
                 raise httpx.ConnectError("refused")
 
-        end_mcp_session(_Down(), "http://x", "sess-9")  # type: ignore[arg-type]
+        down = _Down()
+        end_mcp_session(down, "http://x", "sess-9")  # type: ignore[arg-type]
+        assert down.calls == 1

@@ -179,6 +179,20 @@
   documented integrator surface.
 
 ### Changed
+- **Annotation copies cost less than half; lint's struct rule stops
+  regexing every line.**  `_finalize_entries` deep-copies each parsed
+  annotation to keep the shared parse memo isolated, and the generic
+  dataclass path paid ~7-8 µs per entry through `_reconstruct`/dispatch
+  — measured hot on every source scan.  `Annotation.__deepcopy__`
+  shares exact-typed immutable fields and deep-copies only the mutable
+  containers (nested values stay fully isolated, pinned by
+  `test_deepcopy_isolates_nested_container_values`).  Separately,
+  `_check_body_rules` ran its `\bstruct\s+\w+\s*\{` search on all ~140k
+  lines of a batch even though every match contains the literal
+  "struct" — now guarded (plus the SIZE regex stops once found).  Cold
+  medians of 5 on the 400-file project: status 0.38 → 0.35 s, todo
+  0.54 → 0.50, catalog 0.53 → 0.48, lint 0.59 → 0.52 (user 0.56 →
+  0.49); diagnostics unchanged.
 - **`rebrew lint`'s W029 batch prints once, not once per hit — and the
   batch VA index stops re-parsing every file.**  A per-hit
   `console.print` after the file loop fired 1600 times on a 400-file

@@ -375,6 +375,20 @@ def resolve_symbol(entry: Annotation, filepath: Path) -> str:
 # Field name mapping for dict-like access (handles "globals" → globals_list)
 _FIELD_ALIASES: Final[dict[str, str]] = {"globals": "globals_list"}
 
+# Exact types Annotation.__deepcopy__ shares instead of copying: immutable
+# scalars only (exact type match — a subclass or a tuple that could hold
+# mutables never takes this path).
+_COPY_SCALAR_TYPES: tuple[type, ...] = (
+    str,
+    bytes,
+    int,
+    float,
+    complex,
+    bool,
+    type(None),
+    frozenset,
+)
+
 
 @dataclass
 class Annotation:
@@ -446,6 +460,27 @@ class Annotation:
             return self[key]
         except KeyError:
             return default
+
+    def __deepcopy__(self, memo: dict[int, Any]) -> Annotation:
+        """Copy with full isolation at less than half the generic cost.
+
+        ``copy.deepcopy``'s default dataclass path walks every field
+        through ``_reconstruct``/dispatch (~7-8 µs per annotation — the
+        dominant per-entry cost of ``_finalize_entries`` on every
+        source scan).  Exact-typed immutable fields are shared; every
+        other value (the list/dict fields and anything nested inside
+        them) still goes through ``copy.deepcopy``, so mutating a copy's
+        ``locals``/``comments`` can never reach the memoized original.
+        """
+        cls = type(self)
+        twin = cls.__new__(cls)
+        memo[id(self)] = twin
+        for name, value in self.__dict__.items():
+            if type(value) in _COPY_SCALAR_TYPES:
+                object.__setattr__(twin, name, value)
+            else:
+                object.__setattr__(twin, name, copy.deepcopy(value, memo))
+        return twin
 
     @property
     def is_data(self) -> bool:

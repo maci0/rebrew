@@ -1,6 +1,8 @@
 """Tests for rebrew.utils."""
 
+import contextlib
 import os
+import signal
 import subprocess
 import time
 from pathlib import Path
@@ -998,6 +1000,34 @@ class TestPreserveCorrupt:
             preserve_corrupt(path)
 
 
+def _assert_grandchild_killed(pidfile: Path) -> None:
+    """Poll until the pid in *pidfile* is gone or a zombie; kill it on failure.
+
+    A missing or empty *pidfile* means the group kill landed before the
+    grandchild recorded itself, so it is already dead.
+    """
+    text = pidfile.read_text() if pidfile.exists() else ""
+    if not text.strip():
+        return
+    pid = int(text)
+    stat = Path(f"/proc/{pid}/stat")
+
+    def _alive() -> bool:
+        try:
+            return stat.read_text().rsplit(") ", 1)[1][0] != "Z"
+        except FileNotFoundError:
+            return False
+
+    deadline = time.monotonic() + 5
+    try:
+        while _alive():
+            assert time.monotonic() < deadline, "grandchild outlived the timeout kill"
+            time.sleep(0.02)
+    finally:
+        with contextlib.suppress(ProcessLookupError):
+            os.kill(pid, signal.SIGKILL)
+
+
 class TestRunProcessGroup:
     def test_returns_output_and_returncode(self) -> None:
         r = run_process_group(
@@ -1012,9 +1042,8 @@ class TestRunProcessGroup:
         """A driver's background child must die with it on timeout, not
         keep running as an orphan (plain subprocess.run kills only the
         direct child)."""
-        marker = tmp_path / "orphan-ran"
-        script = f"(sleep 1; touch '{marker}') & wait"
+        pidfile = tmp_path / "grandchild.pid"
+        script = f"sh -c 'echo $$ > \"{pidfile}\"; exec sleep 30' & wait"
         with pytest.raises(subprocess.TimeoutExpired):
-            run_process_group(["sh", "-c", script], capture_output=True, timeout=0.3)
-        time.sleep(1.5)
-        assert not marker.exists()
+            run_process_group(["sh", "-c", script], capture_output=True, timeout=1)
+        _assert_grandchild_killed(pidfile)

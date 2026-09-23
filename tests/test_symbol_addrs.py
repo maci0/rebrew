@@ -177,7 +177,9 @@ class TestSymbolAddrs:
         _patch(monkeypatch, tmp_path, [_fake_ann(0x1000, "good")])
         out = tmp_path / "symbol_addrs.csv"
         r = runner.invoke(symbol_addrs.app, ["--output", str(out), "--csv", "--references"])
-        assert r.exit_code != 0
+        assert r.exit_code == 2, r.output
+        assert "--csv and --references select different output formats" in r.output
+        assert not out.exists()
 
 
 class TestPeSymbolsFlag:
@@ -228,7 +230,9 @@ class TestPeSymbolsFlag:
         _patch(monkeypatch, tmp_path, [_fake_ann(0x10001000, "GameMain")])
         out = tmp_path / "symbol_addrs.csv"
         r = runner.invoke(symbol_addrs.app, ["--output", str(out), "--pe-symbols"])
-        assert r.exit_code != 0
+        assert r.exit_code == 2, r.output
+        assert "target binary missing" in r.output
+        assert not out.exists()
 
 
 class TestReferences:
@@ -281,8 +285,11 @@ class TestReferences:
 
     def test_missing_binary_errors(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         _patch(monkeypatch, tmp_path, [_fake_ann(0x10001000, "GameMain")])
-        r = runner.invoke(symbol_addrs.app, ["--output", str(tmp_path / "s.csv"), "--references"])
-        assert r.exit_code != 0
+        out = tmp_path / "s.csv"
+        r = runner.invoke(symbol_addrs.app, ["--output", str(out), "--references"])
+        assert r.exit_code == 2, r.output
+        assert "target binary missing" in r.output
+        assert not out.exists()
 
 
 class TestRichFormat:

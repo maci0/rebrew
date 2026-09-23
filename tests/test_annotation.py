@@ -37,6 +37,44 @@ class TestAnnotationDataclass:
         assert ann.name == "foo"
         assert ann.status == "EXACT"
 
+    def test_deepcopy_isolates_nested_container_values(self) -> None:
+        """Annotation.__deepcopy__ shares scalars but never mutable values.
+
+        The specialised copy is what keeps _finalize_entries fast on
+        every source scan; this pins the isolation contract it must
+        preserve (mutating a twin, even deeply, never reaches the memoised
+        original that parse results are cached under).
+        """
+        import copy
+
+        ann = Annotation(
+            va=0x1000,
+            name="f",
+            locals={"regs": ["eax"], "frame": {"bp": 4}},
+            comments={"note": "hi"},
+            globals_list=["g_x"],
+        )
+        twin = copy.deepcopy(ann, {})
+        # scalars may be shared...
+        twin.name = "renamed"
+        assert ann.name == "f"
+        # ...container values must not be
+        twin.locals["regs"].append("ebx")
+        twin.locals["frame"]["bp"] = 8
+        twin.comments["note"] = "changed"
+        twin.globals_list.append("g_y")
+        assert ann.locals == {"regs": ["eax"], "frame": {"bp": 4}}
+        assert ann.comments == {"note": "hi"}
+        assert ann.globals_list == ["g_x"]
+
+    def test_deepcopy_returns_same_type(self) -> None:
+        import copy
+
+        twin = copy.deepcopy(Annotation(va=7), {})
+        assert type(twin) is Annotation
+        assert twin.va == 7
+        assert twin is not None
+
     def test_dict_getitem(self) -> None:
         ann = Annotation(va=0x10001000, status="RELOC")
         assert ann["va"] == 0x10001000

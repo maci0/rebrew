@@ -1,9 +1,40 @@
 """Tests for the ghidra-cli sync backend (IDEAS #24)."""
 
+import contextlib
+import os
+import signal
 import time
 from pathlib import Path
 
 from rebrew.ghidra.cli_backend import _op_to_args, apply_commands_via_cli
+
+
+def _assert_grandchild_killed(pidfile: Path) -> None:
+    """Poll until the pid in *pidfile* is gone or a zombie; kill it on failure.
+
+    A missing or empty *pidfile* means the group kill landed before the
+    grandchild recorded itself, so it is already dead.
+    """
+    text = pidfile.read_text() if pidfile.exists() else ""
+    if not text.strip():
+        return
+    pid = int(text)
+    stat = Path(f"/proc/{pid}/stat")
+
+    def _alive() -> bool:
+        try:
+            return stat.read_text().rsplit(") ", 1)[1][0] != "Z"
+        except FileNotFoundError:
+            return False
+
+    deadline = time.monotonic() + 5
+    try:
+        while _alive():
+            assert time.monotonic() < deadline, "grandchild outlived the timeout kill"
+            time.sleep(0.02)
+    finally:
+        with contextlib.suppress(ProcessLookupError):
+            os.kill(pid, signal.SIGKILL)
 
 
 class TestOpToArgs:
@@ -175,9 +206,12 @@ class TestApplyCommandsViaCli:
     def test_timeout_kills_ghidra_cli_grandchildren(self, tmp_path: Path) -> None:
         """A timed-out op counts as an error and its JVM-like grandchild dies
         with it instead of outliving the sync loop."""
-        marker = tmp_path / "orphan-ran"
+        pidfile = tmp_path / "grandchild.pid"
         fake_cli = tmp_path / "ghidra-cli"
-        fake_cli.write_text(f"#!/bin/sh\n(sleep 2; touch '{marker}') & wait\n", encoding="utf-8")
+        fake_cli.write_text(
+            f"#!/bin/sh\nsh -c 'echo $$ > \"{pidfile}\"; exec sleep 30' & wait\n",
+            encoding="utf-8",
+        )
         fake_cli.chmod(0o755)
         ok, errs = apply_commands_via_cli(
             [{"tool": "create-label", "args": {"addressOrSymbol": "0x1", "labelName": "x"}}],
@@ -185,5 +219,4 @@ class TestApplyCommandsViaCli:
             timeout=1,
         )
         assert (ok, errs) == (0, 1)
-        time.sleep(2.5)
-        assert not marker.exists()
+        _assert_grandchild_killed(pidfile)

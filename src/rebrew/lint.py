@@ -1340,8 +1340,12 @@ def _check_body_rules(result: LintResult, lines: list[str], has_new: bool) -> No
             and not stripped.startswith("*")
         ):
             has_code = True
+        # Guard the struct regex with its literal substring: every match
+        # contains "struct", and the search ran on all ~140k lines of a
+        # 400-file batch before this (second-hottest lint rule).
         if (
-            ("typedef struct" in stripped or re.search(r"\bstruct\s+\w+\s*\{", stripped))
+            "struct" in stripped
+            and ("typedef struct" in stripped or re.search(r"\bstruct\s+\w+\s*\{", stripped))
             and not stripped.startswith("//")
             and not stripped.startswith("/*")
             and not stripped.startswith("*")
@@ -1349,7 +1353,7 @@ def _check_body_rules(result: LintResult, lines: list[str], has_new: bool) -> No
             if not has_struct:
                 first_struct_line = i
             has_struct = True
-        if _SIZE_ANNOTATION_RE.match(stripped):
+        if not struct_has_size and _SIZE_ANNOTATION_RE.match(stripped):
             struct_has_size = True
 
     if not has_code and has_new:

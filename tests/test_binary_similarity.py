@@ -140,9 +140,10 @@ class TestCli:
         cfg = SimpleNamespace(target_binary=tmp_path / "a.dll")
         monkeypatch.setattr("rebrew.binary_similarity.require_config", lambda **kw: cfg)
         result = CliRunner().invoke(
-            app, [str(tmp_path / "nope.dll"), "--other-list", str(tmp_path / "x.txt")]
+            app, ["--other-list", str(tmp_path / "x.txt"), str(tmp_path / "nope.dll")]
         )
-        assert result.exit_code == EXIT_ERROR
+        assert result.exit_code == EXIT_ERROR, result.output
+        assert "other binary not found" in result.output
 
     def test_missing_other_list_errors(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

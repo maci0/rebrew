@@ -279,10 +279,11 @@ class TestToolchainRegistry:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setenv("REBREW_TOOLCHAIN_OVERLAY_DIR", str(tmp_path / "nope"))
-        from rebrew.toolchain import build_toolchain_registry
+        from rebrew.toolchain import ToolchainError, build_toolchain_registry
 
-        with pytest.raises(Exception, match="is not a directory"):
+        with pytest.raises(ToolchainError, match="is not a directory") as ei:
             build_toolchain_registry()
+        assert ei.value.kind == "validation"
 
     def test_entry_point_provider_adds_toolchain(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
