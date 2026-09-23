@@ -57,7 +57,7 @@ from rebrew.coff_reloc import (
 from rebrew.compile import compile_to_obj
 from rebrew.config import ProjectConfig
 from rebrew.matcher.parsers import parse_obj_relocs_full, parse_obj_symbol_bytes
-from rebrew.metadata import get_entry
+from rebrew.metadata import load_metadata
 from rebrew.sections import trim_trailing_padding
 from rebrew.sources import (
     iter_sources,
@@ -150,6 +150,7 @@ def _collect_splice_set(
     splice: list[_SpliceFn] = []
     proven: list[_SpliceFn] = []
     other_count = 0
+    entries = load_metadata(cfg.metadata_dir, deepcopy=False)
     for path, anns in iter_annotations(
         iter_sources(cfg.reversed_dir, cfg),
         target=target_marker(cfg),
@@ -158,7 +159,7 @@ def _collect_splice_set(
         for ann in anns:
             if symbol_filter and symbol_filter not in _catalog_key(ann, path):
                 continue
-            md = get_entry(cfg.metadata_dir, ann.va, ann.module)  # canonical: (dir, va, module)
+            md = entries.get((ann.module, ann.va), {})
             # ann.status is the CANONICALIZED, metadata-merged value (the raw
             # store may hold a hand-edited "exact"/"proven " spelling, which the
             # partition below would silently drop into other_count).

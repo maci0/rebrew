@@ -957,9 +957,10 @@ def _collect_hygiene(
     with _lane("data-status"):
         from rebrew.data_metadata import load_data_metadata
 
+        data_entries = load_data_metadata(cfg.metadata_dir).items()
         drift = [
             (module, va, str(fields.get("name") or f"DAT_{va:08x}"))
-            for (module, va), fields in load_data_metadata(cfg.metadata_dir).items()
+            for (module, va), fields in data_entries
             if str(fields.get("status") or "").upper() == "DRIFT"
         ]
         rec = recommend_data_drift(drift)
@@ -967,7 +968,7 @@ def _collect_hygiene(
             recs.append(rec)
         unchecked = [
             (module, va, str(fields.get("name") or f"DAT_{va:08x}"))
-            for (module, va), fields in load_data_metadata(cfg.metadata_dir).items()
+            for (module, va), fields in data_entries
             if str(fields.get("status") or "").upper() in ("", "UNCHECKED")
         ]
         start = recommend_start_data(unchecked)

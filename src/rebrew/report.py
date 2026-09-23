@@ -305,7 +305,7 @@ def _collect_functions(cfg: ProjectConfig) -> list[dict[str, Any]]:
     (written by ``near-diag --fix-blocker`` / ``diff --fix-blocker``) comes
     from ``rebrew-functions.toml`` metadata.
     """
-    from rebrew.metadata import get_entry
+    from rebrew.metadata import load_metadata
 
     reversed_dir = getattr(cfg, "reversed_dir", None)
     if reversed_dir is None:
@@ -315,6 +315,12 @@ def _collect_functions(cfg: ProjectConfig) -> list[dict[str, Any]]:
         return []
     functions: list[dict[str, Any]] = []
     metadata_dir = getattr(cfg, "metadata_dir", None)
+    entries: dict[tuple[str, int], dict[str, Any]] = {}
+    if isinstance(metadata_dir, Path):
+        try:
+            entries = load_metadata(metadata_dir, deepcopy=False)
+        except (OSError, ValueError, KeyError):
+            entries = {}
     sources = iter_sources(reversed_path, cfg)
     for src, annos in iter_annotations(
         sources,
@@ -326,12 +332,7 @@ def _collect_functions(cfg: ProjectConfig) -> list[dict[str, Any]]:
                 continue
             if ann.va < min_valid_va_for(cfg):
                 continue
-            md = {}
-            if isinstance(metadata_dir, Path):
-                try:
-                    md = get_entry(metadata_dir, ann.va, ann.module)
-                except (OSError, ValueError, KeyError):
-                    md = {}
+            md = entries.get((ann.module, ann.va), {})
             functions.append(
                 {
                     "name": _display_name(ann, src),

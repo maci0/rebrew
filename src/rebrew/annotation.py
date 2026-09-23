@@ -742,6 +742,11 @@ _STDCALL_TYPE_SIZES: dict[str, int] = {
     "ULONGLONG": 8,
 }
 _STDCALL_DEFAULT_SIZE = 4  # int, char, short, pointers, etc. all push 4 bytes
+_STDCALL_SIZED_TYPE_RE = re.compile(
+    r"\b(?:"
+    + "|".join(re.escape(t) for t in sorted(_STDCALL_TYPE_SIZES, key=len, reverse=True))
+    + r")\b"
+)
 
 
 def _calc_stdcall_param_size(proto: str) -> int | None:
@@ -821,10 +826,9 @@ def _calc_stdcall_param_size(proto: str) -> int | None:
         # Pointers, references, arrays (decay to pointers), and function
         # pointers push 4 bytes whatever they point to.
         if not any(c in param for c in "*&[("):
-            for type_name, size in _STDCALL_TYPE_SIZES.items():
-                if re.search(rf"\b{re.escape(type_name)}\b", param):
-                    matched_size = size
-                    break
+            sized = _STDCALL_SIZED_TYPE_RE.search(param)
+            if sized:
+                matched_size = _STDCALL_TYPE_SIZES[sized.group(0)]
         total += matched_size
 
     return total

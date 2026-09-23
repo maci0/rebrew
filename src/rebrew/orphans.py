@@ -132,15 +132,15 @@ def _orphan_dicts(
     fn_orphans: list[tuple[str, int, str]],
     data_orphans: list[tuple[str, int, str]],
 ) -> list[dict[str, Any]]:
-    from rebrew.data_metadata import get_data_entry
-    from rebrew.metadata import get_entry
+    from rebrew.data_metadata import load_data_metadata
+    from rebrew.metadata import load_metadata
 
+    fn_entries = load_metadata(cfg.metadata_dir, deepcopy=False)
+    data_entries = load_data_metadata(cfg.metadata_dir)
     dicts = []
     for module, va, store in fn_orphans + data_orphans:
-        if store == "rebrew-data.toml":
-            status = str(get_data_entry(cfg.metadata_dir, va, module).get("status") or "")
-        else:
-            status = str(get_entry(cfg.metadata_dir, va, module).get("status") or "")
+        entries = data_entries if store == "rebrew-data.toml" else fn_entries
+        status = str(entries.get((module, va), {}).get("status") or "")
         dicts.append({"module": module, "va": f"0x{va:x}", "store": store, "status": status})
     return dicts
 

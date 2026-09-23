@@ -1839,3 +1839,27 @@ class TestVerifiedSymbolFollowsTheBlock:
         assert res["action"] == "imported-shared"
         assert seen["entry"].symbol == "_second"
         assert seen["entry"].name == "second"
+
+
+class TestImportSize:
+    """The imported marker never claims less than the matched source body.
+
+    A stale destination registry size (an old skeleton's ``// SIZE:``) made
+    the import verify only a prefix and report EXACT MATCH; the next
+    ``rebrew verify --full`` then flagged SIZE_MISMATCH (guild-rebrew round
+    1412 — GOLD 0x00449d80 claimed 23 bytes, the body is 25).
+    """
+
+    def test_stale_destination_size_is_raised(self) -> None:
+        assert ci.import_size(23, bytes(25)) == 25
+
+    def test_equal_sizes_are_kept(self) -> None:
+        assert ci.import_size(25, bytes(25)) == 25
+
+    def test_larger_destination_size_is_kept(self) -> None:
+        """A destination body longer than the source stays its own size."""
+        assert ci.import_size(40, bytes(25)) == 40
+
+    def test_missing_source_code_keeps_destination_size(self) -> None:
+        assert ci.import_size(23, None) == 23
+        assert ci.import_size(23, b"") == 23

@@ -222,6 +222,23 @@ def matched_source_bytes(cfg_src: ProjectConfig) -> dict[int, bytes]:
     return _target_bytes_by_va(cfg_src, vas)
 
 
+def import_size(dst_size: int, src_code: bytes | None) -> int:
+    """The size an imported marker claims.
+
+    The destination's registry size is whatever the tree last recorded, and a
+    skeleton from an earlier round can leave it stale.  Verifying only that
+    prefix reports a false ``EXACT MATCH``: the import succeeds, and the next
+    ``rebrew verify --full`` flags ``SIZE_MISMATCH`` (guild-rebrew round 1412 —
+    GOLD 0x00449d80 claimed 23 bytes while the body is 25, carried over from
+    the superseded stub).  Never claim less than the body the matcher matched;
+    a destination that really is shorter then fails verification and the stack
+    is rolled back, which is the honest outcome.
+    """
+    if src_code and len(src_code) > dst_size:
+        return len(src_code)
+    return dst_size
+
+
 def sizeless_warning(size: int) -> str:
     """Warning attached to a match sized by disassembly, not the registry."""
     return (
@@ -1284,6 +1301,10 @@ def main(
         if dst_va in disasm_sized:
             dst_size = len(dest_bytes[dst_va])
             disasm_size = dst_size
+        else:
+            # A stale registry size would verify only a prefix of a body the
+            # matcher already matched in full (see import_size).
+            dst_size = import_size(dst_size, src_bytes.get(src_va))
         if not src_file:
             results.append(
                 {
