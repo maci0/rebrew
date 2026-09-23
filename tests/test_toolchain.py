@@ -391,6 +391,31 @@ class TestRunToolchain:
         assert calls[0][5:7] == ["--name", calls[1][2]], "kill must target the run's container"
         assert calls[1][:2] == ["docker", "kill"]
 
+    def test_docker_interrupt_kills_named_container(self, tmp_path: Path, monkeypatch) -> None:
+        """Ctrl+C mid-compile kills only the docker CLI; the container must
+        be killed by name too, and the interrupt must still propagate."""
+        spec = ToolchainSpec(
+            name="t", image="rebrew/t:latest", binary="cl", image_entrypoint="/usr/local/bin/cl"
+        )
+        calls: list[list[str]] = []
+
+        def _run(cmd, **kwargs):
+            calls.append(list(cmd))
+            if cmd[1] == "run":
+                raise KeyboardInterrupt
+            return _FakeProc(0, "", "")
+
+        monkeypatch.setattr("rebrew.toolchain.docker_available", lambda: True)
+        monkeypatch.setattr("rebrew.toolchain.image_present", lambda tag: True)
+        monkeypatch.setattr("rebrew.toolchain.subprocess.run", _run)
+
+        with pytest.raises(KeyboardInterrupt):
+            run_toolchain(spec, ["/c", "f.c"], workdir=tmp_path, timeout=1)
+
+        assert len(calls) == 2
+        assert calls[0][5:7] == ["--name", calls[1][2]], "kill must target the run's container"
+        assert calls[1][:2] == ["docker", "kill"]
+
     def test_docker_os_error_skips_kill(self, tmp_path: Path, monkeypatch) -> None:
         """No container exists when docker itself cannot be exec'd — the
         error path must not fire a kill."""

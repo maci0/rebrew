@@ -2265,6 +2265,12 @@ def _link_obj_docker(
         return False, f"LINK.EXE timed out after {timeout}s"
     except OSError as exc:
         return False, str(exc)
+    except BaseException:
+        # Ctrl+C kills only the docker CLI; the container would keep running.
+        from rebrew.toolchain import kill_container
+
+        kill_container(cmd[cmd.index("--name") + 1])
+        raise
     if r.returncode != 0 or not Path(dll_path).exists():
         err = (r.stdout + "\n" + r.stderr).strip()
         return False, err[-400:] if err else f"LINK.EXE exited {r.returncode} with no output"

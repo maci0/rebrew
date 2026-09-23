@@ -648,6 +648,10 @@
   in emission order.
 
 ### Fixed
+- **Ctrl+C no longer orphans a compile container.**  Interrupting a
+  docker compile or LINK.EXE run killed only the docker CLI, leaving the
+  container running under dockerd.  The container is now killed by name
+  on interrupt, as on timeout.
 - **The pre-push hook fails without nasm.**  It ran bare pytest, so on a
   host without nasm the asm round-trip tests skipped and a push passed
   that CI rejects.  It now runs `make test`, whose `ensure-nasm` names the

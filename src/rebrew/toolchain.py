@@ -859,6 +859,11 @@ def run_toolchain(
                 name=spec.name,
                 retryable=True,
             ) from exc
+        except BaseException:
+            # Ctrl+C: subprocess.run SIGKILLs the docker CLI, which leaves
+            # the container running under dockerd.
+            kill_container(str(cmd[cmd.index("--name") + 1]))
+            raise
         return RunResult(r.returncode, r.stdout, r.stderr, backend="docker")
 
     if spec.runtime == "native":
