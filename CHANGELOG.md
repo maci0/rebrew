@@ -401,6 +401,11 @@
   (`verify_hash`, `round_trip`, `merge_sweep`, …) no longer import the
   CLI layer to load a batch of sources.  Import it from
   `rebrew.annotation`; `rebrew.cli` no longer exports it.
+- **Breaking:** **`CompileContext` moved from `rebrew.context` to `rebrew.compile_context`.**
+  `CompileContext`, `load_compile_context`, and `context_sha256` are the
+  compile-context model and loader; `compile`, `test`, and `verify` no
+  longer import the `rebrew context` Typer module to read one.  Import
+  them from `rebrew.compile_context`; `rebrew.context` keeps the CLI.
 - **Breaking:** **Dashboard ``/api/globals`` and ``/api/history`` rows are
   compact arrays** under ``cols`` (same shape as ``/api/functions``). Zip
   ``cols`` with each array; built-in HTML accepts both arrays and legacy
