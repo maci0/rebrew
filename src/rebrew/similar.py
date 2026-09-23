@@ -13,7 +13,6 @@ from __future__ import annotations
 
 from typing import Any
 
-import numpy as np
 import typer
 from rich.console import Console
 from rich.table import Table
@@ -75,6 +74,8 @@ def disasm_signature(
 
 def _cosine(hist_a: dict[str, int], hist_b: dict[str, int]) -> float:
     """Cosine similarity between two mnemonic histograms (0.0-1.0)."""
+    import numpy as np  # deferred: ~60 ms of startup for non-similar commands
+
     keys = set(hist_a) | set(hist_b)
     vec_a = np.array([hist_a.get(k, 0) for k in keys], dtype=float)
     vec_b = np.array([hist_b.get(k, 0) for k in keys], dtype=float)

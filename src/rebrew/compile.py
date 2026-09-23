@@ -63,8 +63,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
-import numpy as np
-
 from rebrew.binary_loader import BinaryInfo, SectionInfo, load_binary
 from rebrew.coff_reloc import build_iat_region, smart_reloc_compare
 from rebrew.compile_cache import CacheBackend, compile_cache_key, get_compile_cache
@@ -386,6 +384,8 @@ def classify_compare_result(
     delta = 0
     matching_bytes = 0
     if target_bytes is not None:
+        import numpy as np  # deferred: ~60 ms of startup for non-compile commands
+
         target_len = len(target_bytes)
         cmp_len = min(target_len, len(obj_bytes))
         t_arr = np.frombuffer(target_bytes[:cmp_len], dtype=np.uint8)

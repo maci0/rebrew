@@ -13,8 +13,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
-import numpy as np
-
 from rebrew.errors import RebrewError
 from rebrew.sources import iter_sources
 
@@ -551,6 +549,8 @@ def smart_reloc_compare(
 
     # Vectorized comparison: build a boolean relocation mask and use NumPy
     # for the byte-level match instead of a Python-level per-byte loop.
+    import numpy as np  # deferred: ~60 ms of startup for non-compile commands
+
     reloc_mask = np.zeros(min_len, dtype=bool)
     for r in valid_relocs:
         end = min(r + 4, min_len)
