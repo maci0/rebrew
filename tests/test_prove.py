@@ -10,6 +10,7 @@ tests that are skipped when angr is absent.
 from __future__ import annotations
 
 import importlib.util
+import logging
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -320,6 +321,25 @@ class TestProveCLIStatusGuard:
         # The gate passed (cache said NEAR_MATCHING); any failure is
         # downstream (angr/compile), never the status rejection.
         assert "expected NEAR_MATCHING" not in result.output
+
+    def test_corrupt_verify_cache_warns_and_falls_back_to_metadata(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """A corrupt verify cache is reported, not mistaken for a cold start:
+        the gate falls back to the metadata STATUS (STUB -> rejected) and the
+        ignored cache is named in a warning."""
+        proj_dir, src = self._make_project(tmp_path, "STUB")
+        cache_dir = proj_dir / ".rebrew"
+        cache_dir.mkdir(exist_ok=True)
+        (cache_dir / "verify_cache.json").write_text("{not json", encoding="utf-8")
+        with caplog.at_level(logging.WARNING):
+            result = self._invoke(proj_dir, src, monkeypatch)
+        assert result.exit_code != 0
+        assert "expected NEAR_MATCHING" in result.output
+        assert "Ignoring corrupt verify cache" in caplog.text
 
     def test_accepts_size_mismatch_status(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

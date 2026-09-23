@@ -731,16 +731,28 @@ def _collect_new_functions(
                 "library functions are not filtered from the list[/yellow]"
             )
 
+    _lib_probe_warned = False
+
     def _is_library_code(probe: int, probe_size: int) -> bool:
+        nonlocal _lib_probe_warned
         if _lib_index is None:
             return False
-        with contextlib.suppress(Exception):
-            from rebrew.binary_loader import extract_raw_bytes
-            from rebrew.lib_match import match_bytes
+        from rebrew.binary_loader import extract_raw_bytes
+        from rebrew.lib_match import match_bytes
 
+        try:
             data = extract_raw_bytes(cfg.target_binary, probe, probe_size or 64)
-            return match_bytes(_lib_index, data) is not None
-        return False
+        except (OSError, ValueError, RuntimeError) as exc:
+            # An unreadable target disables the filter for every probe; say so
+            # once instead of recommending library code as new work silently.
+            if not _lib_probe_warned:
+                _lib_probe_warned = True
+                console.print(
+                    f"[yellow]WARNING: cannot read {cfg.target_binary} at 0x{probe:08x} "
+                    f"({exc}); library functions may not be filtered[/yellow]"
+                )
+            return False
+        return match_bytes(_lib_index, data) is not None
 
     # Load binary for unmatchable detection
     binary_info = None

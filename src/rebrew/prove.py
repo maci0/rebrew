@@ -130,16 +130,17 @@ def _cached_verify_status(cfg: Any, va: int) -> str | None:
     measured truth rather than refuse a function the verifier already
     classified as nearly matching.
     """
-    import json
+    from rebrew.verify_cache import CACHE_VERSION, VerifyCache, load_verify_cache_raw
 
-    cache_path = cfg.root / ".rebrew" / "verify_cache.json"
-    if not cache_path.exists():
+    # The shared loader warns on an unreadable/corrupt file, so a broken cache
+    # is not mistaken for "no measured status".
+    raw = load_verify_cache_raw(cfg)
+    if raw is None:
         return None
     try:
-        from rebrew.verify_cache import CACHE_VERSION, VerifyCache
-
-        data = VerifyCache.from_dict(json.loads(cache_path.read_text(encoding="utf-8")))
-    except (json.JSONDecodeError, OSError, ValueError, AttributeError, ImportError):
+        data = VerifyCache.from_dict(raw)
+    except (ValueError, AttributeError, TypeError) as exc:
+        log.warning("Ignoring malformed verify cache for prove: %s", exc)
         return None
     if data.version != CACHE_VERSION:
         return None
