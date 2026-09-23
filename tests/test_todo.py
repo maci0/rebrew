@@ -216,7 +216,7 @@ class TestCollectors:
         prover lane — classify as improve-match with a near-diag command."""
         from rebrew.metadata import GA_CEILING_PREFIX
 
-        monkeypatch.setattr("rebrew.cli.angr_available", lambda: False)
+        monkeypatch.setattr("rebrew.prove.angr_available", lambda: False)
         existing = {
             0x1000: {
                 "status": "NEAR_MATCHING",
@@ -233,7 +233,7 @@ class TestCollectors:
     def test_ga_ceiling_with_angr_routes_to_prover(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from rebrew.metadata import GA_CEILING_PREFIX
 
-        monkeypatch.setattr("rebrew.cli.angr_available", lambda: True)
+        monkeypatch.setattr("rebrew.prove.angr_available", lambda: True)
         existing = {
             0x1000: {
                 "status": "NEAR_MATCHING",
@@ -1494,7 +1494,7 @@ class TestGaCeilingRouting:
     def test_ceiling_not_fix_delta(
         self, monkeypatch: pytest.MonkeyPatch, has_angr: bool, category: str, command: str
     ) -> None:
-        monkeypatch.setattr("rebrew.cli.angr_available", lambda: has_angr)
+        monkeypatch.setattr("rebrew.prove.angr_available", lambda: has_angr)
         existing = {
             0x1000: {
                 "status": "NEAR_MATCHING",

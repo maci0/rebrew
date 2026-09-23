@@ -25,19 +25,17 @@ import stat
 import sys
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, NoReturn
+from typing import Any, NoReturn
 
 import typer
 from rich.console import Console
 from rich.markup import escape
 
+from rebrew.annotation import Annotation, parse_c_file_multi
 from rebrew.config import ProjectConfig, load_config
 from rebrew.sources import iter_sources, target_marker
 from rebrew.utils import parse_int_literal
 from rebrew.workspace.status import MATCHED_STATUSES
-
-if TYPE_CHECKING:
-    from rebrew.annotation import Annotation
 
 # ---------------------------------------------------------------------------
 # Standardised exit codes
@@ -375,8 +373,6 @@ def resolve_source_arg(cfg: ProjectConfig, source_arg: str) -> Path:
     import contextlib
     import logging
 
-    from rebrew.annotation import parse_c_file_multi  # local import to avoid cycle
-
     p = Path(source_arg)
     if p.exists() and p.is_file():
         return p
@@ -432,8 +428,6 @@ def select_annotation(
     (else the file's first), and *va* parsed when given, else the
     annotation's own VA (``None`` when it has none).
     """
-    from rebrew.annotation import parse_c_file_multi  # local import to avoid cycle
-
     path = resolve_source_arg(cfg, source_arg)
     if not path.is_file():
         error_exit(f"Source file not found: {path}", json_mode=json_mode)
@@ -447,26 +441,6 @@ def select_annotation(
     return path, next((a for a in annos if a.va == want), annos[0]), want
 
 
-def angr_available() -> bool:
-    """Return True when angr imports cleanly, without angr's import-time log spam.
-
-    angr logs an ERROR about its optional unicorn engine at import time; a
-    bare capability probe (``with contextlib.suppress(ImportError): import
-    angr``) would print that alarming line to stderr on every CLI run that
-    merely checks for the optional dependency.  Silence the ``angr`` logger
-    for the duration of the probe — nothing else in the process uses it.
-    """
-    import contextlib
-    import logging
-
-    with contextlib.suppress(ImportError):
-        logging.getLogger("angr").setLevel(logging.CRITICAL)
-        import angr  # noqa: F401  # presence probe; name unused
-
-        return True
-    return False
-
-
 __all__ = [
     "DISPLAY_STATUSES",
     "EXIT_ERROR",
@@ -476,7 +450,6 @@ __all__ = [
     "EXIT_SIGPIPE",
     "STATUS_COLORS",
     "TargetOption",
-    "angr_available",
     "error_exit",
     "json_print",
     "option_default",
@@ -485,4 +458,5 @@ __all__ = [
     "resolve_source_arg",
     "run_cli",
     "run_standalone",
+    "select_annotation",
 ]

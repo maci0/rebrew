@@ -1281,7 +1281,7 @@ def check_optional_tools() -> CheckResult:
     ``rebrew prove`` needs both; a half-installed pair (angr without claripy,
     or claripy without angr) crashes at runtime with a confusing traceback.
     """
-    from rebrew.cli import angr_available
+    from rebrew.prove import angr_available
 
     has_angr = angr_available()
     claripy_available = False

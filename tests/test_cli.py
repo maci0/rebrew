@@ -9,7 +9,6 @@ import typer
 
 from rebrew.cli import (
     EXIT_ERROR,
-    angr_available,
     error_exit,
     json_print,
     parse_va,
@@ -380,32 +379,6 @@ class TestSelectAnnotation:
         src.write_text("int f(void) { return 0; }\n", encoding="utf-8")
         with pytest.raises(typer.Exit):
             select_annotation(self._cfg(tmp_path), str(src), None)
-
-
-class TestAngrAvailable:
-    def test_probe_silences_angr_logger(self) -> None:
-        """The capability probe must not print angr's import-time ERROR spam.
-
-        angr logs about its optional unicorn engine at import; a plain
-        ``import angr`` probe pollutes stderr of unrelated CLIs (todo,
-        doctor).  The helper silences the angr logger during the probe.
-        """
-        import logging
-
-        logger = logging.getLogger("angr")
-        original = logger.getEffectiveLevel()
-        try:
-            logger.setLevel(logging.NOTSET)
-            result = angr_available()
-            if result:  # angr installed — verify the silencing side-effect
-                assert logger.getEffectiveLevel() == logging.CRITICAL
-            # Either way the probe returns a bool without raising.
-            assert isinstance(result, bool)
-        finally:
-            # Restore the pre-test level: the probe permanently raises the
-            # angr logger to CRITICAL (by design), which must not leak into
-            # later tests in the same process.
-            logger.setLevel(original)
 
 
 class TestResolveCflags:

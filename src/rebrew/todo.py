@@ -449,7 +449,7 @@ def _collect_active_functions(
             # The prover lane needs angr: without it, there is nothing to
             # run, so classify as improve-match with a match/near-diag
             # command instead of routing to a prover that cannot execute.
-            from rebrew.cli import angr_available
+            from rebrew.prove import angr_available
 
             if angr_available():
                 category = CAT_RUN_PROVER
@@ -566,7 +566,7 @@ def _collect_prover_candidates(
 ) -> list[TodoItem]:
     """Collect functions suitable for symbolic equivalence proving."""
     # Check if angr is importable (without angr's import-time log spam).
-    from rebrew.cli import angr_available
+    from rebrew.prove import angr_available
 
     has_angr = angr_available()
 
