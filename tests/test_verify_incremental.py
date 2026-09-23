@@ -397,6 +397,22 @@ class TestPatchVerifyCacheEntries:
         assert entry["match_percent"] == 50.0
         assert entry["delta"] == 8
 
+    def test_patch_keeps_percent_below_near_threshold(self, tmp_path: Path) -> None:
+        """A STUB at 59.96% must not be cached as 60.0 (the NEAR_MATCHING line)."""
+        from rebrew.compile import NEAR_MATCH_THRESHOLD
+        from rebrew.verify_cache import patch_verify_cache_entries
+
+        cfg = _make_cfg(tmp_path)
+        self._make_cache(tmp_path, cfg, status="STUB")
+        cache_path = tmp_path / ".rebrew" / "verify_cache.json"
+        for patch in (
+            {"va": 0x1000, "status": "STUB", "match_percent": 59.96, "delta": 1},
+            {"va": 0x1000, "status": "STUB", "match_count": 1499, "total": 2500},
+        ):
+            patch_verify_cache_entries(cfg, [patch])
+            entry = json.loads(cache_path.read_text(encoding="utf-8"))["entries"]["0x00001000"]
+            assert entry["match_percent"] < NEAR_MATCH_THRESHOLD * 100
+
     def test_wrong_target_not_patched(self, tmp_path: Path) -> None:
         """A cache written for a different target must not be touched."""
         from rebrew.verify_cache import patch_verify_cache_entries

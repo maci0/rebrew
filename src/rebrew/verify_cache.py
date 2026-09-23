@@ -410,9 +410,11 @@ def patch_verify_cache_entries(cfg: ProjectConfig, patches: list[dict[str, Any]]
                 raw_pct = float(p["match_percent"])
                 # Reject NaN/inf so a corrupt patch cannot poison status/todo
                 # ranking (NaN sorts break; isfinite comparisons are always false).
-                match_pct = round(raw_pct, 1) if math.isfinite(raw_pct) else 0.0
+                # Unrounded, like a full verify's rows: rounding lifted 59.96 to
+                # 60.0, across the NEAR_MATCHING threshold todo ranks by.
+                match_pct = raw_pct if math.isfinite(raw_pct) else 0.0
             else:
-                match_pct = round(100.0 * p["match_count"] / total, 1) if total > 0 else 0.0
+                match_pct = 100.0 * p["match_count"] / total if total > 0 else 0.0
             passed = p["status"] in MATCHED_STATUSES
             if p.get("delta") is not None:
                 delta = p["delta"]
