@@ -21,7 +21,7 @@ import threading
 from dataclasses import dataclass
 from typing import Any
 
-from rebrew.binary_loader import BinaryInfo, va_to_file_offset
+from rebrew.binary_loader import BinaryInfo, section_extent, va_to_file_offset
 
 # ---------------------------------------------------------------------------
 # Data types
@@ -234,9 +234,10 @@ def extract_bytes(info: BinaryInfo, va: int, size: int) -> bytes:
         return b""
     avail = len(data) - offset
     for section in info.sections.values():
-        sec_va = int(getattr(section, "va", 0))
-        if section.size > 0 and sec_va <= va < sec_va + section.size:
-            avail = max(0, int(getattr(section, "raw_size", 0)) - (va - sec_va))
+        # Same containment rule as va_to_file_offset: a section with virtual
+        # size 0 maps its raw size, and must still clamp to it.
+        if section.va <= va < section.va + section_extent(section):
+            avail = max(0, section.raw_size - (va - section.va))
             break
     return data[offset : offset + min(size, avail)]
 

@@ -154,6 +154,27 @@ class TestDecompDevReport:
         fn = doc["units"][0]["functions"][0]
         assert fn["fuzzy_match_percent"] == 61.0
 
+    def test_near_matching_rounded_to_100_is_not_a_matched_function(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The verify cache stores one decimal, so 2499/2500 bytes (99.96%)
+        reads back as 100.0; the unit must still count it as unmatched."""
+        annos = [_fake_ann(0x2000, 2500, "near_fn", "NEAR_MATCHING")]
+        self._setup(tmp_path, monkeypatch, annos)
+        self._mock_progress(monkeypatch, total_functions=1, status_counts={})
+
+        class _Entry:
+            match_percent = 100.0
+
+        class _Cache:
+            entries = {0x2000: _Entry()}
+
+        monkeypatch.setattr("rebrew.verify_cache._load_verify_cache", lambda _p, _c: _Cache())
+        out = tmp_path / "report.json"
+        report.generate_decomp_dev_report(_cfg(tmp_path), out)
+        doc = json.loads(out.read_text(encoding="utf-8"))
+        assert doc["units"][0]["measures"]["matched_functions"] == 0
+
     def test_shared_progress_denominator(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

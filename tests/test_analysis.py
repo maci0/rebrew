@@ -252,6 +252,19 @@ class TestExtractBytesRawSizeClamp:
 
         assert extract_bytes(self._info(tmp_path), 0x1000 + 0x8, 16) == b"A" * 8
 
+    def test_zero_virtual_size_clamps_to_raw_size(self, tmp_path: Path) -> None:
+        """A section with virtual size 0 maps its raw size (va_to_file_offset
+        resolves it); the read must still stop at raw_size, not run into the
+        next section's bytes."""
+        from rebrew.analysis import extract_bytes
+        from rebrew.binary_loader import SectionInfo
+
+        info = self._info(tmp_path)
+        info.sections[".data"] = SectionInfo(
+            name=".data", va=0x1000, size=0, file_offset=0, raw_size=0x10
+        )
+        assert extract_bytes(info, 0x1000 + 0x8, 16) == b"A" * 8
+
 
 class TestScanPascalLongString:
     def test_255_byte_string_found(self) -> None:

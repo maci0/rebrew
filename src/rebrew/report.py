@@ -928,6 +928,7 @@ def generate_decomp_dev_report(cfg: ProjectConfig, out_path: Path) -> dict[str, 
         unit_matched = 0
         unit_fuzzy = 0.0
         unit_fns = 0
+        unit_matched_fns = 0
         for a in annos:
             if a.is_data:
                 continue
@@ -949,6 +950,7 @@ def generate_decomp_dev_report(cfg: ProjectConfig, out_path: Path) -> dict[str, 
             unit_fns += 1
             if a.status in matched_statuses:
                 unit_matched += size
+                unit_matched_fns += 1
         if not items:
             continue
         units.append(
@@ -961,7 +963,9 @@ def generate_decomp_dev_report(cfg: ProjectConfig, out_path: Path) -> dict[str, 
                     if unit_code
                     else 0.0,
                     "total_functions": unit_fns,
-                    "matched_functions": sum(1 for i in items if i["fuzzy_match_percent"] >= 100.0),
+                    # By status, like matched_code: a NEAR_MATCHING percent
+                    # cached at one decimal rounds 99.96 up to 100.0.
+                    "matched_functions": unit_matched_fns,
                 },
                 "functions": items,
             }

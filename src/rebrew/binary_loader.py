@@ -654,7 +654,7 @@ def section_dict(info: BinaryInfo) -> dict[str, dict[str, int]]:
     }
 
 
-def _section_extent(section: SectionInfo) -> int:
+def section_extent(section: SectionInfo) -> int:
     """Mapped extent of *section* (virtual size; raw size when virtual is 0)."""
     return section.size or section.raw_size
 
@@ -695,7 +695,7 @@ def extract_bytes_at_va(
     if size > _MAX_BINARY_SIZE:
         raise ValueError(f"Requested size too large: {size}")
     for section in info.sections.values():
-        if section.va <= va < section.va + _section_extent(section):
+        if section.va <= va < section.va + section_extent(section):
             offset = va - section.va
             file_pos = section.file_offset + offset
             # Clamp to raw_size for file-backed bytes (BSS tail has no bytes)
@@ -727,7 +727,7 @@ def va_to_file_offset(info: BinaryInfo, va: int) -> int:
     section shortcut if no section contains the VA.
     """
     for section in info.sections.values():
-        if section.va <= va < section.va + _section_extent(section):
+        if section.va <= va < section.va + section_extent(section):
             return section.file_offset + (va - section.va)
     # Fallback: use .text section constants
     return va - info.text_va + info.text_raw_offset
