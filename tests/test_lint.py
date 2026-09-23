@@ -723,7 +723,8 @@ class TestLintCli:
         src.mkdir()
         (src / "bad.c").write_text("not a c file\n", encoding="utf-8")
         result = self._invoke(tmp_path, monkeypatch, ["--json", str(src / "bad.c")])
-        assert result.exit_code != 0
+        assert result.exit_code == 1
+        assert '"code": "E001"' in result.stdout
 
     def test_summary_flag(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         src = tmp_path / "src"

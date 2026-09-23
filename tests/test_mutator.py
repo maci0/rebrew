@@ -1097,7 +1097,7 @@ class TestPointerParam:
         src = "int f(char *ptr) {\n  return *ptr;\n}"
         result = mut_pointer_to_int_param(src, _rng())
         assert result is not None
-        assert "*" not in result.split("{")[0] or "int" in result  # pointer removed or type changed
+        assert result.split("{")[0] == "int f(int ptr) "
 
     def test_int_to_pointer(self) -> None:
         src = "int f(int param) {\n  return param;\n}"
@@ -1921,7 +1921,8 @@ class TestWrapInElse:
         ret_early = "void f(int x) { if (x) { return 1; } return 0; }"
         result = mut_wrap_in_else(ret_early, _rng())
         assert result is not None
-        assert "else {" in result or "else" in result
+        # The fall-through return moves into an else block
+        assert result.split("else {")[1].strip().startswith("return 0;")
         assert result.count("return 0;") == 1
 
     def test_no_early_return(self) -> None:

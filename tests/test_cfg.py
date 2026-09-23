@@ -1272,7 +1272,8 @@ class TestCLISetCompiler:
         _make_project(tmp_path)
         monkeypatch.chdir(tmp_path)
         result = runner.invoke(cfg_app, ["set-compiler", "nonexistent", "msvc-6.0"])
-        assert result.exit_code != 0
+        assert result.exit_code == 2
+        assert "Target 'nonexistent' not found" in result.output
 
     def test_set_compiler_overwrites_existing(self, tmp_path: Path, monkeypatch) -> None:
         """set-compiler replaces a previously set compiler stanza."""

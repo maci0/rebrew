@@ -508,6 +508,7 @@ class TestRenameData:
         import typer as _typer
         from typer.testing import CliRunner
 
+        from rebrew.data_metadata import get_data_entry
         from rebrew.rename import main as _rename_main
 
         app = _typer.Typer()
@@ -516,7 +517,9 @@ class TestRenameData:
         self._project(tmp_path)
         monkeypatch.setattr("rebrew.rename.require_config", lambda **kw: self._cfg(tmp_path))
         res = CliRunner().invoke(app, ["g_old", "f", "--data"])
-        assert res.exit_code != 0
+        assert res.exit_code == 2
+        assert "would create a duplicate symbol" in res.output
+        assert get_data_entry(tmp_path, 0x2000, "SERVER").get("name") == "g_old"
 
 
 class TestUnderscoreNameDerivation:

@@ -211,9 +211,10 @@ class TestSwapIfElseDeep:
         src = "if (x > 0) {\n    a = 1;\n    b = 2;\n} else {\n    a = 3;\n    b = 4;\n}"
         result = mut_swap_if_else(src, random.Random(42))
         assert result is not None, "swap_if_else should succeed on valid if/else"
-        # Condition should be negated, bodies should be swapped
-        assert "!(x > 0)" in result or "x > 0" in result
-        assert result != src
+        # Condition negated, bodies swapped
+        assert result == (
+            "if (!(x > 0)) {\n    a = 3;\n    b = 4;\n} else {\n    a = 1;\n    b = 2;\n}"
+        )
 
     def test_nested_if(self) -> None:
         src = "if (a) {\n  if (b) {\n    x = 1;\n  }\n} else {\n  x = 2;\n}"
@@ -231,9 +232,11 @@ class TestReorderElseIfDeep:
         )
         result = mut_reorder_elseif(src, random.Random(42))
         assert result is not None, "reorder_elseif should succeed on 3-branch else-if chain"
-        # Should still have all branches, possibly reordered
-        assert "a == 1" in result or "a == 2" in result
-        assert "else" in result
+        # Every branch survives the reorder and the final else stays last
+        for body in ("x = 1;", "x = 2;", "x = 3;"):
+            assert result.count(body) == 1, body
+        assert result.endswith("} else {\n  x = 0;\n}")
+        assert result != src
 
 
 # -------------------------------------------------------------------------

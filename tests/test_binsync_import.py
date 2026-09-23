@@ -205,7 +205,11 @@ class TestBinsyncImportConflicts:
         result = _invoke_import(
             tmp_path, state, monkeypatch, "--accept-binsync", "--accept-local", "--json"
         )
-        assert result.exit_code != 0
+        assert result.exit_code == 2
+        assert json.loads(result.stdout)["error"] == (
+            "--accept-binsync and --accept-local are mutually exclusive"
+        )
+        assert "foo.c" in _src_files(tmp_path)  # nothing renamed
 
     def test_module_filter(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         _make_project(
@@ -235,7 +239,8 @@ class TestBinsyncImportConflicts:
             },
         )
         result = _invoke_import(tmp_path, tmp_path / "nope", monkeypatch, "--json")
-        assert result.exit_code != 0
+        assert result.exit_code == 2
+        assert json.loads(result.stdout)["error"].startswith("State directory not found:")
 
     def test_empty_state_dir(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         _make_project(
@@ -247,7 +252,8 @@ class TestBinsyncImportConflicts:
         empty = tmp_path / "empty_state"
         empty.mkdir()
         result = _invoke_import(tmp_path, empty, monkeypatch, "--json")
-        assert result.exit_code != 0
+        assert result.exit_code == 2
+        assert json.loads(result.stdout)["error"].startswith("No BinSync data found in")
 
 
 class TestBinsyncRoundTrip:

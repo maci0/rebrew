@@ -12,6 +12,7 @@ from rebrew.data import (
     BssGap,
     BssReport,
     _generate_bss_fix,
+    enrich_with_sections,
     scan_data_annotations,
     scan_globals,
 )
@@ -337,7 +338,7 @@ class TestRenderers:
         scan = scan_globals(Path("/nonexistent"))
         render_summary(_console(buf), scan, {})  # type: ignore[arg-type]
         # Empty scan still renders a section summary table (zeros).
-        assert "Section" in buf.getvalue() or "Globals" in buf.getvalue() or buf.getvalue() != ""
+        assert "Section" in buf.getvalue()
 
     def testrender_bss_no_section(self) -> None:
         from io import StringIO
@@ -644,7 +645,9 @@ class TestRenderDispatchAndBss:
         render_dispatch(_console(buf), [tbl])  # type: ignore[arg-type]
         out = buf.getvalue()
         assert "Dispatch Tables" in out
-        assert "fn_a" in out or "0x00004000" in out or "0x4000" in out
+        assert "0x00004000 (.rdata)" in out
+        assert "fn_a" in out
+        assert "1 resolved (50%)" in out
 
     def testrender_bss_populated(self) -> None:
         from io import StringIO
@@ -660,8 +663,10 @@ class TestRenderDispatchAndBss:
         render_bss(_console(buf), report)  # type: ignore[arg-type]
         out = buf.getvalue()
         assert "BSS Layout" in out
-        assert "0x00005000" in out or "0x5000" in out
-        assert "g_a" in out or "Gaps detected" in out
+        assert "BSS at 0x00005000, size 256 bytes" in out
+        assert "g_a" in out
+        assert "Gaps detected: 1" in out
+        assert "0x00005004" in out
 
     def testrender_bss_no_gaps(self) -> None:
         from io import StringIO
@@ -702,10 +707,14 @@ class TestRenderDispatchAndBss:
         )
         scan = scan_globals(cfg.reversed_dir, cfg)
         sections = {".data": {"va": 0x1000, "size": 0x100}}
+        enrich_with_sections(scan, sections)  # as the CLI does before render_summary
         buf = StringIO()
         render_summary(_console(buf), scan, sections)  # type: ignore[arg-type]
         out = buf.getvalue()
-        assert "Section" in out or ".data" in out or "Globals" in out
+        # One annotated int (4B) of a 256B .data section
+        assert "4B / 256B" in out
+        assert "1.6%" in out
+        assert "unknown" not in out
 
 
 class TestGenGlobalsHeaderMetadata:

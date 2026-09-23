@@ -138,8 +138,8 @@ class TestBinsyncExportBasic:
         result, outdir = _invoke(tmp_path, monkeypatch)
         assert result.exit_code == 0
         name = _load_func(outdir / "functions" / "30003000.toml").name
-        # Stub with no body: falls back to symbol from declaration or func_ prefix
-        assert isinstance(name, str) and len(name) > 0
+        # A prototype-only stub carries no symbol: the name falls back to func_<va>
+        assert name == "func_30003000"
 
 
 # ---------------------------------------------------------------------------
@@ -473,7 +473,8 @@ class TestBinsyncExportModuleFilter:
             },
         )
         result, _ = _invoke(tmp_path, monkeypatch, "--module", "UNKNOWN", "--json")
-        assert result.exit_code != 0
+        assert result.exit_code == 2
+        assert '"error": "No annotations found."' in result.stdout
 
     def test_module_filter_json(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         import json as _json
