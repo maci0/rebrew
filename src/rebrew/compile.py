@@ -2281,7 +2281,7 @@ def compile_and_compare_linked(
     toolchain: str | None = None,
     use_cache: bool = True,
 ) -> CompareResult:
-    """Compile *source* in a padded link shell and compare linker-resolved bytes.
+    """Compile *source_path* in a padded link shell and compare linker-resolved bytes.
 
     The dll-rebuild "linked" oracle: wrap the function source in a
     ``.text$A`` pad + ``.text$B`` shell, compile it, LINK a real DLL at the

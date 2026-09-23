@@ -163,7 +163,7 @@ graph TD
 | `no functions discovered` | no discoverer found functions (rizin missing, timed out, or couldn't analyze the binary) | `apt install rizin` or register another `rebrew.discoverers` plugin; re-run `rebrew intake` (the scaffold is kept) |
 | `docker image rebrew/… not built` | image missing | `rebrew toolchain build <profile>` (or `rebrew toolchain pull <profile>`) |
 | `Toolchain alignment` fail | detected family ≠ configured profile | `rebrew cfg set compiler.profile <detected>` |
-| `Cannot extract DLL bytes` (verify) | binary changed since the annotation | re-run `rebrew intake` for re-discovery, or fix the marker VA (see `rebrew doctor`'s *Annotation staleness* check) |
+| `Cannot extract DLL bytes` (verify) | binary changed since the annotation | re-run `rebrew intake` for re-discovery, or fix the marker VA (the error names the VA when it is missing from the current function list) |
 | `Failed to load: …` (doctor) | `format` doesn't match the binary | set `format = "pe"/"elf"/"macho"/"ne"` in `rebrew-project.toml` |
 | `A rebrew-project.toml already exists` | `init` in an existing project | use `rebrew intake` instead — it re-runs init only when needed |
 

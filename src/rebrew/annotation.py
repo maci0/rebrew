@@ -33,12 +33,6 @@ logger = logging.getLogger(__name__)
 # Module-level constants
 # ---------------------------------------------------------------------------
 
-_PARSE_LOOKAHEAD_LINES: Final[int] = 20
-"""Maximum lines scanned from file start for single-function parsing
-(``parse_c_file``).  The multi-block parser (``parse_c_file_multi``)
-scans the entire file instead.
-"""
-
 # Minimum plausible virtual address.  VAs below this threshold are almost
 # certainly invalid (PE image base is typically 0x10000000 or higher).
 # Used across verify, annotation, and naming to reject bad entries early.
@@ -964,8 +958,7 @@ def parse_new_format(lines: list[str]) -> Annotation | None:
     (``// FUNCTION: SERVER 0x...``), then collects subsequent key-value
     comment lines until a non-annotation line is hit.  Non-annotation
     preamble lines before the marker are tolerated.  Returns None if
-    no valid marker line is found.  (The caller typically limits *lines*
-    to the first ``_PARSE_LOOKAHEAD_LINES`` of the file.)
+    no valid marker line is found.
     """
     marker_type = None
     va = None

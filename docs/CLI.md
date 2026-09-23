@@ -1116,7 +1116,7 @@ never ships a `.LIB`.
 
 | Flag / Arg | Description |
 |------------|-------------|
-| `COMMAND` | `list`, `show` (or `extract`), or `batch N` (positional argument) |
+| `COMMAND` | `list`, `show`, or `batch N` (positional argument) |
 | `--binary PATH` | Path to DLL/EXE (default: from config) |
 | `--size N` | With `show`, override the catalog-recorded size |
 | `--start N` | With `batch`, start offset into the sorted candidate list |
@@ -1689,10 +1689,10 @@ the append-only run history (same file).  Read-only.
 | Subcommand | Description |
 |------------|-------------|
 | `list-targets` | List configured targets |
-| `show KEY` | Read a (dotted) config value, e.g. `show targets.main.binary` |
+| `show [KEY]` | Read a (dotted) config value, e.g. `show targets.main.binary` |
 | `set KEY VALUE [--dry-run]` | Set a (dotted) config value, e.g. `set compiler.timeout 120` |
 | `add-target NAME --binary F [--arch A] [--format FMT] [--modules M] [--source-ext E] [--copy/--no-copy] [--force] [--dry-run] [--json]` / `remove-target NAME [--force] [--dry-run] [--json]` | Manage targets |
-| `add-module NAME [--dry-run]` / `remove-module NAME [--force] [--dry-run]` | Manage `reversed_dir` modules |
+| `add-module NAME [--dry-run] [--json] [--target T]` / `remove-module NAME [--force] [--dry-run] [--json] [--target T]` | Manage a target's `origins` list |
 | `set-cflags MODULE FLAGS [--target T] [--dry-run]` | Set a module's cflags preset (global, or per-target with `--target`) |
 | `set-compiler TARGET PROFILE [--dry-run]` | Write a compiler profile (`msvc-6.0`, `msvc-7.0`, `clang-18.1.8`, `gcc-14.2.0`) onto a target |
 | `detect-crt [--write] [--dry-run]` | Scan `toolchain/` for known MSVC CRT source dirs |

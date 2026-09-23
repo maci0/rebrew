@@ -131,7 +131,7 @@ Profiled `score_candidate` (512-byte functions, 40 reloc offsets, 5000 iters):
 
 The GA hot path already precomputes the target side once per function
 (`precompute_target` → `_pre_norm_target` / `_pre_target_mnems`, wired in
-`match.py` and `matcher/compiler.py`); per-candidate cost is dominated by
+`match_ga.py` and `matcher/compiler.py`); per-candidate cost is dominated by
 the unavoidable candidate disassembly.  A numpy fancy-indexing prototype
 for `_normalize_with_reloc_offsets` measured **slower** (0.7×) than the
 existing slice-assignment loop — do not "vectorize" it.  The `_pre_*`
