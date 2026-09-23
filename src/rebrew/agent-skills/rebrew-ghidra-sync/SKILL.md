@@ -132,7 +132,7 @@ differing locals gate as conflicts), notes, global names + differing
 type/size, structs (unknown definitions land in `binsync_types.h`);
 `--create-missing` materializes STUB files.  Conflicts are reported and
 skipped until resolved with `--accept-binsync` / `--accept-local`. Export
-writes `manifest.toml` freshness facts, surfaced by `rebrew binsync-diff --json`.
+writes `manifest.toml` freshness facts, surfaced by `rebrew binsync diff D --json`.
 
 **MCP structural:** function creation (`--create-functions`, standalone or
 chained after `--pull`), status bookmarks (`--bookmarks`), data labels

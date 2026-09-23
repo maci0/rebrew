@@ -225,9 +225,6 @@ rebrew graph                            # full mermaid call graph
 rebrew graph --cu-map --json            # infer compilation unit boundaries
 ```
 
-For Ghidra integration, see the `rebrew-ghidra-sync` skill.
-For GA matching and batch processing, see the `rebrew-matching` skill.
-
 ## Toolchains
 
 Shipped profiles (`msvc-*`, `mingw-*`, …) compile only through their docker image —

@@ -102,8 +102,6 @@ BLOCKER/BLOCKER_DELTA land in `rebrew-functions.toml` under `["<MODULE>.0x<VA>"]
 When no structural diffs remain, `--fix-blocker` clears them.
 **Never hand-edit `rebrew-functions.toml` for BLOCKER — use `rebrew blocker set/clear` or the `--fix-blocker` writers.**
 
-Use this to quickly rule out structural issues before running the GA.
-
 ## 2. GA Engine (Single File)
 
 For automated matching when manual tuning and diffs are insufficient:
@@ -170,11 +168,9 @@ qualifier variants. Batch flag/GA details: `references/flag-sweep.md`.
 
 ## 5. Tips
 
-- Always start with `rebrew diff` before running the GA.
 - For library-origin functions (MSVCRT, ZLIB), use `rebrew crt-match` to identify the reference source first.
 - Common CFLAGS: `/O2 /Gd` (GAME); a library subtree takes its flags from
   `rebrew library set <dir> --preset msvcrt-static` (`/O2 /Gd /MT`), not per-function CFLAGS.
-- If a function remains NEAR_MATCHING after GA and blockers are structural, use `rebrew prove`.
 - While iterating on a single function, `--watch` (on `diff`, `prove`, or `match`) re-runs on every
   file save — faster than re-typing the command.
 - Do not start long GA (`-g` large / `--all`) or thorough/full sweeps without user confirmation.

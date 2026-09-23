@@ -220,11 +220,3 @@ rebrew dashboard                        # read-only UI at http://127.0.0.1:8000 
 Only start `dashboard` when the user asks for the UI. It blocks until stopped; do
 not leave it running. `--port` changes the bind. Default handoff is
 `rebrew status --json` / `rebrew todo --json`, then `rebrew-workflow`.
-
-## Summary Checklist
-
-Optional `rebrew intake <binary>` (stubs only) → `doctor` pass →
-`cfg detect-crt --write` → `flirt --json` → `catalog --data-json` +
-`--export-ghidra-labels` + `--fix-sizes` → `build-db` → `status`/`todo` →
-`graph --cu-map` → first skeletons → optional Ghidra sync. Then
-`rebrew-workflow`.
