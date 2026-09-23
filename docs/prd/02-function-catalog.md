@@ -119,7 +119,7 @@ Output `.bin` files land in the configured `bin_dir`.
 
 ### `rebrew crt-match`
 
-- Indexes `crt_source_dirs` (set via `cfg detect-crt` or manually) by symbol.
+- Indexes the `crt_sources` target table (set via `cfg detect-crt` or manually) by symbol.
 - Matches `LIBRARY:` annotations (or a single VA) against the indexed
   symbols and ranks candidates.
 - `--all` runs across every LIBRARY marker.
