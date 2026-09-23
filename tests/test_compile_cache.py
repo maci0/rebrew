@@ -546,6 +546,28 @@ class TestHeaderDependencyHash:
         k2 = compile_cache_key(src, "f.c", flags, [str(inc)], "wine CL")
         assert k1 != k2
 
+    @pytest.mark.parametrize(
+        ("src", "flags"),
+        [
+            ('#include "local.h"\n#include LIB_H\nint f(void){return 1;}\n', ["/O2"]),
+            ('#include "local.h"\nint f(void){return 1;}\n', ["/O2", "/FIforced.h"]),
+        ],
+    )
+    def test_fallback_fingerprints_source_dir(
+        self, tmp_path: Path, src: str, flags: list[str]
+    ) -> None:
+        """Quote includes search the source dir first, so the conservative
+        fallback must fingerprint it too, not only the ``/I`` dirs."""
+        src_dir = tmp_path / "src"
+        src_dir.mkdir()
+        (src_dir / "local.h").write_text("#define L 1\n")
+        k1 = compile_cache_key(src, "f.c", flags, [], "wine CL", source_dir=str(src_dir))
+
+        (src_dir / "local.h").write_text("#define L 22\n")
+        include_fingerprint.cache_clear()
+        k2 = compile_cache_key(src, "f.c", flags, [], "wine CL", source_dir=str(src_dir))
+        assert k1 != k2
+
 
 class TestGetCompileCache:
     def test_returns_same_instance(self, tmp_path: Path) -> None:

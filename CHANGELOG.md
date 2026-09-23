@@ -643,6 +643,13 @@
   in emission order.
 
 ### Fixed
+- **The compile cache sees edits to source-local headers under `/FI` or
+  `#include MACRO`.**  When the include closure cannot be resolved (a
+  force-include flag or a non-literal `#include`), the key fell back to
+  fingerprints of the `/I` dirs only.  Quote includes search the source
+  directory first, so editing a header next to the `.c` file served the
+  stale `.obj` (and the verify cache kept the old verdict).  The fallback
+  now fingerprints the source directory too.
 - **A malformed `rebrew.discoverers` plugin no longer crashes discovery.**
   A discoverer returning `None`, a non-list, or rows that are not
   `(va, size, name)` triples raised `TypeError` inside `discover_functions`

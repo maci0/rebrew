@@ -37,7 +37,7 @@ resolved on the host (e.g. the MSVC CRT headers inside the immutable
 toolchain image) are not tracked: their content is pinned by the toolchain
 image digest in the key.  When the closure cannot be resolved statically
 (a non-literal ``#include MACRO``, a ``/FI`` force-include), the key falls
-back to per-directory fingerprints of every include dir (the conservative
+back to per-directory fingerprints of the source dir and every include dir (the conservative
 ccache-style mode, via :func:`include_fingerprint`).  Resolution is
 memoized per process keyed by search-directory mtimes: a header *created*
 while a long GA run is in flight bumps the parent directory's mtime and is
@@ -742,10 +742,14 @@ def _header_key_entries(
     return sorted(entries)
 
 
-def _dir_fingerprint_hash(include_dirs: list[str]) -> str:
-    """Conservative whole-directory header fingerprint (ccache-style)."""
+def _dir_fingerprint_hash(source_dir: str | None, include_dirs: list[str]) -> str:
+    """Conservative whole-directory header fingerprint (ccache-style).
+
+    Covers *source_dir* as well as the ``/I`` dirs: quote includes search it
+    first, so leaving it out would miss an edit to a source-local header.
+    """
     h = hashlib.sha256()
-    for d in include_dirs:
+    for d in [source_dir, *include_dirs] if source_dir else include_dirs:
         h.update(include_fingerprint(d).encode("utf-8"))
         h.update(b"\x00")
     return h.hexdigest()
@@ -868,7 +872,7 @@ def header_dependency_hash(
     """
     paths, fallback = _resolve_include_paths(source_content, source_dir, tuple(include_dirs))
     if fallback:
-        return _dir_fingerprint_hash(include_dirs)
+        return _dir_fingerprint_hash(source_dir, include_dirs)
     if not paths:
         return _NO_DEPS_HASH
     h = hashlib.sha256()
@@ -947,7 +951,7 @@ def compile_cache_key(
     headers = (
         header_dependency_hash(source_content, source_dir, include_dirs)
         if not force_include
-        else _dir_fingerprint_hash(include_dirs)
+        else _dir_fingerprint_hash(source_dir, include_dirs)
     )
     h.update(f"\0headers={headers}\0".encode())
     h.update(f"\0toolchain={toolchain_id}\0".encode("utf-8", errors="surrogateescape"))
