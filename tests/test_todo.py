@@ -711,6 +711,7 @@ class TestSetupSteps:
         items = _collect_setup_steps(cfg, [], {})
         assert len(items) == 1
         assert "doctor" in items[0].command
+        assert items[0].roi_score == 98.0
 
     def test_no_ghidra_json_with_funclist(self, tmp_path: Path) -> None:
         cfg = _make_cfg(tmp_path)
@@ -733,6 +734,16 @@ class TestSetupSteps:
         assert len(items) == 2
         assert any("todo" in i.command for i in items)
         assert any("skeleton" in i.command for i in items)
+        assert [i.roi_score for i in items] == [98.0, 97.0]
+
+    def test_sources_never_verified(self, tmp_path: Path) -> None:
+        cfg = _make_cfg(tmp_path)
+        src_dir = tmp_path / "src"
+        src_dir.mkdir()
+        (src_dir / "function_structure.json").write_text("[]", encoding="utf-8")
+        ghidra_funcs = [FunctionEntry(va=0x1000, size=100, name="f")]
+        items = _collect_setup_steps(cfg, ghidra_funcs, {0x1000: {"status": "STUB"}})
+        assert [(i.command, i.roi_score) for i in items] == [("rebrew verify", 89.0)]
 
 
 class TestCollectAllIntegration:

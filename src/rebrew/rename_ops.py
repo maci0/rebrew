@@ -172,10 +172,7 @@ def rename_function_everywhere(
 
     updated_files = 0
 
-    # 1. Symbol is now derived from C function definition — no SYMBOL annotation update needed
-    # The function definition rename at step 2 handles symbol derivation automatically
-
-    # 2. Update function definition & calls in file
+    # Update function definition & calls in file
     try:
         content, encoding = read_source_text(filepath)
         # Literals and macro names are left alone (see substitute_name), and
@@ -194,7 +191,7 @@ def rename_function_everywhere(
         logger.error("Failed to update primary file %s: %s", filepath, exc)
         raise
 
-    # 3. Find and update externs across all files
+    # Find and update externs across all files
     for src_file in iter_sources(cfg.reversed_dir, cfg):
         if src_file == filepath:
             continue
@@ -212,7 +209,7 @@ def rename_function_everywhere(
                 exc,
             )
 
-    # 4. Rename file if needed — skip when file has multiple annotations
+    # Rename file if needed — skip when file has multiple annotations
     #    (renaming would disassociate the other functions from their file).
     if rename_target is not None:
         try:

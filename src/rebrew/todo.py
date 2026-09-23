@@ -219,75 +219,33 @@ def _collect_setup_steps(
     project configuration. Scored 90-99 so they always appear first.
     """
     items: list[TodoItem] = []
-    step = 0
 
-    src_dir = Path(cfg.reversed_dir)
-    ghidra_json = inventory_path_for(src_dir, cfg)
-
-    # 2. No discovery inventory → need to generate it
-    if not ghidra_json.exists():
-        step += 1
+    def add(base_score: float, description: str, command: str) -> None:
         items.append(
             TodoItem(
                 category=CAT_SETUP,
-                roi_score=99.0 - step,
+                roi_score=base_score - len(items) - 1,
                 va=0,
                 name="",
                 size=0,
                 filename="",
-                description="Export function inventory from Ghidra/r2/rizin",
-                command="rebrew doctor",
+                description=description,
+                command=command,
             )
         )
+
+    if not inventory_path_for(Path(cfg.reversed_dir), cfg).exists():
+        add(99.0, "Export function inventory from Ghidra/r2/rizin", "rebrew doctor")
         return items  # Can't do much more without the inventory
 
-    # 3. Have function list but no source files → run triage + skeleton
     if not ghidra_funcs:
-        return items  # Shouldn't happen if ghidra_json exists, but be safe
+        return items
 
     if not existing:
-        step += 1
-        items.append(
-            TodoItem(
-                category=CAT_SETUP,
-                roi_score=99.0 - step,
-                va=0,
-                name="",
-                size=0,
-                filename="",
-                description=f"Run todo to survey {len(ghidra_funcs)} functions",
-                command="rebrew todo --json",
-            )
-        )
-        step += 1
-        items.append(
-            TodoItem(
-                category=CAT_SETUP,
-                roi_score=99.0 - step,
-                va=0,
-                name="",
-                size=0,
-                filename="",
-                description="Generate first skeleton files to start reversing",
-                command="rebrew skeleton --batch 5",
-            )
-        )
-
-    # 4. Have source files but never verified
+        add(99.0, f"Run todo to survey {len(ghidra_funcs)} functions", "rebrew todo --json")
+        add(99.0, "Generate first skeleton files to start reversing", "rebrew skeleton --batch 5")
     elif not (cfg.root / ".rebrew" / "verify_cache.json").exists():
-        step += 1
-        items.append(
-            TodoItem(
-                category=CAT_SETUP,
-                roi_score=90.0 - step,
-                va=0,
-                name="",
-                size=0,
-                filename="",
-                description=f"Run first verify on {len(existing)} functions",
-                command="rebrew verify",
-            )
-        )
+        add(90.0, f"Run first verify on {len(existing)} functions", "rebrew verify")
 
     return items
 
@@ -301,8 +259,8 @@ def _collect_active_functions(
 ) -> list[TodoItem]:
     """Collect and score all incomplete functions currently tracked in the project.
 
-    This unifies previously separate categories (compile errors, near misses, stubs,
-    verify failures) into a single pass that calculates a continuous ROI score.
+    Compile errors, near misses, stubs, and verify failures share one pass
+    and one continuous ROI score.
     """
     items: list[TodoItem] = []
 
