@@ -60,6 +60,8 @@ _PRAGMA_OP_RE = re.compile(r"\b(?:_Pragma|__pragma)\s*\(")
 # Inline asm (GNU ``asm``/``__asm__``, MSVC ``__asm``/``_asm``/``_emit``) lets
 # model output emit the target bytes verbatim: a faked match, not a C seed.
 _INLINE_ASM_RE = re.compile(r"\b(?:asm|_asm|__asm|__asm__|_emit)\b")
+# Three or more angle brackets: the shape of the prompt's data delimiters.
+_ANGLE_RUN_RE = re.compile(r"<{3,}|>{3,}")
 # Root children allowed beside the single function_definition.
 _ALLOWED_TOP_LEVEL = frozenset({"function_definition", "comment"})
 
@@ -101,9 +103,9 @@ def _sanitize_source(source: str) -> str:
     text = source.replace("\x00", "")
     # Collapse fence markers so they cannot terminate a surrounding ```c block.
     text = text.replace("```", "'''")
-    # Neutralize our own delimiters if they appear in adversarial source.
-    text = text.replace("<<<C_SOURCE>>>", "<< <C_SOURCE> >>")
-    text = text.replace("<<<END_C_SOURCE>>>", "<< <END_C_SOURCE> >>")
+    # Break every <<< / >>> run (no valid C token) so no case or spacing
+    # variant of our delimiters can fake the end of the data block.
+    text = _ANGLE_RUN_RE.sub(lambda m: " ".join(m.group(0)), text)
     if len(text) > _MAX_SOURCE_CHARS:
         text = text[:_MAX_SOURCE_CHARS] + "\n/* ... truncated for LLM seed request ... */\n"
     return text
@@ -500,12 +502,23 @@ def _request(
     # Drop whitespace-insensitive repeats: duplicates waste population slots.
     seen: set[str] = set()
     seeds: list[str] = []
-    for s in extract_seeds(text):
+    blocks = extract_seeds(text)
+    for s in blocks:
         key = " ".join(s.split())
         if key in seen or not valid_c_source(s, expect_name=expect_name, expect_proto=expect_proto):
             continue
         seen.add(key)
         seeds.append(s)
+    if not seeds:
+        # --seed-llm was asked for: say why nothing arrived instead of
+        # silently running the GA as if seeding had never been requested.
+        logging.warning(
+            "LLM seeding: response had %d fenced block(s), none a valid %s "
+            "(empty, refused, truncated, or name/prototype/C gate failed); "
+            "GA continues without seeds",
+            len(blocks),
+            expect_name,
+        )
     return seeds[:count]
 
 
