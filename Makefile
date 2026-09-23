@@ -188,20 +188,25 @@ cli-contract:
 # record a buildinfo manifest (toolchain + SOURCE_DATE_EPOCH) next to the
 # artifacts so a rebuild can be attempted with the same environment knobs.
 # Toolchain lines record versions, never host paths (the manifest ships).
+# The build backend is hash-verified against build-constraints.txt, whose
+# setuptools version must equal the pyproject.toml [build-system] pin.
 # setuptools= is parsed from pyproject.toml [build-system] (never hardcoded —
 # a stale pin next to requires = ["setuptools==…"] would lie in the manifest).
 build: ensure-uv
 	@mkdir -p dist
 	@rm -f dist/*.whl dist/*.tar.gz dist/*.buildinfo
-	umask 022 && SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) TZ=UTC LC_ALL=C PYTHONHASHSEED=0 uv build
+	@set -eu; \
+	st=$$(sed -n 's/^requires = \["setuptools==\([0-9.][0-9.]*\)"\]/\1/p' pyproject.toml | head -1); \
+	if [ -z "$$st" ] || ! grep -q "^setuptools==$$st " build-constraints.txt; then \
+	  echo "ERROR: pyproject.toml [build-system] setuptools pin '$$st' missing or not in build-constraints.txt"; \
+	  exit 1; \
+	fi
+	umask 022 && SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) TZ=UTC LC_ALL=C PYTHONHASHSEED=0 \
+		uv build --build-constraints build-constraints.txt --require-hashes
 	SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) uv run --frozen --no-project python tools/normalize_sdist.py dist/*.tar.gz
 	@rm -rf build rebrew.egg-info
 	@set -eu; \
 	st=$$(sed -n 's/^requires = \["setuptools==\([0-9.][0-9.]*\)"\]/\1/p' pyproject.toml | head -1); \
-	if [ -z "$$st" ]; then \
-	  echo "ERROR: could not parse setuptools pin from pyproject.toml [build-system]"; \
-	  exit 1; \
-	fi; \
 	{ \
 	  echo "SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH)"; \
 	  echo "umask=022"; \

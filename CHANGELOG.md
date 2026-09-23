@@ -174,6 +174,11 @@
   documented integrator surface.
 
 ### Changed
+- **`make build` hash-verifies the build backend.**  `uv build` fetched
+  the pinned setuptools from PyPI with no hash check.  It now runs with
+  `--build-constraints build-constraints.txt --require-hashes`, and fails
+  before building when that file's setuptools version differs from the
+  `[build-system]` pin.
 - **mypy `possibly-undefined` covers every module.**  Nine modules
   (`asm`, `calibrate_bss`, `data`, `doctor`, `matcher.scoring`,
   `name_decomp`, `prove`, `skeleton`, `test`) were exempt because they
