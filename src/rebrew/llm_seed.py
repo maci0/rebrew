@@ -57,9 +57,10 @@ _PREPROC_RE = re.compile(r"^\s*#", re.MULTILINE)
 # Pragma operators (C99 ``_Pragma``, MSVC ``__pragma``) act like ``#pragma``
 # without a ``#`` line: an ``optimize``/``pack`` pragma fakes a byte match.
 _PRAGMA_OP_RE = re.compile(r"\b(?:_Pragma|__pragma)\s*\(")
-# Inline asm (GNU ``asm``/``__asm__``, MSVC ``__asm``/``_asm``/``_emit``) lets
-# model output emit the target bytes verbatim: a faked match, not a C seed.
-_INLINE_ASM_RE = re.compile(r"\b(?:asm|_asm|__asm|__asm__|_emit)\b")
+# Inline asm (GNU ``asm``/``__asm__``, MSVC ``__asm``/``_asm``/``_emit``,
+# Borland ``__emit__()``) lets model output emit the target bytes verbatim: a
+# faked match, not a C seed.
+_INLINE_ASM_RE = re.compile(r"\b(?:asm|_asm|__asm|__asm__|_emit|__emit__)\b")
 # Three or more angle brackets: the shape of the prompt's data delimiters.
 _ANGLE_RUN_RE = re.compile(r"<{3,}|>{3,}")
 # Root children allowed beside the single function_definition.
@@ -280,7 +281,7 @@ def valid_c_source(
     Snippets must contain exactly one ``function_definition`` at the
     translation-unit root (comments allowed; no globals, typedefs, structs,
     preprocessor directives (including ones hidden behind a comment), or
-    ``_Pragma`` / ``__pragma`` operators, or inline asm).  When *expect_name* / *expect_proto* are set, both must
+    ``_Pragma`` / ``__pragma`` operators, or inline asm or ``__emit__``).  When *expect_name* / *expect_proto* are set, both must
     match — so a hallucinated helper, wrong arity, or Trojan second
     definition cannot ride into the GA population.
 

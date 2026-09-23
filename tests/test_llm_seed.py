@@ -220,6 +220,7 @@ class TestValidCSource:
             '  __asm__ volatile (".byte 0x55");\n',
             '  asm(".byte 0x55");\n',
             "  __asm { _emit 0x55 }\n",
+            "  __emit__(0x55);\n",
         ],
     )
     def test_inline_asm_rejected(self, body: str) -> None:

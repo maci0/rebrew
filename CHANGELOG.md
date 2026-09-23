@@ -663,6 +663,10 @@
   in emission order.
 
 ### Fixed
+- **`--seed-llm` rejects Borland `__emit__()` seeds.**  The inline-asm
+  gate caught `asm`/`__asm`/`_emit` but not Borland's `__emit__(0x55)`,
+  which emits raw bytes and so lets a model seed fake a byte match on a
+  `borland-*` toolchain.  `valid_c_source` now drops it.
 - **`rebrew data --converge` no longer grows a TU on every run.**  A TU
   placed too late with no `_dlead_` pad got an empty line inserted and was
   reported as adjusted each run.  With no pad to shrink it is now left

@@ -1853,7 +1853,6 @@ def main(
     reversed_dir = cfg.reversed_dir if cfg else None
 
     exts = source_exts(cfg)
-    exts = source_exts(cfg)
     if files:
         # `source_ext` may hold several comma-separated extensions; comparing
         # the raw string against `f.suffix` matched nothing, so `rebrew lint

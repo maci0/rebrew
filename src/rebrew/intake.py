@@ -81,7 +81,6 @@ class IntakeResult:
     function_count: int
     documented: int
     errors: list[str] = field(default_factory=list)
-    dry_run: bool = False
 
 
 def _suggest_profile(binary: Path) -> tuple[str, str, str, list[str]]:
@@ -411,7 +410,6 @@ def main(
             function_count=preview_count,
             documented=0,
             errors=[],
-            dry_run=True,
         )
         payload = {
             "dry_run": True,
