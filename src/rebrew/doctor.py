@@ -23,7 +23,7 @@ import shlex
 import shutil
 import subprocess
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -48,6 +48,9 @@ _PASS = "pass"
 _FAIL = "fail"
 _WARN = "warn"
 _SKIP = "skip"
+
+#: BinSync state dir with no commit for longer than this is reported stale.
+_BINSYNC_STALE_AFTER = timedelta(days=14)
 
 
 @dataclass
@@ -1539,16 +1542,15 @@ def check_binsync_state(cfg: ProjectConfig) -> CheckResult:
     except (ValueError, OverflowError, OSError, subprocess.TimeoutExpired):
         last = None
     if last is not None:
-        # Absolute elapsed days (not calendar days): a 14-day threshold must
-        # not shrink/expand across a DST transition on the host.
+        # Absolute elapsed time between UTC instants: DST on the host cannot
+        # shrink or stretch the threshold.
         age = datetime.now(UTC) - last
-        age_days = age.total_seconds() / 86400
-        if age_days > 14:
+        if age > _BINSYNC_STALE_AFTER:
             return CheckResult(
                 name="BinSync sync",
                 status=_WARN,
                 message=f"BinSync state dir {state} has not been committed in "
-                f"{int(age_days)} days — the BinSync Ghidra plugin may not be "
+                f"{age.days} days — the BinSync Ghidra plugin may not be "
                 "relaying (Ghidra will not see exports)",
                 fix="Check that the BinSync Ghidra plugin is installed and "
                 "watching this state dir.",
