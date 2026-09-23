@@ -384,6 +384,12 @@
   ``one_line``, ``run_git``). Call sites inside the package already updated.
 
 ### Fixed
+- **A failed `rebrew init` can be rerun.**  Init wrote
+  `rebrew-project.toml` first, and that file is what makes a second init
+  refuse ("already exists").  A later step failing (`--link-tools-from`
+  without the profile's toolchain, a wibo download error) left a
+  half-scaffolded project that only hand-deleting the TOML could finish.
+  The TOML is now written after every step that can fail.
 - **A closed pipe exits 141 everywhere, not 1.**  When a reader closed
   stdout early (`rebrew skills show X | head`), click and Rich both
   swallowed the EPIPE into exit 1, which reads as `EXIT_MISMATCH`; only

@@ -1030,7 +1030,7 @@ def main(
             )
             cflags = f"{tc.opt_level} /Gd"
 
-    # 1. Write rebrew-project.toml
+    # 1. Render rebrew-project.toml (written after the steps that can fail)
     toml_content = DEFAULT_REBREW_TOML.format(
         project_name=cwd.name,
         target_name=target_name,
@@ -1063,9 +1063,6 @@ def main(
                 f"(target {target_name!r}, binary {binary_name!r}, profile {compiler_profile!r})"
             )
         return
-    atomic_write_text(toml_path, toml_content, encoding="utf-8")
-    console.print(f"[green]Created {toml_path.name}[/]")
-
     # 2. Write AGENTS.md (for LLM agents)
     agents_path = cwd / "AGENTS.md"
     agents_content = _render_agents_md(
@@ -1127,15 +1124,23 @@ def main(
     linked_toolchain: Path | None = None
     if toolchain_dir is not None:
         linked_toolchain = _link_toolchain(cwd, compiler_profile, toolchain_dir, json_output)
-        # The link may have just created a better layout than the pre-write
-        # resolution saw (e.g. a master toolchain/msvc/6.0-win32) — re-resolve and
-        # point the written [compiler] section at it.
-        if compiler_profile in ("msvc-6.0", "msvc-7.0"):
-            from rebrew.utils import resolve_msvc_toolchain
 
-            layout = resolve_msvc_toolchain(cwd, compiler_profile)
-            if layout is not None:
-                _rewrite_compiler_paths(toml_path, layout)
+    # The TOML is the "already initialized" guard, so it lands only after
+    # every step that can fail (wibo download, toolchain link): a failed init
+    # leaves no TOML and a rerun finishes the job.  The steps before it all
+    # converge on rerun.
+    atomic_write_text(toml_path, toml_content, encoding="utf-8")
+    console.print(f"[green]Created {toml_path.name}[/]")
+
+    # The link may have just created a better layout than the pre-write
+    # resolution saw (e.g. a master toolchain/msvc/6.0-win32) — re-resolve and
+    # point the written [compiler] section at it.
+    if toolchain_dir is not None and compiler_profile in ("msvc-6.0", "msvc-7.0"):
+        from rebrew.utils import resolve_msvc_toolchain
+
+        layout = resolve_msvc_toolchain(cwd, compiler_profile)
+        if layout is not None:
+            _rewrite_compiler_paths(toml_path, layout)
 
     # 10. Optionally write shell completion scripts
     completion_paths: list[Path] = []

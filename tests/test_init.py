@@ -2,6 +2,7 @@
 
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 import typer
@@ -279,6 +280,30 @@ class TestInit:
         content = toml_path.read_text()
         assert "server" in content
         assert "server.dll" in content
+
+    def test_failed_init_reruns_to_completion(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A step failing after the scaffold leaves no TOML, so rerunning init
+        finishes instead of refusing with "already exists"."""
+        master = tmp_path / "master"
+        master.mkdir()
+        monkeypatch.chdir(tmp_path)
+        kwargs: dict[str, Any] = {
+            "target_name": "server",
+            "binary_name": "server.dll",
+            "compiler_profile": "msvc-6.0",
+            "install_wibo": False,
+            "json_output": False,
+            "install_completions": False,
+        }
+        with pytest.raises(Exit):
+            main(**kwargs, toolchain_dir=master)
+        assert (tmp_path / "AGENTS.md").exists()
+        assert not (tmp_path / "rebrew-project.toml").exists()
+
+        main(**kwargs)
+        assert 'profile = "msvc-6.0"' in (tmp_path / "rebrew-project.toml").read_text()
 
     def test_dry_run_writes_nothing(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """main() --dry-run previews without touching the disk."""
