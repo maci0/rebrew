@@ -113,8 +113,12 @@ def rename_function_everywhere(
     # parse_c_file_multi and left a half-applied rename behind).
     if not is_safe_c_ident(target_func):
         raise ValueError(f"target function name {target_func!r} is not a valid C identifier")
+    # One compile for the whole tree walk — recompiling per file was O(files)
+    # of identical Pattern construction on a rename that only differs by content.
+    name_re = re.compile(r"\b" + re.escape(actual_old_name) + r"\b")
+
     rename_target: Path | None = None
-    if rename_file and not dry_run:
+    if rename_file:  # dry runs validate too: a preview must fail where the write would
         try:
             multi_function_file = (
                 len(
@@ -125,6 +129,8 @@ def rename_function_everywhere(
                 > 1
             )
         except Exception as exc:  # abort before mutating anything
+            if dry_run:  # a preview writes nothing; the real run reports this
+                return len(collect_matching_files(cfg, filepath, name_re))
             raise ValueError(f"cannot rename {filepath}: annotation parse failed: {exc}") from exc
         if multi_function_file and not new_filename:
             rename_file = False  # auto-rename unsafe for multi-function files
@@ -159,10 +165,6 @@ def rename_function_everywhere(
                         f"Use --file to pick a different filename."
                     )
                 rename_target = target_file
-
-    # One compile for the whole tree walk — recompiling per file was O(files)
-    # of identical Pattern construction on a rename that only differs by content.
-    name_re = re.compile(r"\b" + re.escape(actual_old_name) + r"\b")
 
     if dry_run:
         # Preview mode: count files that would be modified without writing.

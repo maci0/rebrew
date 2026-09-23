@@ -88,6 +88,18 @@ class TestRenameFunctionEverywhere:
         with pytest.raises(FileExistsError, match="already exists"):
             rename_function_everywhere(_cfg(tmp_path), a, "func_a", "_func_a", "renamed_fn")
 
+    def test_dry_run_target_exists_raises(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        a = _src(tmp_path, "func_a.c", "int func_a(void) { return 1; }\n")
+        _src(tmp_path, "renamed_fn.c", "int renamed_fn(void) { return 2; }\n")
+        _patch_sources(monkeypatch, [a])
+        with pytest.raises(FileExistsError, match="already exists"):
+            rename_function_everywhere(
+                _cfg(tmp_path), a, "func_a", "_func_a", "renamed_fn", dry_run=True
+            )
+        assert "func_a" in a.read_text()
+
     def test_multi_function_file_not_auto_renamed(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

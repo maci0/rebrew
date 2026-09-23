@@ -148,6 +148,22 @@ class TestLibraryCli:
         assert removed.exit_code == 0
         assert not (lib / LIBRARY_METADATA_FILE).exists()
 
+    def test_show_stops_at_project_root(self, tmp_path: Path) -> None:
+        proj, lib, _ = _tree(tmp_path)
+        (proj / "rebrew-project.toml").write_text("", encoding="utf-8")
+        (tmp_path / LIBRARY_METADATA_FILE).write_text('toolchain = "msvc-6.0"\n', encoding="utf-8")
+        shown = self._invoke("show", str(lib), "--json")
+        assert shown.exit_code == 0, shown.output
+        assert '"found": false' in shown.output
+
+    def test_set_library_with_preset_rejected(self, tmp_path: Path) -> None:
+        lib = tmp_path / "lib"
+        lib.mkdir()
+        res = self._invoke("set", str(lib), "--library", "zlib", "--preset", "msvcrt-static")
+        assert res.exit_code != 0
+        assert "mutually exclusive" in res.output
+        assert not (lib / LIBRARY_METADATA_FILE).exists()
+
     def test_set_preset_merges_explicit(self, tmp_path: Path) -> None:
         lib = tmp_path / "lib"
         lib.mkdir()

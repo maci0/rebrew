@@ -1724,7 +1724,7 @@ project defaults).  Known shipped libraries can be declared by name via
 
 | Flag | Description |
 |------|-------------|
-| `set DIR [--toolchain X] [--cflags Y] [--preset NAME] [--library NAME] [--dry-run]` | Write/update `DIR/rebrew-libraries.toml`; explicit fields always win over a preset |
+| `set DIR [--toolchain X] [--cflags Y] [--preset NAME] [--library NAME] [--dry-run]` | Write/update `DIR/rebrew-libraries.toml`; explicit fields always win over a preset; `--preset` and `--library` are mutually exclusive |
 | `show DIR` | Show the effective override for DIR (nearest file walking up; `--json`) |
 | `list [ROOT]` | Enumerate every `rebrew-libraries.toml` under ROOT (default: project root); `--json` |
 | `rm DIR [--dry-run]` | Remove `DIR/rebrew-libraries.toml` (revert to project defaults) |

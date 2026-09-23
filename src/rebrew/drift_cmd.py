@@ -132,6 +132,9 @@ def main(
     if va is not None:
         want = parse_va(va, json_mode=json_output)
         selected = next((a for a in annos if a.va == want), None)
+        if selected is None and annos:
+            # The file-level fallbacks below describe its first function, not this VA.
+            error_exit(f"no annotation for 0x{want:08x} in {src_path.name}", json_mode=json_output)
     elif annos:
         selected = annos[0]
 

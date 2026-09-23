@@ -31,6 +31,7 @@ from rebrew.metadata import (
     parse_library_metadata,
 )
 from rebrew.utils import atomic_write_text
+from rebrew.workspace.config import walk_up_to_root
 
 console = Console(stderr=True)
 
@@ -49,7 +50,8 @@ def show_cmd(
 ) -> None:
     """Show the effective library override for a directory (nearest
     rebrew-libraries.toml walking up toward the project root)."""
-    ovr = find_library_override(directory)
+    # Stop at the enclosing project root, as the compile paths (root=cfg.root) do.
+    ovr = find_library_override(directory, root=walk_up_to_root(Path(directory)))
     if ovr is None:
         msg = f"no rebrew-libraries.toml found from {Path(directory).resolve()} upward"
         if json_output:
@@ -134,6 +136,9 @@ def set_cmd(
     if not target.is_dir():
         msg = f"{target} is not a directory"
         error_exit(msg, json_mode=json_output)
+    if library is not None and preset is not None:
+        # Both write the ``library`` key; one would silently discard the other.
+        error_exit("--library and --preset are mutually exclusive", json_mode=json_output)
     if preset is not None and preset not in all_library_presets():
         msg = f"unknown preset {preset!r} (known: {sorted(all_library_presets())})"
         error_exit(msg, json_mode=json_output)
