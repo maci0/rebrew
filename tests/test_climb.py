@@ -110,7 +110,7 @@ class TestScoreAligned:
         return result, rebrew.analysis
 
     def test_score_is_pairs_dominated_with_hunks_as_tie_break(self, monkeypatch, tmp_path) -> None:
-        """pairs * 1000 - hunks: distance first, region count breaks ties.
+        """Pairs dominate the score: distance first, region count breaks ties.
 
         Scoring aligned bytes instead let one long instruction outweigh two
         short ones (1886 -> 2004 bytes was worth only 740 -> 743 pairs), and
@@ -135,8 +135,38 @@ class TestScoreAligned:
             cfg, tmp_path / "f.c", "_f", b"target", "/O2", {}, 0x1000, None
         )
 
-        assert score == 2 * 1000 - 1  # two pairs, one hunk
+        assert score == (2 + 1) * 5 - 1  # two pairs, one hunk, scale len(target) + 2
         assert obj_len == 12
+
+    def test_more_pairs_win_regardless_of_hunk_count(self, monkeypatch, tmp_path) -> None:
+        """A fixed ``pairs * 1000`` let >1000 hunks outweigh a whole pair.
+
+        Against a 2200-instruction target, 1002 scattered one-instruction
+        replacements (1198 pairs) must beat one 1003-instruction deletion
+        (1197 pairs, one hunk).
+        """
+        from types import SimpleNamespace
+
+        _result, nd = self._result(monkeypatch)
+
+        def insn(mnemonic: str, op: str = "") -> object:
+            return SimpleNamespace(mnemonic=mnemonic, op_str=op)
+
+        target = [i for n in range(1100) for i in (insn("mov"), insn("t", f"{n}"))]
+        scattered = [
+            i for n in range(1100) for i in (insn("mov"), insn("c" if n < 1002 else "t", f"{n}"))
+        ]
+        streams = {b"target": target, b"scattered": scattered, b"deleted": target[:-1003]}
+        monkeypatch.setattr(nd, "disasm_insns", lambda code, *a, **k: list(streams[code]))
+        cfg = SimpleNamespace(capstone_arch="CS_ARCH_X86", capstone_mode="CS_MODE_32")
+
+        def score_of(obj: bytes) -> float:
+            _result.obj_bytes = obj
+            return rebrew.climb._score_aligned(
+                cfg, tmp_path / "f.c", "_f", b"target", "/O2", {}, 0x1000, None
+            )[0]
+
+        assert score_of(b"scattered") > score_of(b"deleted") > 0.0
 
 
 class TestSwap:

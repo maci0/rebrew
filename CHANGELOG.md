@@ -568,6 +568,13 @@
   in emission order.
 
 ### Fixed
+- **The aligned climb score ranks by pairs on large functions.**  The
+  score was `pairs * 1000 - hunks`, so once a candidate had more than
+  1000 differing hunks (reachable above ~1000 aligned instructions) a
+  candidate with one fewer pair could outrank it.  The multiplier is now
+  the target's instruction count plus 2, which always exceeds the hunk
+  count, and a compiled candidate no longer scores `-1.0`, the value
+  that means "did not compile".
 - **`rebrew analyze` keeps the float constant pool on a truncated
   `.rdata`.**  An x87 `qword` operand in the last 7 bytes of `.rdata`
   read short and raised in `struct.unpack`, and the dossier dropped every

@@ -270,11 +270,14 @@ def _score_aligned(
     better offset: measured on gm_AllocSpieler, ten accepted swaps raised it
     859 -> 909 while the alignment fell 740 -> 728.
 
-    The score is ``pairs * 1000 - hunks``: pairs are the distance to
-    byte-identity (each unpaired instruction is one that still differs), so
-    they dominate, and the hunk count breaks ties between candidates that pair
-    the same number (fewer, larger regions are the same distance but fewer
-    fixes).  Counting *bytes* instead let one long instruction outweigh two
+    The score is ``(pairs + 1) * scale - hunks`` with ``scale`` the target's
+    instruction count plus 2: pairs are the distance to byte-identity (each
+    unpaired instruction is one that still differs), so they dominate, and the
+    hunk count breaks ties between candidates that pair the same number (fewer,
+    larger regions are the same distance but fewer fixes).  Non-equal hunks sit
+    between matching blocks, so ``hunks <= pairs + 1 < scale``: one more pair
+    always outweighs any hunk count, and a compiled candidate scores above 0,
+    clear of the ``-1.0`` no-compile result.  Counting *bytes* instead let one long instruction outweigh two
     short ones: 1886 -> 2004 aligned bytes was worth only 740 -> 743 pairs.
     """
     result = compile_and_compare(
@@ -319,7 +322,8 @@ def _score_aligned(
     )
     pairs = sum(block.size for block in aligner.get_matching_blocks())
     hunks = sum(1 for op in aligner.get_opcodes() if op[0] != "equal")
-    return float(pairs * 1000 - hunks), obj_len
+    scale = len(target) + 2
+    return float((pairs + 1) * scale - hunks), obj_len
 
 
 def _within_size_budget(matched: float, obj_len: int, target_len: int, budget: int) -> bool:
