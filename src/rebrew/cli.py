@@ -212,6 +212,15 @@ def require_config(
 
 _err_console = Console(stderr=True)
 
+#: C0/C1 controls except tab and newline, rendered as ``\xNN``.  Error text
+#: carries remote response bodies and binary-derived names; a raw ESC would
+#: let them drive the terminal (OSC title/clipboard writes, screen clears).
+_TERMINAL_CONTROL_CHARS = {
+    code: f"\\x{code:02x}"
+    for code in (*range(0x20), *range(0x7F, 0xA0))
+    if code not in (ord("\t"), ord("\n"))
+}
+
 
 def error_exit(msg: str, *, json_mode: bool = False, code: int = EXIT_ERROR) -> NoReturn:
     """Print *msg* as an error and ``raise typer.Exit(code)``.
@@ -220,15 +229,18 @@ def error_exit(msg: str, *, json_mode: bool = False, code: int = EXIT_ERROR) -> 
     callers can distinguish mismatch (1) from infrastructure errors (2) without
     relying solely on the process exit status.
 
-    *msg* is rendered literally (Rich markup escaped): error text often
-    embeds file contents and paths that must not be interpreted as markup.
+    *msg* is rendered literally (Rich markup escaped, terminal control
+    characters other than tab/newline shown as ``\\xNN``): error text often
+    embeds file contents, paths, and remote responses that must not be
+    interpreted as markup or escape sequences.
     """
     if json_mode:
         print(json.dumps({"error": msg, "code": code}, indent=2))
     else:
         # soft_wrap keeps embedded commands/paths contiguous — without it
         # Rich folds mid-token (e.g. `rebrew catalog …` → `rebrew\ncatalog`).
-        _err_console.print(f"[red bold]error:[/red bold] {escape(msg)}", soft_wrap=True)
+        safe = escape(msg.translate(_TERMINAL_CONTROL_CHARS))
+        _err_console.print(f"[red bold]error:[/red bold] {safe}", soft_wrap=True)
     raise typer.Exit(code=code)
 
 

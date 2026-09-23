@@ -55,6 +55,18 @@ class TestErrorExit:
         data = json.loads(captured.out)
         assert data == {"error": "nope", "code": 3}
 
+    def test_plain_neutralizes_terminal_escapes(self, capsys: pytest.CaptureFixture[str]) -> None:
+        # Remote response text (decomp.me, recompile service) reaches error_exit;
+        # an OSC/CSI sequence must print inert, while newlines/tabs survive.
+        with pytest.raises(typer.Exit):
+            error_exit("rejected: \x1b]52;c;cHduZWQ=\x07\x1b[2J\n\thint\x9b")
+        err = capsys.readouterr().err
+        assert "\x1b" not in err
+        assert "\x07" not in err
+        assert "\x9b" not in err
+        assert "\\x1b]52;c;cHduZWQ=\\x07\\x1b[2J" in err
+        assert "hint\\x9b" in err.splitlines()[1]
+
 
 class TestRunCliConfigWarning:
     def test_config_warning_printed_once(self, capsys: pytest.CaptureFixture[str]) -> None:

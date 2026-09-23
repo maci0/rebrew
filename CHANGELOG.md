@@ -450,6 +450,11 @@
   in emission order.
 
 ### Fixed
+- **Error messages cannot drive the terminal.**  `error_exit` escaped Rich
+  markup but printed raw ESC and other control characters, and its text
+  carries remote response bodies (decomp.me, the recompile service) and
+  binary-derived names.  C0/C1 controls other than tab and newline now
+  print as `\xNN`.
 - **Renames accept only ASCII C identifiers.**  `rebrew rename` (with or
   without `--data`) and BinSync import validated names with
   `str.isidentifier()`, which follows Python's Unicode rules, so `café` or
