@@ -888,9 +888,7 @@ def _run_test_impl(
     # VA-based selection happens UNCONDITIONALLY (not just when symbol is
     # absent): an explicit --va on a multi-module file must target the
     # function AT that VA for symbol derivation AND for the metadata
-    # promotion below — with --symbol given, the old code fell to
-    # lint_annos[0], writing SIZE/CFLAGS/STATUS under the FIRST module
-    # even though the function tested was at the requested VA.
+    # promotion below, even with --symbol given.
     sel_ann: Annotation | None = None
     if va is not None:
         # An explicit --va targets ONE function in (possibly) a
@@ -1358,8 +1356,7 @@ def _test_multi(
     results_list: list[dict[str, Any]] = []
     # Tracks whether ANY function came back unmatched — the documented exit
     # contract (help: "1 NEAR_MATCHING or STUB") must hold for multi-function
-    # files too, not just single-function and --all (the multi path
-    # previously always exited 0, a false green for CI gates).
+    # files too, not just single-function and --all.
     any_failed = False
     # Tooling failures (extraction/obj problems) exit 2 like COMPILE_ERROR —
     # a CI script must not read them as "fix your code" (exit 1).
@@ -1496,10 +1493,8 @@ def _test_multi(
                 # compiled fine, so this is NOT a COMPILE_ERROR.  Mirror
                 # compile_and_compare's EXTRACT_ERROR labeling so a malformed
                 # .obj aborts only this symbol, never the whole multi-function
-                # file (previously a LIEF raise crashed the batch with a
-                # traceback and no JSON output).  Per-symbol isolation: ANY
-                # exception here isolates to this symbol (logged below); the
-                # batch continues with the remaining annotations.
+                # file.  ANY exception here isolates to this symbol (logged
+                # below); the batch continues with the remaining annotations.
                 any_extract_error = True
                 if json_output:
                     results_list.append(

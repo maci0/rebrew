@@ -273,7 +273,7 @@ def generate_data_json(
         from rebrew.binary_loader import load_binary
 
         # Single lazy parse: sections, layout, and raw bytes all come from
-        # one BinaryInfo (previously get_sections + load_binary parsed twice).
+        # one BinaryInfo.
         try:
             _bin_info = load_binary(bin_path)
         except (OSError, KeyError, ValueError) as exc:
@@ -483,8 +483,7 @@ def generate_data_json(
         idx = 0
 
         # Reverse lookup: function end offset → name (for absorption detection).
-        # Declared here, but repopulated from scratch in each absorption round
-        # below — the initial build was dead work, discarded by the first clear.
+        # Repopulated from scratch in each absorption round below.
         func_end_to_name: dict[int, str] = {}
 
         # All function starts in this section: the annotated items above plus

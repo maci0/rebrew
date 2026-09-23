@@ -180,8 +180,7 @@ def classify_all(
     }
     documented = 0
     # Two batched metadata writes (fields + statuses) instead of per-function
-    # RMWs — the old loop was O(N) full toml rewrites (~5 min for a
-    # 646-function NE target).
+    # RMWs, each of which rewrites the whole TOML.
     existing = load_metadata(meta_base, deepcopy=False)
     existing_sizes = {(mod, va): fields.get("size") for (mod, va), fields in existing.items()}
     field_updates: list[dict[str, Any]] = []

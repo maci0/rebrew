@@ -1133,7 +1133,7 @@ def converge_layout(
     Returns per-round pad adjustments.
     """
     # Same target the build output is read from, so the pads are sized against
-    # THIS target's .data geometry (the old call always read the first target).
+    # THIS target's .data geometry.
     data_base, raw_end, _section_end = layout_geometry(
         root / "rebrew-project.toml", target=_converge_target(root, target)
     )

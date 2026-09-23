@@ -233,8 +233,7 @@ def _inject_from_errors(source: str, errors: str) -> tuple[str, list[str]]:
         return source, []
     # Prepend the injections after the header comments (keeps the file
     # readable); a simple prepend at the top is safe for C89.  All pending
-    # injections are emitted — the old code only prepended the first two and
-    # silently dropped the rest.
+    # injections are emitted.
     return "\n".join(injections) + "\n\n" + source, injections
 
 

@@ -412,8 +412,8 @@ def _paginate_mcp_list(
             next_start = int(metadata.get("nextStartIndex", start + batch_size))
         except (ValueError, TypeError):
             next_start = start + batch_size
-        # Guard against a server that echoes nextStartIndex without advancing
-        # (previously looped forever, one 30s HTTP call per iteration).
+        # Stop on a server that echoes nextStartIndex without advancing,
+        # which would otherwise loop forever.
         if next_start <= start:
             return items
         start = next_start

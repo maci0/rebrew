@@ -1534,10 +1534,9 @@ def lint_file(
                 result, va_str, min_va=min_valid_va_for(cfg) if cfg else MIN_VALID_VA
             )
 
-            # Check EVERY block (module + VA keyed): a duplicate appearing in
-            # a later block of a multi-function file used to be skipped by the
-            # old `i == 0` guard.  The (module, va) key keeps a multi-module
-            # file whose blocks share a VA (a valid layout) is not flagged.
+            # Check EVERY block of a multi-function file, keyed on
+            # (module, va) so a multi-module file whose blocks share a VA
+            # (a valid layout) is not flagged.
             # DATA/GLOBAL also pass the marker kind + body so the check can
             # tell a second definition (real collision) from an extern/bare
             # claim beside the single definition (progressive ownership).

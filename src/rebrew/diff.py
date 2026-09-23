@@ -106,9 +106,8 @@ def _global_name_map(cfg: Any) -> dict[int, str]:
     try:
         return {v: n for n, v in build_name_to_va(cfg).items() if v}
     except Exception:  # best-effort name resolution
-        # Diffs still render without names; a silent empty map used to hide
-        # CatalogScanError / config bugs that made every absolute address
-        # look unresolved.
+        # Diffs still render without names; log so a CatalogScanError or
+        # config bug is not mistaken for unresolved addresses.
         logging.getLogger(__name__).debug(
             "global name map unavailable for diff; addresses stay numeric",
             exc_info=True,
@@ -501,8 +500,7 @@ def main(
 
     # Resolve build parameters via match module's shared resolver.  When the
     # argument was a bare VA, pass it through so resolve_build_params targets
-    # THAT annotation in a multi-function file — previously it fell back to
-    # the first annotation and diffed the wrong function (false match).
+    # THAT annotation in a multi-function file, not the first one.
     from rebrew.match_sweep import resolve_build_params
 
     params = resolve_build_params(

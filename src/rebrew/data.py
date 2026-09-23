@@ -67,10 +67,7 @@ app = typer.Typer(
 # reccmp-compatible GLOBAL annotation:  // GLOBAL: SERVER 0x10031ae8
 #
 # `DATA:` is the same marker for this scan's purpose -- annotation.DATA_MARKERS
-# holds {"GLOBAL", "DATA"} and `Annotation.is_data` treats them identically, so
-# a project that spells its globals `// DATA:` (guild-rebrew: 118 DATA, 0
-# GLOBAL) used to scan as zero annotated globals and report every one of them
-# in section "unknown".
+# holds {"GLOBAL", "DATA"} and `Annotation.is_data` treats them identically.
 _GLOBAL_RE = re.compile(
     r"(?://|/\*)\s*(?:GLOBAL|DATA):\s*(?P<module>[A-Z0-9_]+)\s+(?P<va>0x[0-9a-fA-F]+)"
 )
@@ -81,8 +78,7 @@ _GLOBAL_RE = re.compile(
 # The identifier of a declaration the tree-sitter pass did not return.  It must
 # accept a *definition with an initialiser* and not just a `;`-terminated
 # declaration: `char s_msg[] = "...";` and `char g_blob[568] = {` are how a
-# reversed source spells a global it actually defines, and matching only `;`
-# used to send every one of them to the "unknown" bucket.  Array extents may
+# reversed source spells a global it actually defines.  Array extents may
 # repeat (`char g_t[4][8]`), and the initialiser may open a brace on the same
 # line or run to a `;`.
 _DECL_IDENT_RE = re.compile(r"([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:\[[^\]]*\]\s*)*\s*(?:=|;)")
@@ -267,8 +263,8 @@ def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
     for cfile in iter_sources(src_dir, cfg):
         try:
             # Tolerant read: a legacy-encoded source must not have its
-            # non-ASCII bytes silently deleted (errors="ignore" used to drop
-            # string literals/comments, corrupting GLOBAL:/DATA: scans).
+            # non-ASCII bytes silently deleted, which would corrupt string
+            # literals, comments, and GLOBAL:/DATA: scans.
             text, _ = read_source_text(cfile)
         except OSError:
             continue
@@ -1432,10 +1428,9 @@ def main(
     if json_output:
         data = scan.to_dict()
         if conflicts:
-            # --conflicts is documented as "Show only globals with type
-            # conflicts" — the Rich path honors it, JSON mode used to return
-            # every global.  The summary counts describe the filtered set so
-            # the payload stays self-consistent.
+            # --conflicts ("Show only globals with type conflicts") filters
+            # JSON output like the Rich path.  The summary counts describe
+            # the filtered set so the payload stays self-consistent.
             conflict_names = {c["name"] for c in scan.type_conflicts}
             data["globals"] = {
                 k: v for k, v in data["globals"].items() if v["name"] in conflict_names

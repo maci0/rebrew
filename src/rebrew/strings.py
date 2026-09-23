@@ -103,7 +103,7 @@ def collect_strings(
     if not strings and not json_output:
         if no_data_sections:
             # Lead with the stable phrase so narrow consoles cannot wrap it apart
-            # (CliRunner / COLUMNS≈80 used to emit "nothing to\\nscan.").
+            # (CliRunner uses COLUMNS≈80).
             console.print(
                 f"[yellow]nothing to scan: no data sections (.rdata/.data/.rodata) in {binary}.[/]"
             )

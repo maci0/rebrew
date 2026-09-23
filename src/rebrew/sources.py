@@ -161,9 +161,8 @@ def iter_sources(directory: Path, cfg: ProjectConfig | None = None) -> list[Path
         and shared.is_dir()
         and Path(shared).resolve() != Path(directory).resolve()
     ):
-        # Same extension set as the target's own scan: the shared half used to
-        # be globbed through a `cfg=None` recursive call, which silently fell
-        # back to `[".c"]` and dropped every shared `.cpp`/`.cc` source.
+        # Same extension set as the target's own scan, so shared
+        # `.cpp`/`.cc` sources are included.
         shared_files = _files_with_ext(shared, wanted)
         return sorted(set(base) | set(shared_files))
     return base

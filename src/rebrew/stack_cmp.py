@@ -130,8 +130,7 @@ def analyze_frame(code: bytes, va: int, cs_mode: int) -> dict[str, Any]:
         elif mnem == "lea" and "sp" in op_str:
             # lea esp, [esp - N] — stack alignment / probing reset.  The
             # destination must be ESP: `lea eax, [esp - 0x10]` only computes an
-            # address and does NOT move the stack pointer, yet the old guard
-            # ("sp" anywhere in op_str) counted it as a frame adjustment.
+            # address and does NOT move the stack pointer.
             if (
                 insn.operands
                 and insn.operands[0].type == capstone.x86.X86_OP_REG

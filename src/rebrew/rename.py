@@ -467,8 +467,8 @@ def _rename_metadata_only(
                     json_mode=json_output,
                 )
     except OSError as exc:
-        # Skipping the collision check on a read failure used to let rename
-        # create duplicate symbols silently.  Fail closed instead.
+        # Fail closed: skipping the collision check could create duplicate
+        # symbols silently.
         error_exit(
             f"Cannot read rebrew-data.toml for rename collision check: {exc}",
             json_mode=json_output,

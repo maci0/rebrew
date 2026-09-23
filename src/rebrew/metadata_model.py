@@ -96,7 +96,7 @@ def _coerce(key: str, value: Any) -> Any:
             # Shared with coerce_metadata_value / apply_metadata_entry so a
             # hand-edited ``size = 12.9`` cannot truncate to 12, and ``±inf``
             # cannot raise OverflowError past load's MetadataValidationError
-            # catch (which used to crash the whole entry read).
+            # catch.
             return as_metadata_int(value)
         except (TypeError, ValueError) as exc:
             raise MetadataValidationError(f"{key} must be an int, got {value!r}") from exc

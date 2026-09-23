@@ -261,9 +261,7 @@ def _ga_cache_key(
     docker).
     """
 
-    # Incremental hashing — the old code built a full material buffer per
-    # candidate (src.encode() + joins), and the source hash was recomputed
-    # every call despite being constant within a GA run.
+    # Incremental hashing: no per-candidate material buffer.
     # Path-like fields use surrogateescape so a non-UTF-8 include dir from
     # the filesystem (Linux surrogate filenames) does not raise here.
     def _enc(s: str) -> bytes:
@@ -567,12 +565,10 @@ class BinaryMatchingGA:
         # Same-run memo (plain dict): elites persist across generations
         # unchanged, and a resumed run replays its population.  Cross-run
         # persistence is the shared compile cache's job (`self.compile_cache`,
-        # keyed on full compile inputs) — the old per-run diskcache
-        # (`output/ga_runs/<rel>/build_cache.db` + `_cache/`) bought nothing
-        # a dict + the shared cache don't already cover.
-        # The key must cover everything that changes the .obj — not just
-        # the source.  A sweep-then-GA or CFLAGS-metadata change used to
-        # reuse the previous flag combination's .obj.
+        # keyed on full compile inputs).
+        # The key must cover everything that changes the .obj, not just
+        # the source, so a sweep-then-GA or CFLAGS-metadata change never
+        # reuses the previous flag combination's .obj.
         src_hash = self._cache_key(src)
         with self._memo_lock:
             cached = self._lru_get(self.cache, src_hash)
@@ -827,8 +823,7 @@ class BinaryMatchingGA:
     def _run_inner(self, deadline: float | None = None) -> tuple[str | None, float]:
         """Run the GA and return ``(best_source, best_score)``."""
         last_generation = self._start_generation
-        # One executor for the whole run: the old code built and tore down a
-        # pool per generation (thread create/join churn × num_generations).
+        # One executor for the whole run, not one pool per generation.
         with ThreadPoolExecutor(max_workers=self.num_jobs) as executor:
             for gen in range(self._start_generation, self.num_generations):
                 if deadline is not None and time.monotonic() > deadline:
@@ -839,9 +834,9 @@ class BinaryMatchingGA:
                 # submitting — elite/unchanged sources keep their score across
                 # generations, so skipping _compile_source entirely avoids a
                 # cache lookup per generation for every surviving member.
-                # Key on the full SHA-256 hex, not the old 32-bit [:8]
-                # truncation: at ~300k unique sources the birthday bound gives
-                # ~10 collision pairs, silently mixing scores of sources.
+                # Key on the full SHA-256 hex: a 32-bit truncation gives ~10
+                # collision pairs at ~300k unique sources (birthday bound),
+                # silently mixing their scores.
                 futures: dict[Future[BuildResult], tuple[str, str]] = {}
                 for src in self.population:
                     src_hash = source_digest(src)

@@ -753,8 +753,7 @@ def _diagnose_one(
             )
             # A blocker note implies NEAR_MATCHING — keep the documented state
             # consistent so status reports count it as documented, not as a
-            # bare STUB (previously the status stayed missing/STUB while the
-            # blocker said NEAR_MATCHING).
+            # bare STUB.
             update_source_status(
                 cfg.metadata_dir,
                 "NEAR_MATCHING",

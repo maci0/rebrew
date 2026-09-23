@@ -283,8 +283,7 @@ def _clamp_effective_match(value: Any) -> int | None:
 #: ``state = item["status"].lower()``, so every ``KNOWN_STATUSES`` value can
 #: appear lowercased (including ``extract_error`` / ``invalid_va``).  Deriving
 #: those from ``KNOWN_STATUSES`` keeps the CHECK and the sanitizer in lockstep
-#: with the annotation vocabulary — a hand-maintained subset previously
-#: dropped EXTRACT_ERROR/INVALID_VA into ``unknown``.  Gap/label states and
+#: with the annotation vocabulary.  Gap/label states and
 #: data-metadata verdicts are not function STATUSes, so they are unioned in
 #: explicitly.  ``near_match`` is the accepted alias for ``near_matching``.
 _GAP_AND_DATA_CELL_STATES: frozenset[str] = frozenset(
@@ -1561,8 +1560,7 @@ def build_db(
 
             # Schema version stamp: written under a reserved __schema__ row so
             # readers never depend on an arbitrary target's stamp (a scoped
-            # --target rebuild previously left older targets at an older
-            # version while the unfiltered reader picked an arbitrary row).
+            # --target rebuild leaves other targets at their older version).
             c.execute(
                 "INSERT OR REPLACE INTO metadata VALUES (?, ?, ?)",
                 (SCHEMA_TARGET, "db_version", json.dumps(_CURRENT_DB_VERSION)),

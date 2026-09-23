@@ -61,8 +61,8 @@ def type_size(spelling: str, known_structs: dict[str, StructDef] | None = None) 
             return known_structs[struct_name].size
         return None
     if text == "void":
-        # Incomplete type — never a struct field.  Size 0 previously let the
-        # next field share offset 0 (``typedef struct { void v; int x; }``).
+        # Incomplete type, never a struct field.  Size 0 would let the next
+        # field share offset 0 (``typedef struct { void v; int x; }``).
         return None
     if text in _PRIMITIVE_SIZES:
         return _PRIMITIVE_SIZES[text]

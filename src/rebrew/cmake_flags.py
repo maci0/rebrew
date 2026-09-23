@@ -112,11 +112,9 @@ def collect(cfg: ProjectConfig, marker: str) -> tuple[dict[Path, str], list[str]
             )
             # A per-function `toolchain` pin is honoured by `rebrew test`/`verify`
             # (they invoke the compiler directly) but NOT by the CMake build, whose
-            # compiler is fixed by the toolchain file.  Emitting only `flags` here
-            # used to let a pin silently diverge: the metadata claimed one compiler
-            # while the linked object came from another, so a function could read
-            # NEAR_MATCHING at one score in `rebrew test` and contribute different
-            # bytes to the deliverable.  Surface it instead of discarding it.
+            # compiler is fixed by the toolchain file.  Dropping the pin would let
+            # `rebrew test` score one compiler while the deliverable links
+            # another's bytes, so surface it instead of discarding it.
             if tc:
                 notes.append(
                     f"{src.relative_to(cfg.root)}: "

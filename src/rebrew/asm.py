@@ -344,8 +344,7 @@ def detect_function_pattern(cfg: ProjectConfig, va: int) -> str | None:
         i0 = insns[0]
         # Import thunk: jmp [IAT] (1-2 insns total).  A scaled index means the
         # jmp is a jump-table dispatch (`jmp dword ptr [eax*4 + 0x...]`), which
-        # the switch check below classifies — the old guard labeled it as
-        # linker glue and steered the skip-vs-decompile decision wrong.
+        # the switch check below classifies, not linker glue.
         if i0.mnemonic == "jmp" and "[" in i0.op_str and "0x" in i0.op_str and "*" not in i0.op_str:
             return "import thunk (jmp [IAT]) — linker glue, not a decomp target"
         # EH-ctor: mov eax, imm32; call helper.

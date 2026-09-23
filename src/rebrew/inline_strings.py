@@ -230,8 +230,7 @@ def define_remaining_strings(
                 tok_counts[tok_m.group(0)][f] += 1
     for tok in sorted(tok_counts):
         counts = tok_counts[tok]
-        # Zero-fill so tie-breaks follow use_lines insertion order (same as
-        # the old per-token scan that always counted every file).
+        # Zero-fill so tie-breaks follow use_lines insertion order.
         for f in use_lines:
             counts.setdefault(f, 0)
         owner[tok] = max(counts, key=counts.__getitem__)
@@ -297,8 +296,8 @@ def main(
     orig = data_raw_from_binary(bin_path)
     token_re = re.compile(rf"\b{re.escape(token_prefix)}[A-Za-z0-9_]+_([0-9a-fA-F]{{6,8}})\b")
 
-    # Shared sources carry string tokens too; an explicit --source-dir keeps
-    # the old single-dir behavior.
+    # Shared sources carry string tokens too; an explicit --source-dir scans
+    # only that directory.
     if source_dir is None:
         from rebrew.data_layout import _scan_files
 

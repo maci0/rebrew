@@ -231,11 +231,10 @@ def main(
     target: str | None = TargetOption,
 ) -> None:
     """Show every reference to *va* in the binary's code sections."""
-    # Typer binds positionals in declaration order, so `rebrew xrefs <va>`
-    # (the documented primary usage) previously landed on `binary` and left
-    # `va` missing.  With va-first this works; a legacy binary-first call
-    # (`rebrew xrefs game.exe 0x1000`) is detected by the leading arg not
-    # looking like a VA and swapped.
+    # Typer binds positionals in declaration order, so `va` comes first for
+    # `rebrew xrefs <va>`.  A binary-first call (`rebrew xrefs game.exe
+    # 0x1000`) is detected by the leading arg not looking like a VA and
+    # swapped.
     if not _looks_like_va(va) and binary is not None and _looks_like_va(str(binary)):
         va, binary = str(binary), Path(va)
     target_va = parse_va(va, json_mode=json_output)

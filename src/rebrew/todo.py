@@ -815,9 +815,7 @@ def _collect_library_candidates(
     lib_modules = set(cfg.library_modules) if cfg.library_modules else {"ZLIB", "MSVCRT"}
     # Same non-targets the start-function lane skips: an IAT thunk or ASM
     # builtin is import glue / compiler support, not a library function to
-    # identify, and a sub-10B row is not actionable.  This lane used to check
-    # only `va in existing`, so `// import` stubs surfaced as identify-library
-    # work whenever their name happened to infer a CRT module.
+    # identify, and a sub-10B row is not actionable.
     ignored: set[str] = set(getattr(cfg, "ignored_symbols", None) or [])
     iat_set: set[int] = set(getattr(cfg, "iat_thunks", None) or [])
     binary_info = None

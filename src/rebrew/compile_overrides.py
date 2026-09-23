@@ -32,9 +32,8 @@ def resolve_cflags(
         cflags = getattr(cfg, "cflags_presets", {}).get(module.upper(), "")
     if not cflags:
         cfg_cflags = getattr(cfg, "cflags", "") if cfg is not None else ""
-        # An EXPLICITLY set empty cflags means "no default flags" — the
-        # /O2 /Gd fallback applies only when the key is absent (config-review
-        # F5: `cflags = ""` previously compiled with /O2 /Gd silently).
+        # An EXPLICITLY set empty cflags means "no default flags": the
+        # /O2 /Gd fallback applies only when the key is absent.
         if not (cfg is not None and getattr(cfg, "cflags_explicit", False)):
             # The /O2 /Gd fallback is MSVC-only: gcc/watcom/tcc reject "/O2"
             # as a nonexistent input file.  Posix-style profiles fall back to

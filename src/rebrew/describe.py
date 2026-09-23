@@ -394,10 +394,8 @@ def build_dossier(cfg: ProjectConfig, info: BinaryInfo, va: int) -> dict[str, An
         except Exception:  # best-effort tag
             logger.debug("pattern detection failed at 0x%08x", va, exc_info=True)
             pattern = None
-        # Extent-based inference (shared helper) — the old flat 64-byte
-        # window truncated longer functions mid-code, so the epilogue `ret`
-        # was never visible and inference said "unknown" (the same bug
-        # skeleton.py already diagnosed and fixed).
+        # Extent-based inference (shared helper): a fixed window truncates
+        # longer functions before the epilogue `ret`, yielding "unknown".
         try:
             from rebrew.asm import calling_convention_at
 

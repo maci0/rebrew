@@ -724,10 +724,8 @@ def set_value(
     # Route bare target-scoped keys to the default target so `cfg set binary
     # foo.exe` writes [targets.<default>] instead of a top-level key that the
     # config reader ignores (a silent no-op that confused users).  Bare
-    # project-scoped keys route to [project] the same way — `cfg set jobs 8`
-    # previously wrote `jobs = 8` at the document top level, which the
-    # reader rejects with an "unrecognized top-level keys" warning on every
-    # later tool run while leaving [project].jobs untouched.
+    # project-scoped keys route to [project] the same way, since the reader
+    # rejects a top-level `jobs = 8` as an unrecognized key.
     if "." not in key and "targets" in doc and key in _TARGET_SCOPED_KEYS:
         target = _resolve_target(doc, None)
         routed = f"targets.{target}.{key}"
@@ -1020,11 +1018,9 @@ def set_compiler(
         tgt["compiler"] = compiler_tbl
 
     # `profile` is the routing key every tool reads (load_config →
-    # posix_style, toolchain branches, 16-bit gate).  The old code wrote
-    # only command/includes/libs — the target's profile stayed whatever it
-    # was (default msvc-6.0), so `cfg set-compiler T gcc-14.2.0` compiled with gcc
-    # command but MSVC-style /I /Fo flag routing and never engaged the
-    # posix/toolchain branches.
+    # posix_style, toolchain branches, 16-bit gate).  Writing only
+    # command/includes/libs would leave `cfg set-compiler T gcc-14.2.0` on
+    # MSVC-style /I /Fo flag routing.
     compiler_tbl["profile"] = profile
     # Docker-only execution: image-backed profiles carry no host wine
     # command (the image IS the compiler) — blank command/runner like
