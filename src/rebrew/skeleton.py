@@ -125,6 +125,7 @@ def _render_annotation_block(
         lines.append(f"{decomp_code}\n")
         lines.append("/* === End decompilation === */\n")
     else:
+        signature: str | None = None  # the fenced naked stub emits its own bodies
         if convention_stub is not None and convention_stub.startswith("#ifdef REBREW_ALLOW_NAKED"):
             # Fenced naked/fallback stub: each branch needs its own body —
             # a naked function cannot contain C statements.
@@ -162,7 +163,7 @@ def _render_annotation_block(
         else:
             # MSVC profiles and the historical default: __cdecl.
             signature = f"int __cdecl {func_name}(void)"
-        if not convention_stub or not convention_stub.startswith("#ifdef REBREW_ALLOW_NAKED"):
+        if signature is not None:
             lines.append(f"{signature}\n")
             lines.append("{\n")
             if todo_text:

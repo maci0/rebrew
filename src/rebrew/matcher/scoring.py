@@ -492,8 +492,10 @@ def score_candidate(
         prologue_diffs = np.count_nonzero(byte_diff[:prologue_len])
         body_diffs = np.count_nonzero(byte_diff[prologue_len:])
         byte_score = float(prologue_diffs * _PROLOGUE_WEIGHT + body_diffs)
+        byte_diff_count = int(prologue_diffs + body_diffs)
     else:
         byte_score = 0.0
+        byte_diff_count = 0
 
     # Penalize missing bytes as full mismatches (weight 1.0 each).
     # Without this, deleting N bytes saves ~N×1000 in byte_score but only
@@ -508,9 +510,9 @@ def score_candidate(
     target_mnems: list[str] | None = None
     if reloc_offsets is not None:
         if min_len > 0 and reloc_mask is not None:
-            # byte_diff (diff_mask & ~reloc_mask) was already computed above —
-            # reuse it instead of recomputing the boolean AND per candidate.
-            reloc_score = float(np.count_nonzero(byte_diff))
+            # byte_diff (diff_mask & ~reloc_mask) was already counted above —
+            # reuse the count instead of recomputing the boolean AND per candidate.
+            reloc_score = float(byte_diff_count)
     else:
         # Fallback to heuristic normalization — reuse pre-computed target if
         # available.  The merged detail disasm yields BOTH the normalized
@@ -766,7 +768,7 @@ def diff_functions(
         t_disasm = ""
         t_str = ""
         if i < len(target_insns):
-            t_a, t_s, t_m, t_o, t_b = target_insns[i]
+            _, _, t_m, t_o, t_b = target_insns[i]
             target_mnems.append(t_m)
             if not summary_only:
                 t_bytes_hex = t_b.hex()
@@ -788,6 +790,7 @@ def diff_functions(
                     c_str = f"{c_m:6} {c_o}"
 
             if i < len(target_insns):
+                t_a, t_s, _, _, t_b = target_insns[i]
                 if t_b == c_b:
                     match_char = "=="
                 else:

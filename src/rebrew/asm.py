@@ -713,6 +713,7 @@ def _hex_view(
     if pattern_hints and va_int > 12:
         try:
             from rebrew.analysis import section_range
+            from rebrew.binary_loader import load_binary
 
             rng = section_range(load_binary(bin_path), ".text")
             text_start = rng[0] if rng else 0

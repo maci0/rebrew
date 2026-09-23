@@ -253,7 +253,7 @@ def main(
                 )
         else:
             error_exit(
-                f"did not converge in {max_iters} iterations (last delta {delta:+d})",
+                f"did not converge in {max_iters} iterations (last delta {iters[-1]['delta']:+d})",
                 json_mode=json_output,
             )
     except BaseException:

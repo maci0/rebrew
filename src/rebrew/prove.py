@@ -472,6 +472,7 @@ def _compare_state_pairs(
                     vals = solver.batch_eval(exprs, 1)[0]  # type: ignore[no-untyped-call]
                     it = iter(vals)
                     desc_parts: list[str] = []
+                    regs_same = True  # no register compared, nothing differs
                     if check_eax:
                         eax_o, eax_c = next(it), next(it)
                         if check_edx:
@@ -486,7 +487,7 @@ def _compare_state_pairs(
                     # Show the first watched VA that differs under the model
                     # (when EAX is compared and differs, memory is skipped —
                     # same as before).
-                    if watched_vas and (not check_eax or regs_same):
+                    if watched_vas and regs_same:
                         for va, m_o, m_c in mem_pairs:
                             if m_o is None and m_c is None:
                                 continue  # unmapped on both sides — not a difference

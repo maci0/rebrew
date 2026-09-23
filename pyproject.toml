@@ -378,20 +378,3 @@ module = [
     "resembl.*",  # sibling-checkout path dep (see `similarity` group); no stubs
 ]
 ignore_missing_imports = true
-
-# possibly-undefined debt: these modules bind names under conditions that
-# are correlated with their later use (same guard, early error_exit), which
-# mypy cannot prove.  Shrink-only: restructure a module, then drop it here.
-[[tool.mypy.overrides]]
-module = [
-    "rebrew.asm",
-    "rebrew.calibrate_bss",
-    "rebrew.data",
-    "rebrew.doctor",
-    "rebrew.matcher.scoring",
-    "rebrew.name_decomp",
-    "rebrew.prove",
-    "rebrew.skeleton",
-    "rebrew.test",
-]
-disable_error_code = ["possibly-undefined"]

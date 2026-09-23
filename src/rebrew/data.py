@@ -1327,7 +1327,7 @@ def main(
     bin_info: Any = None  # single lazy binary parse, shared with --dispatch
     if bin_path and bin_path.exists():
         try:
-            from rebrew.binary_loader import load_binary, section_dict
+            from rebrew.binary_loader import load_binary
             from rebrew.sections import sections_from_info
 
             bin_info = load_binary(bin_path)
@@ -1403,6 +1403,8 @@ def main(
                 json_mode=json_output,
             )
         binary_data = bin_info.data
+        from rebrew.binary_loader import section_dict
+
         sec_dict = section_dict(bin_info)
 
         # Build known functions map from reversed source files, then merge in

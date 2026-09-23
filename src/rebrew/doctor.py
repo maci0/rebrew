@@ -411,15 +411,14 @@ def check_compiler(cfg: ProjectConfig) -> CheckResult:
             exe_path = str(found)
 
     # For Wine/wibo-based compilers, check the CL.EXE path.
-    if exe == "wine":
-        wine_path = shutil.which("wine")
-        if wine_path is None:
-            return CheckResult(
-                name="Compiler",
-                status=_FAIL,
-                message="Wine is not installed or not in PATH",
-                fix="Install Wine: apt install wine-stable (Debian/Ubuntu) or brew install wine.",
-            )
+    wine_path = shutil.which("wine") if exe == "wine" else None
+    if exe == "wine" and wine_path is None:
+        return CheckResult(
+            name="Compiler",
+            status=_FAIL,
+            message="Wine is not installed or not in PATH",
+            fix="Install Wine: apt install wine-stable (Debian/Ubuntu) or brew install wine.",
+        )
 
     if exe == "wine" or is_wibo_runner:
         if len(parts) > 1:

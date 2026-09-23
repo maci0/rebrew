@@ -430,7 +430,6 @@ def main(
         )
 
     if source is not None:
-        source_path = Path(source).resolve()
         # Safety: disable promotion for files outside the project source tree.
         no_promote, _status_skip_reason = _status_skip_for_source(cfg, source, no_promote)
     else:
@@ -504,7 +503,7 @@ def main(
                 target=target,
             )
 
-        _watch_loop(source_path, _retest)
+        _watch_loop(Path(source).resolve(), _retest)
         return
 
     lint_annos, name_to_va = _lint_preamble(cfg, source, size=size, json_output=json_output)
@@ -1613,10 +1612,10 @@ def _test_multi(
                     # cmp.obj_bytes was truncated for the comparison — report
                     # the fixed (full) sizes so the JSON is self-consistent.
                     result_dict["status"] = new_status
-                    result_dict["size"] = new_size
-                    result_dict["total"] = new_size
-                    result_dict["match_count"] = new_size
-                    result_dict["obj_size"] = new_size
+                    result_dict["size"] = ann.size
+                    result_dict["total"] = ann.size
+                    result_dict["match_count"] = ann.size
+                    result_dict["obj_size"] = ann.size
                     result_dict["mismatches"] = []
                 results_list.append(result_dict)
             elif matched:

@@ -367,6 +367,7 @@ def _rewrite_access(
     elem_widths: dict[str, int],
     pointer_vars: set[str] | None = None,
 ) -> str:
+    cast: str | None = None  # set only by the cast-deref forms
     if m.group("cvar") is not None:
         var, off, cast = m.group("cvar"), parse_int_literal(m.group("coff")), m.group("cast")
         form = "deref"
@@ -400,7 +401,7 @@ def _rewrite_access(
         return m.group(0)
     name, width = field
 
-    if form == "deref":
+    if cast is not None:
         cast_w = type_width(cast)
         if cast_w is None:  # named cast type — leave the access untouched
             return m.group(0)

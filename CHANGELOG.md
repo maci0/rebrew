@@ -165,6 +165,12 @@
   documented integrator surface.
 
 ### Changed
+- **mypy `possibly-undefined` covers every module.**  Nine modules
+  (`asm`, `calibrate_bss`, `data`, `doctor`, `matcher.scoring`,
+  `name_decomp`, `prove`, `skeleton`, `test`) were exempt because they
+  bound names under guards mypy cannot correlate.  Their 13 findings are
+  restructured away and the per-module override is gone, so a name used
+  on a path that never binds it now fails the type gate.
 - **`rebrew binsync-import --create-missing` writes metadata once.**
   Each created stub did three full `rebrew-functions.toml`
   read-modify-writes (STATUS, SIZE, NOTE), quadratic in stub count.  The
