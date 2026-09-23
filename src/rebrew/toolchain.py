@@ -422,6 +422,9 @@ _IMAGE_PRESENCE_MAX = 64
 #: Mutated under :data:`_DOCKER_MEMO_LOCK` (verify/GA workers share it).
 _toolchain_digest_cache: dict[str, str] = {}
 _TOOLCHAIN_DIGEST_CACHE_MAX = 64
+#: Bumped by :func:`invalidate_toolchain_digest`.  An inspect that started
+#: before an invalidation must not store its (pre-swap) digest afterwards.
+_toolchain_digest_generation = 0
 
 
 def invalidate_toolchain_digest(image: str | None = None) -> None:
@@ -431,7 +434,9 @@ def invalidate_toolchain_digest(image: str | None = None) -> None:
     ``pull_toolchain``) so the next compile inspects the live image id
     instead of serving objects keyed under the pre-swap digest.
     """
+    global _toolchain_digest_generation
     with _DOCKER_MEMO_LOCK:
+        _toolchain_digest_generation += 1
         if image is None:
             _toolchain_digest_cache.clear()
         else:
@@ -455,6 +460,7 @@ def cached_image_digest(image: str) -> str:
         digest = _toolchain_digest_cache.get(image)
         if digest is not None:
             return digest
+        generation = _toolchain_digest_generation
     digest = ""
     try:
         r = subprocess.run(
@@ -471,6 +477,9 @@ def cached_image_digest(image: str) -> str:
         digest = ""
     if digest:
         with _DOCKER_MEMO_LOCK:
+            if generation != _toolchain_digest_generation:
+                # Invalidated mid-inspect: the id may predate the swap.
+                return digest
             # Another worker may have filled it while we inspected.
             if image not in _toolchain_digest_cache:
                 if len(_toolchain_digest_cache) >= _TOOLCHAIN_DIGEST_CACHE_MAX:

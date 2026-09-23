@@ -351,6 +351,21 @@ class TestInvalidateToolchainDigest:
         assert cached_image_digest("rebrew/msvc:6.0-win32") == "abcdef012345"
         assert calls["n"] == 1
 
+    def test_invalidate_during_inspect_does_not_store_old_digest(self, monkeypatch) -> None:
+        """A swap landing mid-inspect must not let the pre-swap id be cached."""
+        import rebrew.toolchain as toolchain_mod
+        from rebrew.toolchain import cached_image_digest, invalidate_toolchain_digest
+
+        toolchain_mod._toolchain_digest_cache.clear()
+
+        def _swap_mid_inspect(*_a, **_k):
+            invalidate_toolchain_digest("rebrew/msvc:6.0-win32")
+            return SimpleNamespace(returncode=0, stdout="sha256:0ld0ld0ld0ld99\n", stderr="")
+
+        monkeypatch.setattr(toolchain_mod.subprocess, "run", _swap_mid_inspect)
+        assert cached_image_digest("rebrew/msvc:6.0-win32") == "0ld0ld0ld0ld"
+        assert "rebrew/msvc:6.0-win32" not in toolchain_mod._toolchain_digest_cache
+
     def test_image_present_does_not_cache_misses(self, monkeypatch) -> None:
         """A miss must re-inspect so an external pull is visible mid-process."""
         import rebrew.toolchain as toolchain_mod
