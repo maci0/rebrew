@@ -26,7 +26,7 @@ from __future__ import annotations
 import re
 import shutil
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import typer
 from rich.console import Console
@@ -45,6 +45,9 @@ from rebrew.similar import DEFAULT_CS_ARCH, DEFAULT_CS_MODE, disasm_signature, s
 from rebrew.sources import iter_sources, target_marker
 from rebrew.utils import atomic_write_text, read_source_text, rel_display_path
 from rebrew.workspace.status import MATCHED_STATUSES
+
+if TYPE_CHECKING:
+    from rebrew.compile_cache import CacheBackend
 
 console = Console(stderr=True)
 
@@ -664,7 +667,7 @@ def import_shared_function(
     *,
     dst_file: str | None = None,
     dry_run: bool = False,
-    cache: Any = None,
+    cache: CacheBackend | None = None,
 ) -> dict[str, Any]:
     """Import by stacking a destination marker onto the SHARED source file.
 
@@ -874,7 +877,7 @@ def import_function(
     *,
     dst_file: str | None = None,
     dry_run: bool = False,
-    cache: Any = None,
+    cache: CacheBackend | None = None,
 ) -> dict[str, Any]:
     """Import the matched source function *src_file* into the destination.
 
@@ -1240,12 +1243,14 @@ def main(
     statuses = _annotations_by_va(cfg)
     registry = _registry(cfg)
 
-    from rebrew.compile_cache import get_compile_cache
+    from rebrew.compile_cache import DEFAULT_CACHE_BACKEND, get_compile_cache
 
     cache = None
     if not dry_run:
         try:
-            cache = get_compile_cache(cfg.root, getattr(cfg, "cache_backend", "diskcache"))
+            cache = get_compile_cache(
+                cfg.root, getattr(cfg, "cache_backend", DEFAULT_CACHE_BACKEND)
+            )
         except OSError:
             cache = None
 

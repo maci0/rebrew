@@ -10,7 +10,7 @@ import logging
 import shlex
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import typer
 from rich.console import Console
@@ -38,6 +38,9 @@ from rebrew.matcher import (
 from rebrew.sources import target_marker
 from rebrew.toolchain import TOOLCHAINS
 from rebrew.utils import read_compile_source
+
+if TYPE_CHECKING:
+    from rebrew.compile_cache import CacheBackend
 from rebrew.workspace.config import config_path
 
 log = logging.getLogger(__name__)
@@ -106,7 +109,7 @@ class BuildParams:
     va_int: int
     target_size: int
     msvc_env: dict[str, str] | None
-    cc: Any  # CacheBackend | None
+    cc: CacheBackend | None
     module: str = ""
 
 

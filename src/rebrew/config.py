@@ -1612,14 +1612,14 @@ def load_config(
     unknown_cache = set(cache_raw) - _KNOWN_CACHE_KEYS
     if unknown_cache:
         _config_warn(f"rebrew-project.toml [cache]: unrecognized keys: {sorted(unknown_cache)}")
+    from rebrew.compile_cache import DEFAULT_CACHE_BACKEND, available_cache_backends
+
     if "backend" in cache_raw:
         backend = _as_str(cache_raw.get("backend"), "", "cache.backend").strip()
         if not backend:
             raise ConfigError("rebrew-project.toml [cache].backend must not be empty")
     else:
-        backend = "diskcache"
-    from rebrew.compile_cache import available_cache_backends
-
+        backend = DEFAULT_CACHE_BACKEND
     known_backends = available_cache_backends()
     if backend not in known_backends:
         raise ConfigError(

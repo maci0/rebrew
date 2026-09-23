@@ -65,7 +65,12 @@ from typing import Any, Literal
 
 from rebrew.binary_loader import BinaryInfo, SectionInfo, load_binary
 from rebrew.coff_reloc import build_iat_region, smart_reloc_compare
-from rebrew.compile_cache import CacheBackend, compile_cache_key, get_compile_cache
+from rebrew.compile_cache import (
+    DEFAULT_CACHE_BACKEND,
+    CacheBackend,
+    compile_cache_key,
+    get_compile_cache,
+)
 from rebrew.compile_context import CONTEXT_UNIT_NAME, CompileContext
 from rebrew.config import DEFAULT_COMPILE_TIMEOUT, ProjectConfig, validate_http_url
 from rebrew.headless import _XVFB_RUN_SERVER_ARGS, ensure_xvfb
@@ -650,7 +655,7 @@ def resolve_compiler_env(
 
     cc: CacheBackend | None = None
     with contextlib.suppress(OSError):
-        cc = get_compile_cache(cfg.root, getattr(cfg, "cache_backend", "diskcache"))
+        cc = get_compile_cache(cfg.root, getattr(cfg, "cache_backend", DEFAULT_CACHE_BACKEND))
 
     return cl_cmd, inc_dir, env, cc
 
@@ -1297,7 +1302,7 @@ def compile_to_obj(
     cc = cache
     if cc is None and use_cache:
         try:
-            cc = get_compile_cache(cfg.root, getattr(cfg, "cache_backend", "diskcache"))
+            cc = get_compile_cache(cfg.root, getattr(cfg, "cache_backend", DEFAULT_CACHE_BACKEND))
         except OSError:
             cc = None
 

@@ -684,8 +684,9 @@ def check_cache_backend(cfg: ProjectConfig) -> CheckResult:
     ``load_config`` already rejects an unknown ``[cache] backend``; this
     check still catches a programmatic ``ProjectConfig`` / doctor probe that
     bypassed the loader."""
-    backend = str(getattr(cfg, "cache_backend", "diskcache"))
-    from rebrew.compile_cache import available_cache_backends
+    from rebrew.compile_cache import DEFAULT_CACHE_BACKEND, available_cache_backends
+
+    backend = str(getattr(cfg, "cache_backend", DEFAULT_CACHE_BACKEND))
 
     known = available_cache_backends()
     if backend in known:

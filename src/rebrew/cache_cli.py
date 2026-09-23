@@ -4,7 +4,7 @@ import typer
 from rich.console import Console
 
 from rebrew.cli import TargetOption, error_exit, json_print, require_config
-from rebrew.compile_cache import get_compile_cache
+from rebrew.compile_cache import DEFAULT_CACHE_BACKEND, get_compile_cache
 
 console = Console(stderr=True)
 
@@ -32,7 +32,7 @@ def stats(
     """Show compile cache statistics."""
     cfg = require_config(target=target, json_mode=json_output)
 
-    backend = getattr(cfg, "cache_backend", "diskcache")
+    backend = getattr(cfg, "cache_backend", DEFAULT_CACHE_BACKEND)
     cache_dir = cfg.root / ".rebrew" / "compile_cache"
     if backend == "diskcache" and not cache_dir.exists():
         if json_output:
@@ -74,7 +74,7 @@ def clear(
     """Delete all cached .obj files."""
     cfg = require_config(target=target, json_mode=json_output)
 
-    backend = getattr(cfg, "cache_backend", "diskcache")
+    backend = getattr(cfg, "cache_backend", DEFAULT_CACHE_BACKEND)
     cache_dir = cfg.root / ".rebrew" / "compile_cache"
     if backend == "diskcache" and not cache_dir.exists():
         if json_output:

@@ -302,6 +302,9 @@ class CacheBackend(Protocol):
 #: namespace the backend keys under.
 CACHE_BACKEND_ENTRY_POINT_GROUP = "rebrew.cache_backends"
 
+#: Backend used when rebrew-project.toml has no ``[cache] backend``.
+DEFAULT_CACHE_BACKEND = "diskcache"
+
 
 def _discover_cache_backends() -> dict[str, Callable[[Path, int], CacheBackend]]:
     """The backend registry: packaged ``diskcache`` + entry-point members.
@@ -965,7 +968,7 @@ _CACHES_MAX = 8
 _CACHES_ATEXIT_REGISTERED = False
 
 
-def get_compile_cache(project_root: Path, backend: str = "diskcache") -> CacheBackend:
+def get_compile_cache(project_root: Path, backend: str = DEFAULT_CACHE_BACKEND) -> CacheBackend:
     """Return a shared cache instance for a project root and backend.
 
     The diskcache backend stores at ``{project_root}/.rebrew/compile_cache/``.
