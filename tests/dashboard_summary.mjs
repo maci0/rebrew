@@ -73,6 +73,9 @@ for (const staleFailure of [false, true]) {
   assert.match(element("status").innerHTML, /EXACT/);
   assert.equal(element("status").disabled, false);
   assert.match(element("cards").innerHTML, /EXACT/);
+  // Button cards: hint only in title (the description), never repeated in the name.
+  assert.match(element("cards").innerHTML, /<button[^>]*title='Filter by EXACT'[^>]*><span class=value>1<\/span><span class=label>EXACT<\/span><\/button>/);
+  assert.match(element("cards").innerHTML, /<div class=card title='Total functions for this target'>.*<span class=visually-hidden>, Total functions for this target<\/span><\/div>/);
   const options = element("status").innerHTML;
   const cards = element("cards").innerHTML;
   if (staleFailure) oldResponse.reject(new Error("Old target failed"));

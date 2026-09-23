@@ -470,12 +470,12 @@ function renderSummary(s) {
   ];
   // Same order as the Status select.
   for (const k of Object.keys(byStatus).sort()) cards.push([k, byStatus[k], k, "Filter by " + k]);
-  // The title text rides in a visually-hidden span, not aria-label: a div
-  // cannot be named, and the name must start with the visible text (WCAG 2.5.3).
+  // A div cannot be named, so its title text rides in a visually-hidden span
+  // after the visible text (WCAG 2.5.3). A button already exposes title as its
+  // description; a span there too would announce the hint twice.
   $("cards").innerHTML = cards.map(([k, v, status, title]) => {
     const inner = "<span class=value>" + esc(v) + "</span>"
-      + "<span class=label>" + esc(k) + "</span>"
-      + "<span class=visually-hidden>, " + esc(title) + "</span>";
+      + "<span class=label>" + esc(k) + "</span>";
     if (status) {
       const pressed = $("status").value === status;
       const active = pressed ? " active" : "";
@@ -483,7 +483,8 @@ function renderSummary(s) {
         + "' title='" + esc(title) + "' aria-pressed='" + (pressed ? "true" : "false") + "'>"
         + inner + "</button>";
     }
-    return "<div class=card title='" + esc(title) + "'>" + inner + "</div>";
+    return "<div class=card title='" + esc(title) + "'>" + inner
+      + "<span class=visually-hidden>, " + esc(title) + "</span></div>";
   }).join("");
   $("summary").hidden = false;
   updateFilterActions();
