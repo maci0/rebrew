@@ -59,7 +59,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, cast
 
-from rebrew.binary_loader import load_binary
+from rebrew.binary_loader import REAL_MODE_ADDRESS_MASK, load_binary
 from rebrew.pe_headers import pe_lfanew
 
 logger = logging.getLogger(__name__)
@@ -772,7 +772,7 @@ def _mz_codegen_scan(data: bytes) -> dict[str, int]:
     instructions, far returns (``retf``) and ``push bp`` frame prologues.
     Best-effort: an unreadable entry point yields an empty dict.
 
-    Entry file offset = e_cparhdr * 16 + e_cs * 16 + e_ip: CS:IP is relative
+    Entry file offset = e_cparhdr * 16 + (e_cs * 16 + e_ip, wrapped at 1 MiB): CS:IP is relative
     to the load module, which starts after the ``e_cparhdr`` header paragraphs.
     """
     if len(data) < 0x18 or data[:2] != b"MZ":
@@ -780,7 +780,7 @@ def _mz_codegen_scan(data: bytes) -> dict[str, int]:
     e_cparhdr = int.from_bytes(data[0x08:0x0A], "little")
     e_ip = int.from_bytes(data[0x14:0x16], "little")
     e_cs = int.from_bytes(data[0x16:0x18], "little")
-    entry = (e_cparhdr + e_cs) * 16 + e_ip
+    entry = e_cparhdr * 16 + ((e_cs * 16 + e_ip) & REAL_MODE_ADDRESS_MASK)
     if not 0 <= entry < len(data):
         return {}
     try:

@@ -96,6 +96,11 @@ def refresh_loaders() -> list[tuple[str, Any]]:
 
 _MAX_BINARY_SIZE = 512 * 1024 * 1024  # 512 MB safety limit
 
+#: Real-mode linear addresses are 20 bits: ``segment*16 + offset`` wraps at
+#: 1 MiB, so a CS of ``0xFFF0`` (COM-to-EXE conversions: ``FFF0:0100``)
+#: means 16 paragraphs *below* the image start, not ~1 MiB above it.
+REAL_MODE_ADDRESS_MASK = 0xFFFFF
+
 #: ELF program-header ``PF_X`` (executable) flag, matching LIEF's
 #: ``Segment.FLAGS.X``.
 _ELF_SEGMENT_FLAG_EXEC = 1
@@ -1306,7 +1311,7 @@ def parse_mz_header(path: str | Path) -> dict[str, int]:
         # No relocation table — code starts right after the header.
         code_offset = header_size
     code_size = max(0, file_size - code_offset)
-    entry_va = cs * 16 + ip
+    entry_va = (cs * 16 + ip) & REAL_MODE_ADDRESS_MASK
     return {
         "code_offset": code_offset,
         "code_size": code_size,

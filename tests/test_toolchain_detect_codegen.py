@@ -266,6 +266,13 @@ class TestMZCodegenScan:
         assert _mz_codegen_scan(b"not a binary") == {}
         assert _mz_codegen_scan(b"") == {}
 
+    def test_negative_code_segment_wraps(self) -> None:
+        # COM-to-EXE conversions enter at FFF0:0100, the first image byte.
+        data = bytearray(self._mz_with_code(b""))
+        data[0x16:0x18] = (0xFFF0).to_bytes(2, "little")
+        data[0x20:0x23] = bytes.fromhex("cb cb cb")
+        assert _mz_codegen_scan(bytes(data))["retf"] == 3
+
     def test_bad_entry_returns_empty(self) -> None:
         data = bytearray(b"MZ" + b"\x00" * 0x20)
         data[0x14:0x16] = (0xFFFF).to_bytes(2, "little")

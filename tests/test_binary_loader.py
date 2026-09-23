@@ -661,3 +661,22 @@ class TestLiefLoggingSilenced:
             load_binary(exe)
         assert "Can't read" not in err.getvalue()
         assert "delay_imports" not in err.getvalue()
+
+
+def test_mz_entry_wraps_negative_code_segment(tmp_path: Path) -> None:
+    """A COM-to-EXE conversion (CS:IP = FFF0:0100) enters at the first image
+    byte: real-mode ``segment*16 + offset`` wraps at 1 MiB."""
+    import struct
+
+    from rebrew.binary_loader import parse_mz_header
+
+    data = bytearray(1024)
+    data[0:2] = b"MZ"
+    struct.pack_into("<H", data, 4, 2)  # cp = 2 pages
+    struct.pack_into("<H", data, 8, 2)  # cparhdr = 32 bytes
+    struct.pack_into("<H", data, 0x14, 0x100)  # e_ip
+    struct.pack_into("<H", data, 0x16, 0xFFF0)  # e_cs = -16 paragraphs
+    exe = tmp_path / "com2exe.exe"
+    exe.write_bytes(bytes(data))
+
+    assert parse_mz_header(exe)["entry_va"] == 0
