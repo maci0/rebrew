@@ -494,6 +494,13 @@ def check_compiler(cfg: ProjectConfig) -> CheckResult:
                     message=f"Failed to invoke {display_runner}: {e}",
                     fix="Check the runner installation and CL.EXE path.",
                 )
+            except ValueError as e:
+                return CheckResult(
+                    name="Compiler",
+                    status=_FAIL,
+                    message=str(e),
+                    fix="Set REBREW_WINE_HEADLESS to 0 or 1, or unset it.",
+                )
         if exe == "wine":
             return CheckResult(
                 name="Compiler",

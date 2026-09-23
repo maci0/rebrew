@@ -609,6 +609,25 @@ class TestMaybeHeadlessWine:
         assert cmd == ["wine", "/opt/CL.EXE"]
         assert env is None
 
+    @pytest.mark.parametrize("value", ["false", " OFF ", "no"])
+    def test_headless_opt_out_word_spellings(self, monkeypatch, value: str) -> None:
+        """Common false spellings disable headless too, not only ``0``."""
+        monkeypatch.setattr("rebrew.compile.ensure_xvfb", lambda: ":99")
+        cmd, env = maybe_headless_wine(["wine", "/opt/CL.EXE"], {"REBREW_WINE_HEADLESS": value})
+        assert cmd == ["wine", "/opt/CL.EXE"]
+        assert env == {"REBREW_WINE_HEADLESS": value}
+
+    def test_headless_explicit_on(self, monkeypatch) -> None:
+        monkeypatch.setattr("rebrew.compile.ensure_xvfb", lambda: ":99")
+        _cmd, env = maybe_headless_wine(["wine", "/opt/CL.EXE"], {"REBREW_WINE_HEADLESS": "1"})
+        assert env is not None and env["DISPLAY"] == ":99"
+
+    def test_headless_malformed_value_raises(self, monkeypatch) -> None:
+        """A typo must not silently leave headless on."""
+        monkeypatch.setattr("rebrew.compile.ensure_xvfb", lambda: ":99")
+        with pytest.raises(ValueError, match="REBREW_WINE_HEADLESS"):
+            maybe_headless_wine(["wine", "/opt/CL.EXE"], {"REBREW_WINE_HEADLESS": "nope"})
+
     def test_empty_command_untouched(self, monkeypatch) -> None:
         monkeypatch.setattr("rebrew.compile.ensure_xvfb", lambda: ":99")
         cmd, env = maybe_headless_wine([], {"WINEDEBUG": "-all"})

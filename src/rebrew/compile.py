@@ -506,6 +506,10 @@ def filter_wine_stderr(text: str) -> str:
 _STUB_BODY_MAX_BYTES = 8
 _STUB_TARGET_MIN_BYTES = 12
 
+#: Accepted ``REBREW_WINE_HEADLESS`` spellings (lowercased, stripped).
+_HEADLESS_OFF = frozenset({"0", "false", "no", "off"})
+_HEADLESS_ON = frozenset({"1", "true", "yes", "on"})
+
 
 # Wine prefixes configured with "Emulate a virtual desktop" (winecfg) pop a
 # window on every compiler invocation, and bare `wine` fails outright under
@@ -523,8 +527,10 @@ def maybe_headless_wine(
     ``DISPLAY`` env is pointed at a persistent ``Xvfb`` (see
     ``rebrew.headless.ensure_xvfb``) so the compile runs on an invisible
     virtual display.  ``wibo`` is already headless and is left untouched.
-    Set ``REBREW_WINE_HEADLESS=0`` in the environment to force bare wine
-    (e.g. when you genuinely want the window).
+    Set ``REBREW_WINE_HEADLESS=0`` (or ``false``/``no``/``off``) in the
+    environment to force bare wine (e.g. when you genuinely want the window).
+    Any other non-empty value that is not ``1``/``true``/``yes``/``on``
+    raises ``ValueError`` so a typo cannot silently keep headless on.
 
     Falls back to wrapping the command in ``xvfb-run`` when no ``Xvfb``
     binary is available, then to bare wine when neither exists.
@@ -534,8 +540,12 @@ def maybe_headless_wine(
     """
     if not cmd or Path(cmd[0]).name != "wine":
         return cmd, env
-    if (os.environ if env is None else env).get("REBREW_WINE_HEADLESS", "") == "0":
+    raw = (os.environ if env is None else env).get("REBREW_WINE_HEADLESS", "")
+    flag = raw.strip().lower()
+    if flag in _HEADLESS_OFF:
         return cmd, env
+    if flag and flag not in _HEADLESS_ON:
+        raise ValueError(f"REBREW_WINE_HEADLESS={raw!r} is not a boolean (use 0 or 1)")
     display = ensure_xvfb()
     if display is not None:
         env = dict(env) if env is not None else {**os.environ}

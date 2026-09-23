@@ -513,6 +513,11 @@
   in emission order.
 
 ### Fixed
+- **`REBREW_WINE_HEADLESS` rejects typos.**  Only the literal `0`
+  disabled headless wine; `false` or `off` were silently ignored.
+  `0`/`false`/`no`/`off` now disable it, `1`/`true`/`yes`/`on` keep it,
+  and any other non-empty value raises `ValueError` (a failed Compiler
+  check in `rebrew doctor`).
 - **A raising plugin mutation no longer aborts `rebrew match`.**  Every
   other optional plugin call site (loaders, detectors, discoverers)
   skipped a plugin that raised, but `mutate_code` let a `rebrew.mutations`
