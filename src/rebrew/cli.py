@@ -411,11 +411,12 @@ def resolve_source_arg(cfg: ProjectConfig, source_arg: str) -> Path:
     # ``_foo``).  The EXACT stem must win over an underscore variant: comparing
     # both sides stripped made `__foo.c`/`_foo.c` (path order 0x5F) beat
     # `foo.c`, so the wrong file was compiled and its VA got the STATUS write.
-    for src in iter_sources(src_dir, cfg):
+    sources = iter_sources(src_dir, cfg)
+    for src in sources:
         if src.stem == source_arg:
             return src
     arg_stem = source_arg.lstrip("_")
-    for src in iter_sources(src_dir, cfg):
+    for src in sources:
         if src.stem.lstrip("_") == arg_stem:
             return src
 
