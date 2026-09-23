@@ -68,7 +68,7 @@ rebrew init --target <name> --binary <filename> --toolchain <profile>
 rebrew doctor
 ```
 
-`rebrew init` prints `next: rebrew doctor`. Doctor must report healthy
+Run it right after `rebrew init`. Doctor must report healthy
 (warnings for unconfigured optionals — FLIRT, Ghidra, BinSync — are fine;
 failures are not) before handing off. The commonest failure is the toolchain
 image missing — fix with `rebrew toolchain build <profile>` (or `pull`).

@@ -138,10 +138,11 @@ Two diff signals point at globals:
 `rebrew data --dispatch` scans `.data` and `.rdata` sections for arrays of
 function pointers. Each detected table shows:
 
-- Table VA and size
+- Table `va`, `section`, `num_entries`
 - Known vs unknown function entries (`resolved` / `coverage`)
-- Per-entry `status` (EXACT / RELOC / NEAR_MATCHING / STUB / unknown)
-- Whether the table is likely a vtable (consecutive entries, all code pointers)
+- Per-entry `target_va`, `name`, `status` (EXACT / RELOC / NEAR_MATCHING / STUB / unknown)
+
+Tables are not labelled vtable vs dispatch table; decide from the callers.
 
 Names come from source annotations first, then the function list / Ghidra structure
 registry — so a low-coverage table usually means its targets lack reversed sources

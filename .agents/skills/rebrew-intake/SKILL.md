@@ -91,7 +91,7 @@ Optional fingerprints / `pe-info` / crypto-scan / `security-scan`:
 ```bash
 rebrew doctor                           # validate config, binary, toolchain, metadata
 rebrew doctor --json                    # machine-readable per-check report
-rebrew toolchain build <profile>        # fetch the profile's docker image when the toolchain check fails
+rebrew toolchain build <profile>        # build the profile's docker image (or `pull`) when the toolchain check fails
 rebrew cfg list-targets                 # confirm target is configured
 ```
 

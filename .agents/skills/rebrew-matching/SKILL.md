@@ -172,7 +172,8 @@ qualifier variants. Batch flag/GA details: `references/flag-sweep.md`.
 
 - Always start with `rebrew diff` before running the GA.
 - For library-origin functions (MSVCRT, ZLIB), use `rebrew crt-match` to identify the reference source first.
-- Common CFLAGS presets: `/O2 /Gd` (GAME), `/O1 /Gd` (MSVCRT).
+- Common CFLAGS: `/O2 /Gd` (GAME); a library subtree takes its flags from
+  `rebrew library set <dir> --preset msvcrt-static` (`/O2 /Gd /MT`), not per-function CFLAGS.
 - If a function remains NEAR_MATCHING after GA and blockers are structural, use `rebrew prove`.
 - While iterating on a single function, `--watch` (on `diff`, `prove`, or `match`) re-runs on every
   file save — faster than re-typing the command.
