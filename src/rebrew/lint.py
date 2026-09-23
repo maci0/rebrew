@@ -1375,6 +1375,7 @@ def _check_body_rules(result: LintResult, lines: list[str], has_new: bool) -> No
 def lint_file(
     filepath: Path,
     cfg: ProjectConfig | None = None,
+    *,
     seen_vas: dict[Any, str] | None = None,
     seen_va_defines: dict[Any, bool] | None = None,
     seen_globals: dict[str, str] | None = None,

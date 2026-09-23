@@ -480,6 +480,20 @@
   `rebrew.doctor.check_optional_tools` takes no `cfg`.  A 2.6.0 call
   passing any of them raises `TypeError`: drop the argument
   (`run_diff(mismatches_only, ...)`, `check_optional_tools()`).
+- **Breaking:** **More library signatures changed since 2.6.0.**
+  - `rebrew.verify.patch_cache_from_results` takes a required third
+    argument `raw_statuses` (`BatchResult.raw_statuses`); a 2.6.0
+    two-argument call raises `TypeError`.
+  - `rebrew.lint.lint_file` gained `seen_va_defines` between `seen_vas`
+    and `seen_globals`; everything after `cfg` is now keyword-only, so a
+    2.6.0 positional call raises `TypeError` instead of binding
+    `seen_globals` to `seen_va_defines`.
+  - Keyword renames: `rebrew.compile.contextualized_source(context=)` is
+    `compile_context=` (the checker's `inject` rule treats `context` as a
+    coeffect alias), and `rebrew.cross_import.sizeless_dest_vas(cfg_dst=)`
+    is `cfg=`.  Positional calls are unchanged.
+  - `rebrew.toolchain_paths.REPO_TOOLS` is gone; call
+    `rebrew.toolchain.require_toolchains_repo()`.
 - **CLI surface consistency, contract-enforced.**  One `main_entry`
   docstring everywhere (`"Run the Typer CLI application."` — 64 drifted
   modules normalized); `--target` help unified on the shared
@@ -1196,13 +1210,6 @@
   that added a plugin raised `ValueError` from `rng.choices` (or, at equal
   length, applied weights to the wrong operators).  The refresh now clears
   the memo.
-- **`contextualized_source`'s parameter is `compile_context`.**  Every
-  CORDIS review round (arXiv:2608.25512) tripped the checker's `inject`
-  rule on `context.text` in this function: `context` is a reserved
-  coeffect-context alias in the scanner, and a plain `CompileContext`
-  dataclass field read is not a service read.  The parameter (callers
-  were positional) is renamed so `cordis-check` reports clean and a real
-  `ctx` misread cannot hide behind the standing false positive.
 - **The reloc VA map and the global scan are marker-scoped across every
   source.**  `build_name_to_va` took its data half from `rebrew-data.toml`
   without comparing the entry's module, and `scan_globals` matched every
