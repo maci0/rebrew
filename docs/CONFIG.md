@@ -319,7 +319,8 @@ by the CLI layer and win for that invocation.
   seeding endpoint, key, and model pin (`rebrew match --seed-llm`). Required
   for LLM seeding when `[llm]` is unset. The key is sent only as a `Bearer`
   header to the configured endpoint, never logged. Prefer these env vars over
-  `[llm] api_key` in TOML. Endpoint must be an `http(s)` URL with a host.
+  `[llm] api_key` in TOML. Endpoint must be an `http(s)` URL with a host;
+  with a key set it must be `https` unless the host is loopback.
 - `REBREW_LLM_MAX_REQUESTS` — process-wide ceiling on LLM HTTP calls
   (default `32`). Stops `--watch` / batch seeding from burning a paid
   endpoint. `0` disables further calls for the process. A set-but-non-integer

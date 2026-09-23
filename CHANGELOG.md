@@ -432,6 +432,11 @@
   in emission order.
 
 ### Fixed
+- **`rebrew match --seed-llm` no longer sends the API key over plain
+  HTTP.**  An `http://` endpoint on a non-loopback host with
+  `[llm] api_key` / `REBREW_LLM_API_KEY` set now raises `ValueError`
+  instead of sending the key as a cleartext `Authorization` header.
+  Keyless or loopback `http` endpoints are unchanged.
 - **`rebrew dashboard` no longer downloads `/api/bootstrap` twice on cold
   start.**  The client fetched with `credentials: "omit"`, which does not
   match the `same-origin` credentials mode of the `crossorigin` preload, so

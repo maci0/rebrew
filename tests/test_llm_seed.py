@@ -100,6 +100,34 @@ class TestLlmConfig:
         with pytest.raises(ValueError, match=r"LLM endpoint must be an http\(s\) URL"):
             llm_config(_cfg(endpoint="ftp://evil.example/v1"))
 
+    @pytest.mark.parametrize(
+        "url", ["http://llm.example/v1", "http://10.0.0.5:8000/v1", "http://localhost.evil/v1"]
+    )
+    def test_api_key_over_remote_http_raises(
+        self, monkeypatch: pytest.MonkeyPatch, url: str
+    ) -> None:
+        """A bearer key must never leave the host as cleartext HTTP."""
+        monkeypatch.delenv("REBREW_LLM_ENDPOINT", raising=False)
+        monkeypatch.delenv("REBREW_LLM_API_KEY", raising=False)
+        with pytest.raises(ValueError, match="must use https when an API key is set"):
+            llm_config(_cfg(endpoint=url, api_key="secret"))
+
+    @pytest.mark.parametrize(
+        "url", ["http://localhost:9000/v1", "http://127.0.0.1:9000/v1", "http://[::1]:9000/v1"]
+    )
+    def test_api_key_over_loopback_http_allowed(
+        self, monkeypatch: pytest.MonkeyPatch, url: str
+    ) -> None:
+        monkeypatch.delenv("REBREW_LLM_ENDPOINT", raising=False)
+        monkeypatch.delenv("REBREW_LLM_API_KEY", raising=False)
+        assert llm_config(_cfg(endpoint=url, api_key="k")) == {"endpoint": url, "api_key": "k"}
+
+    def test_keyless_remote_http_allowed(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("REBREW_LLM_ENDPOINT", raising=False)
+        monkeypatch.delenv("REBREW_LLM_API_KEY", raising=False)
+        conf = llm_config(_cfg(endpoint="http://llm.example/v1"))
+        assert conf == {"endpoint": "http://llm.example/v1", "api_key": ""}
+
     def test_invalid_max_requests_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("REBREW_LLM_ENDPOINT", "https://env.example/v1")
         monkeypatch.setenv("REBREW_LLM_MAX_REQUESTS", "plenty")

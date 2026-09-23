@@ -26,12 +26,14 @@ so ``--seed-llm --watch`` cannot bill unboundedly.  Rate limits / overload
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import logging
 import os
 import re
 import threading
 from typing import Any
+from urllib.parse import urlparse
 
 from rebrew.config import validate_http_url
 
@@ -115,7 +117,9 @@ def llm_config(cfg: Any) -> dict[str, str] | None:
     environment it wins (even if empty — clears a committed TOML key for
     the run); otherwise the TOML value.  A non-empty endpoint that is not
     http(s) with a host and a valid port raises ``ValueError`` (same rule
-    as ``compiler.recompile_url``), as does an unpinned or malformed model.
+    as ``compiler.recompile_url``), as does an unpinned or malformed model,
+    or an API key paired with a plain-``http`` endpoint on a non-loopback
+    host (the key would travel as a cleartext ``Authorization`` header).
     """
     endpoint = str(getattr(cfg, "llm_endpoint", "") or "").strip()
     if not endpoint:
@@ -128,11 +132,30 @@ def llm_config(cfg: Any) -> dict[str, str] | None:
     if not endpoint:
         return None
     endpoint = validate_http_url(endpoint, "LLM endpoint")
+    if api_key and not _key_safe_endpoint(endpoint):
+        raise ValueError(
+            "LLM endpoint must use https when an API key is set "
+            "(plain http is allowed only for loopback hosts)"
+        )
     # Validate the process ceiling and model id while resolving config so a
     # bad REBREW_LLM_MAX_REQUESTS or model fails before the first HTTP call.
     _max_requests()
     _resolve_model(cfg)
     return {"endpoint": endpoint, "api_key": api_key}
+
+
+def _key_safe_endpoint(endpoint: str) -> bool:
+    """True when a bearer key may be sent to *endpoint*: https, or http to loopback."""
+    parsed = urlparse(endpoint)
+    if parsed.scheme == "https":
+        return True
+    host = parsed.hostname or ""
+    if host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
 
 
 def _max_requests() -> int:
