@@ -53,6 +53,15 @@ _VERIFY_CACHE_MEMO_MAX = 8
 _VERIFY_CACHE_MEMO_LOCK = threading.Lock()
 
 
+def _memo_path_key(cache_path: Path) -> str:
+    """Memo key for *cache_path*: resolved, so reads and invalidation agree
+    when ``cfg.root`` is relative or reached through a symlink."""
+    try:
+        return str(cache_path.resolve())
+    except OSError:
+        return str(cache_path)
+
+
 def _invalidate_verify_cache_memo(cache_path: Path) -> None:
     """Drop every memo entry for *cache_path* after a write.
 
@@ -64,10 +73,7 @@ def _invalidate_verify_cache_memo(cache_path: Path) -> None:
     ``rebrew verify`` just patched.  Mirror ``atomic_write_text``'s source-
     text memo drop.
     """
-    try:
-        path_key = str(cache_path.resolve())
-    except OSError:
-        path_key = str(cache_path)
+    path_key = _memo_path_key(cache_path)
     with _VERIFY_CACHE_MEMO_LOCK:
         stale = [k for k in _VERIFY_CACHE_MEMO if k[0] == path_key]
         for old in stale:
@@ -87,7 +93,7 @@ def load_verify_cache_raw(cfg: Any) -> dict[str, Any] | None:
         st = cache_path.stat()
     except OSError:
         return None
-    path_key = str(cache_path)
+    path_key = _memo_path_key(cache_path)
     key = (path_key, st.st_mtime_ns, st.st_size)
     with _VERIFY_CACHE_MEMO_LOCK:
         if key in _VERIFY_CACHE_MEMO:

@@ -234,6 +234,26 @@ class TestLoadVerifyCacheRaw:
         assert only_key[0] == str(path)
         assert vc_mod._VERIFY_CACHE_MEMO[only_key] == {"version": 2}
 
+    def test_verify_cache_memo_invalidated_through_symlinked_root(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A write must drop the memo even when ``cfg.root`` is a symlink."""
+        from types import SimpleNamespace
+
+        import rebrew.verify_cache as vc_mod
+
+        monkeypatch.setattr(vc_mod, "_VERIFY_CACHE_MEMO", {})
+        real = tmp_path / "real"
+        (real / ".rebrew").mkdir(parents=True)
+        path = real / ".rebrew" / "verify_cache.json"
+        path.write_text('{"version": 1}', encoding="utf-8")
+        link = tmp_path / "link"
+        link.symlink_to(real)
+        cfg = SimpleNamespace(root=link)
+        assert vc_mod.load_verify_cache_raw(cfg) == {"version": 1}
+        vc_mod._invalidate_verify_cache_memo(link / ".rebrew" / "verify_cache.json")
+        assert vc_mod._VERIFY_CACHE_MEMO == {}
+
     def test_verify_cache_memo_cleared_on_patch(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
