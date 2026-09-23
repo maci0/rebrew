@@ -635,6 +635,9 @@
   in emission order.
 
 ### Fixed
+- **The suite passes from a source archive (no `.git`).**  The tag→changelog
+  and `toolchain/`-gitignored tests crashed on `git`'s exit 128 outside a
+  checkout; they now skip there.
 - **`rebrew dashboard` marks the selected tab and status card without
   colour.**  They differed from their siblings mainly by a blue border
   (WCAG 1.4.1); the selected tab and the pressed card's label are now bold.

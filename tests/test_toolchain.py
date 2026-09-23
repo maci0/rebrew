@@ -1047,6 +1047,8 @@ class TestCompatLinksRemoved:
             text=True,
             cwd=repo,
         )
+        if r.returncode == 128:
+            pytest.skip("not a git checkout (source archive)")
         assert r.returncode == 0, (
             "toolchain/ must be gitignored — rebrew no longer vendors "
             "toolchain build source in-repo"

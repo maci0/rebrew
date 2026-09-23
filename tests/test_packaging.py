@@ -57,10 +57,14 @@ class TestPackagingMetadata:
         proc = subprocess.run(
             ["git", "tag", "-l", "v*"],
             cwd=ROOT,
-            check=True,
+            check=False,
             capture_output=True,
             text=True,
         )
+        if proc.returncode != 0:
+            if os.environ.get("GITHUB_ACTIONS"):
+                pytest.fail(f"git tag failed in CI: {proc.stderr.strip()}")
+            pytest.skip("not a git checkout (source archive)")
         tags = [line.strip() for line in proc.stdout.splitlines() if line.strip()]
         if not tags:
             # CI's test job sets fetch-tags: true on actions/checkout so this
