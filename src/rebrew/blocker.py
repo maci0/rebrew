@@ -105,6 +105,13 @@ def _resolve_function(
         error_exit(f"No annotations found in {source_path.name}", json_mode=json_mode)
 
     if va_int is None:
+        if len(annos) > 1:
+            vas = ", ".join(f"0x{a.va:08x}" for a in annos)
+            error_exit(
+                f"{source_path.name} covers {len(annos)} functions ({vas}) — "
+                "pass --va 0x… to pick one",
+                json_mode=json_mode,
+            )
         va_int = annos[0].va
         ann = annos[0]
     else:

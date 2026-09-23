@@ -415,8 +415,9 @@ def main(
         )
         return
 
+    action = "Would split" if dry_run else "Split"
     console.print(
-        f"Split [bold]{split_count}[/] functions from {source_path.name} into {split_count} files"
+        f"{action} [bold]{split_count}[/] functions from {source_path.name} into {split_count} files"
     )
     for item in planned:
         console.print(f"  {item['output']} ← [cyan]{item['va']}[/]")

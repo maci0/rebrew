@@ -496,6 +496,15 @@
   in emission order.
 
 ### Fixed
+- **`rebrew test --fix-sizes --no-promote` no longer writes SIZE.**
+  `--no-promote` promises to write nothing to `rebrew-functions.toml`, but
+  the fixed SIZE was still persisted (single- and multi-function paths).
+- **`rebrew blocker` / `rebrew orphans drop` refuse to guess.**  Given a
+  multi-function file without `--va`, they acted on its first annotation;
+  they now exit with the file's VAs and ask for `--va`.
+- **`rebrew split` / `rebrew merge` `--dry-run` say "Would".**  The
+  preview summary read "Split N functions" / "Merged N functions" as if
+  files had been written.
 - **`rebrew toolchain vendor` works with a tmpfs `/tmp`.**  The
   `zip-installshield`, `zip-strip1`, and `7z-strip1` layouts extract into
   the system temp dir and renamed the result into the toolchains checkout,

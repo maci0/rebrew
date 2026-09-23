@@ -671,8 +671,9 @@ def main(
         json_print(payload)
         return
 
+    action = "Would merge" if dry_run else "Merged"
     console.print(
-        f"Merged [bold]{len(sorted_blocks)}[/] functions from {len(included_inputs)} files "
+        f"{action} [bold]{len(sorted_blocks)}[/] functions from {len(included_inputs)} files "
         f"into {output_path.name}"
     )
     if delete and not dry_run:
