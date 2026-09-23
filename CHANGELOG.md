@@ -450,6 +450,11 @@
   in emission order.
 
 ### Fixed
+- **`rebrew fingerprints` finds real Rich headers.**  The decoder looked
+  for a plaintext `DanS` marker, but linkers store it XORed with the key,
+  so `rich_header_hash` was `null` for every MSVC-linked binary.  It now
+  walks back from `Rich` to the `DanS ^ key` dword; a golden from MSVC
+  6.0 `cl.exe` and Hypothesis fuzzing of malformed stubs pin the decoder.
 - **`rebrew migrate-markers` edits `rebrew-functions.toml` in place.**  It
   loaded the store into a dict and rewrote the whole file, dropping every
   comment and every entry whose key is not `MODULE.0xVA`.  The new

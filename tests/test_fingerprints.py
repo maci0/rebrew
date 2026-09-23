@@ -8,10 +8,13 @@ import zlib
 from pathlib import Path
 
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 from typer.testing import CliRunner
 
 import rebrew.main
 from rebrew.fingerprints import (
+    _rich_header_parts_from_dos_stub,
     export_hash,
     export_hash_from_pairs,
     file_hashes,
@@ -33,6 +36,36 @@ MINI_PE_SHA256 = "bda21f387f7d53bd188a1fd91179efbd688723d18c26e78465c2ced8fb7546
 MINI_PE_IMPHASH = "27abfd9cfda7519d5efb3f08a2a4f3ce"
 
 runner = CliRunner()
+
+# DOS-stub bytes 0x80..0xDF of MSVC 6.0 cl.exe: an on-disk Rich header
+# (``DanS``, padding, and entries XORed with the key; ``Rich`` + key plain).
+CL_EXE_RICH = bytes.fromhex(
+    "8bbcb47dcfddda2ecfddda2ecfddda2e4cc1d42eceddda2e27c2de2ecbddda2e"
+    "a0c2d12eccddda2ecfdddb2eaeddda2eadc2c92ecaddda2e27c2d12ecaddda2e"
+    "77dbdc2eceddda2e27c2d02ec3ddda2e52696368cfddda2e0000000000000000"
+)
+# Key and on-disk-order entries LIEF reports for the same binary.
+CL_EXE_RICH_KEY = 0x2EDADDCF
+CL_EXE_RICH_ENTRIES = [
+    (924803, 1),
+    (270312, 4),
+    (728943, 3),
+    (65536, 97),
+    (1253218, 5),
+    (729064, 5),
+    (394936, 1),
+    (663528, 12),
+]
+
+
+def _on_disk_rich(key: int, entries: list[tuple[int, int]]) -> bytes:
+    """Rich header as a linker writes it: ``DanS`` and padding XORed with *key* too."""
+    canonical = rich_header_bytes_from_parts(key, entries)
+    head = b"".join(
+        (int.from_bytes(canonical[i : i + 4], "little") ^ key).to_bytes(4, "little")
+        for i in range(0, 16, 4)
+    )
+    return head + canonical[16:]
 
 
 class TestFileHashes:
@@ -138,8 +171,59 @@ class TestRichHeader:
         key = 0xDEADBEEF
         entries = [(0x00010002, 0x00000003), (0x00020004, 0x00000001)]
         path = tmp_path / "rich.bin"
-        path.write_bytes(b"MZ" + b"\x00" * 0x40 + rich_header_bytes_from_parts(key, entries))
+        path.write_bytes(b"MZ" + b"\x00" * 0x7E + _on_disk_rich(key, entries))
         assert rich_header_hash(path) == rich_header_hash_from_parts(key, entries)
+
+    def test_real_msvc_stub_decodes(self, tmp_path: Path) -> None:
+        path = tmp_path / "cl.bin"
+        path.write_bytes(b"MZ" + b"\x00" * 0x7E + CL_EXE_RICH)
+        assert _rich_header_parts_from_dos_stub(path.read_bytes()) == (
+            CL_EXE_RICH_KEY,
+            CL_EXE_RICH_ENTRIES,
+        )
+        assert rich_header_hash(path) == rich_header_hash_from_parts(
+            CL_EXE_RICH_KEY, CL_EXE_RICH_ENTRIES
+        )
+
+    @settings(max_examples=300, deadline=None)
+    @given(
+        st.binary(max_size=64),
+        st.integers(min_value=0, max_value=0xFFFFFFFF),
+        st.lists(
+            st.tuples(
+                st.integers(min_value=0, max_value=0xFFFFFFFF),
+                st.integers(min_value=0, max_value=0xFFFFFFFF),
+            ),
+            min_size=1,
+            max_size=16,
+        ),
+    )
+    def test_on_disk_round_trip_fuzz(
+        self, prefix: bytes, key: int, entries: list[tuple[int, int]]
+    ) -> None:
+        # Dword-aligned prefix: linkers place the header on a dword boundary.
+        prefix = prefix[: len(prefix) & ~3].replace(b"Rich", b"rich")
+        assert _rich_header_parts_from_dos_stub(prefix + _on_disk_rich(key, entries)) == (
+            key,
+            entries,
+        )
+
+    @settings(max_examples=500, deadline=None)
+    @given(st.binary(max_size=0x400))
+    def test_malformed_stub_fuzz(self, blob: bytes) -> None:
+        parts = _rich_header_parts_from_dos_stub(blob)
+        if parts is not None:
+            key, entries = parts
+            assert 0 <= key <= 0xFFFFFFFF
+            assert entries
+            assert all(0 <= a <= 0xFFFFFFFF and 0 <= b <= 0xFFFFFFFF for a, b in entries)
+
+    @settings(max_examples=300, deadline=None)
+    @given(st.integers(min_value=0, max_value=len(CL_EXE_RICH) - 1), st.binary(min_size=1))
+    def test_real_stub_mutation_fuzz(self, offset: int, noise: bytes) -> None:
+        blob = CL_EXE_RICH[:offset] + noise + CL_EXE_RICH[offset + len(noise) :]
+        parts = _rich_header_parts_from_dos_stub(blob)
+        assert parts is None or parts[1]
 
     def test_missing_returns_none(self, tmp_path: Path) -> None:
         assert rich_header_hash(tmp_path / "absent.exe") is None

@@ -48,6 +48,9 @@ _DOS_STUB_SCAN = 0x400
 #: (three padding dwords).
 _RICH_PADDING = 12
 
+#: ``DanS`` as a little-endian dword; on disk it is stored XORed with the key.
+_DANS = int.from_bytes(b"DanS", "little")
+
 
 def _parse_pe(path: Path) -> Any | None:
     """Parse *path* as a PE via LIEF, or ``None`` on any failure."""
@@ -222,17 +225,20 @@ def rich_header_hash_from_parts(key: int, entries: Iterable[tuple[int, int]]) ->
 def _rich_header_parts_from_dos_stub(data: bytes) -> tuple[int, list[tuple[int, int]]] | None:
     """Decode the Rich header in a DOS stub, or ``None``.
 
-    Finds ``Rich``, reads the following uint32 as the XOR key, then decodes
-    the ``comp_id`` / ``count`` pairs between the preceding ``DanS`` and the
-    ``Rich`` marker.
+    Finds the plaintext ``Rich`` marker, reads the following uint32 as the
+    XOR key, walks back dword by dword to the ``DanS ^ key`` start marker,
+    then decodes the ``comp_id`` / ``count`` pairs between the padding and
+    ``Rich``.
     """
     pos = data.find(b"Rich")
     while pos != -1:
         key_off = pos + 4
         if key_off + 4 <= len(data):
             key = int.from_bytes(data[key_off : key_off + 4], "little")
-            dans = data.rfind(b"DanS", 0, pos)
-            if dans != -1:
+            dans = pos - 4
+            while dans >= 0 and int.from_bytes(data[dans : dans + 4], "little") ^ key != _DANS:
+                dans -= 4
+            if dans >= 0:
                 body = data[dans + 4 + _RICH_PADDING : pos]
                 if body and len(body) % 8 == 0:
                     entries = [
