@@ -183,7 +183,7 @@ def _statements(lines: list[str], lo: int, hi: int) -> list[tuple[int, int]]:
 
 
 #: Address-sized hex (>= 6 digits) — an absolute address, never a constant the
-#: source chose.  Same threshold ``scripts/seqdiff.py`` uses.
+#: source chose.  Same threshold guild-rebrew's ``scripts/seqdiff.py`` uses.
 _ADDRESS_RE = re.compile(r"0x[0-9a-f]{6,}")
 
 #: A bracketed short addend, the form an object carries for a relocation
@@ -299,11 +299,11 @@ def _score_aligned(
         """Instruction text as the alignment compares it.
 
         Address-sized immediates fold to ``g``, and the operands an object
-        carries for a relocation — a
-        bare ``[0]`` or a short addend — fold onto ``g`` too, because the
-        target side has the resolved address there.  ``scripts/seqdiff.py:norm``
-        applies the same folds; without them the aligner paired 624 of the
-        target's instructions where the sequence diff pairs 740.
+        carries for a relocation — a bare ``[0]`` or a short addend — fold
+        onto ``g`` too, because the target side has the resolved address
+        there.  guild-rebrew's ``scripts/seqdiff.py:norm`` applies the same
+        folds; without them the aligner paired 624 of the target's
+        instructions where the sequence diff pairs 740.
         """
         text = _ADDRESS_RE.sub("g", f"{insn.mnemonic} {insn.op_str}")
         text = text.replace("[0]", "[g]")

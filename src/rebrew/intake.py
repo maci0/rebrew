@@ -18,7 +18,7 @@ blocker-documented — ready for the per-function decomp loop.
 
 Usage::
 
-    rebrew intake original/game.exe --target game
+    rebrew intake ./game.exe --target game
     rebrew intake game.exe --toolchain msvc-6.0-sp3 --dry-run
 """
 

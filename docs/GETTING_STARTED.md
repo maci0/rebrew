@@ -37,7 +37,7 @@ Three ideas carry the whole tool:
 | You need | Why | Get it with |
 |----------|-----|-------------|
 | Linux x86_64 | all compiler images target it | — |
-| Python 3.13+ and `uv` | runs rebrew | `pip install uv` |
+| Python 3.13+ and `uv` | runs rebrew | [uv installer](https://docs.astral.sh/uv/getting-started/installation/); `uv python install 3.13` |
 | docker | **every** compiler runs inside an image (wine/DOSBox live there; there is no host-wine path) | your distro's `docker` |
 | rizin | the packaged function discoverer | `apt install rizin` |
 | A binary | the thing you are reversing | yours |

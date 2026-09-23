@@ -440,22 +440,15 @@ def _fix_data(built: bytearray, meta: LayoutMetadata, info_b: BinaryInfo) -> Fix
         report.changed = True
 
     # The trim above starts at the reference's RAW size, so anything the link
-    # emitted between the reference's VirtualSize and its raw size survived --
-    # and that region is zero in the reference.  guild-rebrew shipped 638 real
-    # bytes there (a stub DllMain `6a 01 58 c2 0c 00` plus ~100 `ff 25` IAT
-    # thunks the original build dead-stripped), because its link overshoots the
-    # reference's .text VirtualSize.  `scripts/postlink_residual.py` normalized
-    # that span for its own measurement, so the residue number looked clean
-    # while `rebrew postlink` shipped the bytes: a measure-vs-ship divergence.
-    # Zero it here instead, and only where the reference really is zero.
-    # Only when the BUILT .text overshot the reference's VirtualSize: the bytes
-    # between the reference's VirtualSize and its raw size then hold code this
-    # link emitted past the reference's end, which the original build does not
-    # have.  guild-rebrew shipped 638 such bytes (a stub DllMain
-    # `6a 01 58 c2 0c 00` plus ~100 `ff 25` IAT thunks) because its link
-    # overshoots by 0x282.  scripts/postlink_residual.py normalized that span
-    # for its own measurement while `rebrew postlink` shipped it -- a
-    # measure-vs-ship divergence.
+    # emitted between the reference's VirtualSize and its raw size survives it.
+    # When the BUILT .text overshot the reference's VirtualSize, that span
+    # holds code this link emitted past the reference's end, which the
+    # original build does not have: zero it.  guild-rebrew shipped 638 such
+    # bytes (a stub DllMain `6a 01 58 c2 0c 00` plus ~100 `ff 25` IAT thunks
+    # the original build dead-stripped) because its link overshoots by 0x282.
+    # guild-rebrew's scripts/postlink_residual.py normalized that span for its
+    # own measurement while `rebrew postlink` shipped it -- a measure-vs-ship
+    # divergence.
     #
     # Guarded three ways, because a correct build must not be touched: the
     # overshoot must be real (built vs > reference vs), the span must actually
