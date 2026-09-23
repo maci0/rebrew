@@ -334,8 +334,10 @@ def rewrite_param_type(
     type_start = children[0].start_byte
     if cut <= type_start:
         return None
-    before: str = source[:type_start].decode("utf-8", errors="replace")
-    after: str = source[cut:].decode("utf-8", errors="replace")
+    # Inverse of _parse's surrogateescape encode: "replace" would turn every
+    # legacy (cp1252/Shift-JIS) byte in the rewritten file into U+FFFD.
+    before: str = source[:type_start].decode("utf-8", errors="surrogateescape")
+    after: str = source[cut:].decode("utf-8", errors="surrogateescape")
     stripped = new_type.strip()
     if after.startswith("*"):
         stripped = stripped.rstrip("*").strip()

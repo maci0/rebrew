@@ -635,6 +635,11 @@
   in emission order.
 
 ### Fixed
+- **`rewrite_param_type` keeps legacy source bytes.**  It parsed the
+  source with `surrogateescape` but decoded the rewritten file with
+  `errors="replace"`, so a cp1252 or Shift-JIS byte read through
+  `read_compile_source` came back as U+FFFD.  Both directions now use
+  `surrogateescape`.
 - **`rebrew-objdiff-build --help` prints usage.**  It failed with a usage
   error and exit 2; `-h`/`--help` now print the usage line on stdout and
   exit 0.

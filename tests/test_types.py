@@ -237,6 +237,18 @@ class TestRewriteParamType:
 
         assert rewrite_param_type("int foo(int a) { return a; }\n", "foo", 3, "int") is None
 
+    def test_legacy_bytes_round_trip(self, tmp_path: Path) -> None:
+        from rebrew.types import rewrite_param_type
+        from rebrew.utils import read_compile_source
+
+        path = tmp_path / "f.c"
+        path.write_bytes(b'char *s = "Caf\xe9";\nint foo(int a, void *p) { return a; }\n')
+        out = rewrite_param_type(read_compile_source(path), "foo", 1, "Player *")
+        assert out is not None
+        assert out.encode("utf-8", errors="surrogateescape") == (
+            b'char *s = "Caf\xe9";\nint foo(int a, Player *p) { return a; }\n'
+        )
+
 
 class TestApplyTypeCli:
     def _cfg(self, tmp_path: Path):
