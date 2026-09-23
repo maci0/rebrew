@@ -1315,6 +1315,30 @@ class TestVendorFlatten:
         assert (dest / "bin").is_dir()
         assert (dest / "README").is_file()
 
+    def test_moves_across_filesystems(self, tmp_path: Path, monkeypatch: Any) -> None:
+        """The payload is staged in the system temp dir (tmpfs on many hosts)
+        while *dest* sits on disk: a plain rename raises EXDEV there."""
+        import errno
+        import os
+
+        from rebrew.toolchain_cli import _flatten_wrapper_dir
+
+        payload = tmp_path / "payload"
+        (payload / "TC" / "BIN").mkdir(parents=True)
+        (payload / "TC" / "BIN" / "TCC.EXE").write_bytes(b"MZ")
+        dest = tmp_path / "dest"
+        dest.mkdir()
+
+        def _exdev(src: Any, dst: Any) -> None:
+            raise OSError(errno.EXDEV, os.strerror(errno.EXDEV), str(src))
+
+        monkeypatch.setattr(os, "rename", _exdev)
+
+        _flatten_wrapper_dir(payload, dest)
+
+        assert (dest / "BIN" / "TCC.EXE").read_bytes() == b"MZ"
+        assert not (payload / "TC" / "BIN").exists()
+
     def test_refuses_symlink_members(self, tmp_path: Path) -> None:
         from rebrew.toolchain import ToolchainError
         from rebrew.toolchain_cli import _flatten_wrapper_dir

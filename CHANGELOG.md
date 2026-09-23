@@ -492,6 +492,11 @@
   in emission order.
 
 ### Fixed
+- **`rebrew toolchain vendor` works with a tmpfs `/tmp`.**  The
+  `zip-installshield`, `zip-strip1`, and `7z-strip1` layouts extract into
+  the system temp dir and renamed the result into the toolchains checkout,
+  which fails with `EXDEV` (cross-device link) when `/tmp` is tmpfs, the
+  default on Arch and Fedora.  The move now copies across filesystems.
 - **`--json` failures exit nonzero.**  `rebrew toolchain smoke --json`
   (and `--print-goldens` in either mode) exited 0 on a mismatch, timeout,
   or missing object, and `rebrew fix --json` exited 0 when the fixup

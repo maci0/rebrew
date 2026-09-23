@@ -424,7 +424,9 @@ def _flatten_wrapper_dir(payload: Path, extract_dir: Path) -> None:
         dest = (extract_dir / child.name).resolve()
         if not dest.is_relative_to(extract_root):
             raise ToolchainError(f"refusing path escape in toolchain archive: {child.name!r}")
-        child.rename(extract_dir / child.name)
+        # shutil.move: *payload* is staged in the system temp dir, often tmpfs,
+        # so a bare rename into the on-disk tree fails with EXDEV.
+        shutil.move(child, extract_dir / child.name)
 
 
 def _vendor_tree_complete(host: Path, name: str) -> bool:
@@ -559,7 +561,7 @@ def vendor_cmd(
                             raise ToolchainError(
                                 f"refusing unsafe InstallShield payload entry: {sub!r}"
                             )
-                        src_sub.rename(extract_dir / sub)
+                        shutil.move(src_sub, extract_dir / sub)
                 elif src.layout == "zip-strip1":
                     # A zip with a single top-level wrapper dir (e.g. TC/) —
                     # strip the wrapper so BIN/INCLUDE/LIB sit at the top of
