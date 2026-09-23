@@ -1281,6 +1281,41 @@ binary = "test.exe"
             conn.close()
         assert any("duplicate cell" in r.message for r in caplog.records)
 
+    def test_duplicate_function_and_global_vas_do_not_abort(
+        self, tmp_path: Path, caplog: Any
+    ) -> None:
+        """Keys spelling the same VA (hex and decimal) collide on the
+        (target, va) primary key; last row wins, rebuild completes."""
+        import logging
+
+        db_dir = tmp_path / "db"
+        db_dir.mkdir()
+        data = {
+            "sections": {},
+            "globals": {
+                "0x10003000": {"name": "g_old", "size": 4},
+                str(0x10003000): {"name": "g_new", "size": 4},
+            },
+            "summary": {},
+            "functions": {
+                "0x10001000": {"name": "f_old", "size": 16, "status": "STUB"},
+                str(0x10001000): {"name": "f_new", "size": 16, "status": "EXACT"},
+            },
+            "paths": {},
+        }
+        (db_dir / "data_t.json").write_text(json.dumps(data), encoding="utf-8")
+        with caplog.at_level(logging.WARNING):
+            build_db(tmp_path)
+        conn = sqlite3.connect(db_dir / "coverage.db")
+        try:
+            fns = conn.execute("SELECT va, name, status FROM functions").fetchall()
+            gls = conn.execute("SELECT va, name FROM globals").fetchall()
+        finally:
+            conn.close()
+        assert fns == [(0x10001000, "f_new", "EXACT")]
+        assert gls == [(0x10003000, "g_new")]
+        assert sum("duplicate" in r.message for r in caplog.records) == 2
+
 
 class TestBuildDbTargetFiltering:
     """Verify that build_db(target=...) only processes matching JSON files."""

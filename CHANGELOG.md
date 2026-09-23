@@ -462,6 +462,11 @@
   in emission order.
 
 ### Fixed
+- **`rebrew build-db` survives two keys for one VA.**  A `data_*.json`
+  whose function or global keys spell the same VA (`"0x401000"` and
+  `"4198400"`) aborted the whole rebuild on the `(target, va)` primary
+  key.  The last row now wins with a warning, as duplicate cells already
+  did.
 - **Every force-include spelling invalidates the compile cache.**  Only
   `/FI` and `-include` switched the key to whole-directory header
   fingerprints, so editing a header injected by `-FI`, `--include`,

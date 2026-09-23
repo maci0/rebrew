@@ -374,6 +374,28 @@ def _dedupe_cell_rows(
     return sorted(by_start.values(), key=lambda r: r[2])
 
 
+def _dedupe_by_va(
+    rows: list[tuple[Any, ...]], *, target_name: str, table: str
+) -> list[tuple[Any, ...]]:
+    """Collapse rows sharing ``va`` (index 1) so the ``(target, va)`` PK holds.
+
+    Two JSON keys can spell one VA (``"0x401000"`` and ``"4198400"``, or a bad
+    key recovered from ``vaStart``); inserting both would abort the whole
+    rebuild.  Last row wins, matching :func:`_dedupe_cell_rows`.
+    """
+    by_va = {row[1]: row for row in rows}
+    dropped = len(rows) - len(by_va)
+    if dropped:
+        logging.warning(
+            "build_db: %s: dropped %d duplicate %s row(s) sharing a VA "
+            "(PRIMARY KEY target/va); last wins",
+            target_name,
+            dropped,
+            table,
+        )
+    return list(by_va.values())
+
+
 def _function_stats(
     c: sqlite3.Cursor, target_name: str
 ) -> tuple[int, dict[str, int], dict[str, list[Any]], int, int]:
@@ -1200,7 +1222,7 @@ def build_db(
                 "size_reason, similarity, updated_by, updated_at) "
                 "VALUES "
                 "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                fn_rows,
+                _dedupe_by_va(fn_rows, target_name=target_name, table="function"),
             )
 
             g_rows = []
@@ -1253,7 +1275,7 @@ def build_db(
                 INSERT INTO globals (target, va, name, decl, files, module, size, status)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-                g_rows,
+                _dedupe_by_va(g_rows, target_name=target_name, table="global"),
             )
 
             # Pre-calculate stats for all sections
