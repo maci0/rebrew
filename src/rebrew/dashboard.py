@@ -1867,16 +1867,20 @@ class _Handler(BaseHTTPRequestHandler):
         # body as fresh until the next rebuild.  An old ETag on a new body
         # only costs one extra refetch.  A matching If-None-Match on a routed
         # GET/HEAD answers 304 without running the query.  A target-scoped
-        # route without ``?target=`` has no representation to revalidate
-        # (``If-None-Match: *`` included), so it falls through to its 400.
+        # route without ``?target=`` or with an unknown target has no
+        # representation to revalidate (``If-None-Match: *`` and the DB-wide
+        # ETag included), so it falls through to its 400/404.
         etag = self.dashboard.response_etag(self.path)
         parsed = urlparse(self.path)
         query = parse_qs(parsed.query)
         if (
             method in ("GET", "HEAD")
             and parsed.path in _ROUTES
-            and (parsed.path not in _TARGET_ROUTES or _opt_query(query, "target"))
             and _if_none_match(self.headers.get("If-None-Match", ""), etag)
+            and (
+                parsed.path not in _TARGET_ROUTES
+                or self.dashboard.target_known(_opt_query(query, "target") or "")
+            )
         ):
             self._send_not_modified(etag, _success_cache_control(parsed.path, query))
             return

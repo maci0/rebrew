@@ -1416,6 +1416,15 @@ class TestHostValidation:
             handler._respond("GET")
             assert [v for k, v in sent if k == "status"] == [400]
 
+        # An unknown target has no representation: its 404 beats "*" and a
+        # replayed DB-wide ETag.
+        for inm in ("*", etag):
+            sent.clear()
+            handler.path = "/api/summary?target=nope"
+            handler.headers = {"Host": "127.0.0.1:8000", "If-None-Match": inm}
+            handler._respond("GET")
+            assert [v for k, v in sent if k == "status"] == [404]
+
     def test_handler_etag_read_before_query(self, dashboard: Dashboard) -> None:
         """A DB rebuilt mid-query must not tag the old body with the new ETag."""
         import os
