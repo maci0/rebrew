@@ -362,6 +362,16 @@ int other(void) { return 2; }
 
         assert _find_function_range("not c at all", "_foo") is None
 
+    def test_cp1252_seed_is_scoped_by_byte_offsets(self) -> None:
+        """A cp1252 seed (read_compile_source: surrogateescape) still scopes."""
+        from rebrew.match_ga import _find_function_range
+
+        raw = b'const char *s = "Caf\xe9";\nint foo(void) { return 1; }\n'
+        src = raw.decode("utf-8", errors="surrogateescape")
+        r = _find_function_range(src, "_foo")
+        assert r is not None
+        assert raw[r[0] : r[1]] == b"int foo(void) { return 1; }"
+
     def test_set_target_range_scopes_cursor(self) -> None:
         """set_target_range must restrict mutation queries to the byte window."""
         from rebrew.matcher import ast_engine

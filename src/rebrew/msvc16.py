@@ -73,14 +73,14 @@ def compile_c(
     # permanently turns legacy bytes (Shift-JIS / CP1252 string literals in
     # Japanese-era TUs) into U+FFFD, so the DOS compiler never sees the
     # original encoding.  Path sources are copied byte-for-byte; in-memory
-    # text is written as UTF-8.
+    # text is written as UTF-8 + surrogateescape (read_compile_source inverse).
     src_path = Path(c_source) if Path(c_source).exists() else None
     if src_path is not None:
         src_name = src_path.name
         staged_bytes = src_path.read_bytes()
     else:
         src_name = "probe.c"
-        staged_bytes = str(c_source).encode("utf-8")
+        staged_bytes = str(c_source).encode("utf-8", errors="surrogateescape")
 
     # CL.EXE 1.52 is a 16-bit Phar Lap DOS program — it cannot open long
     # filenames (DOSBox 8.3-truncates them, C1083).  Stage the source under

@@ -112,7 +112,7 @@ def compile_ne(
         staged_bytes = src_path.read_bytes()
     else:
         src_name = "probe.dpr"
-        staged_bytes = str(dpr_source).encode("utf-8")
+        staged_bytes = str(dpr_source).encode("utf-8", errors="surrogateescape")
 
     # DCC.EXE is a 16-bit DOS program — it cannot open long filenames
     # inside DOSBox (8.3-truncated, "Error 15: File not found").  Stage a

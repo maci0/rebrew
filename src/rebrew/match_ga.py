@@ -203,7 +203,7 @@ def _find_function_range(source: str, symbol: str) -> tuple[int, int] | None:
     except Exception:  # tree-sitter unavailable: no scoping
         return None
     try:
-        tree = parse_c_ast(source.encode("utf-8"))
+        tree = parse_c_ast(source)
         wanted = symbol.lstrip("_")
         for node in tree.root_node.children:
             if node.type != "function_definition":

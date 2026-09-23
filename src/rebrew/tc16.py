@@ -96,7 +96,7 @@ def compile_c(
         staged_bytes = src_path.read_bytes()
     else:
         src_name = "probe.c"
-        staged_bytes = str(c_source).encode("utf-8")
+        staged_bytes = str(c_source).encode("utf-8", errors="surrogateescape")
 
     # DOSBox 8.3-truncates long names — stage under a fixed short name.
     staged_name = "SRC.C"
