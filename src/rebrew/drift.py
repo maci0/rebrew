@@ -32,6 +32,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from rebrew.utils import parse_int_literal
+
 __all__ = [
     "DriftWindow",
     "DerivedRegion",
@@ -108,7 +110,7 @@ def branch_targets(code: bytes, md: Any) -> dict[int, tuple[int, int]]:
         # window in a function under 0x10 bytes and skews the ones just above it.
         op = insn.op_str.strip()
         try:
-            target = int(op, 16) if op.startswith("0x") else int(op, 10)
+            target = parse_int_literal(op)
         except ValueError:
             continue  # indirect (register/memory) branch: no static target
         if not 0 <= target < len(code):

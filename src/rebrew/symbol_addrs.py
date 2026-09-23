@@ -59,7 +59,7 @@ from rebrew.cli import (
 )
 from rebrew.pe_symbols import KIND_FUNC, PeSymbolTable, pe_symbols
 from rebrew.sources import iter_sources, target_marker
-from rebrew.utils import atomic_write_text
+from rebrew.utils import atomic_write_text, parse_int_literal
 
 console = Console(stderr=True)
 
@@ -140,13 +140,13 @@ def parse_symbol_addrs(text: str) -> list[SymbolRow]:
         if "=" in stripped and ";" in stripped:
             name, _, rest = stripped.partition("=")
             address_text, _, comment = rest.partition(";")
-            va = _parse_hex(address_text.strip())
+            va = _parse_int_or_none(address_text.strip())
             if va is None or not name.strip():
                 continue
             rows.append(_row_from_comment(name.strip(), va, comment.strip()))
             continue
         address_text, _, name = stripped.partition(",")
-        va = _parse_hex(address_text.strip())
+        va = _parse_int_or_none(address_text.strip())
         if va is None or not name.strip():
             continue
         rows.append(SymbolRow(va=va, name=name.strip()))
@@ -166,15 +166,15 @@ def _row_from_comment(name: str, va: int, comment: str) -> SymbolRow:
             if token.startswith(_TYPE_PREFIX):
                 kind = token[len(_TYPE_PREFIX) :] or KIND_FUNC
             elif token.startswith(_SIZE_PREFIX):
-                size = _parse_hex(token[len(_SIZE_PREFIX) :])
+                size = _parse_int_or_none(token[len(_SIZE_PREFIX) :])
     return SymbolRow(va=va, name=name, kind=kind, size=size, detail=detail)
 
 
-def _parse_hex(text: str) -> int | None:
+def _parse_int_or_none(text: str) -> int | None:
     """Parse a ``0x``-prefixed or decimal integer, or ``None``."""
     try:
-        return int(text, 16) if text.lower().startswith("0x") else int(text)
-    except (TypeError, ValueError):
+        return parse_int_literal(text)
+    except ValueError:
         return None
 
 

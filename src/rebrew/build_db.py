@@ -1093,30 +1093,17 @@ def build_db(
             fn_rows = []
             bad_va = 0
             for va, fn in data.get("functions", {}).items():
-                va_int = 0
-                if isinstance(va, str):
-                    try:
-                        va_int = int(va, 0)
-                    except ValueError:
-                        va_int = 0
-                elif isinstance(va, int) and not isinstance(va, bool):
-                    va_int = va
-
-                if va_int == 0:
-                    va_start = fn.get("vaStart") if isinstance(fn, dict) else None
-                    if isinstance(va_start, str):
-                        try:
-                            va_int = int(va_start, 0)
-                        except ValueError:
-                            va_int = 0
-                    elif isinstance(va_start, int) and not isinstance(va_start, bool):
-                        va_int = va_start
-
-                if va_int <= 0 or not isinstance(fn, dict):
+                if not isinstance(fn, dict):
+                    bad_va += 1
+                    continue
+                va_int = _parse_int(va)
+                if va_int <= 0:
+                    va_int = _parse_int(fn.get("vaStart"))
+                if va_int <= 0:
                     bad_va += 1
                     continue
 
-                va_start_text = str(fn.get("vaStart") or (f"0x{va_int:08x}" if va_int else ""))
+                va_start_text = str(fn.get("vaStart") or f"0x{va_int:08x}")
                 # build_db CHECK constraints reject negative fileOffset/
                 # textOffset/blockerDelta — a stray negative would abort the
                 # entire rebuild, so clamp defensively.  size (CHECK >= 0),
@@ -1223,28 +1210,11 @@ def build_db(
                 if not isinstance(g, dict):
                     bad_global_va += 1
                     continue
-                # ``int(va, 16)`` treated an int key/``va`` field as a base-16
-                # string (TypeError) and a decimal string as hex.  Base 0 parses
-                # both int and "0x…"/decimal string, and an unresolvable VA is
-                # SKIPPED (a va=0 row is a poison entry the readers mis-group),
-                # mirroring the functions path.
-                va_int = 0
-                if isinstance(va, int) and not isinstance(va, bool):
-                    va_int = va
-                elif isinstance(va, str):
-                    try:
-                        va_int = int(va, 0)
-                    except ValueError:
-                        va_int = 0
+                # An unresolvable VA is SKIPPED: a va=0 row is a poison entry
+                # the readers mis-group.
+                va_int = _parse_int(va)
                 if va_int <= 0:
-                    raw_va = g.get("va")
-                    if isinstance(raw_va, int) and not isinstance(raw_va, bool):
-                        va_int = raw_va
-                    elif isinstance(raw_va, str):
-                        try:
-                            va_int = int(raw_va, 0)
-                        except ValueError:
-                            va_int = 0
+                    va_int = _parse_int(g.get("va"))
                 if va_int <= 0:
                     bad_global_va += 1
                     continue

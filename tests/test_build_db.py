@@ -1582,3 +1582,34 @@ class TestBuildDbCorruptInput:
         conn.close()
         assert [(r[0], r[1]) for r in rows] == [(0x1000, "good")]
         assert "skipped 2" in capsys.readouterr().err
+
+    def test_unparseable_key_falls_back_to_va_field(self, tmp_path: Path) -> None:
+        """A bad key falls back to ``vaStart`` (functions) / ``va`` (globals)."""
+        db_dir = tmp_path / "db"
+        db_dir.mkdir()
+        (db_dir / "data_fb.json").write_text(
+            json.dumps(
+                {
+                    "functions": {
+                        "bad-key": {"name": "f", "vaStart": "0x2000", "size": 8, "status": "STUB"},
+                    },
+                    "globals": {
+                        "bad-key": {"name": "g", "va": "4096", "size": 4},
+                    },
+                    "sections": {},
+                    "summary": {},
+                    "paths": {},
+                }
+            ),
+            encoding="utf-8",
+        )
+        build_db(tmp_path)
+        conn = sqlite3.connect(db_dir / "coverage.db")
+        c = conn.cursor()
+        c.execute("SELECT va, name FROM functions WHERE target = 'fb'")
+        functions = c.fetchall()
+        c.execute("SELECT va, name FROM globals WHERE target = 'fb'")
+        globals_ = c.fetchall()
+        conn.close()
+        assert functions == [(0x2000, "f")]
+        assert globals_ == [(4096, "g")]

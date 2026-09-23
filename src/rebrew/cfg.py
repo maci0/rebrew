@@ -36,7 +36,7 @@ from rich.console import Console
 from rebrew.cli import EXIT_ERROR, TargetOption, error_exit, json_print
 from rebrew.config import find_root as _config_find_root
 from rebrew.config import validate_http_url
-from rebrew.utils import atomic_write_text
+from rebrew.utils import atomic_write_text, parse_int_literal
 
 console = Console(stderr=True)
 
@@ -756,7 +756,7 @@ def set_value(
         parsed_value = value.lower() == "true"
     else:
         try:
-            parsed_value = int(value, 16) if value.startswith(("0x", "0X")) else int(value)
+            parsed_value = parse_int_literal(value)
         except ValueError:
             with contextlib.suppress(ValueError):
                 as_float = float(value)

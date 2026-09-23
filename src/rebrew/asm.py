@@ -61,6 +61,7 @@ from rebrew.sources import (
     iter_sources,
     target_marker,
 )
+from rebrew.utils import parse_int_literal
 
 console = Console(stderr=True)
 logger = logging.getLogger(__name__)
@@ -387,7 +388,7 @@ def ret_pop_count(op_str: str) -> int:
     decimal for small values); a bare ``ret`` yields 0.
     """
     try:
-        n = int(op_str, 16) if op_str.startswith(("0x", "0X")) else int(op_str)
+        n = parse_int_literal(op_str)
     except ValueError:
         return 0
     return max(0, n)

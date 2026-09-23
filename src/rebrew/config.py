@@ -599,7 +599,7 @@ def _parse_hex_dict(mapping: dict[str, Any] | None) -> dict[int, str]:
     result: dict[int, str] = {}
     for k, v in mapping.items():
         try:
-            addr = int(str(k), 16) if str(k).startswith("0x") else int(str(k))
+            addr = parse_int_literal(str(k))
             result[addr] = str(v)
         except ValueError:
             _config_warn(f"Invalid hex key '{k}' in mapping; ignoring")

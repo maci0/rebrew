@@ -462,6 +462,11 @@
   in emission order.
 
 ### Fixed
+- **Integer literals parse one way everywhere.**  Hex-keyed config tables
+  and drift branch targets rejected an uppercase `0X` prefix while
+  `rebrew cfg set` and `ret N` parsing accepted it.  All now go through
+  `utils.parse_int_literal`.  `build-db` also falls back to `vaStart` when
+  a function's key parses to a negative VA, as globals already did.
 - **`rebrew split` writes nothing when it refuses.**  A file whose second
   block's first marker names another target counted one block for this
   target: split wrote that block's file, then failed with "Need at least
