@@ -135,7 +135,12 @@ def open_sqlite_ro(path: Path) -> sqlite3.Connection:
     ``contextlib.closing``).
     """
     conn = sqlite3.connect(sqlite_ro_uri(path), uri=True, timeout=_SQLITE_TIMEOUT_SECONDS)
-    conn.execute("PRAGMA query_only=ON")
+    try:
+        conn.execute("PRAGMA query_only=ON")
+    except BaseException:
+        # The caller never receives the handle, so it cannot close it.
+        conn.close()
+        raise
     return conn
 
 

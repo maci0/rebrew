@@ -58,6 +58,25 @@ def test_open_sqlite_ro_rejects_writes(tmp_path: Path) -> None:
             conn.execute("INSERT INTO metadata VALUES ('a', 'b', 'c')")
 
 
+def test_open_sqlite_ro_closes_handle_when_pragma_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failed setup PRAGMA must close the connection the caller never gets."""
+    closed: list[bool] = []
+
+    class _FailingConn:
+        def execute(self, sql: str) -> None:
+            raise sqlite3.DatabaseError(f"boom: {sql}")
+
+        def close(self) -> None:
+            closed.append(True)
+
+    monkeypatch.setattr(sqlite3, "connect", lambda *_a, **_k: _FailingConn())
+    with pytest.raises(sqlite3.DatabaseError, match="query_only"):
+        open_sqlite_ro(tmp_path / "x.db")
+    assert closed == [True]
+
+
 def test_read_db_version_schema_row(tmp_path: Path) -> None:
     db = make_db(
         tmp_path / "coverage.db",
