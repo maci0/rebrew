@@ -85,6 +85,30 @@ class TestFileHashes:
     def test_mini_pe_sha256_golden(self) -> None:
         assert file_hashes(MINI_PE)["sha256"] == MINI_PE_SHA256
 
+    def test_usedforsecurity_flag_honored(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        f = tmp_path / "sample.bin"
+        f.write_bytes(b"hello")
+        created_flags: list[bool] = []
+        real_md5 = hashlib.md5
+        real_sha1 = hashlib.sha1
+
+        def _fake_md5(*args: object, **kwargs: object) -> object:
+            created_flags.append(bool(kwargs.get("usedforsecurity", True)))
+            return real_md5(*args, **kwargs)  # type: ignore[arg-type]
+
+        def _fake_sha1(*args: object, **kwargs: object) -> object:
+            created_flags.append(bool(kwargs.get("usedforsecurity", True)))
+            return real_sha1(*args, **kwargs)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(hashlib, "md5", _fake_md5)
+        monkeypatch.setattr(hashlib, "sha1", _fake_sha1)
+        res = file_hashes(f)
+        assert created_flags == [False, False]
+        assert len(res["md5"]) == 32
+        assert len(res["sha1"]) == 40
+
     def test_tmp_file_matches_hashlib(self, tmp_path: Path) -> None:
         payload = b"rebrew fingerprints test payload\n" * 97
         path = tmp_path / "blob.bin"

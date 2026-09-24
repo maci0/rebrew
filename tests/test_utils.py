@@ -1078,3 +1078,26 @@ class TestRunProcessGroup:
         with pytest.raises(subprocess.TimeoutExpired):
             run_process_group(["sh", "-c", script], capture_output=True, timeout=1)
         _assert_grandchild_killed(pidfile)
+
+
+class TestMd5File:
+    def test_md5_file_usedforsecurity_false(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import hashlib
+
+        from rebrew.utils import md5_file
+
+        sample = tmp_path / "data.bin"
+        sample.write_bytes(b"hello world")
+        created_flags: list[bool] = []
+        real_md5 = hashlib.md5
+
+        def _fake_md5(*args: object, **kwargs: object) -> object:
+            created_flags.append(bool(kwargs.get("usedforsecurity", True)))
+            return real_md5(*args, **kwargs)  # type: ignore[arg-type]
+
+        monkeypatch.setattr(hashlib, "md5", _fake_md5)
+        res = md5_file(sample)
+        assert res == real_md5(b"hello world").hexdigest()
+        assert created_flags == [False]

@@ -73,8 +73,8 @@ def file_hashes(path: str | Path) -> dict[str, str]:
     digest.  ``crc32`` is the zlib CRC-32 rendered as 8 lowercase hex digits.
     Raises ``FileNotFoundError`` when *path* does not exist.
     """
-    md5 = hashlib.md5()
-    sha1 = hashlib.sha1()
+    md5 = hashlib.md5(usedforsecurity=False)
+    sha1 = hashlib.sha1(usedforsecurity=False)
     sha256 = hashlib.sha256()
     sha512 = hashlib.sha512()
     sha3_224 = hashlib.sha3_224()
@@ -120,7 +120,7 @@ def imphash_from_pairs(pairs: Iterable[tuple[str, str]]) -> str:
     empty record list.
     """
     records = [f"{dll.split('.', 1)[0].lower()}.{name.lower()}" for dll, name in pairs]
-    return hashlib.md5(",".join(records).encode("utf-8")).hexdigest()
+    return hashlib.md5(",".join(records).encode("utf-8"), usedforsecurity=False).hexdigest()
 
 
 def imphash(path: str | Path) -> str | None:
@@ -216,7 +216,9 @@ def rich_header_bytes_from_parts(key: int, entries: Iterable[tuple[int, int]]) -
 
 def rich_header_hash_from_parts(key: int, entries: Iterable[tuple[int, int]]) -> str:
     """MD5 of :func:`rich_header_bytes_from_parts`."""
-    return hashlib.md5(rich_header_bytes_from_parts(key, entries)).hexdigest()
+    return hashlib.md5(
+        rich_header_bytes_from_parts(key, entries), usedforsecurity=False
+    ).hexdigest()
 
 
 def _rich_header_parts_from_dos_stub(data: bytes) -> tuple[int, list[tuple[int, int]]] | None:

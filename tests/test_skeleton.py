@@ -1130,3 +1130,16 @@ class TestSkeletonNameInjection:
         block = generate_annotation_block(self._make_cfg(), 0x10001000, hostile, "SERVER")
         # The only comment closers are the ones the generator itself wrote.
         assert block.count("*/") <= 1
+
+
+class TestSkeletonCliEndpointValidation:
+    """The --endpoint CLI argument must be validated as an HTTP/HTTPS URL."""
+
+    def test_invalid_endpoint_rejected(self) -> None:
+        from typer.testing import CliRunner
+
+        import rebrew.skeleton as sk
+
+        result = CliRunner().invoke(sk.app, ["--endpoint", "not-a-url", "0x10001000"])
+        assert result.exit_code != 0
+        assert "--endpoint must be an http(s) URL" in result.output

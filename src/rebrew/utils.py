@@ -104,7 +104,7 @@ def md5_file(path: Path) -> str:
     import hashlib
 
     with path.open("rb") as stream:
-        return hashlib.file_digest(stream, "md5").hexdigest()
+        return hashlib.file_digest(stream, lambda: hashlib.md5(usedforsecurity=False)).hexdigest()
 
 
 #: Candidate MSVC toolchain layouts per profile, best first: the full master

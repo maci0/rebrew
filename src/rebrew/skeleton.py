@@ -44,7 +44,13 @@ from rebrew.cli import (
     parse_va,
     require_config,
 )
-from rebrew.config import FUNCTION_STRUCTURE_JSON, ProjectConfig, inventory_path_for
+from rebrew.config import (
+    FUNCTION_STRUCTURE_JSON,
+    ConfigError,
+    ProjectConfig,
+    inventory_path_for,
+    validate_http_url,
+)
 from rebrew.decompiler import fetch_decompilation
 from rebrew.naming import (
     load_existing_vas,
@@ -1372,6 +1378,10 @@ def main(
             json_mode=json_output,
             code=EXIT_ERROR,
         )
+    try:
+        endpoint = validate_http_url(endpoint, "--endpoint")
+    except ConfigError as exc:
+        error_exit(str(exc), json_mode=json_output)
     va_str = va
     cfg = require_config(target=target, json_mode=json_output)
     src_dir = cfg.reversed_dir

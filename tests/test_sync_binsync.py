@@ -199,6 +199,15 @@ class TestSyncCli:
         assert calls["kw"]["dry_run"] is False
         assert calls["printed"]
 
+    def test_endpoint_validation(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        _patch_cfg(tmp_path, monkeypatch)
+        r = runner.invoke(
+            sync_cli.app,
+            ["--create-functions", "--endpoint", "not-a-url"],
+        )
+        assert r.exit_code != 0
+        assert "--endpoint must be an http(s) URL" in r.output
+
     def test_pull_routes_to_import_state(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

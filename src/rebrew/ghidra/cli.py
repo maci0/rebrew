@@ -19,7 +19,7 @@ from typing import Any
 import typer
 
 from rebrew.cli import TargetOption, console, error_exit, json_print, require_config, run_standalone
-from rebrew.config import inventory_path_for
+from rebrew.config import ConfigError, inventory_path_for, validate_http_url
 from rebrew.ghidra.commands import (
     build_bookmark_commands,
     build_new_function_commands,
@@ -205,6 +205,11 @@ def main(
         error_exit("--push and --pull are mutually exclusive", json_mode=json_output)
     if watch and not (push and state_dir is not None):
         error_exit("--watch requires --push --state-dir <dir>", json_mode=json_output)
+
+    try:
+        endpoint = validate_http_url(endpoint, "--endpoint")
+    except ConfigError as exc:
+        error_exit(str(exc), json_mode=json_output)
 
     cfg = require_config(target=target, json_mode=json_output)
 
