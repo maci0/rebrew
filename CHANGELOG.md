@@ -2,6 +2,28 @@
 
 ## [2.7.0] - 2026-09-25
 ### Added
+- **Top-level SDK lazy exports and structured error imports.**  The `rebrew`
+  package exports `CompareResult`, `ConfigError`, `ProjectConfig`, `RebrewError`,
+  `ToolchainError`, `compile_and_compare`, `get_toolchain`, `iter_library_headers`,
+  `iter_sources`, and `load_config` via lazy attributes and `dir(rebrew)`.
+  `rebrew.errors` similarly provides lazy-loaded access to all public exception
+  types (`ConfigError`, `ConfigNotFoundError`, `ConfigKeyError`, `DecompmeError`,
+  `McpApplyAborted`, `McpError`, `MetadataValidationError`, `RecompileError`,
+  `RegistryError`, `ToolchainError`, `WorkspaceNotFound`).
+- **`DecompmeError` — structured error type for decomp.me scratches.**
+  Inherits from `RebrewError` and `RuntimeError` with structured fields
+  `kind` (`DecompmeErrorKind`: `"network"`, `"http"`, `"validation"`,
+  `"protocol"`), `status_code`, and `retryable`.  `upload_scratch` and
+  `verify_compiler` in `rebrew.decompme` raise `DecompmeError` and take an
+  optional `client` parameter for custom transport injection.
+- **`CompareResult.to_dict()` and `ProjectConfig.validate()`.**
+  `CompareResult` gains a `.to_dict()` method for dictionary serialization.
+  `ProjectConfig` gains `.validate()` to verify toolchains, target layouts,
+  and compiler profile configurations programmatically.
+- **Flexible path and config inputs.**  `iter_sources` and `iter_library_headers`
+  accept `Path`, string path, or a `ProjectConfig` instance directly.
+  `workspace.config` (`walk_up_to_root`, `find_root`, `read_config`) and
+  `rebrew.config.load_config` accept string paths in addition to `Path`.
 - **`pe_info` lists an ELF's sections.**  Every mapped (`SHF_ALLOC`)
   section in the PE section shape (RVA-relative `virtual_address`, raw
   offset and size, entropy, R/W/X), so one section reader serves both
@@ -707,6 +729,25 @@
   in emission order.
 
 ### Fixed
+- **Unmarked annotations treated as functions.**  `rebrew.annotation.is_function`
+  recognizes annotations without an explicit marker type as functions to prevent
+  accidental omission of legacy-annotated functions.
+- **COFF relocation validation and leading underscore preservation.**
+  `rebrew.coff_reloc` validates relocation types prior to VA resolution and
+  preserves multiple leading underscores during symbol resolution.
+- **`rebrew intake` binary extension preservation.**  The intake pipeline
+  maintains the target binary's file extension (`.dll`, `.exe`, etc.) when
+  scaffolding target directories and configuration.
+- **`rebrew match` mutually exclusive target validation.**  Passing both `--all`
+  and a specific function target produces a clean validation error instead of
+  conflicting execution; option defaults normalized.
+- **`postlink` optional path formatting.**  Output formatting guards against
+  stringifying `None` layout or reference paths in status output.
+- **Signed hex literals and numerical edge cases handled safely.**
+  `parse_int` and basic mutations support signed hex literals (e.g. `-0x10`).
+  Cosine similarity and GA history logging guard against division by zero and
+  non-finite floats (NaN / Inf).  `near_diag` safely queries instruction categories,
+  and jump table splitting in `cu_map` safely handles non-positive alignments.
 - **GA mutations stay inside the target function.**  The scope was the
   seed's byte range, so once a mutant's target function shrank, mutations
   spilled into the next function, and once it grew, its tail was out of
