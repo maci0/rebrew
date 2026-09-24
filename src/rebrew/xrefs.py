@@ -224,13 +224,13 @@ def main(
     va: str = typer.Argument(..., help="Target address (hex or int)"),
     binary: Path | None = typer.Argument(None, help="Binary path (default: project target)"),
     kind: list[str] = typer.Option(None, "--kind", help="Only show this ref kind (repeatable)"),
-    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     calls_from: int = typer.Option(
         0,
         "--calls-from",
         help="Instead of refs TO va, inventory calls FROM the function at va, "
         "for this many bytes (resolves register-cached imports)",
     ),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
     """Show every reference to *va* in the binary's code sections."""

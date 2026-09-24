@@ -237,7 +237,6 @@ def _apply_binsync_func_name(
 def main(
     state_dir: Path = typer.Argument(..., help="BinSync state directory to import"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
-    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     module: str | None = typer.Option(
         None, "--module", help="Only import this module (e.g. SERVER)"
     ),
@@ -252,6 +251,7 @@ def main(
         "--create-missing",
         help="Create STUB files for BinSync functions not in the project catalog",
     ),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
     """Import a BinSync state directory into rebrew metadata."""

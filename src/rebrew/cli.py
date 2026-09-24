@@ -464,6 +464,7 @@ def select_annotation(
 
 
 __all__ = [
+    "AllTargetsOption",
     "DISPLAY_STATUSES",
     "EXIT_ERROR",
     "EXIT_INTERRUPTED",
@@ -472,6 +473,8 @@ __all__ = [
     "EXIT_SIGPIPE",
     "STATUS_COLORS",
     "TargetOption",
+    "all_targets_run",
+    "console",
     "error_exit",
     "json_print",
     "option_default",
@@ -479,6 +482,7 @@ __all__ = [
     "require_config",
     "resolve_source_arg",
     "run_cli",
+    "run_for_each_target",
     "run_standalone",
     "select_annotation",
 ]

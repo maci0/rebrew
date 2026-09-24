@@ -798,7 +798,6 @@ def _git_commit_state_dir(state_dir: Path, target: str) -> str | None:
 def main(
     outdir: Path = typer.Argument(..., help="Output directory for the BinSync state"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
-    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     module: str | None = typer.Option(
         None, "--module", help="Only export this module (e.g. SERVER)"
     ),
@@ -808,6 +807,7 @@ def main(
     clean: bool = typer.Option(
         False, "--clean", help="Remove orphan function TOMLs no longer in the catalog/annotations"
     ),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
     """Export rebrew annotations to a BinSync state directory.

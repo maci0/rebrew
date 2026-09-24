@@ -577,3 +577,18 @@ class TestResolveSourceArgExactStem:
         cfg = SimpleNamespace(reversed_dir=src, metadata_dir=tmp_path, target_name="T", marker="T")
         monkeypatch.setattr("rebrew.cli.iter_sources", lambda d, c: sorted([underscored, exact]))
         assert resolve_source_arg(cfg, "foo") == exact
+
+
+class TestCliAllExports:
+    def test_all_exports_present_in_module(self) -> None:
+        import rebrew.cli as cli_mod
+
+        assert hasattr(cli_mod, "__all__")
+        for sym in cli_mod.__all__:
+            assert hasattr(cli_mod, sym), f"{sym} in __all__ but not in rebrew.cli"
+
+    def test_shared_all_targets_helpers_exported(self) -> None:
+        import rebrew.cli as cli_mod
+
+        expected = {"AllTargetsOption", "all_targets_run", "run_for_each_target", "console"}
+        assert expected.issubset(set(cli_mod.__all__))

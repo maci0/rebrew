@@ -991,13 +991,13 @@ _SMOKE_GOLDEN: dict[
 @app.command("smoke")
 def smoke_cmd(
     name: str | None = typer.Argument(None, help="Toolchain name; all image-backed by default"),
-    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     print_goldens: bool = typer.Option(
         False,
         "--print-goldens",
         help="Print the computed masked sha256 per toolchain (for updating "
         "_SMOKE_GOLDEN after a toolchain source change) instead of comparing",
     ),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
 ) -> None:
     """Compile the fixed smoke source in each image and verify the object
     hash matches the golden bytes (reproducibility gate).

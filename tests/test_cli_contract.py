@@ -46,8 +46,10 @@ VA_HELP_ALLOWED = frozenset(
 
 def _command_functions():
     """``(component, command, fn)`` for every registered command function."""
+    from rebrew.main import _EXTRA_COMPONENTS
+
     out = []
-    for comp in BUILTIN_COMPONENTS:
+    for comp in (*BUILTIN_COMPONENTS, *_EXTRA_COMPONENTS):
         module = importlib.import_module(comp.module)
         if comp.is_group:
             app = getattr(module, "app", None)

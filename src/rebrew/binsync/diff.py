@@ -46,8 +46,8 @@ app = typer.Typer(
 @app.callback(invoke_without_command=True)
 def main(
     state_dir: Path = typer.Argument(..., help="BinSync state directory to compare"),
-    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     module: str | None = typer.Option(None, "--module", help="Only this module (e.g. SERVER)"),
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
     """Show where rebrew and a BinSync state diverge (read-only, no writes)."""
