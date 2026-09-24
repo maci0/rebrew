@@ -136,6 +136,14 @@ class TestVtableStringMarkers:
         ann = Annotation(va=0x1000, marker_type="VTABLE")
         errors, _ = ann.validate()
         assert not any("marker type" in e for e in errors)
+        assert ann.is_data
+        assert not ann.is_function
+
+        str_ann = Annotation(va=0x2000, marker_type="STRING")
+        errors, _ = str_ann.validate()
+        assert not any("marker type" in e for e in errors)
+        assert str_ann.is_data
+        assert not str_ann.is_function
 
 
 class TestEffectiveMatchClassifier:

@@ -94,7 +94,7 @@ FUNCTION_MARKERS: frozenset[str] = frozenset({"FUNCTION", "LIBRARY", "STUB"})
 #: Single home for the "is this compilable?" check; do not re-spell the
 #: tuple at call sites (one site once listed BSS/RODATA/VTBL, which no
 #: parser produces — dead defense that has since been removed).
-DATA_MARKERS: frozenset[str] = frozenset({"GLOBAL", "DATA"})
+DATA_MARKERS: frozenset[str] = frozenset({"GLOBAL", "DATA", "VTABLE", "STRING"})
 
 # OPTIONAL_KEYS: only reccmp-compatible keys that are permitted inline
 # without W019.  Rebrew-specific keys live in rebrew-functions.toml —
@@ -167,10 +167,10 @@ _MARKER_VA_RE = re.compile(
     re.IGNORECASE,
 )
 _MARKER_BLOCK_RE = re.compile(
-    r"(?://|/\*)\s*(FUNCTION|STUB|LIBRARY|DATA|GLOBAL):\s*(\S+)\s+(0x[0-9a-fA-F]+)"
+    r"(?://|/\*)\s*(FUNCTION|STUB|LIBRARY|DATA|GLOBAL|VTABLE|STRING):\s*(\S+)\s+(0x[0-9a-fA-F]+)"
 )
 _VA_ONLY_RE = re.compile(
-    r"(?://|/\*)\s*(?:FUNCTION|STUB|LIBRARY|DATA|GLOBAL):\s*\S+\s+(0x[0-9a-fA-F]+)"
+    r"(?://|/\*)\s*(?:FUNCTION|STUB|LIBRARY|DATA|GLOBAL|VTABLE|STRING):\s*\S+\s+(0x[0-9a-fA-F]+)"
 )
 _STDCALL_RE = re.compile(r"\b(?:__stdcall|WINAPI|CALLBACK|APIENTRY)\b")
 _FASTCALL_RE = re.compile(r"\b__fastcall\b")
@@ -492,13 +492,13 @@ class Annotation:
 
     @property
     def is_data(self) -> bool:
-        """True for data annotations (GLOBAL/DATA markers) — never compiled."""
+        """True for data annotations (GLOBAL/DATA/VTABLE/STRING markers) — never compiled."""
         return self.marker_type in DATA_MARKERS
 
     @property
     def is_function(self) -> bool:
         """True for compilable code annotations (FUNCTION/LIBRARY/STUB)."""
-        return not self.is_data
+        return self.marker_type in FUNCTION_MARKERS
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize to a plain dict for JSON output and generic dict processing."""

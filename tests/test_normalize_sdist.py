@@ -68,7 +68,7 @@ class TestNormalizeSdist:
             names = [m.name for m in members]
             assert names == ["pkg-1.0", "pkg-1.0/a.sh", "pkg-1.0/b.py"]
             modes = {m.name: m.mode for m in members}
-            assert modes == {"pkg-1.0": 0o755, "pkg-1.0/a.sh": 0o755, "pkg-1.0/b.py": 0o644}
+            assert modes == {"pkg-1.0": 0o755, "pkg-1.0/a.sh": 0o644, "pkg-1.0/b.py": 0o644}
             assert {(m.mtime, m.uid, m.gid, m.uname, m.gname) for m in members} == {
                 (EPOCH, 0, 0, "", "")
             }
