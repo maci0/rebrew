@@ -1,5 +1,9 @@
 # PRD 01 — Project Onboarding
 
+- **Status**: Shipped
+- **Date**: 2026-05 (updated 2026-09)
+- **Owner**: rebrew team
+
 **Feature name:** Project Onboarding
 **One-line value:** Make standing up a new Rebrew project a single command, with safe
 defaults for compiler, layout, and target binary, and provide diagnostics that prove
@@ -47,7 +51,8 @@ Project Onboarding solves all of this with `rebrew init`, `rebrew doctor`, and t
   - The configuration file parses.
   - The target binary exists, loads, and has a known format/arch.
   - The compiler is ready: the profile's docker image is built (execution is
-    docker-only for Windows/DOS toolchains) or the native binary is on `PATH`.
+    docker-only for every shipped profile per ADR-008 and ADR-016; native
+    binaries run only for image-less plugin toolchains).
   - Include and lib paths exist (docker-backed profiles get them from the image).
   - The function list (`function_structure.json` / Ghidra JSON) is parseable and
     FUNCTION/STUB annotations are not stale.
@@ -94,9 +99,9 @@ Project Onboarding solves all of this with `rebrew init`, `rebrew doctor`, and t
   Mach-O/NE/MZ) and seeds CRT linkage + optimization flags from the toolchain
   fingerprint (MSVC profiles); warns on 16-bit/profile and compiler-family
   mismatches.
-- Docker-backed profiles (all Windows/DOS toolchains) are written with an empty
+- Docker-backed profiles (all shipped toolchains) are written with an empty
   `command`/`runner` — the docker image drives compilation, so `--install-wibo`
-  is ignored for them (wine runs inside the image).
+  is ignored for them (wine/DOSBox/native runtime runs inside the image).
 - `--guess-compiler` auto-selects the profile from the target binary; the
   `--wizard/--no-wizard` TTY wizard prompts for anything not passed on the CLI
   (off under `--json`); `--install-completions` writes bash/zsh/fish completion
@@ -111,7 +116,7 @@ Project Onboarding solves all of this with `rebrew init`, `rebrew doctor`, and t
   runs a checklist: config validity, target binary existence + loadability +
   known arch/format, toolchain alignment (detected family vs profile), CRT
   linkage + optimization fingerprint (MSVC), docker image presence for
-  Windows/DOS profiles (the image IS the compiler), runner, include/lib paths,
+  shipped profiles (the image IS the compiler), runner, include/lib paths,
   function list presence + annotation staleness, source files, bin dir,
   metadata TOMLs, FLIRT signatures, Ghidra sync setup, and optional prove tools.
 - Exits non-zero on any failure (CI gate).
@@ -190,7 +195,10 @@ rebrew init [OPTIONS]
       --install-wibo         Download wibo runner to tools/wibo (legacy; ignored for image-backed profiles)
       --install-completions  Write bash/zsh/fish completion scripts into completions/
       --link-tools-from PATH Master toolchain directory to symlink tools/<profile> from
+      --refresh-agents       Rewrite the generated scaffold from rebrew-project.toml
+      --check                Report generated-scaffold drift against packaged sources (exit 1 on drift)
       --wizard/--no-wizard   Run the interactive onboarding wizard (TTY only, off under --json; default: wizard)
+      --dry-run              Preview changes without writing
       --json                 Output results as JSON
 
 rebrew doctor [OPTIONS]

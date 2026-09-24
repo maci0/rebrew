@@ -1,5 +1,9 @@
 # PRD 08 — Agent Skills
 
+- **Status**: Shipped
+- **Date**: 2026-05 (updated 2026-09)
+- **Owner**: rebrew team
+
 **Feature name:** Agent-Facing Workflow Skills
 **One-line value:** Ship opinionated, task-scoped playbooks that let an
 LLM agent drive Rebrew end-to-end without re-deriving "how to use the
@@ -130,8 +134,8 @@ Excludes: function bodies, deep matching.
 
 ### `rebrew-ghidra-sync` (Ghidra ↔ rebrew)
 
-Trigger keywords: `Ghidra`, `sync`, `push`, `pull`, `ReVa`, `MCP`,
-`labels`, `pull-data`.
+Trigger keywords: `Ghidra`, `binsync`, `sync`, `push`, `pull`, `state-dir`,
+`ReVa`, `MCP`, `labels`, `pull-data`.
 
 > **Correction (2026-09):** field sync is BinSync-primary
 > (`--push`/`--pull --state-dir`, `--accept-binsync` / `--accept-local`); the

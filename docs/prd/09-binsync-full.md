@@ -1,5 +1,9 @@
 # PRD 09 — Full BinSync Integration
 
+- **Status**: Partial (umbrella + declib I/O shipped; divergent git merge remains open)
+- **Date**: 2026-05 (updated 2026-09)
+- **Owner**: rebrew team
+
 > **Correction (2026-09):** `rebrew sync --push/--pull --state-dir` now uses
 > the same BinSync state (conflicts via `--accept-binsync` / `--accept-local`),
 > and the `rebrew binsync` umbrella (`push`/`pull`/`summary`/`init`/`diff`/

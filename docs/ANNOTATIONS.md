@@ -40,7 +40,7 @@ The `// MARKER: MODULE 0xVA` syntax and the following **markers** are reccmp's f
 | `VTABLE` | C++ virtual function tables |
 | `STRING` | String literals |
 
-Rebrew currently uses `FUNCTION`, `LIBRARY`, and `GLOBAL` from the reccmp set. `VTABLE` and `STRING` are not recognized: an inline marker with those names fails lint check E001 (invalid marker type).
+Rebrew recognizes `FUNCTION`, `LIBRARY`, and `GLOBAL` from the reccmp set, as well as `VTABLE` and `STRING` (per ADR-023; recognized as data markers). `DATA` and `STUB` are rebrew extensions.
 
 ## What rebrew adds
 
@@ -418,7 +418,7 @@ Errors indicate broken annotations that will cause `rebrew test`, `rebrew verify
 | Code | Description | Triggered by |
 |------|-------------|--------------|
 | E000 | Cannot read file | File permissions, encoding issues |
-| E001 | Missing or invalid marker | No `// FUNCTION:`, `// LIBRARY:`, `// STUB:`, `// GLOBAL:`, or `// DATA:` line, or unknown marker type (only VTABLE/STRING-style names fail it). `// SUPPORT: <MODULE> <reason>` blesses a link-only TU at lint level (the parser itself ignores SUPPORT files); a reason-less `// SUPPORT:` errors the same way |
+| E001 | Missing or invalid marker | No valid marker (`FUNCTION`, `LIBRARY`, `STUB`, `GLOBAL`, `DATA`, `VTABLE`, `STRING`), or unknown marker type. `// SUPPORT: <MODULE> <reason>` blesses a link-only TU at lint level (the parser itself ignores SUPPORT files); a reason-less `// SUPPORT:` errors the same way |
 | E002 | Invalid or suspicious VA | VA outside the valid range. Non-hex strings and missing `0x` prefixes never reach E002 — the marker regexes require `0x[hex]+`, so such lines yield E001 instead |
 
 #### Field Validation Errors

@@ -1,5 +1,9 @@
 # PRD 05 — Verification & Progress
 
+- **Status**: Shipped
+- **Date**: 2026-05 (updated 2026-09)
+- **Owner**: rebrew team
+
 **Feature name:** Verification, Progress Reporting & Caching
 **One-line value:** Give the project a single source of truth for "what
 percentage of bytes match today" with caching so it's cheap to ask, and
@@ -86,8 +90,9 @@ PRD 05 collects these into `verify`, `status`, `graph`, and `cache`.
   without writing STATUS; `--prune-orphans` deletes metadata with no
   source marker before verifying.
 - `--data` / `--text` / `--whole-binary` (with `--built`) compare built
-  artifacts against the reference; `--context PATH` compiles with extra
-  declarations.
+  artifacts against the reference; `--raw-link` acknowledges that `--built`
+  is a raw link (suppressing DRIFT write-backs); `--context PATH` compiles
+  with extra declarations.
 - `-j JOBS` parallel compile jobs.
 - `--json` machine-readable.
 - Exit codes: 0=all passed, 1=failures or regressions.
@@ -218,6 +223,7 @@ rebrew verify [file.c] [OPTIONS]
       --prune-orphans
       --data
       --built PATH
+      --raw-link
       --text
       --whole-binary
       --context PATH

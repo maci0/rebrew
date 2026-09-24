@@ -1,5 +1,9 @@
 # Source-Side Gap Report
 
+- **Status**: Completed (all 33 gaps resolved)
+- **Date**: 2026-05-20 (audited 2026-08-22)
+- **Owner**: rebrew team
+
 > **Correction (2026-09):** `rebrew sync` is BinSync-primary — field sync via
 > `--push`/`--pull --state-dir` (`--accept-binsync` / `--accept-local`); the
 > removed `--pull-signatures` / `--pull-structs` / `--pull-comments` /

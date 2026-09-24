@@ -1,5 +1,9 @@
 # PRD 04 — Byte-Matching Engine
 
+- **Status**: Shipped
+- **Date**: 2026-05 (updated 2026-09)
+- **Owner**: rebrew team
+
 **Feature name:** GA Engine, Flag Sweep & Symbolic Prover
 **One-line value:** Automatically converge a NEAR_MATCHING C source onto a
 byte-exact (or provably equivalent) match by exploring source mutations and

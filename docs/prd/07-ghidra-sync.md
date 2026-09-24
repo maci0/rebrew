@@ -1,5 +1,9 @@
 # PRD 07 — Ghidra Sync
 
+- **Status**: Shipped (BinSync-primary field sync + ReVa MCP structural ops)
+- **Date**: 2026-05 (updated 2026-09)
+- **Owner**: rebrew team
+
 > **Correction (2026-09):** `rebrew sync` is now BinSync-primary — field sync
 > (names, comments, prototypes, structs, globals) flows through a shared state
 > dir (`--push`/`--pull --state-dir`, conflicts via `--accept-binsync` /

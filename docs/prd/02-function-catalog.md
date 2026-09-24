@@ -1,5 +1,9 @@
 # PRD 02 — Function Catalog
 
+- **Status**: Shipped
+- **Date**: 2026-05 (updated 2026-09)
+- **Owner**: rebrew team
+
 **Feature name:** Function Catalog & Triage
 **One-line value:** Build a complete, queryable inventory of every function in
 the target binary — covered, uncovered, library, stub — so the user always
@@ -129,6 +133,16 @@ Output `.bin` files land in the configured `bin_dir`.
 - `--index` prints the constructed CRT index for inspection.
 - `--json` emits structured matches.
 
+### `rebrew lib-match`
+
+- Byte-compares reversed functions against linked static-library archives (`.lib`/`.a`) to flag code the linker supplies (ADR-013).
+- `--lib PATH` checks against a specific static library (repeatable).
+- `--stock-lib NAME` checks against stock archives from the toolchain docker image (e.g. `LIBCMT.LIB`).
+- `--compile-commands PATH` indexes objects built from a source-vendored tree.
+- `--va VA` tests a single hex VA instead of every reversed function.
+- `--allow PATH` ignores known library VAs from a file.
+- `--json` emits structured matches.
+
 ### `rebrew build-db`
 
 - Consumes `db/data_<target>.json` (one per target) and produces
@@ -136,6 +150,7 @@ Output `.bin` files land in the configured `bin_dir`.
   cell tables.
 - `--force` deletes and recreates `db/coverage.db` when the schema version
   is incompatible.
+- `--regen` generates coverage data in-process per target without intermediate JSON files.
 - Schema version is stamped in a `metadata` table.
 
 ## User Stories / Workflows
@@ -210,9 +225,19 @@ rebrew crt-match [VA]
       --json
   -t, --target TEXT
 
+rebrew lib-match [OPTIONS]
+      --lib PATH
+      --stock-lib TEXT
+      --compile-commands PATH
+      --va VA
+      --allow PATH
+      --json
+  -t, --target TEXT
+
 rebrew build-db
       --root PATH
       --force
+      --regen
       --json
   -t, --target TEXT
 ```

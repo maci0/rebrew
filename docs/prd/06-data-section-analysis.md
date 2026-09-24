@@ -1,5 +1,9 @@
 # PRD 06 — Data Section Analysis
 
+- **Status**: Shipped
+- **Date**: 2026-05 (updated 2026-09)
+- **Owner**: rebrew team
+
 **Feature name:** Global Data Inventory & Relocation Hygiene
 **One-line value:** Treat globals, dispatch tables, and BSS layout as
 first-class artifacts so relocation byte diffs can be reasoned about
@@ -61,8 +65,8 @@ verification, and `rebrew_globals.h` generation.
 
 ### Default mode
 
-- Scans `reversed_dir` for `// GLOBAL:` and `// DATA:` markers plus
-  matching `extern` declarations.
+- Scans `reversed_dir` for `// GLOBAL:`, `// DATA:`, `// VTABLE:`, and
+  `// STRING:` markers (ADR-023) plus matching `extern` declarations.
 - Cross-references with the target binary's section table.
 - Lists every global by VA, name, section (`.data`, `.rdata`, `.bss`),
   and type (per file).
@@ -192,6 +196,10 @@ rebrew data [OPTIONS]
       --bss
       --fix-bss
       --annotate
+      --section TEXT                (default: .data)
+      --set-type VA=TYPE
+      --set-name VA=NAME
+      --set-section VA=SECTION
       --layout-audit
       --fill-data
       --bss-only

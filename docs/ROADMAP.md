@@ -4,8 +4,9 @@ Goal: make rebrew able to onboard, annotate, and **byte-match** binaries of
 other architectures besides x86 — starting with **MIPS 32-bit** (N64/PS1) as the
 first-class proof target, with PPC/ARM as the follow-on set.
 
-Status: RFC — phased roadmap. Phases ship independently with green CI; Phase 0
-and 1 together form the "MIPS works" milestone.
+- **Status**: RFC (phased roadmap; Phase 0/1 MIPS milestone)
+- **Date**: 2026-08 (updated 2026-09)
+- **Owner**: rebrew team
 
 > **Note (2026-09):** much of the Phase 0 table below has since landed —
 > arch presets now include mips32/mips64/ppc32/ppc64/sh2 (`config.py`),

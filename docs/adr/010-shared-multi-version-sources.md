@@ -64,7 +64,9 @@ per-target compile-time define.
   target exactly — a shared file whose marker names the wrong target is
   silently invisible to that target's scan (same contract as per-target
   files).  Functions that diverged beyond `#ifdef`-ability are left out of
-  the secondary target (or handled by `cross-import`'s copy flow).
+  the secondary target (or handled by `cross-import`'s copy flow; see
+  [ADR-022](022-shared-single-file-imports.md) for automated `cross-import --shared`
+  stacked-marker import and lint support).
 - **Contract notes**: `shared_dir` defaults to `src/shared` for NEW
   projects; existing projects that happen to have a `src/shared` directory
   will start scanning it (documented; disable with `shared_dir = ""`).

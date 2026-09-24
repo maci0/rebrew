@@ -1,5 +1,9 @@
 # PRD 03 — Skeleton & Iteration
 
+- **Status**: Shipped
+- **Date**: 2026-05 (updated 2026-09)
+- **Owner**: rebrew team
+
 **Feature name:** Skeleton & Iteration Loop
 **One-line value:** Compress the inner loop of "write candidate C, compile,
 compare against the original, fix" into one keystroke per step, with
@@ -89,9 +93,10 @@ you what to attack next.
 
 ### `rebrew test`
 
-- Compiles a single `.c` (or every `.c` with `--all`) with MSVC6 via the
-  profile's docker image (execution is docker-only, ADR-008),
-  extracts the named COFF symbol, and byte-compares against the target.
+- Compiles a single `.c` (or every `.c` with `--all`) with the target's
+  configured compiler profile (default `msvc-6.0`) via its docker image
+  (execution is docker-only, ADR-008 and ADR-016), extracts the named COFF
+  symbol, and byte-compares against the target.
 - Auto-detects symbol, VA, size from `// FUNCTION:` markers, and STATUS/
   SIZE/CFLAGS from `rebrew-functions.toml`.
 - `--va`, `--symbol`, `--size`, `--target-bin`, `--cflags`, `--toolchain`
@@ -118,7 +123,8 @@ you what to attack next.
 ### `rebrew lint`
 
 - Validates `// FUNCTION:` / `// LIBRARY:` / `// STUB:` / `// GLOBAL:` /
-  `// DATA:` markers.
+  `// DATA:` / `// VTABLE:` / `// STRING:` markers (and validates pure-C
+  files whose annotations are stored in metadata per ADR-023).
 - Error codes: `E001` (missing marker), `E002` (invalid VA), `E012`
   (module mismatch), `E013` (duplicate VA), `E023` (whole-function
   `__declspec(naked)` + `__asm`/`__emit` block instead of real C).
@@ -134,6 +140,13 @@ you what to attack next.
   it from source.
 - `--summary` prints a STATUS/origin breakdown table.
 - `--quiet` errors-only, `--json` machine-readable.
+
+### `rebrew migrate-markers`
+
+- Moves inline markers into `rebrew-functions.toml` and strips `.c` files
+  to pure C (ADR-023).
+- Idempotent; `--dry-run` previews without modifying files.
+- Operates per-file across the project source tree.
 
 ### `rebrew split` / `rebrew merge` / `rebrew rename`
 
@@ -263,6 +276,11 @@ rebrew lint [FILES...]
   -q, --quiet
       --pedantic
       --summary
+      --json
+  -t, --target TEXT
+
+rebrew migrate-markers
+      --dry-run
       --json
   -t, --target TEXT
 
