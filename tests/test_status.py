@@ -1354,3 +1354,78 @@ class TestInlineTableKeyWarning:
         )
         report = collect_status(cfg)  # type: ignore[arg-type]
         assert report.inline_metadata_warning == 1
+
+
+class TestBlockerAgreementWithTodo:
+    """`rebrew status`'s blocker count and `rebrew todo` describe the same
+    functions: every function status counts as blocked is a todo item."""
+
+    def test_status_blockers_are_todo_items(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from typer.testing import CliRunner
+
+        import rebrew.naming
+        from rebrew.todo import app as todo_app
+
+        cfg = _make_cfg(tmp_path)
+        (tmp_path / "src").mkdir()
+
+        def row(status: str, blocker: str = "reg alloc", **kw: str) -> dict[str, str]:
+            return {"status": status, "blocker": blocker, "module": "TEST", "size": "80", **kw}
+
+        existing = {
+            0x1000: row("EXACT", symbol="f_exact"),
+            0x2000: row("RELOC", symbol="f_reloc"),
+            0x3000: row("PROVEN", symbol="f_proven"),
+            0x4000: row("NEAR_MATCHING", symbol="f_near"),
+            0x5000: row("STUB", symbol="f_stub"),
+            0x6000: row("SKIP", symbol="f_parked"),
+            0x7000: row("STUB", blocker="IAT thunk: not a decomp target", symbol="f_thunk"),
+            # Stale metadata: the verify cache says the bytes no longer match.
+            0x8000: row("EXACT", symbol="f_stale"),
+            0x9000: row("NEAR_MATCHING", blocker="", symbol="f_clean"),
+            0xA000: row("STUB", symbol="f_lib", marker_type="LIBRARY"),
+        }
+        entries = {
+            "0x00008000": {
+                "source_hash": "a",
+                "filepath": "f.c",
+                "mtime_ns": 0,
+                "status": "NEAR_MATCHING",
+                "va": "0x00008000",
+                "passed": False,
+                "match_percent": 90.0,
+                "delta": 8,
+            }
+        }
+        cache_dir = tmp_path / ".rebrew"
+        cache_dir.mkdir()
+        (cache_dir / "verify_cache.json").write_text(
+            json.dumps({"version": 2, "target": "test", "entries": entries}), encoding="utf-8"
+        )
+
+        def load(_cfg: object) -> tuple[list[object], dict[int, dict[str, str]], dict]:
+            return [], {va: dict(info) for va, info in existing.items()}, {}
+
+        monkeypatch.setattr(rebrew.naming, "load_data", load)
+        monkeypatch.setattr("rebrew.todo.load_data", load)
+        monkeypatch.setattr("rebrew.todo.require_config", lambda **kw: cfg)
+
+        report = collect_status(cfg)  # type: ignore[arg-type]
+        # Not counted: byte-matched (EXACT/RELOC), parked SKIP, library rows,
+        # and rows without blocker text.  The stale EXACT counts: its
+        # effective (cached) status is NEAR_MATCHING.
+        blocked = {0x3000, 0x4000, 0x5000, 0x7000, 0x8000}
+        assert report.unresolved_blockers == len(blocked)
+
+        result = CliRunner().invoke(todo_app, ["--json", "-n", "1000"])
+        assert result.exit_code == 0, result.output
+        todo_vas = {int(i["va"], 16) for i in json.loads(result.stdout)["items"]}
+        # The documented non-target (0x7000) is hidden from the default list.
+        assert blocked - {0x7000} <= todo_vas
+
+        result = CliRunner().invoke(todo_app, ["-c", "blocked", "--json", "-n", "1000"])
+        assert result.exit_code == 0, result.output
+        blocked_vas = {int(i["va"], 16) for i in json.loads(result.stdout)["items"]}
+        assert blocked_vas == blocked

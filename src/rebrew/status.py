@@ -106,8 +106,9 @@ class StatusReport:
     # 0 means no issues found (or scan not yet run).
     inline_metadata_warning: int = 0
 
-    # Number of functions with a non-empty BLOCKER in rebrew-functions.toml —
-    # i.e. work that is currently understood-blocked and needs attention.
+    # Non-library functions with a non-empty BLOCKER whose effective status
+    # is neither byte-matched (EXACT/RELOC) nor parked (SKIP): the set
+    # `rebrew todo -c blocked` lists.
     unresolved_blockers: int = 0
 
     # Data verification verdicts from rebrew-data.toml STATUS (written by
@@ -330,6 +331,22 @@ def load_verify_details(cfg: ProjectConfig) -> dict[int, tuple[str, bool]]:
     return details
 
 
+def effective_status(ann_status: str, cached: str | None) -> str:
+    """The status reported for a function: metadata *ann_status* overlaid by
+    the verify cache verdict *cached* (``None`` when uncached).
+
+    Metadata PROVEN and SKIP win: `rebrew prove` compiles after any cached
+    verdict (the next verify/test replaces PROVEN), and SKIP is user parking.
+    Metadata STUB wins over the cache's SIZE_MISMATCH/MISSING_SIZE/STUB (a
+    stub's size mismatch is expected); every other cached verdict wins.
+    """
+    if ann_status in ("PROVEN", "SKIP"):
+        return ann_status
+    if ann_status == "STUB" and cached in ("SIZE_MISMATCH", "MISSING_SIZE", "STUB"):
+        return ann_status
+    return cached or ann_status
+
+
 def _compute_text_size(cfg: ProjectConfig) -> int:
     """Compute .text section size from binary headers. Returns 0 if unavailable."""
     if not cfg.target_binary.exists():
@@ -402,10 +419,6 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
     verify_statuses = {va: status for va, (status, _eff) in verify_details.items()}
 
     # Single pass: status breakdown + byte-level coverage.
-    # Exception: metadata PROVEN and SKIP take precedence over the verify
-    # cache.  `rebrew prove` writes PROVEN after its own compile, so it is
-    # newer than any cached verdict (the next verify/test replaces it);
-    # SKIP is user parking.
     status_counts: dict[str, int] = {}
     size_by_va: dict[int, int] = {f.va: f.size for f in ghidra_funcs}
     matched_bytes = 0
@@ -417,8 +430,6 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
     unresolved_blockers = 0
     library_identified = 0
     for va, info in existing.items():
-        if info.get("blocker"):
-            unresolved_blockers += 1
         # External .lib attributions (lib-match identifications + modules
         # flagged in external_libs) are not reversing progress: count them
         # separately so the progress table answers "how much of this
@@ -450,20 +461,11 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
         # NAKED_REQUIRED vs PURE_C_EXACT distinction).  Detected from the
         # source annotation so the bucket survives metadata status churn.
         naked = info.get("source") == "naked"
-        # Metadata is authoritative for STUB (a stub's size mismatch is
-        # expected); only more actionable cache states (COMPILE_ERROR,
-        # matched) override.  Same rule as todo.py.
-        if ann_status in ("PROVEN", "SKIP"):
-            effective = ann_status
-        elif ann_status == "STUB":
-            cached = verify_statuses.get(va)
-            effective = (
-                cached
-                if cached and cached not in ("SIZE_MISMATCH", "MISSING_SIZE", "STUB")
-                else ann_status
-            )
-        else:
-            effective = verify_statuses.get(va, ann_status)
+        effective = effective_status(ann_status, verify_statuses.get(va))
+        # Blocked work: the function is still unmatched and not parked.
+        # `rebrew todo -c blocked` lists exactly these (same effective rule).
+        if info.get("blocker") and effective not in (*MATCHED_STATUSES, "SKIP"):
+            unresolved_blockers += 1
         if effective != ann_status:
             verify_overrides += 1
         if effective == "MISSING_SIZE":

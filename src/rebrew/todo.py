@@ -49,6 +49,7 @@ from rebrew.naming import (
     load_data,
     parse_byte_delta,
 )
+from rebrew.status import effective_status
 from rebrew.workspace.status import MATCHED_STATUSES
 
 # ---------------------------------------------------------------------------
@@ -287,6 +288,13 @@ def _collect_active_functions(
         if status == "SKIP":
             continue
 
+        va_key = f"0x{va:08x}"
+        v_entry = verify_entries.get(va_key)
+        v_status = v_entry.status if v_entry else None
+        # Same rule as `rebrew status`: a stale metadata EXACT whose cached
+        # verdict no longer matches is live work.
+        status = effective_status(status, v_status)
+
         # Skip finished functions — except naked reconstructions: byte-exact
         # via a generated skeleton (`// SOURCE: naked`) is reproduced, not
         # decompiled, so it stays actionable until the real C body matches
@@ -327,13 +335,11 @@ def _collect_active_functions(
                     description=f"Documented non-target — {info.get('blocker', '')[:60]}",
                     command="",
                     status=status,
+                    blocker=info.get("blocker", ""),
                 )
             )
             continue
 
-        va_key = f"0x{va:08x}"
-        v_entry = verify_entries.get(va_key)
-        v_status = v_entry.status if v_entry else None
         v_match = v_entry.match_percent if v_entry else None
         v_delta = v_entry.delta if v_entry else None
         if v_status == "MISSING_SIZE":
@@ -1227,25 +1233,9 @@ def main(
         if va_int in library_vas:
             continue
         ann_status = info.get("status", "STUB")
-        # Metadata PROVEN wins over the verify cache (prove compiles after
-        # any cached verdict; the next verify/test replaces it).
-        # The metadata status is authoritative for STUB (verify runs no longer
-        # promote stubs to SIZE_MISMATCH — a stub's size mismatch is
-        # expected).  A more actionable cache state (COMPILE_ERROR, matched)
-        # still overrides; SIZE_MISMATCH does not.
         if ann_status == "STUB" and any(m in info.get("blocker", "") for m in _NON_TARGET_MARKERS):
             documented += 1
-        if ann_status == "PROVEN" or ann_status == "SKIP":
-            s = ann_status
-        elif ann_status == "STUB":
-            cached_s = verify_statuses.get(va_int)
-            s = (
-                cached_s
-                if cached_s and cached_s not in ("SIZE_MISMATCH", "MISSING_SIZE", "STUB")
-                else ann_status
-            )
-        else:
-            s = verify_statuses.get(va_int, ann_status)
+        s = effective_status(ann_status, verify_statuses.get(va_int))
         status_counts[s] = status_counts.get(s, 0) + 1
     function_vas = {va for va in existing if va not in library_vas}
     ghidra_vas = {f.va for f in ghidra_funcs}

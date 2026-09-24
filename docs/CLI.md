@@ -1536,6 +1536,9 @@ missing_size, effective_matches}` in JSON surfaces how many functions the
 cache overrode, plus the effective-match count (register-allocation-only
 delta — the prove queue). Data verdicts from `verify --data` show as
 `data: {verified, drift, unchecked}` in JSON and a terminal summary line.
+`unresolved_blockers` counts non-library functions with BLOCKER text whose
+effective status is neither EXACT/RELOC nor SKIP; `rebrew todo -c blocked`
+lists the same functions.
 
 ### `rebrew similar`
 
