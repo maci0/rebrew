@@ -457,13 +457,14 @@ def main(
     from rebrew.init import app as init_app
 
     runner = CliRunner()
+    bin_filename = f"{target_name}{bin_path.suffix}" if bin_path.suffix else target_name
     project_existed = (Path(".") / "rebrew-project.toml").exists()
     if project_existed:
         notes.append("project already exists — re-running intake (re-discovery)")
     else:
         init_result = runner.invoke(
             init_app,
-            ["--target", target_name, "--binary", f"{target_name}.exe", "--toolchain", toolchain],
+            ["--target", target_name, "--binary", bin_filename, "--toolchain", toolchain],
         )
         if init_result.exit_code != 0:
             msg = f"rebrew init failed: {init_result.output[:300]}"
@@ -489,7 +490,7 @@ def main(
     # 2. copy the binary
     original_dir = project / "original"
     original_dir.mkdir(exist_ok=True)
-    dest = original_dir / f"{target_name}.exe"
+    dest = original_dir / bin_filename
     try:
         shutil.copy2(bin_path, dest)
     except OSError as e:

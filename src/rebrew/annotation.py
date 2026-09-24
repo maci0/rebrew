@@ -498,6 +498,8 @@ class Annotation:
     @property
     def is_function(self) -> bool:
         """True for compilable code annotations (FUNCTION/LIBRARY/STUB)."""
+        if not self.marker_type:
+            return True
         return self.marker_type in FUNCTION_MARKERS
 
     def to_dict(self) -> dict[str, Any]:

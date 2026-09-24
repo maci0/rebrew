@@ -287,13 +287,13 @@ def apply_coff_relocations(
         kind = table.get(r.type)
         if kind == "none":
             continue  # IMAGE_REL_I386_ABSOLUTE: no patch, no symbol to resolve
-        sym = r.symbol.lstrip("_")
+        if kind is None:
+            raise NotImplementedError(f"reloc type 0x{r.type:04x} not supported ({reloc_table})")
+
+        sym = r.symbol.removeprefix("_") if r.symbol.startswith("_") else r.symbol
         target_va = resolve_va(r.symbol) or resolve_va(sym)
         if target_va is None:
             raise UnresolvedSymbolError(r.symbol)
-
-        if kind is None:
-            raise NotImplementedError(f"reloc type 0x{r.type:04x} not supported ({reloc_table})")
         addend = struct.unpack_from("<I", buf, r.offset)[0]
         if kind == "abs32":
             value = (target_va + addend) & 0xFFFFFFFF

@@ -30,6 +30,7 @@ from rebrew.cli import (
     console,
     error_exit,
     json_print,
+    option_default,
     require_config,
     resolve_source_arg,
 )
@@ -355,6 +356,19 @@ def main(
     target: str | None = TargetOption,
 ) -> None:
     """GA matching engine — single file or batch (--all)."""
+    all_targets = option_default(all_targets, False)
+    all_mode = option_default(all_mode, False)
+    watch = option_default(watch, False)
+    dry_run = option_default(dry_run, False)
+    json_output = option_default(json_output, False)
+    ga_history = option_default(ga_history, False)
+
+    if all_targets and target is not None:
+        error_exit(
+            "--all-targets and --target are mutually exclusive — pick one target or sweep them all",
+            json_mode=json_output,
+        )
+
     cfg = require_config(target=target, json_mode=json_output)
 
     if ga_history:

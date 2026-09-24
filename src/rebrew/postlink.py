@@ -914,8 +914,8 @@ def main(
             json_print(
                 {
                     "built": str(built),
-                    "reference": str(reference),
-                    "layout": str(layout),
+                    "reference": str(reference) if reference is not None else None,
+                    "layout": str(layout) if layout is not None else None,
                     "output": str(target),
                     "dry_run": True,
                     "reports": [r.as_dict() for r in reports],
@@ -935,8 +935,8 @@ def main(
         json_print(
             {
                 "built": str(built),
-                "reference": str(reference),
-                "layout": str(layout),
+                "reference": str(reference) if reference is not None else None,
+                "layout": str(layout) if layout is not None else None,
                 "output": str(target),
                 "reports": [r.as_dict() for r in reports],
             }
