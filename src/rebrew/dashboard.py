@@ -377,7 +377,7 @@ function setListPageMessage(opts) {
     hint.hidden = false;
     const next = Math.min(count + PAGE_STEP, total, PAGE_MAX);
     more.hidden = capped;
-    $(moreBtnId).textContent = "Show more (up to " + next + ")";
+    $(moreBtnId).textContent = "Show more " + noun + " (up to " + next + ")";
   } else {
     $("results-status").textContent = count + " " + (count === 1 ? nounOne : noun) + " shown";
     hint.textContent = "Showing " + (count === 1 ? ("1 " + nounOne) : (count + " " + noun));
@@ -1024,7 +1024,7 @@ _INDEX_HTML = """<!doctype html>
 <link rel="preload" href="__APP_JS_URL__" as="script">
 <link rel="icon" href="data:,">
 <style>
-  body { font-family: system-ui, sans-serif; margin: 1.5rem; color: #1a1a1a; }
+  body { font-family: system-ui, sans-serif; margin: 1.5rem; background: #fff; color: #1a1a1a; }
   .skip-link { position: absolute; left: -9999px; top: 0; z-index: 100;
     padding: .5rem 1rem; background: #fff; color: #005fcc; text-decoration: underline; }
   .skip-link:focus { left: 1rem; top: 1rem; }
@@ -1032,7 +1032,7 @@ _INDEX_HTML = """<!doctype html>
     margin-bottom: .5rem; }
   .filters > div { display: flex; flex-direction: column; gap: .25rem; font-size: .9rem; }
   select, input { min-height: 2.75rem; padding: .3rem .5rem; min-width: 10rem;
-    border: 1px solid #767676; }
+    font: inherit; border: 1px solid #767676; background: #fff; color: inherit; }
   :focus-visible { outline: 3px solid #005fcc; outline-offset: 2px; }
   h1 { margin-bottom: .25rem; }
   .cards { display: flex; gap: 1rem; flex-wrap: wrap; margin: 1rem 0; }
@@ -1053,7 +1053,7 @@ _INDEX_HTML = """<!doctype html>
   }
   .visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
     overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
-  table { border-collapse: collapse; width: 100%; margin-top: 1rem; font-size: .85rem; }
+  table { border-collapse: collapse; width: 100%; margin-top: 1rem; font-size: .85rem; background: #fff; }
   th, td { border: 1px solid #767676; padding: .3rem .5rem; text-align: left; }
   th { background: #f5f5f5; white-space: nowrap; }
   tbody tr:hover { background: #f9f9f9; }
@@ -1099,6 +1099,11 @@ _INDEX_HTML = """<!doctype html>
     }
     :focus-visible { outline-color: Highlight; }
     #dashboard-error { border-color: CanvasText; color: CanvasText; background: Canvas; }
+    .table-scroll[aria-busy="true"]::after {
+      background: Canvas;
+      color: CanvasText;
+      border: 1px solid CanvasText;
+    }
   }
   @media (prefers-reduced-motion: reduce) {
     * { transition: none !important; animation: none !important; }

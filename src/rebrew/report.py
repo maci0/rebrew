@@ -142,6 +142,7 @@ td summary { cursor: pointer; padding: 0.25rem 0; }
   .status-STUB, .status-UNKNOWN { color: CanvasText; font-weight: 700; }
   header nav a.active { text-decoration: underline; }
   :focus-visible { outline-color: Highlight; }
+  .note { border-color: CanvasText; color: CanvasText; background: Canvas; }
 }
 .note { background: #fff7ed; border: 1px solid #9a3412; border-radius: 6px;
         padding: 0.9rem 1.1rem; color: #9a3412; margin-bottom: 1.5rem; }
