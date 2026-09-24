@@ -441,10 +441,12 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
                     except (TypeError, ValueError):
                         size = 0
                 matched_bytes += size
+            # Bucketed as LIBRARY: a status left over from before the row was
+            # identified as library code would read as reversing progress.
             module = info.get("module") or "?"
             report.module_status.setdefault(module, {})
-            report.module_status[module][lib_status] = (
-                report.module_status[module].get(lib_status, 0) + 1
+            report.module_status[module]["LIBRARY"] = (
+                report.module_status[module].get("LIBRARY", 0) + 1
             )
             continue
         ann_status = info.get("status", "STUB")

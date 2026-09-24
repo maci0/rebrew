@@ -328,6 +328,32 @@ class TestCollectStatus:
         assert report.library_identified == 1
         assert report.covered_functions == 1
 
+    def test_library_rows_bucketed_in_module_table(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A LIBRARY row's leftover reversal STATUS never reaches the module table."""
+        import rebrew.naming
+
+        cfg = _make_cfg(tmp_path)
+        existing = {
+            0x1000: {"filename": "a.c", "size": "100", "status": "PROVEN", "module": "TEST"},
+            0x2000: {
+                "filename": "library_x.h",
+                "size": "50",
+                "status": "PROVEN",
+                "module": "TEST",
+                "marker_type": "LIBRARY",
+            },
+        }
+        monkeypatch.setattr(
+            rebrew.naming,
+            "load_data",
+            lambda cfg: ([], existing, {0x1000: "a.c", 0x2000: "library_x.h"}),
+        )
+        report = collect_status(cfg)  # type: ignore[arg-type]
+        assert report.module_status["TEST"] == {"PROVEN": 1, "LIBRARY": 1}
+        assert report.to_dict()["modules"]["TEST"]["PROVEN"] == 1
+
     def test_empty_blocker_not_counted(self, tmp_path: Path) -> None:
         """An empty BLOCKER metadata entry is not an unresolved blocker."""
         cfg = _make_cfg(tmp_path)
