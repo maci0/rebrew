@@ -332,6 +332,8 @@ def unmatched_dest_bytes(cfg_dst: ProjectConfig, only_va: int | None = None) -> 
             # EXACT/RELOC function whose registry entry was filtered out above
             # would otherwise be re-imported and possibly demoted.
             vas = {}
+        elif only_va in library_vas or _in_external_range(only_va, bands):
+            vas = {}
         else:
             disasm_sizes, _refused = _disasm_sizes(cfg_dst, [only_va])
             vas = disasm_sizes

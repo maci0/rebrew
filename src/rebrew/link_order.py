@@ -391,7 +391,9 @@ def main(
         )
     current = normalize_listed(cfg.root, block.managed, by_key)
     in_sync = current == computed
-    dropped = [tok for tok in block.managed if tok not in computed]
+    dropped = [
+        tok for tok, norm in zip(block.managed, current, strict=True) if norm not in computed
+    ]
     diff = "" if in_sync else _drift_diff(current, computed)
 
     if check:

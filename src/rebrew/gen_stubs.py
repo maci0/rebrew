@@ -89,7 +89,7 @@ def parse_unresolved_symbols(linker_output: str) -> set[str]:
     for line in linker_output.splitlines():
         m = re.search(r"error LNK20(?:01|19): unresolved external symbol (\S+)", line)
         if m:
-            symbols.add(m.group(1))
+            symbols.add(m.group(1).strip('"'))
     return symbols
 
 
