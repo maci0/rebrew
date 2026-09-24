@@ -10,16 +10,20 @@ from __future__ import annotations
 
 import shutil
 import struct
+import tempfile
 from pathlib import Path
 from typing import Any
 
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 from typer.testing import CliRunner
 
 import rebrew.splat_config as splat_config
 from rebrew.splat_config import (
     UNKNOWN_OPTION_REASON,
     ImportPlan,
+    SplatConfig,
     load_symbols,
     parse_splat_config,
     parse_yaml_subset,
@@ -241,6 +245,104 @@ class TestYamlSubset:
         with pytest.raises(ValueError) as exc:
             parse_yaml_subset("options:\n  x: 1\n  y:\n\tz: 2\n")
         assert "line 4" in str(exc.value)
+
+
+class TestYamlSubsetFuzz:
+    @settings(max_examples=200, deadline=None)
+    @given(st.text())
+    def test_parse_yaml_subset_adversarial_text_clean_exception(self, text: str) -> None:
+        """Arbitrary strings into parse_yaml_subset must return a valid parsed
+        structure or cleanly raise ValueError (never unhandled crash)."""
+        try:
+            val = parse_yaml_subset(text)
+        except ValueError:
+            return
+        assert isinstance(val, (dict, list, str, int, float, bool)) or val is None
+
+    @settings(max_examples=200, deadline=None)
+    @given(
+        st.text(
+            alphabet=" \t\n:-[]{}\"'\\0123456789abcdefABCDEFxX,#\r",
+            max_size=300,
+        )
+    )
+    def test_parse_yaml_subset_syntax_chars_fuzz(self, text: str) -> None:
+        """Adversarial sequences of YAML syntax and delimiter tokens must raise
+        ValueError or parse cleanly into a structure."""
+        try:
+            val = parse_yaml_subset(text)
+        except ValueError:
+            return
+        assert isinstance(val, (dict, list, str, int, float, bool)) or val is None
+
+    @settings(max_examples=100, deadline=None)
+    @given(
+        st.dictionaries(
+            keys=st.from_regex(r"[a-z][a-z0-9_]{0,10}", fullmatch=True),
+            values=st.one_of(
+                st.integers(min_value=-10000, max_value=100000),
+                st.booleans(),
+                st.from_regex(r"[a-zA-Z0-9_\.]{1,20}", fullmatch=True),
+                st.lists(
+                    st.from_regex(r"[a-zA-Z0-9_\.]{1,15}", fullmatch=True),
+                    max_size=5,
+                ),
+            ),
+            max_size=8,
+        )
+    )
+    def test_parse_yaml_subset_structured_roundtrip(self, mapping: dict[str, Any]) -> None:
+        """Structure-aware fuzzing: valid YAML subset mappings render and
+        parse back preserving all keys and values."""
+        lines: list[str] = []
+        for key, val in mapping.items():
+            if isinstance(val, bool):
+                lines.append(f"{key}: {'true' if val else 'false'}")
+            elif isinstance(val, int):
+                lines.append(f"{key}: {val}")
+            elif isinstance(val, str):
+                lines.append(f"{key}: '{val}'")
+            elif isinstance(val, list):
+                flow_items = ", ".join(f"'{x}'" for x in val)
+                lines.append(f"{key}: [{flow_items}]")
+        yaml_text = "\n".join(lines) + "\n"
+        parsed = parse_yaml_subset(yaml_text)
+        assert isinstance(parsed, dict)
+        assert parsed == mapping
+
+    @settings(max_examples=150, deadline=None)
+    @given(
+        st.binary(min_size=1, max_size=64),
+        st.integers(min_value=1, max_value=10),
+    )
+    def test_parse_splat_config_fixture_mutation_clean_rejection(
+        self, noise: bytes, n_flips: int
+    ) -> None:
+        """Mutations of the production splat fixture must parse into SplatConfig
+        or raise ValueError — never an unhandled exception."""
+        fixture_path = FIXTURE_DIR / "win32_app.yaml"
+        if not fixture_path.is_file():
+            pytest.skip("win32_app.yaml fixture not found")
+        content = bytearray(fixture_path.read_bytes())
+        for i, b in enumerate(noise[:n_flips]):
+            idx = (b + i * 13) % len(content)
+            content[idx] ^= 0xFF if b & 1 else (b or 1)
+        if len(noise) >= 2 and noise[0] & 0x80:
+            cut = (noise[1] % max(1, len(content) // 4)) + 1
+            mid = len(content) // 3
+            del content[mid : mid + cut]
+
+        with tempfile.NamedTemporaryFile(suffix=".yaml", delete=False) as fh:
+            fh.write(bytes(content))
+            tmp_yaml = Path(fh.name)
+        try:
+            cfg = parse_splat_config(tmp_yaml)
+            assert isinstance(cfg, SplatConfig)
+            assert cfg.platform == "win32"
+        except ValueError:
+            pass
+        finally:
+            tmp_yaml.unlink(missing_ok=True)
 
 
 class TestParseSplatConfig:

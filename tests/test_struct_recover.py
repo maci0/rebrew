@@ -5,6 +5,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 from typer.testing import CliRunner
 
 from rebrew.struct_recover import (
@@ -517,3 +519,88 @@ class TestRecoverProjectStructs:
         cfg = _project_cfg(tmp_path)
         with pytest.raises(ValueError, match="Invalid hex VA"):
             recover_project_structs(cfg, decompiler="kuna", functions="nope")
+
+
+class TestStructRecoverFuzz:
+    @settings(max_examples=200, deadline=None)
+    @given(st.text(), st.integers(min_value=0x1000, max_value=0x10000000))
+    def test_parse_decomp_adversarial_text_no_crash(self, text: str, max_off: int) -> None:
+        """Arbitrary strings into parse_decomp_for_structs must never crash
+        and must satisfy structural invariants on returned offsets and widths."""
+        ev = parse_decomp_for_structs(text, max_offset=max_off)
+        for name, struct_ev in ev.named.items():
+            assert isinstance(name, str)
+            for off, slots in struct_ev.offsets.items():
+                assert isinstance(off, int)
+                assert 0 <= off < max_off
+                for width, count in slots.items():
+                    assert isinstance(width, int) and width > 0
+                    assert isinstance(count, int) and count > 0
+
+        for var, struct_ev in ev.anonymous.items():
+            assert isinstance(var, str)
+            for off, slots in struct_ev.offsets.items():
+                assert isinstance(off, int)
+                assert 0 <= off < max_off
+                for width, count in slots.items():
+                    assert isinstance(width, int) and width > 0
+                    assert isinstance(count, int) and count > 0
+
+    @settings(max_examples=150, deadline=None)
+    @given(
+        st.from_regex(r"[a-zA-Z_][a-zA-Z0-9_]{0,20}", fullmatch=True),
+        st.dictionaries(
+            keys=st.integers(min_value=0, max_value=0x10000),
+            values=st.dictionaries(
+                keys=st.integers(min_value=1, max_value=64),
+                values=st.integers(min_value=1, max_value=10),
+                min_size=1,
+                max_size=3,
+            ),
+            max_size=15,
+        ),
+    )
+    def test_synthesize_struct_invariants(
+        self, name: str, offsets: dict[int, dict[int, int]]
+    ) -> None:
+        """Struct synthesis must always emit valid C typedef struct blocks with
+        bounded gaps and expected field lines."""
+        out = synthesize_struct(name, offsets)
+        assert out.startswith(f"typedef struct {name}_s {{\n")
+        assert out.endswith(f"\n}} {name};\n")
+        for off in offsets:
+            assert f"field_{off:X}" in out
+
+    @settings(max_examples=150, deadline=None)
+    @given(
+        st.binary(min_size=1, max_size=64),
+        st.integers(min_value=1, max_value=12),
+    )
+    def test_parse_decomp_seed_corpus_mutation(self, noise: bytes, n_flips: int) -> None:
+        """Byte/character mutations of realistic decompiler snippets must
+        parse without unhandled exceptions and maintain valid invariants."""
+        seed = (
+            "PlayerInfo *p;\n"
+            "unsigned int *v1;\n"
+            "short *a0;\n"
+            "if (*(char *)(a0 + 0x10) == '\\x01') {\n"
+            "    v1 = (unsigned int *)((unsigned int)*(unsigned char *)(a0 + 3) * 0x264264 + 0x101deb00);\n"
+            "}\n"
+            "p->field_0 = 1;\n"
+            "p->field_10 = 2;\n"
+            "*(int *)(p + 0x8) = 1;\n"
+            "x = *(int *)&a0[10];\n"
+            "y = a0[4];\n"
+        )
+        chars = bytearray(seed.encode("utf-8"))
+        for i, b in enumerate(noise[:n_flips]):
+            idx = (b + i * 11) % len(chars)
+            chars[idx] ^= 0xFF if b & 1 else (b or 1)
+        if len(noise) >= 2 and noise[0] & 0x80:
+            cut = (noise[1] % max(1, len(chars) // 4)) + 1
+            mid = len(chars) // 3
+            del chars[mid : mid + cut]
+        mutated_text = chars.decode("latin1")
+        ev = parse_decomp_for_structs(mutated_text)
+        assert isinstance(ev.named, dict)
+        assert isinstance(ev.anonymous, dict)
