@@ -1,5 +1,23 @@
 ## [Unreleased]
 
+### Changed
+- **PROVEN is not matched and not sticky (ADR-024).**  `MATCHED_STATUSES`
+  is EXACT/RELOC only, so PROVEN leaves matched counts, byte coverage,
+  verify's `passed`, catalog/report/build-db totals and decomp.dev's 100%
+  bucket.  The verify PROVEN overlay and the stickiness in the promotion
+  gate are gone: the next `rebrew test`/`verify` records the byte result
+  over PROVEN.  `rebrew todo` lists PROVEN functions as improve-match work.
+  `verify`'s JSON summary drops the always-zero `proven` key.
+- **`rebrew status` and `rebrew todo` agree on blockers.**  status counted
+  every row with BLOCKER text, library and byte-matched rows included; it
+  now counts non-library functions whose effective status is not
+  EXACT/RELOC/SKIP, the set `rebrew todo -c blocked` lists (documented
+  non-target items now carry their blocker there).
+- **`rebrew status` leads with byte-matched functions.**  One headline
+  (EXACT+RELOC over all functions), a bar labelled "With source", PROVEN on
+  its own line, and byte-matched wording for the `.text` share, last verify
+  and panel subtitle.
+
 ## [2.7.0] - 2026-09-25
 ### Added
 - **Top-level SDK lazy exports and structured error imports.**  The `rebrew`
@@ -227,22 +245,6 @@
   documented integrator surface.
 
 ### Changed
-- **PROVEN is not matched and not sticky (ADR-024).**  `MATCHED_STATUSES`
-  is EXACT/RELOC only, so PROVEN leaves matched counts, byte coverage,
-  verify's `passed`, catalog/report/build-db totals and decomp.dev's 100%
-  bucket.  The verify PROVEN overlay and the stickiness in the promotion
-  gate are gone: the next `rebrew test`/`verify` records the byte result
-  over PROVEN.  `rebrew todo` lists PROVEN functions as improve-match work.
-  `verify`'s JSON summary drops the always-zero `proven` key.
-- **`rebrew status` and `rebrew todo` agree on blockers.**  status counted
-  every row with BLOCKER text, library and byte-matched rows included; it
-  now counts non-library functions whose effective status is not
-  EXACT/RELOC/SKIP, the set `rebrew todo -c blocked` lists (documented
-  non-target items now carry their blocker there).
-- **`rebrew status` leads with byte-matched functions.**  One headline
-  (EXACT+RELOC over all functions), a bar labelled "With source", PROVEN on
-  its own line, and byte-matched wording for the `.text` share, last verify
-  and panel subtitle.
 - **Ponytail-audit cleanup: the repo-wide cut list applied (23 of 33
   findings, ~−1100 lines).**  Dead reccmp-era modules gone with their
   tests and docs (`demangle.py`, `pdb_cvdump.py` — RECCMP_ADAPTATIONS,
