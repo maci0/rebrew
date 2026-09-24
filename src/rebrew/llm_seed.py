@@ -31,6 +31,7 @@ import logging
 import os
 import re
 import threading
+import time
 from typing import Any
 
 from rebrew.config import is_key_safe_endpoint, validate_http_url, validate_llm_model
@@ -56,15 +57,21 @@ _PREPROC_RE = re.compile(r"^\s*#", re.MULTILINE)
 # without a ``#`` line: an ``optimize``/``pack`` pragma fakes a byte match.
 _PRAGMA_OP_RE = re.compile(r"\b(?:_Pragma|__pragma)\s*\(")
 # Inline asm (GNU ``asm``/``__asm__``, MSVC ``__asm``/``_asm``/``_emit``,
-# Borland ``__emit__()``) lets model output emit the target bytes verbatim: a
+# Borland ``__emit__`` / ``__emit``) lets model output emit the target bytes verbatim: a
 # faked match, not a C seed.
-_INLINE_ASM_RE = re.compile(r"\b(?:asm|_asm|__asm|__asm__|_emit|__emit__)\b")
+_INLINE_ASM_RE = re.compile(r"\b(?:asm|_asm|__asm|__asm__|_emit|__emit|__emit__)\b")
 # Compiler extensions (declspecs, GCC attributes) that alter codegen, section
 # placement, or function entry/exit (naked functions) to fake matches.
 _COMPILER_EXT_RE = re.compile(r"\b(?:__declspec|_declspec|__attribute__|__attribute)\s*\(")
-# Chat template control tokens that could switch roles in LLM provider engines.
+# Chat template control tokens that could switch roles in LLM provider engines
+# (covers ChatML, Llama 3, Qwen/FIM, Mistral/Llama 2 [INST], Gemma <start_of_turn>, etc.).
 _CONTROL_TOKENS_RE = re.compile(
-    r"<\|(?:im_start|im_end|endoftext|endofprompt|system|user|assistant)[^|>]*\|>",
+    r"(?:"
+    r"<\|[^>|\r\n]*\|>"
+    r"|\[/?INST\]"
+    r"|<<?/?SYS>>?"
+    r"|</?(?:start_of_turn|end_of_turn|turn|s)>"
+    r")",
     re.IGNORECASE,
 )
 # Delimiter keywords in user source that could trick models into closing the data fence.
@@ -300,6 +307,7 @@ def valid_c_source(
 
     if len(src) > _MAX_SEED_CHARS:
         return False
+    src = src.replace("\r\n", "\n").replace("\r", "\n")
     if _PREPROC_RE.search(src):
         return False
     no_comments = re.sub(r"/\*.*?\*/|//[^\n]*", " ", src, flags=re.DOTALL)
@@ -383,7 +391,9 @@ def _chat_choice_message(data: Any) -> dict[str, Any] | None:
     first = choices[0]
     if not isinstance(first, dict):
         return None
-    if first.get("finish_reason") not in (None, "stop"):
+    finish_reason = first.get("finish_reason")
+    if finish_reason not in (None, "stop"):
+        logging.info("LLM choice dropped due to finish_reason=%s", finish_reason)
         return None
     msg = first.get("message") or first.get("delta")
     return msg if isinstance(msg, dict) else None
@@ -415,20 +425,22 @@ def _parse_response(data: Any) -> str:
     return ""
 
 
-def _log_usage(data: Any, model: str) -> None:
-    """Record token counts when the provider returns a usage object."""
+def _log_usage(data: Any, model: str, *, duration_s: float | None = None) -> None:
+    """Record token counts and latency when the provider returns a usage object."""
     if not isinstance(data, dict):
         return
     usage = data.get("usage")
     if not isinstance(usage, dict):
         return
     reported = data.get("model") or model
+    latency_str = f" latency={duration_s:.2f}s" if duration_s is not None else ""
     logging.info(
-        "LLM seed usage: model=%s prompt_tokens=%s completion_tokens=%s total_tokens=%s",
+        "LLM seed usage: model=%s prompt_tokens=%s completion_tokens=%s total_tokens=%s%s",
         reported,
         usage.get("prompt_tokens"),
         usage.get("completion_tokens"),
         usage.get("total_tokens"),
+        latency_str,
     )
 
 
@@ -508,10 +520,12 @@ def _request(
         # Token SSE is off; client.stream only caps the HTTP body byte size.
         "stream": False,
     }
+    t0 = time.monotonic()
     with client.stream("POST", conf["endpoint"], json=payload, headers=headers, timeout=90) as resp:
         resp.raise_for_status()
         data = _load_response_json(resp)
-    _log_usage(data, model)
+    duration_s = time.monotonic() - t0
+    _log_usage(data, model, duration_s=duration_s)
     text = _parse_response(data)
     # Drop whitespace-insensitive repeats: duplicates waste population slots.
     seen: set[str] = set()
