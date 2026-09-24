@@ -30,7 +30,9 @@ another target and reuse the already-matched source.
 
 Add a `rebrew cross-import` command.  The target the command runs against
 is the **destination**; `--from TARGET` names the **source**.  For each
-destination function whose metadata STATUS is not EXACT/RELOC/PROVEN, the
+destination function whose metadata STATUS is not EXACT/RELOC/PROVEN
+*(amended by ADR-024: PROVEN is not matched and not sticky, so a PROVEN
+destination is importable and a PROVEN source is not a donor)*, the
 best-matching source function is imported when the match is unambiguous:
 
 - **Matching is structural and compile-free**: both sides are

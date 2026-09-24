@@ -3,7 +3,7 @@
 - **Status**: Amended by [ADR-016](016-image-backed-native-profiles.md)
   (the remaining native-Linux exceptions named below — `mingw-16.2.0`,
   `watcom-2.0-win16` — are image-backed now; every shipped profile runs
-  through its docker image).
+  through its docker image). Amends [ADR-006](006-toolchain-standardization.md).
 - **Date**: 2026-08
 
 ## Context

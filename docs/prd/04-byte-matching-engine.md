@@ -112,7 +112,10 @@ prover that promotes NEAR_MATCHING → PROVEN.
 - `--all` proves all NEAR_MATCHING/SIZE_MISMATCH functions;
   `--max-delta N` limits the batch to those with recorded byte delta ≤ N.
 - `--dry-run` leaves metadata untouched even on success.
-- On success, promotes STATUS → PROVEN in `rebrew-functions.toml`.
+- On success, promotes STATUS → PROVEN in `rebrew-functions.toml`
+  (per ADR-024, PROVEN records semantic equivalence, is not a byte match,
+  is excluded from matched counts/coverage, and is not sticky: subsequent
+  `rebrew test`/`verify` runs record their byte verdicts over it).
 
 ## User Stories / Workflows
 

@@ -1,7 +1,8 @@
 # ADR-007: Complete containerization + unified byte-reproducibility gate
 
 - **Status**: Amended by [ADR-011](011-external-toolchains-checkout.md),
-  [ADR-016](016-image-backed-native-profiles.md)
+  [ADR-016](016-image-backed-native-profiles.md). Amends
+  [ADR-006](006-toolchain-standardization.md).
 - **Date**: 2026-08
 - **Amended by (detail)**: [ADR-011](011-external-toolchains-checkout.md)
   (the build source this ADR described as in-repo — Dockerfiles, media

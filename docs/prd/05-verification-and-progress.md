@@ -57,8 +57,10 @@ PRD 05 collects these into `verify`, `status`, `graph`, and `cache`.
 ## Non-Goals
 
 - `verify` does not promote STATUS unconditionally — it calls
-  `update_source_status` only when the new STATUS is a true promotion or
-  matches the canonical promotion ladder.
+  `update_source_status`, which records the earned byte verdict (STATUS is
+  earned: byte comparison updates status; PROVEN is not protected per
+  ADR-024; SKIP stays parked; STUB is protected against placeholder
+  size-mismatch demotions).
 - `graph` does not run dataflow analysis; direct call edges come from
   identifiers found in reversed source files, optionally augmented with
   binary-derived edges (`--include-dispatch`, `--from-binary`).

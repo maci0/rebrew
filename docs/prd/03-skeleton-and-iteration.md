@@ -125,17 +125,20 @@ you what to attack next.
 - Validates `// FUNCTION:` / `// LIBRARY:` / `// STUB:` / `// GLOBAL:` /
   `// DATA:` / `// VTABLE:` / `// STRING:` markers (and validates pure-C
   files whose annotations are stored in metadata per ADR-023).
-- Error codes: `E001` (missing marker), `E002` (invalid VA), `E012`
-  (module mismatch), `E013` (duplicate VA), `E023` (whole-function
+- Error codes: `E000` (cannot read file), `E001` (missing or invalid marker),
+  `E002` (invalid VA), `E004` (invalid SIZE syntax), `E008` (metadata SIZE not an integer),
+  `E012` (module mismatch), `E013` (duplicate VA), `E015` (marker without prototype/definition),
+  `E017` (contradictory STUB marker on earned status), `E023` (whole-function
   `__declspec(naked)` + `__asm`/`__emit` block instead of real C).
-- Warnings: `W005` (STUB without BLOCKER), `W016` (DATA/GLOBAL missing
-  SECTION), `W010` (unknown marker key), `W018` (missing CFLAGS), `W019`
-  (inline metadata should be in `rebrew-functions.toml`), `W020` (asm-dump
-  placeholder instead of real C source), `W021` (duplicate global symbol
-  across files), `W022` (zero-initializer forces `.data` not `.bss`),
-  `W023` (default function name), `W024` (name violates naming convention),
-  `W025` (brace style mismatch), `W026` (indent style mismatch), `W027`
-  (line too long).
+- Warnings: `W003` (file has no function implementation), `W005` (STUB without BLOCKER),
+  `W006` (duplicate marker key), `W007` (missing function name), `W010` (unknown marker key),
+  `W015` (suspicious size), `W016` (DATA/GLOBAL missing SECTION), `W018` (missing CFLAGS),
+  `W019` (inline metadata should be in `rebrew-functions.toml`), `W020` (asm-dump
+  placeholder instead of real C source), `W021` (duplicate global symbol across files),
+  `W022` (zero-initializer forces `.data` not `.bss`), `W023` (default function name),
+  `W024` (name violates naming convention), `W025` (brace style mismatch), `W026`
+  (indent style mismatch), `W027` (line too long), `W028` (marker VA missing from inventory),
+  `W029` (redundant per-function / preset cflags), `W030` (markers out of VA order).
 - `--fix` migrates inline metadata into `rebrew-functions.toml` and removes
   it from source.
 - `--summary` prints a STATUS/origin breakdown table.

@@ -54,7 +54,8 @@ recipes for each phase of a project.
 ### `rebrew-init` (bare-directory scaffolding)
 
 Trigger keywords: `init`, `scaffold`, `new project`, `bare directory`,
-`guess-compiler`, `create project`.
+`create project`, `initialize project`, `init project`, `project setup`,
+`set up rebrew`, `rebrew init`, `guess-compiler`, `refresh-agents`.
 
 Scope:
 
@@ -85,8 +86,9 @@ Ghidra sync.
 
 ### `rebrew-intake` (binary onboarding)
 
-Trigger keywords: `intake`, `onboard`, `new binary`, `new target`,
-`catalog`, `triage`, `FLIRT scan`.
+Trigger keywords: `intake`, `onboard`, `onboard binary`, `new binary`,
+`new target`, `import binary`, `binary recon`, `FLIRT scan`, `first triage`,
+`catalog`, `build-db`, `detect-crt`, `gen-layout`.
 
 Scope:
 

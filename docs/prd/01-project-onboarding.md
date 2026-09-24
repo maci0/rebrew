@@ -25,8 +25,9 @@ users repeatedly fail during their first hour because:
   cause.
 - TOML edits get clobbered (formatting, comments, indentation) when scripted.
 
-Project Onboarding solves all of this with `rebrew init`, `rebrew doctor`, and the
-`rebrew cfg` family of read/write commands that round-trip TOML.
+Project Onboarding solves all of this with `rebrew init`, `rebrew intake`
+(one-shot onboarding), `rebrew doctor`, and the `rebrew cfg` family of read/write
+commands that round-trip TOML.
 
 ## Users
 
@@ -108,6 +109,17 @@ Project Onboarding solves all of this with `rebrew init`, `rebrew doctor`, and t
   scripts into `completions/`; `--link-tools-from PATH` symlinks the profile's
   vendored tree from a master toolchain directory.
 - `--json` emits a structured result of what was created.
+
+### `rebrew intake`
+
+- One-shot binary onboarding: init + toolchain detect + functions discovery + document.
+- Takes the binary path as a required argument and copies it into `original/<filename>`.
+- Auto-detects toolchain via `detect_toolchain` (or uses `--toolchain PROFILE` override).
+- Discovers functions (via rizin / native NE loader) and documents unmatched functions
+  as STUB skeletons in `reversed_dir` + blockers in `rebrew-functions.toml`.
+- On re-discovery, prunes stale auto-stubs whose VAs no longer exist (ADR-004).
+- `--target` overrides target name (defaults to binary stem).
+- `--dry-run` previews without modifying files; `--json` emits structured results.
 
 ### `rebrew doctor`
 
@@ -198,6 +210,12 @@ rebrew init [OPTIONS]
       --refresh-agents       Rewrite the generated scaffold from rebrew-project.toml
       --check                Report generated-scaffold drift against packaged sources (exit 1 on drift)
       --wizard/--no-wizard   Run the interactive onboarding wizard (TTY only, off under --json; default: wizard)
+      --dry-run              Preview changes without writing
+      --json                 Output results as JSON
+
+rebrew intake {binary} [OPTIONS]
+      --toolchain TEXT       Compiler profile (default: auto-detected)
+  -t, --target TEXT          Target name (default: binary stem)
       --dry-run              Preview changes without writing
       --json                 Output results as JSON
 
