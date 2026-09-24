@@ -480,6 +480,35 @@ class TestWin32SimProcedures:
                 f"{name} -> {cls} is not a SimProcedure subclass"
             )
 
+    def test_concurrent_initialization(self) -> None:
+        """Concurrent callers must receive the fully initialized registry without torn reads."""
+        import threading
+
+        import rebrew.prove_simprocs as sp
+
+        old = sp._WIN32_SIMPROCS
+        try:
+            sp._WIN32_SIMPROCS = None
+            results: list[dict[str, type]] = []
+            barrier = threading.Barrier(8)
+
+            def _worker() -> None:
+                barrier.wait()
+                results.append(sp._get_win32_simprocs())
+
+            threads = [threading.Thread(target=_worker) for _ in range(8)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+
+            assert len(results) == 8
+            for r in results:
+                assert "memcpy" in r
+                assert len(r) > 50
+        finally:
+            sp._WIN32_SIMPROCS = old
+
 
 # ---------------------------------------------------------------------------
 # Argument constraints

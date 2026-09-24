@@ -18,6 +18,7 @@ Usage:
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -231,14 +232,18 @@ _CALL_QUERY_SOURCE = """
 """
 
 _call_query: ts.Query | None = None
+_call_query_lock = threading.Lock()
 
 
 def _get_call_query(language: ts.Language) -> ts.Query:
     """Compile the call-expression query once per process."""
     global _call_query
-    if _call_query is None:
-        _call_query = ts.Query(language, _CALL_QUERY_SOURCE)
-    return _call_query
+    if _call_query is not None:
+        return _call_query
+    with _call_query_lock:
+        if _call_query is None:
+            _call_query = ts.Query(language, _CALL_QUERY_SOURCE)
+        return _call_query
 
 
 def _first_node(captures: dict[str, list[ts.Node]], name: str) -> ts.Node | None:

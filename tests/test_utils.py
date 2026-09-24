@@ -569,6 +569,16 @@ class TestMetadataWriteLock:
             assert nested_lock.parent.is_dir()
             assert nested_lock.is_file()
 
+    def test_file_lock_preserves_content_no_truncate(self, tmp_path: Path) -> None:
+        """file_lock must not truncate existing lockfile contents on acquisition."""
+        from rebrew.utils import file_lock
+
+        lock_path = tmp_path / "content.lock"
+        lock_path.write_text("pid:12345\n", encoding="utf-8")
+        with file_lock(lock_path):
+            assert lock_path.read_text(encoding="utf-8") == "pid:12345\n"
+        assert lock_path.read_text(encoding="utf-8") == "pid:12345\n"
+
 
 # ---------------------------------------------------------------------------
 # Source-encoding detection & preservation (R18)

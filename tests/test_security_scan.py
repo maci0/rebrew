@@ -337,3 +337,36 @@ class TestSecurityScanCli:
         payload = json.loads(result.stdout)
         assert payload["count"] == 1
         assert payload["findings"][0]["file"].endswith("src/T/one.c")
+
+
+class TestConcurrentQueryInit:
+    def test_concurrent_query_init(self) -> None:
+        """Concurrent callers must receive the exact same singleton query without racing."""
+        import threading
+
+        import tree_sitter as ts
+        import tree_sitter_c
+
+        from rebrew import security_scan
+
+        lang = ts.Language(tree_sitter_c.language())
+        old = security_scan._call_query
+        try:
+            security_scan._call_query = None
+            queries: list[ts.Query] = []
+            barrier = threading.Barrier(8)
+
+            def _worker() -> None:
+                barrier.wait()
+                queries.append(security_scan._get_call_query(lang))
+
+            threads = [threading.Thread(target=_worker) for _ in range(8)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+
+            assert len(queries) == 8
+            assert len({id(q) for q in queries}) == 1
+        finally:
+            security_scan._call_query = old

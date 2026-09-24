@@ -248,6 +248,7 @@ def normalized_operands(insn: _OperandCarrier) -> str:
 
 
 _OP_CONSTANTS: tuple[Any, Any, Any] | None = None
+_OP_CONSTANTS_LOCK = threading.Lock()
 
 
 def _op_constants() -> tuple[Any, Any, Any]:
@@ -256,13 +257,16 @@ def _op_constants() -> tuple[Any, Any, Any]:
     ``_classify_insn`` runs per disassembled instruction over whole code
     sections, so the import machinery must not run per call."""
     global _OP_CONSTANTS
-    if _OP_CONSTANTS is None:
-        try:
-            from capstone import CS_OP_IMM, CS_OP_MEM, CS_OP_REG
-        except ImportError as exc:
-            raise RuntimeError("capstone not installed") from exc
-        _OP_CONSTANTS = (CS_OP_REG, CS_OP_IMM, CS_OP_MEM)
-    return _OP_CONSTANTS
+    if _OP_CONSTANTS is not None:
+        return _OP_CONSTANTS
+    with _OP_CONSTANTS_LOCK:
+        if _OP_CONSTANTS is None:
+            try:
+                from capstone import CS_OP_IMM, CS_OP_MEM, CS_OP_REG
+            except ImportError as exc:
+                raise RuntimeError("capstone not installed") from exc
+            _OP_CONSTANTS = (CS_OP_REG, CS_OP_IMM, CS_OP_MEM)
+        return _OP_CONSTANTS
 
 
 def iter_instructions(info: BinaryInfo, va: int, size: int) -> list[Insn]:

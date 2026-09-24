@@ -372,3 +372,34 @@ class TestDisasmInsnsCapstoneConstants:
             for i in disasm_insns(self._CODE, 0x1000, 3, 4)  # CS_ARCH_X86=3, CS_MODE_32=4
         ]
         assert a == b
+
+
+class TestConcurrentOpConstants:
+    def test_concurrent_op_constants_init(self) -> None:
+        """Concurrent callers must receive the cached constants without race."""
+        import threading
+
+        from rebrew import analysis
+
+        old = analysis._OP_CONSTANTS
+        try:
+            analysis._OP_CONSTANTS = None
+            results: list[tuple[object, ...]] = []
+            barrier = threading.Barrier(8)
+
+            def _worker() -> None:
+                barrier.wait()
+                results.append(analysis._op_constants())
+
+            threads = [threading.Thread(target=_worker) for _ in range(8)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+
+            assert len(results) == 8
+            first = results[0]
+            for r in results:
+                assert r == first
+        finally:
+            analysis._OP_CONSTANTS = old

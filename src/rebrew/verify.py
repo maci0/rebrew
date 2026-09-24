@@ -2238,10 +2238,14 @@ def run_verification(
                     with contextlib.suppress(StopIteration):
                         e = next(entry_iter)
                         futures[pool.submit(_verify, e)] = e
-                # Drain-and-refill: as_completed snapshots at call time, so new
-                # submissions need the outer while to re-arm the iterator.
+                # Drain-and-refill: wait with FIRST_COMPLETED so refilled pool slots
+                # are re-evaluated immediately instead of stalling idle workers
+                # behind an as_completed snapshot barrier.
                 while futures:
-                    for future in concurrent.futures.as_completed(futures):
+                    done, _ = concurrent.futures.wait(
+                        futures, return_when=concurrent.futures.FIRST_COMPLETED
+                    )
+                    for future in done:
                         entry = futures.pop(future)
                         is_internal_error = False
                         try:

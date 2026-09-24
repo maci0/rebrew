@@ -525,7 +525,9 @@ def atomic_write_text(
                 return
         except OSError:
             pass
-    tmp_path = filepath.with_name(f"{filepath.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+    tmp_path = filepath.with_name(
+        f"{filepath.name}.{os.getpid()}.{threading.get_ident()}.{time.monotonic_ns()}.tmp"
+    )
     try:
         # newline="" keeps the caller's line endings byte-exact.  Path.write_text
         # defaults to newline=None, which on Windows translates ``\n`` to
@@ -552,12 +554,14 @@ def atomic_write_text(
 def atomic_write_bytes(filepath: Path, data: bytes) -> None:
     """Byte counterpart of :func:`atomic_write_text`.
 
-    Writes to a sibling ``.<pid>.<tid>.tmp`` then ``os.replace()``s, so a
+    Writes to a sibling ``.<pid>.<tid>.<monotonic>.tmp`` then ``os.replace()``s, so a
     crash or disk-full mid-write never leaves a truncated binary at the
     target path (e.g. a postlinked or reassembled PE).  The temp file is
     cleaned up on any failure; the original exception is always re-raised.
     """
-    tmp_path = filepath.with_name(f"{filepath.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+    tmp_path = filepath.with_name(
+        f"{filepath.name}.{os.getpid()}.{threading.get_ident()}.{time.monotonic_ns()}.tmp"
+    )
     filepath.parent.mkdir(parents=True, exist_ok=True)
     try:
         tmp_path.write_bytes(data)
@@ -721,13 +725,14 @@ def file_lock(lock_path: Path) -> Iterator[None]:
     their own fd in the same process, so callers pair it with a thread lock.
     """
     lock_path.parent.mkdir(parents=True, exist_ok=True)
-    with lock_path.open("w", encoding="utf-8") as lock_fh:
+    with lock_path.open("a", encoding="utf-8") as lock_fh:
         if fcntl is not None:
             fcntl.flock(lock_fh, fcntl.LOCK_EX)
         else:
             try:
                 import msvcrt
 
+                lock_fh.seek(0)
                 msvcrt.locking(lock_fh.fileno(), msvcrt.LK_LOCK, 1)
             except (ImportError, OSError):
                 pass
@@ -740,6 +745,7 @@ def file_lock(lock_path: Path) -> Iterator[None]:
                 try:
                     import msvcrt
 
+                    lock_fh.seek(0)
                     msvcrt.locking(lock_fh.fileno(), msvcrt.LK_UNLCK, 1)
                 except (ImportError, OSError):
                     pass

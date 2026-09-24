@@ -41,6 +41,7 @@ from __future__ import annotations
 import importlib
 import logging
 import sys
+import threading
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from importlib.metadata import entry_points
@@ -93,6 +94,7 @@ class Registration:
 
 #: ``(key, entry_points())`` from the last scan; see :func:`_installed_entry_points`.
 _entry_points_snapshot: tuple[tuple[Any, ...], Any] | None = None
+_entry_points_lock = threading.Lock()
 
 
 def _sys_path_fingerprint() -> tuple[tuple[str, int | None], ...]:
@@ -125,9 +127,13 @@ def _installed_entry_points() -> Any:
     snapshot = _entry_points_snapshot
     if snapshot is not None and snapshot[0] == key:
         return snapshot[1]
-    eps = entry_points()
-    _entry_points_snapshot = (key, eps)
-    return eps
+    with _entry_points_lock:
+        snapshot = _entry_points_snapshot
+        if snapshot is not None and snapshot[0] == key:
+            return snapshot[1]
+        eps = entry_points()
+        _entry_points_snapshot = (key, eps)
+        return eps
 
 
 def entry_point_registrations(group: str) -> list[Registration]:

@@ -1670,3 +1670,32 @@ class TestImportRegistrationWrapping:
         )
         with pytest.raises(RegistryError):
             import_registration(reg)
+
+
+class TestConcurrentEntryPoints:
+    def test_concurrent_installed_entry_points(self) -> None:
+        """Concurrent entry-point discovery must not race or corrupt the snapshot."""
+        import threading
+
+        from rebrew import registry
+
+        old = registry._entry_points_snapshot
+        try:
+            registry._entry_points_snapshot = None
+            results: list[Any] = []
+            barrier = threading.Barrier(8)
+
+            def _worker() -> None:
+                barrier.wait()
+                results.append(registry._installed_entry_points())
+
+            threads = [threading.Thread(target=_worker) for _ in range(8)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+
+            assert len(results) == 8
+            assert registry._entry_points_snapshot is not None
+        finally:
+            registry._entry_points_snapshot = old

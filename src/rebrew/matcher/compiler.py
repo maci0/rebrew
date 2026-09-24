@@ -747,7 +747,7 @@ def flag_sweep(
         cfg: Optional project config for toolchain-backed compile routing.
 
     """
-    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 
     from .scoring import precompute_target, score_candidate
 
@@ -829,7 +829,8 @@ def flag_sweep(
         for _ in range(min(n_jobs, len(combos))):
             pending.add(executor.submit(_eval_flags, next(combo_iter)))
         while pending:
-            for fut in as_completed(pending):
+            done, _ = wait(pending, return_when=FIRST_COMPLETED)
+            for fut in done:
                 pending.remove(fut)
                 try:
                     score, flags = fut.result()

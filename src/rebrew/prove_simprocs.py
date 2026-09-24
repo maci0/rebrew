@@ -8,9 +8,11 @@ comparing only a prefix.  Imported lazily by prove.py because angr is optional.
 
 from __future__ import annotations
 
+import threading
 from typing import Any, override
 
 _WIN32_SIMPROCS: dict[str, type] | None = None  # lazily populated
+_SIMPROCS_LOCK = threading.Lock()
 
 
 _MEMCPY_MAX_LEN = 1024
@@ -69,7 +71,14 @@ def _get_win32_simprocs() -> dict[str, type]:
     global _WIN32_SIMPROCS
     if _WIN32_SIMPROCS is not None:
         return _WIN32_SIMPROCS
+    with _SIMPROCS_LOCK:
+        if _WIN32_SIMPROCS is not None:
+            return _WIN32_SIMPROCS
+        _WIN32_SIMPROCS = _build_win32_simprocs()
+        return _WIN32_SIMPROCS
 
+
+def _build_win32_simprocs() -> dict[str, type]:
     import angr
     import claripy
 
@@ -162,19 +171,19 @@ def _get_win32_simprocs() -> dict[str, type]:
             return result
 
     # Registry: map Win32/CRT names to SimProcedure classes
-    _WIN32_SIMPROCS = {}
+    procs: dict[str, type] = {}
 
     # --- CRT functions with semantic models ---
     for name in ("memcpy", "_memcpy"):
-        _WIN32_SIMPROCS[name] = SimMemcpy
+        procs[name] = SimMemcpy
     for name in ("memset", "_memset"):
-        _WIN32_SIMPROCS[name] = SimMemset
+        procs[name] = SimMemset
     for name in ("strlen", "_strlen", "lstrlenA"):
-        _WIN32_SIMPROCS[name] = SimStrlen
+        procs[name] = SimStrlen
 
     # --- File I/O ---
     for name in ("CreateFileA", "CreateFileW", "_lopen", "_lcreat"):
-        _WIN32_SIMPROCS[name] = ReturnSymbolicHandle
+        procs[name] = ReturnSymbolicHandle
     for name in (
         "ReadFile",
         "WriteFile",
@@ -185,7 +194,7 @@ def _get_win32_simprocs() -> dict[str, type]:
         "DeleteFileA",
         "DeleteFileW",
     ):
-        _WIN32_SIMPROCS[name] = ReturnSymbolicBool
+        procs[name] = ReturnSymbolicBool
 
     # --- Memory allocation ---
     for name in (
@@ -202,13 +211,13 @@ def _get_win32_simprocs() -> dict[str, type]:
         "realloc",
         "_realloc",
     ):
-        _WIN32_SIMPROCS[name] = ReturnSymbolicHandle  # non-zero pointer
+        procs[name] = ReturnSymbolicHandle  # non-zero pointer
     for name in ("HeapFree", "LocalFree", "GlobalFree", "VirtualFree", "free", "_free"):
-        _WIN32_SIMPROCS[name] = ReturnVoid
+        procs[name] = ReturnVoid
 
     # --- Window / GDI ---
     for name in ("GetDC", "CreateCompatibleDC", "GetWindowDC"):
-        _WIN32_SIMPROCS[name] = ReturnSymbolicHandle
+        procs[name] = ReturnSymbolicHandle
     for name in (
         "ReleaseDC",
         "DeleteDC",
@@ -223,7 +232,7 @@ def _get_win32_simprocs() -> dict[str, type]:
         "IsWindowVisible",
         "IsWindowEnabled",
     ):
-        _WIN32_SIMPROCS[name] = ReturnSymbolicBool
+        procs[name] = ReturnSymbolicBool
     for name in (
         "SendMessageA",
         "SendMessageW",
@@ -255,7 +264,7 @@ def _get_win32_simprocs() -> dict[str, type]:
         "CreateDCW",
         "GlobalUnlock",
     ):
-        _WIN32_SIMPROCS[name] = ReturnSymbolicDword
+        procs[name] = ReturnSymbolicDword
 
     # --- Registry ---
     for name in (
@@ -271,11 +280,11 @@ def _get_win32_simprocs() -> dict[str, type]:
         "RegDeleteKeyA",
         "RegDeleteValueA",
     ):
-        _WIN32_SIMPROCS[name] = ReturnSymbolicDword  # LONG error code
+        procs[name] = ReturnSymbolicDword  # LONG error code
 
     # --- String ---
     for name in ("lstrcpyA", "lstrcpyW", "lstrcatA", "lstrcatW"):
-        _WIN32_SIMPROCS[name] = ReturnSymbolicDword
+        procs[name] = ReturnSymbolicDword
     for name in (
         "lstrcmpA",
         "lstrcmpW",
@@ -284,9 +293,9 @@ def _get_win32_simprocs() -> dict[str, type]:
         "CompareStringA",
         "CompareStringW",
     ):
-        _WIN32_SIMPROCS[name] = ReturnSymbolicDword
+        procs[name] = ReturnSymbolicDword
     for name in ("lstrlenW", "wcslen", "_wcslen"):
-        _WIN32_SIMPROCS[name] = SimStrlen
+        procs[name] = SimStrlen
 
     # --- Synchronisation ---
     for name in (
@@ -295,7 +304,7 @@ def _get_win32_simprocs() -> dict[str, type]:
         "InitializeCriticalSection",
         "DeleteCriticalSection",
     ):
-        _WIN32_SIMPROCS[name] = ReturnVoid
+        procs[name] = ReturnVoid
 
     # --- Misc OS ---
     for name in (
@@ -318,7 +327,7 @@ def _get_win32_simprocs() -> dict[str, type]:
         "GetSystemMetrics",
         "GetDeviceCaps",
     ):
-        _WIN32_SIMPROCS[name] = ReturnSymbolicDword
+        procs[name] = ReturnSymbolicDword
 
     # --- Format / print (avoid deep execution) ---
     for name in (
@@ -330,8 +339,8 @@ def _get_win32_simprocs() -> dict[str, type]:
         "wvsprintfW",
         "_snprintf",
     ):
-        _WIN32_SIMPROCS[name] = ReturnSymbolicDword
+        procs[name] = ReturnSymbolicDword
 
     for name in ("GlobalLock", "LocalAlloc"):
-        _WIN32_SIMPROCS[name] = SimAllocZeroed
-    return _WIN32_SIMPROCS
+        procs[name] = SimAllocZeroed
+    return procs
