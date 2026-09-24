@@ -34,6 +34,8 @@ hid PROVEN functions that still needed work.
   explicitly: orphan hold-back (`orphans.EARNED_STATUSES`), lint E017 (STUB
   marker on a proven function), W028 and the `--fix-sizes` guard (prove
   compiled and compared at the annotated VA and size).
+  Amended: W028 no longer names PROVEN. It skips byte-matched markers and
+  markers whose annotated neighbour tiles a merged inventory entry.
 
 ## Consequences
 

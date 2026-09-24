@@ -1320,7 +1320,7 @@ class TestAnnotationStaleness:
         guild-rebrew hit 15 at once, one of them EXACT, whose supposed host was
         separated from it by `ret; nop; nop`.
         """
-        for status in ("EXACT", "RELOC", "PROVEN"):
+        for status in ("EXACT", "RELOC"):
             f = _write_c(
                 tmp_path,
                 f"m_{status}.c",
@@ -1339,6 +1339,37 @@ class TestAnnotationStaleness:
         )
         meta = {("SERVER", 0x1050): {"status": "STUB"}}
         result = lint_file(f, cfg=_make_cfg(), function_index=self.INDEX, preloaded_metadata=meta)
+        assert len(self._w028(result)) == 1
+
+        # PROVEN is not a byte match, so it is no evidence against the inventory.
+        meta = {("SERVER", 0x1050): {"status": "PROVEN"}}
+        result = lint_file(f, cfg=_make_cfg(), function_index=self.INDEX, preloaded_metadata=meta)
+        assert len(self._w028(result)) == 1
+
+    def test_annotations_tiling_a_merged_host_are_not_flagged(self, tmp_path: Path) -> None:
+        """The host's start is annotated and ends at or before this marker.
+
+        Discovery merged two adjacent annotated functions into one inventory
+        entry (guild-rebrew: cm_ExTransferCurrencyNoKill at 0x1000d8a0, 0x90
+        bytes, then cm_ExSellObjekt at 0x1000d930).  The annotations tile the
+        host's range, so the marker is a real function start whatever its status.
+        """
+        f = _write_c(tmp_path, "b.c", "// FUNCTION: SERVER 0x1050\nint b(void) { return 0; }\n")
+        tiled = {
+            ("SERVER", 0x1000): {"status": "RELOC", "size": 0x50},
+            ("SERVER", 0x1050): {"status": "NEAR_MATCHING", "size": 0xB0},
+        }
+        result = lint_file(f, cfg=_make_cfg(), function_index=self.INDEX, preloaded_metadata=tiled)
+        assert self._w028(result) == []
+
+        # A host annotation that runs past the marker does not tile it.
+        overlapping = {
+            ("SERVER", 0x1000): {"status": "RELOC", "size": 0x60},
+            ("SERVER", 0x1050): {"status": "NEAR_MATCHING", "size": 0xB0},
+        }
+        result = lint_file(
+            f, cfg=_make_cfg(), function_index=self.INDEX, preloaded_metadata=overlapping
+        )
         assert len(self._w028(result)) == 1
 
     def test_inline_exact_status_suppresses_w028(self, tmp_path: Path) -> None:

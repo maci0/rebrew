@@ -1,6 +1,9 @@
 ## [Unreleased]
 
 ### Changed
+- **W028 recognises merged inventory entries by their annotations.**  A
+  marker inside an inventory function whose start is an annotated function
+  ending at or before it is not flagged; PROVEN no longer exempts a marker.
 - **`rebrew status` counts every library row as identified.**  A LIBRARY
   marker or configured external module is the identification; a leftover
   reversal STATUS on the row no longer drops it from `library_identified`
