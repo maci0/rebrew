@@ -9,6 +9,7 @@ __pycache__/
 
 # IDE / tool caches
 .pytest_cache/
+.hypothesis/
 .ruff_cache/
 .mypy_cache/
 .pyre/

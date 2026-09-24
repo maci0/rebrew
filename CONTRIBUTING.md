@@ -42,18 +42,22 @@ make test-one T=tests/test_annotation.py   # smoke the edit-test loop
 make help                     # list contributor make targets
 make setup                    # frozen sync + pre-commit install (checks uv + ../resembl first)
 make clean                    # remove build/dist artifacts and caches
-make test-one T=tests/foo.py  # single file / nodeid (fast edit-test loop; defaults to test_annotation.py)
-make coverage                 # full suite under slipcover; fails below COV_FLOOR (CI test job, 3.13)
+make test-one T=tests/test_annotation.py  # single file / nodeid (fast edit-test loop; defaults to test_annotation.py)
 make test                     # full suite (a few minutes; needs nasm)
-make all                      # local mirror of CI lint+test+cli-contract gates
+make coverage                 # full suite under slipcover; fails below COV_FLOOR (CI test job, 3.13)
+make lint                     # ruff check src/ tests/ tools/
+make format                   # ruff format (writes)
+make format-check             # ruff format --check
+make mypy                     # mypy type check (matches CI lint job)
+make audit                    # uv audit --locked (matches CI lint job)
 make check                    # pre-commit hook parity (CI pre-commit job)
 make build                    # reproducible sdist+wheel + dist/rebrew.buildinfo (CI package job)
+make sbom                     # CycloneDX 1.5 JSON from uv.lock (offline)
 make cli-contract             # high-value --help greps (CI cli-contract job)
+make all                      # local mirror of CI lint+test+cli-contract gates
+make pr-check                 # full local CI verification (all + check + build + sbom)
 make gen-fixtures             # regenerate tests/fixtures/ after editing tools/gen_fixtures.py
 make gen-skills               # regenerate .agents/skills/ after editing src/rebrew/agent-skills/
-uv run --frozen ruff check src/ tests/ tools/
-uv run --frozen mypy
-uv run --frozen pre-commit run --all-files
 ```
 
 ## What to work on
@@ -100,9 +104,9 @@ import rebrew as a library.
 
 ## Before submitting
 
-1. `make all && make check && make build` — mirrors CI lint+test+cli-contract
-   gates, the pre-commit job, and the package job's `make build` (sdist/wheel +
-   `dist/rebrew.buildinfo`).
+1. `make pr-check` (or `make all && make check && make build`) — mirrors CI
+   lint+test+cli-contract gates, the pre-commit job, and the package job's
+   `make build` (sdist/wheel + `dist/rebrew.buildinfo`).
 2. Keep changes minimal and scoped; match the surrounding style.
 3. Add tests for new behavior — the suite sits at ~86% line coverage
    (`make coverage`), and new pure logic is expected to keep it there.

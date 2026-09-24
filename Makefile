@@ -1,4 +1,4 @@
-.PHONY: help setup clean test test-one lint format format-check check build sbom all \
+.PHONY: help setup clean test test-one lint format format-check check build sbom all pr-check \
 	gen-fixtures gen-fixtures-check gen-skills gen-skills-check cycles-check idempotency-check mypy audit \
 	cli-contract release-check coverage ensure-uv ensure-resembl ensure-nasm warn-nasm
 
@@ -63,6 +63,7 @@ help:
 		'  make build              # reproducible sdist+wheel + dist/rebrew.buildinfo' \
 		'  make sbom               # CycloneDX 1.5 JSON from uv.lock (offline)' \
 		'  make all                # local mirror of CI lint+test(+coverage floor)+cli-contract gates' \
+		'  make pr-check           # full local CI verification (all + check + build + sbom)' \
 		'  make gen-fixtures       # regenerate tests/fixtures/ from tools/gen_fixtures.py' \
 		'  make gen-fixtures-check # tools/gen_fixtures.py --check' \
 		'  make gen-skills         # regenerate .agents/skills/ from src/rebrew/agent-skills/' \
@@ -76,7 +77,7 @@ help:
 		'  2. Clone sibling resembl at $(RESEMBL_REF) into ../resembl' \
 		'     git clone --depth 1 --branch $(RESEMBL_REF) https://github.com/maci0/resembl.git ../resembl' \
 		'  3. make setup && make test-one T=tests/test_annotation.py' \
-		'  Before a PR: make all && make check && make build'
+		'  Before a PR: make all && make check && make build (or make pr-check)'
 
 ensure-uv:
 	@set -eu; \
@@ -204,7 +205,7 @@ cli-contract:
 # a stale pin next to requires = ["setuptools==…"] would lie in the manifest).
 # Clean build artifacts, distribution packages, and local tool/test caches.
 clean:
-	rm -rf dist build rebrew.egg-info src/rebrew.egg-info .coverage htmlcov .coverage.* .pytest_cache .ruff_cache .mypy_cache .scratch/rebrew-idem .venv-pkg
+	rm -rf dist build rebrew.egg-info src/rebrew.egg-info .coverage htmlcov .coverage.* .pytest_cache .ruff_cache .mypy_cache .scratch/rebrew-idem .venv-pkg .hypothesis
 
 build: ensure-uv
 	@mkdir -p dist
@@ -251,6 +252,10 @@ sbom:
 # that the CI pre-commit job also runs).  For full hook parity (hygiene +
 # skills validate) also run `make check` before a PR.
 all: format-check lint mypy audit coverage gen-fixtures-check cycles-check idempotency-check cli-contract
+
+# Full local verification: single runnable step mirroring every CI gate
+# (all non-mutating gates + pre-commit hook parity + reproducible build + SBOM).
+pr-check: all check build sbom
 
 # Regenerate checked-in binary fixtures (run after editing tools/gen_fixtures.py).
 gen-fixtures:
