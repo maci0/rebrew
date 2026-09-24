@@ -6,6 +6,10 @@
   ascend by VA within a file.
 
 ### Changed
+- **`rebrew test --cflags` can change a function's flags again.**  The CMake
+  per-file flags come from the metadata, so a pin equal to the metadata's
+  resolved flags no longer counts as a CMakeLists pin and no longer refuses
+  the write.
 - **W028 recognises merged inventory entries by their annotations.**  A
   marker inside an inventory function whose start is an annotated function
   ending at or before it is not flagged; PROVEN no longer exempts a marker.
