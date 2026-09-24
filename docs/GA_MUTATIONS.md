@@ -380,8 +380,7 @@ to 128 operators.)
 
 ## Adding A New Mutation
 
-See contributor guidelines in [`AGENTS.md`](../AGENTS.md#adding-a-new-ga-mutation)
-(a.k.a. `CLAUDE.md`).
+See the Mutations section of [`src/rebrew/matcher/AGENTS.md`](../src/rebrew/matcher/AGENTS.md#mutations).
 
 
 > Consolidation note (2026-08-08): `mut_commute_simple_add`/`mut_commute_simple_mul`
