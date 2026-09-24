@@ -519,7 +519,9 @@ class BinaryMatchingGA:
         from the seed, resets the stagnation counter, and returns how many
         were appended.  The elite already in *next_pop* survives untouched.
         """
-        count = min(max(1, self.pop_size // _IMMIGRANT_DIVISOR), self.pop_size - len(next_pop))
+        count = max(
+            0, min(max(1, self.pop_size // _IMMIGRANT_DIVISOR), self.pop_size - len(next_pop))
+        )
         for _ in range(count):
             next_pop.append(
                 self._random_walk(self.seed_source, _IMMIGRANT_MIN_STEPS, _IMMIGRANT_MAX_STEPS)

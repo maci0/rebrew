@@ -206,9 +206,13 @@ def _build_cells(
     with ``span <= columns``, and ``end`` never passes the segment end.
     """
     cells: list[dict[str, Any]] = []
+    if unit_bytes <= 0 or columns <= 0:
+        return cells
     col = 0
     for seg_start, seg_end, state, seg_fns, seg_label, seg_parent in segments:
         remaining = seg_end - seg_start
+        if remaining <= 0:
+            continue
         seg_cols = max(1, math.ceil(remaining / unit_bytes))
         cur = seg_start
         cols_left = seg_cols

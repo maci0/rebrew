@@ -1536,3 +1536,18 @@ class TestPeHeaderFieldWidths:
         assert "timestamp" in fields
         assert "linker_version_major" in fields
         assert "linker_version_minor" not in fields
+
+
+class TestRenderRichBarClamping:
+    def test_spliced_overflow_clamped(self) -> None:
+        from rebrew.round_trip import _render_rich
+
+        # total calculation: spliced(50) + skipped_proven(0) + skipped_other(0) + catalog(0) + mismatch(0) = 50
+        # If spliced > total (e.g. negative skips or corrupted input), min(bar_width, ...) clamps
+        report = {
+            "spliced": 100,
+            "skipped_proven": -50,
+            "skipped_other": 0,
+            "mismatches": [],
+        }
+        _render_rich(report)

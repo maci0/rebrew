@@ -224,7 +224,7 @@ def _run_single_ga(
             "mode": "ga",
             "generations": generations,
             "pop_size": pop_size,
-            "best_score": round(best_score, 2),
+            "best_score": round(best_score, 2) if math.isfinite(best_score) else None,
             "exact": best_score < EXACT_SCORE_THRESHOLD,
             "elapsed_sec": round(ga.elapsed_sec, 2),
             "stagnant_gens": ga.stagnant_gens,

@@ -1,6 +1,7 @@
 """Tests for catalog/grid.py — range merging and section/label lookup."""
 
 from rebrew.catalog.grid import (
+    _build_cells,
     _build_label_index,
     _build_section_index,
     _find_ghidra_data_label,
@@ -71,3 +72,19 @@ class TestFindGhidraDataLabel:
     def test_before_first(self) -> None:
         idx = _build_label_index({0x5000: self._label(0x5000, 20)})
         assert _find_ghidra_data_label(0x1000, idx) is None
+
+
+class TestBuildCells:
+    def test_zero_or_negative_unit_bytes_returns_empty(self) -> None:
+        segs = [(0, 100, "exact", [], None, None)]
+        assert _build_cells(segs, 0, 10) == []
+        assert _build_cells(segs, -1, 10) == []
+
+    def test_zero_or_negative_columns_returns_empty(self) -> None:
+        segs = [(0, 100, "exact", [], None, None)]
+        assert _build_cells(segs, 10, 0) == []
+        assert _build_cells(segs, 10, -5) == []
+
+    def test_empty_or_negative_segment_skipped(self) -> None:
+        segs = [(100, 100, "exact", [], None, None), (50, 40, "exact", [], None, None)]
+        assert _build_cells(segs, 10, 10) == []

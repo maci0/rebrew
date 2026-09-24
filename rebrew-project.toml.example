@@ -1,0 +1,197 @@
+# =============================================================================
+# rebrew-project.toml.example
+# Complete template demonstrating all configuration sections and options.
+# Copy and adapt this file to rebrew-project.toml in your project root.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Project-level Settings
+# -----------------------------------------------------------------------------
+
+[project]
+# Informational project name.
+name = "example-project"
+
+# Default target to use when --target <name> is omitted.
+# Must match a key under [targets]. (Required)
+default_target = "game"
+
+# Default parallelism for batch operations (verify, todo, GA).
+# Default: 4
+jobs = 4
+
+# Directory for coverage databases and SQLite reports.
+# Default: "db"
+db_dir = "db"
+
+# Directory for generated artifacts and search outputs.
+# Default: "output"
+output_dir = "output"
+
+# Shared sources root scanned for all targets in multi-version projects.
+# An empty string disables shared sources.
+# Default: "src/shared"
+shared_dir = "src/shared"
+
+# -----------------------------------------------------------------------------
+# Code Style and Linting Rules
+# -----------------------------------------------------------------------------
+
+[project.lint]
+# Identifier naming convention: "snake_case", "camelCase", or "none".
+# Default: "none"
+naming_convention = "none"
+
+# Function brace style: "same_line", "new_line", or "none".
+# Default: "none"
+brace_style = "none"
+
+# Indentation style: "spaces", "tabs", or "none".
+# Default: "none"
+indent_style = "none"
+
+# Maximum line length for C source files (0 disables check).
+# Default: 200
+max_line_length = 200
+
+# -----------------------------------------------------------------------------
+# Target Definitions
+# -----------------------------------------------------------------------------
+
+[targets.game]
+# Path to original binary executable or library (relative to project root). (Required)
+binary = "original/game.exe"
+
+# Binary format: "pe" (Win32/Win16), "elf" (Linux), "macho" (macOS), "ne" (Win16), "mz" (DOS).
+# Default: "pe"
+format = "pe"
+
+# Architecture: "x86_16", "x86_32", "x86_64", "arm32", "arm64", "mips32", "mips64", "ppc32", "ppc64", "sh2".
+# Default: "x86_32"
+arch = "x86_32"
+
+# Module marker identifier in C source annotations (e.g. // FUNCTION: GAME 0x00401000).
+# Default: target name uppercased with non-alphanumeric chars stripped.
+marker = "GAME"
+
+# Directory where reversed C sources live (relative to project root).
+# Default: "src/<target_name>"
+reversed_dir = "src/game"
+
+# Directory where extracted binary chunks live.
+# Default: "bin/<target_name>"
+bin_dir = "bin/game"
+
+# Source file extension(s): ".c", ".cpp", or comma-separated list like ".c,.cpp".
+# Default: ".c"
+source_ext = ".c"
+
+# Optional path override for function inventory JSON.
+# Default: "<reversed_dir>/function_structure.json"
+# inventory_file = "db/inventory-game.json"
+
+# Per-target compile defines (-D or /D) for shared multi-version source blocks.
+# defines = ["GAME_CLIENT", "VER_1_0"]
+
+# Module names using // LIBRARY: markers (e.g. standard library or vendor SDKs).
+# library_modules = ["MSVCRT", "ZLIB"]
+
+# External archives (.lib) attributed as external code (not reversed in-tree).
+# [targets.game.external_libs]
+# LIBCMT = "LIBCMT.lib"
+# D3DX8 = "references/dxsdk8/lib/d3dx8.lib"
+
+# Inclusive address bands filled by statically linked libraries.
+# external_ranges = ["0x005e0000-0x0064ffff"]
+
+# Reference directories for CRT source matching.
+# [targets.game.crt_sources]
+# MSVCRT = "references/vc98/crt/src"
+
+# Ghidra integration settings
+# ghidra_program_path = "/Game/game.exe"
+# ghidra_backend = "reva"  # "reva" (MCP) or "cli" (headless)
+# binsync_state_dir = "sync/binsync"
+
+# Known symbol filters and exclusions
+# ignored_symbols = ["_alloca_probe", "__chkstk"]
+# iat_thunks = [0x00450000, 0x00450010]
+# dll_exports = { 0x00401000 = "GameMain" }
+# r2_bogus_vas = [0x00412340]
+
+# Optional per-target compiler override (falls back to global [compiler]).
+# [targets.game.compiler]
+# cflags = "/O2 /Gd"
+
+# -----------------------------------------------------------------------------
+# Global Compiler Settings
+# -----------------------------------------------------------------------------
+
+[compiler]
+# Toolchain profile name (see `rebrew toolchain list`).
+# Default: "msvc-6.0"
+profile = "msvc-6.0"
+
+# Compiler command and runner (docker-backed toolchains manage this automatically).
+# command = ""
+# runner = ""
+
+# Include and library directories (relative to project root).
+# Leave empty for profiles shipping their own headers (e.g. mingw).
+includes = "toolchain/msvc/6.0-win32/source/VC98/Include"
+libs = "toolchain/msvc/6.0-win32/source/VC98/Lib"
+
+# Default compilation flags for matching.
+cflags = "/O2 /Gd"
+
+# Base compiler flags prepended to every invocation.
+# Default: "/nologo /c /MT" for MSVC, "" for posix toolchains.
+base_cflags = "/nologo /c /MT"
+
+# Timeout in seconds before killing a compile subprocess.
+# Default: 60
+timeout = 60
+
+# Remote compile service URL (can be overridden with REBREW_RECOMPILE_URL).
+# recompile_url = "http://localhost:8000"
+
+# Opt-in training-data assembly tap for remote compiles.
+# Default: false
+# recompile_emit_assembly = false
+
+# Per-module CFLAGS presets for functions without per-function metadata.
+[compiler.cflags_presets]
+GAME = "/O2 /Gd"
+
+# -----------------------------------------------------------------------------
+# Linker Parity Settings (PE Byte-Identical Reconstruction)
+# -----------------------------------------------------------------------------
+
+[link]
+# Optional PE header reconstruction fields applied by `rebrew round-trip --fix-headers`.
+# linker_version = "6.0"
+# os_version = "4.0"
+# subsystem_version = "4.0"
+# tsaware = false
+# stack_reserve = 0x100000
+# stack_commit = 0x1000
+# timestamp = 0x38a1b2c3
+
+# -----------------------------------------------------------------------------
+# LLM Seeding Settings (rebrew match --seed-llm)
+# Prefer environment variables (REBREW_LLM_*) so secrets are not committed.
+# -----------------------------------------------------------------------------
+
+# [llm]
+# endpoint = "http://localhost:11434/v1"
+# model = "gpt-4o-mini-2024-07-18"
+# api_key = ""  # Prefer setting REBREW_LLM_API_KEY in environment
+
+# -----------------------------------------------------------------------------
+# Compile Cache Settings
+# -----------------------------------------------------------------------------
+
+[cache]
+# Cache storage backend (registered in rebrew.cache_backends).
+# Default: "diskcache"
+backend = "diskcache"

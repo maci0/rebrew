@@ -555,7 +555,11 @@ def _render_terminal(report: StatusReport) -> None:
 
     # --- Headline + source bar ---
     bar_width = 40
-    filled = int(bar_width * report.coverage_pct / 100) if report.total_functions > 0 else 0
+    filled = (
+        min(bar_width, max(0, int(bar_width * report.coverage_pct / 100)))
+        if report.total_functions > 0
+        else 0
+    )
 
     exact = report.status_counts.get("EXACT", 0)
     reloc = report.status_counts.get("RELOC", 0)

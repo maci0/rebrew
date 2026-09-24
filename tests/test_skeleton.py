@@ -15,6 +15,7 @@ from rebrew.naming import (
     sanitize_name,
 )
 from rebrew.skeleton import (
+    _ret_arg_count,
     generate_annotation_block,
     generate_diff_command,
     generate_skeleton,
@@ -1143,3 +1144,11 @@ class TestSkeletonCliEndpointValidation:
         result = CliRunner().invoke(sk.app, ["--endpoint", "not-a-url", "0x10001000"])
         assert result.exit_code != 0
         assert "--endpoint must be an http(s) URL" in result.output
+
+
+class TestRetArgCount:
+    def test_zero_or_negative_word_size(self) -> None:
+        insn = SimpleNamespace(mnemonic="ret", op_str="8")
+        assert _ret_arg_count([insn], word_size=0) == 0
+        assert _ret_arg_count([insn], word_size=-4) == 0
+        assert _ret_arg_count([insn], word_size=4) == 2

@@ -1518,3 +1518,21 @@ class TestBlockerAgreementWithTodo:
         assert result.exit_code == 0, result.output
         blocked_vas = {int(i["va"], 16) for i in json.loads(result.stdout)["items"]}
         assert blocked_vas == blocked
+
+
+class TestRenderTerminalBarClamping:
+    def test_coverage_overflow_does_not_crash_render(self) -> None:
+        from rebrew.status import StatusReport, _render_terminal
+
+        # 150 covered out of 100 functions (150% coverage)
+        report = StatusReport(
+            target="test",
+            binary="test.exe",
+            arch="x86_32",
+            total_functions=100,
+            covered_functions=150,
+            status_counts={},
+            module_status={},
+        )
+        # Must render without IndexError / layout failure
+        _render_terminal(report)

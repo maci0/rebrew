@@ -400,7 +400,7 @@ def _ret_arg_count(insns: list[Any], word_size: int = 4) -> int:
     for insn in reversed(insns):
         if insn.mnemonic.startswith("ret"):
             n = ret_pop_count(insn.op_str)
-            return max(0, n // word_size) if n else 0
+            return max(0, n // word_size) if n and word_size > 0 else 0
     return 0
 
 

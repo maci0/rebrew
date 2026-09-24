@@ -911,7 +911,7 @@ def _render_rich(report: dict[str, Any]) -> None:
     bar_items: list[Text] = []
     if total > 0:
         bar_width = 40
-        filled = int(bar_width * spliced / total)
+        filled = min(bar_width, max(0, int(bar_width * spliced / total)))
         bar_text = Text()
         bar_text.append("  Spliced  ", style="bold")
         bar_text.append("█" * filled, style="green")

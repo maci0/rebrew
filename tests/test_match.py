@@ -1780,3 +1780,21 @@ class TestFlagSweepDeadline:
             "_run_single_flag_sweep(params, tier, jobs, json_output, timeout_min=timeout_min)"
             in src
         )
+
+
+class TestReseedClamping:
+    def test_reseed_count_never_negative(self) -> None:
+        from rebrew.match_ga import BinaryMatchingGA
+
+        ga = object.__new__(BinaryMatchingGA)
+        ga.pop_size = 10
+        ga.seed_source = "int f() { return 0; }"
+        ga._random_walk = lambda src, low, high: src
+        ga.restarts = 0
+        ga.stagnant_gens = 0
+
+        # next_pop already has 12 items (> pop_size 10)
+        next_pop = ["int f() { return 0; }"] * 12
+        count = ga._reseed(next_pop)
+        assert count == 0
+        assert len(next_pop) == 12
