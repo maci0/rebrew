@@ -620,7 +620,7 @@ def _render_markdown(dossier: dict[str, Any], fn: dict[str, Any] | None) -> str:
 
     near_match = dossier.get("near_match") or []
     if near_match:
-        out += ["", "## NEAR_MATCHING (blocked)", ""]
+        out += ["", "## NEAR_MATCHING", ""]
         for nm in near_match:
             blocker = nm["blocker"] or "(no blocker documented)"
             out.append(f"- `{nm['va']}` — {blocker[:100]}")
@@ -830,7 +830,7 @@ def main(
 
     near_match = dossier.get("near_match") or []
     if near_match:
-        console.print(f"[bold]NEAR_MATCHING:[/bold] {len(near_match)} blocked function(s)")
+        console.print(f"[bold]NEAR_MATCHING:[/bold] {len(near_match)} function(s)")
         for nm in near_match[:10]:
             console.print(f"  [dim]{nm['va']}[/dim] {nm['blocker'][:70]}")
         if len(near_match) > 10:

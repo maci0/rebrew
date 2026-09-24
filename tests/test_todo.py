@@ -1440,33 +1440,13 @@ class TestTodoCli:
         assert data["total_items"] == 1
         assert data["items"][0]["category"] == "fix-delta"
 
-    def test_blocked_filter(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        import json
-
-        existing = {
-            0x1000: {
-                "status": "NEAR_MATCHING",
-                "symbol": "a",
-                "size": "50",
-                "blocker": "STRUCTURAL 5B",
-            },
-            0x2000: {"status": "STUB", "symbol": "b", "size": "50"},
-        }
-        result = self._invoke(
-            tmp_path,
-            monkeypatch,
-            ghidra_funcs=[
-                FunctionEntry(va=0x1000, size=50, name="a"),
-                FunctionEntry(va=0x2000, size=50, name="b"),
-            ],
-            existing=existing,
-            covered_vas={},
-            args=["--json", "-c", "blocked"],
-        )
-        data = json.loads(result.output)
-        assert data["total_items"] == 1
-        assert data["items"][0]["va"] == "0x00001000"
-        assert data["items"][0]["blocker"] == "STRUCTURAL 5B"
+    def test_unknown_category_fails(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """`-c blocked` (removed, ADR-025) and any other unknown category fail
+        loudly instead of filtering to an empty list."""
+        result = self._invoke(tmp_path, monkeypatch, args=["-c", "blocked"])
+        assert result.exit_code != 0
+        assert "Unknown category 'blocked'" in result.output
+        assert "fix-delta" in result.output
 
     def test_start_data_filter(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         import json

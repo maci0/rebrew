@@ -454,7 +454,7 @@ Re-running with the same type is a no-op (exit 0, JSON `changed: false`).
 | Flag | Description |
 |------|-------------|
 | `-n N` / `--count N` | Number of items to show (default 20) |
-| `-c CAT` / `--category CAT` | Filter by category (e.g. `setup`, `start-function`, `fix-delta`, `compile-error`, `extract-error`, `improve-match`, `missing-annotation`, `identify-library`, `run-prover`, `documented`, `data-drift`) |
+| `-c CAT` / `--category CAT` | Filter by category: `setup`, `compile-error`, `extract-error`, `fix-delta`, `improve-match`, `start-function`, `missing-annotation`, `identify-library`, `run-prover`, `documented`, `naked-reconstruction`, `data-drift`, `start-data`; any other value fails |
 | `-s` / `--stats` | Show the coverage stats header |
 | `--json` | Output results as JSON |
 | `--target NAME` / `-t NAME` | Select a target from `rebrew-project.toml` |
@@ -462,6 +462,8 @@ Re-running with the same type is a no-op (exit 0, JSON `changed: false`).
 `improve-match` items whose blocker was written by `near-diag --fix-blocker`
 carry a `mutations` array in `--json` (the GA operators to try next) and a
 `[try: ...]` hint in the terminal description.
+
+`Match %` is rounded down to one decimal, so a near miss never reads 100%.
 
 ### `rebrew skeleton`
 
@@ -1534,17 +1536,16 @@ At-a-glance reversing progress.  The headline is byte-matched functions
 (EXACT+RELOC over all functions; `matched_pct` in JSON), then a bar of
 functions with a source file (`coverage_pct`), per-status counts, a separate
 PROVEN line (semantically equivalent, bytes differ), the share of `.text` in
-byte-matched functions (`byte_coverage_pct`), the blocked count, the
-per-module breakdown, and the last verify summary (byte-matched vs failed).  When a verify cache exists, reported statuses are the
+byte-matched functions (`byte_coverage_pct`; each function's span stops at the next
+known function start, so an inventory entry that runs through a missed
+neighbour counts once), the per-module breakdown, and the last verify summary
+(byte-matched vs failed).  When a verify cache exists, reported statuses are the
 **effective** status (verify result overrides metadata; see
 `docs/ANNOTATIONS.md` "Effective Status") — `verify_cache: {overrides,
 missing_size, effective_matches}` in JSON surfaces how many functions the
 cache overrode, plus the effective-match count (register-allocation-only
 delta — the prove queue). Data verdicts from `verify --data` show as
 `data: {verified, drift, unchecked}` in JSON and a terminal summary line.
-`unresolved_blockers` counts non-library functions with BLOCKER text whose
-effective status is neither EXACT/RELOC nor SKIP; `rebrew todo -c blocked`
-lists the same functions.
 
 ### `rebrew similar`
 

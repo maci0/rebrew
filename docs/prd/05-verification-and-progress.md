@@ -113,8 +113,6 @@ PRD 05 collects these into `verify`, `status`, `graph`, and `cache`.
     SKIP, … — per `metadata.KNOWN_STATUSES`; LIBRARY is a marker type,
     not a status).
   - Coverage as % bytes / % functions.
-  - Count of blocked functions: non-library, not byte-matched, not SKIP,
-    with BLOCKER text (the set `rebrew todo -c blocked` lists).
   - Pointer to next action (`rebrew todo`).
 - `--json` machine-readable.
 

@@ -207,8 +207,6 @@ class TestCollectStatus:
         assert report.status_counts.get("EXACT") == 1
         assert report.status_counts.get("NEAR_MATCHING") == 1
         assert report.source_files == 2
-        assert report.unresolved_blockers == 0
-        assert report.to_dict()["unresolved_blockers"] == 0
 
     def test_naked_reconstruction_bucketed(self, tmp_path: Path) -> None:
         """A `// SOURCE: naked` EXACT function is byte-coverage but NOT
@@ -236,32 +234,6 @@ class TestCollectStatus:
         assert report.decompiled_pct == 0.0  # nothing decompiled yet
         assert report.to_dict()["naked_matched"] == 1
         assert report.to_dict()["decompiled_pct"] == 0.0
-
-    def test_unresolved_blockers_counted(self, tmp_path: Path) -> None:
-        """Functions with a non-empty BLOCKER in rebrew-functions.toml are counted."""
-        cfg = _make_cfg(tmp_path)
-        src = tmp_path / "src"
-        src.mkdir()
-
-        (src / "function_structure.json").write_text(
-            json.dumps([{"va": 0x1000, "size": 100, "ghidra_name": "func_a"}]),
-            encoding="utf-8",
-        )
-        (src / "func_a.c").write_text(
-            "// FUNCTION: TEST 0x1000\n// STATUS: STUB\nvoid func_a(void) {}\n",
-            encoding="utf-8",
-        )
-
-        # metadata_dir points at tmp_path (parent of reversed_dir); the metadata
-        # file lives there with a per-module table keyed "MODULE.0xVA".
-        (tmp_path / "rebrew-functions.toml").write_text(
-            '["TEST.0x1000"]\nblocker = "register allocation (eax/ecx swap)"\n',
-            encoding="utf-8",
-        )
-
-        report = collect_status(cfg)  # type: ignore[arg-type]
-        assert report.unresolved_blockers == 1
-        assert report.to_dict()["unresolved_blockers"] == 1
 
     def test_foreign_module_rows_excluded_from_progress(self, tmp_path: Path) -> None:
         """Shared-tree scans hold every target's rows; progress counts ours."""
@@ -451,28 +423,6 @@ class TestCollectStatus:
         assert report.library_identified == 3
         assert report.to_dict()["library_identified"] == 3
         assert report.matched_bytes == 120
-
-    def test_empty_blocker_not_counted(self, tmp_path: Path) -> None:
-        """An empty BLOCKER metadata entry is not an unresolved blocker."""
-        cfg = _make_cfg(tmp_path)
-        src = tmp_path / "src"
-        src.mkdir()
-
-        (src / "function_structure.json").write_text(
-            json.dumps([{"va": 0x1000, "size": 100, "ghidra_name": "func_a"}]),
-            encoding="utf-8",
-        )
-        (src / "func_a.c").write_text(
-            "// FUNCTION: TEST 0x1000\n// STATUS: STUB\nvoid func_a(void) {}\n",
-            encoding="utf-8",
-        )
-        (tmp_path / "rebrew-functions.toml").write_text(
-            '["TEST.0x1000"]\nblocker = ""\n',
-            encoding="utf-8",
-        )
-
-        report = collect_status(cfg)  # type: ignore[arg-type]
-        assert report.unresolved_blockers == 0
 
     def test_verify_cache_loaded(self, tmp_path: Path) -> None:
         """Verify cache present → verify_info populated."""
@@ -1332,14 +1282,14 @@ class TestRenderTerminal:
         from rebrew.status import _render_terminal
 
         buf = self._capture(monkeypatch)
-        _render_terminal(self._report(unresolved_blockers=2))
+        _render_terminal(self._report())
         out = buf.getvalue()
         assert "Byte-matched  5/10 functions  (50.0%)  EXACT+RELOC" in out
         assert "With source" in out
         assert "6/10  (60.0%)" in out
         assert "1 PROVEN  semantically equivalent, bytes still differ (not byte-matched)" in out
         assert "50.0% of .text in byte-matched functions" in out
-        assert "2 blocked  unmatched, with a BLOCKER: rebrew todo -c blocked" in out
+        assert "blocked" not in out
         assert "50.0% byte-matched" in out  # panel subtitle
         assert "reversed" not in out
         assert "Coverage" not in out
@@ -1483,81 +1433,6 @@ class TestInlineTableKeyWarning:
         )
         report = collect_status(cfg)  # type: ignore[arg-type]
         assert report.inline_metadata_warning == 1
-
-
-class TestBlockerAgreementWithTodo:
-    """`rebrew status`'s blocker count and `rebrew todo` describe the same
-    functions: every function status counts as blocked is a todo item."""
-
-    def test_status_blockers_are_todo_items(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        from typer.testing import CliRunner
-
-        import rebrew.naming
-        from rebrew.todo import app as todo_app
-
-        cfg = _make_cfg(tmp_path)
-        (tmp_path / "src").mkdir()
-
-        def row(status: str, blocker: str = "reg alloc", **kw: str) -> dict[str, str]:
-            return {"status": status, "blocker": blocker, "module": "TEST", "size": "80", **kw}
-
-        existing = {
-            0x1000: row("EXACT", symbol="f_exact"),
-            0x2000: row("RELOC", symbol="f_reloc"),
-            0x3000: row("PROVEN", symbol="f_proven"),
-            0x4000: row("NEAR_MATCHING", symbol="f_near"),
-            0x5000: row("STUB", symbol="f_stub"),
-            0x6000: row("SKIP", symbol="f_parked"),
-            0x7000: row("STUB", blocker="IAT thunk: not a decomp target", symbol="f_thunk"),
-            # Stale metadata: the verify cache says the bytes no longer match.
-            0x8000: row("EXACT", symbol="f_stale"),
-            0x9000: row("NEAR_MATCHING", blocker="", symbol="f_clean"),
-            0xA000: row("STUB", symbol="f_lib", marker_type="LIBRARY"),
-        }
-        entries = {
-            "0x00008000": {
-                "source_hash": "a",
-                "filepath": "f.c",
-                "mtime_ns": 0,
-                "status": "NEAR_MATCHING",
-                "va": "0x00008000",
-                "passed": False,
-                "match_percent": 90.0,
-                "delta": 8,
-            }
-        }
-        cache_dir = tmp_path / ".rebrew"
-        cache_dir.mkdir()
-        (cache_dir / "verify_cache.json").write_text(
-            json.dumps({"version": 2, "target": "test", "entries": entries}), encoding="utf-8"
-        )
-
-        def load(_cfg: object) -> tuple[list[object], dict[int, dict[str, str]], dict]:
-            return [], {va: dict(info) for va, info in existing.items()}, {}
-
-        monkeypatch.setattr(rebrew.naming, "load_data", load)
-        monkeypatch.setattr("rebrew.todo.load_data", load)
-        monkeypatch.setattr("rebrew.todo.require_config", lambda **kw: cfg)
-
-        report = collect_status(cfg)  # type: ignore[arg-type]
-        # Not counted: byte-matched (EXACT/RELOC), parked SKIP, library rows,
-        # and rows without blocker text.  The stale EXACT counts: its
-        # effective (cached) status is NEAR_MATCHING.
-        blocked = {0x3000, 0x4000, 0x5000, 0x7000, 0x8000}
-        assert report.unresolved_blockers == len(blocked)
-
-        result = CliRunner().invoke(todo_app, ["--json", "-n", "1000"])
-        assert result.exit_code == 0, result.output
-        todo_vas = {int(i["va"], 16) for i in json.loads(result.stdout)["items"]}
-        # The documented non-target (0x7000) is hidden from the default list.
-        assert blocked - {0x7000} <= todo_vas
-
-        result = CliRunner().invoke(todo_app, ["-c", "blocked", "--json", "-n", "1000"])
-        assert result.exit_code == 0, result.output
-        blocked_vas = {int(i["va"], 16) for i in json.loads(result.stdout)["items"]}
-        assert blocked_vas == blocked
 
 
 class TestRenderTerminalBarClamping:

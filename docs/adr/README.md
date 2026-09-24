@@ -41,9 +41,10 @@ itself, and the consequences (including trade-offs accepted).
 | 016 | Image-backed native compiler profiles (gcc-14.2.0, clang-18.1.8, mingw-16.2.0, watcom-2.0-win16) *(amended by 017)* |
 | 017 | Standardized toolchain profile names (`<image-family>-<version>`) |
 | 018 | Single-file verify scope and baseline (`rebrew verify <file.c> --compare`) |
-| 019 | Todo blocked category (`rebrew todo -c blocked`) |
+| 019 | Todo blocked category (`rebrew todo -c blocked`) *(superseded by 025)* |
 | 020 | Init scaffolding skill (`rebrew-init`) |
 | 021 | Batch container compiles (`compile_batch_objs` / `precompile_batch`) |
 | 022 | Shared single-file imports (`cross-import --shared`) |
 | 023 | Markers: TOML single source (pure-C sources, `rebrew migrate-markers`) |
 | 024 | PROVEN is not matched and not sticky |
+| 025 | Remove the todo blocked lens |

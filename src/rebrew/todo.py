@@ -101,7 +101,6 @@ _CATEGORY_COLORS = {
     CAT_NAKED: "magenta",
     CAT_DATA_DRIFT: "yellow",
     CAT_START_DATA: "cyan",
-    "blocked": "red",
 }
 
 # ---------------------------------------------------------------------------
@@ -906,8 +905,6 @@ def _collect_data_drift(cfg: ProjectConfig) -> list[TodoItem]:
     Reads rebrew-data.toml STATUS verdicts written by ``verify --data``.
     Data VAs live in a separate address space from function VAs in practice
     (.data/.rdata vs .text), so no dedup against function items is needed.
-    NOTE doubles as the data-side blocker text so ``-c blocked`` catches
-    stuck symbols with zero schema change (data has no BLOCKER field).
     """
     from rebrew.data_metadata import load_data_metadata
 
@@ -1149,7 +1146,6 @@ _EPILOG = (
     "  rebrew todo --count 50 · · · · · Show top 50\n\n"
     "  rebrew todo -c fix-delta · · · · Filter to quick-win near-misses (<= 20B diff)\n\n"
     "  rebrew todo -c improve-match · · Filter to functions needing general work\n\n"
-    "  rebrew todo -c blocked · · · · · Lens: every function with BLOCKER text\n\n"
     "  rebrew todo --json · · · · · · · Machine-readable JSON output\n\n"
     "[bold]Categories (interleaved globally by continuous ROI score):[/bold]\n\n"
     "  setup · · · · · · · · · Project setup steps (fresh projects)\n\n"
@@ -1167,8 +1163,6 @@ _EPILOG = (
     "                         `rebrew verify --data`\n\n"
     "  start-data · · · · · · · Data symbol never verified — run\n\n"
     "                         `rebrew verify --data`\n\n"
-    "  blocked · · · · · · · · Lens (ADR-019): every item with BLOCKER text, "
-    "whatever its home category — filter with `-c blocked`\n\n"
     "[dim]Reads from function_structure.json, source files, and .rebrew/verify_cache.json.[/dim]"
 )
 
@@ -1186,7 +1180,7 @@ def main(
         None,
         "--category",
         "-c",
-        help="Filter by category (fix-delta, start-function, compile-error, blocked, ...)",
+        help="Filter by category (fix-delta, start-function, compile-error, ...)",
     ),
     stats: bool = typer.Option(False, "--stats", "-s", help="Show coverage stats header"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
@@ -1194,6 +1188,12 @@ def main(
     all_targets: bool = AllTargetsOption,
 ) -> None:
     """Show prioritized actions ranked by ROI."""
+    category = option_default(category, None)
+    if category is not None and category not in _CATEGORY_COLORS:
+        error_exit(
+            f"Unknown category {category!r}; choose one of: {', '.join(_CATEGORY_COLORS)}",
+            json_mode=json_output,
+        )
     all_targets = option_default(all_targets, False)
     if all_targets_run(
         target=target,
@@ -1270,12 +1270,7 @@ def main(
     # Byte-matched only: PROVEN bytes still differ from the target.
     pct = floor_pct(exact + reloc, denominator)
 
-    if category == "blocked":
-        # Lens, not a move: every item with BLOCKER text, whatever its home
-        # category (ADR-019).  Matched on presence so JSON consumers filter
-        # the same way (items[?blocker]).
-        all_items = [i for i in all_items if i.blocker]
-    elif category:
+    if category:
         all_items = [i for i in all_items if i.category == category]
     else:
         # Documented non-targets are audit info, not work — hide them from the

@@ -1,6 +1,6 @@
 # ADR-019: Todo blocked category
 
-- **Status**: Accepted
+- **Status**: Superseded by [ADR-025](025-remove-todo-blocked-lens.md)
 - **Date**: 2026-09
 
 ## Context

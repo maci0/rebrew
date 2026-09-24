@@ -107,11 +107,6 @@ class StatusReport:
     # 0 means no issues found (or scan not yet run).
     inline_metadata_warning: int = 0
 
-    # Non-library functions with a non-empty BLOCKER whose effective status
-    # is neither byte-matched (EXACT/RELOC) nor parked (SKIP): the set
-    # `rebrew todo -c blocked` lists.
-    unresolved_blockers: int = 0
-
     # Data verification verdicts from rebrew-data.toml STATUS (written by
     # `verify --data`): verified / drift / unchecked symbol counts.
     data_verified: int = 0
@@ -178,7 +173,6 @@ class StatusReport:
             "decompiled_pct": self.decompiled_pct,
             "naked_matched": self.naked_matched,
             "source_files": self.source_files,
-            "unresolved_blockers": self.unresolved_blockers,
             "data": {
                 "verified": self.data_verified,
                 "drift": self.data_drift,
@@ -453,7 +447,6 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
     verify_overrides = 0
     verify_missing_size = 0
     effective_matches = 0
-    unresolved_blockers = 0
     library_identified = 0
     for va, info in existing.items():
         # External .lib attributions (lib-match identifications + modules
@@ -481,10 +474,6 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
         # source annotation so the bucket survives metadata status churn.
         naked = info.get("source") == "naked"
         effective = effective_status(ann_status, verify_statuses.get(va))
-        # Blocked work: the function is still unmatched and not parked.
-        # `rebrew todo -c blocked` lists exactly these (same effective rule).
-        if info.get("blocker") and effective not in (*MATCHED_STATUSES, "SKIP"):
-            unresolved_blockers += 1
         if effective != ann_status:
             verify_overrides += 1
         if effective == "MISSING_SIZE":
@@ -513,7 +502,6 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
     report.verify_overrides = verify_overrides
     report.verify_missing_size = verify_missing_size
     report.effective_matches = effective_matches
-    report.unresolved_blockers = unresolved_blockers
 
     # Data verdicts: count rebrew-data.toml STATUS values written by
     # `verify --data`.  Named symbols only — unnamed inventory rows carry
@@ -661,12 +649,6 @@ def _render_terminal(report: StatusReport) -> None:
         summary_lines.append(
             f"  [dim]library:[/dim] [green]{report.library_identified} identified[/green] "
             "(lib-match attributions, not reversing progress)"
-        )
-
-    if report.unresolved_blockers:
-        summary_lines.append(
-            f"  [yellow]{report.unresolved_blockers} blocked[/yellow]"
-            "  [dim]unmatched, with a BLOCKER: rebrew todo -c blocked[/dim]"
         )
 
     # Data verification verdicts (from `verify --data`)

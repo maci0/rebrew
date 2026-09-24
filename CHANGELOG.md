@@ -1,5 +1,18 @@
 ## [Unreleased]
 
+### Removed
+- **The `todo` blocked lens and the `status` blocked count** (ADR-025,
+  superseding ADR-019).  Every unmatched function is blocked until it is
+  unblocked, so "blocked" only meant "has a BLOCKER note" and read as if
+  the rest were not stuck.  `todo -c blocked`, `status` "N blocked" and
+  `status --json` `unresolved_blockers` are gone; each row keeps its note
+  (`— Blocked: ...`, JSON `blocker`).  `analyze` no longer calls every
+  NEAR_MATCHING function "blocked".
+
+### Changed
+- **`todo -c` rejects an unknown category** instead of filtering to an
+  empty list, and names the valid ones.
+
 ### Fixed
 - **Byte coverage no longer counts a neighbour's bytes.**  A discoverer that
   misses a function start reports the previous entry running through it, and

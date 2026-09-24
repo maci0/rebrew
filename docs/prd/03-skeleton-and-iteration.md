@@ -181,8 +181,6 @@ you what to attack next.
   - `documented` — IAT thunks / non-reproducible code (audit only, hidden
     from the default list).
   - `data-drift` / `start-data` — data symbols needing `rebrew verify --data`.
-  - `blocked` — lens (ADR-019): every item with non-empty `BLOCKER` text;
-    filter with `-c blocked` (items also keep their home category).
 - `--count N`, `--category C` filters.
 - `--stats` adds coverage stats header.
 
@@ -346,6 +344,3 @@ rebrew todo
 - `rebrew split` and `rebrew merge` are textual operations driven by
   `// FUNCTION:` markers; arbitrary C constructs between functions (e.g.
   file-scope statics that span declarations) may need manual fix-up.
-- `rebrew todo -c blocked` lists functions with non-empty `BLOCKER` text
-  (ADR-019); the category is a read-time lens over existing metadata, not a
-  separate writer.
