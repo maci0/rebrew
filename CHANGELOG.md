@@ -1,4 +1,6 @@
 ## [Unreleased]
+
+## [2.7.0] - 2026-09-25
 ### Added
 - **`pe_info` lists an ELF's sections.**  Every mapped (`SHF_ALLOC`)
   section in the PE section shape (RVA-relative `virtual_address`, raw

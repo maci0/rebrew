@@ -136,24 +136,32 @@ class TestPackagingMetadata:
         if tagged.group(1) == _CURRENT_DB_VERSION:
             return
 
+        from rebrew import __version__
+
         text = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
-        first = next(line for line in text.splitlines() if line.startswith("## "))
-        assert first == "## [Unreleased]", (
-            f"coverage.db bumped {_CURRENT_DB_VERSION!r} past {last_tag} "
-            f"({tagged.group(1)!r}) but CHANGELOG does not open with [Unreleased]"
-        )
-        unreleased = text.split("## [Unreleased]", 1)[1]
-        next_hdr = unreleased.find("\n## [")
+        if __version__ != last_tag.lstrip("v"):
+            section_hdr = f"## [{__version__}]"
+            assert section_hdr in text, f"CHANGELOG.md has no {section_hdr} section"
+            target_block = text.split(section_hdr, 1)[1]
+        else:
+            first = next(line for line in text.splitlines() if line.startswith("## "))
+            assert first == "## [Unreleased]", (
+                f"coverage.db bumped {_CURRENT_DB_VERSION!r} past {last_tag} "
+                f"({tagged.group(1)!r}) but CHANGELOG does not open with [Unreleased]"
+            )
+            target_block = text.split("## [Unreleased]", 1)[1]
+
+        next_hdr = target_block.find("\n## [")
         if next_hdr != -1:
-            unreleased = unreleased[:next_hdr]
-        assert "**Breaking:**" in unreleased, (
+            target_block = target_block[:next_hdr]
+        assert "**Breaking:**" in target_block, (
             f"coverage.db {_CURRENT_DB_VERSION!r} (was {tagged.group(1)!r} at "
-            f"{last_tag}) must have a **Breaking:** entry under [Unreleased]"
+            f"{last_tag}) must have a **Breaking:** entry under [Unreleased] or [{__version__}]"
         )
-        assert _CURRENT_DB_VERSION in unreleased, (
-            f"[Unreleased] Breaking notes must name db_version {_CURRENT_DB_VERSION!r}"
+        assert _CURRENT_DB_VERSION in target_block, (
+            f"Breaking notes must name db_version {_CURRENT_DB_VERSION!r}"
         )
-        assert "coverage.db" in unreleased or "db_version" in unreleased
+        assert "coverage.db" in target_block or "db_version" in target_block
 
     def test_requires_python_matches_ci_floor(self) -> None:
         assert _project()["requires-python"] == ">=3.13"
