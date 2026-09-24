@@ -1011,6 +1011,11 @@ class TestArrayAndStruct:
         result = mut_change_array_index_order(src, _rng())
         assert result == "x = i[array];"
 
+    def test_array_index_order_groups_compound_index(self) -> None:
+        """``i + 1[array]`` parses as ``i + array[1]``."""
+        result = mut_change_array_index_order("x = array[i + 1];", _rng())
+        assert result == "x = (i + 1)[array];"
+
     def test_struct_vs_ptr(self) -> None:
         src = "x = ptr->field;"
         result = mut_struct_vs_ptr_access(src, _rng())
@@ -1641,6 +1646,14 @@ class TestArrayToPtrArith:
         assert "*(" in result
         assert "+" in result
 
+    def test_postfix_parent_keeps_deref_grouped(self) -> None:
+        """``.`` binds tighter than unary ``*``: ``a[i].f`` needs the deref
+        parenthesized or MSVC rejects it (C2231)."""
+        assert mut_array_to_ptr_arith("x = a[i].f;", _rng()) == "x = (*(a + i)).f;"
+
+    def test_low_precedence_index_is_grouped(self) -> None:
+        assert mut_array_to_ptr_arith("x = a[i << 1];", _rng()) == "x = *(a + (i << 1));"
+
     def test_no_match(self) -> None:
         assert mut_array_to_ptr_arith("x = 1;", _rng()) is None
 
@@ -1652,6 +1665,11 @@ class TestPtrArithToArray:
         assert result is not None
         assert "[" in result
         assert "]" in result
+
+    def test_cast_pointer_is_grouped(self) -> None:
+        """A cast binds looser than ``[]``: ``(char*)p[i]`` would index the
+        uncast pointer, a different value."""
+        assert mut_ptr_arith_to_array("x = *((char*)p + i);", _rng()) == "x = ((char*)p)[i];"
 
     def test_no_match(self) -> None:
         assert mut_ptr_arith_to_array("x = 1;", _rng()) is None

@@ -101,6 +101,7 @@ from rebrew.matcher.mutations.runtime import (
     _cursor,
     _find_function_body_insert_pos,
     _first_caps,
+    _operand_bytes,
     _statement_region_start,
     brace_block,
 )
@@ -1059,7 +1060,7 @@ def mut_change_array_index_order(s: str, rng: random.Random) -> str | None:
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
         arr = _cap_bytes(b_source, captures, "arr")
-        idx = _cap_bytes(b_source, captures, "idx")
+        idx = _operand_bytes(b_source, captures, "idx")
         return idx + b"[" + arr + b"]"
 
     res = _apply_query_once(b_source, _QUERY_ARRAY_INDEX, _repl, rng)

@@ -43,6 +43,8 @@ from rebrew.matcher.mutations.runtime import (
     _cursor,
     _find_function_body_insert_pos,
     _first_caps,
+    _operand_bytes,
+    _under_postfix,
 )
 
 # ---------------------------------------------------------------------------
@@ -234,9 +236,10 @@ def mut_array_to_ptr_arith(s: str, rng: random.Random) -> str | None:
     b_source = encode_source(s)
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
-        arr = _cap_bytes(b_source, captures, "arr")
-        idx = _cap_bytes(b_source, captures, "idx")
-        return b"*((" + arr + b") + (" + idx + b"))"
+        arr = _operand_bytes(b_source, captures, "arr")
+        idx = _operand_bytes(b_source, captures, "idx")
+        deref = b"*(" + arr + b" + " + idx + b")"
+        return b"(" + deref + b")" if _under_postfix(captures["expr"]) else deref
 
     res = _apply_query_once(b_source, _QUERY_ARRAY_INDEX, _repl, rng)
     if not res:
@@ -250,7 +253,7 @@ def mut_ptr_arith_to_array(s: str, rng: random.Random) -> str | None:
     b_source = encode_source(s)
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
-        ptr = _cap_bytes(b_source, captures, "ptr")
+        ptr = _operand_bytes(b_source, captures, "ptr")
         idx = _cap_bytes(b_source, captures, "idx")
         return ptr + b"[" + idx + b"]"
 

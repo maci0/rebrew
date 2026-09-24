@@ -719,6 +719,12 @@
   of its parent, and clones of the best filled every elite slot; the elite
   now takes the best distinct sources, and a child already in the next
   generation is rejected.
+- **Subscript mutations keep operator precedence.**
+  `mut_array_to_ptr_arith` turned `a[i].f` into `*((a) + (i)).f` (MSVC
+  C2231); `mut_change_array_index_order` turned `a[i + 1]` into
+  `i + 1[a]`, and `mut_ptr_arith_to_array` turned `*((char*)p + i)` into
+  `(char*)p[i]`, both compiling to a different value.  Operands are now
+  parenthesized unless they already bind as tightly as a postfix operator.
 - **`rebrew intake` records an ELF or x86-64 target as what it is.**  Init
   assumes a 32-bit PE, and intake corrected only NE and MZ, so an x86-64 ELF
   was decoded as 32-bit x86.  The target's `format` and `arch` now come from

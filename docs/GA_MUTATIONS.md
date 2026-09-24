@@ -191,8 +191,8 @@ Different pointer/array idioms map to different x86 addressing modes
 
 | Mutation | Transform | MSVC6 Rationale |
 |----------|-----------|-----------------|
-| `mut_change_array_index_order` | `a[i][j]` ↔ `a[j][i]` | Row-major vs column-major — completely different offset calculations |
-| `mut_struct_vs_ptr_access` | `s.field` ↔ `s->field` | Dot vs arrow — changes whether an address or value is in the register |
+| `mut_change_array_index_order` | `a[i]` → `i[a]` | Same address with base and index swapped |
+| `mut_struct_vs_ptr_access` | `p->field` → `(*p).field` | Same access spelled as an explicit dereference |
 | `mut_array_to_ptr_arith` | `p[i]` → `*(p + i)` | Array syntax uses scaled indexing; pointer arithmetic may use `lea` + `mov` |
 | `mut_ptr_arith_to_array` | `*(p + i)` → `p[i]` | Inverse — array form uses built-in scaling |
 | `mut_decouple_index_math` | `a[i*4+j]` → `tmp = i*4+j; a[tmp]` | Breaking `lea` folding by computing the index in a separate register |

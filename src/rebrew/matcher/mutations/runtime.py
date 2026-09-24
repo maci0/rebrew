@@ -73,6 +73,42 @@ def _cap_bytes(source: bytes, captures: dict[str, ts.Node], name: str) -> bytes:
     return source[node.start_byte : node.end_byte]
 
 
+#: Expressions that bind at least as tightly as a postfix operator, so they
+#: can stand as the operand of ``[]``, ``.``, ``->``, ``+`` or ``*`` as-is.
+_POSTFIX_SAFE = frozenset(
+    {
+        "identifier",
+        "number_literal",
+        "char_literal",
+        "string_literal",
+        "parenthesized_expression",
+        "field_expression",
+        "subscript_expression",
+        "call_expression",
+    }
+)
+
+#: Parents that apply a postfix operator to their first operand.
+_POSTFIX_PARENTS = frozenset(
+    {"field_expression", "subscript_expression", "call_expression", "update_expression"}
+)
+
+
+def _operand_bytes(source: bytes, captures: dict[str, ts.Node], name: str) -> bytes:
+    """Capture *name*'s bytes, parenthesized unless already postfix-safe.
+
+    Splicing a subexpression into a tighter context (a cast or ``i + 1`` as
+    a subscript base) without grouping silently changes what it computes.
+    """
+    text = _cap_bytes(source, captures, name)
+    return text if captures[name].type in _POSTFIX_SAFE else b"(" + text + b")"
+
+
+def _under_postfix(node: ts.Node) -> bool:
+    """True when *node*'s parent applies a postfix operator to it."""
+    return node.parent is not None and node.parent.type in _POSTFIX_PARENTS
+
+
 def brace_block(body: bytes) -> bytes:
     """Wrap *body* in ``{ }`` unless it is already braced.
 
