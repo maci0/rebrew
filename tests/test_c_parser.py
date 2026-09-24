@@ -340,6 +340,29 @@ class TestParsePreservesLegacyBytes:
         assert spans, "expected a protected string span"
         assert raw[spans[0][0] : spans[0][1]] == b'"keep"'
 
+    def test_legacy_bytes_roundtrip_through_proto(self) -> None:
+        from rebrew.c_parser import _node_text, _parse
+
+        # Source with cp1252 byte decoded via surrogateescape
+        src = b'char *s = "Caf\xe9";\n'.decode("utf-8", errors="surrogateescape")
+        tree, src_bytes = _parse(src)
+
+        def find_lit(n):
+            if n.type == "string_literal":
+                return n
+            for c in n.children:
+                res = find_lit(c)
+                if res:
+                    return res
+            return None
+
+        lit = find_lit(tree.root_node)
+        assert lit is not None
+        txt = _node_text(lit, src_bytes)
+        assert txt == '"Caf\udce9"'
+        # Must re-encode to the original raw bytes, not U+FFFD replacement
+        assert txt.encode("utf-8", errors="surrogateescape") == b'"Caf\xe9"'
+
 
 class TestTypeFromDeclaration:
     def test_simple_extern(self) -> None:

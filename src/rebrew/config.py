@@ -28,6 +28,7 @@ import re
 import shlex
 import sys
 import tomllib
+import unicodedata
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -1014,9 +1015,12 @@ def detect_crt_sources(root: Path) -> dict[str, str]:
             # Find a case-insensitive match in the current directory
             matched_child = None
             if candidate.is_dir():
-                component_lower = component.lower()
+                component_norm = unicodedata.normalize("NFC", component).casefold()
                 for child in candidate.iterdir():
-                    if child.name.lower() == component_lower and child.is_dir():
+                    if (
+                        child.is_dir()
+                        and unicodedata.normalize("NFC", child.name).casefold() == component_norm
+                    ):
                         matched_child = child
                         break
             if matched_child is None:

@@ -208,6 +208,17 @@ class TestNativeToolchainId:
         monkeypatch.setattr("rebrew.compile.shutil.which", lambda name: None)
         assert _native_toolchain_id(self._spec("no-such-compiler")) == "native:no-such-compiler"
 
+    def test_match_binary_nfd_nfc(self, tmp_path: Path) -> None:
+        from rebrew.toolchain import _match_binary
+
+        # NFD on disk vs NFC searched
+        nfd_name = "cl_\u0065\u0301.exe"
+        bin_path = tmp_path / nfd_name
+        bin_path.write_bytes(b"MZ...")
+        # Search with NFC
+        hit = _match_binary(tmp_path, "cl_\u00e9")
+        assert hit == bin_path
+
     def test_binary_upgrade_changes_id(self, tmp_path: Path, monkeypatch) -> None:
         """Two different binaries under the same name must not share an id.
 

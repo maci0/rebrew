@@ -165,7 +165,7 @@ def _iter_run_records(path: Path) -> Any:
     if not path.exists():
         return
     try:
-        fh = path.open(encoding="utf-8")
+        fh = path.open(encoding="utf-8", errors="replace")
     except OSError:
         log.warning("Cannot read GA run log %s — solution seeding disabled", path, exc_info=True)
         return
@@ -412,7 +412,7 @@ def load_ga_runs(
     # targets' newer ones).
     records: deque[dict[str, Any]] = deque(maxlen=limit)
     try:
-        fh = p.open(encoding="utf-8")
+        fh = p.open(encoding="utf-8", errors="replace")
     except OSError:
         log.warning("Cannot read GA run log %s", p, exc_info=True)
         return []

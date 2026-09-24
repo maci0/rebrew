@@ -12,6 +12,7 @@ import subprocess
 import threading
 import time
 import tomllib
+import unicodedata
 from collections import OrderedDict
 from collections.abc import Callable, Iterator, Sequence
 from pathlib import Path
@@ -892,7 +893,7 @@ def qualified_key(module: str | None, va: int) -> str:
     """
     va_hex = f"0x{va:08x}"
     if module:
-        return f"{module}.{va_hex}"
+        return f"{unicodedata.normalize('NFC', module)}.{va_hex}"
     return va_hex
 
 
@@ -912,7 +913,7 @@ def parse_metadata_key(key: str) -> tuple[str, int] | None:
     """
     if ".0x" in key:
         dot = key.index(".0x")
-        module = key[:dot]
+        module = unicodedata.normalize("NFC", key[:dot])
         hex_part = key[dot + 1 :]  # includes leading 0x
         try:
             return module, int(hex_part, 16)

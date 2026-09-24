@@ -483,6 +483,22 @@ class TestHeaderDependencyHash:
         k2 = compile_cache_key(src, "f.c", ["/O2"], ["/nope"], "wine CL")
         assert k1 == k2
 
+    def test_case_and_nfd_header_resolution(self, tmp_path: Path) -> None:
+        """NFD on disk vs NFC in #include matches under case-insensitive resolution."""
+        inc = tmp_path / "inc"
+        inc.mkdir()
+        # On disk: NFD spelling ("e" + combining acute)
+        nfd_name = "caf\u0065\u0301.h"
+        (inc / nfd_name).write_text("#define VAL 1\n", encoding="utf-8")
+
+        # In source: NFC spelling ("é")
+        src = '#include "caf\u00e9.h"\nint f(void){return VAL;}\n'
+        k1 = compile_cache_key(src, "f.c", ["/O2"], [str(inc)], "wine CL")
+
+        (inc / nfd_name).write_text("#define VAL 2\n", encoding="utf-8")
+        k2 = compile_cache_key(src, "f.c", ["/O2"], [str(inc)], "wine CL")
+        assert k1 != k2
+
     def test_nonliteral_include_falls_back_to_dir_fingerprint(self, tmp_path: Path) -> None:
         """#include MACRO cannot be resolved statically — fall back to the
         conservative whole-directory fingerprint (any header edit invalidates)."""

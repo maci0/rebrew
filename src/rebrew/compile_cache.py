@@ -54,6 +54,7 @@ import hashlib
 import logging
 import re
 import threading
+import unicodedata
 from collections.abc import Callable, Iterator
 from functools import lru_cache
 from pathlib import Path
@@ -575,8 +576,12 @@ def _find_in_dirs(name: Path, dirs: list[Path]) -> Path | None:
             # sub-path includes need exact directory structure.
             if len(name.parts) != 1:
                 continue
+            norm_name = unicodedata.normalize("NFC", name.name).casefold()
             for child in d.iterdir():
-                if child.is_file() and child.name.lower() == name.name.lower():
+                if (
+                    child.is_file()
+                    and unicodedata.normalize("NFC", child.name).casefold() == norm_name
+                ):
                     return child.resolve()
         except OSError:
             continue

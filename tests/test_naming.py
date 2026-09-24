@@ -32,6 +32,12 @@ class TestNormalizeName:
     def test_case_insensitive(self) -> None:
         assert normalize_name("FUNC_A") == "func_a"
 
+    def test_unicode_nfc_nfd(self) -> None:
+        # NFD (e + combining acute) and NFC (precomposed é) normalize identically
+        nfc = "func_\u00e9"
+        nfd = "func_\u0065\u0301"
+        assert normalize_name(nfc) == normalize_name(nfd) == "func_\u00e9"
+
 
 class TestParseByteDelta:
     def test_small_diff(self) -> None:
@@ -89,6 +95,12 @@ class TestSanitizeName:
 
     def test_underscore_collapse(self) -> None:
         assert sanitize_name("a__b") == "a_b"
+
+    def test_unicode_nfc_nfd_sanitization(self) -> None:
+        # NFC and NFD spellings must yield the exact same sanitized ASCII name
+        nfc = "caf\u00e9"
+        nfd = "caf\u0065\u0301"
+        assert sanitize_name(nfc) == sanitize_name(nfd) == "caf"
 
 
 class TestMakeFilename:

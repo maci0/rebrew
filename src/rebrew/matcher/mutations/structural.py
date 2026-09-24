@@ -180,13 +180,13 @@ def mut_inject_dummy_array(s: str, rng: random.Random) -> str | None:
     body_node = caps["body"]
 
     pad_id = rng.randint(0, 99)
-    pad_name = f"_pad_{pad_id}".encode()
+    pad_name = f"_pad_{pad_id}".encode("ascii")
     if pad_name in b_source:
         return None
 
     size = rng.choice([4, 8, 12, 16])
     insert_pos = body_node.start_byte + 1
-    decl = f"\n    char {pad_name.decode()}[{size}];".encode()
+    decl = f"\n    char {pad_name.decode('ascii')}[{size}];".encode("ascii")
     result = b_source[:insert_pos] + decl + b_source[insert_pos:]
     return decode_source(result)
 

@@ -225,12 +225,24 @@ class TestQualifiedKey:
 
         assert qualified_key(None, 0x01006364) == "0x01006364"
 
+    def test_nfd_module_normalized_to_nfc(self) -> None:
+        from rebrew.utils import qualified_key
+
+        nfd = "MOD_\u0065\u0301"
+        assert qualified_key(nfd, 0x1000) == "MOD_\u00e9.0x00001000"
+
 
 class TestParseMetadataKey:
     def test_valid(self) -> None:
         from rebrew.utils import parse_metadata_key
 
         assert parse_metadata_key("SERVER.0x01006364") == ("SERVER", 16802660)
+
+    def test_nfd_module_normalized_to_nfc(self) -> None:
+        from rebrew.utils import parse_metadata_key
+
+        nfd_key = "MOD_\u0065\u0301.0x00001000"
+        assert parse_metadata_key(nfd_key) == ("MOD_\u00e9", 0x1000)
 
     def test_invalid_hex_returns_none(self) -> None:
         from rebrew.utils import parse_metadata_key

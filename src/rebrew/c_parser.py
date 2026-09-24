@@ -124,7 +124,7 @@ def _parse(source: str | bytes) -> Any:
 
 def _node_text(node: Any, source_bytes: bytes) -> str:
     """Return the source text for a tree-sitter node."""
-    return source_bytes[node.start_byte : node.end_byte].decode("utf-8", errors="replace")
+    return source_bytes[node.start_byte : node.end_byte].decode("utf-8", errors="surrogateescape")
 
 
 def protected_spans(source: str | bytes) -> list[tuple[int, int]]:
@@ -276,7 +276,7 @@ def _extract_array_suffix(declarator: Any, source_bytes: bytes) -> str:
                         bracket_end = sibling.end_byte
                         parts.append(
                             source_bytes[bracket_start:bracket_end].decode(
-                                "utf-8", errors="replace"
+                                "utf-8", errors="surrogateescape"
                             )
                         )
                         break
@@ -318,7 +318,7 @@ def iter_function_name_and_proto(source: str) -> list[tuple[str, str]]:
             compound = _find_child(node, "compound_statement")
             if compound:
                 proto_bytes = src_bytes[node.start_byte : compound.start_byte].strip()
-                proto = proto_bytes.decode("utf-8", errors="replace").strip()
+                proto = proto_bytes.decode("utf-8", errors="surrogateescape").strip()
                 # Normalise CRLF prototypes to LF so the returned proto is
                 # stable regardless of the source file's line endings.
                 proto = proto.replace("\r\n", "\n").replace("\r", "\n")

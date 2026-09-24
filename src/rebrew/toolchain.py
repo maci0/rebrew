@@ -32,6 +32,7 @@ import shutil
 import subprocess
 import threading
 import tomllib
+import unicodedata
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, replace
@@ -644,10 +645,11 @@ def _match_binary(dir: Path, binary: str) -> Path | None:
     """Case-insensitive match of *binary* in *dir*, tolerating a ``.exe``
     suffix (vendored Windows trees store ``CL.EXE`` / ``cl.exe`` while specs
     name the binary ``cl``)."""
-    want = {binary.lower(), (binary + ".exe").lower()}
+    norm_bin = unicodedata.normalize("NFC", binary).casefold()
+    want = {norm_bin, norm_bin + ".exe"}
     try:
         for entry in dir.iterdir():
-            if entry.is_file() and entry.name.lower() in want:
+            if entry.is_file() and unicodedata.normalize("NFC", entry.name).casefold() in want:
                 return entry
     except OSError:
         pass
@@ -680,9 +682,13 @@ def vendored_binary(spec: ToolchainSpec) -> Path | None:
     # (MSVC 1.52's toolchain/msvc/1.52-win16/BIN/CL.EXE would otherwise never
     # resolve).
     if spec.host_bin:
+        norm_host_bin = unicodedata.normalize("NFC", spec.host_bin).casefold()
         try:
             for entry in host.iterdir():
-                if entry.is_dir() and entry.name.lower() == spec.host_bin.lower():
+                if (
+                    entry.is_dir()
+                    and unicodedata.normalize("NFC", entry.name).casefold() == norm_host_bin
+                ):
                     hit = _match_binary(entry, spec.binary)
                     if hit is not None:
                         return hit
@@ -694,7 +700,10 @@ def vendored_binary(spec: ToolchainSpec) -> Path | None:
                 if not wrapper.is_dir():
                     continue
                 for entry in wrapper.iterdir():
-                    if entry.is_dir() and entry.name.lower() == spec.host_bin.lower():
+                    if (
+                        entry.is_dir()
+                        and unicodedata.normalize("NFC", entry.name).casefold() == norm_host_bin
+                    ):
                         hit = _match_binary(entry, spec.binary)
                         if hit is not None:
                             return hit

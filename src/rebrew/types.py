@@ -81,7 +81,7 @@ def type_size(spelling: str, known_structs: dict[str, StructDef] | None = None) 
 
 
 def _field_text(node: Any, source: bytes) -> str:
-    return source[node.start_byte : node.end_byte].decode("utf-8", errors="replace")
+    return source[node.start_byte : node.end_byte].decode("utf-8", errors="surrogateescape")
 
 
 def _parse_field(decl: Any, source: bytes) -> tuple[str, str] | None:
@@ -300,7 +300,7 @@ def rewrite_param_type(
         ident = next((c for c in declarator.children if c.type == "identifier"), None)
         if ident is None:
             return
-        name = source[ident.start_byte : ident.end_byte].decode("utf-8", errors="replace")
+        name = source[ident.start_byte : ident.end_byte].decode("utf-8", errors="surrogateescape")
         if name != func_name:
             return
         params = next((c for c in declarator.children if c.type == "parameter_list"), None)

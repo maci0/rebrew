@@ -9,6 +9,7 @@ Extracted from skeleton.py and todo.py to eliminate circular dependencies.
 
 import bisect
 import re
+import unicodedata
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -155,7 +156,7 @@ def normalize_name(name: str) -> str:
 
     Matches the stripping logic used in ``crt_match.py``.
     """
-    normalized = name.strip().lower()
+    normalized = unicodedata.normalize("NFC", name).strip().lower()
     if normalized.startswith("__imp_"):
         normalized = normalized[len("__imp_") :]
     if normalized.startswith("_") and not normalized.startswith("__"):
@@ -474,6 +475,7 @@ def sanitize_name(ghidra_name: str) -> str:
     - No consecutive underscores
     - Maximum 64 characters
     """
+    ghidra_name = unicodedata.normalize("NFC", ghidra_name)
     if ghidra_name.startswith("FUN_"):
         # Convert FUN_<hex> prefix to func_<hex>, then fall through to the
         # shared pipeline so the remainder gets the same guarantees (no
@@ -508,7 +510,10 @@ def make_filename(
     # A user-supplied custom name gets the same character restriction so
     # it cannot carry path separators or dots into the output path.
     if custom_name:
-        base = _SANITIZE_NON_ALNUM_RE.sub("_", custom_name).strip("_") or "unnamed"
+        base = (
+            _SANITIZE_NON_ALNUM_RE.sub("_", unicodedata.normalize("NFC", custom_name)).strip("_")
+            or "unnamed"
+        )
     else:
         base = sanitize_name(ghidra_name)
 
