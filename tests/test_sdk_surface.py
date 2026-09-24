@@ -9,7 +9,15 @@ import pytest
 
 import rebrew
 from rebrew.compile import CompareResult
-from rebrew.config import ConfigError, ProjectConfig, find_root, load_config
+from rebrew.config import (
+    ConfigError,
+    ProjectConfig,
+    find_root,
+    is_key_safe_endpoint,
+    load_config,
+    validate_http_url,
+    validate_llm_model,
+)
 from rebrew.decompme import DecompmeError
 from rebrew.errors import RebrewError
 from rebrew.recompile_client import compile_source
@@ -160,8 +168,18 @@ class TestCompareResultHelpers:
 
 class TestProjectConfigValidation:
     def test_validate_valid_config(self, tmp_path: Path) -> None:
-        cfg = ProjectConfig(root=tmp_path, compiler_profile="msvc-6.0", arch="x86_32")
-        cfg.validate()  # should not raise
+        cfg = ProjectConfig(
+            root=tmp_path,
+            compiler_profile="msvc-6.0",
+            arch="x86_32",
+            recompile_url="http://localhost:8080",
+            llm_endpoint="http://localhost:11434/v1",
+            llm_model="qwen-2.5-coder",
+            llm_api_key="sk-test",
+        )
+        assert cfg.validate() is None
+        assert cfg.compiler_profile == "msvc-6.0"
+        assert cfg.arch == "x86_32"
 
     def test_validate_unknown_arch_raises(self, tmp_path: Path) -> None:
         cfg = ProjectConfig(root=tmp_path, arch="mips_64")
@@ -172,6 +190,97 @@ class TestProjectConfigValidation:
         cfg = ProjectConfig(root=tmp_path, compiler_profile="unknown-compiler-9.9")
         with pytest.raises(ConfigError, match="unknown profile 'unknown-compiler-9.9'"):
             cfg.validate()
+
+    def test_validate_invalid_recompile_url_raises(self, tmp_path: Path) -> None:
+        cfg = ProjectConfig(root=tmp_path, recompile_url="ftp://invalid")
+        with pytest.raises(ConfigError, match="compiler.recompile_url must be an http"):
+            cfg.validate()
+
+    def test_validate_invalid_llm_endpoint_raises(self, tmp_path: Path) -> None:
+        cfg = ProjectConfig(root=tmp_path, llm_endpoint="invalid://endpoint")
+        with pytest.raises(ConfigError, match="llm.endpoint must be an http"):
+            cfg.validate()
+
+    def test_validate_unpinned_llm_model_raises(self, tmp_path: Path) -> None:
+        cfg = ProjectConfig(root=tmp_path, llm_model="latest")
+        with pytest.raises(ConfigError, match="unpinned alias"):
+            cfg.validate()
+
+    def test_validate_llm_api_key_on_insecure_remote_http_raises(self, tmp_path: Path) -> None:
+        cfg = ProjectConfig(
+            root=tmp_path,
+            llm_endpoint="http://remote.api.com/v1",
+            llm_api_key="secret-key",
+        )
+        with pytest.raises(ConfigError, match="LLM endpoint must use https when an API key is set"):
+            cfg.validate()
+
+
+class TestUrlAndModelValidation:
+    @pytest.mark.parametrize(
+        ("url", "expected"),
+        [
+            ("http://localhost:8080", "http://localhost:8080"),
+            ("https://api.example.com/v1", "https://api.example.com/v1"),
+            ("  http://example.com/path  ", "http://example.com/path"),
+            ("", ""),
+            ("   ", ""),
+        ],
+    )
+    def test_validate_http_url_valid(self, url: str, expected: str) -> None:
+        assert validate_http_url(url, "test_field") == expected
+
+    @pytest.mark.parametrize(
+        "bad_url",
+        [
+            "ftp://example.com",
+            "http:///no-host",
+            "http://example.com:99999",
+            "http://example.com:0",
+            "http://example .com",
+            "http://example.com/path\x00evil",
+        ],
+    )
+    def test_validate_http_url_invalid(self, bad_url: str) -> None:
+        with pytest.raises(ConfigError, match="test_field must be an http"):
+            validate_http_url(bad_url, "test_field")
+
+    @pytest.mark.parametrize(
+        ("endpoint", "safe"),
+        [
+            ("https://remote-api.com/v1", True),
+            ("http://localhost:11434", True),
+            ("http://127.0.0.1:8000", True),
+            ("http://[::1]:8000", True),
+            ("http://remote-api.com/v1", False),
+            ("http://192.168.1.1:8000", False),
+            ("not-a-url", False),
+        ],
+    )
+    def test_is_key_safe_endpoint(self, endpoint: str, safe: bool) -> None:
+        assert is_key_safe_endpoint(endpoint) is safe
+
+    @pytest.mark.parametrize(
+        "model",
+        [
+            "gpt-4o",
+            "claude-3-5-sonnet-20241022",
+            "qwen-2.5-coder:32b",
+            "meta-llama/Llama-3-70b-chat",
+        ],
+    )
+    def test_validate_llm_model_valid(self, model: str) -> None:
+        assert validate_llm_model(model) == model
+
+    @pytest.mark.parametrize("unpinned", ["latest", "auto", "default", "LATEST", "Auto"])
+    def test_validate_llm_model_unpinned_rejected(self, unpinned: str) -> None:
+        with pytest.raises(ConfigError, match="unpinned alias"):
+            validate_llm_model(unpinned)
+
+    @pytest.mark.parametrize("bad_name", ["", "model with spaces", "bad$character", "a" * 129])
+    def test_validate_llm_model_invalid_characters_rejected(self, bad_name: str) -> None:
+        with pytest.raises(ConfigError, match="invalid characters or length"):
+            validate_llm_model(bad_name)
 
 
 class TestRecompileClientFlagsFlexibility:

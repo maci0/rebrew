@@ -1871,7 +1871,7 @@ profile = "msvc-6.0"
     def test_project_config_validate_method(self, tmp_path: Path) -> None:
         root = _make_project(tmp_path, self.BASE_TOML)
         cfg = load_config(root)
-        cfg.validate()  # valid passes without raising
+        assert cfg.validate() is None  # valid passes without raising
         cfg.recompile_url = "ftp://invalid"
-        with pytest.raises(ConfigError):
+        with pytest.raises(ConfigError, match=r"compiler\.recompile_url must be an http\(s\) URL"):
             cfg.validate()

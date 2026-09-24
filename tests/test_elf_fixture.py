@@ -42,7 +42,11 @@ class TestMakeElf:
         assert info.text_raw_offset == 0x400
 
     def test_deterministic(self) -> None:
-        assert make_elf(CODE) == make_elf(CODE)
+        elf1 = make_elf(CODE)
+        elf2 = make_elf(CODE)
+        assert elf1 == elf2
+        assert elf1.startswith(b"\x7fELF")
+        assert len(elf1) > 0
 
     def test_pe_fixture_unaffected(self, tmp_path: Path) -> None:
         """The existing PE builder still round-trips unchanged."""

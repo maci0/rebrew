@@ -1060,7 +1060,10 @@ class TestHeadersHash:
     def test_stable_across_calls(self, tmp_path: Path) -> None:
         cfg = _make_cfg(tmp_path)
         (cfg.reversed_dir / "types.h").write_text("typedef int BOOL;\n", encoding="utf-8")
-        assert _headers_hash(cfg) == _headers_hash(cfg)
+        h1 = _headers_hash(cfg)
+        h2 = _headers_hash(cfg)
+        assert h1 == h2
+        assert isinstance(h1, str) and len(h1) == 64
 
     def test_includes_nested_headers(self, tmp_path: Path) -> None:
         cfg = _make_cfg(tmp_path)

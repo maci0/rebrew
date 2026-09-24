@@ -1579,17 +1579,15 @@ class TestGABuildCacheKey:
         from rebrew.match_ga import _ga_cache_key
 
         src = "int f(void) { return 0; }"
+        base_key = _ga_cache_key(src, "/O2", "cl", "inc")
+        assert len(base_key) > 0
         # Same inputs → same key; any change → different key.
-        assert _ga_cache_key(src, "/O2", "cl", "inc") == _ga_cache_key(src, "/O2", "cl", "inc")
-        assert _ga_cache_key(src, "/O2", "cl", "inc") != _ga_cache_key(src, "/O2 /Oy-", "cl", "inc")
-        assert _ga_cache_key(src, "/O2", "cl", "inc") != _ga_cache_key(src, "/O2", "cl.exe", "inc")
-        assert _ga_cache_key(src, "/O2", "cl", "inc") != _ga_cache_key(
-            src, "/O2", "cl", "other_inc"
-        )
+        assert base_key == _ga_cache_key(src, "/O2", "cl", "inc")
+        assert base_key != _ga_cache_key(src, "/O2 /Oy-", "cl", "inc")
+        assert base_key != _ga_cache_key(src, "/O2", "cl.exe", "inc")
+        assert base_key != _ga_cache_key(src, "/O2", "cl", "other_inc")
         # Different source text → different key too.
-        assert _ga_cache_key(src, "/O2", "cl", "inc") != _ga_cache_key(
-            "int g(void) { return 1; }", "/O2", "cl", "inc"
-        )
+        assert base_key != _ga_cache_key("int g(void) { return 1; }", "/O2", "cl", "inc")
         # Extra include dirs change which headers resolve → different key.
         assert _ga_cache_key(src, "/O2", "cl", "inc", ["a", "b"]) != _ga_cache_key(
             src, "/O2", "cl", "inc", ["a"]
@@ -1600,12 +1598,10 @@ class TestGABuildCacheKey:
         )
         # Different symbols share one cache DB — the same source compiled for
         # another stub's symbol must not hit this stub's entry.
-        assert _ga_cache_key(src, "/O2", "cl", "inc", symbol="_f") != _ga_cache_key(
-            src, "/O2", "cl", "inc", symbol="_g"
-        )
-        assert _ga_cache_key(src, "/O2", "cl", "inc", symbol="_f") == _ga_cache_key(
-            src, "/O2", "cl", "inc", symbol="_f"
-        )
+        sym_f_key = _ga_cache_key(src, "/O2", "cl", "inc", symbol="_f")
+        assert sym_f_key != _ga_cache_key(src, "/O2", "cl", "inc", symbol="_g")
+        assert sym_f_key == _ga_cache_key(src, "/O2", "cl", "inc", symbol="_f")
+        assert sym_f_key != base_key
         # A different toolchain profile must not reuse the object: image-backed
         # profiles compile through docker with an empty cl_cmd and the same
         # default inc_dir, so the profile is the only discriminator left.

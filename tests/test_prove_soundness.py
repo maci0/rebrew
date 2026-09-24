@@ -291,4 +291,7 @@ class TestStubArgFingerprint:
         import claripy
 
         solver = claripy.Solver()
-        assert prove_mod._fingerprint_args(solver, ()) == prove_mod._fingerprint_args(solver, ())
+        fp1 = prove_mod._fingerprint_args(solver, ())
+        fp2 = prove_mod._fingerprint_args(solver, ())
+        assert fp1 == fp2
+        assert isinstance(fp1, str)

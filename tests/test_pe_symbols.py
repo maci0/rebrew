@@ -248,7 +248,10 @@ class TestPeDirectories:
 
     def test_directories_are_deterministic(self, tmp_path: Path) -> None:
         path, _handlers, _targets, _cookie = _load_config_pe(tmp_path)
-        assert pe_directories(path) == pe_directories(path)
+        first = pe_directories(path)
+        second = pe_directories(path)
+        assert first == second
+        assert len(first.safe_seh_handlers) > 0
 
     @pytest.mark.parametrize("rva_based", [False, True])
     def test_delay_import_dll_name_keeps_basename(self, tmp_path: Path, rva_based: bool) -> None:
@@ -319,7 +322,10 @@ class TestPeSymbols:
 
     def test_symbols_are_deterministic(self, tmp_path: Path) -> None:
         path, _handlers, _targets, _cookie = _load_config_pe(tmp_path)
-        assert pe_symbols(path) == pe_symbols(path)
+        first = pe_symbols(path)
+        second = pe_symbols(path)
+        assert first == second
+        assert len(first.symbols) > 0
 
 
 # ---------------------------------------------------------------------------

@@ -643,7 +643,8 @@ class TestGetCompileCache:
         assert len(cc._caches) == 2
         # Oldest (proj0) evicted; proj1 and proj2 remain.
         assert any(str(roots[0] / ".rebrew" / "compile_cache") in k[1] for k in cc._caches) is False
-        assert get_compile_cache(roots[1]) is get_compile_cache(roots[1])
+        assert any(str(roots[1] / ".rebrew" / "compile_cache") in k[1] for k in cc._caches) is True
+        assert any(str(roots[2] / ".rebrew" / "compile_cache") in k[1] for k in cc._caches) is True
         close_all_caches()
 
 

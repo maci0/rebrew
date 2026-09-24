@@ -449,7 +449,10 @@ class TestEdgeCases:
         assert _extract_callees(missing) == []
 
     def test_sanitize_id_stable(self) -> None:
-        assert _sanitize_id("func_a") == _sanitize_id("func_a")
+        res1 = _sanitize_id("func_a")
+        res2 = _sanitize_id("func_a")
+        assert res1 == res2
+        assert res1.startswith("n_func_a_")
 
 
 class TestBinaryCallEdges:

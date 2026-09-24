@@ -692,7 +692,7 @@ binary = "test.exe"
         conn = sqlite3.connect(project_root / "db" / "coverage.db")
         c = conn.cursor()
         c.execute("SELECT name FROM sqlite_master WHERE type='index' AND name='idx_metadata_key'")
-        assert c.fetchone() is not None
+        assert c.fetchone() == ("idx_metadata_key",)
         conn.close()
 
     def test_globals_module_va_index_exists(self, project_root: Path) -> None:
@@ -703,7 +703,7 @@ binary = "test.exe"
         c.execute(
             "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_globals_module_va'"
         )
-        assert c.fetchone() is not None
+        assert c.fetchone() == ("idx_globals_module_va",)
         plan = conn.execute(
             "EXPLAIN QUERY PLAN SELECT va, name, decl, size, module FROM globals "
             "WHERE target = 'testbin' AND module = 'GAME' ORDER BY va LIMIT 50 OFFSET 0"

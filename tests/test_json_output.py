@@ -1464,31 +1464,28 @@ class TestSinglePathExitCodes:
         blob.write_bytes(b"\x90" * 8)
         self._cfg(tmp_path, monkeypatch, self._cmp("EXACT"))
         monkeypatch.setattr("rebrew.test.compile_and_compare", _capture)
-        try:
-            testmod.main(
-                str(tmp_path / "f.c"),
-                None,
-                None,
-                str(blob),
-                None,
-                None,
-                None,
-                False,
-                None,
-                None,
-                False,
-                None,
-                True,
-                False,
-                False,
-                False,
-                False,
-                None,
-                True,
-                None,
-            )
-        except __import__("typer").Exit:
-            pass
+        testmod.main(
+            str(tmp_path / "f.c"),
+            None,
+            None,
+            str(blob),
+            None,
+            None,
+            None,
+            False,
+            None,
+            None,
+            False,
+            None,
+            True,
+            False,
+            False,
+            False,
+            False,
+            None,
+            True,
+            None,
+        )
         assert captured["kwargs"].get("section_va") == 0x1000
 
 
