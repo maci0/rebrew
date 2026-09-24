@@ -112,7 +112,7 @@ main { max-width: 1100px; margin: 1.5rem auto; padding: 0 1.5rem; }
         display: flex; flex-direction: column-reverse; }
 .card dd { margin: 0; }
 .card .value { font-size: 1.5rem; font-weight: 700; }
-.card .label { color: #444; font-size: 0.85rem; }
+.card .label { color: #333; font-size: 0.85rem; }
 .table-scroll { overflow-x: auto; margin-bottom: 1.5rem; }
 table { width: 100%; border-collapse: collapse; background: #fff;
         border: 1px solid #767676; border-radius: 6px; overflow: hidden;

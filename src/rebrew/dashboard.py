@@ -993,11 +993,11 @@ _INDEX_HTML = """<!doctype html>
   /* Weight marks the selected card and tab without relying on border colour (WCAG 1.4.1). */
   button.card.active .label, .views button.active { font-weight: 700; }
   .card .value { font-size: 1.4rem; font-weight: 700; display: block; }
-  .card .label { color: #444; }
+  .card .label { color: #333; }
   .table-scroll { overflow-x: auto; position: relative; }
   .table-scroll[aria-busy="true"]::after {
     content: "Loading…"; position: absolute; inset: 0; display: flex; align-items: center;
-    justify-content: center; background: rgba(255,255,255,.7); font-size: .95rem; color: #444;
+    justify-content: center; background: rgba(255,255,255,.7); font-size: .95rem; color: #333;
   }
   .visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
     overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
@@ -1007,8 +1007,8 @@ _INDEX_HTML = """<!doctype html>
   td.va { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; }
   #dashboard-error { color: #9a3412; background: #fff7ed; border: 1px solid #9a3412;
     border-radius: 6px; padding: .6rem .8rem; margin: .75rem 0; }
-  #empty-state, #no-targets { color: #555; margin: 1rem 0; }
-  #results-hint { color: #555; font-size: .9rem; margin: .25rem 0 0; }
+  #empty-state, #no-targets { color: #4a4a4a; margin: 1rem 0; }
+  #results-hint { color: #4a4a4a; font-size: .9rem; margin: .25rem 0 0; }
   #filter-actions, #show-more-wrap, #globals-show-more-wrap, #history-show-more-wrap,
   #retry-bar { margin: .35rem 0 .75rem; }
   #clear-filters, #show-more, #show-more-globals, #show-more-history,
