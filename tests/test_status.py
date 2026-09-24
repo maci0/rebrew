@@ -359,6 +359,46 @@ class TestCollectStatus:
         assert report.library_identified == 1
         assert report.matched_pct == 50.0
 
+    def test_matched_bytes_stop_at_next_function(self, tmp_path: Path) -> None:
+        """An inventory entry that runs into the next function counts only its
+        own bytes: the unmatched neighbour is not byte-matched."""
+        cfg = _make_cfg(tmp_path)
+        src = tmp_path / "src"
+        src.mkdir()
+        # The discoverer missed 0x1020 and reports 0x1000 spanning both.
+        (src / "function_structure.json").write_text(
+            json.dumps([{"va": 0x1000, "size": 0x40, "ghidra_name": "a"}]), encoding="utf-8"
+        )
+        (src / "a.c").write_text("// FUNCTION: TEST 0x1000\nvoid a(void) {}\n", encoding="utf-8")
+        (src / "b.c").write_text("// FUNCTION: TEST 0x1020\nvoid b(void) {}\n", encoding="utf-8")
+        (tmp_path / "rebrew-functions.toml").write_text(
+            '["TEST.0x1000"]\nstatus = "EXACT"\n["TEST.0x1020"]\nstatus = "STUB"\n',
+            encoding="utf-8",
+        )
+        report = collect_status(cfg)  # type: ignore[arg-type]
+        assert report.status_counts == {"EXACT": 1, "STUB": 1}
+        assert report.matched_bytes == 0x20
+
+    def test_library_size_spanning_a_neighbour_counts_once(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A library SIZE covering a whole .obj (the next function starts 8
+        bytes in) must not count the neighbour's bytes a second time."""
+        import rebrew.naming
+
+        cfg = _make_cfg(tmp_path)
+        existing = {
+            0x1000: {"filename": "library_x.h", "size": "40", "marker_type": "LIBRARY"},
+            0x1008: {"filename": "library_x.h", "size": "32", "marker_type": "LIBRARY"},
+        }
+        monkeypatch.setattr(
+            rebrew.naming,
+            "load_data",
+            lambda cfg: ([], existing, dict.fromkeys(existing, "library_x.h")),
+        )
+        report = collect_status(cfg)  # type: ignore[arg-type]
+        assert report.matched_bytes == 40
+
     def test_library_rows_bucketed_in_module_table(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

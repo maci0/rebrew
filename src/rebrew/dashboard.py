@@ -84,6 +84,7 @@ from rich.markup import escape
 from rebrew.build_db import FUNCTION_ROWS_SQL, resolve_db_dir
 from rebrew.cli import console, error_exit, json_print
 from rebrew.metadata import canonical_status
+from rebrew.utils import floor_pct
 from rebrew.workspace import open_sqlite_ro
 
 log = logging.getLogger(__name__)
@@ -1439,8 +1440,8 @@ class Dashboard:
         return "ok", {
             "target": target,
             "function_stats": stats,
-            "coverage_pct": round(covered / total_b * 100.0, 1) if total_b else 0.0,
-            "identified_pct": round(identified / total_b * 100.0, 1) if total_b else 0.0,
+            "coverage_pct": floor_pct(covered, total_b),
+            "identified_pct": floor_pct(identified, total_b),
         }
 
     def summary(self, target: str) -> dict[str, Any] | None:

@@ -62,7 +62,7 @@ from rebrew.compile import (
 from rebrew.config import ProjectConfig, inventory_path_for
 from rebrew.match_semantics import EFFECTIVE_MATCH_NOTE, is_effective_match
 from rebrew.metadata import should_promote_status
-from rebrew.utils import atomic_write_text
+from rebrew.utils import atomic_write_text, floor_pct
 from rebrew.verify_cache import (
     VerifyCacheEntry,
     _load_verify_cache,
@@ -2485,7 +2485,11 @@ def _print_results(
             color = STATUS_COLORS.get(st, "red")
             st_str = f"[{color}]{st}[/{color}]"
 
-            pct = f"{r['match_percent']:.1f}%" if st in ("STUB", "NEAR_MATCHING") else "-"
+            pct = (
+                f"{floor_pct(r['match_percent'], 100):.1f}%"
+                if st in ("STUB", "NEAR_MATCHING")
+                else "-"
+            )
             dt = f"{r.get('delta', 0)}B" if st in ("STUB", "NEAR_MATCHING") else "-"
             sim = r.get("similarity")
             sim_str = f"{sim:.1f}%" if isinstance(sim, (int, float)) else "-"
@@ -2532,7 +2536,7 @@ def _print_results(
                 sim = res_dict.get("similarity") if res_dict else None
                 sim_str = f" / sim {sim:.1f}" if isinstance(sim, (int, float)) else ""
                 console.print(
-                    rf"  [red bold]\[{match_pct:.1f}%{sim_str}][/] 0x{entry.va:08X} {entry.name}{fp_suffix}: {msg}"
+                    rf"  [red bold]\[{floor_pct(match_pct, 100):.1f}%{sim_str}][/] 0x{entry.va:08X} {entry.name}{fp_suffix}: {msg}"
                 )
             elif st in (
                 "COMPILE_ERROR",

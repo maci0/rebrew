@@ -10,6 +10,7 @@ Extracted from skeleton.py and todo.py to eliminate circular dependencies.
 import bisect
 import re
 import unicodedata
+from collections.abc import Iterable
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -317,7 +318,27 @@ def load_data(
             }
             covered_vas[entry.va] = hfile.name
 
+    _clip_to_next_start(ghidra_funcs, existing.keys())
     return ghidra_funcs, existing, covered_vas
+
+
+def _clip_to_next_start(funcs: list["FunctionEntry"], annotated: Iterable[int]) -> None:
+    """Cut each inventory size at the next known function start, in place.
+
+    A discoverer that misses a start reports the previous entry running
+    through the unseen function; the start is known only from a source
+    annotation.  Summing such sizes counted the neighbour's bytes twice, and
+    an unmatched neighbour as matched.
+    """
+    starts = sorted({f.va for f in funcs}.union(annotated))
+    for f in funcs:
+        f.size = clip_span(starts, f.va, f.size)
+
+
+def clip_span(starts: list[int], va: int, size: int) -> int:
+    """*size* cut so ``va + size`` does not pass the next of the sorted *starts*."""
+    i = bisect.bisect_right(starts, va)
+    return min(size, starts[i] - va) if i < len(starts) else size
 
 
 def scope_to_target(

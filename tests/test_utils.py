@@ -14,6 +14,7 @@ from rebrew.utils import (
     atomic_write_text,
     container_runtime,
     detect_source_encoding,
+    floor_pct,
     load_tomllib,
     read_compile_source,
     read_source_text,
@@ -1111,3 +1112,15 @@ class TestMd5File:
         res = md5_file(sample)
         assert res == real_md5(b"hello world").hexdigest()
         assert created_flags == [False]
+
+
+class TestFloorPct:
+    def test_never_rounds_a_miss_up_to_100(self) -> None:
+        assert floor_pct(2809, 2810) == 99.9
+        assert floor_pct(99996, 100000, 2) == 99.99
+
+    def test_exact_decimal_survives_float_error(self) -> None:
+        assert floor_pct(573, 1000) == 57.3  # 57.3 * 10 is 572.999... in binary
+
+    def test_zero_whole(self) -> None:
+        assert floor_pct(5, 0) == 0.0

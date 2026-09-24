@@ -34,6 +34,7 @@ from rebrew.cli import (
 )
 from rebrew.config import ProjectConfig
 from rebrew.sources import iter_sources
+from rebrew.utils import floor_pct
 from rebrew.workspace.status import MATCHED_STATUSES
 
 # ---------------------------------------------------------------------------
@@ -123,7 +124,7 @@ class StatusReport:
         """Percentage of total functions that have a C source file (covered)."""
         if self.total_functions == 0:
             return 0.0
-        return round(100.0 * self.covered_functions / self.total_functions, 1)
+        return floor_pct(self.covered_functions, self.total_functions)
 
     @property
     def matched_pct(self) -> float:
@@ -134,7 +135,7 @@ class StatusReport:
         """
         if self.total_functions == 0:
             return 0.0
-        return round(100.0 * self.matched_functions / self.total_functions, 1)
+        return floor_pct(self.matched_functions, self.total_functions)
 
     @property
     def matched_functions(self) -> int:
@@ -149,7 +150,7 @@ class StatusReport:
         if self.total_functions == 0:
             return 0.0
         decompiled = max(0, self.matched_functions - self.naked_matched)
-        return round(100.0 * decompiled / self.total_functions, 1)
+        return floor_pct(decompiled, self.total_functions)
 
     @property
     def byte_coverage_pct(self) -> float:
@@ -157,7 +158,7 @@ class StatusReport:
         library attributions included."""
         if self.total_text_bytes == 0:
             return 0.0
-        return round(100.0 * self.matched_bytes / self.total_text_bytes, 1)
+        return floor_pct(self.matched_bytes, self.total_text_bytes)
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize for JSON output."""
@@ -385,7 +386,7 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
     so that functions which fail verification (NEAR_MATCHING, COMPILE_ERROR) are
     not counted as byte-matched.
     """
-    from rebrew.naming import load_data
+    from rebrew.naming import clip_span, load_data
     from rebrew.sources import iter_sources
 
     report = StatusReport(
@@ -433,6 +434,19 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
     # Single pass: status breakdown + byte-level coverage.
     status_counts: dict[str, int] = {}
     size_by_va: dict[int, int] = {f.va: f.size for f in ghidra_funcs}
+    starts = sorted(size_by_va.keys() | existing.keys())
+
+    def _span(va: int, info: dict[str, str]) -> int:
+        """Bytes of *va*: the inventory size, else the annotated SIZE, cut at
+        the next known start (a library SIZE can span a whole .obj)."""
+        size = size_by_va.get(va)
+        if size is None:
+            try:
+                size = int(info.get("size") or 0)
+            except (TypeError, ValueError):
+                size = 0
+        return clip_span(starts, va, size)
+
     matched_bytes = 0
     naked_matched = 0
     naked_bytes = 0
@@ -451,13 +465,7 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
         # STATUS is ignored: the attribution is the identification.
         if va in library_vas:
             library_identified += 1
-            size = size_by_va.get(va)
-            if size is None:
-                try:
-                    size = int(info.get("size") or 0)
-                except (TypeError, ValueError):
-                    size = 0
-            matched_bytes += size
+            matched_bytes += _span(va, info)
             # Bucketed as LIBRARY: a status left over from before the row was
             # identified as library code would read as reversing progress.
             module = info.get("module") or "?"
@@ -488,12 +496,7 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
             # Fall back to annotation-metadata SIZE when the Ghidra
             # function_structure.json is missing/stale — otherwise every
             # matched byte counted 0 and coverage read 0%.
-            size = size_by_va.get(va)
-            if size is None:
-                try:
-                    size = int(info.get("size") or 0)
-                except (TypeError, ValueError):
-                    size = 0
+            size = _span(va, info)
             if naked:
                 naked_matched += 1
                 naked_bytes += size
@@ -600,7 +603,7 @@ def _render_terminal(report: StatusReport) -> None:
         count = report.status_counts.get(status, 0)
         if count == 0:
             continue
-        pct = round(100.0 * count / report.total_functions, 1) if report.total_functions else 0.0
+        pct = floor_pct(count, report.total_functions)
         color = STATUS_COLORS.get(status, "white")
         mini_bar_len = int(20 * count / max(report.total_functions, 1))
         mini_bar = "█" * max(mini_bar_len, 1)
@@ -617,7 +620,7 @@ def _render_terminal(report: StatusReport) -> None:
         count = report.status_counts[status]
         if count == 0:
             continue
-        pct = round(100.0 * count / report.total_functions, 1) if report.total_functions else 0.0
+        pct = floor_pct(count, report.total_functions)
         color = STATUS_COLORS.get(status, "red")
         status_table.add_row(
             f"[{color}]{status}[/{color}]",

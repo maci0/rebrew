@@ -44,7 +44,7 @@ from rebrew.match_sweep import (
 )
 from rebrew.matcher import GACheckpoint, SolutionEntry, load_ga_runs
 from rebrew.matcher.core import EXACT_SCORE_THRESHOLD
-from rebrew.utils import atomic_write_text, metadata_write_lock, read_compile_source
+from rebrew.utils import atomic_write_text, floor_pct, metadata_write_lock, read_compile_source
 
 log = logging.getLogger(__name__)
 
@@ -753,7 +753,7 @@ def _show_ga_history(cfg: ProjectConfig, json_output: bool, *, target: str = "")
     summary: dict[str, Any] = {
         "total": total,
         "matched": matched,
-        "matched_pct": round(100.0 * matched / total, 1) if total else 0.0,
+        "matched_pct": floor_pct(matched, total),
         "avg_score": round(sum(scored) / len(scored), 2) if scored else None,
         "best_score": round(min(scored), 2) if scored else None,
         "recent": records[:10],

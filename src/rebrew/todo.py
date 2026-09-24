@@ -50,6 +50,7 @@ from rebrew.naming import (
     parse_byte_delta,
 )
 from rebrew.status import effective_status
+from rebrew.utils import floor_pct
 from rebrew.workspace.status import MATCHED_STATUSES
 
 # ---------------------------------------------------------------------------
@@ -1267,7 +1268,7 @@ def main(
     # unfinished functions (28% where status said 42% for the same tree).
     denominator = total_funcs
     # Byte-matched only: PROVEN bytes still differ from the target.
-    pct = round(100.0 * (exact + reloc) / denominator, 1) if denominator else 0.0
+    pct = floor_pct(exact + reloc, denominator)
 
     if category == "blocked":
         # Lens, not a move: every item with BLOCKER text, whatever its home
@@ -1340,7 +1341,9 @@ def main(
     for i, item in enumerate(display_items, 1):
         color = _CATEGORY_COLORS.get(item.category, "white")
         cat_label = item.category.replace("-", "\u2011")  # non-breaking hyphen for display
-        match_str = f"{item.match_percent:.0f}%" if item.match_percent is not None else "—"
+        match_str = (
+            f"{floor_pct(item.match_percent, 100):.1f}%" if item.match_percent is not None else "—"
+        )
         delta_str = f"{item.byte_delta}B" if item.byte_delta is not None else "—"
         table.add_row(
             str(i),

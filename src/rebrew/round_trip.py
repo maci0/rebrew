@@ -64,7 +64,7 @@ from rebrew.sources import (
     iter_sources,
     target_marker,
 )
-from rebrew.utils import atomic_write_bytes, safe_shlex_split
+from rebrew.utils import atomic_write_bytes, floor_pct, safe_shlex_split
 
 app = typer.Typer(
     help="Splice every matched function back into the target PE and verify byte equality.",
@@ -744,10 +744,8 @@ def _run_round_trip(
             "spliced_bytes": spliced_bytes,
             "proven_bytes": proven_bytes,
             "passthrough_bytes": passthrough_bytes,
-            "spliced_pct": round(100.0 * spliced_bytes / text_size, 2) if text_size else 0.0,
-            "passthrough_pct": (
-                round(100.0 * passthrough_bytes / text_size, 2) if text_size else 0.0
-            ),
+            "spliced_pct": floor_pct(spliced_bytes, text_size, 2),
+            "passthrough_pct": floor_pct(passthrough_bytes, text_size, 2),
         },
     }
     if json_output:

@@ -1241,6 +1241,40 @@ class TestTodoCli:
         assert data["total_items"] >= 1
         assert any(i["va"] == "0x00001000" for i in data["items"])
 
+    def test_near_miss_never_shows_100_percent(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """99.6% with an 8-byte delta is not a match; the table must not round it to 100%."""
+        from rebrew.verify_cache import VerifyCacheEntry
+
+        entry = VerifyCacheEntry(
+            source_hash="",
+            filepath="a.c",
+            mtime_ns=0,
+            status="NEAR_MATCHING",
+            va=0x1000,
+            size=2057,
+            name="func_a",
+            message="",
+            passed=False,
+            match_percent=99.6,
+            delta=8,
+        )
+        monkeypatch.setattr("rebrew.todo._load_verify_entries", lambda cfg: {"0x00001000": entry})
+        from rebrew.cli import console
+
+        monkeypatch.setattr(console, "_width", 250)
+        result = self._invoke(
+            tmp_path,
+            monkeypatch,
+            ghidra_funcs=[FunctionEntry(va=0x1000, size=2057, name="func_a")],
+            existing={0x1000: {"status": "NEAR_MATCHING", "symbol": "func_a", "size": "2057"}},
+            covered_vas={0x1000: "a.c"},
+        )
+        assert result.exit_code == 0
+        assert "99.6%" in result.output
+        assert "100%" not in result.output
+
     def test_library_rows_leave_counts_and_denominator(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -1381,7 +1415,7 @@ class TestTodoCli:
         assert cov["covered"] == 3
         assert cov["exact"] == 1
         assert cov["reloc"] == 1
-        assert cov["pct_matched"] == 66.7  # 2/3 matched, not 2/1 = 200%
+        assert cov["pct_matched"] == 66.6  # 2/3 matched (rounded down), not 2/1 = 200%
         assert cov["pct_matched"] <= 100.0
 
     def test_category_filter(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

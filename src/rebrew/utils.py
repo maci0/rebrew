@@ -3,6 +3,7 @@
 import contextlib
 import copy
 import logging
+import math
 import os
 
 try:
@@ -39,6 +40,19 @@ console = Console(stderr=True)
 #: Unicode rules and accepts ``café`` or ``名前``, which MSVC6-era compilers
 #: reject.  Names from linker output, BinSync, or the CLI are external text.
 _C_IDENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
+
+
+def floor_pct(part: float, whole: float, decimals: int = 1) -> float:
+    """``100 * part / whole`` rounded down to *decimals* places; 0.0 when *whole* is 0.
+
+    Progress and match figures must not round up: to nearest, 2809 of 2810
+    matched reads "100.0%" with one function still unmatched.
+    """
+    if not whole:
+        return 0.0
+    scale = float(10**decimals)
+    # The inner round absorbs float error (57.3 * 10 = 572.99...).
+    return math.floor(round(100.0 * part / whole * scale, 6)) / scale
 
 
 def is_safe_c_ident(name: str) -> bool:

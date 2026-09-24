@@ -59,6 +59,7 @@ from rebrew.status import StatusReport, collect_status
 from rebrew.utils import (
     atomic_write_bytes,
     atomic_write_text,
+    floor_pct,
     rel_display_path,
 )
 
@@ -1046,20 +1047,18 @@ def generate_decomp_dev_report(cfg: ProjectConfig, out_path: Path) -> dict[str, 
         "fuzzy_match_percent": round(fuzzy_code / text_size * 100.0, 2) if text_size else 0.0,
         "total_code": text_size,
         "matched_code": matched_code,
-        "matched_code_percent": round(matched_code / text_size * 100.0, 2) if text_size else 0.0,
+        "matched_code_percent": floor_pct(matched_code, text_size, 2),
         "total_data": data_size,
         "matched_data": 0,
         "matched_data_percent": 0.0,
         "total_functions": registry_total,
         "matched_functions": matched_functions,
-        "matched_functions_percent": round(matched_functions / registry_total * 100.0, 2)
-        if registry_total
-        else 0.0,
+        "matched_functions_percent": floor_pct(matched_functions, registry_total, 2),
         # A byte-matched rebrew function is byte-identical, hence "linked"
         # by construction when the rebuilt binary is relinked — map
         # complete_* onto matched_* for the decomp.dev "fully linked" bar.
         "complete_code": matched_code,
-        "complete_code_percent": round(matched_code / text_size * 100.0, 2) if text_size else 0.0,
+        "complete_code_percent": floor_pct(matched_code, text_size, 2),
         "complete_data": 0,
         "complete_data_percent": 0.0,
         "total_units": len(units),

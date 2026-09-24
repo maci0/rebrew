@@ -1,5 +1,19 @@
 ## [Unreleased]
 
+### Fixed
+- **Byte coverage no longer counts a neighbour's bytes.**  A discoverer that
+  misses a function start reports the previous entry running through it, and
+  a library `SIZE` can span a whole `.obj`; `rebrew status` summed those
+  sizes, counting the neighbour twice and an unmatched one as matched
+  (guild-rebrew `server.dll`: 97.5% reported, 92.9% true).  Inventory sizes
+  from `load_data` and the SIZE fallback in `status` are now cut at the next
+  known function start.
+- **Progress percentages round down.**  Rounding to nearest showed a
+  function at 99.6% as "100%" in `rebrew todo`, and would show 2809 of 2810
+  matched as "100.0%".  `status`, `todo`, `verify`, `report`, `dashboard`,
+  `round-trip` and `match --all` now round progress and match figures down
+  (`utils.floor_pct`); `todo` shows one decimal.
+
 ## [2.8.0] - 2026-09-25
 ### Added
 - **Lint W030: markers out of VA order.**  The linker places a translation
