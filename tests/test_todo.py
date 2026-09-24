@@ -1021,6 +1021,18 @@ class TestActiveFunctionsEdges:
         assert len(items) == 1
         assert "flag-sweep-only" in items[0].command
 
+    def test_empty_or_non_numeric_size_does_not_crash(self) -> None:
+        from rebrew.todo import _collect_active_functions
+
+        existing = {
+            0x1000: {"status": "NEAR_MATCHING", "symbol": "f", "size": ""},
+            0x2000: {"status": "NEAR_MATCHING", "symbol": "g", "size": "invalid"},
+        }
+        items = _collect_active_functions(existing, {}, {}, {})
+        assert len(items) == 2
+        assert items[0].size == 0
+        assert items[1].size == 0
+
 
 class TestProverCandidatesWithAngr:
     def test_prover_candidates_full_path(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1044,6 +1056,24 @@ class TestProverCandidatesWithAngr:
         assert items[0].category == CAT_RUN_PROVER
         assert items[0].match_percent == 97.0
         assert items[0].byte_delta == 8
+
+    def test_prover_candidates_empty_or_invalid_size(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import sys
+        from types import SimpleNamespace as SN
+
+        from rebrew.todo import _collect_prover_candidates
+
+        monkeypatch.setitem(sys.modules, "angr", SN())
+        existing = {
+            0x1000: {"status": "NEAR_MATCHING", "symbol": "a", "size": ""},
+            0x2000: {"status": "NEAR_MATCHING", "symbol": "b", "size": "invalid"},
+        }
+        verify_entries = {
+            "0x00001000": SN(status="NEAR_MATCHING", match_percent=97.0, delta=8),
+            "0x00002000": SN(status="NEAR_MATCHING", match_percent=97.0, delta=8),
+        }
+        items = _collect_prover_candidates(existing, {}, verify_entries)  # type: ignore[arg-type]
+        assert items == []
 
 
 class TestLoadVerifyEntriesValid:

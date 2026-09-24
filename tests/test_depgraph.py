@@ -428,6 +428,16 @@ class TestRenderers:
         assert "dispatch" in result
         assert "DISPATCH" in result
 
+    def test_summary_with_non_standard_statuses(self) -> None:
+        """Summary reports non-standard statuses such as SKIP and SIZE_MISMATCH."""
+        nodes: dict[str, NodeInfo] = {
+            "FuncA": {"status": "SKIP", "va": 1, "file": "a.c"},
+            "FuncB": {"status": "SIZE_MISMATCH", "va": 2, "file": "b.c"},
+        }
+        result = render_summary(nodes, [])
+        assert "SKIP: 1" in result
+        assert "SIZE_MISMATCH: 1" in result
+
 
 class TestEdgeCases:
     def test_sanitize_id_empty_fallback(self) -> None:

@@ -279,7 +279,12 @@ def _collect_active_functions(
         info = existing.get(va, {})
         status = info.get("status", "STUB")
 
-        size = size_by_va.get(va) or int(info.get("size", 0))
+        size = size_by_va.get(va) or 0
+        if not size:
+            try:
+                size = int(info.get("size") or 0)
+            except (TypeError, ValueError):
+                size = 0
         name = info.get("symbol") or name_by_va.get(va) or f"FUN_{va:08x}"
         filename = info.get("filename", "")
 
@@ -562,7 +567,10 @@ def _collect_prover_candidates(
         # Metadata SIZE is authoritative (the real function extent — Ghidra's
         # can be stale, e.g. 340 vs the actual 752 for GetCommandPayloadSize);
         # prefer it so the size cap below uses the true extent.
-        size = int(info.get("size", 0)) or size_by_va.get(va) or 0
+        try:
+            size = int(info.get("size") or 0) or size_by_va.get(va) or 0
+        except (TypeError, ValueError):
+            size = size_by_va.get(va) or 0
         if size > 500 or size == 0:
             continue
 

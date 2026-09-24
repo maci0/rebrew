@@ -571,6 +571,10 @@ def render_summary(
         count = by_status.get(status, 0)
         if count:
             lines.append(f"  {status}: {count}")
+    for status in sorted(set(by_status) - {*DISPLAY_STATUSES, "UNKNOWN", "DISPATCH"}):
+        count = by_status[status]
+        if count:
+            lines.append(f"  {status}: {count}")
 
     # Find leaf functions (no outgoing calls) that are reversed
     all_edges = edges + (dispatch_edges or [])
