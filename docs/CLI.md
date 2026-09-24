@@ -2450,7 +2450,7 @@ bind probe).
 Endpoints: `/`, `/app.js`, `/api/bootstrap`, `/api/targets`,
 `/api/summary?target=`, `/api/functions?target=` (status/module/q/limit/offset;
 compact row arrays under `cols`), `/api/sections?target=`,
-`/api/globals?target=` (q/limit/offset; compact arrays under `cols`),
+`/api/globals?target=` (module/q/limit/offset; compact arrays under `cols`),
 `/api/history?target=` (limit/offset; compact arrays under `cols`).
 Missing `target` → 400; unknown target → 404. Corrupt `function_stats` on
 `/api/summary` → 500 (not 404). Any other method → 405 with `Allow: GET, HEAD`.

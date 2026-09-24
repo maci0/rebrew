@@ -398,7 +398,7 @@ The `recoverage` server exposes the following endpoints. All data endpoints retu
 > `rebrew dashboard` is a separate, read-only stdlib server over the same
 > `coverage.db`. Its routes are query-param scoped (`/api/summary?target=`,
 > `/api/functions?target=` with `status`/`module`/`q`/`limit`/`offset`,
-> `/api/sections?target=`, `/api/globals?target=` with `q`/`limit`/`offset`,
+> `/api/sections?target=`, `/api/globals?target=` with `module`/`q`/`limit`/`offset`,
 > `/api/history?target=` with `limit`/`offset`, plus `/api/bootstrap`,
 > `/app.js`, and `/api/targets`). Function, global, and history list rows are
 > compact arrays under `cols`. Missing `target` → 400; unknown target → 404;

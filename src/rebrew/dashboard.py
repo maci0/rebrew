@@ -14,7 +14,7 @@ Endpoints
 ``GET /api/summary?target=``   → function stats + coverage % (target required)
 ``GET /api/functions?target=`` → function rows as arrays under ``cols`` (filters: status, module, q, limit, offset)
 ``GET /api/sections?target=``  → per-section cell stats (includes count/total/limit/offset)
-``GET /api/globals?target=``   → global data rows (filters: q, limit, offset; includes total)
+``GET /api/globals?target=``   → global data rows (filters: module, q, limit, offset; includes total)
 ``GET /api/history?target=``   → status-change history (filters: limit, offset; includes total)
 
 Target-scoped endpoints return 400 when ``target`` is missing/empty and 404 when
@@ -83,6 +83,7 @@ from rich.markup import escape
 
 from rebrew.build_db import FUNCTION_ROWS_SQL, resolve_db_dir
 from rebrew.cli import console, error_exit, json_print
+from rebrew.metadata import canonical_status
 from rebrew.workspace import open_sqlite_ro
 
 log = logging.getLogger(__name__)
@@ -1392,7 +1393,7 @@ class Dashboard:
         args: list[Any] = [target]
         if status:
             where.append("status = ?")
-            args.append(status)
+            args.append(canonical_status(status))
         if module:
             where.append("module = ?")
             args.append(module)
@@ -1428,7 +1429,7 @@ class Dashboard:
             "cols": list(_FUNCTION_COLS),
             "functions": [
                 [
-                    f"0x{r[0]:08x}" if r[0] else "???",
+                    f"0x{r[0]:08x}" if r[0] is not None else "???",
                     r[1] or "",
                     r[2] or "",
                     r[3],
@@ -1487,12 +1488,16 @@ class Dashboard:
         self,
         target: str,
         *,
+        module: str | None = None,
         q: str | None = None,
         limit: int = _DEFAULT_LIMIT,
         offset: int = 0,
     ) -> dict[str, Any]:
         where = ["target = ?"]
         args: list[Any] = [target]
+        if module:
+            where.append("module = ?")
+            args.append(module)
         if q:
             where.append("name LIKE ? ESCAPE '\\'")
             args.append(f"%{_escape_like(q)}%")
@@ -1520,7 +1525,7 @@ class Dashboard:
             "cols": list(_GLOBAL_COLS),
             "globals": [
                 [
-                    f"0x{r[0]:08x}" if r[0] else "???",
+                    f"0x{r[0]:08x}" if r[0] is not None else "???",
                     r[1] or "",
                     r[2] or "",
                     r[3],
@@ -1557,7 +1562,7 @@ class Dashboard:
             "cols": list(_HISTORY_COLS),
             "history": [
                 [
-                    f"0x{r[0]:08x}" if r[0] else "???",
+                    f"0x{r[0]:08x}" if r[0] is not None else "???",
                     r[1] or "",
                     r[2],
                     r[3],
@@ -1661,6 +1666,7 @@ class Dashboard:
                         200,
                         self.globals(
                             target,
+                            module=_opt_query(query, "module"),
                             q=_opt_query(query, "q"),
                             limit=_int_param(query, "limit", _DEFAULT_LIMIT),
                             offset=_offset_param(query, "offset", 0),
@@ -2103,7 +2109,7 @@ app = typer.Typer(
         "  /api/summary?target= · · Coverage stats (target required)\n\n"
         "  /api/functions?target= · Function rows (status/module/q/limit/offset)\n\n"
         "  /api/sections?target= · · Per-section cell stats\n\n"
-        "  /api/globals?target= · · Global data rows (q/limit/offset)\n\n"
+        "  /api/globals?target= · · Global data rows (module/q/limit/offset)\n\n"
         "  /api/history?target= · · Status-change history (limit/offset)\n\n"
         "[dim]Read-only: DB opened mode=ro. Target-scoped routes need ?target= "
         "(400 if missing, 404 if unknown; /api/summary → 500 if function_stats "

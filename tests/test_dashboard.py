@@ -779,6 +779,73 @@ class TestHandle:
         assert payload["functions"][0][1] == "func_b"
         assert payload["functions"][0][4] == "STUB"
 
+    def test_api_functions_status_case_insensitive(self, dashboard: Dashboard) -> None:
+        """Status query parameter accepts lower-case and aliases."""
+        status, _, body = dashboard.handle(
+            "GET", "/api/functions", {"target": ["server_dll"], "status": ["stub"]}
+        )
+        assert status == 200
+        payload = json.loads(body)
+        assert payload["count"] == 1
+        assert payload["functions"][0][1] == "func_b"
+        assert payload["functions"][0][4] == "STUB"
+
+    def test_api_globals_module_filter(self, dashboard: Dashboard) -> None:
+        """Globals endpoint supports module filtering like functions."""
+        status, _, body = dashboard.handle(
+            "GET", "/api/globals", {"target": ["server_dll"], "module": ["SERVER"]}
+        )
+        assert status == 200
+        payload = json.loads(body)
+        assert payload["count"] == 1
+        assert payload["globals"][0][1] == "g_flag"
+
+        status, _, body = dashboard.handle(
+            "GET", "/api/globals", {"target": ["server_dll"], "module": ["CLIENT"]}
+        )
+        assert status == 200
+        assert json.loads(body)["count"] == 0
+
+    def test_va_zero_formatted_properly(self, tmp_path: Path) -> None:
+        """VA 0 is a valid address and must format as 0x00000000, not ???."""
+        import sqlite3
+
+        db_path = tmp_path / "zero.db"
+        with sqlite3.connect(db_path) as conn:
+            conn.execute("CREATE TABLE metadata (target TEXT, key TEXT, value TEXT)")
+            conn.execute("INSERT INTO metadata VALUES ('t', 'function_stats', '{}')")
+            conn.execute(
+                "CREATE TABLE functions (target TEXT, va INT, name TEXT, symbol TEXT, "
+                "size INT, status TEXT, module TEXT, files TEXT, markerType TEXT)"
+            )
+            conn.execute(
+                "INSERT INTO functions VALUES ('t', 0, 'f_zero', 'sym_zero', 16, 'EXACT', 'MOD', '[]', 'FUNCTION')"
+            )
+            conn.execute(
+                "CREATE TABLE globals (target TEXT, va INT, name TEXT, decl TEXT, "
+                "files TEXT, module TEXT, size INT, status TEXT)"
+            )
+            conn.execute(
+                "INSERT INTO globals VALUES ('t', 0, 'g_zero', 'int g_zero;', '[]', 'MOD', 4, '')"
+            )
+            conn.execute(
+                "CREATE TABLE history (id INTEGER PRIMARY KEY, target TEXT, va INT, "
+                "old_status TEXT, new_status TEXT, changed_at TEXT)"
+            )
+            conn.execute(
+                "INSERT INTO history VALUES (1, 't', 0, 'WIP', 'EXACT', '2026-01-01T00:00:00Z')"
+            )
+
+        d = Dashboard(db_path)
+        fn_data = d.functions("t")
+        assert fn_data["functions"][0][0] == "0x00000000"
+
+        gl_data = d.globals("t")
+        assert gl_data["globals"][0][0] == "0x00000000"
+
+        hi_data = d.history("t")
+        assert hi_data["history"][0][0] == "0x00000000"
+
     def test_functions_pages_do_not_repeat_rows(self, dashboard: Dashboard) -> None:
         pages = []
         for offset in (0, 1):
