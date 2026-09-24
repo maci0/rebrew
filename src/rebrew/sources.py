@@ -11,6 +11,7 @@ without pulling in the presentation layer.
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from rebrew.config import ProjectConfig
@@ -64,12 +65,15 @@ def _library_headers_under(directory: Path | str) -> list[Path]:
     counting their headers as the project's own library markers.
     """
     dir_path = Path(directory)
-    return sorted(
-        p
-        for p in dir_path.rglob("library_*.h")
-        if not p.is_symlink()
-        and not any(part in _EXCLUDE_DIRS for part in p.relative_to(dir_path).parts[:-1])
-    )
+    matches: list[Path] = []
+    for root, dirs, files in os.walk(dir_path):
+        dirs[:] = [name for name in dirs if name not in _EXCLUDE_DIRS]
+        for f in files:
+            if f.startswith("library_") and f.endswith(".h"):
+                p = Path(root) / f
+                if not p.is_symlink():
+                    matches.append(p)
+    return sorted(matches)
 
 
 def _resolve_dir_and_cfg(
@@ -147,14 +151,14 @@ def _files_with_ext(directory: Path | str, wanted: set[str]) -> list[Path]:
     apply the same extension set and the same exclusion rules.
     """
     dir_path = Path(directory)
-    return sorted(
-        p
-        for p in dir_path.rglob("*")
-        if p.is_file()
-        and p.suffix.lower() in wanted
-        and not any(part in _EXCLUDE_DIRS for part in p.relative_to(dir_path).parts[:-1])
-        and not p.is_symlink()
-    )
+    matches: list[Path] = []
+    for root, dirs, files in os.walk(dir_path):
+        dirs[:] = [name for name in dirs if name not in _EXCLUDE_DIRS]
+        for f in files:
+            p = Path(root) / f
+            if p.suffix.lower() in wanted and not p.is_symlink():
+                matches.append(p)
+    return sorted(matches)
 
 
 def iter_sources(

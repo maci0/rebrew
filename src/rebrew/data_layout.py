@@ -21,6 +21,7 @@ All addresses are full image VAs; the section geometry (``data_base``,
 
 from __future__ import annotations
 
+import functools
 import math
 import re
 import struct
@@ -32,6 +33,7 @@ from typing import Any
 
 from rebrew.binary_loader import load_binary
 from rebrew.data_metadata import iter_data_symbols
+from rebrew.sources import _files_with_ext
 from rebrew.utils import atomic_write_text, load_tomllib, read_source_text
 from rebrew.workspace.config import config_path
 
@@ -43,7 +45,7 @@ def _scan_files(src_dir: Path, shared_dir: Path | None = None) -> list[Path]:
     -only scan misses them (fill-data never pads them, --own never owns
     them).  *shared_dir* ``None`` or missing keeps the old behavior.
     """
-    files = sorted(p for p in src_dir.rglob("*.c") if not p.is_symlink())
+    files = _files_with_ext(src_dir, {".c"})
     if shared_dir is not None:
         try:
             is_same = shared_dir.resolve() == src_dir.resolve()
@@ -51,7 +53,7 @@ def _scan_files(src_dir: Path, shared_dir: Path | None = None) -> list[Path]:
             is_same = False
         if not is_same and shared_dir.is_dir():
             seen = {p.resolve() for p in files}
-            files.extend(p for p in sorted(shared_dir.rglob("*.c")) if p.resolve() not in seen)
+            files.extend(p for p in _files_with_ext(shared_dir, {".c"}) if p.resolve() not in seen)
     return files
 
 
@@ -60,6 +62,15 @@ def _scan_files(src_dir: Path, shared_dir: Path | None = None) -> list[Path]:
 # ---------------------------------------------------------------------------
 
 _OBJ_RE = re.compile(r'"([^"]+\.obj)"|(?:^|\s)(\S+\.obj)(?=\s|$)')
+_DEF_LINE_RE = re.compile(r"^[ \t]*[\w\s\*]+\s+(\w+)(?:\[\d+\])?\s*=")
+
+
+@functools.lru_cache(maxsize=256)
+def _def_patterns(name: str) -> tuple[re.Pattern[str], re.Pattern[str]]:
+    pat = re.compile(r"^[ \t]*([\w\s\*]+)\s+" + re.escape(name) + r"(\[\d+\])?\s*=\s*\{")
+    pat2 = re.compile(r"^[ \t]*([\w\s\*]+\s*\*?)\s+" + re.escape(name) + r"\s*=\s*[^;]+;\s*$")
+    return pat, pat2
+
 
 #: Wall-clock cap for one objdump invocation.
 _OBJDUMP_TIMEOUT_S = 60
@@ -874,7 +885,7 @@ def _iter_line_spans(text: str) -> Iterator[tuple[int, str]]:
 
 def _find_definition(text: str, name: str) -> tuple[int, int, str, str] | None:
     """(start, end, type, size_suffix) of *name*'s definition in *text*, or None."""
-    pat = re.compile(r"^[ \t]*([\w\s\*]+)\s+" + re.escape(name) + r"(\[\d+\])?\s*=\s*\{")
+    pat, pat2 = _def_patterns(name)
     start = None
     typ = ""
     sz = ""
@@ -884,7 +895,6 @@ def _find_definition(text: str, name: str) -> tuple[int, int, str, str] | None:
             start, typ, sz = pos, m.group(1).strip(), m.group(2) or ""
             break
     if start is None:
-        pat2 = re.compile(r"^[ \t]*([\w\s\*]+\s*\*?)\s+" + re.escape(name) + r"\s*=\s*[^;]+;\s*$")
         for pos, ln in _iter_line_spans(text):
             m = pat2.match(ln)
             if m and m.group(1).strip():
@@ -973,7 +983,6 @@ def fix_ownership(
     byte_order = data_byte_order(bin_path)
     files = _scan_files(src_dir, shared_dir)
 
-    def_re = re.compile(r"^[ \t]*[\w\s\*]+\s+(\w+)(?:\[\d+\])?\s*=")
     owner: dict[str, Path] = {}
     for f in files:
         try:
@@ -981,7 +990,7 @@ def fix_ownership(
         except OSError:
             continue
         for ln in text.splitlines():
-            m = def_re.match(ln.strip())
+            m = _DEF_LINE_RE.match(ln.strip())
             if m and m.group(1) in toml and m.group(1) not in owner:
                 owner[m.group(1)] = f
     original_owner = dict(owner)

@@ -17,6 +17,15 @@ from rebrew.config import ProjectConfig, module_marker
 from rebrew.data_metadata import iter_data_symbols
 from rebrew.utils import atomic_write_text, is_safe_c_ident, load_tomllib, read_source_text
 
+_GLOBAL_MARKER_RE = re.compile(r"^\s*(?://|/\*)\s*GLOBAL:\s*\S+\s+0x([0-9a-fA-F]+)")
+_DECL_LINE_RE = re.compile(
+    r"^\s*(?:extern\s+)?[\w\s\*]+\s+([A-Za-z_]\w*)(?:\[\d*\])?\s*(?:=\s*[^;]*|\s*;)"
+)
+_EXISTING_MARKER_RE = re.compile(r"^\s*(?://|/\*)\s*(?:DATA|GLOBAL):")
+_ARRAY_TYPE_RE = re.compile(r"\s*(\[[^\]]*\])$")
+_FUNCPTR_TYPE_RE = re.compile(r"^(.*?)\(\s*([^()]*?)\s*\*\s*\)(.*)$")
+_VAR_DECL_RE = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)\s*(\[[^\]]*\])?\s*$")
+
 
 def annotate_globals(
     src_dir: Path,
@@ -58,17 +67,11 @@ def annotate_globals(
             continue
         symbols[str(val["name"])] = (module, addr)
 
-    marker_re = re.compile(r"^\s*(?://|/\*)\s*GLOBAL:\s*\S+\s+0x([0-9a-fA-F]+)")
-    # One regex for all decl lines: extract the identifier, then O(1) look up
-    # in the pending-symbol map (avoids per-symbol full-file rescans).
-    decl_line_re = re.compile(
-        r"^\s*(?:extern\s+)?[\w\s\*]+\s+([A-Za-z_]\w*)(?:\[\d*\])?\s*(?:=\s*[^;]*|\s*;)"
-    )
     per_file: dict[str, int] = {}
     for f in iter_sources(src_dir, cfg):
         text, encoding = read_source_text(f)
         lines = text.splitlines()
-        existing = {int(m.group(1), 16) for m in (marker_re.match(ln) for ln in lines) if m}
+        existing = {int(m.group(1), 16) for m in (_GLOBAL_MARKER_RE.match(ln) for ln in lines) if m}
         pending = {
             name: (mod, addr) for name, (mod, addr) in symbols.items() if addr not in existing
         }
@@ -77,7 +80,7 @@ def annotate_globals(
         for i, ln in enumerate(lines):
             if not pending:
                 break
-            m = decl_line_re.match(ln)
+            m = _DECL_LINE_RE.match(ln)
             if not m:
                 continue
             name = m.group(1)
@@ -85,7 +88,7 @@ def annotate_globals(
                 continue
             if i in used:
                 continue
-            if i > 0 and re.match(r"^\s*(?://|/\*)\s*(?:DATA|GLOBAL):", lines[i - 1]):
+            if i > 0 and _EXISTING_MARKER_RE.match(lines[i - 1]):
                 continue
             _mod, sym_addr = pending.pop(name)
             used.add(i)
@@ -118,13 +121,13 @@ def _emit_extern_decl(row: dict[str, Any]) -> str | None:
         # `char` would be a guess, and a wrong guess is a compile error the
         # moment the header is included next to the real declaration.
         return None
-    array = re.search(r"\s*(\[[^\]]*\])$", type_str)
+    array = _ARRAY_TYPE_RE.search(type_str)
     if array:
         base = type_str[: array.start()].strip()
         return f"extern {base} {name}{array.group(1)};"
     if "(*)" in type_str:
         return f"extern {type_str.replace('(*)', f'(*{name})', 1)};"
-    fp = re.match(r"^(.*?)\(\s*([^()]*?)\s*\*\s*\)(.*)$", type_str)
+    fp = _FUNCPTR_TYPE_RE.match(type_str)
     if fp:
         prefix, quals, suffix = fp.group(1), fp.group(2), fp.group(3)
         inner = f"{quals} *{name}" if quals else f"*{name}"
@@ -252,7 +255,7 @@ def _source_decls_by_va(
             if ext_vars:
                 name, type_str = ext_vars[0].name, ext_vars[0].type_str
             else:
-                var_m = re.search(r"([A-Za-z_][A-Za-z0-9_]*)\s*(\[[^\]]*\])?\s*$", decl)
+                var_m = _VAR_DECL_RE.search(decl)
                 if var_m:
                     name = var_m.group(1)
                     type_str = type_from_declaration(decl + ";", name) or ""

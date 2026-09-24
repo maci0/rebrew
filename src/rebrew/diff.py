@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import csv
 import logging
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -113,6 +114,9 @@ def _global_name_map(cfg: Any) -> dict[int, str]:
         return {}
 
 
+_HEX_ADDR_RE = re.compile(r"0x[0-9a-fA-F]+")
+
+
 def _resolve_global_names(instructions: list[dict[str, Any]], cfg: Any) -> None:
     """Rewrite absolute addresses in the diff disasm to global names in place.
 
@@ -124,13 +128,11 @@ def _resolve_global_names(instructions: list[dict[str, Any]], cfg: Any) -> None:
         return
 
     def _sub(disasm: str) -> str:
-        import re
-
         def _rep(m: re.Match[str]) -> str:
             va = int(m.group(0), 16)
             return name_by_va.get(va, m.group(0))
 
-        return re.sub(r"0x[0-9a-fA-F]+", _rep, disasm)
+        return _HEX_ADDR_RE.sub(_rep, disasm)
 
     for row in instructions:
         if not isinstance(row, dict):
