@@ -333,7 +333,7 @@ class TestCollectStatus:
     def test_proven_bytes_not_counted_as_matched(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """PROVEN bytes differ from the target: not matched, not identified."""
+        """Game-code PROVEN bytes differ from the target; a LIBRARY row is linked bytes."""
         import rebrew.naming
 
         cfg = _make_cfg(tmp_path)
@@ -355,8 +355,8 @@ class TestCollectStatus:
         )
         report = collect_status(cfg)  # type: ignore[arg-type]
         assert report.status_counts == {"EXACT": 1, "PROVEN": 1}
-        assert report.matched_bytes == 100
-        assert report.library_identified == 0
+        assert report.matched_bytes == 150
+        assert report.library_identified == 1
         assert report.matched_pct == 50.0
 
     def test_library_rows_bucketed_in_module_table(
@@ -384,6 +384,33 @@ class TestCollectStatus:
         report = collect_status(cfg)  # type: ignore[arg-type]
         assert report.module_status["TEST"] == {"PROVEN": 1, "LIBRARY": 1}
         assert report.to_dict()["modules"]["TEST"]["PROVEN"] == 1
+
+    def test_library_rows_identified_whatever_their_status(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A LIBRARY row is identified and its bytes are linked, whatever STATUS it carries."""
+        import rebrew.naming
+
+        cfg = _make_cfg(tmp_path)
+        existing = {
+            va: {
+                "filename": "library_x.h",
+                "size": "40",
+                "module": "TEST",
+                "marker_type": "LIBRARY",
+                **({"status": status} if status else {}),
+            }
+            for va, status in ((0x1000, "EXACT"), (0x2000, "PROVEN"), (0x3000, ""))
+        }
+        monkeypatch.setattr(
+            rebrew.naming,
+            "load_data",
+            lambda cfg: ([], existing, dict.fromkeys(existing, "library_x.h")),
+        )
+        report = collect_status(cfg)  # type: ignore[arg-type]
+        assert report.library_identified == 3
+        assert report.to_dict()["library_identified"] == 3
+        assert report.matched_bytes == 120
 
     def test_empty_blocker_not_counted(self, tmp_path: Path) -> None:
         """An empty BLOCKER metadata entry is not an unresolved blocker."""
