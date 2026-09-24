@@ -915,14 +915,14 @@ def x87_codegen_family(signals: CodegenSignals) -> str:
 def processor_pack_profiles() -> set[str]:
     """Registered MSVC profile names whose code generator is the Processor Pack.
 
-    Read from the toolchain registry (``init_profiles``) so a future pack
+    Read from the toolchain registry (``TOOLCHAINS``) so a future pack
     variant is covered without a second list to keep in sync.
     """
     try:
-        from rebrew.init_profiles import COMPILER_DEFAULTS
+        from rebrew.toolchain import TOOLCHAINS
     except Exception:  # pragma: no cover - registry always importable
         return {"msvc-6.0-sp5-pp"}
-    return {str(name) for name in COMPILER_DEFAULTS if str(name).endswith("-pp")}
+    return {str(name) for name in TOOLCHAINS if str(name).endswith("-pp")}
 
 
 def _pdb_compile_record(path: Path) -> dict[str, str] | None:
