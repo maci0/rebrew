@@ -2478,3 +2478,41 @@ class TestStripOracle:
             got = _strip_c_comments_strings(line, state)
             assert got == want, f"line={line!r} state={state}: got {got!r}, want {want!r}"
             state = want[1]
+
+
+class TestMarkerVaOrder:
+    """W030: a file's FUNCTION/STUB markers for one module ascend by VA.
+
+    The linker lays out a translation unit's functions in source order, so a
+    function defined above a lower-VA one lands at the wrong address and
+    every function between them is displaced.  guild-rebrew lost 2945 linked
+    bytes to seven files whose definitions a tree reshuffle had reordered.
+    """
+
+    @staticmethod
+    def _w030(result: LintResult) -> list[tuple[int, str]]:
+        return [(line, m) for line, c, m in result.warnings if c == "W030"]
+
+    def test_descending_marker_warns(self, tmp_path: Path) -> None:
+        f = _write_c(
+            tmp_path,
+            "a.c",
+            "// FUNCTION: SERVER 0x2000\nint b(void) { return 0; }\n\n"
+            "// FUNCTION: SERVER 0x1000\nint a(void) { return 0; }\n",
+        )
+        w030 = self._w030(lint_file(f, cfg=_make_cfg()))
+        assert len(w030) == 1
+        assert w030[0][0] == 4
+        assert "0x1000" in w030[0][1] and "0x2000" in w030[0][1]
+
+    def test_ascending_and_per_module_silent(self, tmp_path: Path) -> None:
+        """Each module is ordered on its own: a twin marker for another build
+        carries that build's VA, which need not follow this build's."""
+        f = _write_c(
+            tmp_path,
+            "a.c",
+            "// FUNCTION: SERVER 0x1000\n// FUNCTION: OTHER 0x9000\nint a(void) { return 0; }\n\n"
+            "// FUNCTION: SERVER 0x2000\n// FUNCTION: OTHER 0x8000\nint b(void) { return 0; }\n",
+        )
+        result = lint_file(f, cfg=_make_cfg())
+        assert [w for w in self._w030(result) if "SERVER" in w[1]] == []
