@@ -16,6 +16,7 @@ from collections.abc import Callable
 from functools import lru_cache
 from typing import Literal, overload
 
+from rebrew.matcher.ast_engine import encode_source
 from rebrew.matcher.mutations.advanced import (
     mut_add_loop_break,
     mut_commute_float_operands,
@@ -465,13 +466,14 @@ def mutate_code(
     """
     preamble, body = _split_preamble_body(source)
 
-    # The GA's target range is full-source byte offsets, but mutations query
+    # The GA's target range is full-source byte offsets (the preamble is
+    # measured in bytes too, not characters), but mutations query
     # the preamble-stripped body: convert once here so every mutation's
     # _cursor sees body coordinates (converting inside _cursor is impossible —
     # it never sees the source text).  Saved and restored around the loop;
     # leaving a narrowed range set would silently scope later mutations of
     # other sources (e.g. crossover, which never passes through here).
-    body_offset = len(preamble) + 1 if preamble else 0
+    body_offset = len(encode_source(preamble)) + 1 if preamble else 0
     saved_range = getattr(_target_range, "range", None)
     if saved_range is not None:
         set_target_range(

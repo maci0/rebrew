@@ -709,7 +709,9 @@
   seed's byte range, so once a mutant's target function shrank, mutations
   spilled into the next function, and once it grew, its tail was out of
   reach; the initial population was not scoped at all.  The range is now
-  located in each source before mutating it.
+  located in each source before mutating it, and its offset past the
+  preamble is counted in bytes, not characters (each multi-byte character
+  in a comment above the function shifted the scope one byte right).
 - **GA crossover cuts where the parents align.**  It cut both parents at
   the same line index, so a parent whose line count a mutation had changed
   gave a child with a dropped or repeated line (a lost `return`, a damaged

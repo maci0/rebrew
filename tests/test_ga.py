@@ -642,6 +642,24 @@ class TestGAMutationScope:
         assert all(src.rstrip().endswith(_SIBLING_G.rstrip()) for src in ga.population)
         assert any(not src.lstrip().startswith((long_f, short_f)) for src in ga.population)
 
+    def test_non_ascii_preamble_keeps_scope_in_bytes(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The range is in bytes: a character-counted preamble offset moves
+        it one byte right per multi-byte character, into the sibling."""
+        preamble = "/* " + "ä" * 60 + " */\n"
+        f = "int f(int a)\n{\n    return a;\n}\n"
+        ga = _mocked_ga(
+            tmp_path,
+            monkeypatch,
+            seed_source=preamble + f + _SIBLING_G,
+            pop_size=16,
+            num_generations=4,
+            mutation_prob=1.0,
+        )
+        ga.run()
+        assert all(src.rstrip().endswith(_SIBLING_G.rstrip()) for src in ga.population)
+
 
 class TestGAElite:
     """Duplicate sources never occupy more than one elite slot."""
