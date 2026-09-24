@@ -339,14 +339,19 @@ class TestArrayStructDeep:
 
 
 class TestCrossoverDeep:
-    def test_different_lengths(self) -> None:
-        p1 = "int f(int a) {\n  a = 1;\n  a = 2;\n  a = 3;\n  return a;\n}"
-        p2 = "int f(int a) {\n  a = 10;\n  return a;\n}"
-        for seed in range(10):
-            child = crossover(p1, p2, random.Random(seed))
-            assert "int" in child
-            # Crossover may drop return from shorter parent's slice
-            assert "a =" in child or "return" in child
+    def test_different_lengths_keep_one_return(self) -> None:
+        """Cuts align the parents: a line-count change never drops or
+        repeats the ``return``."""
+        p1 = "int f(int a)\n{\n  int x;\n  int y;\n  x = a;\n  y = x + 1;\n  return y;\n}"
+        p2 = "int f(int a)\n{\n  int x;\n  x = a;\n  return x;\n}"
+        children = {crossover(p1, p2, random.Random(seed)) for seed in range(30)}
+        assert all(child.count("return") == 1 for child in children)
+        # Not vacuous: a splice distinct from both parents occurs.
+        assert any(child.strip() not in (p1, p2) for child in children)
+
+    def test_identical_parents_return_parent(self) -> None:
+        p = "int f(int a)\n{\n  a = 1;\n  return a;\n}"
+        assert crossover(p, p, random.Random(0)) == p
 
 
 # -------------------------------------------------------------------------

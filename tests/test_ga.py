@@ -587,6 +587,77 @@ class TestGADeadline:
         assert 0 < ga.elapsed_sec < 60
 
 
+_SIBLING_G = (
+    "int g(int a, int b)\n{\n    int t;\n    t = a + b;\n"
+    "    if (a > b) {\n        t = t * 2;\n    }\n    return t - 1;\n}\n"
+)
+
+
+def _mocked_ga(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, **kw: Any) -> Any:
+    """GA with compile and scoring mocked: shorter source scores better."""
+    from rebrew import match_ga
+    from rebrew.matcher import BuildResult
+
+    kw.setdefault("seed_source", "int f(void) { return 0; }")
+    ga = match_ga.BinaryMatchingGA(
+        target_bytes=b"\xc3",
+        cl_cmd="cl",
+        inc_dir="",
+        cflags="/O2",
+        symbol="_f",
+        out_dir=tmp_path,
+        num_jobs=1,
+        verbose=0,
+        rng_seed=1,
+        **kw,
+    )
+    monkeypatch.setattr(ga, "_compile_source", lambda src: BuildResult(ok=False))
+    monkeypatch.setattr(ga, "_compute_fitness", lambda res, h, src: float(len(src)))
+    return ga
+
+
+class TestGAMutationScope:
+    """Mutations stay inside the target function as its length changes."""
+
+    def test_sibling_untouched_after_target_shrinks(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        long_f = (
+            "int f(int a, int b)\n{\n    int x;\n    int y;\n    x = a + b;\n"
+            "    y = a - b;\n    if (x > y) {\n        x = x * 2;\n    }\n"
+            "    if (y > 3) {\n        y = y + 7;\n    }\n    return x + y;\n}\n"
+        )
+        short_f = "int f(int a, int b)\n{\n    return a + b;\n}\n"
+        ga = _mocked_ga(
+            tmp_path,
+            monkeypatch,
+            seed_source=long_f + _SIBLING_G,
+            extra_seeds=[short_f + _SIBLING_G],
+            pop_size=16,
+            num_generations=6,
+            mutation_prob=1.0,
+        )
+        ga.run()
+        # mutate_code re-joins lines, so edge whitespace may differ.
+        assert all(src.rstrip().endswith(_SIBLING_G.rstrip()) for src in ga.population)
+        assert any(not src.lstrip().startswith((long_f, short_f)) for src in ga.population)
+
+
+class TestGAElite:
+    """Duplicate sources never occupy more than one elite slot."""
+
+    def test_elite_slots_hold_distinct_sources(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        ga = _mocked_ga(tmp_path, monkeypatch, pop_size=8, num_generations=1, elitism=3)
+        best = "int f(void) { return 0; }"
+        others = [f"int f(void) {{ return {i}{i}; }}" for i in range(1, 6)]
+        ga.population = [best, best, best, *others]
+        ga.run()
+        assert ga.population[:3] == [best, others[0], others[1]]
+        assert len(set(ga.population)) == len(ga.population)
+
+
 class TestRunAllParallel:
     """Batch --all processes stubs in parallel with deterministic order."""
 
@@ -1760,7 +1831,7 @@ class TestGABuildCacheKey:
             pop_size=2,
             num_jobs=1,
         )
-        ga._run_inner()
+        ga.run()
         ga.close()
         assert len(created) == 1
 

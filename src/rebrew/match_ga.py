@@ -406,14 +406,6 @@ class BinaryMatchingGA:
         self._memo_lock = threading.Lock()
         self._memo_max = max(_GA_MEMO_MAX_FLOOR, pop_size * _GA_MEMO_MAX_FACTOR)
 
-        # Scope mutation queries to the target function's byte range — only
-        # that function's compiled bytes are scored, so mutating siblings in
-        # a multi-function file is pure waste (whole-file query cost was
-        # ~270x higher on large seeds).  The thread-local is set INSIDE
-        # run() (and cleared in its finally) so a GA instance that is never
-        # run cannot leak the scope into other code.
-        self._target_range: tuple[int, int] | None = _find_function_range(seed_source, symbol)
-
         # Pre-compute target normalization and mnemonics once for scoring hot path
         from rebrew.matcher import precompute_target
 
@@ -463,10 +455,24 @@ class BinaryMatchingGA:
 
     def _mutate(self, src: str) -> str:
         """Apply one weighted mutation, recording the operator for solution
-        provenance (SolutionEntry.mutations — see match.py win sites)."""
-        out = mutate_code(
-            src, self.rng, mutation_weights=self.mutation_weights, track_mutation=True
-        )
+        provenance (SolutionEntry.mutations — see match.py win sites).
+
+        Mutation queries are scoped to the target function's byte range in
+        *src*: only its compiled bytes are scored, so mutating siblings in a
+        multi-function file is waste (whole-file query cost was ~270x higher
+        on large seeds).  The range is located per source because every
+        mutation shifts it; a range taken from the seed spills into the next
+        function once the target shrinks and misses its tail once it grows.
+        """
+        from rebrew.matcher import set_target_range
+
+        set_target_range(*(_find_function_range(src, self.symbol) or (None, None)))
+        try:
+            out = mutate_code(
+                src, self.rng, mutation_weights=self.mutation_weights, track_mutation=True
+            )
+        finally:
+            set_target_range(None, None)
         if isinstance(out, tuple):
             new_src, mut_name = out
             if mut_name:
@@ -818,17 +824,6 @@ class BinaryMatchingGA:
         only fires in the main thread) — it exists so parallel batch runs
         can bound each stub without signals.
         """
-        from rebrew.matcher import set_target_range
-
-        if self._target_range is not None:
-            set_target_range(*self._target_range)
-        try:
-            return self._run_inner(deadline)
-        finally:
-            set_target_range(None, None)
-
-    def _run_inner(self, deadline: float | None = None) -> tuple[str | None, float]:
-        """Run the GA and return ``(best_source, best_score)``."""
         last_generation = self._start_generation
         # One executor for the whole run, not one pool per generation.
         with ThreadPoolExecutor(max_workers=self.num_jobs) as executor:
@@ -902,8 +897,9 @@ class BinaryMatchingGA:
                     self.elapsed_sec += time.monotonic() - gen_start
                     break
 
-                elite = [s[1] for s in scored_pop[: self.elitism]]
-                next_pop = elite.copy()
+                # Distinct sources only: an unchanged child is a clone of its
+                # parent, and clones of the best would fill every elite slot.
+                next_pop = list(dict.fromkeys(s for _, s in scored_pop))[: self.elitism]
 
                 # Stagnation restart: once half the stagnation budget has
                 # elapsed without a new best, reseed a quarter of the
@@ -946,7 +942,7 @@ class BinaryMatchingGA:
                         for _ in range(n_muts):
                             child = self._mutate(child)
 
-                    if quick_validate(child):
+                    if child not in next_pop and quick_validate(child):
                         next_pop.append(child)
 
                 while len(next_pop) < self.pop_size:
@@ -1011,9 +1007,6 @@ class BinaryMatchingGA:
 
     def close(self) -> None:
         """Release per-run state (kept for call-site compat; the memo is in-memory)."""
-        from rebrew.matcher import set_target_range
-
-        set_target_range(None, None)  # safety: ensure no scope leaks
         with self._memo_lock:
             self.cache.clear()
             self._fitness_memo.clear()

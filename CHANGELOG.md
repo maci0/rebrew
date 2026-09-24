@@ -705,6 +705,20 @@
   in emission order.
 
 ### Fixed
+- **GA mutations stay inside the target function.**  The scope was the
+  seed's byte range, so once a mutant's target function shrank, mutations
+  spilled into the next function, and once it grew, its tail was out of
+  reach; the initial population was not scoped at all.  The range is now
+  located in each source before mutating it.
+- **GA crossover cuts where the parents align.**  It cut both parents at
+  the same line index, so a parent whose line count a mutation had changed
+  gave a child with a dropped or repeated line (a lost `return`, a damaged
+  sibling function).  The cut now falls inside or at the edge of a run of
+  identical lines.
+- **GA elite slots hold distinct sources.**  An unchanged child is a clone
+  of its parent, and clones of the best filled every elite slot; the elite
+  now takes the best distinct sources, and a child already in the next
+  generation is rejected.
 - **`rebrew intake` records an ELF or x86-64 target as what it is.**  Init
   assumes a 32-bit PE, and intake corrected only NE and MZ, so an x86-64 ELF
   was decoded as 32-bit x86.  The target's `format` and `arch` now come from

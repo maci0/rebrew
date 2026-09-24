@@ -43,9 +43,10 @@ Source (.c) ──→ mutate_code(source, rng)
 ### Key mechanics
 
 - **Population**: Pool of candidates (default 64) evolved over generations
-- **Selection**: The top `elitism` candidates carry over unchanged; parents are drawn by tournament (best of 3) from the whole scored population, so breeding is not bottlenecked on the elite
+- **Selection**: The top `elitism` distinct candidates carry over unchanged, and a child already in the next generation is dropped; parents are drawn by tournament (best of 3) from the whole scored population, so breeding is not bottlenecked on the elite
 - **Mutation**: One random mutation per child (35% chance of 2–3 chained mutations); the per-child rate rises 0.05 per generation without a new best, up to +0.25 and never past 0.95
-- **Crossover**: Line-level crossover between two parents
+- **Crossover**: Line-level: a prefix of one parent joined to a suffix of the other at a cut where their lines align (`difflib`), so a changed line count never drops or repeats a line
+- **Scope**: Mutations query only the target function, located afresh in each source
 - **Stagnation**: After half the stagnation budget (20 generations by default) without improvement, a quarter of the population is reseeded from the seed, at most twice per run; the run stops after 40 flat generations
 - **Caching**: Same-run memo is an in-memory dict; cross-run persistence is the shared compile cache (`.rebrew/compile_cache/`).
 

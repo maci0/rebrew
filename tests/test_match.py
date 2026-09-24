@@ -323,7 +323,7 @@ class TestComputeFitness:
             raise AssertionError("memoized source must not reach the compile pool")
 
         monkeypatch.setattr(ga, "_compile_source", boom)
-        best_src, best_score = ga._run_inner()
+        best_src, best_score = ga.run()
         assert calls == []
         assert best_score == 5.0
         assert best_src in ga.population

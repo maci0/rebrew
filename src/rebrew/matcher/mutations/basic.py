@@ -7,6 +7,7 @@ reshaping, and expression-level rewrites.
 
 from __future__ import annotations
 
+import difflib
 import logging
 import random
 import re
@@ -1492,18 +1493,33 @@ def _early_exit_return(b_source: bytes, ref_byte: int) -> bytes:
 
 
 def crossover(parent1: str, parent2: str, rng: random.Random) -> str:
-    """Line-level crossover of two parent sources."""
+    """Line-level crossover of two parent sources.
+
+    The child is a prefix of *parent1*'s body joined to a suffix of
+    *parent2*'s at a cut where the two bodies align (inside or at the edge
+    of a run of identical lines, per ``difflib``).  Cutting both at the same
+    line index instead drops or repeats lines whenever a mutation changed
+    the line count: a lost ``return``, or a damaged sibling function.
+    Returns *parent1* when no cut yields a third source.
+    """
     p1_pre, p1_body = _split_preamble_body(parent1)
     _, p2_body = _split_preamble_body(parent2)
     lines1 = p1_body.splitlines()
     lines2 = p2_body.splitlines()
-    if not lines1 or not lines2:
+    blocks = difflib.SequenceMatcher(None, lines1, lines2, autojunk=False).get_matching_blocks()
+    # (0, 0) and (len1, len2) reproduce a parent.
+    ends = {(0, 0), (len(lines1), len(lines2))}
+    cuts = sorted(
+        {(i + k, j + k) for i, j, n in blocks for k in range(n + 1)} - ends,
+    )
+    if not cuts:
         return parent1
-    min_len = min(len(lines1), len(lines2))
-    if min_len < 2:
+    cut1, cut2 = rng.choice(cuts)
+    child_body = "\n".join(lines1[:cut1] + lines2[cut2:])
+    if child_body == p1_body:
         return parent1
-    split_idx = rng.randint(1, min_len - 1)
-    child_body = "\n".join(lines1[:split_idx] + lines2[split_idx:])
+    if child_body == p2_body:
+        return parent2
     child = p1_pre + "\n" + child_body
     if quick_validate(child):
         return child
