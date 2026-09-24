@@ -17,6 +17,7 @@ import contextlib
 import dataclasses
 import json
 import logging
+import math
 import threading
 from collections.abc import Iterator
 from dataclasses import dataclass, field
@@ -362,7 +363,7 @@ def record_ga_run(
         "matched": bool(matched),
     }
     if score is not None:
-        record["score"] = round(float(score), 2)
+        record["score"] = round(float(score), 2) if math.isfinite(score) else None
     if generations:
         record["generations"] = int(generations)
     if rng_seed is not None:

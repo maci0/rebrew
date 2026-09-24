@@ -77,7 +77,8 @@ def _cosine(hist_a: dict[str, int], hist_b: dict[str, int]) -> float:
     denom = float(np.linalg.norm(vec_a) * np.linalg.norm(vec_b))
     if denom == 0.0:
         return 0.0
-    return float(np.dot(vec_a, vec_b) / denom)
+    raw = float(np.dot(vec_a, vec_b) / denom)
+    return min(1.0, max(0.0, raw))
 
 
 def _ratio(a: int, b: int) -> float:

@@ -107,7 +107,7 @@ def main(
     # Only objects with at least one misplaced symbol, worst delta first.
     drifted: list[dict[str, Any]] = sorted(
         (
-            {"object": obj, **stats, "mean_delta": stats["delta_sum"] // stats["misplaced"]}
+            {"object": obj, **stats, "mean_delta": round(stats["delta_sum"] / stats["misplaced"])}
             for obj, stats in per_object.items()
             if stats["misplaced"]
         ),

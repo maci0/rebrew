@@ -560,3 +560,15 @@ class TestMutationsProvenance:
         assert len(collect_out) == 32
         symbols = {e.symbol for e in collect_out}
         assert len(symbols) == 32
+
+    def test_record_ga_run_non_finite_score(self, tmp_path: Path) -> None:
+        """Non-finite scores (inf/nan) must serialize to valid JSON (score=None)."""
+        import json
+
+        p = record_ga_run(
+            tmp_path, target="T", va="0x1000", symbol="_f", matched=False, score=float("inf")
+        )
+        content = p.read_text(encoding="utf-8")
+        assert "Infinity" not in content
+        record = json.loads(content.strip())
+        assert record["score"] is None

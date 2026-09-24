@@ -180,3 +180,20 @@ class TestVerifyPlacement:
         assert "sym_b" in result.output
         assert "exp 0x00003020" in result.output
         assert "our 0x00003018" in result.output
+
+    def test_negative_drift_mean_delta(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.verify_placement import app
+
+        monkeypatch.chdir(_project(tmp_path))
+        # TU#0: sym_a misplaced by +1, sym_b misplaced by -2 -> delta_sum = -1, misplaced = 2
+        # -1 // 2 was -1 (floor bias); round(-1 / 2) is 0
+        _patch_layout(
+            monkeypatch,
+            objects=[(32, {"sym_a": 1, "sym_b": 14})],
+            expected={"sym_a": 0x3000, "sym_b": 0x3010},
+        )
+        result = CliRunner().invoke(app, [])
+        assert result.exit_code == 1
+        assert "mean delta +0x0" in result.output

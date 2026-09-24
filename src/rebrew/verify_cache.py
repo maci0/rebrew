@@ -426,9 +426,15 @@ def patch_verify_cache_entries(cfg: ProjectConfig, patches: list[dict[str, Any]]
             # (a GA run improving NEAR_MATCHING 60% -> 92%): skipping only on
             # status equality left todo's prover queue reading the stale
             # percent and dropping the candidate.
+            cached_pct = entry.get("match_percent")
+            pct_matches = (
+                cached_pct == match_pct
+                if cached_pct is None or match_pct is None
+                else math.isclose(float(cached_pct), float(match_pct), rel_tol=1e-7, abs_tol=1e-7)
+            )
             if (
                 entry.get("status", "") == p["status"]
-                and entry.get("match_percent") == match_pct
+                and pct_matches
                 and entry.get("passed") == passed
                 and entry.get("delta") == delta
             ):

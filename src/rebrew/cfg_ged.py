@@ -278,7 +278,8 @@ def _cosine(a: Counter[str], b: Counter[str]) -> float:
     vb = math.sqrt(sum(v * v for v in b.values()))
     if va == 0 or vb == 0:
         return 0.0
-    return sum(a[k] * b[k] for k in a.keys() & b.keys()) / (va * vb)
+    raw = sum(a[k] * b[k] for k in a.keys() & b.keys()) / (va * vb)
+    return min(1.0, max(0.0, raw))
 
 
 def cfg_similarity(

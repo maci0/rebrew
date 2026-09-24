@@ -102,6 +102,7 @@ def score_matrix(sigs_a: list[dict[str, Any]], sigs_b: list[dict[str, Any]]) -> 
         out=np.zeros((len(sigs_a), len(sigs_b)), dtype=float),
         where=(na[:, None] > 0) & (nb[None, :] > 0),
     )
+    np.clip(cos, 0.0, 1.0, out=cos)
 
     ca = np.array([s["calls"] for s in sigs_a], dtype=float)[:, None]
     cb = np.array([s["calls"] for s in sigs_b], dtype=float)[None, :]
