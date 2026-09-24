@@ -100,6 +100,16 @@ def _cmake_pin_for(source: str | Path, cfg: ProjectConfig) -> tuple[str | None, 
     return per_file_pin(Path(source), build_dir)
 
 
+def _pin_overrides_metadata(pin_flags: str, metadata_flags: str) -> bool:
+    """True when the build compiles the file with flags the metadata did not produce.
+
+    ``rebrew cmake-flags`` writes the metadata's per-file flags into the CMake
+    build, so a pin equal to the metadata-resolved flags is the metadata's own
+    value and a new ``--cflags`` reaches the build on the next configure.
+    """
+    return bool(pin_flags) and set(pin_flags.split()) != set(metadata_flags.split())
+
+
 def _expand_reloc_offsets(relocs: list[int], limit: int) -> set[int]:
     """Expand 4-byte relocation start offsets into a set of individual byte offsets."""
     return {r + j for r in relocs for j in range(4) if r + j < limit}
@@ -936,7 +946,7 @@ def _run_test_impl(
         except ValueError:
             error_exit(f"Invalid SIZE metadata: {meta['SIZE']!r}", json_mode=json_output)
 
-    from rebrew.compile_overrides import resolve_compile_overrides
+    from rebrew.compile_overrides import resolve_cflags, resolve_compile_overrides
 
     _mod = (sel_ann or lint_annos[0]).module if lint_annos else ""
     # Shared fallback chain (per-function metadata → per-library
@@ -1172,7 +1182,12 @@ def _run_test_impl(
         # C1001/C1083 from persisting the build's own flag pair).  Refuse
         # loudly instead of silently corrupting the metadata.
         cm_pin_tc, cm_pin_flags = _cmake_pin_for(source, cfg)
-        if cflags and cm_pin_flags and not no_promote and not dry_run:
+        if (
+            cflags
+            and _pin_overrides_metadata(cm_pin_flags, resolve_cflags(cfg, _ann_cflags, _mod))
+            and not no_promote
+            and not dry_run
+        ):
             error_exit(
                 f"{source} is CMake-pinned (flags: {cm_pin_flags!r}); --cflags"
                 " would be recorded but never shipped — refuse to write it. "

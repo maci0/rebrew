@@ -301,3 +301,19 @@ def test_cmake_pin_for_honours_cfg_build_dir(tmp_path: Path) -> None:
     tc, flags = _cmake_pin_for(tmp_path / "src/a/one.c", cfg)
     assert tc == "msvc-6.0-sp5-pp"
     assert "O2" in flags
+
+
+def test_pin_generated_from_metadata_does_not_block_a_cflags_write() -> None:
+    """The per-file flags CMake records come from the metadata (via
+    `rebrew cmake-flags`), so matching flags are the metadata's own value and
+    a new --cflags reaches the build on the next configure.  Only flags the
+    metadata did not produce are a CMakeLists pin that --cflags cannot change.
+
+    Regression: every function with a metadata cflags entry read as
+    CMake-pinned, so its flags could never be changed through `rebrew test`.
+    """
+    from rebrew.test import _pin_overrides_metadata
+
+    assert not _pin_overrides_metadata("/O2 /Gd /Ow", "/Ow /O2 /Gd")
+    assert not _pin_overrides_metadata("", "/O2 /Gd")
+    assert _pin_overrides_metadata("/O2 /Gd /Oa", "/O2 /Gd")
