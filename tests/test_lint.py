@@ -2516,3 +2516,16 @@ class TestMarkerVaOrder:
         )
         result = lint_file(f, cfg=_make_cfg())
         assert [w for w in self._w030(result) if "SERVER" in w[1]] == []
+
+    def test_markers_sharing_one_body_are_one_definition(self, tmp_path: Path) -> None:
+        """Identical copies at several VAs share one body: their markers stack
+        above it in any order, and the group is placed by its lowest VA."""
+        f = _write_c(
+            tmp_path,
+            "a.c",
+            "// FUNCTION: SERVER 0x3000\n// SIZE: 16\n// FUNCTION: SERVER 0x1000\n"
+            "int a(void) { return 0; }\n\n"
+            "// FUNCTION: SERVER 0x2000\nint b(void) { return 0; }\n",
+        )
+        w030 = self._w030(lint_file(f, cfg=_make_cfg()))
+        assert w030 == []

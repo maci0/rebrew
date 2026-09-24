@@ -605,33 +605,46 @@ def _check_W028_stale_annotation(
         )
 
 
-def _check_W030_va_order(result: LintResult, all_headers: list[Any]) -> None:
-    """Warn when a module's FUNCTION/STUB markers do not ascend by VA (W030).
+def _check_W030_va_order(result: LintResult, all_headers: list[Any], lines: list[str]) -> None:
+    """Warn when a module's FUNCTION/STUB definitions do not ascend by VA (W030).
 
     The linker lays out a translation unit's functions in source order, so a
     definition placed above a lower-VA one links at the wrong address and
-    displaces every function between them.  Each module is checked on its own:
-    a marker for another build carries that build's VA.
+    displaces every function between them.  Markers with only comments or
+    blank lines between them share one body (identical copies at several VAs)
+    and count as one definition, placed by its lowest VA.  Each module is
+    checked on its own: a marker for another build carries that build's VA.
     """
-    last: dict[str, int] = {}
+    groups: list[dict[str, tuple[int, int]]] = []
+    prev_line = -1
     for found_keys, _flags in all_headers:
         if found_keys.get("MARKER", "") not in ("FUNCTION", "STUB"):
             continue
-        mod = found_keys.get("MODULE", "")
         try:
             va = int(found_keys.get("VA", ""), 16)
         except ValueError:
             continue
-        prev = last.get(mod)
-        if prev is not None and va < prev:
-            result.warning(
-                int(found_keys.get("_LINE", "1")),
-                "W030",
-                f"{mod} 0x{va:x} is defined after {mod} 0x{prev:x}: the linker places "
-                "functions in source order, so move this definition above the "
-                "higher-VA one",
-            )
-        last[mod] = va if prev is None else max(prev, va)
+        line = int(found_keys.get("_LINE", "1"))
+        between = lines[prev_line : line - 1] if prev_line >= 0 else ["code"]
+        if not groups or any(t.strip() and not t.lstrip().startswith("//") for t in between):
+            groups.append({})
+        mod = found_keys.get("MODULE", "")
+        cur = groups[-1].get(mod)
+        groups[-1][mod] = (va, line) if cur is None else (min(va, cur[0]), cur[1])
+        prev_line = line
+    highest: dict[str, int] = {}
+    for group in groups:
+        for mod, (va, line) in group.items():
+            prev = highest.get(mod)
+            if prev is not None and va < prev:
+                result.warning(
+                    line,
+                    "W030",
+                    f"{mod} 0x{va:x} is defined after {mod} 0x{prev:x}: the linker places "
+                    "functions in source order, so move this definition above the "
+                    "higher-VA one",
+                )
+            highest[mod] = va if prev is None else max(prev, va)
 
 
 def _check_W018_cflags(
@@ -1859,7 +1872,7 @@ def lint_file(
     _check_W022_zero_init_bss(result, code_lines, _data_section_names)
     _check_body_rules(result, lines, all_headers[0][1]["has_new"] if all_headers else False)
     _check_W023_default_func_names(result, lines, pedantic)
-    _check_W030_va_order(result, all_headers)
+    _check_W030_va_order(result, all_headers, lines)
     _check_style_rules(result, cfg)
     return result
 
