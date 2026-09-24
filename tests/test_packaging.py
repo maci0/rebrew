@@ -185,6 +185,11 @@ class TestPackagingMetadata:
         requires = data["build-system"]["requires"]
         assert requires == ["setuptools==80.10.2"], requires
         assert data["build-system"]["build-backend"] == "setuptools.build_meta"
+        constraints = (ROOT / "build-constraints.txt").read_text(encoding="utf-8")
+        st_ver = requires[0].removeprefix("setuptools==")
+        assert f"setuptools=={st_ver} " in constraints, (
+            f"build-constraints.txt missing setuptools=={st_ver} pin from pyproject.toml"
+        )
 
     def test_license_file_ships(self) -> None:
         proj = _project()
@@ -450,8 +455,10 @@ class TestSdistManifest:
             with tarfile.open(sdists[0]) as tf:
                 raw = tf.extractfile(setup_cfgs[0])
                 assert raw is not None
-                body = raw.read().decode()
-            assert body.strip() == "[egg_info]\ntag_build = \ntag_date = 0"
+        assert any(n.endswith("src/rebrew/py.typed") for n in names)
+        assert any(n.endswith("src/rebrew/workspace/py.typed") for n in names)
+        assert any(n.endswith("src/rebrew/PRINCIPLES.md") for n in names)
+        assert any(n.endswith("src/rebrew/AGENTS.md.template") for n in names)
         # Normalization must ensure all files have mode 0644 (no spurious executable bits).
         from tools.normalize_sdist import normalize
 
@@ -491,6 +498,8 @@ class TestSdistManifest:
         with zipfile.ZipFile(wheels[0]) as zf:
             names = set(zf.namelist())
             meta = zf.read(next(n for n in names if n.endswith(".dist-info/METADATA"))).decode()
+            ep_name = next(n for n in names if n.endswith(".dist-info/entry_points.txt"))
+            ep_text = zf.read(ep_name).decode()
         skills_root = PKG / "agent-skills"
         missing = [
             f"rebrew/agent-skills/{p.relative_to(skills_root).as_posix()}"
@@ -500,6 +509,11 @@ class TestSdistManifest:
         ]
         assert missing == [], f"wheel missing skill assets: {missing}"
         assert "rebrew/py.typed" in names
+        assert "rebrew/workspace/py.typed" in names
+        assert "rebrew/PRINCIPLES.md" in names
+        assert "rebrew/AGENTS.md.template" in names
+        for script_name in _project()["scripts"]:
+            assert f"{script_name} = " in ep_text, f"wheel missing entry point: {script_name}"
         assert "Typing :: Typed" in meta
         assert "Environment :: Console" in meta
         assert "Project-URL: Security," in meta

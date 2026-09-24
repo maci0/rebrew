@@ -107,15 +107,16 @@ def test_every_script_main_has_callback_decorator() -> None:
     entry points expose it.
     """
     toml = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
-    mods = re.findall(r'^rebrew-[\w-]+ = "rebrew\.(\w+):main_entry"$', toml, re.M)
+    mods = re.findall(r'^rebrew-[\w-]+ = "rebrew\.([\w.]+):main_entry"$', toml, re.M)
     assert mods, "no [project.scripts] entries found"
     for mod in mods:
-        src = (ROOT / "src" / "rebrew" / f"{mod}.py").read_text(encoding="utf-8")
+        mod_file = mod.replace(".", "/")
+        src = (ROOT / "src" / "rebrew" / f"{mod_file}.py").read_text(encoding="utf-8")
         # Single-command modules need @app.callback on main(); multi-command
         # apps register @app.command subcommands and run app() directly.
         assert "@app.callback" in src or "@app.command" in src, (
-            f"{mod}.py wires no callback and no subcommands — the standalone "
-            "rebrew-{mod} script fails at runtime"
+            f"{mod_file}.py wires no callback and no subcommands — the standalone "
+            f"rebrew-{mod.split('.')[-1]} script fails at runtime"
         )
 
 
