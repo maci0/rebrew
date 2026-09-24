@@ -51,7 +51,7 @@ src/rebrew/          # package; discover modules there; do not rely on an inline
 tests/               # pytest; typically test_<module>.py
 ```
 
-Dockerfiles / wrappers / 16-bit media: sibling **rebrew-toolchains** (not vendored here). `rebrew init` renders `agent-skills/` into a project's `.agents/skills/`; this repo's `.agents/skills/` is a rendered copy (target `bench`). Edit `src/rebrew/agent-skills/`, re-render (command in the `tests/test_skills_sync.py` docstring); `tests/test_skills_sync.py` and `tools/validate_skill_commands.py` gate drift.
+Dockerfiles / wrappers / 16-bit media: sibling **rebrew-toolchains** (not vendored here). `rebrew init` renders `agent-skills/` into a project's `.agents/skills/`; this repo's `.agents/skills/` is a rendered copy (target `bench`). Edit `src/rebrew/agent-skills/`, re-render (`make gen-skills`); `tests/test_skills_sync.py` and `tools/validate_skill_commands.py` gate drift.
 
 ## CLI Conventions
 

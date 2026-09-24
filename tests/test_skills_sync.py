@@ -8,9 +8,7 @@ This repo's own ``.agents/skills/`` is such a rendered copy (target
 
 Fix on failure (from repo root)::
 
-    rm -rf .agents/skills
-    cp -r src/rebrew/agent-skills .agents/skills
-    find .agents/skills -name '*.md' -exec sed -i 's/<target>/bench/g' {} +
+    make gen-skills
 """
 
 from pathlib import Path
@@ -50,8 +48,7 @@ class TestSkillsSync:
             if want != got:
                 stale.append(rel)
         assert stale == [], (
-            f"{stale} drifted from src/rebrew/agent-skills/; "
-            "see this file's docstring for the re-render command"
+            f"{stale} drifted from src/rebrew/agent-skills/; run 'make gen-skills' to re-render"
         )
 
 

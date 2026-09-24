@@ -357,6 +357,7 @@ make format                # ruff format (writes)
 make all                   # local mirror of CI lint + test + cli-contract
 make check                 # pre-commit hook parity (before a PR)
 make build                 # sdist + wheel + dist/rebrew.buildinfo (CI package job)
+make clean                 # remove build/dist artifacts and caches
 ```
 
 Flag-axis refresh from decomp.me (maintainer, needs network):

@@ -1,5 +1,5 @@
 .PHONY: help setup clean test test-one lint format format-check check build sbom all \
-	gen-fixtures gen-fixtures-check cycles-check idempotency-check mypy audit \
+	gen-fixtures gen-fixtures-check gen-skills gen-skills-check cycles-check idempotency-check mypy audit \
 	cli-contract release-check coverage ensure-uv ensure-resembl ensure-nasm warn-nasm
 
 # Force POSIX sh for recipes (ignore a caller-exported SHELL=bash).  Recipes
@@ -26,7 +26,7 @@ UV_VERSION ?= 0.12.14
 # Single-file / nodeid override for the edit-test loop:
 #   make test-one T=tests/test_annotation.py
 #   make test-one T=tests/test_annotation.py::TestAnnotationDataclass
-T ?= tests/
+T ?= tests/test_annotation.py
 
 # `make coverage` fail-under percentage; keep in step with [tool.slipcover]
 # fail_under in pyproject.toml.
@@ -36,6 +36,7 @@ COV_FLOOR ?= 85
 # the committer timestamp (or 0 for a non-git tree). Wheel builds with this set
 # are byte-identical across runs; `make build` then rewrites the sdist with
 # tools/normalize_sdist.py (sorted entries, fixed mtimes, 0:0 owner, fixed
+# modes) so it is byte-identical across checkouts too.
 SOURCE_DATE_EPOCH ?= $(shell git log -1 --pretty=%ct 2>/dev/null)
 ifeq ($(strip $(SOURCE_DATE_EPOCH)),)
   override SOURCE_DATE_EPOCH := $(shell git log -1 --pretty=%ct 2>/dev/null)
@@ -64,6 +65,8 @@ help:
 		'  make all                # local mirror of CI lint+test(+coverage floor)+cli-contract gates' \
 		'  make gen-fixtures       # regenerate tests/fixtures/ from tools/gen_fixtures.py' \
 		'  make gen-fixtures-check # tools/gen_fixtures.py --check' \
+		'  make gen-skills         # regenerate .agents/skills/ from src/rebrew/agent-skills/' \
+		'  make gen-skills-check   # verify .agents/skills/ matches src/rebrew/agent-skills/' \
 		'  make cycles-check       # tools/detect_cycles.py (also in pre-commit / make check)' \
 		'  make idempotency-check  # tools/check_idempotency.py' \
 		'  make release-check      # version/changelog/tag preflight before tagging' \
@@ -201,7 +204,7 @@ cli-contract:
 # a stale pin next to requires = ["setuptools==…"] would lie in the manifest).
 # Clean build artifacts, distribution packages, and local tool/test caches.
 clean:
-	rm -rf dist build rebrew.egg-info src/rebrew.egg-info .coverage htmlcov .pytest_cache .ruff_cache .mypy_cache
+	rm -rf dist build rebrew.egg-info src/rebrew.egg-info .coverage htmlcov .coverage.* .pytest_cache .ruff_cache .mypy_cache .scratch/rebrew-idem .venv-pkg
 
 build: ensure-uv
 	@mkdir -p dist
@@ -256,6 +259,17 @@ gen-fixtures:
 # Fixture freshness: checked-in fixtures match the generator (CI test job).
 gen-fixtures-check:
 	uv run --frozen python tools/gen_fixtures.py --check
+
+# Regenerate rendered agent skills from src/rebrew/agent-skills/ (target bench).
+gen-skills:
+	rm -rf .agents/skills
+	cp -r src/rebrew/agent-skills .agents/skills
+	find .agents/skills -name '*.md' -exec sed -i 's/<target>/bench/g' {} +
+
+# Verify rendered agent skills match packaged source (same as tests/test_skills_sync.py).
+gen-skills-check:
+	NO_COLOR=1 TERM=dumb _TYPER_FORCE_DISABLE_TERMINAL=1 \
+		uv run --frozen pytest tests/test_skills_sync.py -v --tb=short
 
 # Module-level import cycles (pre-commit import-cycles hook / CI pre-commit job).
 cycles-check:

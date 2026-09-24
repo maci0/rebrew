@@ -41,7 +41,8 @@ make test-one T=tests/test_annotation.py   # smoke the edit-test loop
 ```bash
 make help                     # list contributor make targets
 make setup                    # frozen sync + pre-commit install (checks uv + ../resembl first)
-make test-one T=tests/foo.py  # single file / nodeid (fast edit-test loop)
+make clean                    # remove build/dist artifacts and caches
+make test-one T=tests/foo.py  # single file / nodeid (fast edit-test loop; defaults to test_annotation.py)
 make coverage                 # full suite under slipcover; fails below COV_FLOOR (CI test job, 3.13)
 make test                     # full suite (a few minutes; needs nasm)
 make all                      # local mirror of CI lint+test+cli-contract gates
@@ -49,6 +50,7 @@ make check                    # pre-commit hook parity (CI pre-commit job)
 make build                    # reproducible sdist+wheel + dist/rebrew.buildinfo (CI package job)
 make cli-contract             # high-value --help greps (CI cli-contract job)
 make gen-fixtures             # regenerate tests/fixtures/ after editing tools/gen_fixtures.py
+make gen-skills               # regenerate .agents/skills/ after editing src/rebrew/agent-skills/
 uv run --frozen ruff check src/ tests/ tools/
 uv run --frozen mypy
 uv run --frozen pre-commit run --all-files
@@ -107,4 +109,5 @@ import rebrew as a library.
 4. Record user-visible change under `## [Unreleased]` in `CHANGELOG.md` when
    the change affects installs, CLI, config, or on-disk formats (see Versioning
    above).  If you edit `tools/gen_fixtures.py`, run `make gen-fixtures` and
-   commit the refreshed `tests/fixtures/` bytes.
+   commit the refreshed `tests/fixtures/` bytes; if you edit `src/rebrew/agent-skills/`,
+   run `make gen-skills` and commit the refreshed `.agents/skills/` files.
