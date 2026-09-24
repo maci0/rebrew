@@ -440,6 +440,12 @@ def _import_lib_symbols_from_image(dll_stem: str) -> set[str]:
         return set()
     except OSError:
         return set()
+    except BaseException:
+        # Ctrl+C kills the docker CLI but leaves the container running.
+        from rebrew.toolchain import kill_container
+
+        kill_container(name)
+        raise
     return set(r.stdout.split()) if r.returncode == 0 else set()
 
 

@@ -1101,7 +1101,15 @@ def run_process_group(
             # The group may already be gone (child exited, pipes still open).
             with contextlib.suppress(ProcessLookupError):
                 os.killpg(proc.pid, signal.SIGKILL)
-            proc.communicate()
+            # Drain remaining output after the SIGKILL.  A short timeout
+            # guards against grandchildren that inherited the pipe fds and
+            # survived the group kill (e.g. a leaked wine server or a
+            # detached helper).  Without it, communicate() blocks forever.
+            try:
+                proc.communicate(timeout=5)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.communicate()
             raise
         except BaseException:
             with contextlib.suppress(ProcessLookupError):

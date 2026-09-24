@@ -290,6 +290,10 @@ def _ensure_wineprefix(prefix: Path, spec: ToolchainSpec) -> None:
         except subprocess.TimeoutExpired as exc:
             kill_container(name)
             error_exit(f"wineprefix init timed out after 300s ({prefix}): {exc}")
+        except BaseException:
+            # Ctrl+C kills the docker CLI but leaves the container running.
+            kill_container(name)
+            raise
         if r.returncode != 0:
             # A half-initialized prefix makes every later compile fail with
             # confusing wine errors — fail here where the cause is visible.

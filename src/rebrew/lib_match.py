@@ -332,6 +332,10 @@ def ensure_stock_lib(dest: Path, *, profile: str, name: str) -> bool:
     except subprocess.TimeoutExpired as exc:
         kill_container(container)
         raise ToolchainError(f"extracting {name} from {image} timed out") from exc
+    except BaseException:
+        # Ctrl+C kills the docker CLI but leaves the container running.
+        kill_container(container)
+        raise
     if result.returncode != 0 or not dest.is_file():
         raise ToolchainError(
             f"cannot extract {name} from {image}: {result.stderr.strip() or 'no copy was written'}"
@@ -392,6 +396,10 @@ def assert_library_is_stock(
             json_mode=json_mode,
             code=EXIT_ERROR,
         )
+    except BaseException:
+        # Ctrl+C kills the docker CLI but leaves the container running.
+        kill_container(container)
+        raise
     digests = [line.split()[0] for line in result.stdout.splitlines() if line.strip()]
     if len(digests) != 2:
         error_exit(
