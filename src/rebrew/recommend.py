@@ -263,7 +263,7 @@ def recommend_orphans(
         confidence=1.0,
         functions=[],
         files=[],
-        evidence=[f"{len(prunable)} orphaned metadata blocks (matched held back)"],
+        evidence=[f"{len(prunable)} orphaned metadata blocks (earned held back)"],
         command="rebrew orphans --prune",
         applyable=True,
     )
@@ -510,13 +510,15 @@ def recommend_cluster_fill(
 def recommend_matched_orphans(
     orphans: list[dict[str, Any]],
 ) -> list[Recommendation]:
-    """Flag matched orphans: earned STATUS with no source marker.
+    """Flag earned orphans (:data:`rebrew.orphans.EARNED_STATUSES`) with no marker.
 
     The ``orphans`` lane prunes the safe subset; these are held back because
     deleting them destroys matched work.  The fix is re-attaching a marker,
     never pruning — so they surface here as human-fix items.
     """
-    matched = [o for o in orphans if o.get("status") in ("EXACT", "RELOC", "PROVEN")]
+    from rebrew.orphans import EARNED_STATUSES
+
+    matched = [o for o in orphans if o.get("status") in EARNED_STATUSES]
     return [
         Recommendation(
             kind="matched-orphans",

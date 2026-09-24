@@ -447,11 +447,11 @@ def _render_index(
 ) -> list[tuple[str, str]]:
     """Render index.html (+ ``index-pN.html`` when the table exceeds one page)."""
     sc = report.status_counts
-    matched = sc.get("EXACT", 0) + sc.get("RELOC", 0) + sc.get("PROVEN", 0)
     cards: list[tuple[str, str]] = [
         ("Total functions", str(report.total_functions)),
         ("Covered", f"{report.covered_functions} ({report.coverage_pct}%)"),
-        ("Matched", f"{matched} ({report.matched_pct}%)"),
+        ("Byte-matched", f"{report.matched_functions} ({report.matched_pct}%)"),
+        ("PROVEN", str(sc.get("PROVEN", 0))),
         ("NEAR_MATCHING", str(sc.get("NEAR_MATCHING", 0))),
         ("STUB", str(sc.get("STUB", 0))),
         ("Byte coverage", f"{report.byte_coverage_pct}%"),
@@ -893,11 +893,11 @@ def generate_decomp_dev_report(cfg: ProjectConfig, out_path: Path) -> dict[str, 
     JSON-serialized).  This emits that file from rebrew's existing status
     data:
 
-    - ``EXACT``/``RELOC``/``PROVEN`` functions count as fully matched
+    - ``EXACT``/``RELOC`` functions count as fully matched
       (``fuzzy_match_percent`` 100) — a byte-matched function is placed
       correctly by construction when the binary is relinked;
-    - ``NEAR_MATCHING`` functions carry their cached ``match_percent`` when
-      the verify cache has one, else 0;
+    - ``NEAR_MATCHING`` and ``PROVEN`` functions (bytes differ) carry their
+      cached ``match_percent`` when the verify cache has one, else 0;
     - everything else (STUB, unannotated registry functions) is 0.
 
     ``total_functions``/``total_code`` come from the SHARED progress model
@@ -952,7 +952,7 @@ def generate_decomp_dev_report(cfg: ProjectConfig, out_path: Path) -> dict[str, 
     def fuzzy_for(status: str, va: int) -> float:
         if status in MATCHED_STATUSES:
             return 100.0
-        if status == "NEAR_MATCHING":
+        if status in ("NEAR_MATCHING", "PROVEN"):
             return cached_pct.get(va, 0.0)
         return 0.0
 
@@ -1017,7 +1017,7 @@ def generate_decomp_dev_report(cfg: ProjectConfig, out_path: Path) -> dict[str, 
     # ghidra-functions ∪ annotated set.
     status = collect_status(cfg)
     registry_total = status.total_functions or 0
-    matched_functions = sum(status.status_counts.get(s, 0) for s in ("EXACT", "RELOC", "PROVEN"))
+    matched_functions = status.matched_functions
     matched_code = status.matched_bytes
     text_size = status.total_text_bytes or get_text_section_size(cfg.target_binary) or 0
 

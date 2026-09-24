@@ -307,6 +307,16 @@ class TestOnlyVaGuard:
         monkeypatch.setattr(ci, "_target_bytes_by_va", lambda cfg, vas: dict.fromkeys(vas, b"\xc3"))
         assert ci.unmatched_dest_bytes(cfg, only_va=0x401040) == {}
 
+    def test_proven_is_importable_destination_not_donor(self, monkeypatch) -> None:
+        """PROVEN bytes differ from the target: a PROVEN destination is still
+        unmatched work and a PROVEN source is not a byte-exact donor."""
+        cfg = SimpleNamespace()
+        monkeypatch.setattr(ci, "_annotations_by_va", lambda cfg: {0x401040: ("PROVEN", "f1.c")})
+        monkeypatch.setattr(ci, "_registry", lambda cfg: {0x401040: {"canonical_size": 16}})
+        monkeypatch.setattr(ci, "_target_bytes_by_va", lambda cfg, vas: dict.fromkeys(vas, b"\xc3"))
+        assert set(ci.unmatched_dest_bytes(cfg, only_va=0x401040)) == {0x401040}
+        assert ci.matched_source_bytes(cfg) == {}
+
     def test_only_va_sizeless_unmatched_still_matched(self, monkeypatch) -> None:
         """A NOT-matched VA without a registry size still gets the disasm size
         (the guard must only block the matched case)."""

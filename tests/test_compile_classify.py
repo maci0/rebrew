@@ -287,17 +287,17 @@ class TestClassifyMatchStatus:
 
 class TestIsMatched:
     def test_matched_statuses(self) -> None:
-        for status in ("EXACT", "RELOC", "PROVEN"):
+        for status in ("EXACT", "RELOC"):
             assert is_matched(status) is True
 
     def test_matched_statuses_canonicalized(self) -> None:
         """Hand-edited lowercase / NEAR_MATCH alias still count as matched."""
         assert is_matched("exact") is True
         assert is_matched("reloc") is True
-        assert is_matched("proven") is True
 
     def test_unmatched_statuses(self) -> None:
-        for status in ("STUB", "NEAR_MATCHING", "SIZE_MISMATCH", "", "COMPILE_ERROR"):
+        # PROVEN bytes differ from the target: not matched.
+        for status in ("STUB", "NEAR_MATCHING", "SIZE_MISMATCH", "", "COMPILE_ERROR", "PROVEN"):
             assert is_matched(status) is False
 
     def test_real_tiny_function_not_stub(self) -> None:

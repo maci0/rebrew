@@ -58,12 +58,14 @@ class TestStatusReport:
         )
         assert report.matched_pct == 30.0
 
-    def test_matched_pct_includes_proven(self) -> None:
+    def test_matched_pct_excludes_proven(self) -> None:
         report = StatusReport(
             total_functions=100,
             status_counts={"EXACT": 10, "RELOC": 5, "PROVEN": 5, "STUB": 80},
+            naked_matched=5,
         )
-        assert report.matched_pct == 20.0
+        assert report.matched_pct == 15.0
+        assert report.decompiled_pct == 10.0
 
     def test_byte_coverage_pct(self) -> None:
         report = StatusReport(
@@ -327,6 +329,35 @@ class TestCollectStatus:
         assert report.status_counts.get("EXACT") == 1
         assert report.library_identified == 1
         assert report.covered_functions == 1
+
+    def test_proven_bytes_not_counted_as_matched(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """PROVEN bytes differ from the target: not matched, not identified."""
+        import rebrew.naming
+
+        cfg = _make_cfg(tmp_path)
+        existing = {
+            0x1000: {"filename": "a.c", "size": "100", "status": "EXACT", "module": "TEST"},
+            0x2000: {"filename": "b.c", "size": "40", "status": "PROVEN", "module": "TEST"},
+            0x3000: {
+                "filename": "library_x.h",
+                "size": "50",
+                "status": "PROVEN",
+                "module": "TEST",
+                "marker_type": "LIBRARY",
+            },
+        }
+        monkeypatch.setattr(
+            rebrew.naming,
+            "load_data",
+            lambda cfg: ([], existing, {0x1000: "a.c", 0x2000: "b.c", 0x3000: "library_x.h"}),
+        )
+        report = collect_status(cfg)  # type: ignore[arg-type]
+        assert report.status_counts == {"EXACT": 1, "PROVEN": 1}
+        assert report.matched_bytes == 100
+        assert report.library_identified == 0
+        assert report.matched_pct == 50.0
 
     def test_library_rows_bucketed_in_module_table(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

@@ -206,7 +206,6 @@ __all__ = [
     "MATCHED_STATUSES",
     "METADATA_FIELDS",
     "METADATA_FILENAME",
-    "PROVEN_COMPATIBLE_STATUSES",
     "all_library_presets",
     "apply_library_presets",
     "canonical_status",
@@ -219,9 +218,7 @@ __all__ = [
     "find_library_override",
     "get_entry",
     "is_metadata_key",
-    "is_stale_proven",
     "is_status_parked",
-    "is_status_sticky",
     "is_table_field",
     "load_metadata",
     "merge_into_annotation",
@@ -864,23 +861,11 @@ def canonical_status(status: str) -> str:
     return _STATUS_ALIASES.get(folded, folded)
 
 
-def is_status_sticky(current_status: str) -> bool:
-    """True when *current_status* should never be demoted by test/verify.
-
-    PROVEN is a post-verify promotion from ``rebrew prove`` — byte-level
-    comparison cannot reproduce it, so test/verify must preserve it.
-    Comparison is case-insensitive so a hand-edited ``"proven"`` entry
-    keeps its stickiness.
-    """
-    return canonical_status(current_status) == "PROVEN"
-
-
 def is_status_parked(current_status: str) -> bool:
     """True when *current_status* is user-parked (``SKIP``) and must not change.
 
-    Unlike PROVEN (which yields to a real EXACT/RELOC byte match), SKIP is an
-    intentional "don't touch" parking classification — test/verify must not
-    overwrite it without ``force=True``.
+    SKIP is an intentional "don't touch" parking classification: test/verify
+    must not overwrite it without ``force=True``.
     """
     return canonical_status(current_status) == "SKIP"
 
@@ -891,51 +876,23 @@ def should_promote_status(current_status: str, new_status: str) -> bool:
     Single canonical promotion decision, enforced both by ``rebrew test`` /
     ``rebrew verify`` call sites and inside :func:`update_statuses_batch`
     (the writer layer).  Refuses to promote when the current status is
-    sticky (PROVEN), parked (SKIP), when a STUB's placeholder size-mismatch
-    would erase the user's STUB classification, or when the status did not
-    change.  Both sides are compared case-insensitively.
+    parked (SKIP), when a STUB's placeholder size-mismatch would erase the
+    user's STUB classification, or when the status did not change.  Both
+    sides are compared case-insensitively.
 
-    The one exception to PROVEN stickiness is a byte match: EXACT/RELOC mean
-    the compiler reproduced the target's bytes, which is strictly stronger
-    than the semantic equivalence PROVEN records.  Without it a function that
-    finally byte-matches would keep reporting PROVEN and the win would never
-    be recorded.  SKIP has no such carve-out — unparking requires force.
+    PROVEN gets no protection: it records semantic equivalence, not a byte
+    match, so the next byte verdict from test/verify replaces it.
     """
     current = canonical_status(current_status)
     new = canonical_status(new_status)
     if is_status_parked(current):
         return False
-    if is_status_sticky(current):
-        return new in ("EXACT", "RELOC")
     if current == "STUB" and new in ("SIZE_MISMATCH", "MISSING_SIZE"):
         # A documented STUB (typically blocker-documented) must not be
         # demoted by a placeholder size-mismatch or a missing-size
         # evaluation — that would erase the user's classification.
         return False
     return current != new
-
-
-#: Byte results a PROVEN function legitimately produces (bytes differ
-#: structurally), so a PROVEN claim stands over them.
-PROVEN_COMPATIBLE_STATUSES: frozenset[str] = frozenset({"NEAR_MATCHING", "SIZE_MISMATCH"})
-
-
-def is_stale_proven(current_status: str, byte_status: str, *, blocker_documented: bool) -> bool:
-    """True when a PROVEN claim is not backed by the byte result *byte_status*.
-
-    PROVEN stands over :data:`PROVEN_COMPATIBLE_STATUSES` and over a STUB
-    whose entry carries a blocker (``rebrew prove`` accepts those).
-    EXACT/RELOC are the PROVEN upgrade, not a stale claim, and
-    ``INTERNAL_ERROR`` is a tooling crash, not a verdict.  Everything else
-    (COMPILE_ERROR, a bare STUB, MISSING_*) means the source no longer holds
-    the proven code.
-    """
-    if canonical_status(current_status) != "PROVEN":
-        return False
-    byte = canonical_status(byte_status)
-    if byte in PROVEN_COMPATIBLE_STATUSES or byte in ("EXACT", "RELOC", "INTERNAL_ERROR"):
-        return False
-    return not (byte == "STUB" and blocker_documented)
 
 
 def update_source_status(
@@ -954,9 +911,7 @@ def update_source_status(
     ``rebrew test`` calls it directly; ``rebrew verify`` goes through
     :func:`update_statuses_batch` (same promotion rules, batched).
 
-    PROVEN is a post-verify promotion from ``rebrew prove`` and is never
-    silently demoted.  Callers that need to override this must pass
-    ``force=True``.
+    The write passes :func:`should_promote_status` unless ``force=True``.
 
     Uses a single read-modify-write cycle instead of separate get/set/delete
     calls to minimise I/O.  Atomicity is provided by ``atomic_write_locked``.
@@ -969,7 +924,8 @@ def update_source_status(
         clear_blockers: If ``True`` (default), remove ``blocker`` and
             ``blocker_delta`` from the metadata entry (correct for EXACT/RELOC).
             Pass ``False`` when demoting to NEAR_MATCHING to preserve user-set blockers.
-        force: If ``True``, allow demotion from PROVEN.  Default ``False``.
+        force: If ``True``, bypass :func:`should_promote_status` (unpark
+            SKIP, override a STUB).  Default ``False``.
         updated_by: Provenance tag for the write (``test``/``verify``/``prove``/
             ``lint``/``binsync-import``/``intake``/``match``).  Recorded as
             ``updated_by`` with a UTC ``updated_at`` timestamp.
@@ -1002,7 +958,7 @@ def update_statuses_batch(metadata_dir: Path, updates: list[dict[str, Any]]) -> 
     ``update_source_status`` per entry — each a full tomlkit parse + dumps +
     atomic write serialized under the global lock.  Measured: 260 entries ≈
     9s, extrapolated ≈ 28 min at 3000 entries.  The
-    promotion/stickiness rules are identical per entry; only the I/O is
+    promotion rules are identical per entry; only the I/O is
     batched (one parse, N in-memory edits, one write).
 
     *updates*: list of dicts with keys ``module``, ``va``, ``new_status``
@@ -1010,9 +966,8 @@ def update_statuses_batch(metadata_dir: Path, updates: list[dict[str, Any]]) -> 
     False).  Returns the number of statuses actually changed.
 
     Each changed status passes through :func:`should_promote_status` —
-    the single canonical promotion policy (PROVEN never silently demoted,
-    SKIP never silently unparked, a documented STUB kept against placeholder
-    size-mismatch verdicts).  ``force=True`` bypasses that policy for
+    the single canonical promotion policy (SKIP never silently unparked, a
+    documented STUB kept against placeholder size-mismatch verdicts).  ``force=True`` bypasses that policy for
     manual/repair writes.
     Same-status updates still fall through when they will clear blockers
     (the stale-blocker cleanup path).

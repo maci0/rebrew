@@ -398,7 +398,7 @@ class TestUpdateField:
         """Upper-case STATUS must hit the same gate as lower-case status.
 
         A case-sensitive check would write a sibling ``STATUS`` TOML key and
-        leave the real ``status`` (and PROVEN stickiness) untouched.
+        leave the real ``status`` (and the promotion gate) untouched.
         """
         save_metadata(tmp_path, {("SERVER", 0x1000): {"status": "PROVEN"}})
         with pytest.raises(ValueError, match="update_source_status"):
@@ -934,7 +934,7 @@ class TestConcurrentWrites:
 class TestUpdateStatusesBatchPromotionPolicy:
     """The batch writer must enforce the same canonical promotion policy as
     should_promote_status — a direct writer-layer caller (prove, near-diag,
-    future tools) gets STUB protection and PROVEN stickiness without having
+    future tools) gets STUB protection and SKIP parking without having
     to pre-gate."""
 
     def _read_status(self, metadata_dir: Path, va: int) -> str:
@@ -961,15 +961,16 @@ class TestUpdateStatusesBatchPromotionPolicy:
         assert changed == 1
         assert self._read_status(tmp_path, 0x1000) == "SIZE_MISMATCH"
 
-    def test_proven_never_silently_demoted(self, tmp_path: Path) -> None:
+    def test_proven_demoted_to_byte_result(self, tmp_path: Path) -> None:
+        """PROVEN is not sticky: the next byte verdict replaces it."""
         from rebrew.metadata import update_statuses_batch
 
         update_statuses_batch(tmp_path, [{"module": "T", "va": 0x1000, "new_status": "PROVEN"}])
         changed = update_statuses_batch(
             tmp_path, [{"module": "T", "va": 0x1000, "new_status": "NEAR_MATCHING"}]
         )
-        assert changed == 0
-        assert self._read_status(tmp_path, 0x1000) == "PROVEN"
+        assert changed == 1
+        assert self._read_status(tmp_path, 0x1000) == "NEAR_MATCHING"
 
     def test_unknown_status_rejected(self, tmp_path: Path) -> None:
         """Batch writer must refuse statuses outside KNOWN_STATUSES — same
@@ -1030,18 +1031,18 @@ class TestUpdateStatusesBatchPromotionPolicy:
         assert changed == 1
         assert self._read_status(tmp_path, 0x1000) == "EXACT"
 
-    def test_hand_edited_lowercase_proven_stays_sticky(self, tmp_path: Path) -> None:
+    def test_hand_edited_lowercase_skip_stays_parked(self, tmp_path: Path) -> None:
         """Validation accepts any STATUS case (metadata_model uses .upper()),
-        so a hand-edited ``status = "proven"`` must keep its stickiness —
-        case-sensitive comparison here would silently allow a demotion."""
+        so a hand-edited ``status = "skip"`` must stay parked: a case-sensitive
+        comparison here would silently unpark it."""
         from rebrew.metadata import update_statuses_batch
 
-        save_metadata(tmp_path, {("T", 0x1000): {"status": "proven"}})
+        save_metadata(tmp_path, {("T", 0x1000): {"status": "skip"}})
         changed = update_statuses_batch(
             tmp_path, [{"module": "T", "va": 0x1000, "new_status": "NEAR_MATCHING"}]
         )
         assert changed == 0
-        assert self._read_status(tmp_path, 0x1000) == "proven"
+        assert self._read_status(tmp_path, 0x1000) == "skip"
 
 
 # ---------------------------------------------------------------------------
@@ -1056,12 +1057,11 @@ class TestStatusCasePolicy:
     def test_should_promote_is_case_insensitive(self) -> None:
         from rebrew.metadata import should_promote_status
 
-        # PROVEN is sticky against demotion, but a byte match supersedes it:
-        # EXACT/RELOC show what PROVEN could not, so they are recorded.
+        # PROVEN is not sticky: any differing byte verdict replaces it.
         assert should_promote_status("proven", "EXACT") is True
-        assert should_promote_status("proven", "RELOC") is True
-        assert should_promote_status("proven", "NEAR_MATCHING") is False
-        assert should_promote_status("proven", "SIZE_MISMATCH") is False
+        assert should_promote_status("proven", "NEAR_MATCHING") is True
+        assert should_promote_status("proven", "SIZE_MISMATCH") is True
+        assert should_promote_status("proven", "PROVEN") is False
         assert should_promote_status("stub", "SIZE_MISMATCH") is False
         assert should_promote_status("stub", "EXACT") is True
         assert should_promote_status("near_matching", "RELOC") is True
@@ -1070,26 +1070,6 @@ class TestStatusCasePolicy:
         # SKIP is parked: never auto-unpark, even for a byte match.
         assert should_promote_status("skip", "EXACT") is False
         assert should_promote_status("SKIP", "RELOC") is False
-
-    @pytest.mark.parametrize(
-        ("current", "byte", "blocker", "stale"),
-        [
-            ("PROVEN", "COMPILE_ERROR", False, True),
-            ("proven", "STUB", False, True),
-            ("PROVEN", "MISSING_FILE", True, True),
-            ("PROVEN", "STUB", True, False),
-            ("PROVEN", "NEAR_MATCHING", False, False),
-            ("PROVEN", "SIZE_MISMATCH", False, False),
-            ("PROVEN", "EXACT", False, False),
-            ("PROVEN", "RELOC", False, False),
-            ("PROVEN", "INTERNAL_ERROR", False, False),
-            ("NEAR_MATCHING", "COMPILE_ERROR", False, False),
-        ],
-    )
-    def test_is_stale_proven(self, current: str, byte: str, blocker: bool, stale: bool) -> None:
-        from rebrew.metadata import is_stale_proven
-
-        assert is_stale_proven(current, byte, blocker_documented=blocker) is stale
 
     def test_merge_normalizes_near_match_alias(self, tmp_path: Path) -> None:
         from rebrew.annotation import Annotation

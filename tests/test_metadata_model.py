@@ -153,15 +153,20 @@ def test_load_globals_list_coerces_to_string(tmp_path: Path) -> None:
     assert loaded.problems() == []
 
 
-def test_apply_proven_not_silently_demoted(tmp_path: Path) -> None:
-    """PROVEN is sticky: a non-force write can't demote it."""
+def test_apply_proven_demoted_by_plain_write(tmp_path: Path) -> None:
+    """PROVEN is not sticky: a non-force write replaces it."""
     e = _entry(tmp_path)
     e.apply(tmp_path, status="PROVEN")
-    # A plain apply routes through the same stickiness as the raw writers —
-    # the demotion to a non-byte status is refused.  (EXACT/RELOC still win:
-    # a byte match is strictly stronger than PROVEN.)
+    e.apply(tmp_path, status="NEAR_MATCHING")
+    assert MetadataEntry.load(tmp_path, 0x1000, "MAIN").status == "NEAR_MATCHING"
+
+
+def test_apply_skip_needs_force(tmp_path: Path) -> None:
+    """SKIP is parked: a plain apply is refused, force=True overrides."""
+    e = _entry(tmp_path)
+    e.apply(tmp_path, status="SKIP")
     e.apply(tmp_path, status="STUB")
-    assert MetadataEntry.load(tmp_path, 0x1000, "MAIN").status == "PROVEN"
+    assert MetadataEntry.load(tmp_path, 0x1000, "MAIN").status == "SKIP"
     # force=True is the explicit user-intent override (lint --fix migration).
     e.apply(tmp_path, status="STUB", force=True)
     assert MetadataEntry.load(tmp_path, 0x1000, "MAIN").status == "STUB"

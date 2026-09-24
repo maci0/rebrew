@@ -112,10 +112,12 @@ class TestDecompDevReport:
         assert result["total_functions"] == 3
         assert result["matched_functions"] == 1
 
-    def test_near_matching_uses_cached_match_percent(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    @pytest.mark.parametrize("status", ["NEAR_MATCHING", "PROVEN"])
+    def test_unmatched_uses_cached_match_percent(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, status: str
     ) -> None:
-        annos = [_fake_ann(0x2000, 32, "near_fn", "NEAR_MATCHING")]
+        """PROVEN bytes differ like NEAR_MATCHING: the measured percent, not 100."""
+        annos = [_fake_ann(0x2000, 32, "near_fn", status)]
         self._setup(tmp_path, monkeypatch, annos)
         self._mock_progress(monkeypatch, total_functions=1, status_counts={})
 

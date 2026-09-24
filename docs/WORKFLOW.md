@@ -214,20 +214,11 @@ implementations, STATUS is promoted to `PROVEN`.
 > Functions with heavy floating-point math or complex loops may time out.
 
 > [!CAUTION]
-> **PROVEN is sticky — with one automatic exception.** `rebrew test` /
-> `rebrew verify` never silently demote a PROVEN function whose byte result is
-> one a proven function legitimately produces (NEAR_MATCHING, SIZE_MISMATCH).
-> But a PROVEN claim the compile cannot support (STUB, COMPILE_ERROR,
-> EXTRACT_ERROR, MISSING_FILE — the source no longer contains the proven
-> code) is void: verify demotes it to the real byte result with a
-> `metadata: warning`, once. To demote any other stale PROVEN:
->
-> ```bash
-> rebrew test src/target_name/my_func.c --force-status
-> ```
->
-> This is the intended manual remedy — it forces the STATUS update from a
-> sticky status, so use it deliberately per function.
+> **PROVEN is not a byte match and is not sticky.** The next `rebrew test` /
+> `rebrew verify` of a PROVEN function records its byte result
+> (NEAR_MATCHING, STUB, EXACT, …) over PROVEN, keeping the blocker unless
+> the result is EXACT/RELOC.  `rebrew status` counts PROVEN apart from
+> byte-matched, and `rebrew todo` keeps it as improve-match work.
 
 ### 10. Verify STATUS is current
 
@@ -235,11 +226,8 @@ implementations, STATUS is promoted to `PROVEN`.
 rebrew verify  # recompiles all tracked functions; auto-updates any drifted STATUS
 ```
 
-`verify` promotes and corrects drifted statuses. It respects sticky PROVEN
-over legitimate byte states (NEAR_MATCHING, SIZE_MISMATCH) but auto-demotes
-void claims (STUB, COMPILE_ERROR, EXTRACT_ERROR, MISSING_FILE — see
-section 9); any other stale PROVEN is demoted with
-`rebrew test <file> --force-status`.
+`verify` promotes and corrects drifted statuses, PROVEN included (see
+section 9).  Only parked SKIP is left alone.
 
 ### 11. Lint and verify source marker health
 

@@ -1343,9 +1343,9 @@ class TestMissingSizeHint:
 
 
 class TestPrintTestSummary:
-    """Batch summary must mirror should_promote_status (PROVEN→EXACT upgrades)."""
+    """Batch summary must mirror should_promote_status (SKIP parked, PROVEN not)."""
 
-    def test_proven_to_exact_shows_upgrade(self, capsys: pytest.CaptureFixture[str]) -> None:
+    def test_transitions_follow_promotion_policy(self, capsys: pytest.CaptureFixture[str]) -> None:
         from types import SimpleNamespace as NS
 
         from rebrew.test import print_test_summary
@@ -1360,6 +1360,6 @@ class TestPrintTestSummary:
         out = capsys.readouterr().err
         assert "PROVEN → EXACT" in out
         assert "NEAR_MATCHING → RELOC" in out
-        # Parked SKIP and sticky PROVEN→NEAR stay put (no transition line).
+        # Parked SKIP stays put; PROVEN yields to the byte verdict.
         assert "SKIP →" not in out
-        assert "PROVEN → NEAR" not in out
+        assert "PROVEN → NEAR_MATCHING" in out

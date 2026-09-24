@@ -713,15 +713,15 @@ def _check_E017_contradictory(result: LintResult, status: str, marker: str) -> N
         result.error(
             result.marker_line, "E017", f"Contradictory: status is {status} but marker is STUB"
         )
-    elif marker == "STUB" and status in MATCHED_STATUSES:
-        # A matched function marked STUB (stale marker from stub generation,
-        # metadata later promoted). The STUB marker hides a byte-matched
-        # function from status/todo and misleads reversers.
+    elif marker == "STUB" and (status in MATCHED_STATUSES or status == "PROVEN"):
+        # A byte-matched or proven function marked STUB (stale marker from
+        # stub generation, metadata later promoted).  The STUB marker hides a
+        # developed function from status/todo and misleads reversers.
         result.error(
             result.marker_line,
             "E017",
             f"Contradictory: status is {status} but marker is STUB — "
-            "remove the stale STUB marker (function is matched)",
+            "remove the stale STUB marker (function is developed)",
         )
 
 
@@ -2271,8 +2271,8 @@ def main(
                             )
                         elif toml_key == "status":
                             # STATUS must go through the promotion gate
-                            # (validates the value, never silently demotes
-                            # PROVEN).  Clear blockers only for EXACT/RELOC —
+                            # (validates the value, never silently unparks
+                            # SKIP).  Clear blockers only for EXACT/RELOC —
                             # migrating // STATUS: NEAR_MATCHING must not erase
                             # an accompanying BLOCKER that this same --fix
                             # pass is about to migrate; PROVEN keeps blockers

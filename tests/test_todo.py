@@ -504,10 +504,36 @@ class TestCollectors:
         existing = {
             0x1000: {"status": "EXACT", "symbol": "a"},
             0x2000: {"status": "RELOC", "symbol": "b"},
-            0x3000: {"status": "PROVEN", "symbol": "c"},
         }
         items = _collect_active_functions(existing, {}, {}, {})
         assert len(items) == 0
+
+    @pytest.mark.parametrize("has_angr", [True, False])
+    def test_proven_is_improve_match_work(
+        self, monkeypatch: pytest.MonkeyPatch, has_angr: bool
+    ) -> None:
+        """PROVEN bytes still differ: it stays actionable as improve-match with
+        its blocker, never re-routed to `rebrew prove` or a flag sweep."""
+        from rebrew.metadata import GA_CEILING_PREFIX
+
+        monkeypatch.setattr("rebrew.prove.angr_available", lambda: has_angr)
+        blocker = GA_CEILING_PREFIX + " register-only delta"
+        existing = {
+            0x3000: {
+                "status": "PROVEN",
+                "symbol": "c",
+                "filename": "c.c",
+                "blocker": blocker,
+                "blocker_delta": "3",
+            }
+        }
+        items = _collect_active_functions(existing, {0x3000: 80}, {}, {})
+        assert len(items) == 1
+        assert items[0].category == CAT_IMPROVE_MATCH
+        assert items[0].status == "PROVEN"
+        assert items[0].blocker == blocker
+        assert items[0].byte_delta == 3
+        assert items[0].command == "rebrew diff 0x00003000"
 
     def test_active_functions_skips_parked(self) -> None:
         """status=SKIP is user parking — never actionable until force-unparked."""
@@ -1229,6 +1255,33 @@ class TestTodoCli:
         assert cov["exact"] == 1
         assert cov["pct_matched"] == 100.0
 
+    def test_pct_matched_excludes_proven(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import json
+
+        result = self._invoke(
+            tmp_path,
+            monkeypatch,
+            ghidra_funcs=[
+                FunctionEntry(va=0x1000, size=100, name="a"),
+                FunctionEntry(va=0x2000, size=100, name="b"),
+            ],
+            existing={
+                0x1000: {"status": "EXACT", "symbol": "a", "size": "100"},
+                0x2000: {"status": "PROVEN", "symbol": "b", "size": "100"},
+            },
+            covered_vas={0x1000: "a.c", 0x2000: "b.c"},
+            args=["--json"],
+        )
+        assert result.exit_code == 0
+        data = json.loads(result.output)
+        assert data["coverage"]["proven"] == 1
+        assert data["coverage"]["pct_matched"] == 50.0
+        vas = {i["va"] for i in data["items"]}
+        assert "0x00002000" in vas
+        assert "0x00001000" not in vas
+
     def test_pct_matched_uses_the_status_denominator(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -1479,6 +1532,17 @@ class TestProverCandidateFiltering:
         items = _collect_prover_candidates(existing, {0x1000: 600}, verify)  # type: ignore[arg-type]
         assert len(items) == 1
         assert items[0].va == 0x1000
+
+    def test_proven_not_reoffered(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from types import SimpleNamespace as SN
+
+        from rebrew.todo import _collect_prover_candidates
+
+        monkeypatch.setitem(sys.modules, "angr", SN())  # fake: treat as available
+        existing = {0x1000: {"status": "PROVEN", "symbol": "a", "size": "50"}}
+        verify = {"0x00001000": SN(status="NEAR_MATCHING", match_percent=96.0, delta=2)}
+        items = _collect_prover_candidates(existing, {0x1000: 50}, verify)  # type: ignore[arg-type]
+        assert items == []
 
     def test_unmeasured_candidate_kept(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from types import SimpleNamespace as SN

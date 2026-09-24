@@ -276,7 +276,7 @@ def matched_byte_count(
 
 
 def is_matched(status: str) -> bool:
-    """True when *status* indicates a fully matched function (EXACT, RELOC, or PROVEN).
+    """True when *status* is byte-matched (EXACT or RELOC; PROVEN is not).
 
     Spelling is normalized via :func:`canonical_status` so hand-edited
     ``exact`` / the ``NEAR_MATCH`` alias cannot miss the matched gate.

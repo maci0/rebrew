@@ -1525,7 +1525,7 @@ def update_annotation_key(
         module = module_for_va(filepath, va)
         _dir = metadata_dir if metadata_dir is not None else filepath.parent
         if key.upper() == "STATUS":
-            # Unforced: the promotion gate keeps PROVEN and parked SKIP.
+            # Unforced: the promotion gate keeps parked SKIP.
             # Same clear_blockers policy as MetadataEntry.apply / prove:
             # only byte-identical EXACT/RELOC wipe blockers; PROVEN and
             # unmatched verdicts keep them.

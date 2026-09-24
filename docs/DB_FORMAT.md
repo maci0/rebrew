@@ -142,7 +142,7 @@ Represents chunks (cells) of memory to be rendered in the UI coverage map.
 | `exact` | Byte-identical match | Green |
 | `reloc` | Match after relocation normalization | Cyan |
 | `near_matching` / `near_match` | Functionally matching (not byte-identical) | Yellow |
-| `proven` | PROVEN status (post-verify semantic promotion) | Bold cyan |
+| `proven` | PROVEN status (semantic equivalence, bytes differ) | Bold cyan |
 | `size_mismatch` | SIZE_MISMATCH status | Yellow |
 | `compile_error`, `missing_file`, `missing_size`, `skip`, `unknown` | Error/other states (counted in `other_count`) | Red/Dim |
 | `stub` | Stub implementation (placeholder) | Red |
@@ -360,7 +360,7 @@ Each `data_<target>.json` file is the output of `rebrew catalog --data-json`. It
 >   byte, including padding and data.  A binary whose functions are all STUB
 >   placeholders still reports high coverage here.
 > - `metadata.function_stats` (dashboard headline) — the dashboard computes
->   `coverage_pct` from **matched bytes** `(EXACT + RELOC + PROVEN sizes) /
+>   `coverage_pct` from **matched bytes** `(EXACT + RELOC sizes) /
 >   textSize` — the genuine progress metric — and `identified_pct` from
 >   `covered_bytes` (every function incl. stubs), so "fully documented"
 >   stays visible separately (the dashboard previously summed

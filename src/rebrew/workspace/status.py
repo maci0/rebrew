@@ -34,6 +34,7 @@ KNOWN_STATUSES: frozenset[str] = frozenset(
     }
 )
 
-# Statuses that count as matched work (byte-identical or proven-equivalent),
-# in canonical display order.
-MATCHED_STATUSES: tuple[str, ...] = ("EXACT", "RELOC", "PROVEN")
+# Statuses whose compiled bytes equal the target (RELOC after relocation
+# masking), in canonical display order.  PROVEN is semantic equivalence
+# with differing bytes and is deliberately absent.
+MATCHED_STATUSES: tuple[str, ...] = ("EXACT", "RELOC")

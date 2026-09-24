@@ -1456,10 +1456,9 @@ def main(
     if proven and not dry_run:
         from rebrew.metadata import update_source_status
 
-        # Keep the blocker: a PROVEN body compiled under the 60% classifier
-        # line reads back as STUB, and verify honors PROVEN over a
-        # blocker-documented STUB. Clearing it here would strand a fresh
-        # promotion as a blocker-less STUB the next verify run.
+        # Keep the blocker: PROVEN is not a byte match, and the next
+        # verify/test replaces PROVEN with the byte verdict, which must
+        # still carry the documented blocker.
         update_source_status(
             cfg.metadata_dir, "PROVEN", ann.module, va, clear_blockers=False, updated_by="prove"
         )

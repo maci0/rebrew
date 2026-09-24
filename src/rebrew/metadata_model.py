@@ -199,13 +199,12 @@ class MetadataEntry:
 
         * STATUS routes through the promotion gate
           (:func:`rebrew.metadata.update_source_status`) — *force* (default
-          False) decides whether stickiness (PROVEN) may be demoted, exactly
+          False) decides whether parked SKIP may be overwritten, exactly
           like the raw writer.  Pass ``force=True`` only for explicit
           user-intent writes.  Blockers are cleared only for byte-identical
           statuses (EXACT/RELOC), matching ``rebrew test`` / ``rebrew verify``
-          for those verdicts.  PROVEN keeps blockers (``rebrew prove`` must
-          not strand a fresh promotion as a blocker-less STUB on the next
-          verify), and NEAR_MATCHING / STUB / error verdicts keep them too.
+          for those verdicts; PROVEN, NEAR_MATCHING, STUB and error verdicts
+          keep them.
         * Every other key must be a metadata-owned field; ``size`` /
           ``blocker_delta`` are coerced to ``int``.  Writes are batched into
           a single read-modify-write (except STATUS, which has its own).
@@ -232,7 +231,7 @@ class MetadataEntry:
                 self.module,
                 self.va,
                 force=force,
-                # EXACT/RELOC only — not PROVEN (see prove.py clear_blockers=False).
+                # EXACT/RELOC only; PROVEN is not a byte match.
                 clear_blockers=canon in ("EXACT", "RELOC"),
             )
         if coerced:

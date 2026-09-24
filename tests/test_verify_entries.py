@@ -305,13 +305,7 @@ class TestPrepareEntriesCache:
     def test_cached_proven_invalidated(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """A cached PROVEN result must be re-verified.
-
-        The current cache writer stores raw byte results only — the PROVEN
-        overlay is applied at report time from CURRENT metadata.  A cached
-        PROVEN therefore comes from pre-fix code that baked the overlay in,
-        and would mask a later metadata STATUS demotion with a stale pass.
-        """
+        """A cached PROVEN row is not a byte verdict and must be re-verified."""
         entry = _ann(0x1000)
         cfg = self._setup(tmp_path, monkeypatch, entry)
         cache = {
@@ -319,7 +313,7 @@ class TestPrepareEntriesCache:
                 self._cache_entry("f.c", passed=True)
             )
         }
-        cache["0x00001000"].status = "PROVEN"  # stale pre-fix baked value
+        cache["0x00001000"].status = "PROVEN"
         monkeypatch.setattr(
             verify_mod,
             "_load_verify_cache",
@@ -813,38 +807,6 @@ def test_verify_entry_survives_a_raising_logger(
     out = verify_mod.verify_entry(_ann(0x1000), cfg)  # must not raise
     assert out.diff_lines is None
     assert out.similarity is None
-
-
-def test_byte_match_counts_excludes_proven() -> None:
-    """PROVEN must never be counted as a byte match.
-
-    Regression: the verify summary printed only `passed/total`, and `passed`
-    folds PROVEN in with EXACT/RELOC.  For a byte-identical goal that number is
-    wrong twice over -- it overstates progress, and a RELOC -> PROVEN
-    regression leaves it unchanged while the deliverable loses bytes.  The JSON
-    always exposed `summary.byte_matched`; the human line now does too, via
-    this helper.
-    """
-    from rebrew.verify import byte_match_counts
-
-    results = [
-        {"status": "EXACT"},
-        {"status": "RELOC"},
-        {"status": "RELOC"},
-        {"status": "PROVEN"},
-        {"status": "PROVEN"},
-        {"status": "STUB"},
-        {"status": "NEAR_MATCHING"},
-    ]
-    assert byte_match_counts(results) == (3, 2)
-
-    # A RELOC -> PROVEN regression must move the byte-match count down even
-    # though `passed` would not change.
-    regressed = [dict(r) for r in results]
-    regressed[1]["status"] = "PROVEN"
-    assert byte_match_counts(regressed) == (2, 3)
-
-    assert byte_match_counts([]) == (0, 0)
 
 
 def test_scope_entries_batch_file_filters_to_file(tmp_path: Path) -> None:

@@ -520,7 +520,6 @@ def _save_verify_cache(
     cfg: ProjectConfig,
     results: list[dict[str, Any]],
     entries: list[Annotation],
-    raw_statuses: dict[str, tuple[str, bool]] | None = None,
     preserve_keys: set[str] | None = None,
 ) -> None:
     filepath_info: dict[str, tuple[int, str]] = {}
@@ -559,10 +558,6 @@ def _save_verify_cache(
         fp_entry = fp_by_va[str(va_key)]
         res_dict = {k: result.get(k) for k in RESULT_FIELDS}
         res_dict["va"] = va_key
-        # Overlaid PROVEN entries store their pre-overlay byte result so a
-        # later metadata STATUS demotion is not masked by a stale cache hit.
-        if raw_statuses is not None and va_key in raw_statuses:
-            res_dict["status"], res_dict["passed"] = raw_statuses[va_key]
 
         cache_entries[str(va_key)] = {
             **res_dict,

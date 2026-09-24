@@ -415,7 +415,7 @@ def _function_stats(
 
     ``covered_bytes`` = sum of EVERY function's size regardless of status
     ("identified bytes" — a STUB placeholder counts fully).  ``matched_bytes``
-    = sum of EXACT/RELOC/PROVEN sizes only (the dashboard
+    = sum of byte-matched EXACT/RELOC sizes only (the dashboard
     headline used covered_bytes, so an all-STUB binary reported ~100%
     "coverage").  The headline metric is matched bytes; identified bytes is
     the separate "fully documented" figure.
@@ -1429,7 +1429,7 @@ def build_db(
                             # "covered_bytes" = identified bytes (every
                             # function, incl. STUB placeholders).
                             "covered_bytes": covered_bytes_func,
-                            # "matched_bytes" = EXACT/RELOC/PROVEN only — the
+                            # "matched_bytes" = EXACT/RELOC only — the
                             # dashboard's headline coverage metric.
                             "matched_bytes": matched_bytes,
                             "total_bytes": total_bytes,

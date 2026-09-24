@@ -322,8 +322,9 @@ class TestBatchDeletes:
         assert get_data_entry(tmp_path, 0x2000, "SERVER") == {}
         assert get_data_entry(tmp_path, 0x1000, "SERVER").get("section") == ".data"
 
-    def test_matched_orphan_held_back(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    @pytest.mark.parametrize("earned", ["EXACT", "PROVEN"])
+    def test_earned_orphan_held_back(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, earned: str
     ) -> None:
         from rebrew.metadata import get_entry
         from rebrew.orphans import app
@@ -336,15 +337,15 @@ class TestBatchDeletes:
         )
         (tmp_path / "rebrew-functions.toml").write_text(
             '["SERVER.0x1000"]\nstatus = "STUB"\n\n'
-            '["SERVER.0x2000"]\nstatus = "EXACT"\nsize = 16\n\n'
+            f'["SERVER.0x2000"]\nstatus = "{earned}"\nsize = 16\n\n'
             '["SERVER.0x3000"]\nstatus = "STUB"\n',
             encoding="utf-8",
         )
         res = CliRunner().invoke(app, ["--prune"])
         assert res.exit_code == 0, res.output
-        assert "Holding back 1 matched" in res.output
+        assert "Holding back 1 earned" in res.output
         assert "deleted 1" in res.output
-        assert get_entry(tmp_path, 0x2000, "SERVER").get("status") == "EXACT"
+        assert get_entry(tmp_path, 0x2000, "SERVER").get("status") == earned
         assert get_entry(tmp_path, 0x3000, "SERVER") == {}
 
     def test_include_matched_prunes_all(

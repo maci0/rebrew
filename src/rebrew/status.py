@@ -40,8 +40,8 @@ from rebrew.workspace.status import MATCHED_STATUSES
 # Data model
 # ---------------------------------------------------------------------------
 
-# Same display order as cli.DISPLAY_STATUSES (MATCHED then NEAR/STUB) so
-# PROVEN ranks with the other matched statuses, not below STUB.
+# Same display order as cli.DISPLAY_STATUSES (byte-matched, PROVEN, then
+# NEAR/STUB).
 _STATUS_ORDER = list(DISPLAY_STATUSES)
 
 
@@ -126,40 +126,34 @@ class StatusReport:
 
     @property
     def matched_pct(self) -> float:
-        """Percentage of total functions that are EXACT, RELOC, or PROVEN.
+        """Percentage of total functions that are byte-matched (EXACT or RELOC).
 
-        NOT a byte-match percentage: PROVEN is a semantic promotion and its
-        bytes still differ from the target (``verify._STATUS_RANK`` puts PROVEN
-        below RELOC for exactly this reason).  Count only the EXACT and RELOC
-        entries of :attr:`status_counts`, or the byte residue itself, when the
-        question is byte-identity rather than reversed work.
+        PROVEN is excluded: it records semantic equivalence while the
+        compiled bytes still differ from the target.
         """
         if self.total_functions == 0:
             return 0.0
-        exact = self.status_counts.get("EXACT", 0)
-        reloc = self.status_counts.get("RELOC", 0)
-        proven = self.status_counts.get("PROVEN", 0)
-        return round(100.0 * (exact + reloc + proven) / self.total_functions, 1)
+        return round(100.0 * self.matched_functions / self.total_functions, 1)
+
+    @property
+    def matched_functions(self) -> int:
+        """Number of byte-matched (EXACT or RELOC) functions."""
+        return sum(self.status_counts.get(s, 0) for s in MATCHED_STATUSES)
 
     @property
     def decompiled_pct(self) -> float:
-        """Percentage of total functions matched by REAL C (naked reconstructions
-        excluded) — ct-recomp's "decompiled" vs "byte-covered via asm" split."""
+        """Percentage of total functions byte-matched by REAL C (naked
+        reconstructions excluded): ct-recomp's "decompiled" vs "byte-covered
+        via asm" split."""
         if self.total_functions == 0:
             return 0.0
-        exact = self.status_counts.get("EXACT", 0)
-        reloc = self.status_counts.get("RELOC", 0)
-        proven = self.status_counts.get("PROVEN", 0)
-        decompiled = max(0, exact + reloc + proven - self.naked_matched)
+        decompiled = max(0, self.matched_functions - self.naked_matched)
         return round(100.0 * decompiled / self.total_functions, 1)
 
     @property
     def byte_coverage_pct(self) -> float:
-        """Percentage of total binary bytes attributed to EXACT, RELOC or PROVEN.
-
-        "Attributed", not "matching": a PROVEN function's bytes differ from the
-        target, so this overstates byte-identity by exactly the PROVEN bytes.
-        """
+        """Percentage of ``.text`` bytes in byte-matched (EXACT/RELOC) functions,
+        library attributions included."""
         if self.total_text_bytes == 0:
             return 0.0
         return round(100.0 * self.matched_bytes / self.total_text_bytes, 1)
@@ -408,9 +402,10 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
     verify_statuses = {va: status for va, (status, _eff) in verify_details.items()}
 
     # Single pass: status breakdown + byte-level coverage.
-    # Exception: PROVEN (from rebrew prove) and SKIP (user parking) are
-    # post-/non-verify classifications that take precedence over verify
-    # cache RELOC/EXACT/NEAR_MATCHING results.
+    # Exception: metadata PROVEN and SKIP take precedence over the verify
+    # cache.  `rebrew prove` writes PROVEN after its own compile, so it is
+    # newer than any cached verdict (the next verify/test replaces it);
+    # SKIP is user parking.
     status_counts: dict[str, int] = {}
     size_by_va: dict[int, int] = {f.va: f.size for f in ghidra_funcs}
     matched_bytes = 0
@@ -612,10 +607,8 @@ def _render_terminal(report: StatusReport) -> None:
 
     # Matched percentage
     summary_lines.append(
-        f"  [green bold]{report.matched_pct}%[/green bold] reversed"
-        f"  [dim]({exact + reloc + proven} EXACT+RELOC+PROVEN"
-        f" / {report.total_functions} total; PROVEN is semantic, its bytes"
-        f" still differ from the target)[/dim]"
+        f"  [green bold]{report.matched_pct}%[/green bold] byte-matched"
+        f"  [dim]({exact + reloc} EXACT+RELOC / {report.total_functions} total)[/dim]"
     )
 
     # Naked reconstructions: byte-exact via generated asm, NOT decompiled.

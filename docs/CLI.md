@@ -33,8 +33,8 @@ rebrew verify            Bulk-verify all reversed functions
 
 Byte-match ladder (best → worst): `EXACT` → `RELOC` → `NEAR_MATCHING` → `STUB`.
 `PROVEN` is a side path: semantic equivalence via `rebrew prove` when bytes still
-differ (NEAR_MATCHING only). It is sticky under test/verify and ranks with RELOC
-for `--compare` (not “better than EXACT”).
+differ. It is not a byte match: the next test/verify records the byte result
+over it.
 
 > The same table is shown in `rebrew --help` (source of truth: `src/rebrew/main.py` epilog).
 
@@ -390,7 +390,7 @@ consumers can learn whether the blocker landed (mirrors `near-diag`'s
 | `--jobs N` / `-j N` | Parallel compile jobs (with `--all`) |
 | `--dry-run` | Preview changes without writing |
 | `--no-promote` | Skip STATUS metadata update |
-| `--force-status` | Force the STATUS update even from sticky PROVEN (deliberately demote a stale PROVEN to its actual result; single-function only) |
+| `--force-status` | Write the STATUS even where the promotion policy refuses it: unpark a SKIP function or replace a STUB with SIZE_MISMATCH (single-function only) |
 | `--fix-sizes` | Fix a stale `SIZE` annotation when ALL common bytes match: writes the compiled size into metadata and reclassifies as EXACT/RELOC (no-op when the mismatch is a real byte difference; `--dry-run` previews). File-scoped — batch size repair is `rebrew verify --fix-sizes` |
 | `--context FILE` | Compile with these declarations (typically `rebrew context -o ctx.c` output) merged ahead of the source under `#line` directives, so a diagnostic names `ctx.c` or the source. The verdict is pinned to the context: the file's SHA-256 is recorded as `context_hash` in `--json` and in the compile-cache key, so a cached object is never reused under a changed context. Not combinable with `--linked` |
 | `--linked` | Linked compare (single-function, VA required): compile in a padded `#pragma data_seg(".text$A")` + `code_seg(".text$B")` shell, LINK a real DLL at the target's image base inside the toolchain image, compare the linker-resolved bytes RAW — no relocation masking. rel32 displacements are linker-resolved and in-`.text` jump tables land in the window, so a match is byte-identical output, not RELOC-level. Sources with externals (imports, cross-TU calls) fail the link by design; MSVC docker toolchains only |
@@ -573,13 +573,10 @@ build matrix, not the decompilation.
 Status promotion is always-on: after verification, STATUS is promoted/demoted in
 `rebrew-functions.toml` metadata. Every write tags `updated_by`
 (test/verify/prove/match/lint/binsync-import/intake) with a UTC `updated_at`
-timestamp. PROVEN status is sticky — it survives every
-byte result a proven function legitimately produces (NEAR_MATCHING,
-SIZE_MISMATCH). But a PROVEN claim the compile cannot support (STUB,
-COMPILE_ERROR, EXTRACT_ERROR, MISSING_FILE — the source no longer contains the
-proven code) is void: verify demotes it to the real byte result with a
-`metadata: warning`, once. Deliberately reclassify any other stale PROVEN with
-`rebrew test <file> --force-status`.
+timestamp. PROVEN is not protected: verify records the byte result over it
+like over any other status.  Only parked SKIP is never overwritten, and a
+STUB is not replaced by a placeholder SIZE_MISMATCH/MISSING_SIZE.  `passed`
+counts byte-matched (EXACT/RELOC) functions only.
 
 Output prefixes for unambiguous parsing:
 
@@ -744,7 +741,7 @@ List metadata blocks whose VA has no source marker (no `// FUNCTION:` /
 is also absent from the target's function list — a real function without a
 marker yet (mid-split source, unreversed function) is never listed — and
 named data entries plus `.idata`/`.edata` import slots are excluded.  Blocks
-claiming EXACT/RELOC/PROVEN are flagged `matched` and held back from
+claiming EXACT/RELOC/PROVEN are flagged with their status and held back from
 `--prune` unless `--include-matched` is passed.  `drop` removes one VA's
 block from both stores on demand.  `rebrew verify --prune-orphans` runs the
 same prune before verifying.
@@ -2298,8 +2295,8 @@ includes a `Blocker` column carrying near-diag/diff blocker guidance.
 
 `--decomp-dev <path>` instead emits an objdiff-format progress report
 (`report.proto` v2, JSON-serialized) for decomp.dev ingestion: per-unit
-function lists with `fuzzy_match_percent` (EXACT/RELOC/PROVEN → 100,
-NEAR_MATCHING → cached `match_percent`, else 0) and whole-binary measures
+function lists with `fuzzy_match_percent` (EXACT/RELOC → 100,
+NEAR_MATCHING/PROVEN → cached `match_percent`, else 0) and whole-binary measures
 (`total_code` from `.text`, `total_functions` from the function registry,
 `complete_*` mapped onto matched bytes — a byte-matched function is placed
 correctly by construction).  Upload the file as a GitHub Actions artifact

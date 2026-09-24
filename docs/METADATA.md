@@ -23,7 +23,7 @@ same tiers and the data/globals/layout pipeline.
 | Function **identity** (which VAs are functions) | merged registry (`catalog/registry.py`: discovery inventory + `function_structure.json` + exports, minus IAT slots) | grid JSON, coverage.db `functions` table |
 | Function **size** | registry `canonical_size` (`+ size_reason`) — the compile contract is annotation/metadata `SIZE` | grid `size`, DB `functions.size` |
 | Function **name** | annotation name (the `// FUNCTION: MODULE 0xVA` line) | grid/DB `name`, plus `list_name`/`ghidra_name` columns preserving the other authorities |
-| Match **STATUS** | `rebrew-functions.toml` — written **only** via `metadata.update_source_status` / `update_statuses_batch` (promotion gate, PROVEN sticky except against byte matches) — triggered by `rebrew test` / `rebrew verify` / `rebrew prove` (also `match`, `lint`, `binsync-import`, `intake`). Every write tags `updated_by` (test/verify/prove/match/lint/binsync-import/intake) + UTC `updated_at` | grid/DB snapshots; `.rebrew/verify_cache.json` measured-result overlay at report time |
+| Match **STATUS** | `rebrew-functions.toml` — written **only** via `metadata.update_source_status` / `update_statuses_batch` (promotion gate: SKIP stays parked) — triggered by `rebrew test` / `rebrew verify` / `rebrew prove` (also `match`, `lint`, `binsync-import`, `intake`). Every write tags `updated_by` (test/verify/prove/match/lint/binsync-import/intake) + UTC `updated_at` | grid/DB snapshots; `.rebrew/verify_cache.json` measured-result overlay at report time |
 | **BLOCKER / BLOCKER_DELTA** | `rebrew-functions.toml` — written **only** via `metadata.update_field` / `remove_field` through `rebrew blocker set/clear`, `rebrew diff --fix-blocker`, `rebrew near-diag --fix-blocker`, `rebrew document-unmatched` (never hand-edited) | `rebrew status`/`todo` counts; `lint` W005 when `STUB` lacks one |
 | **cflags / toolchain** | `rebrew-functions.toml` (per-function) → `rebrew-libraries.toml` (per-library, walk-up) → project defaults, resolved by `resolve_compile_overrides` | grid `cflags`, DB column |
 | **Data symbols (globals)** | `rebrew-data.toml` (`name`/`type`/`size`/`section`/`note`, plus verify-written data STATUS `VERIFIED`/`DRIFT`/`UNCHECKED`) | grid `globals`, DB `globals` table, `src/<target>/rebrew_globals.h` (`rebrew data --gen-header` — extern declarations for the build); `rebrew status` data counts + `rebrew todo -c data-drift` |
@@ -47,8 +47,8 @@ same tiers and the data/globals/layout pipeline.
    file-borne and exempt (it must travel with the file; self-clears when the
    C body replaces it).  The `.c` marker line keeps only identity: `// FUNCTION: MODULE 0xVA`.
 2. **STATUS display precedence**: metadata STATUS > `.rebrew/verify_cache.json`
-   measured result (PROVEN is never baked into the cache, so a later
-   demotion isn't masked) > grid/DB snapshot.
+   measured result (the cache holds byte verdicts only, never PROVEN)
+   > grid/DB snapshot.
 3. **Per-function > per-library > project** for toolchain/cflags
    (`resolve_compile_overrides`).
 4. **SIZE precedence**: compile contract = annotation/metadata `SIZE`;

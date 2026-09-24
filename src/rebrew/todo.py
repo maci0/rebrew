@@ -344,7 +344,7 @@ def _collect_active_functions(
 
         # If verify says it compiled and size changed, or we don't have verify, fallback to metadata parsing
         calc_delta = v_delta
-        if calc_delta is None and status == "NEAR_MATCHING":
+        if calc_delta is None and status in ("NEAR_MATCHING", "PROVEN"):
             raw_bd = info.get("blocker_delta", "")
             try:
                 calc_delta = int(raw_bd) if raw_bd else parse_byte_delta(info.get("blocker", ""))
@@ -398,6 +398,18 @@ def _collect_active_functions(
             desc = "Missing SIZE annotation — backfill with rebrew verify --fix-sizes"
             score = calculate_roi(size, v_match, calc_delta)
             cmd = "rebrew verify --fix-sizes"
+
+        elif status == "PROVEN":
+            # Semantic equivalence is established but the bytes still differ:
+            # the prover has nothing left to add and the GA/flag sweep that
+            # led here already ran, so this is improve-match work.
+            category = CAT_IMPROVE_MATCH
+            desc = "PROVEN, bytes still differ"
+            blocker = info.get("blocker", "")
+            if blocker:
+                desc += f" — Blocked: {blocker[:50]}"
+            score = calculate_roi(size, v_match, calc_delta)
+            cmd = f"rebrew diff 0x{va:08x}"
 
         elif info.get("blocker", "").startswith(GA_CEILING_PREFIX):
             # The GA exhausted on a register-only delta — byte-exact is not
@@ -533,8 +545,8 @@ def _collect_prover_candidates(
     items: list[TodoItem] = []
     for va, info in existing.items():
         ann_status = info.get("status", "STUB")
-        # PROVEN is a post-verify promotion that wins over verify cache
-        if ann_status in MATCHED_STATUSES:
+        # Byte-matched needs no proof; PROVEN already has one.
+        if ann_status in MATCHED_STATUSES or ann_status == "PROVEN":
             continue
         va_key = f"0x{va:08x}"
         cached = verify_entries.get(va_key)
@@ -1215,7 +1227,8 @@ def main(
         if va_int in library_vas:
             continue
         ann_status = info.get("status", "STUB")
-        # PROVEN is a post-verify promotion that wins over verify cache
+        # Metadata PROVEN wins over the verify cache (prove compiles after
+        # any cached verdict; the next verify/test replaces it).
         # The metadata status is authoritative for STUB (verify runs no longer
         # promote stubs to SIZE_MISMATCH — a stub's size mismatch is
         # expected).  A more actionable cache state (COMPILE_ERROR, matched)
@@ -1251,7 +1264,8 @@ def main(
     # inventory), and `ghidra ∪ covered` counted library attributions as
     # unfinished functions (28% where status said 42% for the same tree).
     denominator = total_funcs
-    pct = round(100.0 * (exact + reloc + proven) / denominator, 1) if denominator else 0.0
+    # Byte-matched only: PROVEN bytes still differ from the target.
+    pct = round(100.0 * (exact + reloc) / denominator, 1) if denominator else 0.0
 
     if category == "blocked":
         # Lens, not a move: every item with BLOCKER text, whatever its home
@@ -1304,7 +1318,7 @@ def main(
             f"  [yellow]NEAR_MATCHING: {matching}[/yellow]"
             f"  [dim]STUB: {stub}[/dim]"
             f"  [dim]DOCUMENTED: {documented}[/dim]"
-            f"  → [bold]{pct}%[/bold] matched"
+            f"  → [bold]{pct}%[/bold] byte-matched"
         )
 
     if not display_items:

@@ -123,6 +123,7 @@ def run_catalog(
         counts = count_statuses(by_va)
         exact = counts["EXACT"]
         reloc = counts["RELOC"]
+        proven = counts["PROVEN"]
         matching = counts["NEAR_MATCHING"]
         stub = counts["STUB"]
 
@@ -131,12 +132,13 @@ def run_catalog(
             module = by_va[va][0]["module"] or "GAME"
             module_counts[module] = module_counts.get(module, 0) + 1
 
-        done = exact + reloc + matching
         console.print()
         console.print("\n=== Rebrew Status ===")
-        console.print(f"Matched: {done}/{len(registry)} functions")
+        console.print(f"Byte-matched: {exact + reloc}/{len(registry)} functions")
         console.print(f"  EXACT: {exact}")
         console.print(f"  RELOC: {reloc}")
+        if proven:
+            console.print(f"  PROVEN: {proven} (bytes differ)")
         if matching:
             console.print(f"  NEAR_MATCHING: {matching}")
         if stub:

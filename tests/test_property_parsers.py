@@ -846,7 +846,7 @@ def status_map(draw: st.DrawFn) -> dict[int, list[str]]:
 @settings(max_examples=200, deadline=None)
 @given(status_map())
 def test_count_statuses_invariants(statuses: dict[int, list[str]]) -> None:
-    """Every VA is counted at most once; EXACT beats STUB; PROVEN/SKIP never count."""
+    """Every VA is counted at most once; EXACT beats STUB; SKIP never counts."""
     from rebrew.catalog.grid import count_statuses
 
     # Convert to the annotation-dict shape count_statuses expects.
@@ -855,7 +855,7 @@ def test_count_statuses_invariants(statuses: dict[int, list[str]]) -> None:
         for va, slist in statuses.items()
     }
     out = count_statuses(by_va)
-    assert set(out) == {"EXACT", "RELOC", "NEAR_MATCHING", "STUB"}
+    assert set(out) == {"EXACT", "RELOC", "PROVEN", "NEAR_MATCHING", "STUB"}
     assert sum(out.values()) <= len(statuses)
     # EXACT outranks STUB wherever both appear for the same VA.
     for slist in statuses.values():
@@ -868,7 +868,13 @@ def test_count_statuses_invariants(statuses: dict[int, list[str]]) -> None:
             {"marker_type": "FUNCTION", "status": "STUB"},
         ]
     }
-    assert count_statuses(probe) == {"EXACT": 1, "RELOC": 0, "NEAR_MATCHING": 0, "STUB": 0}
+    assert count_statuses(probe) == {
+        "EXACT": 1,
+        "RELOC": 0,
+        "PROVEN": 0,
+        "NEAR_MATCHING": 0,
+        "STUB": 0,
+    }
 
 
 @settings(max_examples=20, deadline=None)
