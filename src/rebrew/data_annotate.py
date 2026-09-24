@@ -64,7 +64,6 @@ def annotate_globals(
     decl_line_re = re.compile(
         r"^\s*(?:extern\s+)?[\w\s\*]+\s+([A-Za-z_]\w*)(?:\[\d*\])?\s*(?:=\s*[^;]*|\s*;)"
     )
-    total = 0
     per_file: dict[str, int] = {}
     for f in iter_sources(src_dir, cfg):
         text, encoding = read_source_text(f)
@@ -96,7 +95,6 @@ def annotate_globals(
         insertions.sort(key=lambda x: x[0])
         for shift, (hit, marker_line) in enumerate(insertions):
             lines.insert(hit + shift, marker_line)
-        total += len(insertions)
         per_file[rel_display_path(f, src_dir)] = len(insertions)
         if not dry_run:
             atomic_write_text(f, "\n".join(lines) + "\n", encoding=encoding)

@@ -561,21 +561,17 @@ def score_candidate(
     # `equal` opcode covering everything, so this shortcut is byte-identical
     # to the full walk while skipping difflib's O(n) setup entirely.
     if target_mnems == cand_mnems:
-        total_matched = len(target_mnems)
         total_diffed = 0
         longest_run = len(target_mnems)
     else:
         sm = difflib.SequenceMatcher(None, target_mnems, cand_mnems)
 
         # Walk opcodes: reward contiguous equal blocks, penalise diffs
-        total_matched = 0
         total_diffed = 0
         longest_run = 0
         for tag, i1, i2, j1, j2 in sm.get_opcodes():
             if tag == "equal":
-                run_len = i2 - i1
-                total_matched += run_len
-                longest_run = max(longest_run, run_len)
+                longest_run = max(longest_run, i2 - i1)
             else:
                 # replace, insert, delete — count both sides
                 total_diffed += max(i2 - i1, j2 - j1)

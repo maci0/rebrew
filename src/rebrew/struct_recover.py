@@ -466,7 +466,6 @@ def recover_structs(
     """
     merged_named: dict[str, StructEvidence] = {}
     merged_anon: dict[tuple[int, str], tuple[StructEvidence, set[int]]] = {}
-    total_evidence = 0
     for idx, (_va, _symbol, text) in enumerate(decompilations):
         parsed = parse_decomp_for_structs(text, max_offset=max_offset)
         for base, ev in parsed.named.items():
@@ -478,7 +477,6 @@ def recover_structs(
                     merged_named[base].offsets[off][w] = (
                         merged_named[base].offsets[off].get(w, 0) + c
                     )
-            total_evidence += sum(sum(s.values()) for s in ev.offsets.values())
         for var, ev in parsed.anonymous.items():
             ent, funcs = merged_anon.setdefault((_va, var), (StructEvidence(), set()))
             for off, slots in ev.offsets.items():
@@ -486,7 +484,6 @@ def recover_structs(
                 for w, c in slots.items():
                     ent.offsets[off][w] = ent.offsets[off].get(w, 0) + c
             funcs.add(idx)
-            total_evidence += sum(sum(s.values()) for s in ev.offsets.values())
 
     existing = existing or {}
     results: list[dict[str, Any]] = []

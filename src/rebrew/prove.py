@@ -1004,7 +1004,6 @@ def prove_equivalence(
     # Hook all stub addresses on both blobs.  Prefer specific Win32
     # SimProcedures (constrained return values) over generic ReturnUnconstrained
     # to reduce path explosion from API calls.
-    _ret_unc = angr.SIM_PROCEDURES["stubs"]["ReturnUnconstrained"]
     win32_procs = _get_win32_simprocs()
     for stub_addr in stub_hooks:
         api_name = iat_api_names.get(stub_addr, "")

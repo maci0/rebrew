@@ -41,32 +41,6 @@ class DiffOpcode:
     b: list[str] = field(default_factory=list)
 
 
-def get_grouped_opcodes(opcodes: list[DiffOpcode], n: int = 3) -> list[list[DiffOpcode]]:
-    """Isolate change clusters by eliminating ``equal`` runs longer than *n*.
-
-    Adapted from reccmp (MIT).  Groups the opcodes the way
-    ``difflib.SequenceMatcher.get_grouped_opcodes`` does so a renderer can
-    show context around each mismatch without the equal padding flooding it.
-    """
-    # Split the opcode stream at every non-equal opcode, keeping up to *n*
-    # equal lines of context on each side of the changed run.
-    groups: list[list[DiffOpcode]] = []
-    group: list[DiffOpcode] = []
-    for op in opcodes:
-        if op.tag == "equal" and op.a_end - op.a_start > 2 * n:
-            if group:
-                group.append(
-                    DiffOpcode("equal", op.a_start, op.a_start + n, op.b_start, op.b_start + n)
-                )
-                groups.append(group)
-            group = [DiffOpcode("equal", op.a_end - n, op.a_end, op.b_end - n, op.b_end)]
-            continue
-        group.append(op)
-    if group and any(op.tag != "equal" for op in group):
-        groups.append(group)
-    return groups
-
-
 class SequenceMatcherWithPins:
     """difflib-compatible matcher seeded with known (a_index, b_index) pins.
 

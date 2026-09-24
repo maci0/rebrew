@@ -75,7 +75,7 @@ def find_vtordisps(code: bytes, base_addr: int = 0) -> Iterator[VtordispFunction
             groups = [
                 struct.unpack(fmt, bytes(m.group(i + 1)))[0] for i, fmt in enumerate(unpackers)
             ]
-            (jmp_rel,) = struct.unpack("<i", bytes(m.group(len(groups))))
+            jmp_rel = groups[-1]
             yield VtordispFunction(
                 addr=addr,
                 disp=groups[0],

@@ -1347,7 +1347,6 @@ def _split_preamble_body(source: str) -> tuple[str, str]:
     preamble: list[str] = []
     body: list[str] = []
     in_body = False
-    brace_count = 0
 
     for line in lines:
         if not in_body:
@@ -1368,12 +1367,10 @@ def _split_preamble_body(source: str) -> tuple[str, str]:
                 # body starts here).
                 in_body = True
                 body.append(line)
-                brace_count += line.count("{") - line.count("}")
             else:
                 preamble.append(line)
         else:
             body.append(line)
-            brace_count += line.count("{") - line.count("}")
 
     return "\n".join(preamble), "\n".join(body)
 
