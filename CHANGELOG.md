@@ -1,5 +1,10 @@
 ## [Unreleased]
 
+### Added
+- **Lint W030: markers out of VA order.**  The linker places a translation
+  unit's functions in source order, so a module's FUNCTION/STUB markers must
+  ascend by VA within a file.
+
 ### Changed
 - **W028 recognises merged inventory entries by their annotations.**  A
   marker inside an inventory function whose start is an annotated function

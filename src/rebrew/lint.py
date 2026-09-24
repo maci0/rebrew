@@ -605,6 +605,35 @@ def _check_W028_stale_annotation(
         )
 
 
+def _check_W030_va_order(result: LintResult, all_headers: list[Any]) -> None:
+    """Warn when a module's FUNCTION/STUB markers do not ascend by VA (W030).
+
+    The linker lays out a translation unit's functions in source order, so a
+    definition placed above a lower-VA one links at the wrong address and
+    displaces every function between them.  Each module is checked on its own:
+    a marker for another build carries that build's VA.
+    """
+    last: dict[str, int] = {}
+    for found_keys, _flags in all_headers:
+        if found_keys.get("MARKER", "") not in ("FUNCTION", "STUB"):
+            continue
+        mod = found_keys.get("MODULE", "")
+        try:
+            va = int(found_keys.get("VA", ""), 16)
+        except ValueError:
+            continue
+        prev = last.get(mod)
+        if prev is not None and va < prev:
+            result.warning(
+                int(found_keys.get("_LINE", "1")),
+                "W030",
+                f"{mod} 0x{va:x} is defined after {mod} 0x{prev:x}: the linker places "
+                "functions in source order, so move this definition above the "
+                "higher-VA one",
+            )
+        last[mod] = va if prev is None else max(prev, va)
+
+
 def _check_W018_cflags(
     result: LintResult, found_keys: dict[str, str], cfg: ProjectConfig | None
 ) -> None:
@@ -1830,6 +1859,7 @@ def lint_file(
     _check_W022_zero_init_bss(result, code_lines, _data_section_names)
     _check_body_rules(result, lines, all_headers[0][1]["has_new"] if all_headers else False)
     _check_W023_default_func_names(result, lines, pedantic)
+    _check_W030_va_order(result, all_headers)
     _check_style_rules(result, cfg)
     return result
 
