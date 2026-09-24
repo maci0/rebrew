@@ -637,6 +637,10 @@ def _load_verify_entries(cfg: ProjectConfig) -> dict[str, "VerifyCacheEntry"]:
     cfg_target = getattr(cfg, "target_name", None)
     if cache_target != cfg_target and (cache_target or cfg_target):
         return {}
+    from rebrew.verify_cache import _binary_id
+
+    if data.binary_id and data.binary_id != _binary_id(cfg):
+        return {}
     # Re-key canonically: the cache is a JSON file, so a VA may be spelled
     # "0x1000" instead of "0x00001000" (the union at `:317` already normalizes
     # with `canonical_va_key`, and every consumer looks entries up with

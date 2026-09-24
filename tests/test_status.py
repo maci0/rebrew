@@ -1033,6 +1033,42 @@ class TestVerifyCacheHelpers:
         )
         assert load_verify_statuses(self._cfg(tmp_path)) == {}
 
+    def test_verify_info_stale_binary_id_ignored(self, tmp_path: Path) -> None:
+        from rebrew.status import _load_verify_info
+
+        bin_file = tmp_path / "x.dll"
+        bin_file.write_bytes(b"MZ1")
+        self._write_cache(
+            tmp_path,
+            {
+                "version": 2,
+                "target": "T",
+                "binary_id": "outdated_binary_digest",
+                "entries": {"0x1": {"status": "EXACT", "passed": True}},
+            },
+        )
+        cfg = self._cfg(tmp_path)
+        cfg.target_binary = bin_file
+        assert _load_verify_info(cfg) is None
+
+    def test_verify_statuses_stale_binary_id_ignored(self, tmp_path: Path) -> None:
+        from rebrew.status import load_verify_statuses
+
+        bin_file = tmp_path / "x.dll"
+        bin_file.write_bytes(b"MZ1")
+        self._write_cache(
+            tmp_path,
+            {
+                "version": 2,
+                "target": "T",
+                "binary_id": "outdated_binary_digest",
+                "entries": {"0x1": {"status": "EXACT"}},
+            },
+        )
+        cfg = self._cfg(tmp_path)
+        cfg.target_binary = bin_file
+        assert load_verify_statuses(cfg) == {}
+
     def test_verify_info_null_result_skipped_not_failed(self, tmp_path: Path) -> None:
         """Rows without a verdict status are skipped, never counted as failures."""
         from rebrew.status import _load_verify_info

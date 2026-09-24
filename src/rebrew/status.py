@@ -227,6 +227,12 @@ def _load_verify_info(cfg: ProjectConfig) -> VerifyInfo | None:
     # must not be presented as this project's verification summary.
     if raw.get("target") != getattr(cfg, "target_name", ""):
         return None
+    raw_bin = raw.get("binary_id")
+    if raw_bin:
+        from rebrew.verify_cache import _binary_id
+
+        if raw_bin != _binary_id(cfg):
+            return None
 
     entries = raw.get("entries")
     if not isinstance(entries, dict) or not entries:
@@ -310,6 +316,12 @@ def load_verify_details(cfg: ProjectConfig) -> dict[int, tuple[str, bool]]:
     # override this project's source statuses.
     if raw.get("target") != getattr(cfg, "target_name", ""):
         return {}
+    raw_bin = raw.get("binary_id")
+    if raw_bin:
+        from rebrew.verify_cache import _binary_id
+
+        if raw_bin != _binary_id(cfg):
+            return {}
 
     entries = raw.get("entries")
     if not isinstance(entries, dict):

@@ -254,6 +254,39 @@ class TestVerifyCacheMatchesCfg:
         cache_path.write_text(json.dumps(data), encoding="utf-8")
         assert not verify_cache_matches_cfg(cache_path, cfg)
 
+    def test_wrong_binary_id_rejected(self, tmp_path: Path) -> None:
+        from rebrew.verify_cache import verify_cache_matches_cfg
+
+        cfg = _make_cfg(tmp_path)
+        cache_path = tmp_path / ".rebrew" / "verify_cache.json"
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        data = {
+            "version": 2,
+            "compiler_hash": _compiler_config_hash(cfg),
+            "headers_hash": _headers_hash(cfg),
+            "target": cfg.target_name,
+            "binary_id": "outdated_binary_digest",
+            "entries": {},
+        }
+        cache_path.write_text(json.dumps(data), encoding="utf-8")
+        assert not verify_cache_matches_cfg(cache_path, cfg)
+
+    def test_wrong_version_rejected(self, tmp_path: Path) -> None:
+        from rebrew.verify_cache import verify_cache_matches_cfg
+
+        cfg = _make_cfg(tmp_path)
+        cache_path = tmp_path / ".rebrew" / "verify_cache.json"
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        data = {
+            "version": 99,
+            "compiler_hash": _compiler_config_hash(cfg),
+            "headers_hash": _headers_hash(cfg),
+            "target": cfg.target_name,
+            "entries": {},
+        }
+        cache_path.write_text(json.dumps(data), encoding="utf-8")
+        assert not verify_cache_matches_cfg(cache_path, cfg)
+
     def test_missing_cache_rejected(self, tmp_path: Path) -> None:
         from rebrew.verify_cache import verify_cache_matches_cfg
 

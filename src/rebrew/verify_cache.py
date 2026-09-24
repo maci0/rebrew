@@ -285,7 +285,7 @@ def _binary_id(cfg: ProjectConfig) -> str:
     """
     try:
         st = Path(cfg.target_binary).stat()
-    except (OSError, TypeError):
+    except (OSError, TypeError, AttributeError):
         return ""
     return hashlib.sha256(f"{st.st_mtime_ns}:{st.st_size}".encode()).hexdigest()
 
@@ -311,11 +311,16 @@ def _verify_cache_write_lock(cache_path: Path) -> Iterator[None]:
 def _cache_identity_matches(raw: dict[str, Any], cfg: ProjectConfig) -> bool:
     """True when a parsed verify-cache document belongs to *cfg*'s identity.
 
-    Single definition of the ``(target, compiler_hash)`` check shared by
+    Single definition of the ``(target, compiler_hash, binary_id)`` check shared by
     :func:`verify_cache_matches_cfg` (whole-file predicate) and
     :func:`patch_verify_cache_entries` (in-lock guard), so the two cannot
     drift.
     """
+    if raw.get("version") != CACHE_VERSION:
+        return False
+    raw_bin = raw.get("binary_id")
+    if raw_bin and raw_bin != _binary_id(cfg):
+        return False
     return bool(
         raw.get("target") == cfg.target_name
         and raw.get("compiler_hash") == _compiler_config_hash(cfg)
