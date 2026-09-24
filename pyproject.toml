@@ -253,7 +253,7 @@ select = [
     "RUF100",
     "RUF032", "RUF033", "RUF034", "RUF036", "RUF037", "RUF040", "RUF041",
     "RUF048", "RUF049", "RUF051", "RUF053", "RUF057", "RUF058", "RUF060",
-    "RUF061", "RUF063", "RUF064", "RUF068", "RUF100", "RUF101", "RUF102",
+    "RUF061", "RUF063", "RUF064", "RUF068", "RUF101", "RUF102",
     "RUF103", "RUF104", "RUF200", "RUF010", "RUF023", "RUF046",
     "S102", "S103", "S106", "S107", "S110", "S113", "S201", "S202", "S301",
     "S302", "S303", "S304", "S305", "S306", "S307", "S308", "S310", "S312",
@@ -342,6 +342,9 @@ strict = true
 # Zero-finding extras beyond --strict: keep enabled so regressions fail CI.
 extra_checks = true
 disallow_any_decorated = true
+local_partial_types = true
+strict_bytes = true
+warn_incomplete_stub = true
 enable_error_code = [
     "ignore-without-code",
     "unused-awaitable",
