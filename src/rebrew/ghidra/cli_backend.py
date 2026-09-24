@@ -120,13 +120,17 @@ def apply_commands_via_cli(
         if proc.returncode == 0:
             success += 1
         else:
-            detail = (proc.stderr or proc.stdout or "").strip().splitlines()
-            last = detail[-1] if detail else ""
+            combined = f"{proc.stdout or ''}\n{proc.stderr or ''}".strip()
             # Ghidra treats re-applying an existing label/comment/bookmark as
             # an error, but the MCP path counts it as success (idempotent
-            # re-push).  Match that: "already exists"-style failures are OK.
-            if any(
-                marker in last.lower() for marker in ("already exists", "duplicate", "already has")
+            # re-push). The CLI backend delegates to _is_idempotent_success so
+            # both backends enforce the identical idempotency contract and
+            # multi-line stack traces do not cause spurious failures.
+            from rebrew.ghidra.client import _is_idempotent_success
+
+            if _is_idempotent_success(op, combined) or any(
+                marker in combined.lower()
+                for marker in ("already exists", "duplicate", "already has")
             ):
                 success += 1
                 continue
@@ -138,6 +142,8 @@ def apply_commands_via_cli(
                 or op_args.get("location")
                 or ""
             )
+            detail = combined.splitlines()
+            last = detail[-1] if detail else ""
             console.print(
                 f"[yellow]warning:[/yellow] ghidra-cli {op.get('tool')} "
                 f"failed for {addr} (rc={proc.returncode}): {last}"

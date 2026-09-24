@@ -191,6 +191,33 @@ class TestApplyCommandsViaCli:
         assert ok == 1
         assert errs == 0
 
+    def test_multiline_stacktrace_already_exists_counts_as_success(self, monkeypatch) -> None:
+        """Ghidra JVM stack traces have the exception on line 1 and frame traces on
+        subsequent lines — must still be recognized as idempotent success."""
+
+        def fake_run(argv, capture_output=False, text=False, timeout=None, **_kwargs):
+            return type(
+                "P",
+                (),
+                {
+                    "returncode": 1,
+                    "stdout": "",
+                    "stderr": (
+                        "ghidra.util.exception.DuplicateNameException: already exists\n"
+                        "\tat ghidra.program.database.symbol.SymbolManager.createCodeSymbol(SymbolManager.java:450)\n"
+                        "\tat ghidra.app.cmd.label.AddLabelCmd.applyTo(AddLabelCmd.java:65)"
+                    ),
+                },
+            )()
+
+        monkeypatch.setattr("rebrew.ghidra.cli_backend.run_process_group", fake_run)
+        ok, errs = apply_commands_via_cli(
+            [{"tool": "create-label", "args": {"addressOrSymbol": "0x1", "labelName": "x"}}],
+            program="",
+        )
+        assert ok == 1
+        assert errs == 0
+
     def test_subprocess_error_counts_as_failure(self, monkeypatch) -> None:
         def fake_run(argv, capture_output=False, text=False, timeout=None, **_kwargs):
             raise OSError("no binary")

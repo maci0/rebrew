@@ -197,6 +197,8 @@ def classify_all(
                 f"void fcn_{va:08x}(void)\n{{\n    /* {reason} */\n}}\n"
             )
         out = src_dir / f"fcn_{va:08x}.c"
+        if (va in existing_vas or out.exists()) and (marker, va) in existing:
+            continue
         if va not in existing_vas and not out.exists():
             atomic_write_text(out, stub)
             existing_vas.add(va)

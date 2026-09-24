@@ -162,3 +162,55 @@ class TestMatchAllDryRunIdempotent:
         assert r1.exit_code == r2.exit_code == 0
         assert _combined(r1) == _combined(r2)
         assert "func_10001000.c" in _combined(r1)
+
+
+class TestClassifyAllIdempotent:
+    def test_classify_all_twice_leaves_tree_identical(self, tmp_path: Path) -> None:
+        """classify_all documents stubs on run 1; run 2 is a strict no-op."""
+        from rebrew.intake import classify_all
+
+        src_dir = tmp_path / "src" / "SERVER"
+        src_dir.mkdir(parents=True, exist_ok=True)
+        funcs = [(0x10001000, 32, "func_a"), (0x10002000, 64, "func_b")]
+        d1 = classify_all(
+            tmp_path, src_dir, "SERVER", funcs, "msvc", "", metadata_dir=tmp_path / "src"
+        )
+        assert d1 == 2
+        digest_after_first = _tree_digest(tmp_path)
+        d2 = classify_all(
+            tmp_path, src_dir, "SERVER", funcs, "msvc", "", metadata_dir=tmp_path / "src"
+        )
+        assert d2 == 0
+        digest_after_second = _tree_digest(tmp_path)
+        assert digest_after_first == digest_after_second
+
+
+class TestBlockerSetIdempotent:
+    def test_blocker_set_twice_leaves_metadata_identical(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Setting the same blocker twice does not corrupt or alter metadata."""
+        from rebrew.blocker import app as blocker_app
+
+        _write(tmp_path / "func_10001000.c", _single(0x10001000, "_func_a"))
+        _write(
+            tmp_path / "rebrew-functions.toml",
+            '["SERVER.0x10001000"]\nsize = 64\nstatus = "STUB"\n',
+        )
+        monkeypatch.setattr(
+            "rebrew.blocker.require_config",
+            lambda target=None, json_mode=False: SimpleNamespace(
+                marker="SERVER",
+                reversed_dir=tmp_path,
+                metadata_dir=tmp_path,
+                root=tmp_path,
+            ),
+        )
+        args = ["set", "0x10001000", "needs float math"]
+        r1 = runner.invoke(blocker_app, args)
+        assert r1.exit_code == 0
+        digest_after_first = _tree_digest(tmp_path)
+        r2 = runner.invoke(blocker_app, args)
+        assert r2.exit_code == 0
+        digest_after_second = _tree_digest(tmp_path)
+        assert digest_after_first == digest_after_second

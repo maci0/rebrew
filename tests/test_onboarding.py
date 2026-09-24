@@ -129,6 +129,7 @@ class TestOnboardingJourney:
         assert second.exit_code == 0, second.output
         data = json.loads(second.output)
         assert data["functions"] == 2
+        assert data["documented"] == 0
 
 
 class TestInitOutput:
