@@ -281,7 +281,7 @@ def _verdict(counts: dict[str, int], raw_total: int) -> tuple[str, str]:
     """Map byte-count distribution to a verdict (label, suggestion)."""
     if raw_total <= 0:
         return "MATCH", "No instructions to compare."
-    non_match = raw_total - counts["match"]
+    non_match = raw_total - counts.get("match", 0)
     if non_match <= 0:
         return "MATCH", "Bytes are identical."
     # ENCODING-ONLY: the strictest near-match class — identical disassembly,
@@ -291,12 +291,10 @@ def _verdict(counts: dict[str, int], raw_total: int) -> tuple[str, str]:
     # category logic below (original near-diag semantics, now expressed via
     # the shared classifier in match_semantics).
     encoding = counts.get("encoding", 0)
-    if (
-        counts["structural"] == 0
-        and counts["equivalent"] == 0
-        and counts["register"] == 0
-        and encoding > 0
-    ):
+    structural = counts.get("structural", 0)
+    equivalent = counts.get("equivalent", 0)
+    register = counts.get("register", 0)
+    if structural == 0 and equivalent == 0 and register == 0 and encoding > 0:
         return (
             "ENCODING-ONLY (same instructions, different opcode bytes)",
             "Every differing byte is the same instruction re-encoded with "
@@ -313,9 +311,9 @@ def _verdict(counts: dict[str, int], raw_total: int) -> tuple[str, str]:
     # NEAR_MATCHING with a named cause.  Classification is shared with
     # verify (match_semantics); encoding-only deltas are handled above.
     if is_effective_match(
-        structural=counts["structural"],
-        register=counts["register"],
-        equivalent=counts["equivalent"],
+        structural=structural,
+        register=register,
+        equivalent=equivalent,
     ):
         return (
             "EFFECTIVE (matches modulo register allocation)",
@@ -357,8 +355,12 @@ def _verdict(counts: dict[str, int], raw_total: int) -> tuple[str, str]:
     # When a secondary category is also significant, mention it too — e.g.
     # structural churn WITH register allocation noise is a different fix
     # than structural churn alone.
-    secondary = max((k for k in counts if k != dominant and k != "match"), key=lambda k: counts[k])
-    if counts[secondary] / non_match >= 0.25:
+    secondary = max(
+        (k for k in counts if k != dominant and k != "match"),
+        key=lambda k: counts[k],
+        default=None,
+    )
+    if secondary is not None and counts[secondary] / non_match >= 0.25:
         hint = suggestions[secondary].split("—")[0].strip()
         if hint:
             hint = hint[0].lower() + hint[1:]

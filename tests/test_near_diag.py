@@ -332,6 +332,11 @@ class TestSecondarySuggestion:
         assert "structural" in result["verdict"].lower()
         assert "Also:" not in result["suggestion"]
 
+    def test_counts_only_dominant_and_match(self) -> None:
+        label, suggestion = nd._verdict({"match": 10, "structural": 5}, 15)
+        assert "STRUCTURAL" in label
+        assert "Also:" not in suggestion
+
 
 class TestRelocVerdictHonesty:
     """A RELOC-dominant verdict must not claim "RELOC-level" when real

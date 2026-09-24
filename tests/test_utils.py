@@ -828,6 +828,8 @@ class TestParseIntLiteral:
 
         assert parse_int_literal("0x10") == 16
         assert parse_int_literal("0X1F") == 31
+        assert parse_int_literal("-0x10") == -16
+        assert parse_int_literal("+0x10") == 16
 
     def test_decimal_by_default(self) -> None:
         from rebrew.utils import parse_int_literal

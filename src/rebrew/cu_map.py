@@ -371,6 +371,8 @@ def _jump_table_split_vas(
     boundary (measured on smygb-rebrew: a single MSVC 6 function's own six
     tables change their ``% 8`` remainder five times).
     """
+    if alignment <= 0:
+        return {}
     first_by_owner: dict[int, int] = {}
     for table in tables:
         owner = _owner_of(table, functions)

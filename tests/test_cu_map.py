@@ -539,3 +539,13 @@ class TestClusterFunctionsEdge:
         assert len(clusters) == 1
         # A callee called only from within the cluster boosts confidence.
         assert any("static-function signal" in e for c in clusters for e in c.evidence)
+
+
+class TestJumpTableSplitVas:
+    def test_non_positive_alignment_returns_empty(self) -> None:
+        from rebrew.cu_map import _jump_table_split_vas
+
+        tables = [0x1000, 0x1020]
+        functions = [(0x1000, 32), (0x1020, 32)]
+        assert _jump_table_split_vas(tables, 0, functions) == {}
+        assert _jump_table_split_vas(tables, -4, functions) == {}

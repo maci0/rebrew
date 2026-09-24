@@ -873,11 +873,15 @@ def _parse_int_literal(raw: str) -> int | None:
     if not body:
         return None
     try:
-        if body.lower().startswith("0x"):
-            return int(body, 16)
-        if len(body) > 1 and body.startswith("0"):
-            return int(body, 8)
-        return int(body, 10)
+        sign = -1 if body.startswith("-") else 1
+        core = body[1:] if body.startswith(("+", "-")) else body
+        if not core:
+            return None
+        if core.lower().startswith("0x"):
+            return sign * int(core, 16)
+        if len(core) > 1 and core.startswith("0"):
+            return sign * int(core, 8)
+        return sign * int(core, 10)
     except ValueError:
         return None
 

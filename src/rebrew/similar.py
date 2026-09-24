@@ -11,6 +11,7 @@ No external service.
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 import typer
@@ -75,9 +76,11 @@ def _cosine(hist_a: dict[str, int], hist_b: dict[str, int]) -> float:
     vec_a = np.array([hist_a.get(k, 0) for k in keys], dtype=float)
     vec_b = np.array([hist_b.get(k, 0) for k in keys], dtype=float)
     denom = float(np.linalg.norm(vec_a) * np.linalg.norm(vec_b))
-    if denom == 0.0:
+    if not math.isfinite(denom) or denom <= 0.0:
         return 0.0
     raw = float(np.dot(vec_a, vec_b) / denom)
+    if not math.isfinite(raw):
+        return 0.0
     return min(1.0, max(0.0, raw))
 
 

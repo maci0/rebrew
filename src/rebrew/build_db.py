@@ -169,6 +169,10 @@ def _parse_int(value: Any, default: int = 0) -> int:
         return default
     if isinstance(value, int):
         return value
+    if isinstance(value, float):
+        if not math.isfinite(value) or not value.is_integer():
+            return default
+        return int(value)
     if isinstance(value, str):
         s = value.strip()
         if not s:

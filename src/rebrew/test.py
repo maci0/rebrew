@@ -16,6 +16,7 @@ Usage:
 
 import hashlib
 import logging
+import math
 import shutil
 from collections.abc import Callable
 from pathlib import Path
@@ -777,7 +778,14 @@ def _print_compare_result(cmp: CompareResult, target_bytes: bytes) -> None:
         else ""
     )
     size_hint = ""
-    if cmp.status == "SIZE_MISMATCH" and cmp.match_percent == 100.0 and obj_len:
+    if (
+        cmp.status == "SIZE_MISMATCH"
+        and (
+            cmp.match_percent == 100.0
+            or math.isclose(cmp.match_percent, 100.0, rel_tol=1e-7, abs_tol=1e-7)
+        )
+        and obj_len
+    ):
         # Every common byte matched — only the SIZE annotation is stale.
         # Same hint as the multi-function path; --fix-sizes automates it.
         size_hint = (
@@ -1076,7 +1084,10 @@ def _run_test_impl(
     if (
         fix_sizes
         and cmp.status == "SIZE_MISMATCH"
-        and cmp.match_percent == 100.0
+        and (
+            cmp.match_percent == 100.0
+            or math.isclose(cmp.match_percent, 100.0, rel_tol=1e-7, abs_tol=1e-7)
+        )
         and cmp.full_obj_size is not None
         and cmp.full_obj_bytes is not None
         and section_va is not None

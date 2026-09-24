@@ -92,7 +92,7 @@ def _pick_free_display() -> str:
     for n in _XVFB_DISPLAY_RANGE:
         if not (_XVFB_SOCKET_DIR / f"X{n}").exists():
             return f":{n}"
-    return f":{90 + os.getpid() % (_XVFB_DISPLAY_RANGE.stop - _XVFB_DISPLAY_RANGE.start)}"
+    return f":{_XVFB_DISPLAY_RANGE.start + os.getpid() % (_XVFB_DISPLAY_RANGE.stop - _XVFB_DISPLAY_RANGE.start)}"
 
 
 def _wait_for_socket(

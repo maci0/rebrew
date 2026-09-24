@@ -7,6 +7,7 @@ recently-run filter, and the batch flag sweep.
 from __future__ import annotations
 
 import logging
+import math
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -744,7 +745,11 @@ def _show_ga_history(cfg: ProjectConfig, json_output: bool, *, target: str = "")
     records = load_ga_runs(cfg.root, target=target, limit=100000)
     total = len(records)
     matched = sum(1 for r in records if r.get("matched"))
-    scored = [r["score"] for r in records if isinstance(r.get("score"), (int, float))]
+    scored = [
+        r["score"]
+        for r in records
+        if isinstance(r.get("score"), (int, float)) and math.isfinite(r["score"])
+    ]
     summary: dict[str, Any] = {
         "total": total,
         "matched": matched,

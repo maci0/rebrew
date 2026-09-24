@@ -1401,6 +1401,7 @@ def parse_int_literal(text: str, *, base: int = 10) -> int:
     ``stack_cmp``, ``switch``, and the Ghidra backends all resolve here.
     """
     stripped = text.strip()
-    if stripped.lower().startswith("0x"):
+    s = stripped[1:] if stripped.startswith(("+", "-")) else stripped
+    if s.lower().startswith("0x"):
         return int(stripped, 16)
     return int(stripped, base)
