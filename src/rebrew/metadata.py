@@ -448,6 +448,21 @@ def toml_safe(value: Any) -> Any:
     return "".join(ch for ch in value if ord(ch) >= 0x20 or ch in ("\t", "\n"))
 
 
+def _ensure_entry_table(
+    doc_dict: dict[str, Any],
+    module: str,
+    va: int,
+    key_index: dict[tuple[str, int], str] | None = None,
+) -> tuple[str, dict[str, Any]]:
+    """Resolve and return (toml_key, entry) for (module, va), creating table if missing."""
+    toml_key = resolve_metadata_key(doc_dict, module, va, index=key_index)
+    if toml_key not in doc_dict:
+        doc_dict[toml_key] = tomlkit.table()
+        if key_index is not None:
+            key_index[(module, va)] = toml_key
+    return toml_key, typing.cast(dict[str, Any], doc_dict[toml_key])
+
+
 def _set_field(directory: Path, va: int, key: str, value: Any, module: str) -> None:
     """Set one field for *(module, va)* in the metadata.  **Private** — use
     :func:`update_field` or :func:`update_source_status` instead.
@@ -460,15 +475,12 @@ def _set_field(directory: Path, va: int, key: str, value: Any, module: str) -> N
 
     with metadata_write_lock(directory, METADATA_FILENAME):
         doc = load_toml_for_write(path, "metadata")
-        toml_key = resolve_metadata_key(doc, module, va)
-
-        if toml_key not in doc:
-            doc[toml_key] = tomlkit.table()
+        doc_dict = typing.cast(dict[str, Any], doc)
+        toml_key, entry = _ensure_entry_table(doc_dict, module, va)
 
         # Same-value short-circuit (mirrors set_fields / update_statuses_batch):
         # a retry that re-sets the stored value must not rewrite the TOML.
         safe = toml_safe(value)
-        entry = doc[toml_key]
         if isinstance(entry, dict) and entry.get(key) == safe:
             return
 
@@ -493,10 +505,7 @@ def set_fields(directory: Path, va: int, fields: dict[str, Any], module: str) ->
     with metadata_write_lock(directory, METADATA_FILENAME):
         doc = load_toml_for_write(path, "metadata")
         doc_dict = typing.cast(dict[str, Any], doc)
-        toml_key = resolve_metadata_key(doc_dict, module, va)
-        if toml_key not in doc_dict:
-            doc_dict[toml_key] = tomlkit.table()
-        entry = typing.cast(dict[str, Any], doc_dict[toml_key])
+        toml_key, entry = _ensure_entry_table(doc_dict, module, va)
 
         changed = False
         for key, value in fields.items():
@@ -538,11 +547,7 @@ def set_fields_batch(metadata_dir: Path, updates: list[dict[str, Any]]) -> int:
             if va is None:
                 continue
             va_int = int(va)
-            toml_key = resolve_metadata_key(doc_dict, module, va_int, index=key_index)
-            if toml_key not in doc_dict:
-                doc_dict[toml_key] = tomlkit.table()
-                key_index[(module, va_int)] = toml_key
-            entry = typing.cast(dict[str, Any], doc_dict[toml_key])
+            toml_key, entry = _ensure_entry_table(doc_dict, module, va_int, key_index)
             changed = False
             for key, value in (u.get("fields") or {}).items():
                 key = key.lower()
@@ -598,11 +603,7 @@ def record_migrated_markers(metadata_dir: Path, rows: list[dict[str, Any]]) -> N
             module = str(row.get("module") or "")
             _require_module(module)
             va_int = int(row["va"])
-            toml_key = resolve_metadata_key(doc_dict, module, va_int, index=key_index)
-            if toml_key not in doc_dict:
-                doc_dict[toml_key] = tomlkit.table()
-                key_index[(module, va_int)] = toml_key
-            entry = typing.cast(dict[str, Any], doc_dict[toml_key])
+            toml_key, entry = _ensure_entry_table(doc_dict, module, va_int, key_index)
             updates: dict[str, Any] = {}
             for key, value in (row.get("fields") or {}).items():
                 key = key.lower()
@@ -1005,11 +1006,7 @@ def update_statuses_batch(metadata_dir: Path, updates: list[dict[str, Any]]) -> 
                     f"unknown STATUS {new_status!r} (expected one of {sorted(KNOWN_STATUSES)})"
                 )
             va_int = int(va)
-            toml_key = resolve_metadata_key(doc_dict, module, va_int, index=key_index)
-            if toml_key not in doc_dict:
-                doc_dict[toml_key] = tomlkit.table()
-                key_index[(module, va_int)] = toml_key
-            entry = typing.cast(dict[str, Any], doc_dict[toml_key])
+            toml_key, entry = _ensure_entry_table(doc_dict, module, va_int, key_index)
 
             clear_blockers = u.get("clear_blockers", True)
             force = u.get("force", False)

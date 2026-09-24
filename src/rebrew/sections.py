@@ -69,16 +69,8 @@ def has_back_jumps(
                 return True
             i += 6
             continue
-        # Short jmp (EB)
-        if b == 0xEB and i + 2 <= len(data):
-            rel = struct.unpack_from("<b", data, i + 1)[0]
-            target = base_offset + i + 2 + rel
-            if func_start_off <= target < func_end_off:
-                return True
-            i += 2
-            continue
-        # Short jcc (70-7F)
-        if 0x70 <= b <= 0x7F and i + 2 <= len(data):
+        # Short jmp (EB) or short jcc (70-7F)
+        if (b == 0xEB or 0x70 <= b <= 0x7F) and i + 2 <= len(data):
             rel = struct.unpack_from("<b", data, i + 1)[0]
             target = base_offset + i + 2 + rel
             if func_start_off <= target < func_end_off:

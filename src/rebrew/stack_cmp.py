@@ -98,7 +98,7 @@ def analyze_frame(code: bytes, va: int, cs_mode: int) -> dict[str, Any]:
             esp -= 8 * word
         elif mnem in ("popad", "popa"):
             esp += 8 * word
-        elif mnem == "sub" and "sp" in op_str:
+        elif mnem in ("sub", "add") and "sp" in op_str:
             # Only a register destination adjusts ESP — `sub dword ptr
             # [esp+4], 0x10` adjusts a stack slot, not the pointer, and
             # would poison frame_size if the first immediate were subtracted.
@@ -107,15 +107,7 @@ def analyze_frame(code: bytes, va: int, cs_mode: int) -> dict[str, Any]:
                 if "sp" in dst_name:
                     for op in insn.operands:
                         if op.type == capstone.x86.X86_OP_IMM:
-                            esp -= op.imm
-                            break
-        elif mnem == "add" and "sp" in op_str:
-            if insn.operands and insn.operands[0].type == capstone.x86.X86_OP_REG:
-                dst_name = insn.reg_name(insn.operands[0].reg) or ""
-                if "sp" in dst_name:
-                    for op in insn.operands:
-                        if op.type == capstone.x86.X86_OP_IMM:
-                            esp += op.imm
+                            esp += -op.imm if mnem == "sub" else op.imm
                             break
         elif mnem == "lea" and "sp" in op_str:
             # lea esp, [esp - N] — stack alignment / probing reset.  The

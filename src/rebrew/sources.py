@@ -72,6 +72,35 @@ def _library_headers_under(directory: Path | str) -> list[Path]:
     )
 
 
+def _resolve_dir_and_cfg(
+    directory: Path | str | ProjectConfig,
+    cfg: ProjectConfig | None,
+) -> tuple[Path, ProjectConfig | None]:
+    if isinstance(directory, ProjectConfig) or hasattr(directory, "reversed_dir"):
+        if cfg is None:
+            cfg = directory  # type: ignore[assignment]
+        target_dir = getattr(directory, "reversed_dir", "")
+    else:
+        target_dir = directory
+    return Path(target_dir), cfg
+
+
+def _should_include_shared(dir_path: Path, cfg: ProjectConfig | None) -> Path | None:
+    if cfg is None:
+        return None
+    shared = getattr(cfg, "shared_dir", None)
+    reversed_dir = getattr(cfg, "reversed_dir", None)
+    if (
+        shared is not None
+        and reversed_dir is not None
+        and dir_path.resolve() == Path(reversed_dir).resolve()
+        and shared.is_dir()
+        and Path(shared).resolve() != dir_path.resolve()
+    ):
+        return Path(shared)
+    return None
+
+
 def iter_library_headers(
     directory: Path | str | ProjectConfig,
     cfg: ProjectConfig | None = None,
@@ -89,26 +118,10 @@ def iter_library_headers(
     it, shared ``library_*.h`` markers are invisible to coverage (`status`,
     `todo`), `crt-match`, the call graph, and ``rebrew context``.
     """
-    target_dir: Path | str
-    if isinstance(directory, ProjectConfig) or hasattr(directory, "reversed_dir"):
-        if cfg is None:
-            cfg = directory  # type: ignore[assignment]
-        target_dir = getattr(directory, "reversed_dir", "")
-    else:
-        target_dir = directory
-    dir_path = Path(target_dir)
+    dir_path, cfg = _resolve_dir_and_cfg(directory, cfg)
     files = _library_headers_under(dir_path)
-    if cfg is None:
-        return files
-    shared = getattr(cfg, "shared_dir", None)
-    reversed_dir = getattr(cfg, "reversed_dir", None)
-    if (
-        shared is not None
-        and reversed_dir is not None
-        and dir_path.resolve() == Path(reversed_dir).resolve()
-        and shared.is_dir()
-        and Path(shared).resolve() != dir_path.resolve()
-    ):
+    shared = _should_include_shared(dir_path, cfg)
+    if shared is not None:
         files = sorted(set(files) | set(_library_headers_under(shared)))
     return files
 
@@ -168,33 +181,13 @@ def iter_sources(
     one ``// FUNCTION: <target> <va>`` marker per target and ``#ifdef``
     deltas driven by the per-target ``defines``.
     """
-    target_dir: Path | str
-    if isinstance(directory, ProjectConfig) or hasattr(directory, "reversed_dir"):
-        if cfg is None:
-            cfg = directory  # type: ignore[assignment]
-        target_dir = getattr(directory, "reversed_dir", "")
-    else:
-        target_dir = directory
-    dir_path = Path(target_dir)
+    dir_path, cfg = _resolve_dir_and_cfg(directory, cfg)
     exts = source_exts(cfg) or [".c"]
     wanted = {ext.lower() for ext in exts}
     base = _files_with_ext(dir_path, wanted)
 
-    if cfg is None:
-        return base
-    shared = getattr(cfg, "shared_dir", None)
-    reversed_dir = getattr(cfg, "reversed_dir", None)
-    if (
-        shared is not None
-        and reversed_dir is not None
-        # Shared sources belong to the target's reversed_dir scan ONLY —
-        # a scan of any other directory with cfg must not pull them in.
-        and dir_path.resolve() == Path(reversed_dir).resolve()
-        and shared.is_dir()
-        and Path(shared).resolve() != dir_path.resolve()
-    ):
-        # Same extension set as the target's own scan, so shared
-        # `.cpp`/`.cc` sources are included.
+    shared = _should_include_shared(dir_path, cfg)
+    if shared is not None:
         shared_files = _files_with_ext(shared, wanted)
         return sorted(set(base) | set(shared_files))
     return base

@@ -188,6 +188,7 @@ def generate_skeleton(
     decomp_backend: str = "",
     decomp_body: bool = False,
     func_lookup: FuncLookup | None = None,
+    todo_text: str | None = "Implement based on Ghidra decompilation",
 ) -> str:
     """Generate the .c file content.
 
@@ -203,6 +204,7 @@ def generate_skeleton(
         decomp_body: Embed the decompiled body as the initial implementation.
         func_lookup: Optional prebuilt VA→(name, status) map for tail-call
             resolution; batch callers share one instance across functions.
+        todo_text: Optional comment text for the TODO marker (None for compact format).
 
     """
     lib_modules = cfg.library_modules or set()
@@ -212,8 +214,6 @@ def generate_skeleton(
     # Ghidra name (non-identifier characters, leading digit, length), so
     # `--name "my-func"` cannot emit an invalid C identifier.
     func_name = sanitize_name(custom_name if custom_name else ghidra_name)
-
-    todo = "Implement based on Ghidra decompilation"
 
     # Calling-convention-aware stub: the skeleton signature should match the
     # target's convention (rebrew asm's inference), not always `int __cdecl
@@ -231,7 +231,7 @@ def generate_skeleton(
         xref_context=xref_context,
         decomp_code=decomp_code,
         decomp_backend=decomp_backend or "decompiler",
-        todo_text=todo,
+        todo_text=todo_text,
         decomp_body=decomp_body,
         convention_stub=signature,
         convention_note=conv_note,
@@ -408,36 +408,24 @@ def generate_annotation_block(
     decomp_code: str | None = None,
     decomp_backend: str = "",
     decomp_body: bool = False,
+    func_lookup: FuncLookup | None = None,
 ) -> str:
     """Generate an annotation block + stub body for appending to an existing file.
 
     Produces a compact block suitable for appending after existing code.
     """
-    lib_modules = cfg.library_modules or set()
-    marker = marker_for_module(module, "RELOC", lib_modules)
-
-    # Same name sanitization as generate_skeleton (custom names included).
-    func_name = sanitize_name(custom_name if custom_name else ghidra_name)
-
-    # Same calling-convention-aware stub as generate_skeleton: append mode is
-    # the common multi-function path, so thiscall/stdcall shapes must not
-    # silently degrade to `int __cdecl f(void)` here (drift fixed — the
-    # convention work was single-file-only before).
-    signature, conv_note = _convention_stub(cfg, va, func_name)
-
-    return _render_annotation_block(
-        marker=marker,
-        cfg_marker=cfg.marker,
+    return generate_skeleton(
+        cfg=cfg,
         va=va,
-        profile=str(getattr(cfg, "compiler_profile", "")),
-        func_name=func_name,
         ghidra_name=ghidra_name,
+        module=module,
+        custom_name=custom_name,
         xref_context=xref_context,
         decomp_code=decomp_code,
-        decomp_backend=decomp_backend or "decompiler",
+        decomp_backend=decomp_backend,
         decomp_body=decomp_body,
-        convention_stub=signature,
-        convention_note=conv_note,
+        func_lookup=func_lookup,
+        todo_text=None,
     )
 
 

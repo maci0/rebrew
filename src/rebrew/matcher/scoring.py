@@ -680,39 +680,24 @@ def diff_functions(
     as_dict = as_dict or summary_only
     md = _get_cs(cs_arch, cs_mode)
 
+    # Disassemble at base 0 so instruction addresses equal byte offsets
+    # in the human-readable diff output. Shape discipline: the lists
+    # ALWAYS hold 5-tuples downstream. Lite tuples serve the rows — the row
+    # loop touches no detail attributes, so ctypes materialization of full
+    # CsInsn objects is avoided.
+    target_insns = [
+        (addr, size, mnem, op, target_bytes[addr : addr + size])
+        for addr, size, mnem, op in md.disasm_lite(target_bytes, 0)
+    ]
+    cand_insns = [
+        (addr, size, mnem, op, candidate_bytes[addr : addr + size])
+        for addr, size, mnem, op in md.disasm_lite(candidate_bytes, 0)
+    ]
+
     if reloc_offsets is not None:
-        # Disassemble at base 0 so instruction addresses equal byte offsets
-        # in the human-readable diff output.  Same shape discipline as below:
-        # tuples downstream, throwaway objects only for the mask.
-        target_insns = [
-            (addr, size, mnem, op, target_bytes[addr : addr + size])
-            for addr, size, mnem, op in md.disasm_lite(target_bytes, 0)
-        ]
-        cand_insns = [
-            (addr, size, mnem, op, candidate_bytes[addr : addr + size])
-            for addr, size, mnem, op in md.disasm_lite(candidate_bytes, 0)
-        ]
         norm_target = _normalize_with_reloc_offsets(target_bytes, reloc_offsets, pointer_size)
         norm_cand = _normalize_with_reloc_offsets(candidate_bytes, reloc_offsets, pointer_size)
     else:
-        # Reloc-less diff: lite tuples (address, size, mnemonic, op_str)
-        # serve the rows — the row loop touches no detail attributes, so the
-        # ctypes materialization of full CsInsn objects (the profile leader:
-        # copy_ctypes) is pure waste.  Detail mode is only entered when the
-        # register-aware mask needs modrm/opcode attributes.
-        #
-        # Shape discipline: the lists ALWAYS hold 5-tuples downstream.  The
-        # register_aware path additionally builds throwaway object lists for
-        # the mask, then discards them — no downstream consumer branches on
-        # shape, so no per-instruction isinstance check anywhere.
-        target_insns = [
-            (addr, size, mnem, op, target_bytes[addr : addr + size])
-            for addr, size, mnem, op in md.disasm_lite(target_bytes, 0)
-        ]
-        cand_insns = [
-            (addr, size, mnem, op, candidate_bytes[addr : addr + size])
-            for addr, size, mnem, op in md.disasm_lite(candidate_bytes, 0)
-        ]
         norm_target_buf = bytearray(target_bytes)
         norm_cand_buf = bytearray(candidate_bytes)
         # Cached detail handle for the rare SIB/disp32 fallback in the raw

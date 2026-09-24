@@ -684,22 +684,12 @@ def vendored_binary(spec: ToolchainSpec) -> Path | None:
     if spec.host_bin:
         norm_host_bin = unicodedata.normalize("NFC", spec.host_bin).casefold()
         try:
-            for entry in host.iterdir():
-                if (
-                    entry.is_dir()
-                    and unicodedata.normalize("NFC", entry.name).casefold() == norm_host_bin
-                ):
-                    hit = _match_binary(entry, spec.binary)
-                    if hit is not None:
-                        return hit
-            # Product trees nest the compiler one level deeper (VC98/Bin for
-            # the MSVC 6 master and SP5, Vc7/bin for 7.0/7.1, VC/bin for
-            # 8.0+): look for <top>/<wrapper>/<host_bin>/<binary> so those
-            # resolve too.
-            for wrapper in host.iterdir():
-                if not wrapper.is_dir():
-                    continue
-                for entry in wrapper.iterdir():
+            # Check direct child first, then product trees nested one level
+            # deeper (VC98/Bin for MSVC 6 master and SP5, Vc7/bin for 7.0/7.1,
+            # VC/bin for 8.0+): look for <top>/<wrapper>/<host_bin>/<binary>.
+            parents = [host] + [w for w in host.iterdir() if w.is_dir()]
+            for parent in parents:
+                for entry in parent.iterdir():
                     if (
                         entry.is_dir()
                         and unicodedata.normalize("NFC", entry.name).casefold() == norm_host_bin
