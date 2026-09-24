@@ -45,4 +45,31 @@ class RebrewError(Exception):
     retryable: bool = False
 
 
+_LAZY_ERRORS: dict[str, tuple[str, str]] = {
+    "ConfigError": ("rebrew.config", "ConfigError"),
+    "ConfigNotFoundError": ("rebrew.config", "ConfigNotFoundError"),
+    "ConfigKeyError": ("rebrew.config", "ConfigKeyError"),
+    "DecompmeError": ("rebrew.decompme", "DecompmeError"),
+    "McpApplyAborted": ("rebrew.ghidra.client", "McpApplyAborted"),
+    "McpError": ("rebrew.ghidra.client", "McpError"),
+    "MetadataValidationError": ("rebrew.metadata_model", "MetadataValidationError"),
+    "RecompileError": ("rebrew.recompile_client", "RecompileError"),
+    "RegistryError": ("rebrew.registry", "RegistryError"),
+    "ToolchainError": ("rebrew.toolchain", "ToolchainError"),
+    "WorkspaceNotFound": ("rebrew.workspace.config", "WorkspaceNotFound"),
+}
+
+
+def __getattr__(name: str) -> object:
+    if name in _LAZY_ERRORS:
+        mod_name, attr_name = _LAZY_ERRORS[name]
+        import importlib
+
+        mod = importlib.import_module(mod_name)
+        val: object = getattr(mod, attr_name)
+        globals()[name] = val
+        return val
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
 __all__ = ["RebrewError"]

@@ -467,6 +467,20 @@ class ProjectConfig:
             return self.reversed_dir
         return parent
 
+    def validate(self) -> None:
+        """Validate configuration settings, raising :class:`ConfigError` on invalid values."""
+        if self.arch and self.arch not in _ARCH_PRESETS:
+            raise ConfigError(
+                f"unknown arch {self.arch!r} (known: {', '.join(sorted(_ARCH_PRESETS))})"
+            )
+        if self.compiler_profile:
+            from rebrew.toolchain import TOOLCHAINS
+
+            if self.compiler_profile not in TOOLCHAINS:
+                raise ConfigError(
+                    f"unknown profile {self.compiler_profile!r} (known: {', '.join(sorted(TOOLCHAINS))})"
+                )
+
 
 #: Characters stripped from a target name when deriving its module marker:
 #: ``server.dll`` yields ``SERVERDLL``, an identifier-shaped module name.
@@ -1016,7 +1030,7 @@ def detect_crt_sources(root: Path) -> dict[str, str]:
     return found
 
 
-def find_root(start: Path | None = None) -> Path:
+def find_root(start: Path | str | None = None) -> Path:
     """Walk up from cwd to find rebrew-project.toml.
 
     Since rebrew is an installable package, __file__ may point into
@@ -1028,14 +1042,15 @@ def find_root(start: Path | None = None) -> Path:
     (no walk-up); load_config(root=X) expects X to contain the toml.
     """
     if start is not None:
+        start_p = Path(start)
         # Treat as explicit project root only when it looks like one
-        if (start / "rebrew-project.toml").is_file():
-            return start
-        if not start.is_dir():
-            return start
+        if (start_p / "rebrew-project.toml").is_file():
+            return start_p
+        if not start_p.is_dir():
+            return start_p
         # Bare temp dir without toml: legacy callers (e.g. find_root(tmp_path))
         # expect pass-through; let load_config raise the proper error
-        return start
+        return start_p
     found = walk_up_to_root(Path.cwd())
     if found is None:
         raise ConfigNotFoundError(
@@ -1190,7 +1205,7 @@ def _load_lint_settings(project_raw: Mapping[str, Any]) -> dict[str, Any]:
 
 
 def load_config(
-    root: Path | None = None,
+    root: Path | str | None = None,
     target: str | None = None,
 ) -> ProjectConfig:
     """Load rebrew-project.toml.

@@ -33,7 +33,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import typer
 
@@ -46,6 +46,7 @@ from rebrew.cli import (
     require_config,
 )
 from rebrew.config import validate_http_url
+from rebrew.errors import RebrewError
 from rebrew.utils import read_source_text
 
 app = typer.Typer(
@@ -188,44 +189,92 @@ def build_scratch_payload(
     return {"data": data, "files": files}
 
 
+DecompmeErrorKind = Literal["network", "http", "validation", "protocol"]
+
+
+class DecompmeError(RebrewError, RuntimeError):
+    """Failure communicating with or creating scratches on decomp.me.
+
+    Structured fields allow callers to branch on error conditions:
+
+    - ``kind`` — ``"network"`` / ``"http"`` / ``"validation"`` / ``"protocol"``
+    - ``status_code`` — HTTP status when ``kind == "http"``, else ``None``
+    - ``retryable`` — ``True`` for transport blips and transient HTTP codes
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        kind: DecompmeErrorKind = "protocol",
+        status_code: int | None = None,
+        retryable: bool = False,
+    ) -> None:
+        super().__init__(message)
+        self.kind = kind
+        self.status_code = status_code
+        self.retryable = retryable
+
+
 def upload_scratch(
-    payload: dict[str, Any], api: str = _DEFAULT_API, timeout: float = 60.0
+    payload: dict[str, Any],
+    api: str = _DEFAULT_API,
+    timeout: float = 60.0,
+    *,
+    client: Any = None,
 ) -> dict[str, Any]:
     """POST the scratch to decomp.me; returns the response dict.
 
-    Raises :class:`RuntimeError` on transport failure, a non-2xx response
+    Raises :class:`DecompmeError` (inherits :class:`RebrewError` and
+    :class:`RuntimeError`) on transport failure, a non-2xx response
     (the body is included — decomp.me validation errors explain the reason),
     or a reply whose ``slug`` / ``claim_token`` are not URL-safe tokens.
+
+    *client*, when given, must provide a ``.post(...)`` method.
     """
     import httpx  # deferred: ~46 ms of startup for non-decomp.me commands
 
+    post_fn = client.post if client is not None else httpx.post
+    kw: dict[str, Any] = {}
+    if client is None:
+        kw["timeout"] = timeout
     try:
-        resp = httpx.post(
+        resp = post_fn(
             f"{api}/api/scratch",
             data=payload["data"],
             files=payload["files"],
-            timeout=timeout,
+            **kw,
         )
-    except httpx.HTTPError as exc:
-        raise RuntimeError(f"decomp.me request failed: {exc}") from exc
+    except Exception as exc:
+        raise DecompmeError(
+            f"decomp.me request failed: {exc}", kind="network", retryable=True
+        ) from exc
     try:
         if resp.status_code >= 400:
-            raise RuntimeError(
+            raise DecompmeError(
                 f"decomp.me rejected the scratch (HTTP {resp.status_code}): "
-                f"{(resp.text or '')[:500]}"
+                f"{(resp.text or '')[:500]}",
+                kind="http",
+                status_code=resp.status_code,
+                retryable=resp.status_code in {408, 425, 429, 500, 502, 503, 504},
             )
         try:
             data = resp.json()
         except ValueError as exc:
-            raise RuntimeError(
-                f"decomp.me returned an unparseable response: {resp.text[:200]}"
+            raise DecompmeError(
+                f"decomp.me returned an unparseable response: {resp.text[:200]}",
+                kind="protocol",
             ) from exc
         if not isinstance(data, dict):
-            raise RuntimeError(f"decomp.me returned {type(data).__name__}, expected an object")
+            raise DecompmeError(
+                f"decomp.me returned {type(data).__name__}, expected an object", kind="protocol"
+            )
         for key in ("slug", "claim_token"):
             value = data.get(key)
             if not isinstance(value, str) or not _SCRATCH_ID_RE.fullmatch(value):
-                raise RuntimeError(f"decomp.me returned an invalid {key}: {value!r:.80}")
+                raise DecompmeError(
+                    f"decomp.me returned an invalid {key}: {value!r:.80}", kind="protocol"
+                )
         return data
     finally:
         resp.close()
@@ -236,21 +285,31 @@ def scratch_url(slug: str, claim_token: str, api: str = _DEFAULT_API) -> str:
     return f"{api}/scratch/{slug}/claim?token={claim_token}"
 
 
-def verify_compiler(compiler: str, api: str = _DEFAULT_API, timeout: float = 15.0) -> None:
+def verify_compiler(
+    compiler: str,
+    api: str = _DEFAULT_API,
+    timeout: float = 15.0,
+    *,
+    client: Any = None,
+) -> None:
     """Verify *compiler* exists in the decomp.me registry.
 
     Best-effort: on transport failure (e.g. Cloudflare bot protection on the
     registry endpoint) the upload itself will surface a rejection, so the
-    check degrades to a warning.  Raises :class:`RuntimeError` only when the
+    check degrades to a warning.  Raises :class:`DecompmeError` only when the
     registry was reachable and the id is unknown — with the known ids as
     suggestions (the friendly check for non-MSVC toolchains that previously
     relied on the documented ``--compiler`` override).
     """
     import httpx
 
+    get_fn = client.get if client is not None else httpx.get
+    kw: dict[str, Any] = {}
+    if client is None:
+        kw["timeout"] = timeout
     try:
-        resp = httpx.get(f"{api}/api/compiler", timeout=timeout)
-    except httpx.HTTPError as exc:
+        resp = get_fn(f"{api}/api/compiler", **kw)
+    except Exception as exc:
         console.print(
             f"[yellow]warning:[/yellow] decomp.me registry unreachable "
             f"({exc.__class__.__name__}) — skipping compiler check"
@@ -274,9 +333,10 @@ def verify_compiler(compiler: str, api: str = _DEFAULT_API, timeout: float = 15.
             return
         known = sorted(str(k) for k in compilers)
         hint = ", ".join(known[:8]) + ("…" if len(known) > 8 else "")
-        raise RuntimeError(
+        raise DecompmeError(
             f"compiler {compiler!r} is not in the decomp.me registry "
-            f"(available: {hint}) — pass --compiler with a valid id"
+            f"(available: {hint}) — pass --compiler with a valid id",
+            kind="validation",
         )
     finally:
         resp.close()
@@ -494,3 +554,16 @@ def main_entry() -> None:
 
 if __name__ == "__main__":
     main_entry()
+
+
+__all__ = [
+    "DecompmeError",
+    "DecompmeErrorKind",
+    "build_scratch_payload",
+    "extract_function_text",
+    "map_compiler",
+    "map_platform",
+    "scratch_url",
+    "upload_scratch",
+    "verify_compiler",
+]

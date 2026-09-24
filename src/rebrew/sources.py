@@ -56,23 +56,31 @@ def target_marker(cfg: ProjectConfig | None) -> str | None:
     return cfg.marker if cfg is not None else None
 
 
-def _library_headers_under(directory: Path) -> list[Path]:
+def _library_headers_under(directory: Path | str) -> list[Path]:
     """``library_*.h`` files under *directory*, skipping :data:`_EXCLUDE_DIRS`.
 
     The exclusion set matches :func:`_files_with_ext` — without it the header
     scan descended into ``build/``, ``.venv/``, and a copied dependency tree,
     counting their headers as the project's own library markers.
     """
+    dir_path = Path(directory)
     return sorted(
         p
-        for p in directory.rglob("library_*.h")
+        for p in dir_path.rglob("library_*.h")
         if not p.is_symlink()
-        and not any(part in _EXCLUDE_DIRS for part in p.relative_to(directory).parts[:-1])
+        and not any(part in _EXCLUDE_DIRS for part in p.relative_to(dir_path).parts[:-1])
     )
 
 
-def iter_library_headers(directory: Path, cfg: ProjectConfig | None = None) -> list[Path]:
+def iter_library_headers(
+    directory: Path | str | ProjectConfig,
+    cfg: ProjectConfig | None = None,
+) -> list[Path]:
     """Return all library_*.h files under *directory*, recursively.
+
+    *directory* may be a :class:`pathlib.Path`, string path, or a
+    :class:`ProjectConfig` instance (which defaults *directory* to
+    ``cfg.reversed_dir``).
 
     With *cfg*, the project's shared root (``cfg.shared_dir``) joins the scan
     when *directory* IS the target's ``reversed_dir`` — the same rule
@@ -81,7 +89,15 @@ def iter_library_headers(directory: Path, cfg: ProjectConfig | None = None) -> l
     it, shared ``library_*.h`` markers are invisible to coverage (`status`,
     `todo`), `crt-match`, the call graph, and ``rebrew context``.
     """
-    files = _library_headers_under(directory)
+    target_dir: Path | str
+    if isinstance(directory, ProjectConfig) or hasattr(directory, "reversed_dir"):
+        if cfg is None:
+            cfg = directory  # type: ignore[assignment]
+        target_dir = getattr(directory, "reversed_dir", "")
+    else:
+        target_dir = directory
+    dir_path = Path(target_dir)
+    files = _library_headers_under(dir_path)
     if cfg is None:
         return files
     shared = getattr(cfg, "shared_dir", None)
@@ -89,9 +105,9 @@ def iter_library_headers(directory: Path, cfg: ProjectConfig | None = None) -> l
     if (
         shared is not None
         and reversed_dir is not None
-        and Path(directory).resolve() == Path(reversed_dir).resolve()
+        and dir_path.resolve() == Path(reversed_dir).resolve()
         and shared.is_dir()
-        and Path(shared).resolve() != Path(directory).resolve()
+        and Path(shared).resolve() != dir_path.resolve()
     ):
         files = sorted(set(files) | set(_library_headers_under(shared)))
     return files
@@ -111,24 +127,32 @@ _EXCLUDE_DIRS = {
 }
 
 
-def _files_with_ext(directory: Path, wanted: set[str]) -> list[Path]:
+def _files_with_ext(directory: Path | str, wanted: set[str]) -> list[Path]:
     """Sorted files under *directory* whose lower-cased suffix is in *wanted*.
 
     Shared by the target's own scan and the shared-sources scan so both halves
     apply the same extension set and the same exclusion rules.
     """
+    dir_path = Path(directory)
     return sorted(
         p
-        for p in directory.rglob("*")
+        for p in dir_path.rglob("*")
         if p.is_file()
         and p.suffix.lower() in wanted
-        and not any(part in _EXCLUDE_DIRS for part in p.relative_to(directory).parts[:-1])
+        and not any(part in _EXCLUDE_DIRS for part in p.relative_to(dir_path).parts[:-1])
         and not p.is_symlink()
     )
 
 
-def iter_sources(directory: Path, cfg: ProjectConfig | None = None) -> list[Path]:
+def iter_sources(
+    directory: Path | str | ProjectConfig,
+    cfg: ProjectConfig | None = None,
+) -> list[Path]:
     """Return all source files under *directory*, recursively, sorted by path.
+
+    *directory* may be a :class:`pathlib.Path`, string path, or a
+    :class:`ProjectConfig` instance (which defaults *directory* to
+    ``cfg.reversed_dir``).
 
     Uses :func:`source_exts` to determine the file extensions and ``rglob``
     to descend into nested subdirectories.  Extension matching is
@@ -144,9 +168,17 @@ def iter_sources(directory: Path, cfg: ProjectConfig | None = None) -> list[Path
     one ``// FUNCTION: <target> <va>`` marker per target and ``#ifdef``
     deltas driven by the per-target ``defines``.
     """
+    target_dir: Path | str
+    if isinstance(directory, ProjectConfig) or hasattr(directory, "reversed_dir"):
+        if cfg is None:
+            cfg = directory  # type: ignore[assignment]
+        target_dir = getattr(directory, "reversed_dir", "")
+    else:
+        target_dir = directory
+    dir_path = Path(target_dir)
     exts = source_exts(cfg) or [".c"]
     wanted = {ext.lower() for ext in exts}
-    base = _files_with_ext(directory, wanted)
+    base = _files_with_ext(dir_path, wanted)
 
     if cfg is None:
         return base
@@ -157,9 +189,9 @@ def iter_sources(directory: Path, cfg: ProjectConfig | None = None) -> list[Path
         and reversed_dir is not None
         # Shared sources belong to the target's reversed_dir scan ONLY —
         # a scan of any other directory with cfg must not pull them in.
-        and Path(directory).resolve() == Path(reversed_dir).resolve()
+        and dir_path.resolve() == Path(reversed_dir).resolve()
         and shared.is_dir()
-        and Path(shared).resolve() != Path(directory).resolve()
+        and Path(shared).resolve() != dir_path.resolve()
     ):
         # Same extension set as the target's own scan, so shared
         # `.cpp`/`.cc` sources are included.

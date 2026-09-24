@@ -212,6 +212,25 @@ class CompareResult:
                 f"CompareResult matched={self.matched} contradicts status={self.status!r}"
             )
 
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize comparison result to a JSON-safe dictionary."""
+        return {
+            "matched": self.matched,
+            "status": self.status,
+            "match_percent": self.match_percent,
+            "match_count": self.match_count,
+            "delta": self.delta,
+            "message": self.message,
+            "reloc_offsets": list(self.reloc_offsets) if self.reloc_offsets is not None else None,
+            "inv_reloc_offsets": list(self.inv_reloc_offsets),
+            "full_obj_size": self.full_obj_size,
+            "diff_lines": self.diff_lines,
+            "similarity": self.similarity,
+            "reg_delta": self.reg_delta,
+            "effective_match": self.effective_match,
+            "context_hash": self.context_hash,
+        }
+
 
 #: Compare statuses that mean the compiled bytes equal the target (after
 #: reloc masking).  PROVEN is not a byte match and never sets ``matched``.

@@ -36,4 +36,34 @@ os.environ.setdefault("OMP_NUM_THREADS", "1")
 
 __version__ = "2.6.0"
 
+_LAZY_EXPORTS: dict[str, tuple[str, str]] = {
+    "CompareResult": ("rebrew.compile", "CompareResult"),
+    "ConfigError": ("rebrew.config", "ConfigError"),
+    "ProjectConfig": ("rebrew.config", "ProjectConfig"),
+    "RebrewError": ("rebrew.errors", "RebrewError"),
+    "ToolchainError": ("rebrew.toolchain", "ToolchainError"),
+    "compile_and_compare": ("rebrew.compile", "compile_and_compare"),
+    "get_toolchain": ("rebrew.toolchain", "get_toolchain"),
+    "iter_library_headers": ("rebrew.sources", "iter_library_headers"),
+    "iter_sources": ("rebrew.sources", "iter_sources"),
+    "load_config": ("rebrew.config", "load_config"),
+}
+
+
+def __getattr__(name: str) -> object:
+    if name in _LAZY_EXPORTS:
+        mod_name, attr_name = _LAZY_EXPORTS[name]
+        import importlib
+
+        mod = importlib.import_module(mod_name)
+        val: object = getattr(mod, attr_name)
+        globals()[name] = val
+        return val
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def __dir__() -> list[str]:
+    return sorted(list(globals().keys()) + list(_LAZY_EXPORTS.keys()))
+
+
 __all__ = ["__version__"]

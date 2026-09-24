@@ -53,7 +53,7 @@ class WorkspaceNotFound(RebrewError, FileNotFoundError):
     """No directory containing ``rebrew-project.toml`` was found."""
 
 
-def walk_up_to_root(start: Path) -> Path | None:
+def walk_up_to_root(start: Path | str) -> Path | None:
     """Walk up from *start* (inclusive) looking for ``rebrew-project.toml``.
 
     Returns the directory containing the marker file, or ``None`` when the
@@ -61,7 +61,7 @@ def walk_up_to_root(start: Path) -> Path | None:
     a regular file, so a directory named ``rebrew-project.toml`` does not
     satisfy the search.
     """
-    candidate = start.resolve()
+    candidate = Path(start).resolve()
     while candidate != candidate.parent:
         if (candidate / CONFIG_NAME).is_file():
             return candidate
@@ -69,7 +69,7 @@ def walk_up_to_root(start: Path) -> Path | None:
     return None
 
 
-def find_root(start: Path | None = None) -> Path:
+def find_root(start: Path | str | None = None) -> Path:
     """Return the workspace root holding ``rebrew-project.toml``.
 
     *start*, when given, is checked first and returned as-is (resolved) if it
@@ -80,7 +80,7 @@ def find_root(start: Path | None = None) -> Path:
     Unlike rebrew's ``find_root``, a bare directory is not passed through
     unchanged: this function either finds a workspace or raises.
     """
-    origin = Path.cwd() if start is None else start.resolve()
+    origin = Path.cwd() if start is None else Path(start).resolve()
     if start is not None and (origin / CONFIG_NAME).is_file():
         return origin
     found = walk_up_to_root(origin)
@@ -92,14 +92,14 @@ def find_root(start: Path | None = None) -> Path:
     return found
 
 
-def read_config(root: Path) -> dict[str, Any]:
+def read_config(root: Path | str) -> dict[str, Any]:
     """Parse ``<root>/rebrew-project.toml``.
 
     Returns ``{}`` when the file is missing, unreadable, not UTF-8 or not
     valid TOML.  Never raises.
     """
     try:
-        return tomllib.loads((root / CONFIG_NAME).read_text(encoding="utf-8-sig"))
+        return tomllib.loads((Path(root) / CONFIG_NAME).read_text(encoding="utf-8-sig"))
     except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError):
         return {}
 

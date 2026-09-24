@@ -180,7 +180,7 @@ def compile_source(
     base_url: str,
     compiler: str,
     source: str,
-    flags: list[str],
+    flags: list[str] | tuple[str, ...] | str,
     *,
     filename: str = "input.c",
     timeout: float = 180.0,
@@ -225,12 +225,14 @@ def compile_source(
             f"retries must be >= 0, got {retries}",
             kind="validation",
         )
-    if len(flags) > _MAX_FLAGS:
+    flags_list = [f for f in flags.split() if f] if isinstance(flags, str) else list(flags)
+
+    if len(flags_list) > _MAX_FLAGS:
         raise RecompileError(
-            f"too many flags ({len(flags)} > {_MAX_FLAGS})",
+            f"too many flags ({len(flags_list)} > {_MAX_FLAGS})",
             kind="validation",
         )
-    for flag in flags:
+    for flag in flags_list:
         if len(flag) > _MAX_FLAG_LEN:
             raise RecompileError(
                 f"flag too long ({len(flag)} > {_MAX_FLAG_LEN}): {flag[:40]}",
@@ -249,7 +251,7 @@ def compile_source(
     payload = {
         "compiler": compiler,
         "source": source,
-        "flags": flags,
+        "flags": flags_list,
         "filename": filename,
         "emit_assembly": emit_assembly,
     }
