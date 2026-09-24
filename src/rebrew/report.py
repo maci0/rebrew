@@ -113,13 +113,14 @@ main { max-width: 1100px; margin: 1.5rem auto; padding: 0 1.5rem; }
 .card dd { margin: 0; }
 .card .value { font-size: 1.5rem; font-weight: 700; }
 .card .label { color: #333; font-size: 0.85rem; }
-.table-scroll { overflow-x: auto; margin-bottom: 1.5rem; }
+.table-scroll { overflow-x: auto; margin-bottom: 1.5rem; -webkit-overflow-scrolling: touch; }
 table { width: 100%; border-collapse: collapse; background: #fff;
         border: 1px solid #767676; border-radius: 6px; overflow: hidden;
         margin-bottom: 0; }
 th, td { text-align: left; padding: 0.5rem 0.75rem;
          border-bottom: 1px solid #767676; font-size: 0.85rem; }
-th { background: #f5f5f5; font-weight: 600; }
+th { background: #f5f5f5; font-weight: 600; white-space: nowrap; }
+tbody tr:hover { background: #f9f9f9; }
 caption { caption-side: top; text-align: left; padding: 0.5rem 0.75rem;
           font-size: 0.85rem; font-weight: 600; color: #333; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0;
@@ -147,6 +148,7 @@ td summary { cursor: pointer; padding: 0.25rem 0; }
 .pager { color: #333; font-size: 0.9rem; margin: 0.75rem 0 1rem; }
 .pager a { color: #005fcc; text-decoration: underline; min-height: 2.75rem; padding: 0.35rem 0.5rem;
            display: inline-flex; align-items: center; }
+.pager a:hover { color: #003e85; }
 pre.mermaid { background: #fff; border: 1px solid #767676;
         border-radius: 6px; padding: 1rem; overflow-x: auto;
         font-family: ui-monospace, "Cascadia Code", Consolas, monospace;

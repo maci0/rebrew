@@ -229,7 +229,9 @@ function formatWhen(value) {
 function setFunctionsEmptyMessage() {
   const el = $("empty-state");
   if (filtersActive()) {
-    el.textContent = "No functions match these filters. Use Clear filters, or set Status and Module to any.";
+    el.innerHTML = "No functions match these filters. <button type='button' id='empty-clear-fn' class='link-button'>Clear filters</button>, or set Status and Module to any.";
+    const btn = $("empty-clear-fn");
+    if (btn) btn.onclick = () => $("clear-filters").click();
   } else {
     el.innerHTML = "No functions for this target yet. Match work, run <code>rebrew build-db</code>, then reload.";
   }
@@ -237,7 +239,9 @@ function setFunctionsEmptyMessage() {
 function setGlobalsEmptyMessage() {
   const el = $("globals-empty");
   if ($("gq").value.trim()) {
-    el.textContent = "No globals match this search. Clear the search or try another name.";
+    el.innerHTML = "No globals match this search. <button type='button' id='empty-clear-gq' class='link-button'>Clear search</button> or try another name.";
+    const btn = $("empty-clear-gq");
+    if (btn) btn.onclick = () => $("clear-filters").click();
   } else {
     el.innerHTML = "No globals recorded for this target. Annotate globals, run <code>rebrew build-db</code>, then reload.";
   }
@@ -376,8 +380,8 @@ function setListPageMessage(opts) {
     $(moreBtnId).textContent = "Show more (up to " + next + ")";
   } else {
     $("results-status").textContent = count + " " + (count === 1 ? nounOne : noun) + " shown";
-    hint.hidden = true;
-    hint.textContent = "";
+    hint.textContent = "Showing " + (count === 1 ? ("1 " + nounOne) : (count + " " + noun));
+    hint.hidden = false;
     more.hidden = true;
   }
 }
@@ -541,6 +545,7 @@ async function loadSummary() {
 }
 function scheduleSearch() {
   clearTimeout(searchTimer);
+  updateFilterActions();
   searchTimer = setTimeout(() => {
     resetPaging();
     loadFunctions();
@@ -548,6 +553,7 @@ function scheduleSearch() {
 }
 function scheduleGlobalsSearch() {
   clearTimeout(globalsSearchTimer);
+  updateFilterActions();
   globalsSearchTimer = setTimeout(() => {
     resetGlobalsPaging();
     loadGlobals();
@@ -577,6 +583,16 @@ function renderSections(data) {
     + esc(s.other ?? 0) + "</td></tr>").join("");
   $("sections-empty").hidden = rows.length !== 0;
   $("sections-results").hidden = rows.length === 0;
+  const hint = $("sections-hint");
+  if (hint) {
+    if (rows.length > 0) {
+      hint.textContent = "Showing " + rows.length + " " + (rows.length === 1 ? "section" : "sections");
+      hint.hidden = false;
+    } else {
+      hint.textContent = "";
+      hint.hidden = true;
+    }
+  }
   $("results-status").textContent = rows.length
     ? rows.length + " section" + (rows.length === 1 ? "" : "s")
     : "No sections";
@@ -808,7 +824,23 @@ function bindControls() {
   $("status").onchange = onStatusChange;
   $("module").onchange = onModuleChange;
   $("q").oninput = scheduleSearch;
+  $("q").onsearch = scheduleSearch;
+  $("q").onkeydown = (ev) => {
+    if (ev.key === "Enter") {
+      clearTimeout(searchTimer);
+      resetPaging();
+      loadFunctions();
+    }
+  };
   $("gq").oninput = scheduleGlobalsSearch;
+  $("gq").onsearch = scheduleGlobalsSearch;
+  $("gq").onkeydown = (ev) => {
+    if (ev.key === "Enter") {
+      clearTimeout(globalsSearchTimer);
+      resetGlobalsPaging();
+      loadGlobals();
+    }
+  };
   $("clear-filters").onclick = () => {
     if (currentView === "globals") {
       $("gq").value = "";
@@ -851,17 +883,35 @@ function bindControls() {
   };
   $("show-more").onclick = async () => {
     retryAppend = true;
-    await loadFunctions({ append: true });
+    $("show-more").disabled = true;
+    $("show-more").textContent = "Loading more functions…";
+    try {
+      await loadFunctions({ append: true });
+    } finally {
+      $("show-more").disabled = false;
+    }
     restoreFocus(["show-more", "retry-functions", "results", "main"]);
   };
   $("show-more-globals").onclick = async () => {
     retryGlobalsAppend = true;
-    await loadGlobals({ append: true });
+    $("show-more-globals").disabled = true;
+    $("show-more-globals").textContent = "Loading more globals…";
+    try {
+      await loadGlobals({ append: true });
+    } finally {
+      $("show-more-globals").disabled = false;
+    }
     restoreFocus(["show-more-globals", "retry-view", "globals-results", "main"]);
   };
   $("show-more-history").onclick = async () => {
     retryHistoryAppend = true;
-    await loadHistory({ append: true });
+    $("show-more-history").disabled = true;
+    $("show-more-history").textContent = "Loading more history…";
+    try {
+      await loadHistory({ append: true });
+    } finally {
+      $("show-more-history").disabled = false;
+    }
     restoreFocus(["show-more-history", "retry-view", "history-results", "main"]);
   };
   $("cards").onclick = (ev) => {
@@ -989,13 +1039,14 @@ _INDEX_HTML = """<!doctype html>
   .card { border: 1px solid #767676; border-radius: 6px; padding: .6rem 1rem; min-width: 110px;
     background: #fff; }
   button.card { font: inherit; color: inherit; text-align: left; cursor: pointer; }
-  button.card:hover { border-color: #444; }
+  button.card:hover { border-color: #444; background: #f9f9f9; }
+  button.card:active { background: #f0f0f0; }
   button.card.active { border-color: #005fcc; border-width: 2px; box-shadow: 0 0 0 2px rgba(0,95,204,.25); }
   /* Weight marks the selected card and tab without relying on border colour (WCAG 1.4.1). */
   button.card.active .label, .views button.active { font-weight: 700; }
   .card .value { font-size: 1.4rem; font-weight: 700; display: block; }
   .card .label { color: #333; }
-  .table-scroll { overflow-x: auto; position: relative; }
+  .table-scroll { overflow-x: auto; position: relative; min-height: 6rem; -webkit-overflow-scrolling: touch; }
   .table-scroll[aria-busy="true"]::after {
     content: "Loading…"; position: absolute; inset: 0; display: flex; align-items: center;
     justify-content: center; background: rgba(255,255,255,.7); font-size: .95rem; color: #333;
@@ -1004,24 +1055,38 @@ _INDEX_HTML = """<!doctype html>
     overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
   table { border-collapse: collapse; width: 100%; margin-top: 1rem; font-size: .85rem; }
   th, td { border: 1px solid #767676; padding: .3rem .5rem; text-align: left; }
-  th { background: #f5f5f5; }
+  th { background: #f5f5f5; white-space: nowrap; }
+  tbody tr:hover { background: #f9f9f9; }
   td.va { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; }
   #dashboard-error { color: #9a3412; background: #fff7ed; border: 1px solid #9a3412;
     border-radius: 6px; padding: .6rem .8rem; margin: .75rem 0; }
   #empty-state, #no-targets { color: #4a4a4a; margin: 1rem 0; }
-  #results-hint { color: #4a4a4a; font-size: .9rem; margin: .25rem 0 0; }
+  #results-hint, #globals-hint, #history-hint, #sections-hint {
+    color: #4a4a4a; font-size: .9rem; margin: .25rem 0 .5rem; }
   #filter-actions, #show-more-wrap, #globals-show-more-wrap, #history-show-more-wrap,
   #retry-bar { margin: .35rem 0 .75rem; }
   #clear-filters, #show-more, #show-more-globals, #show-more-history,
   #retry-functions, #retry-summary, #retry-view {
     min-height: 2.75rem; padding: .3rem .75rem; border: 1px solid #767676; background: #fff; color: inherit; }
+  #clear-filters:hover:not(:disabled), #show-more:hover:not(:disabled),
+  #show-more-globals:hover:not(:disabled), #show-more-history:hover:not(:disabled),
+  #retry-functions:hover:not(:disabled), #retry-summary:hover:not(:disabled),
+  #retry-view:hover:not(:disabled) { border-color: #444; background: #f9f9f9; }
+  #clear-filters:active:not(:disabled), #show-more:active:not(:disabled),
+  #show-more-globals:active:not(:disabled), #show-more-history:active:not(:disabled),
+  #retry-functions:active:not(:disabled), #retry-summary:active:not(:disabled),
+  #retry-view:active:not(:disabled) { background: #f0f0f0; }
   #clear-filters:disabled { opacity: .55; cursor: not-allowed; }
   .views { display: flex; flex-wrap: wrap; gap: .35rem; margin: .75rem 0 .25rem; }
   .views button { min-height: 2.75rem; padding: .3rem .85rem; font: inherit; cursor: pointer;
     border: 1px solid #767676; border-radius: 6px; background: #fff; color: inherit; }
-  .views button:hover { border-color: #444; }
+  .views button:hover { border-color: #444; background: #f9f9f9; }
+  .views button:active { background: #f0f0f0; }
   .views button.active { border-color: #005fcc; border-width: 2px; box-shadow: 0 0 0 2px rgba(0,95,204,.25); }
   .view-panel[hidden] { display: none; }
+  .link-button { background: none; border: none; padding: 0; color: #005fcc;
+    text-decoration: underline; font: inherit; cursor: pointer; }
+  .link-button:hover { color: #003e85; }
   @media (max-width: 40rem) {
     body { margin: 1rem; }
     select, input { min-width: 0; width: 100%; }
@@ -1114,6 +1179,7 @@ _INDEX_HTML = """<!doctype html>
 </div>
 </div>
 <div id="view-sections" class="view-panel" role="tabpanel" tabindex="0" aria-labelledby="tab-sections" hidden>
+<p id="sections-hint" hidden></p>
 <p id="sections-empty" hidden>No section stats for this target. Run
   <code>rebrew build-db</code> for this project, then reload.</p>
 <div id="sections-results" class="table-scroll" tabindex="0" role="region"
