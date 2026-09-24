@@ -531,3 +531,32 @@ class TestMutationsProvenance:
         )
         loaded = load_solutions(project_root)
         assert loaded[0].mutations == ("mut_a", "mut_b")
+
+    def test_concurrent_collect_out(self, tmp_path: Path) -> None:
+        """Concurrent _save_solution calls with collect_out must append safely."""
+        import concurrent.futures
+        from types import SimpleNamespace
+
+        from rebrew.match_run import _save_solution
+
+        cfg = SimpleNamespace(root=tmp_path, target_name="test")
+        collect_out: list[SolutionEntry] = []
+
+        def _worker(i: int) -> None:
+            _save_solution(
+                cfg,
+                f"_func_{i}",
+                "/O2",
+                16,
+                "test.c",
+                0.0,
+                1,
+                collect_out=collect_out,
+            )
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
+            list(ex.map(_worker, range(32)))
+
+        assert len(collect_out) == 32
+        symbols = {e.symbol for e in collect_out}
+        assert len(symbols) == 32

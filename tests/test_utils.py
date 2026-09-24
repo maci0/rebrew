@@ -541,6 +541,16 @@ class TestMetadataWriteLock:
         ):
             fcntl.flock(other_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
 
+    def test_file_lock_creates_missing_parent_directory(self, tmp_path: Path) -> None:
+        """file_lock on a path in a not-yet-existing directory must create it and succeed."""
+        from rebrew.utils import file_lock
+
+        nested_lock = tmp_path / "sub" / "dir" / "test.lock"
+        assert not nested_lock.parent.exists()
+        with file_lock(nested_lock):
+            assert nested_lock.parent.is_dir()
+            assert nested_lock.is_file()
+
 
 # ---------------------------------------------------------------------------
 # Source-encoding detection & preservation (R18)
@@ -1015,7 +1025,7 @@ def _assert_grandchild_killed(pidfile: Path) -> None:
     def _alive() -> bool:
         try:
             return stat.read_text().rsplit(") ", 1)[1][0] != "Z"
-        except FileNotFoundError:
+        except (FileNotFoundError, ProcessLookupError):
             return False
 
     deadline = time.monotonic() + 5

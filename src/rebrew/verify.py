@@ -2347,7 +2347,7 @@ def run_verification(
     def _verify(
         e: Annotation,
     ) -> tuple[Annotation, "CompareResult"]:
-        precompiled = _batch_objs.pop(id(e), None) if _batch_objs else None
+        precompiled = _batch_objs.get(id(e)) if _batch_objs else None
         return (
             e,
             verify_entry(

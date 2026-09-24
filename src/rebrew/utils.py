@@ -695,6 +695,7 @@ def load_toml_for_write(path: Path, description: str) -> TOMLDocument:
 #: helpers take it again (the GA batch splices a stub and promotes its STATUS
 #: through ``update_source_status`` inside the same critical section).
 _METADATA_WRITE_LOCKS: dict[str, threading.RLock] = {}
+_METADATA_WRITE_LOCKS_LOCK = threading.Lock()
 
 #: Per-thread reentrancy depth per resolved metadata path, so a nested acquisition
 #: skips the ``flock`` (a second fd would deadlock against the first).
@@ -708,6 +709,7 @@ def file_lock(lock_path: Path) -> Iterator[None]:
     Cross-process only: ``flock`` does not exclude other threads that open
     their own fd in the same process, so callers pair it with a thread lock.
     """
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
     with lock_path.open("w", encoding="utf-8") as lock_fh:
         fcntl.flock(lock_fh, fcntl.LOCK_EX)
         try:
@@ -744,10 +746,10 @@ def metadata_write_lock(directory: Path, filename: str) -> Iterator[None]:
     # only runs later, inside atomic_write_text's own mkdir).  exist_ok
     # keeps concurrent creators safe.
     path.parent.mkdir(parents=True, exist_ok=True)
-    # A single atomic setdefault: the get-then-setdefault race published a
-    # second Lock that no other thread saw, so two writers could hold
-    # different locks for the same file.
-    lock = _METADATA_WRITE_LOCKS.setdefault(filename, threading.RLock())
+    with _METADATA_WRITE_LOCKS_LOCK:
+        if filename not in _METADATA_WRITE_LOCKS:
+            _METADATA_WRITE_LOCKS[filename] = threading.RLock()
+        lock = _METADATA_WRITE_LOCKS[filename]
     depth: dict[str, int] | None = getattr(_METADATA_WRITE_DEPTH, "depth", None)
     if depth is None:
         depth = {}

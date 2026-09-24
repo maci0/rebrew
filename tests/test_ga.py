@@ -712,6 +712,38 @@ class TestRunAllParallel:
         ga2._write_pair(src, b"\x55\x8c", 3.0)  # different bytes → append
         assert pairs.read_text(encoding="utf-8").count("\n") == 2
 
+    def test_write_pair_concurrent_dedup(self, tmp_path: Path) -> None:
+        """Concurrent _write_pair calls must safely dedup without race or corruption."""
+        import concurrent.futures
+
+        from rebrew.match_ga import BinaryMatchingGA
+
+        pairs = tmp_path / "concurrent_pairs.jsonl"
+        ga = BinaryMatchingGA(
+            seed_source="int f(void){return 0;}",
+            target_bytes=b"\x90\x90",
+            cl_cmd="cl",
+            inc_dir=str(tmp_path),
+            cflags="/O2",
+            symbol="_f",
+            out_dir=tmp_path,
+            pop_size=2,
+            num_generations=1,
+            num_jobs=1,
+            collect_pairs_path=pairs,
+            verbose=0,
+        )
+        src = "int f(void){return 1;}"
+        obj = b"\x55\x8b"
+
+        def _worker(score: float) -> None:
+            ga._write_pair(src, obj, score)
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
+            list(ex.map(_worker, [float(i) for i in range(16)]))
+
+        assert pairs.read_text(encoding="utf-8").count("\n") == 1
+
     def test_scoring_follows_population_order_not_completion_order(self, tmp_path: Path) -> None:
         """Parallel compiles finishing out of order must still be scored in
         population order, so --collect-pairs lines replay under one seed."""

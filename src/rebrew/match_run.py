@@ -7,6 +7,7 @@ recently-run filter, and the batch flag sweep.
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -45,6 +46,9 @@ from rebrew.matcher.core import EXACT_SCORE_THRESHOLD
 from rebrew.utils import atomic_write_text, metadata_write_lock, read_compile_source
 
 log = logging.getLogger(__name__)
+
+#: Serializes in-process appends to solutions_out across parallel batch workers.
+_SOLUTIONS_COLLECT_LOCK = threading.Lock()
 
 
 def _run_single_ga(
@@ -301,7 +305,8 @@ def _save_solution(
             mutations=mutations,
         )
         if collect_out is not None:
-            collect_out.append(entry)
+            with _SOLUTIONS_COLLECT_LOCK:
+                collect_out.append(entry)
             return
         save_solution(cfg.root, entry)
     except Exception:

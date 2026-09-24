@@ -496,8 +496,11 @@ def mutate_code(
             except Exception as exc:
                 # A plugin mutation is an optional registration: one that
                 # raises is a failed attempt, not a GA abort.
-                if mut_func.__name__ not in _FAILED_MUTATIONS:
-                    _FAILED_MUTATIONS.add(mut_func.__name__)
+                with _MUTATIONS_LOCK:
+                    first_failure = mut_func.__name__ not in _FAILED_MUTATIONS
+                    if first_failure:
+                        _FAILED_MUTATIONS.add(mut_func.__name__)
+                if first_failure:
                     logger.warning(
                         "mutation %s raised %s: %s (treated as no-op)",
                         mut_func.__name__,

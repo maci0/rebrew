@@ -783,29 +783,29 @@ class BinaryMatchingGA:
         source/bytes/cflags/symbol) is skipped so a CLI re-run does not
         pollute the training corpus.
         """
-        key = self._pair_fingerprint(src, obj_bytes)
-        if self._pair_keys is None:
-            self._pair_keys = self._load_pair_keys()
-        if key in self._pair_keys:
-            return
-        if self._target_hex is None:
-            self._target_hex = self.target_bytes.hex()
-        record = {
-            "source": src,
-            "compiled_bytes": obj_bytes.hex(),
-            "target_bytes": self._target_hex,
-            "score": round(score, 4),
-            "cflags": self.cflags,
-            "symbol": self.symbol,
-        }
         assert self.collect_pairs_path is not None  # caller guards it
+        key = self._pair_fingerprint(src, obj_bytes)
         pairs_lock = Path(str(self.collect_pairs_path) + ".lock")
         with (
             _COLLECT_PAIRS_LOCK,
             file_lock(pairs_lock),
-            open(self.collect_pairs_path, "a", encoding="utf-8") as f,
         ):
-            f.write(json.dumps(record) + "\n")
+            if self._pair_keys is None:
+                self._pair_keys = self._load_pair_keys()
+            if key in self._pair_keys:
+                return
+            if self._target_hex is None:
+                self._target_hex = self.target_bytes.hex()
+            record = {
+                "source": src,
+                "compiled_bytes": obj_bytes.hex(),
+                "target_bytes": self._target_hex,
+                "score": round(score, 4),
+                "cflags": self.cflags,
+                "symbol": self.symbol,
+            }
+            with open(self.collect_pairs_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps(record) + "\n")
             self._pair_keys.add(key)
             self._pairs_count += 1
 
