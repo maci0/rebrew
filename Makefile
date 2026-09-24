@@ -84,7 +84,7 @@ ensure-uv:
 	fi; \
 	uv_out=$$(uv --version); \
 	uv_ver=$$(printf '%s\n' "$$uv_out" | awk '{print $$2}'); \
-	lowest=$$(printf '%s\n%s\n' "$$uv_ver" "$(UV_VERSION)" | sort -t. -k1,1n -k2,2n -k3,3n | head -1); \
+	lowest=$$(printf '%s\n%s\n' "$$uv_ver" "$(UV_VERSION)" | sort -t. -k1,1n -k2,2n -k3,3n | head -n 1); \
 	if [ "$$lowest" != "$(UV_VERSION)" ]; then \
 	  echo "WARNING: uv $$uv_ver is older than CI pin UV_VERSION=$(UV_VERSION)."; \
 	  echo "Sync usually still works; upgrade when you can (https://docs.astral.sh/uv/)."; \
@@ -101,7 +101,7 @@ ensure-resembl: ensure-uv
 	  echo "  git clone --depth 1 --branch $(RESEMBL_REF) https://github.com/maci0/resembl.git $(RESEMBL_DIR)"; \
 	  exit 1; \
 	fi; \
-	resembl_ver=$$(sed -n 's/^version = "\([^"]*\)"/\1/p' "$(RESEMBL_DIR)/pyproject.toml" | head -1); \
+	resembl_ver=$$(sed -n 's/^version = "\([^"]*\)"/\1/p' "$(RESEMBL_DIR)/pyproject.toml" | head -n 1); \
 	want="$(RESEMBL_REF)"; want=$${want#v}; \
 	if [ -z "$$resembl_ver" ] || [ "$$resembl_ver" != "$$want" ]; then \
 	  echo "ERROR: $(RESEMBL_DIR) version '$$resembl_ver' does not match RESEMBL_REF=$(RESEMBL_REF)"; \
@@ -208,7 +208,7 @@ build: ensure-uv
 	@rm -f dist/*.whl dist/*.tar.gz dist/*.buildinfo
 	@rm -rf build rebrew.egg-info src/rebrew.egg-info
 	@set -eu; \
-	st=$$(sed -n 's/^requires = \["setuptools==\([0-9.][0-9.]*\)"\]/\1/p' pyproject.toml | head -1); \
+	st=$$(sed -n 's/^requires = \["setuptools==\([0-9.][0-9.]*\)"\]/\1/p' pyproject.toml | head -n 1); \
 	if [ -z "$$st" ] || ! grep -q "^setuptools==$$st " build-constraints.txt; then \
 	  echo "ERROR: pyproject.toml [build-system] setuptools pin '$$st' missing or not in build-constraints.txt"; \
 	  exit 1; \
@@ -218,7 +218,7 @@ build: ensure-uv
 	SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) uv run --no-project --offline python tools/normalize_sdist.py dist/*.tar.gz
 	@rm -rf build rebrew.egg-info src/rebrew.egg-info
 	@set -eu; \
-	st=$$(sed -n 's/^requires = \["setuptools==\([0-9.][0-9.]*\)"\]/\1/p' pyproject.toml | head -1); \
+	st=$$(sed -n 's/^requires = \["setuptools==\([0-9.][0-9.]*\)"\]/\1/p' pyproject.toml | head -n 1); \
 	{ \
 	  echo "SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH)"; \
 	  echo "umask=022"; \

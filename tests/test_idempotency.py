@@ -19,7 +19,7 @@ runner = CliRunner()
 def _tree_digest(root: Path) -> dict[str, str]:
     """Map every file under *root* to a sha256 of its bytes."""
     return {
-        str(p.relative_to(root)): hashlib.sha256(p.read_bytes()).hexdigest()
+        p.relative_to(root).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest()
         for p in sorted(root.rglob("*"))
         if p.is_file()
     }
