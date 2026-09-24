@@ -32,4 +32,4 @@ Reversed `.c` + `library_*.h` → `scan_reversed_dir` → annotations; discovery
 - **Multi-function files**: multiple `// FUNCTION:` blocks per `.c` are all listed.
 - **Library headers**: `parse_library_header` takes the module from `// LIBRARY: <module> <VA>`, not the filename; do not filter these entries by the project marker. It reads legacy inline KV fields; this is not permission to add volatile metadata to source files.
 - **Ghidra labels**: only `thunk_*` → "thunk"; everything else → "data".
-- **Inventory cache**: `loaders.py` has a bounded, path-keyed process cache invalidated by mtime. Preserve its lock around lookup, eviction, and replacement.
+- **Inventory cache**: `loaders.py` has a bounded, path-keyed process cache invalidated by stat fingerprint (mtime/size/inode). Preserve its lock around lookup, eviction, and replacement.

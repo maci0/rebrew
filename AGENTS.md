@@ -16,7 +16,7 @@ Docker build source lives in the sibling **rebrew-toolchains** checkout (`REBREW
 
 **CMake**: `rebrew cmake-toolchain --toolchain msvc-6.0 --output cmake/` then `cmake -B build --toolchain cmake/toolchain-msvc-6.0-docker.cmake`. Bridge scripts: `rebrew-cmake-{cl,link,lib}`.
 
-**Library overrides** (`rebrew-libraries.toml`, `rebrew library set/show/rm`): resolve most-specific-first (per-function `TOOLCHAIN`/`CFLAGS` → nearest `rebrew-libraries.toml` (walk-up) → project default). Presets fill missing fields (e.g. `msvcrt-static` = `/O2 /Gd /MT`).
+**Library overrides** (`rebrew-libraries.toml`, `rebrew library set/show/list/rm`): resolve most-specific-first (per-function `TOOLCHAIN`/`CFLAGS` → nearest `rebrew-libraries.toml` (walk-up) → project default). Presets fill missing fields (e.g. `msvcrt-static` = `/O2 /Gd /MT`).
 
 ## Build & Test Commands
 
@@ -37,7 +37,7 @@ Bare `uv run pytest` matches `make test` (`pyproject.toml` pytest config loads `
 - Types: `T | None` not `Optional`; config as `ProjectConfig` (`getattr` defensively); prefer `Any` over bare `object`
 - Library code raises specific exceptions; no bare `except`
 - Docstrings on every module; section separators `# ---...---`
-- Use imported libs' APIs: LIEF (never hand-unpack headers), httpx for MCP (never `urllib.request`), tree-sitter for C AST (no new regex C parsers; legacy mutation regex stays), angr only behind `[prove]`
+- Use imported libs' APIs: LIEF (never hand-unpack headers), httpx for MCP (never `urllib.request`), tree-sitter for C AST (no new regex C parsers; legacy mutation regex stays), angr only behind `[prove]`, declib only behind `[binsync]`
 
 ## Layout
 
@@ -47,6 +47,7 @@ src/rebrew/          # package; discover modules there; do not rely on an inline
 ├── catalog/         # function registry + coverage grid: src/rebrew/catalog/AGENTS.md
 ├── ghidra/          # BinSync-primary field sync + MCP structural ops
 ├── binsync/         # declib BinSync state I/O
+├── workspace/       # workspace status DB and config cache
 └── agent-skills/    # packaged skill source of truth (rebrew skills list/show)
 tests/               # pytest; typically test_<module>.py
 ```
