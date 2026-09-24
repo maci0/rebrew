@@ -179,8 +179,8 @@ def _synthesize_target_objects(cfg: Any, out_dir: Path) -> list[dict[str, Any]]:
         units.append(
             {
                 "name": file_rel,
-                "target_path": str(target_path),
-                "base_path": str(base_path),
+                "target_path": target_path.as_posix(),
+                "base_path": base_path.as_posix(),
             }
         )
     return units

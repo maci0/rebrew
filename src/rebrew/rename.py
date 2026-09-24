@@ -128,6 +128,7 @@ def main(
         # the project-root-relative form the help documents
         # ("src/game/old.c") and the absolute path.
         proj_rel = ""
+        proj_rel_native = ""
         abs_path = ""
         if fp:
             # reversed_dir may be absolute (require_config) or project-
@@ -137,7 +138,8 @@ def main(
                 rev_rel = Path(cfg.reversed_dir).relative_to(cfg.root)
             except (ValueError, TypeError):
                 rev_rel = Path(cfg.reversed_dir)
-            proj_rel = str(rev_rel / fp)
+            proj_rel = (rev_rel / fp).as_posix()
+            proj_rel_native = str(rev_rel / fp)
             try:
                 abs_path = str((cfg.root / rev_rel / fp).resolve())
             except (OSError, TypeError):
@@ -148,6 +150,7 @@ def main(
             str(fp),
             Path(str(fp)).name,
             proj_rel,
+            proj_rel_native,
             abs_path,
             va_str,
             va_str_upper,

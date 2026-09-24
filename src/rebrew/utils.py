@@ -2,9 +2,13 @@
 
 import contextlib
 import copy
-import fcntl
 import logging
 import os
+
+try:
+    import fcntl
+except ImportError:
+    fcntl = None  # type: ignore[assignment]
 import re
 import shlex
 import signal
@@ -718,11 +722,27 @@ def file_lock(lock_path: Path) -> Iterator[None]:
     """
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     with lock_path.open("w", encoding="utf-8") as lock_fh:
-        fcntl.flock(lock_fh, fcntl.LOCK_EX)
+        if fcntl is not None:
+            fcntl.flock(lock_fh, fcntl.LOCK_EX)
+        else:
+            try:
+                import msvcrt
+
+                msvcrt.locking(lock_fh.fileno(), msvcrt.LK_LOCK, 1)
+            except (ImportError, OSError):
+                pass
         try:
             yield
         finally:
-            fcntl.flock(lock_fh, fcntl.LOCK_UN)
+            if fcntl is not None:
+                fcntl.flock(lock_fh, fcntl.LOCK_UN)
+            else:
+                try:
+                    import msvcrt
+
+                    msvcrt.locking(lock_fh.fileno(), msvcrt.LK_UNLCK, 1)
+                except (ImportError, OSError):
+                    pass
 
 
 @contextlib.contextmanager
@@ -1087,6 +1107,16 @@ def safe_shlex_split(command: str) -> list[str]:
         return command.split()
 
 
+def _kill_process_group(proc: subprocess.Popen[Any]) -> None:
+    """Terminate the process group (POSIX) or process (Windows) safely."""
+    if hasattr(os, "killpg") and hasattr(signal, "SIGKILL"):
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(proc.pid, signal.SIGKILL)
+    else:
+        with contextlib.suppress(ProcessLookupError, OSError):
+            proc.kill()
+
+
 def run_process_group(
     cmd: Sequence[str], *, timeout: float, **popen_kwargs: Any
 ) -> subprocess.CompletedProcess[Any]:
@@ -1108,8 +1138,7 @@ def run_process_group(
             stdout, stderr = proc.communicate(timeout=timeout)
         except subprocess.TimeoutExpired:
             # The group may already be gone (child exited, pipes still open).
-            with contextlib.suppress(ProcessLookupError):
-                os.killpg(proc.pid, signal.SIGKILL)
+            _kill_process_group(proc)
             # Drain remaining output after the SIGKILL.  A short timeout
             # guards against grandchildren that inherited the pipe fds and
             # survived the group kill (e.g. a leaked wine server or a
@@ -1121,8 +1150,7 @@ def run_process_group(
                 proc.communicate()
             raise
         except BaseException:
-            with contextlib.suppress(ProcessLookupError):
-                os.killpg(proc.pid, signal.SIGKILL)
+            _kill_process_group(proc)
             raise
     return subprocess.CompletedProcess(proc.args, proc.returncode, stdout, stderr)
 

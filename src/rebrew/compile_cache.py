@@ -456,7 +456,7 @@ def include_fingerprint(include_dir: str) -> str:
         except OSError:
             continue
         try:
-            rel = path.relative_to(root)
+            rel = path.relative_to(root).as_posix()
         except ValueError:
             continue
         h.update(

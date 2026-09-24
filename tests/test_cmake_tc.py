@@ -145,7 +145,7 @@ class TestDockerUserArgs:
 
 class TestFileLock:
     def test_released_after_exit(self, tmp_path: Path) -> None:
-        import fcntl
+        fcntl = pytest.importorskip("fcntl")
 
         lock_path = tmp_path / ".lock"
         with file_lock(lock_path):
@@ -159,7 +159,7 @@ class TestFileLock:
             assert lock_path.exists()
 
     def test_excludes_concurrent_holder(self, tmp_path: Path) -> None:
-        import fcntl
+        fcntl = pytest.importorskip("fcntl")
 
         lock_path = tmp_path / ".lock"
         with (

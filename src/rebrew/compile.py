@@ -877,7 +877,7 @@ def _docker_include_rewrite(
             p = Path(d)
             try:
                 rel = p.resolve().relative_to(workdir.resolve())
-                out.append(flag[:2] + str(rel))
+                out.append(flag[:2] + rel.as_posix())
             except ValueError:
                 host = str(p.resolve())
                 host_path = Path(host)
@@ -1727,7 +1727,7 @@ def precompile_batch(
                 # built object fanned out below.
                 rel = src.relative_to(cfg.reversed_dir)
                 dest = workdir / rel
-                rel_s = str(rel)
+                rel_s = rel.as_posix()
                 if rel_s in staged:
                     staged[rel_s].append(e)
                 else:

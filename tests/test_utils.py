@@ -545,7 +545,7 @@ class TestMetadataWriteLock:
         """Holding the lock for one metadata root must not skip the ``flock``
         of a same-named file in another root: another process would then
         interleave its read-modify-write on the second file."""
-        import fcntl
+        fcntl = pytest.importorskip("fcntl")
 
         from rebrew.utils import metadata_write_lock
 
@@ -1054,8 +1054,9 @@ def _assert_grandchild_killed(pidfile: Path) -> None:
             assert time.monotonic() < deadline, "grandchild outlived the timeout kill"
             time.sleep(0.02)
     finally:
-        with contextlib.suppress(ProcessLookupError):
-            os.kill(pid, signal.SIGKILL)
+        with contextlib.suppress(ProcessLookupError, OSError):
+            sigkill = getattr(signal, "SIGKILL", getattr(signal, "SIGTERM", 9))
+            os.kill(pid, sigkill)
 
 
 class TestRunProcessGroup:
