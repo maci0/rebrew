@@ -1,6 +1,6 @@
 # Prove (symbolic equivalence) — details
 
-Use when STATUS is NEAR_MATCHING and structural diffs (register alloc, reorder,
+Use when STATUS is NEAR_MATCHING or SIZE_MISMATCH and structural diffs (register alloc, reorder,
 loop layout) block EXACT/RELOC. Classify first, then prove.
 
 ```bash
@@ -32,7 +32,7 @@ LoopSeer-bounded exec → Z3 compare EAX (optional EDX).
 **64-bit / EDX**: `long long` / `__int64` / `int64_t` / `uint64_t` use EDX:EAX.
 `--check-edx` forces EDX; PROTOTYPE return types auto-enable it.
 
-Requirements: STATUS NEAR_MATCHING and the `[prove]` extra (angr). If `rebrew prove`
+Requirements: STATUS NEAR_MATCHING or SIZE_MISMATCH and the `[prove]` extra (angr). If `rebrew prove`
 fails to import angr, stop and ask the user to install it (network download):
 `uv tool install --reinstall 'rebrew[prove] @ git+https://github.com/maci0/rebrew.git'`
 (in-repo: `uv sync --extra prove`).

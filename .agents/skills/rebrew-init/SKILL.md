@@ -4,16 +4,16 @@ description: >-
   Use when scaffolding with `rebrew init` — bare directory, target naming,
   `--guess-compiler` vs `--toolchain`, doctor done-gate, then hand off to
   rebrew-intake. Triggers on 'new project', 'scaffold', 'bare directory',
-  'create project', 'set up rebrew', 'rebrew init', 'guess-compiler', or
-  'refresh-agents'. If the user hands you a binary to onboard in one shot, use
-  rebrew-intake (`rebrew intake`) instead. Not for day-to-day reversing
-  (rebrew-workflow).
+  'create project', 'initialize project', 'init project', 'project setup',
+  'set up rebrew', 'rebrew init', 'guess-compiler', or 'refresh-agents'. If the
+  user hands you a binary to onboard in one shot, use rebrew-intake (`rebrew intake`)
+  instead. Not for day-to-day reversing (rebrew-workflow).
 license: MIT
 ---
 
 ```mermaid
 graph TD
-    Place[Place binary<br/>mkdir proj && cp game.exe proj/original/] --> Init
+    Place[Place binary<br/>mkdir -p original && cp game.exe original/] --> Init
     Init{rebrew init<br/>--target + --guess-compiler} -->|done| Doctor{Doctor passes?<br/>rebrew doctor}
     Doctor -->|fail| Fix[Repair from doctor report<br/>rebrew toolchain build <profile>]
     Fix --> Doctor
@@ -37,10 +37,11 @@ re-render the scaffold after template changes.
 
 ## Scaffold
 
+Run from the project root directory:
+
 ```bash
-mkdir <project> && cd <project>
-mkdir original && cp /path/to/<binary> original/
-rebrew init --target <name> --binary <filename> --guess-compiler
+mkdir -p original && cp /path/to/<binary> original/
+rebrew init --target <name> --binary <filename> --guess-compiler --no-wizard
 ```
 
 Target naming: bare binary stem, no extension (`server.dll` → `server`, `game.exe` → `game`; lowercased, non-alnum → `_`). Same default as `rebrew intake`. Override with `--target` only when MODULE markers already use a different form (e.g. legacy `server.dll`). Paths are `layout/bench/`, `src/bench/`.
@@ -59,7 +60,7 @@ right for standard builds. Override with `--toolchain <profile>` when:
   decision tree).
 
 ```bash
-rebrew init --target <name> --binary <filename> --toolchain <profile>
+rebrew init --target <name> --binary <filename> --toolchain <profile> --no-wizard
 ```
 
 ## Done-gate

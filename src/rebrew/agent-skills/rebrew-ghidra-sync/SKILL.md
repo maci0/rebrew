@@ -4,10 +4,12 @@ description: >-
   Use when syncing rebrew C annotations with Ghidra — BinSync state-dir
   push/pull for names, comments, prototypes, structs, globals; ReVa MCP only
   for create-functions, bookmarks, and pull-data. Triggers on 'Ghidra',
-  'binsync', 'binsync init', 'binsync push', 'binsync pull', 'state-dir', 'ReVa', 'rebrew sync',
-  'create-functions', 'bookmarks', 'pull-data', or Ghidra label/struct/comment
-  sync. Not for day-to-day C edit/test (rebrew-workflow) or local // GLOBAL:
-  without Ghidra (rebrew-data-analysis).
+  'ghidra sync', 'sync ghidra', 'sync with ghidra', 'export to ghidra',
+  'import from ghidra', 'binsync', 'binsync init', 'binsync push',
+  'binsync pull', 'state-dir', 'ReVa', 'rebrew sync', 'create-functions',
+  'bookmarks', 'pull-data', or Ghidra label/struct/comment sync. Not for
+  day-to-day C edit/test (rebrew-workflow) or local // GLOBAL: without Ghidra
+  (rebrew-data-analysis).
 license: MIT
 ---
 

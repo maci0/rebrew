@@ -41,7 +41,7 @@ crypto-named project functions are `medium`. Empty findings are valid.
 
 ```bash
 rebrew security-scan --json                       # project's reversed sources
-rebrew security-scan src/NP                       # explicit C tree
+rebrew security-scan src/bench/                # explicit C tree
 rebrew security-scan --min-severity high          # high only
 ```
 

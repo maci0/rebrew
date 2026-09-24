@@ -118,7 +118,7 @@ const unsigned char g_sprite_lut[256] = { ... };
 **`rebrew-data.toml`** (auto-managed, lives at `cfg.metadata_dir`):
 ```toml
 ["SERVER.0x10025000"]
-name    = "g_sprite_lut"      # preferred label (BinSync/IDA import target)
+name    = "g_sprite_lut"      # preferred label (BinSync/Ghidra import target)
 size    = 256
 section = ".rdata"
 note    = "lookup table for sprite indices"

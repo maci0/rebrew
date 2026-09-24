@@ -3,11 +3,11 @@ name: rebrew-data-analysis
 description: >-
   Use when working with globals, '// DATA:'/'// GLOBAL:' annotations, BSS gaps,
   dispatch tables/vtables, XX relocations or missing_globals hints in a diff,
-  or cross-TU type conflicts. Triggers on 'global', 'data section', 'BSS',
-  'vtable', 'dispatch table', 'bss gap', 'extern', 'type conflict',
-  'rebrew data', or 'data-drift'. Not for function bodies
-  (rebrew-workflow/matching) or Ghidra data pulls
-  (rebrew-ghidra-sync --pull-data).
+  or cross-TU type conflicts. Triggers on 'global', 'global variable',
+  'data section', 'BSS', 'vtable', 'dispatch table', 'bss gap', 'bss padding',
+  'fix bss', 'extern', 'type conflict', 'rebrew data', 'data-drift', or
+  'rebrew_globals.h'. Not for function bodies (rebrew-workflow/matching) or
+  Ghidra data pulls (rebrew-ghidra-sync --pull-data).
 license: MIT
 ---
 
