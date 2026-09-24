@@ -137,9 +137,9 @@ def _rebrew_help_command() -> list[str]:
     """The rebrew CLI invocation for --help runs.
 
     Prefers the repo venv's console script (``.venv/bin/rebrew``) over
-    ``uv run rebrew``: uv needs a writable cache dir under the user home,
+    ``uv run --frozen rebrew``: uv needs a writable cache dir under the user home,
     which is read-only in sandboxed environments (the help output would be
-    an error instead of the flags).  Falls back to ``uv run rebrew`` when
+    an error instead of the flags).  Falls back to ``uv run --frozen rebrew`` when
     the venv script is not found (non-venv installs)."""
     # NOTE: no .resolve() on sys.executable — in venvs it is a symlink to
     # the uv-managed interpreter, and resolving would look next to the real
@@ -147,7 +147,7 @@ def _rebrew_help_command() -> list[str]:
     script = Path(sys.executable).parent / "rebrew"
     if script.exists():
         return [str(script)]
-    return ["uv", "run", "rebrew"]
+    return ["uv", "run", "--frozen", "rebrew"]
 
 
 def _run_help(subcommand: str) -> tuple[bool, str]:

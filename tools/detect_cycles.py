@@ -77,8 +77,9 @@ def detect_cycles(root: str) -> list[list[str]]:
     root = os.path.normpath(root)
     package_root = os.path.dirname(root) or "."
     edges: dict[str, list[str]] = defaultdict(list)
-    for dirpath, _, files in os.walk(root):
-        for file in files:
+    for dirpath, dirs, files in os.walk(root):
+        dirs.sort()
+        for file in sorted(files):
             if not file.endswith(".py"):
                 continue
             path = os.path.join(dirpath, file)
@@ -120,12 +121,13 @@ def detect_cycles(root: str) -> list[list[str]]:
                 if w == node:
                     break
             if len(scc) > 1:
-                cycles.append(scc)
+                cycles.append(sorted(scc))
 
-    for node in list(edges.keys()):
+    for node in sorted(edges.keys()):
         if node not in index:
             strongconnect(node)
 
+    cycles.sort()
     return cycles
 
 

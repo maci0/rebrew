@@ -206,10 +206,11 @@ cli-contract:
 # Clean build artifacts, distribution packages, and local tool/test caches.
 clean:
 	rm -rf dist build rebrew.egg-info src/rebrew.egg-info .coverage htmlcov .coverage.* .pytest_cache .ruff_cache .mypy_cache .scratch/rebrew-idem .venv-pkg .hypothesis
+	find src tests tools -type d -name __pycache__ -prune -exec rm -rf {} +
 
 build: ensure-uv
 	@mkdir -p dist
-	@rm -f dist/*.whl dist/*.tar.gz dist/*.buildinfo
+	@rm -f dist/*.whl dist/*.tar.gz dist/*.buildinfo dist/*.cdx.json
 	@rm -rf build rebrew.egg-info src/rebrew.egg-info
 	@set -eu; \
 	st=$$(sed -n 's/^requires = \["setuptools==\([0-9.][0-9.]*\)"\]/\1/p' pyproject.toml | head -n 1); \
@@ -241,7 +242,7 @@ build: ensure-uv
 # dist/rebrew.cdx.json so package CI / release consumers share one inventory.
 # generate_sbom.py is stdlib-only: --no-project skips the project sync (and
 # its ../resembl path dep), --offline keeps the no-network promise.
-sbom:
+sbom: ensure-uv
 	@mkdir -p dist
 	uv run --no-project --offline python tools/generate_sbom.py -o dist/rebrew.cdx.json
 

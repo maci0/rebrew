@@ -77,7 +77,7 @@ def _parse_lock(text: str) -> list[dict[str, Any]]:
             # Prefer a single sha256; CycloneDX accepts multiple.
             component["hashes"] = [
                 {"alg": "SHA-256", "content": h.removeprefix("sha256:")}
-                for h in hashes
+                for h in sorted(hashes)
                 if h.startswith("sha256:")
             ]
         components.append(component)
@@ -115,7 +115,7 @@ def _parse_lock(text: str) -> list[dict[str, Any]]:
             if m and m.group(1) not in hashes:
                 hashes.append(m.group(1))
     flush()
-    components.sort(key=lambda c: (c["name"], c["version"]))
+    components.sort(key=lambda c: (c["name"], c["version"], c.get("bom-ref", "")))
     return components
 
 
