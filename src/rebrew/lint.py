@@ -536,6 +536,7 @@ def _check_W028_stale_annotation(
     cfg: ProjectConfig | None,
     function_index: tuple[set[int], list[tuple[int, int, str]]] | None,
     status: str = "",
+    metadata: dict[tuple[str, int], dict[str, Any]] | None = None,
 ) -> None:
     """Warn when a FUNCTION/STUB marker VA matches no function start (W028).
 
@@ -570,12 +571,19 @@ def _check_W028_stale_annotation(
     # actioned -- "re-annotate the marker VA" would break a matched function.
     # guild-rebrew hit 15 of these at once, including an EXACT row whose
     # supposed host was split from it by `ret; nop; nop` at 0x1000d92d.
-    # PROVEN counts here too: it is not a byte match, but earning it requires
-    # the same compile-and-compare at this VA, so it is equally strong evidence
-    # that a real function starts here.
-    if status.upper() in ("EXACT", "RELOC", "PROVEN"):
+    if status.upper() in MATCHED_STATUSES:
         return
     host = _function_containing_va(spans, va_int)
+    # The same merge, shown by the annotations themselves: the host's start is
+    # an annotated function whose SIZE ends at or before this marker, so the
+    # two annotations tile the host's range and discovery joined them.
+    if host is not None and metadata is not None:
+        try:
+            host_size = int(metadata.get((module, host[0]), {}).get("size") or 0)
+        except (TypeError, ValueError):
+            host_size = 0
+        if host_size and host[0] + host_size <= va_int:
+            return
     # Append the mtime-aware fix hint only to the first stale marker in the
     # file — repeating it per marker would drown the signal.
     hint = _staleness_fix(cfg) if not any(c == "W028" for _, c, _ in result.warnings) else ""
@@ -1706,10 +1714,11 @@ def lint_file(
                     mod,
                     cfg,
                     function_index,
-                    # Store-wins overlay (above): an EXACT/RELOC/PROVEN in
+                    # Store-wins overlay (above): an EXACT/RELOC in
                     # rebrew-functions.toml suppresses W028 even when a stale
                     # inline // STATUS: STUB remains.
                     status=canonical_status(str(found_keys.get("STATUS", ""))),
+                    metadata=_metadata_entries,
                 )
 
             if marker not in ("GLOBAL", "DATA"):

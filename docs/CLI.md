@@ -708,7 +708,10 @@ metadata it cross-references every `// FUNCTION:`/`// STUB:` marker against
 the current discovery inventory (**W028**): a VA that no longer has a function
 there, or that now points *inside* another function's span, is a stale
 annotation after a binary update (LIBRARY/DATA/GLOBAL markers are excluded
-so import stubs and data labels never false-positive).  **W029** flags
+so import stubs and data labels never false-positive).  A byte-matched
+(EXACT/RELOC) marker is not flagged, nor is one whose inventory host starts
+at an annotated function that ends at or before it: discovery merged the
+two, and the annotations tile the span.  **W029** flags
 per-function `cflags` (and matching `cflags_presets`) that only repeat the
 inherited ladder; `rebrew lint --fix` drops them.  Environment/setup
 health is `rebrew doctor`'s job, not lint's.
