@@ -149,7 +149,8 @@ class TestDelayImportFuzz:
         assert rva == _SECTION_RVA
         pe = _patch_directory(pe, _DIR_DELAY_IMPORT, rva + len(_PREFIX), len(descriptors))
         table = _write(pe)
-        _assert_mapped(table, IMAGE_BASE + rva + len(body))
+        padded_size = len(body) + (-len(body) % 512)
+        _assert_mapped(table, IMAGE_BASE + rva + padded_size)
 
 
 class TestLoadConfigFuzz:
@@ -178,9 +179,11 @@ class TestLoadConfigFuzz:
         struct.pack_into("<I", config, _LC_SEH_COUNT, seh_count)
         struct.pack_into("<I", config, _LC_GUARD_CF_TABLE, cfg_table)
         struct.pack_into("<I", config, _LC_GUARD_CF_COUNT, cfg_count)
-        pe, rva, _raw = _append_section(_base_pe(), ".rdata", body + bytes(config))
+        data = body + bytes(config)
+        pe, rva, _raw = _append_section(_base_pe(), ".rdata", data)
         pe = _patch_directory(pe, _DIR_LOAD_CONFIG, rva + len(body), _LC_LENGTH)
         table = _write(pe)
-        _assert_mapped(table, IMAGE_BASE + rva + len(body) + _LC_LENGTH)
+        padded_size = len(data) + (-len(data) % 512)
+        _assert_mapped(table, IMAGE_BASE + rva + padded_size)
         assert len(table.safe_seh_handlers) <= seh_count
         assert len(table.cfg_targets) <= cfg_count

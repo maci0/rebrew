@@ -151,6 +151,9 @@ def _re_init_project(binary: Path, tool: str, root: Path) -> str | None:
         warnings.warn(f"{tool} failed analyzing {binary.name}: {e}", stacklevel=3)
         shutil.rmtree(proj_dir, ignore_errors=True)
         return None
+    except BaseException:
+        shutil.rmtree(proj_dir, ignore_errors=True)
+        raise
     if result.returncode != 0:
         warnings.warn(
             f"{tool} exited {result.returncode} analyzing {binary.name}: "

@@ -118,7 +118,7 @@ def _mcp_apply(
         _report(*_apply_cli())
         return
 
-    from rebrew.ghidra.client import McpApplyAborted, apply_commands_via_mcp
+    from rebrew.ghidra.client import McpApplyAborted, McpError, apply_commands_via_mcp
 
     try:
         ok, err = apply_commands_via_mcp(ops, endpoint)
@@ -135,10 +135,10 @@ def _mcp_apply(
             "Re-run once Ghidra state is confirmed.",
             json_mode=json_output,
         )
-    except Exception:
+    except (McpError, OSError) as exc:
         # Clean transport failure (init/session setup — nothing applied):
         # fall back to the ghidra-cli binary backend.
-        log.debug("MCP apply failed before any op landed; falling back to ghidra-cli")
+        log.debug("MCP apply failed before any op landed (%s); falling back to ghidra-cli", exc)
         _report(*_apply_cli())
         return
     _report(ok, err)

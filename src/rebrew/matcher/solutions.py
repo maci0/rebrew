@@ -411,27 +411,26 @@ def load_ga_runs(
     # target" (a filtered target must not lose its older records to other
     # targets' newer ones).
     records: deque[dict[str, Any]] = deque(maxlen=limit)
+    bad_lines = 0
     try:
-        fh = p.open(encoding="utf-8", errors="replace")
+        with p.open(encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    record = json.loads(line)
+                except json.JSONDecodeError:
+                    bad_lines += 1
+                    continue
+                if not isinstance(record, dict):
+                    continue
+                if target and record.get("target") != target:
+                    continue
+                records.append(record)
     except OSError:
         log.warning("Cannot read GA run log %s", p, exc_info=True)
         return []
-    bad_lines = 0
-    with fh:
-        for line in fh:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                record = json.loads(line)
-            except json.JSONDecodeError:
-                bad_lines += 1
-                continue
-            if not isinstance(record, dict):
-                continue
-            if target and record.get("target") != target:
-                continue
-            records.append(record)
     if bad_lines:
         log.warning(
             "Skipped %d malformed line(s) in GA run log %s — check for truncated writes",

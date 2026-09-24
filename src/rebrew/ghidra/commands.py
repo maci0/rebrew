@@ -313,7 +313,7 @@ def pull_data(
         try:
             session_id = init_mcp_session(client, endpoint)
             session_cleanup.callback(end_mcp_session, client, endpoint, session_id)
-        except httpx.RequestError as e:
+        except httpx.HTTPError as e:
             console.print(f"[yellow]warning:[/yellow] Could not connect to MCP endpoint: {e}")
             return
 
@@ -329,7 +329,7 @@ def pull_data(
                 1,
                 session_id=session_id,
             )
-        except httpx.RequestError as e:
+        except httpx.HTTPError as e:
             console.print(f"[yellow]warning:[/yellow] Could not fetch symbols count: {e}")
             return
 
@@ -359,7 +359,7 @@ def pull_data(
                     request_id,
                     session_id=session_id,
                 )
-            except httpx.RequestError as e:
+            except httpx.HTTPError as e:
                 console.print(f"[yellow]warning:[/yellow] Could not fetch symbols page: {e}")
                 return
 
@@ -403,7 +403,7 @@ def pull_data(
                     request_id,
                     session_id=session_id,
                 )
-            except httpx.RequestError as e:
+            except httpx.HTTPError as e:
                 console.print(f"[yellow]warning:[/yellow] get-data failed at {sym_addr}: {e}")
                 continue
 

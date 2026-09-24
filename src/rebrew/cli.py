@@ -320,7 +320,11 @@ def run_cli(app: Callable[[], Any]) -> None:
             # inside this handler instead of printing "Exception ignored".
             sys.stdout.flush()
     except BrokenPipeError:
-        os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+        devnull_fd = os.open(os.devnull, os.O_WRONLY)
+        try:
+            os.dup2(devnull_fd, sys.stdout.fileno())
+        finally:
+            os.close(devnull_fd)
         raise SystemExit(EXIT_SIGPIPE) from None
     except typer.Exit as e:
         # error_exit() outside click's handler: the message is already out.

@@ -1224,6 +1224,9 @@ def _run_smoke_container(
     except subprocess.TimeoutExpired:
         kill_container(container)
         raise
+    except BaseException:
+        kill_container(container)
+        raise
 
 
 def _masked_obj_sha256(obj: Path, mask: tuple[int, int] | list[tuple[int, int]] | None) -> str:

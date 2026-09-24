@@ -844,7 +844,8 @@ def run_toolchain(
                 timeout=timeout,
             )
         except subprocess.TimeoutExpired as exc:
-            kill_container(str(cmd[cmd.index("--name") + 1]))
+            if "--name" in cmd:
+                kill_container(str(cmd[cmd.index("--name") + 1]))
             raise ToolchainError(
                 f"docker invocation failed: {exc}",
                 kind="invocation",
@@ -861,7 +862,8 @@ def run_toolchain(
         except BaseException:
             # Ctrl+C: subprocess.run SIGKILLs the docker CLI, which leaves
             # the container running under dockerd.
-            kill_container(str(cmd[cmd.index("--name") + 1]))
+            if "--name" in cmd:
+                kill_container(str(cmd[cmd.index("--name") + 1]))
             raise
         return RunResult(r.returncode, r.stdout, r.stderr, backend="docker")
 

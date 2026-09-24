@@ -362,7 +362,13 @@ def _docker_run(spec: ToolchainSpec, mode: str, args: list[str]) -> int:
         # kill it by name so a hung compile does not outlive the timeout.
         # (The raised TimeoutExpired is converted to a clean error by the
         # console-script entry in tc_main.)
-        kill_container(str(cmd[cmd.index("--name") + 1]))
+        if "--name" in cmd:
+            kill_container(str(cmd[cmd.index("--name") + 1]))
+        raise
+    except BaseException:
+        # Ctrl+C kills only the docker CLI; the container would keep running.
+        if "--name" in cmd:
+            kill_container(str(cmd[cmd.index("--name") + 1]))
         raise
     sys.stdout.write((r.stdout + r.stderr).replace("\r", ""))
     sys.stdout.flush()
