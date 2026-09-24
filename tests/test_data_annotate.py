@@ -48,6 +48,25 @@ def test_annotate_writes_and_skips_existing(tmp_path: Path) -> None:
     assert text.count("// GLOBAL:") == 2  # g_a skipped (marked), g_b added
     assert "// GLOBAL: SERVER 0x10027004\nint g_b;" in text
 
+    # Rerun must be completely idempotent (0 files modified, text unchanged)
+    per_file, skipped = annotate_globals(src, meta, "SERVER", dry_run=False)
+    assert per_file == {}
+    assert (src / "mod.c").read_text() == text
+
+
+def test_annotate_skips_block_comment_markers(tmp_path: Path) -> None:
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "mod.c").write_text("/* GLOBAL: SERVER 0x10027000 */\nint g_a;\n", encoding="utf-8")
+    meta = tmp_path / "rebrew-data.toml"
+    meta.write_text(
+        '["SERVER.0x10027000"]\nname = "g_a"\nsection = ".data"\n',
+        encoding="utf-8",
+    )
+    per_file, _ = annotate_globals(src, meta, "SERVER", dry_run=False)
+    assert per_file == {}
+    assert (src / "mod.c").read_text() == "/* GLOBAL: SERVER 0x10027000 */\nint g_a;\n"
+
 
 def test_annotate_reports_skipped_unnamed(tmp_path: Path) -> None:
     """Metadata entries without a `name` cannot anchor a marker — the run

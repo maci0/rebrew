@@ -58,7 +58,7 @@ def annotate_globals(
             continue
         symbols[str(val["name"])] = (module, addr)
 
-    marker_re = re.compile(r"^\s*//\s*GLOBAL:\s*\S+\s+0x([0-9a-fA-F]+)")
+    marker_re = re.compile(r"^\s*(?://|/\*)\s*GLOBAL:\s*\S+\s+0x([0-9a-fA-F]+)")
     # One regex for all decl lines: extract the identifier, then O(1) look up
     # in the pending-symbol map (avoids per-symbol full-file rescans).
     decl_line_re = re.compile(
@@ -86,7 +86,7 @@ def annotate_globals(
                 continue
             if i in used:
                 continue
-            if i > 0 and re.match(r"^\s*//\s*DATA:", lines[i - 1]):
+            if i > 0 and re.match(r"^\s*(?://|/\*)\s*(?:DATA|GLOBAL):", lines[i - 1]):
                 continue
             _mod, sym_addr = pending.pop(name)
             used.add(i)
@@ -282,8 +282,8 @@ def gen_globals_header(
         cfg: Project configuration.
         src_dir: Reversed sources directory (used for annotation scanning).
         out_path: Output file path.  Defaults to ``src_dir/rebrew_globals.h``.
-        force: When False (default), refuses to overwrite an existing file.
-            Pass True to allow overwriting.
+        force: When False (default), refuses to overwrite an existing file with
+            differing content. Pass True to allow overwriting.
         dry_run: When True, report what would be written without touching disk.
 
     Returns:
@@ -291,7 +291,7 @@ def gen_globals_header(
         ``sections`` (count per section, in emission order).
 
     Raises:
-        FileExistsError: ``out_path`` exists and ``force`` is False.
+        FileExistsError: ``out_path`` exists with differing content and ``force`` is False.
     """
     from rebrew.annotation import parse_c_file_multi
     from rebrew.data_metadata import load_data_metadata
@@ -428,8 +428,23 @@ def gen_globals_header(
     header_lines += ["#endif /* REBREW_GLOBALS_H */", ""]
 
     out = out_path if out_path is not None else src_dir / "rebrew_globals.h"
-    if out.exists() and not force:
-        raise FileExistsError(f"{out} already exists. Use --force to overwrite.")
+    content = "\n".join(header_lines)
+
+    # Idempotency: regeneration only bumps the "Generated:" timestamp —
+    # skip the write when the body is otherwise identical to avoid
+    # needless git churn on every run.
+    def _strip_timestamp(text: str) -> str:
+        return "\n".join(line for line in text.splitlines() if "Generated:" not in line)
+
+    is_identical = False
+    if out.exists():
+        try:
+            existing = out.read_text(encoding="utf-8")
+            is_identical = _strip_timestamp(existing) == _strip_timestamp(content)
+        except OSError:
+            existing = ""
+        if not is_identical and not force:
+            raise FileExistsError(f"{out} already exists. Use --force to overwrite.")
 
     def _header_payload(written: bool) -> dict[str, Any]:
         ordered = [sec for sec in section_order if sec in by_section]
@@ -442,21 +457,8 @@ def gen_globals_header(
             "sections": {(sec or "(unknown)"): len(by_section[sec]) for sec in ordered},
         }
 
-    if dry_run:
+    if dry_run or is_identical:
         return _header_payload(written=False)
-
-    content = "\n".join(header_lines)
-    if out.exists():
-        existing = out.read_text(encoding="utf-8")
-
-        # Idempotency: regeneration only bumps the "Generated:" timestamp —
-        # skip the write when the body is otherwise identical to avoid
-        # needless git churn on every run.
-        def _strip_timestamp(text: str) -> str:
-            return "\n".join(line for line in text.splitlines() if "Generated:" not in line)
-
-        if _strip_timestamp(existing) == _strip_timestamp(content):
-            return _header_payload(written=False)
 
     atomic_write_text(out, content, encoding="utf-8")
     return _header_payload(written=True)

@@ -321,6 +321,22 @@ class TestGenGlobalsHeader:
         gen_globals_header(cfg, cfg.reversed_dir, force=True)
         assert out.read_text(encoding="utf-8") == first
 
+    def test_regeneration_without_force_is_idempotent(self, tmp_path: Path) -> None:
+        """Re-running --gen-header without --force succeeds when content is unchanged."""
+        cfg = _cfg(tmp_path)
+        (cfg.reversed_dir / "globals.c").write_text(
+            "// DATA: SERVER 0x1000\nint g_counter;\n", encoding="utf-8"
+        )
+        res1 = gen_globals_header(cfg, cfg.reversed_dir)
+        assert res1["written"] is True
+        out = cfg.reversed_dir / "rebrew_globals.h"
+        first = out.read_text(encoding="utf-8")
+
+        # Second run without force must succeed and report written=False
+        res2 = gen_globals_header(cfg, cfg.reversed_dir)
+        assert res2["written"] is False
+        assert out.read_text(encoding="utf-8") == first
+
 
 class TestRenderers:
     def testrender_globals_empty(self) -> None:
