@@ -1527,9 +1527,12 @@ to function-only verify/diff.
 
 `rebrew status [--json] [--target NAME]`
 
-At-a-glance reversing progress: total/covered functions, per-status counts
-(EXACT/RELOC/NEAR_MATCHING/STUB), byte coverage, per-module breakdown, and the
-last verify summary.  When a verify cache exists, reported statuses are the
+At-a-glance reversing progress.  The headline is byte-matched functions
+(EXACT+RELOC over all functions; `matched_pct` in JSON), then a bar of
+functions with a source file (`coverage_pct`), per-status counts, a separate
+PROVEN line (semantically equivalent, bytes differ), the share of `.text` in
+byte-matched functions (`byte_coverage_pct`), the blocked count, the
+per-module breakdown, and the last verify summary (byte-matched vs failed).  When a verify cache exists, reported statuses are the
 **effective** status (verify result overrides metadata; see
 `docs/ANNOTATIONS.md` "Effective Status") — `verify_cache: {overrides,
 missing_size, effective_matches}` in JSON surfaces how many functions the

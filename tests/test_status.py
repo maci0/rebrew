@@ -1220,9 +1220,35 @@ class TestRenderTerminal:
         assert "SERVER" in out
         assert "server.dll" in out
         assert "EXACT" in out
-        assert "5 passed" in out
-        assert "1 failed" in out
+        assert "5 byte-matched, 1 failed" in out
         assert "3 source files" in out
+
+    def test_headline_is_byte_matched(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """One headline number (EXACT+RELOC over all functions); the bar says
+        it counts functions with source; PROVEN has its own line."""
+        from rebrew.status import _render_terminal
+
+        buf = self._capture(monkeypatch)
+        _render_terminal(self._report(unresolved_blockers=2))
+        out = buf.getvalue()
+        assert "Byte-matched  5/10 functions  (50.0%)  EXACT+RELOC" in out
+        assert "With source" in out
+        assert "6/10  (60.0%)" in out
+        assert "1 PROVEN  semantically equivalent, bytes still differ (not byte-matched)" in out
+        assert "50.0% of .text in byte-matched functions" in out
+        assert "2 blocked  unmatched, with a BLOCKER: rebrew todo -c blocked" in out
+        assert "50.0% byte-matched" in out  # panel subtitle
+        assert "reversed" not in out
+        assert "Coverage" not in out
+
+    def test_no_proven_line_without_proven(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from rebrew.status import _render_terminal
+
+        buf = self._capture(monkeypatch)
+        _render_terminal(self._report(status_counts={"EXACT": 4, "STUB": 6}))
+        out = buf.getvalue()
+        assert "semantically equivalent" not in out
+        assert "blocked" not in out
 
     def test_empty_report(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from rebrew.status import _render_terminal

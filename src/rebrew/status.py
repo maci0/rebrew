@@ -542,7 +542,7 @@ def _render_terminal(report: StatusReport) -> None:
         header_parts.append(f"[dim]{report.binary}[/dim]")
     header_parts.append(f"[dim]({report.arch})[/dim]")
 
-    # --- Coverage bar ---
+    # --- Headline + source bar ---
     bar_width = 40
     filled = int(bar_width * report.coverage_pct / 100) if report.total_functions > 0 else 0
 
@@ -552,13 +552,20 @@ def _render_terminal(report: StatusReport) -> None:
     matching = report.status_counts.get("NEAR_MATCHING", 0)
     stub = report.status_counts.get("STUB", 0)
 
+    headline = Text()
+    headline.append("  Byte-matched  ", style="bold")
+    headline.append(
+        f"{report.matched_functions}/{report.total_functions} functions  ({report.matched_pct}%)",
+        style="bold green",
+    )
+    headline.append("  EXACT+RELOC", style="dim")
+
     bar_text = Text()
-    bar_text.append("  Coverage  ", style="bold")
+    bar_text.append("  With source   ", style="bold")
     bar_text.append("█" * filled, style="green")
     bar_text.append("░" * (bar_width - filled), style="dim")
     bar_text.append(
         f"  {report.covered_functions}/{report.total_functions}  ({report.coverage_pct}%)",
-        style="bold",
     )
 
     # --- Status table ---
@@ -607,11 +614,11 @@ def _render_terminal(report: StatusReport) -> None:
     # --- Summary lines ---
     summary_lines: list[str] = []
 
-    # Matched percentage
-    summary_lines.append(
-        f"  [green bold]{report.matched_pct}%[/green bold] byte-matched"
-        f"  [dim]({exact + reloc} EXACT+RELOC / {report.total_functions} total)[/dim]"
-    )
+    if proven:
+        summary_lines.append(
+            f"  [magenta]{proven} PROVEN[/magenta]  [dim]semantically equivalent, bytes still"
+            " differ (not byte-matched)[/dim]"
+        )
 
     # Naked reconstructions: byte-exact via generated asm, NOT decompiled.
     # The honest split (ct-recomp's NAKED vs PURE_C_EXACT): decompiled_pct
@@ -626,7 +633,7 @@ def _render_terminal(report: StatusReport) -> None:
     # Byte coverage
     if report.total_text_bytes > 0:
         summary_lines.append(
-            f"  [cyan]{report.byte_coverage_pct}%[/cyan] .text bytes covered"
+            f"  [cyan]{report.byte_coverage_pct}%[/cyan] of .text in byte-matched functions"
             f"  [dim]({report.matched_bytes:,}B / {report.total_text_bytes:,}B)[/dim]"
         )
 
@@ -638,11 +645,10 @@ def _render_terminal(report: StatusReport) -> None:
             "(lib-match attributions, not reversing progress)"
         )
 
-    # Unresolved BLOCKERs (understood-blocked work needing attention)
     if report.unresolved_blockers:
         summary_lines.append(
-            f"  [yellow]{report.unresolved_blockers} unresolved BLOCKER(s)[/yellow]"
-            " — see rebrew todo / BLOCKER metadata"
+            f"  [yellow]{report.unresolved_blockers} blocked[/yellow]"
+            "  [dim]unmatched, with a BLOCKER: rebrew todo -c blocked[/dim]"
         )
 
     # Data verification verdicts (from `verify --data`)
@@ -667,8 +673,8 @@ def _render_terminal(report: StatusReport) -> None:
         verify_color = "green" if v.failed == 0 else "yellow"
         stale_suffix = " [yellow](stale — run rebrew verify)[/yellow]" if v.stale else ""
         summary_lines.append(
-            f"  Last verify: [{verify_color}]{v.passed} passed[/{verify_color}]"
-            f"  [red]{v.failed} failed[/red]"
+            f"  Last verify: [{verify_color}]{v.passed} byte-matched[/{verify_color}]"
+            f", [red]{v.failed} failed[/red]"
             f"  [dim]({v.timestamp})[/dim]{stale_suffix}"
         )
         # Effective-status overlay: verify results override metadata statuses.
@@ -700,6 +706,7 @@ def _render_terminal(report: StatusReport) -> None:
     from rich.console import Group
 
     panel_content = Group(
+        headline,
         bar_text,
         Text(""),  # spacer
         status_table,
@@ -713,7 +720,7 @@ def _render_terminal(report: StatusReport) -> None:
         subtitle=(
             f"[green]{exact}E[/green] [cyan]{reloc}R[/cyan]"
             f" [magenta]{proven}P[/magenta] [yellow]{matching}M[/yellow]"
-            f" [dim]{stub}S[/dim] → [bold]{report.matched_pct}%[/bold]"
+            f" [dim]{stub}S[/dim] → [bold]{report.matched_pct}% byte-matched[/bold]"
         ),
         border_style="blue",
     )
