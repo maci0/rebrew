@@ -52,7 +52,7 @@ Source (.c) ──→ mutate_code(source, rng)
 
 ### Measuring a change to the GA loop
 
-Judge a change by recovery, not by one run. Take functions that already match, apply a few seeded `mutate_code` steps to each, keep only perturbations that still compile but miss, save them, and run `BinaryMatchingGA` on every saved seed with the old and the new code: same `rng_seed`, population, generations, and flags, `compile_cache=None`. Compare the best score and whether and when each run reached `EXACT_SCORE_THRESHOLD`, over at least three seeds: across seeds, one version's best on a hard function varied 2–10×.
+Judge a change by recovery, not by one run. Take functions that already match, apply a few seeded `mutate_code` steps to each, keep only perturbations that still compile but miss, save them, and run `BinaryMatchingGA` on every saved seed with the old and the new code: same `rng_seed`, population, generations, and flags, `compile_cache=None`. Compare the best score and whether and when each run reached `EXACT_SCORE_THRESHOLD`, over at least three seeds: across seeds, one version's best on a hard function varied 2–11×.
 
 Measured for the 2.7.0 scope, crossover, elite, and operator fixes (guild-rebrew `server.dll`, msvc-6.0-sp6, 8 functions of 97–197 bytes, 3 perturbation steps, population 32, 30 generations; the seed-1 run of the new code predates the byte-offset scope fix): 4 functions recovered on seed 1 in generation 0 with both versions, except one that took the old code 1 generation; on the 4 harder ones over seeds 1–3, each version won 5 of 12 pairs (2 ties) and each reached 2 exact recoveries. No change in search quality is measurable at that size; the fixes rest on their correctness tests.
 
