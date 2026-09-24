@@ -2085,10 +2085,21 @@ class TestVerifySymbolField:
         )
         assert results[0]["symbol"] == "_my_func"
 
+    @pytest.mark.parametrize(
+        ("flags", "expected_status"),
+        [
+            (["--json"], "STUB"),
+            (["--json", "--dry-run"], "PROVEN"),
+        ],
+    )
     def test_stale_proven_demotion_writes_through(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        flags: list[str],
+        expected_status: str,
     ) -> None:
-        """A STUB-compiled PROVEN claim is demoted in metadata, not just warned.
+        """A STUB-compiled PROVEN claim is demoted in metadata, but preserved on --dry-run.
 
         Regression: the warning claimed a demotion but stickiness blocked the
         write, so it fired on every run.  The second run must be clean.
@@ -2113,47 +2124,21 @@ class TestVerifySymbolField:
         monkeypatch.setattr("rebrew.verify._save_verify_cache", lambda *a, **k: None)
         monkeypatch.setattr("rebrew.verify._apply_or_preview_status", lambda *a, **k: None)
         monkeypatch.setattr("rebrew.verify._print_results", lambda *a, **k: None)
-        result = CliRunner().invoke(app, ["--json"])
+        result = CliRunner().invoke(app, flags)
         assert "PROVEN claim" in result.output
-        assert get_entry(tmp_path, 0x1000, "SERVER").get("status") == "STUB"
-
-    def test_stale_proven_dry_run_writes_nothing(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """--dry-run warns but leaves the PROVEN claim in place."""
-        from rebrew.metadata import get_entry, save_metadata
-        from rebrew.verify import app
-
-        cfg = _cfg(tmp_path)
-        (cfg.reversed_dir / "f.c").write_text("int my_func(void) { return 1; }\n", encoding="utf-8")
-        save_metadata(tmp_path, {("SERVER", 0x1000): {"status": "PROVEN", "size": 64}})
-        monkeypatch.setattr("rebrew.verify.require_config", lambda **kw: cfg)
-        proven_entry = _ann(0x1000, status="PROVEN")
-        monkeypatch.setattr(
-            "rebrew.verify.prepare_entries",
-            lambda *a, **k: ([proven_entry], 0, 0, [], [], 0, [], [], [], {}, 0),
-        )
-        results = [{"va": "0x00001000", "status": "STUB", "passed": False}]
-        monkeypatch.setattr(
-            "rebrew.verify.run_verification", lambda *a, **k: (0, 1, [], results, [])
-        )
-        monkeypatch.setattr("rebrew.verify_cache.load_baseline", lambda _cfg: (None, None))
-        monkeypatch.setattr("rebrew.verify._save_verify_cache", lambda *a, **k: None)
-        monkeypatch.setattr("rebrew.verify._apply_or_preview_status", lambda *a, **k: None)
-        monkeypatch.setattr("rebrew.verify._print_results", lambda *a, **k: None)
-        result = CliRunner().invoke(app, ["--json", "--dry-run"])
-        assert "PROVEN claim" in result.output
-        assert get_entry(tmp_path, 0x1000, "SERVER").get("status") == "PROVEN"
+        assert get_entry(tmp_path, 0x1000, "SERVER").get("status") == expected_status
 
 
 class TestReportInventory:
-    def test_report_summary_carries_inventory_count(self) -> None:
+    @pytest.mark.parametrize("inventory_count", [9, 0])
+    def test_report_summary_inventory_count(self, inventory_count: int) -> None:
         """verify's report must show the annotation count beside the function
         inventory count, so a coarser inventor does not read as missing
         functions (IDEAS: 'verify denominator')."""
         from rebrew.verify import build_report
 
         cfg = SimpleNamespace(target_name="SERVER", target_binary=Path("/x"))
+        kw = {"inventory_count": inventory_count} if inventory_count else {}
         report = build_report(
             cfg,
             [],
@@ -2166,26 +2151,7 @@ class TestReportInventory:
             dry_run=False,
             compile_context=None,
             provenance="verify",
-            inventory_count=9,
+            **kw,
         )
         assert report["summary"]["total"] == 1
-        assert report["summary"]["inventory_count"] == 9
-
-    def test_report_inventory_omitted_when_unset(self) -> None:
-        from rebrew.verify import build_report
-
-        cfg = SimpleNamespace(target_name="SERVER", target_binary=Path("/x"))
-        report = build_report(
-            cfg,
-            [],
-            1,
-            0,
-            1,
-            [],
-            [],
-            [],
-            dry_run=False,
-            compile_context=None,
-            provenance="verify",
-        )
-        assert report["summary"]["inventory_count"] == 0
+        assert report["summary"]["inventory_count"] == inventory_count

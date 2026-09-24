@@ -195,7 +195,7 @@ def _parse_multi_headers(lines: list[str]) -> list[tuple[dict[str, str], dict[st
 
         # NEW_FUNC_RE and NEW_KV_RE match `//` and `/*` comment lines; skip
         # the regex calls on non-comment lines (the bulk of source files).
-        if not (stripped.startswith("//") or stripped.startswith("/*")):
+        if not stripped.startswith(("//", "/*")):
             if in_block:
                 seen_code_after_marker = True
             continue
@@ -1120,14 +1120,14 @@ def _check_W021_duplicate_globals(
     marker = ""
     for i, line in enumerate(lines, start=1):
         s = line.strip()
-        if s.startswith("// DATA:") or s.startswith("// GLOBAL:"):
+        if s.startswith(("// DATA:", "// GLOBAL:")):
             pending = True
             parts = s.split(":", 1)[1].split()
             marker = parts[0] if parts else ""
             continue
         if not pending:
             continue
-        if not s or s.startswith("//") or s.startswith("/*"):
+        if not s or s.startswith(("//", "/*")):
             continue  # comment/blank lines inside the block
         pending = False
         m = _GLOBAL_NAME_RE.search(s)
@@ -1420,7 +1420,7 @@ def _support_declaration(lines: list[str]) -> tuple[int, str, str] | None:
         m = _SUPPORT_MARKER_RE.match(stripped)
         if m:
             return idx, m.group(1), (m.group(2) or "").strip()
-        if stripped.startswith("//") or stripped.startswith("/*") or stripped.startswith("*"):
+        if stripped.startswith(("//", "/*", "*")):
             continue
         return None
     return None

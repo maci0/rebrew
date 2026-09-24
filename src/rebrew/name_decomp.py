@@ -107,7 +107,7 @@ def struct_field_layout(definition: str, pointer_width: int = 4) -> FieldLayout:
         if not line:
             continue
         # ``typedef struct name {`` opener and ``} name;`` closer are not fields.
-        if line.startswith("typedef struct") or line.startswith("}"):
+        if line.startswith(("typedef struct", "}")):
             continue
         m = _FIELD_LINE_RE.match(line)
         if m is None:

@@ -813,7 +813,7 @@ def _route_comments(
     markers: dict[int, dict[int, str]] = {}
     for addr, comment in comments_by_addr.items():
         text = str(comment.get("comment") or "")
-        if text.startswith("[rebrew:note]") or text.startswith("[rebrew:ghidra]"):
+        if text.startswith(("[rebrew:note]", "[rebrew:ghidra]")):
             continue
         owner = containing_va(ranges, addr)
         if owner is None:

@@ -230,7 +230,7 @@ def split_annotation_sections(text: str) -> tuple[str, list[str]]:
             if "*/" in stripped:
                 in_block_comment = False
             continue
-        if not (stripped.startswith("//") or stripped.startswith("/*")):
+        if not stripped.startswith(("//", "/*")):
             continue
         if stripped.startswith("/*") and "*/" not in stripped:
             in_block_comment = True
@@ -974,7 +974,7 @@ def parse_new_format(lines: list[str]) -> Annotation | None:
         # Fast pre-filter: marker/KV/hint regexes start with `//` or `/*`
         # (block-comment markers are emitted for C89-strict compilers); most
         # source lines are C code and can skip the regex calls entirely.
-        is_comment = stripped.startswith("//") or stripped.startswith("/*")
+        is_comment = stripped.startswith(("//", "/*"))
 
         m = NEW_FUNC_CAPTURE_RE.match(stripped) if is_comment else None
         if m:
@@ -1092,7 +1092,7 @@ def parse_new_format_multi(lines: list[str]) -> list[Annotation]:
 
         # Fast pre-filter: marker/KV/hint regexes all require a leading `//`;
         # most C source lines are code and can skip the regex calls entirely.
-        is_comment = stripped.startswith("//") or stripped.startswith("/*")
+        is_comment = stripped.startswith(("//", "/*"))
 
         m = NEW_FUNC_CAPTURE_RE.match(stripped) if is_comment else None
         if m and m.group("type") in (
@@ -1820,7 +1820,7 @@ def _strip_key_lines(filepath: Path, va: int, key: str, text: str, encoding: str
         # Blank lines and any comment line attach (bare name hints, prose,
         # block comments); code and preprocessor lines end the block.
         stripped = line.strip()
-        return not stripped or stripped.startswith("//") or stripped.startswith("/*")
+        return not stripped or stripped.startswith(("//", "/*"))
 
     # First pass: locate the target marker line.
     marker_idx: int | None = None

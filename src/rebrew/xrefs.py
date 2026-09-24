@@ -54,13 +54,12 @@ def _looks_like_va(arg: str) -> bool:
     like ``dead`` parses as hex but is far likelier a name/path, so only
     a full-width all-letter token (``deadbeef``) still counts as a VA.
     """
-    a = arg.strip()
-    if a.lower().startswith("0x") or a.lower().startswith("-0x"):
+    low = arg.strip().lower()
+    if low.startswith(("0x", "-0x")):
         return True
-    if not a or any(ch in a for ch in "/\\."):
+    if not low or any(ch in low for ch in "/\\."):
         return False
-    low = a.lower()
-    if low.startswith("+") or low.startswith("-"):
+    if low.startswith(("+", "-")):
         low = low[1:]
         if not low:
             return False

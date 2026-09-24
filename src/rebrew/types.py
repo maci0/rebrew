@@ -51,11 +51,8 @@ def type_size(spelling: str, known_structs: dict[str, StructDef] | None = None) 
         return None
     if text.endswith("*"):
         return 4
-    if text.startswith("unsigned "):
-        text = text[len("unsigned ") :]
-    if text.startswith("signed "):
-        text = text[len("signed ") :]
-    if text.startswith("struct ") or text.startswith("union ") or text.startswith("enum "):
+    text = text.removeprefix("unsigned ").removeprefix("signed ")
+    if text.startswith(("struct ", "union ", "enum ")):
         struct_name = text.split(None, 1)[1].strip()
         if known_structs and struct_name in known_structs:
             return known_structs[struct_name].size

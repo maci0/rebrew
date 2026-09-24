@@ -1655,7 +1655,7 @@ def _detect_toolchain_core(
     elif borlandc_imports:
         info.family = "borlandc"
         info.confidence = "medium"
-        info.version_hint = f"Borland C/C++ (runtime imports: {sorted(borlandc_imports)[0]})"
+        info.version_hint = f"Borland C/C++ (runtime imports: {min(borlandc_imports)})"
     elif watcom_sections and watcom_hits:
         info.family = "watcom"
         info.confidence = "high"
@@ -2047,4 +2047,4 @@ def suggest_profile(info: ToolchainInfo, binary: Path | None = None) -> str | No
     ):
         if p in compatible:
             return p
-    return sorted(compatible)[0]
+    return min(compatible)

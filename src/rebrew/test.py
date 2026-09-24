@@ -1228,9 +1228,7 @@ def _run_test_impl(
                 )
         old_status = promote_ann.status if promote_ann else ""
         # Prefer CompareResult.status so SIZE_MISMATCH / COMPILE_ERROR are preserved.
-        new_status = (
-            cmp.status if cmp.status else classify_match_status(matched, match_count, total, relocs)
-        )
+        new_status = cmp.status or classify_match_status(matched, match_count, total, relocs)
         if not force_status and not should_promote_status(old_status, new_status):
             if (is_status_sticky(old_status) or is_status_parked(old_status)) and not json_output:
                 console.print(f"[dim]STATUS → skipped ({old_status})[/dim]")
@@ -1480,7 +1478,7 @@ def _test_multi(
                         console.print(f"[red]EXTRACT_ERROR[/red] {sym} — not found in .obj")
                     continue
 
-                coff_relocs = full_relocs if full_relocs else reloc_dict
+                coff_relocs = full_relocs or reloc_dict
 
                 # Size mismatch must be computed on the ORIGINAL lengths — truncating
                 # first makes an over-long obj report false EXACT (and get promoted).

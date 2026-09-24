@@ -62,7 +62,7 @@ def _strip_marker_blocks(lines: list[str]) -> Iterator[str]:
             if not stripped:
                 yield line  # blank lines end nothing but are kept
                 continue
-            is_comment = stripped.startswith("//") or stripped.startswith("/*")
+            is_comment = stripped.startswith(("//", "/*"))
             if is_comment and (NEW_KV_RE.search(stripped) or FUNC_NAME_HINT_RE.match(stripped)):
                 continue
             in_block = False
