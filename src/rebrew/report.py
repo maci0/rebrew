@@ -161,6 +161,8 @@ pre.mermaid { background: #fff; border: 1px solid #767676;
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
 }
+/* Skip layout/paint for off-screen rows on large result pages. */
+tbody tr { content-visibility: auto; contain-intrinsic-size: auto 2.2rem; }
 """
 
 
@@ -276,10 +278,12 @@ def _page(title: str, target: str, active: str, body: str) -> str:
         "<meta charset='utf-8'>\n"
         # The site has no JS and no external assets; the CSP keeps any
         # escaping of binary-derived content (strings, symbol names) inert —
-        # nothing may execute or load off-site.
+        # nothing may execute or load off-site.  data: images cover the empty
+        # inline favicon that stops a /favicon.ico 404 per load.
         "<meta http-equiv='Content-Security-Policy' "
-        "content=\"default-src 'none'; style-src 'unsafe-inline'\">\n"
+        "content=\"default-src 'none'; style-src 'unsafe-inline'; img-src data:;\">\n"
         "<meta name='viewport' content='width=device-width, initial-scale=1'>\n"
+        "<link rel='icon' href='data:,'>\n"
         f"<title>{html.escape(title)} - {html.escape(target)}</title>\n"
         f"<style>{_CSS}</style>\n"
         "</head>\n<body>\n"

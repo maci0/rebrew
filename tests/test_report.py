@@ -97,6 +97,8 @@ class TestReportCli:
         assert "forced-colors" in index
         assert "text-decoration: underline" in index  # nav links not color-only (1.4.1)
         assert "max-width: 40rem" in index  # narrow-viewport reflow (1.4.10)
+        assert "content-visibility: auto" in index  # virtualize off-screen table rows
+        assert "<link rel='icon' href='data:,'" in index  # prevent per-load /favicon.ico 404
         # Dark-header link colors must not reach the pager nav on the light
         # body: white hover text and a pale focus ring fail 1.4.3 / 1.4.11.
         assert "\nnav a" not in index
