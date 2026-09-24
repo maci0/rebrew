@@ -4,6 +4,7 @@ import json
 import logging
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 from typer.testing import CliRunner
@@ -730,7 +731,6 @@ class TestVerifyCli:
             cfg_: object,
             results: object,
             entries: object,
-            raw_statuses: object = None,
             preserve_keys: object = None,
         ) -> None:
             captured["preserve_keys"] = preserve_keys
@@ -973,7 +973,7 @@ class TestApplyStatusUpdates:
         apply_status_updates([(entry, "EXACT", 0)], cfg)  # type: ignore[arg-type]
         assert get_entry(cfg.metadata_dir, 0x1000, "SERVER").get("status") == "EXACT"
 
-    def test_proven_sticky_not_demoted(self, tmp_path: Path) -> None:
+    def test_proven_demoted_to_byte_result(self, tmp_path: Path) -> None:
         from rebrew.metadata import get_entry, update_source_status
         from rebrew.verify import apply_status_updates
 
@@ -985,7 +985,7 @@ class TestApplyStatusUpdates:
         update_source_status(cfg.metadata_dir, "PROVEN", "SERVER", 0x1000)
         entry = _ann(0x1000, status="PROVEN")
         apply_status_updates([(entry, "STUB", 0)], cfg)  # type: ignore[arg-type]
-        assert get_entry(cfg.metadata_dir, 0x1000, "SERVER").get("status") == "PROVEN"
+        assert get_entry(cfg.metadata_dir, 0x1000, "SERVER").get("status") == "STUB"
 
     def test_write_failure_does_not_abort_batch(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
@@ -1282,220 +1282,85 @@ class TestVerifyWatch:
         assert calls["n"] == 1
 
 
-class TestProvenOverlay:
-    def test_proven_result_promoted(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+class TestProvenIsNotAPass:
+    """PROVEN is semantic equivalence, not a byte match: verify reports and
+    records the byte verdict for a PROVEN function like for any other."""
+
+    @staticmethod
+    def _run(
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        byte_status: str,
+        flags: list[str],
+    ) -> tuple[Any, SimpleNamespace]:
+        from rebrew.metadata import save_metadata
         from rebrew.verify import app
-
-        cfg = _cfg(tmp_path)
-        monkeypatch.setattr("rebrew.verify.require_config", lambda **kw: cfg)
-        proven_entry = _ann(0x1000, status="PROVEN")
-        monkeypatch.setattr(
-            "rebrew.verify.prepare_entries",
-            lambda *a, **k: ([proven_entry], 0, 0, [], [], 0, [], [], [], {}, 0),
-        )
-        # A proven function's compiled bytes differ from the target — the byte
-        # compare yields NEAR_MATCHING, which must be restored to PROVEN.
-        # run_verification reports failed=1 with a matching fail_detail; the
-        # overlay must flip the counters and drop the detail for this VA.
-        results = [{"va": "0x00001000", "status": "NEAR_MATCHING", "passed": False}]
-        fail_details = [(proven_entry, "9B diff")]
-        monkeypatch.setattr(
-            "rebrew.verify.run_verification",
-            lambda *a, **k: (0, 1, fail_details, results, []),
-        )
-        monkeypatch.setattr("rebrew.verify_cache.load_baseline", lambda _cfg: (None, None))
-        monkeypatch.setattr("rebrew.verify._save_verify_cache", lambda *a, **k: None)
-        monkeypatch.setattr("rebrew.verify._apply_or_preview_status", lambda *a, **k: None)
-        monkeypatch.setattr("rebrew.verify._print_results", lambda *a, **k: None)
-        result = CliRunner().invoke(app, ["--json"])
-        assert result.exit_code == 0
-        data = json.loads(result.stdout)
-        assert data["results"][0]["status"] == "PROVEN"
-        assert data["results"][0]["passed"] is True
-        # The overlay moved the function from failed to passed.
-        assert data["summary"]["passed"] == 1
-        assert data["summary"]["failed"] == 0
-        assert data["summary"]["proven"] == 1
-
-    def test_proven_over_blocker_documented_stub_honored(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """A prove-earned PROVEN on a blocker-documented STUB body must not be
-        demoted: prove accepts those (developed function parked at a wall,
-        classifier <60%), so verify honoring PROVEN only over NEAR/SIZE would
-        undo the promotion every run. Regression: gv_ExAllocGraveyardWorker
-        (58.3%) and gm_AllocGebaeude (38.8%) proved then re-demoted."""
-        import json
-
-        from rebrew.verify import app
-
-        cfg = _cfg(tmp_path)
-        monkeypatch.setattr("rebrew.verify.require_config", lambda **kw: cfg)
-        proven_entry = _ann(0x1000, status="PROVEN", blocker="scheduler phase shift")
-        monkeypatch.setattr(
-            "rebrew.verify.prepare_entries",
-            lambda *a, **k: ([proven_entry], 0, 0, [], [], 0, [], [], [], {}, 0),
-        )
-        results = [{"va": "0x00001000", "status": "STUB", "passed": False}]
-        monkeypatch.setattr(
-            "rebrew.verify.run_verification", lambda *a, **k: (0, 1, [], results, [])
-        )
-        monkeypatch.setattr("rebrew.verify_cache.load_baseline", lambda _cfg: (None, None))
-        monkeypatch.setattr("rebrew.verify._save_verify_cache", lambda *a, **k: None)
-        monkeypatch.setattr("rebrew.verify._apply_or_preview_status", lambda *a, **k: None)
-        monkeypatch.setattr("rebrew.verify._print_results", lambda *a, **k: None)
-        result = CliRunner().invoke(app, ["--json"])
-        assert result.exit_code == 0
-        data = json.loads(result.stdout)
-        assert data["results"][0]["status"] == "PROVEN"
-        assert data["results"][0]["passed"] is True
-        assert data["summary"]["proven"] == 1
-        assert "metadata: warning:" not in result.output
-
-    def test_proven_regression_not_masked(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """A source edit that breaks a PROVEN function must surface.
-
-        COMPILE_ERROR (or EXTRACT_ERROR / MISSING_FILE / STUB) means the
-        source no longer builds or the annotation changed — the PROVEN claim
-        is stale and must not be reported as a pass.
-        """
-        from rebrew.verify import app
-
-        cfg = _cfg(tmp_path)
-        monkeypatch.setattr("rebrew.verify.require_config", lambda **kw: cfg)
-        proven_entry = _ann(0x1000, status="PROVEN")
-        monkeypatch.setattr(
-            "rebrew.verify.prepare_entries",
-            lambda *a, **k: ([proven_entry], 0, 0, [], [], 0, [], [], [], {}, 0),
-        )
-        results = [{"va": "0x00001000", "status": "COMPILE_ERROR", "passed": False}]
-        monkeypatch.setattr(
-            "rebrew.verify.run_verification", lambda *a, **k: (0, 1, [], results, [])
-        )
-        monkeypatch.setattr("rebrew.verify_cache.load_baseline", lambda _cfg: (None, None))
-        monkeypatch.setattr("rebrew.verify._save_verify_cache", lambda *a, **k: None)
-        monkeypatch.setattr("rebrew.verify._apply_or_preview_status", lambda *a, **k: None)
-        monkeypatch.setattr("rebrew.verify._print_results", lambda *a, **k: None)
-        result = CliRunner().invoke(app, ["--json"])
-        # The regression must fail the run (verify exits non-zero on failures).
-        assert result.exit_code == 1
-        data = json.loads(result.stdout)
-        assert data["results"][0]["status"] == "COMPILE_ERROR"
-        assert data["results"][0]["passed"] is False
-        assert data["summary"]["proven"] == 0
-        assert data["summary"]["failed"] == 1
-        # The stale claim is flagged with a metadata: warning — unbacked
-        # PROVEN is demoted to the real byte result, never silently honored.
-        assert "metadata: warning:" in result.output
-        assert "PROVEN claim" in result.output
-
-    def test_proven_internal_error_is_not_persisted(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """A worker crash is not a byte verdict: the PROVEN demotion loop used
-        to write INTERNAL_ERROR (absent from metadata's KNOWN_STATUSES) over a
-        PROVEN status, and warn about a "demotion" to a status that is not a
-        byte result."""
-        from rebrew.verify import app
-
-        cfg = _cfg(tmp_path)
-        monkeypatch.setattr("rebrew.verify.require_config", lambda **kw: cfg)
-        proven_entry = _ann(0x1000, status="PROVEN")
-        monkeypatch.setattr(
-            "rebrew.verify.prepare_entries",
-            lambda *a, **k: ([proven_entry], 0, 0, [], [], 0, [], [], [], {}, 0),
-        )
-        results = [{"va": "0x00001000", "status": "INTERNAL_ERROR", "passed": False}]
-        monkeypatch.setattr(
-            "rebrew.verify.run_verification", lambda *a, **k: (0, 1, [], results, [])
-        )
-        monkeypatch.setattr("rebrew.verify_cache.load_baseline", lambda _cfg: (None, None))
-        monkeypatch.setattr("rebrew.verify._save_verify_cache", lambda *a, **k: None)
-        monkeypatch.setattr("rebrew.verify._apply_or_preview_status", lambda *a, **k: None)
-        monkeypatch.setattr("rebrew.verify._print_results", lambda *a, **k: None)
-        writes: list[dict[str, object]] = []
-        monkeypatch.setattr(
-            "rebrew.metadata.update_statuses_batch",
-            lambda metadata_dir, updates: writes.extend(updates),
-        )
-        result = CliRunner().invoke(app, ["--json"])
-        assert writes == []
-        assert "PROVEN claim" not in result.output
-
-    def test_proven_byte_match_is_not_reported_as_stale(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """EXACT/RELOC is the documented PROVEN upgrade, so the run that finally
-        byte-matches must not warn that the claim was unbacked and demoted."""
-        from rebrew.verify import app
-
-        cfg = _cfg(tmp_path)
-        monkeypatch.setattr("rebrew.verify.require_config", lambda **kw: cfg)
-        proven_entry = _ann(0x1000, status="PROVEN")
-        monkeypatch.setattr(
-            "rebrew.verify.prepare_entries",
-            lambda *a, **k: ([proven_entry], 0, 0, [], [], 0, [], [], [], {}, 0),
-        )
-        results = [{"va": "0x00001000", "status": "EXACT", "passed": True}]
-        monkeypatch.setattr(
-            "rebrew.verify.run_verification", lambda *a, **k: (1, 0, [], results, [])
-        )
-        monkeypatch.setattr("rebrew.verify_cache.load_baseline", lambda _cfg: (None, None))
-        monkeypatch.setattr("rebrew.verify._save_verify_cache", lambda *a, **k: None)
-        monkeypatch.setattr("rebrew.verify._apply_or_preview_status", lambda *a, **k: None)
-        monkeypatch.setattr("rebrew.verify._print_results", lambda *a, **k: None)
-        result = CliRunner().invoke(app, ["--json"])
-        assert "PROVEN claim" not in result.output
-        assert json.loads(result.stdout)["results"][0]["status"] == "EXACT"
-
-    def test_proven_cache_stores_raw_byte_result(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """The PROVEN overlay is report-time only — the verify cache must store
-        the raw byte result, not the overlaid PROVEN pass.
-
-        Otherwise a later metadata STATUS demotion (PROVEN → STUB, the stale
-        overlay case) would be masked by the cached pass on incremental runs.
-        """
-        from rebrew.verify import app
-        from rebrew.verify_cache import _load_verify_cache
 
         cfg = _cfg(tmp_path)
         (cfg.reversed_dir / "f.c").write_text("int my_func(void) { return 1; }\n", encoding="utf-8")
+        save_metadata(
+            tmp_path,
+            {("SERVER", 0x1000): {"status": "PROVEN", "size": 64, "blocker": "reg alloc"}},
+        )
         monkeypatch.setattr("rebrew.verify.require_config", lambda **kw: cfg)
-        proven_entry = _ann(0x1000, status="PROVEN")
+        proven_entry = _ann(0x1000, status="PROVEN", blocker="reg alloc")
         monkeypatch.setattr(
             "rebrew.verify.prepare_entries",
             lambda *a, **k: ([proven_entry], 0, 0, [], [], 0, [], [], [], {}, 0),
         )
-        results = [
-            {"va": "0x00001000", "filepath": "f.c", "status": "NEAR_MATCHING", "passed": False}
-        ]
-        fail_details = [(proven_entry, "9B diff")]
+        passed = byte_status in ("EXACT", "RELOC")
+        results = [{"va": "0x00001000", "filepath": "f.c", "status": byte_status, "passed": passed}]
+        fail_details = [] if passed else [(proven_entry, "9B diff")]
+        deferred = [(proven_entry, byte_status, 0 if passed else 9)]
         monkeypatch.setattr(
-            "rebrew.verify.run_verification", lambda *a, **k: (0, 1, fail_details, results, [])
+            "rebrew.verify.run_verification",
+            lambda *a, **k: (int(passed), int(not passed), fail_details, results, deferred),
         )
         monkeypatch.setattr("rebrew.verify_cache.load_baseline", lambda _cfg: (None, None))
-        monkeypatch.setattr("rebrew.verify._apply_or_preview_status", lambda *a, **k: None)
         monkeypatch.setattr("rebrew.verify._print_results", lambda *a, **k: None)
-        result = CliRunner().invoke(app, ["--json"])
-        assert result.exit_code == 0
+        return CliRunner().invoke(app, flags), cfg
 
-        # The report shows the overlay...
+    @pytest.mark.parametrize("byte_status", ["NEAR_MATCHING", "STUB", "COMPILE_ERROR"])
+    def test_byte_verdict_reported_and_recorded(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, byte_status: str
+    ) -> None:
+        from rebrew.metadata import get_entry
+        from rebrew.verify_cache import _load_verify_cache
+
+        result, cfg = self._run(tmp_path, monkeypatch, byte_status, ["--json"])
+        assert result.exit_code == 1
         data = json.loads(result.stdout)
-        assert data["results"][0]["status"] == "PROVEN"
-        assert data["results"][0]["passed"] is True
-
-        # ...but the cache (unmocked, written by the run) stores the raw result.
-        cache_path = cfg.root / ".rebrew" / "verify_cache.json"
-        assert cache_path.exists()
-        loaded = _load_verify_cache(cache_path, cfg)
+        assert data["results"][0]["status"] == byte_status
+        assert data["results"][0]["passed"] is False
+        assert data["summary"]["passed"] == 0
+        assert data["summary"]["failed"] == 1
+        assert data["summary"]["byte_matched"] == 0
+        assert "proven" not in data["summary"]
+        # Demoted without force, blocker kept (not a byte match).
+        entry = get_entry(tmp_path, 0x1000, "SERVER")
+        assert entry.get("status") == byte_status
+        assert entry.get("blocker") == "reg alloc"
+        loaded = _load_verify_cache(cfg.root / ".rebrew" / "verify_cache.json", cfg)
         assert loaded is not None
-        entry = loaded.entries["0x00001000"]
-        assert entry.status == "NEAR_MATCHING"
-        assert entry.passed is False
+        assert loaded.entries["0x00001000"].status == byte_status
+
+    def test_byte_match_replaces_proven(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.metadata import get_entry
+
+        result, _cfg_ns = self._run(tmp_path, monkeypatch, "EXACT", ["--json"])
+        assert result.exit_code == 0
+        assert json.loads(result.stdout)["summary"]["passed"] == 1
+        entry = get_entry(tmp_path, 0x1000, "SERVER")
+        assert entry.get("status") == "EXACT"
+        assert "blocker" not in entry
+
+    def test_dry_run_keeps_proven(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        from rebrew.metadata import get_entry
+
+        self._run(tmp_path, monkeypatch, "NEAR_MATCHING", ["--json", "--dry-run"])
+        assert get_entry(tmp_path, 0x1000, "SERVER").get("status") == "PROVEN"
 
 
 class TestRunVerification:
@@ -1953,7 +1818,6 @@ class TestFixSizes:
             fail_details=[],
             results=[],
             deferred=[],
-            raw_statuses={},
             size_divergences=[
                 {
                     "va": "0x1000",
@@ -2084,49 +1948,6 @@ class TestVerifySymbolField:
             [entry], cfg, jobs=1, total=1, cached_count=0, json_output=True
         )
         assert results[0]["symbol"] == "_my_func"
-
-    @pytest.mark.parametrize(
-        ("flags", "expected_status"),
-        [
-            (["--json"], "STUB"),
-            (["--json", "--dry-run"], "PROVEN"),
-        ],
-    )
-    def test_stale_proven_demotion_writes_through(
-        self,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
-        flags: list[str],
-        expected_status: str,
-    ) -> None:
-        """A STUB-compiled PROVEN claim is demoted in metadata, but preserved on --dry-run.
-
-        Regression: the warning claimed a demotion but stickiness blocked the
-        write, so it fired on every run.  The second run must be clean.
-        """
-        from rebrew.metadata import get_entry, save_metadata
-        from rebrew.verify import app
-
-        cfg = _cfg(tmp_path)
-        (cfg.reversed_dir / "f.c").write_text("int my_func(void) { return 1; }\n", encoding="utf-8")
-        save_metadata(tmp_path, {("SERVER", 0x1000): {"status": "PROVEN", "size": 64}})
-        monkeypatch.setattr("rebrew.verify.require_config", lambda **kw: cfg)
-        proven_entry = _ann(0x1000, status="PROVEN")
-        monkeypatch.setattr(
-            "rebrew.verify.prepare_entries",
-            lambda *a, **k: ([proven_entry], 0, 0, [], [], 0, [], [], [], {}, 0),
-        )
-        results = [{"va": "0x00001000", "status": "STUB", "passed": False}]
-        monkeypatch.setattr(
-            "rebrew.verify.run_verification", lambda *a, **k: (0, 1, [], results, [])
-        )
-        monkeypatch.setattr("rebrew.verify_cache.load_baseline", lambda _cfg: (None, None))
-        monkeypatch.setattr("rebrew.verify._save_verify_cache", lambda *a, **k: None)
-        monkeypatch.setattr("rebrew.verify._apply_or_preview_status", lambda *a, **k: None)
-        monkeypatch.setattr("rebrew.verify._print_results", lambda *a, **k: None)
-        result = CliRunner().invoke(app, flags)
-        assert "PROVEN claim" in result.output
-        assert get_entry(tmp_path, 0x1000, "SERVER").get("status") == expected_status
 
 
 class TestReportInventory:

@@ -6,10 +6,9 @@ target binary.  Results are classified by :class:`~rebrew.compile.CompareResult`
 
 After verification, STATUS is promoted/demoted in ``rebrew-functions.toml``
 via :func:`~rebrew.metadata.update_statuses_batch` unless ``--dry-run`` or
-``--no-promote`` is set; the ``.c`` files are **never modified**.  PROVEN
-is kept over the near-match states a proven function produces, upgraded
-by an EXACT/RELOC match, and demoted (``force``, with a ``metadata:``
-warning) when the build can no longer support it.
+``--no-promote`` is set; the ``.c`` files are **never modified**.  A
+PROVEN function gets the byte verdict like any other: PROVEN is not a
+byte match and is not protected from demotion.
 
 With ``--compare`` it compares the current run against the last good
 baseline (``.rebrew/verify_baseline.json``) and exits with code 1 on any
@@ -62,7 +61,7 @@ from rebrew.compile import (
 )
 from rebrew.config import ProjectConfig, inventory_path_for
 from rebrew.match_semantics import EFFECTIVE_MATCH_NOTE, is_effective_match
-from rebrew.metadata import PROVEN_COMPATIBLE_STATUSES, is_stale_proven, should_promote_status
+from rebrew.metadata import should_promote_status
 from rebrew.utils import atomic_write_text
 from rebrew.verify_cache import (
     VerifyCacheEntry,
@@ -368,26 +367,9 @@ app = typer.Typer(
 )
 
 
-def byte_match_counts(results: list[dict[str, Any]]) -> tuple[int, int]:
-    """Return ``(byte_matched, proven)`` over verify *results*.
-
-    ``passed`` folds PROVEN in with EXACT/RELOC, but PROVEN is semantic
-    equivalence and explicitly not a byte match — every PROVEN entry carries a
-    non-zero delta.  For a byte-identical goal only EXACT and RELOC count, so
-    the two numbers must be reported separately or a RELOC -> PROVEN regression
-    hides behind an unchanged headline.
-    """
-    byte_matched = sum(1 for r in results if r.get("status") in ("EXACT", "RELOC"))
-    proven = sum(1 for r in results if r.get("status") == "PROVEN")
-    return byte_matched, proven
-
-
 _STATUS_RANK: dict[str, int] = {
-    # PROVEN is a post-verify semantic promotion, NOT a byte match: a proven
-    # function compiles to bytes that differ from the target (every PROVEN
-    # entry carries delta > 0).  It ranks below RELOC so a byte-identical
-    # goal does not count it as done, and RELOC -> PROVEN reads as the
-    # regression it is.
+    # Verify never emits PROVEN (a metadata status from `rebrew prove`); a
+    # PROVEN row in an older baseline ranks below RELOC, not a byte match.
     "EXACT": 0,
     "RELOC": 1,
     "PROVEN": 2,
@@ -420,9 +402,8 @@ _STATUS_RANK: dict[str, int] = {
 _STATUS_ORDER: dict[str, int] = {
     "EXACT": 0,
     "RELOC": 1,
-    # Ordered just below RELOC and above the unmatched statuses: proven code
-    # is semantically right but not byte-identical, so NEAR_MATCHING ->
-    # PROVEN is still an improvement while RELOC -> PROVEN is a regression.
+    # Baseline rows only (see _STATUS_RANK): below RELOC, above the
+    # unmatched statuses.
     "PROVEN": 2,
     "NEAR_MATCHING": 3,
     "SIZE_MISMATCH": 4,
@@ -1138,7 +1119,6 @@ class BatchResult:
     fail_details: list[tuple[Annotation, str]]
     results: list[dict[str, Any]]
     deferred: list[tuple[Annotation, str, int]]
-    raw_statuses: dict[str, tuple[str, bool]]
     size_divergences: list[dict[str, Any]]
     missing_sizes: list[dict[str, Any]]
     duplicate_vas: list[dict[str, str]]
@@ -1164,10 +1144,10 @@ def run_batch(
     no_promote: bool = False,
     context: "CompileContext | None" = None,
 ) -> BatchResult:
-    """Shared batch pipeline: scan → scope → compile → STATUS sync → overlay.
+    """Shared batch pipeline: scan → scope → compile → STATUS sync.
 
-    prepare_entries → scope → run_verification → STATUS sync → PROVEN
-    overlay.  Returns the verdict bundle; each caller emits its own shape
+    prepare_entries → scope → run_verification → STATUS sync.  Returns the
+    verdict bundle; each caller emits its own shape
     (``test --all`` prints a compact summary, ``verify`` saves the full
     report + baseline + gate).  *no_promote* (test's measure-only mode)
     previews STATUS writes while the results still compute.
@@ -1233,15 +1213,6 @@ def run_batch(
 
     results.sort(key=lambda r: r["va"])
 
-    fail_details, raw_statuses, _stale, counts = apply_proven_overlay(
-        results,
-        fail_details,
-        unique_entries,
-        [passed, failed],
-        cfg=cfg,
-        dry_run=dry_run or no_promote,
-    )
-    passed, failed = counts
     return BatchResult(
         entries=unique_entries,
         total=total,
@@ -1250,7 +1221,6 @@ def run_batch(
         fail_details=fail_details,
         results=results,
         deferred=deferred,
-        raw_statuses=raw_statuses,
         size_divergences=size_divergences,
         missing_sizes=missing_sizes,
         duplicate_vas=duplicate_vas,
@@ -1317,14 +1287,11 @@ def build_report(
             "failed": failed,
             "exact": _status_counts.get("EXACT", 0),
             "reloc": _status_counts.get("RELOC", 0),
-            "proven": _status_counts.get("PROVEN", 0),
             "stub": _status_counts.get("STUB", 0),
             "matching": _status_counts.get("NEAR_MATCHING", 0),
             "size_mismatch": _status_counts.get("SIZE_MISMATCH", 0),
             "compile_error": _status_counts.get("COMPILE_ERROR", 0),
             "missing_file": _status_counts.get("MISSING_FILE", 0),
-            # Byte-identical accounting: PROVEN is semantic equivalence, not a
-            # byte match — for a byte-identical goal only exact+reloc count.
             "byte_matched": _status_counts.get("EXACT", 0) + _status_counts.get("RELOC", 0),
             "library_excluded": library_excluded,
             "orphans_pruned": orphans_pruned,
@@ -1385,7 +1352,7 @@ def _save_report(
         inventory_count=batch.inventory_count,
     )
 
-    # Warn only on ACTIONABLE divergences.  An EXACT/RELOC/PROVEN annotation
+    # Warn only on ACTIONABLE divergences.  An EXACT/RELOC annotation
     # size is byte-match evidence that `_partition_size_fixes` deliberately
     # keeps (rewriting it demotes a real match -- measured on guild-rebrew:
     # one `--fix-sizes` run took byte-matched 264 -> 252).  A fully-protected
@@ -1395,7 +1362,7 @@ def _save_report(
     # would touch.
     _appl_div, _prot_div = _partition_size_fixes(size_divergences)
     if _appl_div and not json_output:
-        _kept = f" ({len(_prot_div)} kept as EXACT/RELOC/PROVEN evidence)" if _prot_div else ""
+        _kept = f" ({len(_prot_div)} kept as EXACT/RELOC evidence)" if _prot_div else ""
         console.print(
             f"[yellow]warning:[/yellow] {len(_appl_div)} function(s) have annotation "
             f"SIZE differing from the binary-derived size{_kept}; run with --json for details"
@@ -1485,7 +1452,6 @@ def _save_report(
                 cfg,
                 results,
                 batch.entries,
-                batch.raw_statuses,
                 preserve_keys=batch.excluded_keys,
             )
         except (OSError, TypeError) as exc:
@@ -1733,19 +1699,12 @@ def _size_divergence_action(ann_size: int, canonical: int, status: str | None) -
     return "warn"
 
 
-def patch_cache_from_results(
-    cfg: Any,
-    v_results: list[dict[str, Any]],
-    raw_statuses: dict[str, tuple[str, bool]],
-) -> None:
+def patch_cache_from_results(cfg: Any, v_results: list[dict[str, Any]]) -> None:
     """Sync the verify cache from batch results (one read + one write).
 
     Used by ``rebrew test --all`` so promoted statuses show up in status/todo
-    immediately.  *raw_statuses* is :attr:`BatchResult.raw_statuses`: rows the
-    PROVEN overlay rewrote are patched with their byte-level status, so the
-    cache never bakes in a metadata-derived PROVEN that would mask a later
-    demotion.  A worker crash (INTERNAL_ERROR) is not a verdict and is never
-    patched.
+    immediately.  A worker crash (INTERNAL_ERROR) is not a verdict and is
+    never patched.
     """
     from rebrew.verify_cache import patch_verify_cache_entries
 
@@ -1758,11 +1717,10 @@ def patch_cache_from_results(
         if r.get("status") == "INTERNAL_ERROR":
             continue
         pct = r.get("match_percent") or 0.0
-        status = raw_statuses[r["va"]][0] if r["va"] in raw_statuses else r.get("status", "")
         patches.append(
             {
                 "va": va_int,
-                "status": status,
+                "status": r.get("status", ""),
                 # No byte counts: the row carries only a percent, and a
                 # percent-scale total would fill a missing byte delta with
                 # 100 - percent (todo.py's ROI thresholds read it as bytes).
@@ -1902,121 +1860,6 @@ def _scope_entries(
         library_excluded,
         excluded_keys,
     )
-
-
-def apply_proven_overlay(
-    results: list[dict[str, Any]],
-    fail_details: list[tuple[Annotation, str]],
-    unique_entries: list[Annotation],
-    counts: list[int],
-    *,
-    cfg: Any = None,
-    dry_run: bool = False,
-) -> tuple[list[tuple[Annotation, str]], dict[str, tuple[str, bool]], list[str], list[int]]:
-    """Overlay metadata PROVEN status onto byte-compare *results*.
-
-    PROVEN is a post-verify promotion (from ``rebrew prove``) that byte-level
-    comparison cannot detect.  Shared by ``rebrew verify`` and ``rebrew test
-    --all`` — previously only verify overlaid, so the batch path reported and
-    cached raw NEAR_MATCHING for proven functions.  Returns ``(fail_details,
-    raw_statuses, stale_proven, counts)``: the filtered failure list, the raw
-    byte truth the cache must store (not the overlay), the stale claims to
-    warn about, and the adjusted ``[passed, failed]`` counts.
-    """
-    passed, failed = counts
-    proven_vas: set[str] = {
-        f"0x{entry.va:08x}" for entry in unique_entries if getattr(entry, "status", "") == "PROVEN"
-    }
-    # A PROVEN claim is honored over the byte states a proven function
-    # legitimately produces (is_stale_proven): NEAR_MATCHING / SIZE_MISMATCH
-    # and a blocker-documented STUB, which `rebrew prove` accepts.
-    _blocker_documented_stub_vas: set[str] = {
-        f"0x{entry.va:08x}"
-        for entry in unique_entries
-        if getattr(entry, "status", "") == "PROVEN"
-        and bool(getattr(entry, "blocker", "") or getattr(entry, "blocker_delta", 0))
-    }
-    overlaid_vas: set[str] = set()
-    # Raw byte-level truth for overlaid entries — the verify cache must store
-    # the result as compiled, not the metadata-derived PROVEN.  The overlay is
-    # re-applied from CURRENT metadata at every report run (including cached
-    # results), so baking PROVEN into the cache would mask a later STATUS
-    # demotion with a stale cached pass.
-    raw_statuses: dict[str, tuple[str, bool]] = {}
-    stale_proven: list[str] = []
-    if proven_vas:
-        for r in results:
-            compatible = r["status"] in PROVEN_COMPATIBLE_STATUSES or (
-                r["status"] == "STUB" and r["va"] in _blocker_documented_stub_vas
-            )
-            if r["va"] in proven_vas and compatible:
-                raw_statuses[r["va"]] = (r["status"], bool(r.get("passed", False)))
-                was_failed = not r.get("passed", False)
-                r["status"] = "PROVEN"
-                r["passed"] = True
-                overlaid_vas.add(r["va"])
-                if was_failed:
-                    passed += 1
-                    failed -= 1
-        # Remove only the OVERLAID functions from fail_details (they may have
-        # been added from stale cache entries before the overlay).  A PROVEN
-        # function that now fails as COMPILE_ERROR stays in the failure list
-        # the overlay must not hide its diagnostic.
-        fail_details = [(e, m) for e, m in fail_details if f"0x{e.va:08x}" not in overlaid_vas]
-
-        # Flag stale PROVEN claims: metadata says PROVEN but the byte compile
-        # cannot support it (source no longer builds, annotation changed, or
-        # the status was hand-claimed).  The real byte result stands and a
-        # metadata: warning is emitted — a claimed PROVEN is only honored
-        # over the byte states a proven function legitimately produces.
-        # The demotion is written through (force —
-        # PROVEN stickiness protects earned claims, but a STUB/COMPILE_ERROR
-        # body demonstrably no longer contains the proven code, so the claim
-        # is void and the warning must fire exactly once).
-        # EXACT/RELOC (the PROVEN upgrade, already written by the promotion
-        # above) and INTERNAL_ERROR (not a verdict, not in KNOWN_STATUSES)
-        # are never stale; see is_stale_proven.
-        stale_proven = sorted(
-            r["va"]
-            for r in results
-            if r["va"] in proven_vas
-            and r["va"] not in overlaid_vas
-            and is_stale_proven(
-                "PROVEN",
-                r["status"],
-                blocker_documented=r["va"] in _blocker_documented_stub_vas,
-            )
-        )
-        if stale_proven:
-            by_va = {r["va"]: r for r in results}
-            if cfg is not None and not dry_run:
-                from rebrew.metadata import update_statuses_batch
-
-                by_entry = {f"0x{e.va:08x}": e for e in unique_entries}
-                update_statuses_batch(
-                    cfg.metadata_dir,
-                    [
-                        {
-                            "module": getattr(by_entry[va], "module", "") or "",
-                            "va": by_entry[va].va,
-                            "new_status": by_va[va]["status"],
-                            "clear_blockers": False,
-                            "force": True,
-                            "updated_by": "verify",
-                        }
-                        for va in stale_proven
-                        if getattr(by_entry.get(va), "module", "")
-                        and by_va[va]["status"] != "PROVEN"
-                    ],
-                )
-            for va in stale_proven:
-                status = by_va[va]["status"]
-                console.print(
-                    f"  [yellow]metadata: warning:[/yellow] PROVEN claim for {va} not "
-                    f"backed by a byte-match (compiled: {status}) — demoted to the "
-                    "real byte result; re-run rebrew verify once the code byte-matches"
-                )
-    return fail_details, raw_statuses, stale_proven, [passed, failed]
 
 
 def _inventory_count(cfg: ProjectConfig, reversed_dir: Path) -> int:
@@ -2163,12 +2006,8 @@ def prepare_entries(
         if cached_entry is None:
             continue
 
-        # A cached PROVEN result is impossible under the current writer (the
-        # cache stores raw byte results only — the PROVEN overlay is applied
-        # at report time from CURRENT metadata).  Any cached PROVEN therefore
-        # comes from pre-fix code that baked the overlay in, and cannot be
-        # trusted after a metadata STATUS demotion: the stale pass would mask
-        # the demotion forever.  Treat it as a miss and re-verify once.
+        # The cache holds byte verdicts only.  A PROVEN row is not one (an
+        # older rebrew cached it as a pass); re-verify it once.
         if cached_entry.status == "PROVEN":
             continue
 
@@ -2506,9 +2345,9 @@ def _apply_or_preview_status(
         for entry, status, _delta in deferred_fixes:
             module: str = getattr(entry, "module", "") or ""
             # Mirror apply_status_updates' decision so the preview only claims
-            # updates a real run would actually write: sticky statuses (PROVEN)
-            # are never demoted and a STUB's placeholder size-mismatch keeps
-            # the user's classification.
+            # updates a real run would actually write: parked SKIP never moves
+            # and a STUB's placeholder size-mismatch keeps the user's
+            # classification.
             if not should_promote_status(getattr(entry, "status", ""), status):
                 continue
             console.print(
@@ -2526,9 +2365,7 @@ def apply_status_updates(
 
     Called unconditionally after verification — both ``rebrew verify``
     and ``rebrew test --all`` always keep metadata in sync with the
-    compile-and-compare truth.
-
-    PROVEN status is sticky and never demoted.
+    compile-and-compare truth.  Blockers are cleared only on a byte match.
     """
     updates: list[dict[str, Any]] = []
     for entry, status, _delta in deferred_fixes:
@@ -2539,9 +2376,9 @@ def apply_status_updates(
         if not module:
             continue
         current_status = getattr(entry, "status", "")
-        # Sticky statuses (PROVEN) are never demoted; a STUB's placeholder
-        # always size-mismatches (keep the user's classification); unchanged
-        # status is a no-op.  All decided by should_promote_status.
+        # Parked SKIP never moves; a STUB's placeholder always size-mismatches
+        # (keep the user's classification); unchanged status is a no-op.  All
+        # decided by should_promote_status.
         if not should_promote_status(current_status, status):
             continue
         updates.append(
@@ -2655,7 +2492,6 @@ def _print_results(
 
         exact = sum(1 for r in results if r["status"] == "EXACT")
         reloc = sum(1 for r in results if r["status"] == "RELOC")
-        proven = sum(1 for r in results if r["status"] == "PROVEN")
         near_matching = sum(1 for r in results if r["status"] == "NEAR_MATCHING")
         stub = sum(1 for r in results if r["status"] == "STUB")
 
@@ -2664,8 +2500,6 @@ def _print_results(
         stat_table.add_column("Count", justify="right")
         stat_table.add_row("EXACT", str(exact))
         stat_table.add_row("RELOC", str(reloc))
-        if proven:
-            stat_table.add_row("PROVEN", str(proven))
         stat_table.add_row("NEAR_MATCHING", str(near_matching))
         stat_table.add_row("STUB", str(stub))
 
@@ -2720,18 +2554,6 @@ def _print_results(
     if failed:
         result_text.append(", ")
         result_text.append(f"{failed} failed", style="red")
-    # `passed` folds PROVEN in with EXACT/RELOC, but PROVEN is semantic
-    # equivalence and explicitly NOT a byte match (every PROVEN entry carries a
-    # non-zero delta).  Printing only `passed` let a RELOC -> PROVEN regression
-    # leave the headline number unchanged while the deliverable lost bytes, and
-    # made the figure read as "done" for a byte-identical goal.  The JSON has
-    # carried `summary.byte_matched` all along; surface it here too.
-    byte_matched, proven = byte_match_counts(results)
-    if proven:
-        result_text.append(
-            f" ({byte_matched} byte-matched + {proven} PROVEN, which is not a byte match)",
-            style="yellow",
-        )
     console.print(result_text)
     if any(r["status"] == "MISSING_SIZE" for r in results):
         n = sum(1 for r in results if r["status"] == "MISSING_SIZE")

@@ -66,9 +66,7 @@ from rebrew.compile_context import CompileContext
 from rebrew.config import ProjectConfig
 from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
 from rebrew.metadata import (
-    is_stale_proven,
     is_status_parked,
-    is_status_sticky,
     set_fields_batch,
     should_promote_status,
     update_field,
@@ -105,21 +103,6 @@ def _cmake_pin_for(source: str | Path, cfg: ProjectConfig) -> tuple[str | None, 
 def _expand_reloc_offsets(relocs: list[int], limit: int) -> set[int]:
     """Expand 4-byte relocation start offsets into a set of individual byte offsets."""
     return {r + j for r in relocs for j in range(4) if r + j < limit}
-
-
-def _warn_stale_proven(ann: Any, old_status: str, new_status: str, va: int) -> None:
-    """Emit ``metadata: warning`` when a kept PROVEN is not backed by the bytes.
-
-    ``rebrew test`` keeps PROVEN without ``--force-status``; ``rebrew verify``
-    demotes the same claim, so the kept claim must not pass silently.
-    """
-    blocker_documented = bool(getattr(ann, "blocker", "") or getattr(ann, "blocker_delta", None))
-    if is_stale_proven(old_status, new_status, blocker_documented=blocker_documented):
-        console.print(
-            f"[yellow]metadata: warning:[/yellow] PROVEN claim for 0x{va:08x} not "
-            f"backed by a byte-match (compiled: {new_status}); kept — rebrew verify "
-            "demotes it, or re-run with --force-status"
-        )
 
 
 def _patch_verify_cache(
@@ -288,8 +271,8 @@ def main(
         False,
         "--force-status",
         help=(
-            "Force the STATUS update even from a sticky status — use to deliberately "
-            "demote a stale PROVEN function to its actual result (single-function only)"
+            "Write the STATUS even where the promotion policy refuses it: unpark a "
+            "SKIP function or replace a STUB with SIZE_MISMATCH (single-function only)"
         ),
     ),
     fix_sizes: bool = typer.Option(
@@ -453,8 +436,8 @@ def main(
     if all_sources:
         if force_status:
             error_exit(
-                "--force-status is single-function only — demote stale PROVEN "
-                "functions individually with 'rebrew test <file> --force-status'",
+                "--force-status is single-function only: use "
+                "'rebrew test <file> --va <VA> --force-status'",
                 json_mode=json_output,
                 code=EXIT_ERROR,
             )
@@ -465,7 +448,7 @@ def main(
                 code=EXIT_ERROR,
             )
         # The batch path is verify's shared pipeline (scan → scope →
-        # compile → STATUS sync → PROVEN overlay), emitted in test's shape:
+        # compile → STATUS sync), emitted in test's shape:
         # always recompile (full), filterable by --dir/--origin, measurable
         # via --no-promote.
         emit_test_batch(
@@ -535,8 +518,8 @@ def main(
                 )
             if force_status:
                 error_exit(
-                    "--force-status is single-function only — demote stale PROVEN "
-                    "functions individually with 'rebrew test <file> --force-status'",
+                    "--force-status is single-function only: use "
+                    "'rebrew test <file> --va <VA> --force-status'",
                     json_mode=json_output,
                     code=EXIT_ERROR,
                 )
@@ -1241,9 +1224,8 @@ def _run_test_impl(
         # Prefer CompareResult.status so SIZE_MISMATCH / COMPILE_ERROR are preserved.
         new_status = cmp.status or classify_match_status(matched, match_count, total, relocs)
         if not force_status and not should_promote_status(old_status, new_status):
-            if (is_status_sticky(old_status) or is_status_parked(old_status)) and not json_output:
+            if is_status_parked(old_status) and not json_output:
                 console.print(f"[dim]STATUS → skipped ({old_status})[/dim]")
-            _warn_stale_proven(promote_ann, old_status, new_status, va_int_for_promote)
             # A refused promotion with the SAME status still carries fresh
             # metrics: status/todo rank ROI from the cache's match_percent and
             # byte delta, so a NEAR_MATCHING improved from 60% to 92% must land
@@ -1662,11 +1644,8 @@ def _test_multi(
             # Auto-promote: update STATUS in metadata (mirrors single-function path)
             if not no_promote:
                 if not should_promote_status(old_status, new_status):
-                    if (
-                        is_status_sticky(old_status) or is_status_parked(old_status)
-                    ) and not json_output:
+                    if is_status_parked(old_status) and not json_output:
                         console.print(f"[dim]  STATUS → skipped ({old_status})[/dim]")
-                    _warn_stale_proven(ann, old_status, new_status, ann.va)
                     # A refused promotion with the SAME status still carries fresh
                     # metrics: status/todo rank ROI from the cache's match_percent
                     # and byte delta (same rule as the single-file path).
@@ -1836,7 +1815,7 @@ def emit_test_batch(
     # Sync the verify cache so status/todo don't keep reporting stale
     # pre-batch statuses (the single-file path patches per function).
     if not no_promote:
-        patch_cache_from_results(cfg, batch.results, batch.raw_statuses)
+        patch_cache_from_results(cfg, batch.results)
     if json_output:
         # Same shape as `rebrew verify --json` (see build_report) —
         # verify-only extras are null on this path.  ``dry_run`` is the
@@ -1870,8 +1849,7 @@ def print_test_summary(deferred: list[tuple[Annotation, str, int]], total_files:
     transitions: list[tuple[str, str]] = []
     for entry, status, _delta in deferred:
         old_status = getattr(entry, "status", "") or "STUB"
-        # Mirror should_promote_status: parked SKIP never moves; sticky PROVEN
-        # stays put unless the byte result is EXACT/RELOC (a real upgrade).
+        # Mirror should_promote_status: parked SKIP never moves.
         if should_promote_status(old_status, status):
             transitions.append((old_status, status))
         else:

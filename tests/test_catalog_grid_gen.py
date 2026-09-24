@@ -441,11 +441,8 @@ class TestGenerateDataJsonGrid:
 class TestGenerateDataJsonNoBinary:
     """Without a binary: fallback .text section, 'none' gap states, no hashes."""
 
-    def test_proven_counts_as_matched(self) -> None:
-        """A PROVEN annotation must be counted as matched (ranked with RELOC)
-        — the status-priority groups previously omitted PROVEN, so count_statuses
-        dropped it into no bucket and exact+reloc+near+stub undercounted
-        totalFunctions."""
+    def test_proven_has_its_own_bucket(self) -> None:
+        """PROVEN is counted once, in its own bucket, never as RELOC."""
         from rebrew.catalog.grid import count_statuses
 
         entries = [
@@ -456,7 +453,8 @@ class TestGenerateDataJsonNoBinary:
         for e in entries:
             by_va.setdefault(e.va, []).append(e)
         counters = count_statuses(by_va)
-        assert counters["RELOC"] == 1  # PROVEN lands in the RELOC bucket
+        assert counters["PROVEN"] == 1
+        assert counters["RELOC"] == 0
         assert counters["STUB"] == 1
 
     def test_no_binary_fallback_section(self) -> None:

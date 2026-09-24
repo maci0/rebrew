@@ -49,6 +49,7 @@ from rebrew.naming import (
     load_data,
     parse_byte_delta,
 )
+from rebrew.status import effective_status
 from rebrew.workspace.status import MATCHED_STATUSES
 
 # ---------------------------------------------------------------------------
@@ -287,6 +288,13 @@ def _collect_active_functions(
         if status == "SKIP":
             continue
 
+        va_key = f"0x{va:08x}"
+        v_entry = verify_entries.get(va_key)
+        v_status = v_entry.status if v_entry else None
+        # Same rule as `rebrew status`: a stale metadata EXACT whose cached
+        # verdict no longer matches is live work.
+        status = effective_status(status, v_status)
+
         # Skip finished functions — except naked reconstructions: byte-exact
         # via a generated skeleton (`// SOURCE: naked`) is reproduced, not
         # decompiled, so it stays actionable until the real C body matches
@@ -327,13 +335,11 @@ def _collect_active_functions(
                     description=f"Documented non-target — {info.get('blocker', '')[:60]}",
                     command="",
                     status=status,
+                    blocker=info.get("blocker", ""),
                 )
             )
             continue
 
-        va_key = f"0x{va:08x}"
-        v_entry = verify_entries.get(va_key)
-        v_status = v_entry.status if v_entry else None
         v_match = v_entry.match_percent if v_entry else None
         v_delta = v_entry.delta if v_entry else None
         if v_status == "MISSING_SIZE":
@@ -344,7 +350,7 @@ def _collect_active_functions(
 
         # If verify says it compiled and size changed, or we don't have verify, fallback to metadata parsing
         calc_delta = v_delta
-        if calc_delta is None and status == "NEAR_MATCHING":
+        if calc_delta is None and status in ("NEAR_MATCHING", "PROVEN"):
             raw_bd = info.get("blocker_delta", "")
             try:
                 calc_delta = int(raw_bd) if raw_bd else parse_byte_delta(info.get("blocker", ""))
@@ -398,6 +404,18 @@ def _collect_active_functions(
             desc = "Missing SIZE annotation — backfill with rebrew verify --fix-sizes"
             score = calculate_roi(size, v_match, calc_delta)
             cmd = "rebrew verify --fix-sizes"
+
+        elif status == "PROVEN":
+            # Semantic equivalence is established but the bytes still differ:
+            # the prover has nothing left to add and the GA/flag sweep that
+            # led here already ran, so this is improve-match work.
+            category = CAT_IMPROVE_MATCH
+            desc = "PROVEN, bytes still differ"
+            blocker = info.get("blocker", "")
+            if blocker:
+                desc += f" — Blocked: {blocker[:50]}"
+            score = calculate_roi(size, v_match, calc_delta)
+            cmd = f"rebrew diff 0x{va:08x}"
 
         elif info.get("blocker", "").startswith(GA_CEILING_PREFIX):
             # The GA exhausted on a register-only delta — byte-exact is not
@@ -533,8 +551,8 @@ def _collect_prover_candidates(
     items: list[TodoItem] = []
     for va, info in existing.items():
         ann_status = info.get("status", "STUB")
-        # PROVEN is a post-verify promotion that wins over verify cache
-        if ann_status in MATCHED_STATUSES:
+        # Byte-matched needs no proof; PROVEN already has one.
+        if ann_status in MATCHED_STATUSES or ann_status == "PROVEN":
             continue
         va_key = f"0x{va:08x}"
         cached = verify_entries.get(va_key)
@@ -1215,24 +1233,9 @@ def main(
         if va_int in library_vas:
             continue
         ann_status = info.get("status", "STUB")
-        # PROVEN is a post-verify promotion that wins over verify cache
-        # The metadata status is authoritative for STUB (verify runs no longer
-        # promote stubs to SIZE_MISMATCH — a stub's size mismatch is
-        # expected).  A more actionable cache state (COMPILE_ERROR, matched)
-        # still overrides; SIZE_MISMATCH does not.
         if ann_status == "STUB" and any(m in info.get("blocker", "") for m in _NON_TARGET_MARKERS):
             documented += 1
-        if ann_status == "PROVEN" or ann_status == "SKIP":
-            s = ann_status
-        elif ann_status == "STUB":
-            cached_s = verify_statuses.get(va_int)
-            s = (
-                cached_s
-                if cached_s and cached_s not in ("SIZE_MISMATCH", "MISSING_SIZE", "STUB")
-                else ann_status
-            )
-        else:
-            s = verify_statuses.get(va_int, ann_status)
+        s = effective_status(ann_status, verify_statuses.get(va_int))
         status_counts[s] = status_counts.get(s, 0) + 1
     function_vas = {va for va in existing if va not in library_vas}
     ghidra_vas = {f.va for f in ghidra_funcs}
@@ -1251,7 +1254,8 @@ def main(
     # inventory), and `ghidra ∪ covered` counted library attributions as
     # unfinished functions (28% where status said 42% for the same tree).
     denominator = total_funcs
-    pct = round(100.0 * (exact + reloc + proven) / denominator, 1) if denominator else 0.0
+    # Byte-matched only: PROVEN bytes still differ from the target.
+    pct = round(100.0 * (exact + reloc) / denominator, 1) if denominator else 0.0
 
     if category == "blocked":
         # Lens, not a move: every item with BLOCKER text, whatever its home
@@ -1304,7 +1308,7 @@ def main(
             f"  [yellow]NEAR_MATCHING: {matching}[/yellow]"
             f"  [dim]STUB: {stub}[/dim]"
             f"  [dim]DOCUMENTED: {documented}[/dim]"
-            f"  → [bold]{pct}%[/bold] matched"
+            f"  → [bold]{pct}%[/bold] byte-matched"
         )
 
     if not display_items:

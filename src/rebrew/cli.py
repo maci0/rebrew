@@ -69,8 +69,10 @@ STATUS_COLORS: dict[str, str] = {
     "SKIP": "dim",
 }
 
-# User-visible classification statuses, in canonical display order.
-DISPLAY_STATUSES: tuple[str, ...] = (*MATCHED_STATUSES, "NEAR_MATCHING", "STUB")
+# User-visible classification statuses, in canonical display order: the
+# byte-matched ones, then PROVEN (semantically equivalent, bytes differ),
+# then the unmatched ones.
+DISPLAY_STATUSES: tuple[str, ...] = (*MATCHED_STATUSES, "PROVEN", "NEAR_MATCHING", "STUB")
 
 
 # Re-usable Typer option for --target

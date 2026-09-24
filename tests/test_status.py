@@ -58,12 +58,14 @@ class TestStatusReport:
         )
         assert report.matched_pct == 30.0
 
-    def test_matched_pct_includes_proven(self) -> None:
+    def test_matched_pct_excludes_proven(self) -> None:
         report = StatusReport(
             total_functions=100,
             status_counts={"EXACT": 10, "RELOC": 5, "PROVEN": 5, "STUB": 80},
+            naked_matched=5,
         )
-        assert report.matched_pct == 20.0
+        assert report.matched_pct == 15.0
+        assert report.decompiled_pct == 10.0
 
     def test_byte_coverage_pct(self) -> None:
         report = StatusReport(
@@ -327,6 +329,61 @@ class TestCollectStatus:
         assert report.status_counts.get("EXACT") == 1
         assert report.library_identified == 1
         assert report.covered_functions == 1
+
+    def test_proven_bytes_not_counted_as_matched(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """PROVEN bytes differ from the target: not matched, not identified."""
+        import rebrew.naming
+
+        cfg = _make_cfg(tmp_path)
+        existing = {
+            0x1000: {"filename": "a.c", "size": "100", "status": "EXACT", "module": "TEST"},
+            0x2000: {"filename": "b.c", "size": "40", "status": "PROVEN", "module": "TEST"},
+            0x3000: {
+                "filename": "library_x.h",
+                "size": "50",
+                "status": "PROVEN",
+                "module": "TEST",
+                "marker_type": "LIBRARY",
+            },
+        }
+        monkeypatch.setattr(
+            rebrew.naming,
+            "load_data",
+            lambda cfg: ([], existing, {0x1000: "a.c", 0x2000: "b.c", 0x3000: "library_x.h"}),
+        )
+        report = collect_status(cfg)  # type: ignore[arg-type]
+        assert report.status_counts == {"EXACT": 1, "PROVEN": 1}
+        assert report.matched_bytes == 100
+        assert report.library_identified == 0
+        assert report.matched_pct == 50.0
+
+    def test_library_rows_bucketed_in_module_table(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A LIBRARY row's leftover reversal STATUS never reaches the module table."""
+        import rebrew.naming
+
+        cfg = _make_cfg(tmp_path)
+        existing = {
+            0x1000: {"filename": "a.c", "size": "100", "status": "PROVEN", "module": "TEST"},
+            0x2000: {
+                "filename": "library_x.h",
+                "size": "50",
+                "status": "PROVEN",
+                "module": "TEST",
+                "marker_type": "LIBRARY",
+            },
+        }
+        monkeypatch.setattr(
+            rebrew.naming,
+            "load_data",
+            lambda cfg: ([], existing, {0x1000: "a.c", 0x2000: "library_x.h"}),
+        )
+        report = collect_status(cfg)  # type: ignore[arg-type]
+        assert report.module_status["TEST"] == {"PROVEN": 1, "LIBRARY": 1}
+        assert report.to_dict()["modules"]["TEST"]["PROVEN"] == 1
 
     def test_empty_blocker_not_counted(self, tmp_path: Path) -> None:
         """An empty BLOCKER metadata entry is not an unresolved blocker."""
@@ -1163,9 +1220,35 @@ class TestRenderTerminal:
         assert "SERVER" in out
         assert "server.dll" in out
         assert "EXACT" in out
-        assert "5 passed" in out
-        assert "1 failed" in out
+        assert "5 byte-matched, 1 failed" in out
         assert "3 source files" in out
+
+    def test_headline_is_byte_matched(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """One headline number (EXACT+RELOC over all functions); the bar says
+        it counts functions with source; PROVEN has its own line."""
+        from rebrew.status import _render_terminal
+
+        buf = self._capture(monkeypatch)
+        _render_terminal(self._report(unresolved_blockers=2))
+        out = buf.getvalue()
+        assert "Byte-matched  5/10 functions  (50.0%)  EXACT+RELOC" in out
+        assert "With source" in out
+        assert "6/10  (60.0%)" in out
+        assert "1 PROVEN  semantically equivalent, bytes still differ (not byte-matched)" in out
+        assert "50.0% of .text in byte-matched functions" in out
+        assert "2 blocked  unmatched, with a BLOCKER: rebrew todo -c blocked" in out
+        assert "50.0% byte-matched" in out  # panel subtitle
+        assert "reversed" not in out
+        assert "Coverage" not in out
+
+    def test_no_proven_line_without_proven(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from rebrew.status import _render_terminal
+
+        buf = self._capture(monkeypatch)
+        _render_terminal(self._report(status_counts={"EXACT": 4, "STUB": 6}))
+        out = buf.getvalue()
+        assert "semantically equivalent" not in out
+        assert "blocked" not in out
 
     def test_empty_report(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from rebrew.status import _render_terminal
@@ -1297,3 +1380,78 @@ class TestInlineTableKeyWarning:
         )
         report = collect_status(cfg)  # type: ignore[arg-type]
         assert report.inline_metadata_warning == 1
+
+
+class TestBlockerAgreementWithTodo:
+    """`rebrew status`'s blocker count and `rebrew todo` describe the same
+    functions: every function status counts as blocked is a todo item."""
+
+    def test_status_blockers_are_todo_items(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from typer.testing import CliRunner
+
+        import rebrew.naming
+        from rebrew.todo import app as todo_app
+
+        cfg = _make_cfg(tmp_path)
+        (tmp_path / "src").mkdir()
+
+        def row(status: str, blocker: str = "reg alloc", **kw: str) -> dict[str, str]:
+            return {"status": status, "blocker": blocker, "module": "TEST", "size": "80", **kw}
+
+        existing = {
+            0x1000: row("EXACT", symbol="f_exact"),
+            0x2000: row("RELOC", symbol="f_reloc"),
+            0x3000: row("PROVEN", symbol="f_proven"),
+            0x4000: row("NEAR_MATCHING", symbol="f_near"),
+            0x5000: row("STUB", symbol="f_stub"),
+            0x6000: row("SKIP", symbol="f_parked"),
+            0x7000: row("STUB", blocker="IAT thunk: not a decomp target", symbol="f_thunk"),
+            # Stale metadata: the verify cache says the bytes no longer match.
+            0x8000: row("EXACT", symbol="f_stale"),
+            0x9000: row("NEAR_MATCHING", blocker="", symbol="f_clean"),
+            0xA000: row("STUB", symbol="f_lib", marker_type="LIBRARY"),
+        }
+        entries = {
+            "0x00008000": {
+                "source_hash": "a",
+                "filepath": "f.c",
+                "mtime_ns": 0,
+                "status": "NEAR_MATCHING",
+                "va": "0x00008000",
+                "passed": False,
+                "match_percent": 90.0,
+                "delta": 8,
+            }
+        }
+        cache_dir = tmp_path / ".rebrew"
+        cache_dir.mkdir()
+        (cache_dir / "verify_cache.json").write_text(
+            json.dumps({"version": 2, "target": "test", "entries": entries}), encoding="utf-8"
+        )
+
+        def load(_cfg: object) -> tuple[list[object], dict[int, dict[str, str]], dict]:
+            return [], {va: dict(info) for va, info in existing.items()}, {}
+
+        monkeypatch.setattr(rebrew.naming, "load_data", load)
+        monkeypatch.setattr("rebrew.todo.load_data", load)
+        monkeypatch.setattr("rebrew.todo.require_config", lambda **kw: cfg)
+
+        report = collect_status(cfg)  # type: ignore[arg-type]
+        # Not counted: byte-matched (EXACT/RELOC), parked SKIP, library rows,
+        # and rows without blocker text.  The stale EXACT counts: its
+        # effective (cached) status is NEAR_MATCHING.
+        blocked = {0x3000, 0x4000, 0x5000, 0x7000, 0x8000}
+        assert report.unresolved_blockers == len(blocked)
+
+        result = CliRunner().invoke(todo_app, ["--json", "-n", "1000"])
+        assert result.exit_code == 0, result.output
+        todo_vas = {int(i["va"], 16) for i in json.loads(result.stdout)["items"]}
+        # The documented non-target (0x7000) is hidden from the default list.
+        assert blocked - {0x7000} <= todo_vas
+
+        result = CliRunner().invoke(todo_app, ["-c", "blocked", "--json", "-n", "1000"])
+        assert result.exit_code == 0, result.output
+        blocked_vas = {int(i["va"], 16) for i in json.loads(result.stdout)["items"]}
+        assert blocked_vas == blocked

@@ -203,7 +203,7 @@ the metadata `comments` store for the same address.
 | `EXACT` | Compiled bytes are identical to the original |
 | `RELOC` | Matches after masking relocation addresses |
 | `NEAR_MATCHING` | Functionally equivalent but bytes differ |
-| `PROVEN` | Semantically equivalent, proven via symbolic execution (angr + Z3) |
+| `PROVEN` | Semantically equivalent, proven via symbolic execution (angr + Z3); bytes still differ, so not matched |
 | `STUB` | Placeholder, doesn't match yet |
 | `SKIP` | User-parked ("don't touch") — neutral gate rank, status-equal with `STUB` (see `verify._STATUS_RANK`/`_STATUS_ORDER`) |
 
@@ -228,8 +228,9 @@ written by `rebrew verify`) overlays metadata because metadata statuses can be
 optimistic — a hand-set `STATUS: RELOC` may not survive a real compile.  The
 overlay rules, in order:
 
-1. **`PROVEN`** (from `rebrew prove`) is always authoritative — it is a
-   post-verify promotion, so the verify cache never downgrades it.
+1. **`PROVEN`** (from `rebrew prove`) wins over the cache: prove compiles
+   after any cached verdict.  The next `rebrew verify`/`test` replaces the
+   metadata PROVEN with the byte result.
 2. **Metadata `STUB`** stays `STUB` unless the cache holds a *more actionable*
    status (`COMPILE_ERROR`, `EXACT`, `RELOC`, `NEAR_MATCHING`, ...).  Cache
    states `SIZE_MISMATCH`, `MISSING_SIZE`, and `STUB` do **not** override —

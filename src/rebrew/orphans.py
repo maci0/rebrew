@@ -20,6 +20,11 @@ from rebrew.config import inventory_path_for
 from rebrew.errors import RebrewError
 from rebrew.workspace.status import MATCHED_STATUSES
 
+#: STATUS values whose orphaned block records earned work: a byte match,
+#: or a PROVEN result (not a match, but only a new prove run restores it).
+#: ``--prune`` holds these back unless ``--include-matched``.
+EARNED_STATUSES: tuple[str, ...] = (*MATCHED_STATUSES, "PROVEN")
+
 
 class OrphanInventoryError(RebrewError, RuntimeError):
     """Raised when the function inventory cannot be trusted for orphan safety."""
@@ -117,12 +122,12 @@ def split_prunable(
     """Split orphans into the prunable subset (held-back matched excluded).
 
     Shared by the ``orphans --prune`` path and ``verify --prune-orphans`` so
-    both hold back EXACT/RELOC/PROVEN blocks unless *include_matched*.
+    both hold back :data:`EARNED_STATUSES` blocks unless *include_matched*.
     """
     orphans = _orphan_dicts(cfg, fn_orphans, data_orphans)
     if include_matched:
         return orphans
-    return [o for o in orphans if o["status"] not in MATCHED_STATUSES]
+    return [o for o in orphans if o["status"] not in EARNED_STATUSES]
 
 
 def _orphan_dicts(
@@ -175,14 +180,14 @@ def main(
             console.print("[green]No orphaned metadata blocks.[/green]")
             return
         for o in orphans:
-            flag = " [red]matched[/red]" if o["status"] in MATCHED_STATUSES else ""
+            flag = f" [red]{o['status']}[/red]" if o["status"] in EARNED_STATUSES else ""
             console.print(f"  [yellow]orphan[/yellow] {o['module']} {o['va']} ({o['store']}){flag}")
         console.print(
             f"\n{total} orphaned block(s) — re-run with [bold]--prune[/bold] to delete them"
         )
         return
 
-    # Matched orphans (EXACT/RELOC/PROVEN with no marker) are held back —
+    # Earned orphans (EXACT/RELOC/PROVEN with no marker) are held back —
     # split_prunable is the shared gate with verify --prune-orphans.
     doomed = split_prunable(cfg, fn_orphans, data_orphans, include_matched=include_matched)
     held_count = total - len(doomed)
@@ -201,12 +206,12 @@ def main(
             return
         console.print(
             f"\n[yellow]Dry run:[/yellow] {len(doomed)} orphaned block(s) would be deleted"
-            + (f" ({held_count} matched held back)" if held_count and not include_matched else "")
+            + (f" ({held_count} earned held back)" if held_count and not include_matched else "")
         )
         return
     if held_count and not include_matched and not json_output:
         console.print(
-            f"[yellow]Holding back {held_count} matched orphan(s)[/yellow] "
+            f"[yellow]Holding back {held_count} earned orphan(s)[/yellow] "
             "(EXACT/RELOC/PROVEN with no marker — re-attach a marker or pass "
             "[bold]--include-matched[/bold])"
         )

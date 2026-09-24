@@ -39,18 +39,14 @@ _DEFAULT_CELL_BYTES = 16
 _GRID_COLUMNS = 64
 
 # Highest-priority status group per VA (first matching group wins).
-# PROVEN shares a bucket with RELOC for COVERAGE accounting only: it counts
-# as reversed work so exact+reloc+near+stub cannot undercount totalFunctions
-# and the catalog's "Matched: N/M" line stays honest.
-# This is not a byte-match claim.  PROVEN ranks BELOW RELOC in
-# verify._STATUS_RANK because a proven function compiles to different bytes
-# than the target; only EXACT/RELOC are byte-identical (see the
-# "byte_matched" field in the verify summary).  NEAR_MATCH is accepted as an
+# Only EXACT/RELOC are byte-identical; PROVEN (semantically equivalent,
+# bytes differ) has its own bucket below them.  NEAR_MATCH is accepted as an
 # alias for NEAR_MATCHING (hand-written/older inputs); the canonical spelling
 # is NEAR_MATCHING (see workspace.status.KNOWN_STATUSES).
 _STATUS_PRIORITY = (
     ("EXACT",),
-    ("RELOC", "PROVEN"),
+    ("RELOC",),
+    ("PROVEN",),
     ("NEAR_MATCHING", "NEAR_MATCH"),
     ("STUB",),
 )
@@ -59,10 +55,10 @@ _STATUS_PRIORITY = (
 def count_statuses(by_va: dict[int, list[Annotation]]) -> dict[str, int]:
     """Count function VAs by highest-priority status present.
 
-    GLOBAL/DATA markers are excluded.  Returns a dict keyed by the four
-    status groups: EXACT, RELOC (incl. PROVEN), NEAR_MATCHING, STUB.
+    GLOBAL/DATA markers are excluded.  Returns a dict keyed by the five
+    status groups: EXACT, RELOC, PROVEN, NEAR_MATCHING, STUB.
     """
-    counters = {"EXACT": 0, "RELOC": 0, "NEAR_MATCHING": 0, "STUB": 0}
+    counters = {"EXACT": 0, "RELOC": 0, "PROVEN": 0, "NEAR_MATCHING": 0, "STUB": 0}
     for vas in by_va.values():
         if not any(e.get("is_function", True) for e in vas):
             continue
@@ -759,7 +755,7 @@ def generate_data_json(
         },
         "summary": {
             "totalFunctions": emitted_fn_count,
-            # Only EXACT/RELOC/PROVEN functions are genuinely matched.  The
+            # Only byte-identical EXACT/RELOC functions are matched.  The
             # old len(fn_vas) - stub_count formula counted COMPILE_ERROR,
             # SIZE_MISMATCH and MISSING_* functions as "matched", inflating
             # the headline coverage stat for every broken/error entry.

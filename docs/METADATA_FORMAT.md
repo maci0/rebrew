@@ -91,7 +91,7 @@ note = "register allocation differs in inner loop"
 
 | Function / CLI | Purpose |
 |----------------|---------|
-| `update_source_status()` / `update_statuses_batch()` | Set STATUS (PROVEN is sticky except against byte matches) — via `rebrew test` / `rebrew verify` / `rebrew prove` (also `match`, `lint`, `binsync-import`, `intake` tag their writes) |
+| `update_source_status()` / `update_statuses_batch()` | Set STATUS through the promotion gate (SKIP stays parked) — via `rebrew test` / `rebrew verify` / `rebrew prove` (also `match`, `lint`, `binsync-import`, `intake` tag their writes) |
 | `update_field(directory, va, key, value, module)` / `remove_field(directory, va, key, module)` | Set / delete any non-STATUS field (e.g. BLOCKER) — via `rebrew blocker set` / `clear` |
 | `get_entry(directory, va, module)` | Read an entry — via `rebrew blocker show` |
 | `rebrew diff --fix-blocker` / `rebrew near-diag --fix-blocker` / `rebrew document-unmatched` | Auto-classified BLOCKER writers (same gated API underneath) |
@@ -133,7 +133,7 @@ EXACT (0) → RELOC (1) → PROVEN / STUB / NEAR_MATCHING / SIZE_MISMATCH / SKIP
 | `NEAR_MATCHING`  | Partially matching (≥60% similarity)             |
 | `RELOC`          | Byte-match after relocation masking              |
 | `EXACT`          | Byte-identical to target                         |
-| `PROVEN`         | Semantically verified via `rebrew prove` — ranks **below** `RELOC`: a proven function still compiles to differing bytes, so a byte match always overrides it |
+| `PROVEN`         | Semantically verified via `rebrew prove` — ranks **below** `RELOC`: a proven function still compiles to differing bytes, so it is not matched and the next test/verify records the byte result over it |
 | `SKIP`           | User-parked ("don't touch") — neutral gate rank, status-equal with `STUB` (`STUB`↔`SKIP` is silent in the `--compare` gate; see `verify._STATUS_RANK`/`_STATUS_ORDER`) |
 
 `rebrew test`/`rebrew verify` also persist machine verdicts outside this
@@ -141,13 +141,12 @@ lifecycle: `SIZE_MISMATCH`, `COMPILE_ERROR`, `EXTRACT_ERROR`, `MISSING_SIZE`,
 `MISSING_FILE`, `INVALID_VA` (see `rebrew.metadata.KNOWN_STATUSES`;
 `INTERNAL_ERROR` is deliberately never persisted).
 
-### PROVEN Guard
+### Promotion Gate
 
-`update_source_status()` **refuses to demote** a PROVEN function unless
-called with `force=True` — except for byte matches: `EXACT`/`RELOC` mean the
-compiler reproduced the target's bytes, which is strictly stronger than the
-semantic equivalence PROVEN records, so they promote without force.  This
-prevents accidental regression while still recording a byte-match win.
+`update_source_status()` refuses, unless called with `force=True`, to
+overwrite a parked `SKIP`, to replace a `STUB` with a placeholder
+`SIZE_MISMATCH`/`MISSING_SIZE`, or to rewrite an unchanged status.  `PROVEN`
+has no protection: a byte verdict replaces it.
 
 ## Migration
 

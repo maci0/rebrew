@@ -426,9 +426,8 @@ def _status_style(status: str) -> str:
     return {
         "EXACT": "exact",
         "RELOC": "reloc",
-        # PROVEN is a semantic promotion, not a byte match: it must not share
-        # the EXACT colour, or the graph presents proven work as byte-perfect.
-        # verify._STATUS_RANK ranks it below RELOC for the same reason.
+        # PROVEN is not a byte match: it must not share the EXACT colour, or
+        # the graph presents proven work as byte-perfect.
         "PROVEN": "proven",
         "NEAR_MATCHING": "matching",
         "STUB": "stub",
@@ -508,7 +507,8 @@ def render_dot(
     color_map = {
         "EXACT": "#2ecc71",
         "RELOC": "#3498db",
-        "PROVEN": "#2ecc71",
+        # Distinct from EXACT: PROVEN is not a byte match.
+        "PROVEN": "#1abc9c",
         "NEAR_MATCHING": "#f39c12",
         "STUB": "#e74c3c",
         "UNKNOWN": "#95a5a6",

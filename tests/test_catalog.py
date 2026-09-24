@@ -295,7 +295,7 @@ class TestGenerateDataJson:
         assert s["totalFunctions"] == 3
         assert s["exactMatches"] == 1
         assert s["stubCount"] == 1
-        # Only EXACT/RELOC/PROVEN count: COMPILE_ERROR and STUB are not matched.
+        # Only EXACT/RELOC count: COMPILE_ERROR and STUB are not matched.
         assert s["matchedFunctions"] == 1
 
 

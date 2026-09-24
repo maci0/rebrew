@@ -6,7 +6,7 @@ the already-matched source from one target into the other.
 
 Direction: the target the command runs against is the DESTINATION; ``--from``
 names the SOURCE target.  Matching is structural: the source target's matched
-functions (EXACT/RELOC/PROVEN) and the destination's unmatched functions are
+functions (EXACT/RELOC) and the destination's unmatched functions are
 signature-compared from their **target bytes** via the ``rebrew.similar``
 machinery (mnemonic histogram + call/branch agreement — no compilation
 needed, so matching works even where the toolchain image is absent).  The
@@ -51,10 +51,6 @@ if TYPE_CHECKING:
 
 
 from rebrew.cli import console
-
-#: STATUS values that count as "already matched" on the source side (and
-#: exclude a destination function from consideration).
-
 
 # ---------------------------------------------------------------------------
 # Pure matching core (testable with hand-crafted signatures)
@@ -208,7 +204,8 @@ def sizeless_dest_vas(cfg: ProjectConfig) -> tuple[dict[int, int], list[int]]:
 def matched_source_bytes(cfg_src: ProjectConfig) -> dict[int, bytes]:
     """Source side: target bytes of the source target's matched functions.
 
-    Only functions whose metadata STATUS is EXACT/RELOC/PROVEN participate —
+    Only functions whose metadata STATUS is EXACT/RELOC participate (PROVEN
+    bytes differ, so a PROVEN body is not a byte-exact donor) —
     they are the ones whose source can be trusted to reproduce.  Entries with
     no registry size fall back to the disassembly-derived extent (ret-ended
     only); ones the disassembler cannot size are skipped with the
@@ -305,7 +302,7 @@ def _in_external_range(va: int, ranges: list[tuple[int, int]]) -> bool:
 
 def unmatched_dest_bytes(cfg_dst: ProjectConfig, only_va: int | None = None) -> dict[int, bytes]:
     """Destination side: target bytes of the destination's NOT-yet-matched
-    functions (anything whose STATUS is not EXACT/RELOC/PROVEN).
+    functions (anything whose STATUS is not EXACT/RELOC, PROVEN included).
 
     Library VAs (see :func:`_library_vas`) and VAs inside the target's
     ``external_ranges`` bands are excluded: they are linked, not reversed, and
@@ -1160,7 +1157,7 @@ app = typer.Typer(
         "  rebrew cross-import --from v1.1 · · · · · · · Import v1.1's matched functions\n"
         "  rebrew cross-import --from game.exe --min-score 90\n"
         "  rebrew cross-import --from v1.1 --dry-run --json · Preview\n\n"
-        "[dim]Matches the source target's EXACT/RELOC/PROVEN functions against this\n"
+        "[dim]Matches the source target's EXACT/RELOC functions against this\n"
         "target's unmatched functions structurally (no compile needed to match);\n"
         "imported sources are verified against this target before STATUS promotion.[/dim]"
     ),

@@ -171,7 +171,7 @@ class TestQueryLayer:
         assert s is not None
         assert s["function_stats"]["total"] == 2
         assert s["function_stats"]["by_status"] == {"EXACT": 1, "STUB": 1}
-        # Headline coverage = MATCHED bytes only (EXACT/RELOC/PROVEN): the
+        # Headline coverage = MATCHED bytes only (EXACT/RELOC): the
         # EXACT function's 64B of 128B .text = 50%.  The STUB counts toward
         # identified_pct (96/128 = 75%), not matched (the old
         # coverage_pct counted every function, so an all-STUB binary showed
@@ -643,7 +643,7 @@ class TestHandle:
         assert body.index('id="globals-results"') < body.index('id="globals-show-more-wrap"')
         assert body.index('id="history-results"') < body.index('id="history-show-more-wrap"')
         assert 'clear-filters").disabled' in body
-        assert "Share of .text bytes at EXACT" in body
+        assert "Share of .text bytes in byte-matched (EXACT or RELOC) functions" in body
         assert "Retry sections" in body
         assert "Retry globals" in body
         assert "Retry history" in body

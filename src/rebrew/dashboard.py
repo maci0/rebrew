@@ -488,7 +488,7 @@ function renderSummary(s) {
     ["Functions", s.function_stats.total, null,
       "Total functions for this target"],
     ["Matched", (s.coverage_pct ?? 0).toFixed(1) + "%", null,
-      "Share of .text bytes at EXACT, RELOC, or PROVEN"],
+      "Share of .text bytes in byte-matched (EXACT or RELOC) functions"],
     ["Identified", (s.identified_pct ?? 0).toFixed(1) + "%", null,
       "Share of .text bytes covered by any known function, including stubs"],
   ];
@@ -1349,9 +1349,7 @@ class Dashboard:
                 type(stats).__name__,
             )
             return "corrupt", None
-        # Headline coverage = reversed bytes (EXACT/RELOC/PROVEN) / text size.
-        # Not byte-identity: PROVEN bytes differ from the target (verify's
-        # _STATUS_RANK puts PROVEN below RELOC for that reason). —
+        # Headline coverage = byte-matched (EXACT/RELOC) bytes / text size;
         # the old covered_bytes summed every function's size, so an all-STUB
         # binary reported ~100% "coverage".  Identified bytes
         # (incl. stubs) stays available as a separate field.

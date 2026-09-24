@@ -196,25 +196,8 @@ class TestVerifyDiff:
         assert diff["improvements"][0]["current_status"] == "EXACT"
         assert diff["regressions"] == []
 
-    def test_diff_near_matching_to_proven_is_improvement(self) -> None:
-        """PROVEN must rank as a success tier — not as unknown/FAIL."""
-        previous = {
-            "results": [
-                {"va": "0x10007010", "name": "func_near", "status": "NEAR_MATCHING", "delta": 4}
-            ]
-        }
-        current = {
-            "results": [{"va": "0x10007010", "name": "func_near", "status": "PROVEN", "delta": 4}]
-        }
-
-        diff = diff_reports(previous, current)
-        assert len(diff["improvements"]) == 1
-        assert diff["improvements"][0]["previous_status"] == "NEAR_MATCHING"
-        assert diff["improvements"][0]["current_status"] == "PROVEN"
-        assert diff["regressions"] == []
-
     def test_diff_proven_to_reloc_is_improvement(self) -> None:
-        """PROVEN ranks below RELOC: reaching a byte match is a real win."""
+        """A baseline PROVEN row ranks below RELOC: a byte match is a win."""
         previous = {
             "results": [{"va": "0x10007020", "name": "func_p", "status": "PROVEN", "delta": 2}]
         }
@@ -262,21 +245,21 @@ class TestApplyOrPreviewStatus:
     def test_dry_run_preview_skips_refused_updates(self, capsys: pytest.CaptureFixture) -> None:
         """The preview must only claim updates a real run would write.
 
-        PROVEN is sticky (never demoted) and a STUB's placeholder
-        size-mismatch keeps the user's classification — neither would be
-        written, so --dry-run must not claim them.
+        Parked SKIP never moves and a STUB's placeholder size-mismatch keeps
+        the user's classification: neither would be written, so --dry-run
+        must not claim them.
         """
         from types import SimpleNamespace
 
         from rebrew.verify import _apply_or_preview_status
 
-        proven = SimpleNamespace(module="game", va=0x10001000, status="PROVEN")
+        parked = SimpleNamespace(module="game", va=0x10001000, status="SKIP")
         stub_mm = SimpleNamespace(module="game", va=0x10002000, status="STUB")
         promotable = SimpleNamespace(module="game", va=0x10003000, status="NEAR_MATCHING")
 
-        # STUB -> SIZE_MISMATCH is refused; PROVEN -> NEAR_MATCHING is refused.
+        # STUB -> SIZE_MISMATCH is refused; SKIP -> NEAR_MATCHING is refused.
         _apply_or_preview_status(
-            [(stub_mm, "SIZE_MISMATCH", 0), (proven, "NEAR_MATCHING", 0)], object(), dry_run=True
+            [(stub_mm, "SIZE_MISMATCH", 0), (parked, "NEAR_MATCHING", 0)], object(), dry_run=True
         )
         out = capsys.readouterr()
         assert "would update" not in out.err

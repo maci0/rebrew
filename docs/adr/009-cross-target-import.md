@@ -2,7 +2,9 @@
 
 - **Status**: Amended by [ADR-022](022-shared-single-file-imports.md)
   (`--shared` stacks a marker onto one `src/shared` file instead of
-  copying; the copy import below stays the default)
+  copying; the copy import below stays the default) and
+  [ADR-024](024-proven-is-not-matched.md) (PROVEN is neither a donor nor
+  excluded as a destination)
 - **Date**: 2026-08
 
 ## Context

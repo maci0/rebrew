@@ -20,7 +20,7 @@ UNDOCUMENTED  →  STUB  →  NEAR_MATCHING  →  RELOC  →  EXACT
 | `NEAR_MATCHING` | ≥60% | `rebrew test` | ⚠️ Partial |
 | `RELOC` | 100% (masked) | `rebrew test` | ✅ Yes |
 | `EXACT` | 100% (raw) | `rebrew test` | ✅ Yes |
-| `PROVEN` | Semantic | `rebrew prove` | ✅ Yes |
+| `PROVEN` | Semantic (bytes differ) | `rebrew prove` | ❌ No (shown separately) |
 | `SKIP` | N/A | Manual (metadata) | ✅ Yes (excluded) |
 
 `rebrew test` / `rebrew verify` also persist machine verdicts — `SIZE_MISMATCH`,
@@ -156,7 +156,9 @@ size = 142
 rebrew prove src/target/calculate_physics.c   # runs angr + Z3, ~15-60s
 ```
 
-Counts as complete. Holds the same weight as EXACT or RELOC in coverage metrics.
+Not a byte match: excluded from matched counts and byte coverage, and kept
+on `rebrew todo` as improve-match work.  The next `rebrew test` / `rebrew
+verify` records the byte result over PROVEN.
 
 ---
 

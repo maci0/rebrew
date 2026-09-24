@@ -139,8 +139,8 @@ chained after `--pull`), status bookmarks (`--bookmarks`), data labels
 ## 5. Safety Guarantees
 
 - **STATUS is never synced** — it is verify-earned via `rebrew verify`, not
-  imported from shared state; a hand-claimed PROVEN is demoted with a
-  `metadata: warning`.
+  imported from shared state; any PROVEN is replaced by the next verify's
+  byte result.
 - **Metadata write-lock** — the state TOMLs and rebrew's metadata are 0444;
   direct edits fail with Permission denied, the CLI chmods/updates/re-locks.
 - **No accidental overwrites** — generic names are never pulled; meaningful

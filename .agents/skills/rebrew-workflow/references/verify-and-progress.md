@@ -27,7 +27,8 @@ rebrew text-audit --built build/bench
 rebrew verify-placement --built build/bench
 ```
 
-`rebrew verify` syncs STATUS (PROVEN preserved); exit 1 if any function fails.
+`rebrew verify` syncs STATUS (SKIP preserved, PROVEN replaced by the byte result);
+exit 1 if any function fails.  `passed` counts EXACT/RELOC only.
 `rebrew lint` exit 1 on errors. Link-only files use `// SUPPORT: <MODULE> <reason>`.
 
 ## Coverage / interchange

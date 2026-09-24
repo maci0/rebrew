@@ -7,9 +7,9 @@ modules.  These hypothesis tests pin the invariants that must hold for
 arbitrary annotation mixes:
 
 - count_statuses never loses a function VA (sum == number of function VAs)
-- statuses outside the four buckets do not create phantom counts
+- statuses outside the five buckets do not create phantom counts
 - should_promote_status is consistent with the three documented rules
-  (sticky, STUB→SIZE_MISMATCH, unchanged) and never promotes to the same
+  (parked SKIP, STUB→SIZE_MISMATCH, unchanged) and never promotes to the same
   status.
 - every KNOWN_STATUS is covered by the display + gate tables (no silent
   "unknown status" rendering or fail-open gating).
@@ -25,7 +25,6 @@ from rebrew.catalog.grid import count_statuses
 from rebrew.metadata import (
     canonical_status,
     is_status_parked,
-    is_status_sticky,
     should_promote_status,
 )
 
@@ -65,9 +64,8 @@ def annotation_list(draw: st.DrawFn) -> list[Annotation]:
 class TestCountStatusesInvariants:
     @given(annotation_list())
     def test_every_bucketed_va_counted_once(self, annos: list[Annotation]) -> None:
-        """Every function VA whose status intersects the four buckets is counted
-        exactly once; PROVEN is bucketed with RELOC (it ranks with RELOC in
-        _STATUS_RANK and is fully matched); statuses outside the buckets
+        """Every function VA whose status intersects the five buckets is counted
+        exactly once; statuses outside the buckets
         (SIZE_MISMATCH, "") legitimately fall through the breakdown (totals
         come from len(fn_vas))."""
         by_va: dict[int, list[Annotation]] = {}
@@ -88,12 +86,12 @@ class TestCountStatusesInvariants:
 
     @given(annotation_list())
     def test_no_phantom_counts(self, annos: list[Annotation]) -> None:
-        """Only the four known buckets are ever returned, each non-negative."""
+        """Only the five known buckets are ever returned, each non-negative."""
         by_va: dict[int, list[Annotation]] = {}
         for a in annos:
             by_va.setdefault(a.va, []).append(a)
         counts = count_statuses(by_va)
-        assert set(counts) == {"EXACT", "RELOC", "NEAR_MATCHING", "STUB"}
+        assert set(counts) == {"EXACT", "RELOC", "PROVEN", "NEAR_MATCHING", "STUB"}
         assert all(v >= 0 for v in counts.values())
 
     @given(annotation_list())
@@ -114,7 +112,13 @@ class TestCountStatusesInvariants:
         assert total_counted_vas <= len(by_va) - len(data_only)
 
     def test_empty(self) -> None:
-        assert count_statuses({}) == {"EXACT": 0, "RELOC": 0, "NEAR_MATCHING": 0, "STUB": 0}
+        assert count_statuses({}) == {
+            "EXACT": 0,
+            "RELOC": 0,
+            "PROVEN": 0,
+            "NEAR_MATCHING": 0,
+            "STUB": 0,
+        }
 
     def test_priority_wins(self) -> None:
         """A VA with both STUB and EXACT annotations counts once as EXACT."""
@@ -125,27 +129,21 @@ class TestCountStatusesInvariants:
             ]
         }
         counts = count_statuses(by_va)
-        assert counts == {"EXACT": 1, "RELOC": 0, "NEAR_MATCHING": 0, "STUB": 0}
+        assert counts == {"EXACT": 1, "RELOC": 0, "PROVEN": 0, "NEAR_MATCHING": 0, "STUB": 0}
 
 
 class TestShouldPromoteStatusInvariants:
     @given(st.sampled_from(_STATUSES), st.sampled_from(_STATUSES))
     def test_never_promotes_to_unchanged(self, current: str, new: str) -> None:
-        """Same-status never promotes; a sticky status is refused too, except
-        that PROVEN -> EXACT/RELOC records a real byte match."""
-        cur = canonical_status(current)
-        neu = canonical_status(new)
-        if cur == neu and not is_status_sticky(cur) and not is_status_parked(cur):
+        """Same-status never promotes."""
+        if canonical_status(current) == canonical_status(new):
             assert should_promote_status(current, new) is False
 
-    @given(st.sampled_from(_STATUSES), st.sampled_from(_STATUSES))
-    def test_sticky_current_only_promotes_to_byte_match(self, current: str, new: str) -> None:
-        """PROVEN resists every demotion except a byte match, which supersedes
-        it: EXACT/RELOC show what PROVEN could not."""
-        if is_status_sticky(current):
-            assert should_promote_status(current, new) is (
-                canonical_status(new) in ("EXACT", "RELOC")
-            )
+    @given(st.sampled_from(_STATUSES))
+    def test_proven_yields_to_any_byte_verdict(self, new: str) -> None:
+        """PROVEN is not sticky: every differing verdict replaces it."""
+        expected = canonical_status(new) != "PROVEN"
+        assert should_promote_status("PROVEN", new) is expected
 
     @given(st.sampled_from(_STATUSES), st.sampled_from(_STATUSES))
     def test_parked_current_never_promotes(self, current: str, new: str) -> None:
@@ -161,14 +159,12 @@ class TestShouldPromoteStatusInvariants:
 
     @given(st.sampled_from(_STATUSES), st.sampled_from(_STATUSES))
     def test_symmetric_under_rule_set(self, current: str, new: str) -> None:
-        """A promotion is allowed iff none of the refusal rules fire, with the
-        byte-match carve-out for sticky statuses and a hard refuse for SKIP."""
+        """A promotion is allowed iff none of the refusal rules fire, with a
+        hard refuse for SKIP."""
         cur = canonical_status(current)
         neu = canonical_status(new)
         if is_status_parked(cur):
             expected = False
-        elif is_status_sticky(cur):
-            expected = neu in ("EXACT", "RELOC")
         else:
             expected = (
                 not (cur == "STUB" and neu in ("SIZE_MISMATCH", "MISSING_SIZE")) and cur != neu
@@ -183,7 +179,7 @@ class TestShouldPromoteStatusInvariants:
     def test_near_match_alias_canonicalizes(self) -> None:
         assert canonical_status("near_match") == "NEAR_MATCHING"
         assert canonical_status("NEAR_MATCH") == "NEAR_MATCHING"
-        # Alias must promote like NEAR_MATCHING (not an unknown sticky state).
+        # Alias must promote like NEAR_MATCHING (not an unknown parked state).
         assert should_promote_status("NEAR_MATCH", "EXACT") is True
         assert should_promote_status("NEAR_MATCHING", "NEAR_MATCH") is False
 
@@ -192,7 +188,6 @@ class TestShouldPromoteStatusInvariants:
         assert should_promote_status("SKIP", "RELOC") is False
         assert should_promote_status("skip", "NEAR_MATCHING") is False
         assert is_status_parked("SKIP") is True
-        assert is_status_sticky("SKIP") is False
 
 
 class TestVocabularyCoverage:

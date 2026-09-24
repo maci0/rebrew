@@ -175,7 +175,7 @@ class TestFunctionStats:
         assert by_status["STUB"] == 1
         assert len(by_module["GAME"]) == 2
         assert covered == 64 + 32  # identified: both FUNCTION rows
-        assert matched == 64  # matched: EXACT/RELOC/PROVEN only (STUB excluded)
+        assert matched == 64  # matched: EXACT/RELOC only (STUB excluded)
         conn.close()
 
 

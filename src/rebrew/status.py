@@ -40,8 +40,8 @@ from rebrew.workspace.status import MATCHED_STATUSES
 # Data model
 # ---------------------------------------------------------------------------
 
-# Same display order as cli.DISPLAY_STATUSES (MATCHED then NEAR/STUB) so
-# PROVEN ranks with the other matched statuses, not below STUB.
+# Same display order as cli.DISPLAY_STATUSES (byte-matched, PROVEN, then
+# NEAR/STUB).
 _STATUS_ORDER = list(DISPLAY_STATUSES)
 
 
@@ -106,8 +106,9 @@ class StatusReport:
     # 0 means no issues found (or scan not yet run).
     inline_metadata_warning: int = 0
 
-    # Number of functions with a non-empty BLOCKER in rebrew-functions.toml —
-    # i.e. work that is currently understood-blocked and needs attention.
+    # Non-library functions with a non-empty BLOCKER whose effective status
+    # is neither byte-matched (EXACT/RELOC) nor parked (SKIP): the set
+    # `rebrew todo -c blocked` lists.
     unresolved_blockers: int = 0
 
     # Data verification verdicts from rebrew-data.toml STATUS (written by
@@ -126,40 +127,34 @@ class StatusReport:
 
     @property
     def matched_pct(self) -> float:
-        """Percentage of total functions that are EXACT, RELOC, or PROVEN.
+        """Percentage of total functions that are byte-matched (EXACT or RELOC).
 
-        NOT a byte-match percentage: PROVEN is a semantic promotion and its
-        bytes still differ from the target (``verify._STATUS_RANK`` puts PROVEN
-        below RELOC for exactly this reason).  Count only the EXACT and RELOC
-        entries of :attr:`status_counts`, or the byte residue itself, when the
-        question is byte-identity rather than reversed work.
+        PROVEN is excluded: it records semantic equivalence while the
+        compiled bytes still differ from the target.
         """
         if self.total_functions == 0:
             return 0.0
-        exact = self.status_counts.get("EXACT", 0)
-        reloc = self.status_counts.get("RELOC", 0)
-        proven = self.status_counts.get("PROVEN", 0)
-        return round(100.0 * (exact + reloc + proven) / self.total_functions, 1)
+        return round(100.0 * self.matched_functions / self.total_functions, 1)
+
+    @property
+    def matched_functions(self) -> int:
+        """Number of byte-matched (EXACT or RELOC) functions."""
+        return sum(self.status_counts.get(s, 0) for s in MATCHED_STATUSES)
 
     @property
     def decompiled_pct(self) -> float:
-        """Percentage of total functions matched by REAL C (naked reconstructions
-        excluded) — ct-recomp's "decompiled" vs "byte-covered via asm" split."""
+        """Percentage of total functions byte-matched by REAL C (naked
+        reconstructions excluded): ct-recomp's "decompiled" vs "byte-covered
+        via asm" split."""
         if self.total_functions == 0:
             return 0.0
-        exact = self.status_counts.get("EXACT", 0)
-        reloc = self.status_counts.get("RELOC", 0)
-        proven = self.status_counts.get("PROVEN", 0)
-        decompiled = max(0, exact + reloc + proven - self.naked_matched)
+        decompiled = max(0, self.matched_functions - self.naked_matched)
         return round(100.0 * decompiled / self.total_functions, 1)
 
     @property
     def byte_coverage_pct(self) -> float:
-        """Percentage of total binary bytes attributed to EXACT, RELOC or PROVEN.
-
-        "Attributed", not "matching": a PROVEN function's bytes differ from the
-        target, so this overstates byte-identity by exactly the PROVEN bytes.
-        """
+        """Percentage of ``.text`` bytes in byte-matched (EXACT/RELOC) functions,
+        library attributions included."""
         if self.total_text_bytes == 0:
             return 0.0
         return round(100.0 * self.matched_bytes / self.total_text_bytes, 1)
@@ -336,6 +331,22 @@ def load_verify_details(cfg: ProjectConfig) -> dict[int, tuple[str, bool]]:
     return details
 
 
+def effective_status(ann_status: str, cached: str | None) -> str:
+    """The status reported for a function: metadata *ann_status* overlaid by
+    the verify cache verdict *cached* (``None`` when uncached).
+
+    Metadata PROVEN and SKIP win: `rebrew prove` compiles after any cached
+    verdict (the next verify/test replaces PROVEN), and SKIP is user parking.
+    Metadata STUB wins over the cache's SIZE_MISMATCH/MISSING_SIZE/STUB (a
+    stub's size mismatch is expected); every other cached verdict wins.
+    """
+    if ann_status in ("PROVEN", "SKIP"):
+        return ann_status
+    if ann_status == "STUB" and cached in ("SIZE_MISMATCH", "MISSING_SIZE", "STUB"):
+        return ann_status
+    return cached or ann_status
+
+
 def _compute_text_size(cfg: ProjectConfig) -> int:
     """Compute .text section size from binary headers. Returns 0 if unavailable."""
     if not cfg.target_binary.exists():
@@ -408,9 +419,6 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
     verify_statuses = {va: status for va, (status, _eff) in verify_details.items()}
 
     # Single pass: status breakdown + byte-level coverage.
-    # Exception: PROVEN (from rebrew prove) and SKIP (user parking) are
-    # post-/non-verify classifications that take precedence over verify
-    # cache RELOC/EXACT/NEAR_MATCHING results.
     status_counts: dict[str, int] = {}
     size_by_va: dict[int, int] = {f.va: f.size for f in ghidra_funcs}
     matched_bytes = 0
@@ -422,8 +430,6 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
     unresolved_blockers = 0
     library_identified = 0
     for va, info in existing.items():
-        if info.get("blocker"):
-            unresolved_blockers += 1
         # External .lib attributions (lib-match identifications + modules
         # flagged in external_libs) are not reversing progress: count them
         # separately so the progress table answers "how much of this
@@ -441,10 +447,12 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
                     except (TypeError, ValueError):
                         size = 0
                 matched_bytes += size
+            # Bucketed as LIBRARY: a status left over from before the row was
+            # identified as library code would read as reversing progress.
             module = info.get("module") or "?"
             report.module_status.setdefault(module, {})
-            report.module_status[module][lib_status] = (
-                report.module_status[module].get(lib_status, 0) + 1
+            report.module_status[module]["LIBRARY"] = (
+                report.module_status[module].get("LIBRARY", 0) + 1
             )
             continue
         ann_status = info.get("status", "STUB")
@@ -453,20 +461,11 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
         # NAKED_REQUIRED vs PURE_C_EXACT distinction).  Detected from the
         # source annotation so the bucket survives metadata status churn.
         naked = info.get("source") == "naked"
-        # Metadata is authoritative for STUB (a stub's size mismatch is
-        # expected); only more actionable cache states (COMPILE_ERROR,
-        # matched) override.  Same rule as todo.py.
-        if ann_status in ("PROVEN", "SKIP"):
-            effective = ann_status
-        elif ann_status == "STUB":
-            cached = verify_statuses.get(va)
-            effective = (
-                cached
-                if cached and cached not in ("SIZE_MISMATCH", "MISSING_SIZE", "STUB")
-                else ann_status
-            )
-        else:
-            effective = verify_statuses.get(va, ann_status)
+        effective = effective_status(ann_status, verify_statuses.get(va))
+        # Blocked work: the function is still unmatched and not parked.
+        # `rebrew todo -c blocked` lists exactly these (same effective rule).
+        if info.get("blocker") and effective not in (*MATCHED_STATUSES, "SKIP"):
+            unresolved_blockers += 1
         if effective != ann_status:
             verify_overrides += 1
         if effective == "MISSING_SIZE":
@@ -543,7 +542,7 @@ def _render_terminal(report: StatusReport) -> None:
         header_parts.append(f"[dim]{report.binary}[/dim]")
     header_parts.append(f"[dim]({report.arch})[/dim]")
 
-    # --- Coverage bar ---
+    # --- Headline + source bar ---
     bar_width = 40
     filled = int(bar_width * report.coverage_pct / 100) if report.total_functions > 0 else 0
 
@@ -553,13 +552,20 @@ def _render_terminal(report: StatusReport) -> None:
     matching = report.status_counts.get("NEAR_MATCHING", 0)
     stub = report.status_counts.get("STUB", 0)
 
+    headline = Text()
+    headline.append("  Byte-matched  ", style="bold")
+    headline.append(
+        f"{report.matched_functions}/{report.total_functions} functions  ({report.matched_pct}%)",
+        style="bold green",
+    )
+    headline.append("  EXACT+RELOC", style="dim")
+
     bar_text = Text()
-    bar_text.append("  Coverage  ", style="bold")
+    bar_text.append("  With source   ", style="bold")
     bar_text.append("█" * filled, style="green")
     bar_text.append("░" * (bar_width - filled), style="dim")
     bar_text.append(
         f"  {report.covered_functions}/{report.total_functions}  ({report.coverage_pct}%)",
-        style="bold",
     )
 
     # --- Status table ---
@@ -608,13 +614,11 @@ def _render_terminal(report: StatusReport) -> None:
     # --- Summary lines ---
     summary_lines: list[str] = []
 
-    # Matched percentage
-    summary_lines.append(
-        f"  [green bold]{report.matched_pct}%[/green bold] reversed"
-        f"  [dim]({exact + reloc + proven} EXACT+RELOC+PROVEN"
-        f" / {report.total_functions} total; PROVEN is semantic, its bytes"
-        f" still differ from the target)[/dim]"
-    )
+    if proven:
+        summary_lines.append(
+            f"  [magenta]{proven} PROVEN[/magenta]  [dim]semantically equivalent, bytes still"
+            " differ (not byte-matched)[/dim]"
+        )
 
     # Naked reconstructions: byte-exact via generated asm, NOT decompiled.
     # The honest split (ct-recomp's NAKED vs PURE_C_EXACT): decompiled_pct
@@ -629,7 +633,7 @@ def _render_terminal(report: StatusReport) -> None:
     # Byte coverage
     if report.total_text_bytes > 0:
         summary_lines.append(
-            f"  [cyan]{report.byte_coverage_pct}%[/cyan] .text bytes covered"
+            f"  [cyan]{report.byte_coverage_pct}%[/cyan] of .text in byte-matched functions"
             f"  [dim]({report.matched_bytes:,}B / {report.total_text_bytes:,}B)[/dim]"
         )
 
@@ -641,11 +645,10 @@ def _render_terminal(report: StatusReport) -> None:
             "(lib-match attributions, not reversing progress)"
         )
 
-    # Unresolved BLOCKERs (understood-blocked work needing attention)
     if report.unresolved_blockers:
         summary_lines.append(
-            f"  [yellow]{report.unresolved_blockers} unresolved BLOCKER(s)[/yellow]"
-            " — see rebrew todo / BLOCKER metadata"
+            f"  [yellow]{report.unresolved_blockers} blocked[/yellow]"
+            "  [dim]unmatched, with a BLOCKER: rebrew todo -c blocked[/dim]"
         )
 
     # Data verification verdicts (from `verify --data`)
@@ -670,8 +673,8 @@ def _render_terminal(report: StatusReport) -> None:
         verify_color = "green" if v.failed == 0 else "yellow"
         stale_suffix = " [yellow](stale — run rebrew verify)[/yellow]" if v.stale else ""
         summary_lines.append(
-            f"  Last verify: [{verify_color}]{v.passed} passed[/{verify_color}]"
-            f"  [red]{v.failed} failed[/red]"
+            f"  Last verify: [{verify_color}]{v.passed} byte-matched[/{verify_color}]"
+            f", [red]{v.failed} failed[/red]"
             f"  [dim]({v.timestamp})[/dim]{stale_suffix}"
         )
         # Effective-status overlay: verify results override metadata statuses.
@@ -703,6 +706,7 @@ def _render_terminal(report: StatusReport) -> None:
     from rich.console import Group
 
     panel_content = Group(
+        headline,
         bar_text,
         Text(""),  # spacer
         status_table,
@@ -716,7 +720,7 @@ def _render_terminal(report: StatusReport) -> None:
         subtitle=(
             f"[green]{exact}E[/green] [cyan]{reloc}R[/cyan]"
             f" [magenta]{proven}P[/magenta] [yellow]{matching}M[/yellow]"
-            f" [dim]{stub}S[/dim] → [bold]{report.matched_pct}%[/bold]"
+            f" [dim]{stub}S[/dim] → [bold]{report.matched_pct}% byte-matched[/bold]"
         ),
         border_style="blue",
     )

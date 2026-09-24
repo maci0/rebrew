@@ -140,8 +140,8 @@ and fallback size come from it — same rule as diff/match/prove). Pass
 `prove`/`verify --dry-run` preview STATUS/cache writes.
 
 `rebrew test` syncs STATUS (`--no-promote` skips): EXACT/RELOC update + clear
-BLOCKER; NEAR_MATCHING (≥60%) updates; STUB (<60%) demotes; PROVEN is sticky
-(`--force-status` to demote). Exit: `0` EXACT/RELOC · `1` NEAR/STUB · `2` compile/extract error.
+BLOCKER; NEAR_MATCHING (≥60%) updates; STUB (<60%) demotes; PROVEN is replaced
+by the byte result like any status; SKIP stays parked (`--force-status` unparks). Exit: `0` EXACT/RELOC · `1` NEAR/STUB · `2` compile/extract error.
 
 For a byte diff of the current state:
 

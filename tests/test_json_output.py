@@ -319,7 +319,6 @@ class TestRebrewTestBatchJson:
             "failed": 0,
             "exact": 0,
             "reloc": 0,
-            "proven": 0,
             "stub": 0,
             "matching": 0,
             "size_mismatch": 0,
@@ -1121,9 +1120,12 @@ class TestRebrewTestBatchCachePatch:
 
 
 class TestForceStatus:
-    """rebrew test --force-status deliberately demotes a stale PROVEN."""
+    """STATUS writes from rebrew test: PROVEN yields to the byte verdict,
+    parked SKIP needs --force-status."""
 
-    def _patch(self, monkeypatch: Any, tmp_path: Path, result_status: str) -> SimpleNamespace:
+    def _patch(
+        self, monkeypatch: Any, tmp_path: Path, result_status: str, seed: str = "PROVEN"
+    ) -> SimpleNamespace:
         from rebrew.annotation import Annotation
         from rebrew.compile import CompareResult
         from rebrew.metadata import update_source_status
@@ -1142,8 +1144,7 @@ class TestForceStatus:
             "// FUNCTION: SERVER 0x1000\nint __cdecl my_func(void) { return 0; }\n",
             encoding="utf-8",
         )
-        # Seed a PROVEN metadata entry — the stale-overlay case.
-        update_source_status(cfg.metadata_dir, "PROVEN", "SERVER", 0x1000)
+        update_source_status(cfg.metadata_dir, seed, "SERVER", 0x1000)
 
         monkeypatch.setattr("rebrew.test.require_config", lambda target=None, json_mode=False: cfg)
         monkeypatch.setattr("rebrew.test.resolve_source_arg", lambda cfg, s: s)
@@ -1154,7 +1155,7 @@ class TestForceStatus:
             name="my_func",
             symbol="_my_func",
             module="SERVER",
-            status="PROVEN",
+            status=seed,
             size=3,
             marker_type="FUNCTION",
             filepath="my_func.c",
@@ -1175,47 +1176,35 @@ class TestForceStatus:
         monkeypatch.setattr("rebrew.test._patch_verify_cache", lambda *a, **k: None)
         return cfg
 
-    def test_force_status_demotes_stale_proven(self, tmp_path: Path, monkeypatch: Any) -> None:
+    @pytest.mark.parametrize("byte_status", ["STUB", "NEAR_MATCHING"])
+    def test_proven_demoted_without_force(
+        self, tmp_path: Path, monkeypatch: Any, byte_status: str
+    ) -> None:
         from typer.testing import CliRunner
 
         from rebrew.metadata import get_entry
         from rebrew.test import app
 
-        cfg = self._patch(monkeypatch, tmp_path, "STUB")
-        src = cfg.reversed_dir / "my_func.c"
-        result = CliRunner().invoke(
-            app, ["--va", "0x1000", "--size", "3", "--force-status", "--json", str(src)]
-        )
-        assert result.exit_code == 1  # STUB mismatch
-        assert get_entry(cfg.metadata_dir, 0x1000, "SERVER").get("status") == "STUB"
-
-    def test_without_force_proven_stays(self, tmp_path: Path, monkeypatch: Any) -> None:
-        from typer.testing import CliRunner
-
-        from rebrew.metadata import get_entry
-        from rebrew.test import app
-
-        cfg = self._patch(monkeypatch, tmp_path, "STUB")
+        cfg = self._patch(monkeypatch, tmp_path, byte_status)
         src = cfg.reversed_dir / "my_func.c"
         result = CliRunner().invoke(app, ["--va", "0x1000", "--size", "3", "--json", str(src)])
-        # PROVEN is sticky — without --force-status the stale entry is kept,
-        # but the unbacked claim is reported, as verify does.
-        assert get_entry(cfg.metadata_dir, 0x1000, "SERVER").get("status") == "PROVEN"
-        assert "metadata: warning:" in result.output
-        assert "compiled: STUB" in result.output
-
-    def test_proven_over_near_matching_no_warning(self, tmp_path: Path, monkeypatch: Any) -> None:
-        from typer.testing import CliRunner
-
-        from rebrew.metadata import get_entry
-        from rebrew.test import app
-
-        cfg = self._patch(monkeypatch, tmp_path, "NEAR_MATCHING")
-        src = cfg.reversed_dir / "my_func.c"
-        result = CliRunner().invoke(app, ["--va", "0x1000", "--size", "3", "--json", str(src)])
-        # NEAR_MATCHING is a byte state a proven function legitimately produces.
-        assert get_entry(cfg.metadata_dir, 0x1000, "SERVER").get("status") == "PROVEN"
+        assert result.exit_code == 1
+        assert get_entry(cfg.metadata_dir, 0x1000, "SERVER").get("status") == byte_status
         assert "metadata: warning:" not in result.output
+
+    def test_force_status_unparks_skip(self, tmp_path: Path, monkeypatch: Any) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.metadata import get_entry
+        from rebrew.test import app
+
+        cfg = self._patch(monkeypatch, tmp_path, "STUB", seed="SKIP")
+        src = cfg.reversed_dir / "my_func.c"
+        args = ["--va", "0x1000", "--size", "3", "--json", str(src)]
+        CliRunner().invoke(app, args)
+        assert get_entry(cfg.metadata_dir, 0x1000, "SERVER").get("status") == "SKIP"
+        CliRunner().invoke(app, ["--force-status", *args])
+        assert get_entry(cfg.metadata_dir, 0x1000, "SERVER").get("status") == "STUB"
 
     def test_force_status_rejected_in_batch(self, tmp_path: Path, monkeypatch: Any) -> None:
         from typer.testing import CliRunner

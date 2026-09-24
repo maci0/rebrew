@@ -174,7 +174,7 @@ try:
     result = compile_and_compare(cfg, source_path, symbol, target_bytes, cflags)
 except RebrewError as exc:
     if exc.retryable:
-        ...   # transient docker/daemon blip or transport hiccup
+        ...  # transient docker/daemon blip or transport hiccup
     raise
 ```
 
@@ -276,7 +276,7 @@ byte result with a `metadata:` warning.
 |---|---|---|
 | `EXACT` | Compiled bytes identical to the target | `rebrew verify` — every non-relocation byte matches |
 | `RELOC` | Identical except relocation slots | `rebrew verify` — all non-reloc bytes match and the reloc slots (linker-filled symbol addresses) validate against the catalog |
-| `PROVEN` | Semantically equivalent despite structurally different bytes | `rebrew prove` (symbolic equivalence via angr/Z3). Byte compare cannot produce it, so verify preserves it; a genuine byte match still upgrades it to `EXACT` / `RELOC` (strictly stronger evidence), and an unbacked claim is demoted with a `metadata:` warning |
+| `PROVEN` | Semantically equivalent despite structurally different bytes | `rebrew prove` (symbolic equivalence via angr/Z3). Not a byte match and not protected: the next `rebrew test` / `rebrew verify` records the byte result (`NEAR_MATCHING`, `EXACT`, …) over it |
 | `NEAR_MATCHING` | Close but not byte-identical — at least 60 % of bytes match | `rebrew verify` — typically register allocation, instruction scheduling, or a flag variant; try `rebrew match --flag-sweep` |
 | `STUB` | Below the 60 % near-match threshold — the skeleton was never implemented, or control flow diverges | `rebrew verify`, or manual classification for known-unimplemented code |
 | `SKIP` | Intentionally not worked on (data, out of scope) | manual classification |
@@ -288,8 +288,8 @@ byte result with a `metadata:` warning.
 
 Typical progress runs `STUB` → `NEAR_MATCHING` → `EXACT` / `RELOC`, with
 `PROVEN` for code that is semantically correct but structurally different.
-`EXACT`, `RELOC`, and `PROVEN` count as matched work (`rebrew status` and
-`rebrew todo` summarize the rest).  Source-marker mechanics live in
+Only `EXACT` and `RELOC` count as matched; `PROVEN` functions stay on
+`rebrew todo` as improve-match work (`rebrew status` summarizes the rest).  Source-marker mechanics live in
 [docs/ANNOTATIONS.md](https://github.com/maci0/rebrew/blob/main/docs/ANNOTATIONS.md).
 
 ## Supported Platforms
