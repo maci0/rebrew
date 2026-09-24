@@ -702,8 +702,8 @@ def build_db(
         conn = sqlite3.connect(db_path, timeout=_SQLITE_TIMEOUT_SECONDS)
         c: sqlite3.Cursor = conn.cursor()
         # WAL + relaxed sync trade durability for throughput on a rebuildable
-        # cache DB; foreign_keys=ON enforces cells/section_cells_json → sections
-        # cascades on scoped target deletes.
+        # cache DB; foreign_keys=ON enforces cells/section_cells_json/section_cell_stats
+        # → sections cascades on scoped target deletes.
         c.execute("PRAGMA foreign_keys=ON")
         c.execute("PRAGMA journal_mode=WAL")
         c.execute("PRAGMA synchronous=NORMAL")
@@ -1055,19 +1055,22 @@ def build_db(
             CREATE TABLE {SECTION_CELL_STATS_TABLE} (
                 target TEXT NOT NULL,
                 section_name TEXT NOT NULL,
-                total_cells INTEGER NOT NULL DEFAULT 0,
-                exact_count INTEGER,
-                reloc_count INTEGER,
-                near_match_count INTEGER,
-                stub_count INTEGER,
-                padding_count INTEGER,
-                data_count INTEGER,
-                thunk_count INTEGER,
-                none_count INTEGER,
-                proven_count INTEGER,
-                size_mismatch_count INTEGER,
-                other_count INTEGER,
-                PRIMARY KEY (target, section_name)
+                total_cells INTEGER NOT NULL DEFAULT 0 CHECK (total_cells >= 0),
+                exact_count INTEGER NOT NULL DEFAULT 0 CHECK (exact_count >= 0),
+                reloc_count INTEGER NOT NULL DEFAULT 0 CHECK (reloc_count >= 0),
+                near_match_count INTEGER NOT NULL DEFAULT 0 CHECK (near_match_count >= 0),
+                stub_count INTEGER NOT NULL DEFAULT 0 CHECK (stub_count >= 0),
+                padding_count INTEGER NOT NULL DEFAULT 0 CHECK (padding_count >= 0),
+                data_count INTEGER NOT NULL DEFAULT 0 CHECK (data_count >= 0),
+                thunk_count INTEGER NOT NULL DEFAULT 0 CHECK (thunk_count >= 0),
+                none_count INTEGER NOT NULL DEFAULT 0 CHECK (none_count >= 0),
+                proven_count INTEGER NOT NULL DEFAULT 0 CHECK (proven_count >= 0),
+                size_mismatch_count INTEGER NOT NULL DEFAULT 0 CHECK (size_mismatch_count >= 0),
+                other_count INTEGER NOT NULL DEFAULT 0 CHECK (other_count >= 0),
+                PRIMARY KEY (target, section_name),
+                FOREIGN KEY (target, section_name)
+                    REFERENCES sections(target, name)
+                    ON DELETE CASCADE
             )
         """)
 
@@ -1584,10 +1587,6 @@ def build_db(
         # scoped --target rebuild of an older DB that lacked the table, which
         # would otherwise leave sibling targets with no cached row and force
         # readers into a per-target "is it materialized?" guess.
-        #
-        # The DELETE prunes sections/targets that no longer exist; without it a
-        # removed section would keep serving its stale cells.
-        c.execute(f"DELETE FROM {SECTION_CELLS_TABLE}")
         c.executemany(
             f"INSERT INTO {SECTION_CELLS_TABLE} (target, section_name, {SECTION_CELLS_COLUMN}) "
             "VALUES (?, ?, ?)",

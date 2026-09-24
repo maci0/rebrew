@@ -622,6 +622,30 @@ binary = "test.exe"
         assert "CREATE TABLE section_cell_stats" in ddl
         conn.close()
 
+    def test_section_cell_stats_constraints(self, project_root: Path) -> None:
+        """section_cell_stats count columns must be non-negative and not null."""
+        build_db(project_root)
+        conn = sqlite3.connect(project_root / "db" / "coverage.db")
+        c = conn.cursor()
+        c.execute("SELECT sql FROM sqlite_master WHERE name = 'section_cell_stats'")
+        ddl = c.fetchone()[0]
+        assert "FOREIGN KEY (target, section_name)" in ddl
+        assert "REFERENCES sections(target, name)" in ddl
+        assert "ON DELETE CASCADE" in ddl
+        assert "total_cells >= 0" in ddl
+        assert "exact_count >= 0" in ddl
+        with pytest.raises(sqlite3.IntegrityError):
+            c.execute(
+                "INSERT INTO section_cell_stats (target, section_name, total_cells) "
+                "VALUES ('testbin', '.text', -1)"
+            )
+        with pytest.raises(sqlite3.IntegrityError):
+            c.execute(
+                "INSERT INTO section_cell_stats (target, section_name, exact_count) "
+                "VALUES ('testbin', '.text', -5)"
+            )
+        conn.close()
+
     def test_functions_status_has_check(self, project_root: Path) -> None:
         """functions.status must reject values outside KNOWN_STATUSES ∪ UNKNOWN."""
         build_db(project_root)
@@ -1223,6 +1247,18 @@ binary = "test.exe"
         conn = sqlite3.connect(project_root / "db" / "coverage.db")
         c = conn.cursor()
         c.execute(f"PRAGMA foreign_key_list({SECTION_CELLS_TABLE})")
+        rows = c.fetchall()
+        conn.close()
+        assert any(row[2] == "sections" for row in rows)
+
+    def test_section_cell_stats_references_sections(self, project_root: Path) -> None:
+        """Derived cell stats must CASCADE with sections like cells and section_cells_json do."""
+        from rebrew.build_db import SECTION_CELL_STATS_TABLE
+
+        build_db(project_root)
+        conn = sqlite3.connect(project_root / "db" / "coverage.db")
+        c = conn.cursor()
+        c.execute(f"PRAGMA foreign_key_list({SECTION_CELL_STATS_TABLE})")
         rows = c.fetchall()
         conn.close()
         assert any(row[2] == "sections" for row in rows)
