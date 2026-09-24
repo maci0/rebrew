@@ -348,6 +348,19 @@ class TestPackagedDataFiles:
         assert (PKG / "matcher" / "AGENTS.md").is_file()
         assert (PKG / "catalog" / "AGENTS.md").is_file()
 
+    def test_no_library_modules_have_shebangs(self) -> None:
+        """Library modules in src/rebrew must not contain shebang lines.
+
+        Installed entry point wrappers provide shebangs; in-package shebangs
+        trigger distro package linter warnings (non-executable-script).
+        """
+        shebang_files = [
+            p.relative_to(PKG).as_posix()
+            for p in PKG.rglob("*.py")
+            if p.read_text(encoding="utf-8").startswith("#!")
+        ]
+        assert shebang_files == [], f"library modules have shebangs: {shebang_files}"
+
 
 class TestSdistManifest:
     def test_prunes_dev_trees(self) -> None:
@@ -431,6 +444,13 @@ class TestSdistManifest:
                 assert raw is not None
                 body = raw.read().decode()
             assert body.strip() == "[egg_info]\ntag_build = \ntag_date = 0"
+        # Normalization must ensure all files have mode 0644 (no spurious executable bits).
+        from tools.normalize_sdist import normalize
+
+        normalize(sdists[0], 0)
+        with tarfile.open(sdists[0]) as tf:
+            exec_files = [m.name for m in tf.getmembers() if m.isfile() and (m.mode & 0o111)]
+        assert exec_files == [], f"normalized sdist has executable files: {exec_files}"
 
     def test_built_wheel_ships_skill_tree_and_typing_marker(self, tmp_path: Path) -> None:
         """Wheel must carry every on-disk skill asset plus Typing :: Typed."""
@@ -478,3 +498,7 @@ class TestSdistManifest:
         assert any(n.endswith("/licenses/LICENSE") for n in names)
         assert "rebrew/matcher/AGENTS.md" not in names
         assert "rebrew/catalog/AGENTS.md" not in names
+        exec_wheel_files = [
+            info.filename for info in zf.infolist() if (info.external_attr >> 16) & 0o111
+        ]
+        assert exec_wheel_files == [], f"wheel has executable files: {exec_wheel_files}"

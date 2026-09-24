@@ -4,7 +4,7 @@ setuptools copies each file's mtime, mode, and owner into the sdist tar, so
 two checkouts of one commit (different clone time, umask, or user) yield
 different archives.  This rewrites the ``.tar.gz`` in place: entries sorted
 by name, mtime set to ``SOURCE_DATE_EPOCH``, owner ``0:0`` with no names,
-mode ``0644`` (``0755`` for directories and executables), and a gzip header
+mode ``0644`` (``0755`` for directories), and a gzip header
 with no timestamp or file name.  File contents are untouched.
 
 Usage::
@@ -19,7 +19,6 @@ import argparse
 import gzip
 import io
 import os
-import stat
 import tarfile
 from pathlib import Path
 
@@ -40,8 +39,7 @@ def normalize(path: Path, epoch: int) -> None:
             member.mtime = epoch
             member.uid = member.gid = 0
             member.uname = member.gname = ""
-            executable = member.isdir() or bool(member.mode & stat.S_IXUSR)
-            member.mode = _EXEC_MODE if executable else _FILE_MODE
+            member.mode = _EXEC_MODE if member.isdir() else _FILE_MODE
             member.pax_headers = {}
             dst.addfile(member, io.BytesIO(data) if data is not None else None)
     with path.open("wb") as raw, gzip.GzipFile(filename="", fileobj=raw, mode="wb", mtime=0) as gz:

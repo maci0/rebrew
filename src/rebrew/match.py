@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Genetic Algorithm engine for binary matching — single-function and batch modes.
 
 Compile C source, compare object bytes against a target function, and
