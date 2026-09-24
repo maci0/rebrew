@@ -243,7 +243,7 @@ def classify_all(
 
 
 _AUTO_STUB_RE = re.compile(
-    r"^(?://|/\*) STUB: ([A-Za-z0-9_]+) 0x([0-9a-fA-F]{8})(?: \*)?\n\nvoid fcn_\2\(void\)\n\{"
+    r"^(?://|/\*) STUB: ([A-Za-z0-9_]+) 0x([0-9a-fA-F]{8})(?: \*/)?\n\nvoid fcn_\2\(void\)\n\{"
 )
 
 
@@ -326,7 +326,7 @@ def _link_toolchain(project: Path, profile: str) -> str | None:
     tools = project / "tools"
     tools.mkdir(exist_ok=True)
     link = tools / link_name
-    if link.exists():
+    if link.is_symlink() or link.exists():
         return str(link)
     if REPO_TOOLS is None:
         return None
@@ -334,6 +334,7 @@ def _link_toolchain(project: Path, profile: str) -> str | None:
     if not src.exists():
         return None
     try:
+        link.parent.mkdir(parents=True, exist_ok=True)
         link.symlink_to(src, target_is_directory=True)
         return str(link)
     except OSError:

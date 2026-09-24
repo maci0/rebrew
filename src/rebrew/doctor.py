@@ -1219,12 +1219,13 @@ def main(
             from rebrew.utils import atomic_write_text
 
             content = toml_path.read_text(encoding="utf-8-sig")
-            new_content = re.sub(
-                r'(?m)^(\s*runner\s*=\s*)"[^"]*"',
-                r'\1"tools/wibo"',
-                content,
-            )
-            if new_content == content:
+            if re.search(r"(?m)^\s*runner\s*=", content):
+                new_content = re.sub(
+                    r'(?m)^(\s*runner\s*=\s*)"[^"]*"',
+                    r'\1"tools/wibo"',
+                    content,
+                )
+            else:
                 new_content = re.sub(
                     r"(?m)^(\[compiler\]\s*\n)",
                     r'\1runner = "tools/wibo"\n',

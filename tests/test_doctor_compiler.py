@@ -393,7 +393,15 @@ class TestDoctorCli:
         )
         result = CliRunner().invoke(app, ["--install-wibo"])
         assert result.exit_code == 0
-        assert 'runner = "tools/wibo"' in toml.read_text(encoding="utf-8")
+        text1 = toml.read_text(encoding="utf-8")
+        assert 'runner = "tools/wibo"' in text1
+        assert text1.count('runner = "tools/wibo"') == 1
+
+        # Re-running must be an idempotent no-op (no duplicate runner keys)
+        result2 = CliRunner().invoke(app, ["--install-wibo"])
+        assert result2.exit_code == 0
+        text2 = toml.read_text(encoding="utf-8")
+        assert text2 == text1
 
     def test_install_wibo_skips_rewrite_for_docker_backed(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

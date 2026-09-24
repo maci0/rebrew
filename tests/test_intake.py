@@ -508,3 +508,69 @@ class TestNativeFormatAndArch:
         assert _native_format_and_arch(self.FIXTURES / "mini_pe.exe") is None
         assert _native_format_and_arch(junk) is None
         assert _native_format_and_arch(tmp_path / "missing.exe") is None
+
+
+class TestPruneStaleStubs:
+    """prune_stale_stubs cleans up both line-comment and block-comment stubs."""
+
+    def test_prunes_line_and_block_stubs(self, tmp_path: Path) -> None:
+        from rebrew.intake import prune_stale_stubs
+        from rebrew.metadata import set_fields_batch
+
+        src_dir = tmp_path / "src" / "target"
+        src_dir.mkdir(parents=True)
+        meta_dir = tmp_path / "src"
+
+        (src_dir / "fcn_00401000.c").write_text(
+            "// STUB: TARGET 0x00401000\n\nvoid fcn_00401000(void)\n{\n    /* reason */\n}\n"
+        )
+        (src_dir / "fcn_00401010.c").write_text(
+            "// STUB: TARGET 0x00401010\n\nvoid fcn_00401010(void)\n{\n    /* reason */\n}\n"
+        )
+        (src_dir / "fcn_00401020.c").write_text(
+            "/* STUB: TARGET 0x00401020 */\n\nvoid fcn_00401020(void)\n{\n    /* reason */\n}\n"
+        )
+        set_fields_batch(
+            meta_dir,
+            [
+                {"module": "TARGET", "va": 0x401000, "fields": {"blocker": "reason"}},
+                {"module": "TARGET", "va": 0x401010, "fields": {"blocker": "reason"}},
+                {"module": "TARGET", "va": 0x401020, "fields": {"blocker": "reason"}},
+            ],
+        )
+        funcs = [(0x401000, 32, "valid_fn")]
+        pruned = prune_stale_stubs(tmp_path, src_dir, "TARGET", funcs, metadata_dir=meta_dir)
+        assert pruned == 2
+        assert (src_dir / "fcn_00401000.c").exists()
+        assert not (src_dir / "fcn_00401010.c").exists()
+        assert not (src_dir / "fcn_00401020.c").exists()
+
+        # Re-running prune_stale_stubs is idempotent (prunes 0, touches nothing)
+        assert prune_stale_stubs(tmp_path, src_dir, "TARGET", funcs, metadata_dir=meta_dir) == 0
+
+
+class TestLinkToolchain:
+    """_link_toolchain creates parent directories and is safe to re-run."""
+
+    def test_link_toolchain_creates_parent_and_is_idempotent(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from rebrew.intake import _link_toolchain
+
+        tools_src = tmp_path / "repo_tools" / "msvc" / "6.0-win32"
+        tools_src.mkdir(parents=True)
+        monkeypatch.setattr("rebrew.intake.REPO_TOOLS", tmp_path / "repo_tools")
+
+        project = tmp_path / "project"
+        project.mkdir()
+
+        # First run: should create tools/msvc/6.0-win32 symlink
+        linked1 = _link_toolchain(project, "msvc-6.0")
+        assert linked1 is not None
+        link_path = Path(linked1)
+        assert link_path.is_symlink()
+        assert link_path.resolve() == tools_src.resolve()
+
+        # Re-running is idempotent: returns same link without error
+        linked2 = _link_toolchain(project, "msvc-6.0")
+        assert linked2 == linked1
