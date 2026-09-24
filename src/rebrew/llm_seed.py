@@ -26,16 +26,14 @@ so ``--seed-llm --watch`` cannot bill unboundedly.  Rate limits / overload
 
 from __future__ import annotations
 
-import ipaddress
 import json
 import logging
 import os
 import re
 import threading
 from typing import Any
-from urllib.parse import urlparse
 
-from rebrew.config import validate_http_url
+from rebrew.config import is_key_safe_endpoint, validate_http_url, validate_llm_model
 
 # Cost / injection caps at the single LLM call site.
 _MAX_SOURCE_CHARS = 16_000  # ~4k tokens of C; larger functions truncate
@@ -171,16 +169,7 @@ def llm_config(cfg: Any) -> dict[str, str] | None:
 
 def _key_safe_endpoint(endpoint: str) -> bool:
     """True when a bearer key may be sent to *endpoint*: https, or http to loopback."""
-    parsed = urlparse(endpoint)
-    if parsed.scheme == "https":
-        return True
-    host = parsed.hostname or ""
-    if host == "localhost":
-        return True
-    try:
-        return ipaddress.ip_address(host).is_loopback
-    except ValueError:
-        return False
+    return is_key_safe_endpoint(endpoint)
 
 
 def _max_requests() -> int:
@@ -234,11 +223,7 @@ def _resolve_model(cfg: Any) -> str:
         model = os.environ.get("REBREW_LLM_MODEL", "").strip()
     if not model:
         return _DEFAULT_MODEL
-    if model.lower() in _UNPINNED_MODELS:
-        raise ValueError(f"LLM model {model!r} is an unpinned alias; set a dated model id")
-    if not _MODEL_ID_RE.fullmatch(model):
-        raise ValueError(f"LLM model {model!r} has invalid characters or length")
-    return model
+    return validate_llm_model(model)
 
 
 #: ```c fenced block — code may start on the fence line itself

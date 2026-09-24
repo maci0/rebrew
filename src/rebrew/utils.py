@@ -57,6 +57,9 @@ _SOURCE_TEXT_MEMO_MAX = 512
 _SOURCE_TEXT_MEMO_LOCK = threading.Lock()
 
 
+_CONTAINER_RUNTIME_RE = re.compile(r"^[a-zA-Z0-9_\-\./]+$")
+
+
 def container_runtime() -> str:
     """The container runtime used for docker-shipped tools.
 
@@ -66,7 +69,10 @@ def container_runtime() -> str:
     are treated as unset (``os.environ.get`` alone would return ``""`` and
     break every ``docker``/``podman`` invocation).
     """
-    return os.environ.get("REBREW_CONTAINER_RUNTIME", "docker").strip() or "docker"
+    runtime = os.environ.get("REBREW_CONTAINER_RUNTIME", "docker").strip() or "docker"
+    if not _CONTAINER_RUNTIME_RE.fullmatch(runtime):
+        raise ValueError(f"REBREW_CONTAINER_RUNTIME={runtime!r} contains invalid characters")
+    return runtime
 
 
 def find_install_tool(rel: str | Path) -> Path | None:

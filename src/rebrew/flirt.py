@@ -34,7 +34,7 @@ def _flirt_sigs_repo() -> Path:
     rebrew-toolchains; overridable via REBREW_FLIRT_SIGS_DIR.  Project-specific
     sigs stay in the project's own ``flirt_sigs/`` and are merged on top.
     """
-    env = os.environ.get("REBREW_FLIRT_SIGS_DIR")
+    env = os.environ.get("REBREW_FLIRT_SIGS_DIR", "").strip()
     if env:
         return Path(env)
     return Path(__file__).resolve().parents[2].parent / "rebrew-flirt-sigs"

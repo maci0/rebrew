@@ -28,7 +28,7 @@ def toolchains_repo() -> Path:
     :func:`rebrew.toolchain.require_toolchains_repo`, which raises the
     actionable error.
     """
-    env = os.environ.get("REBREW_TOOLCHAINS_DIR")
+    env = os.environ.get("REBREW_TOOLCHAINS_DIR", "").strip()
     if env:
         return Path(env)
     for parent in Path(__file__).resolve().parents:

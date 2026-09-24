@@ -45,6 +45,12 @@ def test_container_runtime_honors_podman(monkeypatch: pytest.MonkeyPatch) -> Non
     assert container_runtime() == "podman"
 
 
+def test_container_runtime_invalid_chars_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("REBREW_CONTAINER_RUNTIME", "docker; rm -rf /")
+    with pytest.raises(ValueError, match="contains invalid characters"):
+        container_runtime()
+
+
 def test_atomic_write_text_success(tmp_path: Path) -> None:
     f = tmp_path / "test.txt"
     atomic_write_text(f, "hello world")

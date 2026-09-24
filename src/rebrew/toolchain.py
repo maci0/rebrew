@@ -212,7 +212,7 @@ def _merge_entry_point_toolchains(
 
 def _toolchain_overlay_dir() -> Path | None:
     """The project-level toolchain overlay dir, or None when unset."""
-    env = os.environ.get(TOOLCHAIN_OVERLAY_ENV)
+    env = os.environ.get(TOOLCHAIN_OVERLAY_ENV, "").strip()
     if not env:
         return None
     path = Path(env)

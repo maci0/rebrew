@@ -131,7 +131,7 @@ def _user_skills_dir() -> Path | None:
     var otherwise silently yields packaged-only skills."""
     global _missing_dir_warned
 
-    env = os.environ.get(REBREW_SKILLS_DIR_ENV)
+    env = os.environ.get(REBREW_SKILLS_DIR_ENV, "").strip()
     if not env:
         return None
     path = Path(env)

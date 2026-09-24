@@ -1765,3 +1765,113 @@ libs = "/usr/lib"
         other = root / "elsewhere"
         assert inventory_path_for(other, cfg) == other / "function_structure.json"
         assert inventory_path_for(other) == other / "function_structure.json"
+
+
+class TestConfigEnvironmentAndSecurity:
+    BASE_TOML = """\
+[project]
+default_target = "main"
+
+[targets.main]
+binary = "game.exe"
+
+[compiler]
+profile = "msvc-6.0"
+"""
+
+    def test_recompile_url_env_override(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        toml = self.BASE_TOML + 'recompile_url = "http://toml.example:8000"\n'
+        root = _make_project(tmp_path, toml)
+        monkeypatch.setenv("REBREW_RECOMPILE_URL", "http://env.example:9000")
+        cfg = load_config(root)
+        assert cfg.recompile_url == "http://env.example:9000"
+
+    def test_recompile_url_env_empty_clears_toml(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        toml = self.BASE_TOML + 'recompile_url = "http://toml.example:8000"\n'
+        root = _make_project(tmp_path, toml)
+        monkeypatch.setenv("REBREW_RECOMPILE_URL", "")
+        cfg = load_config(root)
+        assert cfg.recompile_url == ""
+
+    def test_recompile_url_invalid_env_raises(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        root = _make_project(tmp_path, self.BASE_TOML)
+        monkeypatch.setenv("REBREW_RECOMPILE_URL", "ftp://invalid")
+        with pytest.raises(ConfigError, match=r"REBREW_RECOMPILE_URL must be an http\(s\) URL"):
+            load_config(root)
+
+    def test_llm_env_precedence(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        toml = self.BASE_TOML + '\n[llm]\napi_key = "toml-key"\n'
+        root = _make_project(tmp_path, toml)
+        monkeypatch.setenv("REBREW_LLM_ENDPOINT", "http://localhost:11434/v1")
+        monkeypatch.setenv("REBREW_LLM_API_KEY", "env-key")
+        monkeypatch.setenv("REBREW_LLM_MODEL", "qwen-2.5-coder")
+        with pytest.warns(UserWarning, match=r"\[llm\]\.api_key is set in rebrew-project\.toml"):
+            cfg = load_config(root)
+        assert cfg.llm_endpoint == "http://localhost:11434/v1"
+        assert cfg.llm_api_key == "env-key"
+        assert cfg.llm_model == "qwen-2.5-coder"
+
+    def test_llm_api_key_empty_env_clears(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        toml = (
+            self.BASE_TOML
+            + '\n[llm]\napi_key = "toml-key"\nendpoint = "http://localhost:11434/v1"\n'
+        )
+        root = _make_project(tmp_path, toml)
+        monkeypatch.setenv("REBREW_LLM_API_KEY", "")
+        with pytest.warns(UserWarning, match=r"\[llm\]\.api_key is set in rebrew-project\.toml"):
+            cfg = load_config(root)
+        assert cfg.llm_api_key == ""
+
+    def test_llm_model_unpinned_alias_raises(self, tmp_path: Path) -> None:
+        toml = self.BASE_TOML + '\n[llm]\nmodel = "latest"\n'
+        root = _make_project(tmp_path, toml)
+        with pytest.raises(ConfigError, match="unpinned alias"):
+            load_config(root)
+
+    def test_llm_api_key_over_insecure_remote_http_raises(self, tmp_path: Path) -> None:
+        toml = (
+            self.BASE_TOML + '\n[llm]\nendpoint = "http://remote-api.com/v1"\napi_key = "secret"\n'
+        )
+        root = _make_project(tmp_path, toml)
+        with pytest.raises(ConfigError, match="LLM endpoint must use https when an API key is set"):
+            load_config(root)
+
+    def test_llm_max_requests_invalid_env_raises(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        root = _make_project(tmp_path, self.BASE_TOML)
+        monkeypatch.setenv("REBREW_LLM_MAX_REQUESTS", "-5")
+        with pytest.raises(ConfigError, match=r"REBREW_LLM_MAX_REQUESTS='-5' must be >= 0"):
+            load_config(root)
+
+    def test_project_config_repr_redacts_api_key(self, tmp_path: Path) -> None:
+        root = _make_project(tmp_path, self.BASE_TOML)
+        cfg = load_config(root)
+        cfg.llm_api_key = "super-secret-key-123"
+        repr_str = repr(cfg)
+        assert "super-secret-key-123" not in repr_str
+
+    def test_project_config_as_dict_redaction(self, tmp_path: Path) -> None:
+        root = _make_project(tmp_path, self.BASE_TOML)
+        cfg = load_config(root)
+        cfg.llm_api_key = "super-secret-key-123"
+        d_redacted = cfg.as_dict(redact_secrets=True)
+        assert d_redacted["llm_api_key"] == "***"
+        d_raw = cfg.as_dict(redact_secrets=False)
+        assert d_raw["llm_api_key"] == "super-secret-key-123"
+
+    def test_project_config_validate_method(self, tmp_path: Path) -> None:
+        root = _make_project(tmp_path, self.BASE_TOML)
+        cfg = load_config(root)
+        cfg.validate()  # valid passes without raising
+        cfg.recompile_url = "ftp://invalid"
+        with pytest.raises(ConfigError):
+            cfg.validate()

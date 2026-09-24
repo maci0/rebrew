@@ -23,7 +23,9 @@ To load a specific target::
     cfg = load_config(target="client_exe")
 """
 
+import ipaddress
 import math
+import os
 import re
 import shlex
 import sys
@@ -362,7 +364,7 @@ class ProjectConfig:
     # ``[llm] endpoint``/``model`` in rebrew-project.toml win over env;
     # ``REBREW_LLM_API_KEY`` wins when present (including empty) over TOML.
     llm_endpoint: str = ""
-    llm_api_key: str = ""
+    llm_api_key: str = field(default="", repr=False)
     llm_model: str = ""
     cache_backend: str = "diskcache"  # compile-cache store ([cache] backend)
 
@@ -468,6 +470,42 @@ class ProjectConfig:
             return self.reversed_dir
         return parent
 
+    def as_dict(self, redact_secrets: bool = True) -> dict[str, Any]:
+        """Return configuration as a dictionary, optionally redacting sensitive keys."""
+        return {
+            "root": str(self.root),
+            "target_name": self.target_name,
+            "target_binary": str(self.target_binary),
+            "binary_format": self.binary_format,
+            "arch": self.arch,
+            "reversed_dir": str(self.reversed_dir),
+            "shared_dir": str(self.shared_dir) if self.shared_dir else None,
+            "bin_dir": str(self.bin_dir),
+            "marker": self.marker,
+            "project_name": self.project_name,
+            "default_jobs": self.default_jobs,
+            "db_dir": str(self.db_dir),
+            "output_dir": str(self.output_dir),
+            "compiler_profile": self.compiler_profile,
+            "compiler_command": self.compiler_command,
+            "compiler_runner": self.compiler_runner,
+            "compiler_includes": str(self.compiler_includes),
+            "compiler_libs": str(self.compiler_libs),
+            "cflags": self.cflags,
+            "base_cflags": self.base_cflags,
+            "compile_timeout": self.compile_timeout,
+            "recompile_url": self.recompile_url,
+            "recompile_emit_assembly": self.recompile_emit_assembly,
+            "defines": list(self.defines),
+            "llm_endpoint": self.llm_endpoint,
+            "llm_api_key": ("***" if self.llm_api_key else "")
+            if redact_secrets
+            else self.llm_api_key,
+            "llm_model": self.llm_model,
+            "cache_backend": self.cache_backend,
+            "all_targets": list(self.all_targets),
+        }
+
     def validate(self) -> None:
         """Validate configuration settings, raising :class:`ConfigError` on invalid values."""
         if self.arch and self.arch not in _ARCH_PRESETS:
@@ -481,6 +519,17 @@ class ProjectConfig:
                 raise ConfigError(
                     f"unknown profile {self.compiler_profile!r} (known: {', '.join(sorted(TOOLCHAINS))})"
                 )
+        if self.recompile_url:
+            validate_http_url(self.recompile_url, "compiler.recompile_url")
+        if self.llm_endpoint:
+            validate_http_url(self.llm_endpoint, "llm.endpoint")
+        if self.llm_model:
+            validate_llm_model(self.llm_model)
+        if self.llm_api_key and self.llm_endpoint and not is_key_safe_endpoint(self.llm_endpoint):
+            raise ConfigError(
+                "LLM endpoint must use https when an API key is set "
+                "(plain http is allowed only for loopback hosts)"
+            )
 
 
 #: Characters stripped from a target name when deriving its module marker:
@@ -812,6 +861,33 @@ def validate_http_url(value: str, field_name: str) -> str:
     except ValueError:
         raise ConfigError(message) from None
     return text
+
+
+_MODEL_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$")
+_UNPINNED_MODELS = frozenset({"latest", "auto", "default"})
+
+
+def is_key_safe_endpoint(endpoint: str) -> bool:
+    """True when a bearer key may be sent to *endpoint*: https, or http to loopback."""
+    parsed = urlparse(endpoint)
+    if parsed.scheme == "https":
+        return True
+    host = parsed.hostname or ""
+    if host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def validate_llm_model(model: str) -> str:
+    """Validate a configured LLM model id, rejecting unpinned aliases and invalid chars."""
+    if model.lower() in _UNPINNED_MODELS:
+        raise ConfigError(f"LLM model {model!r} is an unpinned alias; set a dated model id")
+    if not _MODEL_ID_RE.fullmatch(model):
+        raise ConfigError(f"LLM model {model!r} has invalid characters or length")
+    return model
 
 
 def _as_bool(value: Any, default: bool, field_name: str) -> bool:
@@ -1426,6 +1502,15 @@ def load_config(
             f"{ghidra_backend_val!r} (known: reva, cli)"
         )
 
+    # Remote recompile URL: env wins when present (even if empty); otherwise TOML
+    if "REBREW_RECOMPILE_URL" in os.environ:
+        recompile_raw = os.environ["REBREW_RECOMPILE_URL"].strip()
+        recompile_label = "REBREW_RECOMPILE_URL"
+    else:
+        recompile_raw = _as_str(compiler.get("recompile_url"), "", "compiler.recompile_url").strip()
+        recompile_label = "compiler.recompile_url"
+    recompile_url_val = validate_http_url(recompile_raw, recompile_label) if recompile_raw else ""
+
     cfg = ProjectConfig(
         root=root,
         target_name=target or "",
@@ -1480,10 +1565,7 @@ def load_config(
             DEFAULT_COMPILE_TIMEOUT,
             "compiler.timeout",
         ),
-        recompile_url=validate_http_url(
-            _as_str(compiler.get("recompile_url"), "", "compiler.recompile_url"),
-            "compiler.recompile_url",
-        ),
+        recompile_url=recompile_url_val,
         recompile_emit_assembly=_as_bool(
             compiler.get("recompile_emit_assembly"), False, "compiler.recompile_emit_assembly"
         ),
@@ -1597,24 +1679,62 @@ def load_config(
     unknown_llm = set(llm_raw) - _KNOWN_LLM_KEYS
     if unknown_llm:
         _config_warn(f"rebrew-project.toml [llm]: unrecognized keys: {sorted(unknown_llm)}")
-    cfg.llm_endpoint = validate_http_url(
-        _as_str(llm_raw.get("endpoint"), "", "llm.endpoint"),
-        "llm.endpoint",
-    )
-    cfg.llm_api_key = _as_str(llm_raw.get("api_key"), "", "llm.api_key")
-    cfg.llm_model = _as_str(llm_raw.get("model"), "", "llm.model").strip()
-    # Prefer REBREW_LLM_API_KEY over committing the key: warn when the TOML
-    # carries a non-empty api_key (value left intact — do not strip secrets).
-    if cfg.llm_api_key.strip():
+
+    raw_endpoint = _as_str(llm_raw.get("endpoint"), "", "llm.endpoint").strip()
+    if raw_endpoint:
+        cfg.llm_endpoint = validate_http_url(raw_endpoint, "llm.endpoint")
+    elif "REBREW_LLM_ENDPOINT" in os.environ and os.environ["REBREW_LLM_ENDPOINT"].strip():
+        cfg.llm_endpoint = validate_http_url(
+            os.environ["REBREW_LLM_ENDPOINT"].strip(), "REBREW_LLM_ENDPOINT"
+        )
+    else:
+        cfg.llm_endpoint = ""
+
+    toml_api_key = _as_str(llm_raw.get("api_key"), "", "llm.api_key").strip()
+    if toml_api_key:
         _config_warn(
             "[llm].api_key is set in rebrew-project.toml — prefer "
             "REBREW_LLM_API_KEY in the environment so the key is not committed"
         )
-    if cfg.llm_api_key.strip() and not cfg.llm_endpoint:
-        _config_warn(
-            "[llm].api_key is set but [llm].endpoint is empty — "
-            "set endpoint (or REBREW_LLM_ENDPOINT) or LLM seeding stays disabled"
-        )
+    if "REBREW_LLM_API_KEY" in os.environ:
+        cfg.llm_api_key = os.environ["REBREW_LLM_API_KEY"].strip()
+    else:
+        cfg.llm_api_key = toml_api_key
+
+    toml_model = _as_str(llm_raw.get("model"), "", "llm.model").strip()
+    if toml_model:
+        cfg.llm_model = toml_model
+    elif "REBREW_LLM_MODEL" in os.environ and os.environ["REBREW_LLM_MODEL"].strip():
+        cfg.llm_model = os.environ["REBREW_LLM_MODEL"].strip()
+    else:
+        cfg.llm_model = ""
+
+    if cfg.llm_model:
+        validate_llm_model(cfg.llm_model)
+
+    if cfg.llm_api_key:
+        if not cfg.llm_endpoint:
+            _config_warn(
+                "[llm].api_key is set but [llm].endpoint is empty — "
+                "set endpoint (or REBREW_LLM_ENDPOINT) or LLM seeding stays disabled"
+            )
+        elif not is_key_safe_endpoint(cfg.llm_endpoint):
+            raise ConfigError(
+                "LLM endpoint must use https when an API key is set "
+                "(plain http is allowed only for loopback hosts)"
+            )
+
+    if "REBREW_LLM_MAX_REQUESTS" in os.environ:
+        raw_max = os.environ["REBREW_LLM_MAX_REQUESTS"].strip()
+        if raw_max:
+            try:
+                val = int(raw_max)
+                if val < 0:
+                    raise ConfigError(f"REBREW_LLM_MAX_REQUESTS={raw_max!r} must be >= 0")
+            except ValueError as exc:
+                if not isinstance(exc, ConfigError):
+                    raise ConfigError(f"REBREW_LLM_MAX_REQUESTS={raw_max!r} is not an int") from exc
+                raise
 
     # --- [cache] section: compile-cache backend selection ---
     # The store is a pluggable component (rebrew.cache_backends entry-point
@@ -1655,8 +1775,10 @@ __all__ = [
     "ProjectConfig",
     "detect_crt_sources",
     "find_root",
+    "is_key_safe_endpoint",
     "load_config",
     "module_marker",
     "profile_flags_style",
     "validate_http_url",
+    "validate_llm_model",
 ]
