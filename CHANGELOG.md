@@ -1,6 +1,10 @@
 ## [Unreleased]
 
 ### Changed
+- **`rebrew status` counts every library row as identified.**  A LIBRARY
+  marker or configured external module is the identification; a leftover
+  reversal STATUS on the row no longer drops it from `library_identified`
+  or from byte coverage.
 - **PROVEN is not matched and not sticky (ADR-024).**  `MATCHED_STATUSES`
   is EXACT/RELOC only, so PROVEN leaves matched counts, byte coverage,
   verify's `passed`, catalog/report/build-db totals and decomp.dev's 100%
