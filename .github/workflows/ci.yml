@@ -93,7 +93,7 @@ jobs:
       - name: Install dependencies
         run: uv sync --frozen --all-extras --group similarity
       - name: Install nasm (NASM round-trip verification in asm tests)
-        # apt mirrors flake under load; retry update before failing the job.
+        # apt mirrors flake under load; retry update and install before failing the job.
         run: |
           set -euo pipefail
           if command -v nasm >/dev/null 2>&1; then
@@ -110,7 +110,17 @@ jobs:
             fi
             sleep $((attempt * 5))
           done
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends nasm
+          for attempt in 1 2 3; do
+            if sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends nasm; then
+              break
+            fi
+            if [[ "$attempt" -eq 3 ]]; then
+              echo "apt-get install nasm failed after ${attempt} attempts" >&2
+              exit 1
+            fi
+            sleep $((attempt * 5))
+            sudo apt-get update -qq || true
+          done
           nasm -v
       - name: Run tests
         if: matrix.python-version != '3.13.15'
@@ -150,6 +160,8 @@ jobs:
         with:
           path: ~/.cache/pre-commit
           key: pre-commit-${{ runner.os }}-${{ hashFiles('.pre-commit-config.yaml') }}
+          restore-keys: |
+            pre-commit-${{ runner.os }}-
       - name: Run pre-commit hooks
         env:
           SKIP: ruff-check,ruff-format,mypy
@@ -228,6 +240,7 @@ jobs:
             fi
             echo "$ext reproducible: $first_sha"
           done
+          rm -rf ../rebrew-repro
       - name: Install wheel into clean venv and smoke-import
         # Hermetic: install runtime deps from uv.lock, then overlay the just-
         # built wheel with --no-deps so a live PyPI resolve cannot drift past
