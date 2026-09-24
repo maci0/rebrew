@@ -74,7 +74,9 @@ plugin cache backends or remove the open upstream diskcache advisory.
 - No claim that every shipped CLI command stays inside a container.
   `rebrew calibrate-bss` executes the link command read from the project's
   `build/CMakeFiles/*/link.txt` and its `--compile-cmd` on the host,
-  `rebrew link-sweep` executes that same `link.txt` command on the host, and
+  `rebrew link-sweep` executes that same `link.txt` command on the host,
+  `rebrew gen-stubs --build-cmd` executes an operator-supplied build command on the host,
+  linked-exe GA (`match_ga.py` / `build_candidate`) runs native toolchains on the host, and
   analysis helpers run host rizin/r2, kuna, objconv, llvm-pdbutil, diec, and
   objdump against target binaries. Treat a project tree from an untrusted
   source as able to run code on the host through these paths.
