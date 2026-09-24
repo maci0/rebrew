@@ -1,4 +1,4 @@
-.PHONY: help setup test test-one lint format format-check check build sbom all \
+.PHONY: help setup clean test test-one lint format format-check check build sbom all \
 	gen-fixtures gen-fixtures-check cycles-check idempotency-check mypy audit \
 	cli-contract release-check coverage ensure-uv ensure-resembl ensure-nasm warn-nasm
 
@@ -36,14 +36,19 @@ COV_FLOOR ?= 85
 # the committer timestamp (or 0 for a non-git tree). Wheel builds with this set
 # are byte-identical across runs; `make build` then rewrites the sdist with
 # tools/normalize_sdist.py (sorted entries, fixed mtimes, 0:0 owner, fixed
-# modes) so it is byte-identical across checkouts too.
-SOURCE_DATE_EPOCH ?= $(shell git log -1 --pretty=%ct 2>/dev/null || echo 0)
+SOURCE_DATE_EPOCH ?= $(shell git log -1 --pretty=%ct 2>/dev/null)
+ifeq ($(strip $(SOURCE_DATE_EPOCH)),)
+  override SOURCE_DATE_EPOCH := $(shell git log -1 --pretty=%ct 2>/dev/null)
+  ifeq ($(strip $(SOURCE_DATE_EPOCH)),)
+    override SOURCE_DATE_EPOCH := 0
+  endif
+endif
 
-# List contributor-facing targets (default goal).
 help:
 	@printf '%s\n' \
 		'Contributor targets:' \
 		'  make setup              # uv sync (frozen + extras + similarity) + pre-commit/pre-push hooks' \
+		'  make clean              # remove build/dist artifacts and caches' \
 		'  make test               # full pytest suite (needs nasm on PATH)' \
 		'  make test-one T=<node>  # one file/nodeid, e.g. T=tests/test_foo.py::TestBar (nasm optional)' \
 		'  make coverage           # full suite under slipcover with the COV_FLOOR fail-under gate' \
@@ -194,10 +199,14 @@ cli-contract:
 # setuptools version must equal the pyproject.toml [build-system] pin.
 # setuptools= is parsed from pyproject.toml [build-system] (never hardcoded —
 # a stale pin next to requires = ["setuptools==…"] would lie in the manifest).
+# Clean build artifacts, distribution packages, and local tool/test caches.
+clean:
+	rm -rf dist build rebrew.egg-info src/rebrew.egg-info .coverage htmlcov .pytest_cache .ruff_cache .mypy_cache
+
 build: ensure-uv
 	@mkdir -p dist
 	@rm -f dist/*.whl dist/*.tar.gz dist/*.buildinfo
-	@rm -rf build rebrew.egg-info
+	@rm -rf build rebrew.egg-info src/rebrew.egg-info
 	@set -eu; \
 	st=$$(sed -n 's/^requires = \["setuptools==\([0-9.][0-9.]*\)"\]/\1/p' pyproject.toml | head -1); \
 	if [ -z "$$st" ] || ! grep -q "^setuptools==$$st " build-constraints.txt; then \
@@ -207,7 +216,7 @@ build: ensure-uv
 	umask 022 && SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) TZ=UTC LC_ALL=C PYTHONHASHSEED=0 \
 		uv build --build-constraints build-constraints.txt --require-hashes
 	SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) uv run --no-project --offline python tools/normalize_sdist.py dist/*.tar.gz
-	@rm -rf build rebrew.egg-info
+	@rm -rf build rebrew.egg-info src/rebrew.egg-info
 	@set -eu; \
 	st=$$(sed -n 's/^requires = \["setuptools==\([0-9.][0-9.]*\)"\]/\1/p' pyproject.toml | head -1); \
 	{ \
