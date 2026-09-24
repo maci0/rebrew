@@ -244,6 +244,27 @@ class TestCachedFunctionList:
         # Same path key — no orphaned path:mtime entries.
         assert len(loaders_mod._function_list_cache) == 1
 
+    def test_caller_mutation_does_not_corrupt_cache(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import json
+        from types import SimpleNamespace
+
+        from rebrew.catalog import loaders as loaders_mod
+        from rebrew.config import FUNCTION_STRUCTURE_JSON
+
+        monkeypatch.setattr(loaders_mod, "_function_list_cache", {})
+        inv = tmp_path / FUNCTION_STRUCTURE_JSON
+        inv.write_text(
+            json.dumps([{"va": "0x1000", "size": 8, "name": "orig"}]),
+            encoding="utf-8",
+        )
+        cfg = SimpleNamespace(reversed_dir=str(tmp_path))
+        first = loaders_mod.cached_function_list(cfg)
+        first[0]["name"] = "corrupted"
+        second = loaders_mod.cached_function_list(cfg)
+        assert second[0]["name"] == "orig"
+
     def test_same_mtime_size_change_invalidates(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

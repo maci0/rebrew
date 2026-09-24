@@ -1236,6 +1236,19 @@ class TestEntryHeadersFp:
         assert fp1 == fp2
         assert fp1 != ""
 
+    def test_force_include_falls_back_to_dir_fp(self, tmp_path: Path) -> None:
+        """A force-include flag (/FI) must fall back to directory fingerprinting."""
+        cfg = _make_cfg(tmp_path)
+        src = cfg.reversed_dir / "func.c"
+        src.write_text("int func(void){return 0;}\n", encoding="utf-8")
+        header = cfg.reversed_dir / "types.h"
+        header.write_text("typedef int BOOL;\n", encoding="utf-8")
+
+        fp1 = _entry_headers_fp(cfg, src, "/FItypes.h")
+        header.write_text("typedef long BOOL;\n", encoding="utf-8")
+        fp2 = _entry_headers_fp(cfg, src, "/FItypes.h")
+        assert fp1 != fp2
+
     def test_save_persists_entry_headers_fp(self, tmp_path: Path) -> None:
         """The saved cache carries a per-entry reached-header fingerprint."""
         cfg = _make_cfg(tmp_path)

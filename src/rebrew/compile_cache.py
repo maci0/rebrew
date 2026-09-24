@@ -239,6 +239,8 @@ class CompileCache:
                 self._cache.close()
             except Exception as exc:
                 _warn_cache_failure("close", exc)
+            finally:
+                self._cache = None
 
     def stats(self) -> dict[str, int | float]:
         """Return cache statistics as a dict.
@@ -997,10 +999,13 @@ def get_compile_cache(project_root: Path, backend: str = DEFAULT_CACHE_BACKEND) 
     with _caches_lock:
         existing = _caches.get(key)
         if existing is not None:
-            # Refresh insertion order so repeated use is not FIFO-evicted.
-            del _caches[key]
-            _caches[key] = existing
-            return existing
+            if getattr(existing, "_cache", 1) is None:
+                del _caches[key]
+            else:
+                # Refresh insertion order so repeated use is not FIFO-evicted.
+                del _caches[key]
+                _caches[key] = existing
+                return existing
         while len(_caches) >= _CACHES_MAX:
             oldest_key = next(iter(_caches))
             old = _caches.pop(oldest_key)

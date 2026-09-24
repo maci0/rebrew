@@ -193,6 +193,46 @@ class TestResidueHelpers:
             },
         ]
 
+    def test_nonmatching_from_cache_parses_entries_and_guards_target(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from types import SimpleNamespace
+
+        from rebrew.residue import _nonmatching_from_cache
+
+        cfg = SimpleNamespace(target_name="client")
+        cache_data = {
+            "version": 2,
+            "target": "client",
+            "entries": {
+                "0x00401000": {
+                    "va": "0x00401000",
+                    "size": 32,
+                    "name": "foo",
+                    "passed": False,
+                    "delta": 10,
+                },
+                "0x00401020": {
+                    "va": 0x00401020,
+                    "size": 64,
+                    "name": "bar",
+                    "passed": True,
+                    "delta": 0,
+                },
+            },
+        }
+        monkeypatch.setattr("rebrew.verify_cache.load_verify_cache_raw", lambda _cfg: cache_data)
+        res = _nonmatching_from_cache(cfg, image_base=0x400000, text_rva=0x1000)
+        assert res == [(0, 32, "foo")]
+
+        # Mismatched target returns empty to avoid cross-target bleed
+        cfg_server = SimpleNamespace(target_name="server")
+        assert _nonmatching_from_cache(cfg_server, image_base=0x400000, text_rva=0x1000) == []
+
+        # Outdated schema version returns empty
+        cache_data["version"] = 1
+        assert _nonmatching_from_cache(cfg, image_base=0x400000, text_rva=0x1000) == []
+
 
 class TestCommandWiring:
     def test_commands_mounted(self) -> None:

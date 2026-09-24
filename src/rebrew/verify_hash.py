@@ -343,13 +343,31 @@ def _entry_headers_fp(
     import shlex
 
     from rebrew.compile import extract_include_dirs, resolve_include_flags
-    from rebrew.compile_cache import header_dependency_hash
+    from rebrew.compile_cache import (
+        _FORCE_INCLUDE_PREFIXES,
+        _dir_fingerprint_hash,
+        header_dependency_hash,
+    )
 
     source_dir = filepath.parent
     inc_path = str(getattr(cfg, "compiler_includes", "") or "")
     flags = shlex.split(getattr(cfg, "base_cflags", "") or "") + shlex.split(cflags_str)
     flags = resolve_include_flags(flags, source_dir, cfg.root)
     include_dirs = [d for d in [inc_path, str(source_dir), *extract_include_dirs(flags)] if d]
+    shared = getattr(cfg, "shared_dir", None)
+    if shared is not None:
+        try:
+            if Path(source_dir).resolve().is_relative_to(Path(shared).resolve()):
+                shared_str = str(Path(shared).resolve())
+                if shared_str not in include_dirs:
+                    include_dirs.append(shared_str)
+        except (OSError, ValueError):
+            pass
+
+    force_include = any(f.startswith(_FORCE_INCLUDE_PREFIXES) for f in flags)
+    if force_include:
+        return _dir_fingerprint_hash(str(source_dir), include_dirs)
+
     try:
         if source_bytes is None:
             content = filepath.read_bytes().decode("utf-8", errors="surrogateescape")

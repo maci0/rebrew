@@ -2208,11 +2208,11 @@ def prepare_entries(
         if cached_entry.context_hash != (context.sha256 if context is not None else None):
             continue
         try:
-            current_mtime = (cfg.reversed_dir / getattr(entry, "filepath", "")).stat().st_mtime_ns
+            (cfg.reversed_dir / getattr(entry, "filepath", "")).stat()
         except OSError:
             # File deleted between fingerprint and stat — treat as a miss.
             continue
-        if current_mtime != cached_entry.mtime_ns and fp.source_hash != cached_entry.source_hash:
+        if fp.source_hash != cached_entry.source_hash:
             continue
 
         results.append(cached_entry.result_row())

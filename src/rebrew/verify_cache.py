@@ -464,9 +464,10 @@ def patch_verify_cache_entries(cfg: ProjectConfig, patches: list[dict[str, Any]]
                 continue
             entry["mtime_ns"] = st.st_mtime_ns
             try:
-                from rebrew.verify_hash import _source_hash
+                from rebrew.verify_hash import _entry_headers_fp, _source_hash
 
                 entry["source_hash"] = _source_hash(fspath)
+                entry["headers_fp"] = _entry_headers_fp(cfg, fspath, entry.get("cflags", ""))
             except OSError:
                 continue
             entries[va_key] = entry

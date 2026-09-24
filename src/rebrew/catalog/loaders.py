@@ -130,14 +130,14 @@ _function_vas_cache: dict[str, tuple[str, frozenset[int]]] = {}
 
 
 def _inventory_fingerprint(path: str) -> str:
-    """``mtime_ns:size`` for *path*, or ``""`` when unreadable / unset."""
+    """``mtime_ns:size:ino`` for *path*, or ``""`` when unreadable / unset."""
     if not path:
         return ""
     try:
         st = Path(path).stat()
     except OSError:
         return ""
-    return f"{st.st_mtime_ns}:{st.st_size}"
+    return f"{st.st_mtime_ns}:{st.st_size}:{st.st_ino}"
 
 
 def cached_function_list(cfg: ProjectConfig) -> list[dict[str, Any]]:
@@ -159,7 +159,7 @@ def cached_function_list(cfg: ProjectConfig) -> list[dict[str, Any]]:
     with _function_list_cache_lock:
         cached = _function_list_cache.get(cache_key)
         if cached is not None and cached[0] == fp:
-            return list(cached[1])
+            return [dict(f) for f in cached[1]]
     funcs: list[dict[str, Any]] = []
     if path and Path(path).is_file():
         try:
@@ -189,7 +189,7 @@ def cached_function_list(cfg: ProjectConfig) -> list[dict[str, Any]]:
             fp,
             frozenset(va for f in funcs if isinstance((va := f.get("va")), int)),
         )
-    return list(funcs)
+    return [dict(f) for f in funcs]
 
 
 def cached_function_vas(cfg: ProjectConfig) -> frozenset[int]:

@@ -528,12 +528,12 @@ def build_candidate_obj_only(
     # workdir, so a relative include path would resolve against the wrong
     # directory and fail on functions that #include those headers. Mirror the
     # resolution compile_to_obj performs for toolchain-backed profiles.
+    src_parent = Path(extra_inc[0]) if extra_inc else Path.cwd()
     if any(f.startswith(("/I", "-I")) for f in all_flags):
         from rebrew.compile import resolve_include_flags
 
         # extra_inc carries the source's parent dir for relative #include resolution;
         # fall back to cwd when no extra inc dirs were supplied.
-        src_parent = Path(extra_inc[0]) if extra_inc else Path.cwd()
         cfg_root = getattr(cfg, "root", Path.cwd()) if cfg is not None else Path.cwd()
         all_flags = resolve_include_flags(all_flags, src_parent, cfg_root)
 
@@ -557,6 +557,7 @@ def build_candidate_obj_only(
             include_dirs=[inc_dir, *extra_inc, *extract_include_dirs(all_flags)],
             toolchain_id=toolchain_id,
             source_ext=source_ext,
+            source_dir=str(src_parent),
         )
         cached_obj = cache.get(cache_key)
         if cached_obj is not None:

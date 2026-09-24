@@ -1390,7 +1390,7 @@ def parse_library_metadata(path: Path) -> dict[str, Any]:
     file has a new fingerprint and is parsed fresh (the resolution-confluence
     property tests rely on this).
     """
-    key = str(path)
+    key = str(path.resolve())
     try:
         st = path.stat()
     except OSError:

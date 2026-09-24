@@ -120,17 +120,30 @@ def residue_report(
 
 def _nonmatching_from_cache(cfg: Any, image_base: int, text_rva: int) -> list[tuple[int, int, str]]:
     """(text-relative offset, size, name) for every non-byte-matched function."""
-    from rebrew.verify_cache import load_verify_cache_raw
+    from rebrew.verify_cache import CACHE_VERSION, load_verify_cache_raw
 
-    raw = load_verify_cache_raw(cfg) or {}
+    raw = load_verify_cache_raw(cfg)
+    if not isinstance(raw, dict) or raw.get("version") != CACHE_VERSION:
+        return []
+    if raw.get("target") != getattr(cfg, "target_name", ""):
+        return []
+
+    entries = raw.get("entries") or raw.get("functions")
+    if not isinstance(entries, dict):
+        return []
+
     out = []
-    for entry in (raw.get("functions") or {}).values():
+    for entry in entries.values():
+        if not isinstance(entry, dict):
+            continue
         status = entry.get("status")
         delta = entry.get("delta") or 0
-        if delta > 0 or status in ("STUB", "SIZE_MISMATCH"):
+        passed = entry.get("passed", False)
+        if not passed or delta > 0 or status in ("STUB", "SIZE_MISMATCH"):
+            va_raw = entry.get("va", "0")
             try:
-                va = int(entry.get("va", "0"), 16)
-            except ValueError:
+                va = int(str(va_raw), 0)
+            except (ValueError, TypeError):
                 continue
             out.append((va - image_base - text_rva, entry.get("size") or 0, entry.get("name", "?")))
     return out

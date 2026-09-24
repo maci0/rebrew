@@ -65,6 +65,22 @@ class TestCompileCache:
         assert cache.get("bad") is None
         cache.close()
 
+    def test_close_resets_cache_and_degrades(self, tmp_path: Path) -> None:
+        cache = CompileCache(tmp_path / "cc")
+        cache.close()
+        assert cache._cache is None
+        assert cache.get("k") is None
+        cache.put("k", b"val")
+        assert cache.count == 0
+
+    def test_get_compile_cache_reopens_after_close(self, tmp_path: Path) -> None:
+        c1 = get_compile_cache(tmp_path)
+        c1.close()
+        c2 = get_compile_cache(tmp_path)
+        assert c2 is not c1
+        assert c2._cache is not None
+        c2.close()
+
 
 class TestCompileCacheKey:
     @pytest.mark.parametrize(

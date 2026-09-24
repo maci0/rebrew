@@ -592,6 +592,31 @@ class TestPrepareEntriesCache:
         assert cached == 0
         assert passed == 0
 
+    def test_cached_stale_hash_skipped_even_with_same_mtime(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        entry = _ann(0x1000)
+        cfg = self._setup(tmp_path, monkeypatch, entry)
+        real_mtime = (cfg.reversed_dir / "f.c").stat().st_mtime_ns
+        # Same mtime as the file, but source_hash is different (coarse tick / restored mtime).
+        cache = {
+            "0x00001000": verify_cache_mod.VerifyCacheEntry.from_dict(
+                self._cache_entry("f.c", mtime=real_mtime, source_hash="stale-hash")
+            )
+        }
+        monkeypatch.setattr(
+            verify_mod,
+            "_load_verify_cache",
+            lambda *a, **k: verify_cache_mod.VerifyCache(
+                version=2, compiler_hash="", headers_hash="", target="", entries=cache
+            ),
+        )
+        _entries, passed, _failed, _fd, results, cached, size_div, _miss, _dup, _n2v, _inv = (
+            verify_mod.prepare_entries(cfg, full=False, json_output=False)
+        )
+        assert cached == 0
+        assert passed == 0
+
     def test_size_divergence_detected(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
