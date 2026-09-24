@@ -122,8 +122,9 @@ def brace_block(body: bytes) -> bytes:
 
 
 # Optional scope limiting GA mutations to the target function's byte range.
-# The GA sets this once per run; every mutation query then only matches
-# inside the function, which is the only code that gets scored — querying
+# The GA sets it around each mutation to the function's range in that
+# source; every query then only matches inside the function, which is the
+# only code that gets scored — querying
 # the whole multi-function file (e.g. a 79KB seed) cost ~270x more per
 # mutation and churned sibling functions whose bytes are never compared.
 _target_range = threading.local()
