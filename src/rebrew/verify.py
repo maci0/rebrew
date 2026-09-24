@@ -355,14 +355,13 @@ app = typer.Typer(
         "  rebrew verify --full -j 8 · · · · · · · · Force full re-verify with 8 workers\n\n"
         "  rebrew verify --summary · · · · · · · · · Show detailed STATUS breakdown table\n\n"
         "[bold]How it works:[/bold]\n\n"
-        "  For each .c file in reversed_dir, compiles it, extracts the COFF symbol, "
-        "and compares the output bytes against the original DLL. Reports EXACT, "
-        "RELOC (match after relocation masking), STUB, or COMPILE_ERROR.\n\n"
+        "  For each .c file in reversed_dir, compiles it, extracts the symbol, "
+        "and compares the output bytes against the target binary. Reports EXACT, "
+        "RELOC (match after relocation masking), NEAR_MATCHING, STUB, or COMPILE_ERROR.\n\n"
         "[bold]Exit codes:[/bold]\n\n"
         "  0   All functions passed verification\n\n"
         "  1   Failures or regressions detected\n\n"
-        "[dim]Requires rebrew-project.toml with valid compiler and target binary paths. "
-        "Run 'rebrew catalog' first to generate coverage data.[/dim]"
+        "[dim]Requires rebrew-project.toml with valid compiler and target binary paths.[/dim]"
     ),
 )
 

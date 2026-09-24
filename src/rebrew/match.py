@@ -242,7 +242,7 @@ def main(
         "--seed-llm",
         help=(
             "Ask a configured LLM endpoint for alternative C implementations "
-            "and inject them into the GA's initial population (see [llm] "
+            "and inject them into the GA's initial population (see \\[llm] "
             "config / REBREW_LLM_ENDPOINT)."
         ),
         rich_help_panel="Single-Function",

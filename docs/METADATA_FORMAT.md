@@ -72,7 +72,7 @@ scalar.)
 
 ## Layer 2: Metadata TOML Files
 
-All mutable metadata lives in per-directory TOML metadata files.
+All mutable function and data metadata lives in single root TOML metadata files (`rebrew-functions.toml`, `rebrew-data.toml`) at `cfg.metadata_dir`.
 
 ### `rebrew-functions.toml`
 

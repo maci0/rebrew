@@ -954,7 +954,7 @@ def iat_slot_vas(binary_path: Path | str) -> set[int]:
 
     Memoized per ``(resolved path, mtime_ns, size)`` (bounded dict + lock,
     mirroring ``_load_binary_cache``): ``compile_and_compare`` calls this
-    once per function (via :func:`build_iat_region`) even on compile-cache
+    once per function (via :func:`rebrew.coff_reloc.build_iat_region`) even on compile-cache
     hits, so a full verify/test batch re-parsed the *same PE* N times
     (0.05-0.3s each).  A rebuild at the same path invalidates via mtime/size.
     """

@@ -101,7 +101,7 @@ rebrew test src/target_name/my_func.c
 |--------|---------|--------|
 | `EXACT MATCH` | Byte-for-byte identical | STATUS auto-promoted to EXACT |
 | `RELOC-NORMALIZED MATCH` | Identical except relocations | STATUS auto-promoted to RELOC |
-| `MISMATCH` with same size | Logic matches but some bytes differ | Set STATUS: NEAR_MATCHING, investigate diffs |
+| `MISMATCH` with same size | Logic matches but some bytes differ | Auto-promoted to NEAR_MATCHING if ≥60%; investigate diffs |
 | `MISMATCH` with different size | Significantly different codegen | Investigate with diff mode |
 | `COMPILE ERROR` | C code doesn't compile | Fix syntax errors |
 | `Symbol not found` | Wrong symbol name | Check the decorated name |

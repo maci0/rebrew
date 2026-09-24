@@ -1,6 +1,6 @@
 """diff.py – Compile and diff a reversed function against the target binary.
 
-Compiles the seed .c file with MSVC6 and shows a side-by-side byte diff
+Compiles the seed .c file with the configured toolchain and shows a side-by-side byte diff
 against the function at the annotated VA.  Optionally auto-writes BLOCKER/
 BLOCKER_DELTA metadata based on structural analysis.
 
@@ -434,7 +434,7 @@ _EPILOG = (
     "  0   No structural differences\n\n"
     "  1   Structural differences found (** lines)\n\n"
     "  2   Build failed\n\n"
-    "[dim]Compiles source with MSVC6 (CFLAGS from metadata) and diffs against the target binary. "
+    "[dim]Compiles source with the configured toolchain (CFLAGS from metadata) and diffs against the target binary. "
     "Symbol, VA, and size are auto-detected from // FUNCTION markers and rebrew-functions.toml metadata.[/dim]"
 )
 

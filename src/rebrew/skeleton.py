@@ -928,7 +928,7 @@ _EPILOG = (
     "the file itself. With --append, the marker block is appended to an existing "
     ".c file for multi-function compilation units.\n\n"
     "[dim]See also: 'rebrew todo' for a prioritized action list with ROI scoring. "
-    "Reads ghidra_functions.json and existing .c files to determine what's uncovered.[/dim]"
+    "Reads function_structure.json and existing .c files to determine what's uncovered.[/dim]"
 )
 
 app = typer.Typer(

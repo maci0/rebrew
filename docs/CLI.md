@@ -254,7 +254,7 @@ skills.
 | `--flag-sweep-toolchains` | Try each vendored MSVC toolchain (the full 4.0→7.0 line: 6.0-sp3/sp6, 7.0, 4.2, 5.0, 4.0); combine with `--flag-sweep-only` to flag-sweep with each toolchain ("which MSVC version + flags built this function?" — the combined mode reports the best flags per toolchain) |
 | `--sweep-toolchains CSV` / `--toolchain CSV` | Sweep only these toolchains (comma-separated profile names or version prefixes) |
 | `--sweep-exclude-toolchains CSV` | Skip these toolchains in the sweep (comma-separated profile names or version prefixes) |
-| `--seed-llm` | Ask a configured LLM endpoint for alternative C implementations and inject them into the GA's initial population (see config / `REBREW_LLM_ENDPOINT`) |
+| `--seed-llm` | Ask a configured LLM endpoint for alternative C implementations and inject them into the GA's initial population (see `[llm]` config / `REBREW_LLM_ENDPOINT`) |
 | `--seed-kuna` | Seed the GA's initial population with Kuna's decompilation of the target function (requires the `kuna` binary on PATH), compilability-fixed (`rebrew fix`) before injection |
 | `--watch` | Watch the seed source and re-run the GA on every change |
 | `--target NAME` / `-t NAME` | Select a target from `rebrew-project.toml` |

@@ -1164,7 +1164,7 @@ _EPILOG = (
     "                         `rebrew verify --data`\n\n"
     "  blocked · · · · · · · · Lens (ADR-019): every item with BLOCKER text, "
     "whatever its home category — filter with `-c blocked`\n\n"
-    "[dim]Reads from ghidra_functions.json, source files, and .rebrew/verify_cache.json.[/dim]"
+    "[dim]Reads from function_structure.json, source files, and .rebrew/verify_cache.json.[/dim]"
 )
 
 app = typer.Typer(

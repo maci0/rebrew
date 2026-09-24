@@ -178,3 +178,7 @@ def test_option_help_survives_rich_markup() -> None:
     assert result.exit_code == 0, result.output
     assert "[link]" in result.stdout
     assert "[targets.<t>.layout]" in result.stdout
+
+    match_result = CliRunner().invoke(app, ["match", "--help"])
+    assert match_result.exit_code == 0, match_result.output
+    assert "[llm]" in match_result.stdout

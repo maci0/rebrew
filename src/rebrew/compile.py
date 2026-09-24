@@ -18,7 +18,7 @@ Entry points in order of abstraction:
 
 ``compile_to_obj(cfg, source_path, cflags, workdir)``
     Mid-level - compiles a source file inside the toolchain's docker image
-    (or natively for Linux-hosted compilers) and produces a ``.obj`` file.
+    (or as a host binary for image-less plugin toolchains) and produces a ``.obj`` file.
     Returns ``(obj_path, error_msg)``.
 
 ``compile_and_compare(cfg, source_path, symbol, target_bytes, cflags)``

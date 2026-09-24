@@ -1923,7 +1923,7 @@ app = typer.Typer(
         "  W016   DATA/GLOBAL missing SECTION metadata\n\n"
         "  W010   Unknown marker key\n\n"
         "  W018   Missing CFLAGS with no config fallback\n\n"
-        "  W019   Inline metadata key (STATUS, SIZE, etc.) should be in rebrew-functions.toml\n\n"
+        "  W019   Inline metadata key (STATUS, NOTE, etc.) should be in rebrew-functions.toml\n\n"
         "  W020   Asm-dump placeholder (__emit / __asm block) instead of real C source\n\n"
         "  E023   Whole-function __declspec(naked) + __asm/__emit (only 1-2 nop/0x90/0xCC padding bytes allowed)\n\n"
         "  W021   Duplicate global symbol annotated in multiple files\n\n"
