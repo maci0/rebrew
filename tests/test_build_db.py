@@ -695,6 +695,23 @@ binary = "test.exe"
         assert c.fetchone() is not None
         conn.close()
 
+    def test_globals_module_va_index_exists(self, project_root: Path) -> None:
+        """idx_globals_module_va serves module-filtered globals queries with ORDER BY va."""
+        build_db(project_root)
+        conn = sqlite3.connect(project_root / "db" / "coverage.db")
+        c = conn.cursor()
+        c.execute(
+            "SELECT name FROM sqlite_master WHERE type='index' AND name='idx_globals_module_va'"
+        )
+        assert c.fetchone() is not None
+        plan = conn.execute(
+            "EXPLAIN QUERY PLAN SELECT va, name, decl, size, module FROM globals "
+            "WHERE target = 'testbin' AND module = 'GAME' ORDER BY va LIMIT 50 OFFSET 0"
+        ).fetchall()
+        assert any("idx_globals_module_va" in row[3] for row in plan)
+        assert not any("TEMP B-TREE" in row[3] for row in plan)
+        conn.close()
+
     def test_verify_results_has_range_checks(self, project_root: Path) -> None:
         """verify_results columns that carry deltas/scores must reject out-of-
         range values at the schema level (and migrate pre-CHECK tables)."""

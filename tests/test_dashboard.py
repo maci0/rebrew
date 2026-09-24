@@ -418,6 +418,32 @@ class TestQueryLayer:
         assert any(index in row[3] for row in plan)
         assert not any("TEMP B-TREE" in row[3] for row in plan)
 
+    def test_filtered_globals_list_seeks_filter_index(
+        self,
+        dashboard: Dashboard,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A module-filtered globals page seeks idx_globals_module_va and needs no sort."""
+        import sqlite3
+
+        import rebrew.dashboard as dashboard_mod
+
+        statements: list[str] = []
+        real_open = dashboard_mod.open_sqlite_ro
+
+        def _traced_open(path: Path) -> sqlite3.Connection:
+            conn = real_open(path)
+            conn.set_trace_callback(statements.append)
+            return conn
+
+        monkeypatch.setattr(dashboard_mod, "open_sqlite_ro", _traced_open)
+        dashboard.globals("server_dll", module="SERVER")
+        list_sql = next(s for s in statements if s.startswith("SELECT va, name, decl"))
+        with sqlite3.connect(dashboard.db_path) as conn:
+            plan = conn.execute(f"EXPLAIN QUERY PLAN {list_sql}").fetchall()
+        assert any("idx_globals_module_va" in row[3] for row in plan)
+        assert not any("TEMP B-TREE" in row[3] for row in plan)
+
     def test_functions_total_excludes_global_markers(self, tmp_path: Path) -> None:
         """total must apply the same markerType filter as the row query."""
         db_dir = tmp_path / "db"

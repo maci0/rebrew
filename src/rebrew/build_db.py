@@ -909,6 +909,11 @@ def build_db(
             f"CREATE INDEX idx_functions_list ON functions(target, va) WHERE {FUNCTION_ROWS_SQL}"
         )
         c.execute("CREATE INDEX IF NOT EXISTS idx_globals_name ON globals(target, name)")
+        # The dashboard filters globals by module and pages ORDER BY va; the
+        # trailing va lets the index serve the sort, so the planner seeks the
+        # filter instead of scanning all globals for the target.
+        c.execute("DROP INDEX IF EXISTS idx_globals_module")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_globals_module_va ON globals(target, module, va)")
         # idx_cells_section is deliberately NOT created: the
         # UNIQUE (target, section_name, start) constraint already serves the
         # same leftmost prefix (target, section_name) for the view's

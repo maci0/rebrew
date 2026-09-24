@@ -98,7 +98,9 @@ Tracks global variables mapped during the decompilation effort.
 | `status` | `TEXT` | Data verdict from `verify --data` (`VERIFIED`/`DRIFT`/`UNCHECKED`; empty when never compared). CHECK-constrained. |
 
 **Primary Key**: `(target, va)`
-**Indexes**: `idx_globals_name` on `(target, name)`
+**Indexes**:
+- `idx_globals_name` on `(target, name)`
+- `idx_globals_module_va` on `(target, module, va)`: serves the dashboard's module-filtered globals page (`ORDER BY va`) without a sort
 
 ### `sections` Table
 Defines binary sections (e.g., `.text`, `.data`, `.rdata`, `.bss`).
