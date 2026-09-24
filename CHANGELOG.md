@@ -1,5 +1,6 @@
 ## [Unreleased]
 
+## [2.8.0] - 2026-09-25
 ### Added
 - **Lint W030: markers out of VA order.**  The linker places a translation
   unit's functions in source order, so a module's FUNCTION/STUB markers must
