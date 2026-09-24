@@ -32,16 +32,13 @@ from pathlib import Path
 from typing import Any
 
 import typer
-from rich.console import Console
 from typer.testing import CliRunner
 
 from rebrew.annotation import iter_annotations
-from rebrew.cli import EXIT_OK, error_exit, json_print
+from rebrew.cli import EXIT_OK, console, error_exit, json_print
 from rebrew.skeleton import C89_STRICT_PROFILES
 from rebrew.sources import iter_sources
 from rebrew.utils import SOURCE_CHECKOUT, atomic_write_text
-
-console = Console(stderr=True)
 
 app = typer.Typer(help="One-shot binary onboarding: init + detect + functions + document.")
 
@@ -288,6 +285,21 @@ def prune_stale_stubs(
     return removed
 
 
+def _native_format_and_arch(bin_path: Path) -> tuple[str, str] | None:
+    """``(format, arch)`` from the header when it is not the ``pe``/``x86_32``
+    that ``rebrew init`` assumes, else None (also for an unknown format or
+    machine, which keeps init's default)."""
+    from rebrew.binary_loader import detect_format_and_arch
+
+    try:
+        fmt, arch = detect_format_and_arch(bin_path)
+    except (OSError, ValueError):
+        return None
+    if arch is None or (fmt, arch) == ("pe", "x86_32"):
+        return None
+    return fmt, arch
+
+
 def _set_target_arch(project: Path, target_name: str, arch: str, fmt: str) -> None:
     """Patch ``[targets.<name>].arch`` / ``format`` in ``rebrew-project.toml``
     (format-preserving tomlkit round-trip).  Used to set ``x86_16`` for NE
@@ -469,6 +481,10 @@ def main(
     elif is_mz(bin_path):
         _set_target_arch(project, target_name, "x86_16", fmt="mz")
         notes.append("plain DOS MZ target — target arch set to x86_16 (CS_MODE_16)")
+    elif native := _native_format_and_arch(bin_path):
+        fmt, arch = native
+        _set_target_arch(project, target_name, arch, fmt=fmt)
+        notes.append(f"{fmt} {arch} target — target format and arch set from the header")
 
     # 2. copy the binary
     original_dir = project / "original"

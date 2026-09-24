@@ -24,7 +24,6 @@ if TYPE_CHECKING:
     from rebrew.verify_cache import VerifyCacheEntry
 
 import typer
-from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
@@ -33,6 +32,7 @@ from rebrew.cli import (
     AllTargetsOption,
     TargetOption,
     all_targets_run,
+    console,
     error_exit,
     json_print,
     option_default,
@@ -50,8 +50,6 @@ from rebrew.naming import (
     parse_byte_delta,
 )
 from rebrew.workspace.status import MATCHED_STATUSES
-
-console = Console(stderr=True)
 
 # ---------------------------------------------------------------------------
 # Category constants

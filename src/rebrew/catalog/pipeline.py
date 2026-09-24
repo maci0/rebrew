@@ -18,6 +18,9 @@ from rebrew.catalog.registry import build_function_registry, count_detection_sou
 from rebrew.config import inventory_path_for
 from rebrew.sections import get_text_section_size
 
+# Deliberately NOT rebrew.cli's console: importing the Typer entry module
+# from this package would break the catalog/ghidra layering tests (library
+# callers must not pull the CLI graph).
 console = Console(stderr=True)
 
 

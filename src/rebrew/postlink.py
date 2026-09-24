@@ -64,15 +64,12 @@ if TYPE_CHECKING:
     import lief
 
 import typer
-from rich.console import Console
 
 from rebrew.binary_loader import BinaryInfo, SectionInfo, load_binary
-from rebrew.cli import EXIT_ERROR, error_exit, json_print
+from rebrew.cli import EXIT_ERROR, console, error_exit, json_print
 from rebrew.layout_meta import ImportMeta, LayoutMetadata, extract_layout, load_package
 from rebrew.pe_headers import find_section, pe_layout, pe_lfanew, sections_at
 from rebrew.utils import atomic_write_bytes
-
-console = Console(stderr=True)
 
 # ---------------------------------------------------------------------------
 # Fixer protocol

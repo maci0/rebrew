@@ -27,10 +27,10 @@ from pathlib import Path
 from typing import Any
 
 import typer
-from rich.console import Console
 
 from rebrew.cli import (
     TargetOption,
+    console,
     error_exit,
     json_print,
     require_config,
@@ -40,8 +40,6 @@ from rebrew.climb import _function_span as climb_function_span
 from rebrew.compile import compile_and_compare
 from rebrew.compile_overrides import resolve_compile_overrides
 from rebrew.utils import atomic_write_text, read_source_text
-
-console = Console(stderr=True)
 
 app = typer.Typer(
     help="Sweep declaration qualifiers over one function, keeping winners.",

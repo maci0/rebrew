@@ -27,11 +27,8 @@ from pathlib import Path
 from typing import Any
 
 import typer
-from rich.console import Console
 
-from rebrew.cli import TargetOption, error_exit, json_print, require_config
-
-console = Console(stderr=True)
+from rebrew.cli import TargetOption, console, error_exit, json_print, require_config
 
 app = typer.Typer(
     help="Identify library functions (FLIRT + imports + CRT) into library_*.h.",

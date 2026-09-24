@@ -28,16 +28,14 @@ from pathlib import Path
 from typing import Any
 
 import typer
-from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from rebrew.cli import EXIT_MISMATCH, TargetOption, json_print, require_config
+from rebrew.cli import EXIT_MISMATCH, TargetOption, console, json_print, require_config
 from rebrew.config import ProjectConfig, inventory_path_for, load_config
 from rebrew.utils import md5_file
 
-console = Console(stderr=True)
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------

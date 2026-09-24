@@ -34,12 +34,9 @@ from pathlib import Path
 from typing import Any
 
 import typer
-from rich.console import Console
 
-from rebrew.cli import EXIT_ERROR, TargetOption, error_exit, json_print, require_config
+from rebrew.cli import EXIT_ERROR, TargetOption, console, error_exit, json_print, require_config
 from rebrew.utils import read_source_text
-
-console = Console(stderr=True)
 
 # ---------------------------------------------------------------------------
 # Token sanitization

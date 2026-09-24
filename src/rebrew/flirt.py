@@ -16,12 +16,9 @@ except ImportError:  # optional dependency
     flirt = None
 
 import typer
-from rich.console import Console
 
 from rebrew.binary_loader import load_binary
-from rebrew.cli import TargetOption, error_exit, json_print, parse_va, require_config
-
-console = Console(stderr=True)
+from rebrew.cli import TargetOption, console, error_exit, json_print, parse_va, require_config
 
 _MAX_FUNC_SCAN = 4096
 _MIN_MATCH_WINDOW = 32

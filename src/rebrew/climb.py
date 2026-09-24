@@ -36,12 +36,12 @@ from pathlib import Path
 from typing import Any
 
 import typer
-from rich.console import Console
 
 from rebrew.annotation import parse_c_file_multi
 from rebrew.binary_loader import extract_raw_bytes
 from rebrew.cli import (
     TargetOption,
+    console,
     error_exit,
     json_print,
     parse_va,
@@ -53,8 +53,6 @@ from rebrew.compile_overrides import resolve_compile_overrides
 from rebrew.config import ProjectConfig
 from rebrew.sources import target_marker
 from rebrew.utils import atomic_write_text, read_source_text
-
-console = Console(stderr=True)
 
 app = typer.Typer(
     help="Deterministic single-statement hill-climb for one function.", rich_markup_mode="rich"

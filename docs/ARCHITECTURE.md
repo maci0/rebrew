@@ -102,8 +102,8 @@ flowchart LR
 | `rebrew/climb.py` | Deterministic single-statement hill-climb over one function body (adjacent-statement swaps scored through the compile→compare path); complements the GA when the residual is statement order |
 | `rebrew/blocker.py` | Programmatic BLOCKER writer — `rebrew blocker set/clear/show` (by file/VA/symbol; every write locked + atomic) |
 | `rebrew/document_unmatched.py` | STUB skeleton + BLOCKER writer for unmatched functions (standalone intake document step) |
-| `rebrew/discover.py` | Function enumeration via `rebrew.discoverers` plugins (packaged: rizin aaa/aap, capstone sweep, NE loader, MZ sweep) with size cross-checks |
-| `rebrew/pdb_info.py` | PDB metadata extraction (S_COMPILE3 compiler + command line) |
+| `rebrew/discover.py` | Function enumeration via `rebrew.discoverers` plugins (packaged: rizin aaa/aap, capstone sweep, `.eh_frame` and `.pdata` unwind tables, NE loader, MZ sweep) with size cross-checks |
+| `rebrew/pdb_info.py` | PDB metadata extraction (S_COMPILE3 compiler version + flags) |
 | `rebrew/identify_library.py` | Library-function identification backends (CRT/ZLIB marking) |
 | `rebrew/dashboard.py` | Read-only web dashboard over `db/coverage.db` |
 | `rebrew/import_table.py` | Import-table parsing (PE IAT, ELF dynamic imports, 16-bit NE module references) and `jmp [iat]` stub detection; library layer shared by analysis passes |

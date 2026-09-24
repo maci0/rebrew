@@ -23,14 +23,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import typer
-from rich.console import Console
 
-from rebrew.cli import EXIT_MISMATCH, TargetOption, error_exit, json_print, require_config
+from rebrew.cli import EXIT_MISMATCH, TargetOption, console, error_exit, json_print, require_config
 from rebrew.config import module_marker
 from rebrew.sources import iter_sources, source_exts
 from rebrew.utils import atomic_write_text, read_source_text
-
-console = Console(stderr=True)
 
 app = typer.Typer(
     help="Enforce VA-ordered sources into CMakeLists.txt SOURCES (drift gate).",

@@ -23,15 +23,13 @@ from pathlib import Path
 from typing import Any
 
 import typer
-from rich.console import Console
 from rich.table import Table
 
-from rebrew.cli import TargetOption, json_print
+from rebrew.cli import TargetOption, console, json_print
 from rebrew.config import load_config
 
 logger = logging.getLogger(__name__)
 
-console = Console(stderr=True)
 
 app = typer.Typer(
     help="One-shot intelligence dossier for a target binary.",

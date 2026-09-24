@@ -17,9 +17,8 @@ from pathlib import Path
 from typing import Any
 
 import typer
-from rich.console import Console
 
-from rebrew.cli import TargetOption, error_exit, json_print, require_config, run_standalone
+from rebrew.cli import TargetOption, console, error_exit, json_print, require_config, run_standalone
 from rebrew.config import inventory_path_for
 from rebrew.ghidra.commands import (
     build_bookmark_commands,
@@ -32,7 +31,6 @@ from rebrew.ghidra.commands import (
 )
 from rebrew.sources import iter_sources
 
-console = Console(stderr=True)
 log = logging.getLogger(__name__)
 
 app = typer.Typer(

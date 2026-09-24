@@ -22,19 +22,17 @@ from pathlib import Path
 from typing import Any
 
 import typer
-from rich.console import Console
 
 from rebrew.binary_loader import extract_raw_bytes, load_binary
 from rebrew.cli import (
     TargetOption,
+    console,
     error_exit,
     json_print,
     require_config,
     select_annotation,
 )
 from rebrew.compile import compile_to_obj
-
-console = Console(stderr=True)
 
 app = typer.Typer(
     help="Measure one function against the reference without writing metadata.",

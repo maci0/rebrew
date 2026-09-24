@@ -30,12 +30,9 @@ from pathlib import Path
 from typing import Any, cast
 
 import typer
-from rich.console import Console
 from rich.table import Table
 
-from rebrew.cli import EXIT_ERROR, TargetOption, error_exit, json_print, require_config
-
-console = Console(stderr=True)
+from rebrew.cli import EXIT_ERROR, TargetOption, console, error_exit, json_print, require_config
 
 #: Stream chunk for :func:`file_hashes`: the file is read in these slices
 #: so a large binary never lands in memory as one object.

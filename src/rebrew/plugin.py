@@ -112,8 +112,9 @@ class Context:
     A provision is an effect: ``provide`` records the restriction of its key as
     the inverse, and ``unprovide`` runs that inverse alone.  Every change to the
     table notifies the attached :class:`CoeffectScope`, which is what makes the
-    coeffects reactive.  ``_owners`` names the component currently applying, so
-    the effects one activation installs can be reverted on their own.
+    coeffects reactive.  ``_owners`` is an activation stack: each entry
+    collects the effects one activation installs so they can be reverted
+    as a group.
     """
 
     def __init__(self, parent: Context | None = None) -> None:
@@ -644,7 +645,7 @@ def entry_point_components(existing: set[str]) -> tuple[list[CliComponent], list
             if registration.name in existing:
                 warnings.append(
                     f"duplicate CLI command {registration.name!r} from "
-                    f"{registration.origin} ignored (a built-in already uses that name)"
+                    f"{registration.origin} ignored (name already registered)"
                 )
                 continue
             components.append(

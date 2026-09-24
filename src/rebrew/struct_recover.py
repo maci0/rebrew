@@ -56,19 +56,17 @@ from pathlib import Path
 from typing import Any
 
 import typer
-from rich.console import Console
 
 from rebrew.cli import (
     EXIT_ERROR,
     TargetOption,
+    console,
     error_exit,
     json_print,
     require_config,
 )
 from rebrew.errors import RebrewError
 from rebrew.utils import parse_int_literal
-
-console = Console(stderr=True)
 
 # ---------------------------------------------------------------------------
 # Evidence parsing

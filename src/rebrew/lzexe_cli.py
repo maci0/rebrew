@@ -17,12 +17,9 @@ from pathlib import Path
 from typing import Any
 
 import typer
-from rich.console import Console
 
-from rebrew.cli import error_exit, json_print
+from rebrew.cli import console, error_exit, json_print
 from rebrew.lzexe import NotLzexeError, unpack_lzexe
-
-console = Console(stderr=True)
 
 app = typer.Typer(
     help="Unpack an LZEXE 0.90/0.91 compressed DOS executable.",

@@ -68,7 +68,7 @@ Rebrew is a reusable Python tooling package for reconstructing exact C source co
 | `rebrew round-trip` | Splice matched functions back into the target PE and verify byte equality |
 | `rebrew asm` | Quick offline disassembly |
 | `rebrew skills` | List/show the bundled agent skills |
-| `rebrew sync` | Push/pull source markers, metadata, labels, structs, and comments to Ghidra via ReVa MCP |
+| `rebrew sync` | Sync with Ghidra: BinSync state dir field sync + MCP structural ops |
 
 ### Onboarding & Intelligence
 
@@ -76,10 +76,10 @@ Rebrew is a reusable Python tooling package for reconstructing exact C source co
 |------|-------------|
 | `rebrew intake` | One-shot binary onboarding: init + toolchain detect + functions + document-unmatched in a single command |
 | `rebrew analyze` | One-shot intelligence dossier for a binary — layout, toolchain, strings, imports, dispatch tables, FLIRT matches. Works standalone outside a project |
-| `rebrew discover-functions` | Function enumeration (rizin aaa/aap + capstone sweep) with validated boundaries and sizes |
+| `rebrew discover-functions` | Function enumeration (rizin aaa/aap + capstone sweep + `.eh_frame` / `.pdata` unwind tables) with validated boundaries and sizes |
 | `rebrew document-unmatched` | Write STUB skeletons + blockers for every function in the list that isn't documented yet (re-discovery workflow; idempotent) |
 | `rebrew identify-library` | Identify library functions (FLIRT + imports + CRT) into `library_*.h`; `--build-sigs` generates the sigs from the toolchain `.lib` files first |
-| `rebrew pdb-info` | Extract compiler version, exact command line (S_COMPILE3), and function names from a PDB |
+| `rebrew pdb-info` | Extract compiler version, flags (S_COMPILE3), and function names from a PDB |
 
 ### Design
 
@@ -380,7 +380,7 @@ Projects rebrew integrates with or draws from:
 | [Capstone](https://github.com/capstone-engine/capstone) | Disassembly engine | Powers `rebrew asm`, byte-diff scoring, relocation masking, and mnemonic comparison |
 | [angr](https://github.com/angr/angr) | Binary analysis + symbolic execution | Powers `rebrew prove` for Z3-based semantic equivalence proving (optional dep) |
 | [declib](https://github.com/binsync/declib) | BinSync artifact layer | BinSync state export/import/diff/overlay (`binsync` extra, `declib>=4.5`) |
-| [ReVa](https://github.com/cyberkaida/reverse-engineering-assistant) | Ghidra MCP bridge | `rebrew sync` pushes/pulls source markers, metadata, labels, structs, and comments to Ghidra |
+| [ReVa](https://github.com/cyberkaida/reverse-engineering-assistant) | Ghidra MCP bridge | `rebrew sync` structural ops (create-functions, bookmarks, pull-data); field sync is BinSync-primary |
 
 ### Adjacent Tools
 

@@ -40,13 +40,11 @@ from pathlib import Path
 from typing import Any
 
 import typer
-from rich.console import Console
 from rich.table import Table
 
-from rebrew.cli import TargetOption, error_exit, json_print, require_config
+from rebrew.cli import TargetOption, console, error_exit, json_print, require_config
 from rebrew.config import ProjectConfig, inventory_path_for
 
-console = Console(stderr=True)
 log = logging.getLogger(__name__)
 
 #: Symbol inside a W021 message (``global '<name>' is also annotated in ...``).

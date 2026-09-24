@@ -1,27 +1,18 @@
-`jump_swap_ok(a, b)` checks two `"mnemonic operands"` lines: both are
-conditional jumps compatible with a flipped `cmp` operand order
-(`ja`↔`jb`, `jg`↔`jl`, `je`↔`je`, …).
-
-reccmp's whole-pattern fixes (`patch_cmp_jmp`, `patch_mov_cmp_jmp`,
-`patch_mov_commutative`, `patch_fld_fmul`) are not ported: no command
-consumes their orig-line index sets.
-
 # Reccmp Adaptations
 
 Rebrew reimplements reccmp's toolset natively (see [ECOSYSTEM.md](ECOSYSTEM.md)).
-Beyond the tool equivalents, six modules are **adapted from the reccmp
-source** (MIT License, © reccmp contributors — attribution kept in each
-module docstring). They close capability gaps where rebrew had no
-equivalent, without adding a reccmp dependency.
+Beyond the tool equivalents, four adaptations from the reccmp source are
+**carried in the tree** (MIT License, © reccmp contributors — attribution
+kept beside each): three modules plus the jump-swap check inside
+`near_diag`. They close capability gaps where rebrew had no equivalent,
+without adding a reccmp dependency.
 
 | Module | Adapted from | What it adds |
 |---|---|---|
 | `pinned_diff.py` | `compare/pinned_sequences.py` | difflib-compatible matcher seeded with known line pins |
-| `asm_equiv.py` | `compare/asm/fixes.py` | mirrored-jump check for a swapped `cmp` operand order |
+| `near_diag.py` (`jump_swap_ok`) | `compare/asm/fixes.py` | mirrored-jump check for a swapped `cmp` operand order |
 | `vtordisp.py` | `analysis/vtordisp.py` | multiple-inheritance thunk (vtordisp) detection |
 | `float_const.py` | `analysis/float_const.py` | float-constant pool discovery from code references |
-| `demangle.py` | `cvdump/demangler.py` | MSVC symbol helpers (string consts, vtable names) |
-| `pdb_cvdump.py` | `cvdump/runner.py` + `parser.py` | MSVC PDB reading via the WDK `cvdump.exe` tool |
 
 ---
 
@@ -44,8 +35,8 @@ for op in m.get_opcodes():   # DiffOpcode(tag, a_start, a_end, b_start, b_end, a
 - Invalid (out-of-range) pins are dropped; non-monotonic pins raise
   `ValueError`.
 - `ratio()` is the size-weighted mean of the island ratios.
-- `get_grouped_opcodes()` trims long `equal` runs to *n* lines of context,
-  difflib-style, for renderers.
+- The module-level `get_grouped_opcodes(opcodes, n)` trims long `equal` runs
+  to *n* lines of context, difflib-style, for renderers.
 
 **near-diag integration.** `align_and_classify` computes `_auto_pins`:
 instructions whose raw encoding is byte-identical AND unique on both sides
@@ -54,21 +45,14 @@ produced. The pin-partitioned opcodes then feed the same per-pair
 classifier as before (`match` / `register` / `encoding` / `equivalent` /
 `reloc` / `structural`).
 
-## asm_equiv — instruction equivalences
+## near_diag jump_swap — instruction equivalences
 
-Text-level checks on `"mnemonic operands"` lines, adapted from reccmp's
-diff-fix heuristics:
-
-- `jump_swap_ok(a, b)` — both are conditional jumps compatible with a
-  flipped `cmp` operand order (`ja`↔`jb`, `jg`↔`jl`, `je`↔`je`, …).
-- `is_operand_swap(a, b)` — same instruction with operands exchanged
-  (character-multiset check; robust against templates/string literals).
-- `get_patched_jump(a, b)` — `b`'s jump with `a`'s condition mnemonic
-  (keeps `b`'s displacement so a real displacement difference survives).
-- `patch_cmp_jmp` / `patch_mov_cmp_jmp` / `patch_mov_commutative` /
-  `patch_fld_fmul` — whole-pattern detectors returning the set of orig-line
-  indices each pattern explains, or an empty set. No shipped command
-  applies them yet.
+`jump_swap_ok(a, b)` checks two `"mnemonic operands"` lines: both are
+conditional jumps compatible with a flipped `cmp` operand order
+(`ja`↔`jb`, `jg`↔`jl`, `je`↔`je`, …). reccmp's whole-pattern fixes
+(`patch_cmp_jmp`, `patch_mov_cmp_jmp`, `patch_mov_commutative`,
+`patch_fld_fmul`) are not ported: no command consumes their orig-line
+index sets.
 
 **near-diag integration.** `classify_pair` treats a mirrored conditional
 jump pair with the same displacement as `equivalent` — the compiler
@@ -84,7 +68,7 @@ to the base implementation. Three shapes: `{disp, 0}` (8 bytes),
 ```python
 from rebrew.vtordisp import find_vtordisps
 
-for t in find_vtordisps(code_bytes, base_va):
+for t in find_vtordisps(code, base_addr):
     t.disp, t.addend   # MSVC spells this thunk "vtordisp{16, 0}"
     t.func_addr        # resolved jump target
 ```
@@ -115,54 +99,11 @@ consts = find_float_consts(
 Complements `rebrew inline-strings` (strings, not floats) for data
 annotation. Exposed in the `rebrew analyze` dossier as `float_consts`.
 
-## demangle — MSVC symbol helpers
-
-Scoped subset needing no demangler dependency:
-
-- `parse_encoded_number("BC@")` → `0x12` — MSVC encoded lengths
-  (`A`-`P` = hex digits `0`-`F`); raises `InvalidEncodedNumberError`.
-- `demangle_string_const(symbol)` → `StringConstInfo(length, is_utf16)` —
-  decodes width/length from `??_C@_…` string-constant names (text itself
-  is read from the binary at the symbol's address).
-- `demangle_vtable(symbol)` — class name from a `??_7` vtable symbol,
-  self-contained parser: simple and one-level template cases, no backrefs
-  or virtual inheritance (same ceiling as reccmp's parked implementation).
-- `msvc_demangle` / `get_function_arg_string` — use
-  `pydemumble` when installed; otherwise a decoration-strip fallback that
-  covers plain-C symbols. `pydemumble` is intentionally NOT a rebrew
-  dependency.
-
-## pdb_cvdump — PDB access via cvdump.exe
-
-MSVC 6-era PDBs cannot be read by `llvm-pdbutil`; the WDK's `cvdump.exe`
-(run under wine on Linux) still parses them. rebrew ships the runner plus a
-parser for the sections it consumes:
-
-- `LINES` — per-source-file line→address pairs (function extents)
-- `PUBLICS` — mangled public symbols (functions, strings, vtables)
-- `SECTION CONTRIBUTIONS` — per-module symbol sizes (data sizing)
-- `MODULES` — object/library files linked into the binary
-
-```python
-from rebrew.pdb_cvdump import Cvdump, cvdump_exe_path
-
-if cvdump_exe_path():             # REBREW_CVDUMP env override, then PATH
-    parser = Cvdump(pdb_path).publics().modules().section_contributions().run()
-    parser.publics      # [PublicsEntry]
-    parser.sizerefs     # [SizeRefEntry]
-    parser.modules      # [ModuleEntry]
-    parser.lines        # {Path: [LineValue]}
-```
-
-Full type-leaf (`TYPES`/`SYMBOLS`) import is deliberately deferred — until
-then, struct layouts come from the Ghidra/BinSync path.
-
 ---
 
 ## Verification
 
 `tests/test_reccmp_adaptations.py` covers every module: pin partitioning
-and error cases, each patcher pattern (positive + negative), all three
-vtordisp shapes, float discovery filters (writable-data rejection, dedup),
-demangle round trips, cvdump section parsing against sample output, and the
-near-diag wiring (jump-swap → `equivalent`, pins keeping anchor alignment).
+and error cases, all three vtordisp shapes, float discovery filters
+(writable-data rejection, dedup), and the near-diag wiring (jump-swap →
+`equivalent`, pins keeping anchor alignment).

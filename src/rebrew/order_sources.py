@@ -11,12 +11,9 @@ from __future__ import annotations
 from pathlib import Path
 
 import typer
-from rich.console import Console
 
-from rebrew.cli import error_exit, json_print
+from rebrew.cli import console, error_exit, json_print
 from rebrew.link_order import order_sources
-
-console = Console(stderr=True)
 
 app = typer.Typer(
     help="Order source files by their first function's original VA (position-aligned .text).",

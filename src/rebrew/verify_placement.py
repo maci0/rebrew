@@ -18,13 +18,10 @@ from pathlib import Path
 from typing import Any
 
 import typer
-from rich.console import Console
 
-from rebrew.cli import EXIT_MISMATCH, TargetOption, error_exit, json_print
+from rebrew.cli import EXIT_MISMATCH, TargetOption, console, error_exit, json_print
 from rebrew.config import load_config
 from rebrew.data_layout import built_data_va
-
-console = Console(stderr=True)
 
 app = typer.Typer(
     help="Compare .data symbol VAs of the current build against the data metadata.",

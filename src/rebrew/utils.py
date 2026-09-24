@@ -18,10 +18,14 @@ from pathlib import Path
 from typing import Any
 
 import tomlkit
+from rich.console import Console
 from tomlkit import TOMLDocument
 from tomlkit.exceptions import InternalParserError, ParseError
 
 logger = logging.getLogger(__name__)
+
+#: Shared stderr console for utils' output (the watch loop's progress lines).
+console = Console(stderr=True)
 
 # The rebrew package's own vendored toolchains (toolchain/msvc/5.0-win32, toolchain/watcom/2.0-win32,
 # ...).  Projects resolve compiler paths project-relative first, then fall
@@ -1125,9 +1129,6 @@ def watch_files(
     fresh ``.c`` while ``verify --watch`` runs) are picked up instead of the
     loop silently stopping to cover them.
     """
-    from rich.console import Console
-
-    _console = Console(stderr=True)
 
     def _current_paths() -> list[Path]:
         return path_provider() if path_provider is not None else paths
@@ -1142,7 +1143,7 @@ def watch_files(
         return out
 
     last = _mtimes()
-    _console.print(
+    console.print(
         f"[dim]Watching {len(last)} file(s) — re-run on every save (Ctrl+C to stop)...[/dim]"
     )
     try:
@@ -1157,11 +1158,30 @@ def watch_files(
             except BaseException as exc:  # keep watching after a failed run
                 if isinstance(exc, KeyboardInterrupt):
                     raise
-                _console.print(
+                console.print(
                     f"[dim]Run failed ({exc.__class__.__name__}) — waiting for a fix...[/dim]"
                 )
     except KeyboardInterrupt:
-        _console.print("[dim]Watch stopped.[/dim]")
+        console.print("[dim]Watch stopped.[/dim]")
+
+
+# ---------------------------------------------------------------------------
+# HTTP response helpers
+# ---------------------------------------------------------------------------
+
+
+def close_response(resp: Any) -> None:
+    """Release an HTTP response so its connection returns to the pool.
+
+    Real ``httpx.Response`` objects must be closed on every exit path or a
+    reused client drains its pool slots until GC; injected test stand-ins
+    may omit ``.close``, and a close failure must never mask the request's
+    own result or exception.
+    """
+    close = getattr(resp, "close", None)
+    if callable(close):
+        with contextlib.suppress(Exception):
+            close()
 
 
 def strip_comment_blocks(text: str) -> str:

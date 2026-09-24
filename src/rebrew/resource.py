@@ -13,12 +13,9 @@ from pathlib import Path
 from typing import Any
 
 import typer
-from rich.console import Console
 
 from rebrew.binary_loader import load_binary
-from rebrew.cli import EXIT_ERROR, EXIT_MISMATCH, json_print
-
-console = Console(stderr=True)
+from rebrew.cli import EXIT_ERROR, EXIT_MISMATCH, console, json_print
 
 app = typer.Typer(
     help="Compare / extract PE resource (.rsrc) sections.",

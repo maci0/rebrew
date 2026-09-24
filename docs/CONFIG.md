@@ -191,7 +191,7 @@ profile = "msvc-7.0"
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `profile` | `string` | `"msvc-6.0"` | Selects the toolchain's docker image and the flag-sweep axes for `rebrew match`. Must name a registered toolchain (`rebrew toolchain list`); an unknown or retired name warns and falls back to `msvc-6.0` |
+| `profile` | `string` | `"msvc-6.0"` | Selects the toolchain's docker image and the flag-sweep axes for `rebrew match`. Must name a registered toolchain (`rebrew toolchain list`); an unknown or retired name raises a `ConfigError` (repair with `rebrew cfg set-compiler`) |
 | `command` | `string` | `"wine CL.EXE"` | Host compiler invocation (resolved relative to project root). **Empty for docker-backed profiles** — the image IS the compiler (that is what `rebrew init` writes for every shipped profile); only a plugin toolchain registered without an image sets a real command. The `wine CL.EXE` fallback default is inert under docker-only execution |
 | `includes` | `string` | `"toolchain/msvc/6.0-win32/source/VC98/Include"` | Path to compiler include directory. For `msvc-6.0`/`msvc-7.0` the default resolves the best layout actually present (full master, then the vendored compile-only mirrors `toolchain/msvc/6.0-sp6-win32`/`toolchain/msvc/6.0-sp3-win32`/`toolchain/msvc/7.0-win32`) — see `rebrew init` output and docs/TOOLCHAIN.md. Empty is valid ("no extra dir"; e.g. `mingw-16.2.0` ships its own headers) |
 | `libs` | `string` | `"toolchain/msvc/6.0-win32/source/VC98/Lib"` | Path to compiler lib directory (empty is valid — the compile-only mirrors ship no `Lib/`) |
@@ -362,9 +362,6 @@ by the CLI layer and win for that invocation.
   Default: `$XDG_CACHE_HOME/rebrew-<toolchain>-wineprefix`.
 - `REBREW_TOOLCHAIN` — cmake bridge pin for the active profile name.
 - `REBREW_COMPILER_RUNNER` — host PE runner path/name (set by `msvc_env`).
-- `REBREW_CVDUMP`: path to `cvdump.exe` for the `pdb_cvdump` helper.
-  Default: first `cvdump.exe` on `PATH`. A non-empty value that is not a
-  file raises `FileNotFoundError` instead of falling back to `PATH`.
 - `REBREW_RUNNER` — PE runner **inside** docker toolchain images
   (`wine` default, `wibo` opt-in).  Not read by the host Python process.
 
@@ -463,8 +460,8 @@ All tools read from `rebrew-project.toml`. Key tools and the config values they 
 | `doctor.py` | `target_binary`, `reversed_dir`, `bin_dir`, compiler paths, `arch`, `binary_format` |
 | `flirt.py` | `target_binary`, `root` |
 | `crt_match.py` | `crt_sources`, `reversed_dir`, `target_binary` |
-| `build_db.py` | `project_root`, `db_dir` |
-| `cache_cli.py` | `project_root` (cache directory location) |
+| `build_db.py` | `root`, `db_dir` |
+| `cache_cli.py` | `root` (cache directory location) |
 | `cfg.py` | `rebrew-project.toml` (tomlkit read/write) |
 | `split.py` | `marker`, `source_ext`, `reversed_dir` |
 | `merge.py` | `marker`, `source_ext`, `reversed_dir` |

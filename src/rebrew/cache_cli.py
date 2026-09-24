@@ -1,12 +1,9 @@
 """rebrew cache: Manage the compile result cache."""
 
 import typer
-from rich.console import Console
 
-from rebrew.cli import TargetOption, error_exit, json_print, require_config
+from rebrew.cli import TargetOption, console, error_exit, json_print, require_config
 from rebrew.compile_cache import DEFAULT_CACHE_BACKEND, get_compile_cache
-
-console = Console(stderr=True)
 
 app = typer.Typer(
     help="Manage the compile result cache (.rebrew/compile_cache/).",

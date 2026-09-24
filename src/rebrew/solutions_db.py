@@ -10,12 +10,9 @@ from __future__ import annotations
 from typing import Any
 
 import typer
-from rich.console import Console
 from rich.table import Table
 
-from rebrew.cli import TargetOption, json_print, require_config
-
-console = Console(stderr=True)
+from rebrew.cli import TargetOption, console, json_print, require_config
 
 app = typer.Typer(
     help="Query the GA solutions database (winning fingerprints + run history).",

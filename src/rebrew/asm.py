@@ -42,7 +42,6 @@ from pathlib import Path
 from typing import Any, NamedTuple
 
 import typer
-from rich.console import Console
 from rich.markup import escape
 
 from rebrew.annotation import parse_c_file_multi
@@ -51,6 +50,7 @@ from rebrew.cli import (
     DISPLAY_STATUSES,
     EXIT_ERROR,
     TargetOption,
+    console,
     error_exit,
     json_print,
     parse_va,
@@ -63,7 +63,6 @@ from rebrew.sources import (
 )
 from rebrew.utils import parse_int_literal
 
-console = Console(stderr=True)
 logger = logging.getLogger(__name__)
 
 # Pre-compiled regex for sanitizing NASM labels (used in disassemble_to_nasm).

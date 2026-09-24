@@ -27,12 +27,9 @@ from pathlib import Path
 from typing import Any, Literal
 
 import typer
-from rich.console import Console
 from rich.table import Table
 
-from rebrew.cli import EXIT_ERROR, TargetOption, error_exit, json_print, require_config
-
-console = Console(stderr=True)
+from rebrew.cli import EXIT_ERROR, TargetOption, console, error_exit, json_print, require_config
 
 # ---------------------------------------------------------------------------
 # Constant tables (fixed algorithm constants, embedded as literals)

@@ -41,11 +41,10 @@ from pathlib import Path
 from typing import Any
 
 import typer
-from rich.console import Console
 from rich.table import Table
 
 from rebrew.binary_loader import detect_format_and_arch
-from rebrew.cli import EXIT_ERROR, TargetOption, error_exit, json_print, require_config
+from rebrew.cli import EXIT_ERROR, TargetOption, console, error_exit, json_print, require_config
 from rebrew.pe_symbols import (
     PeDirectories,
     _export_table,
@@ -55,8 +54,6 @@ from rebrew.pe_symbols import (
 from rebrew.pe_symbols import (
     _as_list as _safe_list,
 )
-
-console = Console(stderr=True)
 
 # ---------------------------------------------------------------------------
 # Named constants
@@ -211,11 +208,24 @@ _STRUCTURED_KEYS = frozenset(
 #: count of what it left out) while ``--json`` carries every one.
 _MAX_TABLE_ROWS = 64
 
-#: Non-PE note.  The same wording for every format, parameterized by name.
+#: Non-PE note.  The same wording for every format, parameterized by name
+#: and by what the format still lacks (an ELF carries its sections).
 _PE_ONLY_NOTE = (
-    "PE-only metadata (sections, security flags, Authenticode, debug, "
+    "PE-only metadata ({missing}security flags, Authenticode, debug, "
     "Rich header) is unavailable for {fmt} binaries"
 )
+
+#: ELF ``sh_flags`` bits the section map reads.
+_SHF_WRITE = 0x1
+_SHF_ALLOC = 0x2
+_SHF_EXECINSTR = 0x4
+_SHF_NAMES = (
+    (_SHF_WRITE, "SHF_WRITE"),
+    (_SHF_ALLOC, "SHF_ALLOC"),
+    (_SHF_EXECINSTR, "SHF_EXECINSTR"),
+)
+#: ``SHT_NOBITS``: a section (``.bss``) that occupies memory but no file bytes.
+_SHT_NOBITS = 8
 
 #: Bytes of the entry point ``entry_bytes`` carries, as hex.  A packer or
 #: protector stub is recognizable in its first few bytes (a ``pushad``, a
@@ -502,20 +512,57 @@ def _pe_type(header: Any) -> str | None:
 
 
 def _elf_payload(elf: Any, size: int, arch: str) -> dict[str, object]:
-    """ELF identity block plus the note that PE-only fields do not apply."""
+    """ELF identity block, its mapped sections, and the note on what is PE-only."""
     header = getattr(elf, "header", None)
     entry_point = _to_int(getattr(elf, "entrypoint", 0)) or 0
+    image_base = _to_int(getattr(elf, "imagebase", 0)) or 0
     identity: dict[str, object] = {
         "format": "elf",
         "arch": arch,
         "bits": _elf_bits(header),
-        "image_base": _to_int(getattr(elf, "imagebase", 0)) or 0,
+        "image_base": image_base,
         "entry_point": entry_point,
         "entry_bytes": _entry_bytes(elf, entry_point),
         "size": size,
-        "note": _PE_ONLY_NOTE.format(fmt="elf"),
+        "sections": _elf_sections(elf, image_base),
+        "note": _PE_ONLY_NOTE.format(missing="", fmt="elf"),
     }
     return identity
+
+
+def _elf_sections(elf: Any, image_base: int) -> list[dict[str, object]]:
+    """Every mapped (``SHF_ALLOC``) section in the PE section shape.
+
+    ``virtual_address`` is relative to *image_base*, as a PE RVA is, so one
+    reader serves both formats.  A ``SHT_NOBITS`` section (``.bss``) has no
+    file bytes: ``raw_size`` and ``raw_offset`` are 0.  ``characteristics``
+    names the ELF flags, and ``characteristics_value`` is the raw
+    ``sh_flags``; neither is an ``IMAGE_SCN_*`` value.
+    """
+    sections: list[dict[str, object]] = []
+    for section in _safe_list(elf, "sections"):
+        flags = _to_int(getattr(section, "flags", 0)) or 0
+        if not flags & _SHF_ALLOC:
+            continue
+        va = _to_int(getattr(section, "virtual_address", 0)) or 0
+        size = _to_int(getattr(section, "size", 0)) or 0
+        no_bits = (_to_int(getattr(section, "type", 0)) or 0) == _SHT_NOBITS
+        sections.append(
+            {
+                "name": _text(getattr(section, "name", "")),
+                "virtual_address": va - image_base,
+                "virtual_size": size,
+                "raw_size": 0 if no_bits else size,
+                "raw_offset": 0 if no_bits else _to_int(getattr(section, "file_offset", 0)) or 0,
+                "entropy": None if no_bits else _section_entropy(section),
+                "characteristics_value": flags,
+                "characteristics": [name for bit, name in _SHF_NAMES if flags & bit],
+                "read": True,
+                "write": bool(flags & _SHF_WRITE),
+                "execute": bool(flags & _SHF_EXECINSTR),
+            }
+        )
+    return sections
 
 
 def _macho_payload(macho: Any, size: int, arch: str) -> dict[str, object]:
@@ -533,7 +580,7 @@ def _macho_payload(macho: Any, size: int, arch: str) -> dict[str, object]:
         "entry_point": entry_point,
         "entry_bytes": _entry_bytes(binary, entry_point),
         "size": size,
-        "note": _PE_ONLY_NOTE.format(fmt="macho"),
+        "note": _PE_ONLY_NOTE.format(missing="sections, ", fmt="macho"),
     }
     return identity
 

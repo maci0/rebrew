@@ -32,13 +32,12 @@ from typing import Any
 
 import tomlkit
 import typer
-from rich.console import Console
 
 from rebrew.annotation import span_contains_factory
 from rebrew.binsync import serial
 from rebrew.c_parser import type_from_declaration
 from rebrew.catalog import scan_reversed_dir
-from rebrew.cli import TargetOption, error_exit, json_print, require_config, run_standalone
+from rebrew.cli import TargetOption, console, error_exit, json_print, require_config, run_standalone
 from rebrew.config import ProjectConfig, inventory_path_for
 from rebrew.utils import atomic_write_locked, md5_file, strip_body
 
@@ -58,7 +57,7 @@ app = typer.Typer(
     ),
 )
 
-console = Console(stderr=True)
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------

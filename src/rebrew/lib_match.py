@@ -52,7 +52,6 @@ from pathlib import Path
 from typing import Any
 
 import typer
-from rich.console import Console
 
 from rebrew.binary_loader import extract_raw_bytes
 from rebrew.cli import (
@@ -60,6 +59,7 @@ from rebrew.cli import (
     EXIT_MISMATCH,
     EXIT_OK,
     TargetOption,
+    console,
     error_exit,
     json_print,
     parse_va,
@@ -69,8 +69,6 @@ from rebrew.config import module_marker
 from rebrew.gen_flirt_pat import parse_archive, parse_coff_obj
 from rebrew.utils import container_runtime
 from rebrew.workspace.config import config_path
-
-console = Console(stderr=True)
 
 MIN_BYTES = 8
 MIN_FIXED_FRACTION = 0.5

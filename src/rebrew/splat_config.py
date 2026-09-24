@@ -85,7 +85,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import typer
-from rich.console import Console
 from rich.table import Table
 
 from rebrew.annotation import iter_annotations
@@ -102,7 +101,8 @@ from rebrew.workspace.config import config_path
 if TYPE_CHECKING:
     from rebrew.symbol_addrs import SymbolRow
 
-console = Console(stderr=True)
+
+from rebrew.cli import console
 
 #: The splat ``platform`` values this importer understands.  A config for any
 #: other platform names a target rebrew cannot compile (MIPS/PSX/N64 assets and
@@ -1641,12 +1641,27 @@ def parse_yaml_subset(text: str) -> Any:
     documents, duplicate keys) raises :class:`ValueError` naming the line; a
     construct this reader does not model must not be guessed at.
     """
-    lines = _logical_lines(text)
-    if not lines:
+    out: list[_Line] = []
+    for number, raw in enumerate(text.splitlines(), start=1):
+        if "\t" in raw[: len(raw) - len(raw.lstrip())]:
+            raise ValueError(f"line {number}: tab indentation is not supported")
+        content = _strip_comment(raw).rstrip()
+        if not content.strip():
+            continue
+        stripped = content.strip()
+        if stripped == "---":
+            continue
+        if stripped.startswith("..."):
+            raise ValueError(f"line {number}: multiple documents are not supported")
+        first = stripped[0]
+        if first in _UNSUPPORTED_LEADING:
+            raise ValueError(f"line {number}: {_UNSUPPORTED_LEADING[first]}")
+        out.append(_Line(number, len(content) - len(content.lstrip()), stripped))
+    if not out:
         return {}
-    value, index = _parse_block(lines, 0, lines[0].indent)
-    if index != len(lines):
-        raise ValueError(f"line {lines[index].number}: unexpected content")
+    value, index = _parse_block(out, 0, out[0].indent)
+    if index != len(out):
+        raise ValueError(f"line {out[index].number}: unexpected content")
     return value
 
 
@@ -1668,27 +1683,6 @@ _UNSUPPORTED_LEADING: dict[str, str] = {
     "!": "tags are not part of the supported subset",
     "%": "YAML directives are not part of the supported subset",
 }
-
-
-def _logical_lines(text: str) -> list[_Line]:
-    """Strip comments and blanks, and reject constructs outside the subset."""
-    out: list[_Line] = []
-    for number, raw in enumerate(text.splitlines(), start=1):
-        if "\t" in raw[: len(raw) - len(raw.lstrip())]:
-            raise ValueError(f"line {number}: tab indentation is not supported")
-        content = _strip_comment(raw).rstrip()
-        if not content.strip():
-            continue
-        stripped = content.strip()
-        if stripped == "---":
-            continue
-        if stripped.startswith("..."):
-            raise ValueError(f"line {number}: multiple documents are not supported")
-        first = stripped[0]
-        if first in _UNSUPPORTED_LEADING:
-            raise ValueError(f"line {number}: {_UNSUPPORTED_LEADING[first]}")
-        out.append(_Line(number, len(content) - len(content.lstrip()), stripped))
-    return out
 
 
 def _strip_comment(line: str) -> str:

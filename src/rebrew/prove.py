@@ -38,7 +38,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, override
 
 import typer
-from rich.console import Console
 
 if TYPE_CHECKING:
     import angr  # # only for annotations; runtime import is lazy
@@ -50,6 +49,7 @@ from rebrew.cli import (
     EXIT_MISMATCH,
     EXIT_OK,
     TargetOption,
+    console,
     error_exit,
     json_print,
     parse_va,
@@ -1127,8 +1127,6 @@ app = typer.Typer(
     rich_markup_mode="rich",
     epilog=_EPILOG,
 )
-
-console = Console(stderr=True)
 
 
 @app.callback(invoke_without_command=True)

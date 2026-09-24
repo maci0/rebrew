@@ -13,11 +13,10 @@ from pathlib import Path
 from typing import Any
 
 import typer
-from rich.console import Console
 
 from rebrew.annotation import parse_c_file_multi
 from rebrew.binary_loader import capstone_mode_for_arch, extract_raw_bytes
-from rebrew.cli import EXIT_MISMATCH, json_print
+from rebrew.cli import EXIT_MISMATCH, console, json_print
 from rebrew.compile import resolve_compiler_env
 from rebrew.config import ProjectConfig
 from rebrew.match_batch import (
@@ -46,7 +45,6 @@ from rebrew.matcher.core import EXACT_SCORE_THRESHOLD
 from rebrew.utils import atomic_write_text, metadata_write_lock, read_compile_source
 
 log = logging.getLogger(__name__)
-console = Console(stderr=True)
 
 
 def _run_single_ga(

@@ -22,6 +22,8 @@ from urllib.parse import urljoin, urlparse
 if TYPE_CHECKING:
     import httpx
 
+from rebrew.utils import close_response
+
 _WIBO_API_URL = "https://api.github.com/repos/decompals/wibo/releases/latest"
 _WIBO_DEFAULT_PATH = Path("tools/wibo")
 
@@ -76,14 +78,6 @@ def _trusted_wibo_download_url(url: str) -> str:
     return url
 
 
-def _close_response(resp: Any) -> None:
-    """Close an httpx response when the stand-in exposes ``.close`` (tests do)."""
-    close = getattr(resp, "close", None)
-    if callable(close):
-        with contextlib.suppress(Exception):
-            close()
-
-
 def _get_with_trusted_redirects(url: str) -> httpx.Response:
     """GET *url*, following redirects only while each hop stays on the allow-list.
 
@@ -104,7 +98,7 @@ def _get_with_trusted_redirects(url: str) -> httpx.Response:
                 raise RuntimeError(f"wibo download redirect missing Location from {current!r}")
             current = _trusted_wibo_download_url(urljoin(current, location))
         finally:
-            _close_response(resp)
+            close_response(resp)
     raise RuntimeError(f"wibo download exceeded redirect limit from {url!r}")
 
 
@@ -127,7 +121,7 @@ def _read_release_metadata() -> dict[str, Any]:
                 f"Invalid JSON in wibo release metadata from {_WIBO_API_URL}: {exc}"
             ) from exc
     finally:
-        _close_response(resp)
+        close_response(resp)
     if not isinstance(data, dict):
         raise RuntimeError("Invalid wibo release metadata response")
     return data
@@ -175,7 +169,7 @@ def download_wibo(dest: Path) -> str:
             resp.raise_for_status()
             body = resp.content
         finally:
-            _close_response(resp)
+            close_response(resp)
     except httpx.HTTPError as exc:
         raise RuntimeError(
             f"Failed to download wibo asset {asset_name} from {download_url}: {exc}"

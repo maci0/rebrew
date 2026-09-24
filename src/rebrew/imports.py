@@ -15,14 +15,11 @@ from pathlib import Path
 from typing import Any
 
 import typer
-from rich.console import Console
 
-from rebrew.cli import EXIT_ERROR, TargetOption, error_exit, json_print, require_config
+from rebrew.cli import EXIT_ERROR, TargetOption, console, error_exit, json_print, require_config
 from rebrew.config import module_marker
 from rebrew.import_table import find_import_stubs, parse_imports
 from rebrew.utils import read_source_text
-
-console = Console(stderr=True)
 
 
 def imports_payload(

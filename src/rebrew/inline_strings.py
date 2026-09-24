@@ -31,13 +31,10 @@ from collections import defaultdict
 from pathlib import Path
 
 import typer
-from rich.console import Console
 
-from rebrew.cli import TargetOption, json_print, require_config
+from rebrew.cli import TargetOption, console, json_print, require_config
 from rebrew.data_layout import data_raw_from_binary, layout_geometry
 from rebrew.utils import atomic_write_text, read_source_text
-
-console = Console(stderr=True)
 
 app = typer.Typer(
     help="Inline string-literal globals (s_<hint>_<ADDR>) from the reference binary.",

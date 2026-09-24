@@ -787,12 +787,11 @@ _QUERY_REGISTER_DECL = _LazyQuery(
 )
 
 
-_QUERY_INJECT_DUMMY_VAR = _LazyQuery(
-    _C_LANGUAGE, "(function_definition body: (compound_statement) @body)"
-)
-_QUERY_INJECT_DUMMY_ARRAY = _LazyQuery(
-    _C_LANGUAGE, "(function_definition body: (compound_statement) @body)"
-)
+#: Shared tree-sitter query: a function's entire body block.
+_QUERY_BODY = "(function_definition body: (compound_statement) @body)"
+
+_QUERY_INJECT_DUMMY_VAR = _LazyQuery(_C_LANGUAGE, _QUERY_BODY)
+_QUERY_INJECT_DUMMY_ARRAY = _LazyQuery(_C_LANGUAGE, _QUERY_BODY)
 _QUERY_SCOPE_VARIABLE = _LazyQuery(
     _C_LANGUAGE,
     "\n        (function_definition body: (compound_statement\n            (declaration type: (_) @type declarator: (_) @decl) @d1\n            .\n            (expression_statement) @next_stmt\n        ))\n    ",

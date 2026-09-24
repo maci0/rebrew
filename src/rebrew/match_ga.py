@@ -19,7 +19,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 import capstone
-from rich.console import Console
 
 from rebrew.compile_cache import CacheBackend, source_digest
 from rebrew.config import ProjectConfig
@@ -37,8 +36,9 @@ from rebrew.utils import atomic_write_text, file_lock
 if TYPE_CHECKING:
     from rebrew.match_sweep import BuildParams
 
+from rebrew.cli import console
+
 log = logging.getLogger(__name__)
-console = Console(stderr=True)
 
 #: Serializes in-process appends to ``--collect-pairs`` JSONL.  Parallel
 #: ``match --all -j N`` stubs share one pairs file; each record embeds the

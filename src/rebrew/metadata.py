@@ -33,7 +33,8 @@ writes update the spelling the file already uses instead of appending a twin.
 Owned fields per entry::
 
     size, cflags, toolchain, status, blocker, blocker_delta, note, ghidra,
-    analysis, skip, source, globals, prove_constraints
+    analysis, skip, source, globals, locals, comments, prove_constraints,
+    updated_by, updated_at
 
 The full canonical set is :data:`METADATA_FIELDS` (upper-case marker names).
 ``SECTION`` is intentionally *not* owned here — it lives in

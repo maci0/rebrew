@@ -344,9 +344,10 @@ class TestDiffFunctions:
         result = diff_functions(target, cand, as_dict=True)
         assert isinstance(result, dict)
         matches = [line["match"] for line in result["instructions"]]
-        # Must have structural diffs, not just relocation diffs
-        assert "**" in matches
-        assert result["summary"]["structural"] > 0
+        # Only the sub differs, and structurally (not as a relocation)
+        assert matches == ["==", "==", "**", "=="]
+        assert result["summary"]["structural"] == 1
+        assert result["summary"]["reloc"] == 0
 
     def test_mismatched_length(self) -> None:
         target = b"\x55\x8b\xec\xc3"
@@ -355,6 +356,9 @@ class TestDiffFunctions:
         assert isinstance(result, dict)
         assert result["target_size"] == 4
         assert result["candidate_size"] == 7
+        # ret vs sub, then the unpaired trailing ret, both count as structural
+        assert [line["match"] for line in result["instructions"]] == ["==", "==", "**", "**"]
+        assert result["summary"]["structural"] == 2
 
     def test_empty_inputs(self) -> None:
         result = diff_functions(b"", b"", as_dict=True)
@@ -481,9 +485,17 @@ class TestScoringFuzzing:
             for cand in cases:
                 score = score_candidate(tgt, cand)
                 assert isinstance(score, Score)
-                assert score.length_diff >= 0
+                assert score.length_diff == abs(len(tgt) - len(cand))
                 assert score.byte_score >= 0.0
                 assert isinstance(score.total, float)
+                if tgt == cand:
+                    assert (score.byte_score, score.reloc_score, score.mnemonic_score) == (
+                        0.0,
+                        0.0,
+                        0.0,
+                    ), tgt[:1]
+                else:
+                    assert score.total > 0.0, (tgt[:1], cand[:1])
 
                 sim = structural_similarity(tgt, cand)
                 assert isinstance(sim, StructuralSimilarity)

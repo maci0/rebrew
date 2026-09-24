@@ -33,7 +33,6 @@ if TYPE_CHECKING:
     from rebrew.compile_context import CompileContext
 
 import typer
-from rich.console import Console
 from rich.progress import BarColumn, MofNCompleteColumn, Progress, TextColumn
 from rich.table import Table
 from rich.text import Text
@@ -52,6 +51,7 @@ from rebrew.cli import (
     AllTargetsOption,
     TargetOption,
     all_targets_run,
+    console,
     error_exit,
     json_print,
     option_default,
@@ -341,8 +341,6 @@ def verify_entry(
 # Main
 # ---------------------------------------------------------------------------
 
-
-console = Console(stderr=True)
 
 app = typer.Typer(
     help="Rebrew verification pipeline: compile each .c and verify bytes match.",

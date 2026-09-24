@@ -27,7 +27,7 @@ from typing import TYPE_CHECKING, Any, Literal, overload
 if TYPE_CHECKING:
     import lief
 
-    from rebrew.ne_loader import NeExport, NeHeader, NeImportModule, NeSegment
+    from rebrew.ne_loader import NeHeader, NeImportModule, NeSegment
 
 
 def __getattr__(name: str) -> Any:
@@ -165,7 +165,6 @@ class BinaryInfo:
     ne_header: NeHeader | None = None
     ne_segments: list[NeSegment] = field(default_factory=list)
     ne_imports: list[NeImportModule] = field(default_factory=list)
-    ne_exports: list[NeExport] = field(default_factory=list)
 
     # Lazy-loaded; shared across workers via ``_load_binary_cache``.
     _data: bytes | None = field(default=None, repr=False)
@@ -1238,6 +1237,28 @@ def detect_format_and_arch(path: Path) -> tuple[str, str | None]:
             return "macho", _arch_maps()[2].get(b.header.cpu_type)
         return "macho", None
     raise ValueError(f"Cannot detect binary format: {path}")
+
+
+def object_arch(obj_data: bytes) -> tuple[str, str] | None:
+    """``(arch, endian)`` of one relocatable object (an ELF ``.o`` or a COFF
+    ``.obj``, as an archive member holds it), or None when it is unreadable or
+    its machine is not one rebrew decodes."""
+    import lief
+
+    if obj_data.startswith(b"\x7fELF"):
+        elf = lief.ELF.parse(list(obj_data))
+        if elf is None:
+            return None
+        arch = _arch_maps()[1].get(elf.header.machine_type)
+        big = elf.header.identity_data == lief.ELF.Header.ELF_DATA.MSB
+        endian = "big" if big else "little"
+    else:
+        coff = lief.COFF.parse(list(obj_data))
+        if coff is None:
+            return None
+        arch = _arch_maps()[0].get(coff.header.machine)
+        endian = "little"
+    return (arch, endian) if arch else None
 
 
 def is_mz(path: str | Path) -> bool:

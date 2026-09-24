@@ -37,15 +37,12 @@ from pathlib import Path
 from typing import Any
 
 import typer
-from rich.console import Console
 from rich.table import Table
 
-from rebrew.cli import TargetOption, error_exit, json_print, require_config
+from rebrew.cli import TargetOption, console, error_exit, json_print, require_config
 from rebrew.gen_layout import derive_link_options, parse_pe
 from rebrew.pe_headers import pe_layout
 from rebrew.utils import run_process_group
-
-console = Console(stderr=True)
 
 app = typer.Typer(help="Sweep LINK options to reproduce the reference PE header.")
 

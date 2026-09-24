@@ -15,8 +15,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from rich.console import Console
-
 from rebrew.annotation import (
     NEW_FUNC_RE,
     has_skip_annotation,
@@ -24,14 +22,13 @@ from rebrew.annotation import (
     parse_c_file_multi,
     resolve_symbol,
 )
+from rebrew.cli import console
 from rebrew.config import ProjectConfig
 from rebrew.metadata import update_source_status
 from rebrew.sources import iter_sources
 from rebrew.utils import atomic_write_text, read_source_text
 
 log = logging.getLogger(__name__)
-console = Console(stderr=True)
-
 
 #: A smaller annotation is usually a size-0/unknown marker whose "function"
 #: would be a handful of placeholder bytes.  ``--min-size`` overrides it in

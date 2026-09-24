@@ -32,7 +32,7 @@ from pathlib import Path
 from typing import Any
 
 import typer
-from rich.console import Console, Group
+from rich.console import Group
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
@@ -44,6 +44,7 @@ from rebrew.cli import (
     EXIT_OK,
     STATUS_COLORS,
     TargetOption,
+    console,
     error_exit,
     json_print,
     require_config,
@@ -64,8 +65,6 @@ from rebrew.sources import (
     target_marker,
 )
 from rebrew.utils import atomic_write_bytes, safe_shlex_split
-
-console = Console(stderr=True)
 
 app = typer.Typer(
     help="Splice every matched function back into the target PE and verify byte equality.",

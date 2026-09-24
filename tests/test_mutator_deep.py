@@ -185,14 +185,13 @@ class TestWhileDoWhile:
     def test_while_to_dowhile(self) -> None:
         src = "while (i < 10) {\n    x = x + 1;\n}"
         result = mut_while_to_dowhile(src, random.Random(42))
-        assert result is not None
-        assert "do" in result
+        # The guard keeps zero-iteration semantics around the do-while body.
+        assert result == "if (i < 10) {\n    do {\n    x = x + 1;\n} while (i < 10);\n    }"
 
     def test_dowhile_to_while(self) -> None:
         src = "do {\n    x = x + 1;\n} while (i < 10);"
         result = mut_dowhile_to_while(src, random.Random(42))
-        assert result is not None
-        assert "while" in result
+        assert result == "while (i < 10) {\n    x = x + 1;\n}"
 
     def test_no_while(self) -> None:
         assert mut_while_to_dowhile("return 0;", random.Random(42)) is None

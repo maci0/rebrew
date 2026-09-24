@@ -9,6 +9,10 @@ command chains several strategies and merges the best result:
 2. rizin ``aa; aap`` (function-prelude analysis)
 3. a capstone linear sweep over .text: function starts after padding runs,
    ``push ebp; mov ebp, esp`` prologues, and direct-call targets
+4. unwind tables, which a stripped binary keeps: an ELF's ``.eh_frame``
+   records (every function, on a default x86-64 or AArch64 build) and an x64
+   PE's ``.pdata`` runtime functions (every non-leaf function), each an exact
+   start and size
 
 Candidates are merged by VA (dropping any that land inside a larger span) and
 each size is refined by disassembling to the first ``ret`` — the size that
@@ -23,8 +27,10 @@ Usage::
 
 from __future__ import annotations
 
+import bisect
 import logging
 import re
+import struct
 import subprocess
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -32,14 +38,11 @@ from pathlib import Path
 from typing import Any
 
 import typer
-from rich.console import Console
 
 from rebrew.analysis import iter_instructions
 from rebrew.binary_loader import load_binary
-from rebrew.cli import error_exit, json_print
+from rebrew.cli import console, error_exit, json_print
 from rebrew.utils import atomic_write_text
-
-console = Console(stderr=True)
 
 app = typer.Typer(help="Enumerate functions: rizin aaa/aap + capstone sweep, sizes validated.")
 
@@ -113,6 +116,177 @@ def _discover_capstone_sweep(binary: Path) -> list[tuple[int, int, str]]:
         return []
 
 
+#: DW_EH_PE value formats (the encoding's low nibble) with a fixed width;
+#: ``absptr`` (0x00) is the target's pointer width and is added per call.
+_EH_PE_FORMATS = {0x02: "H", 0x03: "I", 0x04: "Q", 0x0A: "h", 0x0B: "i", 0x0C: "q"}
+_EH_PE_PCREL = 0x10
+_EH_PE_APPLICATION_MASK = 0x70
+_EH_PE_OMIT = 0xFF
+#: A record length of this value means a 64-bit length follows.
+_EH_EXTENDED_LENGTH = 0xFFFFFFFF
+
+
+def _uleb128(data: bytes, pos: int) -> tuple[int, int]:
+    """``(value, next position)`` of the ULEB128 at *pos*; IndexError when truncated."""
+    value = shift = 0
+    while True:
+        byte = data[pos]
+        pos += 1
+        value |= (byte & 0x7F) << shift
+        shift += 7
+        if not byte & 0x80:
+            return value, pos
+
+
+def _parse_eh_frame(
+    data: bytes, section_va: int, *, pointer_size: int, big_endian: bool
+) -> list[tuple[int, int]]:
+    """``(start, size)`` of every FDE in the ``.eh_frame`` image *data* mapped at *section_va*.
+
+    Reads CIEs for their FDE pointer encoding (the ``zR`` augmentation) and
+    each FDE's initial location and address range.  Parsing stops at the zero
+    terminator or at the first malformed record, keeping what was read before
+    it; it never raises on bad input.  An FDE whose CIE was not seen, or whose
+    range is zero, is skipped.
+    """
+    order = ">" if big_endian else "<"
+    formats = {0x00: "Q" if pointer_size == 8 else "I", **_EH_PE_FORMATS}
+
+    def pointer(pos: int, encoding: int, *, pc_relative: bool = True) -> tuple[int, int]:
+        fmt = order + formats[encoding & 0x0F]
+        (value,) = struct.unpack_from(fmt, data, pos)
+        if pc_relative and encoding & _EH_PE_APPLICATION_MASK == _EH_PE_PCREL:
+            value += section_va + pos
+        return value, pos + struct.calcsize(fmt)
+
+    def fde_encoding(pos: int, end: int) -> int:
+        version = data[pos]
+        terminator = data.index(b"\0", pos + 1, end)
+        augmentation = data[pos + 1 : terminator]
+        pos = terminator + 1
+        if b"eh" in augmentation:  # pre-DWARF-2 GCC: an EH data pointer follows
+            pos += pointer_size
+        _code_align, pos = _uleb128(data, pos)
+        _data_align, pos = _uleb128(data, pos)  # SLEB128, but only skipped
+        pos = pos + 1 if version == 1 else _uleb128(data, pos)[1]
+        encoding = 0x00
+        if augmentation.startswith(b"z"):
+            _length, pos = _uleb128(data, pos)
+            for letter in augmentation[1:].decode("ascii"):
+                if letter == "R":
+                    encoding = data[pos]
+                    pos += 1
+                elif letter == "P":
+                    _personality, pos = pointer(pos + 1, data[pos])
+                elif letter == "L":
+                    pos += 1
+                elif letter not in "SB":
+                    break  # unknown letter: the rest of the data is unknown
+        return encoding
+
+    encodings: dict[int, int] = {}
+    extents: list[tuple[int, int]] = []
+    pos = 0
+    try:
+        while pos + 4 <= len(data):
+            (length,) = struct.unpack_from(order + "I", data, pos)
+            if length == 0:
+                break
+            body, id_format = pos + 4, "I"
+            if length == _EH_EXTENDED_LENGTH:
+                (length,) = struct.unpack_from(order + "Q", data, body)
+                body, id_format = body + 8, "Q"
+            end = body + length
+            if end > len(data):
+                break
+            (cie_id,) = struct.unpack_from(order + id_format, data, body)
+            fields = body + struct.calcsize(id_format)
+            if cie_id == 0:
+                encodings[pos] = fde_encoding(fields, end)
+            else:
+                encoding = encodings.get(body - cie_id)
+                if encoding is not None and encoding != _EH_PE_OMIT:
+                    start, fields = pointer(fields, encoding)
+                    size, _ = pointer(fields, encoding & 0x0F, pc_relative=False)
+                    if size > 0:
+                        extents.append((start, size))
+            pos = end
+    except (struct.error, KeyError, ValueError, IndexError, UnicodeDecodeError):
+        logger.debug("malformed .eh_frame record at offset 0x%x; kept what came before", pos)
+    return extents
+
+
+def _discover_eh_frame(binary: Path) -> list[tuple[int, int, str]]:
+    """Packaged discoverer: exact function extents from an ELF's ``.eh_frame``.
+
+    Only extents that start inside a code section are kept.  Empty for a
+    non-ELF binary or one without unwind records.
+    """
+    try:
+        info = load_binary(binary)
+    except (OSError, ValueError):
+        return []
+    if info.format != "elf":
+        return []
+    section = next((s for s in info.sections.values() if s.name == ".eh_frame"), None)
+    if section is None or section.file_offset < 0 or section.raw_size <= 0:
+        return []
+    data = info.data[section.file_offset : section.file_offset + section.raw_size]
+    code = [(s.va, s.va + s.size) for s in info.sections.values() if s.is_code]
+    extents = _parse_eh_frame(
+        data,
+        section.va,
+        pointer_size=8 if info.arch.endswith("64") else 4,
+        big_endian=info.endian == "big",
+    )
+    return [
+        (va, size, f"fcn.{va:08x}")
+        for va, size in sorted(set(extents))
+        if any(lo <= va < hi for lo, hi in code)
+    ]
+
+
+def _discover_pdata(binary: Path) -> list[tuple[int, int, str]]:
+    """Packaged discoverer: exact function extents from an x64 PE's ``.pdata``.
+
+    A runtime function whose unwind info chains to another describes a
+    fragment of that function, not a start, and is skipped.  Empty for any
+    other binary.
+    """
+    import lief
+
+    config = lief.PE.ParserConfig()
+    config.parse_exceptions = True
+    try:
+        pe = lief.PE.parse(str(binary), config) if lief.is_pe(str(binary)) else None
+    except (OSError, ValueError):
+        return []
+    if pe is None:
+        return []
+    base = pe.optional_header.imagebase
+    out: list[tuple[int, int, str]] = []
+    for entry in pe.exceptions:
+        if not isinstance(entry, lief.PE.RuntimeFunctionX64):
+            continue
+        info = entry.unwind_info
+        if info is not None and info.chained is not None:
+            continue
+        size = entry.rva_end - entry.rva_start
+        if size > 0:
+            va = base + entry.rva_start
+            out.append((va, size, f"fcn.{va:08x}"))
+    return sorted(set(out))
+
+
+def _inside_an_extent(extents: list[tuple[int, int]], va: int) -> bool:
+    """True when *va* falls strictly inside one of the sorted ``(start, size)`` *extents*."""
+    index = bisect.bisect_left(extents, (va, 0)) - 1
+    if index < 0:
+        return False
+    start, size = extents[index]
+    return start < va < start + size
+
+
 def _discover_ne_loader(binary: Path) -> list[tuple[int, int, str]]:
     """Packaged discoverer: 16-bit NE native loader (None unless NE)."""
     from rebrew.binary_loader import is_ne, load_binary
@@ -139,6 +313,8 @@ _PACKAGED_DISCOVERERS: dict[str, Discoverer] = {
     "rizin aaa": _discover_rizin_aaa,
     "rizin aa;aap": _discover_rizin_aap,
     "capstone sweep": _discover_capstone_sweep,
+    "eh_frame": _discover_eh_frame,
+    "pdata": _discover_pdata,
     "ne loader": _discover_ne_loader,
     "mz sweep": _discover_mz_sweep,
 }
@@ -365,9 +541,13 @@ def _is_padding(info: Any, va: int, end: int) -> bool:
 
 
 def _validate_and_refine(
-    info: Any, funcs: list[tuple[int, int, str]]
+    info: Any, funcs: list[tuple[int, int, str]], *, vouched: frozenset[int] = frozenset()
 ) -> list[tuple[int, int, str]]:
     """Drop candidates that are inside another function's span; size = gap, trimmed of padding.
+
+    A start in *vouched* (one an unwind record names) is never dropped: code
+    that ends in a call to a noreturn function runs straight into the next
+    function with no ``ret``.
 
     A candidate is a *real* function start when the previous function's code
     reaches a ``ret`` followed by padding before the candidate.  If the code
@@ -387,9 +567,11 @@ def _validate_and_refine(
         # Find the first ret within the gap.
         ret_end = None
         last_mnemonic = ""
+        decoded_end = va
         try:
             for insn in iter_instructions(info, va, gap or 0x400):
                 last_mnemonic = insn.mnemonic
+                decoded_end = insn.va + insn.size
                 if insn.mnemonic.startswith("ret"):
                     ret_end = insn.va + insn.size - va
                     break
@@ -407,12 +589,19 @@ def _validate_and_refine(
         # candidate with no boundary": no ret, and nothing that legitimately ends
         # a function without one (a tail-call `jmp`, int3/hlt/ud2 padding).  An
         # empty decode stays conservative — nothing is dropped.
+        # Only code that decodes all the way to the candidate runs into it: a
+        # window cut short (the section's file bytes end first, as at the end of
+        # an ELF `.plt`) proves nothing.  A prefixed jump (`bnd jmp`, `notrack
+        # jmp`) is a tail jump, and `nop` is padding, like int3/hlt/ud2.
         hit_nxt = (
             ret_end is None
             and gap is not None
+            and nxt is not None
+            and nxt not in vouched
+            and decoded_end >= nxt
             and last_mnemonic != ""
-            and not last_mnemonic.startswith("jmp")
-            and last_mnemonic not in ("int3", "hlt", "ud2")
+            and last_mnemonic.split()[-1] != "jmp"
+            and last_mnemonic not in ("int3", "hlt", "ud2", "nop")
         )
 
         if hit_nxt:
@@ -604,7 +793,7 @@ def discover_functions(binary: Path, *, min_size: int = 8) -> Discovery:
         d.functions = [f for f in sized if f[1] >= min_size]
         return d
 
-    found = _run_providers(["rizin aaa", "rizin aa;aap", *plugins], binary, d)
+    found = _run_providers(["rizin aaa", "rizin aa;aap", "eh_frame", "pdata", *plugins], binary, d)
     # Merge: prefer-larger-size union over every provider (rizin strategies
     # and plugins alike); the merged-rizin count tracks the rizin pair only.
     merged = _merge_union(found)
@@ -619,6 +808,15 @@ def discover_functions(binary: Path, *, min_size: int = 8) -> Discovery:
         if va not in merged:
             merged[va] = (0, sweep_names[va])
     d.sources["capstone sweep"] = len(sweep_names)
+
+    # An unwind record is the compiler's own statement of a function's extent:
+    # any other candidate inside one is a branch target, not a function.
+    unwind = {
+        va: size for source in ("eh_frame", "pdata") for va, size, _name in found.get(source, [])
+    }
+    extents = sorted(unwind.items())
+    if extents:
+        merged = {va: entry for va, entry in merged.items() if not _inside_an_extent(extents, va)}
 
     # Validate: drop candidates that fall inside a larger span.
     ordered = sorted(merged.items())
@@ -636,12 +834,13 @@ def discover_functions(binary: Path, *, min_size: int = 8) -> Discovery:
     # Refine sizes against the binary (first-ret).
     try:
         info = load_binary(binary)
-        funcs = _validate_and_refine(info, funcs)
+        funcs = _validate_and_refine(info, funcs, vouched=frozenset(unwind))
     except Exception as exc:
         # Unvalidated gap-based sizes are still emitted, but the user must
         # know the refine pass was skipped.
         logger.warning("size refine step failed (emitting unvalidated sizes): %s", exc)
 
+    funcs = [(va, unwind.get(va, size), name) for va, size, name in funcs]
     funcs = [f for f in funcs if f[1] >= min_size]
     d.functions = funcs
     return d

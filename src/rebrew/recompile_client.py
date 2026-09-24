@@ -18,7 +18,6 @@ no CLI flag toggles it per run.
 
 from __future__ import annotations
 
-import contextlib
 import time
 from contextlib import nullcontext
 from dataclasses import dataclass
@@ -26,19 +25,7 @@ from typing import Any, Literal, Protocol, runtime_checkable
 from urllib.parse import urljoin, urlparse
 
 from rebrew.errors import RebrewError
-
-
-def _close_response(resp: Any) -> None:
-    """Release an httpx response so its connection returns to the pool.
-
-    Injected test stand-ins may omit ``.close``; real ``httpx.Response``
-    objects must be closed on every exit path or a reused client drains.
-    """
-    close = getattr(resp, "close", None)
-    if callable(close):
-        with contextlib.suppress(Exception):
-            close()
-
+from rebrew.utils import close_response
 
 #: Request cap mirrored from the service (recompile ``_MAX_FLAGS``): longer
 #: flag lists 422 instead of compiling.
@@ -186,7 +173,7 @@ def _download_artifact(
             compiler_version=str(version) if version else None,
         )
     finally:
-        _close_response(art)
+        close_response(art)
 
 
 def compile_source(
@@ -332,7 +319,7 @@ def compile_source(
                             )
                         pending = (body, artifact_url)
                     finally:
-                        _close_response(resp)
+                        close_response(resp)
                 body, artifact_url = pending
                 return _download_artifact(http, url, body, artifact_url)
         except RecompileError as exc:

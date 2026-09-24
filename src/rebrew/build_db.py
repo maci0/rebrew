@@ -15,12 +15,12 @@ from types import SimpleNamespace
 from typing import Any
 
 import typer
-from rich.console import Console
 
 from rebrew.annotation import FUNCTION_MARKERS, VALID_MARKERS
 from rebrew.cli import (
     EXIT_ERROR,
     TargetOption,
+    console,
     error_exit,
     json_print,
 )
@@ -41,9 +41,6 @@ from rebrew.workspace import (
     open_sqlite_ro,
 )
 from rebrew.workspace.status import KNOWN_STATUSES, MATCHED_STATUSES
-
-console = Console(stderr=True)
-
 
 _CURRENT_DB_VERSION = "10"
 

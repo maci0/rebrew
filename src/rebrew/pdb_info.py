@@ -34,12 +34,9 @@ from pathlib import Path
 
 import tomlkit
 import typer
-from rich.console import Console
 from rich.markup import escape
 
-from rebrew.cli import error_exit, json_print
-
-console = Console(stderr=True)
+from rebrew.cli import console, error_exit, json_print
 
 app = typer.Typer(help="Extract compiler version, flags, and function names from a PDB.")
 

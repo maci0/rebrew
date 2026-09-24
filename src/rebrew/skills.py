@@ -27,11 +27,11 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from rebrew.cli import error_exit, json_print
+from rebrew.cli import console, error_exit, json_print
 
 logger = logging.getLogger(__name__)
 
-console = Console(stderr=True)
+
 _stdout_console = Console()
 
 # ---------------------------------------------------------------------------

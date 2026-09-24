@@ -55,14 +55,11 @@ from pathlib import Path
 from typing import Any
 
 import typer
-from rich.console import Console
 
-from rebrew.cli import TargetOption, error_exit, json_print, require_config
+from rebrew.cli import TargetOption, console, error_exit, json_print, require_config
 from rebrew.layout_meta import LayoutMetadata, extract_layout, write_package
 from rebrew.pe_headers import pe_layout, pe_lfanew, sections_at
 from rebrew.utils import atomic_write_text, container_runtime
-
-console = Console(stderr=True)
 
 #: Cap on import name-table / descriptor slots read from one PE.  A missing
 #: null terminator would otherwise walk past EOF into ``struct.error`` or

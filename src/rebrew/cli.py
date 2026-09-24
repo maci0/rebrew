@@ -122,7 +122,7 @@ def run_for_each_target(
                 with contextlib.redirect_stdout(buf):
                     run_one(name)
             else:
-                _err_console.print(f"\n[bold cyan]=== Target {name} ===[/]")
+                console.print(f"\n[bold cyan]=== Target {name} ===[/]")
                 run_one(name)
         except typer.Exit as exc:
             worst = max(worst, int(getattr(exc, "exit_code", 0) or 0))
@@ -130,7 +130,7 @@ def run_for_each_target(
             logging.warning("target %s failed", name, exc_info=True)
             worst = max(worst, EXIT_ERROR)
             if not json_mode:
-                _err_console.print(
+                console.print(
                     f"[yellow]warning:[/yellow] target {name} failed: {type(exc).__name__}: {exc}"
                 )
         if json_mode:
@@ -210,7 +210,7 @@ def require_config(
 # Standardised output helpers
 # ---------------------------------------------------------------------------
 
-_err_console = Console(stderr=True)
+console = Console(stderr=True)
 
 #: C0/C1 controls except tab and newline, rendered as ``\xNN``.  Error text
 #: carries remote response bodies and binary-derived names; a raw ESC would
@@ -240,7 +240,7 @@ def error_exit(msg: str, *, json_mode: bool = False, code: int = EXIT_ERROR) -> 
         # soft_wrap keeps embedded commands/paths contiguous — without it
         # Rich folds mid-token (e.g. `rebrew catalog …` → `rebrew\ncatalog`).
         safe = escape(msg.translate(_TERMINAL_CONTROL_CHARS))
-        _err_console.print(f"[red bold]error:[/red bold] {safe}", soft_wrap=True)
+        console.print(f"[red bold]error:[/red bold] {safe}", soft_wrap=True)
     raise typer.Exit(code=code)
 
 
@@ -327,10 +327,10 @@ def run_cli(app: Callable[[], Any]) -> None:
         if _json_requested():
             print(json.dumps({"error": str(e), "code": EXIT_ERROR}, indent=2))
         else:
-            _err_console.print(f"[red]error:[/red] {escape(str(e))}", soft_wrap=True)
+            console.print(f"[red]error:[/red] {escape(str(e))}", soft_wrap=True)
         raise SystemExit(EXIT_ERROR) from None
     except KeyboardInterrupt:
-        _err_console.print("[red]error:[/red] Interrupted by user")
+        console.print("[red]error:[/red] Interrupted by user")
         raise SystemExit(EXIT_INTERRUPTED) from None
 
 

@@ -22,9 +22,8 @@ def is_effective_match(
     structural: int = 0,
     register: int = 0,
     equivalent: int = 0,
-    encoding: int = 0,
 ) -> bool:
-    """True when the delta is pure register allocation (+ encoding choice).
+    """True when the delta is pure register allocation.
 
     Callers count bytes (or diff rows) per category; anything structural or
     instruction-selection-flavored (`equivalent`) disqualifies the pair.

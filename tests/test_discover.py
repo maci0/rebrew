@@ -259,12 +259,51 @@ class TestInteriorFalsePositiveDrop:
                 self.mnemonic = mnemonic
 
         def _iter(info, va, size):
-            yield Insn(va, 4, "mov")
-            yield Insn(va + 4, 2, "jne")
+            # The predecessor decodes across its whole window into the candidate.
+            yield Insn(va, size - 2, "mov")
+            yield Insn(va + size - 2, 2, "jne")
 
         monkeypatch.setattr("rebrew.discover.iter_instructions", _iter)
         out = _validate_and_refine(None, [(0x401000, 0, "outer"), (0x401034, 0, "interior")])
         assert [va for va, _s, _n in out] == [0x401000]
+
+    def test_a_window_cut_short_keeps_the_candidate(self, monkeypatch) -> None:
+        """Decoding that stops before the next candidate (the section's file
+        bytes end, as at the end of an ELF ``.plt``) proves nothing about it:
+        dropping there cascaded through every later function of a static ELF."""
+        from rebrew.discover import _validate_and_refine
+
+        class Insn:
+            def __init__(self, va: int, size: int, mnemonic: str) -> None:
+                self.va = va
+                self.size = size
+                self.mnemonic = mnemonic
+
+        def _iter(info, va, size):
+            yield Insn(va, 6, "push")
+
+        monkeypatch.setattr("rebrew.discover.iter_instructions", _iter)
+        out = _validate_and_refine(None, [(0x401020, 0, "plt"), (0x401100, 0, "main")])
+        assert [va for va, _s, _n in out] == [0x401020, 0x401100]
+
+    def test_prefixed_jumps_and_nop_padding_end_a_function(self, monkeypatch) -> None:
+        """`bnd jmp` / `notrack jmp` are tail jumps and `nop` is padding: the next
+        candidate after either is a function of its own."""
+        from rebrew.discover import _validate_and_refine
+
+        class Insn:
+            def __init__(self, va: int, size: int, mnemonic: str) -> None:
+                self.va = va
+                self.size = size
+                self.mnemonic = mnemonic
+
+        for last in ("bnd jmp", "notrack jmp", "nop"):
+            monkeypatch.setattr(
+                "rebrew.discover.iter_instructions",
+                lambda info, va, size, last=last: [Insn(va, size, last)],
+            )
+            out = _validate_and_refine(None, [(0x401020, 0, "stub"), (0x401030, 0, "next")])
+            assert [va for va, _s, _n in out] == [0x401020, 0x401030], last
 
     def test_tail_call_candidate_is_kept(self, monkeypatch) -> None:
         """A predecessor ending in an unconditional `jmp` is a tail call, not
@@ -283,3 +322,161 @@ class TestInteriorFalsePositiveDrop:
         monkeypatch.setattr("rebrew.discover.iter_instructions", _iter)
         out = _validate_and_refine(None, [(0x401000, 0, "outer"), (0x401034, 0, "thunk")])
         assert [va for va, _s, _n in out] == [0x401000, 0x401034]
+
+
+def _cie(encoding: int) -> bytes:
+    """A version-1 ``zR`` CIE whose FDEs use *encoding*."""
+    body = b"\x00\x00\x00\x00" + b"\x01" + b"zR\x00" + b"\x01" + b"\x78" + b"\x10"
+    body += b"\x01" + bytes([encoding])
+    return len(body).to_bytes(4, "little") + body
+
+
+def _fde(record_offset: int, cie_offset: int, section_va: int, start: int, size: int) -> bytes:
+    """A pc-relative sdata4 FDE at *record_offset* covering ``[start, start + size)``."""
+    id_field = record_offset + 4
+    begin_field = id_field + 4
+    body = (id_field - cie_offset).to_bytes(4, "little")
+    body += (start - (section_va + begin_field)).to_bytes(4, "little", signed=True)
+    body += size.to_bytes(4, "little") + b"\x00"
+    return len(body).to_bytes(4, "little") + body
+
+
+class TestEhFrame:
+    """Function extents from an ELF ``.eh_frame``."""
+
+    SECTION_VA = 0x5000
+
+    def _frame(self, extents: list[tuple[int, int]]) -> bytes:
+        data = _cie(0x1B)
+        for start, size in extents:
+            data += _fde(len(data), 0, self.SECTION_VA, start, size)
+        return data
+
+    def test_each_fde_gives_its_start_and_size(self) -> None:
+        from rebrew.discover import _parse_eh_frame
+
+        data = self._frame([(0x401000, 0x40), (0x401040, 0x13)]) + b"\x00\x00\x00\x00"
+        assert _parse_eh_frame(data, self.SECTION_VA, pointer_size=8, big_endian=False) == [
+            (0x401000, 0x40),
+            (0x401040, 0x13),
+        ]
+
+    def test_a_truncated_record_keeps_what_came_before(self) -> None:
+        from rebrew.discover import _parse_eh_frame
+
+        data = self._frame([(0x401000, 0x40), (0x401040, 0x13)])
+        extents = _parse_eh_frame(data[:-3], self.SECTION_VA, pointer_size=8, big_endian=False)
+        assert extents == [(0x401000, 0x40)]
+
+    def test_an_fde_without_a_known_cie_is_skipped(self) -> None:
+        from rebrew.discover import _parse_eh_frame
+
+        data = _cie(0x1B)
+        # The FDE's CIE pointer names offset 2, inside the CIE, not its start.
+        data += _fde(len(data), 2, self.SECTION_VA, 0x401000, 0x10)
+        assert _parse_eh_frame(data, self.SECTION_VA, pointer_size=8, big_endian=False) == []
+
+    def test_any_input_parses_without_raising(self) -> None:
+        from hypothesis import given, settings
+        from hypothesis import strategies as st
+
+        from rebrew.discover import _parse_eh_frame
+
+        @settings(max_examples=400, deadline=None)
+        @given(st.binary(max_size=256), st.sampled_from([4, 8]), st.booleans())
+        def parse(data: bytes, pointer_size: int, big_endian: bool) -> None:
+            for prefix in (b"", _cie(0x1B), _cie(0x00)):
+                result = _parse_eh_frame(
+                    prefix + data, 0x1000, pointer_size=pointer_size, big_endian=big_endian
+                )
+                assert all(size > 0 for _start, size in result)
+
+        parse()
+
+    def test_a_vouched_start_survives_a_noreturn_predecessor(self, monkeypatch) -> None:
+        """Code ending in ``call abort`` runs into the next function with no
+        ``ret``; the unwind table's word keeps that next function."""
+        from rebrew.discover import _validate_and_refine
+
+        class Insn:
+            def __init__(self, va: int, size: int, mnemonic: str) -> None:
+                self.va = va
+                self.size = size
+                self.mnemonic = mnemonic
+
+        def _iter(info, va, size):
+            yield Insn(va, size - 5, "mov")
+            yield Insn(va + size - 5, 5, "call")
+
+        monkeypatch.setattr("rebrew.discover.iter_instructions", _iter)
+        funcs = [(0x401000, 0, "dies"), (0x401020, 0, "next")]
+        assert [va for va, _s, _n in _validate_and_refine(None, funcs)] == [0x401000]
+        kept = _validate_and_refine(None, funcs, vouched=frozenset({0x401020}))
+        assert [va for va, _s, _n in kept] == [0x401000, 0x401020]
+
+
+def test_a_stripped_elf_is_discovered_from_its_unwind_records(tmp_path: Path) -> None:
+    """Every function of 8+ bytes of a stripped ELF, at its exact start and size."""
+    import shutil
+    import subprocess
+
+    cc = shutil.which("cc") or shutil.which("gcc")
+    if cc is None or shutil.which("nm") is None or shutil.which("strip") is None:
+        pytest.skip("needs cc, nm and strip")
+    src = tmp_path / "prog.c"
+    src.write_text(
+        "#include <stdlib.h>\n"
+        "__attribute__((noinline)) static void die(int c) { if (c) abort(); }\n"
+        "__attribute__((noinline)) static int twice(int x) { die(x < 0); return x * 2; }\n"
+        "__attribute__((noinline)) static int table(int x) {\n"
+        "  switch (x) { case 1: return 7; case 2: return 11; case 3: return 13; }\n"
+        "  return twice(x) + 1; }\n"
+        "int main(int argc, char **argv) { (void)argv; return table(argc) + twice(argc); }\n",
+        encoding="utf-8",
+    )
+    full = tmp_path / "prog"
+    subprocess.run([cc, "-O2", "-o", str(full), str(src)], check=True, capture_output=True)
+    stripped = tmp_path / "prog.stripped"
+    subprocess.run(["strip", "-o", str(stripped), str(full)], check=True, capture_output=True)
+    symbols = subprocess.run(["nm", "-S", str(full)], check=True, capture_output=True, text=True)
+    truth = {}
+    for line in symbols.stdout.splitlines():
+        parts = line.split()
+        if len(parts) == 4 and parts[2] in "tT" and int(parts[1], 16) >= 8:
+            truth[int(parts[0], 16)] = int(parts[1], 16)
+    found = {va: size for va, size, _name in discover_functions(stripped).functions}
+    assert {va: found.get(va) for va in truth} == truth
+
+
+def test_a_stripped_x64_pe_is_discovered_from_its_pdata(tmp_path: Path) -> None:
+    """Every non-leaf function of a stripped x64 PE, at its exact start."""
+    import shutil
+    import subprocess
+
+    cc = shutil.which("x86_64-w64-mingw32-gcc")
+    nm = shutil.which("x86_64-w64-mingw32-nm")
+    strip = shutil.which("x86_64-w64-mingw32-strip")
+    if cc is None or nm is None or strip is None:
+        pytest.skip("needs the x86_64-w64-mingw32 toolchain")
+    src = tmp_path / "prog.c"
+    src.write_text(
+        "#include <stdio.h>\n"
+        '__attribute__((noinline)) static int scale(int x) { printf("%d\\n", x); return x * 3; }\n'
+        "__attribute__((noinline)) static int both(int x) { return scale(x) + scale(x + 1); }\n"
+        "int main(int argc, char **argv) { (void)argv; return both(argc); }\n",
+        encoding="utf-8",
+    )
+    full = tmp_path / "prog.exe"
+    subprocess.run([cc, "-O2", "-o", str(full), str(src)], check=True, capture_output=True)
+    stripped = tmp_path / "stripped.exe"
+    subprocess.run([strip, "-o", str(stripped), str(full)], check=True, capture_output=True)
+    symbols = subprocess.run([nm, str(full)], check=True, capture_output=True, text=True).stdout
+    wanted = {"scale", "both", "main"}
+    truth = {
+        int(parts[0], 16)
+        for parts in (line.split() for line in symbols.splitlines())
+        if len(parts) == 3 and parts[2] in wanted
+    }
+    assert len(truth) == len(wanted)
+    found = {va for va, _size, _name in discover_functions(stripped).functions}
+    assert truth <= found

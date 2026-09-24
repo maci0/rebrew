@@ -29,14 +29,11 @@ import tomllib
 from pathlib import Path
 
 import typer
-from rich.console import Console
 
-from rebrew.cli import TargetOption, error_exit, json_print
+from rebrew.cli import TargetOption, console, error_exit, json_print
 from rebrew.pe_headers import find_section
 from rebrew.utils import atomic_write_text, load_tomllib, read_source_text, run_process_group
 from rebrew.workspace import walk_up_to_root
-
-console = Console(stderr=True)
 
 app = typer.Typer(
     help="Calibrate a BSS tail pad so the raw link's .data VirtualSize matches the reference.",

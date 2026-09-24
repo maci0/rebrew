@@ -42,20 +42,12 @@ class NeHeader:
     entry_table_length: int
     flags: int
     autodata_segment: int
-    heap_size: int
-    stack_size: int
-    entry_ip: int
-    entry_cs: int
-    stack_sp: int
-    stack_ss: int
     segment_count: int
     module_reference_count: int
     segment_table_offset: int
-    resource_table_offset: int
     resident_names_offset: int
     module_ref_table_offset: int
     imported_names_offset: int
-    nonresident_names_offset: int
     alignment_shift: int
 
     @property
@@ -344,14 +336,6 @@ class NeImportModule:
     imports: list[NeImport] = field(default_factory=list)
 
 
-@dataclass
-class NeExport:
-    """A named export from the resident name table."""
-
-    name: str
-    ordinal: int
-
-
 class NeParseError(RebrewError, ValueError):
     """Raised when a file claims to be NE but its tables are malformed."""
 
@@ -362,6 +346,14 @@ def _u16(data: bytes, off: int) -> int:
 
 def _u32(data: bytes, off: int) -> int:
     return int(struct.unpack_from("<I", data, off)[0])
+
+
+@dataclass
+class NeExport:
+    """A named export from the resident name table."""
+
+    name: str
+    ordinal: int
 
 
 def parse_ne_header(data: bytes, ne_offset: int) -> NeHeader:
@@ -378,20 +370,12 @@ def parse_ne_header(data: bytes, ne_offset: int) -> NeHeader:
             entry_table_length=_u16(data, h + 0x06),
             flags=_u16(data, h + 0x0C),
             autodata_segment=_u16(data, h + 0x0E),
-            heap_size=_u16(data, h + 0x10),
-            stack_size=_u16(data, h + 0x12),
-            entry_ip=_u16(data, h + 0x14),
-            entry_cs=_u16(data, h + 0x16),
-            stack_sp=_u16(data, h + 0x18),
-            stack_ss=_u16(data, h + 0x1A),
             segment_count=_u16(data, h + 0x1C),
             module_reference_count=_u16(data, h + 0x1E),
             segment_table_offset=_u16(data, h + 0x22),
-            resource_table_offset=_u16(data, h + 0x24),
             resident_names_offset=_u16(data, h + 0x26),
             module_ref_table_offset=_u16(data, h + 0x28),
             imported_names_offset=_u16(data, h + 0x2A),
-            nonresident_names_offset=_u32(data, h + 0x2C),
             alignment_shift=_u16(data, h + 0x32),
         )
     except (struct.error, IndexError) as exc:
@@ -622,6 +606,5 @@ def load_ne_binary(path: Path) -> BinaryInfo:
         ne_header=header,
         ne_segments=segments,
         ne_imports=parse_imports(data, ne_offset, header),
-        ne_exports=parse_exports(data, ne_offset, header),
         _data=data,
     )

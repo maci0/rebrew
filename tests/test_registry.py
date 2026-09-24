@@ -7,8 +7,10 @@ backends, GA mutations, CLI commands).
 
 from __future__ import annotations
 
+import json
 import random
 import sys
+import tomllib
 import types
 from pathlib import Path
 from types import SimpleNamespace
@@ -783,8 +785,16 @@ class TestLibraryPresetRegistry:
         from rebrew.library import app as library_app
 
         # --preset my-runtime must not be rejected as unknown
-        result = CliRunner().invoke(library_app, ["set", "--preset", "my-runtime", str(tmp_path)])
-        assert result.exit_code == 0
+        result = CliRunner().invoke(
+            library_app, ["set", "--preset", "my-runtime", str(tmp_path), "--json"]
+        )
+        assert result.exit_code == 0, result.output
+        payload = json.loads(result.stdout)
+        assert payload["presets"] == ["my-runtime"]
+        assert (payload["toolchain"], payload["cflags"]) == ("mytc", "-O2")
+        assert tomllib.loads((tmp_path / "rebrew-libraries.toml").read_text()) == {
+            "library": "my-runtime"
+        }
 
 
 class TestToolchainDetectorRegistry:

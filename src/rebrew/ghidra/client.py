@@ -13,33 +13,23 @@ import re
 import time
 from typing import TYPE_CHECKING, Any, Literal
 
-from rich.console import Console
-
 if TYPE_CHECKING:
     import httpx
 
+from rich.console import Console
+
 from rebrew.errors import RebrewError
 from rebrew.ghidra.models import JsonRpcResponse, McpToolResult
+from rebrew.utils import close_response
 
+# Local console: rebrew.ghidra must stay importable without rebrew.cli
+# (library layering test).
 console = Console(stderr=True)
 logger = logging.getLogger(__name__)
 
 #: How a :class:`McpError` arose — callers branch on this instead of
 #: matching message substrings.
 McpErrorKind = Literal["network", "http", "protocol"]
-
-
-def _close_response(resp: Any) -> None:
-    """Release an httpx response so its connection returns to the pool.
-
-    MCP batch apply posts once per command against a single Client; leaving
-    responses open pins pool slots until GC and can stall under load.
-    Test stand-ins may omit ``.close``.
-    """
-    close = getattr(resp, "close", None)
-    if callable(close):
-        with contextlib.suppress(Exception):
-            close()
 
 
 class McpError(RebrewError, RuntimeError):
@@ -210,7 +200,7 @@ def _call_mcp_tool(
             return None
         return res
     finally:
-        _close_response(resp)
+        close_response(resp)
 
 
 def fetch_mcp_tool(
@@ -330,7 +320,7 @@ def init_mcp_session(client: httpx.Client, endpoint: str) -> str:
         resp.raise_for_status()
         return str(resp.headers.get("Mcp-Session-Id", ""))
     finally:
-        _close_response(resp)
+        close_response(resp)
 
 
 def end_mcp_session(client: httpx.Client, endpoint: str, session_id: str) -> None:
@@ -356,7 +346,7 @@ def end_mcp_session(client: httpx.Client, endpoint: str, session_id: str) -> Non
     except httpx.HTTPError as exc:
         logger.debug("MCP session %s termination failed at %s: %s", session_id, endpoint, exc)
         return
-    _close_response(resp)
+    close_response(resp)
 
 
 def _paginate_mcp_list(
@@ -673,7 +663,7 @@ def apply_commands_via_mcp(
             try:
                 notify.raise_for_status()
             finally:
-                _close_response(notify)
+                close_response(notify)
         except httpx.HTTPError as exc:
             logger.warning("Failed to send initialized notification to %s: %s", endpoint, exc)
 
@@ -727,7 +717,7 @@ def apply_commands_via_mcp(
                     return False, str(error_msg)
                 return True, ""
             finally:
-                _close_response(resp)
+                close_response(resp)
 
         # Apply each command
         current_phase = ""

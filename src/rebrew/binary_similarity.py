@@ -34,22 +34,21 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import typer
-from rich.console import Console
 from rich.table import Table
 
 if TYPE_CHECKING:
     import numpy as np
 
+from rebrew.analysis import DEFAULT_CS_ARCH, DEFAULT_CS_MODE
 from rebrew.cli import (
     TargetOption,
+    console,
     error_exit,
     json_print,
     require_config,
 )
 from rebrew.config import inventory_path_for
-from rebrew.similar import DEFAULT_CS_ARCH, DEFAULT_CS_MODE, disasm_signature
-
-console = Console(stderr=True)
+from rebrew.similar import disasm_signature
 
 
 def _pair_ratio(a: np.ndarray, b: np.ndarray) -> np.ndarray:

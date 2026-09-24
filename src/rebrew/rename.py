@@ -10,11 +10,11 @@ from pathlib import Path
 from typing import Any
 
 import typer
-from rich.console import Console
 
 from rebrew.catalog import scan_reversed_dir
 from rebrew.cli import (
     TargetOption,
+    console,
     error_exit,
     json_print,
     require_config,
@@ -83,7 +83,6 @@ app = typer.Typer(
         "`grep` for the old name afterwards if you suspect any.[/dim]"
     ),
 )
-console = Console(stderr=True)
 
 
 @app.callback(invoke_without_command=True)

@@ -10,12 +10,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from rich.console import Console
-
+from rebrew.cli import console
 from rebrew.config import ProjectConfig
 from rebrew.utils import atomic_write_text
-
-console = Console(stderr=True)
 
 
 def _cflags_key(cflags: str) -> frozenset[str]:

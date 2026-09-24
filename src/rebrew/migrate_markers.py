@@ -27,13 +27,10 @@ from pathlib import Path
 from typing import Any
 
 import typer
-from rich.console import Console
 
 from rebrew.annotation import FUNC_NAME_HINT_RE, NEW_FUNC_RE, NEW_KV_RE
-from rebrew.cli import TargetOption, error_exit, json_print, require_config
+from rebrew.cli import TargetOption, console, error_exit, json_print, require_config
 from rebrew.utils import atomic_write_text, read_source_text
-
-console = Console(stderr=True)
 
 app = typer.Typer(
     help="Move inline markers into rebrew-functions.toml (ADR 023: pure-C sources).",

@@ -17,10 +17,9 @@ from pathlib import Path
 from typing import Any
 
 import typer
-from rich.console import Console
 from rich.table import Table
 
-from rebrew.cli import EXIT_ERROR, TargetOption, error_exit, json_print
+from rebrew.cli import EXIT_ERROR, TargetOption, console, error_exit, json_print
 from rebrew.toolchain import (
     ToolchainError,
     docker_available,
@@ -28,8 +27,6 @@ from rebrew.toolchain import (
     pull_toolchain,
 )
 from rebrew.utils import SOURCE_CHECKOUT, atomic_write_text, container_runtime
-
-console = Console(stderr=True)
 
 #: Cap on each archive-extraction subprocess in `rebrew toolchain vendor`
 #: (matches the curl download timeout).  Without it a stuck filesystem or

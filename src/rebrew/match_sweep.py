@@ -13,7 +13,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import typer
-from rich.console import Console
 
 from rebrew.annotation import (
     Annotation,
@@ -42,10 +41,10 @@ from rebrew.utils import read_compile_source
 
 if TYPE_CHECKING:
     from rebrew.compile_cache import CacheBackend
+from rebrew.cli import console
 from rebrew.workspace.config import config_path
 
 log = logging.getLogger(__name__)
-console = Console(stderr=True)
 
 
 def print_structural_similarity(sim: Any) -> None:

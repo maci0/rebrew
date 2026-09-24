@@ -29,9 +29,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import typer
-from rich.console import Console
 from rich.table import Table
 
+from rebrew.analysis import DEFAULT_CS_ARCH, DEFAULT_CS_MODE
 from rebrew.catalog import RegistryEntry
 from rebrew.cli import (
     TargetOption,
@@ -41,7 +41,7 @@ from rebrew.cli import (
     require_config,
 )
 from rebrew.config import ProjectConfig, inventory_path_for
-from rebrew.similar import DEFAULT_CS_ARCH, DEFAULT_CS_MODE, disasm_signature, similarity_score
+from rebrew.similar import disasm_signature, similarity_score
 from rebrew.sources import iter_sources, target_marker
 from rebrew.utils import atomic_write_text, read_source_text, rel_display_path
 from rebrew.workspace.status import MATCHED_STATUSES
@@ -49,7 +49,8 @@ from rebrew.workspace.status import MATCHED_STATUSES
 if TYPE_CHECKING:
     from rebrew.compile_cache import CacheBackend
 
-console = Console(stderr=True)
+
+from rebrew.cli import console
 
 #: STATUS values that count as "already matched" on the source side (and
 #: exclude a destination function from consideration).

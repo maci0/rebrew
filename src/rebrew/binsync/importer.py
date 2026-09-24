@@ -28,7 +28,6 @@ from pathlib import Path
 from typing import Any
 
 import typer
-from rich.console import Console
 
 from rebrew.binsync.state import (
     index_local_and_catalog,
@@ -41,6 +40,7 @@ from rebrew.binsync.state import (
 from rebrew.cli import (
     EXIT_MISMATCH,
     TargetOption,
+    console,
     error_exit,
     json_print,
     require_config,
@@ -71,7 +71,6 @@ app = typer.Typer(
     ),
 )
 
-console = Console(stderr=True)
 
 # Generic auto-names that should not overwrite a meaningful rename.
 _GENERIC_NAME_RE = re.compile(r"^_?(func_|FUN_)[0-9a-fA-F]+(@\d+)?$")

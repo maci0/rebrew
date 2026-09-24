@@ -142,9 +142,6 @@ class TestEffectiveMatchClassifier:
     def test_pure_register_delta(self) -> None:
         assert is_effective_match(structural=0, register=10)
 
-    def test_register_plus_encoding(self) -> None:
-        assert is_effective_match(structural=0, register=4, encoding=3)
-
     def test_structural_disqualifies(self) -> None:
         assert not is_effective_match(structural=2, register=10)
 

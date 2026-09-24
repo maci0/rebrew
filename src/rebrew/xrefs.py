@@ -19,16 +19,20 @@ from pathlib import Path
 from typing import Any
 
 import typer
-from rich.console import Console
 from rich.table import Table
 
 from rebrew.analysis import Xref, iter_instructions, scan_references
 from rebrew.binary_loader import BinaryInfo, load_binary
-from rebrew.cli import EXIT_ERROR, TargetOption, error_exit, json_print, parse_va, require_config
+from rebrew.cli import (
+    EXIT_ERROR,
+    TargetOption,
+    console,
+    error_exit,
+    json_print,
+    parse_va,
+    require_config,
+)
 from rebrew.import_table import parse_import_table
-
-console = Console(stderr=True)
-
 
 # ---------------------------------------------------------------------------
 # Helpers

@@ -19,12 +19,12 @@ from pathlib import Path
 from typing import Any, TypedDict
 
 import typer
-from rich.console import Console
 
 from rebrew.annotation import parse_c_file_multi
 from rebrew.cli import (
     DISPLAY_STATUSES,
     TargetOption,
+    console,
     error_exit,
     json_print,
     require_config,
@@ -35,8 +35,6 @@ from rebrew.sources import (
     target_marker,
 )
 from rebrew.utils import atomic_write_text
-
-console = Console(stderr=True)
 
 # Pre-compiled regex for graph node ID sanitization.
 _NODE_ID_RE = re.compile(r"[^a-zA-Z0-9_]")

@@ -79,14 +79,12 @@ from urllib.parse import parse_qs, urlparse
 
 import typer
 import zstandard
-from rich.console import Console
 from rich.markup import escape
 
 from rebrew.build_db import FUNCTION_ROWS_SQL, resolve_db_dir
-from rebrew.cli import error_exit, json_print
+from rebrew.cli import console, error_exit, json_print
 from rebrew.workspace import open_sqlite_ro
 
-console = Console(stderr=True)
 log = logging.getLogger(__name__)
 
 _LOG_CONTROL_CHARS = {code: f"\\x{code:02x}" for code in (*range(0x20), *range(0x7F, 0xA0))}

@@ -20,9 +20,8 @@ from pathlib import Path
 from typing import Any
 
 import typer
-from rich.console import Console
 
-from rebrew.cli import TargetOption, error_exit, json_print, require_config
+from rebrew.cli import TargetOption, console, error_exit, json_print, require_config
 from rebrew.config import module_marker
 from rebrew.data_scan import (
     BssReport,
@@ -34,9 +33,6 @@ from rebrew.data_scan import (
     verify_bss_layout,
 )
 from rebrew.utils import atomic_write_text
-
-console = Console(stderr=True)
-
 
 app = typer.Typer(
     help="Global data scanner — inventory .data/.rdata/.bss globals.",

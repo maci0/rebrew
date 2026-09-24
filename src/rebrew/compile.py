@@ -148,6 +148,19 @@ class CompareResult:
             annotation stale - a false fix would otherwise write a size
             that hides unreproduced code.
         message: Human-readable detail string (compiler error, mismatch counts, …).
+        diff_lines: Differing disassembly line count, or ``None`` when not
+            computed.  Populated by ``rebrew verify`` for the ``verify_results``
+            ``diff_lines`` column.
+        similarity: Structural code-similarity score (0-100) via the optional
+            ``resembl`` scoring core, or ``None`` when not computed.
+        reg_delta: Register-encoding-only differing instruction count (the
+            ``RR`` class of the register-aware diff), or ``None`` on non-x86-32
+            targets.
+        effective_match: ``True`` when the byte delta is entirely register
+            allocation (reccmp's 100% effective-match class).
+        context_hash: SHA-256 of the supplied compile context, or ``None``
+            when no context was used.  Pins the verdict to the declarations
+            it was earned under.
 
     """
 

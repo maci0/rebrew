@@ -23,12 +23,12 @@ from pathlib import Path
 from typing import Any
 
 import typer
-from rich.console import Console
 
 from rebrew.annotation import iter_annotations
 from rebrew.catalog import cached_function_list
 from rebrew.cli import (
     TargetOption,
+    console,
     error_exit,
     json_print,
     require_config,
@@ -37,8 +37,6 @@ from rebrew.intake import classify_all
 from rebrew.sources import (
     iter_sources,
 )
-
-console = Console(stderr=True)
 
 app = typer.Typer(
     help="Document unmatched functions as STUB skeletons + blockers.",

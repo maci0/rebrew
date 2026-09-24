@@ -29,7 +29,6 @@ from pathlib import Path
 from typing import Any
 
 import typer
-from rich.console import Console
 
 from rebrew.annotation import parse_c_file_multi
 from rebrew.binary_loader import extract_raw_bytes, load_binary
@@ -39,6 +38,7 @@ from rebrew.catalog import (
 )
 from rebrew.cli import (
     TargetOption,
+    console,
     error_exit,
     json_print,
     require_config,
@@ -47,8 +47,6 @@ from rebrew.coff_reloc import build_name_to_va
 from rebrew.compile_overrides import resolve_compile_overrides
 from rebrew.config import ProjectConfig, inventory_path_for
 from rebrew.sources import iter_sources, target_marker
-
-console = Console(stderr=True)
 
 app = typer.Typer(
     help="Deterministic TU-partition search over cu-map clusters.",

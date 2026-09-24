@@ -760,7 +760,7 @@ def run_toolchain(
     missing image is a hard error (run `rebrew toolchain build <name>`) —
     there is deliberately no wine/wibo/dosbox host fallback anymore.
 
-    Native-less specs (a plugin toolchain with no image) exec the
+    Image-less specs (a plugin toolchain with no image) exec the
     vendored/PATH binary directly — no wine glue is involved.
 
     The container runs with ``--network=none`` — compilation is strictly
@@ -771,7 +771,7 @@ def run_toolchain(
         spec: The toolchain to run.
         args: Compiler arguments (flags, source, output).
         workdir: Host directory mounted into the container (docker) or the
-            process cwd (native).  Required for docker.
+            process cwd (native).  Defaults to the current working directory.
         mounts: Extra ``(host_dir, container_dir)`` bind mounts, used to
             expose project include trees to the container (each host dir is
             mounted read-only at the container path).

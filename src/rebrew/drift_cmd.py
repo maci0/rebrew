@@ -16,7 +16,6 @@ from pathlib import Path
 from typing import Any
 
 import typer
-from rich.console import Console
 from rich.table import Table
 
 from rebrew.annotation import parse_c_file_multi, parse_source_metadata
@@ -24,6 +23,7 @@ from rebrew.binary_loader import extract_raw_bytes
 from rebrew.cli import (
     EXIT_ERROR,
     TargetOption,
+    console,
     error_exit,
     json_print,
     parse_va,
@@ -33,8 +33,6 @@ from rebrew.compile import compile_and_compare
 from rebrew.compile_overrides import resolve_compile_overrides
 from rebrew.drift import DerivedRegion, DriftWindow, derive_regions, drift_windows
 from rebrew.sources import target_marker
-
-console = Console(stderr=True)
 
 # Module-form registration (empty ``attr`` in builtins.py) resolves BOTH a
 # ``main`` callable and a module-level ``app``.  A module exposing only ``main``

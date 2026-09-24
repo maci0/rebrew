@@ -887,7 +887,10 @@ class TestVerifyCli:
         )
         result = CliRunner().invoke(app, ["--compare", "--json"])
         # One pre-existing failure, zero regressions → the gate passes.
-        assert result.exit_code == 0
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.output)
+        assert data["report"]["summary"]["failed"] == 1
+        assert data["diff"]["regressions"] == []
 
     def test_compare_without_baseline_keeps_failure_exit(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -950,7 +953,10 @@ class TestVerifyCli:
             },
         )
         result = CliRunner().invoke(app, ["--compare", "--json"])
-        assert result.exit_code == 0
+        assert result.exit_code == 0, result.output
+        diff = json.loads(result.output)["diff"]
+        assert diff["regressions"] == []
+        assert [entry["va"] for entry in diff["new"]] == ["0x00003000"]
 
 
 class TestApplyStatusUpdates:

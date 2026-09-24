@@ -23,9 +23,8 @@ from pathlib import Path
 from typing import Any
 
 import typer
-from rich.console import Console
 
-from rebrew.cli import TargetOption, require_config
+from rebrew.cli import TargetOption, console, require_config
 from rebrew.compile_context import CONTEXT_UNIT_NAME
 from rebrew.signature_parser import extract_function_prototypes, extract_function_signatures
 from rebrew.sources import iter_library_headers, iter_sources
@@ -35,8 +34,6 @@ from rebrew.struct_parser import (
     extract_type_definitions,
 )
 from rebrew.utils import atomic_write_text
-
-console = Console(stderr=True)
 
 #: Header the ``rebrew context`` document starts with.
 _CONTEXT_HEADER = (

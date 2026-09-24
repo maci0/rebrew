@@ -18,7 +18,7 @@ import typer
 from rich.console import Console
 
 from rebrew.builtins import BUILTIN_COMPONENTS
-from rebrew.cli import run_cli
+from rebrew.cli import console, run_cli
 from rebrew.plugin import (
     CLI_SERVICE,
     CONSOLE_SERVICE,
@@ -30,7 +30,6 @@ from rebrew.plugin import (
     entry_point_components,
 )
 
-console = Console(stderr=True)
 _stdout_console = Console()
 
 app = typer.Typer(

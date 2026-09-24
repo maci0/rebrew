@@ -31,14 +31,11 @@ from typing import Any
 
 import tomlkit
 import typer
-from rich.console import Console
 
-from rebrew.cli import EXIT_ERROR, TargetOption, error_exit, json_print
+from rebrew.cli import EXIT_ERROR, TargetOption, console, error_exit, json_print
 from rebrew.config import find_root as _config_find_root
 from rebrew.config import validate_http_url
 from rebrew.utils import atomic_write_text, parse_int_literal
-
-console = Console(stderr=True)
 
 #: Config key suffixes whose values must never be echoed to the terminal /
 #: JSON dumps (shell history and CI logs already see argv; do not double-expose).

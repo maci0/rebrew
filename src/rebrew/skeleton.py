@@ -28,7 +28,6 @@ if TYPE_CHECKING:
     from rebrew.catalog import FunctionEntry
 
 import typer
-from rich.console import Console
 
 from rebrew.annotation import (
     marker_for_module,
@@ -39,6 +38,7 @@ from rebrew.cli import (
     EXIT_ERROR,
     EXIT_OK,
     TargetOption,
+    console,
     error_exit,
     json_print,
     parse_va,
@@ -60,7 +60,6 @@ from rebrew.utils import (
     rel_display_path,
 )
 
-console = Console(stderr=True)
 logger = logging.getLogger(__name__)
 
 #: 16-bit DOS profiles whose C compiler rejects ``//`` comments (C89-strict).

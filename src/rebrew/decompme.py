@@ -36,10 +36,10 @@ from pathlib import Path
 from typing import Any
 
 import typer
-from rich.console import Console
 
 from rebrew.cli import (
     TargetOption,
+    console,
     error_exit,
     json_print,
     parse_va,
@@ -47,8 +47,6 @@ from rebrew.cli import (
 )
 from rebrew.config import validate_http_url
 from rebrew.utils import read_source_text
-
-console = Console(stderr=True)
 
 app = typer.Typer(
     help="Upload a function to decomp.me as a collaborative scratch.",

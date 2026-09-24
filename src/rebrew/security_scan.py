@@ -25,15 +25,12 @@ from typing import Any, Literal
 
 import tree_sitter as ts
 import typer
-from rich.console import Console
 from rich.table import Table
 
 from rebrew.c_parser import _find_function_name, _node_text, _parse, get_ts_parser
-from rebrew.cli import EXIT_ERROR, TargetOption, error_exit, json_print, require_config
+from rebrew.cli import EXIT_ERROR, TargetOption, console, error_exit, json_print, require_config
 from rebrew.sources import iter_sources
 from rebrew.utils import rel_display_path
-
-console = Console(stderr=True)
 
 # ---------------------------------------------------------------------------
 # Rule model

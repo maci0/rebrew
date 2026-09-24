@@ -18,12 +18,9 @@ from pathlib import Path
 from typing import Any
 
 import typer
-from rich.console import Console
 
-from rebrew.cli import error_exit, json_print
+from rebrew.cli import console, error_exit, json_print
 from rebrew.utils import atomic_write_text
-
-console = Console(stderr=True)
 
 app = typer.Typer(
     help="Generate FLIRT .pat files from COFF .lib and ELF .a archives.",
@@ -182,8 +179,15 @@ def _reloc_span(size_bits: int) -> int:
     return min(span, _MAX_RELOC_SPAN)
 
 
-def parse_elf_obj(obj_data: bytes) -> Iterator[tuple[str, bytes, set[int]]]:
+def parse_elf_obj(
+    obj_data: bytes, *, include_local: bool = False
+) -> Iterator[tuple[str, bytes, set[int]]]:
     """Parse an ELF .o member (console .a archives) → (name, code, reloc_offsets).
+
+    Only external (GLOBAL/WEAK) functions by default, the ones a FLIRT
+    signature names; *include_local* adds file-static (LOCAL) functions, which
+    are linked into a target all the same (``parse_coff_obj`` takes COFF's
+    STATIC class for the same reason).
 
     ELF objects carry exact function sizes in the symbol table (unlike
     COFF), so each external FUNC symbol's bytes are
@@ -215,11 +219,14 @@ def parse_elf_obj(obj_data: bytes) -> Iterator[tuple[str, bytes, set[int]]]:
 
     is_mips = elf.header.machine_type in (lief.ELF.ARCH.MIPS, lief.ELF.ARCH.MIPS_X)
     is_arm = elf.header.machine_type == lief.ELF.ARCH.ARM
+    bindings = {lief.ELF.Symbol.BINDING.GLOBAL, lief.ELF.Symbol.BINDING.WEAK}
+    if include_local:
+        bindings.add(lief.ELF.Symbol.BINDING.LOCAL)
 
     for sym in elf.symbols:
         if sym.type != lief.ELF.Symbol.TYPE.FUNC:
             continue
-        if sym.binding not in (lief.ELF.Symbol.BINDING.GLOBAL, lief.ELF.Symbol.BINDING.WEAK):
+        if sym.binding not in bindings:
             continue
         section = sym.section
         if section is None or sym.size <= 0:

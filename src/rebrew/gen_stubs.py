@@ -44,18 +44,16 @@ from collections.abc import Iterable
 from pathlib import Path
 
 import typer
-from rich.console import Console
 
-from rebrew.cli import error_exit, json_print
+from rebrew.cli import console, error_exit, json_print
 from rebrew.utils import (
     atomic_write_text,
     is_safe_c_ident,
     load_tomllib,
     read_source_text,
     run_process_group,
+    strip_comment_blocks,
 )
-
-console = Console(stderr=True)
 
 app = typer.Typer(
     help="Generate a stub TU for unresolved linker symbols (LNK2001/LNK2019).",
@@ -200,12 +198,6 @@ def parse_extern_decl(decl: str) -> dict[str, typing.Any] | None:
     return None
 
 
-def _strip_comments(text: str) -> str:
-    """Remove block and line comments so a commented-out declaration is not scanned."""
-    text = re.sub(r"/\*.*?\*/", "", text, flags=re.S)
-    return re.sub(r"//[^\n]*", "", text)
-
-
 #: File-scope lines that begin a definition or a local-scope keyword rather
 #: than a link-visible declaration.
 _SKIP_DECL_PREFIXES = ("typedef", "static", "register", "return", "else", "case", "default")
@@ -236,7 +228,7 @@ def collect_extern_info(src_dir: Path) -> dict[str, dict[str, typing.Any]]:
     externs: dict[str, dict[str, typing.Any]] = {}
     deferred: dict[str, dict[str, typing.Any]] = {}
     for src_file in sorted(src_dir.rglob("*.c")):
-        text = _strip_comments(read_source_text(src_file)[0])
+        text = strip_comment_blocks(read_source_text(src_file)[0])
         depth = 0
         for raw in text.splitlines():
             line = raw.strip()
@@ -289,7 +281,7 @@ def collect_called_symbols(src_dir: Path) -> set[str]:
     called: set[str] = set()
     call_re = re.compile(r"\b([A-Za-z_]\w*)\s*\(")
     for src_file in sorted(src_dir.rglob("*.c")):
-        text = _strip_comments(read_source_text(src_file)[0])
+        text = strip_comment_blocks(read_source_text(src_file)[0])
         for m in call_re.finditer(text):
             name = m.group(1)
             if name not in _NON_CALL_KEYWORDS:

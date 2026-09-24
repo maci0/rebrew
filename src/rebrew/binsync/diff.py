@@ -12,7 +12,6 @@ import logging
 from pathlib import Path
 
 import typer
-from rich.console import Console
 from rich.table import Table
 
 from rebrew.binsync.importer import is_meaningful, normalize_prototype, resolve_state_dir
@@ -20,6 +19,7 @@ from rebrew.binsync.state import index_local_and_catalog, load_binsync_state, lo
 from rebrew.cli import (
     EXIT_MISMATCH,
     TargetOption,
+    console,
     error_exit,
     json_print,
     require_config,
@@ -41,8 +41,6 @@ app = typer.Typer(
         "Same filtering semantics as binsync-import --dry-run.[/dim]"
     ),
 )
-
-console = Console(stderr=True)
 
 
 @app.callback(invoke_without_command=True)

@@ -487,3 +487,24 @@ class TestSuggestProfileBorland:
         assert family == "msvc"
         assert profile == "msvc-1.52"
         assert any("msvc-1.52" in n for n in notes)
+
+
+class TestNativeFormatAndArch:
+    """init assumes a 32-bit PE; intake corrects it from the header, so an ELF
+    is not recorded as PE (nor an x86-64 one decoded as 32-bit x86)."""
+
+    FIXTURES = Path(__file__).parent / "fixtures"
+
+    def test_an_elf_reports_its_format_and_machine(self) -> None:
+        from rebrew.intake import _native_format_and_arch
+
+        assert _native_format_and_arch(self.FIXTURES / "mini.elf") == ("elf", "x86_32")
+
+    def test_a_32bit_pe_or_unreadable_file_keeps_the_default(self, tmp_path: Path) -> None:
+        from rebrew.intake import _native_format_and_arch
+
+        junk = tmp_path / "junk.bin"
+        junk.write_bytes(b"not a binary")
+        assert _native_format_and_arch(self.FIXTURES / "mini_pe.exe") is None
+        assert _native_format_and_arch(junk) is None
+        assert _native_format_and_arch(tmp_path / "missing.exe") is None

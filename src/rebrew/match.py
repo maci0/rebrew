@@ -23,12 +23,12 @@ import logging
 from pathlib import Path
 
 import typer
-from rich.console import Console
 
 from rebrew.cli import (
     EXIT_ERROR,
     EXIT_MISMATCH,
     TargetOption,
+    console,
     error_exit,
     json_print,
     require_config,
@@ -52,8 +52,6 @@ from rebrew.match_sweep import (
 )
 
 log = logging.getLogger(__name__)
-
-console = Console(stderr=True)
 
 
 # CLI

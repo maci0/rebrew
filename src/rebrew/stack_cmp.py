@@ -36,7 +36,6 @@ from typing import Any
 
 import capstone  # module-level: analyze_frame is a hot path (near-diag calls it per pair)
 import typer
-from rich.console import Console
 
 from rebrew.analysis import capstone_handle
 from rebrew.binary_loader import capstone_mode_for_arch
@@ -44,13 +43,12 @@ from rebrew.cli import (
     EXIT_ERROR,
     EXIT_MISMATCH,
     TargetOption,
+    console,
     error_exit,
     json_print,
     require_config,
 )
 from rebrew.utils import parse_int_literal
-
-console = Console(stderr=True)
 
 _EBP_SLOT_RE = re.compile(r"\[(?:[er]?bp)\s*([+-])\s*(0x[0-9a-fA-F]+|\d+)\]")
 _ESP_DELTA_RE = re.compile(r"\[(?:[er]?sp)\s*([+-])\s*(0x[0-9a-fA-F]+|\d+)\]")

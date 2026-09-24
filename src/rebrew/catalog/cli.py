@@ -17,7 +17,6 @@ from pathlib import Path
 from typing import Any
 
 import typer
-from rich.console import Console
 
 from rebrew.annotation import Annotation, parse_c_file_multi
 from rebrew.catalog.export import generate_reccmp_csv
@@ -25,14 +24,13 @@ from rebrew.catalog.grid import count_statuses, covered_bytes
 from rebrew.catalog.pipeline import build_catalog_data
 from rebrew.cli import (
     TargetOption,
+    console,
     error_exit,
     json_print,
     require_config,
     run_standalone,
 )
 from rebrew.config import ProjectConfig
-
-console = Console(stderr=True)
 
 app = typer.Typer(
     help="Rebrew validation pipeline: parse annotations, generate catalog and coverage data.",

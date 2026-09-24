@@ -16,12 +16,9 @@ from pathlib import Path
 from typing import Any
 
 import typer
-from rich.console import Console
 
 from rebrew.binary_loader import parse_exports
-from rebrew.cli import EXIT_MISMATCH, TargetOption, error_exit, json_print, require_config
-
-console = Console(stderr=True)
+from rebrew.cli import EXIT_MISMATCH, TargetOption, console, error_exit, json_print, require_config
 
 
 def compare_exports(original: Path, recomp: Path) -> dict[str, Any]:

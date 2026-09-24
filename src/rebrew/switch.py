@@ -25,13 +25,10 @@ import re
 from typing import Any
 
 import typer
-from rich.console import Console
 from rich.table import Table
 
-from rebrew.cli import EXIT_OK, TargetOption, error_exit, json_print, require_config
+from rebrew.cli import EXIT_OK, TargetOption, console, error_exit, json_print, require_config
 from rebrew.utils import parse_int_literal
-
-console = Console(stderr=True)
 
 #: Maximum table entries to read (the bounds-check count normally bounds it;
 #: this is a safety cap against misreading a data region as a giant table).

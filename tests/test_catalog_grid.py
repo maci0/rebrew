@@ -29,9 +29,14 @@ class TestLookupSection:
 
     def test_second_section(self) -> None:
         starts, info = self._idx()
-        result = _lookup_section(0x2100, starts, info)
-        assert result is not None
-        assert result[0] == ".data"
+        # Nonzero fileOffset separates the file offset from the in-section offset.
+        assert _lookup_section(0x2100, starts, info) == (".data", 0x200, 0x100)
+
+    def test_end_is_exclusive(self) -> None:
+        starts, info = self._idx()
+        assert _lookup_section(0x10FF, starts, info) == (".text", 0xFF, 0xFF)
+        # 0x1100 falls in the gap between .text and .data.
+        assert _lookup_section(0x1100, starts, info) is None
 
     def test_below_first(self) -> None:
         starts, info = _build_section_index(

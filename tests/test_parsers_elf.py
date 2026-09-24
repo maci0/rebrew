@@ -60,3 +60,22 @@ class TestElfObjParsing:
         # reloc_offsets dict from parse_obj_symbol_bytes (see caller test).
         obj = _compile(tmp_path)
         assert parse_obj_relocs_full(str(obj), "caller") == []
+
+
+def test_parse_elf_obj_takes_static_functions_on_request(tmp_path: Path) -> None:
+    from rebrew.gen_flirt_pat import parse_elf_obj
+
+    src = tmp_path / "statics.c"
+    src.write_text(
+        "static int hidden(int x) { return x * 3 + 7; }\n"
+        "int shown(int y) { return hidden(y) - hidden(y + 1); }\n",
+        encoding="utf-8",
+    )
+    obj = tmp_path / "statics.o"
+    subprocess.run([_CC, "-c", "-O0", "-o", str(obj), str(src)], check=True, capture_output=True)
+    data = obj.read_bytes()
+    assert [name for name, _c, _r in parse_elf_obj(data)] == ["shown"]
+    assert sorted(name for name, _c, _r in parse_elf_obj(data, include_local=True)) == [
+        "hidden",
+        "shown",
+    ]

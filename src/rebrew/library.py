@@ -19,9 +19,8 @@ from typing import Any
 
 import tomlkit
 import typer
-from rich.console import Console
 
-from rebrew.cli import error_exit, json_print
+from rebrew.cli import console, error_exit, json_print
 from rebrew.metadata import (
     LIBRARY_METADATA_FILE,
     all_library_presets,
@@ -32,8 +31,6 @@ from rebrew.metadata import (
 )
 from rebrew.utils import atomic_write_text
 from rebrew.workspace.config import walk_up_to_root
-
-console = Console(stderr=True)
 
 app = typer.Typer(help="Per-library toolchain/flags overrides.", rich_markup_mode="rich")
 

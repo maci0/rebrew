@@ -34,9 +34,8 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import typer
-from rich.console import Console
 
-from rebrew.cli import TargetOption, error_exit, json_print, parse_va, require_config
+from rebrew.cli import TargetOption, console, error_exit, json_print, parse_va, require_config
 from rebrew.struct_recover import (
     PSEUDO_TYPES,
     TYPE_WIDTHS,
@@ -45,8 +44,6 @@ from rebrew.struct_recover import (
     type_width,
 )
 from rebrew.utils import parse_int_literal
-
-console = Console(stderr=True)
 
 # ---------------------------------------------------------------------------
 # Struct layout parsing

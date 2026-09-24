@@ -49,7 +49,6 @@ from dataclasses import dataclass
 from typing import Any
 
 import typer
-from rich.console import Console
 from rich.table import Table
 
 from rebrew.analysis import data_references, section_range
@@ -59,10 +58,8 @@ from rebrew.catalog import (
     build_function_registry,
     is_jump_table,
 )
-from rebrew.cli import TargetOption, error_exit, json_print, require_config
+from rebrew.cli import TargetOption, console, error_exit, json_print, require_config
 from rebrew.config import ProjectConfig, inventory_path_for
-
-console = Console(stderr=True)
 
 # ---------------------------------------------------------------------------
 # Optional-signal constants

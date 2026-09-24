@@ -21,6 +21,8 @@ from rich.console import Console
 
 from rebrew.utils import run_process_group
 
+# Local console: rebrew.ghidra must stay importable without rebrew.cli
+# (library layering test).
 console = Console(stderr=True)
 
 

@@ -212,11 +212,8 @@ class TestCopyLengthBound:
         assert simprocs_mod._copy_length_or_none(solver, claripy.BVV(0, 32)) == 0
 
     def test_unbounded_copy_raises(self) -> None:
-        import claripy
-
-        solver = claripy.Solver()
         with pytest.raises(RuntimeError, match="exceeds the .* copy cap"):
-            simprocs_mod._raise_unbounded_copy(solver, claripy.BVS("n", 32))
+            simprocs_mod._raise_unbounded_copy()
 
 
 # ---------------------------------------------------------------------------

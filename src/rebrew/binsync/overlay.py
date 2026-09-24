@@ -36,7 +36,6 @@ from pathlib import Path
 from typing import Any
 
 import typer
-from rich.console import Console
 from rich.table import Table
 
 from rebrew.binsync.importer import (
@@ -59,6 +58,7 @@ from rebrew.binsync.state import (
 from rebrew.cli import (
     EXIT_MISMATCH,
     TargetOption,
+    console,
     error_exit,
     json_print,
     require_config,
@@ -78,7 +78,6 @@ from rebrew.utils import strip_body
 
 log = logging.getLogger(__name__)
 
-console = Console(stderr=True)
 
 #: Overlayable fields, in report order.  ``global`` is opt-in (not in the
 #: default ``--fields`` set) because it needs the source and destination

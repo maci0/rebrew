@@ -459,10 +459,30 @@ class TestNonPe:
         assert isinstance(note, str)
         assert "PE-only" in note
 
+    def test_elf_sections_in_the_pe_shape(self) -> None:
+        """An ELF's mapped sections, RVA-relative like a PE's, so memory reads
+        and the section views serve it too; unmapped ones are left out."""
+        info = pe_info(MINI_ELF)
+        [text] = info["sections"]
+        entropy = text.pop("entropy")
+        assert isinstance(entropy, float) and 0.0 < entropy <= 8.0
+        assert text == {
+            "name": ".text",
+            "virtual_address": 0x1000,
+            "virtual_size": 0x1C,
+            "raw_size": 0x1C,
+            "raw_offset": 0x1000,
+            "characteristics_value": 0x6,
+            "characteristics": ["SHF_ALLOC", "SHF_EXECINSTR"],
+            "read": True,
+            "write": False,
+            "execute": True,
+        }
+        assert "sections" not in str(info["note"])
+
     def test_elf_omits_pe_only_blocks(self) -> None:
         info = pe_info(MINI_ELF)
         for key in (
-            "sections",
             "security_flags",
             "security",
             "security_score",

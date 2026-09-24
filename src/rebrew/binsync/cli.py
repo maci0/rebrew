@@ -23,16 +23,14 @@ import subprocess
 from pathlib import Path
 
 import typer
-from rich.console import Console
 
 from rebrew.binsync import diff, export, importer, init, overlay
 from rebrew.binsync.init import one_line, run_git
-from rebrew.cli import TargetOption, error_exit, json_print, require_config
+from rebrew.cli import TargetOption, console, error_exit, json_print, require_config
 from rebrew.config import ProjectConfig
 
 log = logging.getLogger(__name__)
 
-console = Console(stderr=True)
 
 #: Counts surfaced by ``summary`` for each direction.
 _PUSH_COUNTS: tuple[str, ...] = (

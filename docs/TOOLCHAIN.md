@@ -210,7 +210,7 @@ from the archive.org `turboc20` floppies; image
 `rebrew/borland:2.0-win16`, in the smoke gate — the 1988/89 compiler that
 diec reports as "Borland C/C++ 1991"; C89-strict: rejects `//` comments,
 so skeletons use `/* */` markers), and the **complete MSVC 1.0–11.0
-line** (below: 30 docker profiles from `msvc-1.0` to `msvc-11.0`,
+line** (below: 32 docker profiles from `msvc-1.0` to `msvc-11.0`,
 every version and every preserved service pack, each packaged as a
 sha256-pinned docker image `rebrew/msvc:<version>-<arch>` plus a
 host tree vendored into the rebrew-toolchains checkout as the
@@ -818,7 +818,7 @@ with a `Bin/`; the archaic `msvc600_sp3` repo has headers/libs only).
 |
 | **Gap preservation repos** | the toolchains archaic-msvc does not carry — VC 1.0/1.5/1.52/4.0, 6.0-SP1/SP2/SP4 with their Bin (SP1/SP2 reconstructed from the official SP payloads, SP1 documented as not preserved standalone), 9.0-SP1's 15.00.30729 compiler, plus the non-MSV C line (Borland C++ 5.5, Turbo C 2.0/3.1, Open Watcom 2.0, Delphi 1.0) — are published one-per-repo at **`github.com/archaic-toolchains`** — same tree format, READMEs with provenance + checksums | — |
 
-Full sha256 values live in `_SOURCES` (`src/rebrew/toolchain.py`) — the
+Full sha256 values live in `SOURCES` (`src/rebrew/toolchain_data.py`) — the
 Dockerfiles verify them at build time and `rebrew toolchain vendor` refuses a
 mismatch, so a changed source fails loudly.  `rebrew toolchain smoke` then
 gates byte-reproducibility: every image-backed MSVC profile — `msvc-1.0`

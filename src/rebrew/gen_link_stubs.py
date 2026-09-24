@@ -19,13 +19,10 @@ from __future__ import annotations
 from pathlib import Path
 
 import typer
-from rich.console import Console
 
-from rebrew.cli import error_exit, json_print
+from rebrew.cli import console, error_exit, json_print
 from rebrew.data_metadata import iter_data_symbols
 from rebrew.utils import is_safe_c_ident, load_tomllib
-
-console = Console(stderr=True)
 
 app = typer.Typer(
     help="Generate a link_stubs.c-style BSS placeholder TU from the data metadata.",

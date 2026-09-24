@@ -32,14 +32,11 @@ import uuid
 from pathlib import Path
 
 import typer
-from rich.console import Console
 
-from rebrew.cli import error_exit, json_print
+from rebrew.cli import console, error_exit, json_print
 from rebrew.toolchain import TOOLCHAINS, ToolchainSpec, kill_container
 from rebrew.utils import container_runtime, file_lock, load_tomllib, xdg_cache_home
 from rebrew.workspace import walk_up_to_root
-
-console = Console(stderr=True)
 
 app = typer.Typer(
     help="Write a CMake toolchain file that drives a docker toolchain via rebrew-cmake-*.",

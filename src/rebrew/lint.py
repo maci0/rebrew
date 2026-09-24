@@ -24,7 +24,6 @@ from pathlib import Path
 from typing import Any
 
 import typer
-from rich.console import Console
 from rich.table import Table
 from rich.text import Text
 
@@ -42,6 +41,7 @@ from rebrew.cli import (
     AllTargetsOption,
     TargetOption,
     all_targets_run,
+    console,
     json_print,
     option_default,
 )
@@ -75,8 +75,6 @@ from rebrew.utils import (
     rel_display_path,
 )
 from rebrew.workspace.status import KNOWN_STATUSES, MATCHED_STATUSES
-
-console = Console(stderr=True)
 
 # Marker header line in either comment style.  annotation.NEW_FUNC_CAPTURE_RE
 # accepts `//` and `/*` (the C89-strict form intake emits for borland-2.0/msvc-1.52), so
@@ -242,6 +240,104 @@ def _parse_multi_headers(lines: list[str]) -> list[tuple[dict[str, str], dict[st
         results.append((current_keys, current_flags))
 
     return results
+
+
+#: Inline metadata keys whose presence in a header block makes a file a
+#: ``lint --fix`` migration candidate (mirrors ``annotation.METADATA_KEYS``).
+_W019_MIGRATABLE_KEYS = frozenset(
+    {
+        "STATUS",
+        "ORIGIN",
+        "CFLAGS",
+        "SKIP",
+        "GLOBALS",
+        "BLOCKER",
+        "BLOCKER_DELTA",
+        "SOURCE",
+        "NOTE",
+        "SECTION",
+        "GHIDRA",
+        "SIZE",
+        "ANALYSIS",
+        "PROVE_CONSTRAINTS",
+        "TOOLCHAIN",
+        "LOCALS",
+        "COMMENTS",
+    }
+)
+
+
+def _w019_key_backed(
+    key: str,
+    block: tuple[str, str, int],
+    fn_entries: dict[tuple[str, int], dict[str, Any]],
+    data_entries: dict[tuple[str, int], dict[str, Any]],
+) -> bool:
+    """True when the metadata store already owns *key* for *block*'s function.
+
+    The DATA/GLOBAL overlay: for those blocks only size/section/note are
+    sourced from rebrew-data.toml; everything else comes from
+    rebrew-functions.toml.  Shared by W019's check and
+    :func:`count_migratable_files` so the two can never disagree.
+    """
+    marker_type, module, va = block
+    mod_va = (module, va)
+    from rebrew.annotation import DATA_MARKERS
+
+    if marker_type in DATA_MARKERS:
+        if key.lower() in {"size", "section", "note"}:
+            entry = data_entries.get(mod_va, {})
+            return key.lower() in {k.lower() for k in entry}
+        return False
+    entry = fn_entries.get(mod_va, {})
+    return key.lower() in {k.lower() for k in entry}
+
+
+def count_migratable_files(src_dir: Path, cfg: Any) -> int:
+    """Return the number of source files ``rebrew lint --fix`` can migrate.
+
+    The count twin of W019 (see ``_check_W019_inline_metadata``): a file
+    counts when an inline metadata key is attached to a marker header block
+    — found by the *same* header parser ``rebrew lint`` itself uses, so
+    block attachment cannot drift — and that field is NOT already owned by
+    the metadata store.  Markerless occurrences (the ``// CFLAGS:
+    /DREBREW_ALLOW_NAKED`` naked-guard convention), ``// SIZE:`` (the
+    reccmp-native inline contract) and keys already backed by metadata are
+    deliberately not counted, so the "run rebrew lint to migrate" hint is
+    always actionable.
+
+    Only scans files returned by ``iter_sources`` so that the extension
+    filter (``cfg.source_ext``) is respected.
+    """
+    from rebrew.data_metadata import load_data_metadata
+    from rebrew.metadata import load_metadata
+
+    fn_entries = load_metadata(cfg.metadata_dir, deepcopy=False)
+    data_entries = load_data_metadata(cfg.metadata_dir)
+    count = 0
+    for src in iter_sources(src_dir, cfg):
+        try:
+            lines = read_source_text(src)[0].splitlines()
+        except OSError:
+            continue
+        for found_keys, _flags in _parse_multi_headers(lines):
+            marker = found_keys.get("MARKER", "")
+            module = found_keys.get("MODULE", "")
+            va_hex = found_keys.get("VA", "")
+            if not (marker and module and va_hex):
+                continue
+            block = (marker, module, int(va_hex, 16))
+            for key, value in found_keys.items():
+                if key not in _W019_MIGRATABLE_KEYS:
+                    continue
+                if key == "SIZE":
+                    continue
+                if key == "SOURCE" and value.strip().lower() == "naked":
+                    continue
+                if not _w019_key_backed(key, block, fn_entries, data_entries):
+                    count += 1
+                    break
+    return count
 
 
 def _check_format_errors(result: LintResult, flags: dict[str, bool]) -> bool:

@@ -140,7 +140,7 @@ def iter_sources(directory: Path, cfg: ProjectConfig | None = None) -> list[Path
 
     When *cfg* is provided and *directory* is the target's ``reversed_dir``,
     the project's shared-sources root (``cfg.shared_dir``, e.g.
-    ``src/shared``) is appended: files there serve **every** target, with
+    ``src/shared``) is merged in: files there serve **every** target, with
     one ``// FUNCTION: <target> <va>`` marker per target and ``#ifdef``
     deltas driven by the per-target ``defines``.
     """

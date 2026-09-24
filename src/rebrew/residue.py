@@ -27,16 +27,14 @@ from pathlib import Path
 from typing import Any
 
 import typer
-from rich.console import Console
 
 from rebrew.cli import (
     TargetOption,
+    console,
     error_exit,
     json_print,
     require_config,
 )
-
-console = Console(stderr=True)
 
 app = typer.Typer(
     help="Measure linked byte-identity residue after postlink fixers.",

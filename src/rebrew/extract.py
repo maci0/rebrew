@@ -15,7 +15,6 @@ import logging
 from pathlib import Path
 
 import typer
-from rich.console import Console
 from rich.table import Table
 
 from rebrew.asm import disasm_bytes
@@ -24,6 +23,7 @@ from rebrew.catalog import cached_function_list, scan_reversed_dir
 from rebrew.cli import (
     EXIT_ERROR,
     TargetOption,
+    console,
     error_exit,
     json_print,
     parse_va,
@@ -32,8 +32,6 @@ from rebrew.cli import (
 from rebrew.config import ProjectConfig, inventory_path_for
 
 log = logging.getLogger(__name__)
-
-console = Console(stderr=True)
 
 
 # ---------------------------------------------------------------------------

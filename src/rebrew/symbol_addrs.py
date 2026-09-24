@@ -47,12 +47,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import typer
-from rich.console import Console
 
 from rebrew.annotation import iter_annotations
 from rebrew.cli import (
     EXIT_ERROR,
     TargetOption,
+    console,
     error_exit,
     json_print,
     require_config,
@@ -60,8 +60,6 @@ from rebrew.cli import (
 from rebrew.pe_symbols import KIND_FUNC, PeSymbolTable, pe_symbols
 from rebrew.sources import iter_sources, target_marker
 from rebrew.utils import atomic_write_text, parse_int_literal
-
-console = Console(stderr=True)
 
 #: Trailing-comment markers the rich format uses inside ``// ...`` comments.
 _TYPE_PREFIX = "type:"

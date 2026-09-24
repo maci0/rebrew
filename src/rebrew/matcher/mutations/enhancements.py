@@ -21,6 +21,7 @@ from rebrew.matcher.ast_engine import (
 from rebrew.matcher.mutations.queries import (
     _QUERY_ADJACENT_EXPR_STMTS,
     _QUERY_ASSIGN_ZERO,
+    _QUERY_BODY,
     _QUERY_LOCAL_DECL,
     _LazyQuery,
 )
@@ -379,15 +380,9 @@ _QUERY_COMPLEX_ARG = _LazyQuery(
 """,
 )
 
-_QUERY_DUMMY_STACK_VARS = _LazyQuery(
-    _C_LANGUAGE, "(function_definition body: (compound_statement) @body)"
-)
-_QUERY_INJECT_DUMMY_REGISTERS = _LazyQuery(
-    _C_LANGUAGE, "(function_definition body: (compound_statement) @body)"
-)
-_QUERY_HOIST_REPEATED_DEREF = _LazyQuery(
-    _C_LANGUAGE, "(function_definition body: (compound_statement) @body)"
-)
+_QUERY_DUMMY_STACK_VARS = _LazyQuery(_C_LANGUAGE, _QUERY_BODY)
+_QUERY_INJECT_DUMMY_REGISTERS = _LazyQuery(_C_LANGUAGE, _QUERY_BODY)
+_QUERY_HOIST_REPEATED_DEREF = _LazyQuery(_C_LANGUAGE, _QUERY_BODY)
 _DEREF_PTR_ADDR_RE = re.compile(rb"\*\s*\(\s*[^)]*\*\s*\)\s*0x[0-9a-fA-F]+")
 _HEX_ADDR_TAIL_RE = re.compile(rb"0x[0-9a-fA-F]+$")
 

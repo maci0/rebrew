@@ -17,12 +17,9 @@ from pathlib import Path
 from typing import Any
 
 import typer
-from rich.console import Console
 from rich.table import Table
 
-from rebrew.cli import TargetOption, json_print, require_config
-
-console = Console(stderr=True)
+from rebrew.cli import TargetOption, console, json_print, require_config
 
 app = typer.Typer(
     help="Analyse the rebrew source tree and suggest refactoring opportunities.",

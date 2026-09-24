@@ -20,14 +20,12 @@ import subprocess
 from pathlib import Path
 
 import typer
-from rich.console import Console
 
-from rebrew.cli import TargetOption, error_exit, json_print, require_config
+from rebrew.cli import TargetOption, console, error_exit, json_print, require_config
 from rebrew.utils import atomic_write_locked, atomic_write_text, md5_file
 
 log = logging.getLogger(__name__)
 
-console = Console(stderr=True)
 
 #: Seconds any single git invocation may run.
 _GIT_TIMEOUT = 30

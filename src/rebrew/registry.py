@@ -19,7 +19,7 @@ Two sources feed every registry:
 The packaged built-ins remain the base registry; discovered components
 merge on top.  Conflict policy (single-source discipline): a name may be
 registered by exactly one source.  A duplicate raises :class:`RegistryError`
-naming both origins — the "no two fibers of one registry whose provisions
+naming the incoming origin — the "no two fibers of one registry whose provisions
 meet" rule of the spatiotemporal-composability model this mirrors.
 
 Failure policy: how a broken plugin registration is handled depends on the
@@ -261,7 +261,7 @@ def merge_into(
     """Insert *name* → *value* into *registry*, enforcing single-source.
 
     A name already present (from any earlier source, built-in or
-    discovered) is a conflict: :class:`RegistryError` names both origins."""
+    discovered) is a conflict: :class:`RegistryError` names the incoming origin."""
     if name in registry:
         raise RegistryError(
             f"duplicate {group or 'registry'} registration {name!r}: {origin} "

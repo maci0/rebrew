@@ -14,10 +14,10 @@ from __future__ import annotations
 from typing import Any
 
 import typer
-from rich.console import Console
 from rich.table import Table
 
-from rebrew.cli import TargetOption, error_exit, json_print, parse_va, require_config
+from rebrew.analysis import DEFAULT_CS_ARCH, DEFAULT_CS_MODE
+from rebrew.cli import TargetOption, console, error_exit, json_print, parse_va, require_config
 from rebrew.config import ProjectConfig, inventory_path_for
 from rebrew.instruction_clones import (
     MIN_RUN_INSTRUCTIONS,
@@ -26,11 +26,6 @@ from rebrew.instruction_clones import (
     function_unit,
     load_function_units,
 )
-
-console = Console(stderr=True)
-
-DEFAULT_CS_ARCH = "CS_ARCH_X86"
-DEFAULT_CS_MODE = "CS_MODE_32"
 
 #: Smallest duplicate group ``rebrew similar --cluster`` reports.
 MIN_CLUSTER_SIZE = 2

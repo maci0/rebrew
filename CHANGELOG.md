@@ -1,5 +1,27 @@
 ## [Unreleased]
 ### Added
+- **`pe_info` lists an ELF's sections.**  Every mapped (`SHF_ALLOC`)
+  section in the PE section shape (RVA-relative `virtual_address`, raw
+  offset and size, entropy, R/W/X), so one section reader serves both
+  formats; `.bss` carries no raw bytes.  The note names only what is still
+  PE-only.
+- **Function discovery reads unwind tables.**  A stripped binary keeps them,
+  and they state each function's exact start and size: an ELF's `.eh_frame`
+  (new `eh_frame` discoverer, its own parser) and an x64 PE's `.pdata` (new
+  `pdata` discoverer; chained entries, which are fragments, are skipped).
+  Candidates inside an unwind extent are dropped, the extent's size wins over
+  the first-`ret` estimate, and a start the table names is never dropped for
+  following a call to a noreturn function.  True starts found on stripped
+  sqlite builds: x86-64 ELF 1,905 → 2,591 of 2,678 (false starts 117 → 25;
+  the rest are under 8 bytes), AArch64 ELF 2,544 of 2,567, x64 PE 1,029 →
+  1,588 of 1,720 (false 26 → 3).
+- **`parse_elf_obj(..., include_local=True)`** also yields file-static
+  (LOCAL) functions, as `parse_coff_obj` already does for COFF's STATIC
+  class; the default stays external-only, which is what a FLIRT signature
+  names.
+- **`binary_loader.object_arch()`** names the ISA and endianness of one
+  relocatable object (an ELF `.o` or COFF `.obj` archive member), so a
+  static library's code can be disassembled in its own ISA.
 - **`rebrew dashboard` survives a reload.**  The empty states tell users
   to run `rebrew build-db` and reload, but a reload reset the page to the
   first target, the Functions view, and no filters.  The target, view,
@@ -97,13 +119,11 @@
 - **reccmp-adapted modules** (all MIT-attributed, see
   `docs/RECCMP_ADAPTATIONS.md`): `pinned_diff` (pin-seeded sequence matcher,
   now drives near-diag's alignment via unique byte-identical anchors),
-  `asm_equiv` (mirrored conditional jumps after a swapped `cmp` classify
-  as `equivalent` in near-diag), `vtordisp` (MI thunk detection, new `vtordisp` section in
-  `rebrew analyze`), `float_const` (float-constant pool from x87 code
-  references, new `float_consts` dossier section), `demangle` (MSVC string-
-  const/vtable symbol helpers; optional pydemumble), and `pdb_cvdump` (MSVC
-  PDB access via WDK cvdump.exe — lines/publics/section contributions/
-  modules; full type import deferred).
+  jump-swap equivalence check (mirrored conditional jumps after a swapped
+  `cmp` classify as `equivalent` in near-diag), `vtordisp` (MI thunk
+  detection, new `vtordisp` section in `rebrew analyze`), `float_const`
+  (float-constant pool from x87 code references, new `float_consts` dossier
+  section).
 - **verify-placement per-object drift stats.** Terminal output gains a
   "placement drift by object" table and `--json` a `per_object` list
   (symbols, misplaced, mean delta per linked object, worst first) — the
@@ -183,6 +203,28 @@
   documented integrator surface.
 
 ### Changed
+- **Ponytail-audit cleanup: the repo-wide cut list applied (23 of 33
+  findings, ~−1100 lines).**  Dead reccmp-era modules gone with their
+  tests and docs (`demangle.py`, `pdb_cvdump.py` — RECCMP_ADAPTATIONS,
+  ECOSYSTEM, THREAT_MODEL and CONFIG no longer mention them);
+  112 modules now share `rebrew.cli.console` instead of each building a
+  `Console(stderr=True)`; the W019 migration count moved beside lint's own
+  rule and runs on lint's header parser (status's mirrored state machine
+  and its two duplicated regexes are gone — old-vs-new parity 11/11 on
+  edge fixtures); NE header write-only fields, the unreachable
+  `BinaryInfo.ne_exports` fill, and `IntakeResult.dry_run` deleted; the
+  triplicated tolerant HTTP-close helper is one `utils.close_response`;
+  plus `_logical_lines` inlined, the tree-sitter body-query string
+  constanted (`_QUERY_BODY`), the ReVa endpoint/MCP timeout literals
+  named, `write_package`'s `fmt_toml` made required, `gen_stubs` uses
+  `utils.strip_comment_blocks`, `asm_equiv.jump_swap_ok` folded into
+  `near_diag`, dead default knobs removed (`is_effective_match.encoding`,
+  the `DEFAULT_CS_*` trio, five test-helper knobs), the lint double
+  `source_exts` call and `.scratch_patch.py` removed.  Withdrawn on
+  verification: the `cfg.build_dir` getattr (a live SimpleNamespace test
+  seam), the stale-`noqa` sweep (an isolated-rule false positive — the
+  directives were restored and `RUF100` now guards them properly), and
+  the shared VA helper (line-count showed a net add).
 - **Unknown `[compiler] profile` or `ghidra_backend` fails config load.**
   A typo'd profile (or a retired alias like `msvc6.3`) used to warn and
   compile with `msvc-6.0`, so `rebrew test` could demote earned STATUS
@@ -663,6 +705,22 @@
   in emission order.
 
 ### Fixed
+- **`rebrew intake` records an ELF or x86-64 target as what it is.**  Init
+  assumes a 32-bit PE, and intake corrected only NE and MZ, so an x86-64 ELF
+  was decoded as 32-bit x86.  The target's `format` and `arch` now come from
+  the header whenever they are not `pe`/`x86_32`.
+- **Discovery keeps functions past a section's end and after `bnd jmp`.**
+  Refinement dropped a candidate when decoding of the one before it ran out
+  without a `ret`, but decoding also stops where the section's file bytes
+  end; at an ELF `.plt` that cascaded through the whole binary (a static
+  x86-64 `docker-init` kept 2 of its functions, now 1,171).  A candidate is
+  now dropped only when the predecessor's decoding runs into it, and
+  `bnd jmp`, `notrack jmp` and `nop` padding end a function like `jmp`.
+- **kuna finds pypcode specs in a tool env on another Python.**  The spec
+  search built `lib/python<this version>` into a uv tool path, so an angr tool
+  env on Python 3.12 was missed under 3.13 and kuna failed with "could not
+  build an architecture".  Every `lib/python*` is probed, newest first, and
+  `kuna_spec_dir()` names the directory kuna will read.
 - **`--seed-llm` rejects Borland `__emit__()` seeds.**  The inline-asm
   gate caught `asm`/`__asm`/`_emit` but not Borland's `__emit__(0x55)`,
   which emits raw bytes and so lets a model seed fake a byte match on a

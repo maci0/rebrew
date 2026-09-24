@@ -26,11 +26,11 @@ from pathlib import Path
 from typing import Any
 
 import typer
-from rich.console import Console
 
 from rebrew.annotation import parse_c_file_multi
 from rebrew.cli import (
     TargetOption,
+    console,
     error_exit,
     json_print,
     require_config,
@@ -38,8 +38,6 @@ from rebrew.cli import (
 )
 from rebrew.config import ProjectConfig
 from rebrew.sources import iter_sources
-
-console = Console(stderr=True)
 
 app = typer.Typer(
     help="Explain why a function compiles with its toolchain+flags (resolution trace).",

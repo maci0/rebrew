@@ -192,7 +192,7 @@ _SECTIONS = [b".text\x00\x00\x00", b".rdata\x00\x00\x00", b".data\x00\x00\x00", 
 def test_write_package_hex_lines(tmp_path: Path, size: int, widths: list[int]) -> None:
     meta = extract_layout(_make_pe(_SECTIONS), "t.dll")
     meta.data = bytes(range(size))
-    write_package(meta, tmp_path)
+    write_package(meta, tmp_path, fmt_toml=lambda _m: "[layout]\nimage_base = 0\n")
     text = (tmp_path / "data.hex").read_text(encoding="utf-8")
     payload = text.split("\n", 2)[2]
     lines = payload.splitlines()

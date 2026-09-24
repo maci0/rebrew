@@ -49,12 +49,12 @@ def _copy_length_or_none(solver: Any, n: Any) -> int | None:
     return min(hi, _MEMCPY_MAX_LEN)
 
 
-def _raise_unbounded_copy(solver: Any, n: Any) -> None:
+def _raise_unbounded_copy() -> None:
     """Abort the state on a copy length the model cannot cover (fail closed).
 
     Raises so angr marks the state errored and excludes it from the terminal
     states: the proof then reports no/incomplete states (INCONCLUSIVE)
-    instead of equating two prefixes.  The bound travels in the message.
+    instead of equating two prefixes.
     """
     raise RuntimeError(
         f"memcpy/memset length exceeds the {_MEMCPY_MAX_LEN}B copy cap "
@@ -127,7 +127,7 @@ def _get_win32_simprocs() -> dict[str, type]:
             # the compared prefix while claiming the whole copy.
             length = _copy_length_or_none(self.state.solver, n)
             if length is None:
-                _raise_unbounded_copy(self.state.solver, n)
+                _raise_unbounded_copy()
                 return dst  # unreachable; keeps mypy's flow analysis honest
             if length > 0:
                 data = self.state.memory.load(src, length)  # type: ignore[no-untyped-call]
@@ -144,7 +144,7 @@ def _get_win32_simprocs() -> dict[str, type]:
             # both sides (which could fake equivalence).
             length = _copy_length_or_none(self.state.solver, n)
             if length is None:
-                _raise_unbounded_copy(self.state.solver, n)
+                _raise_unbounded_copy()
                 return dst  # unreachable; keeps mypy's flow analysis honest
             if length > 0:
                 byte_val = claripy.Extract(7, 0, val)

@@ -507,12 +507,13 @@ def _parse_sparse(text: str) -> list[tuple[int, ...]]:
 
 
 def write_package(
-    meta: LayoutMetadata, out_dir: Path, fmt_toml: Callable[[LayoutMetadata], str] | None = None
+    meta: LayoutMetadata, out_dir: Path, fmt_toml: Callable[[LayoutMetadata], str]
 ) -> list[Path]:
     """Write the text-only layout package into *out_dir*.
 
-    *fmt_toml* is an optional callable(meta) -> str for ``rebrew-layout.toml``
-    (the caller controls the exact TOML rendering).  Returns the written
+    *fmt_toml* is a callable(meta) -> str that renders the
+    ``rebrew-layout.toml`` (the caller owns the exact TOML rendering — the
+    package's core file is never silently skipped).  Returns the written
     paths.
     """
 
@@ -552,10 +553,9 @@ def write_package(
     )
     written.append(p)
 
-    if fmt_toml is not None:
-        p = out_dir / "rebrew-layout.toml"
-        p.write_text(fmt_toml(meta), encoding="utf-8")
-        written.append(p)
+    p = out_dir / "rebrew-layout.toml"
+    p.write_text(fmt_toml(meta), encoding="utf-8")
+    written.append(p)
     return written
 
 

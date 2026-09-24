@@ -20,12 +20,12 @@
 | [METADATA_FORMAT.md](METADATA_FORMAT.md) | TOML metadata files (`rebrew-functions.toml`, `rebrew-data.toml`) — volatile fields, status lifecycle |
 | [METADATA.md](METADATA.md) | The full store map — canonical vs derived vs cache tiers, who owns which fact, precedence rules |
 | [MATCH_TYPES.md](MATCH_TYPES.md) | EXACT / RELOC / NEAR_MATCHING / PROVEN / SKIP — byte-level examples and relocation masking |
-| [RECCMP_ADAPTATIONS.md](RECCMP_ADAPTATIONS.md) | reccmp-adapted modules: pinned diff, asm equivalences, vtordisp, float consts, demangle, cvdump PDB access |
+| [RECCMP_ADAPTATIONS.md](RECCMP_ADAPTATIONS.md) | reccmp-adapted modules: pinned diff, asm equivalences, vtordisp, float consts |
 | [GA_MUTATIONS.md](GA_MUTATIONS.md) | All 128 GA mutation operators — categories, rationale, discovery origins |
 | [FLAG_SWEEP_TIERS.md](FLAG_SWEEP_TIERS.md) | MSVC6 flag-sweep tiers (quick/targeted/normal/thorough/full) — axes and combination counts |
 | [DB_FORMAT.md](DB_FORMAT.md) | SQLite schema for `coverage.db`, JSON intermediate format, REST API |
 | [NAME_NORMALIZATION.md](NAME_NORMALIZATION.md) | Cross-tool function name normalization (Ghidra/r2/IDA → canonical `func_` form) |
-| [TOOLCHAIN.md](TOOLCHAIN.md) | The toolchain zoo — compilers (MSVC 1.52–7, Borland C++ 5.5, Open Watcom, Delphi 1.0), docker images, reproducible builds (`rebrew toolchain vendor`/`smoke`), external tools, Python deps |
+| [TOOLCHAIN.md](TOOLCHAIN.md) | The toolchain zoo — compilers (MSVC 1.0–11.0, Borland C++ 5.5, Turbo C 2.0/3.1, Open Watcom, Delphi 1.0, GCC, Clang, MinGW), docker images, reproducible builds (`rebrew toolchain vendor`/`smoke`), external tools, Python deps |
 | [SDK_MEDIA.md](SDK_MEDIA.md) | DirectX and Platform SDK media provenance: verified archive.org checksums, gaps, official and license-clean sources |
 | [OMF_NOTES.md](OMF_NOTES.md) | OMF object format research (Watcom wcc386 32-bit + MSVC 1.52 16-bit dialects, reloc decoding) |
 | [POSTLINK.md](POSTLINK.md) | `rebrew postlink`: post-link layout normalization of a built binary onto a reference, text-only layout package from `rebrew gen-layout` |

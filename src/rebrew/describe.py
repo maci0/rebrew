@@ -26,7 +26,6 @@ import logging
 from typing import Any
 
 import typer
-from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
@@ -45,6 +44,7 @@ from rebrew.binary_loader import BinaryInfo, load_binary
 from rebrew.catalog import cached_function_list
 from rebrew.cli import (
     TargetOption,
+    console,
     error_exit,
     json_print,
     parse_va,
@@ -57,7 +57,6 @@ from rebrew.sources import (
     target_marker,
 )
 
-console = Console(stderr=True)
 logger = logging.getLogger(__name__)
 
 # Xref kinds that count as a caller of the probe function.

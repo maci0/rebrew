@@ -20,12 +20,12 @@ from pathlib import Path
 from typing import Any
 
 import typer
-from rich.console import Console
 from rich.table import Table
 
 from rebrew.annotation import Annotation, parse_c_file_multi, update_annotation_key
 from rebrew.cli import (
     TargetOption,
+    console,
     error_exit,
     json_print,
     parse_va,
@@ -37,8 +37,6 @@ from rebrew.sources import (
     iter_library_headers,
     iter_sources,
 )
-
-console = Console(stderr=True)
 
 
 @dataclass

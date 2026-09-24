@@ -16,7 +16,6 @@ from typing import TYPE_CHECKING, Any, cast
 
 import tomlkit
 import typer
-from rich.console import Console
 from rich.prompt import Confirm, Prompt
 
 from rebrew.cli import EXIT_MISMATCH, EXIT_OK, error_exit, json_print, option_default
@@ -33,9 +32,9 @@ from rebrew.init_profiles import (
 
 if TYPE_CHECKING:
     from rebrew.toolchain_detect import ToolchainInfo
+from rebrew.cli import console
 from rebrew.utils import atomic_write_text, toolchain_link_candidates
 
-console = Console(stderr=True)
 logger = logging.getLogger(__name__)
 
 app = typer.Typer(

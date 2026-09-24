@@ -191,3 +191,24 @@ class TestBinaryInfoData:
         monkeypatch.setattr(bl, "_MAX_BINARY_SIZE", 4)  # 16-byte file exceeds 4
         with pytest.raises(ValueError, match="too large"):
             _ = info.data
+
+
+class TestObjectArch:
+    """An archive member's ISA, read from its own header."""
+
+    FIXTURES = Path(__file__).parent / "fixtures"
+
+    @pytest.mark.parametrize(
+        ("name", "expected"),
+        [("mini.obj", ("x86_32", "little")), ("thumb_arm.o", ("arm32", "little"))],
+    )
+    def test_elf_and_coff_objects(self, name: str, expected: tuple[str, str]) -> None:
+        from rebrew.binary_loader import object_arch
+
+        assert object_arch((self.FIXTURES / name).read_bytes()) == expected
+
+    def test_an_omf_or_junk_object_is_unknown(self) -> None:
+        from rebrew.binary_loader import object_arch
+
+        assert object_arch((self.FIXTURES / "tg_watcom.o").read_bytes()) is None
+        assert object_arch(b"\x7fELF" + b"\x00" * 8) is None

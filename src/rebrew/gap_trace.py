@@ -19,20 +19,18 @@ from pathlib import Path
 from typing import Any
 
 import typer
-from rich.console import Console
 
 from rebrew.analysis import Insn, iter_instructions
 from rebrew.binary_loader import load_binary
 from rebrew.cli import (
     TargetOption,
+    console,
     error_exit,
     json_print,
     require_config,
     select_annotation,
 )
 from rebrew.compile import compile_to_obj
-
-console = Console(stderr=True)
 
 app = typer.Typer(
     help="Trace length-gap drift between object and reference instruction streams.",

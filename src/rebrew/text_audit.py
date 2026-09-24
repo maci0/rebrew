@@ -20,19 +20,17 @@ from pathlib import Path
 from typing import Any
 
 import typer
-from rich.console import Console
 
 from rebrew.cli import (
     EXIT_MISMATCH,
     TargetOption,
+    console,
     error_exit,
     json_print,
     require_config,
 )
 from rebrew.data_layout import built_text_va
 from rebrew.verify_hash import _expected_text_functions as _expected_functions
-
-console = Console(stderr=True)
 
 app = typer.Typer(
     help="Compare .text function VAs of the current build against the source markers.",

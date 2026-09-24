@@ -233,7 +233,7 @@ project is a drop-in for a reccmp-based one and vice versa.
 | Catalog CSV | `rebrew catalog --csv` emits the pipe-delimited CSV per reccmp's `docs/csv.md` spec (`catalog/export.py`) |
 | Tool equivalents | rebrew reimplements reccmp's toolset natively: `rebrew verify-exports` = `verexp`, `rebrew stack-cmp` = `stackcmp` (adapted — frames derived from disassembly on both sides instead of a recomp PDB, so it works for MSVC 6.0 whose PDBs `llvm-pdbutil` cannot read), `rebrew lint` = `decomplint`-inspired, `rebrew verify --nolib` = reccmp `--nolib` |
 | Match semantics | Verify's *effective match* parity: a delta that is pure register allocation counts as 100%, matching reccmp's effective-match rule (`rebrew near-diag` reports it as `EFFECTIVE`) |
-| Adapted modules | Beyond the tool equivalents, six modules are adapted from reccmp's source (MIT): pinned-sequence diffing, instruction-equivalence patterns, vtordisp/float-const detection, MSVC symbol helpers, and cvdump-based PDB access — see [RECCMP_ADAPTATIONS.md](RECCMP_ADAPTATIONS.md) |
+| Adapted modules | Beyond the tool equivalents, four adaptations from reccmp's source (MIT) remain: pinned-sequence diffing, the jump-swap instruction-equivalence check (in `near_diag`), and vtordisp/float-const detection — see [RECCMP_ADAPTATIONS.md](RECCMP_ADAPTATIONS.md) |
 | Recomp build | rebrew sources build into a reccmp-style recomp binary: `rebrew round-trip` splices matched functions back into the PE and reports the naked-fenced sources so the reccmp build can compile them with `-DREBREW_ALLOW_NAKED=1` |
 
 ### BinSync

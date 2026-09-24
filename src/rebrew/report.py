@@ -36,7 +36,6 @@ from pathlib import Path
 from typing import Any
 
 import typer
-from rich.console import Console
 
 from rebrew.analysis import StringEntry, Xref, iter_strings, string_refs
 from rebrew.annotation import Annotation, iter_annotations, min_valid_va_for, parse_library_header
@@ -44,6 +43,7 @@ from rebrew.binary_loader import load_binary
 from rebrew.cli import (
     DISPLAY_STATUSES,
     TargetOption,
+    console,
     json_print,
     require_config,
 )
@@ -61,8 +61,6 @@ from rebrew.utils import (
     atomic_write_text,
     rel_display_path,
 )
-
-console = Console(stderr=True)
 
 # ---------------------------------------------------------------------------
 # Shared HTML skeleton

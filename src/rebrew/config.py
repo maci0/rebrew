@@ -88,6 +88,13 @@ def _config_warn(msg: str) -> None:
 # ---------------------------------------------------------------------------
 
 FUNCTION_STRUCTURE_JSON = "function_structure.json"
+"""Tool-agnostic structural cache: ``[{va, size, name?}]``.
+
+This file stores function *boundaries* (VA + size) discovered by any RE
+tool (Ghidra, radare2, rizin).  Names are optional hints used only when
+no source annotation exists.  Source annotations are always authoritative
+for naming.
+"""
 
 #: Seconds before a compile subprocess is killed.  The single source for
 #: ``ProjectConfig.compile_timeout``: its dataclass default, the
@@ -100,13 +107,6 @@ DEFAULT_COMPILE_TIMEOUT = 60
 #: source for ``ProjectConfig.lint_max_line_length``, the
 #: ``[project.lint] max_line_length`` fallback, and ``rebrew.lint``.
 DEFAULT_LINT_MAX_LINE_LENGTH = 200
-"""Tool-agnostic structural cache: ``[{va, size, name?}]``.
-
-This file stores function *boundaries* (VA + size) discovered by any RE
-tool (Ghidra, radare2, rizin).  Names are optional hints used only when
-no source annotation exists.  Source annotations are always authoritative
-for naming.
-"""
 # ---------------------------------------------------------------------------
 # Architecture presets
 # ---------------------------------------------------------------------------
@@ -264,8 +264,7 @@ class LinkConfig:
 def profile_flags_style(profile: str) -> FlagsStyle | None:
     """The registered toolchain spec's ``flags_style`` for *profile*.
 
-    ``None`` when *profile* is not a registry toolchain.  Lazy import keeps
-    config load free of the registry unless the profile is actually queried."""
+    ``None`` when *profile* is not a registry toolchain."""
     from rebrew.toolchain import TOOLCHAINS
 
     spec = TOOLCHAINS.get(profile)

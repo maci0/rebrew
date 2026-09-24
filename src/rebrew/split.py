@@ -14,7 +14,6 @@ from pathlib import Path
 from typing import TypedDict
 
 import typer
-from rich.console import Console
 
 from rebrew.annotation import (
     NEW_FUNC_CAPTURE_RE,
@@ -26,6 +25,7 @@ from rebrew.annotation import (
 from rebrew.c_parser import extract_function_name_from_line
 from rebrew.cli import (
     TargetOption,
+    console,
     error_exit,
     json_print,
     require_config,
@@ -41,8 +41,6 @@ from rebrew.utils import (
     rel_display_path,
     strip_comment_blocks,
 )
-
-console = Console(stderr=True)
 
 app = typer.Typer(
     help="Split multi-function C files into single-function files.",

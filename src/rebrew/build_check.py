@@ -47,11 +47,8 @@ from pathlib import Path
 from typing import Any
 
 import typer
-from rich.console import Console
 
-from rebrew.cli import EXIT_ERROR, EXIT_MISMATCH, json_print
-
-console = Console(stderr=True)
+from rebrew.cli import EXIT_ERROR, EXIT_MISMATCH, console, json_print
 
 #: Where CMake puts the generated build system, relative to the project root.
 DEFAULT_BUILD_DIR = Path("build")

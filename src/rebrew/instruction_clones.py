@@ -57,7 +57,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
-from rebrew.analysis import disasm_insns, normalized_operands
+from rebrew.analysis import DEFAULT_CS_ARCH, DEFAULT_CS_MODE, disasm_insns, normalized_operands
 from rebrew.config import inventory_path_for
 
 #: Shortest common instruction run reported by sub-function matching.  A run
@@ -73,9 +73,6 @@ MAX_SUBMATCH_INSTRUCTIONS = 5000
 #: Largest number of functions a corpus cluster pass fingerprints.  Beyond it
 #: the pass stops and reports the skipped count.
 MAX_CLUSTER_CANDIDATES = 4000
-
-DEFAULT_CS_ARCH = "CS_ARCH_X86"
-DEFAULT_CS_MODE = "CS_MODE_32"
 
 #: Immediates and displacements normalised away before comparison: a thunk
 #: that jumps to 0x1000 and one that jumps to 0x2000 are the same thunk.

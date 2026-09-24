@@ -14,13 +14,11 @@ there and accumulate silently.
 from typing import Any
 
 import typer
-from rich.console import Console
 
-from rebrew.cli import TargetOption, error_exit, json_print, require_config
+from rebrew.cli import TargetOption, console, error_exit, json_print, require_config
 from rebrew.config import inventory_path_for
 from rebrew.errors import RebrewError
-
-console = Console(stderr=True)
+from rebrew.workspace.status import MATCHED_STATUSES
 
 
 class OrphanInventoryError(RebrewError, RuntimeError):
@@ -124,7 +122,7 @@ def split_prunable(
     orphans = _orphan_dicts(cfg, fn_orphans, data_orphans)
     if include_matched:
         return orphans
-    return [o for o in orphans if o["status"] not in ("EXACT", "RELOC", "PROVEN")]
+    return [o for o in orphans if o["status"] not in MATCHED_STATUSES]
 
 
 def _orphan_dicts(
@@ -177,7 +175,7 @@ def main(
             console.print("[green]No orphaned metadata blocks.[/green]")
             return
         for o in orphans:
-            flag = " [red]matched[/red]" if o["status"] in ("EXACT", "RELOC", "PROVEN") else ""
+            flag = " [red]matched[/red]" if o["status"] in MATCHED_STATUSES else ""
             console.print(f"  [yellow]orphan[/yellow] {o['module']} {o['va']} ({o['store']}){flag}")
         console.print(
             f"\n{total} orphaned block(s) — re-run with [bold]--prune[/bold] to delete them"

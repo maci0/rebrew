@@ -37,9 +37,9 @@ from rebrew.analysis import (  # re-exported: nd.Insn is analysis.Insn
     normalized_operands,
     resolve_capstone,
 )
-from rebrew.asm_equiv import jump_swap_ok  # re-exported: asm text-equivalence checks
 from rebrew.cli import (
     TargetOption,
+    console,
     error_exit,
     json_print,
     parse_va,
@@ -49,7 +49,33 @@ from rebrew.match_semantics import is_effective_match
 from rebrew.pinned_diff import SequenceMatcherWithPins
 from rebrew.stack_cmp import analyze_frame, compare_frames
 
-console = Console(stderr=True)
+# Jump-equivalence checks — adapted from reccmp (isledecomp/reccmp, MIT
+# License) ``compare/asm/fixes.py``: a flipped ``cmp`` operand order paired
+# with the mirrored conditional jump, which register normalization does not
+# catch.  ``near_diag`` classifies such spans as ``equivalent`` instead of
+# ``structural``.
+#: Jump-mnemonic pairs compatible with a swapped cmp operand order.
+ALLOWED_JUMP_SWAPS: tuple[tuple[str, str], ...] = (
+    ("ja", "jb"),
+    ("jae", "jbe"),
+    ("jb", "ja"),
+    ("jbe", "jae"),
+    ("jg", "jl"),
+    ("jge", "jle"),
+    ("jl", "jg"),
+    ("jle", "jge"),
+    ("je", "je"),
+    ("jne", "jne"),
+)
+
+
+def jump_swap_ok(a: str, b: str) -> bool:
+    """True when a, b are both jumps compatible with a swapped cmp operand order."""
+    (jmp_a, *_) = a.partition(" ")
+    (jmp_b, *_) = b.partition(" ")
+    return (jmp_a.lower(), jmp_b.lower()) in ALLOWED_JUMP_SWAPS
+
+
 logger = logging.getLogger(__name__)
 
 

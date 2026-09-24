@@ -697,6 +697,23 @@ class TestKunaBackend:
         monkeypatch.setenv("UV_TOOL_DIR", str(tool_root))
         assert sla_dir in dc._kuna_spec_dirs()
 
+    def test_kuna_spec_dirs_finds_a_tool_env_on_another_python(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A tool env built on a different Python (angr on 3.12) still qualifies, newest first."""
+        import rebrew.decompiler as dc
+
+        tool_root = tmp_path / "tools"
+        tail = Path("site-packages/pypcode/processors/x86/data/languages")
+        dirs = {}
+        for tag in ("python3.9", "python3.12"):
+            dirs[tag] = tool_root / "angr" / "lib" / tag / tail
+            dirs[tag].mkdir(parents=True)
+            (dirs[tag] / "x86.sla").write_bytes(b"sla\x04binary")
+        monkeypatch.setenv("UV_TOOL_DIR", str(tool_root))
+        found = [d for d in dc._kuna_spec_dirs() if str(d).startswith(str(tool_root))]
+        assert found == [dirs["python3.12"], dirs["python3.9"]]
+
     def test_uv_tool_roots_honors_xdg_data_home(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

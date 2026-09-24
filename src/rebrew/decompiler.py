@@ -364,6 +364,12 @@ def _rizin_sleigh_dirs() -> list[Path]:
     return candidates
 
 
+def _python_dir_version(directory: Path) -> tuple[int, ...]:
+    """The version a ``lib/python3.12``-style directory names, for newest-first order."""
+    digits = directory.name.removeprefix("python").split(".")
+    return tuple(int(part) for part in digits if part.isdigit())
+
+
 def _kuna_spec_dirs() -> list[Path]:
     """Candidate SLEIGH spec dirs for kuna, best first.
 
@@ -383,20 +389,15 @@ def _kuna_spec_dirs() -> list[Path]:
         )
     except ImportError:
         pass
-    py_tag = f"python{sys.version_info.major}.{sys.version_info.minor}"
-    sla_tail = (
-        Path("lib")
-        / py_tag
-        / "site-packages"
-        / "pypcode"
-        / "processors"
-        / "x86"
-        / "data"
-        / "languages"
-    )
+    sla_tail = Path("site-packages") / "pypcode" / "processors" / "x86" / "data" / "languages"
     for root in _uv_tool_roots():
         for uv_tool in ("rebrew", "angr"):
-            candidates.append(root / uv_tool / sla_tail)
+            # A tool env runs its own Python, which need not be this one's, so
+            # every `lib/python*` it holds is probed, newest version first.
+            lib = root / uv_tool / "lib"
+            with contextlib.suppress(OSError):
+                versions = sorted(lib.glob("python*"), key=_python_dir_version, reverse=True)
+                candidates.extend(version / sla_tail for version in versions)
     candidates.extend(_rizin_sleigh_dirs())
     seen: set[Path] = set()
     out: list[Path] = []
@@ -412,6 +413,16 @@ def _kuna_spec_dirs() -> list[Path]:
         seen.add(key)
         out.append(d)
     return out
+
+
+def kuna_spec_dir() -> str | None:
+    """Where kuna reads its SLEIGH specs: an explicit ``KUNA_SPECS``, else the
+    first working dir :func:`_kuna_spec_dirs` finds, else None."""
+    explicit = os.environ.get("KUNA_SPECS")
+    if explicit:
+        return explicit
+    found = _kuna_spec_dirs()
+    return str(found[0]) if found else None
 
 
 def fetch_kuna(binary: Path, va: int, root: Path, **_kwargs: Any) -> str | None:
@@ -433,13 +444,9 @@ def fetch_kuna(binary: Path, va: int, root: Path, **_kwargs: Any) -> str | None:
     kuna = shutil.which("kuna")
     if kuna is None:
         return None
-    import os
-
-    env = None
-    if "KUNA_SPECS" not in os.environ:
-        for spec_dir in _kuna_spec_dirs():
-            env = {**os.environ, "KUNA_SPECS": str(spec_dir)}
-            break
+    # An explicit KUNA_SPECS is inherited as is; otherwise the discovered dir is injected.
+    spec_dir = None if "KUNA_SPECS" in os.environ else kuna_spec_dir()
+    env = None if spec_dir is None else {**os.environ, "KUNA_SPECS": spec_dir}
     try:
         result = subprocess.run(
             [kuna, "decompile", str(binary), f"0x{va:x}", "--addr"],

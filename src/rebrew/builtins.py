@@ -308,7 +308,7 @@ BUILTIN_COMPONENTS: tuple[CliComponent, ...] = (
     CliComponent(
         name="imports",
         module="rebrew.imports",
-        help="List PE import-table symbols and detect import stubs.",
+        help="List import-table symbols (PE/ELF/NE) and detect import stubs.",
         panel=Panel.ANALYSIS,
         is_group=False,
     ),
@@ -413,7 +413,7 @@ BUILTIN_COMPONENTS: tuple[CliComponent, ...] = (
     CliComponent(
         name="gen-flirt-pat",
         module="rebrew.gen_flirt_pat",
-        help="Generate FLIRT .pat files from COFF .lib archives.",
+        help="Generate FLIRT .pat files from COFF .lib and ELF .a archives.",
         panel=Panel.ANALYSIS,
         is_group=False,
     ),
@@ -462,7 +462,7 @@ BUILTIN_COMPONENTS: tuple[CliComponent, ...] = (
     CliComponent(
         name="build-db",
         module="rebrew.build_db",
-        help="Build SQLite coverage database from data JSON.",
+        help="Build SQLite coverage database from catalog JSON.",
         panel=Panel.EXPORT_SYNC,
         is_group=False,
     ),
@@ -476,7 +476,7 @@ BUILTIN_COMPONENTS: tuple[CliComponent, ...] = (
     CliComponent(
         name="binsync-export",
         module="rebrew.binsync.export",
-        help="Export annotations to an experimental BinSync state directory.",
+        help="Export rebrew annotations to a BinSync state directory.",
         panel=Panel.EXPORT_SYNC,
         is_group=False,
     ),

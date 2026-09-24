@@ -20,20 +20,18 @@ from pathlib import Path
 from typing import Any
 
 import typer
-from rich.console import Console
 
 from rebrew.binary_loader import capstone_mode_for_arch
 from rebrew.cli import (
     EXIT_ERROR,
     EXIT_MISMATCH,
     TargetOption,
+    console,
     error_exit,
     json_print,
     require_config,
 )
 from rebrew.match_sweep import print_structural_similarity
-
-console = Console(stderr=True)
 
 # ---------------------------------------------------------------------------
 # Shared: blocker classification (used by match.py)

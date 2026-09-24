@@ -22,7 +22,6 @@ from pathlib import Path
 from typing import Any
 
 import typer
-from rich.console import Console
 
 from rebrew.annotation import (
     Annotation,
@@ -39,6 +38,7 @@ from rebrew.cli import (
     AllTargetsOption,
     TargetOption,
     all_targets_run,
+    console,
     error_exit,
     json_print,
     option_default,
@@ -76,8 +76,6 @@ from rebrew.metadata import (
 from rebrew.sources import (
     target_marker,
 )
-
-console = Console(stderr=True)
 
 # At this match ratio, NEAR_MATCHING output is shown in bold yellow instead of
 # plain yellow — visually distinguishing "almost there" from "far off".

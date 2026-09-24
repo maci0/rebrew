@@ -26,15 +26,12 @@ from pathlib import Path
 from typing import Any
 
 import typer
-from rich.console import Console
 from rich.markup import escape
 from rich.table import Table
 
 from rebrew.analysis import Xref, iter_strings, string_refs
 from rebrew.binary_loader import BinaryInfo, load_binary
-from rebrew.cli import EXIT_ERROR, TargetOption, error_exit, json_print, require_config
-
-console = Console(stderr=True)
+from rebrew.cli import EXIT_ERROR, TargetOption, console, error_exit, json_print, require_config
 
 # Data-ish sections scanned when --section is not given; mirrors the
 # analysis.py default so the "nothing to scan" note can be detected here.

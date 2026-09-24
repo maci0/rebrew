@@ -25,12 +25,9 @@ from pathlib import Path
 from typing import Any
 
 import typer
-from rich.console import Console
 
-from rebrew.cli import TargetOption, error_exit, json_print, parse_va, require_config
+from rebrew.cli import TargetOption, console, error_exit, json_print, parse_va, require_config
 from rebrew.config import module_marker
-
-console = Console(stderr=True)
 
 _EPILOG = (
     "[bold]Examples:[/bold]\n\n"

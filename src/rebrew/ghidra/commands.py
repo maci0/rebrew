@@ -16,17 +16,21 @@ if TYPE_CHECKING:
     import httpx
 
     from rebrew.catalog import RegistryEntry
+
 from rich.console import Console
 
 from rebrew.config import ProjectConfig
 from rebrew.ghidra.client import (
     MAX_MCP_PAGES,
+    MCP_REQUEST_TIMEOUT_S,
     end_mcp_session,
     fetch_mcp_tool_raw,
     init_mcp_session,
 )
 from rebrew.utils import atomic_write_text, parse_int_literal
 
+# Local console: rebrew.ghidra must stay importable without rebrew.cli
+# (library layering test).
 console = Console(stderr=True)
 
 # Matches non-identifier characters to remove from symbol names.
@@ -302,7 +306,10 @@ def pull_data(
     except (ImportError, OSError, ValueError, AttributeError) as e:
         console.print(f"[yellow]warning:[/yellow] Could not load binary sections: {e}")
 
-    with httpx.Client(timeout=30.0) as client, contextlib.ExitStack() as session_cleanup:
+    with (
+        httpx.Client(timeout=MCP_REQUEST_TIMEOUT_S) as client,
+        contextlib.ExitStack() as session_cleanup,
+    ):
         try:
             session_id = init_mcp_session(client, endpoint)
             session_cleanup.callback(end_mcp_session, client, endpoint, session_id)
