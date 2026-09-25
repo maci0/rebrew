@@ -1634,6 +1634,27 @@ class TestUnifiedTreeMarkerMove:
         assert lines[at + 2] == "// FUNCTION: SRC 0x401010"
         assert lines[0] == "// FUNCTION: DST 0x4bcb80"
 
+    def test_superseded_claim_drops_only_its_marker(self) -> None:
+        """A superseded destination claim stacked on another target's function
+        loses its own marker lines; that function's marker and body stay.
+
+        Regression: the whole block went, and guild-rebrew server4.c lost a
+        SERVER function body (372 lines) to a GOLDTL re-claim."""
+        text = (
+            "// FUNCTION: DST 0x4bcb80\n// SIZE: 80\n// FUNCTION: SRC 0x401000\n// SIZE: 11\n"
+            "int f1(void){ return 1; }\n"
+            "\n// FUNCTION: SRC 0x401010\n// SIZE: 11\nint f2(void){ return 2; }\n"
+        )
+        out = ci.stack_marker_on_block(
+            text, "DST", 0x4BCB80, 11, "SRC", 0x401010, drop=("DST", 0x4BCB80)
+        )
+        assert out is not None
+        assert "// FUNCTION: SRC 0x401000" in out
+        assert "int f1(void){ return 1; }" in out
+        assert out.count("FUNCTION: DST 0x4bcb80") == 1
+        lines = out.splitlines()
+        assert lines[lines.index("// FUNCTION: DST 0x4bcb80") + 2] == "// FUNCTION: SRC 0x401010"
+
     def test_stack_marker_on_block_absent_source(self) -> None:
         text = "// FUNCTION: SRC 0x401000\nint f1(void){ return 1; }\n"
         assert ci.stack_marker_on_block(text, "DST", 0x401040, 11, "SRC", 0x409999) is None

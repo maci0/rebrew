@@ -522,6 +522,25 @@ def _block_marker(block: str) -> tuple[str, int] | None:
     return None
 
 
+def _strip_claim(block: str, claim: tuple[str, int]) -> str:
+    """*block* without *claim*'s marker line and the ``SIZE`` line under it.
+
+    A block often stacks several targets' markers on one body; removing the
+    whole block for one superseded claim deletes the others and the body.
+    """
+    lines = block.splitlines(keepends=True)
+    out: list[str] = []
+    skip_size = False
+    for line in lines:
+        if skip_size and line.strip().startswith("// SIZE:"):
+            skip_size = False
+            continue
+        skip_size = _block_marker(line) == claim
+        if not skip_size:
+            out.append(line)
+    return "".join(out)
+
+
 def stack_marker_on_block(
     text: str,
     module: str,
@@ -556,9 +575,11 @@ def stack_marker_on_block(
     out: list[str] = []
     inserted = False
     for block in blocks:
+        if drop is not None:
+            block = _strip_claim(block, drop)
+            if _block_marker(block) is None:
+                continue  # the superseded claim owned the block alone
         owner = _block_marker(block)
-        if drop is not None and owner == drop:
-            continue  # superseded claim: the marker moves onto the source body
         if owner == (src_module, src_va) and not inserted:
             # Insert directly above the source MARKER line: a split block
             # carries the blank lines that preceded its marker (annotation
