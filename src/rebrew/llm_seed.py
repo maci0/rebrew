@@ -15,7 +15,9 @@ Untrusted boundaries: the seed source is project C (may contain adversarial
 fence breakouts if copied from elsewhere); the model response is never executed
 — only tree-sitter-valid snippets that are a single top-level function
 definition (comments allowed), matching name *and* prototype, with no
-preprocessor directives, pragma operators, or inline asm, and size caps.  Request cost is bounded by source
+preprocessor directives, pragma operators, or inline asm (including forms that
+appear only after trigraph replacement or backslash-newline splicing), and
+size caps.  Request cost is bounded by source
 truncation, ``max_tokens``, ``n=1``, an HTTP body ceiling before JSON parse,
 and a process-wide request budget (``REBREW_LLM_MAX_REQUESTS``, default 32;
 ``0`` disables further calls; a set-but-invalid value raises ``ValueError``)
@@ -63,6 +65,21 @@ _INLINE_ASM_RE = re.compile(r"\b(?:asm|_asm|__asm|__asm__|_emit|__emit|__emit__)
 # Compiler extensions (declspecs, GCC attributes) that alter codegen, section
 # placement, or function entry/exit (naked functions) to fake matches.
 _COMPILER_EXT_RE = re.compile(r"\b(?:__declspec|_declspec|__attribute__|__attribute)\s*\(")
+# Phase 1 trigraphs.  ``??/`` is ``\``, so it must be replaced before line splicing.
+_TRIGRAPH_RE = re.compile(r"\?\?([=/\'()!<>-])")
+_TRIGRAPH_MAP = {
+    "=": "#",
+    "/": "\\",
+    "'": "^",
+    "(": "[",
+    ")": "]",
+    "!": "|",
+    "<": "{",
+    ">": "}",
+    "-": "~",
+}
+# C99 digraph for ``#`` when it is the first token on a logical line (a directive).
+_DIGRAPH_DIRECTIVE_RE = re.compile(r"(?m)^([ \t]*)%:")
 # Chat template control tokens that could switch roles in LLM provider engines
 # (covers ChatML, Llama 3, Qwen/FIM, Mistral/Llama 2 [INST], Gemma <start_of_turn>, etc.).
 _CONTROL_TOKENS_RE = re.compile(
@@ -247,6 +264,32 @@ def extract_seeds(text: str) -> list[str]:
     return [b.strip() for b in blocks if b.strip() and len(b.strip()) <= _MAX_SEED_CHARS]
 
 
+def _trigraph_repl(match: re.Match[str]) -> str:
+    """Replace one trigraph; the regex only captures the nine standard spellings."""
+    return _TRIGRAPH_MAP[match.group(1)]
+
+
+def _splice_logical_lines(src: str) -> str:
+    """C translation phases 1–2: trigraphs, then backslash-newline deletion.
+
+    Keyword gates must see this text.  A model seed can split ``_Pragma(``,
+    ``__declspec(``, ``__attribute__(``, or ``__asm__`` across a line splice
+    (or a ``??/`` trigraph) so the raw spelling misses the regex and the
+    compiler still sees the operator.
+    """
+    src = _TRIGRAPH_RE.sub(_trigraph_repl, src)
+    return src.replace("\\\n", "")
+
+
+def _spell_digraph_directives(src: str) -> str:
+    """Spell a line-start ``%:`` as ``#`` so the directive gate sees it.
+
+    Digraphs are tokens, not phase-1 characters, so this runs after comment
+    stripping.  A ``%:`` buried in a comment is not a directive.
+    """
+    return _DIGRAPH_DIRECTIVE_RE.sub(r"\1#", src)
+
+
 def _normalize_proto(proto: str) -> str:
     """Collapse insignificant prototype whitespace for equality checks."""
     text = " ".join(proto.split())
@@ -288,7 +331,8 @@ def valid_c_source(
     Known calling conventions are stripped only for syntax validation.
     Snippets must contain exactly one ``function_definition`` at the
     translation-unit root (comments allowed; no globals, typedefs, structs,
-    preprocessor directives (including ones hidden behind a comment), or
+    preprocessor directives (including ones hidden behind a comment, a
+    trigraph, a line-start ``%:`` digraph, or a backslash-newline), or
     ``_Pragma`` / ``__pragma`` operators, or inline asm or ``__emit__``).  When *expect_name* / *expect_proto* are set, both must
     match — so a hallucinated helper, wrong arity, or Trojan second
     definition cannot ride into the GA population.
@@ -308,9 +352,15 @@ def valid_c_source(
     if len(src) > _MAX_SEED_CHARS:
         return False
     src = src.replace("\r\n", "\n").replace("\r", "\n")
-    if _PREPROC_RE.search(src):
+    # Phases 1–2 before any keyword gate; comment stripping (phase 3) after.
+    logical = _splice_logical_lines(src)
+    if _PREPROC_RE.search(logical):
         return False
-    no_comments = re.sub(r"/\*.*?\*/|//[^\n]*", " ", src, flags=re.DOTALL)
+    no_comments = re.sub(r"/\*.*?\*/|//[^\n]*", " ", logical, flags=re.DOTALL)
+    if _PREPROC_RE.search(_spell_digraph_directives(no_comments)):
+        return False
+    if _PRAGMA_OP_RE.search(no_comments) or _INLINE_ASM_RE.search(no_comments):
+        return False
     if _COMPILER_EXT_RE.search(no_comments):
         if expect_proto is None or not _COMPILER_EXT_RE.search(expect_proto):
             return False
@@ -327,7 +377,9 @@ def valid_c_source(
         tree = parser.parse(code)
         if tree.root_node.has_error:
             return False
-        uncommented = _without_comments(code, tree.root_node)
+        uncommented = _spell_digraph_directives(
+            _splice_logical_lines(_without_comments(code, tree.root_node))
+        )
         if (
             _PREPROC_RE.search(uncommented)
             or _PRAGMA_OP_RE.search(uncommented)

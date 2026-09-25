@@ -313,6 +313,38 @@ class TestValidCSource:
         src = "__attribute__((naked)) int f(void) { return 0; }\n"
         assert not valid_c_source(src, expect_name="f", expect_proto="int f(void)")
 
+    @pytest.mark.parametrize(
+        "src",
+        [
+            'int f(int a) {\n  _Pragma\\\n("pack(1)");\n  return a;\n}\n',
+            'int f(int a) {\n  __pragma\\\n(optimize("", off));\n  return a;\n}\n',
+            'int f(int a) {\n  _Pra\\\ngma("pack(1)");\n  return a;\n}\n',
+            'int f(int a) {\n  _Pragma??/\n("pack(1)");\n  return a;\n}\n',
+            "int f(void) {\n  int x __attribute__\\\n((aligned(16))) = 0;\n  return x;\n}\n",
+            "int f(void) {\n  __decl\\\nspec(naked) int x = 0;\n  return 0;\n}\n",
+            'int f(void) {\n  __as\\\nm__("nop");\n  return 0;\n}\n',
+            "int f(void) { return 0; }\n/* x */ %:include <stdio.h>\n",
+            "??=include <stdio.h>\nint f(void) { return 0; }\n",
+        ],
+    )
+    def test_spliced_or_digraph_operator_rejected(self, src: str) -> None:
+        """Line splices and digraph/trigraph spellings must not hide a gate.
+
+        The compiler deletes a backslash-newline (and ``??/``) before it
+        tokenizes, and treats a line-start ``%:`` as ``#``.
+        """
+        proto = "int f(int a)" if "int a" in src else "int f(void)"
+        assert not valid_c_source(src, expect_name="f", expect_proto=proto)
+
+    def test_string_line_continuation_allowed(self) -> None:
+        src = 'int f(void) {\n  const char *s = "hel\\\nlo";\n  return s != 0;\n}\n'
+        assert valid_c_source(src, expect_name="f", expect_proto="int f(void)")
+
+    def test_digraph_inside_comment_allowed(self) -> None:
+        """A ``%:`` inside a comment is not a directive."""
+        src = "/*\n%:include <stdio.h>\n*/\nint f(void) { return 0; }\n"
+        assert valid_c_source(src, expect_name="f", expect_proto="int f(void)")
+
 
 class TestSanitizeSource:
     def test_fence_breakout_neutralized(self) -> None:

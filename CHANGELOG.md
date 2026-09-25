@@ -1,6 +1,12 @@
 ## [Unreleased]
 
 ### Fixed
+- **`--seed-llm` rejects operators hidden by line splicing.** A seed could
+  split `_Pragma`, `__declspec`, `__attribute__`, or an inline-asm keyword
+  across a backslash-newline (or a `??/` trigraph) and pass the spelling
+  gates; the compiler splices the line and still sees the operator. A
+  line-start `%:` digraph is checked as `#` after comments are removed.
+  Validation now applies those translations before the gates.
 - **`binsync-import` does not append a second copy of a type it cannot name.**
   An UNPARSED comment, and a definition whose declared name is not the
   BinSync key, never contain that key. A re-import treated them as new and
