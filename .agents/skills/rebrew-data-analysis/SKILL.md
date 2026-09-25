@@ -5,7 +5,8 @@ description: >-
   dispatch tables/vtables, XX relocations or missing_globals hints in a diff,
   or cross-TU type conflicts. Triggers on 'global', 'global variable',
   'data section', 'BSS', 'vtable', 'dispatch table', 'bss gap', 'bss padding',
-  'fix bss', 'extern', 'type conflict', 'rebrew data', 'data-drift', or
+  'fix bss', 'extern', 'type conflict', 'rebrew data', 'data-drift',
+  'layout-audit', 'set-type', 'set-section', 'W016', 'data placement', or
   'rebrew_globals.h'. Not for function bodies (rebrew-workflow/matching) or
   Ghidra data pulls (rebrew-ghidra-sync --pull-data).
 license: MIT
@@ -52,6 +53,11 @@ rebrew data --gen-header                        # write rebrew_globals.h from lo
 rebrew data --gen-header --gen-header-out /path/to/my_globals.h  # override output path
 rebrew data --gen-header --force                # overwrite existing file without prompting
 rebrew data --layout-audit --section .rdata     # per-TU span/order audit for .rdata (default .data)
+rebrew data --set-type 0x10025000='unsigned char *'  # write type into rebrew-data.toml (repeatable)
+rebrew data --set-section 0x10025000=.rdata     # write section (.data / .rdata / .bss); this fixes W016
+rebrew data --fix-ownership --dry-run           # re-partition defs; fixes layout-audit SPAN/ORDER
+rebrew data --fill-data --dry-run               # emit _dpad_<addr>[N] for uncovered .data runs
+rebrew data --converge --dry-run                # adjust _dlead_<tu> pads vs build/bench; does not rebuild
 rebrew verify --data --built build/bench     # byte-compare built .data/.rdata per symbol (VERIFIED/DRIFT/UNCHECKED)
 rebrew todo -c data-drift --json                # data symbols whose built bytes differ from the reference
 ```
@@ -64,6 +70,11 @@ this header with Ghidra-sourced labels when available (same default path
 `--gen-header` refuses to overwrite an existing file without `--force`. Run
 `--fix-bss` / `--gen-header` with `--dry-run` first: `--fix-bss` writes both a
 source file and metadata.
+
+`--layout-audit` reports SPAN/ORDER and unowned symbols. `--fix-ownership`
+re-partitions definitions; `--fill-data` pads uncovered runs; `--converge`
+adjusts leading pads against the current `build/bench` and does not invoke
+the build — rebuild, then re-run. Preview each with `--dry-run`.
 
 JSON response shapes and failure-mode table: `references/json-and-failures.md`.
 
@@ -91,6 +102,7 @@ note    = "lookup table for sprite indices"
 | Field | Purpose |
 |-------|---------|
 | `name` | Preferred variable label — overrides C stem; written by `rebrew sync --pull --state-dir <dir>` from Ghidra |
+| `type` | Declared type `--gen-header` uses when the source has none; set with `rebrew data --set-type 0xVA=TYPE` |
 | `size` | Size in bytes |
 | `section` | PE section (`.data`, `.rdata`, `.bss`) |
 | `note` | Description; written by `rebrew sync --pull --state-dir <dir>` from Ghidra comments |
@@ -109,9 +121,10 @@ When a function references a global address from disassembly:
 2. Annotate with `// GLOBAL: MODULE 0x<VA>` for tracking (declaration must follow on the next line).
 3. Metadata (name, size, section, note) goes in `rebrew-data.toml` — same format as DATA.
 
-`--gen-header` picks up both `// GLOBAL:` and `// DATA:` markers, merging in `name`/`size`/
-`section`/`note` from `rebrew-data.toml`. `rebrew lint` flags `DATA`/`GLOBAL` markers
-missing `SECTION` metadata (W016) and inline volatile keys — run it after adding markers.
+`--gen-header` picks up both `// GLOBAL:` and `// DATA:` markers, merging in `name`/`type`/`size`/
+`section`/`note` from `rebrew-data.toml` (a source declaration's type wins over metadata `type`).
+`rebrew lint` flags `DATA`/`GLOBAL` markers missing `SECTION` metadata (W016) and inline volatile keys — run it after adding markers.
+Set a missing section with `rebrew data --set-section 0xVA=.bss` (`.data`, `.rdata`, or `.bss`). Do not hand-edit the TOML.
 
 ## Debugging Relocation Mismatches
 

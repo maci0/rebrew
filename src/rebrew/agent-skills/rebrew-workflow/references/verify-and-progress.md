@@ -27,8 +27,9 @@ rebrew text-audit --built build/<target>
 rebrew verify-placement --built build/<target>
 ```
 
-`rebrew verify` syncs STATUS (SKIP preserved, PROVEN replaced by the byte result);
-exit 1 if any function fails.  `passed` counts EXACT/RELOC only.
+`rebrew verify` syncs STATUS (SKIP preserved, PROVEN replaced by the byte result).
+EXACT/RELOC clears BLOCKER unless the source still has `__asm`, `_asm`, or `__emit`
+(kept; lint W020). Exit 1 if any function fails. `passed` counts EXACT/RELOC only.
 `rebrew lint` exit 1 on errors. Link-only files use `// SUPPORT: <MODULE> <reason>`.
 
 ## Coverage / interchange

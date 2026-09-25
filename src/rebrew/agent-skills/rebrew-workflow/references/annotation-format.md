@@ -32,7 +32,7 @@ int stub(void) { return 0; }
 > [!CAUTION]
 > **Never manually edit `rebrew-functions.toml`.** All volatile metadata (STATUS, SIZE, CFLAGS,
 > BLOCKER, NOTE, GHIDRA, …; full key list in the SKILL.md caution) is managed exclusively by Rebrew CLI tools:
-> - `rebrew test` → STATUS (auto-promotes on EXACT/RELOC; use `--no-promote` to skip)
+> - `rebrew test` / `rebrew verify` → STATUS (EXACT/RELOC auto-promote; `--no-promote` skips the test write). Those clear BLOCKER unless the file still has `__asm`, `_asm`, or `__emit`
 > - `rebrew blocker set/clear` → BLOCKER / BLOCKER_DELTA (ad-hoc; for STUBs diff cannot classify)
 > - `rebrew diff --fix-blocker` / `rebrew near-diag --fix-blocker` → BLOCKER / BLOCKER_DELTA (auto-classified)
 > - `rebrew document-unmatched` → STUB skeletons + BLOCKER for every unmatched function

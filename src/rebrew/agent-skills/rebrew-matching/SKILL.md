@@ -25,7 +25,7 @@ graph TD
     Classify -->|register / equivalent| Edit[C-level tweaks<br/>edit .c source]
     Edit --> Diff
     Classify -->|structural| Prove[Prove equivalence<br/>rebrew prove --watch-va]
-    Prove -->|PROVEN| RoundTrip
+    Prove -->|PROVEN| Held[Not spliced<br/>next test/verify records bytes]
     Prove -->|not proven| Edit
 ```
 
@@ -95,6 +95,7 @@ rebrew blocker clear src/<target>/<file>.c
 
 BLOCKER/BLOCKER_DELTA land in `rebrew-functions.toml` under `["<MODULE>.0x<VA>"]`.
 When no structural diffs remain, `--fix-blocker` clears them.
+`test`/`verify` keep that BLOCKER when the source still has `__asm`, `_asm`, or `__emit` (lint W020). This writer still clears a clean diff — do not use it to drop that note.
 **Never hand-edit `rebrew-functions.toml` for BLOCKER — use `rebrew blocker set/clear` or the `--fix-blocker` writers.**
 
 ## 2. GA Engine (Single File)

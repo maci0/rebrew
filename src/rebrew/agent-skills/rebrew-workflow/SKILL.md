@@ -6,9 +6,10 @@ description: >-
   lint, round-trip, progress. Triggers on 'reverse', 'reversing',
   'reverse function', 'match function', 'implement function', 'decompile',
   'skeleton', 'test function', 'verify', 'lint', 'next function', 'workflow',
-  'todo', 'diff', 'asm', 'status', 'blocker'. Hand off near-miss GA/prove to
-  rebrew-matching; new binaries to rebrew-intake; globals/BSS to
-  rebrew-data-analysis; Ghidra to rebrew-ghidra-sync.
+  'todo', 'diff', 'asm', 'status', 'blocker', 'naked reconstruction',
+  'SOURCE: naked'. Hand off near-miss GA/prove to rebrew-matching; new
+  binaries to rebrew-intake; globals/BSS to rebrew-data-analysis; Ghidra
+  to rebrew-ghidra-sync.
 license: MIT
 ---
 
@@ -44,7 +45,7 @@ For annotation syntax details, see `references/annotation-format.md`.
 ```bash
 rebrew status --json                    # Quick overview: counts per STATUS, % coverage
 rebrew todo --json                      # Primary: highest ROI action items
-rebrew todo -c start-function --json    # Filter category: start-function | fix-delta | compile-error | extract-error | improve-match | missing-annotation | identify-library | run-prover | setup | documented (audit-only) | data-drift | start-data | blocked (any item with BLOCKER)
+rebrew todo -c start-function --json    # -c: setup | compile-error | extract-error | fix-delta | improve-match | start-function | missing-annotation | identify-library | run-prover | documented (audit-only) | naked-reconstruction | data-drift | start-data
 rebrew flirt --json                     # FLIRT scan: identify known library functions (fast wins)
 rebrew crt-match --all --json           # Find matching CRT source files for LIBRARY functions
 rebrew similar 0x10001000 --json        # Find structurally similar functions (same source family)
@@ -53,6 +54,7 @@ rebrew similar 0x10001000 --json        # Find structurally similar functions (s
 **Default to `rebrew todo --json`.** Each item has a ready `command` — run it.
 ROI tiers: compile/extract errors → near-misses → stubs → new starts → prove/data.
 `extract-error` = symbol missing from `.obj`; fix the marker/definition before GA.
+`naked-reconstruction` (`// SOURCE: naked`) is byte-exact asm and stays listed until real C matches. Any other `-c` value errors. BLOCKER text is the item's `blocker` field — there is no `blocked` category.
 `coverage` in JSON is the progress source of truth; `status --json` is cheap recon.
 
 > [!IMPORTANT]
@@ -139,9 +141,13 @@ and fallback size come from it — same rule as diff/match/prove). Pass
 `--all --dry-run`: list only. `match --dry-run` is batch-only (`--all`).
 `prove`/`verify --dry-run` preview STATUS/cache writes.
 
-`rebrew test` syncs STATUS (`--no-promote` skips): EXACT/RELOC update + clear
-BLOCKER; NEAR_MATCHING (≥60%) updates; STUB (<60%) demotes; PROVEN is replaced
-by the byte result like any status; SKIP stays parked (`--force-status` unparks). Exit: `0` EXACT/RELOC · `1` NEAR/STUB · `2` compile/extract error.
+`rebrew test` syncs STATUS (`--no-promote` skips): EXACT/RELOC updates and
+clears BLOCKER unless the `.c` still has `__asm`, `_asm`, or `__emit` (kept;
+lint W020). NEAR_MATCHING (≥60%) updates; STUB (<60%) demotes; PROVEN is
+replaced by the byte result; SKIP stays parked (`--force-status` unparks).
+`rebrew verify` uses the same clear rule. `diff --fix-blocker` still clears a
+clean diff — do not use it to drop an asm BLOCKER. Exit: `0` EXACT/RELOC · `1`
+NEAR/STUB · `2` compile/extract error.
 
 For a byte diff of the current state:
 

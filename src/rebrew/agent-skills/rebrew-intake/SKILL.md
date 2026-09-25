@@ -8,7 +8,8 @@ description: >-
   'first triage', 'catalog', 'build-db', 'detect-crt', or 'gen-layout'. Prefer
   this over rebrew-init when the user hands you a binary to onboard; use
   rebrew-init only when teaching `rebrew init` / profile / target naming. Not
-  for day-to-day flirt/todo/test on an already-onboarded target (rebrew-workflow).
+  for day-to-day flirt/todo/test, or a later catalog/build-db refresh, on an
+  already-onboarded target (rebrew-workflow).
 license: MIT
 ---
 
