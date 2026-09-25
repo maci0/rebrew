@@ -805,7 +805,7 @@ def import_shared_function(
         )
 
     from rebrew.annotation import Annotation
-    from rebrew.metadata import get_entry, remove_field, update_field
+    from rebrew.metadata import delete_entries_batch, get_entry, remove_field, update_field
     from rebrew.verify import apply_status_updates, verify_entry
 
     src_flags = _source_flags(cfg_src, target_path)
@@ -822,9 +822,12 @@ def import_shared_function(
     # functions and 25 W029 rows appeared).
     inherited = str(getattr(cfg_dst, "cflags", "") or "").strip()
     prior_cflags = ""
+    prior_entry = True
     wrote_cflags = False
     if cflags and cflags != inherited:
-        prior_cflags = str(get_entry(cfg_dst.metadata_dir, dst_va, module).get("cflags") or "")
+        prior = get_entry(cfg_dst.metadata_dir, dst_va, module)
+        prior_entry = bool(prior)
+        prior_cflags = str(prior.get("cflags") or "")
         update_field(cfg_dst.metadata_dir, dst_va, "cflags", cflags, module)
         wrote_cflags = True
 
@@ -875,6 +878,8 @@ def import_shared_function(
         if wrote_cflags:
             if prior_cflags:
                 update_field(cfg_dst.metadata_dir, dst_va, "cflags", prior_cflags, module)
+            elif not prior_entry:
+                delete_entries_batch(cfg_dst.metadata_dir, [(module, dst_va)])
             else:
                 remove_field(cfg_dst.metadata_dir, dst_va, "cflags", module)
         action = "skipped-unverified"

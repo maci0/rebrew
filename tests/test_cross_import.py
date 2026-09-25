@@ -1426,7 +1426,10 @@ class TestSharedSupersede:
         monkeypatch.setattr("rebrew.cross_import._source_flags", lambda *a, **k: "/O2")
         res = ci.import_shared_function(cfg_dst, cfg_src, B_F1, A_F1, "f1.c", 11, dst_file="stub.c")
         assert res["action"] == "skipped-unverified"
-        assert get_entry(tmp_path, 0x401040, "DST").get("cflags") is None
+        # The attempt created the entry, so the rollback removes it: an empty
+        # table would be left behind otherwise.
+        assert get_entry(tmp_path, 0x401040, "DST") == {}
+        assert "0x00401040" not in (tmp_path / "rebrew-functions.toml").read_text()
 
     def test_same_file_stub_never_deleted(self, tmp_path: Path, monkeypatch) -> None:
         cfg_src, cfg_dst = self._cfgs(tmp_path)
