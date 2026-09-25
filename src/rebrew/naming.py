@@ -355,16 +355,22 @@ def scope_to_target(
     target's map).  Counting those as progress credits one binary with
     another's work — e.g. a client target reporting thousands of EXACT
     library attributions.  Keep rows whose module matches the target
-    marker, plus module-less rows (legacy callers that cannot attribute);
-    navigation maps (``covered_vas``) stay unfiltered.
+    marker, LIBRARY rows of the target's own external_libs, and module-less
+    rows (legacy callers that cannot attribute); navigation maps
+    (``covered_vas``) stay unfiltered.
     """
     marker = module_marker(cfg).lower() if cfg else ""
     if not marker:
         return existing
+    libs = {m.lower() for m in (getattr(cfg, "external_libs", None) or ())}
     return {
         va: info
         for va, info in existing.items()
         if (info.get("module") or "").lower() in ("", marker)
+        or (
+            (info.get("marker_type") or "").upper() == "LIBRARY"
+            and (info.get("module") or "").lower() in libs
+        )
     }
 
 
