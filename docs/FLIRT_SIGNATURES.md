@@ -77,8 +77,8 @@ file directly. Rebrew includes `gen_flirt_pat.py` for this purpose.
 **Usage:**
 
 ```bash
-# Generate a .pat from the MSVC6 CRT library
-uv run python -m rebrew.gen_flirt_pat toolchain/msvc/6.0-win32/source/VC98/Lib/LIBCMT.LIB \
+# Generate a .pat from the MSVC6 CRT library (vendored into the project)
+uv run --frozen rebrew gen-flirt-pat toolchain/msvc/6.0-win32/source/VC98/Lib/LIBCMT.LIB \
     -o flirt_sigs/libcmt_vc6.pat
 ```
 
@@ -114,10 +114,12 @@ Each line contains:
 version and flags, then generate a `.pat` from the resulting `.lib`:
 
 ```bash
-# Example: build zlib 1.1.3 with MSVC6 and generate signatures
-wine toolchain/msvc/6.0-win32/source/VC98/Bin/CL.EXE /nologo /c /O2 /MT references/zlib-1.1.3/*.c
-wine toolchain/msvc/6.0-win32/source/VC98/Bin/LIB.EXE /nologo /out:zlib_vc6.lib *.obj
-uv run python -m rebrew.gen_flirt_pat zlib_vc6.lib -o flirt_sigs/zlib113_vc6.pat
+# Example: build zlib 1.1.3 with the msvc-6.0 image and generate signatures.
+# Host wine is not a supported path. Pull the image first:
+#   uv run --frozen rebrew toolchain pull msvc-6.0
+docker run --rm -v "$PWD":/work -w /work rebrew/msvc:6.0-win32 /nologo /c /O2 /MT references/zlib-1.1.3/*.c
+docker run --rm -v "$PWD":/work -w /work --entrypoint wine rebrew/msvc:6.0-win32 /opt/msvc6.0/VC98/Bin/LIB.EXE /nologo /out:zlib_vc6.lib *.obj
+uv run --frozen rebrew gen-flirt-pat zlib_vc6.lib -o flirt_sigs/zlib113_vc6.pat
 ```
 
 ### Method 2: Using IDA's `sigmake` / `pelf` / `pcf`

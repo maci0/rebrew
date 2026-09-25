@@ -341,7 +341,8 @@ codegen differences.  Profile selection happens automatically on
 
 Clean clone needs **uv**, **Python 3.13+** (`.python-version`), **nasm** on
 `PATH`, and a sibling [`resembl`](https://github.com/maci0/resembl) checkout at
-`../resembl` (tag `v2.0.0`, matching CI `RESEMBL_REF` / `uv.lock`).  See
+`../resembl` (tag `v2.0.0`, matching CI `RESEMBL_REF` / `uv.lock`; `make setup`
+also requires `HEAD` to be the `RESEMBL_SHA` commit CI's `resembl-sha` pins).  See
 [`CONTRIBUTING.md`](https://github.com/maci0/rebrew/blob/main/CONTRIBUTING.md); `make help` lists targets.
 Run the following from the directory that will hold both checkouts:
 

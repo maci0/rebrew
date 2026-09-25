@@ -7,8 +7,8 @@ re-resolving PyPI.
 
 Usage::
 
-    uv run python tools/generate_sbom.py
-    uv run python tools/generate_sbom.py -o dist/rebrew.cdx.json
+    uv run --no-project --offline python tools/generate_sbom.py
+    uv run --no-project --offline python tools/generate_sbom.py -o dist/rebrew.cdx.json
     make sbom
 """
 

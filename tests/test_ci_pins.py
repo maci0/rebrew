@@ -63,6 +63,13 @@ def _makefile_uv_version() -> str:
     return m.group(1)
 
 
+def _makefile_resembl_sha() -> str:
+    text = MAKEFILE.read_text(encoding="utf-8")
+    m = re.search(r"(?m)^RESEMBL_SHA\s*\?=\s*(\S+)\s*$", text)
+    assert m is not None, "RESEMBL_SHA missing from Makefile"
+    return m.group(1)
+
+
 def _lock_resembl_version() -> str:
     text = UV_LOCK.read_text(encoding="utf-8")
     m = re.search(
@@ -86,8 +93,15 @@ class TestCiPins:
         make_ref = _makefile_resembl_ref()
         assert _uv_env_defaults()["resembl-ref"] == make_ref
         assert make_ref.lstrip("v") == _lock_resembl_version()
-        # Tags are mutable: the clone verifies the tag against this commit.
-        assert _SHA_REF_RE.match(_uv_env_defaults()["resembl-sha"])
+        # Tags are mutable: the clone verifies the tag against this commit,
+        # and `make setup` refuses a checkout whose HEAD is not that commit.
+        sha = _uv_env_defaults()["resembl-sha"]
+        assert _SHA_REF_RE.match(sha)
+        assert _makefile_resembl_sha() == sha
+        recipe = MAKEFILE.read_text(encoding="utf-8").split("ensure-resembl: ensure-uv\n", 1)[1]
+        recipe = recipe.split("\nensure-nasm:", 1)[0]
+        assert "rev-parse HEAD" in recipe
+        assert "RESEMBL_SHA" in recipe
         assert "RESEMBL_SHA" in (ROOT / "tools" / "ci_clone_resembl.sh").read_text(encoding="utf-8")
         for path in (CI_YML, SYNC_YML):
             assert "RESEMBL_REF" not in _workflow_env(path), (
@@ -388,7 +402,25 @@ class TestCiPins:
         assert re.search(r"(?m)^\s*entry: make --no-print-directory test\s*$", hook)
         assert "stages: [pre-push]" in hook
 
-    @pytest.mark.parametrize("path", [CI_YML, SYNC_YML, MAKEFILE, ROOT / ".pre-commit-config.yaml"])
+    @pytest.mark.parametrize(
+        "path",
+        [
+            CI_YML,
+            SYNC_YML,
+            MAKEFILE,
+            ROOT / ".pre-commit-config.yaml",
+            ROOT / "docs" / "ADDING_A_COMMAND.md",
+            ROOT / "docs" / "DEVELOPMENT.md",
+            ROOT / "docs" / "CI.md",
+            ROOT / "docs" / "TOOLCHAIN.md",
+            ROOT / "docs" / "FLIRT_SIGNATURES.md",
+            ROOT / "tools" / "generate_sbom.py",
+            ROOT / "tools" / "normalize_sdist.py",
+            ROOT / "tools" / "bench_hotpaths.py",
+            ROOT / "tools" / "validate_skill_commands.py",
+            ROOT / "tools" / "sync_decomp_flags.py",
+        ],
+    )
     def test_uv_run_preserves_lockfile(self, path: Path) -> None:
         commands = [
             match.group(1)

@@ -3,7 +3,7 @@
 Parses each ``src/rebrew/agent-skills/*/SKILL.md`` and its ``references/*.md``,
 collects every ``rebrew <subcommand>`` invocation from both ``bash`` code
 blocks and inline code spans, and for each unique ``(subcommand, flags)``
-combination runs ``uv run rebrew <subcommand> --help`` to confirm the
+combination runs ``uv run --frozen rebrew <subcommand> --help`` to confirm the
 subcommand resolves AND every long flag mentioned (``--flag``) appears in the
 help output.
 
@@ -15,8 +15,8 @@ Exit codes:
 
 Usage::
 
-    uv run python tools/validate_skill_commands.py
-    uv run python tools/validate_skill_commands.py --quiet
+    uv run --frozen python tools/validate_skill_commands.py
+    uv run --frozen python tools/validate_skill_commands.py --quiet
 """
 
 from __future__ import annotations

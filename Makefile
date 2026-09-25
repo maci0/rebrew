@@ -14,11 +14,15 @@ SHELL := /bin/sh
 # --group m2c is opt-in (git-only decompiler) — add it when exercising fetch_m2c.
 UV_SYNC_FLAGS ?= --frozen --all-extras --group similarity
 
-# Keep in step with the `resembl-ref` / `uv-version` input defaults in
-# .github/actions/uv-env/action.yml (CI's single pin site) and the resembl
-# version recorded in uv.lock (path dep).  `make setup` prints the clone
-# command when ../resembl is missing; it does not clone for you.
+# Keep in step with the `resembl-ref` / `resembl-sha` / `uv-version` input
+# defaults in .github/actions/uv-env/action.yml (CI's single pin site) and the
+# resembl version recorded in uv.lock (path dep).  `make setup` prints the
+# clone command when ../resembl is missing; it does not clone for you.
+# RESEMBL_SHA is the commit that tag must resolve to: tags move, and a
+# same-version checkout on another commit passes the version string check
+# while CI clones this commit.
 RESEMBL_REF ?= v2.0.0
+RESEMBL_SHA ?= a66d7ec5bb0c6150a00f4d42663c23d9fcba247b
 RESEMBL_DIR := $(abspath $(CURDIR)/../resembl)
 # Match the CI uv pin so local sync/audit behavior tracks CI.
 UV_VERSION ?= 0.12.14
@@ -76,6 +80,7 @@ help:
 		'  1. Install uv $(UV_VERSION)+ (CI pin), Python 3.13+ (.python-version), nasm on PATH' \
 		'  2. Clone sibling resembl at $(RESEMBL_REF) into ../resembl' \
 		'     git clone --depth 1 --branch $(RESEMBL_REF) https://github.com/maci0/resembl.git ../resembl' \
+		'     setup fails unless that checkout HEAD is $(RESEMBL_SHA) (CI resembl-sha)' \
 		'  3. make setup && make test-one T=tests/test_annotation.py' \
 		'  Before a PR: make all && make check && make build (or make pr-check)'
 
@@ -112,6 +117,22 @@ ensure-resembl: ensure-uv
 	  echo "Re-clone the pin, then re-run make setup:"; \
 	  echo "  git clone --depth 1 --branch $(RESEMBL_REF) https://github.com/maci0/resembl.git $(RESEMBL_DIR)"; \
 	  exit 1; \
+	fi; \
+	if command -v git >/dev/null 2>&1 \
+	  && git -C "$(RESEMBL_DIR)" rev-parse --is-inside-work-tree >/dev/null 2>&1; then \
+	  head_sha=$$(git -C "$(RESEMBL_DIR)" rev-parse HEAD 2>/dev/null || true); \
+	  if [ "$$head_sha" != "$(RESEMBL_SHA)" ]; then \
+	    echo "ERROR: $(RESEMBL_DIR) HEAD '$$head_sha' does not match RESEMBL_SHA=$(RESEMBL_SHA)"; \
+	    echo "CI accepts $(RESEMBL_REF) only when the tag resolves to that commit."; \
+	    echo "Check out the pin, then re-run make setup:"; \
+	    echo "  git -C $(RESEMBL_DIR) fetch --depth 1 origin $(RESEMBL_SHA)"; \
+	    echo "  git -C $(RESEMBL_DIR) checkout $(RESEMBL_SHA)"; \
+	    echo "To use this checkout locally anyway: make setup RESEMBL_SHA=$$head_sha"; \
+	    exit 1; \
+	  fi; \
+	else \
+	  echo "WARNING: $(RESEMBL_DIR) is not a git checkout; RESEMBL_SHA=$(RESEMBL_SHA) was not verified."; \
+	  echo "CI refuses a $(RESEMBL_REF) tag that does not resolve to that commit."; \
 	fi
 
 ensure-nasm:

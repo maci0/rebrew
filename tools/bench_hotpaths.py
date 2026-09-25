@@ -14,8 +14,8 @@ guesswork:
 
 Run twice (before/after an optimization) and compare rows:
 
-    uv run python tools/bench_hotpaths.py            # timing table
-    uv run python tools/bench_hotpaths.py --json     # machine-readable
+    uv run --frozen python tools/bench_hotpaths.py            # timing table
+    uv run --frozen python tools/bench_hotpaths.py --json     # machine-readable
 
 The script is deterministic (fixed seeds, synthetic-but-realistic inputs) so
 row-to-row deltas reflect code changes, not input noise.

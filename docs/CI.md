@@ -49,7 +49,9 @@ the `similarity` group's `resembl` from `../resembl`, so a default
 `uv sync --frozen` fails to build the installation plan when that checkout is
 absent. Keep `resembl-ref` in step with the `resembl` version in `uv.lock`,
 and `resembl-sha` with the commit that tag resolves to: the clone fails when
-the tag points anywhere else.
+the tag points anywhere else.  `make setup` checks the same commit
+(`RESEMBL_SHA` in the Makefile) so a local checkout on another commit fails
+before `uv sync`, with the checkout command, instead of diverging from CI.
 The package job skips the sibling clone (`clone-resembl: "false"`): its
 lockfile sync uses
 `--no-default-groups --no-install-project` (no path dep needed) before the

@@ -1,6 +1,17 @@
 ## [Unreleased]
 
 ### Fixed
+- **`make setup` rejects a resembl checkout on the wrong commit.**  The
+  version string in `../resembl` can stay `2.0.0` after the `v2.0.0` tag
+  moves.  CI already fails that clone (`resembl-sha`).  `RESEMBL_SHA` in the
+  Makefile is the same pin; a mismatch prints the checkout command instead of
+  syncing a tree CI will not build.  A non-git checkout warns that the commit
+  was not checked.
+- **Copied contributor commands no longer rewrite `uv.lock`.**  The verify
+  block in `docs/ADDING_A_COMMAND.md`, the FLIRT signature examples, and the
+  dev-tool usage lines pass `--frozen` or `--no-project`.  The third-party
+  FLIRT example compiles with the `rebrew/msvc:6.0-win32` image.  Host `wine`
+  on `toolchain/msvc/.../CL.EXE` is not a supported path.
 - **Confirmation prompts stay on stderr.**  `cache clear` and
   `catalog --fix-sizes` asked on stdout, so redirecting stdout hid the
   question while the command still waited on stdin.  They now prompt with

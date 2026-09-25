@@ -9,7 +9,7 @@ with no timestamp or file name.  File contents are untouched.
 
 Usage::
 
-    SOURCE_DATE_EPOCH=... uv run python tools/normalize_sdist.py dist/*.tar.gz
+    SOURCE_DATE_EPOCH=... uv run --no-project --offline python tools/normalize_sdist.py dist/*.tar.gz
     make build   # runs this after ``uv build``
 """
 

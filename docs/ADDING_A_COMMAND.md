@@ -72,8 +72,11 @@ failed until the registration was added after release.
 ## 5. Verify
 
 ```bash
-uv run python -m rebrew.main <name> --help   # mounts, help renders
-uv run pytest tests/test_<name>.py tests/test_docs_hygiene.py -q -p no:cacheprovider
-uv run ruff check src/rebrew/<name>.py tests/test_<name>.py
-uv run python -m mypy src/rebrew/<name>.py
+uv run --frozen rebrew <name> --help   # mounts, help renders
+make test-one T="tests/test_<name>.py tests/test_docs_hygiene.py"
+uv run --frozen ruff check src/rebrew/<name>.py tests/test_<name>.py
+uv run --frozen mypy src/rebrew/<name>.py
 ```
+
+Bare `uv run` (no `--frozen`) can rewrite `uv.lock`.  `make test-one` is the
+edit-test loop (`NO_COLOR` / the pytest ANSI plugin, one or more node ids).

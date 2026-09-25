@@ -23,9 +23,12 @@ currently `0.12.14`), **Python 3.13+** (see `.python-version`), and **nasm** on 
 [`resembl`](https://github.com/maci0/resembl) checkout at `../resembl` — the
 path pin in `pyproject.toml` / `uv.lock` (tag `v2.0.0`, same as CI's
 `resembl-ref`).  Without it, sync fails with a cryptic “Distribution not found”
-path error; `make setup` fails closed if `uv` is missing or if `../resembl`'s
-`version` does not match `RESEMBL_REF`, and warns (still continues) when `uv`
-is older than `UV_VERSION`.
+path error; `make setup` fails closed if `uv` is missing, if `../resembl`'s
+`version` does not match `RESEMBL_REF`, or if that checkout's `HEAD` is not
+`RESEMBL_SHA` (the commit CI's `resembl-sha` pin requires — a moved tag keeps
+the version string and still fails here).  It warns (still continues) when `uv`
+is older than `UV_VERSION`, and when `../resembl` is not a git checkout so the
+commit cannot be checked.
 
 ```bash
 # from the directory that will hold both checkouts:
