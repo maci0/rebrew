@@ -369,6 +369,15 @@ class TestResolveSourceArg:
         )
         assert resolve_source_arg(self._cfg(tmp_path), "_my_func") == src
 
+    def test_symbol_search_unicode_normalization_nfc_nfd(self, tmp_path: Path) -> None:
+        # File on disk is NFC (precomposed é)
+        src = tmp_path / "func_\u00e9.c"
+        src.write_text("// FUNCTION: GAME 0x1000\nint f(void) { return 0; }\n", encoding="utf-8")
+        # Search with NFD decomposed form (e + combining acute)
+        nfd_arg = "func_\u0065\u0301"
+        assert resolve_source_arg(self._cfg(tmp_path), nfd_arg) == src
+        assert resolve_source_arg(self._cfg(tmp_path), f"_{nfd_arg}") == src
+
     def test_va_lookup_finds_annotation(self, tmp_path: Path) -> None:
         src = tmp_path / "target_func.c"
         src.write_text("// FUNCTION: GAME 0x1000\nint f(void) { return 0; }\n", encoding="utf-8")

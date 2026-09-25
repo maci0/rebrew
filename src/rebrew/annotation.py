@@ -19,6 +19,7 @@ import logging
 import os
 import re
 import threading
+import unicodedata
 import warnings
 from collections.abc import Callable
 from dataclasses import dataclass, field, fields
@@ -298,7 +299,7 @@ def block_markers(block: str) -> list[tuple[str, int]]:
     for line in block.splitlines():
         m = NEW_FUNC_CAPTURE_RE.match(line.strip())
         if m:
-            out.append((m.group("module"), int(m.group("va"), 16)))
+            out.append((unicodedata.normalize("NFC", m.group("module")), int(m.group("va"), 16)))
     return out
 
 
@@ -684,7 +685,7 @@ def _module_for_va_in_text(text: str, va: int) -> str:
     for line in text.splitlines():
         m = _MARKER_VA_RE.search(line)
         if m and int(m.group(2), 16) == va:
-            return m.group(1)
+            return unicodedata.normalize("NFC", m.group(1))
     return ""
 
 
@@ -990,7 +991,7 @@ def parse_new_format(lines: list[str]) -> Annotation | None:
                 continue
             marker_type = new_type
             va = int(m.group("va"), 16)
-            module = m.group("module")
+            module = unicodedata.normalize("NFC", m.group("module"))
             in_annotation_block = True
 
             # If there's non-whitespace after the VA on the same line, stash as inline error
@@ -1117,7 +1118,7 @@ def parse_new_format_multi(lines: list[str]) -> list[Annotation]:
                 stack_start = len(results)
             current_marker_type = m.group("type")
             current_va = int(m.group("va"), 16)
-            current_module = m.group("module")
+            current_module = unicodedata.normalize("NFC", m.group("module"))
             current_line = lineno
             # Merge any pending key-value lines that appeared before this marker
             current_kv = saved_pending
@@ -1572,7 +1573,7 @@ def update_annotation_key(
         # marker module — never in a sibling target's block.
         marker_match = _MARKER_BLOCK_RE.search(line)
         if marker_match:
-            found_module = marker_match.group(2)
+            found_module = unicodedata.normalize("NFC", marker_match.group(2))
             found_va = int(marker_match.group(3), 16)
             if in_target_block and (found_module != target_module or found_va != va):
                 # A new annotation block started after our target block.
@@ -1672,7 +1673,7 @@ def parse_library_header(filepath: Path, metadata_dir: Path | None = None) -> li
         stripped = lines[i].strip()
         m = NEW_FUNC_CAPTURE_RE.match(stripped)
         if m and m.group("type") == "LIBRARY":
-            module = m.group("module")
+            module = unicodedata.normalize("NFC", m.group("module"))
             va = int(m.group("va"), 16)
 
             # No target-module filter: the LIBRARY module is the library name
@@ -1813,7 +1814,10 @@ def _strip_key_lines(filepath: Path, va: int, key: str, text: str, encoding: str
         marker_match = _MARKER_BLOCK_RE.search(line)
         if not marker_match:
             return False
-        return marker_match.group(2) == target_module and int(marker_match.group(3), 16) == va
+        return (
+            unicodedata.normalize("NFC", marker_match.group(2)) == target_module
+            and int(marker_match.group(3), 16) == va
+        )
 
     def _is_block_marker(line: str) -> bool:
         return bool(_MARKER_BLOCK_RE.search(line))

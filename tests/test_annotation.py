@@ -349,6 +349,17 @@ int myfunc(void) { return 0; }
         f.write_text("", encoding="utf-8")
         assert parse_c_file_multi(f) == []
 
+    def test_parse_nfd_module_normalized_to_nfc(self, tmp_path: Path) -> None:
+        # NFD module in marker line (O + combining diaeresis)
+        nfd_mod = "MO\u0308DULE"
+        content = f"// FUNCTION: {nfd_mod} 0x10001234\nint myfunc(void) {{ return 0; }}\n"
+        f = tmp_path / "myfunc.c"
+        f.write_text(content, encoding="utf-8")
+        results = parse_c_file_multi(f)
+        assert len(results) == 1
+        # Resulting annotation module is NFC (precomposed Ö)
+        assert results[0].module == "M\u00d6DULE"
+
 
 # ---------------------------------------------------------------------------
 # Multi-function parsing tests

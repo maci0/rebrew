@@ -1021,6 +1021,8 @@ def resolve_metadata_key(
     each resolve stays O(1); without it, a missing canonical key falls back
     to a linear scan (fine for single-entry writers).
     """
+    if module:
+        module = unicodedata.normalize("NFC", module)
     canonical = qualified_key(module, va)
     if canonical in doc:
         return canonical

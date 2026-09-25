@@ -23,6 +23,7 @@ import json
 import os
 import stat
 import sys
+import unicodedata
 import warnings
 from collections.abc import Callable
 from pathlib import Path
@@ -430,12 +431,13 @@ def resolve_source_arg(cfg: ProjectConfig, source_arg: str) -> Path:
     # both sides stripped made `__foo.c`/`_foo.c` (path order 0x5F) beat
     # `foo.c`, so the wrong file was compiled and its VA got the STATUS write.
     sources = iter_sources(src_dir, cfg)
+    arg_norm = unicodedata.normalize("NFC", source_arg)
     for src in sources:
-        if src.stem == source_arg:
+        if unicodedata.normalize("NFC", src.stem) == arg_norm:
             return src
-    arg_stem = source_arg.lstrip("_")
+    arg_stem = arg_norm.lstrip("_")
     for src in sources:
-        if src.stem.lstrip("_") == arg_stem:
+        if unicodedata.normalize("NFC", src.stem).lstrip("_") == arg_stem:
             return src
 
     return p

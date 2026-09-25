@@ -192,7 +192,9 @@ class TestRenameEdgeCases:
 
 
 class TestRenameCli:
-    def _invoke(self, tmp_path: Path, monkeypatch: Any, *args: str) -> Any:
+    def _invoke(
+        self, tmp_path: Path, monkeypatch: Any, *args: str, entries: list[Any] | None = None
+    ) -> Any:
         from typer.testing import CliRunner
 
         from rebrew.rename import app
@@ -207,11 +209,13 @@ class TestRenameCli:
             source_ext=".c",
         )
         monkeypatch.setattr("rebrew.rename.require_config", lambda **kw: cfg)
+        if entries is None:
+            entries = [
+                SimpleNamespace(name="old_fn", symbol="_old_fn", filepath="old_fn.c", va=0x1000)
+            ]
         monkeypatch.setattr(
             "rebrew.rename.scan_reversed_dir",
-            lambda d, cfg=None: [
-                SimpleNamespace(name="old_fn", symbol="_old_fn", filepath="old_fn.c", va=0x1000)
-            ],
+            lambda d, cfg=None: entries,
         )
         return CliRunner().invoke(app, list(args))
 
@@ -238,6 +242,26 @@ class TestRenameCli:
         """Regression: discovery writes zero-padded VAs (0x00001000);
         rename must accept them like every other VA-taking tool."""
         result = self._invoke(tmp_path, monkeypatch, "--dry-run", "0x00001000", "new_fn")
+        assert result.exit_code == 0, result.output
+        assert "new_fn" in result.output
+
+    def test_unicode_normalization_nfc_nfd_target_ident(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        # Stored name is NFC (precomposed é)
+        entries = [
+            SimpleNamespace(
+                name="func_\u00e9",
+                symbol="_func_\u00e9",
+                filepath="func_\u00e9.c",
+                va=0x1000,
+            )
+        ]
+        # Query with NFD decomposed form (e + combining acute)
+        nfd_ident = "func_\u0065\u0301"
+        result = self._invoke(
+            tmp_path, monkeypatch, "--dry-run", nfd_ident, "new_fn", entries=entries
+        )
         assert result.exit_code == 0, result.output
         assert "new_fn" in result.output
 

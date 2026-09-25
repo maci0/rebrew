@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import contextlib
 import re
+import unicodedata
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
@@ -209,6 +210,8 @@ def pull_data(
         return ""
 
     def _normalize_name(raw_name: str, fallback_addr: str) -> str:
+        if raw_name:
+            raw_name = unicodedata.normalize("NFC", raw_name)
         candidate = raw_name or f"g_{fallback_addr.lower().replace('0x', '')}"
         candidate = _NORMALIZE_NAME_RE.sub("_", candidate)
         if not candidate:

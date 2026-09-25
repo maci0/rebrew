@@ -295,6 +295,18 @@ class TestResolveMetadataKey:
         doc = {"OTHER.0x24000": {"name": "x"}}
         assert resolve_metadata_key(doc, "SERVER", 0x24000) == "SERVER.0x00024000"
 
+    def test_unicode_nfc_nfd_module_resolved(self) -> None:
+        from rebrew.utils import build_metadata_key_index, resolve_metadata_key
+
+        # Entry in doc uses NFC precomposed character (Ö)
+        doc = {"M\u00d6DULE.0x24000": {"name": "g_iat_region"}}
+        # Lookup using decomposed NFD character (O + combining diaeresis)
+        nfd_mod = "MO\u0308DULE"
+        assert resolve_metadata_key(doc, nfd_mod, 0x24000) == "M\u00d6DULE.0x24000"
+        # Indexed lookup also succeeds
+        index = build_metadata_key_index(doc)
+        assert resolve_metadata_key(doc, nfd_mod, 0x24000, index=index) == "M\u00d6DULE.0x24000"
+
 
 class TestParseMetadataDocDuplicates:
     def test_duplicate_keys_merge_fields(self, caplog: pytest.LogCaptureFixture) -> None:

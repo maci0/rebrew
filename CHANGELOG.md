@@ -18,6 +18,11 @@
   empty list, and names the valid ones.
 
 ### Fixed
+- **Names compare in Unicode NFC.**  A module, source name, rename target
+  or Ghidra data name spelled with decomposed characters (NFD, as macOS
+  file systems store them) did not match the same name in composed form:
+  marker modules, metadata keys, `--source` arguments, `rebrew rename` and
+  `sync --pull-data` now normalize to NFC before comparing.
 - **Byte coverage no longer counts a neighbour's bytes.**  A discoverer that
   misses a function start reports the previous entry running through it, and
   a library `SIZE` can span a whole `.obj`; `rebrew status` summed those

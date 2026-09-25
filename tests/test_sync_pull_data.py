@@ -368,3 +368,23 @@ class TestPullDataGlobalsHeader:
         assert "/* .data section globals */" in header
         assert "/* .rdata section globals */" in header
         assert "/* .bss section globals */" in header
+
+    def test_unicode_normalization_nfc_nfd_symbol_name(
+        self, tmp_path: Any, monkeypatch: Any
+    ) -> None:
+        # NFD symbol name: e + combining acute
+        nfd_name = "g_item_\u0065\u0301"
+        symbols = [{"name": nfd_name, "address": "0x00403010", "isFunction": False}]
+        data_by_addr = {
+            "0x00403010": {
+                "address": "0x00403010",
+                "dataType": "int",
+                "length": 4,
+                "symbolName": nfd_name,
+            }
+        }
+        _runpull_data(monkeypatch, tmp_path, symbols, data_by_addr)
+        header = (tmp_path / "rebrew_globals.h").read_text(encoding="utf-8")
+        # Under NFC normalization, é (\u00e9) becomes _ under [^A-Za-z0-9_] -> g_item__
+        # Without normalization, NFD leaves 'e' and replaces \u0301 with _ -> g_item_e_
+        assert "g_item__" in header

@@ -6,6 +6,7 @@ and any other references discovered by scanning the reversed directory.
 """
 
 import re
+import unicodedata
 from pathlib import Path
 from typing import Any
 
@@ -144,11 +145,12 @@ def main(
                 abs_path = str((cfg.root / rev_rel / fp).resolve())
             except (OSError, TypeError):
                 abs_path = ""
-        if target_ident in (
-            name,
-            sym,
-            str(fp),
-            Path(str(fp)).name,
+        target_norm = unicodedata.normalize("NFC", target_ident)
+        if target_norm in (
+            unicodedata.normalize("NFC", name),
+            unicodedata.normalize("NFC", sym),
+            unicodedata.normalize("NFC", str(fp)),
+            unicodedata.normalize("NFC", Path(str(fp)).name),
             proj_rel,
             proj_rel_native,
             abs_path,
@@ -282,6 +284,7 @@ def _rename_data(
             va_ident = int(target_ident, 16)
         except ValueError:
             va_ident = None
+    target_norm = unicodedata.normalize("NFC", target_ident)
     matches = []
     for e in data_entries:
         va = getattr(e, "va", 0)
@@ -289,9 +292,14 @@ def _rename_data(
         stored_name = str(
             get_data_entry(cfg.metadata_dir, va, getattr(e, "module", "") or "").get("name") or ""
         )
-        if target_ident in (stored_name, f"0x{va:x}", f"0x{va:X}", str(va), str(fp)) or (
-            va_ident is not None and va == va_ident
-        ):
+        stored_norm = unicodedata.normalize("NFC", stored_name)
+        if target_norm in (
+            stored_norm,
+            f"0x{va:x}",
+            f"0x{va:X}",
+            str(va),
+            unicodedata.normalize("NFC", str(fp)),
+        ) or (va_ident is not None and va == va_ident):
             matches.append(e)
     # Metadata-only entry: the VA has a name in rebrew-data.toml but no
     # marker in the tree (e.g. an $SG string constant referenced only by
@@ -305,7 +313,8 @@ def _rename_data(
             stored_name = str(fields.get("name") or "")
             if not stored_name:
                 continue
-            if target_ident in (stored_name, f"0x{va:x}", f"0x{va:X}", str(va)) or (
+            stored_norm = unicodedata.normalize("NFC", stored_name)
+            if target_norm in (stored_norm, f"0x{va:x}", f"0x{va:X}", str(va)) or (
                 va_ident is not None and va == va_ident
             ):
                 if metadata_only is not None:
