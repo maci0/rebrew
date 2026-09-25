@@ -29,6 +29,9 @@
   NEAR_MATCHING function "blocked".
 
 ### Changed
+- **A byte match keeps the BLOCKER of a function that still holds inline asm.**
+  The note documents the kept asm and lint W020 requires it on a matched
+  function; verify and test cleared it on promotion, re-raising W020.
 - **`cross-import` verifies with the destination's symbol map.**  Without it
   a typed relocation could not be masked, so every imported body touching a
   global or calling a function read NEAR_MATCHING and was withdrawn.

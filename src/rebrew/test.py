@@ -58,6 +58,7 @@ from rebrew.compile import (
     CompareResult,
     classify_compare_result,
     classify_match_status,
+    clears_blocker,
     compile_and_compare,
     compile_to_obj,
     is_matched,
@@ -1261,7 +1262,7 @@ def _run_test_impl(
                     f"0x{va_int_for_promote:x} ({anno_module})[/dim]"
                 )
         else:
-            clear = is_matched(new_status)
+            clear = clears_blocker(new_status, Path(source))
             update_source_status(
                 cfg.metadata_dir,
                 new_status,
@@ -1676,7 +1677,9 @@ def _test_multi(
                             f"0x{ann.va:x} ({ann.module})[/dim]"
                         )
                 else:
-                    clear = is_matched(new_status)
+                    clear = clears_blocker(
+                        new_status, cfg.reversed_dir / getattr(ann, "filepath", "")
+                    )
                     update_source_status(
                         cfg.metadata_dir,
                         new_status,
