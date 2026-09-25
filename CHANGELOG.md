@@ -1,5 +1,6 @@
 ## [Unreleased]
 
+## [2.9.0] - 2026-09-25
 ### Removed
 - **The `todo` blocked lens and the `status` blocked count** (ADR-025,
   superseding ADR-019).  Every unmatched function is blocked until it is
