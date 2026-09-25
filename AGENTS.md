@@ -4,7 +4,7 @@
 
 **Rebrew** is a compiler-in-the-loop decompilation workbench for binary-matching game reversing. Python package (`src/rebrew/`) with CLI tools to compile, compare, and match C source against target binary functions.
 
-Install editable (`uv pip install -e .`) inside a workspace containing binaries, sources, and toolchains. Contributor install: `make setup`; needs sibling `../resembl` at the `Makefile` `RESEMBL_REF` pin and **nasm** on `PATH` for the test suite. `make help` lists targets.
+Install editable (`uv pip install -e .`) inside a workspace containing binaries, sources, and toolchains. Contributor install: `make setup`; needs sibling `../resembl` whose version is `RESEMBL_REF` and whose HEAD is `RESEMBL_SHA` (both in the `Makefile`; a moved tag fails the SHA check) and **nasm** on `PATH` for the test suite. `make help` lists targets.
 
 ## Compiler Profiles
 
@@ -25,11 +25,11 @@ make test-one T=tests/test_annotation.py  # edit-test loop; T takes a node id (:
 make test                                 # full suite (needs nasm)
 make lint / make format / make mypy
 make gen-fixtures                         # regenerate tests/fixtures/ after editing the generator
-make all && make check && make build      # before a PR: CI gates + pre-commit + reproducible build
+make pr-check                             # before a PR: CI gates, pre-commit, reproducible build, SBOM
 make coverage                             # slipcover fail-under floor (COV_FLOOR); ratchet up, never down
 ```
 
-Bare `uv run pytest` matches `make test` (`pyproject.toml` pytest config loads `tests/pytest_ansi_env.py`; `.` on `pythonpath` exposes `tools/`).
+Bare `uv run --frozen pytest` matches `make test` (`pyproject.toml` pytest config loads `tests/pytest_ansi_env.py`; `.` on `pythonpath` exposes `tools/`).
 
 ## Code Style
 
@@ -37,7 +37,7 @@ Bare `uv run pytest` matches `make test` (`pyproject.toml` pytest config loads `
 - Types: `T | None` not `Optional`; config as `ProjectConfig` (`getattr` defensively); prefer `Any` over bare `object`
 - Library code raises specific exceptions; no bare `except`
 - Docstrings on every module; section separators `# ---...---`
-- Use imported libs' APIs: LIEF (never hand-unpack headers), httpx for MCP (never `urllib.request`), tree-sitter for C AST (no new regex C parsers; legacy mutation regex stays), angr only behind `[prove]`, declib only behind `[binsync]`
+- Use imported libs' APIs: LIEF for new parses of formats it supports (no new header unpacker). `pe_headers`/`pe_image` patch PE bytes in place; `ne_loader` and `omf16` stay because LIEF cannot parse NE or that OMF dialect. httpx for MCP (never `urllib.request`), tree-sitter for C AST (no new regex C parsers; legacy mutation regex stays), angr only behind `[prove]`, declib only behind `[binsync]`
 
 ## Layout
 
@@ -73,7 +73,7 @@ No `conftest.py`: use `tmp_path` + inline helpers. Group by class; helpers `_`-p
 - **Declarative registration**: toolchains, decompiler backends, CLI commands, mutations, flag sets, library presets, detectors, loaders, MSVC version tables, cache backends, discoverers via `rebrew.registry` entry-point groups (+ `REBREW_TOOLCHAIN_OVERLAY_DIR` / `REBREW_SKILLS_DIR`). Conflict policy: toolchains → `RegistryError` on duplicate; CLI plugin name clashes → warn+skip; tuning groups (`flag_sets`, `library_presets`, `msvc_versions`) extend/override; other optional groups skip broken/duplicate with a warning. `refresh_all()` for long-lived processes. Adding a component must not require editing host source
 - **CLI composition**: umbrella app is a component graph (`plugin.py` + `builtins.py`); see ADR 014
 - **No backward compat**: one name per function, no aliases/shims/wrappers
-- **Volatile metadata** (`METADATA_FIELDS` in `rebrew.metadata`): live in `rebrew-functions.toml`; never hand-edit the TOML. Most fields are metadata-only (`STATUS`, `TOOLCHAIN`, `BLOCKER`, …); `SIZE`/`CFLAGS` are co-read (`.c` + TOML override). STATUS via `update_source_status` / `update_statuses_batch`; BLOCKER via `update_field` / `remove_field` (`rebrew blocker` or auto-writers). Written **mode 0444** (`atomic_write_locked`); same lock for `rebrew-data.toml` and declib binsync artifacts
-- **STATUS is earned**: `rebrew test` / `rebrew verify` promote/demote from byte comparison; never write `STATUS` in `.c` files. `PROVEN` (from `rebrew prove`) is not a byte match and not protected: the next test/verify records the byte result over it
+- **Volatile metadata** (`METADATA_FIELDS` in `rebrew.metadata`): live in `rebrew-functions.toml`; never hand-edit the TOML. Most fields are metadata-only (`STATUS`, `TOOLCHAIN`, `BLOCKER`, …). Unmigrated `.c` files still co-read `SIZE`/`CFLAGS` (inline + TOML). `rebrew migrate-markers` makes the TOML the only copy, including identity (`file`, `symbol`, `name`, `marker_type`); do not put the marker block back into that `.c`. STATUS via `update_source_status` / `update_statuses_batch`; BLOCKER via `update_field` / `remove_field` (`rebrew blocker` or auto-writers). Written **mode 0444** (`atomic_write_locked`); same lock for `rebrew-data.toml` and declib binsync artifacts
+- **STATUS is earned**: `rebrew test` / `rebrew verify` promote/demote from byte comparison; never write `STATUS` in `.c` files. `PROVEN` (from `rebrew prove`) is not a byte match and not protected: the next test/verify records the byte result over it. `SKIP` stays parked, and a `STUB` is not replaced by `SIZE_MISMATCH` or `MISSING_SIZE`, unless the writer is called with `force=True`
 - **Compile result**: `CompareResult`; use `.matched`, `.status`, `.delta`, `.match_percent`; never tuple-unpack
 - **Compile backends**: local docker image by default; `[compiler] recompile_url` / `REBREW_RECOMPILE_URL` → `rebrew.recompile_client`. Cache id pins the backend. Only a plugin toolchain without `image` runs as a host binary. See ADR 015

@@ -46,8 +46,8 @@ Packaged `mut_*` ops under `mutations/` → `ALL_MUTATIONS` in `mutator.py`. New
 ## Gotchas
 
 - **Lazy package exports**: `rebrew.matcher` resolves public names via `__getattr__`. Importing a submodule (e.g. `parsers`) does not load the GA stack; `from rebrew.matcher import mutate_code` still works.
-- **Profile-parametrized sweep**: `generate_flag_combinations(tier=, profile=)` picks axes per profile (incl. `borland-2.0`); unknown profile falls back to registry `flags_style` (posix → GCC axes, not MSVC).
-- **Heuristic reloc/register detection**: pattern matching in `scoring.py`, not COFF metadata.
+- **Profile-parametrized sweep**: `generate_flag_combinations(tier=, profile=)` picks axes per profile (incl. `borland-2.0`). No flag-set entry: use registry `flags_style` (posix → GCC axes, not MSVC `/Gd`); a name that is not a registered toolchain keeps MSVC axes. `flag_sweep` refuses a posix profile absent from the merged tier map (packaged tiers plus `rebrew.flag_sets`) — do not delete that `ValueError` to match the generator fallback.
+- **Reloc and registers**: `score_candidate` masks caller-supplied `reloc_offsets` when present; the x86 pattern normalizer runs only when they are absent. Register masking is capstone ModR/M, not COFF metadata.
 - **Timeouts**: `build_candidate_obj_only` / `flag_sweep` default 60s; `build_candidate` (compile+link) defaults to 120s. Direct subprocess timeouts return `BuildResult(ok=False)`. Image-backed path: `timeout=` seeds a synthetic cfg when none is passed; a real `cfg` uses `cfg.compile_timeout`.
 - **Wine stderr**: lazy `rebrew.compile.filter_wine_stderr()` (avoids import cycle).
 - **No global state**: each run owns its in-memory memo, `Random`, and temp dirs, safe to run concurrently.
