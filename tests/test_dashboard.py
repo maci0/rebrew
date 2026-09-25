@@ -1811,6 +1811,8 @@ class TestHostValidation:
         assert raw == blob
         if encoding == "gzip":
             assert gzip.decompress(raw) == raw_bytes
+            # mtime=0: the body is a pure function of the uncompressed bytes.
+            assert int.from_bytes(raw[4:8], "little") == 0
         else:
             assert zstandard.ZstdDecompressor().decompress(raw) == raw_bytes
 

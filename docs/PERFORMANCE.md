@@ -125,6 +125,30 @@ functions, `/api/functions` CPU / 100: 500 rows 0.059 s / 32 KB → 100 rows
 Remaining: 100-row HTML join. Table virtualization and cross-request pooling
 were not measured.
 
+Dashboard shell gzip is 3216 bytes and `/app.js` gzip is 7924 bytes (same
+lengths as a timestamped header; the mtime field is 4 bytes either way).
+`mtime=0` makes those bytes a function of the content, so a restart does
+not serve a different body under the same ETag. Gate:
+`test_handler_serves_precompressed_static`.
+
+## Report pages (`rebrew report`)
+
+The report is a static site (opened from disk or hosted), so the entry HTML
+is the critical path. Index and strings were already paged at 250 rows.
+Imports and import stubs use that budget. A Mermaid source over 32 KB
+(32768 bytes) moves to `callgraph.mmd`; `graph.html` keeps the opening lines.
+
+Measured on synthetic payloads (raw HTML / gzip-9, `mtime=0`):
+
+| Page | before | entry page after |
+|---|---|---|
+| 2000 imports | 187344 / 13220 | 28614 / 3593 (8 pages) |
+| 900-node call graph | 119060 / 16025 | 8026 / 2585 (`callgraph.mmd` is 101956 bytes, gzip 13064) |
+
+A rebuild deletes owned pages and `.gz`/`.zst` sidecars it did not write,
+so a static server cannot keep serving the previous body under the same
+name. Gates: `TestReportPayloadShape`.
+
 ## Idempotency
 
 Every offline `--json` command is deterministic across runs — enforced by

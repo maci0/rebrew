@@ -136,6 +136,9 @@ class TestReportCli:
         # Wide source must be keyboard-scrollable and named by its heading.
         assert "tabindex='0' role='region' aria-labelledby='mermaid-heading'" in graph
         assert "adjacency.txt" in graph  # sidecar link, not inlined
+        # Two functions stay under the inline budget; the spill file is absent.
+        assert "callgraph.mmd" not in graph
+        assert not (site / "callgraph.mmd").exists()
         adjacency = (site / "adjacency.txt").read_text(encoding="utf-8")
         assert "2 nodes" in adjacency  # plain-text adjacency fallback
 
@@ -493,6 +496,142 @@ class TestReportPayloadShape:
         last = _pager_nav("index", 5, 5, total, "functions")
         assert "Last</a>" not in last
         assert "Next</a>" not in last
+
+    def test_write_static_drops_sidecar_that_no_longer_shrinks(self, tmp_path: Path) -> None:
+        """A page that stops compressing must not keep the previous sidecar."""
+        from rebrew.report import _write_static
+
+        path = tmp_path / "page.html"
+        _write_static(path, "function index row " * 40)
+        gz_path = Path(str(path) + ".gz")
+        zst_path = Path(str(path) + ".zst")
+        assert gz_path.is_file()
+        assert zst_path.is_file()
+        assert int.from_bytes(gz_path.read_bytes()[4:8], "little") == 0
+        _write_static(path, "x")
+        assert path.read_text(encoding="utf-8") == "x"
+        assert not gz_path.exists()
+        assert not zst_path.exists()
+
+    def test_regenerate_removes_pages_it_no_longer_writes(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Owned leftovers from a larger report are deleted; other files stay."""
+        import gzip
+
+        from rebrew.config import load_config
+        from rebrew.report import generate_report
+
+        _write_project(tmp_path, pe_bytes=make_pe(b"\x90" * 32))
+        monkeypatch.chdir(tmp_path)
+        site = tmp_path / "site"
+        site.mkdir()
+        stale = [
+            site / "index-p2.html",
+            site / "index-p2.html.gz",
+            site / "index-p2.html.zst",
+            site / "import-stubs.html",
+            site / "import-stubs.html.gz",
+            site / "callgraph.mmd",
+            site / "callgraph.mmd.zst",
+        ]
+        for path in stale:
+            path.write_bytes(b"stale previous report")
+        kept = site / "notes.txt"
+        kept.write_text("leave me", encoding="utf-8")
+        generate_report(load_config(tmp_path), site)
+        for path in stale:
+            assert not path.exists(), path.name
+        assert kept.read_text(encoding="utf-8") == "leave me"
+        raw = (site / "index.html").read_bytes()
+        blob = Path(str(site / "index.html") + ".gz").read_bytes()
+        assert int.from_bytes(blob[4:8], "little") == 0
+        assert gzip.decompress(blob) == raw
+
+    def test_imports_table_paginates(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A long import table does not land entirely on imports.html."""
+        from types import SimpleNamespace
+
+        import rebrew.report as report_mod
+        from rebrew.report import _TABLE_PAGE_SIZE
+
+        binary = tmp_path / "game.exe"
+        binary.write_bytes(b"MZ")
+        imports = [
+            {"dll": "KERNEL32.dll", "name": f"Api{i:04d}", "iat_va": 0x1000 + i}
+            for i in range(_TABLE_PAGE_SIZE + 3)
+        ]
+        monkeypatch.setattr(report_mod, "parse_imports", lambda path: imports)
+        monkeypatch.setattr(report_mod, "find_import_stubs", lambda path: {})
+        cfg = SimpleNamespace(target_name="T", target_binary=binary)
+        pages = report_mod._render_imports(cfg)
+        names = [name for name, _ in pages]
+        assert names == ["imports.html", "imports-p2.html"]
+        first = pages[0][1]
+        second = pages[1][1]
+        assert "Api0000" in first
+        assert "Api0249" in first
+        assert "Api0250" not in first
+        assert "Api0250" in second
+        assert first.count("<tr>") < _TABLE_PAGE_SIZE + 5
+        assert "aria-label='Next page of imported APIs'" in first
+        assert "Import stubs" not in first
+        # Three overflow rows stay off the entry document.
+        assert second.count("<tr>") == 4
+
+    def test_long_stub_list_leaves_the_imports_page(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Stubs past the row budget move to import-stubs.html."""
+        from types import SimpleNamespace
+
+        import rebrew.report as report_mod
+        from rebrew.report import _TABLE_PAGE_SIZE
+
+        binary = tmp_path / "game.exe"
+        binary.write_bytes(b"MZ")
+        imports = [{"dll": "KERNEL32.dll", "name": "MessageBoxA", "iat_va": 0x1000}]
+        stubs = {0x2000 + i: f"Stub{i:04d}" for i in range(_TABLE_PAGE_SIZE + 1)}
+        monkeypatch.setattr(report_mod, "parse_imports", lambda path: imports)
+        monkeypatch.setattr(report_mod, "find_import_stubs", lambda path: stubs)
+        cfg = SimpleNamespace(target_name="T", target_binary=binary)
+        pages = dict(report_mod._render_imports(cfg))
+        assert "MessageBoxA" in pages["imports.html"]
+        assert "Stub0000" not in pages["imports.html"]
+        assert "import-stubs.html" in pages["imports.html"]
+        assert "Stub0000" in pages["import-stubs.html"]
+        assert "Stub0250" in pages["import-stubs-p2.html"]
+        assert "Back to imported APIs" in pages["import-stubs.html"]
+        assert pages["import-stubs.html"].count("<tr>") < _TABLE_PAGE_SIZE + 5
+
+    def test_large_mermaid_source_leaves_the_html_page(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A call graph over the inline budget is a sibling file, not the HTML."""
+        from types import SimpleNamespace
+
+        import rebrew.report as report_mod
+
+        src = tmp_path / "src"
+        src.mkdir()
+        count = 900
+        nodes = {
+            f"va:0x{i:08x}": {"symbol": f"func_{i}", "status": "STUB", "va": i}
+            for i in range(count)
+        }
+        edges = [(f"va:0x{i:08x}", f"va:0x{i + 1:08x}") for i in range(count - 1)]
+        monkeypatch.setattr(report_mod, "build_graph", lambda path, cfg=None: (nodes, edges, []))
+        cfg = SimpleNamespace(target_name="T", reversed_dir=src)
+        html, adjacency, spilled = report_mod._render_graph(cfg)
+        assert spilled is not None
+        assert len(spilled.encode()) > report_mod._MERMAID_INLINE_MAX
+        assert "callgraph.mmd" in html
+        assert "graph LR" in html
+        assert "func_0" in html
+        assert "func_899" not in html
+        assert "func_899" in spilled
+        assert adjacency is not None and "func_899" in adjacency
+        assert len(html.encode()) < len(spilled.encode())
 
 
 class TestSummaryCards:

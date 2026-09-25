@@ -10,14 +10,19 @@ output directory with four pages:
   sections (via :mod:`rebrew.analysis`) with per-string reference counts;
   likewise paginated when the list is long.
 - ``imports.html`` — PE import table (dll, API, IAT slot) and detected
-  ``jmp [IAT]`` import stubs.
+  ``jmp [IAT]`` import stubs.  Both tables paginate (``imports-pN.html``,
+  ``import-stubs.html``) once they pass the same row budget as the index.
 - ``graph.html``   — the function call graph as embedded Mermaid source
-  (from :mod:`rebrew.depgraph`); the plain-text adjacency list ships as a
-  sibling ``adjacency.txt`` so the HTML page stays small for first paint.
+  (from :mod:`rebrew.depgraph`).  The plain-text adjacency list ships as a
+  sibling ``adjacency.txt``.  A Mermaid source over 32 KB ships as
+  ``callgraph.mmd`` and the HTML page keeps the opening lines, so the
+  document can paint before the rest of the graph is read.
 
 Every HTML/text page also writes max-effort ``.gz`` and ``.zst`` sidecars
 (when smaller) so static servers with precompressed-asset support can skip
-per-request compression.  Every page degrades gracefully: missing binaries,
+per-request compression.  Gzip sidecars use ``mtime=0``.  A rebuild deletes
+pages and sidecars this run did not write, so a server cannot keep serving
+the previous body under the same name.  Every page degrades gracefully: missing binaries,
 missing data sections, or call-graph failures produce a note inside the page
 instead of aborting the whole report.
 
@@ -32,6 +37,7 @@ import html
 import json
 import logging
 import math
+import re
 from pathlib import Path
 from typing import Any
 
@@ -75,16 +81,27 @@ _PAGES: list[tuple[str, str]] = [
     ("graph.html", "Call graph"),
 ]
 
-# Rows per HTML page for index/strings tables.  Keeps the entry document's
-# HTML parse budget small on large projects (thousands of functions/strings);
-# extra pages are linked via a no-JS pager.
+# Rows per HTML page for index/strings/imports tables.  Keeps the entry
+# document's HTML parse budget small on large projects (thousands of
+# functions, strings, or imports); extra pages are linked via a no-JS pager.
 _TABLE_PAGE_SIZE = 250
 # Strings-table cells longer than these collapse into a <details> disclosure.
 _STRING_CELL_CHARS = 80
 _REFS_CELL_COUNT = 5
+# Mermaid past this stays out of graph.html.  A few thousand functions is
+# hundreds of KB of source; the page keeps the opening lines and links the file.
+_MERMAID_INLINE_MAX = 32 * 1024
 # Max-effort gzip/zstd for build-once static assets (mirrors dashboard precompress).
 _GZIP_PRECOMPRESS_LEVEL = 9
 _ZSTD_PRECOMPRESS_LEVEL = 19
+# Files this command owns inside the output directory (plus .gz / .zst sidecars).
+# Anything else in --output is left alone.
+_OWNED_REPORT_FILE = re.compile(
+    r"^(?:index|strings|imports|import-stubs)(?:-p[1-9][0-9]*)?\.html$"
+    r"|^graph\.html$"
+    r"|^adjacency\.txt$"
+    r"|^callgraph\.mmd$"
+)
 
 # Shared with the coverage dashboard: plain tool chrome (system-ui, #005fcc
 # focus, #767676 borders) — not a Tailwind slate/blue demo palette.
@@ -220,24 +237,64 @@ def _pager_nav(
     )
 
 
+def _write_sidecar(path: Path, blob: bytes | None) -> None:
+    """Write *blob* or remove a sidecar that would no longer match *path*."""
+    if blob is not None:
+        atomic_write_bytes(path, blob)
+        return
+    try:
+        path.unlink()
+    except FileNotFoundError:
+        return
+
+
 def _write_static(path: Path, content: str | bytes, *, encoding: str = "utf-8") -> None:
-    """Write *content* and max-effort ``.gz`` / ``.zst`` sidecars when smaller."""
+    """Write *content* and max-effort ``.gz`` / ``.zst`` sidecars when smaller.
+
+    Sidecars that do not shrink the body are removed.  A static server that
+    prefers ``name.gz`` over ``name`` would otherwise keep serving the previous
+    page after this one stopped compressing.  Gzip ``mtime=0`` so an unchanged
+    page keeps a byte-identical sidecar across rebuilds.
+    """
     if isinstance(content, str):
         atomic_write_text(path, content, encoding=encoding)
         raw = content.encode(encoding)
     else:
         atomic_write_bytes(path, content)
         raw = content
-    gzipped = gzip.compress(raw, compresslevel=_GZIP_PRECOMPRESS_LEVEL)
-    if len(gzipped) < len(raw):
-        atomic_write_bytes(Path(str(path) + ".gz"), gzipped)
+    gzipped = gzip.compress(raw, compresslevel=_GZIP_PRECOMPRESS_LEVEL, mtime=0)
+    _write_sidecar(Path(str(path) + ".gz"), gzipped if len(gzipped) < len(raw) else None)
     # Deferred import: report is a CLI component; keep zstandard off the
     # cold path of unrelated commands that never call generate_report.
     import zstandard
 
     zstd = zstandard.ZstdCompressor(level=_ZSTD_PRECOMPRESS_LEVEL).compress(raw)
-    if len(zstd) < len(raw):
-        atomic_write_bytes(Path(str(path) + ".zst"), zstd)
+    _write_sidecar(Path(str(path) + ".zst"), zstd if len(zstd) < len(raw) else None)
+
+
+def _owned_report_name(name: str) -> str | None:
+    """Return the page name for an owned file or its sidecar, else ``None``."""
+    base = name.removesuffix(".gz").removesuffix(".zst")
+    if _OWNED_REPORT_FILE.fullmatch(base):
+        return base
+    return None
+
+
+def _prune_stale_report_files(out: Path, written: set[str]) -> None:
+    """Delete owned pages and sidecars this run did not write.
+
+    Leaves every other file in *out* alone (``--output`` may not be empty).
+    """
+    for child in list(out.iterdir()):
+        if not child.is_file():
+            continue
+        base = _owned_report_name(child.name)
+        if base is None or base in written:
+            continue
+        try:
+            child.unlink()
+        except FileNotFoundError:
+            continue
 
 
 def _table_scroll(table_html: str, aria_label: str = "Scrollable table") -> str:
@@ -653,78 +710,236 @@ def _string_row(s: StringEntry, xrefs: list[Xref] | None) -> str:
     )
 
 
-def _render_imports(cfg: ProjectConfig) -> str:
-    """Render imports.html: PE import table + jmp [IAT] stubs."""
+def _paginate_rows(
+    *,
+    stem: str,
+    noun: str,
+    target: str,
+    active: str,
+    title: str,
+    rows_html: list[str],
+    caption: str,
+    headers: list[str],
+    first_heading: str,
+    first_intro: str,
+    continued_heading: str,
+    extra_first: str = "",
+    extra_all: str = "",
+) -> list[tuple[str, str]]:
+    """One HTML page per ``_TABLE_PAGE_SIZE`` chunk of *rows_html*.
+
+    *extra_first* is appended on page 1 only.  *extra_all* is appended on
+    every page (a link to a table that did not fit here).
+    """
+    total = len(rows_html)
+    if total == 0:
+        return []
+    total_pages = max(1, (total + _TABLE_PAGE_SIZE - 1) // _TABLE_PAGE_SIZE)
+    pages: list[tuple[str, str]] = []
+    for page_num in range(1, total_pages + 1):
+        start = (page_num - 1) * _TABLE_PAGE_SIZE
+        chunk = "".join(rows_html[start : start + _TABLE_PAGE_SIZE])
+        table = _data_table(caption, headers, chunk)
+        pager = _pager_nav(stem, page_num, total_pages, total, noun)
+        pager_end = _pager_nav(
+            stem, page_num, total_pages, total, noun, label="Table pages, bottom"
+        )
+        if page_num == 1:
+            body = f"{first_heading}{first_intro}{pager}{table}{pager_end}{extra_first}{extra_all}"
+            page_title = title
+        else:
+            body = f"{continued_heading}{pager}{table}{pager_end}{extra_all}"
+            page_title = f"{title} ({page_num}/{total_pages})"
+        pages.append((_paged_href(stem, page_num), _page(page_title, target, active, body)))
+    return pages
+
+
+def _import_rows_html(imports: list[dict[str, Any]]) -> list[str]:
+    """One ``<tr>`` per import, IAT order."""
+    return [
+        "<tr>"
+        f"<td>{html.escape(str(rec['dll']))}</td>"
+        f"<td class='mono'>{html.escape(str(rec['name']))}</td>"
+        f"<td class='mono'>0x{int(rec['iat_va']):08x}</td>"
+        "</tr>"
+        for rec in sorted(imports, key=lambda r: int(r["iat_va"]))
+    ]
+
+
+def _stub_rows_html(stubs: dict[int, str]) -> list[str]:
+    """One ``<tr>`` per jmp [IAT] stub, VA order."""
+    return [
+        f"<tr><td class='mono'>0x{va:08x}</td><td class='mono'>{html.escape(name)}</td></tr>"
+        for va, name in sorted(stubs.items())
+    ]
+
+
+def _imports_note(target: str, message: str) -> list[tuple[str, str]]:
+    """Single imports.html explaining why the table is missing."""
+    return [
+        (
+            "imports.html",
+            _page(
+                "Imports",
+                target,
+                "imports.html",
+                f"<h2>Imports</h2><p class='note'>{message}</p>",
+            ),
+        )
+    ]
+
+
+def _render_imports(cfg: ProjectConfig) -> list[tuple[str, str]]:
+    """Render imports.html and overflow pages for the PE import table and stubs.
+
+    Both tables use the index row budget.  Stubs stay on the first imports
+    page when each table fits in that budget; a longer stub list moves to
+    ``import-stubs.html`` so the entry page is one table, not two full dumps.
+    """
     target = _target_name(cfg)
     binary = _target_binary(cfg)
     if binary is None:
-        return _page(
-            "Imports",
+        return _imports_note(
             target,
-            "imports.html",
-            "<h2>Imports</h2>"
-            "<p class='note'>Target binary not found. Check the binary path in "
-            "rebrew-project.toml, then regenerate this report.</p>",
+            "Target binary not found. Check the binary path in "
+            "rebrew-project.toml, then regenerate this report.",
         )
     try:
         imports: list[dict[str, Any]] = parse_imports(binary)
     except (OSError, ValueError):
-        return _page(
-            "Imports",
+        return _imports_note(
             target,
-            "imports.html",
-            "<h2>Imports</h2>"
-            "<p class='note'>Failed to parse imports from the target binary. Confirm "
-            "the file is a supported PE binary, then regenerate this report.</p>",
+            "Failed to parse imports from the target binary. Confirm "
+            "the file is a supported PE binary, then regenerate this report.",
         )
+    stubs: dict[int, str]
     try:
         stubs = find_import_stubs(binary)
     except (OSError, ValueError):
         stubs = {}
-    if not imports:
-        return _page(
-            "Imports",
+    if not imports and not stubs:
+        return _imports_note(
             target,
-            "imports.html",
-            "<h2>Imports</h2>"
-            "<p class='note'>No import table found in the target binary - nothing to report.</p>",
+            "No import table found in the target binary - nothing to report.",
         )
 
-    rows = "".join(
-        "<tr>"
-        f"<td>{html.escape(rec['dll'])}</td>"
-        f"<td class='mono'>{html.escape(rec['name'])}</td>"
-        f"<td class='mono'>0x{rec['iat_va']:08x}</td>"
-        "</tr>"
-        for rec in sorted(imports, key=lambda r: r["iat_va"])
+    import_rows = _import_rows_html(imports)
+    stub_rows = _stub_rows_html(stubs)
+    stubs_inline = (
+        bool(stub_rows)
+        and len(import_rows) <= _TABLE_PAGE_SIZE
+        and len(stub_rows) <= _TABLE_PAGE_SIZE
     )
-    parts = [
-        "<h2>Imports</h2>",
-        f"<p>{len(imports)} imported APIs.</p>",
-        _data_table("Imported APIs", ["DLL", "Function", "IAT slot"], rows),
-    ]
-    if stubs:
-        stub_rows = "".join(
-            f"<tr><td class='mono'>0x{va:08x}</td><td class='mono'>{html.escape(name)}</td></tr>"
-            for va, name in sorted(stubs.items())
+    extra_first = ""
+    extra_all = ""
+    stub_pages: list[tuple[str, str]] = []
+    if stubs_inline:
+        extra_first = "<h2>Import stubs (jmp [IAT])</h2>" + _data_table(
+            "Import stubs (jmp [IAT])", ["VA", "API"], "".join(stub_rows)
         )
-        parts.extend(
-            [
-                "<h2>Import stubs (jmp [IAT])</h2>",
-                _data_table("Import stubs (jmp [IAT])", ["VA", "API"], stub_rows),
-            ]
+    elif stub_rows:
+        extra_all = (
+            f"<p><a href='import-stubs.html'>Import stubs (jmp [IAT])</a> "
+            f"({len(stub_rows)} stubs) are listed on their own pages.</p>"
         )
-    return _page("Imports", target, "imports.html", "".join(parts))
+        stub_pages = _paginate_rows(
+            stem="import-stubs",
+            noun="import stubs",
+            target=target,
+            active="imports.html",
+            title="Import stubs",
+            rows_html=stub_rows,
+            caption="Import stubs (jmp [IAT])",
+            headers=["VA", "API"],
+            first_heading="<h2>Import stubs (jmp [IAT])</h2>",
+            first_intro=(
+                f"<p>{len(stub_rows)} jmp [IAT] stubs. "
+                "<a href='imports.html'>Back to imported APIs</a>.</p>"
+            ),
+            continued_heading="<h2>Import stubs (continued)</h2>",
+            extra_all="<p><a href='imports.html'>Back to imported APIs</a>.</p>",
+        )
+
+    if not import_rows:
+        note = (
+            "<h2>Imports</h2>"
+            "<p class='note'>No import table found in the target binary.</p>"
+            f"{extra_all}"
+        )
+        return [("imports.html", _page("Imports", target, "imports.html", note)), *stub_pages]
+
+    pages = _paginate_rows(
+        stem="imports",
+        noun="imported APIs",
+        target=target,
+        active="imports.html",
+        title="Imports",
+        rows_html=import_rows,
+        caption="Imported APIs",
+        headers=["DLL", "Function", "IAT slot"],
+        first_heading="<h2>Imports</h2>",
+        first_intro=f"<p>{len(import_rows)} imported APIs.</p>",
+        continued_heading="<h2>Imports (continued)</h2>",
+        extra_first=extra_first,
+        extra_all=extra_all,
+    )
+    return pages + stub_pages
 
 
-def _render_graph(cfg: ProjectConfig) -> tuple[str, str | None]:
-    """Render graph.html and optional adjacency.txt body.
+def _mermaid_preview(mermaid: str, *, max_lines: int = 40, max_chars: int = 4000) -> str:
+    """Opening lines of *mermaid*, capped so the preview cannot itself be the page."""
+    kept: list[str] = []
+    size = 0
+    for line in mermaid.splitlines()[:max_lines]:
+        if kept and size + len(line) + 1 > max_chars:
+            break
+        kept.append(line)
+        size += len(line) + 1
+    preview = "\n".join(kept)
+    if preview != mermaid:
+        preview += "\n\u2026"
+    return preview
 
-    Returns ``(html_page, adjacency_text_or_none)``.  Call-graph generation is
-    best-effort: any failure (malformed annotation blocks, unreadable sources,
-    rendering errors) degrades to a note inside the page rather than aborting
-    the whole report.  The adjacency list is a separate download so the HTML
-    critical path only carries the Mermaid source.
+
+def _graph_body(mermaid: str, *, spilled: bool, nodes: int, edges: int, dispatch: int) -> str:
+    """graph.html body.  Small sources stay inline; large ones link the file."""
+    pre = (
+        "<pre class='mermaid' tabindex='0' role='region' aria-labelledby='mermaid-heading'>"
+        f"{html.escape(_mermaid_preview(mermaid) if spilled else mermaid)}</pre>"
+    )
+    if not spilled:
+        return (
+            "<h2>Call graph</h2>"
+            "<p>Call graph over reversed functions. The mermaid source below renders in any "
+            "mermaid-compatible viewer. A <a href='adjacency.txt'>plain-text adjacency list</a> "
+            "(screen-reader accessible) is available as a separate download.</p>"
+            "<h2 id='mermaid-heading'>Mermaid source</h2>"
+            f"{pre}"
+        )
+    nbytes = len(mermaid.encode("utf-8"))
+    return (
+        "<h2>Call graph</h2>"
+        "<p>Call graph over reversed functions "
+        f"({nodes} nodes, {edges} direct edges, {dispatch} dispatch edges). "
+        f"The full Mermaid source is {nbytes} bytes; this page shows the opening lines so it "
+        "can paint, and the rest is <a href='callgraph.mmd'>callgraph.mmd</a>. "
+        "A <a href='adjacency.txt'>plain-text adjacency list</a> "
+        "(screen-reader accessible) is available as a separate download.</p>"
+        "<h2 id='mermaid-heading'>Mermaid source (opening lines)</h2>"
+        f"{pre}"
+        "<p><a href='callgraph.mmd'>Full Mermaid source (callgraph.mmd)</a></p>"
+    )
+
+
+def _render_graph(cfg: ProjectConfig) -> tuple[str, str | None, str | None]:
+    """Render graph.html, optional adjacency.txt, and optional spilled Mermaid.
+
+    Returns ``(html_page, adjacency_text_or_none, mermaid_or_none)``.  The
+    third value is the full Mermaid source when it is larger than
+    ``_MERMAID_INLINE_MAX`` and was left out of the HTML.  Call-graph
+    generation is best-effort: any failure (malformed annotation blocks,
+    unreadable sources, rendering errors) degrades to a note inside the page
+    rather than aborting the whole report.
     """
     target = _target_name(cfg)
     reversed_dir = getattr(cfg, "reversed_dir", None)
@@ -737,6 +952,7 @@ def _render_graph(cfg: ProjectConfig) -> tuple[str, str | None]:
                 "<h2>Call graph</h2>"
                 "<p class='note'>No reversed source directory configured - call graph is empty.</p>",
             ),
+            None,
             None,
         )
     try:
@@ -777,19 +993,22 @@ def _render_graph(cfg: ProjectConfig) -> tuple[str, str | None]:
                 "complete.</p>",
             ),
             None,
+            None,
         )
 
-    body = (
-        "<h2>Call graph</h2>"
-        "<p>Call graph over reversed functions. The mermaid source below renders in any "
-        "mermaid-compatible viewer. A <a href='adjacency.txt'>plain-text adjacency list</a> "
-        "(screen-reader accessible) is available as a separate download.</p>"
-        "<h2 id='mermaid-heading'>Mermaid source</h2>"
-        # Focusable region so keyboard users can scroll the wide source.
-        "<pre class='mermaid' tabindex='0' role='region' aria-labelledby='mermaid-heading'>"
-        f"{html.escape(mermaid)}</pre>"
+    spilled = len(mermaid.encode("utf-8")) > _MERMAID_INLINE_MAX
+    body = _graph_body(
+        mermaid,
+        spilled=spilled,
+        nodes=len(nodes),
+        edges=len(edges),
+        dispatch=len(dispatch_edges),
     )
-    return _page("Call graph", target, "graph.html", body), adjacency
+    return (
+        _page("Call graph", target, "graph.html", body),
+        adjacency,
+        mermaid if spilled else None,
+    )
 
 
 def _ne_ranges(info: Any) -> list[tuple[int, int, str]]:
@@ -856,25 +1075,34 @@ def generate_report(cfg: ProjectConfig, out: Path) -> dict[str, Any]:
         {"out": str, "pages": [...], "summary": {totals...}}
 
     Every page is written even when its data source is missing or broken —
-    such pages degrade to an explanatory note instead.  Oversized index/strings
-    tables spill into ``*-pN.html`` companions; each text asset also gets
-    ``.gz`` / ``.zst`` sidecars when compression shrinks it.
+    such pages degrade to an explanatory note instead.  Oversized index,
+    strings, and import tables spill into companion pages; a Mermaid source
+    over ``_MERMAID_INLINE_MAX`` spills into ``callgraph.mmd``.  Each text
+    asset also gets ``.gz`` / ``.zst`` sidecars when compression shrinks it.
+    Owned files this run did not write are removed.
     """
     out.mkdir(parents=True, exist_ok=True)
     report = collect_status(cfg)
     functions = _collect_functions(cfg)
     target = _target_name(cfg)
 
-    graph_html, adjacency = _render_graph(cfg)
+    graph_html, adjacency, spilled_mermaid = _render_graph(cfg)
     page_files: list[tuple[str, str]] = []
     page_files.extend(_render_index(target, report, functions, ne=_ne_summary(cfg)))
     page_files.extend(_render_strings(cfg))
-    page_files.append(("imports.html", _render_imports(cfg)))
+    page_files.extend(_render_imports(cfg))
     page_files.append(("graph.html", graph_html))
+    kept: set[str] = set()
     for name, content in page_files:
         _write_static(out / name, content)
+        kept.add(name)
     if adjacency is not None:
         _write_static(out / "adjacency.txt", adjacency)
+        kept.add("adjacency.txt")
+    if spilled_mermaid is not None:
+        _write_static(out / "callgraph.mmd", spilled_mermaid)
+        kept.add("callgraph.mmd")
+    _prune_stale_report_files(out, kept)
 
     summary = {
         "total_functions": report.total_functions,
@@ -1097,8 +1325,9 @@ _EPILOG = (
     "  rebrew report --json · · · · · · · · · · · Machine-readable summary\n\n"
     "[dim]Generates a self-contained static HTML site (function index, strings, "
     "imports, call graph) with all styling inlined — no external assets.  "
-    "`--decomp-dev` instead emits the objdiff report v2 JSON the decomp.dev "
-    "progress hub ingests from a GitHub Actions artifact.[/dim]"
+    "Long tables paginate; a call graph over 32 KB of Mermaid moves to "
+    "callgraph.mmd.  `--decomp-dev` instead emits the objdiff report v2 JSON "
+    "the decomp.dev progress hub ingests from a GitHub Actions artifact.[/dim]"
 )
 
 app = typer.Typer(

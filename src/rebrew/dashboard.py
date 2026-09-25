@@ -44,7 +44,8 @@ A matching ``If-None-Match`` on a routed path is answered 304 only when a GET
 would answer 200 (target-scoped ones need a known ``target``; ``/api/summary``
 a readable ``function_stats``), without running the route's query.
 The static HTML shell and ``/app.js`` client are zstd- and gzip-precompressed at
-import time so entry assets skip per-request compression CPU.  Their combined
+import time (gzip ``mtime=0``, so a restart serves the same bytes) so entry
+assets skip per-request compression CPU.  Their combined
 wire size stays under 12 KB (gzip or zstd) so a cold connection paints from the
 initial congestion window; a test pins that budget.  The shell
 ``<head>`` preloads ``/api/bootstrap`` (``as=fetch`` + ``crossorigin`` +
@@ -1247,11 +1248,16 @@ _CACHE_IMMUTABLE = "private, max-age=31536000, immutable"
 
 
 def _precompress(raw: bytes, encoding: _WireEncoding) -> bytes | None:
-    """Return a max-effort blob when it shrinks *raw*, else ``None``."""
+    """Return a max-effort blob when it shrinks *raw*, else ``None``.
+
+    Gzip ``mtime=0`` so the bytes depend only on *raw*.  The ETag is the
+    uncompressed hash; a restarted process must not serve a different gzip
+    body for that same tag.
+    """
     if encoding == "zstd":
         compressed = zstandard.ZstdCompressor(level=_ZSTD_PRECOMPRESS_LEVEL).compress(raw)
     else:
-        compressed = gzip.compress(raw, compresslevel=_GZIP_PRECOMPRESS_LEVEL)
+        compressed = gzip.compress(raw, compresslevel=_GZIP_PRECOMPRESS_LEVEL, mtime=0)
     return compressed if len(compressed) < len(raw) else None
 
 

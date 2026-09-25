@@ -2310,6 +2310,12 @@ command line) — feeds toolchain detection and per-function CFLAGS discovery.
 Generate a static self-contained HTML documentation site (`index.html`,
 `strings.html`, `imports.html`, `graph.html`). The function index table
 includes a `Blocker` column carrying near-diag/diff blocker guidance.
+Function, string, import, and import-stub tables split across `*-pN.html`
+once they pass 250 rows, so the first page stays a few hundred rows.
+A Mermaid call graph larger than 32 KB is written to `callgraph.mmd`;
+`graph.html` keeps the opening lines and links that file. Each text file
+also gets `.gz` and `.zst` sidecars when those are smaller. Regenerating
+the site deletes pages and sidecars the new report does not write.
 
 `--decomp-dev <path>` instead emits an objdiff-format progress report
 (`report.proto` v2, JSON-serialized) for decomp.dev ingestion: per-unit

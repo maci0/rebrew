@@ -29,6 +29,15 @@
   - `status` adds a `(no source)` row, so the status rows sum to the total.
 
 ### Changed
+- **`rebrew report` keeps entry pages small and drops stale companions.**
+  Import and import-stub tables paginate at 250 rows, like the function
+  index.  A Mermaid call graph over 32 KB moves to `callgraph.mmd`;
+  `graph.html` keeps the opening lines.  A rebuild deletes pages and
+  `.gz`/`.zst` sidecars it did not write, and gzip sidecars use `mtime=0`.
+- **Dashboard gzip bodies stay stable across restarts.**  The precompressed
+  shell and `/app.js` gzip header used the current time, so the same ETag
+  was served with a different body after a restart.  `mtime=0` pins the
+  bytes to the content.
 - **Ruff checks gettext plurals and ``min`` over ``sorted``.**  ``INT001``–
   ``INT003`` and ``FURB192`` join the select; the tree already passes them.
   Test ``type: ignore`` comments mypy reports as unused are removed, so a
