@@ -101,6 +101,29 @@ class TestLibMatch:
         assert res.exit_code == 1, res.output
         assert "_mylibfn" in res.output
 
+    def test_va_short_library_function(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A library body shorter than the 32-byte window, followed by other
+        code, is still library code at --va with no metadata size.
+
+        Regression: the window ran into the next function, so small LIBCMT
+        functions (__errno, __fileno, _malloc) read as safe to reverse."""
+        from rebrew.lib_match import app
+
+        body = bytes(range(1, 13))  # 12-byte library function
+        pe = tmp_path / "target.dll"
+        pe.write_bytes(
+            make_pe(body + bytes(range(0x80, 0xA0)), image_base=0x400000, text_va=0x1000)
+        )
+        lib = tmp_path / "mylib.lib"
+        lib.write_bytes(make_lib_archive([("s.obj", make_coff_obj(body, func_symbol="_small"))]))
+        (tmp_path / "reversed").mkdir()
+        _mock_cfg(tmp_path, pe, monkeypatch)
+        res = CliRunner().invoke(app, ["--lib", str(lib), "--va", "0x401000", "--json"])
+        assert res.exit_code == 1, res.output
+        assert json.loads(res.output)["symbol"] == "_small"
+
     def test_json_output(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         import json
 
