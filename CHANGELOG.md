@@ -1,6 +1,19 @@
 ## [Unreleased]
 
 ### Fixed
+- **`cross-import` takes a twin whose destination inventory entry merges
+  functions.**  A body that compiles shorter than the entry, matches every
+  byte of it, and is followed by `0x90`/`0xCC` up to the next 16-byte
+  boundary is re-verified at its own size and imported with `SIZE:` set to
+  it (marker and metadata).  It was reported `SIZE_MISMATCH` and reverted
+  (104 of 181 guild-rebrew GOLD twins in one run).
+- **`cross-import` verifies the definition's symbol.**  The symbol comes from
+  the same annotation parser `rebrew test` uses, with `__stdcall`/`__fastcall`
+  decoration.  A macro before the name (`int ZEXPORT deflate(...)`), or an
+  `__asm` body that left no parseable definition, made the import look up a
+  macro, a struct member or an `extern` instead (`EXTRACT_ERROR: Symbol
+  '_type' not found in .obj`).  `find_c_function_definitions` reads only the
+  declarator, so it returns `deflate` there too.
 - **Optional copyleft dependencies are named beside the MIT grant.**
   `NOTICE` (shipped via `license-files`) records `resembl` 2.0.0 as GPLv3
   (GPL-3.0-only), `m2c` at `aa869da` as GPL-3.0-only, and `pyvex` 9.3.4

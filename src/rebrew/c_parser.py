@@ -405,12 +405,12 @@ def find_c_function_definitions(source: str) -> list[tuple[str, int]]:
 
     def walk(node: Any) -> None:
         if node.type == "function_definition":
-            for child in node.children:
-                name = _find_function_name(child, src_bytes)
-                if name:
-                    line = node.start_point[0] + 1  # 0-indexed → 1-indexed
-                    results.append((name, line))
-                    break
+            # The declarator field only: an unknown macro before the name
+            # (``int ZEXPORT deflate(...)``) is an ERROR identifier child.
+            declarator = node.child_by_field_name("declarator")
+            name = _find_function_name(declarator, src_bytes) if declarator else None
+            if name:
+                results.append((name, node.start_point[0] + 1))  # 1-based line
         else:
             for child in node.children:
                 walk(child)
