@@ -766,9 +766,9 @@ def fetch_m2c(binary: Path, va: int, root: Path, **_kwargs: Any) -> str | None:
     ``uv pip install "m2c @ git+https://github.com/matt-kempster/m2c.git"``
     (the real decompiler is not on PyPI under this name).  Returns ``None`` when
     m2c is unavailable, the arch has no m2c target (x86), the function does
-    not cleanly disassemble, or m2c fails.  PPC currently also returns
-    ``None``: capstone 5 ships no working PPC engine, so there is no
-    disassembler to feed m2c yet (Phase 3).
+    not cleanly disassemble, or m2c fails.  PPC is disassembled big-endian
+    (``blr`` and the other fixed-width words) and fed to m2c's ``ppc-mwcc-c``
+    target.
     """
     if not binary.exists():
         return None
@@ -781,17 +781,6 @@ def fetch_m2c(binary: Path, va: int, root: Path, **_kwargs: Any) -> str | None:
     )
 
     info = load_binary(binary)
-    arch = getattr(info, "arch", "") or ""
-    if arch in ("ppc32", "ppc64"):
-        # capstone 5 ships no working PPC engine (it misdecodes `blr`), so
-        # there is no disassembler to feed m2c yet (Phase 3).  Fail fast
-        # instead of feeding m2c garbage disassembly.
-        warnings.warn(
-            f"m2c decompilation unsupported for PPC ({arch}): "
-            "capstone 5 ships no working PPC engine",
-            stacklevel=2,
-        )
-        return None
     target = _m2c_target(info)
     if target is None:
         return None

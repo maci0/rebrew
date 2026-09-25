@@ -54,7 +54,13 @@ class TestArchPresets:
         assert cfg.pointer_size == pointer_size
         cap = SimpleNamespace(arch=cfg.arch)
         assert ProjectConfig.capstone_arch.__get__(cap) == _CS(capstone_arch)
-        assert ProjectConfig.capstone_mode.__get__(cap) == _CS(capstone_mode)
+        # No image header: MIPS/PPC/SH2 default to big-endian.  Capstone's
+        # own default is little-endian, and that bit is not part of the
+        # preset's base mode name.
+        expected_mode = _CS(capstone_mode)
+        if arch in ("mips32", "mips64", "ppc32", "ppc64", "sh2"):
+            expected_mode |= _CS("CS_MODE_BIG_ENDIAN")
+        assert ProjectConfig.capstone_mode.__get__(cap) == expected_mode
 
     def test_mips_padding_is_zero_byte(self, tmp_path: Path) -> None:
         from rebrew.config import load_config
@@ -153,6 +159,50 @@ class TestExtentWalker:
             self._extent(tmp_path, monkeypatch, "ppc32", "elf", b"\x60\x00\x00\x00\x4e\x80\x00\x20")
             == 8
         )
+
+    def test_sh2_rts(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        # `rts` is 0x000b.  Without CS_MODE_BIG_ENDIAN capstone decodes nothing.
+        assert self._extent(tmp_path, monkeypatch, "sh2", "elf", b"\x00\x0b") == 2
+
+    def test_ppc_capstone_decodes_blr_big_endian(self) -> None:
+        import capstone
+
+        from rebrew.binary_loader import capstone_config_for
+
+        info = SimpleNamespace(arch="ppc32", endian="big", format="elf")
+        cs_arch, mode = capstone_config_for(info)
+        insns = list(capstone.Cs(cs_arch, mode).disasm(bytes.fromhex("4e800020"), 0x80000000))
+        assert [(insn.mnemonic, insn.op_str) for insn in insns] == [("blr", "")]
+
+    def test_arm_big_endian_image_sets_the_bit(self) -> None:
+        import capstone
+
+        from rebrew.binary_loader import capstone_config_for
+
+        info = SimpleNamespace(arch="arm32", endian="big", format="elf")
+        _arch, mode = capstone_config_for(info)
+        assert mode & capstone.CS_MODE_BIG_ENDIAN
+        insns = list(capstone.Cs(_arch, mode).disasm(bytes.fromhex("e3a00001"), 0))
+        assert [(insn.mnemonic, insn.op_str) for insn in insns] == [("mov", "r0, #1")]
+
+    def test_little_endian_mips_image_clears_the_default(self, tmp_path: Path) -> None:
+        import capstone
+
+        from rebrew.config import ProjectConfig
+
+        blob = bytearray(16)
+        blob[:4] = b"\x7fELF"
+        blob[5] = 1  # ELFDATA2LSB
+        path = tmp_path / "psx.elf"
+        path.write_bytes(bytes(blob))
+        cfg = ProjectConfig(root=tmp_path, arch="mips32", target_binary=path, binary_format="elf")
+        assert not cfg.capstone_mode & capstone.CS_MODE_BIG_ENDIAN
+        insns = list(
+            capstone.Cs(cfg.capstone_arch, cfg.capstone_mode).disasm(
+                bytes.fromhex("0800e003"), 0x80000000
+            )
+        )
+        assert [(insn.mnemonic, insn.op_str) for insn in insns] == [("jr", "$ra")]
 
     def test_mips_tail_jump(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         # `j 0x2000` (08000800) — unconditional jump = tail terminator.

@@ -441,12 +441,28 @@ class ProjectConfig:
 
     @property
     def capstone_mode(self) -> int:
-        """Return capstone CS_MODE_* constant."""
+        """Return the capstone ``CS_MODE_*`` bits for this target.
+
+        The preset supplies the architecture's base mode.  MIPS, PPC, and SH2
+        also set ``CS_MODE_BIG_ENDIAN`` (IDO, GameCube/Wii, Saturn) unless the
+        target image header is little-endian.  ARM sets that bit only when the
+        image is big-endian.  x86 never sets it: capstone rejects the
+        combination.
+        """
         import capstone
+
+        from rebrew.binary_loader import endian_mode_bits, sniff_image_endian
 
         preset = _ARCH_PRESETS.get(self.arch)
         name = preset.get("capstone_mode", "CS_MODE_32") if preset else "CS_MODE_32"
-        return int(getattr(capstone, name))
+        mode = int(getattr(capstone, name))
+        endian = ""
+        binary = getattr(self, "target_binary", None)
+        if binary is not None:
+            path = Path(binary)
+            if path.is_file():
+                endian = sniff_image_endian(path)
+        return mode | endian_mode_bits(getattr(self, "arch", "") or "", endian)
 
     @property
     def metadata_dir(self) -> Path:

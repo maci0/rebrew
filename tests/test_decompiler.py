@@ -1094,26 +1094,21 @@ class TestM2CBackend:
         assert "func_1000" in code
 
 
-class TestM2CPpcGuard:
-    def test_ppc_returns_none_with_reason(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """PPC has no working capstone engine: fail fast with a clear reason."""
-        import rebrew.binary_loader as bl
-        from rebrew.decompiler import fetch_m2c
+# nop; blr — big-endian PPC.  Little-endian mode misdecodes blr as subfic.
+_PPC_BE_BYTES = bytes.fromhex("600000004e800020")
 
-        bin_path = tmp_path / "x.elf"
-        bin_path.write_bytes(b"\x7fELF")
-        monkeypatch.setattr(importlib.util, "find_spec", lambda name: object())
-        monkeypatch.setattr(
-            bl,
-            "load_binary",
-            lambda p: SimpleNamespace(arch="ppc32", endian="big", format="elf"),
-        )
-        with pytest.warns(UserWarning, match="PPC"):
-            assert fetch_m2c(bin_path, 0x1000, tmp_path) is None
 
-    def test_ppc64_returns_none_with_reason(
+class TestM2CPpc:
+    def test_render_ppc_blr(self) -> None:
+        from rebrew.decompiler import _render_m2c_asm
+
+        info = SimpleNamespace(arch="ppc32", endian="big", format="elf")
+        asm = _render_m2c_asm(info, 0x1000, _PPC_BE_BYTES)
+        assert asm is not None
+        assert "nop" in asm
+        assert "blr" in asm
+
+    def test_fetch_ppc_uses_mwcc_target(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         import rebrew.binary_loader as bl
@@ -1121,14 +1116,27 @@ class TestM2CPpcGuard:
 
         bin_path = tmp_path / "x.elf"
         bin_path.write_bytes(b"\x7fELF")
+        info = SimpleNamespace(arch="ppc32", endian="big", format="elf")
         monkeypatch.setattr(importlib.util, "find_spec", lambda name: object())
+        monkeypatch.setattr(bl, "load_binary", lambda p: info)
+        monkeypatch.setattr(bl, "extract_bytes_at_va", lambda i, va, size, **kw: _PPC_BE_BYTES)
         monkeypatch.setattr(
-            bl,
-            "load_binary",
-            lambda p: SimpleNamespace(arch="ppc64", endian="big", format="elf"),
+            bl, "function_extent_from_disasm", lambda p, va, **kw: len(_PPC_BE_BYTES)
         )
-        with pytest.warns(UserWarning, match="PPC"):
-            assert fetch_m2c(bin_path, 0x1000, tmp_path) is None
+
+        captured: dict[str, Any] = {}
+
+        def fake_run(cmd, **kwargs):
+            captured["cmd"] = cmd
+            captured["input"] = kwargs.get("input")
+            return subprocess.CompletedProcess(
+                cmd, 0, stdout="s32 f(void) { return 1; }\n", stderr=""
+            )
+
+        monkeypatch.setattr("rebrew.decompiler.subprocess.run", fake_run)
+        assert fetch_m2c(bin_path, 0x1000, tmp_path) == "s32 f(void) { return 1; }"
+        assert captured["cmd"][captured["cmd"].index("--target") + 1] == "ppc-mwcc-c"
+        assert "blr" in captured["input"]
 
 
 class TestReSessionReuse:

@@ -27,7 +27,12 @@ from typing import Any, Protocol
 
 import capstone
 
-from rebrew.binary_loader import BinaryInfo, section_extent, va_to_file_offset
+from rebrew.binary_loader import (
+    BinaryInfo,
+    capstone_config_for,
+    section_extent,
+    va_to_file_offset,
+)
 
 DEFAULT_CS_ARCH = "CS_ARCH_X86"
 DEFAULT_CS_MODE = "CS_MODE_32"
@@ -107,55 +112,24 @@ _capstone_tls = threading.local()
 def _capstone(skipdata: bool = False, info: BinaryInfo | None = None) -> Any:
     """Return a capstone ``Cs`` disassembler.
 
-    Defaults to x86-32; for 16-bit NE binaries (``info.format == "ne"``)
-    uses ``CS_MODE_16``.  With *skipdata* set, undecodable bytes are emitted
-    as ``.byte`` pseudo instructions instead of terminating the linear scan —
-    required for real binaries whose code contains embedded data.
+    Defaults to x86-32.  A ``BinaryInfo`` selects the arch, the x86 bitness
+    (NE/MZ → 16-bit), and the image endianness through
+    :func:`rebrew.binary_loader.capstone_config_for`.  With *skipdata* set,
+    undecodable bytes are emitted as ``.byte`` pseudo instructions instead of
+    terminating the linear scan — required for real binaries whose code
+    contains embedded data.
 
-    Instances are cached per thread keyed on (mode, skipdata).
+    Instances are cached per thread keyed on (arch, mode, skipdata).
     """
     try:
-        from capstone import (
-            CS_ARCH_ARM,
-            CS_ARCH_ARM64,
-            CS_ARCH_MIPS,
-            CS_ARCH_PPC,
-            CS_ARCH_SH,
-            CS_ARCH_X86,
-            CS_MODE_16,
-            CS_MODE_32,
-            CS_MODE_64,
-            CS_MODE_ARM,
-            CS_MODE_MIPS32,
-            CS_MODE_MIPS64,
-            CS_MODE_SH2,
-            Cs,
-        )
+        from capstone import CS_ARCH_X86, CS_MODE_32, Cs
     except ImportError as exc:
         raise RuntimeError("capstone not installed") from exc
 
-    # Arch-aware (multi-arch P0): the binary's detected arch selects the
-    # disassembler; x86 picks 16/32/64-bit by arch (NE/MZ → 16-bit).
-    arch = getattr(info, "arch", "") if info is not None else ""
-    if arch == "mips32":
-        cs_arch, mode = CS_ARCH_MIPS, CS_MODE_MIPS32
-    elif arch == "mips64":
-        cs_arch, mode = CS_ARCH_MIPS, CS_MODE_MIPS64
-    elif arch == "ppc32":
-        cs_arch, mode = CS_ARCH_PPC, CS_MODE_32
-    elif arch == "ppc64":
-        cs_arch, mode = CS_ARCH_PPC, CS_MODE_64
-    elif arch == "arm32":
-        cs_arch, mode = CS_ARCH_ARM, CS_MODE_ARM
-    elif arch == "arm64":
-        cs_arch, mode = CS_ARCH_ARM64, CS_MODE_ARM
-    elif arch == "sh2":
-        cs_arch, mode = CS_ARCH_SH, CS_MODE_SH2
-    elif arch == "x86_64":
-        cs_arch, mode = CS_ARCH_X86, CS_MODE_64
+    if info is None:
+        cs_arch, mode = CS_ARCH_X86, CS_MODE_32
     else:
-        mode_16 = info is not None and info.format in ("ne", "mz")
-        cs_arch, mode = CS_ARCH_X86, CS_MODE_16 if mode_16 else CS_MODE_32
+        cs_arch, mode = capstone_config_for(info)
     cache = getattr(_capstone_tls, "cache", None)
     if cache is None:
         cache = {}

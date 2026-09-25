@@ -1,6 +1,12 @@
 ## [Unreleased]
 
 ### Fixed
+- **MIPS, PPC, and SH2 disassembly follows the image endianness.** Capstone
+  defaults to little-endian, so `jr $ra`, `blr`, and SH2 `rts` were decoded
+  as the wrong instruction or as nothing. Those architectures now set
+  `CS_MODE_BIG_ENDIAN` unless the target image header is little-endian, and
+  a big-endian ARM image sets it too. PPC decompilation uses that disassembly
+  instead of refusing the architecture.
 - **BinSync git calls ignore repo-local programs.** `core.fsmonitor`,
   `.git/hooks`, `core.sshCommand`, `gpg.program`, and an `ext::` remote in a
   copied state directory no longer run on add, commit, pull, or push.

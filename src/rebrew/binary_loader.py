@@ -894,10 +894,10 @@ def function_extent_from_disasm(
         return None
 
     if arch in ("ppc32", "ppc64"):
-        # capstone 5 ships no working PPC engine (it misdecodes `blr`), so
-        # walk the fixed-width 4-byte words directly for the terminator
-        # encodings.  Big-endian only — console PPC (GameCube/Wii) is BE;
-        # little-endian PPC is not a Phase-0 target.
+        # Fixed-width big-endian words (GameCube/Wii).  Little-endian PPC is
+        # not a Phase-0 target.  These are the same encodings capstone
+        # decodes once ``CS_MODE_BIG_ENDIAN`` is set (see
+        # :func:`capstone_config_for`).
         for offset in range(0, len(data) - 3, 4):
             word = int.from_bytes(data[offset : offset + 4], "big")
             if word == 0x4E800020:  # blr
@@ -1174,6 +1174,52 @@ def _elf_endian(identity_data: Any) -> str:
     return "big" if identity_data == msb else "little"
 
 
+def sniff_image_endian(path: Path) -> str:
+    """``little`` / ``big`` from an image header, or ``""`` when it does not say.
+
+    Reads the ELF identity byte, a thin Mach-O magic, or the MZ signature.
+    A fat Mach-O header is big-endian but its slices are not, so it returns
+    ``""`` and the architecture default stands.  Does not parse the file.
+    """
+    try:
+        with path.open("rb") as handle:
+            head = handle.read(8)
+    except OSError:
+        return ""
+    if len(head) >= 6 and head[:4] == b"\x7fELF":
+        if head[5] == 2:  # ELFDATA2MSB
+            return "big"
+        if head[5] == 1:  # ELFDATA2LSB
+            return "little"
+        return ""
+    if head[:4] in (b"\xfe\xed\xfa\xce", b"\xfe\xed\xfa\xcf"):
+        return "big"
+    if head[:4] in (b"\xce\xfa\xed\xfe", b"\xcf\xfa\xed\xfe"):
+        return "little"
+    if len(head) >= 2 and head[:2] == b"MZ":
+        return "little"
+    return ""
+
+
+def endian_mode_bits(arch: str, endian: str = "") -> int:
+    """``CS_MODE_BIG_ENDIAN`` when *arch* decodes *endian*, else 0.
+
+    MIPS, PPC, and SH2 instruction streams are big-endian unless *endian*
+    is ``little`` (PlayStation MIPS).  ARM is little-endian unless *endian*
+    is ``big``.  x86 never gets the bit: capstone rejects it on
+    ``CS_ARCH_X86`` (``CS_ERR_MODE``).
+    """
+    import capstone
+
+    if arch in ("mips32", "mips64", "ppc32", "ppc64", "sh2"):
+        if endian == "little":
+            return 0
+        return int(capstone.CS_MODE_BIG_ENDIAN)
+    if arch in ("arm32", "arm64") and endian == "big":
+        return int(capstone.CS_MODE_BIG_ENDIAN)
+    return 0
+
+
 def capstone_mode_for_arch(arch: str, fmt: str = "") -> int:
     """Capstone mode for a detected arch string.
 
@@ -1196,28 +1242,28 @@ def capstone_config_for(info: BinaryInfo) -> tuple[int, int]:
     """Capstone ``(cs_arch, mode)`` for the binary's detected arch/endianness.
 
     Shared by the arch-aware extent walker and the m2c decompiler backend
-    (multi-arch P0).  MIPS follows the file's own endianness (big-endian by
-    default — the console targets); PPC/SH2 are big-endian ISAs; x86 picks
-    16/32/64-bit by arch and container format (NE/MZ → 16-bit).
+    (multi-arch P0).  MIPS, PPC, and SH2 follow the file's endianness and
+    default to big-endian (N64/IDO, GameCube/Wii, Saturn).  ARM defaults to
+    little-endian and sets ``CS_MODE_BIG_ENDIAN`` only when the image says
+    so.  x86 picks 16/32/64-bit by arch and container format (NE/MZ → 16-bit)
+    and never sets the big-endian bit (capstone rejects that combination).
     """
     import capstone
 
     arch = getattr(info, "arch", "") or ""
+    bits = endian_mode_bits(arch, getattr(info, "endian", "") or "")
     if arch in ("mips32", "mips64"):
         base = capstone.CS_MODE_MIPS64 if arch == "mips64" else capstone.CS_MODE_MIPS32
-        endian = capstone.CS_MODE_BIG_ENDIAN
-        if getattr(info, "endian", "") == "little":
-            endian = capstone.CS_MODE_LITTLE_ENDIAN
-        return capstone.CS_ARCH_MIPS, base | endian
+        return capstone.CS_ARCH_MIPS, base | bits
     if arch in ("ppc32", "ppc64"):
-        mode = capstone.CS_MODE_64 if arch == "ppc64" else capstone.CS_MODE_32
-        return capstone.CS_ARCH_PPC, mode
+        base = capstone.CS_MODE_64 if arch == "ppc64" else capstone.CS_MODE_32
+        return capstone.CS_ARCH_PPC, base | bits
     if arch == "arm32":
-        return capstone.CS_ARCH_ARM, capstone.CS_MODE_ARM
+        return capstone.CS_ARCH_ARM, capstone.CS_MODE_ARM | bits
     if arch == "arm64":
-        return capstone.CS_ARCH_ARM64, capstone.CS_MODE_ARM
+        return capstone.CS_ARCH_ARM64, capstone.CS_MODE_ARM | bits
     if arch == "sh2":
-        return capstone.CS_ARCH_SH, capstone.CS_MODE_SH2
+        return capstone.CS_ARCH_SH, capstone.CS_MODE_SH2 | bits
     return capstone.CS_ARCH_X86, capstone_mode_for_arch(arch, getattr(info, "format", "") or "")
 
 

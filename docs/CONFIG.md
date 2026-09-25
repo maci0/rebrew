@@ -60,7 +60,7 @@ libs = "toolchain/msvc/6.0-win32/source/VC98/Lib"
 | `inventory_file` | `[targets.<name>].inventory_file` | Function-inventory path override, relative to project root (default: `reversed_dir/function_structure.json`); per-target inventories for one shared source tree |
 | `shared_dir` | `[project].shared_dir` | Project-level shared-sources root (`src/shared` by default); sources here are scanned for every target and may carry one `// FUNCTION: <target> <va>` marker per target. Empty value disables shared sources. When the whole tree is the source root (`reversed_dir` is `src` itself), the TOMLs may live inside it |
 | `metadata_dir` | Derived: parent of `reversed_dir`, falling back to `reversed_dir` itself when it holds `rebrew-functions.toml` and the parent does not | Canonical home of `rebrew-functions.toml` / `rebrew-data.toml`; callers must pass it explicitly (no walk-up) |
-| `capstone_arch` / `capstone_mode` | Derived from `arch` | Capstone disassembly constants |
+| `capstone_arch` / `capstone_mode` | Derived from `arch` and the target image header | Capstone disassembly constants. MIPS, PPC, and SH2 set `CS_MODE_BIG_ENDIAN` unless the image header is little-endian; ARM sets it only when the image is big-endian |
 | `padding_bytes` | Derived from `arch` | `(0xCC, 0x90)` for x86_32/x86_64 (see Architecture Presets) |
 | `symbol_prefix` | Derived from `arch` | `_` for x86_16/x86_32, empty for every other arch |
 | `external_libs` | `[targets.<name>].external_libs` | External `.lib` code — `module = "link-spec"` table (e.g. `LIBCMT = "LIBCMT.lib"`, `D3DX8 = "references/dxsdk8/lib/d3dx8.lib"`, `MSVCRT = ""` for identified-only).  The one flag for "not our work": rows attributed to these modules leave the progress accounting, `rebrew lib-match` ingests the archives by default, and `rebrew cmake-sources` emits the non-empty specs as `REBREW_EXTERNAL_LIBS` for `target_link_libraries` — config order is link order (static archives last) |
@@ -85,15 +85,20 @@ libs = "toolchain/msvc/6.0-win32/source/VC98/Lib"
 | `x86_64` | `CS_ARCH_X86, CS_MODE_64` | 8 | `0xCC, 0x90` | (empty) |
 | `arm32` | `CS_ARCH_ARM, CS_MODE_ARM` | 4 | `0x00` | (empty) |
 | `arm64` | `CS_ARCH_ARM64, CS_MODE_ARM` | 8 | `0x00` | (empty) |
-| `mips32` | `CS_ARCH_MIPS, CS_MODE_MIPS32` | 4 | `0x00` | (empty) |
-| `mips64` | `CS_ARCH_MIPS, CS_MODE_MIPS64` | 8 | `0x00` | (empty) |
-| `ppc32` | `CS_ARCH_PPC, CS_MODE_32` | 4 | `0x60, 0x00, 0x00, 0x00` (`nop`) | (empty) |
-| `ppc64` | `CS_ARCH_PPC, CS_MODE_64` | 8 | `0x60, 0x00, 0x00, 0x00` (`nop`) | (empty) |
-| `sh2` | `CS_ARCH_SH, CS_MODE_SH2` | 4 | `0x00` | (empty) |
+| `mips32` | `CS_ARCH_MIPS, CS_MODE_MIPS32 \| CS_MODE_BIG_ENDIAN` | 4 | `0x00` | (empty) |
+| `mips64` | `CS_ARCH_MIPS, CS_MODE_MIPS64 \| CS_MODE_BIG_ENDIAN` | 8 | `0x00` | (empty) |
+| `ppc32` | `CS_ARCH_PPC, CS_MODE_32 \| CS_MODE_BIG_ENDIAN` | 4 | `0x60, 0x00, 0x00, 0x00` (`nop`) | (empty) |
+| `ppc64` | `CS_ARCH_PPC, CS_MODE_64 \| CS_MODE_BIG_ENDIAN` | 8 | `0x60, 0x00, 0x00, 0x00` (`nop`) | (empty) |
+| `sh2` | `CS_ARCH_SH, CS_MODE_SH2 \| CS_MODE_BIG_ENDIAN` | 4 | `0x00` | (empty) |
 
 `x86_16` targets are 16-bit binaries — Windows 3.x NE executables (Borland Delphi 1.0 /
 MSVC 16-bit) or plain DOS MZ; `rebrew intake` sets `format = "ne"` (or `"mz"`) +
 `arch = "x86_16"` automatically.  See `docs/TOOLCHAIN.md` for the NE support matrix.
+
+MIPS, PPC, and SH2 disassembly is big-endian unless the target image header
+says otherwise (a little-endian ELF identity byte, for PlayStation MIPS).
+ARM stays little-endian unless that header is big-endian.  x86 never sets
+`CS_MODE_BIG_ENDIAN`: capstone rejects it.
 
 ## Target Marker (`marker`)
 
