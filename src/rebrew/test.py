@@ -108,8 +108,14 @@ def _pin_overrides_metadata(pin_flags: str, metadata_flags: str) -> bool:
     ``rebrew cmake-flags`` writes the metadata's per-file flags into the CMake
     build, so a pin equal to the metadata-resolved flags is the metadata's own
     value and a new ``--cflags`` reaches the build on the next configure.
+    Defines are compared out: ``cmake-flags`` drops them from the flags it
+    writes, so a metadata ``/D`` never appears in the pin.
     """
-    return bool(pin_flags) and set(pin_flags.split()) != set(metadata_flags.split())
+
+    def flags(s: str) -> set[str]:
+        return {t for t in s.split() if not t.startswith(("/D", "-D"))}
+
+    return bool(pin_flags) and flags(pin_flags) != flags(metadata_flags)
 
 
 def _expand_reloc_offsets(relocs: list[int], limit: int) -> set[int]:

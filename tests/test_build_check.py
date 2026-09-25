@@ -317,3 +317,8 @@ def test_pin_generated_from_metadata_does_not_block_a_cflags_write() -> None:
     assert not _pin_overrides_metadata("/O2 /Gd /Ow", "/Ow /O2 /Gd")
     assert not _pin_overrides_metadata("", "/O2 /Gd")
     assert _pin_overrides_metadata("/O2 /Gd /Oa", "/O2 /Gd")
+    # cmake-flags drops defines from the per-file flags it writes; a define in
+    # the metadata is not a pin mismatch (guild-rebrew gv_ExAllocGraveyardWorker).
+    assert not _pin_overrides_metadata("/O2 /Gd /Ow", "/DREBREW_ALLOW_NAKED /O2 /Gd /Ow")
+    assert not _pin_overrides_metadata("/O2 /Gd /Ow", "-DX=1 /O2 /Gd /Ow")
+    assert _pin_overrides_metadata("/O2 /Gd /Ow", "/DREBREW_ALLOW_NAKED /O2 /Gd")
