@@ -29,6 +29,9 @@
   NEAR_MATCHING function "blocked".
 
 ### Changed
+- **`cross-import` verifies with the destination's symbol map.**  Without it
+  a typed relocation could not be masked, so every imported body touching a
+  global or calling a function read NEAR_MATCHING and was withdrawn.
 - **A target's `external_libs` LIBRARY rows count as its library code.**
   `scope_to_target` dropped every row whose module was not the target marker,
   so a client's D3DX8 markers were identified as nothing.

@@ -489,6 +489,39 @@ class TestImportMechanics:
         assert seen["entry"].size == 11
         assert applied and applied[0][0][0][1] == "EXACT"
 
+    def test_import_verifies_with_the_symbol_map(self, tmp_path: Path, monkeypatch) -> None:
+        """Import verification gets the destination's symbol map, as `rebrew test`
+        and `verify` do: without it smart_reloc_compare cannot mask a typed
+        relocation, and every body that touches a global or calls a function
+        reads NEAR_MATCHING (guild-rebrew: 518 GOLD twins of GOLDTL bodies)."""
+        cfg_src = self._cfg(tmp_path, "SRC", tmp_path / "a.exe")
+        cfg_dst = self._cfg(tmp_path, "DST", tmp_path / "b.exe")
+        (cfg_src.reversed_dir / "f1.c").write_text(
+            "// FUNCTION: SRC 0x401000\n// SIZE: 11\nint f1(void){ return 1; }\n",
+            encoding="utf-8",
+        )
+        from rebrew.compile import CompareResult
+
+        seen: dict[str, Any] = {}
+
+        def fake_verify(entry, cfg, cache=None, **kw):
+            seen.update(kw)
+            return CompareResult(
+                matched=True,
+                status="EXACT",
+                match_percent=100.0,
+                delta=0,
+                obj_bytes=b"x",
+                reloc_offsets=[],
+                message="EXACT MATCH",
+            )
+
+        monkeypatch.setattr("rebrew.verify.verify_entry", fake_verify)
+        monkeypatch.setattr("rebrew.verify.apply_status_updates", lambda fixes, cfg: None)
+        symbols = {"_g": 0x500000}
+        ci.import_function(cfg_dst, cfg_src, B_F1, A_F1, "f1.c", 11, name_to_va=symbols)
+        assert seen["name_to_va"] is symbols
+
     def test_legacy_encoded_source_is_read_and_preserved(self, tmp_path: Path, monkeypatch) -> None:
         """A cp1252 source (0xE9 in a comment) must not crash the import, and
         the destination keeps the detected encoding instead of being re-encoded
