@@ -40,6 +40,14 @@
   - `status` adds a `(no source)` row, so the status rows sum to the total.
 
 ### Changed
+- **PE image parsing lives in `pe_image`, not the `gen-layout` command.**
+  `parse_pe` and `derive_link_options` moved out of the Typer module.
+  `link-sweep` imports them from there, so reading a reference header
+  does not load the CLI graph.  `layout_meta.extract_layout` still
+  agrees with `pe_image.parse_pe` on exports and resolved imports.
+- **Decompiler token rewrite lives in `pseudo_c`.**  `sanitize_tokens`
+  moved out of the `rebrew fix` command.  Kuna seeding calls it there,
+  so fetching a decompilation does not import that command.
 - **`rebrew report` keeps entry pages small and drops stale companions.**
   Import and import-stub tables paginate at 250 rows, like the function
   index.  A Mermaid call graph over 32 KB moves to `callgraph.mmd`;

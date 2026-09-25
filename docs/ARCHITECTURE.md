@@ -76,6 +76,8 @@ flowchart LR
 | `rebrew/metadata.py` | `rebrew-functions.toml` store + routing (`METADATA_FIELDS`, `update_source_status` / `update_field` / `remove_field`); typed facade in `metadata_model.py` (`MetadataEntry`) |
 | `rebrew/compile.py` | Compile (docker image by default; host binary only for plugin toolchains without `image`) + compare → `CompareResult` |
 | `rebrew/binary_loader.py` | PE/ELF/Mach-O via LIEF, NE via `ne_loader.py`, MZ via its own header parser → `BinaryInfo` (sections, VAs, raw bytes) |
+| `rebrew/pe_image.py` | PE32 section/export/import walk and the MSVC LINK options read off those header fields. Shared by `gen-layout` and `link-sweep`; the command modules do not own the parser |
+| `rebrew/pseudo_c.py` | Deterministic rewrite of decompiler pseudo-C into C89 tokens (`sanitize_tokens`). Shared by `rebrew fix` and Kuna seeding |
 | `rebrew/matcher/` | GA engine: `scoring.py` (numpy + capstone), `mutator.py` (`ALL_MUTATIONS`: the 128 tree-sitter mutations from `mutations/*.py` plus plugin entry points), `compiler.py` (flag sweep), `solutions.py` (cross-function seeding + run history) |
 | `rebrew/catalog/` | Function registry, coverage grid (`grid.py`), `data_*.json` export, `coverage.db` schema consumers |
 | `rebrew/ghidra/` | BinSync-primary field sync + ReVa MCP structural ops (function create/delete and similar) |

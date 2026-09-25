@@ -7,7 +7,8 @@ from types import SimpleNamespace
 import pytest
 from typer.testing import CliRunner
 
-from rebrew.fixup import app, fixup_source, sanitize_tokens
+from rebrew.fixup import app, fixup_source
+from rebrew.pseudo_c import sanitize_tokens
 
 
 class TestSanitizeTokens:

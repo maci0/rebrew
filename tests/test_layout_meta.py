@@ -252,8 +252,8 @@ class TestExportNameOffsets:
         assert meta.exports[0]["va"] == _IMAGE_BASE + 0x1000
 
     def test_gen_layout_unterminated_export_name_read_to_eof(self) -> None:
-        """gen_layout.parse_pe must match layout_meta on unterminated names."""
-        from rebrew.gen_layout import parse_pe
+        """pe_image.parse_pe must match layout_meta on unterminated names."""
+        from rebrew.pe_image import parse_pe
 
         _sections, exports, _imports, pe = parse_pe(
             self._pe_with_one_export(0x1000, b"StraightName")
@@ -263,7 +263,7 @@ class TestExportNameOffsets:
 
     def test_forwarder_export_is_dropped(self) -> None:
         """An export whose RVA points inside the export directory is a
-        forwarder string, not code — gen_layout.parse_pe drops those, and
+        forwarder string, not code — pe_image.parse_pe drops those, and
         recording one would claim a function at a .rdata VA."""
         meta = extract_layout(self._pe_with_one_export(0x3000, b"Fwd"), "t.dll")
         assert meta.exports == []
@@ -427,9 +427,9 @@ def _pe_header_dimensions(draw: st.DrawFn) -> bytes:
 
 
 def _assert_extract_agrees(blob: bytes, meta: object) -> None:
-    """A decoded layout matches ``gen_layout.parse_pe`` on the shared fields."""
-    from rebrew.gen_layout import parse_pe as parse_gen
+    """A decoded layout matches ``pe_image.parse_pe`` on the shared fields."""
     from rebrew.layout_meta import LayoutMetadata
+    from rebrew.pe_image import parse_pe as parse_gen
 
     assert isinstance(meta, LayoutMetadata)
     _assert_layout_shape(meta)
@@ -465,7 +465,7 @@ def _assert_extract_agrees(blob: bytes, meta: object) -> None:
 def test_extract_layout_shaped_pe_holds_invariants(blob: bytes) -> None:
     """Data-directory walks on a drawn PE degrade with ValueError or agree.
 
-    ``extract_layout`` and ``gen_layout.parse_pe`` both walk the export and
+    ``extract_layout`` and ``pe_image.parse_pe`` both walk the export and
     import tables of whatever binary the user points them at.  When both
     accept an image, the exports and the resolved imports are the same list.
     """

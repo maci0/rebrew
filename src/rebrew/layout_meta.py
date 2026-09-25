@@ -460,7 +460,7 @@ def extract_layout(data: bytes, target: str = "") -> LayoutMetadata:
                 continue
             if exp_rva <= addr < exp_rva + exp_sz:
                 # Forwarder: the RVA points at a forwarder string inside the
-                # export directory, not at code (gen_layout.parse_pe drops
+                # export directory, not at code (pe_image.parse_pe drops
                 # these too).  Recording it would claim a function at a .rdata VA.
                 continue
             exports.append(

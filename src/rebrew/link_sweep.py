@@ -1,7 +1,7 @@
 """link-sweep — find which LINK options reproduce the reference PE header.
 
 Most PE header fields map 1:1 onto MSVC6 LINK options (``/BASE``, ``/ALIGN``,
-``/SUBSYSTEM``, ``/STACK``, ``/HEAP`` — see :func:`rebrew.gen_layout.derive_link_options`).
+``/SUBSYSTEM``, ``/STACK``, ``/HEAP`` — see :func:`rebrew.pe_image.derive_link_options`).
 For the residuals (e.g. FileAlignment, which VC6's ``/ALIGN`` does not raise
 from its 0x200 default to the original's 0x1000) it is not obvious which
 option, if any, reproduces them — or whether the field is linker-stamped and
@@ -40,8 +40,8 @@ import typer
 from rich.table import Table
 
 from rebrew.cli import TargetOption, console, error_exit, json_print, require_config
-from rebrew.gen_layout import derive_link_options, parse_pe
 from rebrew.pe_headers import pe_layout
+from rebrew.pe_image import derive_link_options, parse_pe
 from rebrew.utils import run_process_group
 
 app = typer.Typer(help="Sweep LINK options to reproduce the reference PE header.")
@@ -125,7 +125,7 @@ def _candidates(pe: dict[str, Any]) -> list[_Candidate]:
     """Delta-derived base + explicit probes of the uncertain dimensions.
 
     The base only carries options the reference deviates from the VC6
-    defaults on (see gen_layout.derive_link_options).  The probes then vary
+    defaults on (see pe_image.derive_link_options).  The probes then vary
     one knob at a time — the alignment family in particular, since adding
     ``/ALIGN`` can *break* fields the plain default gets right (FileAlignment
     drops to 0x200, SizeOfHeaders shrinks).

@@ -277,7 +277,7 @@ class TestForwarderExports:
         """A null function-table entry and a forwarder RVA (inside the
         export directory range) are both skipped: only the real code
         export reaches the .def/layout exports."""
-        from rebrew.gen_layout import parse_pe
+        from rebrew.pe_image import parse_pe
 
         _sections, exports, _imports, _pe = parse_pe(_pe_with_null_and_forwarder_exports())
         assert exports == [{"name": "aaa", "ordinal": 1, "va": 0x400000 + 0x1000}]

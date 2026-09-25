@@ -15,11 +15,10 @@ from hypothesis import strategies as st
 
 from rebrew.gen_layout import (
     _resolve_imports,
-    derive_link_options,
     gen_crt_imports,
     gen_def,
-    parse_pe,
 )
+from rebrew.pe_image import derive_link_options, parse_pe
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "mini_pe.exe"
 
@@ -53,7 +52,7 @@ class TestParsePe:
     def test_ordinal_only_import_does_not_break_crt_imports(self) -> None:
         """An ordinal-only import (no name) must carry the ``include`` key so
         gen_crt_imports' ``imp["include"]`` does not raise KeyError."""
-        from rebrew.gen_layout import _Import
+        from rebrew.pe_image import _Import
 
         resolved = _resolve_imports([_Import("SHELL32.dll", None, 42)], set())
         assert resolved[0]["include"] is None
@@ -96,7 +95,7 @@ class TestEmitters:
         assert "0x2000" in text
 
     def test_resolve_imports_unknown_suffix(self) -> None:
-        from rebrew.gen_layout import _Import
+        from rebrew.pe_image import _Import
 
         out = _resolve_imports([_Import("KERNEL32.dll", "Nope", None)], set())
         assert out[0]["include"] is None
@@ -217,7 +216,7 @@ class TestImportLibSymbolsFromImage:
 
 
 # ---------------------------------------------------------------------------
-# Hypothesis fuzz — gen_layout.parse_pe on untrusted PE bytes
+# Hypothesis fuzz — pe_image.parse_pe on untrusted PE bytes
 # ---------------------------------------------------------------------------
 
 
@@ -313,7 +312,7 @@ def _deep_pe() -> bytes:
 def test_deep_pe_sample_agrees_across_parsers() -> None:
     """A PE with a real export and import table parses to those entries.
 
-    ``gen_layout.parse_pe`` and ``layout_meta.extract_layout`` both walk the
+    ``pe_image.parse_pe`` and ``layout_meta.extract_layout`` both walk the
     tables; the sample is the seed that makes the walks reach a name, an
     ordinal, and a forwarder-sized export directory.
     """
@@ -387,9 +386,9 @@ def _assert_parsed(
     pe: dict[str, object],
 ) -> None:
     """Invariants of a successful ``parse_pe``, checked against the header parser."""
-    from rebrew.gen_layout import _MAX_EXPORT_ENTRIES, _Import, _Section
     from rebrew.layout_meta import parse_pe as parse_header
     from rebrew.pe_headers import sections_at
+    from rebrew.pe_image import _MAX_EXPORT_ENTRIES, _Import, _Section
 
     e, nsec, optsz, opt, image_base = parse_header(blob)
     assert pe["e_lfanew"] == e

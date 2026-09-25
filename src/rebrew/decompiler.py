@@ -588,7 +588,7 @@ def _kuna_declarations(source: str) -> list[str]:
 def kuna_seed_source(binary: Path, va: int, root: Path) -> str | None:
     """Fetch Kuna's decompilation of *va* and make it compilable (rebrew fix).
 
-    Two repairs beyond :func:`rebrew.fixup.sanitize_tokens` are needed for Kuna output: its
+    Two repairs beyond :func:`rebrew.pseudo_c.sanitize_tokens` are needed for Kuna output: its
     address labels (``s_``/``dat_``/``sub_``) must be declared, and its C99-isms
     (``bool``, ``NULL``, ``true``/``false``) must be spelled for msvc-6.0's C89.
     Without them the seed never compiles and is discarded from the GA.
@@ -599,8 +599,8 @@ def kuna_seed_source(binary: Path, va: int, root: Path) -> str | None:
     raw = fetch_kuna(binary, va, root)
     if not raw:
         return None
-    from rebrew.fixup import sanitize_tokens
     from rebrew.llm_seed import valid_c_source
+    from rebrew.pseudo_c import sanitize_tokens
 
     fixed, _ = sanitize_tokens(raw)
     fixed = _KUNA_BOOL_RE.sub("int", fixed)
