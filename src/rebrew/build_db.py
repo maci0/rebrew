@@ -440,7 +440,10 @@ def _function_stats(
         total += 1
         st = fn[3] or "UNKNOWN"
         by_status[st] = by_status.get(st, 0) + 1
-        mod = fn[4] or "GAME"
+        # Key is the stored module, including "". "GAME" is a real module
+        # name, so a blank must not be counted under it: the summary key
+        # and /api/functions?module= have to name the same rows.
+        mod = fn[4] or ""
         by_module.setdefault(mod, []).append(fn)
         size = None if fn[2] is None else clip_span(starts, fn[0], fn[2])
         # Function statuses are EXACT/RELOC/STUB/... — never "none" (a cell

@@ -178,6 +178,27 @@ class TestFunctionStats:
         assert matched == 64  # matched: EXACT/RELOC only (STUB excluded)
         conn.close()
 
+    def test_blank_module_is_not_counted_as_game(self) -> None:
+        """A blank module stays \"\", so it does not share GAME's bucket."""
+        conn = sqlite3.connect(":memory:")
+        conn.execute(
+            "CREATE TABLE functions (target TEXT, va INT, name TEXT, size INT, status TEXT, "
+            "module TEXT, symbol TEXT, markerType TEXT, files TEXT)"
+        )
+        conn.executemany(
+            "INSERT INTO functions VALUES (?,?,?,?,?,?,?,?,?)",
+            [
+                ("T", 0x1000, "a", 64, "EXACT", "", "_a", "FUNCTION", "a.c"),
+                ("T", 0x2000, "b", 32, "STUB", "GAME", "_b", "FUNCTION", "b.c"),
+                ("T", 0x3000, "c", 8, "EXACT", None, "_c", "FUNCTION", "c.c"),
+            ],
+        )
+        _total, _by_status, by_module, _covered, _matched = _function_stats(conn.cursor(), "T")
+        assert set(by_module) == {"", "GAME"}
+        assert len(by_module[""]) == 2
+        assert len(by_module["GAME"]) == 1
+        conn.close()
+
 
 class TestResolveDbDir:
     def test_no_config_falls_back_to_db(self, tmp_path: Path) -> None:

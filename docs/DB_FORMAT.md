@@ -162,7 +162,7 @@ leftmost-`target` primary key.
 | Key | Description |
 |-----|-------------|
 | `summary` | JSON object with coverage statistics (totalFunctions, matchedFunctions, exactMatches, etc.) |
-| `function_stats` | JSON object with coverage stats for the dashboard headline (`total`, `covered_bytes`, `matched_bytes`, `total_bytes`, `by_status`, `by_module_counts`) |
+| `function_stats` | JSON object with coverage stats for the dashboard headline (`total`, `covered_bytes`, `matched_bytes`, `total_bytes`, `by_status`, `by_module_counts`). `by_module_counts` keys are the stored `functions.module` strings, `""` when the function has none. Byte counts are non-negative integers; a boolean, float, or negative is unreadable and `/api/summary` returns 500. |
 | `paths` | JSON object with file paths (originalDll, sourceRoot) |
 | `db_version` | Schema version string (current: `"10"`) |
 
@@ -399,7 +399,8 @@ The `recoverage` server exposes the following endpoints. All data endpoints retu
 > [!NOTE]
 > `rebrew dashboard` is a separate, read-only stdlib server over the same
 > `coverage.db`. Its routes are query-param scoped (`/api/summary?target=`,
-> `/api/functions?target=` with `status`/`module`/`q`/`limit`/`offset`,
+> `/api/functions?target=` with `status`/`module`/`q`/`limit`/`offset`
+> (a present empty `module=` matches a blank module; omitting `module` does not filter),
 > `/api/sections?target=`, `/api/globals?target=` with `module`/`q`/`limit`/`offset`,
 > `/api/history?target=` with `limit`/`offset`, plus `/api/bootstrap`,
 > `/app.js`, and `/api/targets`). Function, global, and history list rows are

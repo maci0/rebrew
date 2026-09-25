@@ -2476,7 +2476,11 @@ compact row arrays under `cols`), `/api/sections?target=`,
 `/api/globals?target=` (module/q/limit/offset; compact arrays under `cols`),
 `/api/history?target=` (limit/offset; compact arrays under `cols`).
 Missing `target` → 400; unknown target → 404. Corrupt `function_stats` on
-`/api/summary` → 500 (not 404). Any other method → 405 with `Allow: GET, HEAD`.
+`/api/summary` → 500 (not 404), including a byte count that is not a
+non-negative integer. A present empty `module=` on `/api/functions` and
+`/api/globals` matches a blank module; omitting `module` does not filter.
+`by_module_counts` uses those same stored strings (`""` when unset). Any
+other method → 405 with `Allow: GET, HEAD`.
 Every error body is `{"error": "<message>"}`, malformed requests included.
 A request that carries a body gets its response with `Connection: close`.
 The page keeps the selected target, view, and filters in the URL hash

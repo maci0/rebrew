@@ -17,10 +17,15 @@ Endpoints
 ``GET /api/globals?target=``   → global data rows (filters: module, q, limit, offset; includes total)
 ``GET /api/history?target=``   → status-change history (filters: limit, offset; includes total)
 
+A present empty ``module=`` on ``/api/functions`` and ``/api/globals`` matches
+rows whose module is blank. Omitting ``module`` does not filter. Summary
+``by_module_counts`` keys are those stored strings (``""`` when unset).
 Target-scoped endpoints return 400 when ``target`` is missing/empty and 404 when
 the target is unknown.  ``GET /api/summary`` returns 500 when the target's
 ``function_stats`` metadata row exists but is unreadable (corrupt JSON, a
-non-object, or a non-numeric byte count), so clients are not told the target is missing.  Non-GET/HEAD
+non-object, or a byte count that is not a non-negative integer: text, a
+float, a boolean, a list, or a negative), so clients are not told the target
+is missing.  Non-GET/HEAD
 methods (including ones http.server does not know) return 405 with
 ``Allow: GET, HEAD``.  Every error body is ``{"error": "<message>"}``,
 including malformed requests (400/414/431/505) rejected before routing.
@@ -153,6 +158,8 @@ let currentView = "functions";
 // Filters restored from the URL hash before their options exist.
 let pendingStatus = "";
 let pendingModule = "";
+// Hash ``module=`` (present, empty) restores the blank-module filter.
+let pendingModuleBlank = false;
 // Hash writes start once init has restored state, so a reload keeps it.
 let hashReady = false;
 let whenFormat = null;
@@ -287,10 +294,28 @@ function setLoadError(source, message) {
   loadErrors[source] = message || "";
   syncError();
 }
+function moduleFilterState() {
+  const select = $("module");
+  const chosen = select.selectedOptions && select.selectedOptions[0];
+  if (chosen && chosen.dataset && chosen.dataset.filter === "blank") {
+    return { blank: true, value: "" };
+  }
+  return { blank: false, value: select.value || "" };
+}
+function selectAnyModule() {
+  const select = $("module");
+  select.value = "";
+  pendingModule = "";
+  pendingModuleBlank = false;
+  // Two options share value="": "any" is first, "(no module)" is data-filter=blank.
+  const any = select.querySelector && select.querySelector("option[value='']");
+  if (any && (!any.dataset || any.dataset.filter !== "blank")) any.selected = true;
+}
 function filtersActive() {
   if (currentView === "globals") return !!$("gq").value.trim();
   if (currentView !== "functions") return false;
-  return !!($("status").value || $("module").value || $("q").value.trim());
+  const moduleState = moduleFilterState();
+  return !!($("status").value || moduleState.blank || moduleState.value || $("q").value.trim());
 }
 function updateFilterActions() {
   // Keep the control mounted on filterable views so enabling Clear does not
@@ -305,9 +330,10 @@ function writeHash() {
   const params = new URLSearchParams({ target: $("target").value });
   if (currentView !== "functions") params.set("view", currentView);
   const status = $("status").value || pendingStatus;
-  const module = $("module").value || pendingModule;
+  const moduleState = moduleFilterState();
   if (status) params.set("status", status);
-  if (module) params.set("module", module);
+  if (moduleState.blank || pendingModuleBlank) params.set("module", "");
+  else if (moduleState.value || pendingModule) params.set("module", moduleState.value || pendingModule);
   if ($("q").value.trim()) params.set("q", $("q").value.trim());
   if ($("gq").value.trim()) params.set("gq", $("gq").value.trim());
   history.replaceState(null, "", "#" + params);
@@ -350,15 +376,21 @@ function setStatusOptions(byStatus) {
 }
 function setModuleOptions(byModule) {
   const select = $("module");
-  const previous = select.value || pendingModule;
+  const previous = pendingModuleBlank ? "" : (select.value || pendingModule);
+  const wasBlank = pendingModuleBlank || moduleFilterState().blank;
   const names = Object.keys(byModule || {}).filter((m) => m !== "").sort();
-  select.innerHTML = "<option value=''>any</option>"
-    + names.map(m => {
-      const label = m || "(unnamed)";
-      return "<option value='" + esc(m) + "'>" + esc(label) + "</option>";
-    }).join("");
-  if (previous && names.includes(previous)) select.value = previous;
-  else select.value = "";
+  const hasBlank = !!(byModule && Object.prototype.hasOwnProperty.call(byModule, ""));
+  let html = "<option value=''>any</option>";
+  if (hasBlank) html += "<option value='' data-filter='blank'>(no module)</option>";
+  html += names.map((m) => "<option value='" + esc(m) + "'>" + esc(m) + "</option>").join("");
+  select.innerHTML = html;
+  if (!wasBlank && previous && names.includes(previous)) select.value = previous;
+  else if (wasBlank && hasBlank) {
+    const blank = select.querySelector("option[data-filter=blank]");
+    if (blank) blank.selected = true;
+    else select.value = "";
+  } else select.value = "";
+  // Pending stays until renderSummary: loadSummary paints an empty menu first.
 }
 function setListPageMessage(opts) {
   const { count, total, noun, nounOne, hintId, moreWrapId, moreBtnId, tip, tipCapped } = opts;
@@ -450,7 +482,9 @@ async function loadFunctions(options) {
     offset: String(offset),
   });
   if ($("status").value) params.set("status", $("status").value);
-  if ($("module").value) params.set("module", $("module").value);
+  const moduleState = moduleFilterState();
+  if (moduleState.blank) params.set("module", "");
+  else if (moduleState.value) params.set("module", moduleState.value);
   if ($("q").value.trim()) params.set("q", $("q").value.trim());
   updateFilterActions();
   try {
@@ -488,6 +522,7 @@ function renderSummary(s) {
   setModuleOptions(s.function_stats.by_module_counts || {});
   pendingStatus = "";
   pendingModule = "";
+  pendingModuleBlank = false;
   $("status").disabled = false;
   $("module").disabled = false;
   const cards = [
@@ -802,9 +837,8 @@ function setView(name) {
 function bindControls() {
   $("target").onchange = () => {
     $("status").value = "";
-    $("module").value = "";
+    selectAnyModule();
     pendingStatus = "";
-    pendingModule = "";
     $("q").value = "";
     $("gq").value = "";
     // Every view now shows the old target; each reloads when next shown.
@@ -854,9 +888,8 @@ function bindControls() {
       return;
     }
     $("status").value = "";
-    $("module").value = "";
+    selectAnyModule();
     pendingStatus = "";
-    pendingModule = "";
     $("q").value = "";
     resetPaging();
     syncCardActive();
@@ -965,6 +998,7 @@ async function init() {
   if (VIEWS.includes(saved.get("view"))) currentView = saved.get("view");
   pendingStatus = saved.get("status") || "";
   pendingModule = saved.get("module") || "";
+  pendingModuleBlank = saved.has("module") && !saved.get("module");
   $("q").value = saved.get("q") || "";
   $("gq").value = saved.get("gq") || "";
   // The bootstrap payload covers the first target with no filters.
@@ -979,11 +1013,12 @@ async function init() {
     summaryLoad = loadSummary();
     // Restored Status/Module values become options only once the summary
     // renders; without them, functions and the view load alongside it.
-    if (pendingStatus || pendingModule) await summaryLoad;
+    if (pendingStatus || pendingModule || pendingModuleBlank) await summaryLoad;
   }
   hashReady = true;
   updateFilterActions();
-  const unfiltered = !$("status").value && !$("module").value && !$("q").value.trim();
+  const moduleState = moduleFilterState();
+  const unfiltered = !$("status").value && !moduleState.blank && !moduleState.value && !$("q").value.trim();
   let functionsLoad = null;
   if (boot.functions && bootFits && unfiltered) {
     setLoadError("functions", "");
@@ -1318,6 +1353,38 @@ def _opt_query(params: dict[str, list[str]], name: str) -> str | None:
     return stripped or None
 
 
+def _module_query(params: dict[str, list[str]]) -> str | None:
+    """Module filter: None when absent, else the stripped value.
+
+    A present empty value matches rows stored with a blank module. This is
+    not :func:`_opt_query`: a blank ``target`` is missing, a blank ``module``
+    is a value. Callers must parse the query with ``keep_blank_values=True``
+    or ``module=`` never arrives.
+    """
+    if "module" not in params:
+        return None
+    values = params["module"]
+    raw = values[0] if values else ""
+    if raw is None:
+        return ""
+    return raw.strip()
+
+
+def _byte_count(value: Any) -> int:
+    """Return a non-negative byte count, or raise ValueError.
+
+    Absent and JSON null are 0. Only a real ``int`` counts: ``bool`` is an
+    ``int`` subclass (``int(True) == 1``), and a float would truncate.
+    """
+    if value is None:
+        return 0
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"byte count must be a non-negative int, got {value!r}")
+    if value < 0:
+        raise ValueError(f"negative byte count {value}")
+    return value
+
+
 def _escape_like(term: str) -> str:
     """Escape LIKE wildcards so user input is matched literally.
 
@@ -1438,12 +1505,12 @@ class Dashboard:
         # second metadata row (key='summary') and probed its ".text" size, but
         # nothing writes a ".text" key there, so the branch never fired.
         try:
-            covered = int(stats.get("matched_bytes") or 0)
-            identified = int(stats.get("covered_bytes") or 0)
-            total_b = int(stats.get("total_bytes") or 0)
-        except (TypeError, ValueError, OverflowError) as exc:
-            # A non-numeric byte count (text, NaN, Infinity, a list) is the
-            # same unreadable row as corrupt JSON, not a handler crash.
+            covered = _byte_count(stats.get("matched_bytes"))
+            identified = _byte_count(stats.get("covered_bytes"))
+            total_b = _byte_count(stats.get("total_bytes"))
+        except ValueError as exc:
+            # A byte count that is not a non-negative int (text, float, bool,
+            # list, negative) is the same unreadable row as corrupt JSON.
             log.warning("Ignoring function_stats with bad byte count for %r: %s", target, exc)
             return "corrupt", None
         return "ok", {
@@ -1473,7 +1540,7 @@ class Dashboard:
         if status:
             where.append("status = ?")
             args.append(canonical_status(status))
-        if module:
+        if module is not None:  # "" matches a blank module; None means no filter
             where.append("module = ?")
             args.append(module)
         if q:
@@ -1574,7 +1641,7 @@ class Dashboard:
     ) -> dict[str, Any]:
         where = ["target = ?"]
         args: list[Any] = [target]
-        if module:
+        if module is not None:  # "" matches a blank module; None means no filter
             where.append("module = ?")
             args.append(module)
         if q:
@@ -1732,7 +1799,7 @@ class Dashboard:
                         self.functions(
                             target,
                             status=_opt_query(query, "status"),
-                            module=_opt_query(query, "module"),
+                            module=_module_query(query),
                             q=_opt_query(query, "q"),
                             limit=_int_param(query, "limit", _DEFAULT_LIMIT),
                             offset=_offset_param(query, "offset", 0),
@@ -1745,7 +1812,7 @@ class Dashboard:
                         200,
                         self.globals(
                             target,
-                            module=_opt_query(query, "module"),
+                            module=_module_query(query),
                             q=_opt_query(query, "q"),
                             limit=_int_param(query, "limit", _DEFAULT_LIMIT),
                             offset=_offset_param(query, "offset", 0),
@@ -2003,7 +2070,8 @@ class _Handler(BaseHTTPRequestHandler):
         # ETag included), so it falls through to its 400/404.
         etag = self.dashboard.response_etag(self.path)
         parsed = urlparse(self.path)
-        query = parse_qs(parsed.query)
+        # keep_blank_values: a present ``module=`` filters blank modules.
+        query = parse_qs(parsed.query, keep_blank_values=True)
         try:
             # The target probe queries SQLite, so it shares the 500 guard below.
             if (
@@ -2192,7 +2260,8 @@ app = typer.Typer(
         "  /api/history?target= · · Status-change history (limit/offset)\n\n"
         "[dim]Read-only: DB opened mode=ro. Target-scoped routes need ?target= "
         "(400 if missing, 404 if unknown; /api/summary → 500 if function_stats "
-        "is corrupt). Non-GET/HEAD → 405.[/dim]"
+        "is corrupt, including a non-integer byte count). A present empty "
+        "module= matches a blank module. Non-GET/HEAD → 405.[/dim]"
     ),
 )
 

@@ -240,15 +240,36 @@ class TestQueryLayer:
                 ("b_nan", '{"total_bytes": NaN}'),
                 ("c_inf", '{"matched_bytes": Infinity, "total_bytes": 10}'),
                 ("d_list", '{"covered_bytes": [1], "total_bytes": 10}'),
+                ("e_bool", '{"matched_bytes": true, "total_bytes": 10}'),
+                ("f_false", '{"matched_bytes": false, "total_bytes": 10}'),
+                ("g_frac", '{"matched_bytes": 1.5, "total_bytes": 10}'),
+                ("h_float", '{"matched_bytes": 10.0, "total_bytes": 10}'),
+                ("i_neg", '{"matched_bytes": -1, "total_bytes": 10}'),
+                ("j_str", '{"matched_bytes": "12", "total_bytes": 10}'),
+                ("z_ok", '{"matched_bytes": 0, "total_bytes": 10}'),
             ):
                 conn.execute(
                     "INSERT INTO metadata VALUES (?, 'function_stats', ?)", (target, stats)
                 )
         dashboard = Dashboard(db)
-        for target in ("a_text", "b_nan", "c_inf", "d_list"):
+        for target in (
+            "a_text",
+            "b_nan",
+            "c_inf",
+            "d_list",
+            "e_bool",
+            "f_false",
+            "g_frac",
+            "h_float",
+            "i_neg",
+            "j_str",
+        ):
             status, _, body = dashboard.handle("GET", "/api/summary", {"target": [target]})
             assert status == 500, target
             assert json.loads(body) == {"error": "corrupt function_stats metadata"}
+        status, _, body = dashboard.handle("GET", "/api/summary", {"target": ["z_ok"]})
+        assert status == 200
+        assert json.loads(body)["coverage_pct"] == 0.0
         status, _, body = dashboard.handle("GET", "/api/bootstrap", {})
         assert status == 200
         boot = json.loads(body)
@@ -831,6 +852,81 @@ class TestHandle:
         )
         assert status == 200
         assert json.loads(body)["count"] == 0
+
+    def test_blank_module_matches_summary_counts(self, tmp_path: Path) -> None:
+        """A blank module is its own summary bucket and ``module=`` selects it."""
+        from io import BytesIO
+
+        from rebrew.dashboard import _Handler, allowed_hosts_for
+
+        data_path = _write_data(tmp_path / "db", target="mod")
+        data = json.loads(data_path.read_text(encoding="utf-8"))
+        data["functions"]["0x10001000"].pop("module")
+        data["functions"]["0x10002000"]["module"] = "GAME"
+        data["globals"]["0x50001000"].pop("module")
+        data["globals"]["0x50002000"] = {
+            "name": "g_game",
+            "decl": "int g_game;",
+            "size": 4,
+            "module": "GAME",
+        }
+        data_path.write_text(json.dumps(data), encoding="utf-8")
+        build_db(tmp_path)
+        dash = Dashboard(tmp_path / "db" / "coverage.db")
+
+        status, _, body = dash.handle("GET", "/api/summary", {"target": ["mod"]})
+        assert status == 200
+        assert json.loads(body)["function_stats"]["by_module_counts"] == {"": 1, "GAME": 1}
+
+        status, _, body = dash.handle("GET", "/api/functions", {"target": ["mod"], "module": [""]})
+        rows = json.loads(body)["functions"]
+        assert status == 200
+        assert [row[1] for row in rows] == ["func_a"]
+        assert rows[0][5] == ""
+
+        status, _, body = dash.handle(
+            "GET", "/api/functions", {"target": ["mod"], "module": [" GAME "]}
+        )
+        assert [row[1] for row in json.loads(body)["functions"]] == ["func_b"]
+
+        status, _, body = dash.handle("GET", "/api/functions", {"target": ["mod"]})
+        assert json.loads(body)["total"] == 2
+
+        status, _, body = dash.handle("GET", "/api/globals", {"target": ["mod"], "module": [""]})
+        assert [row[1] for row in json.loads(body)["globals"]] == ["g_flag"]
+        status, _, body = dash.handle(
+            "GET", "/api/globals", {"target": ["mod"], "module": ["GAME"]}
+        )
+        assert [row[1] for row in json.loads(body)["globals"]] == ["g_game"]
+
+        def _get(path: str) -> dict[str, object]:
+            handler = _Handler.__new__(_Handler)
+            handler.headers = {"Host": "127.0.0.1:8000"}
+            handler.path = path
+            handler.allowed_hosts = allowed_hosts_for("127.0.0.1", 8000)
+            handler.dashboard = dash
+            sent: list[int] = []
+            handler.send_response = lambda code: sent.append(code)  # type: ignore[method-assign]
+            handler.send_header = lambda *_args: None  # type: ignore[method-assign]
+            handler.end_headers = lambda: None  # type: ignore[method-assign]
+            buf = BytesIO()
+            handler.wfile = buf
+            handler._respond("GET")
+            assert sent == [200], path
+            parsed: dict[str, object] = json.loads(buf.getvalue())
+            return parsed
+
+        # parse_qs drops a bare module= unless keep_blank_values is set.
+        blank = _get("/api/functions?target=mod&module=")
+        functions = blank["functions"]
+        assert isinstance(functions, list)
+        assert [row[1] for row in functions] == ["func_a"]
+        everyone = _get("/api/functions?target=mod")
+        assert everyone["total"] == 2
+        globals_blank = _get("/api/globals?target=mod&module=%20")
+        globals_rows = globals_blank["globals"]
+        assert isinstance(globals_rows, list)
+        assert [row[1] for row in globals_rows] == ["g_flag"]
 
     def test_va_zero_formatted_properly(self, tmp_path: Path) -> None:
         """VA 0 is a valid address and must format as 0x00000000, not ???."""

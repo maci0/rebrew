@@ -1,6 +1,16 @@
 ## [Unreleased]
 
 ### Fixed
+- **Dashboard module counts use the stored module.** `by_module_counts`
+  labeled a blank `functions.module` as `GAME`, so the Module menu offered
+  a name `/api/functions?module=` did not return. The key is now the stored
+  string (`""` when unset). A present empty `module=` on `/api/functions`
+  and `/api/globals` selects that bucket; omitting `module` still lists
+  every row.
+- **`/api/summary` rejects a non-integer byte count.** `int(true)` is 1, so
+  `matched_bytes: true` was reported as one matched byte, and a float was
+  truncated. A boolean, float, numeric string, or negative count is the
+  documented corrupt `function_stats` 500. Absent counts stay 0.
 - **Project config rejects values that would compile or patch the wrong thing.**
   A blank `marker` uses the derived module name instead of storing `""`
   (which dropped every function out of verify). A marker with whitespace
