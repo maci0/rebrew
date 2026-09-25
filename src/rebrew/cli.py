@@ -385,6 +385,31 @@ def parse_va(va_str: str, *, json_mode: bool = False) -> int:
     return va
 
 
+def resolve_binary_arg(
+    binary: Path | None,
+    *,
+    target: str | None,
+    json_mode: bool,
+) -> Path:
+    """Return *binary*, or the project target when the argument is omitted.
+
+    A missing project target exits with ``target binary missing``; a path
+    that was passed but does not exist exits with ``binary not found``.
+    """
+    if binary is None:
+        cfg = require_config(target=target, json_mode=json_mode)
+        binary = Path(cfg.target_binary)
+        if not binary.exists():
+            error_exit(
+                f"target binary missing: {binary}",
+                json_mode=json_mode,
+                code=EXIT_ERROR,
+            )
+    if not binary.exists():
+        error_exit(f"binary not found: {binary}", json_mode=json_mode)
+    return binary
+
+
 def resolve_source_arg(cfg: ProjectConfig, source_arg: str) -> Path:
     """Resolve a source argument to an existing source file path.
 
@@ -482,6 +507,7 @@ __all__ = [
     "option_default",
     "parse_va",
     "require_config",
+    "resolve_binary_arg",
     "resolve_source_arg",
     "run_cli",
     "run_for_each_target",

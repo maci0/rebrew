@@ -44,7 +44,7 @@ import typer
 from rich.table import Table
 
 from rebrew.binary_loader import detect_format_and_arch
-from rebrew.cli import EXIT_ERROR, TargetOption, console, error_exit, json_print, require_config
+from rebrew.cli import EXIT_ERROR, TargetOption, console, error_exit, json_print, resolve_binary_arg
 from rebrew.pe_symbols import (
     PeDirectories,
     _export_table,
@@ -1204,13 +1204,7 @@ def main(
     target: str | None = TargetOption,
 ) -> None:
     """Dump PE metadata: identity, sections, security, directories, version info."""
-    if binary is None:
-        cfg = require_config(target=target, json_mode=json_output)
-        binary = Path(cfg.target_binary)
-        if not binary.exists():
-            error_exit(f"target binary missing: {binary}", json_mode=json_output, code=EXIT_ERROR)
-    if not binary.exists():
-        error_exit(f"binary not found: {binary}", json_mode=json_output)
+    binary = resolve_binary_arg(binary, target=target, json_mode=json_output)
 
     try:
         info = pe_info(binary)

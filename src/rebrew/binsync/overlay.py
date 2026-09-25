@@ -278,6 +278,23 @@ def _apply_global_entry(
     set_data_field(cfg.metadata_dir, dst_va, "section", section, module)
 
 
+def _apply_global_or_skip(
+    cfg: ProjectConfig,
+    dst_va: int,
+    bs_name: str,
+    entry: dict[str, Any],
+    section: str,
+    module: str,
+) -> bool:
+    """Write one matched global. False when the write raised (caller counts a skip)."""
+    try:
+        _apply_global_entry(cfg, dst_va, bs_name, entry, section, module)
+    except Exception:
+        log.debug("global overlay failed for VA %s", _hex(dst_va), exc_info=True)
+        return False
+    return True
+
+
 # ---------------------------------------------------------------------------
 # Overlay core
 # ---------------------------------------------------------------------------
@@ -614,16 +631,10 @@ def overlay_state(
                             )
                             applied_globals += 1
                         else:
-                            try:
-                                _apply_global_entry(cfg, dst_va, bs_name, entry, section, mod)
+                            if _apply_global_or_skip(cfg, dst_va, bs_name, entry, section, mod):
                                 applied_globals += 1
                                 touched.add(dst_va)
-                            except Exception:
-                                log.debug(
-                                    "global overlay failed for VA %s",
-                                    _hex(dst_va),
-                                    exc_info=True,
-                                )
+                            else:
                                 skipped += 1
                     elif accept_local:
                         proposed.append(
@@ -643,12 +654,10 @@ def overlay_state(
                     )
                     applied_globals += 1
                 else:
-                    try:
-                        _apply_global_entry(cfg, dst_va, bs_name, entry, section, mod)
+                    if _apply_global_or_skip(cfg, dst_va, bs_name, entry, section, mod):
                         applied_globals += 1
                         touched.add(dst_va)
-                    except Exception:
-                        log.debug("global overlay failed for VA %s", _hex(dst_va), exc_info=True)
+                    else:
                         skipped += 1
 
     applied_structs = 0

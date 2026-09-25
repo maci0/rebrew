@@ -168,7 +168,7 @@ class TestVaFirstPositional:
             target_binary=path,
             reversed_dir=tmp_path,
         )
-        monkeypatch.setattr("rebrew.xrefs.require_config", lambda **kw: cfg)
+        monkeypatch.setattr("rebrew.cli.require_config", lambda **kw: cfg)
         result = CliRunner().invoke(app, ["0x401000"])
         assert result.exit_code == 0, result.output
         assert "no references" in result.output

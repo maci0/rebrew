@@ -31,7 +31,7 @@ from rich.table import Table
 
 from rebrew.analysis import Xref, iter_strings, string_refs
 from rebrew.binary_loader import BinaryInfo, load_binary
-from rebrew.cli import EXIT_ERROR, TargetOption, console, error_exit, json_print, require_config
+from rebrew.cli import EXIT_ERROR, TargetOption, console, error_exit, json_print, resolve_binary_arg
 
 # Data-ish sections scanned when --section is not given; mirrors the
 # analysis.py default so the "nothing to scan" note can be detected here.
@@ -149,14 +149,7 @@ def main(
     target: str | None = TargetOption,
 ) -> None:
     """Scan a binary for printable strings and, with --xref, their code references."""
-    cfg: Any = None
-    if binary is None:
-        cfg = require_config(target=target, json_mode=json_output)
-        binary = cfg.target_binary
-        if not binary.exists():
-            error_exit(f"target binary missing: {binary}", json_mode=json_output, code=EXIT_ERROR)
-    if not binary.exists():
-        error_exit(f"binary not found: {binary}", json_mode=json_output)
+    binary = resolve_binary_arg(binary, target=target, json_mode=json_output)
 
     try:
         payload = collect_strings(

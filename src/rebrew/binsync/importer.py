@@ -233,6 +233,17 @@ def _apply_binsync_func_name(
     return True
 
 
+def _try_apply_binsync_name(
+    cfg: Any, local: Any, bs_name: str, local_filepath: str | None, va: int
+) -> bool:
+    """Apply a BinSync rename. False when nothing was written."""
+    try:
+        return _apply_binsync_func_name(cfg, local, bs_name, local_filepath)
+    except Exception:
+        log.debug("rename apply failed for VA 0x%x", va, exc_info=True)
+        return False
+
+
 @app.callback(invoke_without_command=True)
 def main(
     state_dir: Path = typer.Argument(..., help="BinSync state directory to import"),
@@ -555,14 +566,10 @@ def import_state(
                 )
                 applied_names += 1
             else:
-                try:
-                    if _apply_binsync_func_name(cfg, local, bs_stripped, local_filepath):
-                        applied_names += 1
-                        touched_vas.append(va)
-                    else:
-                        skipped += 1
-                except Exception:
-                    log.debug("rename apply failed for VA 0x%x", va, exc_info=True)
+                if _try_apply_binsync_name(cfg, local, bs_stripped, local_filepath, va):
+                    applied_names += 1
+                    touched_vas.append(va)
+                else:
                     skipped += 1
             continue
 
@@ -588,14 +595,10 @@ def import_state(
                 )
                 applied_names += 1
             else:
-                try:
-                    if _apply_binsync_func_name(cfg, local, bs_stripped, local_filepath):
-                        applied_names += 1
-                        touched_vas.append(va)
-                    else:
-                        skipped += 1
-                except Exception:
-                    log.debug("rename apply failed for VA 0x%x", va, exc_info=True)
+                if _try_apply_binsync_name(cfg, local, bs_stripped, local_filepath, va):
+                    applied_names += 1
+                    touched_vas.append(va)
+                else:
                     skipped += 1
             continue
         if accept_local:

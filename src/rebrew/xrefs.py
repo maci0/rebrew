@@ -30,7 +30,7 @@ from rebrew.cli import (
     error_exit,
     json_print,
     parse_va,
-    require_config,
+    resolve_binary_arg,
 )
 from rebrew.import_table import parse_import_table
 
@@ -242,13 +242,7 @@ def main(
         va, binary = str(binary), Path(va)
     target_va = parse_va(va, json_mode=json_output)
 
-    if binary is None:
-        cfg = require_config(target=target, json_mode=json_output)
-        binary = cfg.target_binary
-        if not binary.exists():
-            error_exit(f"target binary missing: {binary}", json_mode=json_output, code=EXIT_ERROR)
-    if not binary.exists():
-        error_exit(f"binary not found: {binary}", json_mode=json_output)
+    binary = resolve_binary_arg(binary, target=target, json_mode=json_output)
 
     if calls_from:
         payload = build_calls_from_payload(binary, target_va, calls_from)

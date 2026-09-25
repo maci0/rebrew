@@ -160,33 +160,24 @@ def set_cmd(
     if cflags is not None:
         doc["cflags"] = cflags
     merged, presets = apply_library_presets({k: doc[k] for k in doc})
+    payload: dict[str, Any] = {
+        "file": str(path),
+        "library": str(merged.get("library", "")),
+        "toolchain": str(merged.get("toolchain", "")),
+        "cflags": str(merged.get("cflags", "")),
+        "presets": list(presets),
+    }
     if dry_run:
         if json_output:
-            json_print(
-                {
-                    "file": str(path),
-                    "library": str(merged.get("library", "")),
-                    "toolchain": str(merged.get("toolchain", "")),
-                    "cflags": str(merged.get("cflags", "")),
-                    "presets": list(presets),
-                    "dry_run": True,
-                }
-            )
+            payload["dry_run"] = True
+            json_print(payload)
         else:
             console.print(f"[yellow]would write {path}[/yellow]")
         return
     atomic_write_text(path, tomlkit.dumps(doc), encoding="utf-8")
     clear_library_override_cache()
     if json_output:
-        json_print(
-            {
-                "file": str(path),
-                "library": str(merged.get("library", "")),
-                "toolchain": str(merged.get("toolchain", "")),
-                "cflags": str(merged.get("cflags", "")),
-                "presets": list(presets),
-            }
-        )
+        json_print(payload)
     else:
         console.print(f"[green]wrote {path}[/green]")
         if presets:

@@ -32,7 +32,7 @@ from typing import Any, cast
 import typer
 from rich.table import Table
 
-from rebrew.cli import EXIT_ERROR, TargetOption, console, error_exit, json_print, require_config
+from rebrew.cli import EXIT_ERROR, TargetOption, console, error_exit, json_print, resolve_binary_arg
 
 #: Stream chunk for :func:`file_hashes`: the file is read in these slices
 #: so a large binary never lands in memory as one object.
@@ -432,13 +432,7 @@ def main(
     target: str | None = TargetOption,
 ) -> None:
     """Fingerprint a binary: hashes, imphash, Rich-header hash, section entropy."""
-    if binary is None:
-        cfg = require_config(target=target, json_mode=json_output)
-        binary = cfg.target_binary
-        if not binary.exists():
-            error_exit(f"target binary missing: {binary}", json_mode=json_output, code=EXIT_ERROR)
-    if not binary.exists():
-        error_exit(f"binary not found: {binary}", json_mode=json_output)
+    binary = resolve_binary_arg(binary, target=target, json_mode=json_output)
 
     try:
         bundle = fingerprint_bundle(binary)

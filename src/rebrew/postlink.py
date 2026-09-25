@@ -909,18 +909,18 @@ def main(
         error_exit(f"postlink failed: {exc}", json_mode=json_output, code=EXIT_ERROR)
 
     target = output or built
+    payload: dict[str, Any] = {
+        "built": str(built),
+        "reference": str(reference) if reference is not None else None,
+        "layout": str(layout) if layout is not None else None,
+        "output": str(target),
+    }
+    if dry_run:
+        payload["dry_run"] = True
+    payload["reports"] = [r.as_dict() for r in reports]
     if dry_run:
         if json_output:
-            json_print(
-                {
-                    "built": str(built),
-                    "reference": str(reference) if reference is not None else None,
-                    "layout": str(layout) if layout is not None else None,
-                    "output": str(target),
-                    "dry_run": True,
-                    "reports": [r.as_dict() for r in reports],
-                }
-            )
+            json_print(payload)
             return
         for report in reports:
             stats = " ".join(f"{k}={v}" for k, v in report.stats.items())
@@ -932,15 +932,7 @@ def main(
     atomic_write_bytes(target, patched)
 
     if json_output:
-        json_print(
-            {
-                "built": str(built),
-                "reference": str(reference) if reference is not None else None,
-                "layout": str(layout) if layout is not None else None,
-                "output": str(target),
-                "reports": [r.as_dict() for r in reports],
-            }
-        )
+        json_print(payload)
         return
 
     for report in reports:

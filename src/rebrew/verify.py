@@ -1512,29 +1512,6 @@ def _save_report(
         )
         return
 
-    if dry_run and not diff_mode:
-        _print_results(
-            results,
-            batch.fail_details,
-            diff_result,
-            diff_warning,
-            diff_mode,
-            summary,
-            total,
-            passed,
-            failed,
-            library_passed=library_passed,
-            library_total=library_total,
-        )
-        _raise_if_regression(
-            diff_result,
-            failed,
-            text_misplaced=text_misplaced,
-            data_failed=data_failed,
-            whole_failed=whole_failed,
-        )
-        return
-
     _print_results(
         results,
         batch.fail_details,
