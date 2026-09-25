@@ -213,13 +213,16 @@ function esc(s) {
 }
 function formatWhen(value) {
   if (!value) return "";
-  // Rebrew stores UTC instants (ISO-8601).  Zone-less forms must not be
-  // parsed as the browser's local wall time: Date.parse treats a bare
-  // "YYYY-MM-DDTHH:MM:SS" as local, which shifts the display by the host
-  // offset and becomes Invalid Date in a spring-forward gap (e.g. 02:30
-  // on America/New_York transition night).
+  // Rebrew stores UTC instants (ISO-8601).  Date.parse reads a zone-less
+  // date-time as local wall time whether the separator is "T", "t", or a
+  // space, which shifts the display by the host offset.  On a spring-forward
+  // night the missing hour is mapped onto the next one (America/New_York
+  // 2026-03-08 02:30 becomes 03:30 EDT).  On a fall-back night only the first
+  // of the two occurrences can be named.  A trailing Z pins the reading to UTC.
+  // Strings that already carry an offset (including "Z") are left alone so a
+  // non-UTC offset is not discarded.
   let raw = String(value).trim();
-  if (/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(:\\d{2}(\\.\\d+)?)?$/.test(raw)) {
+  if (/^\\d{4}-\\d{2}-\\d{2}[Tt ]\\d{2}:\\d{2}(:\\d{2}(\\.\\d+)?)?$/.test(raw)) {
     raw += "Z";
   }
   const parsed = Date.parse(raw);
@@ -227,8 +230,13 @@ function formatWhen(value) {
   try {
     // One shared formatter: toLocaleString(options) builds a new
     // Intl.DateTimeFormat per call (~117 ms vs 3 ms for 5000 history rows).
+    // dateStyle/timeStyle cannot be combined with timeZoneName.  Without the
+    // zone abbreviation the fall-back hour prints twice: America/New_York
+    // 2026-11-01 05:30Z and 06:30Z are both "Nov 1, 2026, 1:30 AM".
     whenFormat ??= new Intl.DateTimeFormat(undefined, {
-      dateStyle: "medium", timeStyle: "short",
+      year: "numeric", month: "short", day: "numeric",
+      hour: "numeric", minute: "2-digit",
+      timeZoneName: "short",
     });
     return whenFormat.format(parsed);
   } catch (error) {

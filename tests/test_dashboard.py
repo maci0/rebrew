@@ -1,6 +1,7 @@
 """Tests for rebrew dashboard — read-only web dashboard over coverage.db."""
 
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -601,6 +602,25 @@ class TestLoadErrors:
         assert result.returncode == 0, result.stdout + result.stderr
 
 
+class TestHistoryClock:
+    def test_zone_less_instants_and_fallback_hour(self) -> None:
+        node = shutil.which("node")
+        if node is None:
+            pytest.skip("Node.js is required for dashboard interaction tests")
+        env = os.environ.copy()
+        env["TZ"] = "America/New_York"
+        result = subprocess.run(
+            [node, str(Path(__file__).with_name("dashboard_time.mjs"))],
+            input=_APP_JS,
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+            env=env,
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+
+
 class TestHandle:
     def test_index_html(self, dashboard: Dashboard) -> None:
         status, content_type, body = dashboard.handle("GET", "/", {})
@@ -668,8 +688,13 @@ class TestHandle:
         assert 'id="history-hint"' in body
         assert "formatWhen" in body
         # Zone-less ISO datetimes are forced to UTC (append Z) so a browser
-        # in a DST zone cannot mis-parse them as local wall time.
+        # in a DST zone cannot mis-parse them as local wall time.  "T", "t",
+        # and a space separator are all local to Date.parse.
         assert 'raw += "Z"' in body
+        assert "[Tt ]" in body
+        # The fall-back hour is labeled (EDT vs EST); dateStyle cannot carry
+        # a zone name, so the formatter spells the fields out.
+        assert 'timeZoneName: "short"' in body
         assert "Reload dashboard" in body
         assert 'retry-summary").focus()' in body
         assert "No status changes recorded yet" in body
