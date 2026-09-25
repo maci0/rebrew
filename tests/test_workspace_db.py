@@ -45,44 +45,32 @@ def test_sqlite_ro_uri_relative_uses_cwd(tmp_path: Path, monkeypatch: pytest.Mon
 
 
 def test_shared_coverage_lock_blocks_exclusive(tmp_path: Path) -> None:
-    """A reader holding the shared lock must stall an exclusive rebuild lock."""
-    import threading
-    import time
+    """A shared holder must reject a non-blocking exclusive lock, then release it.
+
+    A short sleep after the writer thread starts does not prove the writer
+    reached ``flock``: on a slow scheduler both a working lock and a no-op
+    lock still look unacquired.
+    """
+    import fcntl
 
     db = tmp_path / "coverage.db"
     db.write_bytes(b"")
-    held = threading.Event()
-    release = threading.Event()
-    started = threading.Event()
-    acquired = threading.Event()
+    lock_path = db.with_name(db.name + ".lock")
 
-    def _reader() -> None:
-        with coverage_db_lock(db, shared=True):
-            held.set()
-            assert release.wait(timeout=5)
+    def _exclusive_is_blocked() -> None:
+        probe = lock_path.open("a", encoding="utf-8")
+        try:
+            with pytest.raises(BlockingIOError):
+                fcntl.flock(probe.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        finally:
+            probe.close()
 
-    def _writer() -> None:
-        started.set()
-        with coverage_db_lock(db):
-            acquired.set()
+    with coverage_db_lock(db, shared=True):
+        assert lock_path.is_file()
+        _exclusive_is_blocked()
 
-    reader = threading.Thread(target=_reader)
-    writer = threading.Thread(target=_writer)
-    reader.start()
-    assert held.wait(timeout=5)
-    writer.start()
-    assert started.wait(timeout=5)
-    deadline = time.monotonic() + 0.3
-    while time.monotonic() < deadline and not acquired.is_set():
-        time.sleep(0.01)
-    assert not acquired.is_set()
-    assert writer.is_alive()
-    release.set()
-    writer.join(timeout=5)
-    reader.join(timeout=5)
-    assert acquired.is_set()
-    assert not writer.is_alive()
-    assert not reader.is_alive()
+    with coverage_db_lock(db):
+        _exclusive_is_blocked()
 
 
 def test_sqlite_ro_uri_opens_reserved_name(tmp_path: Path) -> None:

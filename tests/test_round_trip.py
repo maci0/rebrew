@@ -1539,15 +1539,33 @@ class TestPeHeaderFieldWidths:
 
 
 class TestRenderRichBarClamping:
-    def test_spliced_overflow_clamped(self) -> None:
-        from rebrew.round_trip import _render_rich
+    def test_spliced_overflow_clamped(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """spliced=100 over a total of 50 must paint a 40-cell bar, not 80.
 
-        # total calculation: spliced(50) + skipped_proven(0) + skipped_other(0) + catalog(0) + mismatch(0) = 50
-        # If spliced > total (e.g. negative skips or corrupted input), min(bar_width, ...) clamps
+        A negative ``skipped_proven`` shrinks the denominator below the
+        spliced count. ``"█" * n`` does not raise when n exceeds the bar
+        width, so calling the renderer is not evidence it clamped.
+        """
+        from io import StringIO
+
+        from rich.console import Console
+
+        import rebrew.round_trip as round_trip
+
+        buf = StringIO()
+        monkeypatch.setattr(
+            round_trip,
+            "console",
+            Console(file=buf, force_terminal=True, width=200, no_color=True, highlight=False),
+        )
         report = {
             "spliced": 100,
             "skipped_proven": -50,
             "skipped_other": 0,
             "mismatches": [],
         }
-        _render_rich(report)
+        round_trip._render_rich(report)
+        out = buf.getvalue()
+        assert "100/50" in out
+        assert out.count("█") == 40
+        assert "░" not in out

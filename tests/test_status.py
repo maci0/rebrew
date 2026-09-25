@@ -1531,10 +1531,15 @@ class TestInlineTableKeyWarning:
 
 
 class TestRenderTerminalBarClamping:
-    def test_coverage_overflow_does_not_crash_render(self) -> None:
+    def test_coverage_overflow_clamps_the_bar(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """150 covered of 100 is 150%: the 40-cell bar must stay 40 cells.
+
+        ``"█" * n`` does not raise for n > 40, so a render that merely
+        returns is not evidence the overflow was clamped.
+        """
         from rebrew.status import StatusReport, _render_terminal
 
-        # 150 covered out of 100 functions (150% coverage)
+        buf = TestRenderTerminal()._capture(monkeypatch)
         report = StatusReport(
             target="test",
             binary="test.exe",
@@ -1544,5 +1549,8 @@ class TestRenderTerminalBarClamping:
             status_counts={},
             module_status={},
         )
-        # Must render without IndexError / layout failure
         _render_terminal(report)
+        out = buf.getvalue()
+        assert "150/100  (150.0%)" in out
+        assert out.count("█") == 40
+        assert "░" not in out

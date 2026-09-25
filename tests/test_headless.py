@@ -5,6 +5,8 @@ import threading
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from rebrew.headless import (
     _display_alive,
     _pick_free_display,
@@ -274,35 +276,65 @@ class TestEnsureXvfb:
 
 
 class TestWaitForSocket:
-    def test_bails_early_when_proc_dies(self, tmp_path: Path, monkeypatch) -> None:
-        """A server that exits during startup must fail fast (bad args burn
-        the whole timeout otherwise — the screen-argv bug cost 3 s per
-        compile before this check)."""
-        import time
+    def _clock(self, monkeypatch: pytest.MonkeyPatch) -> tuple[dict[str, float], list[float]]:
+        """Drive ``_wait_for_socket`` from a clock that advances only in sleep.
+
+        A spin that never sleeps trips the call cap instead of hanging the
+        suite. Wall-clock bounds (``< 1.0`` / ``>= 0.25``) pass on a loaded
+        host whether or not the timeout was actually consumed.
+        """
+        from types import SimpleNamespace
 
         from rebrew import headless
 
+        clock = {"t": 0.0}
+        sleeps: list[float] = []
+        calls = {"n": 0}
+
+        def _monotonic() -> float:
+            calls["n"] += 1
+            if calls["n"] > 10_000:
+                raise AssertionError("wait loop ignored its deadline")
+            return clock["t"]
+
+        def _sleep(seconds: float) -> None:
+            sleeps.append(seconds)
+            clock["t"] += seconds
+
+        monkeypatch.setattr(headless, "time", SimpleNamespace(monotonic=_monotonic, sleep=_sleep))
+        return clock, sleeps
+
+    def test_bails_early_when_proc_dies(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A server that exits during startup must fail fast (bad args burn
+        the whole timeout otherwise — the screen-argv bug cost 3 s per
+        compile before this check)."""
+        from rebrew import headless
+
         monkeypatch.setattr(headless, "_XVFB_SOCKET_DIR", tmp_path)  # socket never appears
+        clock, sleeps = self._clock(monkeypatch)
 
         class DeadProc:
             def poll(self) -> int:
                 return 1
 
-        t0 = time.monotonic()
         assert headless._wait_for_socket(":90", timeout=5.0, proc=DeadProc()) is False
-        assert time.monotonic() - t0 < 1.0  # bailed immediately, not after 5 s
+        assert sleeps == []
+        assert clock["t"] == 0.0
 
-    def test_waits_full_timeout_when_proc_alive(self, tmp_path: Path, monkeypatch) -> None:
-        import time
-
+    def test_waits_full_timeout_when_proc_alive(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         from rebrew import headless
 
         monkeypatch.setattr(headless, "_XVFB_SOCKET_DIR", tmp_path)
+        clock, sleeps = self._clock(monkeypatch)
 
         class AliveProc:
-            def poll(self):
+            def poll(self) -> None:
                 return None
 
-        t0 = time.monotonic()
         assert headless._wait_for_socket(":90", timeout=0.3, proc=AliveProc()) is False
-        assert time.monotonic() - t0 >= 0.25  # waited out the timeout
+        assert sleeps
+        assert clock["t"] >= 0.3

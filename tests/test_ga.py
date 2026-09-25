@@ -1441,9 +1441,20 @@ class TestOutDirRejection:
                 target_binary=tmp_path / "x.dll",
             ),
         )
-        monkeypatch.setattr("rebrew.match._run_all", lambda **kw: (0, 0))
+        seen: list[dict[str, Any]] = []
+
+        def _fake_run_all(**kw: Any) -> tuple[int, int]:
+            seen.append(kw)
+            return (0, 0)
+
+        monkeypatch.setattr("rebrew.match._run_all", _fake_run_all)
         result = CliRunner().invoke(app, ["--all"])
-        assert result.exit_code == 0
+        assert result.exit_code == 0, result.output
+        # A silent success that never starts the batch still exits 0.
+        assert len(seen) == 1
+        assert seen[0]["cfg"].root == tmp_path
+        assert seen[0]["jobs"] == 2
+        assert seen[0]["json_output"] is False
 
 
 class TestGaHistory:
