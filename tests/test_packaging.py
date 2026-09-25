@@ -19,6 +19,25 @@ PYPROJECT = ROOT / "pyproject.toml"
 MANIFEST = ROOT / "MANIFEST.in"
 PKG = ROOT / "src" / "rebrew"
 
+_BREAKING_PREFIX = "- **Breaking:** "
+
+
+def _norm_changelog_line(line: str) -> str:
+    """Ignore a Breaking label so a prefixed line still matches the tagged notes."""
+    if line.startswith(_BREAKING_PREFIX):
+        return "- " + line[len(_BREAKING_PREFIX) :]
+    return line
+
+
+def _changelog_section(body: str, version: str) -> str | None:
+    """Body of ``## [version]`` up to the next release heading, or None."""
+    match = re.search(rf"^## \[{re.escape(version)}\](?: - |\s*$)", body, re.M)
+    if match is None:
+        return None
+    rest = body[match.end() :]
+    nxt = re.search(r"^## \[", rest, re.M)
+    return rest if nxt is None else rest[: nxt.start()]
+
 
 def _project() -> dict:
     return tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))["project"]
@@ -90,6 +109,69 @@ class TestPackagingMetadata:
         bad = [h for h in heads if h not in ("Added", "Changed", "Removed", "Fixed")]
         bad += [f"repeated {h}" for h in set(heads) if heads.count(h) > 1]
         assert bad == [], bad
+
+    def test_notes_added_after_the_tag_stay_unreleased(self) -> None:
+        """A bullet written after the tag must not land in that tag's section.
+
+        ``## [2.9.0]`` once gained entries for commits that came after the
+        tag, so the published notes described code the release does not
+        contain. A line may gain a ``**Breaking:**`` prefix, and a line may
+        move up under ``[Unreleased]``. A released section may not grow a
+        line the tag's changelog did not have.
+        """
+        import subprocess
+        from collections import Counter
+
+        tag_proc = subprocess.run(
+            ["git", "describe", "--tags", "--abbrev=0"],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if tag_proc.returncode != 0 or not tag_proc.stdout.strip():
+            if os.environ.get("GITHUB_ACTIONS"):
+                pytest.fail("expected a v* tag in CI (test job must fetch tags)")
+            pytest.skip("no git tags in this checkout")
+        last_tag = tag_proc.stdout.strip()
+        show = subprocess.run(
+            ["git", "show", f"{last_tag}:CHANGELOG.md"],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if show.returncode != 0:
+            pytest.skip(f"cannot read CHANGELOG.md at {last_tag}")
+
+        text = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+        unreleased = text.split("## [Unreleased]", 1)[1].split("\n## [", 1)[0]
+        unreleased_lines = {
+            _norm_changelog_line(line) for line in unreleased.splitlines() if line.strip()
+        }
+        headings = re.findall(r"^## \[(\d+\.\d+\.\d+)\]", show.stdout, flags=re.M)
+        for version in headings:
+            tagged = _changelog_section(show.stdout, version)
+            current = _changelog_section(text, version)
+            assert tagged is not None and current is not None
+            tag_lines = [_norm_changelog_line(line) for line in tagged.splitlines() if line.strip()]
+            cur_lines = [
+                _norm_changelog_line(line) for line in current.splitlines() if line.strip()
+            ]
+            index = 0
+            for line in tag_lines:
+                if index < len(cur_lines) and cur_lines[index] == line:
+                    index += 1
+            assert index == len(cur_lines), (
+                f"## [{version}] has lines {last_tag}'s changelog does not:\n"
+                + "\n".join(cur_lines[index:])
+            )
+            dropped = list((Counter(tag_lines) - Counter(cur_lines)).elements())
+            stray = [line for line in dropped if line not in unreleased_lines]
+            assert stray == [], (
+                f"## [{version}] dropped notes that are not under [Unreleased]:\n"
+                + "\n".join(stray)
+            )
 
     def test_contributing_major_line_matches_package(self) -> None:
         from rebrew import __version__

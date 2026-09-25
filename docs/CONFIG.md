@@ -66,7 +66,7 @@ libs = "toolchain/msvc/6.0-win32/source/VC98/Lib"
 | `external_libs` | `[targets.<name>].external_libs` | External `.lib` code — `module = "link-spec"` table (e.g. `LIBCMT = "LIBCMT.lib"`, `D3DX8 = "references/dxsdk8/lib/d3dx8.lib"`, `MSVCRT = ""` for identified-only).  The one flag for "not our work": rows attributed to these modules leave the progress accounting, `rebrew lib-match` ingests the archives by default, and `rebrew cmake-sources` emits the non-empty specs as `REBREW_EXTERNAL_LIBS` for `target_link_libraries` — config order is link order (static archives last) |
 | `crt_sources` | `[targets.<name>].crt_sources` | Maps origin names to reference source directories for CRT cross-matching |
 | `external_ranges` | `[targets.<name>].external_ranges` | Inclusive address bands (`["0x5e0000-0x64ffff"]`) the binary fills from a statically linked library rather than project sources; tools that enumerate work left skip them |
-| `defines` | `[targets.<name>].defines` | Per-target compile-time define names (`["CLIENT"]`) for shared multi-version sources (ADR-010). Each entry must be a C identifier; anything else fails at load instead of compiling the wrong `#ifdef` side |
+| `defines` | `[targets.<name>].defines` | Per-target compile-time defines (`["CLIENT"]`, `["CLIENT=1"]`) for shared multi-version sources (ADR-010). Each entry is `NAME` or `NAME=value` with no whitespace; anything else fails at load instead of compiling the wrong `#ifdef` side. `NAME=value` is emitted as `/DNAME=value` (or `-DNAME=value`) |
 | `library_modules` | `[targets.<name>].library_modules` | Module names that use `LIBRARY` markers |
 | `source_ext` | `[targets.<name>].source_ext` | Source extension used when discovering and creating files |
 | `ghidra_program_path` | `[targets.<name>].ghidra_program_path` | ReVa MCP program path override |
@@ -412,7 +412,7 @@ The config loader fail-fasts on missing/invalid structure:
   or `ghidra_backend` not `reva` / `cli`.
 - A `marker` that contains whitespace or `.0x`, or a target name that derives
   no marker and sets none. A blank `marker` uses the derived default.
-- A `defines` entry that is not a C identifier.
+- A `defines` entry that is not `NAME` or `NAME=value` (no whitespace).
 - A `[link]` integer outside `0..0xFFFFFFFF`, or `stack_commit` greater than
   `stack_reserve` when both are set.
 

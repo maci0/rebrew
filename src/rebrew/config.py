@@ -692,20 +692,23 @@ def _parse_int_list(values: list[Any] | None, field_name: str) -> list[int]:
     return parsed
 
 
-#: A ``[targets.<name>].defines`` entry is emitted as ``/DNAME`` or ``-DNAME``.
-#: Anything else is one argv token the compiler will not treat as a macro,
-#: so ``#ifdef`` branches compile the wrong side and the byte diff looks
-#: like a source bug.
-_DEFINE_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+#: A ``[targets.<name>].defines`` entry is emitted as ``/D{entry}`` or
+#: ``-D{entry}``. ``NAME`` and ``NAME=value`` (no whitespace) are macros —
+#: ``CLIENT=1`` has been a working ``/DCLIENT=1`` since defines shipped.
+#: A token with spaces is not a macro, so ``#ifdef`` branches compile the
+#: wrong side and the byte diff looks like a source bug.
+_DEFINE_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(?:=[^\s]*)?$")
 
 
 def _parse_defines(values: Any, field_name: str) -> list[str]:
-    """Parse a list of compile-time define names from a toml array.
+    """Parse a list of compile-time defines from a toml array.
 
     Entries are trimmed. Empty entries are dropped. Non-string entries warn
     and are dropped (``str(None)`` would otherwise become ``-DNone``). A
-    string that is not a C identifier fails the load: it would be passed
-    through as a ``-D``/``/D`` flag and compile the wrong ``#ifdef`` side.
+    string must be ``NAME`` or ``NAME=value`` with no whitespace. Anything
+    else fails the load: it would be passed through as a ``-D``/``/D`` flag
+    and compile the wrong ``#ifdef`` side. A valued macro stays accepted so
+    a project that wrote ``defines = ["CLIENT=1"]`` under 2.9.0 still loads.
     """
     if not isinstance(values, list):
         if values is not None:
@@ -724,7 +727,7 @@ def _parse_defines(values: Any, field_name: str) -> list[str]:
         if _DEFINE_NAME_RE.fullmatch(name) is None:
             raise ConfigError(
                 f"rebrew-project.toml {field_name}: {v!r} is not a C define name "
-                "(letter or underscore, then letters, digits, or underscores)"
+                "(NAME, or NAME=value with no whitespace)"
             )
         out.append(name)
     return out

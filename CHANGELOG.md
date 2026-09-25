@@ -15,11 +15,6 @@
   lines whose readers still scan the source. A file now migrates only
   when every function marker in it is recorded. A data marker, or a
   marker line the parser did not accept, leaves the file inline.
-- **MCP session setup raises `McpError`.** `init_mcp_session` used to leak
-  `httpx` transport and status errors. Callers branch on `kind`
-  (`network` / `http`), `status_code`, and `retryable`. A non-positive
-  `batch_size` on `fetch_all_symbols` / `fetch_all_functions` is
-  `McpError` with `kind="validation"`.
 - **A hung docker inspect or retag is retryable.** `image_present`, the
   image-id lookup, and retag map a daemon timeout or `OSError` to
   `ToolchainError` with `kind="docker"` and `retryable=True`, matching a
@@ -64,25 +59,57 @@
   rewrote an identical `original/` binary. An identical destination is left
   in place, and a project file that already records the detected format and
   arch is not rewritten. A changed binary is still copied.
-- **Dashboard module counts use the stored module.** `by_module_counts`
-  labeled a blank `functions.module` as `GAME`, so the Module menu offered
-  a name `/api/functions?module=` did not return. The key is now the stored
-  string (`""` when unset). A present empty `module=` on `/api/functions`
-  and `/api/globals` selects that bucket; omitting `module` still lists
-  every row.
 - **`/api/summary` rejects a non-integer byte count.** `int(true)` is 1, so
   `matched_bytes: true` was reported as one matched byte, and a float was
   truncated. A boolean, float, numeric string, or negative count is the
   documented corrupt `function_stats` 500. Absent counts stay 0.
-- **Project config rejects values that would compile or patch the wrong thing.**
-  A blank `marker` uses the derived module name instead of storing `""`
-  (which dropped every function out of verify). A marker with whitespace
-  or `.0x` fails at load. `defines` entries must be C identifiers. `[link]`
-  sizes are unsigned 32-bit: a bool is not treated as `1`, a value outside
-  `0..0xFFFFFFFF` fails instead of being truncated into the PE header, and
-  `stack_commit` may not exceed `stack_reserve`. BinSync import no longer
-  writes metadata under a hardcoded `SERVER` module when the project has
-  no marker.
+- **BinSync import writes metadata under the project marker.** The module
+  comes from the local entry, or from `module_marker`. A loaded project
+  with no marker uses the derived module name. A hardcoded `SERVER` stored
+  the row under another project's module.
+- **`span_contains` keeps the outer tail.** `rebrew todo` and BinSync export
+  treated only the latest start before an address as the covering function,
+  so a shorter span nested inside a longer one hid the outer tail. The
+  predicate walks back to a span that still contains the address, the same
+  rule discovery uses.
+- **Near-miss figures that 2.9.0 still rounded now floor.** decomp.dev
+  `fuzzy_match_percent` and `verify` diff `previous_match_percent` /
+  `current_match_percent` used `round`, so a 99.96% match read as 100.
+  They use `floor_pct`. `rebrew todo` keeps the Match % column at a fixed
+  width on a narrow terminal; Name and Description flex.
+- **An unreadable include does not share a compile-cache key with a tree
+  that lacks it.** A header that cannot be stat'd or read was omitted from
+  the fingerprint, which collided with a tree that never had that header.
+  The key records an unreadable marker, and a closure scan that hits the
+  error is not memoized.
+- **`lib-match --va` without a size accepts a short library body.** The
+  read window ran past a function shorter than 32 bytes into the next one,
+  so bodies such as `__errno` and `__fileno` were not recognized and looked
+  safe to reverse. The longest library body that matches a prefix of the
+  window wins.
+- **A withdrawn `cross-import --shared` stack deletes the metadata row it
+  created.** Removing only the `cflags` field left an empty `[MODULE.0xVA]`
+  table behind. When the entry did not exist before the attempt, the
+  withdrawal deletes it.
+- **`cross-import` drops only the superseded claim's marker.** A block that
+  stacks another target's marker on the same body lost that marker and the
+  body when the superseded claim was the first marker. Only that claim's
+  marker line and its `SIZE` line are removed.
+- **An unreadable file is not reported as a clean result.** BinSync export
+  refuses to publish a `content_hash` that skipped an artifact it could not
+  read, and leaves the manifest unchanged. Verify leaves `BLOCKER` in place
+  when the source cannot be read, so the note is not cleared and then lost.
+  A failed BinSync rename apply is a warning. A stub left by a failed
+  import still receives `STATUS` and `SIZE`.
+- **A short PE optional header raises `ValueError`.** `gen-layout` only
+  catches `ValueError`. A `SizeOfOptionalHeader` shorter than the fields
+  the parsers read raised `struct.error` and escaped that handler.
+  Truncated images now fail with `truncated optional header`.
+- **`build-db` locks `coverage.db` across unlink and rebuild.** A dashboard
+  reader holds the shared lock for one connection, so a replacement file
+  cannot share a path with the previous connection's WAL. An include
+  fingerprint walk that races a create or edit stays uncached, and a slower
+  scan does not replace a still-valid peer snapshot.
 - **Wheel bytes no longer follow the checkout umask.** setuptools copies
   each source file's mode into the zip, and git fills the non-executable
   bits from the umask, so umask 002 shipped 0664 entries and umask 022
@@ -149,6 +176,53 @@
   - `status` adds a `(no source)` row, so the status rows sum to the total.
 
 ### Changed
+- **Breaking:** **`init_mcp_session` raises `McpError`.**
+  A transport failure propagated `httpx.HTTPError`, and a non-2xx reply
+  propagated `httpx.HTTPStatusError`. Both are now `McpError` (`kind` is
+  `network` or `http`, with `status_code` and `retryable`). A non-positive
+  `batch_size` on `fetch_all_symbols` / `fetch_all_functions` raised
+  `ValueError` and now raises `McpError` with `kind="validation"`.
+  `McpError` is a `RebrewError`. Catch `McpError` (or `RebrewError`).
+- **Breaking:** **Dashboard module filters use the stored module string.**
+  `function_stats.by_module_counts` counted a blank `functions.module` under
+  the key `GAME`. The key is the stored string, `""` when unset, after the
+  next `rebrew build-db` (an existing `coverage.db` keeps the old keys until
+  then). A present empty `module=` on `/api/functions` and `/api/globals`
+  selects that bucket. Omitting `module` still lists every row. In 2.9.0 a
+  blank `module` query was no filter. Read `""` for functions that have no
+  module; pass `module=` to select them; omit `module` to list every row.
+- **Breaking:** **Some `rebrew-project.toml` values that 2.9.0 loaded now
+  fail at load, or mean something else.**
+  - `marker = ""` is stored as the derived module name (the target
+    upper-cased, with characters other than letters, digits, and `_`
+    stripped). 2.9.0 stored `""`, and readers that used that empty string
+    dropped every function out of verify. A marker with whitespace, or one
+    containing `.0x`, loaded before and now raises `ConfigError`. Use one
+    token and no `.0x`.
+  - `defines` entries must be `NAME` or `NAME=value` with no whitespace.
+    `CLIENT=1` still becomes `/DCLIENT=1` (or `-DCLIENT=1`). A token with
+    spaces, such as `NOT A NAME`, was passed through and now raises
+    `ConfigError`. Put a flag that needs spaces in `cflags`.
+  - `[link]` `stack_reserve`, `stack_commit`, `timestamp`, and `file_align`
+    must be integers in `0..0xFFFFFFFF`. A bool counted as `1` (`true` is
+    an `int` in Python) and is now ignored. A value outside that range was
+    truncated into the PE header and now raises `ConfigError`. Write an
+    integer in range. `stack_commit` may not exceed `stack_reserve`; lower
+    the commit or raise the reserve. The Windows loader rejects an image
+    where commit is larger.
+- **A byte match keeps the BLOCKER of a function that still holds inline asm.**
+  The note documents the kept asm and lint W020 requires it on a matched
+  function; verify and test cleared it on promotion, re-raising W020.
+- **`cross-import` verifies with the destination's symbol map.**  Without it
+  a typed relocation could not be masked, so every imported body touching a
+  global or calling a function read NEAR_MATCHING and was withdrawn.
+- **A target's `external_libs` LIBRARY rows count as its library code.**
+  `scope_to_target` dropped every row whose module was not the target marker,
+  so a client's D3DX8 markers were identified as nothing.
+- **LIBRARY markers count only for their own target.**  In a shared tree a
+  `library_*.h` marker applies to a target when its module is the target's
+  marker or one of its `external_libs`; another target's marker at the same
+  VA no longer replaces the target's own function.
 - **Data-layout ownership scans each source once.** `rebrew data --fill-data`
   and owning stub globals recompiled a pattern and rescanned every TU per
   symbol. Identifier names are counted in one pass. A symbol that is not a
@@ -181,7 +255,7 @@
 
 ## [2.9.0] - 2026-09-25
 ### Removed
-- **The `todo` blocked lens and the `status` blocked count** (ADR-025,
+- **Breaking:** **The `todo` blocked lens and the `status` blocked count** (ADR-025,
   superseding ADR-019).  Every unmatched function is blocked until it is
   unblocked, so "blocked" only meant "has a BLOCKER note" and read as if
   the rest were not stuck.  `todo -c blocked`, `status` "N blocked" and
@@ -190,24 +264,11 @@
   NEAR_MATCHING function "blocked".
 
 ### Changed
-- **A byte match keeps the BLOCKER of a function that still holds inline asm.**
-  The note documents the kept asm and lint W020 requires it on a matched
-  function; verify and test cleared it on promotion, re-raising W020.
-- **`cross-import` verifies with the destination's symbol map.**  Without it
-  a typed relocation could not be masked, so every imported body touching a
-  global or calling a function read NEAR_MATCHING and was withdrawn.
-- **A target's `external_libs` LIBRARY rows count as its library code.**
-  `scope_to_target` dropped every row whose module was not the target marker,
-  so a client's D3DX8 markers were identified as nothing.
-- **LIBRARY markers count only for their own target.**  In a shared tree a
-  `library_*.h` marker applies to a target when its module is the target's
-  marker or one of its `external_libs`; another target's marker at the same
-  VA no longer replaces the target's own function.
 - **`cross-import --shared` stacks a new claim on the source function.**  In a
   multi-function file it used to go above the file's first marker while the
   import verified the source function, so it could report EXACT for a body
   the marker was not on.
-- **`todo -c` rejects an unknown category** instead of filtering to an
+- **Breaking:** **`todo -c` rejects an unknown category** instead of filtering to an
   empty list, and names the valid ones.
 
 ### Fixed
@@ -249,7 +310,7 @@
   kept every target's `library_*.h` rows, so `verify` and `catalog` on
   `server.dll` counted a client's D3DX8 list (1582 library entries where
   `status` has 305).
-- **`catalog --summary` prints `status`'s progress**, not its own count over
+- **Breaking:** **`catalog --summary` prints `status`'s progress**, not its own count over
   the inventory with library code and metadata statuses (`Byte-matched:
   X/543` beside `status`'s 257/281).  In `--json`, `total_functions` (a
   copy of `registry`) is gone and `covered_bytes`/`coverage_pct` are

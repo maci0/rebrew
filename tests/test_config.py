@@ -418,6 +418,20 @@ defines = ["V2", "NOT A NAME"]
         with pytest.raises(ConfigError, match="define name"):
             load_config(root)
 
+    def test_define_with_value_is_kept(self, tmp_path: Path) -> None:
+        """``NAME=value`` was a working ``/D`` flag in 2.9.0 and stays one."""
+        toml = """\
+[project]
+default_target = "main"
+
+[targets.main]
+binary = "test.exe"
+defines = ["CLIENT=1", "WINVER=0x0500", "EMPTY="]
+"""
+        root = _make_project(tmp_path, toml)
+        cfg = load_config(root)
+        assert cfg.defines == ["CLIENT=1", "WINVER=0x0500", "EMPTY="]
+
     def test_unknown_arch_raises(self, tmp_path: Path) -> None:
         toml = """\
 [project]
