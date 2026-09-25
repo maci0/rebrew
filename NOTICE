@@ -1,0 +1,37 @@
+Third-party licenses
+====================
+
+Rebrew's own source is MIT. See LICENSE.
+
+The optional dependencies below use other grants. Each one ships its own
+license text. The expressions match the revisions pinned in uv.lock.
+``make sbom`` writes them into ``dist/rebrew.cdx.json``.
+
+similarity group — resembl
+--------------------------
+
+resembl 2.0.0 (sibling checkout ``../resembl``,
+https://github.com/maci0/resembl) declares ``License: GPLv3``. That is
+GPL-3.0-only: GNU GPL version 3, and the upstream declaration has no
+later-version clause. ``make setup`` installs this group through the path
+dependency in ``[dependency-groups]`` / ``[tool.uv.sources]``. Wheel
+Requires-Dist stays limited to packages that resolve on PyPI.
+
+m2c group — m2c
+---------------
+
+m2c commit aa869da289a565c68f701e734bd74606f1bd5ed4
+(https://github.com/matt-kempster/m2c) declares
+``License-Expression: GPL-3.0-only``. Install with ``uv sync --group m2c``.
+The pin lives in ``[dependency-groups]``, same as resembl, so Requires-Dist
+leaves it out.
+
+prove extra — pyvex (via angr)
+------------------------------
+
+angr 9.3.4 is BSD-2-Clause. Its dependency pyvex 9.3.4 declares
+``License-Expression: BSD-2-Clause AND GPL-2.0-or-later``. The Python
+bindings are BSD-2-Clause, copyright 2015 The Regents of the University
+of California. LibVEX, included in that distribution, is GPL-2.0-or-later
+(``vex/LICENSE.GPL`` and ``vex/LICENSE.README``). ``rebrew[prove]``
+installs this tree.

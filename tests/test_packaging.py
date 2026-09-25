@@ -196,6 +196,20 @@ class TestPackagingMetadata:
         assert proj.get("license") == "MIT"
         assert (ROOT / "LICENSE").is_file()
         assert "LICENSE" in proj.get("license-files", ["LICENSE"])
+        assert "NOTICE" in proj["license-files"]
+        notice = (ROOT / "NOTICE").read_text(encoding="utf-8")
+        # Wheel consumers need the optional copyleft grants traced to upstream.
+        for needle in (
+            "resembl",
+            "GPLv3",
+            "GPL-3.0-only",
+            "m2c",
+            "aa869da289a565c68f701e734bd74606f1bd5ed4",
+            "pyvex",
+            "BSD-2-Clause AND GPL-2.0-or-later",
+            "LibVEX",
+        ):
+            assert needle in notice, needle
 
     def test_classifiers_declare_typed_console_package(self) -> None:
         """Wheel METADATA must advertise PEP 561 + CLI audience honestly.
@@ -304,6 +318,19 @@ class TestCycloneDxSbom:
         assert bom["bomFormat"] == "CycloneDX"
         assert bom["specVersion"] == "1.5"
         assert bom["metadata"]["component"]["name"] == "rebrew"
+        assert bom["metadata"]["component"]["licenses"] == [{"license": {"id": "MIT"}}]
+        by_name = {c["name"]: c for c in bom["components"]}
+        assert by_name["resembl"]["licenses"] == [{"expression": "GPL-3.0-only"}]
+        assert by_name["m2c"]["licenses"] == [{"expression": "GPL-3.0-only"}]
+        assert by_name["pyvex"]["licenses"] == [{"expression": "BSD-2-Clause AND GPL-2.0-or-later"}]
+        # The expressions above are the locked artifacts' own declarations.
+        # A lock bump that changes either string has to update NOTICE too.
+        import importlib.metadata as importlib_metadata
+
+        resembl_meta = importlib_metadata.metadata("resembl")
+        assert resembl_meta.get("License") == "GPLv3"
+        pyvex_meta = importlib_metadata.metadata("pyvex")
+        assert pyvex_meta.get("License-Expression") == "BSD-2-Clause AND GPL-2.0-or-later"
         names = {c["name"] for c in bom["components"]}
         assert "httpx" in names
         assert "typer" in names
@@ -459,6 +486,7 @@ class TestSdistManifest:
         assert any(n.endswith("src/rebrew/workspace/py.typed") for n in names)
         assert any(n.endswith("src/rebrew/PRINCIPLES.md") for n in names)
         assert any(n.endswith("src/rebrew/AGENTS.md.template") for n in names)
+        assert any(n.endswith("/NOTICE") for n in names)
         # Normalization must ensure all files have mode 0644 (no spurious executable bits).
         from tools.normalize_sdist import normalize
 
@@ -518,6 +546,8 @@ class TestSdistManifest:
         assert "Environment :: Console" in meta
         assert "Project-URL: Security," in meta
         assert any(n.endswith("/licenses/LICENSE") for n in names)
+        assert any(n.endswith("/licenses/NOTICE") for n in names)
+        assert "License-File: NOTICE" in meta
         assert "rebrew/matcher/AGENTS.md" not in names
         assert "rebrew/catalog/AGENTS.md" not in names
         exec_wheel_files = [

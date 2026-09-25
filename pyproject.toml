@@ -14,7 +14,7 @@ dynamic = ["version"]
 description = "Compiler-in-the-loop decompilation workbench for binary-matching game reversing"
 readme = "README.md"
 license = "MIT"
-license-files = ["LICENSE"]
+license-files = ["LICENSE", "NOTICE"]
 authors = [
     { name = "Marcel W. Wysocki", email = "maci.stgn@gmail.com" },
 ]
@@ -55,7 +55,7 @@ dependencies = [
 # [dependency-groups] so a `pip install rebrew[...]` / PyPI upload cannot
 # resolve the wrong package or reject a direct URL.
 prove = [
-    "angr>=9.3.4",
+    "angr>=9.3.4",  # BSD-2-Clause; pulls pyvex (LibVEX is GPL-2.0-or-later, see NOTICE)
     "claripy>=9.3.4",  # direct import in prove.py / doctor.py; same release train as angr
     "gitpython>=3.1.62",  # angr→gitpython transitively; 3.1.58+ fixes the RCE-class advisories
 ]
@@ -325,6 +325,7 @@ dev = [
 # scoring core + rapidfuzz.  Path-pinned via [tool.uv.sources] — never an
 # extra, so wheel METADATA cannot point pip at the unrelated PyPI `resembl`.
 # Install: `uv sync --group similarity` (needs ../resembl checked out).
+# resembl 2.0.0 declares License: GPLv3 (GPL-3.0-only). See NOTICE.
 similarity = [
     "resembl",
     "rapidfuzz>=3.14.6",  # direct import in matcher/scoring.py code_similarity
@@ -335,6 +336,7 @@ similarity = [
 # Commit-pinned so a floating default branch cannot silently change the
 # decompiler; keep in step with the rev recorded in uv.lock.
 # Install: `uv sync --group m2c`.
+# This commit declares License-Expression: GPL-3.0-only. See NOTICE.
 m2c = [
     "m2c @ git+https://github.com/matt-kempster/m2c.git@aa869da289a565c68f701e734bd74606f1bd5ed4",
 ]

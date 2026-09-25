@@ -1,6 +1,12 @@
 ## [Unreleased]
 
 ### Fixed
+- **Optional copyleft dependencies are named beside the MIT grant.**
+  `NOTICE` (shipped via `license-files`) records `resembl` 2.0.0 as GPLv3
+  (GPL-3.0-only), `m2c` at `aa869da` as GPL-3.0-only, and `pyvex` 9.3.4
+  (pulled by the `prove` extra) as `BSD-2-Clause AND GPL-2.0-or-later`
+  because it includes LibVEX.  `make sbom` writes those expressions, and
+  MIT on the rebrew component, into the CycloneDX inventory.
 - **`make setup` rejects a resembl checkout on the wrong commit.**  The
   version string in `../resembl` can stay `2.0.0` after the `v2.0.0` tag
   moves.  CI already fails that clone (`resembl-sha`).  `RESEMBL_SHA` in the

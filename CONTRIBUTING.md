@@ -39,6 +39,10 @@ make setup                    # uv sync --frozen --all-extras --group similarity
 make test-one T=tests/test_annotation.py   # smoke the edit-test loop
 ```
 
+`make setup` installs the `prove` extra and the `similarity` group. Those
+pull the copyleft components named in [`NOTICE`](NOTICE) (`pyvex`/LibVEX and
+GPLv3 `resembl`). Rebrew's own source stays under [`LICENSE`](LICENSE).
+
 ## Quick commands
 
 ```bash

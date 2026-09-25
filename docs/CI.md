@@ -15,7 +15,8 @@ that builds the sdist/wheel via `make build` (SOURCE_DATE_EPOCH, umask 022, C/UT
 `tools/normalize_sdist.py`), checks both artifacts hash the same when
 `make build` reruns from a `git archive` copy at another path under another
 TZ/locale/umask, emits a CycloneDX 1.5 SBOM (`dist/rebrew.cdx.json` from
-`uv.lock` via `tools/generate_sbom.py`), writes `dist/rebrew.buildinfo`
+`uv.lock` via `tools/generate_sbom.py`, with the MIT license on the rebrew
+component and the optional copyleft expressions from `NOTICE`), writes `dist/rebrew.buildinfo`
 (uv/python/`.python-version`/setuptools parsed from `pyproject.toml` + epoch
 knobs, source commit and dirty flag), and installs the
 wheel into a clean venv for a smoke import — runtime deps come from

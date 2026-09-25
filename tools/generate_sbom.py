@@ -18,13 +18,26 @@ import argparse
 import json
 import re
 import sys
+import tomllib
 from pathlib import Path
 from typing import Any
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _LOCK = _REPO_ROOT / "uv.lock"
 _INIT = _REPO_ROOT / "src" / "rebrew" / "__init__.py"
+_PYPROJECT = _REPO_ROOT / "pyproject.toml"
 _VERSION_RE = re.compile(r'^__version__\s*=\s*"([^"]+)"', re.M)
+
+# Optional copyleft pinned in uv.lock. Expressions were read from the locked
+# artifacts (resembl 2.0.0 ``License: GPLv3`` with no later-version clause,
+# m2c aa869da ``License-Expression: GPL-3.0-only``, pyvex 9.3.4
+# ``License-Expression: BSD-2-Clause AND GPL-2.0-or-later``). See NOTICE.
+# Permissive dependencies keep the license metadata inside their own wheels.
+_COPYLEFT_EXPRESSIONS = {
+    "resembl": "GPL-3.0-only",
+    "m2c": "GPL-3.0-only",
+    "pyvex": "BSD-2-Clause AND GPL-2.0-or-later",
+}
 
 
 def _project_version() -> str:
@@ -33,6 +46,15 @@ def _project_version() -> str:
     if match is None:
         raise SystemExit(f"no __version__ in {_INIT}")
     return match.group(1)
+
+
+def _project_license_id() -> str:
+    """SPDX id from ``[project].license`` (PEP 639 string form)."""
+    data = tomllib.loads(_PYPROJECT.read_text(encoding="utf-8"))
+    lic = data["project"]["license"]
+    if not isinstance(lic, str) or not lic.strip():
+        raise SystemExit("pyproject.toml [project].license must be an SPDX id string")
+    return lic.strip()
 
 
 def _parse_lock(text: str) -> list[dict[str, Any]]:
@@ -80,6 +102,9 @@ def _parse_lock(text: str) -> list[dict[str, Any]]:
                 for h in sorted(hashes)
                 if h.startswith("sha256:")
             ]
+        expr = _COPYLEFT_EXPRESSIONS.get(name)
+        if expr:
+            component["licenses"] = [{"expression": expr}]
         components.append(component)
         name = version = None
         source_kind = "registry"
@@ -149,6 +174,7 @@ def build_bom(lock_text: str, project_version: str) -> dict[str, Any]:
                 "version": project_version,
                 "bom-ref": f"pkg:pypi/rebrew@{project_version}",
                 "purl": f"pkg:pypi/rebrew@{project_version}",
+                "licenses": [{"license": {"id": _project_license_id()}}],
             },
         },
         "components": components,
