@@ -326,6 +326,7 @@ class TestRebrewTestBatchJson:
             "missing_file": 0,
             "byte_matched": 0,
             "library_passed": 0,
+            "library_total": 0,
             "library_excluded": 0,
             "orphans_pruned": 0,
             "inventory_count": 0,

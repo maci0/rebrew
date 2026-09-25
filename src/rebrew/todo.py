@@ -27,7 +27,6 @@ import typer
 from rich.panel import Panel
 from rich.table import Table
 
-from rebrew.annotation import span_contains_factory
 from rebrew.cli import (
     AllTargetsOption,
     TargetOption,
@@ -46,6 +45,7 @@ from rebrew.naming import (
     estimate_difficulty,
     find_neighbor_file,
     ignored_symbols,
+    inside_annotated_vas,
     load_data,
     parse_byte_delta,
 )
@@ -673,8 +673,14 @@ def _collect_new_functions(
     existing: dict[int, dict[str, str]],
     covered_vas: dict[int, str],
     cfg: ProjectConfig,
+    skip_vas: frozenset[int] | set[int] = frozenset(),
 ) -> list[TodoItem]:
-    """Collect uncovered functions as start-function candidates."""
+    """Collect uncovered functions as start-function candidates.
+
+    *skip_vas* are never candidates: attributed library code and pseudo-
+    functions found against rows the caller has already removed from
+    *existing*.  Skipping them first keeps them out of the 50-item cap.
+    """
     ignored = ignored_symbols(cfg)
     iat_set: set[int] = set(getattr(cfg, "iat_thunks", None) or [])
     sorted_covered = sorted(covered_vas)
@@ -688,13 +694,8 @@ def _collect_new_functions(
     # 18 of 20 start-function actions were such artifacts, 17 of them switch
     # arms and one 420 bytes inside an EXACT function.  Build real spans from
     # the annotated sizes and skip anything they contain.
-    annotated_spans: list[tuple[int, int]] = sorted(
-        (va, va + int(str(info.get("size", "0") or 0)))
-        for va, info in existing.items()
-        if str(info.get("size", "") or "").strip().isdecimal()
-    )
-
-    _inside_annotated = span_contains_factory(annotated_spans)
+    # Built from the annotated sizes, shared with `rebrew status`.
+    pseudo_vas = inside_annotated_vas(ghidra_funcs, existing) | set(skip_vas)
 
     # Statically linked library code sits in .text looking exactly like game
     # code, and reversing it is wasted work -- the linker supplies those bytes
@@ -719,10 +720,11 @@ def _collect_new_functions(
 
     _lib_probe_warned = False
 
-    def _is_library_code(probe: int, probe_size: int) -> bool:
+    def _library_match(probe: int, probe_size: int) -> tuple[str, str] | None:
+        """``(symbol, object)`` when *probe* is linked library code, else None."""
         nonlocal _lib_probe_warned
         if _lib_index is None:
-            return False
+            return None
         from rebrew.binary_loader import extract_raw_bytes
         from rebrew.lib_match import match_bytes
 
@@ -737,8 +739,8 @@ def _collect_new_functions(
                     f"[yellow]WARNING: cannot read {cfg.target_binary} at 0x{probe:08x} "
                     f"({exc}); library functions may not be filtered[/yellow]"
                 )
-            return False
-        return match_bytes(_lib_index, data) is not None
+            return None
+        return match_bytes(_lib_index, data)
 
     # Load binary for unmatchable detection
     binary_info = None
@@ -759,9 +761,26 @@ def _collect_new_functions(
 
         if va in existing or va in iat_set or name in ignored:
             continue
-        if _inside_annotated(va):
+        if va in pseudo_vas:
             continue
-        if _is_library_code(va, size):
+        lib = _library_match(va, size)
+        if lib is not None:
+            # Not new work, but not done either: no library_*.h attributes it
+            # yet, so `rebrew status` still counts it as unstarted.
+            sym, obj = lib
+            items.append(
+                TodoItem(
+                    category=CAT_IDENTIFY_LIBRARY,
+                    roi_score=max(10.0, calculate_roi(size, 0.0, None) - 10.0),
+                    va=va,
+                    name=sym,
+                    size=size,
+                    filename="",
+                    description=f"linked library code ({obj}): add a // LIBRARY: marker, "
+                    "do not reverse",
+                    command=f"rebrew lib-match --stock-lib LIBCMT.LIB --va 0x{va:08x}",
+                )
+            )
             continue
         if size < 10:
             continue
@@ -1108,7 +1127,9 @@ def collect_all(
 
     # 2. Collect specialized candidates
     items.extend(_collect_prover_candidates(existing, size_by_va, verify_entries))
-    items.extend(_collect_new_functions(ghidra_funcs, existing, covered_vas, cfg))
+    items.extend(
+        _collect_new_functions(ghidra_funcs, existing, covered_vas, cfg, exclude_vas or set())
+    )
     items.extend(_collect_library_candidates(ghidra_funcs, existing, cfg))
     items.extend(_collect_data_drift(cfg))
     items.extend(_collect_start_data(cfg))
@@ -1220,6 +1241,9 @@ def main(
         # `targets.<name>.external_libs` (same rule as `rebrew status`).
         library_vas = external_vas(existing, getattr(cfg, "external_libs", None))
         existing = scope_to_target(existing, cfg)
+        # Switch arms and split bodies inside an annotated function (library
+        # rows included) are not functions: the rule `rebrew status` uses.
+        pseudo_vas = inside_annotated_vas(ghidra_funcs, existing)
         # Library rows are NOT work: their bytes come from the linked archive,
         # so "improve-match / needs implementation" is a false action item.
         # The server's `library_msvc.h` alone contributed 11 of the top 20
@@ -1228,7 +1252,9 @@ def main(
         existing = {va: info for va, info in existing.items() if va not in library_vas}
     except (OSError, json.JSONDecodeError, KeyError) as exc:
         error_exit(f"Failed to load project data: {exc}", json_mode=json_output)
-    all_items = collect_all(cfg, ghidra_funcs, existing, covered_vas, exclude_vas=library_vas)
+    all_items = collect_all(
+        cfg, ghidra_funcs, existing, covered_vas, exclude_vas=library_vas | pseudo_vas
+    )
 
     # Coverage stats (always computed for JSON, optional for terminal)
     # Overlay verify cache on annotation statuses (same logic + target guard
@@ -1252,7 +1278,7 @@ def main(
         status_counts[s] = status_counts.get(s, 0) + 1
     function_vas = {va for va in existing if va not in library_vas}
     ghidra_vas = {f.va for f in ghidra_funcs}
-    total_funcs = len(function_vas | (ghidra_vas - library_vas))
+    total_funcs = len(function_vas | (ghidra_vas - library_vas - pseudo_vas))
     covered = len(function_vas)
     exact = status_counts.get("EXACT", 0)
     reloc = status_counts.get("RELOC", 0)

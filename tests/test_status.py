@@ -376,8 +376,34 @@ class TestCollectStatus:
         )
         report = collect_status(cfg)  # type: ignore[arg-type]
         assert report.verify_info is not None
-        assert (report.verify_info.passed, report.verify_info.library_passed) == (2, 1)
+        v = report.verify_info
+        assert (v.passed, v.library_passed, v.library_total) == (2, 1, 1)
         assert report.to_dict()["last_verify"]["library_passed"] == 1
+        assert report.to_dict()["last_verify"]["library_total"] == 1
+
+    def test_inventory_entry_inside_a_function_is_not_counted(self, tmp_path: Path) -> None:
+        """A discovered "function" inside an annotated one (a switch arm, a split
+        body) is not a function: it is neither progress nor pending work, the
+        same rule `rebrew todo` applies."""
+        cfg = _make_cfg(tmp_path)
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "function_structure.json").write_text(
+            json.dumps(
+                [
+                    {"va": 0x1000, "size": 0x40, "ghidra_name": "f"},
+                    {"va": 0x1020, "size": 0x20, "ghidra_name": "case.0x1000.3"},
+                    {"va": 0x2000, "size": 0x20, "ghidra_name": "g"},
+                ]
+            ),
+            encoding="utf-8",
+        )
+        (src / "f.c").write_text("// FUNCTION: TEST 0x1000\nvoid f(void) {}\n", encoding="utf-8")
+        (tmp_path / "rebrew-functions.toml").write_text(
+            '["TEST.0x1000"]\nstatus = "EXACT"\nsize = 64\n', encoding="utf-8"
+        )
+        report = collect_status(cfg)  # type: ignore[arg-type]
+        assert report.total_functions == 2  # f and the unstarted g; not the arm
 
     def test_library_size_spanning_a_neighbour_counts_once(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -1294,7 +1320,7 @@ class TestRenderTerminal:
             },
             "matched_bytes": 512,
             "total_text_bytes": 1024,
-            "verify_info": VerifyInfo(timestamp="2026-08-07 06:00", passed=5, failed=1),
+            "verify_info": VerifyInfo(timestamp="2026-08-07 06:00", passed=5, failed=1, total=6),
             "inline_metadata_warning": 2,
         }
         base.update(kw)
@@ -1324,7 +1350,7 @@ class TestRenderTerminal:
         assert "SERVER" in out
         assert "server.dll" in out
         assert "EXACT" in out
-        assert "5 byte-matched, 1 failed" in out
+        assert "5/6 byte-matched, 1 failed" in out
         assert "3 source files" in out
 
     def test_headline_is_byte_matched(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1344,6 +1370,24 @@ class TestRenderTerminal:
         assert "50.0% byte-matched" in out  # panel subtitle
         assert "reversed" not in out
         assert "Coverage" not in out
+
+    def test_status_rows_add_up_to_the_total(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Functions with no source get their own row, so the table sums to the
+        headline total (259 + 4 + 20 = 283, not 263 of 283 unexplained)."""
+        from rebrew.status import _render_terminal
+
+        buf = self._capture(monkeypatch)
+        _render_terminal(
+            self._report(
+                total_functions=10,
+                covered_functions=6,
+                status_counts={"EXACT": 4, "NEAR_MATCHING": 2},
+            )
+        )
+        out = buf.getvalue()
+        assert "(no source)" in out
+        row = next(line for line in out.splitlines() if "(no source)" in line)
+        assert " 4 " in row
 
     def test_no_proven_line_without_proven(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from rebrew.status import _render_terminal

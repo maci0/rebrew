@@ -1257,6 +1257,7 @@ def build_report(
     library_excluded: int = 0,
     orphans_pruned: int = 0,
     library_passed: int = 0,
+    library_total: int = 0,
     data_report: dict[str, Any] | None = None,
     text_report: dict[str, Any] | None = None,
     whole_report: dict[str, Any] | None = None,
@@ -1299,6 +1300,7 @@ def build_report(
             "byte_matched": _status_counts.get("EXACT", 0) + _status_counts.get("RELOC", 0),
             # Passes on functions `rebrew status` counts as library code, not progress.
             "library_passed": library_passed,
+            "library_total": library_total,
             "library_excluded": library_excluded,
             "orphans_pruned": orphans_pruned,
             # Not-yet-reversed denominator: functions the inventory names but
@@ -1336,9 +1338,9 @@ def _save_report(
 ) -> None:
     """Assemble the verify report, save cache + baseline, print, gate."""
     results = batch.results
-    library_passed = sum(
-        1 for r in results if r["passed"] and int(r["va"], 16) in batch.library_vas
-    )
+    library_results = [r for r in results if int(r["va"], 16) in batch.library_vas]
+    library_total = len(library_results)
+    library_passed = sum(1 for r in library_results if r["passed"])
     passed, failed, total = batch.passed, batch.failed, batch.total
     size_divergences, missing_sizes = batch.size_divergences, batch.missing_sizes
     report = build_report(
@@ -1360,6 +1362,7 @@ def _save_report(
         whole_report=whole_report,
         inventory_count=batch.inventory_count,
         library_passed=library_passed,
+        library_total=library_total,
     )
 
     # Warn only on ACTIONABLE divergences.  An EXACT/RELOC annotation
@@ -1521,6 +1524,7 @@ def _save_report(
             passed,
             failed,
             library_passed=library_passed,
+            library_total=library_total,
         )
         _raise_if_regression(
             diff_result,
@@ -1542,6 +1546,7 @@ def _save_report(
         passed,
         failed,
         library_passed=library_passed,
+        library_total=library_total,
     )
 
     _raise_if_regression(
@@ -2463,6 +2468,7 @@ def _print_results(
     passed: int,
     failed: int,
     library_passed: int = 0,
+    library_total: int = 0,
 ) -> None:
     """Print diff report, summary table, and failure details."""
     if diff_mode and diff_result is not None:
@@ -2597,13 +2603,16 @@ def _print_results(
     # Summary
     style = "green" if failed == 0 else "red"
     result_text = Text()
+    # Game code first, on `rebrew status`'s basis; library-attributed
+    # functions (compiled, but not reversing progress) are reported apart.
+    game_failed = failed - (library_total - library_passed)
     result_text.append("\nVerification: ")
-    result_text.append(f"{passed}/{total} passed", style=style)
-    if library_passed:
-        result_text.append(f" ({library_passed} library-attributed)")
-    if failed:
+    result_text.append(f"{passed - library_passed}/{total - library_total} passed", style=style)
+    if game_failed:
         result_text.append(", ")
-        result_text.append(f"{failed} failed", style="red")
+        result_text.append(f"{game_failed} failed", style="red")
+    if library_total:
+        result_text.append(f"; library-attributed: {library_passed}/{library_total} passed")
     console.print(result_text)
     if any(r["status"] == "MISSING_SIZE" for r in results):
         n = sum(1 for r in results if r["status"] == "MISSING_SIZE")

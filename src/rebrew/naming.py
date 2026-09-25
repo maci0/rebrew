@@ -344,6 +344,27 @@ def _clip_to_next_start(funcs: list["FunctionEntry"], annotated: Iterable[int]) 
         f.size = clip_span(starts, f.va, f.size)
 
 
+def inside_annotated_vas(
+    funcs: list["FunctionEntry"], existing: dict[int, dict[str, str]]
+) -> set[int]:
+    """Inventory VAs strictly inside an annotated function's span.
+
+    Heuristic discovery emits switch arms and split bodies as
+    pseudo-functions; they are not functions, so neither progress nor
+    pending work.  `rebrew status` and `rebrew todo` share this rule.
+    """
+    from rebrew.annotation import span_contains_factory
+
+    inside = span_contains_factory(
+        [
+            (va, va + int(str(info.get("size") or "0")))
+            for va, info in existing.items()
+            if str(info.get("size") or "").strip().isdecimal()
+        ]
+    )
+    return {f.va for f in funcs if f.va not in existing and inside(f.va)}
+
+
 def scope_to_target(
     existing: dict[int, dict[str, str]], cfg: ProjectConfig | None
 ) -> dict[int, dict[str, str]]:

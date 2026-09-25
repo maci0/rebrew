@@ -57,6 +57,8 @@ class VerifyInfo:
     stale: bool = False  # sources changed since the cache was written
     #: Passes on VAs status counts as library code (not progress).
     library_passed: int = 0
+    #: Last-verify rows on library-attributed VAs, passed or not.
+    library_total: int = 0
 
 
 @dataclass
@@ -190,6 +192,7 @@ class StatusReport:
                 "timestamp": self.verify_info.timestamp,
                 "passed": self.verify_info.passed,
                 "library_passed": self.verify_info.library_passed,
+                "library_total": self.verify_info.library_total,
                 "failed": self.verify_info.failed,
                 "total": self.verify_info.total,
                 "stale": self.verify_info.stale,
@@ -253,6 +256,7 @@ def _load_verify_info(
     passed = 0
     failed = 0
     library_passed = 0
+    library_total = 0
     for entry_data in entries.values():
         if not isinstance(entry_data, dict):
             continue
@@ -260,10 +264,11 @@ def _load_verify_info(
         # counted as failed.
         if not entry_data.get("status"):
             continue
+        on_library = _entry_va(entry_data) in library_vas
+        library_total += on_library
         if entry_data.get("passed", False):
             passed += 1
-            if _entry_va(entry_data) in library_vas:
-                library_passed += 1
+            library_passed += on_library
         else:
             failed += 1
 
@@ -301,6 +306,7 @@ def _load_verify_info(
         total=passed + failed,
         stale=stale,
         library_passed=library_passed,
+        library_total=library_total,
     )
 
 
@@ -412,7 +418,7 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
 
     try:
         ghidra_funcs, existing, _covered_vas = load_data(cfg)
-        from rebrew.naming import external_vas, scope_to_target
+        from rebrew.naming import external_vas, inside_annotated_vas, scope_to_target
 
         # Before scoping: external .lib rows carry library modules
         # (D3DX8, MSVCRT, …) and must leave the denominators whatever the
@@ -434,7 +440,10 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
     # binary's whole inventory (game + CRT/zlib/static libs) made coverage
     # read "half done" when library code was never work.
     function_vas = {va for va in existing if va not in library_vas}
-    report.total_functions = len(function_vas | (ghidra_vas - library_vas))
+    # Switch arms and split bodies inside an annotated function are not
+    # functions (the same rule `rebrew todo` applies).
+    pseudo_vas = inside_annotated_vas(ghidra_funcs, existing)
+    report.total_functions = len(function_vas | (ghidra_vas - library_vas - pseudo_vas))
     report.covered_functions = len(function_vas)
 
     src_dir = Path(cfg.reversed_dir)
@@ -638,6 +647,16 @@ def _render_terminal(report: StatusReport) -> None:
             "",
         )
 
+    # Functions without a source file: the rows then add up to the total.
+    no_source = report.total_functions - report.covered_functions
+    if no_source > 0:
+        status_table.add_row(
+            "[dim](no source)[/dim]",
+            f"[dim]{no_source}[/dim]",
+            f"[dim]{floor_pct(no_source, report.total_functions)}%[/dim]",
+            "",
+        )
+
     # --- Summary lines ---
     summary_lines: list[str] = []
 
@@ -694,10 +713,15 @@ def _render_terminal(report: StatusReport) -> None:
         verify_color = "green" if v.failed == 0 else "yellow"
         stale_suffix = " [yellow](stale — run rebrew verify)[/yellow]" if v.stale else ""
         summary_lines.append(
-            f"  Last verify: [{verify_color}]{v.passed} byte-matched[/{verify_color}]"
-            + (f" ({v.library_passed} library-attributed)" if v.library_passed else "")
-            + f", [red]{v.failed} failed[/red]"
-            f"  [dim]({v.timestamp})[/dim]{stale_suffix}"
+            f"  Last verify: [{verify_color}]{v.passed - v.library_passed}/"
+            f"{v.total - v.library_total} byte-matched[/{verify_color}]"
+            f", [red]{v.failed - (v.library_total - v.library_passed)} failed[/red]"
+            + (
+                f"; library-attributed {v.library_passed}/{v.library_total}"
+                if v.library_total
+                else ""
+            )
+            + f"  [dim]({v.timestamp})[/dim]{stale_suffix}"
         )
         # Effective-status overlay: verify results override metadata statuses.
         if report.verify_overrides:

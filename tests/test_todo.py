@@ -588,6 +588,28 @@ class TestCollectors:
             for i in _collect_library_candidates([normal], existing, cfg)
         )
 
+    def test_unattributed_library_code_is_an_identify_action(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Linked library code no header attributes yet is not skipped silently
+        (status counts it as unstarted): it becomes an identify-library action."""
+        cached = tmp_path / "libcmt.lib"
+        cached.write_bytes(b"")
+        monkeypatch.setattr("rebrew.lib_match.stock_lib_cache", lambda root, name: cached)
+        monkeypatch.setattr("rebrew.lib_match.index_library", lambda path: {})
+        monkeypatch.setattr(
+            "rebrew.lib_match.match_bytes", lambda index, data: ("_strncnt", "strncnt.obj")
+        )
+        monkeypatch.setattr(
+            "rebrew.binary_loader.extract_raw_bytes", lambda path, va, size: b"\x90" * size
+        )
+        cfg = _make_cfg(tmp_path)
+        items = _collect_new_functions(
+            [FunctionEntry(va=0x1002350A, size=43, name="fcn")], {}, {}, cfg
+        )
+        assert [(i.category, i.name) for i in items] == [(CAT_IDENTIFY_LIBRARY, "_strncnt")]
+        assert "lib-match" in items[0].command
+
     def test_new_functions_basic(self, tmp_path: Path) -> None:
         cfg = _make_cfg(tmp_path)
         ghidra_funcs = [
@@ -1240,6 +1262,34 @@ class TestTodoCli:
         assert data["coverage"]["matching"] == 1
         assert data["total_items"] >= 1
         assert any(i["va"] == "0x00001000" for i in data["items"])
+
+    def test_library_rows_do_not_crowd_out_new_functions(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Attributed library functions are neither candidates nor count toward
+        the start-function cap, so a real unstarted function above 50 of them is
+        still offered, and the denominator matches `rebrew status`."""
+        import json
+
+        lib = {
+            0x1000 + 0x40 * i: {"filename": "library_x.h", "size": "64", "marker_type": "LIBRARY"}
+            for i in range(60)
+        }
+        funcs = [FunctionEntry(va=va, size=64, name=f"lib{va:x}") for va in lib]
+        funcs.append(FunctionEntry(va=0x9000, size=80, name="real_fn"))
+        result = self._invoke(
+            tmp_path,
+            monkeypatch,
+            ghidra_funcs=funcs,
+            existing=lib,
+            covered_vas={},
+            args=["--json", "-n", "100"],
+        )
+        data = json.loads(result.output)
+        assert [i["va"] for i in data["items"] if i["category"] == "start-function"] == [
+            "0x00009000"
+        ]
+        assert data["coverage"]["ghidra_funcs"] == 1
 
     def test_near_miss_never_shows_100_percent(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

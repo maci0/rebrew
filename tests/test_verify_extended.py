@@ -1996,8 +1996,13 @@ class TestLibraryAttributedPasses:
             "console",
             Console(file=buf, force_terminal=True, width=120, no_color=True, highlight=False),
         )
-        _print_results([], [], None, None, False, False, 283, 279, 4, library_passed=22)
-        assert "279/283 passed (22 library-attributed), 4 failed" in buf.getvalue()
+        _print_results(
+            [], [], None, None, False, False, 281, 277, 4, library_passed=18, library_total=18
+        )
+        out = buf.getvalue()
+        # Game code first, on `rebrew status`'s basis; library code apart.
+        assert "Verification: 259/263 passed, 4 failed" in out
+        assert "library-attributed: 18/18 passed" in out
 
     def test_report_counts_library_passes(self) -> None:
         from rebrew.verify import build_report
@@ -2016,5 +2021,7 @@ class TestLibraryAttributedPasses:
             compile_context=None,
             provenance="verify",
             library_passed=22,
+            library_total=22,
         )
         assert report["summary"]["library_passed"] == 22
+        assert report["summary"]["library_total"] == 22

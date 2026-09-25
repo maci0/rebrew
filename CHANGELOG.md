@@ -1,5 +1,23 @@
 ## [Unreleased]
 
+### Fixed
+- **`status`, `verify` and `todo` count the same functions.**  On
+  guild-rebrew `server.dll` they read 259/283, 277/281 and 91.5% for one
+  tree.
+  - `status` counted 18 discovered "functions" that sit inside an annotated
+    one (17 switch arms and a split body) as unstarted work; `todo` already
+    knew they are not functions.  Both now use `naming.inside_annotated_vas`.
+  - `todo` skipped statically linked library code with no `// LIBRARY:`
+    marker yet, which `status` counts as unstarted; it is now an
+    `identify-library` action naming the matched symbol.  Attributed library
+    rows no longer fill the 50-item start-function cap either, which hid
+    the real candidates behind them.
+  - `verify` and `status`'s last-verify line lead with game code, the
+    functions `status` counts (`259/263 passed, 4 failed`), and report
+    library-attributed functions apart (`library-attributed: 18/18 passed`;
+    JSON `library_total` beside `library_passed`).
+  - `status` adds a `(no source)` row, so the status rows sum to the total.
+
 ## [2.9.0] - 2026-09-25
 ### Removed
 - **The `todo` blocked lens and the `status` blocked count** (ADR-025,
