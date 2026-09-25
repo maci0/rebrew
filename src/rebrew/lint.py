@@ -433,17 +433,20 @@ def _function_containing_va(
     ``spans`` is a list sorted by start.  A span whose *start* equals *va*
     is NOT a "contains" — the caller already established that *va* is not a
     function start, so only strictly-inside hits qualify (a moved/merged
-    annotation now points into the body of a different function).
+    annotation now points into the body of a different function).  A shorter
+    span nested in a longer one does not hide the outer tail.
     """
-    if not spans or va < spans[0][0]:
+    if not spans or va <= spans[0][0]:
         return None
     starts = [s[0] for s in spans]
     idx = bisect.bisect_right(starts, va) - 1
-    if idx < 0:
-        return None
-    start, end, name = spans[idx]
-    if start < va < end:
-        return (start, end, name)
+    # The latest start is not enough: a shorter span nested in a longer one
+    # hides the outer tail. Walk back to the nearest span that still covers va.
+    while idx >= 0:
+        start, end, name = spans[idx]
+        if start < va < end:
+            return (start, end, name)
+        idx -= 1
     return None
 
 
@@ -2052,10 +2055,12 @@ def main(
                 except Exception:
                     _ranges = []
             idx = bisect.bisect_right([r[0] for r in _ranges], va) - 1
-            if idx >= 0:
+            # A shorter section nested in a longer one must not hide the outer tail.
+            while idx >= 0:
                 start, end, name = _ranges[idx]
                 if start <= va < end:
                     return name
+                idx -= 1
             return ""
 
     section_hits: list[MissingSection] = []

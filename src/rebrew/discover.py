@@ -126,16 +126,27 @@ _EH_PE_OMIT = 0xFF
 _EH_EXTENDED_LENGTH = 0xFFFFFFFF
 
 
+#: A 64-bit ULEB128 is at most 10 bytes (7 payload bits each). A longer
+#: continuation is not a length this parser can place, and an unterminated
+#: run would otherwise build an arbitrary-width integer up to the section end.
+_ULEB128_MAX_BYTES = 10
+
+
 def _uleb128(data: bytes, pos: int) -> tuple[int, int]:
-    """``(value, next position)`` of the ULEB128 at *pos*; IndexError when truncated."""
+    """``(value, next position)`` of the ULEB128 at *pos*.
+
+    IndexError when the encoding runs past *data*. ValueError when the
+    continuation bit is still set after 10 bytes.
+    """
     value = shift = 0
-    while True:
+    for _ in range(_ULEB128_MAX_BYTES):
         byte = data[pos]
         pos += 1
         value |= (byte & 0x7F) << shift
-        shift += 7
-        if not byte & 0x80:
+        if byte & 0x80 == 0:
             return value, pos
+        shift += 7
+    raise ValueError(f"ULEB128 longer than {_ULEB128_MAX_BYTES} bytes")
 
 
 def _parse_eh_frame(
@@ -278,13 +289,29 @@ def _discover_pdata(binary: Path) -> list[tuple[int, int, str]]:
     return sorted(set(out))
 
 
+def _extent_contains(extents: list[tuple[int, int]]) -> Callable[[int], bool]:
+    """Whether a VA falls strictly inside a sorted ``(start, size)`` extent.
+
+    *extents* must be sorted by start. The greatest end among extents that
+    start strictly before the probe decides: checking only the latest such
+    start hides an outer function once a shorter extent nested inside it
+    has ended. Built once so each probe is a binary search.
+    """
+    starts = [start for start, _size in extents]
+    prefix_max_end = [0]
+    for start, size in extents:
+        prefix_max_end.append(max(prefix_max_end[-1], start + size))
+
+    def contains(va: int) -> bool:
+        index = bisect.bisect_left(starts, va)
+        return index > 0 and prefix_max_end[index] > va
+
+    return contains
+
+
 def _inside_an_extent(extents: list[tuple[int, int]], va: int) -> bool:
     """True when *va* falls strictly inside one of the sorted ``(start, size)`` *extents*."""
-    index = bisect.bisect_left(extents, (va, 0)) - 1
-    if index < 0:
-        return False
-    start, size = extents[index]
-    return start < va < start + size
+    return _extent_contains(extents)(va)
 
 
 def _discover_ne_loader(binary: Path) -> list[tuple[int, int, str]]:
@@ -816,7 +843,8 @@ def discover_functions(binary: Path, *, min_size: int = 8) -> Discovery:
     }
     extents = sorted(unwind.items())
     if extents:
-        merged = {va: entry for va, entry in merged.items() if not _inside_an_extent(extents, va)}
+        inside = _extent_contains(extents)
+        merged = {va: entry for va, entry in merged.items() if not inside(va)}
 
     # Validate: drop candidates that fall inside a larger span.
     ordered = sorted(merged.items())

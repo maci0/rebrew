@@ -45,6 +45,16 @@ class TestLookupSection:
         )
         assert _lookup_section(0x500, starts, info) is None
 
+    def test_outer_tail_past_a_nested_section(self) -> None:
+        starts, info = _build_section_index(
+            {
+                ".text": {"va": 0x1000, "size": 0x300, "fileOffset": 0},
+                ".inner": {"va": 0x1100, "size": 0x20, "fileOffset": 0x100},
+            }
+        )
+        assert _lookup_section(0x1200, starts, info)[0] == ".text"
+        assert _lookup_section(0x1110, starts, info)[0] == ".inner"
+
     def test_above_last(self) -> None:
         starts, info = _build_section_index(
             {".text": {"va": 0x1000, "size": 0x100, "fileOffset": 0}}
@@ -68,6 +78,16 @@ class TestFindGhidraDataLabel:
 
     def test_none_index(self) -> None:
         assert _find_ghidra_data_label(0x5000, None) is None
+
+    def test_outer_tail_past_a_nested_label(self) -> None:
+        idx = _build_label_index(
+            {
+                0x5000: self._label(0x5000, 0x300),
+                0x5100: self._label(0x5100, 0x20),
+            }
+        )
+        assert _find_ghidra_data_label(0x5200, idx)[0] == 0x5000
+        assert _find_ghidra_data_label(0x5110, idx)[0] == 0x5100
 
     def test_before_first(self) -> None:
         idx = _build_label_index({0x5000: self._label(0x5000, 20)})

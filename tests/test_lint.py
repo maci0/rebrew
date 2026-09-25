@@ -1427,6 +1427,17 @@ class TestAnnotationStaleness:
         assert _build_function_index(cfg) is None
 
 
+class TestFunctionContainingVa:
+    def test_outer_tail_past_a_nested_span_stays_inside(self) -> None:
+        from rebrew.lint import _function_containing_va
+
+        spans = [(0x1000, 0x1300, "outer"), (0x1100, 0x1120, "inner")]
+        assert _function_containing_va(spans, 0x1200) == (0x1000, 0x1300, "outer")
+        assert _function_containing_va(spans, 0x1110) == (0x1100, 0x1120, "inner")
+        assert _function_containing_va(spans, 0x1000) is None
+        assert _function_containing_va(spans, 0x1400) is None
+
+
 class TestBuildFunctionIndexVaFloor:
     def test_va_zero_kept_for_16bit(self, tmp_path: Path) -> None:
         """DOS targets address code from segment 0: VA 0 is legitimate

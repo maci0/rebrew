@@ -283,6 +283,18 @@ class TestReferences:
         lines = out.read_text(encoding="utf-8").splitlines()
         assert f"fcn_{IMAGE_BASE + TEXT_VA:08x}" in lines[1]
 
+    def test_outer_tail_keeps_the_outer_symbol(self) -> None:
+        from rebrew.symbol_addrs import _site_resolver
+
+        rows = [
+            SymbolRow(va=0x1000, name="outer", size=0x300),
+            SymbolRow(va=0x1100, name="inner", size=0x20),
+        ]
+        resolve = _site_resolver(rows)
+        assert resolve(0x1200) == "outer"
+        assert resolve(0x1110) == "inner"
+        assert resolve(0x1000) == "outer"
+
     def test_missing_binary_errors(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         _patch(monkeypatch, tmp_path, [_fake_ann(0x10001000, "GameMain")])
         out = tmp_path / "s.csv"

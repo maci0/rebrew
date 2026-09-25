@@ -289,10 +289,12 @@ def _site_resolver(rows: list[SymbolRow]) -> Callable[[int], str]:
         if name:
             return name
         index = bisect.bisect_right(starts, va) - 1
-        if index >= 0:
+        # A shorter symbol nested in a longer one must not hide the outer tail.
+        while index >= 0:
             lo, hi, candidate = ranges[index]
             if lo <= va < hi:
                 return candidate
+            index -= 1
         return f"fcn_{va:08x}"
 
     return resolve

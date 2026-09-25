@@ -169,11 +169,12 @@ def binary_call_edges(info: Any, ranges: list[tuple[int, int, str]]) -> list[tup
 
     def func_at(va: int) -> str | None:
         idx = bisect.bisect_right(starts, va) - 1
-        if idx < 0:
-            return None
-        lo, hi, name = ordered[idx]
-        if lo <= va < hi:
-            return name
+        # A shorter range nested in a longer one must not hide the outer tail.
+        while idx >= 0:
+            lo, hi, name = ordered[idx]
+            if lo <= va < hi:
+                return name
+            idx -= 1
         return None
 
     edges: list[tuple[str, str]] = []

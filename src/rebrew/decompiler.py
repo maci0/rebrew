@@ -577,13 +577,23 @@ def _kuna_declarations(source: str) -> list[str]:
     Only names with no declaration already present are emitted, so a snippet
     that defines its own label is left alone.  An assignment (``dat_x = 1``)
     is not a declaration: the line patterns require a type before the name.
+    A label inside a function body or after ``=`` is a use, even on a line
+    that starts with ``static``.
     """
     names = sorted(set(_KUNA_LABEL_RE.findall(source)))
     if not names:
         return []
     declared: set[str] = set()
     for match in _KUNA_STORAGE_RE.finditer(source):
-        declared.update(_KUNA_LABEL_RE.findall(match.group(0)))
+        # `{` opens a body and `=` an initializer. Labels there are uses.
+        # `extern int a, b;` has neither, so every declarator on the line counts.
+        head = match.group(0)
+        cut = len(head)
+        for marker in ("{", "="):
+            at = head.find(marker)
+            if at != -1 and at < cut:
+                cut = at
+        declared.update(_KUNA_LABEL_RE.findall(head[:cut]))
     declared.update(match.group(1) for match in _KUNA_DECL_LINE_RE.finditer(source))
     out: list[str] = []
     for name in names:

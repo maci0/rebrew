@@ -156,11 +156,12 @@ def _lookup_section(
     Returns (section_name, file_offset, text_offset) or None.
     """
     idx = bisect.bisect_right(sorted_starts, va) - 1
-    if idx < 0:
-        return None
-    sname, s_va, s_end, s_file_off = section_info[idx]
-    if va < s_end:
-        return sname, s_file_off + (va - s_va), va - s_va
+    # A shorter section nested in a longer one must not hide the outer tail.
+    while idx >= 0:
+        sname, s_va, s_end, s_file_off = section_info[idx]
+        if s_va <= va < s_end:
+            return sname, s_file_off + (va - s_va), va - s_va
+        idx -= 1
     return None
 
 
@@ -187,10 +188,12 @@ def _find_ghidra_data_label(
         return None
     starts, info = _label_index
     idx = bisect.bisect_right(starts, va) - 1
-    if idx >= 0:
+    # A shorter label nested in a longer one must not hide the outer tail.
+    while idx >= 0:
         dl_va, dl_info = info[idx]
         if dl_va <= va < dl_va + dl_info.size:
             return dl_va, dl_info
+        idx -= 1
     return None
 
 

@@ -269,6 +269,22 @@ class TestBuildGraph:
         assert "dispatch_0x20001000" in dispatchers
 
 
+def test_call_in_an_outer_tail_keeps_the_outer_caller(monkeypatch) -> None:
+    """A short range nested in a longer one must not drop calls past it."""
+    from rebrew.analysis import Xref
+    from rebrew.depgraph import binary_call_edges
+
+    monkeypatch.setattr(
+        "rebrew.analysis.scan_references",
+        lambda info: [Xref(kind="call", from_va=0x1200, to_va=0x2000)],
+    )
+    edges = binary_call_edges(
+        None,
+        [(0x1000, 0x1300, "outer"), (0x1100, 0x1120, "inner"), (0x2000, 0x2010, "callee")],
+    )
+    assert edges == [("outer", "callee")]
+
+
 def test_sanitize_id_avoids_collisions() -> None:
     assert _sanitize_id("foo-bar") != _sanitize_id("foo bar")
 

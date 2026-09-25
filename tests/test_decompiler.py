@@ -866,6 +866,19 @@ class TestKunaBackend:
         assert seed is not None
         assert seed.count("extern int dat_401100;") == 1
 
+    def test_kuna_declarations_ignore_a_use_on_a_static_line(self) -> None:
+        """A one-line static body does not declare the labels it uses."""
+        import rebrew.decompiler as dc
+
+        source = "static int sub_401000(void) { return dat_401100; }\n"
+        assert dc._kuna_declarations(source) == ["extern int dat_401100;"]
+
+    def test_kuna_declarations_ignore_an_initializer_use(self) -> None:
+        import rebrew.decompiler as dc
+
+        source = "static int dat_401100 = sub_401200();\n"
+        assert dc._kuna_declarations(source) == ["int sub_401200();"]
+
     def test_kuna_declarations_keep_every_name_on_one_extern(self) -> None:
         """Both labels on one extern line count as declared."""
         import rebrew.decompiler as dc

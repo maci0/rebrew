@@ -243,6 +243,23 @@ class TestClassifyCompareResult:
         assert "stub body" in r.message
         assert "42B" in r.message
 
+    def test_absolute_size_delta_does_not_invent_a_stub(self) -> None:
+        """size_delta is an absolute gap. Both truncated views are the short
+        side, so adding the gap to the target would call a 24B object a 4B
+        stub against a 24B target."""
+        short = b"\x33\xc0\xc3\x90"
+        result = classify_compare_result(
+            False,
+            "SIZE_MISMATCH",
+            short,
+            short,
+            None,
+            size_mismatch=True,
+            size_delta=20,
+        )
+        assert result.status == "SIZE_MISMATCH"
+        assert "stub body" not in result.message
+
     def test_minimal_body_without_full_sizes_stays_size_mismatch(self) -> None:
         """Without the original lengths (other callers), the heuristic falls
         back to the truncated view — no false STUB."""

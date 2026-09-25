@@ -1,6 +1,21 @@
 ## [Unreleased]
 
 ### Fixed
+- **A nested span no longer hides the outer tail.** Discovery, the stale-VA
+  lint, call-graph attribution, symbol-addr site names, section lookup, and
+  data-label lookup used only the latest start before an address. A shorter
+  span inside a longer one made the outer tail look empty. Coverage walks
+  back to the span that still contains the address. A ULEB128 that is still
+  continuing after 10 bytes is rejected instead of growing an unbounded
+  integer to the end of `.eh_frame`.
+- **Kuna seeds declare labels that a one-line body only uses.** A `static`
+  definition and an initializer counted every address label before the
+  semicolon as already declared, so `dat_` / `sub_` uses on that line never
+  received an `extern`. Names after `{` or `=` are uses.
+- **A size gap alone does not relabel a long compile as a stub.** The
+  classifier added the absolute length gap to the truncated target, which
+  describes a long object as a few-byte candidate. Stub detection uses the
+  explicit original lengths; the gap still counts in the byte delta.
 - **`--seed-llm` rejects operators hidden by line splicing.** A seed could
   split `_Pragma`, `__declspec`, `__attribute__`, or an inline-asm keyword
   across a backslash-newline (or a `??/` trigraph) and pass the spelling

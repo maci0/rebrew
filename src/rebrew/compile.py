@@ -496,14 +496,13 @@ def classify_compare_result(
         # never reach here (EXACT/RELOC above).  The caller truncates the
         # LONGER side before classifying, so the original lengths arrive via
         # full_obj_size / full_target_size.
+        # size_delta is the absolute length gap and only feeds ``delta``.
+        # After the caller truncates the longer side, both buffers are the
+        # short length, so adding the gap to the target treats a long object
+        # as a tiny candidate. Original lengths come only from the explicit
+        # full sizes; without them the truncated view stands (no false STUB).
         orig_cand = full_obj_size if full_obj_size is not None else len(obj_bytes or b"")
-        if full_target_size is not None:
-            orig_tgt = full_target_size
-        elif size_delta > 0:
-            # Candidate was the shorter side → target was truncated.
-            orig_tgt = len(target_bytes or b"") + size_delta
-        else:
-            orig_tgt = len(target_bytes or b"")
+        orig_tgt = full_target_size if full_target_size is not None else len(target_bytes or b"")
         status: CompareStatus
         if (
             obj_bytes is not None
