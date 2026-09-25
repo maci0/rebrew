@@ -140,6 +140,107 @@ class TestMigrateMarkersCliEndToEnd:
         assert not any(m == "OTHER" for m, _va in doc)
 
 
+class TestFileAtomicMigration:
+    """Stripping is file-global; recording used to follow the active target only."""
+
+    def test_stacked_targets_are_recorded_together(self, tmp_path) -> None:
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "a.c").write_text(
+            "// FUNCTION: S 0x1000\n// SIZE: 12\nint a(void) { return 0; }\n"
+            "\n// FUNCTION: GOLD 0x2000\n// SIZE: 16\nint a(void) { return 1; }\n"
+        )
+        cfg = _Cfg(tmp_path)
+        row = _migrate_file(cfg, src / "a.c", "S", dry_run=False)
+        assert row is not None and row["functions"] == 2
+        assert "FUNCTION" not in (src / "a.c").read_text()
+
+        from rebrew.metadata import load_metadata
+
+        meta = load_metadata(tmp_path)
+        assert meta[("S", 0x1000)]["size"] == 12
+        assert meta[("GOLD", 0x2000)]["size"] == 16
+        assert meta[("S", 0x1000)]["file"] == meta[("GOLD", 0x2000)]["file"]
+
+        s_annos = parse_c_file_multi(src / "a.c", target_name="S", metadata_dir=tmp_path)
+        g_annos = parse_c_file_multi(src / "a.c", target_name="GOLD", metadata_dir=tmp_path)
+        assert [(a.va, a.size) for a in s_annos] == [(0x1000, 12)]
+        assert [(a.va, a.size) for a in g_annos] == [(0x2000, 16)]
+
+    def test_other_target_only_file_is_out_of_scope(self, tmp_path) -> None:
+        src = tmp_path / "src"
+        src.mkdir()
+        body = "// FUNCTION: GOLD 0x2000\nint b(void) { return 1; }\n"
+        (src / "b.c").write_text(body)
+        assert _migrate_file(_Cfg(tmp_path), src / "b.c", "S", dry_run=False) is None
+        assert (src / "b.c").read_text() == body
+
+    def test_data_only_file_stays_inline(self, tmp_path) -> None:
+        from rebrew.metadata import load_metadata
+
+        src = tmp_path / "src"
+        src.mkdir()
+        body = "// DATA: S 0x10025000\n// SIZE: 256\nextern unsigned char lut[256];\n"
+        (src / "d.c").write_text(body)
+        assert _migrate_file(_Cfg(tmp_path), src / "d.c", "S", dry_run=False) is None
+        assert (src / "d.c").read_text() == body
+        assert load_metadata(tmp_path) == {}
+        annos = parse_c_file_multi(src / "d.c", metadata_dir=tmp_path)
+        assert [a.marker_type for a in annos] == ["DATA"]
+        assert annos[0].va == 0x10025000
+
+    def test_mixed_function_and_data_marker_stays_inline(self, tmp_path) -> None:
+        from rebrew.metadata import load_metadata
+
+        src = tmp_path / "src"
+        src.mkdir()
+        body = (
+            "// GLOBAL: S 0x1000\nextern int g;\n"
+            "\n// FUNCTION: S 0x2000\n// SIZE: 8\nint f(void) { return g; }\n"
+        )
+        (src / "m.c").write_text(body)
+        cfg = _Cfg(tmp_path)
+        row = _migrate_file(cfg, src / "m.c", "S", dry_run=True)
+        assert row is not None and row["skipped"] == "data-markers"
+        assert (src / "m.c").read_text() == body
+        assert load_metadata(tmp_path) == {}
+
+        row = _migrate_file(cfg, src / "m.c", "S", dry_run=False)
+        assert row is not None and row["skipped"] == "data-markers"
+        assert (src / "m.c").read_text() == body
+        assert load_metadata(tmp_path) == {}
+        annos = parse_c_file_multi(src / "m.c", metadata_dir=tmp_path)
+        assert sorted(a.marker_type for a in annos) == ["FUNCTION", "GLOBAL"]
+
+    def test_other_target_data_marker_blocks_the_file(self, tmp_path) -> None:
+        src = tmp_path / "src"
+        src.mkdir()
+        body = (
+            "// FUNCTION: S 0x1000\nint f(void) { return 0; }\n"
+            "// VTABLE: GOLD 0x2000\nvoid *vt[4];\n"
+        )
+        (src / "m.c").write_text(body)
+        row = _migrate_file(_Cfg(tmp_path), src / "m.c", "S", dry_run=False)
+        assert row is not None and row["skipped"] == "data-markers"
+        assert (src / "m.c").read_text() == body
+
+    def test_marker_the_parser_misses_is_not_stripped(self, tmp_path) -> None:
+        """A trailing marker matches the stripper but not the block parser."""
+        from rebrew.metadata import load_metadata
+
+        src = tmp_path / "src"
+        src.mkdir()
+        body = (
+            "// FUNCTION: S 0x1000\nint f(void) { return 0; }\n"
+            "int kept(void) { return 1; } // FUNCTION: S 0x2000\n"
+        )
+        (src / "a.c").write_text(body)
+        row = _migrate_file(_Cfg(tmp_path), src / "a.c", "S", dry_run=False)
+        assert row is not None and row["skipped"] == "unrecorded-markers"
+        assert (src / "a.c").read_text() == body
+        assert load_metadata(tmp_path) == {}
+
+
 class TestMarkerlessAndRerun:
     def test_markerless_project_survives_marker_purge(self, tmp_path) -> None:
         """A file whose only annotations live in TOML is left byte-identical."""

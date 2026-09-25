@@ -1,6 +1,14 @@
 ## [Unreleased]
 
 ### Fixed
+- **`migrate-markers` no longer drops markers it does not record.** The
+  strip removes every marker line in the file, and a file that still has
+  any marker is not read back from TOML. A run scoped to one target used
+  to record only that target's functions and delete the rest: stacked
+  markers for another target, and `GLOBAL` / `DATA` / `VTABLE` / `STRING`
+  lines whose readers still scan the source. A file now migrates only
+  when every function marker in it is recorded. A data marker, or a
+  marker line the parser did not accept, leaves the file inline.
 - **MCP session setup raises `McpError`.** `init_mcp_session` used to leak
   `httpx` transport and status errors. Callers branch on `kind`
   (`network` / `http`), `status_code`, and `retryable`. A non-positive
