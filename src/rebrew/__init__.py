@@ -23,6 +23,21 @@ already set — see the block below.
 """
 
 import os
+from typing import TYPE_CHECKING
+
+# Names below are bound at type-check time only.  Runtime access stays in
+# ``__getattr__`` so importing the package does not load the compile stack.
+if TYPE_CHECKING:
+    from rebrew.compile import CompareResult as CompareResult
+    from rebrew.compile import compile_and_compare as compile_and_compare
+    from rebrew.config import ConfigError as ConfigError
+    from rebrew.config import ProjectConfig as ProjectConfig
+    from rebrew.config import load_config as load_config
+    from rebrew.errors import RebrewError as RebrewError
+    from rebrew.sources import iter_library_headers as iter_library_headers
+    from rebrew.sources import iter_sources as iter_sources
+    from rebrew.toolchain import ToolchainError as ToolchainError
+    from rebrew.toolchain import get_toolchain as get_toolchain
 
 # NumPy's bundled OpenBLAS starts a full-width thread pool at import and
 # busy-spins it while the rest of the interpreter loads.  Importing

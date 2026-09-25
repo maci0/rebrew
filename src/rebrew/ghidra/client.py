@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 
 #: How a :class:`McpError` arose — callers branch on this instead of
 #: matching message substrings.
-McpErrorKind = Literal["network", "http", "protocol"]
+McpErrorKind = Literal["network", "http", "protocol", "validation"]
 
 
 class McpError(RebrewError, RuntimeError):
@@ -37,7 +37,7 @@ class McpError(RebrewError, RuntimeError):
 
     Structured fields let callers recover without string-matching ``str(exc)``:
 
-    - ``kind`` — ``"network"`` / ``"http"`` / ``"protocol"``
+    - ``kind`` — ``"network"`` / ``"http"`` / ``"protocol"`` / ``"validation"``
     - ``status_code`` — HTTP status when known, else ``None``
     - ``retryable`` — ``True`` for transport blips and transient HTTP codes
     """
@@ -302,7 +302,14 @@ def fetch_mcp_tool_raw(
 
 
 def init_mcp_session(client: httpx.Client, endpoint: str) -> str:
-    """Initialize an MCP session and return the session ID."""
+    """Initialize an MCP session and return the session ID.
+
+    Transport failures and non-2xx replies raise :class:`McpError`
+    (``kind="network"`` or ``kind="http"``, with ``status_code`` and
+    ``retryable``) instead of an ``httpx`` exception.
+    """
+    import httpx  # deferred: ~46 ms of startup for non-Ghidra commands
+
     init_payload = {
         "jsonrpc": "2.0",
         "id": 0,
@@ -313,12 +320,28 @@ def init_mcp_session(client: httpx.Client, endpoint: str) -> str:
             "clientInfo": {"name": "rebrew sync", "version": "1.0.0"},
         },
     }
-    resp = client.post(
-        endpoint, json=init_payload, headers=MCP_HEADERS, timeout=MCP_REQUEST_TIMEOUT_S
-    )
+    try:
+        resp = client.post(
+            endpoint, json=init_payload, headers=MCP_HEADERS, timeout=MCP_REQUEST_TIMEOUT_S
+        )
+    except httpx.HTTPError as exc:
+        raise McpError(
+            f"Failed to initialize MCP session: {exc}",
+            kind="network",
+            retryable=True,
+        ) from exc
     try:
         resp.raise_for_status()
         return str(resp.headers.get("Mcp-Session-Id", ""))
+    except httpx.HTTPStatusError as exc:
+        response = exc.response
+        code = response.status_code if response is not None else None
+        raise McpError(
+            f"Failed to initialize MCP session: HTTP {code}",
+            kind="http",
+            status_code=code,
+            retryable=code in _RETRYABLE_HTTP if code is not None else False,
+        ) from exc
     finally:
         close_response(resp)
 
@@ -367,7 +390,7 @@ def _paginate_mcp_list(
     Returns the raw per-item dicts (metadata rows excluded).
     """
     if batch_size <= 0:
-        raise ValueError("batch_size must be positive")
+        raise McpError("batch_size must be positive", kind="validation")
     items: list[dict[str, Any]] = []
     start = 0
     request_id = request_id_start

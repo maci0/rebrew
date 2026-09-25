@@ -30,6 +30,23 @@ can actually fill them.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+# Same names ``__getattr__`` loads at runtime.  Present here so a type
+# checker sees ``from rebrew.errors import ConfigError`` as that class.
+if TYPE_CHECKING:
+    from rebrew.config import ConfigError as ConfigError
+    from rebrew.config import ConfigKeyError as ConfigKeyError
+    from rebrew.config import ConfigNotFoundError as ConfigNotFoundError
+    from rebrew.decompme import DecompmeError as DecompmeError
+    from rebrew.ghidra.client import McpApplyAborted as McpApplyAborted
+    from rebrew.ghidra.client import McpError as McpError
+    from rebrew.metadata_model import MetadataValidationError as MetadataValidationError
+    from rebrew.recompile_client import RecompileError as RecompileError
+    from rebrew.registry import RegistryError as RegistryError
+    from rebrew.toolchain import ToolchainError as ToolchainError
+    from rebrew.workspace.config import WorkspaceNotFound as WorkspaceNotFound
+
 
 class RebrewError(Exception):
     """Base of every error rebrew raises across its public modules.

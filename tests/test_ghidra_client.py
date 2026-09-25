@@ -320,6 +320,52 @@ class TestInitMcpSession:
         client = SimpleNamespace(post=lambda *a, **k: resp)
         assert init_mcp_session(client, "http://x") == ""
 
+    def test_connect_error_is_retryable_mcp_error(self) -> None:
+        import httpx
+
+        from rebrew.ghidra.client import McpError, init_mcp_session
+
+        def _post(*_a: object, **_k: object) -> object:
+            raise httpx.ConnectError("conn refused")
+
+        client = SimpleNamespace(post=_post)
+        with pytest.raises(McpError, match="Failed to initialize MCP session") as ei:
+            init_mcp_session(client, "http://x")  # type: ignore[arg-type]
+        assert ei.value.kind == "network"
+        assert ei.value.retryable is True
+        assert ei.value.status_code is None
+        assert isinstance(ei.value.__cause__, httpx.ConnectError)
+
+    def test_http_status_is_mcp_error(self) -> None:
+        import httpx
+
+        from rebrew.ghidra.client import McpError, init_mcp_session
+
+        request = httpx.Request("POST", "http://x")
+        response = httpx.Response(503, request=request)
+        closed = {"n": 0}
+
+        def _raise_for_status() -> None:
+            raise httpx.HTTPStatusError("err", request=request, response=response)
+
+        def _close() -> None:
+            closed["n"] += 1
+
+        resp = SimpleNamespace(
+            status_code=503,
+            text="",
+            headers={},
+            raise_for_status=_raise_for_status,
+            close=_close,
+        )
+        client = SimpleNamespace(post=lambda *_a, **_k: resp)
+        with pytest.raises(McpError, match="HTTP 503") as ei:
+            init_mcp_session(client, "http://x")  # type: ignore[arg-type]
+        assert ei.value.kind == "http"
+        assert ei.value.status_code == 503
+        assert ei.value.retryable is True
+        assert closed["n"] == 1
+
 
 class TestFetchAllPaginated:
     """Pagination drivers fetch_all_symbols / fetch_all_functions."""
@@ -430,6 +476,15 @@ class TestFetchAllPaginated:
             lambda client, ep, tool, args, rid, session_id="": [{"totalCount": 5}],
         )
         assert fetch_all_functions(None, "http://x", "/prog", "s") == []  # type: ignore[arg-type]
+
+    def test_non_positive_batch_size_is_validation_error(self) -> None:
+        from rebrew.ghidra.client import McpError, fetch_all_functions, fetch_all_symbols
+
+        for fetch in (fetch_all_symbols, fetch_all_functions):
+            with pytest.raises(McpError, match="batch_size must be positive") as ei:
+                fetch(None, "http://x", "/prog", "s", batch_size=0)  # type: ignore[arg-type]
+            assert ei.value.kind == "validation"
+            assert ei.value.retryable is False
 
 
 class _FakeResp:

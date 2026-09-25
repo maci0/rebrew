@@ -138,8 +138,9 @@ All tools find the config by searching upward from the current directory (like `
 ## Library usage
 
 Install as a dependency (`uv add git+https://github.com/maci0/rebrew.git` or
-`pip install` from the same URL). Import submodules directly — the top-level
-package only exports `__version__`:
+`pip install` from the same URL). Import submodules directly. The same entry
+points are also attributes of the package (`from rebrew import load_config`),
+loaded on first use. A star-import still binds only `__version__`:
 
 ```python
 from rebrew.config import load_config

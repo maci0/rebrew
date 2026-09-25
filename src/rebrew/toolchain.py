@@ -534,10 +534,14 @@ def image_present(tag: str, use_cache: bool = True) -> bool:
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         # A hung daemon must surface as ToolchainError (callers catch that),
-        # not a raw TimeoutExpired escaping into the compile/GA path — and
+        # not a raw TimeoutExpired escaping into the compile/GA path, and
         # not a silent False, which would misreport a present image as
-        # "not built".
-        raise ToolchainError(f"docker image inspect {tag} failed: {exc}") from exc
+        # "not built".  Same recovery fields as a failed ``docker run``.
+        raise ToolchainError(
+            f"docker image inspect {tag} failed: {exc}",
+            kind="docker",
+            retryable=True,
+        ) from exc
     present = r.returncode == 0
     with _DOCKER_MEMO_LOCK:
         if present:
@@ -567,7 +571,11 @@ def _image_id(tag: str) -> str | None:
             timeout=30,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
-        raise ToolchainError(f"docker image inspect {tag} failed: {exc}") from exc
+        raise ToolchainError(
+            f"docker image inspect {tag} failed: {exc}",
+            kind="docker",
+            retryable=True,
+        ) from exc
     if r.returncode != 0 or not r.stdout.strip():
         return None
     return r.stdout.strip()
@@ -575,16 +583,28 @@ def _image_id(tag: str) -> str | None:
 
 def _retag_image(src: str, dst: str) -> None:
     """Point the *dst* tag at *src* (an image id or tag)."""
-    r = subprocess.run(
-        [container_runtime(), "tag", src, dst],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        timeout=60,
-    )
+    try:
+        r = subprocess.run(
+            [container_runtime(), "tag", src, dst],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=60,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        # Rollback calls this inside ``suppress(ToolchainError)``.  A raw
+        # timeout here would replace the swap's original error.
+        raise ToolchainError(
+            f"docker tag {src} -> {dst} failed: {exc}",
+            kind="docker",
+            retryable=True,
+        ) from exc
     if r.returncode != 0:
-        raise ToolchainError(f"docker tag {src} -> {dst} failed: {r.stderr[-300:]}")
+        raise ToolchainError(
+            f"docker tag {src} -> {dst} failed: {r.stderr[-300:]}",
+            kind="docker",
+        )
 
 
 def swap_toolchain_image(tag: str, op: Callable[[], None]) -> str:

@@ -1,6 +1,20 @@
 ## [Unreleased]
 
 ### Fixed
+- **MCP session setup raises `McpError`.** `init_mcp_session` used to leak
+  `httpx` transport and status errors. Callers branch on `kind`
+  (`network` / `http`), `status_code`, and `retryable`. A non-positive
+  `batch_size` on `fetch_all_symbols` / `fetch_all_functions` is
+  `McpError` with `kind="validation"`.
+- **A hung docker inspect or retag is retryable.** `image_present`, the
+  image-id lookup, and retag map a daemon timeout or `OSError` to
+  `ToolchainError` with `kind="docker"` and `retryable=True`, matching a
+  failed `docker run`. A retag timeout during image rollback no longer
+  replaces the original swap error.
+- **Lazy imports keep their types.** `from rebrew import CompareResult`
+  and `from rebrew.errors import ConfigError` (and the other lazy names)
+  type-check as the real classes. Runtime loading is unchanged, and a
+  star-import still binds only `__version__` / `RebrewError`.
 - **A nested span no longer hides the outer tail.** Discovery, the stale-VA
   lint, call-graph attribution, symbol-addr site names, section lookup, and
   data-label lookup used only the latest start before an address. A shorter

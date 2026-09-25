@@ -1,7 +1,10 @@
 """Tests for compile.py pure helpers — CL command resolution and include flags."""
 
+import subprocess
 from pathlib import Path
 from types import SimpleNamespace
+
+import pytest
 
 from rebrew.compile import resolve_cl_command, resolve_include_flags
 
@@ -398,6 +401,38 @@ class TestInvalidateToolchainDigest:
         assert image_present("rebrew/msvc:6.0-win32") is True
         assert toolchain_mod._image_presence["rebrew/msvc:6.0-win32"] is True
         assert calls["n"] == 2
+
+    def test_image_present_inspect_timeout_is_retryable(self, monkeypatch) -> None:
+        """A hung daemon is a retryable docker error, not a permanent invocation failure."""
+        import rebrew.toolchain as toolchain_mod
+        from rebrew.toolchain import ToolchainError, image_present
+
+        toolchain_mod._image_presence.clear()
+        monkeypatch.setattr(toolchain_mod, "docker_available", lambda: True)
+
+        def _timeout(*_a: object, **_k: object) -> object:
+            raise subprocess.TimeoutExpired(cmd=["docker"], timeout=30)
+
+        monkeypatch.setattr(toolchain_mod.subprocess, "run", _timeout)
+        with pytest.raises(ToolchainError, match="docker image inspect") as ei:
+            image_present("rebrew/msvc:6.0-win32")
+        assert ei.value.kind == "docker"
+        assert ei.value.retryable is True
+        assert isinstance(ei.value.__cause__, subprocess.TimeoutExpired)
+
+    def test_retag_timeout_is_toolchain_error(self, monkeypatch) -> None:
+        """Rollback suppresses ToolchainError; a raw timeout would hide the swap error."""
+        import rebrew.toolchain as toolchain_mod
+        from rebrew.toolchain import ToolchainError, _retag_image
+
+        def _timeout(*_a: object, **_k: object) -> object:
+            raise subprocess.TimeoutExpired(cmd=["docker"], timeout=60)
+
+        monkeypatch.setattr(toolchain_mod.subprocess, "run", _timeout)
+        with pytest.raises(ToolchainError, match="docker tag") as ei:
+            _retag_image("sha256:abc", "rebrew/msvc:6.0-win32")
+        assert ei.value.kind == "docker"
+        assert ei.value.retryable is True
 
     def test_digest_and_presence_memos_are_thread_safe(self, monkeypatch) -> None:
         """Concurrent fill/evict must not raise or corrupt the memo dicts.
