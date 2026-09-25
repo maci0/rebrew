@@ -604,8 +604,8 @@ class TestCheckGhidraSync:
         import rebrew.ghidra.cli_backend as cb
 
         monkeypatch.setattr(cb.shutil, "which", staticmethod(lambda n: None))
-        cfg = self._cfg(tmp_path, ghidra_backend="cli")  # type: ignore[arg-type]
-        assert cb.resolve_ghidra_cli(cfg) is None  # type: ignore[arg-type]
+        cfg = self._cfg(tmp_path, ghidra_backend="cli")
+        assert cb.resolve_ghidra_cli(cfg) is None
 
     def test_cli_backend_binary_in_tools(self, tmp_path: Path) -> None:
         from rebrew.doctor import check_ghidra_sync
@@ -615,7 +615,7 @@ class TestCheckGhidraSync:
         bin_file = tools_bin / "ghidra-cli"
         bin_file.write_bytes(b"#!/bin/sh\n")
         bin_file.chmod(0o755)
-        cfg = self._cfg(tmp_path, ghidra_backend="cli")  # type: ignore[arg-type]
+        cfg = self._cfg(tmp_path, ghidra_backend="cli")
         result = check_ghidra_sync(cfg)  # type: ignore[arg-type]
         assert result.status == _PASS
         assert "ghidra-cli" in result.message
@@ -626,7 +626,7 @@ class TestCheckGhidraSync:
         tools_bin = tmp_path / "tools"
         tools_bin.mkdir()
         (tools_bin / "ghidra-cli").write_bytes(b"not executable")  # no chmod
-        cfg = self._cfg(tmp_path, ghidra_backend="cli")  # type: ignore[arg-type]
+        cfg = self._cfg(tmp_path, ghidra_backend="cli")
         result = check_ghidra_sync(cfg)  # type: ignore[arg-type]
         assert result.status == _WARN
         assert "no ghidra-cli binary" in result.message

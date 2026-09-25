@@ -310,7 +310,7 @@ class TestBinsyncRoundTrip:
         doc = tomlkit.parse(p.read_text(encoding="utf-8"))
         if "header" not in doc:
             doc["header"] = tomlkit.table()
-        doc["header"]["type"] = "int __cdecl RenamedFromIDA(int x, int y)"  # type: ignore[index]
+        doc["header"]["type"] = "int __cdecl RenamedFromIDA(int x, int y)"
         doc["type"] = "int __cdecl RenamedFromIDA(int x, int y)"
         doc["name"] = "_foo"  # keep same name so only prototype changes
         p.write_text(tomlkit.dumps(doc), encoding="utf-8")
@@ -1009,7 +1009,7 @@ marker = "V1"
         doc = tomlkit.parse(p.read_text(encoding="utf-8"))
         if "header" not in doc:
             doc["header"] = tomlkit.table()
-        doc["header"]["type"] = "int __cdecl foo(int x)"  # type: ignore[index]
+        doc["header"]["type"] = "int __cdecl foo(int x)"
         doc["type"] = "int __cdecl foo(int x)"
         p.write_text(tomlkit.dumps(doc), encoding="utf-8")
 

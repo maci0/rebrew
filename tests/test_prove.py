@@ -1164,7 +1164,7 @@ class TestWatchVaValidation:
         """A watch VA beyond 32 bits is a clean argument error, not a silent no-op."""
         from rebrew.cli import EXIT_ERROR
 
-        result = self._invoke(tmp_path, monkeypatch, "0x1FFFFFFFF")  # type: ignore[attr-defined]
+        result = self._invoke(tmp_path, monkeypatch, "0x1FFFFFFFF")
         assert result.exit_code == EXIT_ERROR
         assert "Invalid watch VA" in result.output
         assert not result.called_prepare["prepare"]  # type: ignore[attr-defined]
@@ -1175,7 +1175,7 @@ class TestWatchVaValidation:
         """2^32 as a decimal is rejected the same way."""
         from rebrew.cli import EXIT_ERROR
 
-        result = self._invoke(tmp_path, monkeypatch, "4294967296")  # type: ignore[attr-defined]
+        result = self._invoke(tmp_path, monkeypatch, "4294967296")
         assert result.exit_code == EXIT_ERROR
         assert "Invalid watch VA" in result.output
         assert not result.called_prepare["prepare"]  # type: ignore[attr-defined]

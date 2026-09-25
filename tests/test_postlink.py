@@ -568,7 +568,7 @@ class TestPeMetadataFixer:
         real = postlink._fix_pe_metadata
 
         def spy(built_buf: bytearray, meta: object, info: object) -> postlink.FixerReport:
-            captured["reloc_raw"] = info.sections[".reloc"].raw_size  # type: ignore[union-attr]
+            captured["reloc_raw"] = info.sections[".reloc"].raw_size
             return real(built_buf, meta, info)  # type: ignore[arg-type]
 
         postlink.FIXERS["pe-metadata"] = spy

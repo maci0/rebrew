@@ -28,6 +28,12 @@
     JSON `library_total` beside `library_passed`).
   - `status` adds a `(no source)` row, so the status rows sum to the total.
 
+### Changed
+- **Ruff checks gettext plurals and ``min`` over ``sorted``.**  ``INT001``–
+  ``INT003`` and ``FURB192`` join the select; the tree already passes them.
+  Test ``type: ignore`` comments mypy reports as unused are removed, so a
+  later error on those lines is not silenced.
+
 ## [2.9.0] - 2026-09-25
 ### Removed
 - **The `todo` blocked lens and the `status` blocked count** (ADR-025,

@@ -840,7 +840,7 @@ class TestMatchGlue:
                 captured["extra_seeds"] = k.get("extra_seeds")
                 captured["target"] = k.get("target_bytes")
 
-            def run(self) -> tuple[str, float]:  # type: ignore[no-untyped-def]
+            def run(self) -> tuple[str, float]:
                 return "int f(void){return 0;}", 0.0
 
             def close(self) -> None:
@@ -909,7 +909,7 @@ class TestMatchGlue:
             def __init__(self, *a, **k):  # type: ignore[no-untyped-def]
                 calls.append(k.get("extra_seeds"))
 
-            def run(self) -> tuple[str, float]:  # type: ignore[no-untyped-def]
+            def run(self) -> tuple[str, float]:
                 return "int f(void){return 0;}", 0.0
 
             def close(self) -> None:
@@ -967,7 +967,7 @@ class TestLlmSeedDryRun:
             def __init__(self, *a, **k):  # type: ignore[no-untyped-def]
                 calls.append(1)
 
-            def run(self) -> tuple[str, float]:  # type: ignore[no-untyped-def]
+            def run(self) -> tuple[str, float]:
                 raise AssertionError("GA must not run in dry-run mode")
 
             def close(self) -> None:

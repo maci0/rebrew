@@ -583,7 +583,7 @@ class TestCollectors:
         assert _collect_library_candidates([tiny], existing, cfg) == []  # type: ignore[arg-type]
         # Control: the same name at a normal size still emits.
         normal = FunctionEntry(va=0x4000, size=100, name="_free")
-        assert any(  # type: ignore[arg-type]
+        assert any(
             i.category == CAT_IDENTIFY_LIBRARY
             for i in _collect_library_candidates([normal], existing, cfg)
         )
@@ -1072,7 +1072,7 @@ class TestProverCandidatesWithAngr:
         }
         verify_entries = {"0x00001000": SN(status="NEAR_MATCHING", match_percent=97.0, delta=8)}
         size_by_va = {0x1000: 50, 0x2000: 50, 0x3000: 600, 0x4000: 50}
-        items = _collect_prover_candidates(existing, size_by_va, verify_entries)  # type: ignore[arg-type]
+        items = _collect_prover_candidates(existing, size_by_va, verify_entries)
         assert len(items) == 1
         assert items[0].va == 0x1000
         assert items[0].category == CAT_RUN_PROVER
@@ -1094,7 +1094,7 @@ class TestProverCandidatesWithAngr:
             "0x00001000": SN(status="NEAR_MATCHING", match_percent=97.0, delta=8),
             "0x00002000": SN(status="NEAR_MATCHING", match_percent=97.0, delta=8),
         }
-        items = _collect_prover_candidates(existing, {}, verify_entries)  # type: ignore[arg-type]
+        items = _collect_prover_candidates(existing, {}, verify_entries)
         assert items == []
 
 
@@ -1618,7 +1618,7 @@ class TestProverCandidateFiltering:
         monkeypatch.setitem(sys.modules, "angr", SN())  # fake: treat as available
         existing = self._existing("50")
         verify = {"0x00001000": SN(status="NEAR_MATCHING", match_percent=65.0, delta=17)}
-        items = _collect_prover_candidates(existing, {0x1000: 50}, verify)  # type: ignore[arg-type]
+        items = _collect_prover_candidates(existing, {0x1000: 50}, verify)
         assert items == []
 
     def test_metadata_size_preferred_over_ghidra(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1629,7 +1629,7 @@ class TestProverCandidateFiltering:
         monkeypatch.setitem(sys.modules, "angr", SN())  # fake: treat as available
         # Ghidra says 50, but metadata SIZE (600) is the real extent → skipped.
         existing = self._existing("600")
-        items = _collect_prover_candidates(existing, {0x1000: 50}, {})  # type: ignore[arg-type]
+        items = _collect_prover_candidates(existing, {0x1000: 50}, {})
         assert items == []
 
     def test_metadata_size_smaller_than_ghidra_kept(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1641,7 +1641,7 @@ class TestProverCandidateFiltering:
         # Ghidra says 600, metadata says 50 → the real extent is small → kept.
         existing = self._existing("50")
         verify = {"0x00001000": SN(status="NEAR_MATCHING", match_percent=96.0, delta=2)}
-        items = _collect_prover_candidates(existing, {0x1000: 600}, verify)  # type: ignore[arg-type]
+        items = _collect_prover_candidates(existing, {0x1000: 600}, verify)
         assert len(items) == 1
         assert items[0].va == 0x1000
 
@@ -1653,7 +1653,7 @@ class TestProverCandidateFiltering:
         monkeypatch.setitem(sys.modules, "angr", SN())  # fake: treat as available
         existing = {0x1000: {"status": "PROVEN", "symbol": "a", "size": "50"}}
         verify = {"0x00001000": SN(status="NEAR_MATCHING", match_percent=96.0, delta=2)}
-        items = _collect_prover_candidates(existing, {0x1000: 50}, verify)  # type: ignore[arg-type]
+        items = _collect_prover_candidates(existing, {0x1000: 50}, verify)
         assert items == []
 
     def test_unmeasured_candidate_kept(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1664,7 +1664,7 @@ class TestProverCandidateFiltering:
         monkeypatch.setitem(sys.modules, "angr", SN())  # fake: treat as available
         # No verify cache → match_pct unknown → still eligible.
         existing = self._existing("50")
-        items = _collect_prover_candidates(existing, {0x1000: 50}, {})  # type: ignore[arg-type]
+        items = _collect_prover_candidates(existing, {0x1000: 50}, {})
         assert len(items) == 1
 
 

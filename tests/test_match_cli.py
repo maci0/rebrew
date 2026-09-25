@@ -555,7 +555,7 @@ class TestAllTargetsParallel:
 
         class _CapturingPool(RealPool):
             def __init__(self, *args: object, **kwargs: object) -> None:
-                pool_sizes.append(int(kwargs.get("max_workers") or args[0]))  # type: ignore[arg-type]
+                pool_sizes.append(int(kwargs.get("max_workers") or args[0]))
                 super().__init__(*args, **kwargs)
 
         monkeypatch.setattr("rebrew.match._run_all", _fake_run_all)

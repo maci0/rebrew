@@ -292,7 +292,7 @@ def test_generate_toolchain_file(tmp_path: Path) -> None:
     assert 'set(CMAKE_C_COMPILER "rebrew-cmake-cl")' in text
     assert 'set(CMAKE_LINKER "rebrew-cmake-link")' in text
     assert 'set(CMAKE_AR "rebrew-cmake-lib")' in text
-    assert spec.image in text  # type: ignore[arg-type]
+    assert spec.image in text
     assert 'CMAKE_C_COMPILER_ID "MSVC"' in text
     assert 'CMAKE_C_OUTPUT_EXTENSION ".obj"' in text
 

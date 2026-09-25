@@ -40,7 +40,7 @@ class TestValidateSkillCommands:
         assert spec is not None
         mod = importlib.util.module_from_spec(spec)
         assert spec.loader is not None
-        spec.loader.exec_module(mod)  # type: ignore[union-attr]
+        spec.loader.exec_module(mod)
         return bool(mod.validate(quiet=True))
 
     def test_script_is_importable(self) -> None:
@@ -49,7 +49,7 @@ class TestValidateSkillCommands:
         assert spec is not None
         mod = importlib.util.module_from_spec(spec)
         assert spec.loader is not None
-        spec.loader.exec_module(mod)  # type: ignore[union-attr]
+        spec.loader.exec_module(mod)
         assert hasattr(mod, "validate")
 
     def test_validate_function_returns_bool(self, _validate_once: bool) -> None:
@@ -70,7 +70,7 @@ class TestValidateSkillCommands:
         spec = importlib.util.spec_from_file_location("validate_skill_commands", _SCRIPT)
         assert spec is not None and spec.loader is not None
         mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)  # type: ignore[union-attr]
+        spec.loader.exec_module(mod)
         import sys
 
         for result, code in ((True, 0), (False, 1)):

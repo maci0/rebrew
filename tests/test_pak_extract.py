@@ -32,8 +32,8 @@ from hypothesis import strategies as st
 try:
     from tools.DELPHI10.pak_extract import parse_archive, quantum_decompress
 except ModuleNotFoundError:  # pragma: no cover — environment-dependent
-    parse_archive = None  # type: ignore[assignment]
-    quantum_decompress = None  # type: ignore[assignment]
+    parse_archive = None
+    quantum_decompress = None
 
 pytestmark = pytest.mark.skipif(
     parse_archive is None,

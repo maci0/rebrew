@@ -226,7 +226,7 @@ class TestSectionSymbolBytesBounds:
     def test_in_extent_reads_section_bytes(
         self,
         tmp_path: Path,
-        monkeypatch,  # type: ignore[no-untyped-def]
+        monkeypatch,
     ) -> None:
         import pytest
 
@@ -243,7 +243,7 @@ class TestSectionSymbolBytesBounds:
     def test_oversized_symbol_raises_not_cross_section(
         self,
         tmp_path: Path,
-        monkeypatch,  # type: ignore[no-untyped-def]
+        monkeypatch,
     ) -> None:
         import pytest
 
@@ -261,7 +261,7 @@ class TestSectionSymbolBytesBounds:
     def test_bss_tail_symbol_skipped_without_bytes(
         self,
         tmp_path: Path,
-        monkeypatch,  # type: ignore[no-untyped-def]
+        monkeypatch,
     ) -> None:
         import pytest
 

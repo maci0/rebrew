@@ -654,7 +654,7 @@ class TestVerifyCli:
 
         cfg = _cfg(tmp_path)
         lib_ann = _ann(0x1000)
-        lib_ann.marker_type = "LIBRARY"  # type: ignore[attr-defined]
+        lib_ann.marker_type = "LIBRARY"
         fn_ann = _ann(0x2000)
         monkeypatch.setattr("rebrew.verify.require_config", lambda **kw: cfg)
         monkeypatch.setattr(
@@ -700,7 +700,7 @@ class TestVerifyCli:
 
         cfg = _cfg(tmp_path)
         lib_ann = _ann(0x1000)
-        lib_ann.marker_type = "LIBRARY"  # type: ignore[attr-defined]
+        lib_ann.marker_type = "LIBRARY"
         fn_ann = _ann(0x2000)
         monkeypatch.setattr("rebrew.verify.require_config", lambda **kw: cfg)
         monkeypatch.setattr(
@@ -751,7 +751,7 @@ class TestVerifyCli:
 
         cfg = _cfg(tmp_path)
         lib_ann = _ann(0x1000)
-        lib_ann.marker_type = "LIBRARY"  # type: ignore[attr-defined]
+        lib_ann.marker_type = "LIBRARY"
         monkeypatch.setattr("rebrew.verify.require_config", lambda **kw: cfg)
         monkeypatch.setattr(
             "rebrew.verify.prepare_entries",
@@ -970,7 +970,7 @@ class TestApplyStatusUpdates:
             encoding="utf-8",
         )
         entry = _ann(0x1000)
-        apply_status_updates([(entry, "EXACT", 0)], cfg)  # type: ignore[arg-type]
+        apply_status_updates([(entry, "EXACT", 0)], cfg)
         assert get_entry(cfg.metadata_dir, 0x1000, "SERVER").get("status") == "EXACT"
 
     def test_promotion_keeps_the_blocker_of_a_kept_asm_body(self, tmp_path: Path) -> None:
@@ -991,7 +991,7 @@ class TestApplyStatusUpdates:
             update_field(cfg.metadata_dir, va, "blocker", "why", "SERVER")
         a, b = _ann(0x1000), _ann(0x2000)
         a.filepath, b.filepath = "a.c", "b.c"
-        apply_status_updates([(a, "RELOC", 0), (b, "RELOC", 0)], cfg)  # type: ignore[arg-type]
+        apply_status_updates([(a, "RELOC", 0), (b, "RELOC", 0)], cfg)
         assert get_entry(cfg.metadata_dir, 0x1000, "SERVER").get("blocker") == "why"
         assert not get_entry(cfg.metadata_dir, 0x2000, "SERVER").get("blocker")
 
@@ -1006,7 +1006,7 @@ class TestApplyStatusUpdates:
         )
         update_source_status(cfg.metadata_dir, "PROVEN", "SERVER", 0x1000)
         entry = _ann(0x1000, status="PROVEN")
-        apply_status_updates([(entry, "STUB", 0)], cfg)  # type: ignore[arg-type]
+        apply_status_updates([(entry, "STUB", 0)], cfg)
         assert get_entry(cfg.metadata_dir, 0x1000, "SERVER").get("status") == "STUB"
 
     def test_write_failure_does_not_abort_batch(
@@ -1030,9 +1030,7 @@ class TestApplyStatusUpdates:
 
         monkeypatch.setattr("rebrew.metadata.update_statuses_batch", _boom)
         with caplog.at_level(logging.WARNING):
-            apply_status_updates(  # type: ignore[arg-type]
-                [(_ann(0x1000), "EXACT", 0), (_ann(0x2000), "RELOC", 0)], cfg
-            )
+            apply_status_updates([(_ann(0x1000), "EXACT", 0), (_ann(0x2000), "RELOC", 0)], cfg)
         # Both entries were collected into one batched write that failed; no
         # exception escaped to abort the run.
         assert len(attempted) == 1
@@ -1511,7 +1509,7 @@ class TestRunVerification:
         )
         update_source_status(cfg.metadata_dir, "STUB", "SERVER", 0x1000)
         entry = _ann(0x1000, status="STUB")
-        apply_status_updates([(entry, "SIZE_MISMATCH", 0)], cfg)  # type: ignore[arg-type]
+        apply_status_updates([(entry, "SIZE_MISMATCH", 0)], cfg)
         assert get_entry(cfg.metadata_dir, 0x1000, "SERVER").get("status") == "STUB"
 
     def test_non_stub_promoted_to_size_mismatch(self, tmp_path: Path) -> None:
@@ -1526,7 +1524,7 @@ class TestRunVerification:
         )
         update_source_status(cfg.metadata_dir, "EXACT", "SERVER", 0x1000)
         entry = _ann(0x1000, status="EXACT")
-        apply_status_updates([(entry, "SIZE_MISMATCH", 0)], cfg)  # type: ignore[arg-type]
+        apply_status_updates([(entry, "SIZE_MISMATCH", 0)], cfg)
         assert get_entry(cfg.metadata_dir, 0x1000, "SERVER").get("status") == "SIZE_MISMATCH"
 
 

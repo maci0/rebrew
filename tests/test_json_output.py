@@ -1284,13 +1284,13 @@ class TestForceStatus:
         )
         monkeypatch.setattr("rebrew.test._patch_verify_cache", lambda *a, **k: None)
 
-        test_mod._test_multi(  # type: ignore[attr-defined]
+        test_mod._test_multi(
             cfg, "multi.c", anns, None, no_promote=False, dry_run=True, json_output=False
         )
         assert calls == []  # nothing written
         assert "would update STATUS" in capsys.readouterr().err
 
-        test_mod._test_multi(  # type: ignore[attr-defined]
+        test_mod._test_multi(
             cfg, "multi.c", anns, None, no_promote=False, dry_run=False, json_output=False
         )
         assert len(calls) == 2  # real run promotes both

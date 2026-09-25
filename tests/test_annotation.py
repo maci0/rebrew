@@ -1018,7 +1018,7 @@ class TestAuditAnnotation:
     # _calc_stdcall_param_size: template param regression
     def test_stdcall_template_param_counted_correctly(self) -> None:
         """std::pair<int,int> is ONE parameter — must not be double-counted."""
-        from rebrew.annotation import _calc_stdcall_param_size  # type: ignore[attr-defined]
+        from rebrew.annotation import _calc_stdcall_param_size
 
         # pair<int,int> stripped to "pair", one 4-byte slot
         size = _calc_stdcall_param_size("void __stdcall foo(std::pair<int,int> p)")
@@ -1026,7 +1026,7 @@ class TestAuditAnnotation:
 
     def test_stdcall_nested_template(self) -> None:
         """Nested templates should still count as single params each."""
-        from rebrew.annotation import _calc_stdcall_param_size  # type: ignore[attr-defined]
+        from rebrew.annotation import _calc_stdcall_param_size
 
         # Two params: pair<int,int> and int
         size = _calc_stdcall_param_size("void __stdcall bar(std::pair<int,int> a, int b)")
@@ -1044,7 +1044,7 @@ class TestAuditAnnotation:
     )
     def test_stdcall_pointer_and_name_params(self, proto: str, expected: int) -> None:
         """Pointers and function pointers push 4 bytes; type names match whole words."""
-        from rebrew.annotation import _calc_stdcall_param_size  # type: ignore[attr-defined]
+        from rebrew.annotation import _calc_stdcall_param_size
 
         assert _calc_stdcall_param_size(proto) == expected
 
@@ -1153,7 +1153,7 @@ class TestAuditAnnotation:
 
         Iterative stripping must handle arbitrary depth.
         """
-        from rebrew.annotation import _calc_stdcall_param_size  # type: ignore[attr-defined]
+        from rebrew.annotation import _calc_stdcall_param_size
 
         # std::map<int, std::pair<A,B>> is ONE parameter (a map).
         # Before fix: two-pass needed, single-pass left stray '>' giving TWO counted params.
@@ -1744,19 +1744,19 @@ class TestStdcallParamSizeDeclspec:
     confused with the declspec group (np-rebrew TOOLCHAIN_BUGS naked gap)."""
 
     def test_naked_void_is_zero(self) -> None:
-        from rebrew.annotation import _calc_stdcall_param_size  # type: ignore[attr-defined]
+        from rebrew.annotation import _calc_stdcall_param_size
 
         assert _calc_stdcall_param_size("void __declspec(naked) __stdcall foo(void)") == 0
         assert _calc_stdcall_param_size("void __declspec(naked) __stdcall foo()") == 0
 
     def test_naked_with_params(self) -> None:
-        from rebrew.annotation import _calc_stdcall_param_size  # type: ignore[attr-defined]
+        from rebrew.annotation import _calc_stdcall_param_size
 
         assert _calc_stdcall_param_size("void __declspec(naked) __stdcall foo(int a)") == 4
         assert _calc_stdcall_param_size("int __declspec(naked) __stdcall foo(int a, int b)") == 8
 
     def test_plain_unchanged(self) -> None:
-        from rebrew.annotation import _calc_stdcall_param_size  # type: ignore[attr-defined]
+        from rebrew.annotation import _calc_stdcall_param_size
 
         assert _calc_stdcall_param_size("void __stdcall foo(void)") == 0
         assert _calc_stdcall_param_size("int __stdcall foo(int a, int b, int c)") == 12

@@ -218,7 +218,7 @@ class TestLoadVerifyCacheRaw:
         cfg = SimpleNamespace(root=tmp_path)
         first = vc_mod.load_verify_cache_raw(cfg)
         assert first == {"version": 1}
-        first["version"] = 999  # type: ignore[index]
+        first["version"] = 999
         second = vc_mod.load_verify_cache_raw(cfg)
         assert second == {"version": 1}
         assert first is not second

@@ -53,7 +53,7 @@ def test_library_rows_stay_out_of_the_catalog(tmp_path: Path) -> None:
         _FakeAnn("fclose", 0x2000, "LIBRARY"),  # swapped attribution (guild case)
         _FakeAnn("global_thing", 0x3000, "GLOBAL"),
     ]
-    m = build_name_to_va(cfg, annotations=anns)  # type: ignore[arg-type]
+    m = build_name_to_va(cfg, annotations=anns)
     assert m.get("game_fn") == 0x1000
     assert m.get("global_thing") == 0x3000
     assert "fclose" not in m

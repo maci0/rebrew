@@ -195,7 +195,7 @@ class TestSectionsFromInfo:
         from rebrew.binary_loader import BinaryInfo, SectionInfo
 
         info = BinaryInfo(path=Path("/fake/x.dll"), format="pe")
-        for name, (va, size, raw, off) in sections.items():  # type: ignore[union-attr]
+        for name, (va, size, raw, off) in sections.items():
             info.sections[name] = SectionInfo(
                 name=name, va=va, size=size, file_offset=off, raw_size=raw
             )

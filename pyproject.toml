@@ -221,6 +221,8 @@ line-length = 100
 # Bandit/tryceratops/refurb/pie/ret/flake8-builtins/logging/unused-arg codes
 # listed below are the zero-finding stable subset of those families; debt
 # siblings (S101/S108/S311/S603/…, TRY003/…, ARG001/…) stay off until clean.
+# INT001–INT003 (a gettext plural argument evaluated before the call) and
+# FURB192 (`min` over `sorted`) join that subset: zero findings on the tree.
 # pylint (PLW/PLC/PLR), flake8-type-checking (TC), flake8-errmsg (EM),
 # flake8-pytest-style (PT), and ISC003 are the same ratchet: only codes the
 # tree already passes.  ISC001/ISC002 stay off (formatter conflict); TID*
@@ -264,7 +266,7 @@ select = [
     "TRY002", "TRY201", "TRY203", "TRY401",
     "FURB105", "FURB116", "FURB122", "FURB129", "FURB132", "FURB157", "FURB161",
     "FURB162", "FURB163", "FURB164", "FURB166", "FURB168", "FURB169", "FURB177",
-    "FURB181", "FURB187",
+    "FURB181", "FURB187", "FURB192",
     "PERF101", "PERF102", "PERF203", "RET501", "RET502", "RET503", "RET506",
     "RET507", "RET508",
     "PIE790", "PIE794", "PIE796", "PIE800", "PIE804", "PIE808",
@@ -273,7 +275,7 @@ select = [
     "LOG001", "LOG002", "LOG004", "LOG007", "LOG009", "LOG014",
     "ARG003", "ARG004",
     "TC004", "TC005", "TC007", "TC010",
-    "ISC003", "EM103",
+    "INT001", "INT002", "INT003", "ISC003", "EM103",
     "PTH100", "PTH102", "PTH103", "PTH104", "PTH106", "PTH107", "PTH109",
     "PTH111", "PTH112", "PTH113", "PTH114", "PTH115", "PTH116", "PTH117",
     "PTH119", "PTH121", "PTH122", "PTH124", "PTH203", "PTH204", "PTH205",

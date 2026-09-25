@@ -305,7 +305,7 @@ class TestRecompileClientFlagsFlexibility:
             compiler="msvc-6.0",
             source="int x = 1;",
             flags="/O2 /nologo",
-            client=FakeClient(),  # type: ignore[arg-type]
+            client=FakeClient(),
         )
         assert res.ok is False
         assert captured["json"]["flags"] == ["/O2", "/nologo"]  # type: ignore[index]
