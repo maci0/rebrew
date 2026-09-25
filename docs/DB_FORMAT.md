@@ -207,8 +207,10 @@ only, and `db/verify_results.json` is gone).
 > This table is persistent — never dropped on rebuild (the per-target
 > `INSERT OR REPLACE` + prune in `build_db` keeps it current; a full rebuild
 > preserves every target's rows).  A rebuild that finds a pre-CHECK DDL
-> recreates the table in place (clamping outliers) so range guards apply
-> without `--force`.
+> recreates the table in place so range guards apply without `--force`.
+> Negative deltas clamp to 0, non-finite deltas become NULL, and a NULL
+> `va` is dropped. Clamped `(target, va)` keys that collide keep the
+> latest row.
 
 ### `history` Table
 Tracks function status changes over time.

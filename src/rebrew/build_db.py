@@ -698,6 +698,101 @@ def _missing_required_objects(db_path: Path) -> set[str]:
         return missing
 
 
+def _nonneg_metric_sql(column: str) -> str:
+    """SQL expression that satisfies a ``>= 0`` CHECK for one delta column.
+
+    SQLite INTEGER affinity keeps a non-integral real, so a pre-CHECK table
+    can hold ``-1.5`` or an infinity in a column declared INTEGER.  Passing
+    either through violates the new CHECK and the in-place migration rolls
+    back — the next rebuild retries the same DDL and fails again.  Negatives
+    clamp to 0; non-finite values become NULL.  *column* is a fixed
+    identifier, not query input.
+    """
+    if not column.isidentifier():
+        raise ValueError(f"not a column name: {column!r}")
+    return (
+        f"CASE WHEN typeof({column}) = 'integer' THEN "
+        f"CASE WHEN {column} < 0 THEN 0 ELSE {column} END "
+        f"WHEN typeof({column}) = 'real' AND {column} = {column} "
+        f"AND abs({column}) < 1e300 THEN "
+        f"CASE WHEN {column} < 0 THEN 0 ELSE {column} END "
+        f"ELSE NULL END"
+    )
+
+
+def _load_coverage_datasets(
+    root_dir: Path,
+    db_path: Path,
+    *,
+    target: str | None,
+    json_output: bool,
+    regen: bool,
+) -> list[tuple[str, dict[str, Any]]]:
+    """Read catalog inputs before the coverage write transaction opens.
+
+    ``--regen`` scans the project (it does not read ``coverage.db``).  A
+    missing or corrupt ``data_*.json`` fails here, before any row is
+    deleted and before ``BEGIN IMMEDIATE``.
+    """
+    datasets: list[tuple[str, dict[str, Any]]] = []
+    if regen:
+        from rebrew.catalog.pipeline import build_catalog_data
+
+        base_cfg = load_config(root_dir)
+        regen_targets = [target] if target else (base_cfg.all_targets or [base_cfg.target_name])
+        for tgt in regen_targets:
+            try:
+                tgt_cfg = load_config(root_dir, target=tgt)
+            except (FileNotFoundError, KeyError, ValueError, TypeError) as exc:
+                error_exit(f"Config error for target {tgt!r}: {exc}", json_mode=json_output)
+            console.print(f"Processing {tgt}...")
+            datasets.append((tgt, build_catalog_data(tgt_cfg)["data"]))
+        return datasets
+
+    json_files = list(db_path.parent.glob("data_*.json"))
+    if target:
+        json_files = [f for f in json_files if f.stem.removeprefix("data_") == target]
+    if not json_files:
+        error_exit(
+            f"No data_*.json files found in {db_path.parent}. "
+            "Run 'rebrew catalog --data-json' first.",
+            json_mode=json_output,
+            code=EXIT_ERROR,
+        )
+    inputs = _snapshot_inputs(root_dir)
+    for json_path in json_files:
+        target_name = json_path.stem.removeprefix("data_")
+        console.print(f"Processing {target_name}...")
+        newer = [p.name for p in inputs if p.stat().st_mtime > json_path.stat().st_mtime]
+        if newer:
+            console.print(
+                f"[yellow]warning:[/yellow] {json_path.name} is older than "
+                f"{', '.join(newer)}; its statuses may be stale.  Rebuild with "
+                "--regen or rerun 'rebrew catalog --data-json'."
+            )
+
+        with json_path.open(encoding="utf-8") as f:
+            try:
+                data = json.load(f)
+            except json.JSONDecodeError as exc:
+                error_exit(
+                    f"{json_path.name} is not valid JSON: {exc}. Regenerate it "
+                    "with 'rebrew catalog --data-json'.",
+                    json_mode=json_output,
+                    code=EXIT_ERROR,
+                )
+            if not isinstance(data, dict):
+                error_exit(
+                    f"{json_path.name} has unexpected shape (expected a JSON "
+                    f"object, got {type(data).__name__}). Regenerate it with "
+                    "'rebrew catalog --data-json'.",
+                    json_mode=json_output,
+                    code=EXIT_ERROR,
+                )
+        datasets.append((target_name, data))
+    return datasets
+
+
 def build_db(
     project_root: Path | None = None,
     target: str | None = None,
@@ -741,6 +836,16 @@ def _build_coverage_db(
 ) -> None:
     """Body of :func:`build_db`.  Caller holds :func:`coverage_db_lock`."""
     _check_db_version(db_path, force=force, json_output=json_output)
+    # Catalog scan and JSON parsing stay outside the write transaction: a
+    # long --regen must not hold BEGIN IMMEDIATE, and a bad snapshot must
+    # not delete rows that the rollback would then have to restore.
+    datasets = _load_coverage_datasets(
+        root_dir,
+        db_path,
+        target=target,
+        json_output=json_output,
+        regen=regen,
+    )
 
     conn: sqlite3.Connection | None = None
     try:
@@ -1021,8 +1126,11 @@ def _build_coverage_db(
 
         c.execute(f"CREATE TABLE IF NOT EXISTS verify_results ({_VERIFY_RESULTS_COLUMNS_SQL})")
         # verify_results is never dropped on rebuild, so CREATE IF NOT EXISTS
-        # leaves a pre-CHECK table alone.  Recreate in place (preserving rows,
-        # clamping outliers) when the stored DDL lacks the range guards.
+        # leaves a pre-CHECK table alone.  Recreate in place when the stored
+        # DDL lacks the range guards.  Negatives clamp to 0, non-finite
+        # deltas become NULL, and a NULL va is dropped.  Clamped keys that
+        # collide on (target, va) keep the latest row so the PRIMARY KEY
+        # cannot abort the rebuild.
         vr_sql_row = c.execute(
             "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'verify_results'"
         ).fetchone()
@@ -1032,66 +1140,72 @@ def _build_coverage_db(
         ):
             c.execute("ALTER TABLE verify_results RENAME TO _verify_results_migrate")
             c.execute(f"CREATE TABLE verify_results ({_VERIFY_RESULTS_COLUMNS_SQL})")
+            byte_sql = _nonneg_metric_sql("byte_delta")
+            diff_sql = _nonneg_metric_sql("diff_lines")
+            reg_sql = _nonneg_metric_sql("reg_delta")
             c.execute(
-                """
+                f"""
                 INSERT INTO verify_results (
                     target, va, verified_at, byte_delta, diff_lines,
                     similarity, reg_delta, effective_match
                 )
                 SELECT
-                    target,
-                    CASE WHEN va < 0 THEN 0 ELSE va END,
-                    CASE
-                        WHEN verified_at IS NULL OR verified_at = ''
-                            THEN '1970-01-01T00:00:00+00:00'
-                        ELSE verified_at
-                    END,
-                    CASE
-                        WHEN byte_delta IS NOT NULL AND typeof(byte_delta) = 'integer'
-                             AND byte_delta < 0 THEN 0
-                        WHEN typeof(byte_delta) IN ('integer', 'real', 'null')
-                            THEN byte_delta
-                        ELSE NULL
-                    END,
-                    CASE
-                        WHEN diff_lines IS NOT NULL AND typeof(diff_lines) = 'integer'
-                             AND diff_lines < 0 THEN 0
-                        WHEN typeof(diff_lines) IN ('integer', 'real', 'null')
-                            THEN diff_lines
-                        ELSE NULL
-                    END,
-                    CASE
-                        WHEN similarity IS NULL THEN NULL
-                        WHEN typeof(similarity) NOT IN ('integer', 'real') THEN NULL
-                        -- Keep finite in-range unit-interval values.  ``x = x``
-                        -- rejects NaN; percents from verify (``(1, 100]``) are
-                        -- scaled down — a plain ``> 1 → 1.0`` clamp used to
-                        -- store every real Sim% as a perfect match.
-                        WHEN similarity = similarity
-                             AND similarity >= 0.0 AND similarity <= 1.0
-                            THEN similarity
-                        WHEN similarity = similarity
-                             AND similarity > 1.0 AND similarity <= 100.0
-                            THEN similarity / 100.0
-                        WHEN similarity = similarity
-                             AND similarity < 0.0 AND abs(similarity) < 1e300
-                            THEN 0.0
-                        ELSE NULL
-                    END,
-                    CASE
-                        WHEN reg_delta IS NOT NULL AND typeof(reg_delta) = 'integer'
-                             AND reg_delta < 0 THEN 0
-                        WHEN typeof(reg_delta) IN ('integer', 'real', 'null')
-                            THEN reg_delta
-                        ELSE NULL
-                    END,
-                    CASE
-                        WHEN effective_match IS NULL THEN NULL
-                        WHEN typeof(effective_match) != 'integer' THEN NULL
-                        WHEN effective_match IN (0, 1) THEN effective_match
-                        ELSE NULL
-                    END
-                FROM _verify_results_migrate
+                    target, va, verified_at, byte_delta, diff_lines,
+                    similarity, reg_delta, effective_match
+                FROM (
+                    SELECT
+                        target, va, verified_at, byte_delta, diff_lines,
+                        similarity, reg_delta, effective_match,
+                        ROW_NUMBER() OVER (
+                            PARTITION BY target, va ORDER BY src_rowid DESC
+                        ) AS rn
+                    FROM (
+                        SELECT
+                            rowid AS src_rowid,
+                            target,
+                            CASE
+                                WHEN va IS NULL THEN NULL
+                                WHEN va < 0 THEN 0
+                                ELSE va
+                            END AS va,
+                            CASE
+                                WHEN verified_at IS NULL OR verified_at = ''
+                                    THEN '1970-01-01T00:00:00+00:00'
+                                ELSE verified_at
+                            END AS verified_at,
+                            {byte_sql} AS byte_delta,
+                            {diff_sql} AS diff_lines,
+                            CASE
+                                WHEN similarity IS NULL THEN NULL
+                                WHEN typeof(similarity) NOT IN ('integer', 'real') THEN NULL
+                                -- Keep finite in-range unit-interval values.
+                                -- ``x = x`` rejects NaN; percents from verify
+                                -- (``(1, 100]``) are scaled down — a plain
+                                -- ``> 1 → 1.0`` clamp used to store every
+                                -- real Sim% as a perfect match.
+                                WHEN similarity = similarity
+                                     AND similarity >= 0.0 AND similarity <= 1.0
+                                    THEN similarity
+                                WHEN similarity = similarity
+                                     AND similarity > 1.0 AND similarity <= 100.0
+                                    THEN similarity / 100.0
+                                WHEN similarity = similarity
+                                     AND similarity < 0.0 AND abs(similarity) < 1e300
+                                    THEN 0.0
+                                ELSE NULL
+                            END AS similarity,
+                            {reg_sql} AS reg_delta,
+                            CASE
+                                WHEN effective_match IS NULL THEN NULL
+                                WHEN typeof(effective_match) != 'integer' THEN NULL
+                                WHEN effective_match IN (0, 1) THEN effective_match
+                                ELSE NULL
+                            END AS effective_match
+                        FROM _verify_results_migrate
+                    )
+                    WHERE va IS NOT NULL
+                )
+                WHERE rn = 1
                 """
             )
             c.execute("DROP TABLE _verify_results_migrate")
@@ -1136,65 +1250,6 @@ def _build_coverage_db(
         if target:
             for table in ("sections", "functions", "globals", "metadata"):
                 c.execute(f"DELETE FROM {table} WHERE target = ?", (target,))
-
-        # Process data_*.json files, optionally filtered by target.
-        # With --regen the dicts come straight from the catalog pipeline
-        # (no intermediate files); otherwise they are read from disk.
-        datasets: list[tuple[str, dict[str, Any]]] = []
-        if regen:
-            from rebrew.catalog.pipeline import build_catalog_data
-
-            base_cfg = load_config(root_dir)
-            regen_targets = [target] if target else (base_cfg.all_targets or [base_cfg.target_name])
-            for tgt in regen_targets:
-                try:
-                    tgt_cfg = load_config(root_dir, target=tgt)
-                except (FileNotFoundError, KeyError, ValueError, TypeError) as exc:
-                    error_exit(f"Config error for target {tgt!r}: {exc}", json_mode=json_output)
-                console.print(f"Processing {tgt}...")
-                datasets.append((tgt, build_catalog_data(tgt_cfg)["data"]))
-        else:
-            json_files = list(db_path.parent.glob("data_*.json"))
-            if target:
-                json_files = [f for f in json_files if f.stem.removeprefix("data_") == target]
-            if not json_files:
-                error_exit(
-                    f"No data_*.json files found in {db_path.parent}. "
-                    "Run 'rebrew catalog --data-json' first.",
-                    json_mode=json_output,
-                    code=EXIT_ERROR,
-                )
-            inputs = _snapshot_inputs(root_dir)
-            for json_path in json_files:
-                target_name = json_path.stem.removeprefix("data_")
-                console.print(f"Processing {target_name}...")
-                newer = [p.name for p in inputs if p.stat().st_mtime > json_path.stat().st_mtime]
-                if newer:
-                    console.print(
-                        f"[yellow]warning:[/yellow] {json_path.name} is older than "
-                        f"{', '.join(newer)}; its statuses may be stale.  Rebuild with "
-                        "--regen or rerun 'rebrew catalog --data-json'."
-                    )
-
-                with json_path.open(encoding="utf-8") as f:
-                    try:
-                        data = json.load(f)
-                    except json.JSONDecodeError as exc:
-                        error_exit(
-                            f"{json_path.name} is not valid JSON: {exc}. Regenerate it "
-                            "with 'rebrew catalog --data-json'.",
-                            json_mode=json_output,
-                            code=EXIT_ERROR,
-                        )
-                    if not isinstance(data, dict):
-                        error_exit(
-                            f"{json_path.name} has unexpected shape (expected a JSON "
-                            f"object, got {type(data).__name__}). Regenerate it with "
-                            "'rebrew catalog --data-json'.",
-                            json_mode=json_output,
-                            code=EXIT_ERROR,
-                        )
-                datasets.append((target_name, data))
 
         for target_name, data in datasets:
             fn_rows = []
@@ -1359,6 +1414,11 @@ def _build_coverage_db(
             summary_data = data.get("summary", {})
 
             for sec_name, sec in data.get("sections", {}).items():
+                # Same clamp as the sections row below: a bool, float, or
+                # negative must not land in summary JSON that readers parse
+                # as a byte count.
+                sec_size = _clamp_nonneg_int(sec.get("size"))
+                sec_size_json = 0 if sec_size is None else sec_size
                 # Calculate stats for data sections
                 if sec_name != ".text":
                     exact_count: int = 0
@@ -1413,7 +1473,7 @@ def _build_coverage_db(
                         "paddingBytes": padding_bytes,
                         "coveredBytes": covered_bytes,
                         "totalFunctions": total_items,
-                        "size": sec.get("size", 0),
+                        "size": sec_size_json,
                     }
 
                 # Clamp unitBytes/columns to sane positive defaults: the schema
@@ -1426,7 +1486,6 @@ def _build_coverage_db(
                 # va/size/fileOffset are CHECK (>= 0 OR NULL): clamp like the
                 # function-row path so a stray negative does not abort rebuild.
                 sec_va = _clamp_nonneg_int(sec.get("va"))
-                sec_size = _clamp_nonneg_int(sec.get("size"))
                 sec_file_off = _clamp_nonneg_int(sec.get("fileOffset"))
 
                 c.execute(
@@ -1470,7 +1529,10 @@ def _build_coverage_db(
             )
 
             text_section_data = data.get("sections", {}).get(".text", {})
-            total_bytes: int = text_section_data.get("size", 0)
+            # sections.size is already clamped; the summary blob must match
+            # or /api/summary 500s on a bool, float, or negative size.
+            clamped_text = _clamp_nonneg_int(text_section_data.get("size"))
+            total_bytes = 0 if clamped_text is None else clamped_text
 
             c.execute(
                 """
@@ -1492,14 +1554,15 @@ def _build_coverage_db(
                             "by_module_counts": {
                                 mod: len(f_list) for mod, f_list in by_module.items()
                             },
-                        }
+                        },
+                        allow_nan=False,
                     ),
                 ),
             )
 
             c.execute(
                 "INSERT INTO metadata VALUES (?, ?, ?)",
-                (target_name, "summary", json.dumps(summary_data)),
+                (target_name, "summary", json.dumps(summary_data, allow_nan=False)),
             )
 
             # Store paths (from JSON data produced by grid.py)

@@ -1,6 +1,20 @@
 ## [Unreleased]
 
 ### Fixed
+- **A pre-CHECK `verify_results` row no longer aborts `build-db`.**
+  Integer affinity keeps a negative real or an infinity in a delta
+  column. Those values failed the new `>= 0` CHECK, and two clamped VAs
+  collided on the primary key, so every later rebuild rolled back.
+  Negatives become 0, non-finite deltas become NULL, and a colliding
+  key keeps the latest row.
+- **`function_stats.total_bytes` is a non-negative integer.** The
+  sections row already clamped `.text` size. The summary blob stored
+  the raw value, so a boolean, float, or negative size made
+  `/api/summary` return 500. It now uses that same clamp.
+- **`build-db` reads catalog input before the write transaction.**
+  `--regen` and `data_*.json` parsing no longer run inside
+  `BEGIN IMMEDIATE`. A missing or corrupt snapshot fails before any
+  row is deleted.
 - **Module and symbol identity ignores NFC/NFD and sharp-s case.** A
   marker check used `.lower()` or `.upper()` on the raw spelling, so
   NFC `MÖDULE` and NFD `MÖDULE` were different modules, and `straße`

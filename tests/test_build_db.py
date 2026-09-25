@@ -835,6 +835,59 @@ binary = "test.exe"
         assert row == (0, pytest.approx(0.855), 0, None)
         conn.close()
 
+    def test_verify_results_migrates_real_outliers(self, project_root: Path) -> None:
+        """Negative reals and infinities must not fail the new >= 0 CHECKs.
+
+        INTEGER affinity stores a non-integral real as REAL.  Two negative
+        VAs both clamp to 0; the latest row wins so the primary key does
+        not abort the rebuild.
+        """
+        build_db(project_root)
+        conn = sqlite3.connect(project_root / "db" / "coverage.db")
+        c = conn.cursor()
+        c.execute("DROP TABLE verify_results")
+        c.execute(
+            """
+            CREATE TABLE verify_results (
+                target TEXT NOT NULL,
+                va INTEGER NOT NULL,
+                verified_at TEXT NOT NULL,
+                byte_delta INTEGER,
+                diff_lines INTEGER,
+                similarity REAL,
+                reg_delta INTEGER,
+                effective_match INTEGER,
+                PRIMARY KEY (target, va)
+            )
+            """
+        )
+        c.executemany(
+            "INSERT INTO verify_results VALUES (?, ?, 't', ?, ?, NULL, ?, NULL)",
+            [
+                ("testbin", -1, 3, None, None),
+                ("testbin", -2, 9, None, None),
+                ("testbin", 100, -1.5, float("inf"), float("-inf")),
+                ("sibling", 7, 4, 1, 0),
+            ],
+        )
+        conn.commit()
+        conn.close()
+
+        build_db(project_root)
+        conn = sqlite3.connect(project_root / "db" / "coverage.db")
+        c = conn.cursor()
+        c.execute(
+            "SELECT va, byte_delta, diff_lines, reg_delta FROM verify_results "
+            "WHERE target = 'testbin' ORDER BY va"
+        )
+        assert c.fetchall() == [(0, 9, None, None), (100, 0, None, None)]
+        c.execute(
+            "SELECT va, byte_delta, diff_lines, reg_delta FROM verify_results "
+            "WHERE target = 'sibling'"
+        )
+        assert c.fetchone() == (7, 4, 1, 0)
+        conn.close()
+
     def test_functions_list_partial_index_exists(self, project_root: Path) -> None:
         """Dashboard / _function_stats list code markers and ORDER BY va —
         idx_functions_list is the partial index that serves that path."""
@@ -1141,8 +1194,40 @@ binary = "test.exe"
             "SELECT va, size, fileOffset FROM sections WHERE target = 'alpha' AND name = '.text'"
         )
         row = c.fetchone()
+        c.execute("SELECT value FROM metadata WHERE target = 'alpha' AND key = 'function_stats'")
+        stats = json.loads(c.fetchone()[0])
         conn.close()
         assert row == (0, 0, 0)
+        # The sections row is 0; the summary blob must not keep the raw -64
+        # or /api/summary treats total_bytes as corrupt.
+        assert stats["total_bytes"] == 0
+
+    def test_function_stats_total_bytes_clamps_non_ints(self, tmp_path: Path) -> None:
+        """An integral float is stored as an int; a bool is not a byte count."""
+        db_dir = tmp_path / "db"
+        db_dir.mkdir()
+
+        def _build(size: object) -> int:
+            data = {
+                "sections": {".text": {"va": 1, "size": size, "fileOffset": 0, "cells": []}},
+                "globals": {},
+                "summary": {},
+                "functions": {},
+                "paths": {},
+            }
+            (db_dir / "data_alpha.json").write_text(json.dumps(data), encoding="utf-8")
+            build_db(tmp_path)
+            conn = sqlite3.connect(db_dir / "coverage.db")
+            try:
+                raw = conn.execute(
+                    "SELECT value FROM metadata WHERE target = 'alpha' AND key = 'function_stats'"
+                ).fetchone()[0]
+            finally:
+                conn.close()
+            return json.loads(raw)["total_bytes"]
+
+        assert _build(128.0) == 128
+        assert _build(True) == 0
 
     def test_zero_unit_bytes_clamped(self, tmp_path: Path) -> None:
         """A stray unitBytes/columns of 0 in hand-edited JSON must not abort
@@ -1666,6 +1751,21 @@ class TestBuildDbForceFlag:
 
 class TestBuildDbCorruptInput:
     """Corrupt or mis-shaped data_*.json must fail cleanly with file context."""
+
+    def test_corrupt_json_leaves_existing_db(self, project_root: Path) -> None:
+        """A bad snapshot fails before the write transaction deletes rows."""
+        from typer import Exit as TyperExit
+
+        build_db(project_root)
+        (project_root / "db" / "data_testbin.json").write_text("{", encoding="utf-8")
+        with pytest.raises(TyperExit):
+            build_db(project_root)
+        conn = sqlite3.connect(project_root / "db" / "coverage.db")
+        try:
+            count = conn.execute("SELECT COUNT(*) FROM functions").fetchone()[0]
+        finally:
+            conn.close()
+        assert count == 2
 
     def test_corrupt_json_errors_with_file_context(self, tmp_path: Path) -> None:
         from typer import Exit as TyperExit
