@@ -15,7 +15,7 @@ from contextlib import suppress
 from pathlib import Path
 
 import pytest
-from hypothesis import given, settings
+from hypothesis import example, given, settings
 from hypothesis import strategies as st
 
 from rebrew.layout_meta import extract_layout, parse_pe, write_package
@@ -373,3 +373,104 @@ def test_extract_layout_fixture_mutation_no_crash(noise: bytes) -> None:
         base[rng.randrange(len(base))] = rng.randrange(256)
     with suppress(ValueError):
         _assert_layout_shape(extract_layout(bytes(base), "mut.dll"))
+
+
+def _short_optional_header() -> bytes:
+    """PE32 cut off inside a 2-byte optional header (the struct.error case)."""
+    e = 0x40
+    opt = e + 24
+    data = bytearray(opt + 2)
+    data[0:2] = b"MZ"
+    struct.pack_into("<I", data, 0x3C, e)
+    data[e : e + 4] = b"PE\x00\x00"
+    struct.pack_into("<H", data, e + 20, 2)
+    struct.pack_into("<H", data, opt, 0x10B)
+    return bytes(data)
+
+
+@st.composite
+def _pe_header_dimensions(draw: st.DrawFn) -> bytes:
+    """Draw e_lfanew, section count, optional-header size, and file length.
+
+    Random blobs do not carry an MZ stub and a PE signature together, so the
+    existing byte fuzz never reaches the data-directory or export walks.
+    """
+    e = draw(st.integers(min_value=0x40, max_value=0x80))
+    nsec = draw(st.integers(min_value=0, max_value=4))
+    optsz = draw(st.integers(min_value=0, max_value=0x120))
+    slack = draw(st.integers(min_value=-80, max_value=64))
+    length = max(0, min(e + 24 + optsz + 40 * nsec + slack, 512))
+    blob = bytearray(draw(st.binary(min_size=length, max_size=length)))
+    if len(blob) >= 2:
+        blob[0:2] = b"MZ"
+    if len(blob) >= 0x40:
+        struct.pack_into("<I", blob, 0x3C, e)
+    if e + 4 <= len(blob):
+        blob[e : e + 4] = b"PE\x00\x00"
+    if e + 8 <= len(blob):
+        struct.pack_into("<H", blob, e + 6, nsec)
+    if e + 22 <= len(blob):
+        struct.pack_into("<H", blob, e + 20, optsz)
+    opt = e + 24
+    if opt + 2 <= len(blob):
+        struct.pack_into("<H", blob, opt, 0x10B)
+    sh = opt + optsz
+    for index, name in enumerate(
+        (b".text\x00\x00\x00", b".data\x00\x00\x00", b".rdata\x00\x00", b".reloc\x00\x00")
+    ):
+        off = sh + 40 * index
+        if index < nsec and off + 40 <= len(blob):
+            blob[off : off + 8] = name
+            # Point the section at itself so a directory RVA can resolve.
+            struct.pack_into("<IIII", blob, off + 8, 0x1000, 0x1000 * (index + 1), 0x100, off)
+    return bytes(blob)
+
+
+def _assert_extract_agrees(blob: bytes, meta: object) -> None:
+    """A decoded layout matches ``gen_layout.parse_pe`` on the shared fields."""
+    from rebrew.gen_layout import parse_pe as parse_gen
+    from rebrew.layout_meta import LayoutMetadata
+
+    assert isinstance(meta, LayoutMetadata)
+    _assert_layout_shape(meta)
+    previous = -1
+    for ex in meta.exports:
+        ordinal = ex["ordinal"]
+        va = ex["va"]
+        assert isinstance(ordinal, int) and isinstance(va, int)
+        assert ordinal > previous
+        previous = ordinal
+        assert va - meta.image_base != 0
+        assert ex.get("name") is None or isinstance(ex["name"], str)
+    for imp in meta.imports:
+        assert imp.dll
+        assert imp.name is None or isinstance(imp.name, str)
+        assert imp.ordinal is None or 0 <= imp.ordinal <= 0xFFFF
+    sections, exports, imports, pe = parse_gen(blob)
+    assert pe["image_base"] == meta.image_base
+    assert [s.name for s in sections] == [s.name for s in meta.sections]
+    assert exports == meta.exports
+    gen_imports = [
+        (imp.dll, imp.name, imp.ordinal)
+        for imp in imports
+        if imp.name is not None or imp.ordinal is not None
+    ]
+    assert gen_imports == [(imp.dll, imp.name, imp.ordinal) for imp in meta.imports]
+
+
+@settings(max_examples=40, deadline=None)
+@given(_pe_header_dimensions())
+@example(_short_optional_header())
+@example(_make_pe(_SECTIONS))
+def test_extract_layout_shaped_pe_holds_invariants(blob: bytes) -> None:
+    """Data-directory walks on a drawn PE degrade with ValueError or agree.
+
+    ``extract_layout`` and ``gen_layout.parse_pe`` both walk the export and
+    import tables of whatever binary the user points them at.  When both
+    accept an image, the exports and the resolved imports are the same list.
+    """
+    try:
+        meta = extract_layout(blob, "fuzz.dll")
+    except ValueError:
+        return
+    _assert_extract_agrees(blob, meta)

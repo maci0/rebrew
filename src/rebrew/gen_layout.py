@@ -71,6 +71,12 @@ _MAX_IMPORT_SLOTS = 65536
 #: ``range()`` or raise ``struct.error`` past EOF.
 _MAX_EXPORT_ENTRIES = 65536
 
+#: Offset of the last optional-header byte ``parse_pe`` reads unconditionally
+#: (basereloc directory size, at optional+140).  SizeOfOptionalHeader can
+#: claim fewer bytes than that while the file ends on the claim; the reads
+#: would raise ``struct.error``, and ``main`` only catches ``ValueError``.
+_OPT_FIELD_END = 144
+
 app = typer.Typer(
     help="Generate linker-script scaffolding (def, layout manifest, IAT seed, data restore)."
 )
@@ -185,7 +191,7 @@ def parse_pe(
     nsec = struct.unpack_from("<H", data, e + 6)[0]
     optsz = struct.unpack_from("<H", data, e + 20)[0]
     opt = e + 24
-    if opt + optsz > len(data):
+    if opt + optsz > len(data) or opt + _OPT_FIELD_END > len(data):
         raise ValueError("truncated optional header")
     magic = struct.unpack_from("<H", data, opt)[0]
     if magic != 0x10B:
@@ -684,7 +690,10 @@ def gen_data_restore(data: bytes, marker: str, raw_start: int) -> str:
     data_va = section.virtual_address
     data_raw = section.size_of_raw_data
     data_ro = section.pointer_to_raw_data
-    image_base = struct.unpack_from("<I", data, layout.optional_header_offset + 28)[0]
+    image_off = layout.optional_header_offset + 28
+    if image_off + 4 > len(data):
+        raise ValueError("truncated optional header")
+    image_base = struct.unpack_from("<I", data, image_off)[0]
     if not 0 <= raw_start < data_raw:
         raise ValueError(f"raw-size {raw_start:#x} outside [0, {data_raw:#x})")
     blob = data[data_ro + raw_start : data_ro + data_raw]

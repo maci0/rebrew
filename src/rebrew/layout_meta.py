@@ -252,7 +252,9 @@ def parse_pe(data: bytes) -> tuple[int, int, int, int, int]:
     nsec = struct.unpack_from("<H", data, e + 6)[0]
     optsz = struct.unpack_from("<H", data, e + 20)[0]
     opt = e + 24
-    if opt + optsz > len(data):
+    # image_base is at optional+28.  A SizeOfOptionalHeader shorter than that,
+    # on a file that ends at the claim, used to raise struct.error here.
+    if opt + optsz > len(data) or opt + 32 > len(data):
         raise ValueError("truncated optional header")
     if opt + optsz + 40 * nsec > len(data):
         raise ValueError("truncated section table")
@@ -263,7 +265,16 @@ def parse_pe(data: bytes) -> tuple[int, int, int, int, int]:
 
 
 def _data_dir(data: bytes, opt: int, index: int) -> tuple[int, int]:
-    return struct.unpack_from("<II", data, opt + 96 + 8 * index)
+    """Data directory *index*, or ``ValueError`` when it lies past EOF.
+
+    Index 12 (IAT) is the deepest directory ``extract_layout`` reads.  A PE32
+    whose optional header is present but shorter than that directory used to
+    raise ``struct.error``, which ``gen-layout`` does not catch.
+    """
+    off = opt + 96 + 8 * index
+    if off + 8 > len(data):
+        raise ValueError("truncated optional header")
+    return struct.unpack_from("<II", data, off)
 
 
 def extract_layout(data: bytes, target: str = "") -> LayoutMetadata:
