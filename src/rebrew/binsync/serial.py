@@ -27,6 +27,8 @@ from typing import Any
 
 import tomlkit
 
+from rebrew.binsync.init import git_argv
+
 log = logging.getLogger(__name__)
 
 _DECLIB_MISSING_MSG = (
@@ -220,7 +222,7 @@ def state_user(state_dir: Path) -> str:
     """``git config user.name`` for *state_dir*, else ``"rebrew"``."""
     try:
         result = subprocess.run(
-            ["git", "-C", str(state_dir), "config", "user.name"],
+            git_argv(state_dir, "config", "user.name"),
             capture_output=True,
             text=True,
             encoding="utf-8",

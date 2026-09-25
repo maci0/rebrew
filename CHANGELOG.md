@@ -1,6 +1,13 @@
 ## [Unreleased]
 
 ### Fixed
+- **BinSync git calls ignore repo-local programs.** `core.fsmonitor`,
+  `.git/hooks`, `core.sshCommand`, `gpg.program`, and an `ext::` remote in a
+  copied state directory no longer run on add, commit, pull, or push.
+  `GIT_SSH_COMMAND` still overrides `ssh`.
+- **Wibo release metadata no longer follows off-host redirects.**
+  `/releases/latest` may 302 to another `api.github.com` URL. A `Location`
+  on any other host is refused before the digest JSON is parsed.
 - **A same-size rename in one mtime tick no longer reuses the old binary.**
   `load_binary`, IAT slot scans, the verify-cache binary id, the verify-cache
   JSON memo, CRT canonical sizes, and native compiler digests now include the

@@ -238,7 +238,11 @@ class TestDoctorCheckRunner:
 class TestDownloadWiboErrors:
     def _meta(self, payload: object) -> SimpleNamespace:
         return SimpleNamespace(
-            raise_for_status=lambda: None, json=lambda: payload, close=lambda: None
+            status_code=200,
+            headers={},
+            raise_for_status=lambda: None,
+            json=lambda: payload,
+            close=lambda: None,
         )
 
     def test_metadata_fetch_failure(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -382,3 +386,39 @@ class TestTrustedRedirects:
         assert responses[0].closed is True
         assert responses[1].closed is False
         final.close()
+
+    def test_metadata_off_host_redirect_is_not_fetched(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A redirect of the digest JSON must not leave api.github.com."""
+        fetched: list[str] = []
+
+        def _fake_httpx_get(url: str, **kwargs: object) -> _FakeHTTPResponse:
+            fetched.append(url)
+            assert kwargs.get("follow_redirects") is False
+            r = _FakeHTTPResponse(b"", status_code=302)
+            r.headers["location"] = "https://evil.example/latest"
+            return r
+
+        monkeypatch.setattr("httpx.get", _fake_httpx_get)
+        with pytest.raises(RuntimeError, match="not https://api.github.com"):
+            wibo_mod._read_release_metadata()
+        assert fetched == [_WIBO_API_URL]
+
+    def test_metadata_same_host_redirect_is_followed(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """``/releases/latest`` is a same-host 302; that hop must still parse."""
+        tag_url = "https://api.github.com/repos/decompals/wibo/releases/123"
+        fetched: list[str] = []
+
+        def _fake_httpx_get(url: str, **kwargs: object) -> _FakeHTTPResponse:
+            fetched.append(url)
+            if url == _WIBO_API_URL:
+                r = _FakeHTTPResponse(b"", status_code=302)
+                r.headers["location"] = tag_url
+                return r
+            return _FakeHTTPResponse('{"tag_name": "v1", "assets": []}')
+
+        monkeypatch.setattr("httpx.get", _fake_httpx_get)
+        data = wibo_mod._read_release_metadata()
+        assert data["tag_name"] == "v1"
+        assert fetched == [_WIBO_API_URL, tag_url]

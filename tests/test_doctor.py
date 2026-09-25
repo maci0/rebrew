@@ -914,6 +914,8 @@ class TestCheckBinsyncState:
     ) -> None:
         from unittest.mock import patch
 
+        from rebrew.binsync.init import git_argv
+
         state = tmp_path / "state"
         state.mkdir()
         exists = Path.exists
@@ -926,7 +928,7 @@ class TestCheckBinsyncState:
         ):
             result = self._check(tmp_path, binsync_state_dir=str(state))
         run.assert_called_once_with(
-            ["git", "-C", str(state), "log", "-1", "--format=%ct"],
+            git_argv(state, "log", "-1", "--format=%ct"),
             capture_output=True,
             text=True,
             encoding="utf-8",

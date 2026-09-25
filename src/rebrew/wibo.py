@@ -29,7 +29,7 @@ _WIBO_DEFAULT_PATH = Path("tools/wibo")
 
 #: Hosts GitHub release assets may resolve to.  A compromised or MITM'd
 #: release JSON must not redirect ``httpx`` at arbitrary URLs (SSRF /
-#: internal-metadata pivot).  api.github.com is only for the metadata GET.
+#: internal-metadata pivot).
 _WIBO_DOWNLOAD_HOSTS = frozenset(
     {
         "github.com",
@@ -38,6 +38,9 @@ _WIBO_DOWNLOAD_HOSTS = frozenset(
         "release-assets.githubusercontent.com",
     }
 )
+#: The metadata GET stays on the API host. ``/releases/latest`` answers 302
+#: to the tag URL on the same host; an off-host hop would substitute the digest.
+_WIBO_METADATA_HOSTS = frozenset({"api.github.com"})
 
 
 def _wibo_asset_name() -> str:
@@ -102,29 +105,54 @@ def _get_with_trusted_redirects(url: str) -> httpx.Response:
     raise RuntimeError(f"wibo download exceeded redirect limit from {url!r}")
 
 
+def _trusted_wibo_metadata_url(url: str) -> str:
+    """Return *url* when it is https on ``api.github.com``; else raise."""
+    parsed = urlparse(url.strip())
+    host = (parsed.hostname or "").lower()
+    if parsed.scheme != "https" or host not in _WIBO_METADATA_HOSTS or not parsed.path:
+        raise RuntimeError(f"wibo release metadata URL is not https://api.github.com: {url!r}")
+    return url.strip()
+
+
 def _read_release_metadata() -> dict[str, Any]:
-    """Fetch and parse latest release metadata from GitHub."""
+    """Fetch and parse latest release metadata from GitHub.
+
+    Redirects are followed only while each hop stays on ``api.github.com``.
+    ``/releases/latest`` is a same-host 302; an off-host ``Location`` would
+    substitute the JSON that supplies the asset digest.
+    """
     import httpx  # deferred: ~46 ms of startup for non-wibo commands
 
-    try:
-        resp = httpx.get(_WIBO_API_URL, timeout=_NETWORK_TIMEOUT_S, follow_redirects=True)
-    except httpx.HTTPError as exc:
-        raise RuntimeError(
-            f"Failed to fetch wibo release metadata from {_WIBO_API_URL}: {exc}"
-        ) from exc
-    try:
-        resp.raise_for_status()
+    current = _trusted_wibo_metadata_url(_WIBO_API_URL)
+    for _ in range(10):
         try:
-            data = resp.json()
-        except ValueError as exc:
+            resp = httpx.get(current, timeout=_NETWORK_TIMEOUT_S, follow_redirects=False)
+        except httpx.HTTPError as exc:
             raise RuntimeError(
-                f"Invalid JSON in wibo release metadata from {_WIBO_API_URL}: {exc}"
+                f"Failed to fetch wibo release metadata from {current!r}: {exc}"
             ) from exc
-    finally:
-        close_response(resp)
-    if not isinstance(data, dict):
-        raise RuntimeError("Invalid wibo release metadata response")
-    return data
+        try:
+            if resp.status_code in {301, 302, 303, 307, 308}:
+                location = resp.headers.get("location")
+                if not location:
+                    raise RuntimeError(
+                        f"wibo release metadata redirect missing Location from {current!r}"
+                    )
+                current = _trusted_wibo_metadata_url(urljoin(current, location))
+                continue
+            resp.raise_for_status()
+            try:
+                data = resp.json()
+            except ValueError as exc:
+                raise RuntimeError(
+                    f"Invalid JSON in wibo release metadata from {current!r}: {exc}"
+                ) from exc
+        finally:
+            close_response(resp)
+        if not isinstance(data, dict):
+            raise RuntimeError("Invalid wibo release metadata response")
+        return data
+    raise RuntimeError(f"wibo release metadata exceeded redirect limit from {_WIBO_API_URL!r}")
 
 
 def download_wibo(dest: Path) -> str:

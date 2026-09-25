@@ -35,6 +35,7 @@ import typer
 
 from rebrew.annotation import span_contains_factory
 from rebrew.binsync import serial
+from rebrew.binsync.init import git_argv
 from rebrew.c_parser import type_from_declaration
 from rebrew.catalog import scan_reversed_dir
 from rebrew.cli import TargetOption, console, error_exit, json_print, require_config, run_standalone
@@ -725,7 +726,7 @@ def _git_commit_state_dir(state_dir: Path, target: str) -> str | None:
 
     try:
         result = subprocess.run(
-            ["git", "-C", str(state_dir), "add", "-A"],
+            git_argv(state_dir, "add", "-A"),
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -737,7 +738,7 @@ def _git_commit_state_dir(state_dir: Path, target: str) -> str | None:
             return None
 
         status = subprocess.run(
-            ["git", "-C", str(state_dir), "status", "--porcelain"],
+            git_argv(state_dir, "status", "--porcelain"),
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -751,7 +752,7 @@ def _git_commit_state_dir(state_dir: Path, target: str) -> str | None:
         utc = datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds")
         msg = f"rebrew binsync-export: {target} @ {utc}"
         commit = subprocess.run(
-            ["git", "-C", str(state_dir), "commit", "-m", msg],
+            git_argv(state_dir, "commit", "-m", msg),
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -771,7 +772,7 @@ def _git_commit_state_dir(state_dir: Path, target: str) -> str | None:
 
         # Try to get the new hash
         rev = subprocess.run(
-            ["git", "-C", str(state_dir), "rev-parse", "HEAD"],
+            git_argv(state_dir, "rev-parse", "HEAD"),
             capture_output=True,
             text=True,
             encoding="utf-8",

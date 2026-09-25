@@ -42,11 +42,39 @@ def one_line(text: str) -> str:
     return " ".join(text.split())
 
 
+#: Repo-local git settings that execute a program. Command-line ``-c`` outranks
+#: ``.git/config``. ``GIT_SSH_COMMAND``, when set, still outranks ``core.sshCommand``.
+_GIT_EXEC_OVERRIDES: tuple[str, ...] = (
+    "core.fsmonitor=",
+    "core.hooksPath=/dev/null",
+    "protocol.ext.allow=never",
+    "core.sshCommand=ssh",
+    "gpg.program=gpg",
+)
+
+
+def git_argv(directory: Path, *args: str) -> list[str]:
+    """``git -C directory`` argv that ignores repo-local execution config.
+
+    A BinSync state directory is a git repo the analyst may have received as a
+    tree, not via ``git clone``. ``core.fsmonitor``, ``.git/hooks``,
+    ``core.sshCommand``, ``gpg.program``, and an ``ext::`` remote run on
+    add, commit, checkout, and pull.
+    """
+    cmd = ["git"]
+    for item in _GIT_EXEC_OVERRIDES:
+        cmd.extend(("-c", item))
+    cmd.extend(("-C", str(directory)))
+    cmd.extend(args)
+    return cmd
+
+
 def run_git(directory: Path, *args: str) -> subprocess.CompletedProcess[str]:
     """Run ``git -C directory <args>`` without raising on a non-zero exit."""
+    argv = git_argv(directory, *args)
     try:
         return subprocess.run(
-            ["git", "-C", str(directory), *args],
+            argv,
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -54,10 +82,10 @@ def run_git(directory: Path, *args: str) -> subprocess.CompletedProcess[str]:
             timeout=_GIT_TIMEOUT,
         )
     except FileNotFoundError:
-        return subprocess.CompletedProcess(["git", *args], 127, "", "git not found")
+        return subprocess.CompletedProcess(argv, 127, "", "git not found")
     except (OSError, subprocess.SubprocessError) as exc:
         log.debug("git invocation failed", exc_info=True)
-        return subprocess.CompletedProcess(["git", *args], 1, "", str(exc))
+        return subprocess.CompletedProcess(argv, 1, "", str(exc))
 
 
 def _checked(result: subprocess.CompletedProcess[str], *, json_mode: bool) -> None:

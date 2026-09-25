@@ -16,6 +16,7 @@ from typing import Any
 import pytest
 from typer.testing import CliRunner
 
+from rebrew.binsync.init import git_argv, run_git
 from rebrew.main import app
 from rebrew.utils import md5_file
 
@@ -165,3 +166,39 @@ class TestInit:
         assert "functions/foo.toml" not in tree
         assert ".gitignore" in tree
         assert "binary_hash" in tree
+
+
+class TestGitExecOverrides:
+    def test_argv_pins_repo_local_exec_config(self) -> None:
+        argv = git_argv(Path("/tmp/state"), "pull", "--ff-only")
+        assert argv[0] == "git"
+        assert "core.fsmonitor=" in argv
+        assert "core.hooksPath=/dev/null" in argv
+        assert "protocol.ext.allow=never" in argv
+        assert "core.sshCommand=ssh" in argv
+        assert "gpg.program=gpg" in argv
+        assert argv[-3:] == [str(Path("/tmp/state")), "pull", "--ff-only"]
+
+    def test_run_git_does_not_run_fsmonitor_or_hooks(self, tmp_path: Path) -> None:
+        state = tmp_path / "state"
+        state.mkdir()
+        subprocess.run(["git", "init", "-q", str(state)], check=True)
+        marker = tmp_path / "pwned"
+        script = tmp_path / "pwn.sh"
+        script.write_text(f"#!/bin/sh\ntouch {marker}\n", encoding="utf-8")
+        script.chmod(0o755)
+        subprocess.run(
+            ["git", "-C", str(state), "config", "core.fsmonitor", str(script)], check=True
+        )
+        subprocess.run(["git", "-C", str(state), "config", "user.email", "t@example"], check=True)
+        subprocess.run(["git", "-C", str(state), "config", "user.name", "t"], check=True)
+        hook = state / ".git" / "hooks" / "pre-commit"
+        hook.write_text(f"#!/bin/sh\ntouch {marker}\n", encoding="utf-8")
+        hook.chmod(0o755)
+        (state / "f").write_text("x\n", encoding="utf-8")
+
+        add = run_git(state, "add", "--", "f")
+        assert add.returncode == 0, add.stderr
+        commit = run_git(state, "commit", "-q", "-m", "m")
+        assert commit.returncode == 0, commit.stderr
+        assert not marker.exists()
