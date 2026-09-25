@@ -55,6 +55,8 @@ class VerifyInfo:
     failed: int = 0
     total: int = 0
     stale: bool = False  # sources changed since the cache was written
+    #: Passes on VAs status counts as library code (not progress).
+    library_passed: int = 0
 
 
 @dataclass
@@ -187,6 +189,7 @@ class StatusReport:
             d["last_verify"] = {
                 "timestamp": self.verify_info.timestamp,
                 "passed": self.verify_info.passed,
+                "library_passed": self.verify_info.library_passed,
                 "failed": self.verify_info.failed,
                 "total": self.verify_info.total,
                 "stale": self.verify_info.stale,
@@ -207,8 +210,22 @@ class StatusReport:
 # ---------------------------------------------------------------------------
 
 
-def _load_verify_info(cfg: ProjectConfig) -> VerifyInfo | None:
-    """Load last verify summary from the verify cache file."""
+def _entry_va(entry_data: dict[str, Any]) -> int | None:
+    """The VA of a verify-cache row, or None when it has none or it is malformed."""
+    try:
+        return int(str(entry_data.get("va")), 16)
+    except ValueError:
+        return None
+
+
+def _load_verify_info(
+    cfg: ProjectConfig, library_vas: frozenset[int] | set[int] = frozenset()
+) -> VerifyInfo | None:
+    """Load last verify summary from the verify cache file.
+
+    Passes on *library_vas* are also counted separately: verify compiles
+    them, but status leaves library code out of progress.
+    """
     from rebrew.verify_cache import load_verify_cache_raw
 
     cache_path = cfg.root / ".rebrew" / "verify_cache.json"
@@ -235,6 +252,7 @@ def _load_verify_info(cfg: ProjectConfig) -> VerifyInfo | None:
 
     passed = 0
     failed = 0
+    library_passed = 0
     for entry_data in entries.values():
         if not isinstance(entry_data, dict):
             continue
@@ -244,6 +262,8 @@ def _load_verify_info(cfg: ProjectConfig) -> VerifyInfo | None:
             continue
         if entry_data.get("passed", False):
             passed += 1
+            if _entry_va(entry_data) in library_vas:
+                library_passed += 1
         else:
             failed += 1
 
@@ -280,6 +300,7 @@ def _load_verify_info(cfg: ProjectConfig) -> VerifyInfo | None:
         failed=failed,
         total=passed + failed,
         stale=stale,
+        library_passed=library_passed,
     )
 
 
@@ -520,7 +541,7 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
             report.data_unchecked += 1
 
     # Verify info
-    report.verify_info = _load_verify_info(cfg)
+    report.verify_info = _load_verify_info(cfg, library_vas)
 
     # Quick W019 scan: files ``rebrew lint --fix`` can migrate — counted by
     # lint's own rule (shared header parser, no full lint run).
@@ -674,7 +695,8 @@ def _render_terminal(report: StatusReport) -> None:
         stale_suffix = " [yellow](stale — run rebrew verify)[/yellow]" if v.stale else ""
         summary_lines.append(
             f"  Last verify: [{verify_color}]{v.passed} byte-matched[/{verify_color}]"
-            f", [red]{v.failed} failed[/red]"
+            + (f" ({v.library_passed} library-attributed)" if v.library_passed else "")
+            + f", [red]{v.failed} failed[/red]"
             f"  [dim]({v.timestamp})[/dim]{stale_suffix}"
         )
         # Effective-status overlay: verify results override metadata statuses.

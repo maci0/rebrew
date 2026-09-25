@@ -50,6 +50,9 @@
 - **`todo` shows the SIZE `verify` compares**, not the inventory extent
   with alignment padding (guild-rebrew `CrashDumpUnhandledExceptionFilter`:
   2115 bytes, shown as 2128).
+- **`status` "Last verify" names the library passes** too (`279
+  byte-matched (22 library-attributed)`, JSON `last_verify.library_passed`),
+  so it reads against its own 257.
 
 ## [2.8.0] - 2026-09-25
 ### Added

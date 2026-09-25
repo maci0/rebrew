@@ -351,6 +351,34 @@ class TestCollectStatus:
         assert report.status_counts == {"EXACT": 1, "STUB": 1}
         assert report.matched_bytes == 0x20
 
+    def test_last_verify_names_library_passes(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """verify compiles library-attributed functions; status must say how
+        many of the last run's passes those are, or 279 reads against 257."""
+        import rebrew.naming
+
+        cfg = _make_cfg(tmp_path)
+        existing = {
+            0x1000: {"filename": "a.c", "size": "16", "status": "EXACT", "module": "TEST"},
+            0x2000: {"filename": "library_x.h", "size": "16", "marker_type": "LIBRARY"},
+        }
+        monkeypatch.setattr(
+            rebrew.naming, "load_data", lambda cfg: ([], existing, dict.fromkeys(existing, "x"))
+        )
+        rows = {
+            f"0x{va:08x}": {"status": "EXACT", "va": f"0x{va:08x}", "passed": True}
+            for va in existing
+        }
+        (tmp_path / ".rebrew").mkdir()
+        (tmp_path / ".rebrew" / "verify_cache.json").write_text(
+            json.dumps({"version": 2, "target": "test", "entries": rows}), encoding="utf-8"
+        )
+        report = collect_status(cfg)  # type: ignore[arg-type]
+        assert report.verify_info is not None
+        assert (report.verify_info.passed, report.verify_info.library_passed) == (2, 1)
+        assert report.to_dict()["last_verify"]["library_passed"] == 1
+
     def test_library_size_spanning_a_neighbour_counts_once(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

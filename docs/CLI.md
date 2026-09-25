@@ -1546,6 +1546,8 @@ missing_size, effective_matches}` in JSON surfaces how many functions the
 cache overrode, plus the effective-match count (register-allocation-only
 delta — the prove queue). Data verdicts from `verify --data` show as
 `data: {verified, drift, unchecked}` in JSON and a terminal summary line.
+`last_verify.library_passed` counts the last verify's passes on functions
+status treats as library code (verify compiles them; progress excludes them).
 
 ### `rebrew similar`
 
