@@ -84,6 +84,19 @@ def _invoke_import(
 
 
 class TestBinsyncImportHelpers:
+    def test_entry_module_does_not_invent_server(self) -> None:
+        from types import SimpleNamespace
+
+        from rebrew.binsync.importer import _entry_module, _stub_text
+
+        blank = SimpleNamespace(marker="", target_name="")
+        assert _entry_module(blank) == ""
+        assert _entry_module(blank, SimpleNamespace(module="CLIENT")) == "CLIENT"
+        derived = SimpleNamespace(marker="", target_name="client.exe")
+        assert _entry_module(derived) == "CLIENTEXE"
+        with pytest.raises(ValueError, match="module marker"):
+            _stub_text(blank, 0x1000, "foo", "")
+
     def test_is_meaningful(self) -> None:
         from rebrew.binsync.importer import is_meaningful
 

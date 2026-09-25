@@ -539,6 +539,46 @@ class ProjectConfig:
 _MARKER_STRIP_RE = re.compile(r"[^A-Za-z0-9_]")
 
 
+def _module_marker_value(raw: Any, target: str, field_name: str) -> str:
+    """Return the annotation module for one target.
+
+    Absent or blank ``marker`` uses the derived name (target upper-cased,
+    non-identifier characters stripped). An explicit marker must be one
+    token: whitespace never matches ``// FUNCTION: MARKER 0xVA``, and a
+    marker containing ``.0x`` makes ``parse_metadata_key`` split the module
+    off the VA. A target whose name derives nothing and sets no marker
+    fails the load — an empty marker drops every function out of
+    verify/todo/status.
+    """
+    derived = _MARKER_STRIP_RE.sub("", target).upper()
+    if raw is None:
+        text = derived
+    elif isinstance(raw, str):
+        text = raw.strip() or derived
+    else:
+        _config_warn(
+            f"Expected string for {field_name}, got {type(raw).__name__}; "
+            f"using default {derived!r}",
+        )
+        text = derived
+    if not text:
+        raise ConfigError(
+            f"rebrew-project.toml {field_name} is empty and {target!r} has no "
+            "identifier characters to derive a module marker from"
+        )
+    if any(ch.isspace() for ch in text):
+        raise ConfigError(
+            f"rebrew-project.toml {field_name} = {text!r} is not a single token "
+            "(annotation markers are one word: // FUNCTION: MARKER 0xVA)"
+        )
+    if ".0x" in text.casefold():
+        raise ConfigError(
+            f"rebrew-project.toml {field_name} = {text!r} contains '.0x', "
+            "which breaks MODULE.0xVA metadata keys"
+        )
+    return text
+
+
 def module_marker(cfg: Any) -> str:
     """Return the annotation module marker for *cfg*.
 
@@ -652,12 +692,20 @@ def _parse_int_list(values: list[Any] | None, field_name: str) -> list[int]:
     return parsed
 
 
+#: A ``[targets.<name>].defines`` entry is emitted as ``/DNAME`` or ``-DNAME``.
+#: Anything else is one argv token the compiler will not treat as a macro,
+#: so ``#ifdef`` branches compile the wrong side and the byte diff looks
+#: like a source bug.
+_DEFINE_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
 def _parse_defines(values: Any, field_name: str) -> list[str]:
     """Parse a list of compile-time define names from a toml array.
 
-    Entries are trimmed; empty and non-string entries are dropped (with a
-    warning for the latter — ``str(None)`` would otherwise become a garbage
-    ``-DNone`` flag).
+    Entries are trimmed. Empty entries are dropped. Non-string entries warn
+    and are dropped (``str(None)`` would otherwise become ``-DNone``). A
+    string that is not a C identifier fails the load: it would be passed
+    through as a ``-D``/``/D`` flag and compile the wrong ``#ifdef`` side.
     """
     if not isinstance(values, list):
         if values is not None:
@@ -670,8 +718,15 @@ def _parse_defines(values: Any, field_name: str) -> list[str]:
         if not isinstance(v, str):
             _config_warn(f"{field_name}: non-string define {v!r} ignored")
             continue
-        if v.strip():
-            out.append(v.strip())
+        name = v.strip()
+        if not name:
+            continue
+        if _DEFINE_NAME_RE.fullmatch(name) is None:
+            raise ConfigError(
+                f"rebrew-project.toml {field_name}: {v!r} is not a C define name "
+                "(letter or underscore, then letters, digits, or underscores)"
+            )
+        out.append(name)
     return out
 
 
@@ -749,20 +804,46 @@ def _positive_int(value: Any, default: int, field_name: str) -> int:
     return parsed
 
 
+#: Link fields are stored in the PE optional header as unsigned 32-bit
+#: values. ``patch_pe_headers`` masks with ``& 0xFFFFFFFF``, so a bool
+#: (``True`` is an ``int``) or a negative / oversized number would be
+#: written as a different header than the one configured.
+_PE_U32_MAX = 0xFFFFFFFF
+
+
 def _parse_optional_int(value: Any, field_name: str) -> int | None:
-    """Parse an optional integer value, allowing decimal or ``0x`` strings."""
+    """Parse an optional PE unsigned-32 link field.
+
+    ``None`` means unset. Decimal and ``0x`` strings are accepted. A bool
+    is not an integer here (``True`` would become stack reserve 1). Values
+    outside ``0 .. 0xFFFFFFFF`` raise :class:`ConfigError` instead of being
+    truncated when the header is patched. Unparseable values warn and are
+    treated as unset.
+    """
     if value is None:
         return None
+    if isinstance(value, bool):
+        _config_warn(f"Expected integer for {field_name}, got {value!r}; ignoring")
+        return None
+    parsed: int | None
     if isinstance(value, int):
-        return value
-    if isinstance(value, str):
+        parsed = value
+    elif isinstance(value, str):
         try:
-            return int(value, 0)
+            parsed = int(value, 0)
         except ValueError:
             _config_warn(f"Invalid integer {value!r} for {field_name}; ignoring")
             return None
-    _config_warn(f"Expected integer for {field_name}, got {type(value).__name__}; ignoring")
-    return None
+    else:
+        _config_warn(f"Expected integer for {field_name}, got {type(value).__name__}; ignoring")
+        return None
+    if parsed < 0 or parsed > _PE_U32_MAX:
+        raise ConfigError(
+            f"rebrew-project.toml {field_name} = {value!r} is outside "
+            f"0..0x{_PE_U32_MAX:X} (PE optional-header fields are unsigned 32-bit; "
+            "a wider value would be truncated when the header is patched)"
+        )
+    return parsed
 
 
 def _parse_str_dict(value: Any, field_name: str) -> dict[str, str]:
@@ -1511,6 +1592,19 @@ def load_config(
         recompile_label = "compiler.recompile_url"
     recompile_url_val = validate_http_url(recompile_raw, recompile_label) if recompile_raw else ""
 
+    # Every target, not just the active one: a bad marker on a sibling
+    # target would otherwise wait until ``--target`` switched to it, and
+    # ``all_markers`` would advertise a blank or unsplittable module.
+    markers_by_target = {
+        n: _module_marker_value(
+            t.get("marker") if isinstance(t, dict) else None,
+            n,
+            f"targets.{n}.marker",
+        )
+        for n, t in targets_dict.items()
+        if isinstance(n, str)
+    }
+
     cfg = ProjectConfig(
         root=root,
         target_name=target or "",
@@ -1522,15 +1616,10 @@ def load_config(
         reversed_dir=reversed_dir,
         shared_dir=shared_dir,
         bin_dir=bin_dir,
-        # marker defaults to the target name upper-cased with non-identifier
-        # characters stripped: the raw upper() of `server.dll` is
-        # "SERVER.DLL", which matches no identifier-shaped annotation module and
-        # silently filters every function out of verify/todo/status.
-        marker=_as_str(
-            tgt.get("marker"),
-            _MARKER_STRIP_RE.sub("", target).upper(),
-            f"targets.{target}.marker",
-        ),
+        # Derived when blank: raw upper() of `server.dll` is "SERVER.DLL",
+        # which matches no identifier-shaped annotation module and silently
+        # filters every function out of verify/todo/status.
+        marker=markers_by_target[target],
         r2_bogus_vas=_parse_int_list(tgt.get("r2_bogus_vas", []), "r2_bogus_vas"),
         # project-level defaults
         project_name=_as_str(project_raw.get("name"), "", "project.name"),
@@ -1597,15 +1686,7 @@ def load_config(
         ),
         inventory_file=_as_str(tgt.get("inventory_file"), "", f"targets.{target}.inventory_file"),
         all_targets=all_target_names,
-        all_markers={
-            _as_str(
-                t.get("marker") if isinstance(t, dict) else None,
-                _MARKER_STRIP_RE.sub("", n).upper(),
-                f"targets.{n}.marker",
-            )
-            for n, t in targets_dict.items()
-            if isinstance(n, str)
-        },
+        all_markers=set(markers_by_target.values()),
         # lint configuration — validated enums; unknown keys warn like other sections
         **_load_lint_settings(project_raw),
     )
@@ -1669,6 +1750,16 @@ def load_config(
             "link.file_align is informational only — FileAlignment cannot be "
             "patched into the header (it needs a relink) and is not applied by "
             "round-trip --fix-headers"
+        )
+    if (
+        cfg.link.stack_reserve is not None
+        and cfg.link.stack_commit is not None
+        and cfg.link.stack_commit > cfg.link.stack_reserve
+    ):
+        raise ConfigError(
+            "rebrew-project.toml link.stack_commit "
+            f"({cfg.link.stack_commit}) exceeds link.stack_reserve "
+            f"({cfg.link.stack_reserve}); the Windows loader rejects that image"
         )
 
     # --- [llm] section: optional LLM-assisted GA seeding ---

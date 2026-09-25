@@ -1,6 +1,15 @@
 ## [Unreleased]
 
 ### Fixed
+- **Project config rejects values that would compile or patch the wrong thing.**
+  A blank `marker` uses the derived module name instead of storing `""`
+  (which dropped every function out of verify). A marker with whitespace
+  or `.0x` fails at load. `defines` entries must be C identifiers. `[link]`
+  sizes are unsigned 32-bit: a bool is not treated as `1`, a value outside
+  `0..0xFFFFFFFF` fails instead of being truncated into the PE header, and
+  `stack_commit` may not exceed `stack_reserve`. BinSync import no longer
+  writes metadata under a hardcoded `SERVER` module when the project has
+  no marker.
 - **Wheel bytes no longer follow the checkout umask.** setuptools copies
   each source file's mode into the zip, and git fills the non-executable
   bits from the umask, so umask 002 shipped 0664 entries and umask 022

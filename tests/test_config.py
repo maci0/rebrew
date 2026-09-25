@@ -330,6 +330,94 @@ tsaware = "false"
             cfg = load_config(root)
         assert cfg.link.tsaware is None
 
+    def test_link_bool_is_not_an_integer(self, tmp_path: Path) -> None:
+        """TOML true is a bool, and bool is an int subclass (True == 1)."""
+        toml = """\
+[project]
+default_target = "main"
+
+[targets.main]
+binary = "test.exe"
+
+[link]
+stack_reserve = true
+"""
+        root = _make_project(tmp_path, toml)
+        with pytest.warns(UserWarning, match="stack_reserve"):
+            cfg = load_config(root)
+        assert cfg.link.stack_reserve is None
+
+    def test_link_u32_overflow_raises(self, tmp_path: Path) -> None:
+        toml = """\
+[project]
+default_target = "main"
+
+[targets.main]
+binary = "test.exe"
+
+[link]
+stack_reserve = 0x100000000
+"""
+        root = _make_project(tmp_path, toml)
+        with pytest.raises(ConfigError, match="unsigned 32-bit"):
+            load_config(root)
+
+    def test_link_stack_commit_above_reserve_raises(self, tmp_path: Path) -> None:
+        toml = """\
+[project]
+default_target = "main"
+
+[targets.main]
+binary = "test.exe"
+
+[link]
+stack_reserve = 0x1000
+stack_commit = 0x2000
+"""
+        root = _make_project(tmp_path, toml)
+        with pytest.raises(ConfigError, match="stack_commit"):
+            load_config(root)
+
+    def test_blank_marker_uses_derived_name(self, tmp_path: Path) -> None:
+        toml = """\
+[project]
+default_target = "server.dll"
+
+[targets."server.dll"]
+binary = "test.exe"
+marker = ""
+"""
+        root = _make_project(tmp_path, toml)
+        cfg = load_config(root)
+        assert cfg.marker == "SERVERDLL"
+        assert "SERVERDLL" in cfg.all_markers
+
+    def test_marker_with_whitespace_raises(self, tmp_path: Path) -> None:
+        toml = """\
+[project]
+default_target = "main"
+
+[targets.main]
+binary = "test.exe"
+marker = "SERVER DLL"
+"""
+        root = _make_project(tmp_path, toml)
+        with pytest.raises(ConfigError, match="single token"):
+            load_config(root)
+
+    def test_define_must_be_identifier(self, tmp_path: Path) -> None:
+        toml = """\
+[project]
+default_target = "main"
+
+[targets.main]
+binary = "test.exe"
+defines = ["V2", "NOT A NAME"]
+"""
+        root = _make_project(tmp_path, toml)
+        with pytest.raises(ConfigError, match="define name"):
+            load_config(root)
+
     def test_unknown_arch_raises(self, tmp_path: Path) -> None:
         toml = """\
 [project]
@@ -1535,6 +1623,20 @@ class TestParseOptionalInt:
             assert _parse_optional_int("zzz", "x") is None
         with pytest.warns(UserWarning):
             assert _parse_optional_int(3.5, "x") is None
+
+    def test_bool_ignored(self) -> None:
+        from rebrew.config import _parse_optional_int
+
+        with pytest.warns(UserWarning, match="Expected integer"):
+            assert _parse_optional_int(True, "link.stack_reserve") is None
+
+    def test_out_of_range_raises(self) -> None:
+        from rebrew.config import ConfigError, _parse_optional_int
+
+        with pytest.raises(ConfigError, match="unsigned 32-bit"):
+            _parse_optional_int(-1, "link.timestamp")
+        with pytest.raises(ConfigError, match="unsigned 32-bit"):
+            _parse_optional_int(0x100000000, "link.stack_reserve")
 
 
 class TestParseStrDict:

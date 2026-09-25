@@ -66,7 +66,7 @@ libs = "toolchain/msvc/6.0-win32/source/VC98/Lib"
 | `external_libs` | `[targets.<name>].external_libs` | External `.lib` code — `module = "link-spec"` table (e.g. `LIBCMT = "LIBCMT.lib"`, `D3DX8 = "references/dxsdk8/lib/d3dx8.lib"`, `MSVCRT = ""` for identified-only).  The one flag for "not our work": rows attributed to these modules leave the progress accounting, `rebrew lib-match` ingests the archives by default, and `rebrew cmake-sources` emits the non-empty specs as `REBREW_EXTERNAL_LIBS` for `target_link_libraries` — config order is link order (static archives last) |
 | `crt_sources` | `[targets.<name>].crt_sources` | Maps origin names to reference source directories for CRT cross-matching |
 | `external_ranges` | `[targets.<name>].external_ranges` | Inclusive address bands (`["0x5e0000-0x64ffff"]`) the binary fills from a statically linked library rather than project sources; tools that enumerate work left skip them |
-| `defines` | `[targets.<name>].defines` | Per-target compile-time define names (`["CLIENT"]`) for shared multi-version sources (ADR-010) |
+| `defines` | `[targets.<name>].defines` | Per-target compile-time define names (`["CLIENT"]`) for shared multi-version sources (ADR-010). Each entry must be a C identifier; anything else fails at load instead of compiling the wrong `#ifdef` side |
 | `library_modules` | `[targets.<name>].library_modules` | Module names that use `LIBRARY` markers |
 | `source_ext` | `[targets.<name>].source_ext` | Source extension used when discovering and creating files |
 | `ghidra_program_path` | `[targets.<name>].ghidra_program_path` | ReVa MCP program path override |
@@ -135,7 +135,7 @@ Running `rebrew test --target server_dll` processes only the `SERVER` marker blo
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `marker` | `string` | target key uppercased, characters other than letters, digits, and `_` stripped (e.g. `server.dll` → `SERVERDLL`) | Module identifier used in `// FUNCTION:`, `// LIBRARY:`, `// STUB:` markers |
+| `marker` | `string` | target key uppercased, characters other than letters, digits, and `_` stripped (e.g. `server.dll` → `SERVERDLL`) | Module identifier used in `// FUNCTION:`, `// LIBRARY:`, `// STUB:` markers. Blank (or whitespace-only) uses that default. A value with whitespace, or one containing `.0x`, fails at load: the first never matches a marker line, and the second breaks `MODULE.0xVA` metadata keys |
 
 The lint tool (`rebrew lint`) validates that each marker's module matches the configured marker (error E012) — except stacked blocks naming another known project target, which is the `src/shared` pattern (ADR-010), not a mismatch. Each stacked block answers to its own target's CFLAGS defaults (W018).
 
@@ -268,6 +268,13 @@ subsystem_version = "4.0"
 timestamp = 0x3a1b2c3d       # seconds since epoch
 # file_align = 0x1000        # informational only: warns, never patched (needs a relink)
 ```
+
+`stack_reserve`, `stack_commit`, `timestamp`, and `file_align` are unsigned
+32-bit PE fields (`0` through `0xFFFFFFFF`, decimal or `0x` strings). A bool
+is ignored (TOML `true` must not become `1`). A value outside that range
+fails at load — the header patch would otherwise keep only the low 32 bits.
+When both stack sizes are set, `stack_commit` must not exceed `stack_reserve`
+(the Windows loader rejects that image).
 
 ## Compile Cache Backend
 
@@ -403,6 +410,11 @@ The config loader fail-fasts on missing/invalid structure:
 - `[compiler] profile` not a registered toolchain (a silent `msvc-6.0` substitute
   would compile with the wrong toolchain; repair with `rebrew cfg set-compiler`),
   or `ghidra_backend` not `reva` / `cli`.
+- A `marker` that contains whitespace or `.0x`, or a target name that derives
+  no marker and sets none. A blank `marker` uses the derived default.
+- A `defines` entry that is not a C identifier.
+- A `[link]` integer outside `0..0xFFFFFFFF`, or `stack_commit` greater than
+  `stack_reserve` when both are set.
 
 It emits warnings (and applies safe defaults) if:
 - Unrecognized keys are found in top-level, project, global compiler, target,
@@ -413,7 +425,9 @@ It emits warnings (and applies safe defaults) if:
   still honoured; move to `[targets.<name>.compiler.cflags_presets]`).
 - `[project.lint]` enum fields are not in their known set (falls back to `none`).
 - String/bool fields have non-string/non-bool types (e.g. `recompile_emit_assembly = "false"`
-  would otherwise become `True` via Python `bool()`).
+  would otherwise become `True` via Python `bool()`). A bool in a `[link]`
+  integer field (`stack_reserve = true`) is ignored the same way — `True` is
+  an `int` in Python and would otherwise become `1`.
 - The target binary is missing — `image_base`/`text_va` auto-detection is skipped
   (warning emitted at load time).
 

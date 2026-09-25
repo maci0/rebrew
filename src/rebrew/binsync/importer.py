@@ -233,11 +233,32 @@ def _apply_binsync_func_name(
     return True
 
 
+def _entry_module(cfg: Any, local: Any = None) -> str:
+    """Module for a metadata write.
+
+    The local entry's module wins. Otherwise the project marker
+    (:func:`rebrew.config.module_marker`). A hardcoded ``SERVER`` would
+    store the row under another project's module when this one has none.
+    Empty means the caller must skip the write.
+    """
+    named = ""
+    if local is not None:
+        named = str(getattr(local, "module", "") or "").strip()
+    if named:
+        return named
+    return module_marker(cfg)
+
+
 def _stub_text(cfg: Any, va: int, bs_name: str, bs_proto: str) -> tuple[Path, str, str]:
     """``(path, source, module)`` of the stub ``--create-missing`` would write."""
     bs_stripped = _strip_cdecl_prefix(bs_name) if bs_name.startswith("_") else bs_name
     target_func = bs_stripped if is_safe_c_ident(bs_stripped) else f"func_{va:08x}"
-    mod = cfg.marker or "SERVER"
+    mod = module_marker(cfg)
+    if not mod:
+        raise ValueError(
+            "cannot create a stub without a module marker "
+            "(set [targets.<name>].marker, or use a target name with identifier characters)"
+        )
     proto = (bs_proto or "").strip()
     if proto.endswith(";"):
         proto = proto[:-1].strip()
@@ -588,29 +609,33 @@ def import_state(
         if bs_note:
             from rebrew.metadata import get_entry
 
-            local_mod = getattr(local, "module", "") or "SERVER"
-            local_note = str(get_entry(cfg.metadata_dir, va, local_mod).get("note") or "")
-            if local_note.strip() != bs_note.strip():
-                if dry_run:
-                    proposed.append(
-                        {
-                            "va": f"0x{va:08x}",
-                            "field": "note",
-                            "local": local_note,
-                            "binsync": bs_note,
-                        }
-                    )
-                    applied_notes += 1
-                else:
-                    try:
-                        from rebrew.metadata import update_field
-
-                        update_field(cfg.metadata_dir, va, "note", bs_note, local_mod)
+            local_mod = _entry_module(cfg, local)
+            if not local_mod:
+                log.warning("skipping note for VA 0x%x: no module marker", va)
+                skipped += 1
+            else:
+                local_note = str(get_entry(cfg.metadata_dir, va, local_mod).get("note") or "")
+                if local_note.strip() != bs_note.strip():
+                    if dry_run:
+                        proposed.append(
+                            {
+                                "va": f"0x{va:08x}",
+                                "field": "note",
+                                "local": local_note,
+                                "binsync": bs_note,
+                            }
+                        )
                         applied_notes += 1
-                        touched_vas.append(va)
-                    except Exception:
-                        log.warning("note apply failed for VA 0x%x", va, exc_info=True)
-                        skipped += 1
+                    else:
+                        try:
+                            from rebrew.metadata import update_field
+
+                            update_field(cfg.metadata_dir, va, "note", bs_note, local_mod)
+                            applied_notes += 1
+                            touched_vas.append(va)
+                        except Exception:
+                            log.warning("note apply failed for VA 0x%x", va, exc_info=True)
+                            skipped += 1
 
         if not bs_name or not is_meaningful(bs_name):
             continue
@@ -720,37 +745,45 @@ def import_state(
                     }
                 )
             if not dry_run:
-                try:
-                    from rebrew.data_metadata import set_data_field as _sdf
-
-                    mod = getattr(local, "module", "") or "SERVER"
-                    _sdf(cfg.metadata_dir, va, "name", bs_name, mod)
-                    _apply_global_type_size(cfg.metadata_dir, va, mod, local, bs_entry)
-                    applied_globals += 1
-                    touched_vas.append(va)
-                except Exception:
-                    log.warning("global name apply failed for VA 0x%x", va, exc_info=True)
+                mod = _entry_module(cfg, local)
+                if not mod:
+                    log.warning("skipping global name for VA 0x%x: no module marker", va)
                     skipped += 1
+                else:
+                    try:
+                        from rebrew.data_metadata import set_data_field as _sdf
+
+                        _sdf(cfg.metadata_dir, va, "name", bs_name, mod)
+                        _apply_global_type_size(cfg.metadata_dir, va, mod, local, bs_entry)
+                        applied_globals += 1
+                        touched_vas.append(va)
+                    except Exception:
+                        log.warning("global name apply failed for VA 0x%x", va, exc_info=True)
+                        skipped += 1
             else:
                 applied_globals += 1
         else:
-            # No local DATA entry at this VA — still create a data metadata entry
-            # so the global can be surfaced (module unknown → use marker or SERVER)
+            # No local DATA entry at this VA — still create a data metadata
+            # entry under the active module filter or the project marker.
             if dry_run:
                 proposed.append(
                     {"va": f"0x{va:08x}", "field": "global_name", "local": "", "binsync": bs_name}
                 )
             if not dry_run:
-                try:
-                    from rebrew.data_metadata import set_data_field as _sdf2
-
-                    mod = module or module_marker(cfg)
-                    _sdf2(cfg.metadata_dir, va, "name", bs_name, mod)
-                    applied_globals += 1
-                    touched_vas.append(va)
-                except Exception:
-                    log.warning("global name apply failed for VA 0x%x", va, exc_info=True)
+                mod = module or module_marker(cfg)
+                if not mod:
+                    log.warning("skipping global name for VA 0x%x: no module marker", va)
                     skipped += 1
+                else:
+                    try:
+                        from rebrew.data_metadata import set_data_field as _sdf2
+
+                        _sdf2(cfg.metadata_dir, va, "name", bs_name, mod)
+                        applied_globals += 1
+                        touched_vas.append(va)
+                    except Exception:
+                        log.warning("global name apply failed for VA 0x%x", va, exc_info=True)
+                        skipped += 1
             else:
                 applied_globals += 1
 
@@ -777,7 +810,11 @@ def import_state(
             continue
         if module is not None and getattr(local, "module", "") != module:
             continue
-        local_mod = getattr(local, "module", "") or "SERVER"
+        local_mod = _entry_module(cfg, local)
+        if not local_mod:
+            log.warning("skipping locals for VA 0x%x: no module marker", va)
+            skipped += 1
+            continue
 
         normalized = normalize_stack_vars(bs_entry.get("stack_vars"))
         if normalized:
@@ -806,8 +843,11 @@ def import_state(
     for owner_va in sorted(comments_by_func):
         func_comments = comments_by_func[owner_va]
         owner = local_by_va.get(owner_va)
-        owner_mod = getattr(owner, "module", "") or module_marker(cfg)
-        if dry_run:
+        owner_mod = _entry_module(cfg, owner)
+        if not owner_mod:
+            log.warning("skipping comments for VA 0x%x: no module marker", owner_va)
+            skipped += 1
+        elif dry_run:
             proposed.append(
                 {
                     "va": f"0x{owner_va:08x}",
