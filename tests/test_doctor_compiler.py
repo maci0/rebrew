@@ -802,7 +802,18 @@ class TestCheckCompiler16BitProfiles:
         )
         assert "16-bit" not in (result.message or "")
 
-    def test_borland_mz_suggests_borland_3_1(self, monkeypatch) -> None:
+    @pytest.mark.parametrize("profile", ["msvc-1.0", "msvc-1.5", "delphi-1.0"])
+    def test_other_bits16_profiles_not_warned(
+        self, monkeypatch: pytest.MonkeyPatch, profile: str
+    ) -> None:
+        """Registry bits=16 profiles are 16-bit compilers, not a missing one."""
+        monkeypatch.setattr("rebrew.toolchain.image_present", lambda tag: False)
+        result = check_compiler(_cfg(arch="x86_16", compiler_profile=profile, compiler_command=""))
+        assert result.status == _FAIL
+        assert "not built" in (result.message or "")
+        assert "configure a 16-bit" not in (result.message or "")
+
+    def test_borland_mz_suggests_borland_3_1(self, monkeypatch, tmp_path: Path) -> None:
         from rebrew.toolchain_detect import ToolchainInfo
 
         monkeypatch.setattr(
@@ -812,10 +823,18 @@ class TestCheckCompiler16BitProfiles:
                 version_hint="Borland C/C++ 1991",
                 confidence="high",
                 detected_by="die",
+                arch="x86_16",
             ),
         )
+        binary = tmp_path / "game.exe"
+        binary.write_bytes(b"MZ" + b"\x00" * 64)
         result = check_compiler(
-            _cfg(arch="x86_16", compiler_profile="msvc-6.0", compiler_command="missing")
+            _cfg(
+                arch="x86_16",
+                compiler_profile="msvc-6.0",
+                compiler_command="missing",
+                target_binary=binary,
+            )
         )
         assert result.status == _WARN
         assert "borland-3.1" in (result.message or "") + (result.fix or "")

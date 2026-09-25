@@ -751,23 +751,41 @@ def main(
             "under the supplied context[/dim]"
         )
 
-    # 16-bit NE targets need a 16-bit compiler profile (msvc-1.52 — DOSBox
-    # image / rebrew.msvc16).  When one is configured, verify runs normally
-    # through compile_and_compare (which routes the 16-bit OMF objects via
-    # omf16).  Only short-circuit when the project has no 16-bit profile —
-    # otherwise every stub would burn the compile loop into COMPILE_ERROR
-    # rows.  (The original skip predated the msvc-1.52 profile and silently
-    # hid the working 16-bit pipeline.)
+    # 16-bit NE compare walks per-function objects (OMF via omf16).  That
+    # needs a profile registered with bits=16 whose object extension is
+    # .obj/.o (MSVC 1.x, Borland 2.0/3.1, Watcom wcc, or a plugin that
+    # declares the same).  Delphi 1.0 is bits=16 but emits a linked NE
+    # (.exe), so it is not this loop.  A 32/64-bit profile short-circuits
+    # too — otherwise every stub would burn the compile loop into
+    # COMPILE_ERROR rows.  (The original skip predated the 16-bit profiles
+    # and, later, named only msvc-1.52, which hid the other object pipelines.)
     from rebrew.binary_loader import is_ne
 
     if getattr(cfg, "target_binary", None) and is_ne(cfg.target_binary):
+        from rebrew.toolchain import TOOLCHAINS
+        from rebrew.toolchain_detect import _bitness16_profiles
+
         profile = getattr(cfg, "compiler_profile", "") or "msvc-6.0"
-        if profile != "msvc-1.52":
-            msg = (
-                "verify: 16-bit NE targets need the msvc-1.52 profile "
-                "(DOSBox CL.EXE — 'profile = \"msvc-1.52\"' in rebrew-project.toml); "
-                f"current profile is {profile!r}.  Skipping the compile/compare loop."
-            )
+        spec = TOOLCHAINS.get(profile)
+        object_profiles = tuple(
+            name for name in _bitness16_profiles() if TOOLCHAINS[name].obj_ext in {".obj", ".o"}
+        )
+        emits_object = spec is not None and spec.bits == 16 and spec.obj_ext in {".obj", ".o"}
+        if not emits_object:
+            known = ", ".join(object_profiles) or "msvc-1.52"
+            if spec is not None and spec.bits == 16:
+                msg = (
+                    "verify: 16-bit NE compare needs a per-function object; "
+                    f"profile {profile!r} emits {spec.obj_ext!r}.  "
+                    f"Object profiles: {known}.  "
+                    "Skipping the compile/compare loop."
+                )
+            else:
+                msg = (
+                    "verify: 16-bit NE targets need a bits=16 profile that "
+                    f"emits an object ({known}); "
+                    f"current profile is {profile!r}.  Skipping the compile/compare loop."
+                )
             if json_output:
                 json_print({"skipped": True, "reason": msg, "arch": "x86_16"})
             else:

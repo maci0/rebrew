@@ -170,8 +170,11 @@ graph TD
 ## 16-bit DOS targets
 
 For MZ/NE (DOS) binaries `intake` sets `arch = "x86_16"` automatically and
-the profile must be a 16-bit-capable compiler (`msvc-1.52`, `borland-3.1`, `borland-2.0`,
-`watcom-2.0-win16`).  `rebrew doctor` explains exactly which profile to configure.
+the profile must be one registered with `bits = 16` (`msvc-1.0`, `msvc-1.5`,
+`msvc-1.52`, `borland-2.0`, `borland-3.1`, `watcom-2.0-win16`, `delphi-1.0`,
+or a plugin that declares the same).  `rebrew verify` byte-compares only the
+ones that emit a per-function object; `delphi-1.0` emits a linked NE and is
+skipped.  `rebrew doctor` explains exactly which profile to configure.
 
 ## Manual discovery (without `intake`)
 

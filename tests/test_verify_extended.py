@@ -608,12 +608,27 @@ class TestVerifyCli:
         assert data.get("skipped") is True
         assert "NE" in data["reason"]
 
-    def test_ne_target_with_msvc152_profile_runs(self, tmp_path: Path, monkeypatch) -> None:
-        """With the msvc-1.52 profile configured, verify must NOT short-circuit
-        a 16-bit NE target — the DOSBox compile pipeline (omf16 objects) is
-        live.  The fake cfg lacks the fields the deeper pipeline needs, so the
-        run fails for an unrelated reason — the point is the NE gate no longer
-        fires (no 'skipped' JSON with the stale "future work" reason)."""
+    @pytest.mark.parametrize(
+        "profile",
+        [
+            "msvc-1.52",
+            "msvc-1.5",
+            "msvc-1.0",
+            "borland-3.1",
+            "borland-2.0",
+            "watcom-2.0-win16",
+        ],
+    )
+    def test_ne_target_with_bits16_profile_runs(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, profile: str
+    ) -> None:
+        """A bits=16 object profile must NOT short-circuit a 16-bit NE target.
+
+        The gate used to name only msvc-1.52, so msvc-1.0/1.5, Borland, and
+        Watcom never reached compile_and_compare.  The fake cfg
+        lacks the fields the deeper pipeline needs, so the run fails for an
+        unrelated reason — the point is the NE gate no longer fires (no
+        'skipped' JSON with the stale "future work" reason)."""
         from rebrew.verify import app
 
         ne = tmp_path / "game.ne"
@@ -622,13 +637,32 @@ class TestVerifyCli:
         data[0x3C:0x40] = (0x100).to_bytes(4, "little")
         data[0x100:0x102] = b"NE"
         ne.write_bytes(bytes(data))
-        cfg = _cfg(tmp_path, target_binary=ne, compiler_profile="msvc-1.52")
+        cfg = _cfg(tmp_path, target_binary=ne, compiler_profile=profile)
         monkeypatch.setattr("rebrew.verify.require_config", lambda **kw: cfg)
         result = CliRunner().invoke(app, ["--json"])
-        # exit code is not 0 (deeper pipeline needs a fuller cfg), but the
-        # 16-bit gate must not have produced its skip JSON.
         assert "skipped" not in result.output
         assert "future work" not in result.output
+
+    def test_ne_target_with_delphi_skips(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """delphi-1.0 is bits=16 but emits a linked NE, not a comparable object."""
+        from rebrew.verify import app
+
+        ne = tmp_path / "game.ne"
+        data = bytearray(0x140)
+        data[0:2] = b"MZ"
+        data[0x3C:0x40] = (0x100).to_bytes(4, "little")
+        data[0x100:0x102] = b"NE"
+        ne.write_bytes(bytes(data))
+        cfg = _cfg(tmp_path, target_binary=ne, compiler_profile="delphi-1.0")
+        monkeypatch.setattr("rebrew.verify.require_config", lambda **kw: cfg)
+        result = CliRunner().invoke(app, ["--json"])
+        assert result.exit_code == 2
+        payload = json.loads(result.output)
+        assert payload.get("skipped") is True
+        assert ".exe" in payload["reason"]
+        assert "delphi-1.0" in payload["reason"]
 
     def test_failed_exits_mismatch(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         from rebrew.verify import app

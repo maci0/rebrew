@@ -1,11 +1,11 @@
-"""msvc16.py — 16-bit MSVC (1.5 / 1.52) compilation support.
+"""msvc16.py — 16-bit MSVC (1.0 / 1.5 / 1.52) compilation support.
 
 Wraps the vendored 16-bit Microsoft Visual C++ command-line compilers
-(``rebrew-toolchains/msvc/1.52-win16``, ``rebrew-toolchains/msvc/1.5-win16``): the CL.EXE
-drivers are Phar Lap TNT DOS-extender PEs that run headless under DOSBox
-(wine's DOS-memory allocation fails for them).  Produces 16-bit OMF
-objects — the OMF parser (docs/OMF_NOTES.md) is the enabling piece for
-byte matching.
+(``rebrew-toolchains/msvc/1.0-win16``, ``rebrew-toolchains/msvc/1.5-win16``,
+``rebrew-toolchains/msvc/1.52-win16``): the CL.EXE drivers are Phar Lap TNT
+DOS-extender PEs that run headless under DOSBox (wine's DOS-memory
+allocation fails for them).  Produces 16-bit OMF objects — the OMF parser
+(docs/OMF_NOTES.md) is the enabling piece for byte matching.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ class Msvc16Error(RebrewError, RuntimeError):
 
 @dataclass
 class Msvc16Result:
-    """Outcome of an MSVC 1.52 compile."""
+    """Outcome of a 16-bit MSVC compile."""
 
     obj_path: Path
     log: str = ""
@@ -35,10 +35,15 @@ def _find_vc152(version: str = "1.52-win16") -> Path:
     vc = toolchains_repo() / "msvc" / version / "source"
     if (vc / "BIN" / "CL.EXE").exists():
         return vc
+    profile = {
+        "1.0-win16": "msvc-1.0",
+        "1.5-win16": "msvc-1.5",
+        "1.52-win16": "msvc-1.52",
+    }.get(version, version)
     raise Msvc16Error(
         f"vendored MSVC {version} not found under "
         f"rebrew-toolchains/msvc/{version}/source (BIN/INCLUDE/LIB "
-        "required — run `rebrew toolchain vendor msvc-1.52`/`msvc-1.5` with "
+        f"required — run `rebrew toolchain vendor {profile}` with "
         "the media tarball next to the Dockerfile)"
     )
 
@@ -64,6 +69,8 @@ def compile_c(
             breaks on tmpfs mounts; removed at process exit).
         cflags: Extra CL flags (default ``["/c", "/nologo"]``).
         timeout: DOSBox subprocess timeout.
+        version: Vendored tree under ``rebrew-toolchains/msvc/<version>/source``
+            (``1.0-win16``, ``1.5-win16``, or ``1.52-win16``).
 
     Raises:
         Msvc16Error: toolchain/DOSBox missing, compile failure, or no object.

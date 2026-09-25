@@ -650,16 +650,28 @@ class TestCheckIncludes16BitProfiles:
     """The include check must accept every 16-bit-capable profile
     check_compiler accepts, not only msvc-1.52."""
 
-    def test_borland_3_1_not_warned(self, tmp_path: Path, monkeypatch) -> None:
+    @pytest.mark.parametrize(
+        "profile",
+        [
+            "borland-3.1",
+            "borland-2.0",
+            "watcom-2.0-win16",
+            "msvc-1.52",
+            "msvc-1.5",
+            "msvc-1.0",
+            "delphi-1.0",
+        ],
+    )
+    def test_bits16_profile_not_warned(self, tmp_path: Path, monkeypatch, profile: str) -> None:
         from rebrew.doctor import _WARN
 
         # The docker-image probe is environment-dependent (the image is not
         # built on a CI runner); this test is about the include-path guard.
         monkeypatch.setattr("rebrew.doctor._docker_toolchain_check", lambda *a, **k: None)
-        cfg = _make_cfg(tmp_path, arch="x86_16", compiler_profile="borland-3.1")
+        cfg = _make_cfg(tmp_path, arch="x86_16", compiler_profile=profile)
         result = check_includes(cfg)
         # The missing include dir is a real FAIL; the 16-bit guard must not
-        # short-circuit a borland-3.1 project into "configure msvc-1.52".
+        # short-circuit a bits=16 project into "configure a 16-bit profile".
         assert result.status != _WARN, result.message
 
 

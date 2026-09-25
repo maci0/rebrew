@@ -85,7 +85,7 @@ Rebrew is a reusable Python tooling package for reconstructing exact C source co
 
 - **Config-driven** — all tools read from `rebrew-project.toml`, zero manual path arguments
 - **Multi-target** — PE, ELF, Mach-O, and 16-bit Windows NE across x86-16, x86, x64, ARM32/64 with `--target` selection
-- **Idempotent** — every tool safe to re-run without side effects
+- **Idempotent** — every tool is safe to re-run
 - **Composable** — small single-purpose tools designed for scripting and AI agent chaining
 - **Compile cache** — disk-backed SHA-256 cache avoids redundant recompilations
 - **Agent-friendly** — bundled `agent-skills/` copied to projects on `rebrew init`
@@ -101,7 +101,7 @@ Six bundled skills for AI coding agent integration:
 | `rebrew-matching` | GA matching engine, flag sweeps, diff analysis |
 | `rebrew-data-analysis` | Global data scanning, BSS layout, dispatch tables |
 | `rebrew-intake` | Binary onboarding, triage, and initial FLIRT scanning |
-| `rebrew-ghidra-sync` | Ghidra ↔ Rebrew sync via ReVa MCP |
+| `rebrew-ghidra-sync` | Ghidra field sync via BinSync; ReVa MCP only for create-functions, bookmarks, and pull-data |
 
 ## Quick Start
 
@@ -314,9 +314,13 @@ Only `EXACT` and `RELOC` count as matched; `PROVEN` functions stay on
 **Legend:** ✅ Supported  ⬜ Planned / Not yet implemented
 
 16-bit NE targets are parsed, enumerated, and analyzed natively (intake,
-analyze, asm, describe, data, report — see `docs/TOOLCHAIN.md`); byte
-matching and verification short-circuit with a notice because no 16-bit
-compiler profile exists yet (ADR-001).
+analyze, asm, describe, data, report — see `docs/TOOLCHAIN.md`). Byte
+matching and `rebrew verify` run when the project profile is registered
+with `bits = 16` and emits a per-function object (`msvc-1.0`, `msvc-1.5`,
+`msvc-1.52`, `borland-2.0`, `borland-3.1`, `watcom-2.0-win16`, or a plugin
+that declares the same). `delphi-1.0` is 16-bit but emits a linked NE, so
+verify skips it. Any other profile short-circuits with a notice naming the
+object profiles and exits 2.
 
 **Toolchain detection:** `rebrew intake`/`analyze` auto-detect the compiler
 family and version — DIE (`diec`) signatures first, then PDB records, then
@@ -393,7 +397,7 @@ Projects rebrew integrates with or draws from:
 | [decomp-permuter](https://github.com/simonlindholm/decomp-permuter) | Source-level permutation finder for matching decompilation | Complementary to `rebrew match`'s GA: explores semantic-preserving C rewrites (variable types, statement order, parenthesisation) until the compiler emits identical assembly. Candidate for integration as an alternative mutation engine or seed source for the GA. |
 | [objdiff](https://github.com/encounter/objdiff) | Rust GUI for object file diffing (COFF/ELF/Mach-O) | Visual companion for inspecting match differences |
 | [decomp-toolkit](https://github.com/encounter/decomp-toolkit) | GameCube/Wii decompilation toolkit | DOL/REL focused; similar split/link/diff workflow concepts |
-| [wibo](https://github.com/decompals/wibo) | Lightweight Win32 PE loader | Faster alternative to Wine for running MSVC CL.EXE |
+| [wibo](https://github.com/decompals/wibo) | Lightweight Win32 PE loader | Optional host download (`rebrew doctor --install-wibo`). Shipped compiles run inside the toolchain image; a host wibo is not the compile path |
 | [Ghidra](https://github.com/NationalSecurityAgency/ghidra) | NSA's reverse engineering suite | Primary disassembler/decompiler; connected via ReVa MCP |
 | [FLIRTDB](https://github.com/Maktm/FLIRTDB) | FLIRT signature database | Signatures for MSVC, Borland, MinGW used by `rebrew flirt` |
 

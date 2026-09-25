@@ -642,9 +642,11 @@ def kuna_seed_source(binary: Path, va: int, root: Path) -> str | None:
 #: ``find_spec`` guard below rather than a hard dependency.
 _M2C_RUN_CMD = "from m2c.main import main; main()"
 
-#: m2c ``--target`` per rebrew arch.  PPC in m2c is always big-endian;
-#: MIPS big-endian is IDO by default (little-endian MIPS — PlayStation — is
-#: selected from the binary's own endianness in :func:`_m2c_target`).
+#: m2c ``--target`` per rebrew arch.  m2c's PPC id is ``ppc-mwcc-c`` (no
+#: little-endian target name); disassembly itself follows the image via
+#: :func:`rebrew.binary_loader.capstone_config_for`.  MIPS big-endian is IDO
+#: by default (little-endian MIPS — PlayStation — is selected from the
+#: binary's own endianness in :func:`_m2c_target`).
 _M2C_TARGETS: dict[str, str] = {
     "mips64": "mipsee-gcc-c",  # m2c's only 64-bit MIPS target (eabi64, LE)
     "ppc32": "ppc-mwcc-c",
@@ -766,8 +768,9 @@ def fetch_m2c(binary: Path, va: int, root: Path, **_kwargs: Any) -> str | None:
     ``uv pip install "m2c @ git+https://github.com/matt-kempster/m2c.git"``
     (the real decompiler is not on PyPI under this name).  Returns ``None`` when
     m2c is unavailable, the arch has no m2c target (x86), the function does
-    not cleanly disassemble, or m2c fails.  PPC is disassembled big-endian
-    (``blr`` and the other fixed-width words) and fed to m2c's ``ppc-mwcc-c``
+    not cleanly disassemble, or m2c fails.  Disassembly follows the image
+    endianness: MIPS, PPC, and SH2 default to big-endian, and a little-endian
+    header clears ``CS_MODE_BIG_ENDIAN``.  PPC is fed to m2c's ``ppc-mwcc-c``
     target.
     """
     if not binary.exists():

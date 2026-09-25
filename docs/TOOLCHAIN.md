@@ -874,10 +874,13 @@ The workflow for a 16-bit target is: `rebrew intake <ne.exe>` (enumerates +
 documents every function as a STUB blocker — Delphi functions are marked
 audit-only in `rebrew todo -c documented`), `rebrew analyze <ne.exe>` for the
 intelligence dossier (format, toolchain family, imports, strings),
-`rebrew asm <va>` for disassembly.  For byte matching, configure
-`profile = "msvc-1.52"` in `rebrew-project.toml` — `rebrew verify` then runs
-the full compile/compare loop (137 functions on ski16.exe compile through
-DOSBox with 0 COMPILE_ERROR).
+`rebrew asm <va>` for disassembly.  For byte matching, set `compiler.profile`
+to a `bits = 16` profile that emits a per-function object (for this MSVC
+16-bit line, `msvc-1.52`, `msvc-1.5`, or `msvc-1.0`; also `borland-2.0`,
+`borland-3.1`, `watcom-2.0-win16`).  `rebrew verify` then runs the full
+compile/compare loop.  A 32-bit profile, or `delphi-1.0` (linked NE, not an
+object), short-circuits with a notice and exits 2.  ski16.exe's 137 functions
+compile through the `msvc-1.52` image with 0 COMPILE_ERROR.
 
 **Delphi 1.0 toolchain (vendored, verified working):** for 16-bit *Delphi*
 targets (e.g. `holiday.exe`, a Delphi 1.0 VCL app),

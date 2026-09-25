@@ -119,10 +119,6 @@ class DoctorReport:
 
 _KNOWN_FORMATS = {"pe", "elf", "macho", "ne", "mz"}
 
-#: Compiler profiles that can build a 16-bit target (msvc-1.52 DOSBox CL.EXE,
-#: borland-3.1/borland-2.0 DOSBox TCC.EXE, watcom-2.0-win16 native wcc).  Shared by the compiler and
-#: include checks so they cannot disagree about which profiles are valid.
-_16BIT_PROFILES = frozenset({"msvc-1.52", "borland-3.1", "borland-2.0", "watcom-2.0-win16"})
 _KNOWN_ARCHES = {
     "x86_16",
     "x86_32",
@@ -291,15 +287,24 @@ def _toolchain_download_hint(path_str: str) -> str:
 
 def check_compiler(cfg: ProjectConfig) -> CheckResult:
     """Check that the compiler command is executable."""
-    # A 16-bit target needs a 16-bit-capable profile (msvc-1.52 DOSBox
-    # CL.EXE, borland-3.1 DOSBox TCC.EXE, watcom-2.0-win16 native wcc).  With one
-    # configured, proceed to the normal executable check; otherwise a
-    # 32-bit compiler cannot build the target, so a missing toolchain is
-    # expected, not a project defect.  Downgrade to a warning instead of a
-    # hard failure, and suggest the right profile via the detector.
-    _16BIT = _16BIT_PROFILES
-    if getattr(cfg, "arch", "") == "x86_16" and getattr(cfg, "compiler_profile", "") not in _16BIT:
-        hint = "msvc-1.52, borland-3.1, borland-2.0, or watcom-2.0-win16"
+    # A 16-bit target needs a profile registered with bits=16 (the same set
+    # as arch alignment: MSVC 1.x, Borland 2.0/3.1, Watcom wcc, Delphi 1.0,
+    # and any plugin that declares bits=16).  With one configured, proceed
+    # to the image check; otherwise a 32-bit compiler cannot build the
+    # target, so a missing toolchain is expected, not a project defect.
+    # Downgrade to a warning and suggest a profile via the detector.
+    from rebrew.toolchain_detect import _bitness16_profiles
+
+    profiles_16 = _bitness16_profiles()
+    if (
+        getattr(cfg, "arch", "") == "x86_16"
+        and getattr(cfg, "compiler_profile", "") not in profiles_16
+    ):
+        hint = (
+            "msvc-1.52"
+            if "msvc-1.52" in profiles_16
+            else (profiles_16[0] if profiles_16 else "msvc-1.52")
+        )
         try:
             from rebrew.toolchain_detect import detect_toolchain, suggest_profile
 
@@ -815,22 +820,25 @@ def _docker_toolchain_check(cfg: ProjectConfig, name: str, what: str) -> CheckRe
 
 def check_includes(cfg: ProjectConfig) -> CheckResult:
     """Check that the compiler include directory exists."""
-    # A 16-bit NE target without a 16-bit-capable profile has no usable compile
-    # path — the include dir is moot, same as the compiler check.  The profile
-    # set is shared with check_compiler: exempting only msvc-1.52 told a working
-    # borland-3.1/borland-2.0/watcom-2.0-win16 project to switch toolchains.  With one configured, the
-    # vendored INCLUDE is staged into the sandbox as C:\INCLUDE, so the host path
-    # check still applies.
+    # A 16-bit target without a bits=16 profile has no usable compile path —
+    # the include dir is moot, same as the compiler check.  The set is the
+    # toolchain registry (not a hardcoded name list): exempting only
+    # msvc-1.52 told a working borland, watcom, msvc-1.0, or msvc-1.5 project
+    # to switch toolchains.  With one configured, the vendored INCLUDE is
+    # staged into the sandbox as C:\INCLUDE, so the host path check still applies.
+    from rebrew.toolchain_detect import _bitness16_profiles
+
+    profiles_16 = _bitness16_profiles()
     if (
         getattr(cfg, "arch", "") == "x86_16"
-        and getattr(cfg, "compiler_profile", "") not in _16BIT_PROFILES
+        and getattr(cfg, "compiler_profile", "") not in profiles_16
     ):
         return CheckResult(
             name="Include path",
             status=_WARN,
             message="16-bit NE target — configure a 16-bit profile for includes",
             fix="Set compiler.profile to one of "
-            + ", ".join(sorted(_16BIT_PROFILES))
+            + ", ".join(profiles_16)
             + " (its vendored INCLUDE is staged as C:\\INCLUDE in the sandbox).",
         )
     docker = _docker_toolchain_check(cfg, "Include path", "includes")
