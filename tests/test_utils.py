@@ -99,6 +99,26 @@ def test_atomic_write_text_identical_is_noop(tmp_path: Path) -> None:
     assert f.stat().st_mtime_ns == before
 
 
+def test_atomic_write_bytes_identical_is_noop(tmp_path: Path) -> None:
+    """A second write of the same bytes must not bump mtime.
+
+    ``postlink``, round-trip reassembly, and report sidecars all republish
+    through :func:`atomic_write_bytes`.  A converged re-run has to leave the
+    file alone; a different payload still replaces it.
+    """
+    from rebrew.utils import atomic_write_bytes
+
+    f = tmp_path / "same.bin"
+    atomic_write_bytes(f, b"stable")
+    os.utime(f, ns=(1_000_000_000, 1_000_000_000))
+    atomic_write_bytes(f, b"stable")
+    assert f.read_bytes() == b"stable"
+    assert f.stat().st_mtime_ns == 1_000_000_000
+    atomic_write_bytes(f, b"changed")
+    assert f.read_bytes() == b"changed"
+    assert f.stat().st_mtime_ns != 1_000_000_000
+
+
 def test_atomic_write_text_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     f = tmp_path / "test.txt"
 

@@ -732,6 +732,32 @@ class TestUnparsedTypeComment:
         assert "UNPARSED" in text
         assert "not a struct at all {{{" in text
 
+    def test_unparsed_and_renamed_definitions_are_not_reappended(self, tmp_path: Path) -> None:
+        """A second import must not append another copy.
+
+        The UNPARSED wrapper and a definition whose declared name is not the
+        BinSync key never contain that key, so a key search treated every
+        re-import as new.
+        """
+        from types import SimpleNamespace
+
+        from rebrew.binsync.importer import _import_type_definitions
+
+        src = tmp_path / "src"
+        src.mkdir()
+        cfg = SimpleNamespace(reversed_dir=src, metadata_dir=tmp_path, source_ext=".c")
+        definitions = {
+            "Weird": {"definition": "not a struct at all {{{"},
+            "Alias": {"type": "int", "definition": "typedef int Other;"},
+        }
+        assert _import_type_definitions(cfg, definitions, dry_run=False, proposed=[]) == 2
+        header = src / "binsync_types.h"
+        text = header.read_text(encoding="utf-8")
+        assert _import_type_definitions(cfg, definitions, dry_run=False, proposed=[]) == 0
+        assert header.read_text(encoding="utf-8") == text
+        assert text.count("UNPARSED") == 1
+        assert text.count("typedef int Other;") == 1
+
     def test_definition_cannot_escape_comment(self, tmp_path: Path) -> None:
         from types import SimpleNamespace
 

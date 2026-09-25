@@ -583,11 +583,22 @@ def atomic_write_bytes(filepath: Path, data: bytes) -> None:
     crash or disk-full mid-write never leaves a truncated binary at the
     target path (e.g. a postlinked or reassembled PE).  The temp file is
     cleaned up on any failure; the original exception is always re-raised.
+
+    When the on-disk bytes already match *data*, the replace is skipped so a
+    no-op re-run (a second ``postlink`` of an already-converged binary, a
+    report sidecar rebuild) does not bump mtime.  Same contract as
+    :func:`atomic_write_text`.
     """
+    filepath.parent.mkdir(parents=True, exist_ok=True)
+    if filepath.is_file():
+        try:
+            if filepath.read_bytes() == data:
+                return
+        except OSError:
+            pass
     tmp_path = filepath.with_name(
         f"{filepath.name}.{os.getpid()}.{threading.get_ident()}.{time.monotonic_ns()}.tmp"
     )
-    filepath.parent.mkdir(parents=True, exist_ok=True)
     try:
         tmp_path.write_bytes(data)
         os.replace(tmp_path, filepath)

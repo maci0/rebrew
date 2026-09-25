@@ -1083,6 +1083,12 @@ def _import_type_definitions(
             "/* binsync_types.h - type definitions imported from BinSync.\n"
             " * Regenerate/extend via: rebrew binsync-import\n */\n\n"
         ]
+    written = 0
+    # ``landed`` includes blocks appended in this call so two keys that emit
+    # the same text cannot both land.  The name check stays against the file
+    # as read: a later key must not be dropped just because its spelling
+    # occurs inside a definition written earlier in this batch.
+    landed = existing
     for name in sorted(new):
         definition = _definition_text(name, new[name])
         if not definition:
@@ -1091,11 +1097,21 @@ def _import_type_definitions(
             # Break ``*/`` so the definition cannot close the comment early.
             inert = definition.replace("*/", "* /")
             definition = f"/* UNPARSED from BinSync (no known layout):\n{inert}\n*/"
-        if name not in existing:
-            blocks.append(definition + "\n\n")
+        # The BinSync key is not a safe dedup token: an UNPARSED comment and a
+        # definition whose declared name differs from the key never contain it,
+        # so a key search appended a fresh copy on every import.  The
+        # definition text is what actually lands in the header.
+        if name in existing or definition.strip() in landed:
+            continue
+        block = definition + "\n\n"
+        blocks.append(block)
+        landed += block
+        written += 1
 
+    if written == 0:
+        return 0
     atomic_write_text(header, "".join(blocks), encoding=header_encoding)
-    return len(new)
+    return written
 
 
 def print_import_result(result: dict[str, object], *, json_output: bool, dry_run: bool) -> None:

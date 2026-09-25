@@ -24,6 +24,7 @@ Usage::
 
 from __future__ import annotations
 
+import filecmp
 import json
 import re
 import shutil
@@ -314,8 +315,13 @@ def _set_target_arch(project: Path, target_name: str, arch: str, fmt: str) -> No
     doc = tomlkit.parse(toml_path.read_text(encoding="utf-8-sig"))
     targets = doc.get("targets")
     if targets is not None and target_name in targets:
-        targets[target_name]["arch"] = arch
-        targets[target_name]["format"] = fmt
+        current = targets[target_name]
+        # A re-discovery of the same binary must not rewrite the project file
+        # when the detected format and arch are already recorded.
+        if str(current.get("arch") or "") == arch and str(current.get("format") or "") == fmt:
+            return
+        current["arch"] = arch
+        current["format"] = fmt
         atomic_write_text(toml_path, tomlkit.dumps(doc), encoding="utf-8")
 
 
@@ -494,11 +500,20 @@ def main(
     original_dir = project / "original"
     original_dir.mkdir(exist_ok=True)
     dest = original_dir / bin_filename
+    # Re-discovery passes the binary already copied into original/.  copy2 of
+    # a file onto itself raises SameFileError and aborts the run; an identical
+    # dest is already the result of the first copy, so rewriting it only
+    # risks truncating the binary if the second copy is interrupted.
     try:
-        shutil.copy2(bin_path, dest)
-    except OSError as e:
-        msg = f"failed to copy binary: {e}"
-        error_exit(msg, json_mode=json_output)
+        already = dest.is_file() and filecmp.cmp(bin_path, dest, shallow=False)
+    except OSError:
+        already = False
+    if not already:
+        try:
+            shutil.copy2(bin_path, dest)
+        except OSError as e:
+            msg = f"failed to copy binary: {e}"
+            error_exit(msg, json_mode=json_output)
 
     # 3. symlink the vendored toolchain
     linked = _link_toolchain(project, profile)

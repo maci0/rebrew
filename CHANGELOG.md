@@ -1,6 +1,20 @@
 ## [Unreleased]
 
 ### Fixed
+- **`binsync-import` does not append a second copy of a type it cannot name.**
+  An UNPARSED comment, and a definition whose declared name is not the
+  BinSync key, never contain that key. A re-import treated them as new and
+  appended another copy into `binsync_types.h`. The header now keeps a
+  definition that is already present.
+- **A repeated byte write leaves an unchanged file's mtime alone.**
+  `postlink`, round-trip reassembly, and report sidecars republish through
+  the same helper as text writes. A second run of identical bytes no longer
+  replaces the file.
+- **`rebrew intake` converges when the binary is already in `original/`.**
+  Copying that path onto itself aborted re-discovery, and a second run
+  rewrote an identical `original/` binary. An identical destination is left
+  in place, and a project file that already records the detected format and
+  arch is not rewritten. A changed binary is still copied.
 - **Dashboard module counts use the stored module.** `by_module_counts`
   labeled a blank `functions.module` as `GAME`, so the Module menu offered
   a name `/api/functions?module=` did not return. The key is now the stored

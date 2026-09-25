@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -74,6 +75,46 @@ class TestIntake:
         assert "size = 8" in meta
         # binary copied
         assert (tmp_path / "original" / "game.exe").exists()
+
+    def test_rediscovery_does_not_recopy_or_rewrite_config(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """A second intake of the same binary leaves original/ and the project file alone."""
+        binary = tmp_path / "game.exe"
+        binary.write_bytes(b"MZ")
+        _run_main(tmp_path, monkeypatch, argv=["game.exe", "--json"])
+        dest = tmp_path / "original" / "game.exe"
+        os.utime(dest, ns=(1_000_000_000, 1_000_000_000))
+        toml = (tmp_path / "rebrew-project.toml").read_bytes()
+        _run_main(tmp_path, monkeypatch, argv=["game.exe", "--json"])
+        assert dest.read_bytes() == b"MZ"
+        assert dest.stat().st_mtime_ns == 1_000_000_000
+        assert (tmp_path / "rebrew-project.toml").read_bytes() == toml
+
+    def test_rediscovery_replaces_a_changed_binary(self, tmp_path: Path, monkeypatch) -> None:
+        """A different payload is still copied; only an identical dest is left alone."""
+        binary = tmp_path / "game.exe"
+        binary.write_bytes(b"MZ")
+        _run_main(tmp_path, monkeypatch, argv=["game.exe", "--json"])
+        binary.write_bytes(b"MZ-next")
+        _run_main(tmp_path, monkeypatch, argv=["game.exe", "--json"])
+        assert (tmp_path / "original" / "game.exe").read_bytes() == b"MZ-next"
+
+    def test_intake_of_binary_already_in_original(self, tmp_path: Path, monkeypatch) -> None:
+        """``rebrew intake original/<name>`` must converge, not copy the file onto itself."""
+        original = tmp_path / "original"
+        original.mkdir()
+        binary = original / "game.exe"
+        binary.write_bytes(b"MZ")
+        os.utime(binary, ns=(1_000_000_000, 1_000_000_000))
+        out = _run_main(tmp_path, monkeypatch, argv=["original/game.exe", "--json"])
+        assert json.loads(out)["functions"] == 2
+        assert binary.read_bytes() == b"MZ"
+        assert binary.stat().st_mtime_ns == 1_000_000_000
+        toml = (tmp_path / "rebrew-project.toml").read_bytes()
+        _run_main(tmp_path, monkeypatch, argv=["original/game.exe", "--json"])
+        assert binary.stat().st_mtime_ns == 1_000_000_000
+        assert (tmp_path / "rebrew-project.toml").read_bytes() == toml
 
     @pytest.mark.parametrize("status", ["STUB", "RELOC"])
     def test_rediscovery_does_not_duplicate_renamed_functions(
