@@ -12,7 +12,7 @@ from typing import Any
 
 from rebrew.annotation import Annotation, parse_c_file_multi, parse_library_header
 from rebrew.catalog.models import FunctionEntry, GhidraDataLabel
-from rebrew.config import ProjectConfig, inventory_path_for
+from rebrew.config import ProjectConfig, inventory_path_for, module_marker
 from rebrew.sources import iter_library_headers, iter_sources, target_marker
 
 # ---------------------------------------------------------------------------
@@ -288,8 +288,11 @@ def scan_reversed_dir(reversed_dir: Path, cfg: ProjectConfig | None = None) -> l
     # Scan library_*.h files for LIBRARY markers (CRT/zlib identifications).
     # `cfg` makes the scan include the project's shared root, which
     # scan_reversed_dir already covered for the catalog.
+    # Headers carry no target affinity in their path, so keep only rows of
+    # this target's module (sources are scoped by parse_c_file_multi above).
+    marker = module_marker(cfg).lower() if cfg else ""
     for hfile in iter_library_headers(reversed_dir, cfg):
         parsed = parse_library_header(hfile, metadata_dir=cfg.metadata_dir if cfg else None)
-        entries.extend(parsed)
+        entries.extend(e for e in parsed if not marker or (e.module or "").lower() in ("", marker))
 
     return entries

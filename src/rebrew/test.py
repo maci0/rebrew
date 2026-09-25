@@ -54,6 +54,7 @@ from rebrew.coff_reloc import (
     smart_reloc_compare,
 )
 from rebrew.compile import (
+    UNCLASSIFIED_DIFF,
     CompareResult,
     classify_compare_result,
     classify_match_status,
@@ -1575,7 +1576,9 @@ def _test_multi(
                     f"RELOC-NORM MATCH ({len(relocs)} relocs)"
                     if matched and relocs
                     else (
-                        "EXACT MATCH" if matched else f"NEAR_MATCHING/STUB: {total - match_count}"
+                        "EXACT MATCH"
+                        if matched
+                        else f"{UNCLASSIFIED_DIFF}: {total - match_count} byte diffs"
                     )
                 )
             cmp = classify_compare_result(

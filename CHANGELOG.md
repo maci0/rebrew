@@ -35,6 +35,18 @@
   that `status` no longer has).  Its messages and `docs/ECOSYSTEM.md` now
   name `rebrew catalog --data-json`, the flag that writes the snapshot, not
   `--json`.
+- **`verify` reports on the same basis as `status`.**  `--nolib` now drops
+  every function `status` counts as library code, including a compiled
+  FUNCTION whose VA a `library_*.h` header attributes (it dropped none of
+  guild-rebrew's 22); the summary says how many passes are library
+  code (`279/283 passed (22 library-attributed)`, JSON
+  `summary.library_passed`); a miss names its status (`NEAR_MATCHING: 42 byte
+  diffs`, not `NEAR_MATCHING/STUB`); and the scan header calls the registry
+  what it is (`inventory: 543 functions`).
+- **Scans count only this target's library headers.**  `scan_reversed_dir`
+  kept every target's `library_*.h` rows, so `verify` and `catalog` on
+  `server.dll` counted a client's D3DX8 list (1582 library entries where
+  `status` has 305).
 
 ## [2.8.0] - 2026-09-25
 ### Added

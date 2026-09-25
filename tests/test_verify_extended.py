@@ -1976,3 +1976,45 @@ class TestReportInventory:
         )
         assert report["summary"]["total"] == 1
         assert report["summary"]["inventory_count"] == inventory_count
+
+
+class TestLibraryAttributedPasses:
+    """verify's passes include library-attributed functions that `rebrew
+    status` leaves out of progress; both outputs must say how many."""
+
+    def test_summary_line_names_library_passes(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from io import StringIO
+
+        from rich.console import Console
+
+        import rebrew.verify as verify_mod
+        from rebrew.verify import _print_results
+
+        buf = StringIO()
+        monkeypatch.setattr(
+            verify_mod,
+            "console",
+            Console(file=buf, force_terminal=True, width=120, no_color=True, highlight=False),
+        )
+        _print_results([], [], None, None, False, False, 283, 279, 4, library_passed=22)
+        assert "279/283 passed (22 library-attributed), 4 failed" in buf.getvalue()
+
+    def test_report_counts_library_passes(self) -> None:
+        from rebrew.verify import build_report
+
+        cfg = SimpleNamespace(target_name="SERVER", target_binary=Path("/x"))
+        report = build_report(
+            cfg,
+            [],
+            279,
+            4,
+            283,
+            [],
+            [],
+            [],
+            dry_run=False,
+            compile_context=None,
+            provenance="verify",
+            library_passed=22,
+        )
+        assert report["summary"]["library_passed"] == 22

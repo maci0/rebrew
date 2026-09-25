@@ -59,7 +59,7 @@ from rebrew.cli import (
 from rebrew.compile import (
     is_matched,
 )
-from rebrew.config import ProjectConfig, inventory_path_for
+from rebrew.config import ProjectConfig, inventory_path_for, module_marker
 from rebrew.match_semantics import EFFECTIVE_MATCH_NOTE, is_effective_match
 from rebrew.metadata import should_promote_status
 from rebrew.utils import atomic_write_text, floor_pct
@@ -1127,6 +1127,8 @@ class BatchResult:
     #: Functions named by the discovery inventory (function_structure.json) —
     #: the denominator "how much is not yet reversed" for the report summary.
     inventory_count: int = 0
+    #: VAs `rebrew status` counts as library code (see :func:`_library_vas`).
+    library_vas: frozenset[int] = frozenset()
 
 
 def run_batch(
@@ -1164,6 +1166,7 @@ def run_batch(
         name_to_va,
         inventory_count,
     ) = prepare_entries(cfg, full, json_output, context=context)
+    library_vas = frozenset(_library_vas(cfg, unique_entries))
     (
         unique_entries,
         total,
@@ -1227,6 +1230,7 @@ def run_batch(
         excluded_keys=excluded_keys,
         cached_count=cached_count,
         inventory_count=inventory_count,
+        library_vas=library_vas,
     )
 
 
@@ -1252,6 +1256,7 @@ def build_report(
     provenance: str,
     library_excluded: int = 0,
     orphans_pruned: int = 0,
+    library_passed: int = 0,
     data_report: dict[str, Any] | None = None,
     text_report: dict[str, Any] | None = None,
     whole_report: dict[str, Any] | None = None,
@@ -1292,6 +1297,8 @@ def build_report(
             "compile_error": _status_counts.get("COMPILE_ERROR", 0),
             "missing_file": _status_counts.get("MISSING_FILE", 0),
             "byte_matched": _status_counts.get("EXACT", 0) + _status_counts.get("RELOC", 0),
+            # Passes on functions `rebrew status` counts as library code, not progress.
+            "library_passed": library_passed,
             "library_excluded": library_excluded,
             "orphans_pruned": orphans_pruned,
             # Not-yet-reversed denominator: functions the inventory names but
@@ -1329,6 +1336,9 @@ def _save_report(
 ) -> None:
     """Assemble the verify report, save cache + baseline, print, gate."""
     results = batch.results
+    library_passed = sum(
+        1 for r in results if r["passed"] and int(r["va"], 16) in batch.library_vas
+    )
     passed, failed, total = batch.passed, batch.failed, batch.total
     size_divergences, missing_sizes = batch.size_divergences, batch.missing_sizes
     report = build_report(
@@ -1349,6 +1359,7 @@ def _save_report(
         text_report=text_report,
         whole_report=whole_report,
         inventory_count=batch.inventory_count,
+        library_passed=library_passed,
     )
 
     # Warn only on ACTIONABLE divergences.  An EXACT/RELOC annotation
@@ -1509,6 +1520,7 @@ def _save_report(
             total,
             passed,
             failed,
+            library_passed=library_passed,
         )
         _raise_if_regression(
             diff_result,
@@ -1529,6 +1541,7 @@ def _save_report(
         total,
         passed,
         failed,
+        library_passed=library_passed,
     )
 
     _raise_if_regression(
@@ -1779,7 +1792,7 @@ def _scope_entries(
     # audit — so the gate reflects game code only.  Excluded functions are
     # neither compiled nor counted, exactly like reccmp's --nolib filter.
     if nolib:
-        lib_vas = {e.va for e in unique_entries if getattr(e, "marker_type", "") == "LIBRARY"}
+        lib_vas = _library_vas(cfg, unique_entries) & {e.va for e in unique_entries}
         if lib_vas:
             excluded_keys = {f"0x{v:08x}" for v in lib_vas}
             unique_entries = [e for e in unique_entries if e.va not in lib_vas]
@@ -1878,6 +1891,33 @@ def _inventory_count(cfg: ProjectConfig, reversed_dir: Path) -> int:
         return 0
 
 
+def _library_vas(cfg: Any, entries: list[Annotation]) -> set[int]:
+    """VAs of this target that are library code, by `rebrew status`'s rule.
+
+    A compiled FUNCTION entry is library code when a ``library_*.h`` header of
+    this target attributes its VA (the header row wins, as in
+    :func:`rebrew.naming.load_data`) or its module is in ``external_libs``
+    (:func:`rebrew.naming.external_vas`).  Headers of other targets are ignored.
+    """
+    from rebrew.annotation import parse_library_header
+    from rebrew.naming import external_vas
+    from rebrew.sources import iter_library_headers
+
+    marker = module_marker(cfg).lower()
+    rows = {
+        e.va: {
+            "marker_type": getattr(e, "marker_type", "") or "",
+            "module": getattr(e, "module", "") or "",
+        }
+        for e in entries
+    }
+    for header in iter_library_headers(cfg.reversed_dir, cfg):
+        for e in parse_library_header(header, metadata_dir=cfg.metadata_dir):
+            if (e.module or "").lower() in ("", marker):
+                rows[e.va] = {"marker_type": e.marker_type or "LIBRARY", "module": e.module or ""}
+    return external_vas(rows, getattr(cfg, "external_libs", None))
+
+
 def prepare_entries(
     cfg: ProjectConfig,
     full: bool,
@@ -1932,8 +1972,8 @@ def prepare_entries(
     unique_vas = {e.va for e in entries}
     ghidra_count, list_count, both_count, thunk_count = count_detection_sources(registry)
     console.print(
-        f"Found {len(entries)} annotations ({len(unique_vas)} unique VAs) "
-        f"from {len(registry)} total functions "
+        f"Found {len(entries)} annotations ({len(unique_vas)} unique VAs); "
+        f"inventory: {len(registry)} functions "
         f"(list: {list_count}, ghidra: {ghidra_count}, both: {both_count}, "
         f"thunks: {thunk_count})"
     )
@@ -2422,6 +2462,7 @@ def _print_results(
     total: int,
     passed: int,
     failed: int,
+    library_passed: int = 0,
 ) -> None:
     """Print diff report, summary table, and failure details."""
     if diff_mode and diff_result is not None:
@@ -2558,6 +2599,8 @@ def _print_results(
     result_text = Text()
     result_text.append("\nVerification: ")
     result_text.append(f"{passed}/{total} passed", style=style)
+    if library_passed:
+        result_text.append(f" ({library_passed} library-attributed)")
     if failed:
         result_text.append(", ")
         result_text.append(f"{failed} failed", style="red")

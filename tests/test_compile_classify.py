@@ -4,6 +4,7 @@ import pytest
 
 from rebrew.compile import (
     NEAR_MATCH_THRESHOLD,
+    UNCLASSIFIED_DIFF,
     CompareResult,
     classify_compare_result,
     classify_match_status,
@@ -107,6 +108,19 @@ class TestClassifyCompareResult:
         )
         assert r.status == "NEAR_MATCHING"
         assert r.delta == 1
+
+    def test_message_names_the_decided_status(self) -> None:
+        """The compare step does not know NEAR_MATCHING from STUB yet; the
+        message must carry the status classification decided, not both."""
+        msg = f"{UNCLASSIFIED_DIFF}: 1 byte diffs"
+        near = classify_compare_result(
+            False, msg, b"\x55\x89\xe5\x90\x90", b"\x55\x89\xe5\x91\x90", None
+        )
+        stub = classify_compare_result(
+            False, msg, b"\x55\x89\xe5\x90\x90", b"\xaa\xbb\xcc\xdd\xee", None
+        )
+        assert near.message == "NEAR_MATCHING: 1 byte diffs"
+        assert stub.message == "STUB: 1 byte diffs"
 
     def test_stub_below_threshold(self) -> None:
         # 1 of 5 bytes match → 20% → STUB.

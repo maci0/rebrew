@@ -22,6 +22,8 @@ def _cfg(tmp_path: Path) -> SimpleNamespace:
         root=tmp_path,
         target_name="SERVER",
         target_binary=tmp_path / "fake.dll",
+        reversed_dir=tmp_path / "src",
+        metadata_dir=tmp_path,
         db_dir=tmp_path / "db",
         default_jobs=2,
         compiler_command="wine CL.EXE",

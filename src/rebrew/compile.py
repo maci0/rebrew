@@ -240,6 +240,11 @@ _BYTE_MATCH_STATUSES: frozenset[CompareStatus] = frozenset({"EXACT", "RELOC"})
 #: A function that matches >= 60 % of bytes is NEAR_MATCHING; below is STUB.
 NEAR_MATCH_THRESHOLD = 0.60
 
+#: Message prefix a compare step writes before classification knows
+#: NEAR_MATCHING from STUB; classify_compare_result replaces it with the
+#: decided status.
+UNCLASSIFIED_DIFF = "NEAR_MATCHING/STUB"
+
 
 def matched_byte_count(
     match_percent: float,
@@ -488,6 +493,8 @@ def classify_compare_result(
             msg = f"{msg} - run 'rebrew match <file> --flag-sweep-only' to try flag variants"
     else:
         status = "STUB"
+    if msg.startswith(UNCLASSIFIED_DIFF):
+        msg = status + msg[len(UNCLASSIFIED_DIFF) :]
 
     return CompareResult(
         matched=False,
@@ -1959,7 +1966,7 @@ def _extract_and_compare(
         f"RELOC-NORM MATCH ({len(relocs)} relocs)"
         if (matched and relocs)
         else (
-            "EXACT MATCH" if matched else f"NEAR_MATCHING/STUB: {_total - _match_count} byte diffs"
+            "EXACT MATCH" if matched else f"{UNCLASSIFIED_DIFF}: {_total - _match_count} byte diffs"
         )
     )
     return classify_compare_result(matched, msg, target_bytes, obj_bytes, relocs, inv_relocs)

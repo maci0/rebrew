@@ -888,3 +888,58 @@ def test_fix_sizes_never_rewrites_a_byte_matched_size() -> None:
     # No protected entries means the list passes through untouched.
     plain = [{"va": "0x10004000", "annotation_size": 0, "binary_size": 8, "status": "STUB"}]
     assert _partition_size_fixes(plain) == (plain, [])
+
+
+def test_scope_entries_nolib_drops_header_attributed_functions(tmp_path: Path) -> None:
+    """--nolib uses `rebrew status`'s library rule: a compiled FUNCTION whose VA
+    a library_*.h header of this target attributes is library code; another
+    target's header attributes nothing here."""
+    from rebrew.verify import _scope_entries
+
+    rev = tmp_path / "src"
+    rev.mkdir()
+    (rev / "library_msvc.h").write_text(
+        "// LIBRARY: T 0x2000\n// LIBRARY: OTHER 0x1000\n", encoding="utf-8"
+    )
+    cfg = SimpleNamespace(
+        reversed_dir=rev, root=tmp_path, metadata_dir=tmp_path, marker="T", external_libs=None
+    )
+    entries = [
+        Annotation(va=0x1000, name="game", filepath="a.c", module="T", marker_type="FUNCTION"),
+        Annotation(va=0x2000, name="crt", filepath="b.c", module="T", marker_type="FUNCTION"),
+    ]
+    scoped, total, *_rest, library_excluded, _keys = _scope_entries(
+        entries, (0, 0, [], [], 0), ([], []), nolib=True, cfg=cfg
+    )
+    assert [e.va for e in scoped] == [0x1000]
+    assert total == 1
+    assert library_excluded == 1
+
+
+def test_scan_header_labels_the_inventory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+) -> None:
+    """The registry size is the discovery inventory, not "total functions"
+    (`rebrew status` counts functions without library code)."""
+    cfg = _cfg(tmp_path)
+    (tmp_path / "x.dll").write_bytes(b"MZ")
+    _patch(monkeypatch, [_ann(0x1000)])
+    verify_mod.prepare_entries(cfg, full=True, json_output=False)
+    err = capsys.readouterr().err
+    assert "Found 1 annotations (1 unique VAs); inventory: 0 functions" in err
+
+
+def test_scan_keeps_only_this_targets_library_headers(tmp_path: Path) -> None:
+    """Library headers of other targets (a client's D3DX8 list) are not part
+    of this target's scan, the same as its sources."""
+    from rebrew.catalog.loaders import scan_reversed_dir
+
+    rev = tmp_path / "src"
+    rev.mkdir()
+    (rev / "library_mixed.h").write_text(
+        "// LIBRARY: SERVER 0x2000\n// LIBRARY: GOLDTL 0x5E0000\n", encoding="utf-8"
+    )
+    cfg = SimpleNamespace(
+        reversed_dir=rev, root=tmp_path, metadata_dir=tmp_path, marker="SERVER", source_ext=".c"
+    )
+    assert [e.va for e in scan_reversed_dir(rev, cfg=cfg)] == [0x2000]  # type: ignore[arg-type]
