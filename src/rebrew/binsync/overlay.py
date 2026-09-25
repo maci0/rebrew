@@ -235,7 +235,7 @@ def _dest_annotation(cfg: ProjectConfig, va: int, filepath: str) -> Any:
             metadata_dir=cfg.metadata_dir,
         )
     except OSError:
-        log.debug("cannot parse local annotation file %s", filepath, exc_info=True)
+        log.warning("cannot parse local annotation file %s", filepath, exc_info=True)
         return None
     for ann in annotations:
         if ann.va == va:
@@ -290,7 +290,7 @@ def _apply_global_or_skip(
     try:
         _apply_global_entry(cfg, dst_va, bs_name, entry, section, module)
     except Exception:
-        log.debug("global overlay failed for VA %s", _hex(dst_va), exc_info=True)
+        log.warning("global overlay failed for VA %s", _hex(dst_va), exc_info=True)
         return False
     return True
 
@@ -403,7 +403,9 @@ def overlay_state(
                             else:
                                 skipped += 1
                         except Exception:
-                            log.debug("name overlay failed for VA %s", _hex(dst_va), exc_info=True)
+                            log.warning(
+                                "name overlay failed for VA %s", _hex(dst_va), exc_info=True
+                            )
                             skipped += 1
                 elif accept_local:
                     if not dry_run:
@@ -412,7 +414,7 @@ def overlay_state(
                             touched.add(dst_va)
                             applied.append("ghidra")
                         except Exception:
-                            log.debug(
+                            log.warning(
                                 "GHIDRA provenance write failed for VA %s",
                                 _hex(dst_va),
                                 exc_info=True,
@@ -458,7 +460,7 @@ def overlay_state(
                             touched.add(dst_va)
                             applied.append("prototype")
                         except Exception:
-                            log.debug(
+                            log.warning(
                                 "prototype overlay failed for VA %s", _hex(dst_va), exc_info=True
                             )
                             skipped += 1
@@ -494,7 +496,9 @@ def overlay_state(
                             touched.add(dst_va)
                             applied.append("note")
                         except Exception:
-                            log.debug("note overlay failed for VA %s", _hex(dst_va), exc_info=True)
+                            log.warning(
+                                "note overlay failed for VA %s", _hex(dst_va), exc_info=True
+                            )
                             skipped += 1
 
         # LOCALS: frame offsets are address-independent, so a matched pair
@@ -511,7 +515,7 @@ def overlay_state(
                     touched.add(dst_va)
                     applied.append("locals")
                 except Exception:
-                    log.debug("locals overlay failed for VA %s", _hex(dst_va), exc_info=True)
+                    log.warning("locals overlay failed for VA %s", _hex(dst_va), exc_info=True)
                     skipped += 1
 
         # COMMENTS: shift each comment addr by (dst_va - src_va), only for
@@ -541,7 +545,9 @@ def overlay_state(
                         touched.add(dst_va)
                         applied.append("comments")
                     except Exception:
-                        log.debug("comments overlay failed for VA %s", _hex(dst_va), exc_info=True)
+                        log.warning(
+                            "comments overlay failed for VA %s", _hex(dst_va), exc_info=True
+                        )
                         skipped += 1
                     filepath = getattr(local, "filepath", "") or ""
                     if markers and filepath:
@@ -550,7 +556,7 @@ def overlay_state(
                         try:
                             write_analysis_markers(Path(cfg.reversed_dir) / filepath, markers)
                         except OSError:
-                            log.debug(
+                            log.warning(
                                 "ANALYSIS marker write failed for %s", filepath, exc_info=True
                             )
 
@@ -572,7 +578,7 @@ def overlay_state(
             src_info = load_binary(cfg_src.target_binary)
             dst_info = load_binary(cfg.target_binary)
         except (OSError, ValueError):
-            log.debug("global overlay: cannot load binaries", exc_info=True)
+            log.warning("global overlay: cannot load binaries", exc_info=True)
         else:
             # Group source blobs by section so each is searched only in the
             # destination's same-named section (never guessed across sections).

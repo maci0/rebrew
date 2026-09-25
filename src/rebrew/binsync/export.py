@@ -1180,6 +1180,11 @@ def _write_manifest(
     existing manifest, the file is left untouched (``exported_at`` preserved)
     unless only the ``commit`` field needs updating — then ``exported_at`` is
     still preserved so a re-export cannot create timestamp-only git churn.
+
+    Raises:
+        OSError: An artifact under *outdir* cannot be read.  The manifest is
+            left unchanged — a hash that skipped that file would report the
+            tree unchanged while it still differed on disk.
     """
     import hashlib
     from datetime import UTC, datetime
@@ -1190,11 +1195,14 @@ def _write_manifest(
             continue
         try:
             digest.update(path.read_bytes())
-        except OSError:
-            # Omitting a real artifact silently makes content_hash claim
-            # "unchanged" when the unread file still differs on disk.
-            logger.warning("manifest hash skipped unreadable %s", path, exc_info=True)
-            continue
+        except OSError as exc:
+            # Omitting a real artifact makes content_hash claim "unchanged"
+            # when the unread file still differs on disk.  Fail the export
+            # instead of publishing that hash.
+            raise OSError(
+                f"cannot hash BinSync artifact {path} for the manifest; "
+                f"refusing to publish a content_hash that omits it"
+            ) from exc
     content_hash = digest.hexdigest()
     manifest_path = outdir / "manifest.toml"
     existing: dict[str, Any] | None = None

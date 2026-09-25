@@ -233,6 +233,57 @@ def _apply_binsync_func_name(
     return True
 
 
+def _stub_text(cfg: Any, va: int, bs_name: str, bs_proto: str) -> tuple[Path, str, str]:
+    """``(path, source, module)`` of the stub ``--create-missing`` would write."""
+    bs_stripped = _strip_cdecl_prefix(bs_name) if bs_name.startswith("_") else bs_name
+    target_func = bs_stripped if is_safe_c_ident(bs_stripped) else f"func_{va:08x}"
+    mod = cfg.marker or "SERVER"
+    proto = (bs_proto or "").strip()
+    if proto.endswith(";"):
+        proto = proto[:-1].strip()
+    body = proto if proto else f"void {target_func}(void)"
+    text = f"// FUNCTION: {mod} 0x{va:08x}\n{body} {{}}\n"
+    path = Path(cfg.reversed_dir) / f"{avoid_windows_reserved(target_func)}.c"
+    return path, text, mod
+
+
+def _inventory_size(cfg: Any, va: int) -> int:
+    """Catalog size for *va*, or 0 when the inventory has none."""
+    from rebrew.catalog import cached_function_list
+
+    for func in cached_function_list(cfg):
+        try:
+            if int(func.get("va", -1)) == va:
+                return int(func.get("size") or 0)
+        except (TypeError, ValueError):
+            continue
+    return 0
+
+
+def _queue_stub_metadata(
+    statuses: list[dict[str, Any]],
+    field_updates: list[dict[str, Any]],
+    *,
+    module: str,
+    va: int,
+    bs_name: str,
+    size_hint: int,
+) -> None:
+    """Record the STATUS/SIZE/NOTE a created stub still needs."""
+    statuses.append(
+        {
+            "module": module,
+            "va": va,
+            "new_status": "STUB",
+            "updated_by": "binsync-import",
+        }
+    )
+    fields: dict[str, Any] = {"note": f"imported from BinSync as {bs_name}"}
+    if size_hint:
+        fields["size"] = size_hint
+    field_updates.append({"module": module, "va": va, "fields": fields})
+
+
 def _try_apply_binsync_name(
     cfg: Any, local: Any, bs_name: str, local_filepath: str | None, va: int
 ) -> bool:
@@ -240,7 +291,7 @@ def _try_apply_binsync_name(
     try:
         return _apply_binsync_func_name(cfg, local, bs_name, local_filepath)
     except Exception:
-        log.debug("rename apply failed for VA 0x%x", va, exc_info=True)
+        log.warning("rename apply failed for VA 0x%x", va, exc_info=True)
         return False
 
 
@@ -365,7 +416,6 @@ def import_state(
         if local is None:
             if va in catalog_vas and is_meaningful(bs_name) and bs_name.strip():
                 # Surface as proposed_missing; optionally create a stub
-                bs_stripped = _strip_cdecl_prefix(bs_name) if bs_name.startswith("_") else bs_name
                 if create_missing:
                     if dry_run:
                         proposed.append(
@@ -383,55 +433,37 @@ def import_state(
                     # (the shared skeleton helper has its own CLI parsing and
                     # metadata logic that doesn't fit this batch path).
                     try:
-                        target_func = (
-                            bs_stripped if is_safe_c_ident(bs_stripped) else f"func_{va:08x}"
-                        )
                         cat = catalog_by_va.get(va)
                         size_hint = int(getattr(cat, "size", 0) or 0) if cat else 0
-                        # Filename guard: ``aux`` is a legal C identifier but a
-                        # reserved device basename on Windows (see naming.py).
-                        out_path = cfg.reversed_dir / f"{avoid_windows_reserved(target_func)}.c"
+                        out_path, stub, mod = _stub_text(cfg, va, bs_name, bs_proto)
                         if out_path.exists():
+                            # Not this VA's annotation (that case is repaired
+                            # below, once the scanner has seen the marker).
+                            # A different file at the stub's path is the user's.
                             skipped += 1
                             continue
                         from rebrew.utils import atomic_write_text as _awt
 
-                        # Preserve BinSync's prototype when present (keeps calling convention / args);
-                        # otherwise synthesize a minimal void stub.  The SIZE comes from the
-                        # catalog canonical size, not the compiled body.
-                        bs_proto = bs_proto.strip()
-                        if bs_proto and bs_proto.endswith(";"):
-                            bs_proto = bs_proto[:-1].strip()
-                        body_proto = bs_proto if bs_proto else f"void {target_func}(void)"
                         # Marker line only — STATUS/NOTE are metadata-owned
                         # keys and go to rebrew-functions.toml (inline forms are
                         # deprecated: lint W019 flags them; SIZE is co-read).
-                        stub = (
-                            f"// FUNCTION: {cfg.marker or 'SERVER'} 0x{va:08x}\n{body_proto} {{}}\n"
-                        )
                         _awt(out_path, stub, encoding="utf-8")
                         # Volatile fields go through the canonical batch writers
-                        # after the loop (STATUS via the promotion gate): one TOML
-                        # read-modify-write for all stubs instead of three each.
-                        mod = cfg.marker or "SERVER"
-                        stub_statuses.append(
-                            {
-                                "module": mod,
-                                "va": va,
-                                "new_status": "STUB",
-                                "updated_by": "binsync-import",
-                            }
+                        # after the loop.  SIZE/NOTE are written before STATUS so
+                        # a failure of the status batch leaves the entry without
+                        # a status and the next import finishes it.
+                        _queue_stub_metadata(
+                            stub_statuses,
+                            stub_field_updates,
+                            module=mod,
+                            va=va,
+                            bs_name=bs_name,
+                            size_hint=size_hint,
                         )
-                        stub_fields: dict[str, Any] = {
-                            "note": f"imported from BinSync as {bs_name}"
-                        }
-                        if size_hint:
-                            stub_fields["size"] = size_hint
-                        stub_field_updates.append({"module": mod, "va": va, "fields": stub_fields})
                         applied_names += 1
                         touched_vas.append(va)
                     except Exception:
-                        log.debug("stub write failed for VA 0x%x", va, exc_info=True)
+                        log.warning("stub write failed for VA 0x%x", va, exc_info=True)
                         skipped += 1
                     continue
                 # Not creating — surface as proposed_missing
@@ -446,6 +478,35 @@ def import_state(
                 )
             skipped += 1
             continue
+
+        # A previous --create-missing wrote this exact stub and died before
+        # STATUS.  The marker makes it a local function, so the create path
+        # above will not run again; finish the metadata instead of leaving
+        # the function unstamped forever.
+        if create_missing and not dry_run:
+            out_path, stub, mod = _stub_text(cfg, va, bs_name, bs_proto)
+            try:
+                unfinished = out_path.is_file() and out_path.read_bytes() == stub.encode("utf-8")
+            except OSError as exc:
+                log.warning("Cannot read stub %s for VA 0x%x: %s", out_path, va, exc)
+                unfinished = False
+            if unfinished:
+                from rebrew.metadata import get_entry
+
+                if not get_entry(cfg.metadata_dir, va, mod).get("status"):
+                    size_hint = int(getattr(local, "size", 0) or 0)
+                    if size_hint <= 0:
+                        size_hint = _inventory_size(cfg, va)
+                    _queue_stub_metadata(
+                        stub_statuses,
+                        stub_field_updates,
+                        module=mod,
+                        va=va,
+                        bs_name=bs_name,
+                        size_hint=size_hint,
+                    )
+                    applied_names += 1
+                    touched_vas.append(va)
 
         local_name = getattr(local, "symbol", "") or getattr(local, "name", "") or ""
         raw_proto = getattr(local, "prototype", "") or ""
@@ -517,7 +578,7 @@ def import_state(
                             applied_protos += 1
                             touched_vas.append(va)
                 except Exception:
-                    log.debug("prototype apply failed for VA 0x%x", va, exc_info=True)
+                    log.warning("prototype apply failed for VA 0x%x", va, exc_info=True)
                     skipped += 1
             elif dry_run:
                 applied_protos += 1
@@ -548,7 +609,7 @@ def import_state(
                         applied_notes += 1
                         touched_vas.append(va)
                     except Exception:
-                        log.debug("note apply failed for VA 0x%x", va, exc_info=True)
+                        log.warning("note apply failed for VA 0x%x", va, exc_info=True)
                         skipped += 1
 
         if not bs_name or not is_meaningful(bs_name):
@@ -611,7 +672,7 @@ def import_state(
                         if _inside_project(fp, cfg) and fp.exists():
                             _uak2(fp, va, "GHIDRA", bs_name, metadata_dir=cfg.metadata_dir)
                 except Exception:
-                    log.debug("GHIDRA annotation apply failed for VA 0x%x", va, exc_info=True)
+                    log.warning("GHIDRA annotation apply failed for VA 0x%x", va, exc_info=True)
                     skipped += 1
             proposed.append(
                 {
@@ -630,8 +691,8 @@ def import_state(
     if stub_statuses:
         from rebrew.metadata import set_fields_batch, update_statuses_batch
 
-        update_statuses_batch(cfg.metadata_dir, stub_statuses)
         set_fields_batch(cfg.metadata_dir, stub_field_updates)
+        update_statuses_batch(cfg.metadata_dir, stub_statuses)
 
     # --- Global names ---
     for va, bs_entry in sorted(globals_by_va.items()):
@@ -668,7 +729,7 @@ def import_state(
                     applied_globals += 1
                     touched_vas.append(va)
                 except Exception:
-                    log.debug("global name apply failed for VA 0x%x", va, exc_info=True)
+                    log.warning("global name apply failed for VA 0x%x", va, exc_info=True)
                     skipped += 1
             else:
                 applied_globals += 1
@@ -688,7 +749,7 @@ def import_state(
                     applied_globals += 1
                     touched_vas.append(va)
                 except Exception:
-                    log.debug("global name apply failed for VA 0x%x", va, exc_info=True)
+                    log.warning("global name apply failed for VA 0x%x", va, exc_info=True)
                     skipped += 1
             else:
                 applied_globals += 1
@@ -736,7 +797,7 @@ def import_state(
                     applied_locals += 1
                     touched_vas.append(va)
                 except Exception:
-                    log.debug("locals apply failed for VA 0x%x", va, exc_info=True)
+                    log.warning("locals apply failed for VA 0x%x", va, exc_info=True)
                     skipped += 1
 
     # Per-instruction comments: the metadata COMMENTS store is lossless, and a
@@ -762,7 +823,7 @@ def import_state(
                 applied_comments += len(func_comments)
                 touched_vas.append(owner_va)
             except Exception:
-                log.debug("comments apply failed for VA 0x%x", owner_va, exc_info=True)
+                log.warning("comments apply failed for VA 0x%x", owner_va, exc_info=True)
                 skipped += 1
 
         markers = source_markers.get(owner_va)
@@ -773,7 +834,7 @@ def import_state(
             try:
                 write_analysis_markers(Path(cfg.reversed_dir) / filepath, markers)
             except OSError:
-                log.debug("ANALYSIS marker write failed for %s", filepath, exc_info=True)
+                log.warning("ANALYSIS marker write failed for %s", filepath, exc_info=True)
 
     return {
         "state_dir": str(state_dir),

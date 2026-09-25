@@ -1037,6 +1037,36 @@ class TestApplyStatusUpdates:
         assert {u["va"] for u in attempted[0]} == {0x1000, 0x2000}
         assert any("Could not update STATUS" in r.message for r in caplog.records)
 
+    def test_unreadable_source_keeps_blocker(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A read error must not clear BLOCKER: the source may still hold asm."""
+        from rebrew.metadata import get_entry, update_field
+        from rebrew.verify import apply_status_updates
+
+        cfg = _cfg(tmp_path)
+        src = cfg.reversed_dir / "a.c"
+        src.write_text(
+            "// FUNCTION: SERVER 0x1000\nvoid a(void) { __asm { nop } }\n", encoding="utf-8"
+        )
+        update_field(cfg.metadata_dir, 0x1000, "blocker", "kept asm", "SERVER")
+        real_read = Path.read_text
+
+        def _unreadable(self: Path, *args: object, **kwargs: object) -> str:
+            if self.name == "a.c":
+                raise OSError("permission denied")
+            return real_read(self, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "read_text", _unreadable)
+        entry = _ann(0x1000)
+        entry.filepath = "a.c"
+        with caplog.at_level(logging.WARNING):
+            apply_status_updates([(entry, "RELOC", 0)], cfg)
+        saved = get_entry(cfg.metadata_dir, 0x1000, "SERVER")
+        assert saved.get("status") == "RELOC"
+        assert saved.get("blocker") == "kept asm"
+        assert any("leaving the blocker" in r.message for r in caplog.records)
+
 
 class TestLoadBaseline:
     """The --compare baseline lives in .rebrew/ with identity guards."""

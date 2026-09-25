@@ -813,6 +813,34 @@ class TestManifest:
         # Idempotent path left the on-disk bytes alone (still BOM-prefixed).
         assert manifest.read_bytes().startswith(b"\xef\xbb\xbf")
 
+    def test_unreadable_artifact_does_not_publish_hash(self, tmp_path: Path) -> None:
+        """A file that cannot be hashed must not look like an unchanged export."""
+        from rebrew.binsync.export import _write_manifest
+
+        outdir = tmp_path / "state"
+        (outdir / "functions").mkdir(parents=True)
+        (outdir / "functions" / "1000.toml").write_text('name = "foo"\n', encoding="utf-8")
+        first = _write_manifest(outdir, None, target="server")
+        manifest = outdir / "manifest.toml"
+        before = manifest.read_bytes()
+        (outdir / "functions" / "2000.toml").write_text('name = "bar"\n', encoding="utf-8")
+        real = Path.read_bytes
+
+        def _boom(self: Path) -> bytes:
+            if self.name == "2000.toml":
+                raise OSError("permission denied")
+            return real(self)
+
+        monkeypatch = pytest.MonkeyPatch()
+        monkeypatch.setattr(Path, "read_bytes", _boom)
+        try:
+            with pytest.raises(OSError, match="2000.toml"):
+                _write_manifest(outdir, None, target="server")
+        finally:
+            monkeypatch.undo()
+        assert manifest.read_bytes() == before
+        assert tomlkit.parse(before.decode("utf-8"))["content_hash"] == first
+
 
 class TestScanAnalysisComments:
     def test_cp1252_analysis_comment_preserves_non_ascii(self, tmp_path: Path) -> None:

@@ -61,16 +61,16 @@ def write_analysis_markers(path: Path, comments: dict[int, str]) -> bool:
     are appended, so a re-import is idempotent.  The block is sorted by address
     and separated from the code by one blank line.  Returns True when the file
     changed (a no-op rewrite returns False without touching the file).
+
+    Raises:
+        OSError: *path* cannot be read or written.  A failed read is not a
+            no-op — callers must not treat it as "nothing to merge".
     """
     from rebrew.utils import atomic_write_text, read_source_text
 
     if not comments:
         return False
-    try:
-        text, encoding = read_source_text(path)
-    except OSError:
-        log.debug("cannot read %s for ANALYSIS markers", path, exc_info=True)
-        return False
+    text, encoding = read_source_text(path)
 
     merged = parse_analysis_markers(text)
     merged.update(comments)
@@ -329,6 +329,12 @@ def index_local_and_catalog(
                 },
             )()
     except Exception:
-        log.debug("catalog scan failed — treating as empty", exc_info=True)
+        # An empty catalog is also the "nothing to import" signal.  A scan
+        # failure must not look like that: create-missing would skip every
+        # catalog-only function and a re-run would not retry them.
+        log.warning(
+            "catalog scan failed — BinSync import will not see catalog-only functions",
+            exc_info=True,
+        )
 
     return local_by_va, catalog_by_va, set(catalog_by_va.keys())

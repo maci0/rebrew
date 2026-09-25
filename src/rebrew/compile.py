@@ -288,14 +288,26 @@ def clears_blocker(status: str, source: Path) -> bool:
 
     A byte match clears it, unless *source* still holds inline asm: there the
     blocker documents the kept asm, which lint W020 requires on a matched
-    function.
+    function.  An unreadable source keeps the blocker: clearing it would drop
+    a note the next verify cannot restore.
     """
     if not is_matched(status):
         return False
     try:
         text = source.read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return True
+    except OSError as exc:
+        # Clearing the blocker is the destructive choice: an unreadable
+        # source may still hold the inline asm the note documents, and a
+        # later verify would not put the note back.  Keep it.
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "Could not read %s to decide whether BLOCKER still documents "
+            "inline asm; leaving the blocker in place: %s",
+            source,
+            exc,
+        )
+        return False
     return _INLINE_ASM.search(text) is None
 
 

@@ -516,6 +516,43 @@ reversed_dir = "src/server"
             assert entry["size"] == size
             assert entry["note"] == f"imported from BinSync as {name}"
 
+    def test_create_missing_finishes_metadata_when_stub_already_exists(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A stub left behind by a failed metadata write is completed on retry.
+
+        The .c is the exact stub this import would write, and rebrew-functions.toml
+        has no STATUS for it.  Skipping because the path exists would leave the
+        function without STATUS/SIZE forever.
+        """
+        import json as _json
+
+        from rebrew.metadata import get_entry
+
+        _make_project(tmp_path, {})
+        src = tmp_path / "src"
+        src.joinpath("function_structure.json").write_text(
+            _json.dumps([{"va": 0x10002000, "size": 16, "name": "bar_func"}]),
+            encoding="utf-8",
+        )
+        (src / "FromBinSync.c").write_text(
+            "// FUNCTION: SERVER 0x10002000\nvoid FromBinSync(void) {}\n",
+            encoding="utf-8",
+        )
+        state = _make_state(tmp_path, funcs={0x10002000: "_FromBinSync"})
+        result = _invoke_import(tmp_path, state, monkeypatch, "--create-missing", "--json")
+        assert result.exit_code == 0, result.output
+        data = json.loads(result.stdout)
+        assert data["applied_names"] == 1
+        entry = get_entry(tmp_path, 0x10002000, "SERVER")
+        assert entry["status"] == "STUB"
+        assert entry["size"] == 16
+        assert entry["note"] == "imported from BinSync as _FromBinSync"
+        # The user's bytes were not rewritten.
+        assert (src / "FromBinSync.c").read_text(encoding="utf-8") == (
+            "// FUNCTION: SERVER 0x10002000\nvoid FromBinSync(void) {}\n"
+        )
+
 
 class TestGlobalTypeSizeImport:
     def test_type_and_size_applied(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
