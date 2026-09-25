@@ -60,7 +60,7 @@ def build_catalog_data(cfg: Any, *, with_data: bool = True) -> dict[str, Any]:
     if binary_missing:
         console.print(
             f"[yellow]warning:[/yellow] target binary missing ({bin_path}) — "
-            "text_size=0, coverage reported as 0%",
+            "text_size=0, identified bytes reported as 0%",
             style="dim",
         )
 
@@ -74,8 +74,8 @@ def build_catalog_data(cfg: Any, *, with_data: bool = True) -> dict[str, Any]:
     unique_vas = {e["va"] for e in entries}
     ghidra_count, list_count, both_count, thunk_count = count_detection_sources(registry)
     console.print(
-        f"Found {len(entries)} annotations ({len(unique_vas)} unique VAs) "
-        f"from {len(registry)} total functions "
+        f"Found {len(entries)} annotations ({len(unique_vas)} unique VAs); "
+        f"inventory: {len(registry)} functions "
         f"(list: {list_count}, ghidra: {ghidra_count}, both: {both_count}, "
         f"thunks: {thunk_count})",
         style="dim",

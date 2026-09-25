@@ -20,7 +20,7 @@ import typer
 
 from rebrew.annotation import Annotation, parse_c_file_multi
 from rebrew.catalog.export import generate_reccmp_csv
-from rebrew.catalog.grid import count_statuses, covered_bytes
+from rebrew.catalog.grid import covered_bytes
 from rebrew.catalog.pipeline import build_catalog_data
 from rebrew.cli import (
     TargetOption,
@@ -31,6 +31,7 @@ from rebrew.cli import (
     run_standalone,
 )
 from rebrew.config import ProjectConfig
+from rebrew.utils import floor_pct
 
 app = typer.Typer(
     help="Rebrew validation pipeline: parse annotations, generate catalog and coverage data.",
@@ -110,44 +111,30 @@ def run_catalog(
         for e in entries:
             by_va.setdefault(e["va"], []).append(e)
 
-    fn_vas = {va for va, vas in by_va.items() if any(e.get("is_function", True) for e in vas)}
-
     covered = covered_bytes(
         by_va,
         {va: reg["canonical_size"] for va, reg in registry.items()},
         section=(getattr(cfg, "text_va", 0), text_size),
     )
-    coverage_pct = (covered / text_size * 100.0) if text_size else 0.0
+    identified_pct = floor_pct(covered, text_size)
 
     if summary:
-        counts = count_statuses(by_va)
-        exact = counts["EXACT"]
-        reloc = counts["RELOC"]
-        proven = counts["PROVEN"]
-        matching = counts["NEAR_MATCHING"]
-        stub = counts["STUB"]
+        from rebrew.status import collect_status
 
-        module_counts: dict[str, int] = {}
-        for va in fn_vas:
-            module = by_va[va][0]["module"] or "GAME"
-            module_counts[module] = module_counts.get(module, 0) + 1
-
+        # Progress is `rebrew status`'s: one computation, library code excluded.
+        progress = collect_status(cfg)
         console.print()
-        console.print("\n=== Rebrew Status ===")
-        console.print(f"Byte-matched: {exact + reloc}/{len(registry)} functions")
-        console.print(f"  EXACT: {exact}")
-        console.print(f"  RELOC: {reloc}")
-        if proven:
-            console.print(f"  PROVEN: {proven} (bytes differ)")
-        if matching:
-            console.print(f"  NEAR_MATCHING: {matching}")
-        if stub:
-            console.print(f"  STUB: {stub}")
-        console.print("By module:")
-        for module in sorted(module_counts):
-            console.print(f"  {module}: {module_counts[module]}")
-
-        console.print(f"Coverage: {coverage_pct:.1f}% ({covered}/{text_size} bytes)")
+        console.print("\n=== Progress (rebrew status) ===")
+        console.print(
+            f"Byte-matched: {progress.matched_functions}/{progress.total_functions} functions"
+        )
+        for st in sorted(progress.status_counts):
+            console.print(f"  {st}: {progress.status_counts[st]}")
+        console.print(f"Library identified: {progress.library_identified}")
+        console.print(
+            f"Identified: {identified_pct:.1f}% of .text ({covered}/{text_size} bytes) "
+            "claimed by an annotated function, stubs and library code included"
+        )
 
         console.print()
         console.print("=== Tool Detection ===")
@@ -244,15 +231,14 @@ def run_catalog(
         "annotations": len(entries),
         "unique_vas": len({e["va"] for e in entries}),
         "registry": len(registry),
-        "total_functions": len(registry),
-        "covered_bytes": covered,
+        "identified_bytes": covered,
         "text_size": text_size,
-        "coverage_pct": round(coverage_pct, 1),
+        "identified_pct": identified_pct,
         "wrote_data_json": gen_data_json,
         "wrote_csv": csv,
     }
     if binary_missing:
-        payload["warning"] = f"target binary missing ({bin_path}) — text_size=0, coverage is 0%"
+        payload["warning"] = f"target binary missing ({bin_path}) — text_size=0, identified is 0%"
     return payload
 
 

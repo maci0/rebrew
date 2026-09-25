@@ -1025,6 +1025,12 @@ missing_typing, for_loops, while_loops, suggestions}]}`.
 | `--force` | Skip the `--fix-sizes` confirmation prompt |
 | `--target NAME` / `-t NAME` | Select a target from `rebrew-project.toml` |
 | `--root DIR` | Project root directory (auto-detected if omitted) |
+
+The `--summary` progress lines (byte-matched functions, per-status counts,
+library identified) are `rebrew status`'s own figures.  `identified_bytes` /
+`identified_pct` in `--json` are the `.text` bytes claimed by any annotated
+function, stubs and library code included; `registry` is the inventory size.
+
 ### `rebrew sync`
 
 `rebrew sync` synchronizes annotations with Ghidra. **Field-level sync

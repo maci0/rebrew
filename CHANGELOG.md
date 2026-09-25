@@ -47,6 +47,12 @@
   kept every target's `library_*.h` rows, so `verify` and `catalog` on
   `server.dll` counted a client's D3DX8 list (1582 library entries where
   `status` has 305).
+- **`catalog --summary` prints `status`'s progress**, not its own count over
+  the inventory with library code and metadata statuses (`Byte-matched:
+  X/543` beside `status`'s 257/281).  In `--json`, `total_functions` (a
+  copy of `registry`) is gone and `covered_bytes`/`coverage_pct` are
+  `identified_bytes`/`identified_pct`: the name `coverage_pct` meant
+  "functions with source" in `status` and `report`.
 - **`todo` shows the SIZE `verify` compares**, not the inventory extent
   with alignment padding (guild-rebrew `CrashDumpUnhandledExceptionFilter`:
   2115 bytes, shown as 2128).

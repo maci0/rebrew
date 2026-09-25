@@ -42,6 +42,17 @@ def _patch(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> SimpleNamespace:
         lambda *a, **k: {"sections": {".text": {"va": 0, "cells": []}}, "summary": {}},
     )
     monkeypatch.setattr(catalog_cli, "generate_reccmp_csv", lambda *a, **k: "a|b|c|d|e\n")
+    # The summary's progress lines are `rebrew status`'s; stub its collector.
+    from rebrew.status import StatusReport
+
+    monkeypatch.setattr(
+        "rebrew.status.collect_status",
+        lambda cfg: StatusReport(
+            target="T",
+            total_functions=4,
+            status_counts={"EXACT": 1, "RELOC": 1, "NEAR_MATCHING": 1, "STUB": 1},
+        ),
+    )
     return cfg
 
 
@@ -71,12 +82,11 @@ class TestCatalogCli:
             "annotations": 0,
             "unique_vas": 0,
             "registry": 0,
-            "total_functions": 0,
-            "covered_bytes": 0,
+            "identified_bytes": 0,
             # No fabricated 0x24000 fallback: with the binary missing the
             # size is 0 and the payload says so.
             "text_size": 0,
-            "coverage_pct": 0.0,
+            "identified_pct": 0.0,
             "wrote_data_json": False,
             "wrote_csv": False,
         }
@@ -251,8 +261,7 @@ class TestCatalogCliSummary:
         assert "RELOC: 1" in result.output
         assert "NEAR_MATCHING: 1" in result.output
         assert "STUB: 1" in result.output
-        assert "GAME: 3" in result.output  # DATA entry excluded from fn_vas
-        assert "ZLIB: 1" in result.output
+        assert "Byte-matched: 2/4 functions" in result.output
         assert "func list only: 2" in result.output
         assert "Ghidra only:  1" in result.output
         assert "Both tools:   1" in result.output
@@ -313,6 +322,36 @@ def _write_project(tmp_path: Path) -> Path:
 
 
 class TestRunCatalog:
+    def test_summary_prints_status_progress(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """The summary's progress lines are `rebrew status`'s, library code
+        excluded; the byte figure is named "identified", not coverage."""
+        root = _write_project(tmp_path)
+        (root / "original" / "function_structure.json").write_text(
+            json.dumps(
+                [{"va": 0x10001000, "size": 16, "name": "f"}, {"va": 0x10002000, "size": 16}]
+            ),
+            encoding="utf-8",
+        )
+        (root / "original" / "library_msvc.h").write_text(
+            "// LIBRARY: GAME 0x10002000\n", encoding="utf-8"
+        )
+        (root / "rebrew-functions.toml").write_text(
+            '["GAME.0x10001000"]\nstatus = "EXACT"\n', encoding="utf-8"
+        )
+        cfg = load_config(root=root)
+
+        payload = run_catalog(cfg, summary=True)
+
+        err = capsys.readouterr().err
+        assert "Byte-matched: 1/1 functions" in err
+        assert "Library identified: 1" in err
+        assert "Identified:" in err
+        assert "Coverage:" not in err
+        assert "total_functions" not in payload
+        assert set(payload) >= {"identified_bytes", "identified_pct"}
+
     def test_defaults_write_all_artifacts(self, tmp_path: Path) -> None:
         """run_catalog() with every flag left false runs the default action set
         in-process — the same work a bare `rebrew catalog` performs — and
@@ -326,7 +365,7 @@ class TestRunCatalog:
         assert payload["annotations"] == 1
         assert payload["unique_vas"] == 1
         assert payload["registry"] == 1
-        assert payload["total_functions"] == 1
+
         assert payload["text_size"] == 0
         assert payload["wrote_data_json"] is True
         assert payload["wrote_csv"] is True
