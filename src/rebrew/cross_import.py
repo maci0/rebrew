@@ -663,6 +663,32 @@ def _import_result(
     }
 
 
+def _place_shared_marker(
+    text: str,
+    module: str,
+    dst_va: int,
+    dst_size: int,
+    src_module: str,
+    src_va: int,
+    *,
+    superseded: bool,
+) -> str:
+    """The file text with the destination marker on the source function's block.
+
+    A new claim goes onto the source block too: import verification compiles
+    the function the SOURCE block defines, so a marker placed anywhere else
+    reports a match for a body it is not on.  Only a file with no source block
+    falls back to stacking above its first marker.
+    """
+    drop = (module, dst_va) if superseded else None
+    moved = stack_marker_on_block(text, module, dst_va, dst_size, src_module, src_va, drop=drop)
+    if moved is not None:
+        return moved
+    if superseded:
+        return text  # idempotent: marker already on the source block
+    return _stack_marker(text, module, dst_va, dst_size)
+
+
 def import_shared_function(
     cfg_dst: ProjectConfig,
     cfg_src: ProjectConfig,
@@ -723,23 +749,10 @@ def import_shared_function(
     # normal case, where the source body and the destination marker share one
     # file.  Move the marker onto the source body (dropping the old claim)
     # instead of the no-op idempotent stack, which would verify the stale body.
-    moved: str | None = None
-    if superseded:
-        moved = stack_marker_on_block(
-            text,
-            module,
-            dst_va,
-            dst_size,
-            src_module,
-            src_va,
-            drop=(module, dst_va),
-        )
-    if moved is not None:
-        stacked = moved
-    elif superseded:
-        stacked = text  # idempotent: marker already on the source block
-    else:
-        stacked = _stack_marker(text, module, dst_va, dst_size)
+    stacked = _place_shared_marker(
+        text, module, dst_va, dst_size, src_module, src_va, superseded=superseded
+    )
+    moved = stacked if superseded and stacked != text else None
 
     if dry_run:
         if moved is not None:

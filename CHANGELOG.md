@@ -10,6 +10,10 @@
   NEAR_MATCHING function "blocked".
 
 ### Changed
+- **`cross-import --shared` stacks a new claim on the source function.**  In a
+  multi-function file it used to go above the file's first marker while the
+  import verified the source function, so it could report EXACT for a body
+  the marker was not on.
 - **`todo -c` rejects an unknown category** instead of filtering to an
   empty list, and names the valid ones.
 

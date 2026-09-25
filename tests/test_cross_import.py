@@ -1583,6 +1583,24 @@ class TestUnifiedTreeMarkerMove:
         assert "return 0" not in out  # the stale destination body is gone
         assert out.splitlines()[0] == "// FUNCTION: DST 0x401040"
 
+    def test_new_shared_claim_lands_on_the_source_block(self) -> None:
+        """A destination VA not yet claimed in a multi-function file goes onto the
+        SOURCE block, not above the file's first marker.
+
+        Regression: guild-rebrew plant.c got `GOLDTL 0x4bcbd0` stacked on the first
+        function (another target's marker) while the import verified the source
+        function, so it reported EXACT for a body the marker was not on.
+        """
+        text = (
+            "// FUNCTION: DST 0x4bcb80\n// FUNCTION: SRC 0x401000\nint f1(void){ return 1; }\n"
+            "\n// FUNCTION: SRC 0x401010\nint f2(void){ return 2; }\n"
+        )
+        out = ci._place_shared_marker(text, "DST", 0x4BCBD0, 11, "SRC", 0x401010, superseded=False)
+        lines = out.splitlines()
+        at = lines.index("// FUNCTION: DST 0x4bcbd0")
+        assert lines[at + 2] == "// FUNCTION: SRC 0x401010"
+        assert lines[0] == "// FUNCTION: DST 0x4bcb80"
+
     def test_stack_marker_on_block_absent_source(self) -> None:
         text = "// FUNCTION: SRC 0x401000\nint f1(void){ return 1; }\n"
         assert ci.stack_marker_on_block(text, "DST", 0x401040, 11, "SRC", 0x409999) is None
