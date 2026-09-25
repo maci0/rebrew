@@ -118,6 +118,27 @@ def match_bytes(index: Index, data: bytes) -> tuple[str, str] | None:
     return None
 
 
+def match_leading_body(index: Index, data: bytes) -> tuple[str, str] | None:
+    """Return ``(symbol, object)`` when a whole library body starts *data*.
+
+    For ``--va`` without a known size: the read window can run past a short
+    function into the next one, so the library body must match a prefix of
+    *data* instead of covering all of it.  The longest matching body wins.
+    """
+    best: tuple[int, str, str] | None = None
+    for sym, entries in index.items():
+        for obj_name, body, relocs in entries:
+            n = len(body)
+            if n < MIN_BYTES or n > len(data) or (best is not None and n <= best[0]):
+                continue
+            fixed = [i for i in range(n) if i not in relocs]
+            if len(fixed) < MIN_FIXED_FRACTION * n:
+                continue
+            if all(data[i] == body[i] for i in fixed):
+                best = (n, sym, obj_name)
+    return None if best is None else (best[1], best[2])
+
+
 def _merge_libraries(libs: list[Path]) -> Index:
     """Index each library, merging duplicate symbol names across archives."""
     merged: Index = {}
@@ -522,6 +543,8 @@ def main(
         hit = match_bytes(index, data)
         if hit is None and (size or 0) > PREFIX_BYTES:
             hit = match_bytes(index, extract_raw_bytes(cfg.target_binary, va_int, PREFIX_BYTES))
+        if hit is None and not size:
+            hit = match_leading_body(index, data)
         if hit is not None:
             sym, obj_name = hit
             if json_output:
