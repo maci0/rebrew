@@ -1490,19 +1490,55 @@ def rel_display_path(filepath: Path, base_dir: Path | None = None) -> str:
 
 
 def parse_int_literal(text: str, *, base: int = 10) -> int:
-    """Parse a C-style integer literal.
+    """Parse an integer literal for config, addresses, and disassembly text.
 
     A ``0x``/``0X`` prefix selects base 16; anything else uses *base* (decimal
-    by default).  Raises ``ValueError`` on a malformed literal, so callers that
-    want a fallback can catch it, and callers that must fail loud (the CLI's
-    ``parse_va``) let it propagate.
+    by default), including a leading zero (``010`` is ten).  Raises
+    ``ValueError`` on a malformed literal, so callers that want a fallback can
+    catch it, and callers that must fail loud (the CLI's ``parse_va``) let it
+    propagate.
 
-    This is the one literal parser: the ad-hoc ``int(s, 16) if s.startswith(
-    "0x") else int(s)`` copies in ``struct_recover``, ``name_decomp``,
-    ``stack_cmp``, ``switch``, and the Ghidra backends all resolve here.
+    C source constants (octal ``010``, a ``u``/``l`` suffix) go through
+    :func:`parse_c_integer_literal` instead.  ``int(s, 0)`` is not that
+    parser: on Python 3.14 it rejects the leading zero and the caller stores
+    zero.
     """
     stripped = text.strip()
     s = stripped[1:] if stripped.startswith(("+", "-")) else stripped
     if s.lower().startswith("0x"):
         return int(stripped, 16)
     return int(stripped, base)
+
+
+def parse_c_integer_literal(text: str) -> int:
+    """Parse one C integer constant.
+
+    Accepts an optional sign, a ``0x`` hex form, a leading-zero octal form
+    (``010`` is eight), a decimal form, and a trailing ``u``/``l`` suffix.
+    A leading-zero token that is not valid octal (``08``) is the zero-padded
+    decimal of that magnitude: C rejects it, and dropping the bound sized
+    the array as one element.  Raises ``ValueError`` when *text* is not an
+    integer constant.
+    """
+    body = text.strip()
+    if not body or body[0] == "'":
+        raise ValueError(f"not a C integer constant: {text!r}")
+    while body and body[-1] in "uUlL":
+        body = body[:-1]
+    if not body:
+        raise ValueError(f"not a C integer constant: {text!r}")
+    sign = -1 if body[0] == "-" else 1
+    if body[0] in "+-":
+        body = body[1:].strip()
+    if not body:
+        raise ValueError(f"not a C integer constant: {text!r}")
+    if body.lower().startswith("0x"):
+        if len(body) == 2:
+            raise ValueError(f"not a C integer constant: {text!r}")
+        return sign * int(body, 16)
+    if len(body) > 1 and body[0] == "0" and body[1].isdigit():
+        try:
+            return sign * int(body, 8)
+        except ValueError:
+            return sign * int(body, 10)
+    return sign * int(body, 10)

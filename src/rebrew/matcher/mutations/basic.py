@@ -105,6 +105,7 @@ from rebrew.matcher.mutations.runtime import (
     _statement_region_start,
     brace_block,
 )
+from rebrew.utils import parse_c_integer_literal
 
 # --- Mutations ---
 
@@ -833,10 +834,9 @@ def _fold_add_pair(
         captures = _first_caps(match[1])
         if not adjacent(b_source, captures["stmt1"], captures["stmt2"]):
             continue
-        try:
-            n1 = int(decode_source(_cap_bytes(b_source, captures, "n1")))
-            n2 = int(decode_source(_cap_bytes(b_source, captures, "n2")))
-        except ValueError:
+        n1 = _parse_int_literal(decode_source(_cap_bytes(b_source, captures, "n1")))
+        n2 = _parse_int_literal(decode_source(_cap_bytes(b_source, captures, "n2")))
+        if n1 is None or n2 is None:
             continue
         valid_matches.append((captures, n1, n2))
 
@@ -860,28 +860,9 @@ def mut_fold_constant_add(s: str, rng: random.Random) -> str | None:
 
 
 def _parse_int_literal(raw: str) -> int | None:
-    """Parse a C integer literal (decimal / hex / octal, optional u/l/U/L
-    suffix) — None for floats, chars, or other non-integers."""
-    body = raw.strip()
-    if not body:
-        return None
-    if body[0] == "'":  # char literal
-        return None
-    # strip integer suffixes
-    while body and body[-1] in "uUlL":
-        body = body[:-1]
-    if not body:
-        return None
+    """Parse a C integer literal, or None for floats, chars, and other text."""
     try:
-        sign = -1 if body.startswith("-") else 1
-        core = body[1:] if body.startswith(("+", "-")) else body
-        if not core:
-            return None
-        if core.lower().startswith("0x"):
-            return sign * int(core, 16)
-        if len(core) > 1 and core.startswith("0"):
-            return sign * int(core, 8)
-        return sign * int(core, 10)
+        return parse_c_integer_literal(raw)
     except ValueError:
         return None
 
@@ -1038,12 +1019,9 @@ def mut_unfold_constant_add(s: str, rng: random.Random) -> str | None:
     valid_matches = []
     for match in matches:
         captures = _first_caps(match[1])
-        try:
-            n = int(decode_source(_cap_bytes(b_source, captures, "n")))
-            if 1 < n <= 16:
-                valid_matches.append((captures, n))
-        except ValueError:
-            pass
+        n = _parse_int_literal(decode_source(_cap_bytes(b_source, captures, "n")))
+        if n is not None and 1 < n <= 16:
+            valid_matches.append((captures, n))
 
     if not valid_matches:
         return None
@@ -1125,12 +1103,9 @@ def mut_split_ptr_arith(s: str, rng: random.Random) -> str | None:
         captures = _first_caps(match[1])
         if "n1" not in captures or "v1" not in captures:
             continue
-        try:
-            n = int(decode_source(_cap_bytes(b_source, captures, "n1")))
-            if n > 1:
-                valid_matches.append((captures, n))
-        except ValueError:
-            pass
+        n = _parse_int_literal(decode_source(_cap_bytes(b_source, captures, "n1")))
+        if n is not None and n > 1:
+            valid_matches.append((captures, n))
 
     if not valid_matches:
         return None
@@ -1233,9 +1208,8 @@ def mut_comparison_boundary(s: str, rng: random.Random) -> str | None:
         left = _cap_bytes(b_source, captures, "left")
         op = _cap_bytes(b_source, captures, "op")
         num_str = _cap_bytes(b_source, captures, "num")
-        try:
-            num = int(decode_source(num_str))
-        except ValueError:
+        num = _parse_int_literal(decode_source(num_str))
+        if num is None:
             return _cap_bytes(b_source, captures, "expr")
         if op == b">" and num == 0:
             return left + b" >= 1"

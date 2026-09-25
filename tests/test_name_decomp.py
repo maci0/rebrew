@@ -21,6 +21,13 @@ class TestFieldLayout:
         assert lay.fields[0] == ("field_0", 0xC)
         assert lay.fields[0xC] == ("tbl", 8)
 
+    def test_octal_and_suffixed_dimensions(self) -> None:
+        lay = struct_field_layout("typedef struct o {\n\tchar oct[010];\n\tchar hx[0x10u];\n} o;\n")
+        assert lay.complete
+        assert lay.fields[0] == ("oct", 8)
+        assert lay.fields[8] == ("hx", 16)
+        assert lay.size == 24
+
     def test_pointer_and_unsigned_fields(self) -> None:
         lay = struct_field_layout("typedef struct p {\n\tunsigned short w;\n\tint *next;\n} p;\n")
         assert lay.complete

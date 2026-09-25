@@ -926,6 +926,30 @@ class TestParseIntLiteral:
             parse_int_literal("")
 
 
+class TestParseCIntegerLiteral:
+    def test_c_radix_and_suffix(self) -> None:
+        from rebrew.utils import parse_c_integer_literal
+
+        assert parse_c_integer_literal("0x10") == 16
+        assert parse_c_integer_literal("0x10u") == 16
+        assert parse_c_integer_literal("0x10UL") == 16
+        assert parse_c_integer_literal("010") == 8
+        assert parse_c_integer_literal("010u") == 8
+        assert parse_c_integer_literal("10") == 10
+        assert parse_c_integer_literal("08") == 8
+        assert parse_c_integer_literal("-0x10") == -16
+
+    def test_rejects_non_integers(self) -> None:
+        from rebrew.utils import parse_c_integer_literal
+
+        with pytest.raises(ValueError):
+            parse_c_integer_literal("N")
+        with pytest.raises(ValueError):
+            parse_c_integer_literal("'a'")
+        with pytest.raises(ValueError):
+            parse_c_integer_literal("1.5")
+
+
 class TestTomlWriteRecovery:
     @pytest.mark.parametrize("store", ["functions", "data"])
     @pytest.mark.parametrize("failure", ["read", "backup"])

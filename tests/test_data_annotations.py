@@ -116,6 +116,19 @@ class TestEstimateTypeSize:
     def test_int_array(self) -> None:
         assert _estimate_type_size("int[10]") == 40
 
+    def test_every_dimension_counts(self) -> None:
+        # short tbl[2][4] is 16 bytes. The first bracket alone reported 4.
+        assert _estimate_type_size("unsigned short tbl[2][4]") == 16
+        assert _estimate_type_size("char b[2][3][4]") == 24
+
+    def test_c_array_bounds(self) -> None:
+        # 010 is octal 8; a u suffix is still that constant. Leading-zero
+        # decimals must not raise (Python 3.14 int(s, 0) rejects them).
+        assert _estimate_type_size("short g[010]") == 16
+        assert _estimate_type_size("char buf[10u]") == 10
+        assert _estimate_type_size("char buf[0x10]") == 16
+        assert _estimate_type_size("char buf[01]") == 1
+
 
 class TestBssVerification:
     """Test BSS layout verification logic."""

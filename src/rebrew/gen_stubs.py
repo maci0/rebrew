@@ -50,6 +50,7 @@ from rebrew.utils import (
     atomic_write_text,
     is_safe_c_ident,
     load_tomllib,
+    parse_c_integer_literal,
     read_source_text,
     run_process_group,
     strip_comment_blocks,
@@ -113,6 +114,27 @@ def load_library_symbols(csv_path: Path) -> set[str]:
 # --- extern declaration parsing ----------------------------------------------
 
 
+def _array_element_count(brackets: str) -> str:
+    """Decimal element count of every ``[N]`` in *brackets*.
+
+    ``[2][4]`` is ``"8"`` and ``[010]`` (octal) is ``"8"``.  A bound that is
+    not a positive constant makes the whole declarator ``"1"``: a partial
+    product would still shift the following symbols.
+    """
+    total = 1
+    found = False
+    for bound in re.findall(r"\[([^\]]*)\]", brackets):
+        try:
+            n = parse_c_integer_literal(bound)
+        except ValueError:
+            return "1"
+        if n <= 0:
+            return "1"
+        found = True
+        total *= n
+    return str(total) if found else "1"
+
+
 def parse_extern_decl(decl: str) -> dict[str, typing.Any] | None:
     """Parse a single extern declaration line into structured info."""
     rest = decl[len("extern") :].strip().rstrip(";").strip()
@@ -158,15 +180,14 @@ def parse_extern_decl(decl: str) -> dict[str, typing.Any] | None:
             }
 
     # Variable with array: TYPE NAME[SIZE]
-    m = re.match(r"(.*?)\b(\w+)\s*(\[.*?\])", rest)
+    m = re.match(r"(.*?)\b(\w+)\s*((?:\[[^\]]*\])+)", rest)
     if m:
         var_type = m.group(1).strip()
         name = m.group(2)
         if name not in ("int", "char", "void", "short", "float", "double", "unsigned", "struct"):
-            # Accept a hex bound: `extern unsigned char g_table[0x400];` collapsed
-            # to array_size "1" and the stub then claimed a single byte, shifting
-            # every following .data symbol.
-            size_m = re.search(r"\[(0[xX][0-9a-fA-F]+|\d+)\]", m.group(3))
+            # One decimal element count.  ``[0x400]`` used to collapse to "1",
+            # and ``[2][4]`` kept only the first bound: either stub claimed
+            # fewer bytes than the extern and shifted every later .data symbol.
             return {
                 "name": name,
                 "type": var_type,
@@ -175,7 +196,7 @@ def parse_extern_decl(decl: str) -> dict[str, typing.Any] | None:
                 "params": None,
                 "full_decl": decl,
                 "is_array": True,
-                "array_size": size_m.group(1) if size_m else "1",
+                "array_size": _array_element_count(m.group(3)),
             }
 
     # Simple variable: TYPE NAME
@@ -513,7 +534,11 @@ def generate_stubs(
         if info:
             var_type = simplify_type_for_stub(info["type"])
             if info["is_array"]:
-                size = int(info["array_size"] or "1", 0)
+                try:
+                    size = parse_c_integer_literal(info["array_size"] or "1")
+                except ValueError:
+                    size = 1
+                size = max(size, 1)
                 lines.append(f"{var_type} {name}[{size}] = {{0}};")
             else:
                 lines.append(f"{var_type} {name} = 0;")

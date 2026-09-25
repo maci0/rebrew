@@ -505,6 +505,14 @@ class TestHexArrayBound:
         assert info["is_array"] is True
         assert int(info["array_size"], 0) == 1024
 
+    def test_every_dimension_and_octal_bound(self) -> None:
+        multi = parse_extern_decl("extern unsigned short tbl[2][4];")
+        assert multi is not None
+        assert int(multi["array_size"], 0) == 8
+        octal = parse_extern_decl("extern char pad[010];")
+        assert octal is not None
+        assert int(octal["array_size"], 0) == 8
+
 
 # ---------------------------------------------------------------------------
 # parse_extern_decl — Hypothesis fuzz on untrusted C extern lines

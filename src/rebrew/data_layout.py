@@ -34,7 +34,12 @@ from typing import Any
 from rebrew.binary_loader import load_binary
 from rebrew.data_metadata import iter_data_symbols
 from rebrew.sources import _files_with_ext
-from rebrew.utils import atomic_write_text, load_tomllib, read_source_text
+from rebrew.utils import (
+    atomic_write_text,
+    load_tomllib,
+    parse_c_integer_literal,
+    read_source_text,
+)
 from rebrew.workspace.config import config_path
 
 
@@ -639,7 +644,7 @@ def fill_data(
 # ---------------------------------------------------------------------------
 
 _STUB_DEF_RE = re.compile(
-    r"^\s*([\w\s\*]+?)\s+(\w+)(?:\[(0x[0-9a-fA-F]+|\d+)\])?\s*=\s*(?:\{[^;]*\}|[^;]+);\s*$"
+    r"^\s*([\w\s\*]+?)\s+(\w+)((?:\[[^\]]*\])*)\s*=\s*(?:\{[^;]*\}|[^;]+);\s*$"
 )
 
 
@@ -654,7 +659,13 @@ def _parse_stub_globals(stub_file: Path) -> dict[str, tuple[str, int | None]]:
         typ = " ".join(m.group(1).split())
         if typ == "extern":
             continue
-        out[m.group(2)] = (typ, int(m.group(3), 0) if m.group(3) else None)
+        brackets = m.group(3)
+        count = _array_element_count(brackets)
+        # A declarator whose bounds are not all constants (``g[]``, ``g[N]``)
+        # has no element count.  Storing None would materialize it as a scalar.
+        if brackets and count is None:
+            continue
+        out[m.group(2)] = (typ, count)
     return out
 
 
@@ -692,7 +703,33 @@ _TYPE_SIZES: dict[str, int] = {
     "LONGLONG": 8,
 }
 
-_ARRAY_SUFFIX_RE = re.compile(r"\[\s*(0x[0-9a-fA-F]+|\d+)\s*\]")
+_ARRAY_SUFFIX_RE = re.compile(r"\[\s*((?:0[xX][0-9a-fA-F]+|\d+)[uUlL]*)\s*\]")
+
+
+def _array_element_count(brackets: str) -> int | None:
+    """Element count of a C array declarator, or None when *brackets* is empty.
+
+    Every ``[N]`` counts: ``[2][4]`` is 8 elements, not 2.  ``010`` is octal
+    (8).  A bound that is not a constant (``[N]``) leaves the count unknown.
+    """
+    if not brackets:
+        return None
+    raw_bounds = re.findall(r"\[([^\]]*)\]", brackets)
+    if not raw_bounds:
+        return None
+    total = 1
+    for bound in raw_bounds:
+        try:
+            n = parse_c_integer_literal(bound)
+        except ValueError:
+            return None
+        if n < 0:
+            return None
+        if n == 0:
+            return 0
+        total *= n
+    return total
+
 
 #: Words that are not part of a declared type: storage classes and
 #: qualifiers precede it, the declared name follows it.
@@ -737,13 +774,21 @@ def c_type_size(ctype: str) -> int:
 
 def estimate_type_size(type_str: str) -> int:
     """Byte size of a declared C type string (pointer- and array-aware)."""
-    arr = _ARRAY_SUFFIX_RE.search(type_str)
-    elem_count = int(arr.group(1), 0) if arr else 1
-    # ``T[0]`` is a flexible-array extension; treat it as a single element so
-    # coverage / extent math never sees a zero-length symbol (catalog cells
-    # and data_verify walks both assume a positive size).
-    if elem_count <= 0:
-        elem_count = 1
+    # Every dimension counts.  The first bracket alone sized ``short tbl[2][4]``
+    # as 4 bytes (one row) instead of 16, and that count is what coverage,
+    # catalog cells, and BSS gaps persist.
+    elem_count = 1
+    for bound in _ARRAY_SUFFIX_RE.findall(type_str):
+        try:
+            n = parse_c_integer_literal(bound)
+        except ValueError:
+            continue
+        # ``T[0]`` is a flexible-array extension; treat it as a single element so
+        # coverage / extent math never sees a zero-length symbol (catalog cells
+        # and data_verify walks both assume a positive size).
+        if n <= 0:
+            n = 1
+        elem_count *= n
     return c_type_size(type_str) * elem_count
 
 

@@ -43,7 +43,7 @@ from rebrew.struct_recover import (
     pointer_element_widths,
     type_width,
 )
-from rebrew.utils import parse_int_literal
+from rebrew.utils import parse_c_integer_literal, parse_int_literal
 
 # ---------------------------------------------------------------------------
 # Struct layout parsing
@@ -64,15 +64,19 @@ _DIM_RE = re.compile(r"\[([^\]]*)\]")
 
 
 def _dim_value(s: str) -> int | None:
-    """Parse a C array dimension (hex ``0x10`` or decimal ``4``).
+    """Parse a C array dimension (hex ``0x10``, octal ``010``, decimal ``4``).
 
-    Returns ``None`` for a non-numeric dimension (``[]`` or a symbolic
-    ``[N]``), which the caller treats as unsized rather than crashing.
+    A ``u``/``l`` suffix is part of the constant (``0x10u`` is 16).  Returns
+    ``None`` for a non-numeric dimension (``[]`` or a symbolic ``[N]``) or a
+    negative bound, which the caller treats as unsized rather than crashing.
     """
     try:
-        return parse_int_literal(s)
+        value = parse_c_integer_literal(s)
     except ValueError:
         return None
+    if value < 0:
+        return None
+    return value
 
 
 @dataclass

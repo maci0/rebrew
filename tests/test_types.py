@@ -132,6 +132,7 @@ class TestStructSizes:
         assert type_size("void *") == 4
         assert type_size("char[16]") == 16
         assert type_size("int[4]") == 16
+        assert type_size("unsigned short[2][4]") == 16
 
     def test_unknown_type_is_none(self) -> None:
         from rebrew.types import type_size

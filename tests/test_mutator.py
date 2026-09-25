@@ -999,6 +999,12 @@ class TestConstantFolding:
         result = mut_fold_constant_add(src, _rng())
         assert result == "void f() { x = x + 2; }"
 
+    def test_fold_octal_keeps_the_c_value(self) -> None:
+        # 010 is eight in C. Decimal int() folded the pair to 20.
+        src = "void f() { x = x + 010;\nx = x + 010; }"
+        result = mut_fold_constant_add(src, _rng())
+        assert result == "void f() { x = x + 16; }"
+
     def test_unfold(self) -> None:
         src = "x = x + 4;"
         result = mut_unfold_constant_add(src, _rng())
@@ -1049,6 +1055,10 @@ class TestPtrArith:
         src = "p = p + 10;"
         result = mut_split_ptr_arith(src, _rng())
         assert result == "p = p + 5; p = p + 5;"
+
+    def test_split_hex_preserves_the_sum(self) -> None:
+        result = mut_split_ptr_arith("p = p + 0x10;", _rng())
+        assert result == "p = p + 8; p = p + 8;"
 
 
 class TestReturnType:
