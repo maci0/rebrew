@@ -151,6 +151,8 @@ class TestCatalogCli:
         r = runner.invoke(catalog_cli.app, ["--fix-sizes"], input="y\n")
         assert r.exit_code == 0
         assert "Updated 1 SIZE annotations" in r.output
+        assert "modify rebrew-functions.toml" in r.stderr
+        assert "modify rebrew-functions.toml" not in r.stdout
 
         from rebrew.metadata import load_metadata
 

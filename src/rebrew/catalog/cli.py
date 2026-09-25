@@ -281,9 +281,11 @@ def main(
                 json_mode=True,
             )
         if not force:
+            # Prompt on stderr so a redirected stdout still shows the question.
             typer.confirm(
                 "--fix-sizes will modify rebrew-functions.toml metadata files in-place. Continue?",
                 abort=True,
+                err=True,
             )
 
     if export_ghidra:

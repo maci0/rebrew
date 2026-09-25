@@ -98,7 +98,14 @@ def _global_options(
     verbose: int = typer.Option(
         0, "--verbose", "-v", count=True, help="Increase output verbosity."
     ),
-    quiet: bool = typer.Option(False, "--quiet", "-q", help="Suppress non-essential output."),
+    # Logging only. Command tables stay; `lint --quiet` is a different flag.
+    # The default level is already WARNING, so this exists to cancel --verbose.
+    quiet: bool = typer.Option(
+        False,
+        "--quiet",
+        "-q",
+        help="Cancel --verbose; leave logs at warning.",
+    ),
 ) -> None:
     """Compiler-in-the-loop decompilation workbench."""
     if quiet:

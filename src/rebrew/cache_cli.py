@@ -12,7 +12,7 @@ app = typer.Typer(
         "[bold]Examples:[/bold]\n\n"
         "  rebrew cache stats · · · · · · Show cache size and entry count\n\n"
         "  rebrew cache clear · · · · · · Delete all cached .obj files\n\n"
-        "  rebrew cache clear --target x · Clear cache for a specific project root\n\n"
+        "  rebrew cache clear --force · · · Delete without a confirmation prompt\n\n"
         "[dim]The compile cache stores .obj bytes keyed by (source + flags + compiler), "
         "skipping docker/compiler startup on cache hit (hundreds of ms savings). "
         "The store is pluggable: [cache] backend in rebrew-project.toml selects it "
@@ -91,7 +91,9 @@ def clear(
         count = cache.count
         if not force and not json_output:
             console.print(f"About to delete {count} cached entries from {cache_dir}")
-            typer.confirm(f"Delete {count} cached compile results?", abort=True)
+            # Prompt on stderr. stdout is the pipe; a prompt there disappears
+            # when stdout is redirected and the command still blocks on stdin.
+            typer.confirm(f"Delete {count} cached compile results?", abort=True, err=True)
         cache.clear()
         if json_output:
             json_print({"cleared": count, "cache_dir": str(cache_dir), "backend": backend})

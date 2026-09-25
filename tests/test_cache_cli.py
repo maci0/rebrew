@@ -106,3 +106,34 @@ class TestClear:
         r = runner.invoke(cache_cli.app, ["clear"], input="y\n")
         assert r.exit_code == 0
         assert cleared == ["clear"]
+        # The question is a prompt, not data: it belongs on stderr so
+        # `cache clear > log` still shows it on the terminal.
+        assert "cached compile results" in r.stderr
+        assert "cached compile results" not in r.stdout
+
+    def test_declined_confirmation_clears_nothing(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        (tmp_path / ".rebrew" / "compile_cache").mkdir(parents=True)
+        _patch_cfg(monkeypatch, tmp_path)
+        cleared: list[str] = []
+
+        def fake_cache(_root: Path, backend: str = "diskcache") -> SimpleNamespace:
+            return SimpleNamespace(
+                count=2,
+                clear=lambda: cleared.append("clear"),
+                close=lambda: None,
+            )
+
+        monkeypatch.setattr(cache_cli, "get_compile_cache", fake_cache)
+        r = runner.invoke(cache_cli.app, ["clear"], input="n\n")
+        assert r.exit_code != 0
+        assert cleared == []
+        assert "cached compile results" in r.stderr
+        assert "cached compile results" not in r.stdout
+
+    def test_clear_help_does_not_claim_target_selects_a_root(self) -> None:
+        r = runner.invoke(cache_cli.app, ["--help"])
+        assert r.exit_code == 0
+        assert "specific project root" not in r.output
+        assert "cache clear --force" in r.output

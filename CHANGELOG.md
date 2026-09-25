@@ -1,6 +1,16 @@
 ## [Unreleased]
 
 ### Fixed
+- **Confirmation prompts stay on stderr.**  `cache clear` and
+  `catalog --fix-sizes` asked on stdout, so redirecting stdout hid the
+  question while the command still waited on stdin.  They now prompt with
+  `err=True`, the same as `cfg`, `split`, and `merge`.
+- **`cache clear` help no longer says `--target` picks a project root.**
+  The compile cache is the project's `.rebrew/compile_cache/`.  The example
+  is `cache clear --force`.
+- **Global `--quiet` help matches the flag.**  It cancels `--verbose` and
+  leaves logs at warning.  It does not hide command output (`lint --quiet`
+  still suppresses warnings).
 - **`status`, `verify` and `todo` count the same functions.**  On
   guild-rebrew `server.dll` they read 259/283, 277/281 and 91.5% for one
   tree.

@@ -29,6 +29,13 @@ class TestUmbrellaCli:
         for cmd in ("test", "verify", "similar", "near-diag", "catalog", "cfg", "cache", "skills"):
             assert cmd in r.output
 
+    def test_quiet_help_describes_log_level(self) -> None:
+        """Global --quiet cancels --verbose. It does not hide command output."""
+        r = runner.invoke(app, ["--help"])
+        assert r.exit_code == 0
+        assert "Cancel --verbose" in r.output
+        assert "Suppress non-essential output" not in r.output
+
     def test_help_groups_panels(self) -> None:
         r = runner.invoke(app, ["--help"])
         assert r.exit_code == 0
