@@ -399,6 +399,29 @@ class TestCollectStatus:
         report = collect_status(cfg)  # type: ignore[arg-type]
         assert report.matched_bytes == 40
 
+    def test_external_lib_rows_count_for_the_target(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A LIBRARY row whose module is one of the target's external_libs is the
+        target's library code (guild-rebrew GOLDTL's 915 D3DX8 markers counted 0)."""
+        import rebrew.naming
+
+        cfg = _make_cfg(tmp_path)
+        cfg.external_libs = {"LIBX": "libx.lib"}
+        existing = {
+            0x2000: {
+                "filename": "library_x.h",
+                "size": "50",
+                "module": "LIBX",
+                "marker_type": "LIBRARY",
+            },
+        }
+        monkeypatch.setattr(
+            rebrew.naming, "load_data", lambda cfg: ([], existing, {0x2000: "library_x.h"})
+        )
+        report = collect_status(cfg)  # type: ignore[arg-type]
+        assert report.library_identified == 1
+
     def test_library_rows_bucketed_in_module_table(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

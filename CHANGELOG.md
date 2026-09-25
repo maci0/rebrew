@@ -11,6 +11,9 @@
   NEAR_MATCHING function "blocked".
 
 ### Changed
+- **A target's `external_libs` LIBRARY rows count as its library code.**
+  `scope_to_target` dropped every row whose module was not the target marker,
+  so a client's D3DX8 markers were identified as nothing.
 - **LIBRARY markers count only for their own target.**  In a shared tree a
   `library_*.h` marker applies to a target when its module is the target's
   marker or one of its `external_libs`; another target's marker at the same
