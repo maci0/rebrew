@@ -61,25 +61,35 @@ plugin cache backends or remove the open upstream diskcache advisory.
 - No claim that optional wibo / toolchain-media downloads are attested beyond
   the in-code host allow-list and hash checks described in
   [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md). Wibo integrity uses the live
-  GitHub release `digest`; it does not consume `GH_TOKEN`/`GITHUB_TOKEN`
+  GitHub release `digest`. That digest is fetched with redirects followed
+  (`wibo.py` `_read_release_metadata`); the allow-list and per-hop redirect
+  check apply to the asset GET (`_get_with_trusted_redirects`), not to the
+  metadata GET. Wibo does not consume `GH_TOKEN`/`GITHUB_TOKEN`
   (those tokens are used only by toolchain pin-check/update HTTP to GitHub).
 - No claim that dependency CVEs are absent; pin rationale lives in
   `pyproject.toml` comments and the changelog. In particular, diskcache's
   open pickle advisory is mitigated for packaged backends by `NoPickleDisk`,
   not by claiming the upstream advisory is fixed.
 - No claim that library helpers which invoke host DOSBox
-  (`rebrew.msvc16` / `tc16` / `delphi16`) or host wine (`rebrew.pdb_cvdump`
-  runs `cvdump.exe` from `REBREW_CVDUMP` or `PATH`) are covered by the
-  docker-only compile guarantee on the shipped CLI compile path.
+  (`rebrew.msvc16` / `tc16` / `delphi16` via `rebrew.dosbox`) are covered by
+  the docker-only compile guarantee on the shipped CLI compile path.
+  There is no `pdb_cvdump` module and no `REBREW_CVDUMP` setting. PDB reads
+  on the shipped path run host `llvm-pdbutil`
+  (`rebrew.pdb_info` / `rebrew.toolchain_detect`), not wine `cvdump.exe`.
 - No claim that every shipped CLI command stays inside a container.
   `rebrew calibrate-bss` executes the link command read from the project's
   `build/CMakeFiles/*/link.txt` and its `--compile-cmd` on the host,
   `rebrew link-sweep` executes that same `link.txt` command on the host,
   `rebrew gen-stubs --build-cmd` executes an operator-supplied build command on the host,
-  linked-exe GA (`match_ga.py` / `build_candidate`) runs native toolchains on the host, and
-  analysis helpers run host rizin/r2, kuna, objconv, llvm-pdbutil, diec, and
-  objdump against target binaries. Treat a project tree from an untrusted
-  source as able to run code on the host through these paths.
+  and analysis helpers run host rizin/r2, kuna, objconv, llvm-pdbutil, diec,
+  objdump, and nasm against target binaries. Linked-exe GA
+  (`match_ga.py` `_compile_source` / `matcher/compiler.py` `build_candidate`)
+  runs that host compiler only when the profile has no docker image; a
+  profile whose spec has an image raises instead of starting host wine.
+  `rebrew doctor` smoke-runs host wine or wibo plus `CL.EXE` only on that
+  same image-less path (`check_compiler`); a docker-backed profile returns
+  before the smoke. Treat a project tree from an untrusted source as able
+  to run code on the host through the paths that do execute.
 - No claim that the project tree cannot redirect outbound traffic. A
   project's `[compiler] recompile_url` applies unless `REBREW_RECOMPILE_URL`
   is set, and its `[llm] endpoint` overrides `REBREW_LLM_ENDPOINT` while an
