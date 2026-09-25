@@ -1097,3 +1097,35 @@ class TestCanonicalSizeCache:
         )
         os.utime(inv, ns=(previous_stat.st_atime_ns, previous_stat.st_mtime_ns + 2_000_000_000))
         assert crt_match._canonical_size(cfg, 0x1000) == 99
+
+    def test_same_size_rename_over_same_mtime_invalidates(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A same-length inventory replace in one mtime tick must not keep old sizes."""
+        import os
+
+        from rebrew import crt_match
+        from rebrew.catalog import loaders
+        from rebrew.config import FUNCTION_STRUCTURE_JSON
+
+        monkeypatch.setattr(crt_match, "_canonical_sizes", {})
+        monkeypatch.setattr(loaders, "_function_list_cache", {})
+
+        rev = tmp_path / "reversed"
+        rev.mkdir()
+        inv = rev / FUNCTION_STRUCTURE_JSON
+        text_a = '[{"va": "0x1000", "size": 10, "name": "f"}]'
+        text_b = '[{"va": "0x1000", "size": 11, "name": "f"}]'
+        assert len(text_a) == len(text_b)
+        inv.write_text(text_a, encoding="utf-8")
+        cfg = SimpleNamespace(reversed_dir=str(rev), root=tmp_path)
+        assert crt_match._canonical_size(cfg, 0x1000) == 10
+
+        st = inv.stat()
+        swapped = rev / "function_structure.json.new"
+        swapped.write_text(text_b, encoding="utf-8")
+        os.utime(swapped, ns=(st.st_atime_ns, st.st_mtime_ns))
+        os.replace(swapped, inv)
+        assert inv.stat().st_mtime_ns == st.st_mtime_ns
+        assert inv.stat().st_size == st.st_size
+        assert crt_match._canonical_size(cfg, 0x1000) == 11

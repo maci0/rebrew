@@ -302,6 +302,64 @@ class TestCompileToObj:
         assert compiled == [old]
         assert len(stored) == 1
 
+    def test_header_edit_during_compile_is_not_cached(self, tmp_path: Path, monkeypatch) -> None:
+        """A header saved while the compiler runs must not be stored under the old key.
+
+        The key is computed before the compile; the compiler reads headers
+        live.  Publishing the object under the pre-edit fingerprint would
+        serve it on the next lookup of that fingerprint.
+        """
+        import os
+
+        stored: dict[str, bytes] = {}
+
+        class _FakeCache:
+            def get(self, key: str) -> None:
+                return None
+
+            def put(self, key: str, data: bytes) -> None:
+                stored[key] = data
+
+        header_box: dict[str, Path] = {}
+
+        def _fake_run(spec, args, *, workdir, timeout, mounts=None):
+            header = header_box["path"]
+            st = header.stat()
+            header.write_text("#define V 2\n", encoding="utf-8")
+            os.utime(header, ns=(st.st_atime_ns, st.st_mtime_ns + 1_000_000_000))
+            (workdir / "f.obj").write_bytes(b"\x00obj")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        monkeypatch.setattr("rebrew.compile.run_toolchain", _fake_run)
+        cfg: Any = SimpleNamespace(
+            root=tmp_path,
+            compiler_includes=tmp_path,
+            base_cflags="/nologo",
+            compile_timeout=3,
+            compiler_command="CL.EXE",
+            compiler_runner="",
+            compiler_libs=tmp_path,
+            compiler_profile="msvc-6.0",
+            posix_style=False,
+            msvc_env=lambda: {},
+        )
+        src_dir = tmp_path / "src"
+        src_dir.mkdir()
+        header = src_dir / "h.h"
+        header.write_text("#define V 1\n", encoding="utf-8")
+        header_box["path"] = header
+        source = src_dir / "f.c"
+        source.write_text('#include "h.h"\nint f(void){return V;}\n', encoding="utf-8")
+        workdir = tmp_path / "work"
+        workdir.mkdir()
+
+        obj_path, err = compile_to_obj(
+            cast(ProjectConfig, cfg), source, ["/O2"], workdir, cache=_FakeCache()
+        )
+        assert err == ""
+        assert obj_path is not None
+        assert stored == {}
+
 
 class TestCompileToObjPosix:
     """mingw-16.2.0 / mingw (POSIX-style) compiler routing."""

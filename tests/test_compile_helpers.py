@@ -225,8 +225,8 @@ class TestNativeToolchainId:
     def test_binary_upgrade_changes_id(self, tmp_path: Path, monkeypatch) -> None:
         """Two different binaries under the same name must not share an id.
 
-        The memo is keyed on (path, mtime, size): an in-process upgrade that
-        changes those must invalidate without an explicit cache clear.
+        The memo is keyed on (path, mtime, size, inode): an in-process upgrade
+        that changes those must invalidate without an explicit cache clear.
         """
         import os
 
@@ -244,7 +244,7 @@ class TestNativeToolchainId:
         os.utime(gcc, (1767226000, 1767226000))
         id_new = _native_toolchain_id(self._spec("mingw-16.2.0"))
         assert id_old != id_new
-        assert _native_binary_cache["mingw-16.2.0"][3] == id_new
+        assert _native_binary_cache["mingw-16.2.0"][4] == id_new
 
     def test_same_stat_different_bytes_changes_id(self, tmp_path: Path, monkeypatch) -> None:
         """A swapped compiler that preserves (mtime, size) still invalidates
@@ -265,6 +265,36 @@ class TestNativeToolchainId:
         gcc.write_bytes(b"BBBB")
         os.utime(gcc, (mtime, mtime))
         _native_binary_cache.clear()
+        id_new = _native_toolchain_id(self._spec("mingw-16.2.0"))
+        assert id_old != id_new
+
+    def test_same_size_rename_over_same_mtime_changes_id(self, tmp_path: Path, monkeypatch) -> None:
+        """A same-size rename-over in one mtime tick must not keep the old digest.
+
+        In-place ``write_bytes`` keeps the inode, so the content rehash in
+        ``test_same_stat_different_bytes_changes_id`` clears the memo first.
+        Replacing the binary (``os.replace``) changes only the inode when
+        mtime and size are preserved; the memo must rehash without a clear.
+        """
+        import os
+
+        from rebrew.compile import _native_toolchain_id
+
+        gcc = tmp_path / "gcc"
+        gcc.write_bytes(b"AAAA")
+        gcc.chmod(0o755)
+        mtime = 1767225600
+        os.utime(gcc, (mtime, mtime))
+        monkeypatch.setattr("rebrew.compile.shutil.which", lambda name: str(gcc))
+        id_old = _native_toolchain_id(self._spec("mingw-16.2.0"))
+        swapped = tmp_path / "gcc.new"
+        swapped.write_bytes(b"BBBB")
+        swapped.chmod(0o755)
+        os.utime(swapped, ns=(mtime * 1_000_000_000, mtime * 1_000_000_000))
+        os.replace(swapped, gcc)
+        st = gcc.stat()
+        assert st.st_size == 4
+        assert st.st_mtime_ns == mtime * 1_000_000_000
         id_new = _native_toolchain_id(self._spec("mingw-16.2.0"))
         assert id_old != id_new
 

@@ -246,6 +246,36 @@ class TestLoadVerifyCacheRaw:
         assert only_key[0] == str(path)
         assert vc_mod._VERIFY_CACHE_MEMO[only_key] == {"version": 2}
 
+    def test_verify_cache_memo_misses_same_size_rename_over(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A same-size rename-over in one mtime tick must not keep the old JSON.
+
+        The memo key includes the inode, so ``os.replace`` of an equal-length
+        document is a miss even when mtime is preserved.
+        """
+        import os
+        from types import SimpleNamespace
+
+        import rebrew.verify_cache as vc_mod
+
+        monkeypatch.setattr(vc_mod, "_VERIFY_CACHE_MEMO", {})
+        cache_dir = tmp_path / ".rebrew"
+        cache_dir.mkdir()
+        path = cache_dir / "verify_cache.json"
+        path.write_text('{"version": 1}', encoding="utf-8")
+        cfg = SimpleNamespace(root=tmp_path)
+        assert vc_mod.load_verify_cache_raw(cfg) == {"version": 1}
+        st = path.stat()
+        swapped = cache_dir / "verify_cache.json.new"
+        swapped.write_text('{"version": 9}', encoding="utf-8")
+        assert swapped.stat().st_size == st.st_size
+        os.utime(swapped, ns=(st.st_atime_ns, st.st_mtime_ns))
+        os.replace(swapped, path)
+        assert path.stat().st_mtime_ns == st.st_mtime_ns
+        assert path.stat().st_size == st.st_size
+        assert vc_mod.load_verify_cache_raw(cfg) == {"version": 9}
+
     def test_verify_cache_memo_invalidated_through_symlinked_root(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

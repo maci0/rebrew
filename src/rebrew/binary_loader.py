@@ -169,9 +169,13 @@ class BinaryInfo:
     # Lazy-loaded; shared across workers via ``_load_binary_cache``.
     _data: bytes | None = field(default=None, repr=False)
 
-    # Filled by ``load_binary`` for cache invalidation.
+    # Filled by ``load_binary`` for cache invalidation.  Inode is required:
+    # a same-size rename-over (``atomic_write_bytes``, ``cp -p`` + ``mv``)
+    # in one mtime tick changes the inode and not the size, and mtime+size
+    # alone would keep serving the previous image's section map and bytes.
     _cache_mtime_ns: int = field(default=0, repr=False)
     _cache_fsize: int = field(default=0, repr=False)
+    _cache_ino: int = field(default=0, repr=False)
 
     @property
     def data(self) -> bytes:
@@ -460,8 +464,9 @@ _LOAD_BINARY_CACHE_MAX = 16
 _load_binary_lock = threading.Lock()
 
 # Bounded memo for :func:`iat_slot_vas` (IAT slot VAs).  Keyed on
-# ``resolved:mtime_ns:size`` so a rebuilt binary at the same path is
-# re-scanned.  Same lock/bounded-dict discipline as ``_load_binary_cache``
+# ``resolved:mtime_ns:size:ino`` so a rebuilt binary at the same path is
+# re-scanned, including a same-size rename-over in one mtime tick.
+# Same lock/bounded-dict discipline as ``_load_binary_cache``
 # so tests can clear it when they rewrite a fixture.
 _iat_slot_cache: dict[str, set[int]] = {}
 _IAT_SLOT_CACHE_MAX = 32
@@ -512,22 +517,27 @@ def load_binary(path: Path, fmt: str = "auto") -> BinaryInfo:
         raise FileNotFoundError(f"Binary not found: {path}")
 
     # Bounded cache keyed on resolved path + format to avoid re-parsing.
-    # Also track mtime/size to invalidate stale entries when binary is rebuilt.
+    # mtime, size, and inode invalidate a rebuilt binary.  Size catches a
+    # same-ns rewrite that grew or shrank; inode catches a same-size
+    # rename-over that lands in the same mtime tick.
     resolved = str(path.resolve())
     cache_key = (resolved, fmt)
     try:
         stat = path.stat()
         mtime_ns = stat.st_mtime_ns
         fsize = stat.st_size
+        ino = stat.st_ino
     except OSError:
         mtime_ns = 0
         fsize = 0
+        ino = 0
     with _load_binary_lock:
         cached = _load_binary_cache.get(cache_key)
         if cached is not None:
             cached_mtime = getattr(cached, "_cache_mtime_ns", None)
             cached_fsize = getattr(cached, "_cache_fsize", None)
-            if cached_mtime == mtime_ns and cached_fsize == fsize:
+            cached_ino = getattr(cached, "_cache_ino", None)
+            if cached_mtime == mtime_ns and cached_fsize == fsize and cached_ino == ino:
                 _load_binary_cache[cache_key] = _load_binary_cache.pop(cache_key)
                 return cached
             _load_binary_cache.pop(cache_key, None)
@@ -579,9 +589,10 @@ def load_binary(path: Path, fmt: str = "auto") -> BinaryInfo:
     # the cache tagging below (mypy cannot see through the bare `raise`).
     assert result is not None
 
-    # Tag with mtime for stale-check on next lookup
+    # Tag with mtime, size, and inode for the stale-check on next lookup.
     result._cache_mtime_ns = mtime_ns
     result._cache_fsize = fsize
+    result._cache_ino = ino
     with _load_binary_lock:
         if cache_key not in _load_binary_cache:
             # Evict oldest entry when cache is full.
@@ -965,10 +976,12 @@ def iat_slot_vas(binary_path: Path | str) -> set[int]:
         st = path.stat()
         mtime_ns = st.st_mtime_ns
         fsize = st.st_size
+        ino = st.st_ino
     except OSError:
         mtime_ns = 0
         fsize = 0
-    cache_key = f"{path.resolve()}:{mtime_ns}:{fsize}"
+        ino = 0
+    cache_key = f"{path.resolve()}:{mtime_ns}:{fsize}:{ino}"
     with _iat_slot_lock:
         cached = _iat_slot_cache.get(cache_key)
         if cached is not None:

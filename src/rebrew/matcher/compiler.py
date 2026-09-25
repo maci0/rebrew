@@ -538,6 +538,9 @@ def build_candidate_obj_only(
         all_flags = resolve_include_flags(all_flags, src_parent, cfg_root)
 
     cache_key: str | None = None
+    cflags_key = all_flags + ["/c"]
+    include_dirs: list[str] = []
+    toolchain_id = ""
     if cache is not None:
         from rebrew.compile import extract_include_dirs, native_binary_id
 
@@ -548,13 +551,14 @@ def build_candidate_obj_only(
             native_binary_id(part, _resolve_executable(part))
             for part in _compiler_cmd_parts(cl_cmd, env)
         )
+        include_dirs = [inc_dir, *extra_inc, *extract_include_dirs(all_flags)]
         cache_key = compile_cache_key(
             source_content=source_code,
             source_filename=src_name,
-            cflags=all_flags + ["/c"],
+            cflags=cflags_key,
             # The /I dirs carried by the flags join the search set so their
             # headers participate in the per-source dependency fingerprints.
-            include_dirs=[inc_dir, *extra_inc, *extract_include_dirs(all_flags)],
+            include_dirs=include_dirs,
             toolchain_id=toolchain_id,
             source_ext=source_ext,
             source_dir=str(src_parent),
@@ -611,8 +615,23 @@ def build_candidate_obj_only(
             return BuildResult(ok=False, error_msg=detailed_err)
 
         if cache is not None and cache_key is not None:
+            from rebrew.compile import _publish_obj_cache
+
             with contextlib.suppress(OSError):
-                cache.put(cache_key, obj_path.read_bytes())
+                _publish_obj_cache(
+                    cache,
+                    cache_key,
+                    obj_path.read_bytes(),
+                    fresh_key=compile_cache_key(
+                        source_content=source_code,
+                        source_filename=src_name,
+                        cflags=cflags_key,
+                        include_dirs=include_dirs,
+                        toolchain_id=toolchain_id,
+                        source_ext=source_ext,
+                        source_dir=str(src_parent),
+                    ),
+                )
 
         code, relocs = parse_obj_symbol_bytes(str(obj_path), symbol)
         if code is None:

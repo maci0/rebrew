@@ -132,6 +132,31 @@ class TestSourceHash:
         assert text_b != text_a
 
 
+class TestBinaryId:
+    def test_same_size_rename_over_same_mtime_changes_id(self, tmp_path: Path) -> None:
+        """Verify-cache identity must miss a same-size rename-over in one mtime tick.
+
+        mtime+size alone keeps serving verdicts earned against the previous
+        image after ``atomic_write_bytes`` or ``cp -p`` + ``mv``.
+        """
+        from rebrew.verify_cache import _binary_id
+
+        cfg = _make_cfg(tmp_path)
+        path = Path(cfg.target_binary)
+        path.write_bytes(b"MZAA")
+        id_a = _binary_id(cfg)
+        st = path.stat()
+        swapped = tmp_path / "target.new"
+        swapped.write_bytes(b"MZBB")
+        os.utime(swapped, ns=(st.st_atime_ns, st.st_mtime_ns))
+        os.replace(swapped, path)
+        assert path.stat().st_mtime_ns == st.st_mtime_ns
+        assert path.stat().st_size == st.st_size
+        assert path.stat().st_ino != st.st_ino
+        assert _binary_id(cfg) != id_a
+        assert _binary_id(cfg) != ""
+
+
 class TestLoadVerifyCache:
     def test_load_valid_cache(self, tmp_path: Path) -> None:
         cfg = _make_cfg(tmp_path)

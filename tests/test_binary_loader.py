@@ -371,6 +371,62 @@ class TestLoadBinaryCache:
         overflow_key = (str(overflow.resolve()), "auto")
         assert overflow_key in _load_binary_cache
 
+    def test_same_size_rename_over_same_mtime_reloads(self, tmp_path: Path) -> None:
+        """A same-size rename-over in one mtime tick must not serve the old image.
+
+        ``atomic_write_bytes`` replaces the inode and can land in the same
+        mtime slot with the same length.  mtime+size alone would keep the
+        previous section map and file bytes.
+        """
+        import os
+
+        from rebrew.binary_loader import load_binary
+
+        f = _make_pe_stub(tmp_path / "test.exe")
+        info1 = load_binary(f)
+        old = info1.data
+        st = f.stat()
+        swapped = bytearray(old)
+        swapped[-1] ^= 0xFF
+        assert len(swapped) == len(old)
+        tmp = tmp_path / "test.exe.new"
+        tmp.write_bytes(swapped)
+        os.utime(tmp, ns=(st.st_atime_ns, st.st_mtime_ns))
+        os.replace(tmp, f)
+        assert f.stat().st_mtime_ns == st.st_mtime_ns
+        assert f.stat().st_size == st.st_size
+        assert f.stat().st_ino != st.st_ino
+        info2 = load_binary(f)
+        assert info2 is not info1
+        assert info2.data == bytes(swapped)
+        assert info2.data != old
+
+    def test_iat_cache_misses_same_size_rename_over(self, tmp_path: Path) -> None:
+        """IAT slot memo must not keep slots from the pre-replace image."""
+        import os
+
+        from rebrew.binary_loader import _iat_slot_cache, iat_slot_vas
+
+        f = _make_pe_stub(tmp_path / "test.exe")
+        assert iat_slot_vas(f) == set()
+        assert len(_iat_slot_cache) == 1
+        old_key = next(iter(_iat_slot_cache))
+        st = f.stat()
+        swapped = bytearray(f.read_bytes())
+        swapped[-1] ^= 0xFF
+        tmp = tmp_path / "test.exe.new"
+        tmp.write_bytes(swapped)
+        os.utime(tmp, ns=(st.st_atime_ns, st.st_mtime_ns))
+        os.replace(tmp, f)
+        assert iat_slot_vas(f) == set()
+        # The fingerprint is part of the key, so the pre-replace entry stays
+        # until eviction but is not the one a lookup of the new inode hits.
+        st2 = f.stat()
+        live_key = f"{f.resolve()}:{st2.st_mtime_ns}:{st2.st_size}:{st2.st_ino}"
+        assert live_key != old_key
+        assert live_key in _iat_slot_cache
+        assert _iat_slot_cache[live_key] == set()
+
 
 class TestMalformedInputRobustness:
     """Arbitrary bytes must never crash load_binary — a clean ValueError /

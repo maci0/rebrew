@@ -934,13 +934,14 @@ def _docker_include_rewrite(
     return out, mounts
 
 
-# name → (resolved_path, mtime_ns, size, toolchain_id).  Re-stat on each
-# call so a mid-process compiler upgrade (same PATH name, new bytes) does
-# not keep serving objects keyed under the old content digest.  Content is
-# re-hashed only when path/mtime/size change.
+# name → (resolved_path, mtime_ns, size, inode, toolchain_id).  Re-stat on
+# each call so a mid-process compiler upgrade (same PATH name, new bytes)
+# does not keep serving objects keyed under the old content digest.  Content
+# is re-hashed when path, mtime, size, or inode changes — inode catches a
+# same-size rename-over of the compiler binary in one mtime tick.
 # Guarded: verify -j N / GA workers call ``_native_toolchain_id`` concurrently
 # while building cache keys; the eviction path is a multi-step mutation.
-_native_binary_cache: dict[str, tuple[str, int, int, str]] = {}
+_native_binary_cache: dict[str, tuple[str, int, int, int, str]] = {}
 _NATIVE_BINARY_CACHE_MAX = 32
 _NATIVE_BINARY_CACHE_LOCK = threading.Lock()
 
@@ -954,7 +955,7 @@ def _native_toolchain_id(spec: "ToolchainSpec") -> str:
     changes the bytes, and objects cached from the OLD binary are never
     served under the new one.  Falls back to the bare ``native:<name>`` when
     the binary is missing or unresolvable (the compile itself fails with a
-    clear error).  Memoized per ``(path, mtime, size)`` so an in-process
+    clear error).  Memoized per ``(path, mtime, size, inode)`` so an in-process
     upgrade invalidates without a full restart.
     """
     name = spec.binary
@@ -976,7 +977,7 @@ def native_binary_id(name: str, resolved: Path | None) -> str:
     """``native:<name>@<content digest>`` for the executable at *resolved*.
 
     ``native:<name>`` when *resolved* is None or unreadable.  Memoized per
-    ``(path, mtime, size)`` in :data:`_native_binary_cache`.
+    ``(path, mtime, size, inode)`` in :data:`_native_binary_cache`.
     """
     if resolved is None:
         return f"native:{name}"
@@ -986,6 +987,7 @@ def native_binary_id(name: str, resolved: Path | None) -> str:
         st = Path(resolved_path).stat()
         mtime_ns = st.st_mtime_ns
         fsize = st.st_size
+        ino = st.st_ino
     except OSError:
         return f"native:{name}"
 
@@ -996,8 +998,9 @@ def native_binary_id(name: str, resolved: Path | None) -> str:
             and cached[0] == resolved_path
             and cached[1] == mtime_ns
             and cached[2] == fsize
+            and cached[3] == ino
         ):
-            return cached[3]
+            return cached[4]
 
     digest = _native_binary_digest(Path(resolved_path))
     toolchain_id = f"native:{name}@{digest}" if digest is not None else f"native:{name}"
@@ -1009,15 +1012,16 @@ def native_binary_id(name: str, resolved: Path | None) -> str:
             and cached[0] == resolved_path
             and cached[1] == mtime_ns
             and cached[2] == fsize
+            and cached[3] == ino
         ):
-            return cached[3]
+            return cached[4]
         if (
             len(_native_binary_cache) >= _NATIVE_BINARY_CACHE_MAX
             and name not in _native_binary_cache
         ):
             oldest = next(iter(_native_binary_cache))
             _native_binary_cache.pop(oldest, None)
-        _native_binary_cache[name] = (resolved_path, mtime_ns, fsize, toolchain_id)
+        _native_binary_cache[name] = (resolved_path, mtime_ns, fsize, ino, toolchain_id)
     return toolchain_id
 
 
@@ -1271,6 +1275,26 @@ def _cache_key_for(
     )
 
 
+def _publish_obj_cache(
+    cache: CacheBackend,
+    key: str,
+    obj_bytes: bytes,
+    *,
+    fresh_key: str,
+) -> None:
+    """Store *obj_bytes* under *key* only when *fresh_key* is still *key*.
+
+    The key is computed before the compiler runs.  Header stats are part of
+    it and the compiler reads those headers live, so a header saved during
+    the run produces an object the original key does not name.  Publishing
+    that object would make a later lookup of the old key serve it.  Callers
+    recompute the key after the compiler returns and pass it as *fresh_key*.
+    """
+    if fresh_key != key:
+        return
+    cache.put(key, obj_bytes)
+
+
 def compile_to_obj(
     cfg: ProjectConfig,
     source_path: str | Path,
@@ -1384,6 +1408,11 @@ def compile_to_obj(
         context, source_path.read_bytes().decode("utf-8", errors="surrogateescape"), src_name
     )
 
+    # Snapshot the flags the key was computed from.  The docker path rebinds
+    # ``all_flags`` and then appends mount rewrites; the publish recheck must
+    # hash the same list the lookup used, not that later list.
+    key_flags = list(all_flags)
+    source_ext = source_path.suffix or ".c"
     cache_key: str | None = None
     if cc is not None:
         cache_key = _cache_key_for(
@@ -1391,11 +1420,11 @@ def compile_to_obj(
             spec,
             compile_text,
             src_name,
-            all_flags,
+            key_flags,
             inc_path,
             src_parent,
             extra_include_dirs,
-            source_path.suffix or ".c",
+            source_ext,
         )
         cached_obj = cc.get(cache_key)
         if cached_obj is not None:
@@ -1520,7 +1549,22 @@ def compile_to_obj(
             return None, err
         if cc is not None and cache_key is not None:
             with contextlib.suppress(OSError):
-                cc.put(cache_key, obj_file.read_bytes())
+                _publish_obj_cache(
+                    cc,
+                    cache_key,
+                    obj_file.read_bytes(),
+                    fresh_key=_cache_key_for(
+                        cfg,
+                        spec,
+                        compile_text,
+                        src_name,
+                        key_flags,
+                        inc_path,
+                        src_parent,
+                        extra_include_dirs,
+                        source_ext,
+                    ),
+                )
         return str(obj_file), ""
 
     # Unknown/unregistered profile: nothing to run.  Execution is docker-
@@ -1821,6 +1865,41 @@ def precompile_batch(
                 flags = [f"/I{inc_path}"] + flags
             flags, extra_mounts = _docker_include_rewrite(flags, workdir, allowed_roots=allowed)
             batch_mounts += extra_mounts
+
+            stage_dir = workdir
+            if stage_dir is None:
+                return group_out
+
+            def _staged_cache_key(entry: Any, staged_name: str) -> str:
+                src = Path(cfg.reversed_dir) / entry.filepath
+                src_parent = src.resolve().parent
+                member_flags = _effective_compile_flags(
+                    cfg, spec, member_cflags[id(entry)], src_parent
+                )
+                staged_text = (
+                    (stage_dir / staged_name).read_bytes().decode("utf-8", errors="surrogateescape")
+                )
+                return _cache_key_for(
+                    cfg,
+                    spec,
+                    staged_text,
+                    src.name,
+                    member_flags,
+                    str(cfg.compiler_includes),
+                    src_parent,
+                    None,
+                    src.suffix or ".c",
+                )
+
+            # Key before the compiler runs.  A header edit during the batch
+            # changes the post-compile key; publishing under either key would
+            # pin the object to a fingerprint it was not built against.
+            pre_keys: dict[int, str] = {}
+            if cache is not None and workdir is not None:
+                for staged_name, group_entries in staged.items():
+                    for entry in group_entries:
+                        with contextlib.suppress(OSError, ValueError):
+                            pre_keys[id(entry)] = _staged_cache_key(entry, staged_name)
             objs, err = compile_batch_objs(
                 spec, sorted(staged), flags, workdir, batch_mounts, cfg.compile_timeout
             )
@@ -1851,29 +1930,24 @@ def precompile_batch(
                     if cache is None:
                         continue
                     with contextlib.suppress(OSError, ValueError):
-                        src = Path(cfg.reversed_dir) / e.filepath
                         own_cflags = member_cflags[id(e)]
                         own_includes = {
                             f for f in safe_shlex_split(own_cflags) if f.startswith(("/I", "-I"))
                         }
                         if own_includes != union_includes:
                             continue
-                        src_parent = src.resolve().parent
-                        key_flags = _effective_compile_flags(cfg, spec, own_cflags, src_parent)
-                        # Key the staged bytes the compiler read, not a
-                        # fresh read of a source rewritten since staging.
-                        key = _cache_key_for(
-                            cfg,
-                            spec,
-                            (workdir / name).read_bytes().decode("utf-8", errors="surrogateescape"),
-                            src.name,
-                            key_flags,
-                            str(cfg.compiler_includes),
-                            src_parent,
-                            None,
-                            src.suffix or ".c",
+                        pre_key = pre_keys.get(id(e))
+                        if pre_key is None or workdir is None:
+                            continue
+                        # Re-key the staged bytes (not a fresh read of a
+                        # source rewritten since staging).  Publish only
+                        # when that key still matches the pre-compile one.
+                        _publish_obj_cache(
+                            cache,
+                            pre_key,
+                            obj_bytes,
+                            fresh_key=_staged_cache_key(e, name),
                         )
-                        cache.put(key, obj_bytes)
             return group_out
         except Exception as exc:
             log.debug("batch group skipped: %s", exc)

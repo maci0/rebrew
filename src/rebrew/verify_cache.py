@@ -40,15 +40,16 @@ if TYPE_CHECKING:
 #: Current cache schema version (flat rows).
 CACHE_VERSION = 2
 
-#: mtime-keyed memo of the raw verify-cache JSON: status and todo both decode
+#: Stat-keyed memo of the raw verify-cache JSON: status and todo both decode
 #: ``.rebrew/verify_cache.json`` every run — sometimes twice per command —
 #: and the decode is linear in cache size.  At most one entry per path: a
-#: rewrite changes mtime/size, and keeping the old key would retain the
-#: previous full JSON payload for the process lifetime.  Cap distinct paths
-#: so a long-lived process that touches many project roots cannot retain
-#: every decoded payload.  Guarded: eviction is a multi-step mutation on a
-#: shared dict; concurrent status/todo/build-db callers must not race it.
-_VERIFY_CACHE_MEMO: dict[tuple[str, int, int], dict[str, Any] | None] = {}
+#: rewrite changes mtime, size, or inode, and keeping the old key would
+#: retain the previous full JSON payload for the process lifetime.  Cap
+#: distinct paths so a long-lived process that touches many project roots
+#: cannot retain every decoded payload.  Guarded: eviction is a multi-step
+#: mutation on a shared dict; concurrent status/todo/build-db callers must
+#: not race it.
+_VERIFY_CACHE_MEMO: dict[tuple[str, int, int, int], dict[str, Any] | None] = {}
 _VERIFY_CACHE_MEMO_MAX = 8
 _VERIFY_CACHE_MEMO_LOCK = threading.Lock()
 
@@ -77,13 +78,14 @@ def _read_cache_document(cache_path: Path) -> dict[str, Any]:
 def _invalidate_verify_cache_memo(cache_path: Path) -> None:
     """Drop every memo entry for *cache_path* after a write.
 
-    ``load_verify_cache_raw`` keys on ``(path, mtime_ns, size)``.  A rewrite
-    that lands in the same mtime slot with the same byte length (coarse
-    filesystems, same-second agent edits, truncated status strings of equal
-    width) would otherwise keep serving the pre-write JSON for the rest of
-    the process — status/todo then disagree with the file ``rebrew test`` /
-    ``rebrew verify`` just patched.  Mirror ``atomic_write_text``'s source-
-    text memo drop.
+    ``load_verify_cache_raw`` keys on ``(path, mtime_ns, size, inode)``.  A
+    rewrite that lands in the same mtime slot with the same byte length
+    (coarse filesystems, same-second agent edits, truncated status strings
+    of equal width) would otherwise keep serving the pre-write JSON for the
+    rest of the process — status/todo then disagree with the file
+    ``rebrew test`` / ``rebrew verify`` just patched.  The inode distinguishes
+    that rename-over even before this drop runs.  Mirror ``atomic_write_text``'s
+    source-text memo drop.
     """
     path_key = _memo_path_key(cache_path)
     with _VERIFY_CACHE_MEMO_LOCK:
@@ -98,7 +100,8 @@ def load_verify_cache_raw(cfg: Any) -> dict[str, Any] | None:
     Returns ``None`` when the file is missing or corrupt.  Target/version
     validation is the caller's responsibility — readers apply their own
     guards (status vs todo differ slightly).  Memoized by (path, mtime,
-    size), so repeated loads within one command are free.
+    size, inode), so repeated loads within one command are free and a
+    same-size rename-over in one mtime tick is a miss.
     """
     cache_path = Path(cfg.root) / ".rebrew" / "verify_cache.json"
     try:
@@ -106,7 +109,7 @@ def load_verify_cache_raw(cfg: Any) -> dict[str, Any] | None:
     except OSError:
         return None
     path_key = _memo_path_key(cache_path)
-    key = (path_key, st.st_mtime_ns, st.st_size)
+    key = (path_key, st.st_mtime_ns, st.st_size, st.st_ino)
     with _VERIFY_CACHE_MEMO_LOCK:
         if key in _VERIFY_CACHE_MEMO:
             cached = _VERIFY_CACHE_MEMO[key]
@@ -251,7 +254,7 @@ class VerifyCache:
     target: str
     entries: dict[str, VerifyCacheEntry]
     headers_hash: str = ""  # informational only — per-entry headers_fp is authoritative
-    binary_id: str = ""  # SHA256 of target binary (mtime_ns + size); "" = legacy cache
+    binary_id: str = ""  # SHA256 of target binary (mtime_ns + size + inode); "" = legacy cache
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> VerifyCache:
@@ -278,16 +281,20 @@ class VerifyCache:
 
 
 def _binary_id(cfg: ProjectConfig) -> str:
-    """Stable id for the target binary (mtime_ns + size), "" when unreadable.
+    """Stable id for the target binary (mtime_ns + size + inode), "" when unreadable.
 
     Guards the verify cache: a rebuilt binary of the same target name must
     invalidate cached results, which the target-name check alone misses.
+    Inode covers a same-size rename-over in one mtime tick
+    (``atomic_write_bytes``, ``cp -p`` then ``mv``): mtime and size stay
+    put, and verdicts earned against the previous image would otherwise
+    be served for the new one.
     """
     try:
         st = Path(cfg.target_binary).stat()
     except (OSError, TypeError, AttributeError):
         return ""
-    return hashlib.sha256(f"{st.st_mtime_ns}:{st.st_size}".encode()).hexdigest()
+    return hashlib.sha256(f"{st.st_mtime_ns}:{st.st_size}:{st.st_ino}".encode()).hexdigest()
 
 
 _VERIFY_CACHE_LOCK = threading.Lock()

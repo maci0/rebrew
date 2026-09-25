@@ -1,6 +1,12 @@
 ## [Unreleased]
 
 ### Fixed
+- **A same-size rename in one mtime tick no longer reuses the old binary.**
+  `load_binary`, IAT slot scans, the verify-cache binary id, the verify-cache
+  JSON memo, CRT canonical sizes, and native compiler digests now include the
+  inode.  mtime and size alone kept the previous image after
+  `atomic_write_bytes` or `cp -p` + `mv`.  A header edited while a compile
+  is in flight is not stored under the pre-edit compile-cache key.
 - **A pre-CHECK `verify_results` row no longer aborts `build-db`.**
   Integer affinity keeps a negative real or an infinity in a delta
   column. Those values failed the new `>= 0` CHECK, and two clamped VAs
