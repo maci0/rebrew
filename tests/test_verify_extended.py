@@ -973,6 +973,28 @@ class TestApplyStatusUpdates:
         apply_status_updates([(entry, "EXACT", 0)], cfg)  # type: ignore[arg-type]
         assert get_entry(cfg.metadata_dir, 0x1000, "SERVER").get("status") == "EXACT"
 
+    def test_promotion_keeps_the_blocker_of_a_kept_asm_body(self, tmp_path: Path) -> None:
+        """A byte match clears the BLOCKER, except where the source still holds
+        inline asm: there the blocker documents the asm, and lint W020 requires
+        it on a matched function. Clearing it made every verify re-raise W020."""
+        from rebrew.metadata import get_entry, update_field
+        from rebrew.verify import apply_status_updates
+
+        cfg = _cfg(tmp_path)
+        (cfg.reversed_dir / "a.c").write_text(
+            "// FUNCTION: SERVER 0x1000\nvoid a(void) { __asm { nop } }\n", encoding="utf-8"
+        )
+        (cfg.reversed_dir / "b.c").write_text(
+            "// FUNCTION: SERVER 0x2000\nint b(void) { return 0; }\n", encoding="utf-8"
+        )
+        for va in (0x1000, 0x2000):
+            update_field(cfg.metadata_dir, va, "blocker", "why", "SERVER")
+        a, b = _ann(0x1000), _ann(0x2000)
+        a.filepath, b.filepath = "a.c", "b.c"
+        apply_status_updates([(a, "RELOC", 0), (b, "RELOC", 0)], cfg)  # type: ignore[arg-type]
+        assert get_entry(cfg.metadata_dir, 0x1000, "SERVER").get("blocker") == "why"
+        assert not get_entry(cfg.metadata_dir, 0x2000, "SERVER").get("blocker")
+
     def test_proven_demoted_to_byte_result(self, tmp_path: Path) -> None:
         from rebrew.metadata import get_entry, update_source_status
         from rebrew.verify import apply_status_updates

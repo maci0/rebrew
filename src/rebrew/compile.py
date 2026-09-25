@@ -280,6 +280,25 @@ def matched_byte_count(
     return round(match_percent / 100.0 * compared_len)
 
 
+_INLINE_ASM = re.compile(r"\b(?:__asm|_asm|__emit)\b")
+
+
+def clears_blocker(status: str, source: Path) -> bool:
+    """True when a promotion to *status* should clear the function's BLOCKER.
+
+    A byte match clears it, unless *source* still holds inline asm: there the
+    blocker documents the kept asm, which lint W020 requires on a matched
+    function.
+    """
+    if not is_matched(status):
+        return False
+    try:
+        text = source.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return True
+    return _INLINE_ASM.search(text) is None
+
+
 def is_matched(status: str) -> bool:
     """True when *status* is byte-matched (EXACT or RELOC; PROVEN is not).
 

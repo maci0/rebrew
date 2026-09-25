@@ -57,7 +57,7 @@ from rebrew.cli import (
     require_config,
 )
 from rebrew.compile import (
-    is_matched,
+    clears_blocker,
 )
 from rebrew.config import ProjectConfig, inventory_path_for, module_marker
 from rebrew.match_semantics import EFFECTIVE_MATCH_NOTE, is_effective_match
@@ -2434,7 +2434,7 @@ def apply_status_updates(
                 "module": module,
                 "va": entry.va,
                 "new_status": status,
-                "clear_blockers": is_matched(status),
+                "clear_blockers": clears_blocker(status, fp),
                 "updated_by": "verify",
             }
         )
