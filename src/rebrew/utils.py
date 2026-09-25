@@ -1,5 +1,6 @@
 """Shared utilities for rebrew."""
 
+import bisect
 import contextlib
 import copy
 import logging
@@ -40,6 +41,16 @@ console = Console(stderr=True)
 #: Unicode rules and accepts ``café`` or ``名前``, which MSVC6-era compilers
 #: reject.  Names from linker output, BinSync, or the CLI are external text.
 _C_IDENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
+
+
+def clip_span(starts: list[int], va: int, size: int) -> int:
+    """*size* cut so ``va + size`` does not pass the next of the sorted *starts*.
+
+    A discoverer that misses a function start reports the previous entry
+    running through it; summing such sizes counts the neighbour twice.
+    """
+    i = bisect.bisect_right(starts, va)
+    return min(size, starts[i] - va) if i < len(starts) else size
 
 
 def floor_pct(part: float, whole: float, decimals: int = 1) -> float:

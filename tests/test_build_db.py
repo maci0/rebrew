@@ -176,6 +176,49 @@ class TestBuildDbRoundTrip:
         db_path = project_root / "db" / "coverage.db"
         assert db_path.exists()
 
+    def test_function_stats_stop_at_next_function(self, tmp_path: Path) -> None:
+        """A size running through the next function (a missed start) counts
+        only up to that start, as in `rebrew status`."""
+        from copy import deepcopy
+
+        def stats(data: dict[str, Any]) -> dict[str, Any]:
+            root = tmp_path / str(len(list(tmp_path.iterdir())))
+            (root / "db").mkdir(parents=True)
+            (root / "db" / "data_testbin.json").write_text(json.dumps(data), encoding="utf-8")
+            build_db(root)
+            conn = sqlite3.connect(root / "db" / "coverage.db")
+            try:
+                row = conn.execute(
+                    "SELECT value FROM metadata WHERE target='testbin' AND key='function_stats'"
+                ).fetchone()
+            finally:
+                conn.close()
+            return dict(json.loads(row[0]))
+
+        base = stats(SAMPLE_DATA)
+        overlong = deepcopy(SAMPLE_DATA)
+        overlong["functions"]["func_a"]["size"] = 200  # func_b starts at +128
+        got = stats(overlong)
+        assert got["matched_bytes"] == base["matched_bytes"] + 64
+        assert got["covered_bytes"] == base["covered_bytes"] + 64
+
+    def test_warns_when_snapshot_predates_verify_cache(
+        self, project_root: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """A data_*.json older than the last verify gives stale dashboard numbers."""
+        import os
+
+        _write_cache(project_root, "testbin", {})
+        snapshot = project_root / "db" / "data_testbin.json"
+        cache_mtime = (project_root / ".rebrew" / "verify_cache.json").stat().st_mtime
+        os.utime(snapshot, (cache_mtime - 3600, cache_mtime - 3600))
+
+        build_db(project_root)
+
+        err = capsys.readouterr().err
+        assert "data_testbin.json is older than" in err
+        assert "--regen" in err
+
     def test_configured_db_dir_is_used(self, tmp_path: Path) -> None:
         configured_db = tmp_path / "coverage"
         configured_db.mkdir()

@@ -29,7 +29,7 @@ from rebrew.sources import (
     source_exts,
     target_marker,
 )
-from rebrew.utils import rel_display_path
+from rebrew.utils import clip_span, rel_display_path
 
 # ---------------------------------------------------------------------------
 # Unmatchable function detection
@@ -333,12 +333,6 @@ def _clip_to_next_start(funcs: list["FunctionEntry"], annotated: Iterable[int]) 
     starts = sorted({f.va for f in funcs}.union(annotated))
     for f in funcs:
         f.size = clip_span(starts, f.va, f.size)
-
-
-def clip_span(starts: list[int], va: int, size: int) -> int:
-    """*size* cut so ``va + size`` does not pass the next of the sorted *starts*."""
-    i = bisect.bisect_right(starts, va)
-    return min(size, starts[i] - va) if i < len(starts) else size
 
 
 def scope_to_target(

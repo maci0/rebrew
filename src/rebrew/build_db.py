@@ -31,6 +31,7 @@ from rebrew.data_metadata import (
     DATA_STATUS_VERIFIED,
 )
 from rebrew.metadata import canonical_status
+from rebrew.utils import clip_span
 from rebrew.workspace import (
     SCHEMA_TARGET,
     SECTION_CELLS_AGG_SQL,
@@ -430,19 +431,31 @@ def _function_stats(
     by_module: dict[str, list[Any]] = {}
     covered_bytes: int = 0
     matched_bytes: int = 0
-    for fn in c.fetchall():
+    rows = c.fetchall()
+    # Cut each span at the next function start: a discoverer that missed a
+    # start reports the previous entry running through it (as rebrew status).
+    starts = [fn[0] for fn in rows]
+    for fn in rows:
         total += 1
         st = fn[3] or "UNKNOWN"
         by_status[st] = by_status.get(st, 0) + 1
         mod = fn[4] or "GAME"
         by_module.setdefault(mod, []).append(fn)
-        size = fn[2]
+        size = None if fn[2] is None else clip_span(starts, fn[0], fn[2])
         # Function statuses are EXACT/RELOC/STUB/... — never "none" (a cell
         # state); the old `st != "none"` guard was always true and misleading.
         covered_bytes += size if size is not None else 0
         if st in MATCHED_STATUSES:
             matched_bytes += size if size is not None else 0
     return total, by_status, by_module, covered_bytes, matched_bytes
+
+
+def _snapshot_inputs(root_dir: Path) -> list[Path]:
+    """Files a data_*.json snapshot does not reflect until it is regenerated."""
+    inputs = [root_dir / ".rebrew" / "verify_cache.json"]
+    if (root_dir / "rebrew-project.toml").exists():
+        inputs.append(load_config(root_dir).metadata_dir / "rebrew-functions.toml")
+    return [p for p in inputs if p.is_file()]
 
 
 def resolve_db_dir(root_dir: Path, *, json_output: bool = False) -> Path:
@@ -1118,13 +1131,21 @@ def build_db(
                 json_files = [f for f in json_files if f.stem.removeprefix("data_") == target]
             if not json_files:
                 error_exit(
-                    f"No data_*.json files found in {db_dir}. Run 'rebrew catalog --json' first.",
+                    f"No data_*.json files found in {db_dir}. Run 'rebrew catalog --data-json' first.",
                     json_mode=json_output,
                     code=EXIT_ERROR,
                 )
+            inputs = _snapshot_inputs(root_dir)
             for json_path in json_files:
                 target_name = json_path.stem.removeprefix("data_")
                 console.print(f"Processing {target_name}...")
+                newer = [p.name for p in inputs if p.stat().st_mtime > json_path.stat().st_mtime]
+                if newer:
+                    console.print(
+                        f"[yellow]warning:[/yellow] {json_path.name} is older than "
+                        f"{', '.join(newer)}; its statuses may be stale.  Rebuild with "
+                        "--regen or rerun 'rebrew catalog --data-json'."
+                    )
 
                 with json_path.open(encoding="utf-8") as f:
                     try:
@@ -1643,7 +1664,7 @@ app = typer.Typer(
         "  rebrew build-db --regen · · · · · · · Generate coverage in-process, no JSON files\n\n"
         "  rebrew build-db --root /path/to/project  Specify project root explicitly\n\n"
         "[bold]Prerequisites:[/bold]\n\n"
-        "  Run 'rebrew catalog --json' first to generate db/data_*.json files.\n\n"
+        "  Run 'rebrew catalog --data-json' first to generate db/data_*.json files.\n\n"
         "[bold]What it creates:[/bold]\n\n"
         "  db/coverage.db · · · · · · SQLite database with functions, globals, sections, cells\n\n"
         "[dim]The database is used by recoverage (coverage dashboard) and can be queried "

@@ -26,6 +26,15 @@
   matched as "100.0%".  `status`, `todo`, `verify`, `report`, `dashboard`,
   `round-trip` and `match --all` now round progress and match figures down
   (`utils.floor_pct`); `todo` shows one decimal.
+- **`build-db` byte totals stop at the next function too**, so the dashboard
+  "Identified" figure can no longer pass 100% (guild-rebrew `server.dll`
+  read 102.5%).
+- **`build-db` warns when a `data_*.json` snapshot is older** than
+  `rebrew-functions.toml` or the verify cache: the dashboard otherwise shows
+  the snapshot's statuses (a 13-day-old one listed 19 PROVEN functions
+  that `status` no longer has).  Its messages and `docs/ECOSYSTEM.md` now
+  name `rebrew catalog --data-json`, the flag that writes the snapshot, not
+  `--json`.
 
 ## [2.8.0] - 2026-09-25
 ### Added

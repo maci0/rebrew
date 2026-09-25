@@ -136,7 +136,7 @@ VanJS SPA rendering a defrag-style per-byte coverage grid over
 `db/coverage.db` (exact/reloc/matching/stub/none cells, function detail
 panel, live cross-references, potato mode, CI gate via `recoverage check`).
 
-The contract is the database file alone: `rebrew catalog --json` →
+The contract is the database file alone: `rebrew catalog --data-json` →
 `db/data_*.json` → `rebrew build-db` → `db/coverage.db` → `recoverage serve`.
 recoverage imports nothing from rebrew and runs on any machine with a
 compiled `coverage.db` — no toolchain required.

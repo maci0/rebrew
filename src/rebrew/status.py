@@ -34,7 +34,7 @@ from rebrew.cli import (
 )
 from rebrew.config import ProjectConfig
 from rebrew.sources import iter_sources
-from rebrew.utils import floor_pct
+from rebrew.utils import clip_span, floor_pct
 from rebrew.workspace.status import MATCHED_STATUSES
 
 # ---------------------------------------------------------------------------
@@ -380,7 +380,7 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
     so that functions which fail verification (NEAR_MATCHING, COMPILE_ERROR) are
     not counted as byte-matched.
     """
-    from rebrew.naming import clip_span, load_data
+    from rebrew.naming import load_data
     from rebrew.sources import iter_sources
 
     report = StatusReport(
