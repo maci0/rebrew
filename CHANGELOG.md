@@ -11,6 +11,10 @@
   NEAR_MATCHING function "blocked".
 
 ### Changed
+- **LIBRARY markers count only for their own target.**  In a shared tree a
+  `library_*.h` marker applies to a target when its module is the target's
+  marker or one of its `external_libs`; another target's marker at the same
+  VA no longer replaces the target's own function.
 - **`cross-import --shared` stacks a new claim on the source function.**  In a
   multi-function file it used to go above the file's first marker while the
   import verified the source function, so it could report EXACT for a body

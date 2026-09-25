@@ -590,6 +590,32 @@ class TestSharedLibraryHeaderCoverage:
         # The marker file is not an append target (find_neighbor_file's rule).
         assert covered[0x503000] == "library_foo.h"
 
+    def test_load_data_scopes_library_markers_to_the_target(self, tmp_path: Path) -> None:
+        """A LIBRARY marker counts for a target only when its module is the target's
+        marker or one of the target's external_libs.
+
+        Regression: library headers were read for every target, and a library entry
+        overwrote the target's own function at the same VA. guild-rebrew's GOLD-only
+        CTLFWR32 markers turned GOLDTL game functions (0x42b000, RELOC) into library.
+        """
+        from rebrew.naming import load_data
+
+        cfg = _cfg(tmp_path)
+        cfg.external_libs = {"LIBX": "libx.lib"}
+        (cfg.reversed_dir / "own.c").write_text(
+            "// FUNCTION: V2 0x503000\nint own(void) { return 0; }\n", encoding="utf-8"
+        )
+        (cfg.shared_dir / "library_other.h").write_text(
+            "// LIBRARY: V1 0x503000\n_other\n\n// LIBRARY: OTHERLIB 0x504000\n_o\n"
+            "\n// LIBRARY: LIBX 0x505000\n_x\n\n// LIBRARY: V2 0x506000\n_v2\n",
+            encoding="utf-8",
+        )
+        _ghidra, existing, _covered = load_data(cfg)
+        assert existing[0x503000]["marker_type"] == "FUNCTION"
+        assert 0x504000 not in existing
+        assert existing[0x505000]["marker_type"] == "LIBRARY"
+        assert existing[0x506000]["marker_type"] == "LIBRARY"
+
     def test_matcher_raw_path_adds_shared_root(self, tmp_path: Path, monkeypatch) -> None:
         """Parity with the docker path: the raw subprocess compile must also
         see the shared root, or GA/diff on a shared file diverge from verify."""
