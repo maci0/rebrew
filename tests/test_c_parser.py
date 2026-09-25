@@ -64,6 +64,13 @@ class TestFindFunctionDefinitions:
     def test_no_definitions(self) -> None:
         assert find_c_function_definitions("int x = 0;\n") == []
 
+    def test_macro_qualified_kr_definition(self) -> None:
+        """An unknown macro between type and name is not the name (zlib ZEXPORT)."""
+        src = (
+            "int ZEXPORT deflate(strm, flush)\n    z_streamp strm;\n    int flush;\n{ return 0; }\n"
+        )
+        assert find_c_function_definitions(src) == [("deflate", 1)]
+
 
 class TestFindExternFunctionNames:
     def test_simple_extern(self) -> None:

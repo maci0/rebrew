@@ -373,17 +373,16 @@ class TestImportMechanics:
         )
         assert ci._annotations_by_va(cfg) == {0x401040: ("EXACT", "f1.c")}
 
-    def test_source_symbol_comes_from_the_definition(self, tmp_path: Path) -> None:
+    def test_source_symbol_comes_from_the_definition(self) -> None:
         """A leading prototype or ``extern`` must not name the import.
 
-        Those lines parse as definitions once ``extract_function_name_from_line``
-        appends ``{}``, so the old first-line heuristic named the import after
-        a symbol the object never defines: verification failed with
+        The old first-line heuristic named the import after a symbol the
+        object never defines: verification failed with
         ``EXTRACT_ERROR: Symbol '_LogMessageInternal' not found in .obj`` and
         the import landed with no usable status.
         """
-        src = tmp_path / "f1.c"
-        src.write_text(
+        text = (
+            "// FUNCTION: SRC 0x401000\n"
             "void __cdecl LogMessageInternal(char*, unsigned int, char*, int);\n"
             "extern int g_counter;\n"
             "int __cdecl f1(int value)\n"
@@ -391,14 +390,12 @@ class TestImportMechanics:
             "    return value + g_counter;\n"
             "}\n"
         )
-        assert ci._source_name(src) == "f1"
-        assert ci._source_symbol(src) == "_f1"
+        assert ci._symbol_for_va(text, "SRC", 0x401000, "stem") == ("f1", "_f1")
 
-    def test_source_name_falls_back_to_the_stem(self, tmp_path: Path) -> None:
-        """Nothing parseable in the file: the stem is still the answer."""
-        src = tmp_path / "f2.c"
-        src.write_text("// no code here\n")
-        assert ci._source_name(src) == "f2"
+    def test_source_name_falls_back_to_the_stem(self) -> None:
+        """No definition under the marker: the fallback names the import."""
+        text = "// FUNCTION: SRC 0x401000\n// no code here\n"
+        assert ci._symbol_for_va(text, "SRC", 0x401000, "f2") == ("f2", "_f2")
 
     def test_import_mirrors_the_source_path_and_records_flags(
         self, tmp_path: Path, monkeypatch
@@ -1879,8 +1876,8 @@ class TestCandidatesOnly:
 class TestVerifiedSymbolFollowsTheBlock:
     """The verified symbol is the one the SOURCE VA's block defines.
 
-    ``_source_name`` returns the file's FIRST definition.  In a multi-function
-    file that is a different function, so a marker moved onto a later block
+    In a multi-function file the FIRST definition is a different function,
+    so a marker moved onto a later block
     compiled the file, found the first function and compared ITS bytes
     (guild-rebrew: "Size 33B vs 235B" on ErrorModule.c — the import could never
     verify).
@@ -1897,11 +1894,12 @@ class TestVerifiedSymbolFollowsTheBlock:
     )
 
     def test_name_for_va_picks_the_blocks_definition(self) -> None:
-        assert ci._name_for_va(self.MULTI, 0x401010) == "second"
-        assert ci._name_for_va(self.MULTI, 0x401000) == "first"
+        assert ci._symbol_for_va(self.MULTI, "SRC", 0x401010, "f") == ("second", "_second")
+        assert ci._symbol_for_va(self.MULTI, "SRC", 0x401000, "f") == ("first", "_first")
 
     def test_name_for_va_unknown_va(self) -> None:
-        assert ci._name_for_va(self.MULTI, 0x409999) is None
+        assert ci._symbol_for_va(self.MULTI, "SRC", 0x409999, "f") == ("f", "_f")
+        assert ci._symbol_for_va(self.MULTI, "DST", 0x401010, "f") == ("f", "_f")
 
     def test_name_for_va_marker_only_block_borrows_below(self) -> None:
         """A marker prepended above another block owns no body of its own."""
@@ -1909,7 +1907,7 @@ class TestVerifiedSymbolFollowsTheBlock:
             "// FUNCTION: DST 0x401040\n// SIZE: 13\n"
             "// FUNCTION: SRC 0x401010\n// SIZE: 13\nint second(void){ return 2; }\n"
         )
-        assert ci._name_for_va(text, 0x401040) == "second"
+        assert ci._symbol_for_va(text, "DST", 0x401040, "f") == ("second", "_second")
 
     def test_shared_import_verifies_the_blocks_symbol(self, tmp_path: Path, monkeypatch) -> None:
         from rebrew.compile import CompareResult
@@ -1978,3 +1976,285 @@ class TestImportSize:
     def test_missing_source_code_keeps_destination_size(self) -> None:
         assert ci.import_size(23, None) == 23
         assert ci.import_size(23, b"") == 23
+
+
+#: A body tree-sitter cannot parse (MSVC inline asm): no ``function_definition``
+#: node comes out of the file, so a name read from the syntax tree is lost.
+_ASM_BODY = (
+    "{\n\tint d;\n\t{\n\t\tchar* p;\n\t\t__asm {\n\t\t\tmov edi, p\n"
+    "\t\t\tjle short L1\n\t\t\trep stosb\n\t\tL1:\n\t\t\tadd ecx, ebx\n\t\t}\n"
+    "\t}\n\td = 0;\n\treturn d;\n}\n"
+)
+
+
+class TestVerifiedSymbolShapes:
+    """The verified symbol is the definition's name, whatever surrounds it.
+
+    guild-rebrew ``--shared`` runs failed with ``EXTRACT_ERROR: Symbol '_type'
+    not found in .obj`` (also ``_x``, ``_x2``, ``_ZEXPORT``, ``_g_6a8774``): a
+    macro-qualified definition named the macro, and a body tree-sitter cannot
+    parse fell back to the file's first declaration line (a struct member or
+    an ``extern``).
+    """
+
+    SHAPES = [
+        pytest.param(
+            "int ZEXPORT deflate(strm, flush)\n    z_streamp strm;\n    int flush;\n"
+            "{\n    return flush;\n}\n",
+            "_deflate",
+            id="kr-macro-qualified",
+        ),
+        pytest.param(
+            "typedef struct Deed {\n\tunsigned char type;\n\tint flags;\n} Deed;\n\n"
+            "int __cdecl deed_init(Deed* d)\n" + _ASM_BODY,
+            "_deed_init",
+            id="struct-member-before-asm-body",
+        ),
+        pytest.param(
+            "extern char g_6a8774[];\nextern int g_774a00;\n"
+            "int __cdecl fill(char* e)\n" + _ASM_BODY,
+            "_fill",
+            id="externs-before-asm-body",
+        ),
+        pytest.param(
+            "int __cdecl set_type(int type)\n" + _ASM_BODY,
+            "_set_type",
+            id="parameter-named-type",
+        ),
+        pytest.param(
+            "int __stdcall two_args(int a, int b)\n{\n    return a + b;\n}\n",
+            "_two_args@8",
+            id="stdcall-decorated",
+        ),
+    ]
+
+    def _cfgs(self, tmp_path: Path) -> tuple[SimpleNamespace, SimpleNamespace]:
+        rev = tmp_path / "src"
+        rev.mkdir()
+        cfg_src = SimpleNamespace(
+            root=tmp_path,
+            target_name="SRC",
+            reversed_dir=rev,
+            shared_dir=rev,
+            metadata_dir=tmp_path,
+            target_binary=tmp_path / "a.exe",
+            source_ext=".c",
+            marker="SRC",
+            posix_style=False,
+        )
+        cfg_dst = SimpleNamespace(
+            **{
+                **vars(cfg_src),
+                "target_name": "DST",
+                "marker": "DST",
+                "reversed_dir": tmp_path / "src_DST",
+            }
+        )
+        cfg_dst.reversed_dir.mkdir()
+        return cfg_src, cfg_dst
+
+    def _capture_verify(self, monkeypatch) -> dict[str, Any]:
+        from rebrew.compile import CompareResult
+
+        seen: dict[str, Any] = {}
+
+        def fake_verify(entry, cfg, cache=None, **kw):
+            seen["entry"] = entry
+            return CompareResult(
+                matched=True,
+                status="EXACT",
+                match_percent=100.0,
+                delta=0,
+                obj_bytes=b"x",
+                reloc_offsets=[],
+                message="EXACT MATCH",
+            )
+
+        monkeypatch.setattr("rebrew.verify.verify_entry", fake_verify)
+        monkeypatch.setattr("rebrew.verify.apply_status_updates", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.cross_import._source_flags", lambda *a, **k: "")
+        return seen
+
+    @pytest.mark.parametrize(("body", "symbol"), SHAPES)
+    def test_shared_import_verifies_the_definition(
+        self, tmp_path: Path, monkeypatch, body: str, symbol: str
+    ) -> None:
+        cfg_src, _cfg_dst = self._cfgs(tmp_path)
+        cfg_dst = SimpleNamespace(**{**vars(_cfg_dst), "reversed_dir": cfg_src.reversed_dir})
+        (cfg_src.reversed_dir / "f.c").write_text(
+            "// FUNCTION: SRC 0x401000\n// SIZE: 11\n" + body, encoding="utf-8"
+        )
+        seen = self._capture_verify(monkeypatch)
+        res = ci.import_shared_function(cfg_dst, cfg_src, B_F1, A_F1, "f.c", 11)
+        assert res["action"] == "imported-shared"
+        assert seen["entry"].symbol == symbol
+
+    @pytest.mark.parametrize(("body", "symbol"), SHAPES)
+    def test_copy_import_verifies_the_definition(
+        self, tmp_path: Path, monkeypatch, body: str, symbol: str
+    ) -> None:
+        cfg_src, cfg_dst = self._cfgs(tmp_path)
+        (cfg_src.reversed_dir / "f.c").write_text(
+            "// FUNCTION: SRC 0x401000\n// SIZE: 11\n" + body, encoding="utf-8"
+        )
+        seen = self._capture_verify(monkeypatch)
+        res = ci.import_function(cfg_dst, cfg_src, B_F1, A_F1, "f.c", 11)
+        assert res["action"] == "imported"
+        assert seen["entry"].symbol == symbol
+
+
+#: Destination layout for the merged-entry tests: a 62-byte function at
+#: 0x401000 (``pop esi; ret`` end), ``nop; nop`` to the 16-byte boundary, and
+#: the next function the discoverer folded into the same inventory entry.
+_MERGED_VA = 0x401000
+_MERGED_BODY = 62
+_MERGED_ENTRY = 100
+
+
+def _merged_pe(tail: bytes = b"\x90\x90") -> bytes:
+    body = b"\x56" + b"\x33\xc0" * 29 + b"\x40\x5e\xc3"
+    assert len(body) == _MERGED_BODY
+    return make_pe(body + tail + b"\x81\xec\xb0\x03\x00\x00" + b"\xc3" * 0x20)
+
+
+class TestMergedInventoryEntry:
+    """A destination entry that merges two functions still takes a true twin.
+
+    guild-rebrew GOLD 0x5510f0: the inventory says 1056 bytes, the function is
+    62 (``pop esi; ret``, ``nop; nop``, then a function the discoverer missed).
+    The twin body compiles to exactly those 62 bytes, but verifying against
+    the inventory size gave SIZE_MISMATCH and reverted the import (104 of 181
+    GOLD twins in one run).
+    """
+
+    def _cfgs(self, tmp_path: Path, pe: bytes) -> tuple[SimpleNamespace, SimpleNamespace]:
+        rev = tmp_path / "src"
+        rev.mkdir()
+        dst_bin = tmp_path / "b.exe"
+        dst_bin.write_bytes(pe)
+        cfg_src = SimpleNamespace(
+            root=tmp_path,
+            target_name="SRC",
+            reversed_dir=rev,
+            shared_dir=rev,
+            metadata_dir=tmp_path,
+            target_binary=tmp_path / "a.exe",
+            source_ext=".c",
+            marker="SRC",
+            posix_style=False,
+        )
+        cfg_dst = SimpleNamespace(
+            **{**vars(cfg_src), "target_name": "DST", "marker": "DST", "target_binary": dst_bin}
+        )
+        (rev / "f.c").write_text(
+            "// FUNCTION: SRC 0x401000\n// SIZE: 62\nint f(void){ return 1; }\n",
+            encoding="utf-8",
+        )
+        return cfg_src, cfg_dst
+
+    def _verify(
+        self, monkeypatch, *, prefix_diffs: int = 0, obj_size: int = _MERGED_BODY
+    ) -> list[int]:
+        """Fake verify: SIZE_MISMATCH at the entry size, RELOC at the body size."""
+        from rebrew.compile import CompareResult
+
+        sizes: list[int] = []
+
+        def fake_verify(entry, cfg, cache=None, **kw):
+            sizes.append(entry.size)
+            if entry.size == obj_size:
+                return CompareResult(
+                    matched=True,
+                    status="RELOC",
+                    match_percent=100.0,
+                    delta=0,
+                    obj_bytes=b"x" * obj_size,
+                    reloc_offsets=[4],
+                    message="RELOC-NORM MATCH (1 relocs)",
+                )
+            common = min(obj_size, entry.size)
+            return CompareResult(
+                matched=False,
+                status="SIZE_MISMATCH",
+                match_percent=50.0,
+                delta=abs(entry.size - obj_size) + prefix_diffs,
+                obj_bytes=b"x" * common,
+                reloc_offsets=[4],
+                message=f"SIZE_MISMATCH: Size {obj_size}B vs {entry.size}B",
+                match_count=common - prefix_diffs,
+                full_obj_size=obj_size,
+                full_obj_bytes=b"x" * obj_size,
+            )
+
+        monkeypatch.setattr("rebrew.verify.verify_entry", fake_verify)
+        monkeypatch.setattr("rebrew.verify.apply_status_updates", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.cross_import._source_flags", lambda *a, **k: "")
+        return sizes
+
+    def _dst_sizes(self, cfg_dst: SimpleNamespace, path: Path) -> tuple[int, Any]:
+        from rebrew.annotation import parse_c_file_multi
+        from rebrew.metadata import get_entry
+
+        inline = [a.size for a in parse_c_file_multi(path, target_name="DST") if a.va == _MERGED_VA]
+        recorded = get_entry(cfg_dst.metadata_dir, _MERGED_VA, "DST").get("size")
+        return inline[0], recorded
+
+    def test_merged_entry_sized_to_the_body(self, tmp_path: Path, monkeypatch) -> None:
+        cfg_src, cfg_dst = self._cfgs(tmp_path, _merged_pe())
+        sizes = self._verify(monkeypatch)
+        res = ci.import_shared_function(cfg_dst, cfg_src, _MERGED_VA, A_F1, "f.c", _MERGED_ENTRY)
+        assert res["action"] == "imported-shared"
+        assert res["status"] == "RELOC"
+        assert "destination inventory entry merges functions" in res["message"]
+        assert "62-byte body" in res["message"]
+        assert sizes == [_MERGED_ENTRY, _MERGED_BODY]
+        assert self._dst_sizes(cfg_dst, cfg_src.reversed_dir / "f.c") == (62, 62)
+
+    def test_int3_padding_accepted(self, tmp_path: Path, monkeypatch) -> None:
+        cfg_src, cfg_dst = self._cfgs(tmp_path, _merged_pe(b"\xcc\xcc"))
+        self._verify(monkeypatch)
+        res = ci.import_shared_function(cfg_dst, cfg_src, _MERGED_VA, A_F1, "f.c", _MERGED_ENTRY)
+        assert res["action"] == "imported-shared"
+
+    def test_aligned_body_needs_no_padding(self, tmp_path: Path, monkeypatch) -> None:
+        """A body ending on the boundary: the next function starts right there."""
+        cfg_src, cfg_dst = self._cfgs(tmp_path, _merged_pe(b"\x55\x8b"))
+        self._verify(monkeypatch, obj_size=64)
+        res = ci.import_shared_function(cfg_dst, cfg_src, _MERGED_VA, A_F1, "f.c", _MERGED_ENTRY)
+        assert res["action"] == "imported-shared"
+        assert self._dst_sizes(cfg_dst, cfg_src.reversed_dir / "f.c") == (64, 64)
+
+    def test_code_after_the_body_rejected(self, tmp_path: Path, monkeypatch) -> None:
+        """No padding at the boundary: the entry's tail may be this function's code."""
+        cfg_src, cfg_dst = self._cfgs(tmp_path, _merged_pe(b"\x55\x8b"))
+        sizes = self._verify(monkeypatch)
+        res = ci.import_shared_function(cfg_dst, cfg_src, _MERGED_VA, A_F1, "f.c", _MERGED_ENTRY)
+        assert res["action"] == "skipped-unverified"
+        assert res["status"] == "SIZE_MISMATCH"
+        assert sizes == [_MERGED_ENTRY]
+        assert "DST" not in (cfg_src.reversed_dir / "f.c").read_text(encoding="utf-8")
+
+    def test_prefix_diffs_rejected(self, tmp_path: Path, monkeypatch) -> None:
+        cfg_src, cfg_dst = self._cfgs(tmp_path, _merged_pe())
+        sizes = self._verify(monkeypatch, prefix_diffs=1)
+        res = ci.import_shared_function(cfg_dst, cfg_src, _MERGED_VA, A_F1, "f.c", _MERGED_ENTRY)
+        assert res["action"] == "skipped-unverified"
+        assert sizes == [_MERGED_ENTRY]
+
+    def test_longer_body_rejected(self, tmp_path: Path, monkeypatch) -> None:
+        cfg_src, cfg_dst = self._cfgs(tmp_path, _merged_pe())
+        sizes = self._verify(monkeypatch, obj_size=_MERGED_ENTRY + 16)
+        res = ci.import_shared_function(cfg_dst, cfg_src, _MERGED_VA, A_F1, "f.c", _MERGED_ENTRY)
+        assert res["action"] == "skipped-unverified"
+        assert sizes == [_MERGED_ENTRY]
+
+    def test_copy_import_sized_to_the_body(self, tmp_path: Path, monkeypatch) -> None:
+        cfg_src, cfg_dst = self._cfgs(tmp_path, _merged_pe())
+        cfg_dst.reversed_dir = tmp_path / "src_DST"
+        cfg_dst.reversed_dir.mkdir()
+        sizes = self._verify(monkeypatch)
+        res = ci.import_function(cfg_dst, cfg_src, _MERGED_VA, A_F1, "f.c", _MERGED_ENTRY)
+        assert res["action"] == "imported"
+        assert "62-byte body" in res["message"]
+        assert sizes == [_MERGED_ENTRY, _MERGED_BODY]
+        assert self._dst_sizes(cfg_dst, cfg_dst.reversed_dir / "f.c") == (62, 62)

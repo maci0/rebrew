@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import re
 import shutil
+from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -47,6 +48,8 @@ from rebrew.utils import atomic_write_text, read_source_text, rel_display_path
 from rebrew.workspace.status import MATCHED_STATUSES
 
 if TYPE_CHECKING:
+    from rebrew.annotation import Annotation
+    from rebrew.compile import CompareResult
     from rebrew.compile_cache import CacheBackend
 
 
@@ -245,6 +248,75 @@ def import_size(dst_size: int, src_code: bytes | None) -> int:
     if src_code and len(src_code) > dst_size:
         return len(src_code)
     return dst_size
+
+
+#: Function starts in the destination are aligned to this many bytes; the gap
+#: before the next start is linker padding.
+_FUNCTION_ALIGNMENT = 16
+
+
+def _merged_entry_body_size(
+    cfg_dst: ProjectConfig, va: int, entry_size: int, result: CompareResult
+) -> int | None:
+    """Compiled size when the destination inventory entry merges functions.
+
+    Discovery joins adjacent functions when the boundary is only ``ret`` plus
+    alignment padding, so the entry's size covers the next function too and a
+    true twin verifies as ``SIZE_MISMATCH`` (guild-rebrew GOLD 0x5510f0: entry
+    1056 bytes, function 62).  The compiled body is the whole function when it
+    is shorter than the entry, every byte of it matches (relocations masked),
+    and the destination bytes from its end to the next
+    :data:`_FUNCTION_ALIGNMENT` boundary are all padding (none when the end is
+    already aligned).  Returns that size, or ``None`` for any other result.
+    """
+    from rebrew.binary_loader import PADDING_BYTES, extract_bytes_at_va, load_binary
+
+    body = result.full_obj_size
+    if (
+        result.status != "SIZE_MISMATCH"
+        or body is None
+        or not 0 < body < entry_size
+        or result.match_count != body
+    ):
+        return None
+    end = va + body
+    gap = -end % _FUNCTION_ALIGNMENT
+    if gap == 0:
+        return body
+    tail = extract_bytes_at_va(load_binary(cfg_dst.target_binary), end, gap, trim_padding=False)
+    if tail is not None and len(tail) == gap and all(b in PADDING_BYTES for b in tail):
+        return body
+    return None
+
+
+def _verify_import(
+    entry: Annotation,
+    cfg_dst: ProjectConfig,
+    *,
+    cache: CacheBackend | None,
+    name_to_va: dict[str, int] | None,
+) -> tuple[CompareResult, int | None]:
+    """Verify *entry*, re-verifying at the body size on a merged inventory entry.
+
+    Returns the result and the body size when the entry's own size was
+    replaced by :func:`_merged_entry_body_size` (``None`` otherwise).  A
+    re-verify that does not match keeps the original result.
+    """
+    from rebrew.verify import verify_entry
+
+    result = verify_entry(entry, cfg_dst, cache=cache, name_to_va=name_to_va)
+    body = _merged_entry_body_size(cfg_dst, entry.va, entry.size, result)
+    if body is None:
+        return result, None
+    retry = verify_entry(replace(entry, size=body), cfg_dst, cache=cache, name_to_va=name_to_va)
+    if not retry.matched:
+        return result, None
+    return retry, body
+
+
+def _merged_entry_note(body: int) -> str:
+    """Result message suffix for an import sized by :func:`_merged_entry_body_size`."""
+    return f"(destination inventory entry merges functions: sized to the {body}-byte body)"
 
 
 def sizeless_warning(size: int) -> str:
@@ -806,7 +878,7 @@ def import_shared_function(
 
     from rebrew.annotation import Annotation
     from rebrew.metadata import delete_entries_batch, get_entry, remove_field, update_field
-    from rebrew.verify import apply_status_updates, verify_entry
+    from rebrew.verify import apply_status_updates
 
     src_flags = _source_flags(cfg_src, target_path)
     # No source-dir /I here (unlike the copy path): the shared file moves
@@ -837,11 +909,11 @@ def import_shared_function(
     # The symbol verified is the one the SOURCE VA's block defines — not the
     # file's first definition, which is a different function in a
     # multi-function file whose marker moved onto a later block.
-    name = _name_for_va(text, src_va) or _source_name(target_path)
+    name, symbol = _symbol_for_va(text, src_module, src_va, target_path.stem)
     entry = Annotation(
         va=dst_va,
         name=name,
-        symbol=name if name.startswith("_") else "_" + name,
+        symbol=symbol,
         size=dst_size,
         filepath=rel_dst,
         marker_type="FUNCTION",
@@ -849,7 +921,13 @@ def import_shared_function(
         module=module,
         cflags=cflags,
     )
-    result = verify_entry(entry, cfg_dst, cache=cache, name_to_va=name_to_va)
+    result, body = _verify_import(entry, cfg_dst, cache=cache, name_to_va=name_to_va)
+    if body is not None:
+        stacked = _place_shared_marker(
+            text, module, dst_va, body, src_module, src_va, superseded=superseded
+        )
+        atomic_write_text(target_path, stacked, encoding=encoding)
+        update_field(cfg_dst.metadata_dir, dst_va, "size", body, module)
     # The stack is withdrawn when it did not verify AND the destination
     # already claims this VA from its own file: a rolled-back claim must not
     # promote/demote STATUS either — the stub's earned status stands.
@@ -865,6 +943,8 @@ def import_shared_function(
     message = result.message
     if moved is not None and result.matched:
         message = (f"{message} (moved the {module} marker onto the 0x{src_va:x} body)").strip()
+    if body is not None:
+        message = f"{message} {_merged_entry_note(body)}".strip()
     if revert:
         # The stacked marker did not verify, and the destination already had
         # its own file for this VA.  Leaving both claims in place is a
@@ -1067,7 +1147,7 @@ def import_function(
     # stays but is not promoted as matched.
     from rebrew.annotation import Annotation
     from rebrew.metadata import update_field
-    from rebrew.verify import apply_status_updates, verify_entry
+    from rebrew.verify import apply_status_updates
 
     # The copy compiles where the source did, so it needs the source's flags
     # and, because the destination tree does not carry the source's headers,
@@ -1082,10 +1162,11 @@ def import_function(
     cflags = f"{src_flags} {include}{src_path.parent}".strip()
     update_field(cfg_dst.metadata_dir, dst_va, "cflags", cflags, module)
 
+    name, symbol = _symbol_for_va(rewritten, module, dst_va, src_path.stem)
     entry = Annotation(
         va=dst_va,
-        name=_source_name(src_path),
-        symbol=_source_symbol(src_path),
+        name=name,
+        symbol=symbol,
         size=dst_size,
         filepath=rel_dst,
         marker_type="FUNCTION",
@@ -1093,7 +1174,13 @@ def import_function(
         module=module,
         cflags=cflags,
     )
-    result = verify_entry(entry, cfg_dst, cache=cache, name_to_va=name_to_va)
+    result, body = _verify_import(entry, cfg_dst, cache=cache, name_to_va=name_to_va)
+    message = result.message
+    if body is not None:
+        rewritten = _rewrite_marker(extracted, module, dst_va, body)
+        atomic_write_text(dst_path, rewritten, encoding=dst_encoding)
+        update_field(cfg_dst.metadata_dir, dst_va, "size", body, module)
+        message = f"{message} {_merged_entry_note(body)}".strip()
     apply_status_updates([(entry, result.status, result.delta)], cfg_dst)
 
     action = "imported" if result.matched else "imported-unverified"
@@ -1103,66 +1190,28 @@ def import_function(
         action=action,
         status=result.status,
         filepath=rel_dst,
-        message=result.message,
+        message=message,
     )
 
 
-def _name_for_va(text: str, va: int) -> str | None:
-    """C function name owned by the marker block for *va*.
+def _symbol_for_va(text: str, module: str, va: int, fallback: str) -> tuple[str, str]:
+    """``(name, symbol)`` of the function the *module*/*va* marker annotates.
 
-    :func:`_source_name` reads the file's FIRST definition — correct for the
-    copy path (the copy holds one function) and for a marker prepended above
-    the first block, but wrong for a marker moved onto a LATER block of a
-    multi-function file: verification then compiles the file, finds the first
-    function and compares ITS bytes against this VA.  That is the "Size 33B vs
-    235B" failure on ``ErrorModule.c``.  A marker-only block (the stacked
-    pattern) borrows the name from the block below it.
+    Read with the annotation parser ``rebrew test`` and ``rebrew verify`` use,
+    so the import verifies the symbol those commands look up: the definition
+    line of the marker's own block (a marker stacked above another block
+    shares its definition), decorated for ``__stdcall``/``__fastcall``.
+    Declarations, struct members and a macro before the name
+    (``int ZEXPORT deflate(...)``) never name it, even when an ``__asm`` body
+    leaves the file without a parseable definition.  Without a definition the
+    name is *fallback*.
     """
-    from rebrew.annotation import split_annotation_sections
-    from rebrew.c_parser import find_c_function_definitions
+    from rebrew.annotation import parse_new_format_multi
 
-    _preamble, blocks = split_annotation_sections(text)
-    for i, block in enumerate(blocks):
-        owner = _block_marker(block)
-        if owner is None or owner[1] != va:
-            continue
-        for candidate in blocks[i:]:
-            definitions = find_c_function_definitions(candidate)
-            if definitions:
-                return definitions[0][0]
-        return None
-    return None
-
-
-def _source_name(src_path: Path) -> str:
-    """Best-effort C function name from the source file's text.
-
-    The definition wins over the first parseable line: that line is usually a
-    prototype or an ``extern`` declaration, and naming the import after one of
-    those leaves verification looking for a symbol the object never defines
-    (``EXTRACT_ERROR: Symbol '_rand' not found in .obj``).
-    """
-    try:
-        text, _ = read_source_text(src_path)
-    except OSError:
-        return src_path.stem
-    from rebrew.c_parser import extract_function_name_from_line, find_c_function_definitions
-
-    definitions = find_c_function_definitions(text)
-    if definitions:
-        return definitions[0][0]
-    for line in text.splitlines():
-        stripped = line.strip()
-        if stripped and not stripped.startswith(("//", "/*", "*", "#")):
-            got = extract_function_name_from_line(stripped)
-            if got:
-                return got[0]
-    return src_path.stem
-
-
-def _source_symbol(src_path: Path) -> str:
-    name = _source_name(src_path)
-    return "_" + name if not name.startswith("_") else name
+    for ann in parse_new_format_multi(text.splitlines()):
+        if ann.module == module and ann.va == va and ann.name:
+            return ann.name, ann.symbol
+    return fallback, "_" + fallback
 
 
 def _source_flags(cfg_src: ProjectConfig, src_path: Path) -> str:
