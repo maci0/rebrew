@@ -106,6 +106,14 @@
   - `status` adds a `(no source)` row, so the status rows sum to the total.
 
 ### Changed
+- **Data-layout ownership scans each source once.** `rebrew data --fill-data`
+  and owning stub globals recompiled a pattern and rescanned every TU per
+  symbol. Identifier names are counted in one pass. A symbol that is not a
+  single word still uses the per-call scan.
+- **Kuna seed declarations are found in one pass.** Each address label
+  compiled two patterns and rescanned the snippet. Storage-class lines and
+  declarators are scanned once, and every name on one `extern` line stays
+  declared.
 - **PE image parsing lives in `pe_image`, not the `gen-layout` command.**
   `parse_pe` and `derive_link_options` moved out of the Typer module.
   `link-sweep` imports them from there, so reading a reference header

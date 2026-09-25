@@ -531,6 +531,17 @@ def fetch_ghidra(
 #: callee.  Without a declaration the seed fails to compile and the GA drops
 #: it, so ``--seed-kuna`` silently contributes nothing.
 _KUNA_LABEL_RE = re.compile(r"\b((?:s|dat|sub)_[0-9a-f]{6,})\b")
+#: Storage-class line up to the semicolon.  Labels inside it are already
+#: declared.  One scan: a per-label ``re.search`` recompiled the name into
+#: the pattern and walked the snippet again, and a greedy ``[^;\n]*``
+#: alternation of every name reports only the last name on the line.
+_KUNA_STORAGE_RE = re.compile(r"\b(?:extern|static|typedef)\b[^;\n]*")
+#: A definition or prototype whose declarator is an address label.
+_KUNA_DECL_LINE_RE = re.compile(
+    r"^[ \t]*(?!(?:return|if|else|while|for|do|switch|goto|case|sizeof|break|continue)\b)"
+    r"(?:[A-Za-z_]\w*[ \t]+)+\**[ \t]*((?:s|dat|sub)_[0-9a-f]{6,})\b",
+    re.MULTILINE,
+)
 _KUNA_DECL_FOR = {
     "s": "extern char {name}[];",
     "dat": "extern int {name};",
@@ -564,21 +575,19 @@ def _kuna_declarations(source: str) -> list[str]:
     """Declarations for the address labels *source* references.
 
     Only names with no declaration already present are emitted, so a snippet
-    that defines its own label is left alone.
+    that defines its own label is left alone.  An assignment (``dat_x = 1``)
+    is not a declaration: the line patterns require a type before the name.
     """
+    names = sorted(set(_KUNA_LABEL_RE.findall(source)))
+    if not names:
+        return []
+    declared: set[str] = set()
+    for match in _KUNA_STORAGE_RE.finditer(source):
+        declared.update(_KUNA_LABEL_RE.findall(match.group(0)))
+    declared.update(match.group(1) for match in _KUNA_DECL_LINE_RE.finditer(source))
     out: list[str] = []
-    for name in sorted(set(_KUNA_LABEL_RE.findall(source))):
-        # A declaration needs a type before the name; an assignment like
-        # `dat_1003543c = ...` must not be mistaken for one.
-        declared = re.search(
-            rf"\b(?:extern|static|typedef)\b[^;\n]*\b{re.escape(name)}\b", source
-        ) or re.search(
-            rf"^[ \t]*(?!(?:return|if|else|while|for|do|switch|goto|case|sizeof|break|continue)\b)"
-            rf"(?:[A-Za-z_]\w*[ \t]+)+\**[ \t]*{re.escape(name)}\b",
-            source,
-            re.MULTILINE,
-        )
-        if declared:
+    for name in names:
+        if name in declared:
             continue
         prefix = name.split("_", 1)[0]
         out.append(_KUNA_DECL_FOR[prefix].format(name=name))

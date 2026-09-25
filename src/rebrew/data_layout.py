@@ -273,11 +273,67 @@ def data_byte_order(bin_path: Path) -> str:
 # Ownership + source edits
 # ---------------------------------------------------------------------------
 
+#: Whole C words.  ``\bname\b`` for a ``\w+`` name counts these tokens, so one
+#: pass answers every later owner query.  ``$`` and other non-word symbols
+#: stay on the alternation scan below.
+_WORD_RE = re.compile(r"\b\w+\b")
+_WORD_NAME_RE = re.compile(r"\w+\Z")
 
-def owner_of(names: list[str], files: list[Path]) -> Path | None:
-    """The most-referencing file over *names* (None when nothing references them)."""
+
+def reference_counts(files: list[Path]) -> list[tuple[Path, dict[str, int]]]:
+    """Whole-word counts for each readable file, in *files* order.
+
+    ``fill_data`` and ``own_data_globals`` ask for an owner once per symbol.
+    Counting once answers every later ``\\bname\\b`` query for identifier
+    names without compiling a pattern or scanning the TU again.
+    """
+    indexed: list[tuple[Path, dict[str, int]]] = []
+    for f in files:
+        try:
+            text, _encoding = read_source_text(f)
+        except OSError:
+            continue
+        counts: dict[str, int] = {}
+        for match in _WORD_RE.finditer(text):
+            word = match.group(0)
+            counts[word] = counts.get(word, 0) + 1
+        if counts:
+            indexed.append((f, counts))
+    return indexed
+
+
+def _owner_from_references(
+    names: list[str], references: list[tuple[Path, dict[str, int]]]
+) -> Path | None:
+    """First file whose whole-word hits of *names* are strictly the most."""
+    wanted = set(names)
+    best: Path | None = None
+    best_n = 0
+    for path, counts in references:
+        n = sum(counts.get(name, 0) for name in wanted)
+        if n > best_n:
+            best = path
+            best_n = n
+    return best
+
+
+def owner_of(
+    names: list[str],
+    files: list[Path],
+    references: list[tuple[Path, dict[str, int]]] | None = None,
+) -> Path | None:
+    """The most-referencing file over *names* (None when nothing references them).
+
+    *references* is a :func:`reference_counts` table for *files*.  It is used
+    when every name is one word (``\\w+``): that count matches ``\\bname\\b``,
+    including a name that is a prefix of another.  A repeated name is counted
+    once, as in the alternation.  Any other name (a ``$`` in the symbol) falls
+    back to a fresh scan so the match is unchanged.
+    """
     if not names:
         return None
+    if references is not None and all(_WORD_NAME_RE.fullmatch(name) for name in names):
+        return _owner_from_references(names, references)
     # One alternation instead of N separate compiles × findall passes.
     pat = re.compile(r"\b(?:" + "|".join(re.escape(n) for n in names) + r")\b")
     counts: dict[Path, int] = defaultdict(int)
@@ -528,6 +584,7 @@ def fill_data(
     by_addr = sorted(toml.items(), key=lambda kv: kv[1])
     if not by_addr:
         return {"init_pads": 0, "bss_pads": 0}
+    references = reference_counts(files)
 
     n_bss = n_pad = 0
 
@@ -535,7 +592,7 @@ def fill_data(
     first_name, first_addr = by_addr[0]
     lead = first_addr - data_base
     if lead > 0 and first_addr < raw_end and not bss_only:
-        owner = owner_of([first_name], files)
+        owner = owner_of([first_name], files, references)
         if owner:
             data = orig[:lead]
             init = hex_list(data)
@@ -549,7 +606,11 @@ def fill_data(
         gap = nxt_addr - addr
         if gap <= 0x40:
             continue  # small alignment gaps only
-        owner = owner_of([name] + ([by_addr[i + 1][0]] if i + 1 < len(by_addr) else []), files)
+        owner = owner_of(
+            [name] + ([by_addr[i + 1][0]] if i + 1 < len(by_addr) else []),
+            files,
+            references,
+        )
         if owner is None:
             continue
         if bss_only and addr < raw_end:
@@ -783,6 +844,7 @@ def own_data_globals(
     toml = data_symbols(metadata)
     stub_resolved = stub_file.resolve()
     files = [f for f in _scan_files(src_dir, shared_dir) if f.resolve() != stub_resolved]
+    references = reference_counts(files)
     by_addr = sorted(toml.items(), key=lambda kv: kv[1])
     toml_next: dict[str, int] = {
         by_addr[i][0]: (by_addr[i + 1][1] if i + 1 < len(by_addr) else raw_end)
@@ -836,7 +898,7 @@ def own_data_globals(
                 skipped.append(name)  # non-finite float bytes — no C89 literal exists
                 continue
             is_array = True
-        owner = owner_of([name], files)
+        owner = owner_of([name], files, references)
         if owner is None:
             skipped.append(name)
             continue

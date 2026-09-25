@@ -13,6 +13,7 @@ from rebrew.data_layout import (
     insert_definition,
     layout_geometry,
     owner_of,
+    reference_counts,
 )
 
 
@@ -57,6 +58,34 @@ def test_owner_of(tmp_path: Path) -> None:
     a.write_text("int g_x;\nint g_x;\n", encoding="utf-8")
     b.write_text("int g_x;\n", encoding="utf-8")
     assert owner_of(["g_x"], [a, b]) == a
+
+
+def test_owner_of_reference_counts_match_the_scan(tmp_path: Path) -> None:
+    """The one-pass word index agrees with the per-call alternation scan."""
+    a = tmp_path / "a.c"
+    b = tmp_path / "b.c"
+    a.write_text("int g_x;\nint g_xy;\nint g_y;\n", encoding="utf-8")
+    b.write_text("int g_y;\nint g_y;\nint g_x;\n", encoding="utf-8")
+    files = [a, b]
+    refs = reference_counts(files)
+    for names in (["g_x"], ["g_y"], ["g_xy"], ["g_x", "g_y"], ["g_x", "g_x"]):
+        assert owner_of(names, files, refs) == owner_of(names, files)
+    # Equal counts: the earlier file wins, same as max() on insertion order.
+    a.write_text("int g_z;\n", encoding="utf-8")
+    b.write_text("int g_z;\n", encoding="utf-8")
+    files = [a, b]
+    refs = reference_counts(files)
+    assert owner_of(["g_z"], files, refs) == a
+
+
+def test_owner_of_reference_counts_keep_non_word_names(tmp_path: Path) -> None:
+    """A ``$`` in the symbol still uses the alternation when an index is passed."""
+    a = tmp_path / "a.c"
+    b = tmp_path / "b.c"
+    a.write_text("int foo$bar;\nint foo$bar;\n", encoding="utf-8")
+    b.write_text("int foo$bar;\n", encoding="utf-8")
+    files = [a, b]
+    assert owner_of(["foo$bar"], files, reference_counts(files)) == a
 
 
 def test_insert_definition(tmp_path: Path) -> None:
