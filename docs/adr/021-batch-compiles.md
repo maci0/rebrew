@@ -9,7 +9,7 @@ Every `compile_to_obj` pays a full `docker run` (measured 2.0s for one
 mingw file, of which the compile itself is ms). A 20-function verify pays
 ~40s of container startups; batching all 20 into one invocation measured
 2.95s — a 13× win. The per-function model made sense when compiles were
-rare (single `rebrew test`); `verify --all` on real projects compiles
+rare (single `rebrew test`); `rebrew verify` on real projects compiles
 hundreds.
 
 ## Decision
@@ -39,7 +39,8 @@ hundreds.
 
 ## Consequences
 
-- `verify --all` wall time becomes ~compiles/groups + cache hits instead
+- `rebrew verify` wall time, and `rebrew test --all` (same
+  `run_verification` path), becomes ~compiles/groups + cache hits instead
   of ~compiles. Mixed-cflags projects degrade gracefully (one invocation
   per distinct flag set — usually 1-3).
 - Docker is still one-shot per group (no daemon); the recompile service

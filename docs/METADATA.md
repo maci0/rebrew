@@ -56,14 +56,19 @@ same tiers and the data/globals/layout pipeline.
 5. **Shared-tree scoping**: one `rebrew-functions.toml` holds every
    target's rows under module-prefixed keys (`SERVER.0x…`, `GOLD.0x…`) —
    one TOML per metadata root, not one per target.  Progress commands
-   (`status`, `todo`) count only rows whose module matches the active
-   target (plus module-less legacy rows); library headers land in every
-   target's scan but count for none.  Same-VA cross-target entries coexist
+   (`status`, `todo`) count rows whose module matches the active
+   target, `LIBRARY` rows whose module is one of that target's
+   `external_libs`, and module-less legacy rows.  A `library_*.h`
+   marker enters a target's scan only when its module is that target's
+   marker or one of its `external_libs`; those rows count as library
+   code (`library_identified`), not as matched game code.  Same-VA
+   cross-target entries coexist
    as separate rows and never collide.
-6. **Library attributions are not progress**: `LIBRARY`-marker rows
-   (lib-match identifications) tally into `library_identified`, outside
-   the EXACT/RELOC progress table and its denominators — the table
-   answers "how much of this binary's code is reversed".
+6. **Library attributions are not progress**: `LIBRARY`-marker rows and
+   rows whose module is listed in `targets.<name>.external_libs` tally
+   into `library_identified`, outside the EXACT/RELOC progress table and
+   its denominators — the table answers "how much of this binary's code
+   is reversed".
 
 ## Sync stores (external)
 

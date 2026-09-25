@@ -59,15 +59,21 @@ Add `rebrew lib-match`, a command that:
   mostly relocation slots (a pointer table such as `__sys_errlist`) cannot
   trivially "match" anything,
 - supports `--va` for a single-function verdict (for use before starting
-  work), `--allow FILE` for VAs known to be library code but kept for link
-  reasons, and `--json`. Exit status 0 = clean, 1 = a reversed function
-  matches a library, 2 = config/library error, so it works as a pre-commit or
-  CI gate.
+  work). With no recorded SIZE, a library body that matches a prefix of the
+  read window still counts — the window can run into the next function.
+  `--allow FILE` names VAs known to be library code but kept for link
+  reasons, and `--json` emits structured matches. Exit status 0 = clean,
+  1 = a reversed function matches a library, 2 = config/library error, so
+  it works as a pre-commit or CI gate.
 
 The archive parsing reuses `gen_flirt_pat.parse_archive` /
-`parse_coff_obj`; no third parser is introduced. Libraries are named
-explicitly (`--lib`, `--stock-lib`, or the build database); there is no
-implicit library auto-discovery.
+`parse_coff_obj`; no third parser is introduced. Archives come from
+explicit `--lib`, `--stock-lib`, or `--compile-commands`. When those
+flags are omitted, the command reads `targets.<name>.external_libs`
+(path specs as `--lib`, bare archive names as `--stock-lib`) and
+`build/compile_commands.json` when that file exists. It does not scan
+the tree for archives the project did not name, and it errors when that
+set is empty.
 
 ## Consequences
 
@@ -79,9 +85,10 @@ implicit library auto-discovery.
   leaves the question open.
 - The archive index cost is per-`.lib` load, amortised across all VAs in a
   scan; single-`--va` checks pay the same one-time index.
-- `--lib`/`--stock-lib` are optional but at least one input is required: the
-  command cannot guess which archives a project links, and it must not run
-  silently with nothing to compare against.
+- `--lib`/`--stock-lib` are optional. With neither flag the command uses
+  the target's `external_libs` and a present `build/compile_commands.json`.
+  It still errors when nothing was named, so it cannot run with an empty
+  comparison set.
 - The toolchain image is the source of truth for a stock archive and for the
   `Lib` path that holds it; both derive from the registry rather than a
   hardcoded path, which is the failure this replaced.

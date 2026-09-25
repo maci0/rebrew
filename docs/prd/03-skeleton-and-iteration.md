@@ -105,7 +105,9 @@ you what to attack next.
   outside the project).
 - Batch mode: `--all` (+ optional `--dir`, `--origin`, `-j JOBS`, `--dry-run`).
 - Exit codes: 0=EXACT/RELOC, 1=NEAR_MATCHING/STUB, 2=BUILD_ERROR.
-- On success the writer clears any auto-generated BLOCKER from metadata.
+- On a byte match (EXACT/RELOC) the writer clears BLOCKER, except when the
+  source still contains inline asm (`__asm`, `_asm`, or `__emit`): that note
+  is what lint W020 requires on a matched function.
 
 ### `rebrew diff`
 
@@ -176,7 +178,9 @@ you what to attack next.
   - `improve-match` — in-progress without small delta.
   - `start-function` — uncovered, ranked by size + difficulty.
   - `missing-annotation` — in Ghidra but no C body / SIZE annotation.
-  - `identify-library` — uncovered LIBRARY-origin functions.
+  - `identify-library` — uncovered library code: a library-module name, or
+    bytes that match a cached stock archive and still have no `// LIBRARY:`
+    marker.
   - `run-prover` — small near-matches eligible for `rebrew prove`.
   - `documented` — IAT thunks / non-reproducible code (audit only, hidden
     from the default list).

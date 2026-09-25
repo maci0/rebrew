@@ -1533,9 +1533,9 @@ def compile_batch_objs(
 
     posix/msvc styles only (``-c a b...`` / ``/c a b...`` with default-named
     outputs); dos/borland/watcom keep single-file compiles.  Returns
-    ``({src_name: obj_path}, error)`` — on nonzero exit the error carries
-    the combined output and the map is empty (caller falls back per file
-    to attribute it, per ADR-021).
+    ``({src_name: obj_path}, error)``.  On nonzero exit the map keeps the
+    objects the run did emit and the error carries the combined output
+    (caller falls back per file for the rest, per ADR-021).
     """
     style = spec.effective_arg_style
     if style not in ("posix", "msvc"):

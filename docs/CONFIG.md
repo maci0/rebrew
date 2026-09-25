@@ -141,7 +141,7 @@ The lint tool (`rebrew lint`) validates that each marker's module matches the co
 
 `src/shared` files are scanned for every target; `rebrew doctor` warns on multi-target projects when the shared dir is missing or `shared_dir` is disabled. `rebrew cross-import --shared` stacks the destination marker onto the shared file in place (verified before STATUS promotion) instead of copying per-target duplicates.
 
-Progress commands (`status`, `todo`) scope to the active target's own module: in a shared tree every target scans every file, so unscoped counts credit one binary with another target's rows (library headers land in every target's map). Rows whose module matches the target marker count; module-less legacy rows are kept; navigation maps stay unfiltered. Divergent twins that cannot share one file sit side by side as `GOLDTL.<name>.c` / `GOLD.<name>.c` (module-first, like metadata keys).
+Progress commands (`status`, `todo`) scope to the active target: in a shared tree every target scans every file, so unscoped counts credit one binary with another target's rows. Which rows count, including `external_libs` library headers, is precedence rule 5 in [METADATA.md](METADATA.md). Navigation maps stay unfiltered. Divergent twins that cannot share one file sit side by side as `GOLDTL.<name>.c` / `GOLD.<name>.c` (module-first, like metadata keys).
 
 ## Compiler Profiles
 

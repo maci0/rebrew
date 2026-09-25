@@ -138,8 +138,13 @@ Output `.bin` files land in the configured `bin_dir`.
 - Byte-compares reversed functions against linked static-library archives (`.lib`/`.a`) to flag code the linker supplies (ADR-013).
 - `--lib PATH` checks against a specific static library (repeatable).
 - `--stock-lib NAME` checks against stock archives from the toolchain docker image (e.g. `LIBCMT.LIB`).
-- `--compile-commands PATH` indexes objects built from a source-vendored tree.
-- `--va VA` tests a single hex VA instead of every reversed function.
+- `--compile-commands PATH` indexes objects built from a source-vendored tree
+  (default `build/compile_commands.json` when that file exists).
+- With no `--lib` or `--stock-lib`, ingests `targets.<name>.external_libs`
+  (path specs as libraries, bare names as stock archives). Errors when the
+  resulting archive and object set is empty (ADR-013).
+- `--va VA` tests a single hex VA instead of every reversed function. With
+  no recorded SIZE, a library body that starts the read window still matches.
 - `--allow PATH` ignores known library VAs from a file.
 - `--json` emits structured matches.
 

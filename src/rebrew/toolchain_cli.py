@@ -662,21 +662,21 @@ _SMOKE_GOLDEN: dict[
         "t.c",
         (4, 8),
     ),  # COFF TimeDateStamp — identical masked object to msvc-4.2 (same
-    # compiler lineage; cross-validates both goldens) (host-only — wine)
+    # compiler lineage; cross-validates both goldens)
     "msvc-4.2": (
         ["/c", "t.c"],
         "t.obj",
         "d420f2d9626c270866ba1d1d718a19cd39a59d07c8fe9d2999bde3ffd4bd9f4a",
         "t.c",
         (4, 8),
-    ),  # COFF TimeDateStamp (host-only — wine runner, see smoke_cmd)
+    ),  # COFF TimeDateStamp
     "msvc-5.0": (
         ["/c", "t.c"],
         "t.obj",
         "3fdf875c176b0abc8614f7208053d0b53193e73466f0c52c3cabc80a065dc897",
         "t.c",
         (4, 8),
-    ),  # COFF TimeDateStamp (host-only — wine runner, see smoke_cmd)
+    ),  # COFF TimeDateStamp
     "msvc-6.0": (
         ["/c", "t.c"],
         "t.obj",

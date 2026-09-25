@@ -97,9 +97,12 @@ PRD 05 collects these into `verify`, `status`, `graph`, and `cache`.
   with extra declarations.
 - `-j JOBS` parallel compile jobs.
 - `--json` machine-readable.
-- Exit codes: 0=all passed, 1=failures or regressions.
-- Calls `update_source_status` per file to keep `rebrew-functions.toml`
-  authoritative.
+- Exit codes: 0=all passed, 1=failures or regressions, 2=config or
+  infrastructure error (ADR-018).
+- Writes STATUS through `update_statuses_batch` (one read-modify-write;
+  the same promotion gate as `update_source_status`) so
+  `rebrew-functions.toml` stays authoritative. `--dry-run` and
+  `--no-promote` skip the write.
 
 ### `rebrew status`
 
