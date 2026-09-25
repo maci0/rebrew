@@ -177,6 +177,35 @@ class TestDecompDevReport:
         doc = json.loads(out.read_text(encoding="utf-8"))
         assert doc["units"][0]["measures"]["matched_functions"] == 0
 
+    def test_fuzzy_percent_does_not_round_up_to_100(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """99.996% is not a full match.  Rounding to 2 decimals would say 100."""
+        annos = [_fake_ann(0x2000, 1000, "near_fn", "NEAR_MATCHING")]
+        self._setup(tmp_path, monkeypatch, annos)
+        self._mock_progress(
+            monkeypatch,
+            total_functions=1,
+            status_counts={},
+            matched_bytes=0,
+            total_text_bytes=1000,
+        )
+
+        class _Entry:
+            match_percent = 99.996
+
+        class _Cache:
+            entries = {0x2000: _Entry()}
+
+        monkeypatch.setattr("rebrew.verify_cache._load_verify_cache", lambda _p, _c: _Cache())
+        out = tmp_path / "report.json"
+        report.generate_decomp_dev_report(_cfg(tmp_path), out)
+        doc = json.loads(out.read_text(encoding="utf-8"))
+        fn = doc["units"][0]["functions"][0]
+        assert fn["fuzzy_match_percent"] == 99.99
+        assert doc["units"][0]["measures"]["fuzzy_match_percent"] == 99.99
+        assert doc["measures"]["fuzzy_match_percent"] == 99.99
+
     def test_shared_progress_denominator(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

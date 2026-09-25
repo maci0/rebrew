@@ -1483,14 +1483,23 @@ def span_contains_factory(spans: list[tuple[int, int]]) -> Callable[[int], bool]
     Shared by the todo recommender and the BinSync exporter: heuristic
     discovery emits switch arms and split bodies as pseudo-functions, so a
     bare start-VA membership check is not enough — anything strictly inside
-    an already-annotated function must be recognized as covered.  The
-    returned predicate is O(log n) per probe; *spans* must be sortable.
+    an already-annotated function must be recognized as covered, including
+    the tail of an outer span past a shorter annotation nested inside it.
+    The returned predicate is O(log n) per probe; *spans* must be sortable.
     """
-    spans_sorted = sorted(spans)
+    ordered = sorted((start, end) for start, end in spans if end > start)
+    starts = [start for start, _end in ordered]
+    # Greatest end among spans that start strictly before this index.  A probe
+    # sits in some span exactly when that end, over the prefix of starts
+    # before the probe, is past the probe.  Checking only the latest such
+    # start hides the outer function once a nested one has ended.
+    prefix_max_end = [0] * (len(ordered) + 1)
+    for i, (_start, end) in enumerate(ordered):
+        prefix_max_end[i + 1] = max(prefix_max_end[i], end)
 
     def contains(probe: int) -> bool:
-        i = bisect.bisect_right(spans_sorted, (probe, 1 << 62)) - 1
-        return i >= 0 and spans_sorted[i][0] < probe < spans_sorted[i][1]
+        i = bisect.bisect_left(starts, probe)
+        return i > 0 and prefix_max_end[i] > probe
 
     return contains
 

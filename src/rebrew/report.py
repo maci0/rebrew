@@ -1214,7 +1214,7 @@ def generate_decomp_dev_report(cfg: ProjectConfig, out_path: Path) -> dict[str, 
                 {
                     "name": a.name or a.symbol or f"func_{va:08x}",
                     "size": size,
-                    "fuzzy_match_percent": round(fuzzy, 2),
+                    "fuzzy_match_percent": floor_pct(fuzzy, 100, 2),
                     "address": va,
                 }
             )
@@ -1232,7 +1232,7 @@ def generate_decomp_dev_report(cfg: ProjectConfig, out_path: Path) -> dict[str, 
                 "measures": {
                     "total_code": unit_code,
                     "matched_code": unit_matched,
-                    "fuzzy_match_percent": round(unit_fuzzy / unit_code * 100.0, 2)
+                    "fuzzy_match_percent": floor_pct(unit_fuzzy, unit_code, 2)
                     if unit_code
                     else 0.0,
                     "total_functions": unit_fns,
@@ -1272,7 +1272,7 @@ def generate_decomp_dev_report(cfg: ProjectConfig, out_path: Path) -> dict[str, 
         logging.getLogger(__name__).debug("data section size unavailable: %s", exc)
 
     measures = {
-        "fuzzy_match_percent": round(fuzzy_code / text_size * 100.0, 2) if text_size else 0.0,
+        "fuzzy_match_percent": floor_pct(fuzzy_code, text_size, 2),
         "total_code": text_size,
         "matched_code": matched_code,
         "matched_code_percent": floor_pct(matched_code, text_size, 2),

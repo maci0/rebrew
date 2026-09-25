@@ -1638,6 +1638,25 @@ class TestStatusOrderDiffing:
         assert len(diff["regressions"]) == 1
         assert diff["regressions"][0]["current_match_percent"] == 40.0
 
+    def test_match_percent_display_floors(self) -> None:
+        """A displayed 99.96% must not round up to 100.0."""
+        from rebrew.verify import diff_reports
+
+        previous = {
+            "results": [
+                {"va": "0x1000", "name": "a", "status": "NEAR_MATCHING", "match_percent": 99.96}
+            ]
+        }
+        current = {
+            "results": [
+                {"va": "0x1000", "name": "a", "status": "NEAR_MATCHING", "match_percent": 40.04}
+            ]
+        }
+        diff = diff_reports(previous, current)
+        row = diff["regressions"][0]
+        assert row["previous_match_percent"] == 99.9
+        assert row["current_match_percent"] == 40.0
+
     def test_small_match_percent_change_not_regression(self) -> None:
         from rebrew.verify import diff_reports
 

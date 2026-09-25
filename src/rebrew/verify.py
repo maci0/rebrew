@@ -524,8 +524,8 @@ def diff_reports(previous: dict[str, Any], current: dict[str, Any]) -> dict[str,
                         "previous_status": previous_status,
                         "current_status": current_status,
                         "delta": int(current_item.get("delta", 0)),
-                        "previous_match_percent": round(float(prev_pct), 1),
-                        "current_match_percent": round(float(curr_pct), 1),
+                        "previous_match_percent": floor_pct(float(prev_pct), 100, 1),
+                        "current_match_percent": floor_pct(float(curr_pct), 100, 1),
                     }
                 )
                 continue

@@ -415,7 +415,9 @@ def include_fingerprint(include_dir: str) -> str:
     that is not an existing directory.
     An ``OSError`` while walking an existing directory returns a distinct
     unreadable sentinel (never ``""``) so header deps are not silently
-    dropped from the compile-cache key.
+    dropped from the compile-cache key.  A listed header that cannot be
+    stat'd is mixed in as its own unreadable marker for the same reason:
+    omitting it collides with a tree that does not contain the header.
     """
     root = Path(include_dir)
     if not root.is_dir():
@@ -474,6 +476,14 @@ def include_fingerprint(include_dir: str) -> str:
         try:
             st = path.stat()
         except OSError:
+            # Dropping the header makes this digest identical to a tree that
+            # never contained it, so a compile from before it existed is a
+            # hit.  An unreadable marker keeps the key distinct.
+            try:
+                ident = path.relative_to(root).as_posix()
+            except ValueError:
+                ident = p_str
+            h.update(f"\0unreadable\0{ident}\0".encode("utf-8", errors="surrogateescape"))
             continue
         try:
             rel = path.relative_to(root).as_posix()
@@ -744,7 +754,14 @@ def _scan_include_closure(
                 raw = found.read_bytes()
                 after = found.stat()
             except OSError:
-                continue
+                # The compiler may still read this header and its includes.
+                # Hashing only the stat (or skipping the file) serves an
+                # object compiled against a different closure.  Fall back
+                # for this call and do not memoize the failure.
+                fallback = True
+                consistent = False
+                reached.discard(found_str)
+                return
             if (before.st_mtime_ns, before.st_size) != (after.st_mtime_ns, after.st_size):
                 consistent = False
             observed[found_str] = (after.st_mtime_ns, after.st_size)

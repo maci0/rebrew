@@ -295,6 +295,38 @@ class TestIncludeFingerprint:
     def test_missing_dir_is_empty(self, tmp_path: Path) -> None:
         assert include_fingerprint(str(tmp_path / "nope")) == ""
 
+    def test_unstatable_header_is_not_a_missing_header(
+        self, tmp_path: Path, monkeypatch: Any
+    ) -> None:
+        """A header that cannot be stat'd must not hash like one that is absent.
+
+        The path list is memoized while directory mtimes hold.  Skipping the
+        failed stat made that digest identical to the tree from before the
+        header existed, so the compile cache could reuse that object.
+        """
+        inc = tmp_path / "inc"
+        only = tmp_path / "only"
+        inc.mkdir()
+        only.mkdir()
+        (inc / "a.h").write_text("a\n")
+        (inc / "b.h").write_text("b\n")
+        (only / "a.h").write_text("a\n")
+        include_fingerprint.cache_clear()
+        both = include_fingerprint(str(inc))
+        missing = include_fingerprint(str(only))
+        assert both != missing
+        real_stat = Path.stat
+
+        def _stat(self: Path, *args: object, **kwargs: object) -> Any:
+            if self.name == "b.h":
+                raise OSError(13, "Permission denied")
+            return real_stat(self, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "stat", _stat)
+        unreadable = include_fingerprint(str(inc))
+        assert unreadable != both
+        assert unreadable != missing
+
     def test_unreadable_dir_is_not_empty_fingerprint(
         self, tmp_path: Path, monkeypatch: Any
     ) -> None:
@@ -521,6 +553,36 @@ class TestHeaderDependencyHash:
         (inc / "new.h").write_text("#define N 1\n")
         k2 = compile_cache_key(src, "f.c", ["/O2"], [str(inc)], "wine CL")
         assert k1 != k2
+
+    def test_unreadable_reached_header_falls_back(self, tmp_path: Path, monkeypatch: Any) -> None:
+        """A reached header that cannot be read must not drop its includes.
+
+        Hashing only that header's stat (the closure stops at the failed
+        read) stays stable when an included header changes, and the cache
+        then serves an object compiled against the old text.
+        """
+        import rebrew.compile_cache as cc
+
+        inc = tmp_path / "inc"
+        inc.mkdir()
+        (inc / "a.h").write_text('#include "b.h"\n', encoding="utf-8")
+        (inc / "b.h").write_text("typedef int B;\n", encoding="utf-8")
+        src = '#include "a.h"\nint f(void){return 1;}\n'
+        real_read = Path.read_bytes
+
+        def _read(self: Path) -> bytes:
+            if self.name == "a.h":
+                raise OSError(13, "Permission denied")
+            return real_read(self)
+
+        monkeypatch.setattr(Path, "read_bytes", _read)
+        cc._INCLUDE_CLOSURE_MEMO.clear()
+        include_fingerprint.cache_clear()
+        first = compile_cache_key(src, "f.c", ["/O2"], [str(inc)], "cc")
+        (inc / "b.h").write_text("typedef long B;\n", encoding="utf-8")
+        include_fingerprint.cache_clear()
+        second = compile_cache_key(src, "f.c", ["/O2"], [str(inc)], "cc")
+        assert first != second
 
     def test_missing_include_no_crash(self) -> None:
         """An include that resolves nowhere (CRT headers live inside the

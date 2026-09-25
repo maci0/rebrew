@@ -1349,15 +1349,20 @@ def main(
         console.print("No action items found. Great progress!")
         return
 
-    table = Table(show_header=True, header_style="bold", pad_edge=False, expand=True)
-    table.add_column("#", style="dim", width=3, justify="right")
-    table.add_column("Cat", width=14)
-    table.add_column("VA", width=12)
-    table.add_column("Sz", width=5, justify="right")
-    table.add_column("Name", width=26, no_wrap=True, overflow="ellipsis")
-    table.add_column("Match %", width=8, justify="right")
-    table.add_column("Δ Bytes", width=8, justify="right")
-    table.add_column("Description", no_wrap=True, overflow="ellipsis")
+    # Match % is the figure that must not read as 100% for a near miss.  Fixed
+    # widths that sum past a dumb terminal (80) are reduced evenly and that
+    # column collapses to nothing, so only Name and Description flex.
+    table = Table(
+        show_header=True, header_style="bold", pad_edge=False, expand=True, padding=(0, 1)
+    )
+    table.add_column("#", style="dim", width=3, justify="right", no_wrap=True)
+    table.add_column("Cat", width=10, no_wrap=True, overflow="ellipsis")
+    table.add_column("VA", width=10, no_wrap=True, overflow="ellipsis")
+    table.add_column("Sz", width=6, justify="right", no_wrap=True)
+    table.add_column("Name", ratio=1, no_wrap=True, overflow="ellipsis")
+    table.add_column("Match %", width=7, justify="right", no_wrap=True)
+    table.add_column("Δ", width=5, justify="right", no_wrap=True)
+    table.add_column("Description", ratio=2, no_wrap=True, overflow="ellipsis")
 
     for i, item in enumerate(display_items, 1):
         color = _CATEGORY_COLORS.get(item.category, "white")
