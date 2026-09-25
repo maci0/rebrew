@@ -47,6 +47,7 @@ from rebrew.coff_reloc import build_name_to_va
 from rebrew.compile_overrides import resolve_compile_overrides
 from rebrew.config import ProjectConfig, inventory_path_for
 from rebrew.sources import iter_sources, target_marker
+from rebrew.utils import preset_module_key
 
 app = typer.Typer(
     help="Deterministic TU-partition search over cu-map clusters.",
@@ -412,7 +413,9 @@ class _PartitionScorer:
                     meta = _block_metadata(block)
                     if meta is None:
                         continue
-                    if marker and str(meta["module"]).lower() != marker.lower():
+                    if marker and preset_module_key(str(meta["module"])) != preset_module_key(
+                        marker
+                    ):
                         continue
                     blocks.append((int(meta["va"]), block.strip("\n")))
         if not blocks:

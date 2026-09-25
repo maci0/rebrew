@@ -44,7 +44,7 @@ from rebrew.cli import (
 from rebrew.config import ProjectConfig, inventory_path_for
 from rebrew.similar import disasm_signature, similarity_score
 from rebrew.sources import iter_sources, target_marker
-from rebrew.utils import atomic_write_text, read_source_text, rel_display_path
+from rebrew.utils import atomic_write_text, preset_module_key, read_source_text, rel_display_path
 from rebrew.workspace.status import MATCHED_STATUSES
 
 if TYPE_CHECKING:
@@ -356,12 +356,12 @@ def _library_vas(cfg: ProjectConfig) -> set[int]:
     reversed_dir = getattr(cfg, "reversed_dir", None)
     if reversed_dir is None:
         return set()
-    modules = {str(m).upper() for m in (getattr(cfg, "external_libs", None) or ())}
+    modules = {preset_module_key(str(m)) for m in (getattr(cfg, "external_libs", None) or ())}
     out: set[int] = set()
     for path in iter_library_headers(reversed_dir, cfg):
         for ann in parse_c_file_multi(path, metadata_dir=cfg.metadata_dir):
             kind = str(getattr(ann, "marker_type", "") or "").upper()
-            module = str(getattr(ann, "module", "") or "").upper()
+            module = preset_module_key(str(getattr(ann, "module", "") or ""))
             if ann.va and (kind == "LIBRARY" or (module and module in modules)):
                 out.add(int(ann.va))
     return out
@@ -1209,7 +1209,7 @@ def _symbol_for_va(text: str, module: str, va: int, fallback: str) -> tuple[str,
     from rebrew.annotation import parse_new_format_multi
 
     for ann in parse_new_format_multi(text.splitlines()):
-        if ann.module == module and ann.va == va and ann.name:
+        if preset_module_key(ann.module) == preset_module_key(module) and ann.va == va and ann.name:
             return ann.name, ann.symbol
     return fallback, "_" + fallback
 

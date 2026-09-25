@@ -241,6 +241,15 @@ class TestFilterWineStderr:
         assert "error C2143" in result
 
 
+class TestFoldIdent:
+    def test_nfd_matches_nfc_and_sharp_s_matches_ss(self) -> None:
+        from rebrew.utils import fold_ident
+
+        assert fold_ident("CAF\u00c9") == fold_ident("CAFE\u0301")
+        assert fold_ident("stra\u00dfe") == fold_ident("STRASSE") == "strasse"
+        assert fold_ident("SERVER") == fold_ident("server")
+
+
 class TestQualifiedKey:
     def test_with_module(self) -> None:
         from rebrew.utils import qualified_key

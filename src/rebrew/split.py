@@ -37,6 +37,7 @@ from rebrew.sources import (
 )
 from rebrew.utils import (
     atomic_write_text,
+    preset_module_key,
     read_source_text,
     rel_display_path,
     strip_comment_blocks,
@@ -196,7 +197,8 @@ def main(
             # first marker is whichever was stacked last, not this target).
             markers = block_markers(block) or [(meta["module"], meta["va"])]
             hit = any(
-                (not cfg.marker or mod.lower() == cfg.marker.lower()) and va == target_va
+                (not cfg.marker or preset_module_key(mod) == preset_module_key(cfg.marker))
+                and va == target_va
                 for mod, va in markers
             )
             if not hit:
@@ -335,7 +337,7 @@ def main(
         meta = _block_metadata(block)
         if meta is None:
             continue
-        if cfg.marker and meta["module"].lower() != cfg.marker.lower():
+        if cfg.marker and preset_module_key(meta["module"]) != preset_module_key(cfg.marker):
             continue
 
         block_va = meta["va"]

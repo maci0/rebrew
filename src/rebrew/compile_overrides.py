@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from rebrew.config import ProjectConfig
+from rebrew.utils import preset_module_key
 
 
 def resolve_cflags(
@@ -29,7 +30,7 @@ def resolve_cflags(
     """
     cflags = (per_function_cflags or "").strip()
     if not cflags and cfg is not None:
-        cflags = getattr(cfg, "cflags_presets", {}).get(module.upper(), "")
+        cflags = getattr(cfg, "cflags_presets", {}).get(preset_module_key(module), "")
     if not cflags:
         cfg_cflags = getattr(cfg, "cflags", "") if cfg is not None else ""
         # An EXPLICITLY set empty cflags means "no default flags": the
@@ -97,7 +98,7 @@ def resolve_overrides_steps(
             else False,
             "posix_style": bool(getattr(cfg, "posix_style", False)) if cfg is not None else False,
             "module_preset": (
-                getattr(cfg, "cflags_presets", {}).get(module.upper(), "")
+                getattr(cfg, "cflags_presets", {}).get(preset_module_key(module), "")
                 if cfg is not None
                 else ""
             ),

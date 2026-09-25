@@ -71,6 +71,7 @@ from rebrew.sources import (
     source_exts,
 )
 from rebrew.utils import (
+    preset_module_key,
     read_source_text,
     rel_display_path,
 )
@@ -830,9 +831,13 @@ def _check_config_rules(
 
     module = found_keys.get("MODULE", "")
     marker = getattr(cfg, "marker", None)
-    if module and marker and module != marker:
-        known = {marker} | set(getattr(cfg, "all_markers", None) or ())
-        if module in known:
+    if module and marker and preset_module_key(module) != preset_module_key(str(marker)):
+        known = {preset_module_key(str(marker))} | {
+            preset_module_key(str(item))
+            for item in (getattr(cfg, "all_markers", None) or ())
+            if item
+        }
+        if preset_module_key(module) in known:
             return
         result.error(
             result.marker_line,
@@ -1774,12 +1779,13 @@ def lint_file(
                 _known_markers = getattr(cfg, "all_markers", None) or (
                     {_own_marker} if _own_marker else set()
                 )
+                _known_folded = {preset_module_key(str(item)) for item in _known_markers if item}
                 if not (
                     cfg is not None
                     and _own_marker
                     and mod
-                    and mod != _own_marker
-                    and mod in _known_markers
+                    and preset_module_key(mod) != preset_module_key(str(_own_marker))
+                    and preset_module_key(mod) in _known_folded
                 ):
                     _check_W018_cflags(result, found_keys, cfg)
             else:

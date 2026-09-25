@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 from rebrew.errors import RebrewError
 from rebrew.sources import iter_sources
+from rebrew.utils import preset_module_key
 
 if TYPE_CHECKING:
     from rebrew.config import ProjectConfig
@@ -212,7 +213,11 @@ def build_name_to_va(
 
         meta = load_data_metadata(cfg.metadata_dir)
         for (_module, va), entry in meta.items():
-            if active_marker and _module and _module.lower() != active_marker.lower():
+            if (
+                active_marker
+                and _module
+                and preset_module_key(_module) != preset_module_key(active_marker)
+            ):
                 continue
             name = entry.get("name", "")
             if isinstance(name, str) and name and isinstance(va, int):

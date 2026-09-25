@@ -18,6 +18,7 @@ import typer
 from rebrew.cli import TargetOption, console, error_exit, json_print, require_config
 from rebrew.config import inventory_path_for
 from rebrew.errors import RebrewError
+from rebrew.utils import preset_module_key
 from rebrew.workspace.status import MATCHED_STATUSES
 
 #: STATUS values whose orphaned block records earned work: a byte match,
@@ -95,13 +96,15 @@ def find_orphans(cfg: Any) -> tuple[list[tuple[str, int, str]], list[tuple[str, 
     fn_orphans = [
         (module, va, "rebrew-functions.toml")
         for (module, va) in sorted(load_metadata(cfg.metadata_dir, deepcopy=False))
-        if (not marker or module == marker) and (module, va) not in live and va not in known_vas
+        if (not marker or preset_module_key(module) == preset_module_key(marker))
+        and (module, va) not in live
+        and va not in known_vas
     ]
     data_entries = load_data_metadata(cfg.metadata_dir)
     data_orphans = [
         (module, va, "rebrew-data.toml")
         for (module, va) in sorted(data_entries)
-        if (not marker or module == marker)
+        if (not marker or preset_module_key(module) == preset_module_key(marker))
         and (module, va) not in live
         and va not in known_vas
         # Import slots (.idata/.edata) never have source markers by design —

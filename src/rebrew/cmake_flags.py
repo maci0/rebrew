@@ -44,7 +44,7 @@ from rebrew.compile_overrides import resolve_compile_overrides
 from rebrew.config import ProjectConfig
 from rebrew.lint_cflags import _codegen_cflags_key
 from rebrew.sources import iter_sources
-from rebrew.utils import atomic_write_text
+from rebrew.utils import atomic_write_text, preset_module_key
 from rebrew.workspace.config import config_path
 
 app = typer.Typer(add_completion=False, help=__doc__)
@@ -89,7 +89,7 @@ def collect(cfg: ProjectConfig, marker: str) -> tuple[dict[Path, str], list[str]
             e
             for e in parse_c_file_multi(src, metadata_dir=cfg.metadata_dir)
             if e.va
-            and e.module.upper() == marker.upper()
+            and preset_module_key(e.module) == preset_module_key(marker)
             and (not e.marker_type or e.marker_type.upper() in CODE_MARKERS)
         ]
         if not entries:

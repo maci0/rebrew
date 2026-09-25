@@ -29,7 +29,7 @@ from rebrew.sources import (
     source_exts,
     target_marker,
 )
-from rebrew.utils import clip_span, rel_display_path
+from rebrew.utils import clip_span, fold_ident, preset_module_key, rel_display_path
 
 # ---------------------------------------------------------------------------
 # Unmatchable function detection
@@ -157,7 +157,9 @@ def normalize_name(name: str) -> str:
 
     Matches the stripping logic used in ``crt_match.py``.
     """
-    normalized = unicodedata.normalize("NFC", name).strip().lower()
+    # fold_ident (NFC + casefold), not str.lower: "straße" and "STRASSE"
+    # are one symbol, and an NFD spelling matches the NFC one.
+    normalized = fold_ident(name.strip())
     if normalized.startswith("__imp_"):
         normalized = normalized[len("__imp_") :]
     if normalized.startswith("_") and not normalized.startswith("__"):
@@ -302,15 +304,15 @@ def load_data(
     # this target's marker or one of its external_libs; another target's
     # LIBRARY marker at the same VA must not replace this target's function.
     marker = target_marker(cfg)
-    own_modules = {m.upper() for m in (getattr(cfg, "external_libs", None) or ())}
+    own_modules = {preset_module_key(m) for m in (getattr(cfg, "external_libs", None) or ())}
     if marker:
-        own_modules.add(marker.upper())
+        own_modules.add(preset_module_key(marker))
     for hfile in iter_library_headers(src_dir, cfg):
         lib_entries = parse_library_header(hfile, metadata_dir=cfg.metadata_dir)
         for entry in lib_entries:
             if entry.va < min_valid_va_for(cfg):
                 continue
-            if marker and (entry.module or "").upper() not in own_modules:
+            if marker and preset_module_key(entry.module or "") not in own_modules:
                 continue
             existing[entry.va] = {
                 "filename": hfile.name,
@@ -380,17 +382,17 @@ def scope_to_target(
     rows (legacy callers that cannot attribute); navigation maps
     (``covered_vas``) stay unfiltered.
     """
-    marker = module_marker(cfg).lower() if cfg else ""
+    marker = preset_module_key(module_marker(cfg)) if cfg else ""
     if not marker:
         return existing
-    libs = {m.lower() for m in (getattr(cfg, "external_libs", None) or ())}
+    libs = {preset_module_key(m) for m in (getattr(cfg, "external_libs", None) or ())}
     return {
         va: info
         for va, info in existing.items()
-        if (info.get("module") or "").lower() in ("", marker)
+        if preset_module_key(info.get("module") or "") in ("", marker)
         or (
             (info.get("marker_type") or "").upper() == "LIBRARY"
-            and (info.get("module") or "").lower() in libs
+            and preset_module_key(info.get("module") or "") in libs
         )
     }
 
@@ -408,12 +410,12 @@ def external_vas(
     matched nor pending, just linked (``cmake-sources`` emits the archives
     as ``REBREW_EXTERNAL_LIBS``).
     """
-    modules = {m.upper() for m in (external_libs or ())}
+    modules = {preset_module_key(m) for m in (external_libs or ())}
     out: set[int] = set()
     for va, info in existing.items():
-        if (info.get("marker_type") or "").upper() == "LIBRARY" or (
+        if (info.get("marker_type") or "").upper() == "LIBRARY" or preset_module_key(
             info.get("module") or ""
-        ).upper() in modules:
+        ) in modules:
             out.add(va)
     return out
 

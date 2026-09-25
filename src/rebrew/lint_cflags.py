@@ -12,7 +12,7 @@ from typing import Any
 
 from rebrew.cli import console
 from rebrew.config import ProjectConfig
-from rebrew.utils import atomic_write_text
+from rebrew.utils import atomic_write_text, preset_module_key
 
 
 def _cflags_key(cflags: str) -> frozenset[str]:
@@ -162,7 +162,7 @@ def _drop_redundant_presets(
         if presets is None:
             return None, None
         for key in list(presets.keys()):
-            if str(key).upper() == mod_upper:
+            if preset_module_key(str(key)) == mod_upper:
                 return presets, key
         return None, None
 
@@ -183,7 +183,7 @@ def _drop_redundant_presets(
     dropped = 0
     for hit in hits:
         expected = _cflags_key(hit.cflags)
-        mod = hit.module.upper()
+        mod = preset_module_key(hit.module)
         t_presets, t_key = _find(target_compiler, mod)
         g_presets, g_key = _find(global_compiler, mod)
         t_val = _cflags_key(str(t_presets[t_key])) if t_key is not None else None

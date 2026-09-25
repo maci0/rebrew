@@ -35,7 +35,7 @@ import typer
 from rebrew.cli import EXIT_ERROR, TargetOption, console, error_exit, json_print
 from rebrew.config import find_root as _config_find_root
 from rebrew.config import validate_http_url
-from rebrew.utils import atomic_write_text, parse_int_literal
+from rebrew.utils import atomic_write_text, parse_int_literal, preset_module_key
 
 #: Config key suffixes whose values must never be echoed to the terminal /
 #: JSON dumps (shell history and CI logs already see argv; do not double-expose).
@@ -796,8 +796,8 @@ def add_module(
         origins = []
         tgt["origins"] = origins
 
-    module_upper = module.upper()
-    if module_upper in origins:
+    module_upper = preset_module_key(module)
+    if any(preset_module_key(str(item)) == module_upper for item in origins):
         if json_output:
             json_print(
                 {
@@ -864,9 +864,9 @@ def remove_module(
     targets_table: Any = doc["targets"]
     tgt: Any = targets_table[target]
 
-    module_upper = module.upper()
+    module_upper = preset_module_key(module)
     origins = tgt.get("origins")
-    if origins is None or module_upper not in origins:
+    if origins is None or not any(preset_module_key(str(item)) == module_upper for item in origins):
         if json_output:
             json_print(
                 {
@@ -882,7 +882,7 @@ def remove_module(
             )
         return
 
-    remaining = [o for o in origins if o != module_upper]
+    remaining = [o for o in origins if preset_module_key(str(o)) != module_upper]
     if dry_run:
         if json_output:
             json_print(
@@ -911,7 +911,8 @@ def remove_module(
         typer.confirm(
             f"Remove module '{module_upper}' from target '{target}'?", abort=True, err=True
         )
-    origins.remove(module_upper)
+    for item in [o for o in list(origins) if preset_module_key(str(o)) == module_upper]:
+        origins.remove(item)
     save_toml(doc, toml_path, json_mode=json_output)
     if json_output:
         json_print(
@@ -958,7 +959,7 @@ def set_cflags(
         if presets is None:
             presets = tomlkit.table()
             compiler_tbl["cflags_presets"] = presets
-        presets[module.upper()] = flags
+        presets[preset_module_key(module)] = flags
         scope = f'targets."{target}".compiler'
     else:
         # Global cflags_presets
@@ -970,16 +971,18 @@ def set_cflags(
         if presets is None:
             presets = tomlkit.table()
             compiler["cflags_presets"] = presets
-        presets[module.upper()] = flags
+        presets[preset_module_key(module)] = flags
         scope = "compiler"
 
     if dry_run:
         console.print(
-            f"[cyan]dry-run:[/cyan] would set {scope}.cflags_presets.{module.upper()} = {flags!r}"
+            f"[cyan]dry-run:[/cyan] would set {scope}.cflags_presets.{preset_module_key(module)} = {flags!r}"
         )
         return
     save_toml(doc, toml_path)
-    console.print(f'[green]Set {scope}.cflags_presets.{module.upper()} = "{flags}"[/green]')
+    console.print(
+        f'[green]Set {scope}.cflags_presets.{preset_module_key(module)} = "{flags}"[/green]'
+    )
 
 
 @app.command("set-compiler")

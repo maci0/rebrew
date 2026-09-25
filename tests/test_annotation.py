@@ -360,6 +360,27 @@ int myfunc(void) { return 0; }
         # Resulting annotation module is NFC (precomposed Ö)
         assert results[0].module == "M\u00d6DULE"
 
+    def test_target_filter_folds_nfd_and_sharp_s(self, tmp_path: Path) -> None:
+        # The parser stores NFC. A macOS config marker is often still NFD,
+        # and .lower() does not treat "straße" as "STRASSE".
+        nfd = "MO\u0308DULE"
+        f = tmp_path / "myfunc.c"
+        f.write_text(
+            f"// FUNCTION: {nfd} 0x10001234\nint myfunc(void) {{ return 0; }}\n",
+            encoding="utf-8",
+        )
+        assert parse_c_file_multi(f, target_name=nfd)
+        assert parse_c_file_multi(f, target_name="M\u00d6DULE")
+        assert not parse_c_file_multi(f, target_name="OTHER")
+
+        sharp = tmp_path / "sharp.c"
+        sharp.write_text(
+            "// FUNCTION: stra\u00dfe 0x10001234\nint f(void) { return 0; }\n",
+            encoding="utf-8",
+        )
+        assert parse_c_file_multi(sharp, target_name="STRASSE")
+        assert not parse_c_file_multi(sharp, target_name="ANDERE")
+
 
 # ---------------------------------------------------------------------------
 # Multi-function parsing tests

@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from rebrew.config import ProjectConfig, inventory_path_for
-from rebrew.utils import read_source_text
+from rebrew.utils import preset_module_key, read_source_text
 
 # ---------------------------------------------------------------------------
 # Regexes
@@ -221,8 +221,8 @@ def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
         if not any(e is entry for e in bucket):
             bucket.append(entry)
 
-    other_markers = {m.lower() for m in (getattr(cfg, "all_markers", None) or set())}
-    active_marker = str(getattr(cfg, "marker", "") or "").lower()
+    other_markers = {preset_module_key(m) for m in (getattr(cfg, "all_markers", None) or set())}
+    active_marker = preset_module_key(str(getattr(cfg, "marker", "") or ""))
     for cfile in iter_sources(src_dir, cfg):
         try:
             # Tolerant read: a legacy-encoded source must not have its
@@ -258,7 +258,7 @@ def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
                 # Library-module markers (MSVCRT, ZLIB, ...) are kept: they
                 # are not targets and carry no competing VA.
                 if cfg is not None and gm.group("module"):
-                    mod = gm.group("module").lower()
+                    mod = preset_module_key(gm.group("module"))
                     if mod in other_markers and mod != active_marker:
                         continue
                 va = int(gm.group("va"), 16)

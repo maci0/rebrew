@@ -26,7 +26,7 @@ from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any, ClassVar, Final
 
-from rebrew.utils import atomic_write_text, read_source_text, rel_display_path
+from rebrew.utils import atomic_write_text, preset_module_key, read_source_text, rel_display_path
 
 logger = logging.getLogger(__name__)
 
@@ -1240,7 +1240,7 @@ def _annotations_from_metadata(
     rel = rel_display_path(filepath, base_dir)
     results: list[Annotation] = []
     for module, va, entry in sorted(matches, key=lambda m: m[1]):
-        if target_name and module and module.lower() != target_name.lower():
+        if target_name and module and preset_module_key(module) != preset_module_key(target_name):
             continue
         ann = Annotation(
             va=va,
@@ -1386,7 +1386,11 @@ def _finalize_entries(
     filtered_entries = [
         copy.deepcopy(entry)
         for entry in structural
-        if not (target_name and entry.module and entry.module.lower() != target_name.lower())
+        if not (
+            target_name
+            and entry.module
+            and preset_module_key(entry.module) != preset_module_key(target_name)
+        )
     ]
     for entry in filtered_entries:
         entry.filepath = rel

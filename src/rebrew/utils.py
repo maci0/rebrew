@@ -945,6 +945,28 @@ def load_metadata_doc(
     return copy.deepcopy(result) if deepcopy else result
 
 
+def fold_ident(value: str) -> str:
+    """Case-insensitive identity of a user-supplied name: NFC, then casefold.
+
+    ``str.lower`` and ``str.upper`` disagree on sharp s
+    (``"straße".lower()`` is ``"straße"``, ``"STRASSE".lower()`` is
+    ``"strasse"``, and both ``.upper()`` to ``"STRASSE"``). Neither
+    unifies NFC ``é`` with NFD ``e\\u0301``. Module markers and symbol
+    names use this fold so those spellings compare as one name.
+    """
+    return unicodedata.normalize("NFC", value).casefold()
+
+
+def preset_module_key(name: str) -> str:
+    """Key spelling for ``cflags_presets`` and origin lists.
+
+    NFC, then ``upper``, which is what ``rebrew cfg`` writes
+    (``SERVER``, ``STRASSE``). Lookups must use this function:
+    :func:`fold_ident` would miss a stored ``SERVER`` key.
+    """
+    return unicodedata.normalize("NFC", name).upper()
+
+
 def qualified_key(module: str | None, va: int) -> str:
     """Return the canonical TOML key for *(module, va)*.
 

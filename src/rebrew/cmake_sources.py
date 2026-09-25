@@ -32,7 +32,7 @@ from rebrew.cli import (
 )
 from rebrew.config import ProjectConfig
 from rebrew.sources import iter_sources, target_marker
-from rebrew.utils import atomic_write_text, read_source_text
+from rebrew.utils import atomic_write_text, preset_module_key, read_source_text
 
 app = typer.Typer(add_completion=False, help=__doc__)
 
@@ -73,14 +73,14 @@ def collect(cfg: ProjectConfig, marker: str) -> tuple[list[Path], list[Path]]:
                 support = _support_declaration(read_source_text(src)[0].splitlines())
             except OSError:
                 support = None
-            if support is not None and support[1].upper() == marker.upper():
+            if support is not None and preset_module_key(support[1]) == preset_module_key(marker):
                 own.append(src.resolve())
             elif support is not None:
                 foreign.append(src.resolve())
             else:
                 own.append(src.resolve())
             continue
-        if any(a.module.upper() == marker.upper() for a in anns):
+        if any(preset_module_key(a.module) == preset_module_key(marker) for a in anns):
             own.append(src.resolve())
         else:
             foreign.append(src.resolve())

@@ -27,7 +27,7 @@ import typer
 from rebrew.cli import EXIT_MISMATCH, TargetOption, console, error_exit, json_print, require_config
 from rebrew.config import module_marker
 from rebrew.sources import iter_sources, source_exts
-from rebrew.utils import atomic_write_text, read_source_text
+from rebrew.utils import atomic_write_text, preset_module_key, read_source_text
 
 app = typer.Typer(
     help="Enforce VA-ordered sources into CMakeLists.txt SOURCES (drift gate).",
@@ -61,7 +61,7 @@ def file_va(path: Path, marker: str | None = None) -> int | None:
         vas = [int(m.group(2), 16) for m in _FUNC_RE.finditer(text)]
     else:
         matches = [(m.group(1), int(m.group(2), 16)) for m in _FUNC_RE.finditer(text)]
-        own = [va for mod, va in matches if mod.lower() == marker.lower()]
+        own = [va for mod, va in matches if preset_module_key(mod) == preset_module_key(marker)]
         # Fall back to all markers when none names this target (legacy files
         # whose module predates the configured marker) — filtering to empty
         # would drop every file to the unknown-VA tail.

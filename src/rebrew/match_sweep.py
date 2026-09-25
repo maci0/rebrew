@@ -37,7 +37,7 @@ from rebrew.matcher import (
 from rebrew.matcher.core import EXACT_SCORE_THRESHOLD
 from rebrew.sources import target_marker
 from rebrew.toolchain import TOOLCHAINS
-from rebrew.utils import read_compile_source
+from rebrew.utils import fold_ident, read_compile_source
 
 if TYPE_CHECKING:
     from rebrew.compile_cache import CacheBackend
@@ -122,10 +122,10 @@ def _select_annotation(annos: list[Annotation], symbol: str | None) -> Annotatio
     """
     if not symbol:
         return None
-    want = symbol.strip().lstrip("_").lower()
+    want = fold_ident(symbol.strip()).lstrip("_")
     for a in annos:
         for candidate in (a.symbol or "", a.name or ""):
-            if candidate.strip().lstrip("_").lower() == want:
+            if fold_ident(candidate.strip()).lstrip("_") == want:
                 return a
     return None
 

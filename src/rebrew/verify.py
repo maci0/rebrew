@@ -62,7 +62,7 @@ from rebrew.compile import (
 from rebrew.config import ProjectConfig, inventory_path_for, module_marker
 from rebrew.match_semantics import EFFECTIVE_MATCH_NOTE, is_effective_match
 from rebrew.metadata import should_promote_status
-from rebrew.utils import atomic_write_text, floor_pct
+from rebrew.utils import atomic_write_text, floor_pct, preset_module_key
 from rebrew.verify_cache import (
     VerifyCacheEntry,
     _load_verify_cache,
@@ -1801,8 +1801,8 @@ def _scope_entries(
             if (Path(cfg.reversed_dir) / e.filepath).resolve().is_relative_to(batch_root)
         ]
     if origin_filter:
-        want = origin_filter.upper()
-        unique_entries = [e for e in unique_entries if (e.module or "").upper() == want]
+        want = preset_module_key(origin_filter)
+        unique_entries = [e for e in unique_entries if preset_module_key(e.module or "") == want]
     if batch_file:
         raw = Path(batch_file)
         if raw.is_absolute():
@@ -1885,7 +1885,7 @@ def _library_vas(cfg: Any, entries: list[Annotation]) -> set[int]:
     from rebrew.naming import external_vas
     from rebrew.sources import iter_library_headers
 
-    marker = module_marker(cfg).lower()
+    marker = preset_module_key(module_marker(cfg))
     rows = {
         e.va: {
             "marker_type": getattr(e, "marker_type", "") or "",
@@ -1895,7 +1895,7 @@ def _library_vas(cfg: Any, entries: list[Annotation]) -> set[int]:
     }
     for header in iter_library_headers(cfg.reversed_dir, cfg):
         for e in parse_library_header(header, metadata_dir=cfg.metadata_dir):
-            if (e.module or "").lower() in ("", marker):
+            if preset_module_key(e.module or "") in ("", marker):
                 rows[e.va] = {"marker_type": e.marker_type or "LIBRARY", "module": e.module or ""}
     return external_vas(rows, getattr(cfg, "external_libs", None))
 

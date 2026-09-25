@@ -450,8 +450,10 @@ class TestResolveCflags:
 
         cfg = SimpleNamespace(cflags="/O2 /Gd", cflags_presets={"GAME": "/O1"})
         assert resolve_cflags(cfg, "", "GAME") == "/O1"
-        # module matching is case-insensitive (upper-cased)
+        # module matching is case-insensitive (upper-cased) and NFC
         assert resolve_cflags(cfg, "", "game") == "/O1"
+        nfd_cfg = SimpleNamespace(cflags="/O2 /Gd", cflags_presets={"M\u00d6DULE": "/O1"})
+        assert resolve_cflags(nfd_cfg, "", "MO\u0308DULE") == "/O1"
 
     def test_compiler_cflags_fallback(self) -> None:
         from rebrew.compile_overrides import resolve_cflags

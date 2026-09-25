@@ -39,6 +39,7 @@ from rebrew.sources import (
 )
 from rebrew.utils import (
     atomic_write_text,
+    preset_module_key,
     read_source_text,
     rel_display_path,
     strip_comment_blocks,
@@ -555,10 +556,14 @@ def main(
             if meta is None:
                 continue
             module = str(meta["module"])
-            if not shared and cfg.marker and module.lower() != cfg.marker.lower():
+            if (
+                not shared
+                and cfg.marker
+                and preset_module_key(module) != preset_module_key(cfg.marker)
+            ):
                 continue
             va = meta["va"]
-            key = (module.lower(), va)
+            key = (preset_module_key(module), va)
             if key in seen_vas:
                 error_exit(
                     f"Duplicate VA 0x{va:08x} across input files — merge would "

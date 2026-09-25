@@ -37,6 +37,7 @@ from rebrew.sources import (
     iter_library_headers,
     iter_sources,
 )
+from rebrew.utils import fold_ident, preset_module_key
 
 
 @dataclass
@@ -53,6 +54,8 @@ class CrtSourceEntry:
     The normalized forms (``name_raw``/``name_norm``/``module_upper``) are
     derived once at construction — matching walks the whole index per
     binary function, so re-normalizing per visit would dominate the run.
+    ``module_upper`` is :func:`rebrew.utils.preset_module_key`
+    (NFC, then upper), the same spelling as ``cflags_presets`` keys.
     """
 
     name: str
@@ -65,9 +68,9 @@ class CrtSourceEntry:
     module_upper: str = ""
 
     def __post_init__(self) -> None:
-        self.name_raw = self.name.strip().lower()
+        self.name_raw = fold_ident(self.name.strip())
         self.name_norm = normalize_name(self.name)
-        self.module_upper = self.module.upper()
+        self.module_upper = preset_module_key(self.module)
 
 
 @dataclass
@@ -198,7 +201,7 @@ def build_crt_index(source_dir: Path, module: str) -> list[CrtSourceEntry]:
                     )
                 )
 
-            stem_name = file_path.stem.lower()
+            stem_name = fold_ident(file_path.stem)
             entries.append(
                 CrtSourceEntry(
                     name=stem_name,
@@ -242,10 +245,10 @@ def match_function(
     name: str, size: int, module: str, index: list[CrtSourceEntry], *, va: int = 0
 ) -> list[CrtMatch]:
     """Match a single binary function name against a source index."""
-    binary_raw = name.strip().lower()
+    binary_raw = fold_ident(name.strip())
     binary_norm = normalize_name(name)
     asm_only = is_asm_only(name)
-    module_upper = module.upper()
+    module_upper = preset_module_key(module)
 
     matches: list[CrtMatch] = []
     for source_entry in index:
@@ -316,7 +319,7 @@ def collect_library_annotations(
     annotations never match against the CRT index.
     """
     annotations: list[tuple[Path, Annotation]] = []
-    library_modules = {m.upper() for m in getattr(cfg, "library_modules", [])}
+    library_modules = {preset_module_key(m) for m in getattr(cfg, "library_modules", [])}
 
     # Library functions live in `library_*.h` headers as well as .c files;
     # iter_sources only globs cfg.source_ext, so iterate both.
@@ -324,10 +327,10 @@ def collect_library_annotations(
         cfg.reversed_dir, cfg
     ):
         for ann in parse_c_file_multi(source_path, target_name=None, metadata_dir=cfg.metadata_dir):
-            module_upper = (ann.module or "").upper()
+            module_key = preset_module_key(ann.module or "")
             if ann.marker_type not in ("FUNCTION", "LIBRARY"):
                 continue
-            if ann.marker_type != "LIBRARY" and module_upper not in library_modules:
+            if ann.marker_type != "LIBRARY" and module_key not in library_modules:
                 continue
             annotations.append((source_path, ann))
 
@@ -340,7 +343,8 @@ def _build_indexes(cfg: ProjectConfig) -> dict[str, list[CrtSourceEntry]]:
         source_dir = Path(rel_path)
         if not source_dir.is_absolute():
             source_dir = cfg.root / source_dir
-        indexes[module_name.upper()] = build_crt_index(source_dir, module_name.upper())
+        key = preset_module_key(module_name)
+        indexes[key] = build_crt_index(source_dir, key)
     return indexes
 
 
@@ -401,7 +405,7 @@ def match_all(cfg: ProjectConfig) -> list[CrtMatch]:
     all_matches: list[CrtMatch] = []
 
     for _, ann in collect_library_annotations(cfg):
-        module_upper = (ann.module or "").upper()
+        module_key = preset_module_key(ann.module or "")
         # Prefer the annotated name: for LIBRARY headers the name is the
         # mangled hint (e.g. `// _free`) and the derived symbol double-
         # underscores it (``__free``), which never matches the CRT index.
@@ -414,9 +418,9 @@ def match_all(cfg: ProjectConfig) -> list[CrtMatch]:
         # the marker module may not own an index.  Fall back to every
         # configured library index — the library identity is decided by the
         # name match, not the marker module.
-        if module_upper in indexes:
+        if module_key in indexes:
             candidates: list[tuple[str, list[CrtSourceEntry]]] = [
-                (module_upper, indexes[module_upper])
+                (ann.module or "", indexes[module_key])
             ]
         else:
             candidates = list(indexes.items())
@@ -595,13 +599,13 @@ def main(
         if not function_name:
             error_exit(f"Entry at 0x{va_int:08x} has no symbol/name", json_mode=json_output)
 
-        module_upper = (ann.module or "").upper()
+        module_key = preset_module_key(ann.module or "")
         # Same fallback as match_all: the marker module (e.g. "SERVER") may
         # not own an index — the library identity is decided by the name
         # match, not the marker module.  Try every configured library index.
-        if module_upper in indexes:
+        if module_key in indexes:
             index_candidates: list[tuple[str, list[CrtSourceEntry]]] = [
-                (module_upper, indexes[module_upper])
+                (ann.module or "", indexes[module_key])
             ]
         else:
             index_candidates = list(indexes.items())

@@ -14,6 +14,7 @@ from rebrew.annotation import Annotation, parse_c_file_multi, parse_library_head
 from rebrew.catalog.models import FunctionEntry, GhidraDataLabel
 from rebrew.config import ProjectConfig, inventory_path_for, module_marker
 from rebrew.sources import iter_library_headers, iter_sources, target_marker
+from rebrew.utils import preset_module_key
 
 # ---------------------------------------------------------------------------
 # Ghidra function loader
@@ -290,9 +291,11 @@ def scan_reversed_dir(reversed_dir: Path, cfg: ProjectConfig | None = None) -> l
     # scan_reversed_dir already covered for the catalog.
     # Headers carry no target affinity in their path, so keep only rows of
     # this target's module (sources are scoped by parse_c_file_multi above).
-    marker = module_marker(cfg).lower() if cfg else ""
+    marker = preset_module_key(module_marker(cfg)) if cfg else ""
     for hfile in iter_library_headers(reversed_dir, cfg):
         parsed = parse_library_header(hfile, metadata_dir=cfg.metadata_dir if cfg else None)
-        entries.extend(e for e in parsed if not marker or (e.module or "").lower() in ("", marker))
+        entries.extend(
+            e for e in parsed if not marker or preset_module_key(e.module or "") in ("", marker)
+        )
 
     return entries

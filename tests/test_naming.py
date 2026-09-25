@@ -38,6 +38,10 @@ class TestNormalizeName:
         nfd = "func_\u0065\u0301"
         assert normalize_name(nfc) == normalize_name(nfd) == "func_\u00e9"
 
+    def test_sharp_s_casefold(self) -> None:
+        # str.lower leaves ß unmatched against SS; casefold unifies them.
+        assert normalize_name("stra\u00dfe") == normalize_name("STRASSE") == "strasse"
+
 
 class TestParseByteDelta:
     def test_small_diff(self) -> None:

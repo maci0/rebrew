@@ -39,7 +39,7 @@ from urllib.parse import urlparse
 
 from rebrew.errors import RebrewError
 from rebrew.toolchain_spec import FlagsStyle
-from rebrew.utils import load_tomllib, parse_int_literal
+from rebrew.utils import load_tomllib, parse_int_literal, preset_module_key
 from rebrew.workspace import walk_up_to_root
 from rebrew.workspace.config import config_path
 
@@ -576,7 +576,7 @@ def _module_marker_value(raw: Any, target: str, field_name: str) -> str:
             f"rebrew-project.toml {field_name} = {text!r} contains '.0x', "
             "which breaks MODULE.0xVA metadata keys"
         )
-    return text
+    return unicodedata.normalize("NFC", text)
 
 
 def module_marker(cfg: Any) -> str:
@@ -600,9 +600,9 @@ def module_marker(cfg: Any) -> str:
     """
     marker = str(getattr(cfg, "marker", "") or "")
     if marker:
-        return marker
+        return unicodedata.normalize("NFC", marker)
     target = str(getattr(cfg, "target_name", "") or "")
-    return _MARKER_STRIP_RE.sub("", target).upper()
+    return unicodedata.normalize("NFC", _MARKER_STRIP_RE.sub("", target).upper())
 
 
 def inventory_path_for(reversed_dir: Path | str, cfg: Any = None) -> Path:
@@ -1093,7 +1093,7 @@ def _merge_cflags_presets(
         for key, val in presets.items():
             if not isinstance(val, str):
                 raise ConfigError(f"rebrew-project.toml {label}.{key} must be a string")
-            merged[key.upper()] = val
+            merged[preset_module_key(str(key))] = val
         if presets and label == f"{where}.cflags_presets":
             _config_warn(
                 f"[{where}].cflags_presets is misplaced — move it to "

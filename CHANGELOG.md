@@ -1,6 +1,12 @@
 ## [Unreleased]
 
 ### Fixed
+- **Module and symbol identity ignores NFC/NFD and sharp-s case.** A
+  marker check used `.lower()` or `.upper()` on the raw spelling, so
+  NFC `MÖDULE` and NFD `MÖDULE` were different modules, and `straße`
+  matched `STRASSE` only on the `.upper()` paths. Comparisons, preset
+  keys, and `normalize_name` now fold first (NFC, then upper for
+  modules and casefold for symbols).
 - **`migrate-markers` no longer drops markers it does not record.** The
   strip removes every marker line in the file, and a file that still has
   any marker is not read back from TOML. A run scoped to one target used

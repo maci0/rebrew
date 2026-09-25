@@ -50,6 +50,7 @@ from rebrew.match_sweep import (
     _run_single_toolchain_sweep,
     resolve_build_params,
 )
+from rebrew.utils import preset_module_key
 
 log = logging.getLogger(__name__)
 
@@ -582,11 +583,11 @@ def main(
             # Metadata keys are qualified (module, va); VA-only lookup picks
             # the first hit and can weight mutations from a sibling target
             # that shares the address (SERVER vs CLIENT at the same VA).
-            want_module = (params.module or "").upper()
+            want_module = preset_module_key(params.module or "")
             for (_module, va), entry in load_metadata(cfg.metadata_dir, deepcopy=False).items():
                 if va != params.va_int or not entry.get("blocker"):
                     continue
-                if want_module and _module.upper() != want_module:
+                if want_module and preset_module_key(_module) != want_module:
                     continue
                 blocker_text = entry["blocker"]
                 break
