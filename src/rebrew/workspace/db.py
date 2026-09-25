@@ -10,7 +10,13 @@ from __future__ import annotations
 import contextlib
 import json
 import sqlite3
+from collections.abc import Iterator
 from pathlib import Path
+
+try:
+    import fcntl
+except ImportError:
+    fcntl = None  # type: ignore[assignment]
 
 #: Busy-wait budget for read-only opens (matches build_db / dashboard).
 _SQLITE_TIMEOUT_SECONDS = 30.0
@@ -124,6 +130,55 @@ def sqlite_ro_uri(path: Path) -> str:
     """
     p = path if path.is_absolute() else Path.cwd() / path
     return f"{p.as_uri()}?mode=ro"
+
+
+@contextlib.contextmanager
+def coverage_db_lock(path: Path, *, shared: bool = False) -> Iterator[None]:
+    """Advisory lock on ``<path>.lock`` for one coverage database.
+
+    ``build_db`` holds the exclusive lock across the version check, any
+    unlink, and the rebuild.  Readers (the dashboard) hold the shared lock
+    for the lifetime of one connection.  ``--force`` and the empty-schema
+    path delete the database file; doing that while another process still
+    has it open lets the new file and the previous connection's WAL share a
+    path and corrupt the rebuild.
+    """
+    lock_path = Path(path).with_name(Path(path).name + ".lock")
+    try:
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        lock_fh = lock_path.open("a", encoding="utf-8")
+    except OSError:
+        if shared:
+            # A reader pointed at a missing or unwritable directory has no
+            # sidecar to lock.  Yield so the SQLite open reports that failure
+            # itself instead of turning it into a lock error.
+            yield
+            return
+        raise
+    with lock_fh:
+        if fcntl is not None:
+            fcntl.flock(lock_fh, fcntl.LOCK_SH if shared else fcntl.LOCK_EX)
+        else:
+            try:
+                import msvcrt
+
+                lock_fh.seek(0)
+                msvcrt.locking(lock_fh.fileno(), msvcrt.LK_LOCK, 1)
+            except (ImportError, OSError):
+                pass
+        try:
+            yield
+        finally:
+            if fcntl is not None:
+                fcntl.flock(lock_fh, fcntl.LOCK_UN)
+            else:
+                try:
+                    import msvcrt
+
+                    lock_fh.seek(0)
+                    msvcrt.locking(lock_fh.fileno(), msvcrt.LK_UNLCK, 1)
+                except (ImportError, OSError):
+                    pass
 
 
 def open_sqlite_ro(path: Path) -> sqlite3.Connection:

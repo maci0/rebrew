@@ -357,6 +357,53 @@ class TestIncludeFingerprint:
         k2 = compile_cache_key("src", "f.c", ["/O2"], [str(inc)], "wine CL")
         assert k1 == k2
 
+    def test_unstable_walk_is_not_memoized(self, tmp_path: Path, monkeypatch: Any) -> None:
+        """A walk that races a directory change must not be published.
+
+        Publishing it would pin a path list under mtimes that no longer
+        describe it, and the next lookup would trust the stale list.
+        """
+        import rebrew.compile_cache as cc
+
+        inc = tmp_path / "inc"
+        inc.mkdir()
+        (inc / "a.h").write_text("x\n")
+        include_fingerprint.cache_clear()
+        monkeypatch.setattr(cc, "_dir_mtimes_match", lambda _mtimes: False)
+        assert include_fingerprint(str(inc))
+        assert cc._INCLUDE_FP_PATHS == {}
+
+    def test_concurrent_fingerprint_agrees(self, tmp_path: Path) -> None:
+        """Parallel fills share the path memo and must not raise or diverge."""
+        import threading
+
+        inc = tmp_path / "inc"
+        inc.mkdir()
+        (inc / "a.h").write_text("x\n")
+        (inc / "sys").mkdir()
+        (inc / "sys" / "types.h").write_text("y\n")
+        include_fingerprint.cache_clear()
+        errors: list[BaseException] = []
+        digests: list[str] = []
+        lock = threading.Lock()
+
+        def _worker() -> None:
+            try:
+                local = [include_fingerprint(str(inc)) for _ in range(16)]
+                with lock:
+                    digests.extend(local)
+            except BaseException as exc:
+                errors.append(exc)
+
+        threads = [threading.Thread(target=_worker) for _ in range(8)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        assert errors == []
+        assert digests
+        assert all(digest == digests[0] for digest in digests)
+
 
 class TestHeaderDependencyHash:
     """Per-source #include-closure fingerprints (paper-driven precision).
@@ -599,6 +646,65 @@ class TestHeaderDependencyHash:
         include_fingerprint.cache_clear()
         k2 = compile_cache_key(src, "f.c", flags, [], "wine CL", source_dir=str(src_dir))
         assert k1 != k2
+
+    def test_raced_scan_is_not_memoized(self, tmp_path: Path, monkeypatch: Any) -> None:
+        """A scan whose header changed mid-read must not be published.
+
+        Storing the post-edit stat next to the pre-edit closure makes the
+        next lookup treat that closure as fresh.
+        """
+        import rebrew.compile_cache as cc
+
+        inc = tmp_path / "inc"
+        inc.mkdir()
+        (inc / "a.h").write_text("int a;\n")
+        src = '#include "a.h"\nint f(void){return a;}\n'
+        real = cc._scan_include_closure
+
+        def _raced(*args: object, **kwargs: object) -> tuple[object, ...]:
+            paths, fallback, stats, _consistent = real(*args, **kwargs)
+            return paths, fallback, tuple((-1, -1) for _ in stats), False
+
+        monkeypatch.setattr(cc, "_scan_include_closure", _raced)
+        cc._INCLUDE_CLOSURE_MEMO.clear()
+        paths, fallback = cc._resolve_include_paths(src, str(inc), ())
+        assert paths
+        assert fallback is False
+        assert cc._INCLUDE_CLOSURE_MEMO == {}
+
+    def test_publish_keeps_valid_peer_closure(self, tmp_path: Path, monkeypatch: Any) -> None:
+        """A slower scan must not replace a closure whose stats still match."""
+        import rebrew.compile_cache as cc
+
+        inc = tmp_path / "inc"
+        inc.mkdir()
+        header = inc / "a.h"
+        header.write_text("int a;\n")
+        src = '#include "a.h"\nint f(void){return a;}\n'
+        cc._INCLUDE_CLOSURE_MEMO.clear()
+        first_paths, _fallback = cc._resolve_include_paths(src, str(inc), ())
+        assert first_paths
+
+        def _stale(*_args: object, **_kwargs: object) -> tuple[object, ...]:
+            return (), False, (), True
+
+        monkeypatch.setattr(cc, "_scan_include_closure", _stale)
+        # Force the fast path to miss so publish runs, while the peer entry
+        # is still valid when re-checked under the lock.
+        real_stats = cc._header_stats
+        calls = {"n": 0}
+
+        def _miss_once(paths: tuple[str, ...]) -> tuple[tuple[int, int], ...]:
+            calls["n"] += 1
+            if calls["n"] == 1 and paths == first_paths:
+                return tuple((-1, -1) for _ in paths)
+            return real_stats(paths)
+
+        monkeypatch.setattr(cc, "_header_stats", _miss_once)
+        paths, _fallback = cc._resolve_include_paths(src, str(inc), ())
+        assert paths == first_paths
+        cached = next(iter(cc._INCLUDE_CLOSURE_MEMO.values()))
+        assert cached[0] == first_paths
 
 
 class TestGetCompileCache:

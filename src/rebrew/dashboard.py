@@ -86,7 +86,7 @@ from rebrew.build_db import FUNCTION_ROWS_SQL, resolve_db_dir
 from rebrew.cli import console, error_exit, json_print
 from rebrew.metadata import canonical_status
 from rebrew.utils import floor_pct
-from rebrew.workspace import open_sqlite_ro
+from rebrew.workspace import coverage_db_lock, open_sqlite_ro
 
 log = logging.getLogger(__name__)
 
@@ -1350,13 +1350,16 @@ class Dashboard:
         # Percent-encode the path (``open_sqlite_ro`` / ``sqlite_ro_uri``): a
         # raw ``file:{p}?mode=ro`` truncates or rewrites names that contain
         # ``?`` / ``#`` / ``%``.  ``query_only`` is a second write gate.
-        conn = open_sqlite_ro(self.db_path)
-        token = _CURRENT_CONN.set(conn)
-        try:
-            yield conn
-        finally:
-            _CURRENT_CONN.reset(token)
-            conn.close()
+        # Shared flock for the connection: ``build_db --force`` unlinks the
+        # file, and a reader that still has it open races that unlink.
+        with coverage_db_lock(self.db_path, shared=True):
+            conn = open_sqlite_ro(self.db_path)
+            token = _CURRENT_CONN.set(conn)
+            try:
+                yield conn
+            finally:
+                _CURRENT_CONN.reset(token)
+                conn.close()
 
     def targets(self) -> list[str]:
         with self._conn() as conn:

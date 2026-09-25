@@ -407,7 +407,12 @@ def include_fingerprint(include_dir: str) -> str:
     directory and all its subdirectories are stable (membership changes at any
     depth invalidate); each call re-stats
     those paths so content edits are visible mid-run without a process
-    restart.  Returns ``""`` for a path that is not an existing directory.
+    restart.  A walk whose directory mtimes change before it is published is
+    not memoized, and a publish never replaces a still-valid peer entry that
+    already lists at least as many headers: verify ``-j N`` and GA workers
+    share this map, and a slow walk that missed a header created mid-scan
+    must not clobber the snapshot that saw it.  Returns ``""`` for a path
+    that is not an existing directory.
     An ``OSError`` while walking an existing directory returns a distinct
     unreadable sentinel (never ``""``) so header deps are not silently
     dropped from the compile-cache key.
@@ -439,14 +444,29 @@ def include_fingerprint(include_dir: str) -> str:
             )
             return hashlib.sha256(f"\0unreadable\0{include_dir}\0".encode()).hexdigest()
         paths = tuple(str(p) for p in path_list)
+        recorded = tuple(dir_mtimes)
         with _INCLUDE_FP_LOCK:
+            existing = _INCLUDE_FP_PATHS.get(include_dir)
             if (
-                len(_INCLUDE_FP_PATHS) >= _INCLUDE_FP_PATHS_MAX
-                and include_dir not in _INCLUDE_FP_PATHS
+                existing is not None
+                and _dir_mtimes_match(existing[0])
+                and len(existing[1]) >= len(paths)
             ):
-                oldest = next(iter(_INCLUDE_FP_PATHS))
-                _INCLUDE_FP_PATHS.pop(oldest, None)
-            _INCLUDE_FP_PATHS[include_dir] = (tuple(dir_mtimes), paths)
+                # A peer already published a snapshot that is still current
+                # and at least as complete.  Keep it: our walk may have
+                # started earlier and missed a header the peer saw.
+                paths = existing[1]
+            elif _dir_mtimes_match(recorded):
+                if (
+                    len(_INCLUDE_FP_PATHS) >= _INCLUDE_FP_PATHS_MAX
+                    and include_dir not in _INCLUDE_FP_PATHS
+                ):
+                    oldest = next(iter(_INCLUDE_FP_PATHS))
+                    _INCLUDE_FP_PATHS.pop(oldest, None)
+                _INCLUDE_FP_PATHS[include_dir] = (recorded, paths)
+            # else: a create/delete landed during the walk.  Hash this
+            # snapshot for the caller, but do not pin it — the recorded
+            # mtimes would no longer describe the path list.
 
     h = hashlib.sha256()
     for p_str in paths:
@@ -632,24 +652,34 @@ def _resolve_include_paths(
     reached header keeps its ``(mtime_ns, size)``: a header created later in
     a searched dir bumps that directory's mtime, and an in-place header edit
     (which may add or drop an ``#include``) changes that header's stat, so
-    either forces a re-resolve.
+    either forces a re-resolve.  A scan that races an edit is returned for
+    this call but not published: storing the post-edit stats next to the
+    pre-edit closure would make the next lookup trust a stale include set.
+    A still-valid peer entry is kept instead of overwritten, so parallel
+    flag-sweep workers cannot clobber a fresher closure with a slower scan.
     """
     key = (source_content, source_dir, include_dirs, _search_dir_mtimes(source_dir, include_dirs))
     with _INCLUDE_CLOSURE_LOCK:
         cached = _INCLUDE_CLOSURE_MEMO.get(key)
     if cached is not None and _header_stats(cached[0]) == cached[2]:
         return cached[0], cached[1]
-    paths, fallback = _scan_include_closure(source_content, source_dir, include_dirs)
-    # Stat before storing: an edit racing the scan leaves a mismatch that the
-    # next lookup re-resolves instead of trusting.
-    stats = _header_stats(paths)
+    paths, fallback, observed, consistent = _scan_include_closure(
+        source_content, source_dir, include_dirs
+    )
+    if not consistent or _header_stats(paths) != observed:
+        return paths, fallback
     with _INCLUDE_CLOSURE_LOCK:
+        existing = _INCLUDE_CLOSURE_MEMO.get(key)
+        if existing is not None and _header_stats(existing[0]) == existing[2]:
+            return existing[0], existing[1]
+        if _header_stats(paths) != observed:
+            return paths, fallback
         if (
             len(_INCLUDE_CLOSURE_MEMO) >= _INCLUDE_CLOSURE_MEMO_MAX
             and key not in _INCLUDE_CLOSURE_MEMO
         ):
             _INCLUDE_CLOSURE_MEMO.pop(next(iter(_INCLUDE_CLOSURE_MEMO)), None)
-        _INCLUDE_CLOSURE_MEMO[key] = (paths, fallback, stats)
+        _INCLUDE_CLOSURE_MEMO[key] = (paths, fallback, observed)
     return paths, fallback
 
 
@@ -670,18 +700,27 @@ def _scan_include_closure(
     source_content: str,
     source_dir: str | None,
     include_dirs: tuple[str, ...],
-) -> tuple[tuple[str, ...], bool]:
-    """Uncached body of :func:`_resolve_include_paths`."""
+) -> tuple[tuple[str, ...], bool, tuple[tuple[int, int], ...], bool]:
+    """Uncached body of :func:`_resolve_include_paths`.
+
+    The third element is ``(mtime_ns, size)`` captured around each header
+    read, in the same order as the returned paths.  The fourth is False when
+    a header's stat changed between the read's bracketing stats — the bytes
+    and the snapshot do not describe the same file, so the caller must not
+    memoize them.
+    """
     search_dirs: list[Path] = []
     if source_dir:
         search_dirs.append(Path(source_dir))
     search_dirs += [Path(d) for d in include_dirs]
 
     reached: set[str] = set()
+    observed: dict[str, tuple[int, int]] = {}
     fallback = False
+    consistent = True
 
     def _scan(text: str, base_dir: Path | None) -> None:
-        nonlocal fallback
+        nonlocal fallback, consistent
         for kind, name in _iter_include_specs(text):
             if kind == "nonliteral" or not name:
                 fallback = True
@@ -701,15 +740,23 @@ def _scan_include_closure(
                 continue
             reached.add(found_str)
             try:
-                header_text = found.read_bytes().decode("utf-8", errors="surrogateescape")
+                before = found.stat()
+                raw = found.read_bytes()
+                after = found.stat()
             except OSError:
                 continue
+            if (before.st_mtime_ns, before.st_size) != (after.st_mtime_ns, after.st_size):
+                consistent = False
+            observed[found_str] = (after.st_mtime_ns, after.st_size)
+            header_text = raw.decode("utf-8", errors="surrogateescape")
             _scan(header_text, found.parent)
             if fallback:
                 return
 
     _scan(source_content, Path(source_dir) if source_dir else None)
-    return tuple(sorted(reached)), fallback
+    paths = tuple(sorted(reached))
+    stats = tuple(observed.get(p, (-1, -1)) for p in paths)
+    return paths, fallback, stats, consistent
 
 
 def _header_key_entries(

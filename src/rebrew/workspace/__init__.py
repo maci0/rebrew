@@ -35,6 +35,7 @@ from rebrew.workspace.db import (
     SECTION_CELLS_AGG_SQL,
     SECTION_CELLS_COLUMN,
     SECTION_CELLS_TABLE,
+    coverage_db_lock,
     db_version_matches,
     decode_section_cells,
     encode_section_cells,
@@ -48,6 +49,7 @@ from rebrew.workspace.va import VA_MAX, parse_va_candidates
 __all__ = [
     "CELLS_JSON_OBJECT_SQL",
     "CONFIG_NAME",
+    "coverage_db_lock",
     "DB_FILENAME",
     "DB_VERSION_KEY",
     "DEFAULT_DB_DIR",

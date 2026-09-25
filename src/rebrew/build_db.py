@@ -37,6 +37,7 @@ from rebrew.workspace import (
     SECTION_CELLS_AGG_SQL,
     SECTION_CELLS_COLUMN,
     SECTION_CELLS_TABLE,
+    coverage_db_lock,
     db_dir,
     encode_section_cells,
     open_sqlite_ro,
@@ -712,6 +713,30 @@ def build_db(
     db_dir.mkdir(parents=True, exist_ok=True)
     db_path = db_dir / "coverage.db"
 
+    # Exclusive across the version check, unlink, and rebuild.  Two build-db
+    # processes (or a dashboard reader) must not observe the file disappear
+    # out from under an open connection.
+    with coverage_db_lock(db_path):
+        _build_coverage_db(
+            root_dir,
+            db_path,
+            target=target,
+            json_output=json_output,
+            force=force,
+            regen=regen,
+        )
+
+
+def _build_coverage_db(
+    root_dir: Path,
+    db_path: Path,
+    *,
+    target: str | None,
+    json_output: bool,
+    force: bool,
+    regen: bool,
+) -> None:
+    """Body of :func:`build_db`.  Caller holds :func:`coverage_db_lock`."""
     _check_db_version(db_path, force=force, json_output=json_output)
 
     conn: sqlite3.Connection | None = None
@@ -1126,12 +1151,13 @@ def build_db(
                 console.print(f"Processing {tgt}...")
                 datasets.append((tgt, build_catalog_data(tgt_cfg)["data"]))
         else:
-            json_files = list(db_dir.glob("data_*.json"))
+            json_files = list(db_path.parent.glob("data_*.json"))
             if target:
                 json_files = [f for f in json_files if f.stem.removeprefix("data_") == target]
             if not json_files:
                 error_exit(
-                    f"No data_*.json files found in {db_dir}. Run 'rebrew catalog --data-json' first.",
+                    f"No data_*.json files found in {db_path.parent}. "
+                    "Run 'rebrew catalog --data-json' first.",
                     json_mode=json_output,
                     code=EXIT_ERROR,
                 )
