@@ -700,6 +700,7 @@ def import_shared_function(
     dst_file: str | None = None,
     dry_run: bool = False,
     cache: CacheBackend | None = None,
+    name_to_va: dict[str, int] | None = None,
 ) -> dict[str, Any]:
     """Import by stacking a destination marker onto the SHARED source file.
 
@@ -824,7 +825,7 @@ def import_shared_function(
         module=module,
         cflags=cflags,
     )
-    result = verify_entry(entry, cfg_dst, cache=cache)
+    result = verify_entry(entry, cfg_dst, cache=cache, name_to_va=name_to_va)
     # The stack is withdrawn when it did not verify AND the destination
     # already claims this VA from its own file: a rolled-back claim must not
     # promote/demote STATUS either — the stub's earned status stands.
@@ -897,6 +898,7 @@ def import_function(
     dst_file: str | None = None,
     dry_run: bool = False,
     cache: CacheBackend | None = None,
+    name_to_va: dict[str, int] | None = None,
 ) -> dict[str, Any]:
     """Import the matched source function *src_file* into the destination.
 
@@ -1065,7 +1067,7 @@ def import_function(
         module=module,
         cflags=cflags,
     )
-    result = verify_entry(entry, cfg_dst, cache=cache)
+    result = verify_entry(entry, cfg_dst, cache=cache, name_to_va=name_to_va)
     apply_status_updates([(entry, result.status, result.delta)], cfg_dst)
 
     action = "imported" if result.matched else "imported-unverified"
@@ -1275,6 +1277,16 @@ def main(
             )
         except OSError:
             cache = None
+    # Verification masks a typed relocation only when it can resolve the symbol,
+    # as `rebrew test` and `verify` do; build the destination's map once.
+    name_to_va: dict[str, int] | None = None
+    if not dry_run:
+        from rebrew.coff_reloc import CatalogScanError, build_name_to_va
+
+        try:
+            name_to_va = build_name_to_va(cfg)
+        except CatalogScanError as exc:
+            error_exit(str(exc), json_mode=json_output)
 
     results: list[dict[str, Any]] = []
     matched_vas = set(matches)
@@ -1395,6 +1407,7 @@ def main(
                 dst_file=dst_file or None,
                 dry_run=dry_run,
                 cache=cache,
+                name_to_va=name_to_va,
             )
             if shared
             else import_function(
@@ -1407,6 +1420,7 @@ def main(
                 dst_file=dst_file or None,
                 dry_run=dry_run,
                 cache=cache,
+                name_to_va=name_to_va,
             )
         )
         res["score"] = score
