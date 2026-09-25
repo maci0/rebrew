@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import io
 import os
+import stat
 import subprocess
 import sys
 import tarfile
+import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -88,3 +90,84 @@ class TestNormalizeSdist:
         assert result.returncode != 0
         assert "SOURCE_DATE_EPOCH" in result.stderr
         assert sdist.read_bytes() == before
+
+
+def _write_wheel(
+    path: Path,
+    *,
+    mode: int,
+    date: tuple[int, int, int, int, int, int],
+    reverse: bool,
+) -> None:
+    files = [("rebrew/b.py", b"print('b')\n"), ("rebrew/a.py", b"print('a')\n")]
+    if reverse:
+        files.reverse()
+    with zipfile.ZipFile(path, "w") as zf:
+        info = zipfile.ZipInfo(filename="rebrew/", date_time=date)
+        info.external_attr = (stat.S_IFDIR | 0o700) << 16
+        zf.writestr(info, b"")
+        for name, data in files:
+            info = zipfile.ZipInfo(filename=name, date_time=date)
+            info.compress_type = zipfile.ZIP_STORED
+            info.external_attr = (stat.S_IFREG | mode) << 16
+            zf.writestr(info, data)
+
+
+class TestNormalizeWheel:
+    def test_divergent_modes_and_order_yield_identical_bytes(self, tmp_path: Path) -> None:
+        first, second = tmp_path / "one.whl", tmp_path / "two.whl"
+        _write_wheel(first, mode=0o644, date=(2020, 1, 2, 3, 4, 6), reverse=False)
+        _write_wheel(second, mode=0o664, date=(2024, 6, 1, 12, 30, 8), reverse=True)
+        assert first.read_bytes() != second.read_bytes()
+
+        result = _run(first, second)
+
+        assert result.returncode == 0, result.stderr
+        assert first.read_bytes() == second.read_bytes()
+        again = _run(first)
+        assert again.returncode == 0, again.stderr
+        assert first.read_bytes() == second.read_bytes()
+
+    def test_metadata_normalized_and_contents_kept(self, tmp_path: Path) -> None:
+        wheel = tmp_path / "pkg.whl"
+        _write_wheel(wheel, mode=0o600, date=(2020, 1, 2, 3, 4, 6), reverse=True)
+
+        assert _run(wheel).returncode == 0
+
+        with zipfile.ZipFile(wheel) as zf:
+            names = zf.namelist()
+            assert names == ["rebrew/", "rebrew/a.py", "rebrew/b.py"]
+            modes = {(info.external_attr >> 16) & 0o777 for info in zf.infolist()}
+            assert modes == {0o755, 0o644}
+            assert zf.read("rebrew/b.py") == b"print('b')\n"
+            dates = {info.date_time for info in zf.infolist()}
+            assert dates == {(2023, 11, 14, 22, 13, 20)}
+
+    def test_epoch_zero_clamps_to_zip_floor(self, tmp_path: Path) -> None:
+        wheel = tmp_path / "pkg.whl"
+        _write_wheel(wheel, mode=0o644, date=(2020, 1, 2, 3, 4, 6), reverse=False)
+
+        assert _run(wheel, epoch="0").returncode == 0
+
+        with zipfile.ZipFile(wheel) as zf:
+            assert {info.date_time for info in zf.infolist()} == {(1980, 1, 1, 0, 0, 0)}
+
+    def test_missing_epoch_fails_loud(self, tmp_path: Path) -> None:
+        wheel = tmp_path / "pkg.whl"
+        _write_wheel(wheel, mode=0o644, date=(2020, 1, 2, 3, 4, 6), reverse=False)
+        before = wheel.read_bytes()
+
+        result = _run(wheel, epoch=None)
+
+        assert result.returncode != 0
+        assert "SOURCE_DATE_EPOCH" in result.stderr
+        assert wheel.read_bytes() == before
+
+    def test_unknown_suffix_fails_loud(self, tmp_path: Path) -> None:
+        other = tmp_path / "pkg.zip"
+        other.write_bytes(b"not a wheel")
+
+        result = _run(other)
+
+        assert result.returncode != 0
+        assert "expected a .tar.gz sdist or a .whl" in result.stderr

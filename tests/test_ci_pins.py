@@ -271,6 +271,13 @@ class TestCiPins:
         assert "make -C ../rebrew-repro build" in package_job
         assert "uv build" not in package_job
         assert "| tail" not in package_job
+        # umask must apply to the extract. Set after tar, it never reaches
+        # the source modes setuptools copies into the wheel.
+        assert re.search(
+            r"umask 077\n\s+mkdir \.\./rebrew-repro\n"
+            r"\s+git archive HEAD \| tar -x -C \.\./rebrew-repro",
+            package_job,
+        )
 
     def test_makefile_build_writes_buildinfo_and_cleans_residue(self) -> None:
         text = MAKEFILE.read_text(encoding="utf-8")

@@ -219,17 +219,18 @@ jobs:
           uv run --no-project --offline python -c "import json,sys; d=json.load(open('dist/rebrew.cdx.json')); assert d['bomFormat']=='CycloneDX'; assert len(d['components'])>10; print(len(d['components']), 'components')"
       - name: Verify wheel and sdist reproducibility (second build, other path)
         # Rebuild the same commit with `make build` from a `git archive` copy
-        # at a different path under a different TZ/locale/umask: both
-        # artifacts must be byte-identical, proving the Makefile pins (not the
-        # runner) own path, time, locale, and mode normalization.  The copy
-        # has no .git, so SOURCE_DATE_EPOCH must come from the env.
+        # at a different path under a different TZ/locale. Extract that copy
+        # under umask 077 so its file modes differ from the first checkout
+        # (git only stores the executable bit). Both artifacts must be
+        # byte-identical: the Makefile pins own path, time, locale, and mode.
+        # The copy has no .git, so SOURCE_DATE_EPOCH must come from the env.
         run: |
           set -euo pipefail
           SOURCE_DATE_EPOCH="$(git log -1 --pretty=%ct)"
           export SOURCE_DATE_EPOCH
+          umask 077
           mkdir ../rebrew-repro
           git archive HEAD | tar -x -C ../rebrew-repro
-          umask 077
           TZ=Asia/Tokyo LC_ALL=C.UTF-8 make -C ../rebrew-repro build
           for ext in whl tar.gz; do
             first_sha=$(sha256sum dist/*.$ext | cut -d' ' -f1)

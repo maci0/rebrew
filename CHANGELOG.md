@@ -1,6 +1,14 @@
 ## [Unreleased]
 
 ### Fixed
+- **Wheel bytes no longer follow the checkout umask.** setuptools copies
+  each source file's mode into the zip, and git fills the non-executable
+  bits from the umask, so umask 002 shipped 0664 entries and umask 022
+  shipped 0644. `RECORD` was always 0664. `make build` rewrites wheel
+  entries to 0644 (sorted, `SOURCE_DATE_EPOCH` mtimes) with
+  `tools/normalize_sdist.py`, the same step as the sdist. The package job
+  extracts the second build under umask 077 so the two trees disagree on
+  file mode before that rewrite.
 - **`cross-import` takes a twin whose destination inventory entry merges
   functions.**  A body that compiles shorter than the entry, matches every
   byte of it, and is followed by `0x90`/`0xCC` up to the next 16-byte

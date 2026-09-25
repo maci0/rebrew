@@ -11,11 +11,12 @@ check (`tools/gen_fixtures.py --check`) and an idempotency sweep over the
 offline `--json` CLI surface — a pre-commit hook-parity job (`make check` with
 the ruff and mypy hooks skipped, since the lint job runs them), a package job
 that builds the sdist/wheel via `make build` (SOURCE_DATE_EPOCH, umask 022, C/UTC,
-`PYTHONHASHSEED=0`, sdist tar metadata normalized by
-`tools/normalize_sdist.py`), checks both artifacts hash the same when
-`make build` reruns from a `git archive` copy at another path under another
-TZ/locale/umask, emits a CycloneDX 1.5 SBOM (`dist/rebrew.cdx.json` from
-`uv.lock` via `tools/generate_sbom.py`, with the MIT license on the rebrew
+`PYTHONHASHSEED=0`; `tools/normalize_sdist.py` rewrites sdist tar metadata and
+wheel entry modes), checks both artifacts hash the same when
+`make build` reruns from a `git archive` copy extracted under umask 077 at
+another path under another TZ and locale, emits a CycloneDX 1.5 SBOM
+(`dist/rebrew.cdx.json` from `uv.lock` via `tools/generate_sbom.py`, with the
+MIT license on the rebrew
 component and the optional copyleft expressions from `NOTICE`), writes `dist/rebrew.buildinfo`
 (uv/python/`.python-version`/setuptools parsed from `pyproject.toml` + epoch
 knobs, source commit and dirty flag), and installs the

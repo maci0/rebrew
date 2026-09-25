@@ -37,10 +37,11 @@ T ?= tests/test_annotation.py
 COV_FLOOR ?= 85
 
 # Reproducible package builds: honor SOURCE_DATE_EPOCH when set; otherwise use
-# the committer timestamp (or 0 for a non-git tree). Wheel builds with this set
-# are byte-identical across runs; `make build` then rewrites the sdist with
-# tools/normalize_sdist.py (sorted entries, fixed mtimes, 0:0 owner, fixed
-# modes) so it is byte-identical across checkouts too.
+# the committer timestamp (or 0 for a non-git tree). `make build` rewrites the
+# sdist and the wheel with tools/normalize_sdist.py (sorted entries, fixed
+# mtimes, fixed modes; sdist owner 0:0). Wheel modes otherwise follow the
+# checkout umask: setuptools copies each source file's mode, and git fills
+# the non-executable bits from umask.
 SOURCE_DATE_EPOCH ?= $(shell git log -1 --pretty=%ct 2>/dev/null)
 ifeq ($(strip $(SOURCE_DATE_EPOCH)),)
   override SOURCE_DATE_EPOCH := $(shell git log -1 --pretty=%ct 2>/dev/null)
@@ -210,8 +211,9 @@ cli-contract:
 	printf '%s\n' "$$help" | grep 'NEAR_MATCHING' >/dev/null; \
 	echo 'cli-contract OK'
 
-# Build sdist + wheel under a pinned umask/locale/timezone for deterministic
-# wheels (setuptools copies the umask-filtered file modes into wheel entries).
+# Build sdist + wheel under a pinned umask/locale/timezone. umask 022 fixes
+# modes of files the build creates; setuptools still copies checkout modes
+# for package files, so normalize_sdist.py rewrites both archives afterwards.
 # Drop prior package artifacts so a bumped version cannot leave multiple
 # wheels/sdists in dist/ (CI's package job expects exactly one of each), and
 # drop build/ + egg-info first: setuptools packs every file left in build/lib
@@ -241,7 +243,7 @@ build: ensure-uv
 	fi
 	umask 022 && SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) TZ=UTC LC_ALL=C PYTHONHASHSEED=0 \
 		uv build --build-constraints build-constraints.txt --require-hashes
-	SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) uv run --no-project --offline python tools/normalize_sdist.py dist/*.tar.gz
+	SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) uv run --no-project --offline python tools/normalize_sdist.py dist/*.tar.gz dist/*.whl
 	@rm -rf build rebrew.egg-info src/rebrew.egg-info
 	@set -eu; \
 	st=$$(sed -n 's/^requires = \["setuptools==\([0-9.][0-9.]*\)"\]/\1/p' pyproject.toml | head -n 1); \
