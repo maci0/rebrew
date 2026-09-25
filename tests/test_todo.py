@@ -1275,6 +1275,24 @@ class TestTodoCli:
         assert "99.6%" in result.output
         assert "100%" not in result.output
 
+    def test_item_size_is_the_annotated_size(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Sz is the SIZE verify compares (2115), not the inventory extent with
+        alignment padding (2128)."""
+        import json
+
+        result = self._invoke(
+            tmp_path,
+            monkeypatch,
+            ghidra_funcs=[FunctionEntry(va=0x1000, size=2128, name="f")],
+            existing={0x1000: {"status": "NEAR_MATCHING", "symbol": "f", "size": "2115"}},
+            covered_vas={0x1000: "f.c"},
+            args=["--json"],
+        )
+        items = [i for i in json.loads(result.output)["items"] if i["va"] == "0x00001000"]
+        assert [i["size"] for i in items] == [2115]
+
     def test_library_rows_leave_counts_and_denominator(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

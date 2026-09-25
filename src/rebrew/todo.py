@@ -279,12 +279,12 @@ def _collect_active_functions(
         info = existing.get(va, {})
         status = info.get("status", "STUB")
 
-        size = size_by_va.get(va) or 0
-        if not size:
-            try:
-                size = int(info.get("size") or 0)
-            except (TypeError, ValueError):
-                size = 0
+        # The annotated SIZE is what verify compares; the inventory extent
+        # can carry alignment padding or run into a missed neighbour.
+        try:
+            size = int(info.get("size") or 0) or size_by_va.get(va) or 0
+        except (TypeError, ValueError):
+            size = size_by_va.get(va) or 0
         name = info.get("symbol") or name_by_va.get(va) or f"FUN_{va:08x}"
         filename = info.get("filename", "")
 

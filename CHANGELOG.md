@@ -47,6 +47,9 @@
   kept every target's `library_*.h` rows, so `verify` and `catalog` on
   `server.dll` counted a client's D3DX8 list (1582 library entries where
   `status` has 305).
+- **`todo` shows the SIZE `verify` compares**, not the inventory extent
+  with alignment padding (guild-rebrew `CrashDumpUnhandledExceptionFilter`:
+  2115 bytes, shown as 2128).
 
 ## [2.8.0] - 2026-09-25
 ### Added
