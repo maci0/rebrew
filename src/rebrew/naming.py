@@ -297,11 +297,20 @@ def load_data(
             }
             covered_vas[entry.va] = rel_name
 
-    # Scan library_*.h files for identified CRT/zlib functions
+    # Scan library_*.h files for identified CRT/zlib functions.  A shared tree
+    # holds every target's headers, so a marker counts only when its module is
+    # this target's marker or one of its external_libs; another target's
+    # LIBRARY marker at the same VA must not replace this target's function.
+    marker = target_marker(cfg)
+    own_modules = {m.upper() for m in (getattr(cfg, "external_libs", None) or ())}
+    if marker:
+        own_modules.add(marker.upper())
     for hfile in iter_library_headers(src_dir, cfg):
         lib_entries = parse_library_header(hfile, metadata_dir=cfg.metadata_dir)
         for entry in lib_entries:
             if entry.va < min_valid_va_for(cfg):
+                continue
+            if marker and (entry.module or "").upper() not in own_modules:
                 continue
             existing[entry.va] = {
                 "filename": hfile.name,
