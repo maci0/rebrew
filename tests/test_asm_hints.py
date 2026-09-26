@@ -26,7 +26,7 @@ TEXT_VA = 0x401000
 
 
 def _insns(hex_bytes: str) -> list[object]:
-    md = _capstone(skipdata=True)
+    md = _capstone()
     return list(md.disasm(bytes.fromhex(hex_bytes), TEXT_VA))
 
 

@@ -345,25 +345,27 @@ class TestInsideExtent:
     """A candidate in an outer unwind tail stays covered past a nested extent."""
 
     def test_outer_tail_past_a_nested_extent_is_inside(self) -> None:
-        from rebrew.discover import _inside_an_extent
+        from rebrew.discover import _extent_contains
 
         extents = [(0x1000, 0x300), (0x1100, 0x20)]
-        assert _inside_an_extent(extents, 0x1200) is True
+        assert _extent_contains(extents)(0x1200) is True
 
     def test_a_function_start_is_not_inside_itself(self) -> None:
-        from rebrew.discover import _inside_an_extent
+        from rebrew.discover import _extent_contains
 
         # Nested start 0x1100 sits inside the outer [0x1000, 0x1200).
         extents = [(0x1000, 0x200), (0x1100, 0x20)]
-        assert _inside_an_extent(extents, 0x1100) is True
-        assert _inside_an_extent(extents, 0x1000) is False
+        inside = _extent_contains(extents)
+        assert inside(0x1100) is True
+        assert inside(0x1000) is False
 
     def test_adjacent_extents_do_not_swallow_the_next_start(self) -> None:
-        from rebrew.discover import _inside_an_extent
+        from rebrew.discover import _extent_contains
 
         extents = [(0x1000, 0x100), (0x1100, 0x100)]
-        assert _inside_an_extent(extents, 0x1100) is False
-        assert _inside_an_extent(extents, 0x1150) is True
+        inside = _extent_contains(extents)
+        assert inside(0x1100) is False
+        assert inside(0x1150) is True
 
 
 class TestUleb128:

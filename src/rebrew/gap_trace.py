@@ -219,7 +219,7 @@ def main(
 
     from rebrew.analysis import _capstone
 
-    md = _capstone(skipdata=True, info=info)
+    md = _capstone(info)
     obj_seq: list[tuple[int, bytes, str, str]] = []
     for body, rels in _obj_text_sections(obj_path):
         for insn in md.disasm(body, va_int):

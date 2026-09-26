@@ -983,9 +983,6 @@ def _zero_fill_tail_checker(cfg: ProjectConfig) -> Callable[[dict[str, Any]], bo
         if not sections:
             return False
         sec = sections.get(section)
-        if not sections:
-            return False
-        sec = sections.get(section)
         if sec is None:
             return False
         try:

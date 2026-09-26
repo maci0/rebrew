@@ -515,12 +515,6 @@ def find_extern_variables(source: str, *, include_definitions: bool = False) -> 
                     and _node_text(child, src_bytes) == "extern"
                 ):
                     has_extern = True
-                # Check for __declspec(dllimport) — skip these
-                if child.type == "declaration_specifiers" or child.type == "ms_declspec_modifier":
-                    text = _node_text(child, src_bytes)
-                    if "dllimport" in text:
-                        has_dllimport = True
-                # Also check top-level children for __declspec
                 text = _node_text(child, src_bytes)
                 if "dllimport" in text:
                     has_dllimport = True

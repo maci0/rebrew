@@ -109,17 +109,16 @@ class StringEntry:
 _capstone_tls = threading.local()
 
 
-def _capstone(skipdata: bool = False, info: BinaryInfo | None = None) -> Any:
+def _capstone(info: BinaryInfo | None = None) -> Any:
     """Return a capstone ``Cs`` disassembler.
 
     Defaults to x86-32.  A ``BinaryInfo`` selects the arch, the x86 bitness
     (NE/MZ → 16-bit), and the image endianness through
-    :func:`rebrew.binary_loader.capstone_config_for`.  With *skipdata* set,
-    undecodable bytes are emitted as ``.byte`` pseudo instructions instead of
-    terminating the linear scan — required for real binaries whose code
-    contains embedded data.
+    :func:`rebrew.binary_loader.capstone_config_for`.  Undecodable bytes are
+    emitted as ``.byte`` pseudo instructions instead of terminating the
+    linear scan — required for real binaries whose code contains embedded data.
 
-    Instances are cached per thread keyed on (arch, mode, skipdata).
+    Instances are cached per thread keyed on (arch, mode).
     """
     try:
         from capstone import CS_ARCH_X86, CS_MODE_32, Cs
@@ -134,14 +133,13 @@ def _capstone(skipdata: bool = False, info: BinaryInfo | None = None) -> Any:
     if cache is None:
         cache = {}
         _capstone_tls.cache = cache
-    key = (cs_arch, mode, skipdata)
+    key = (cs_arch, mode)
     md = cache.get(key)
     if md is None:
         md = Cs(cs_arch, mode)
         md.detail = True
-        if skipdata:
-            md.skipdata = True
-            md.skipdata_setup = ("db", None, None)
+        md.skipdata = True
+        md.skipdata_setup = ("db", None, None)
         cache[key] = md
     return md
 
@@ -246,13 +244,12 @@ def _op_constants() -> tuple[Any, Any, Any]:
 def iter_instructions(info: BinaryInfo, va: int, size: int) -> list[Insn]:
     """Disassemble *size* bytes at *va*, returning ``Insn`` records.
 
-    Disassembly stops at the first invalid byte (capstone ``stop`` callback
-    semantics).
+    Undecodable bytes are emitted as ``.byte`` rather than ending the scan.
     """
     if size <= 0:
         return []
     raw = extract_bytes(info, va, size)
-    md = _capstone(skipdata=True, info=info)
+    md = _capstone(info)
     out: list[Insn] = []
     for insn in md.disasm(raw, va):
         out.append(
@@ -345,7 +342,7 @@ def scan_references(
     binaries, else ``[".text"]``).
     """
     names = section_names if section_names is not None else _default_scan_sections(info)
-    md = _capstone(skipdata=True, info=info)
+    md = _capstone(info)
     xrefs: list[Xref] = []
     for name in names:
         rng = section_range(info, name)
@@ -386,7 +383,7 @@ def data_references(info: BinaryInfo, va: int, size: int) -> list[Xref]:
     raw = extract_bytes(info, va, size)
     if not raw:
         return []
-    md = _capstone(skipdata=True, info=info)
+    md = _capstone(info)
     # NE code segments carry a 2-byte Borland index marker before the
     # instruction stream, the same offset scan_references skips.
     start = 2 if info.format == "ne" and len(raw) > 2 else 0

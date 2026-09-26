@@ -310,11 +310,6 @@ def _extent_contains(extents: list[tuple[int, int]]) -> Callable[[int], bool]:
     return contains
 
 
-def _inside_an_extent(extents: list[tuple[int, int]], va: int) -> bool:
-    """True when *va* falls strictly inside one of the sorted ``(start, size)`` *extents*."""
-    return _extent_contains(extents)(va)
-
-
 def _discover_ne_loader(binary: Path) -> list[tuple[int, int, str]]:
     """Packaged discoverer: 16-bit NE native loader (None unless NE)."""
     from rebrew.binary_loader import is_ne, load_binary
