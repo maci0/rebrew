@@ -761,8 +761,14 @@ def _show_ga_history(cfg: ProjectConfig, json_output: bool, *, target: str = "")
     if json_output:
         json_print(summary)
         return
+    from rebrew.present import ratio_bar
+
     console.print(f"[bold]GA run history[/bold] ({target or 'all targets'}):")
-    console.print(f"  Total runs: {total}   Matched: {matched} ({summary['matched_pct']:.1f}%)")
+    console.print(
+        f"  Total runs: {total}   Matched: {matched} ({summary['matched_pct']:.1f}% of runs)"
+    )
+    if total:
+        console.print(ratio_bar(matched, total))
     if scored:
         console.print(
             f"  Score (0 = exact): avg {summary['avg_score']:.2f}, best {summary['best_score']:.2f}"

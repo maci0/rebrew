@@ -33,8 +33,8 @@ commit cannot be checked.
 ```bash
 # from the directory that will hold both checkouts:
 git clone https://github.com/maci0/rebrew.git
-git clone --depth 1 --branch v2.0.0 https://github.com/maci0/resembl.git
 cd rebrew
+make clone-resembl            # clones sibling resembl pin (tag v2.0.0) into ../resembl
 make setup                    # uv sync --frozen --all-extras --group similarity + pre-commit/pre-push hooks
 make test-one T=tests/test_annotation.py   # smoke the edit-test loop
 ```
@@ -47,6 +47,7 @@ GPLv3 `resembl`). Rebrew's own source stays under [`LICENSE`](LICENSE).
 
 ```bash
 make help                     # list contributor make targets
+make clone-resembl            # clone sibling resembl pin into ../resembl (required for uv sync)
 make setup                    # frozen sync + pre-commit install (checks uv + ../resembl first)
 make clean                    # remove build/dist artifacts and caches
 make test-one T=tests/test_annotation.py  # single file / nodeid (fast edit-test loop; defaults to test_annotation.py)

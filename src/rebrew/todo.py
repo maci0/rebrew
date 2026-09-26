@@ -49,6 +49,7 @@ from rebrew.naming import (
     load_data,
     parse_byte_delta,
 )
+from rebrew.present import ratio_bar
 from rebrew.status import effective_status
 from rebrew.utils import floor_pct
 from rebrew.workspace.status import MATCHED_STATUSES
@@ -1329,6 +1330,10 @@ def main(
         )
         return
 
+    if denominator > 0:
+        # One bar for this percentage. Per-row Match % is a different quantity.
+        render_matched_headline(exact + reloc, denominator)
+
     if stats or not display_items:
         # Show coverage stats header
         console.print(
@@ -1403,6 +1408,13 @@ def main(
     console.print(
         "  Tip: use [bold]rebrew todo -c <category>[/bold] to filter  |  [bold]rebrew todo -s[/bold] for stats"
     )
+
+
+def render_matched_headline(matched: int, total: int) -> None:
+    """Print the byte-matched percentage and a bar of that same ratio."""
+    pct = floor_pct(matched, total)
+    console.print(f"  [bold]{pct}% byte-matched[/bold]")
+    console.print(ratio_bar(matched, total))
 
 
 def main_entry() -> None:

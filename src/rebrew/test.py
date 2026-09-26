@@ -74,6 +74,7 @@ from rebrew.metadata import (
     update_field,
     update_source_status,
 )
+from rebrew.present import bar_plain
 from rebrew.sources import (
     target_marker,
 )
@@ -1891,14 +1892,7 @@ def print_test_summary(deferred: list[tuple[Annotation, str, int]], total_files:
         f"  [bold]{len(transitions)}[/bold] functions tested across {total_files} file(s)"
     )
     console.print()
-    for status in DISPLAY_STATUSES:
-        count = result_counts.get(status, 0)
-        if count == 0:
-            continue
-        color = STATUS_COLORS.get(status, "white")
-        pct = round(100.0 * count / len(transitions), 1)
-        bar = "█" * max(int(20 * count / len(transitions)), 1)
-        console.print(f"  [{color}]{status:12s}  {count:4d}  ({pct:5.1f}%)  {bar}[/{color}]")
+    print_batch_status_rows(result_counts, len(transitions))
     for status in sorted(set(result_counts) - set(DISPLAY_STATUSES)):
         console.print(f"  [dim]{status:12s}  {result_counts[status]:4d}[/dim]")
     if transition_counts:
@@ -1913,6 +1907,18 @@ def print_test_summary(deferred: list[tuple[Annotation, str, int]], total_files:
         console.print()
         console.print("  [dim]No status changes.[/dim]")
     console.print()
+
+
+def print_batch_status_rows(result_counts: dict[str, int], total: int) -> None:
+    """Print one 40-cell bar per status, as that status's share of *total*."""
+    for status in DISPLAY_STATUSES:
+        count = result_counts.get(status, 0)
+        if count == 0 or total <= 0:
+            continue
+        color = STATUS_COLORS.get(status, "white")
+        pct = round(100.0 * count / total, 1)
+        bar = bar_plain(count, total)
+        console.print(f"  [{color}]{status:12s}  {count:4d}  ({pct:5.1f}%)  {bar}[/{color}]")
 
 
 def main_entry() -> None:

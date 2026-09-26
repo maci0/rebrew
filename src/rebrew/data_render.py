@@ -9,9 +9,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from rich.console import Console
+from rich.console import Console, Group
 from rich.panel import Panel
 from rich.table import Table
+from rich.text import Text
+
+from rebrew.present import bar_plain, count_column, ratio_bar
 
 if TYPE_CHECKING:
     from rebrew.data_scan import BssReport, DispatchTable, ScanResult
@@ -31,6 +34,8 @@ def render_dispatch(console: Console, tables: list[DispatchTable]) -> None:
         f"[bold]{total_entries}[/] total entries, "
         f"[bold]{total_resolved}[/] resolved {coverage_str}"
     )
+    if total_entries:
+        summary_body += "\n" + bar_plain(total_resolved, total_entries)
     console.print(Panel(summary_body, title="Dispatch Tables"))
 
     for tbl in tables:
@@ -76,7 +81,9 @@ def render_bss(console: Console, report: BssReport) -> None:
         Panel(
             f"BSS at [bold]0x{report.bss_va:08x}[/], size [bold]{report.bss_size:,}[/] bytes\n"
             f"Known globals: [bold]{len(report.known_entries)}[/], "
-            f"coverage: [bold]{report.coverage_pct:.1f}%[/] ({report.coverage_bytes:,}B of {report.bss_size:,}B)\n"
+            f"coverage: [bold]{report.coverage_pct:.1f}%[/] of .bss "
+            f"({report.coverage_bytes:,}B of {report.bss_size:,}B)\n"
+            f"{bar_plain(report.coverage_bytes, report.bss_size)}\n"
             f"Gaps detected: [bold]{('[red]' + str(len(report.gaps)) + '[/red]') if report.gaps else '[green]0[/green]'}[/]",
             title="[bold]BSS Layout Verification[/]",
             border_style="blue",
@@ -203,17 +210,26 @@ def render_summary(console: Console, scan: ScanResult, sections: dict[str, dict[
     """Print section-level summary."""
     rows = section_summary(scan, sections)
 
-    tbl = Table(show_header=True, header_style="bold", box=None, padding=(0, 2))
-    tbl.add_column("Section")
-    tbl.add_column("Globals", justify="right")
-    tbl.add_column("Annotated", justify="right")
-    tbl.add_column("Bytes", justify="right")
-    tbl.add_column("% Coverage", justify="right")
+    tbl = Table(
+        show_header=True,
+        header_style="bold",
+        box=None,
+        padding=(0, 1),
+        pad_edge=False,
+        expand=False,
+    )
+    tbl.add_column("Section", no_wrap=True)
+    count_column(tbl, "Globals", width=8)
+    count_column(tbl, "Annotated", width=10)
+    count_column(tbl, "Bytes", width=28)
+    count_column(tbl, "% Coverage", width=11)
 
+    bars: list[Text] = []
     for row in rows:
         sec_name = row["name"]
-        size_str = f"{row['section_size']:,}B" if row["section_size"] else "—"
-        coverage_str = f"{row['coverage_pct']}%" if row["section_size"] else "—"
+        size = int(row["section_size"] or 0)
+        size_str = f"{size:,}B" if size else "—"
+        coverage_str = f"{row['coverage_pct']}%" if size else "—"
         tbl.add_row(
             sec_name,
             str(row["globals"]),
@@ -221,6 +237,12 @@ def render_summary(console: Console, scan: ScanResult, sections: dict[str, dict[
             f"{row['annotated_bytes']:,}B / {size_str}",
             coverage_str,
         )
+        if size:
+            # Each section is its own whole, so the bar is that section's ratio.
+            label = Text()
+            label.append(f"{sec_name}  {coverage_str} of section", style="dim")
+            bars.append(label)
+            bars.append(ratio_bar(row["annotated_bytes"], size))
 
     annotated = sum(1 for g in scan.globals.values() if g.annotated)
     total = len(scan.globals)
@@ -231,7 +253,12 @@ def render_summary(console: Console, scan: ScanResult, sections: dict[str, dict[
         subtitle += f" — [red]{conflicts} type conflicts[/]"
 
     console.print(
-        Panel(tbl, title="[bold]Data Section Summary[/]", subtitle=subtitle, border_style="green")
+        Panel(
+            Group(tbl, *bars),
+            title="[bold]Data Section Summary[/]",
+            subtitle=subtitle,
+            border_style="green",
+        )
     )
 
 

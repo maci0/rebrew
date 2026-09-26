@@ -26,6 +26,7 @@ CI entry point, no real project needed.  Also importable for tests::
 
 from __future__ import annotations
 
+import contextlib
 import json
 import shutil
 import subprocess
@@ -68,6 +69,12 @@ def write_fixture_project(project_dir: Path) -> Path:
     a rebrew-project.toml plus one STUB source — enough for every offline
     ``--json`` command to run against real files.
     """
+    if project_dir.exists():
+        for p in project_dir.rglob("*"):
+            if not p.is_symlink() and p.is_file():
+                with contextlib.suppress(OSError):
+                    p.chmod(0o666)
+        shutil.rmtree(project_dir, ignore_errors=True)
     project_dir.mkdir(parents=True, exist_ok=True)
     (project_dir / "original").mkdir(exist_ok=True)
     (project_dir / "src" / "SERVER").mkdir(parents=True, exist_ok=True)
@@ -118,6 +125,46 @@ def _run(cmd: str, cwd: Path) -> tuple[int, str]:
     return proc.returncode, proc.stdout
 
 
+def check_command_idempotency(cmd: str, cwd: Path) -> tuple[bool, str]:
+    """Run *cmd* twice and return (identical, diff_explanation)."""
+    code1, out1 = _run(cmd, cwd)
+    code2, out2 = _run(cmd, cwd)
+    if code1 != code2:
+        return False, f"exit code mismatch: first run exited {code1}, second run exited {code2}"
+    try:
+        norm1 = _normalize(json.loads(out1))
+        norm2 = _normalize(json.loads(out2))
+        if norm1 != norm2:
+            import difflib
+
+            dump1 = json.dumps(norm1, indent=2, sort_keys=True).splitlines()
+            dump2 = json.dumps(norm2, indent=2, sort_keys=True).splitlines()
+            diff = list(
+                difflib.unified_diff(dump1, dump2, fromfile="run1", tofile="run2", lineterm="")
+            )
+            diff_text = "\n".join(diff[:20])
+            if len(diff) > 20:
+                diff_text += f"\n... ({len(diff) - 20} more diff lines)"
+            return False, f"JSON output mismatch:\n{diff_text}"
+        return True, ""
+    except json.JSONDecodeError:
+        if out1 != out2:
+            import difflib
+
+            diff = list(
+                difflib.unified_diff(
+                    out1.splitlines(),
+                    out2.splitlines(),
+                    fromfile="run1",
+                    tofile="run2",
+                    lineterm="",
+                )
+            )
+            diff_text = "\n".join(diff[:20])
+            return False, f"output mismatch:\n{diff_text}"
+        return True, ""
+
+
 def outputs_identical(cmd: str, cwd: Path) -> bool:
     """Run *cmd* twice and return True when the JSON outputs match.
 
@@ -125,15 +172,8 @@ def outputs_identical(cmd: str, cwd: Path) -> bool:
     compared too, so a command that fails the same way both times is still
     deterministic.
     """
-    code1, out1 = _run(cmd, cwd)
-    code2, out2 = _run(cmd, cwd)
-    if code1 != code2:
-        return False
-    try:
-        return bool(_normalize(json.loads(out1)) == _normalize(json.loads(out2)))
-    except json.JSONDecodeError:
-        # Non-JSON output: compare bytes verbatim.
-        return out1 == out2
+    ok, _ = check_command_idempotency(cmd, cwd)
+    return ok
 
 
 DEFAULT_COMMANDS = [
@@ -184,16 +224,21 @@ def main(argv: list[str] | None = None) -> int:
     from concurrent.futures import ThreadPoolExecutor
 
     failed = 0
+    failures: list[tuple[str, str]] = []
     with ThreadPoolExecutor(max_workers=8) as pool:
-        outcomes = list(pool.map(lambda cmd: (cmd, outputs_identical(cmd, cwd)), commands))
-    for cmd, ok in outcomes:
+        outcomes = list(pool.map(lambda cmd: (cmd, *check_command_idempotency(cmd, cwd)), commands))
+    for cmd, ok, reason in outcomes:
         marker = "PASS" if ok else "FAIL"
         print(f"[{marker}] {cmd}")
         if not ok:
             failed += 1
+            failures.append((cmd, reason))
 
     if failed:
-        print(f"\n{failed} command(s) produced non-identical output across two runs.")
+        print(f"\n{failed} command(s) produced non-identical output across two runs:")
+        for cmd, reason in failures:
+            print(f"\n--- {cmd} ---")
+            print(reason)
         return 1
     print(f"\nAll {len(commands)} command(s) deterministic.")
     return 0

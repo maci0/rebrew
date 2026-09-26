@@ -1902,7 +1902,7 @@ def _print_summary(results: list[LintResult]) -> None:
     table = Table(title="Summary", show_lines=False, pad_edge=False)
     table.add_column("Category", style="bold")
     table.add_column("Value")
-    table.add_column("Count", justify="right")
+    table.add_column("Count", justify="right", width=8, no_wrap=True)
 
     for status, count in sorted(status_counts.items(), key=lambda x: -x[1]):
         table.add_row("STATUS", status, str(count))

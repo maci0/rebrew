@@ -1248,46 +1248,51 @@ def main(
     if json_output:
         json_print(report.to_dict())
     else:
-        table = Table(show_header=True, header_style="bold", pad_edge=False)
-        table.add_column("", width=2)
-        table.add_column("Check", width=20)
-        table.add_column("Message", no_wrap=False)
-        table.add_column("Fix", no_wrap=False, style="dim")
-
-        for check in report.checks:
-            icon = _STATUS_ICONS.get(check.status, "?")
-            style = _STATUS_STYLES.get(check.status, "")
-            table.add_row(
-                icon,
-                Text(check.name, style=style),
-                Text(check.message, style=style),
-                Text(check.fix or ""),
-            )
-
-        parts = []
-        if report.pass_count:
-            parts.append(f"[green]{report.pass_count} passed[/green]")
-        if report.fail_count:
-            parts.append(f"[red]{report.fail_count} failed[/red]")
-        if report.warn_count:
-            parts.append(f"[yellow]{report.warn_count} warnings[/yellow]")
-
-        border = "green" if report.passed else "red"
-        panel = Panel(
-            table,
-            title=f"Rebrew Doctor — target: {report.target}",
-            subtitle="  ".join(parts),
-            border_style=border,
-        )
-        console.print(panel)
-
-        if report.passed:
-            console.print("[green]  Project looks healthy![/green]")
-        else:
-            console.print("[red]  Issues found. Fix the failures above and re-run.[/red]")
+        render_doctor(report)
 
     if not report.passed:
         raise typer.Exit(code=EXIT_MISMATCH)
+
+
+def render_doctor(report: DoctorReport) -> None:
+    """Print the doctor panel. The title is the target name, not a filesystem path."""
+    table = Table(show_header=True, header_style="bold", pad_edge=False, expand=False)
+    table.add_column("", width=2, no_wrap=True)
+    table.add_column("Check", width=20, no_wrap=True, overflow="ellipsis")
+    table.add_column("Message", overflow="fold")
+    table.add_column("Fix", overflow="fold", style="dim")
+
+    for check in report.checks:
+        icon = _STATUS_ICONS.get(check.status, "?")
+        style = _STATUS_STYLES.get(check.status, "")
+        table.add_row(
+            icon,
+            Text(check.name, style=style),
+            Text(check.message, style=style),
+            Text(check.fix or ""),
+        )
+
+    parts = []
+    if report.pass_count:
+        parts.append(f"[green]{report.pass_count} passed[/green]")
+    if report.fail_count:
+        parts.append(f"[red]{report.fail_count} failed[/red]")
+    if report.warn_count:
+        parts.append(f"[yellow]{report.warn_count} warnings[/yellow]")
+
+    border = "green" if report.passed else "red"
+    panel = Panel(
+        table,
+        title=f"Rebrew Doctor — target: {report.target}",
+        subtitle="  ".join(parts),
+        border_style=border,
+    )
+    console.print(panel)
+
+    if report.passed:
+        console.print("[green]  Project looks healthy![/green]")
+    else:
+        console.print("[red]  Issues found. Fix the failures above and re-run.[/red]")
 
 
 def main_entry() -> None:

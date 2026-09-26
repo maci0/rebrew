@@ -1404,20 +1404,21 @@ class TestRenderTerminal:
         assert "3 source files" in out
 
     def test_headline_is_byte_matched(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """One progress percentage: the .text share, in the headline and the
-        footer. Function progress is a count. PROVEN has its own line."""
+        """One progress percentage: the .text share, pictured by the bar.
+        Function progress is a count. PROVEN has its own line."""
         from rebrew.status import _render_terminal
 
         buf = self._capture(monkeypatch)
         _render_terminal(self._report())
         out = buf.getvalue()
-        assert "Byte-matched  50.0% of .text  (512B / 1,024B)  EXACT+RELOC" in out
-        assert "Functions     5/10 EXACT+RELOC" in out
+        assert "50.0% of .text" in out
+        assert "512B / 1,024B" in out
+        assert "Functions  5/10" in out
         assert "With source" in out
         assert "6/10" in out
         assert "(60.0%)" not in out
         assert "(50.0%)" not in out
-        assert out.count("50.0% of .text") == 2
+        assert out.count("50.0% of .text") == 1
         assert "1 PROVEN  semantically equivalent, bytes still differ (not byte-matched)" in out
         assert "blocked" not in out
         assert "reversed" not in out
@@ -1442,8 +1443,8 @@ class TestRenderTerminal:
         )
         out = buf.getvalue()
         assert "96.4% of .text" in out
-        assert out.count("96.4% of .text") == 2
-        assert "261/262 EXACT+RELOC" in out
+        assert out.count("96.4% of .text") == 1
+        assert "261/262" in out
         assert "99.6%" not in out
 
     def test_data_block_sits_with_functions(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1455,18 +1456,24 @@ class TestRenderTerminal:
         report = self._report()
         report.data_verified = 2
         report.data_unchecked = 2
+        report.data_verified_bytes = 100
+        report.data_total_bytes = 200
         report.data_sections = {
             ".rdata": {"verified": 0, "drift": 0, "unchecked": 1},
             ".data": {"verified": 2, "drift": 0, "unchecked": 1},
         }
         _render_terminal(report)
         out = buf.getvalue()
-        assert "Data          2/4 verified" in out
+        assert "50.0% of data" in out
+        assert "100B / 200B" in out
+        assert "2/4 verified" in out
         assert "VERIFIED" in out
         assert "UNCHECKED" in out
         assert "DRIFT" not in out
-        assert ".data         2/3 verified" in out
-        assert ".rdata        0/1 verified" in out
+        data_row = next(line for line in out.splitlines() if ".data" in line)
+        rdata_row = next(line for line in out.splitlines() if ".rdata" in line)
+        assert "2/3" in data_row
+        assert "0/1" in rdata_row
         # .data before .rdata, the section order, not alphabetical.
         assert out.index(".data") < out.index(".rdata")
         assert "50.0% of .text" in out
@@ -1560,6 +1567,23 @@ class TestCollectStatusSizeFallback:
         assert report.status_counts.get("EXACT") == 1
         # Size came from the annotation metadata, not Ghidra.
         assert report.matched_bytes == 100
+
+
+class TestDataByteCoverage:
+    def test_overlap_counts_once_and_clips_to_the_range(self) -> None:
+        from rebrew.status import data_byte_coverage
+
+        covered, total = data_byte_coverage(
+            [(0, 40), (30, 50), (90, 120)],
+            [(0, 100)],
+        )
+        assert total == 100
+        assert covered == 60
+
+    def test_empty_range(self) -> None:
+        from rebrew.status import data_byte_coverage
+
+        assert data_byte_coverage([(0, 10)], []) == (0, 0)
 
 
 class TestDataVerdicts:
@@ -1659,8 +1683,8 @@ class TestInlineTableKeyWarning:
 
 
 class TestRenderTerminalBarClamping:
-    def test_coverage_overflow_clamps_the_bar(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """150 covered of 100 is 150%: the 40-cell bar must stay 40 cells.
+    def test_matched_overflow_clamps_the_bar(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """150 matched of 100 is 150%: the 40-cell bar must stay 40 cells.
 
         ``"█" * n`` does not raise for n > 40, so a render that merely
         returns is not evidence the overflow was clamped.
@@ -1673,13 +1697,45 @@ class TestRenderTerminalBarClamping:
             binary="test.exe",
             arch="x86_32",
             total_functions=100,
-            covered_functions=150,
-            status_counts={},
+            covered_functions=100,
+            status_counts={"EXACT": 150},
             module_status={},
         )
         _render_terminal(report)
         out = buf.getvalue()
-        assert "150/100" in out
-        assert "(150.0%)" not in out
-        assert out.count("█") == 40
-        assert "░" not in out
+        assert "150/100 functions  (150.0%)" in out
+        bar = next(
+            "".join(ch for ch in line if ch in "█░")
+            for line in out.splitlines()
+            if "█" in line or "░" in line
+        )
+        assert bar.count("█") == 40
+        assert "░" not in bar
+
+    def test_function_bar_matches_the_matched_count(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """With no .text size the bar is matched/total, not covered/total.
+
+        2 EXACT of 10 functions is 20%: 8 filled cells and 32 empty. A bar
+        of the 10 covered functions would be solid.
+        """
+        from rebrew.status import StatusReport, _render_terminal
+
+        buf = TestRenderTerminal()._capture(monkeypatch)
+        _render_terminal(
+            StatusReport(
+                target="test",
+                binary="test.exe",
+                total_functions=10,
+                covered_functions=10,
+                total_text_bytes=0,
+                status_counts={"EXACT": 2},
+            )
+        )
+        out = buf.getvalue()
+        assert "2/10 functions  (20.0%)" in out
+        bar = next(
+            "".join(ch for ch in line if ch in "█░")
+            for line in out.splitlines()
+            if "█" in line or "░" in line
+        )
+        assert bar == "█" * 8 + "░" * 32

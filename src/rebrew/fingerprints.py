@@ -443,7 +443,7 @@ def main(
         json_print(bundle)
         return
 
-    table = Table(title=f"Fingerprint: {binary}")
+    table = Table(title=f"Fingerprint: {binary.name}", expand=False, pad_edge=False)
     table.add_column("Field", style="bold")
     table.add_column("Value", overflow="fold")
     for key, value in bundle.items():
