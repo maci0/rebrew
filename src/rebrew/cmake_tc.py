@@ -35,7 +35,13 @@ import typer
 
 from rebrew.cli import console, error_exit, json_print
 from rebrew.toolchain import TOOLCHAINS, ToolchainSpec, kill_container
-from rebrew.utils import container_runtime, file_lock, load_tomllib, xdg_cache_home
+from rebrew.utils import (
+    atomic_write_text,
+    container_runtime,
+    file_lock,
+    load_tomllib,
+    xdg_cache_home,
+)
 from rebrew.workspace import walk_up_to_root
 
 app = typer.Typer(
@@ -466,7 +472,7 @@ set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
 """
     out_dir.mkdir(parents=True, exist_ok=True)
     out = out_dir / f"toolchain-{name}-docker.cmake"
-    out.write_text(text, encoding="utf-8")
+    atomic_write_text(out, text, encoding="utf-8")
     return out
 
 

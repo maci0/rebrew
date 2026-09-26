@@ -1077,6 +1077,37 @@ class TestHitMissCounters:
         assert info["session_hit_rate_pct"] == 100.0
         cache.close()
 
+    def test_stats_concurrent_atomic_counters(self, tmp_path: Path) -> None:
+        """Concurrent lookups and stats() reads must never observe torn counters."""
+        import threading
+
+        cache = CompileCache(tmp_path / "cc")
+        cache.put("hit", b"\x01")
+        stop = threading.Event()
+
+        def _worker() -> None:
+            while not stop.is_set():
+                cache.get("hit")
+                cache.get("miss")
+
+        threads = [threading.Thread(target=_worker) for _ in range(4)]
+        for t in threads:
+            t.start()
+        try:
+            for _ in range(50):
+                info = cache.stats()
+                hits = info["session_hits"]
+                misses = info["session_misses"]
+                total = hits + misses
+                expected_rate = round(100.0 * hits / total, 1) if total > 0 else 0.0
+                assert info["session_hit_rate_pct"] == expected_rate
+                assert info["session_hit_rate_pct"] <= 100.0
+        finally:
+            stop.set()
+            for t in threads:
+                t.join()
+            cache.close()
+
 
 class TestCacheDegradation:
     """A corrupt or contended store must degrade to miss/skip, never raise.

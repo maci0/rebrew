@@ -35,6 +35,7 @@ import typer
 from rebrew.annotation import iter_annotations
 from rebrew.cli import TargetOption, console, error_exit, require_config, run_cli
 from rebrew.sources import iter_sources, source_exts, target_marker
+from rebrew.utils import atomic_write_bytes, atomic_write_text
 
 app = typer.Typer(
     help="Generate an objdiff project (target objects + objdiff.json) for GUI diffing.",
@@ -120,7 +121,7 @@ def write_coff_object(
         0,  # SizeOfOptionalHeader
         0,  # Characteristics (relocatable object)
     )
-    path.write_bytes(file_hdr + sec_hdr + body + b"".join(sym_entries) + string_table)
+    atomic_write_bytes(path, file_hdr + sec_hdr + body + b"".join(sym_entries) + string_table)
 
 
 def _synthesize_target_objects(cfg: Any, out_dir: Path) -> list[dict[str, Any]]:
@@ -289,7 +290,7 @@ def main(
         "watch_patterns": _watch_patterns(cfg),
     }
     output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(json.dumps(doc, indent=2), encoding="utf-8")
+    atomic_write_text(output, json.dumps(doc, indent=2), encoding="utf-8")
 
     if json_output:
         from rebrew.cli import json_print

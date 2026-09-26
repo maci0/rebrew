@@ -61,7 +61,7 @@ from rebrew.sources import (
     iter_sources,
     target_marker,
 )
-from rebrew.utils import parse_int_literal
+from rebrew.utils import atomic_write_text, parse_int_literal
 
 logger = logging.getLogger(__name__)
 
@@ -1494,7 +1494,7 @@ def batch_extract_nasm(
             ext = ".asm"
             status_line = ""
         out_file = out_dir / f"{stem}.{va:08x}{ext}"
-        out_file.write_text(out_src, encoding="utf-8")
+        atomic_write_text(out_file, out_src, encoding="utf-8")
 
         if verify_flag:
             passed, msg = verify_roundtrip(nasm_src, code)
@@ -1779,7 +1779,7 @@ def main(
         return
 
     if output:
-        output.write_text(out_src, encoding="utf-8")
+        atomic_write_text(output, out_src, encoding="utf-8")
         console.print(f"Written to {output}")
     else:
         print(out_src)

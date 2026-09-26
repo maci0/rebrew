@@ -250,16 +250,19 @@ class CompileCache:
         ``session_misses``, and ``session_hit_rate_pct``.  These reset
         when the process exits; they reflect only the current session.
         """
-        total_lookups = self.hits + self.misses
-        hit_rate = round(100.0 * self.hits / total_lookups, 1) if total_lookups > 0 else 0.0
+        with self._counter_lock:
+            hits = self.hits
+            misses = self.misses
+        total_lookups = hits + misses
+        hit_rate = round(100.0 * hits / total_lookups, 1) if total_lookups > 0 else 0.0
         size_limit = self._cache.size_limit if self._cache is not None else 0
         return {
             "entries": self.count,
             "volume_bytes": self.volume,
             "volume_mb": round(self.volume / (1024 * 1024), 2),
             "size_limit_mb": round(size_limit / (1024 * 1024), 2),
-            "session_hits": self.hits,
-            "session_misses": self.misses,
+            "session_hits": hits,
+            "session_misses": misses,
             "session_hit_rate_pct": hit_rate,
         }
 

@@ -35,6 +35,7 @@ from rebrew.cli import (
     json_print,
     require_config,
 )
+from rebrew.utils import atomic_write_text
 
 app = typer.Typer(
     help="Measure linked byte-identity residue after postlink fixers.",
@@ -227,7 +228,7 @@ def main(
     summary = residue_report(bytes(patched), reference, bad, image_base)
 
     if new_baseline:
-        Path(new_baseline).write_text(json.dumps(summary, indent=2), encoding="utf-8")
+        atomic_write_text(Path(new_baseline), json.dumps(summary, indent=2), encoding="utf-8")
         console.print(f"baseline written ({new_baseline})")
     if baseline:
         old = json.loads(Path(baseline).read_text(encoding="utf-8"))

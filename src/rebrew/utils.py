@@ -558,7 +558,19 @@ def atomic_write_text(
         # defaults to newline=None, which on Windows translates ``\n`` to
         # ``\r\n`` and would CRLF-corrupt every LF source/metadata rewrite.
         tmp_path.write_text(text, encoding=encoding, errors=errors, newline="")
+        with contextlib.suppress(OSError):
+            fd = os.open(tmp_path, os.O_RDONLY)
+            try:
+                os.fsync(fd)
+            finally:
+                os.close(fd)
         os.replace(tmp_path, filepath)
+        with contextlib.suppress(OSError):
+            dfd = os.open(filepath.parent, os.O_RDONLY)
+            try:
+                os.fsync(dfd)
+            finally:
+                os.close(dfd)
         # Drop any stale path+mtime entries so a same-ns rewrite cannot
         # serve pre-write content to a later reader in this process.
         try:
@@ -601,7 +613,19 @@ def atomic_write_bytes(filepath: Path, data: bytes) -> None:
     )
     try:
         tmp_path.write_bytes(data)
+        with contextlib.suppress(OSError):
+            fd = os.open(tmp_path, os.O_RDONLY)
+            try:
+                os.fsync(fd)
+            finally:
+                os.close(fd)
         os.replace(tmp_path, filepath)
+        with contextlib.suppress(OSError):
+            dfd = os.open(filepath.parent, os.O_RDONLY)
+            try:
+                os.fsync(dfd)
+            finally:
+                os.close(dfd)
     except PermissionError as exc:
         # A read-only destination dir (e.g. a versioned originals/ tree)
         # rejects even the sibling temp file; the final replace would fail
