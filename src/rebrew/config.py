@@ -541,6 +541,15 @@ class ProjectConfig:
             "llm_model": self.llm_model,
             "cache_backend": self.cache_backend,
             "all_targets": list(self.all_targets),
+            "ghidra_program_path": self.ghidra_program_path,
+            "ghidra_backend": self.ghidra_backend,
+            "binsync_state_dir": self.binsync_state_dir,
+            "inventory_file": self.inventory_file,
+            "source_ext": self.source_ext,
+            "lint_naming_convention": self.lint_naming_convention,
+            "lint_brace_style": self.lint_brace_style,
+            "lint_indent_style": self.lint_indent_style,
+            "lint_max_line_length": self.lint_max_line_length,
         }
 
     def to_dict(self, redact_secrets: bool = True) -> dict[str, Any]:
@@ -553,6 +562,12 @@ class ProjectConfig:
             raise ConfigError(
                 f"unknown arch {self.arch!r} (known: {', '.join(sorted(_ARCH_PRESETS))})"
             )
+        if self.binary_format and self.binary_format not in _KNOWN_FORMATS:
+            raise ConfigError(
+                f"unknown format {self.binary_format!r} (known: {', '.join(sorted(_KNOWN_FORMATS))})"
+            )
+        if self.ghidra_backend and self.ghidra_backend not in ("reva", "cli"):
+            raise ConfigError(f"unknown ghidra_backend {self.ghidra_backend!r} (known: reva, cli)")
         if self.compiler_profile:
             from rebrew.toolchain import TOOLCHAINS
 
@@ -560,6 +575,30 @@ class ProjectConfig:
                 raise ConfigError(
                     f"unknown profile {self.compiler_profile!r} (known: {', '.join(sorted(TOOLCHAINS))})"
                 )
+        if self.cache_backend:
+            from rebrew.compile_cache import available_cache_backends
+
+            known_backends = available_cache_backends()
+            if self.cache_backend not in known_backends:
+                raise ConfigError(
+                    f"cache_backend {self.cache_backend!r} is not a registered backend "
+                    f"(known: {', '.join(known_backends)})"
+                )
+        if self.default_jobs is not None and self.default_jobs < 1:
+            raise ConfigError(f"project.jobs ({self.default_jobs}) must be >= 1")
+        if self.compile_timeout is not None and self.compile_timeout < 1:
+            raise ConfigError(f"compiler.timeout ({self.compile_timeout}) must be >= 1")
+        if self.lint_max_line_length is not None and self.lint_max_line_length < 0:
+            raise ConfigError(f"lint_max_line_length ({self.lint_max_line_length}) must be >= 0")
+        if (
+            self.link.stack_reserve is not None
+            and self.link.stack_commit is not None
+            and self.link.stack_commit > self.link.stack_reserve
+        ):
+            raise ConfigError(
+                f"link.stack_commit ({self.link.stack_commit}) exceeds link.stack_reserve "
+                f"({self.link.stack_reserve}); the Windows loader rejects that image"
+            )
         if self.recompile_url:
             validate_http_url(self.recompile_url, "compiler.recompile_url")
         if self.llm_endpoint:
@@ -843,6 +882,17 @@ def _positive_int(value: Any, default: int, field_name: str) -> int:
     if parsed < 1:
         _config_warn(
             f"Expected positive integer for {field_name}, got {value!r}; using default {default}"
+        )
+        return default
+    return parsed
+
+
+def _non_negative_int(value: Any, default: int, field_name: str) -> int:
+    """Parse a non-negative integer config value (>= 0), falling back to *default*."""
+    parsed = _safe_int(value, default, field_name)
+    if parsed < 0:
+        _config_warn(
+            f"Expected non-negative integer for {field_name}, got {value!r}; using default {default}"
         )
         return default
     return parsed
@@ -1401,7 +1451,7 @@ def _load_lint_settings(project_raw: Mapping[str, Any]) -> dict[str, Any]:
             _KNOWN_LINT_INDENT,
             "project.lint.indent_style",
         ),
-        "lint_max_line_length": _positive_int(
+        "lint_max_line_length": _non_negative_int(
             lint_raw.get("max_line_length"),
             DEFAULT_LINT_MAX_LINE_LENGTH,
             "project.lint.max_line_length",
@@ -1896,6 +1946,7 @@ def load_config(
         )
     cfg.cache_backend = backend
 
+    cfg.validate()
     return cfg
 
 

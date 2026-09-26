@@ -857,6 +857,50 @@ class TestCLISet:
         assert secret not in result.stdout
         assert "***" in result.stdout
 
+    def test_set_format_rejects_invalid(self, tmp_path: Path, monkeypatch) -> None:
+        _make_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(cfg_app, ["set", "format", "invalid_fmt"])
+        assert result.exit_code != 0
+        assert "unknown format" in result.output
+
+    def test_set_arch_rejects_invalid(self, tmp_path: Path, monkeypatch) -> None:
+        _make_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(cfg_app, ["set", "arch", "invalid_arch"])
+        assert result.exit_code != 0
+        assert "unknown arch" in result.output
+
+    def test_set_ghidra_backend_rejects_invalid(self, tmp_path: Path, monkeypatch) -> None:
+        _make_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(cfg_app, ["set", "ghidra_backend", "invalid_backend"])
+        assert result.exit_code != 0
+        assert "unknown ghidra_backend" in result.output
+
+    def test_set_cache_backend_rejects_invalid(self, tmp_path: Path, monkeypatch) -> None:
+        _make_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(cfg_app, ["set", "cache.backend", "invalid_cache"])
+        assert result.exit_code != 0
+        assert "not a registered backend" in result.output
+
+    def test_set_llm_model_rejects_unpinned(self, tmp_path: Path, monkeypatch) -> None:
+        _make_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(cfg_app, ["set", "llm.model", "latest"])
+        assert result.exit_code != 0
+        assert "unpinned alias" in result.output
+
+    def test_set_bare_inventory_file_routes_to_target(self, tmp_path: Path, monkeypatch) -> None:
+        _make_project(tmp_path)
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(cfg_app, ["set", "inventory_file", "db/inv.json"])
+        assert result.exit_code == 0
+        doc, _ = load_toml(tmp_path)
+        assert doc["targets"]["server.dll"]["inventory_file"] == "db/inv.json"
+        assert "inventory_file" not in doc
+
 
 class TestCLIModules:
     def test_add_module(self, tmp_path: Path, monkeypatch) -> None:
