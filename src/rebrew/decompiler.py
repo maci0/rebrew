@@ -120,6 +120,15 @@ def _re_analysis_key(tool: str) -> str:
     return digest
 
 
+def _binary_fingerprint(binary: Path) -> str:
+    """Fingerprint for *binary* (mtime_ns:size:ino), or empty when unreadable."""
+    try:
+        st = binary.stat()
+        return f"{st.st_mtime_ns}:{st.st_size}:{st.st_ino}"
+    except OSError:
+        return ""
+
+
 def _re_init_project(binary: Path, tool: str, root: Path) -> str | None:
     """Run full ``aaa`` analysis once and persist the project; return its dir."""
     digest = _re_analysis_key(tool)
@@ -164,7 +173,10 @@ def _re_init_project(binary: Path, tool: str, root: Path) -> str | None:
         shutil.rmtree(proj_dir, ignore_errors=True)
         return None
     try:
-        Path(proj_dir, "rebrew_tool.sha256").write_text(f"{tool}\n{digest}\n", encoding="utf-8")
+        bin_fp = _binary_fingerprint(binary)
+        Path(proj_dir, "rebrew_tool.sha256").write_text(
+            f"{tool}\n{digest}\n{bin_fp}\n", encoding="utf-8"
+        )
     except OSError as e:
         warnings.warn(f"{tool} could not stamp project dir {proj_dir}: {e}", stacklevel=3)
         shutil.rmtree(proj_dir, ignore_errors=True)
@@ -172,21 +184,24 @@ def _re_init_project(binary: Path, tool: str, root: Path) -> str | None:
     return proj_dir
 
 
-def _re_cached_digest_ok(proj_dir: str, tool: str) -> bool:
-    """True when a cached project's recorded tool digest is still current.
+def _re_cached_digest_ok(proj_dir: str, tool: str, binary: Path | None = None) -> bool:
+    """True when a cached project's recorded tool digest and target binary are still current.
 
-    The marker (``rebrew_tool.sha256``) records the tool name + a hash of the
-    tool binary; writing it without ever reading it back meant a tool upgrade
-    kept serving the old ``aaa`` results.  A missing or single-line marker (an
-    older format) is treated as stale.
+    The marker (``rebrew_tool.sha256``) records the tool name, a hash of the
+    tool binary, and the target binary's stat fingerprint; writing it without
+    ever reading it back meant a tool upgrade or binary rebuild kept serving
+    the old ``aaa`` results.  A missing or single-line marker (an older format)
+    is treated as stale.
     """
     try:
         lines = Path(proj_dir, "rebrew_tool.sha256").read_text(encoding="utf-8").splitlines()
     except OSError:
         return False
-    if len(lines) != 2 or lines[0] != tool:
+    if len(lines) < 2 or lines[0] != tool:
         return False
-    return lines[1] == _re_analysis_key(tool)
+    if lines[1] != _re_analysis_key(tool):
+        return False
+    return not (len(lines) >= 3 and binary is not None and lines[2] != _binary_fingerprint(binary))
 
 
 def _re_cached_project(binary: Path, tool: str, root: Path) -> str | None:
@@ -195,7 +210,7 @@ def _re_cached_project(binary: Path, tool: str, root: Path) -> str | None:
     with _RE_PROJECT_DIRS_LOCK:
         cached = _RE_PROJECT_DIRS.get(key)
         if cached is not None:
-            if _re_cached_digest_ok(cached, tool):
+            if _re_cached_digest_ok(cached, tool, binary):
                 return cached
             # A tool upgrade invalidates the analysis; remove the old project dir
             # (a full rizin database) instead of orphaning it — only the entries
@@ -211,7 +226,7 @@ def _re_cached_project(binary: Path, tool: str, root: Path) -> str | None:
         return None
     with _RE_PROJECT_DIRS_LOCK:
         existing = _RE_PROJECT_DIRS.get(key)
-        if existing is not None and _re_cached_digest_ok(existing, tool):
+        if existing is not None and _re_cached_digest_ok(existing, tool, binary):
             shutil.rmtree(proj_dir, ignore_errors=True)
             return existing
         if existing is not None:

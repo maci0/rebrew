@@ -366,13 +366,13 @@ def load_verify_details(cfg: ProjectConfig) -> dict[int, tuple[str, bool]]:
     allocation (reccmp's 100% effective-match case) — candidates worth
     proving even though bytes differ.
     """
-    from rebrew.verify_cache import load_verify_cache_raw
+    from rebrew.verify_cache import CACHE_VERSION, load_verify_cache_raw
 
     raw = load_verify_cache_raw(cfg)
     if raw is None:
         return {}
 
-    if not isinstance(raw, dict):
+    if not isinstance(raw, dict) or raw.get("version") != CACHE_VERSION:
         return {}
     # Same target guard as _load_verify_info: another target's cache must not
     # override this project's source statuses.

@@ -1623,13 +1623,17 @@ def _build_coverage_db(
             # staying empty.  The cache rows ARE the report rows (same shape),
             # and they carry identity guards the old db/verify_results.json
             # snapshot lacked.  Best-effort: a missing cache is fine.
-            from rebrew.verify_cache import load_verify_cache_raw
+            from rebrew.verify_cache import CACHE_VERSION, load_verify_cache_raw
 
             vr_rows = []
             vr_time = now_iso
             raw_cache = load_verify_cache_raw(SimpleNamespace(root=root_dir))
             cache_entries: dict[str, Any] | None = None
-            ours = isinstance(raw_cache, dict) and raw_cache.get("target") == target_name
+            ours = (
+                isinstance(raw_cache, dict)
+                and raw_cache.get("target") == target_name
+                and raw_cache.get("version") == CACHE_VERSION
+            )
             if ours and isinstance(raw_cache, dict):
                 maybe_entries = raw_cache.get("entries")
                 if isinstance(maybe_entries, dict):
