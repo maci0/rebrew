@@ -1,5 +1,6 @@
 ## [Unreleased]
 
+## [2.11.0] - 2026-09-26
 ### Fixed
 - **Back-jump and float-constant scans follow instruction boundaries.**
   `has_back_jumps` and the float-constant pool matched `E9` / `D9 05` at
