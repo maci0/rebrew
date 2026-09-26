@@ -32,6 +32,7 @@ Usage::
 from __future__ import annotations
 
 import re
+from pathlib import Path
 from typing import Any
 
 import capstone  # module-level: analyze_frame is a hot path (near-diag calls it per pair)
@@ -236,13 +237,14 @@ def run_stack_cmp(
 
     from rebrew.match_sweep import resolve_build_params
 
+    symbol_arg = not va_arg and not Path(original_arg).exists()
     params = resolve_build_params(
         cfg,
         seed_c,
         None,
         None,
         None,
-        None,
+        original_arg if symbol_arg else None,
         original_arg if va_arg else None,
         None,
         False,  # ignore_lint

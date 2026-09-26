@@ -565,6 +565,9 @@ def main(
     if va_arg and target_va is None:
         target_va = seed_c_orig
 
+    if not va_arg and symbol is None and not Path(seed_c_orig).exists():
+        symbol = seed_c_orig
+
     params = resolve_build_params(
         cfg, seed_c, cl, inc, cflags, symbol, target_va, target_size, ignore_lint, json_output
     )

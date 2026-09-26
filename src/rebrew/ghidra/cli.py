@@ -255,13 +255,12 @@ def main(
             create_missing=create_missing,
         )
         print_import_result(result, json_output=json_output, dry_run=dry_run)
-        if create_functions and not dry_run:
+        if create_functions:
             from typing import cast
 
             touched = sorted(int(v) for v in cast(list[Any], result.get("touched_vas") or []))
             if touched:
                 program_path = resolve_program_path(cfg)
-                program_path = _probe_program_path(endpoint, program_path, json_output)
                 ops = [
                     {
                         "tool": "create-function",
@@ -270,7 +269,11 @@ def main(
                     }
                     for va in touched
                 ]
-                _mcp_apply(ops, endpoint, program_path, json_output, cfg)
+                if dry_run:
+                    _preview_ops(ops, json_output)
+                else:
+                    program_path = _probe_program_path(endpoint, program_path, json_output)
+                    _mcp_apply(ops, endpoint, program_path, json_output, cfg)
             elif not json_output:
                 console.print("[dim]Nothing imported — no functions to create.[/dim]")
         return

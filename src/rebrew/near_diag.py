@@ -977,6 +977,17 @@ def main(
     if va_int is None and re.match(r"^0[xX][0-9a-fA-F]+$", raw_source):
         # The positional argument itself was a hex VA.
         va_int = parse_va(raw_source, json_mode=json_output)
+    if va_int is None and not Path(raw_source).exists():
+        from rebrew.utils import fold_ident
+
+        want_sym = fold_ident(raw_source.strip()).lstrip("_")
+        for a in annos:
+            for ident in (a.symbol or "", a.name or ""):
+                if fold_ident(ident.strip()).lstrip("_") == want_sym:
+                    va_int = a.va
+                    break
+            if va_int is not None:
+                break
     if va_int is None:
         va_int = annos[0].va
     # In a multi-function file, pick the annotation matching the requested VA

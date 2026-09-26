@@ -505,13 +505,14 @@ def main(
     # THAT annotation in a multi-function file, not the first one.
     from rebrew.match_sweep import resolve_build_params
 
+    symbol_arg = not va_arg and not Path(original_arg).exists()
     params = resolve_build_params(
         cfg,
         seed_c,
         None,
         None,
         None,
-        None,
+        original_arg if symbol_arg else None,
         original_arg if va_arg else None,
         None,
         ignore_lint,
@@ -525,7 +526,7 @@ def main(
         # Keep the original positional (VA or symbol) for re-entry — seed_c is
         # now the resolved path, and passing it would drop the VA targeting and
         # re-diff the first annotation in a multi-function file.
-        watch_arg = original_arg if va_arg else seed_c
+        watch_arg = original_arg if (va_arg or symbol_arg) else seed_c
 
         def _retest() -> None:
             # Re-run the full single-function diff path; --watch must not nest.

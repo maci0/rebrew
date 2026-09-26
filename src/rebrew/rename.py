@@ -14,6 +14,7 @@ import typer
 
 from rebrew.catalog import scan_reversed_dir
 from rebrew.cli import (
+    EXIT_ERROR,
     TargetOption,
     console,
     error_exit,
@@ -104,6 +105,12 @@ def main(
     cfg = require_config(target=target, json_mode=json_output)
 
     if data:
+        if new_file is not None:
+            error_exit(
+                "--file is not supported with --data (globals have no dedicated source file)",
+                json_mode=json_output,
+                code=EXIT_ERROR,
+            )
         _rename_data(cfg, target_ident, new_name, dry_run, json_output)
         return
 
