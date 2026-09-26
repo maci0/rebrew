@@ -90,6 +90,7 @@ import math
 import threading
 import tomllib
 import typing
+import unicodedata
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -355,7 +356,7 @@ def get_entry(directory: Path, va: int, module: str) -> dict[str, Any]:
         module: Target module name (e.g. ``"SERVER"``).
 
     """
-    entry = load_metadata(directory, deepcopy=False).get((module, va))
+    entry = load_metadata(directory, deepcopy=False).get((unicodedata.normalize("NFC", module), va))
     return copy.deepcopy(entry) if entry else {}
 
 
@@ -455,11 +456,12 @@ def _ensure_entry_table(
     key_index: dict[tuple[str, int], str] | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """Resolve and return (toml_key, entry) for (module, va), creating table if missing."""
-    toml_key = resolve_metadata_key(doc_dict, module, va, index=key_index)
+    norm_module = unicodedata.normalize("NFC", module)
+    toml_key = resolve_metadata_key(doc_dict, norm_module, va, index=key_index)
     if toml_key not in doc_dict:
         doc_dict[toml_key] = tomlkit.table()
         if key_index is not None:
-            key_index[(module, va)] = toml_key
+            key_index[(norm_module, va)] = toml_key
     return toml_key, typing.cast(dict[str, Any], doc_dict[toml_key])
 
 
@@ -699,11 +701,12 @@ def delete_entries_batch(metadata_dir: Path, targets: list[tuple[str, int]]) -> 
             if not module:
                 continue
             va_int = int(va)
-            toml_key = resolve_metadata_key(doc_dict, str(module), va_int, index=key_index)
+            norm_mod = unicodedata.normalize("NFC", str(module))
+            toml_key = resolve_metadata_key(doc_dict, norm_mod, va_int, index=key_index)
             if toml_key not in doc_dict:
                 continue
             del doc_dict[toml_key]
-            key_index.pop((str(module), va_int), None)
+            key_index.pop((norm_mod, va_int), None)
             removed += 1
         if removed:
             atomic_write_locked(path, tomlkit.dumps(doc))

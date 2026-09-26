@@ -471,10 +471,36 @@ def resolve_source_arg(cfg: ProjectConfig, source_arg: str) -> Path:
     # `foo.c`, so the wrong file was compiled and its VA got the STATUS write.
     sources = iter_sources(src_dir, cfg)
     arg_norm = unicodedata.normalize("NFC", source_arg)
+    arg_p = Path(arg_norm)
+
     for src in sources:
-        if unicodedata.normalize("NFC", src.stem) == arg_norm:
+        if (
+            unicodedata.normalize("NFC", str(src)) == arg_norm
+            or unicodedata.normalize("NFC", src.as_posix()) == arg_norm
+        ):
             return src
-    arg_stem = arg_norm.lstrip("_")
+        try:
+            rel = unicodedata.normalize("NFC", str(src.relative_to(src_dir)))
+            if (
+                rel == arg_norm
+                or unicodedata.normalize("NFC", src.relative_to(src_dir).as_posix()) == arg_norm
+            ):
+                return src
+        except (ValueError, TypeError):
+            pass
+
+    for src in sources:
+        if (
+            unicodedata.normalize("NFC", src.name) == arg_norm
+            or unicodedata.normalize("NFC", src.name) == arg_p.name
+        ):
+            return src
+
+    target_stem = arg_p.stem if arg_norm.endswith((".c", ".cpp", ".cxx")) else arg_norm
+    for src in sources:
+        if unicodedata.normalize("NFC", src.stem) == target_stem:
+            return src
+    arg_stem = target_stem.lstrip("_")
     for src in sources:
         if unicodedata.normalize("NFC", src.stem).lstrip("_") == arg_stem:
             return src

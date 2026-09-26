@@ -66,7 +66,7 @@ from rebrew.cli import (
     require_config,
 )
 from rebrew.errors import RebrewError
-from rebrew.utils import parse_int_literal
+from rebrew.utils import fold_ident, parse_int_literal
 
 # ---------------------------------------------------------------------------
 # Evidence parsing
@@ -570,7 +570,7 @@ def _collect_functions(
         for a in annos:
             if a.marker_type not in ("FUNCTION", "STUB", "LIBRARY"):
                 continue
-            if filter_substr and filter_substr.lower() not in (a.name or "").lower():
+            if filter_substr and fold_ident(filter_substr) not in fold_ident(a.name or ""):
                 continue
             if a.va in seen:
                 continue

@@ -1290,6 +1290,9 @@ def run_process_group(
         popen_kwargs["stderr"] = subprocess.PIPE
     if stdin_input is not None and popen_kwargs.get("stdin") is None:
         popen_kwargs["stdin"] = subprocess.PIPE
+    if popen_kwargs.get("text") or popen_kwargs.get("universal_newlines"):
+        popen_kwargs.setdefault("encoding", "utf-8")
+        popen_kwargs.setdefault("errors", "replace")
     with subprocess.Popen(list(cmd), start_new_session=True, **popen_kwargs) as proc:
         try:
             stdout, stderr = proc.communicate(stdin_input, timeout=timeout)

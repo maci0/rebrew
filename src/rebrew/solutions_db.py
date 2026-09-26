@@ -7,6 +7,7 @@ run log (``.rebrew/ga_runs.jsonl``).  Read-only.
 
 from __future__ import annotations
 
+import unicodedata
 from typing import Any
 
 import typer
@@ -85,8 +86,12 @@ def main(
     else:
         rows = _collect_solutions(cfg)
         if symbol:
-            needle = symbol.lower()
-            rows = [r for r in rows if needle in r["symbol"].lower()]
+            needle = unicodedata.normalize("NFC", symbol).casefold()
+            rows = [
+                r
+                for r in rows
+                if needle in unicodedata.normalize("NFC", str(r["symbol"])).casefold()
+            ]
         if min_size > 0:
             rows = [r for r in rows if r["size"] >= min_size]
         if max_size > 0:

@@ -49,6 +49,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import unicodedata
 from collections.abc import Iterator
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -265,7 +266,7 @@ def get_data_entry(directory: Path, va: int, module: str) -> dict[str, Any]:
     """
     path = (directory / DATA_METADATA_FILENAME).resolve()
     cached = load_metadata_doc(path, _data_metadata_cache, "data metadata", deepcopy=False)
-    entry = cached.get((module, va))
+    entry = cached.get((unicodedata.normalize("NFC", module), va))
     return dict(entry) if entry is not None else {}
 
 
