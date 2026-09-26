@@ -1,6 +1,9 @@
 ## [Unreleased]
 
 ### Fixed
+- **The SBOM identifies rebrew by its GitHub repository.** The root
+  component purl is `pkg:github/maci0/rebrew@v<version>` (the release tag).
+  Project URLs are copied onto the component as external references.
 - **MIPS, PPC, and SH2 disassembly follows the image endianness.** Capstone
   defaults to little-endian, so `jr $ra`, `blr`, and SH2 `rts` were decoded
   as the wrong instruction or as nothing. Those architectures now set

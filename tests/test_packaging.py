@@ -399,8 +399,19 @@ class TestCycloneDxSbom:
         bom = build_bom((ROOT / "uv.lock").read_text(encoding="utf-8"), _project_version())
         assert bom["bomFormat"] == "CycloneDX"
         assert bom["specVersion"] == "1.5"
-        assert bom["metadata"]["component"]["name"] == "rebrew"
-        assert bom["metadata"]["component"]["licenses"] == [{"license": {"id": "MIT"}}]
+        component = bom["metadata"]["component"]
+        assert component["name"] == "rebrew"
+        assert component["licenses"] == [{"license": {"id": "MIT"}}]
+        assert component["purl"] == f"pkg:github/maci0/rebrew@v{component['version']}"
+        assert component["bom-ref"] == component["purl"]
+        refs = {(item["type"], item["url"]) for item in component["externalReferences"]}
+        assert refs == {
+            ("vcs", "https://github.com/maci0/rebrew"),
+            ("website", "https://github.com/maci0/rebrew"),
+            ("issue-tracker", "https://github.com/maci0/rebrew/issues"),
+            ("release-notes", "https://github.com/maci0/rebrew/blob/main/CHANGELOG.md"),
+            ("advisories", "https://github.com/maci0/rebrew/blob/main/SECURITY.md"),
+        }
         by_name = {c["name"]: c for c in bom["components"]}
         assert by_name["resembl"]["licenses"] == [{"expression": "GPL-3.0-only"}]
         assert by_name["m2c"]["licenses"] == [{"expression": "GPL-3.0-only"}]

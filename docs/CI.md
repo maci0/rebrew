@@ -16,8 +16,9 @@ wheel entry modes), checks both artifacts hash the same when
 `make build` reruns from a `git archive` copy extracted under umask 077 at
 another path under another TZ and locale, emits a CycloneDX 1.5 SBOM
 (`dist/rebrew.cdx.json` from `uv.lock` via `tools/generate_sbom.py`, with the
-MIT license on the rebrew
-component and the optional copyleft expressions from `NOTICE`), writes `dist/rebrew.buildinfo`
+MIT license on the rebrew component, a `pkg:github/maci0/rebrew` purl at the
+`v` tag for `__version__`, project URLs as external references, and the
+optional copyleft expressions from `NOTICE`), writes `dist/rebrew.buildinfo`
 (uv/python/`.python-version`/setuptools parsed from `pyproject.toml` + epoch
 knobs, source commit and dirty flag), and installs the
 wheel into a clean venv for a smoke import — runtime deps come from

@@ -3,7 +3,9 @@
 Offline-only: reads ``uv.lock`` (and the project's own version from
 ``src/rebrew/__init__.py``).  No network, no advisory DB, no package
 install.  Consumers and vuln scanners get a release inventory without
-re-resolving PyPI.
+re-resolving PyPI.  The rebrew component's purl is the GitHub repository
+(``pkg:github/maci0/rebrew@v<version>``); dependency components keep
+``pkg:pypi`` when the lock fetched them from the index.
 
 Usage::
 
@@ -48,13 +50,54 @@ def _project_version() -> str:
     return match.group(1)
 
 
-def _project_license_id() -> str:
+def _license_id(data: dict[str, Any]) -> str:
     """SPDX id from ``[project].license`` (PEP 639 string form)."""
-    data = tomllib.loads(_PYPROJECT.read_text(encoding="utf-8"))
     lic = data["project"]["license"]
     if not isinstance(lic, str) or not lic.strip():
         raise SystemExit("pyproject.toml [project].license must be an SPDX id string")
     return lic.strip()
+
+
+# CycloneDX externalReference types for the project URL table.  Homepage and
+# Repository may share a URL; the type is what differs.
+_URL_REF_TYPES = (
+    ("Repository", "vcs"),
+    ("Homepage", "website"),
+    ("Issues", "issue-tracker"),
+    ("Changelog", "release-notes"),
+    ("Security", "advisories"),
+)
+
+
+def _project_component(version: str) -> dict[str, Any]:
+    """The SBOM root component for this GitHub repository.
+
+    Install is the git URL in the README.  Release tags are ``v{version}``
+    (the packaging tag contract), so the purl is
+    ``pkg:github/<owner>/<repo>@v<version>`` from ``project.urls.Repository``.
+    """
+    data = tomllib.loads(_PYPROJECT.read_text(encoding="utf-8"))
+    urls = data["project"]["urls"]
+    repo = str(urls["Repository"]).rstrip("/")
+    prefix = "https://github.com/"
+    path = repo.removeprefix(prefix)
+    if not repo.startswith(prefix) or path.count("/") != 1 or not path:
+        raise SystemExit(f"project.urls.Repository is not a GitHub repo URL: {repo}")
+    purl = f"pkg:github/{path}@v{version}"
+    refs: list[dict[str, str]] = []
+    for key, ref_type in _URL_REF_TYPES:
+        url = urls.get(key)
+        if isinstance(url, str) and url:
+            refs.append({"type": ref_type, "url": url})
+    return {
+        "type": "library",
+        "name": "rebrew",
+        "version": version,
+        "bom-ref": purl,
+        "purl": purl,
+        "licenses": [{"license": {"id": _license_id(data)}}],
+        "externalReferences": refs,
+    }
 
 
 def _parse_lock(text: str) -> list[dict[str, Any]]:
@@ -168,14 +211,7 @@ def build_bom(lock_text: str, project_version: str) -> dict[str, Any]:
         "specVersion": "1.5",
         "version": 1,
         "metadata": {
-            "component": {
-                "type": "library",
-                "name": "rebrew",
-                "version": project_version,
-                "bom-ref": f"pkg:pypi/rebrew@{project_version}",
-                "purl": f"pkg:pypi/rebrew@{project_version}",
-                "licenses": [{"license": {"id": _project_license_id()}}],
-            },
+            "component": _project_component(project_version),
         },
         "components": components,
     }
