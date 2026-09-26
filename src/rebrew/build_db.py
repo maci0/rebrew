@@ -1790,7 +1790,7 @@ def main(
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
-    """CLI entry point for rebrew build-db."""
+    """Build SQLite coverage database from catalog JSON."""
     build_db(root, target=target, json_output=json_output, force=force, regen=regen)
 
 

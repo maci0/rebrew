@@ -1,6 +1,7 @@
 """Tests for the shared CLI helpers in rebrew.cli."""
 
 import json
+import sys
 import warnings
 from pathlib import Path
 from types import SimpleNamespace
@@ -54,6 +55,18 @@ class TestErrorExit:
         captured = capsys.readouterr()
         data = json.loads(captured.out)
         assert data == {"error": "nope", "code": 3}
+
+    def test_error_exit_auto_detects_json_requested(
+        self, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        monkeypatch.setattr(sys, "argv", ["rebrew", "test", "--json"])
+        with pytest.raises(typer.Exit) as exc_info:
+            error_exit("failed via auto json")
+        assert exc_info.value.exit_code == 2
+        captured = capsys.readouterr()
+        data = json.loads(captured.out)
+        assert data == {"error": "failed via auto json", "code": 2}
+        assert captured.err == ""
 
     def test_plain_neutralizes_terminal_escapes(self, capsys: pytest.CaptureFixture[str]) -> None:
         # Remote response text (decomp.me, recompile service) reaches error_exit;
