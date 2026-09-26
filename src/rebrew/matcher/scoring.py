@@ -134,6 +134,49 @@ def _zero_u32_at(out: bytearray, addr: int, start: int) -> None:
             out[addr + i] = 0
 
 
+def _zero_reloc_common(
+    addr: int, size: int, b: bytes, op0: int, after: int, out: bytearray
+) -> bool:
+    """Zero common 32-bit relocatable fields (call/jmp/mov abs32, cmp/jcc near, push imm32, indirect abs32).
+
+    Returns True if a common pattern was matched and handled, False otherwise.
+    """
+    # call rel32 / jmp rel32 / MOV abs32 (A0-A3)
+    if op0 in (0xE8, 0xE9, 0xA0, 0xA1, 0xA2, 0xA3):
+        # The field starts after the opcode byte: with a legacy prefix
+        # (66 A1 …) that is not offset 1, and zeroing from 1 also clobbered
+        # the opcode itself.
+        _zero_u32_at(out, addr, after)
+        return True
+    # cmp [abs32], imm8 / conditional jmp near (0F 8x rel32)
+    if (op0 == 0x83 and after < len(b) and b[after] == 0x3D) or (
+        op0 == 0x0F and after < len(b) and (b[after] & 0xF0) == 0x80
+    ):
+        # 83 3D: disp32 at after+1; 0F 8x: rel32 at after+1 (after the 0F secondary).
+        if size >= after + 5:
+            _zero_u32_at(out, addr, after + 1)
+        return True
+    # push imm32 (if it looks like an address)
+    if op0 == 0x68 or 0xB8 <= op0 <= 0xBF:
+        if after + 4 <= len(b):
+            imm = int.from_bytes(b[after : after + 4], byteorder="little")
+            if imm > 0x10000000:
+                _zero_u32_at(out, addr, after)
+        return True
+    # call/jmp dword ptr [abs32] (FF 15/25) or mov reg,[abs32] / mov [abs32],reg
+    if (
+        size >= after + 5
+        and after < len(b)
+        and (
+            (op0 == 0xFF and b[after] in _FF_ABS32_MODRM)
+            or (op0 in (0x8B, 0x89) and b[after] in _MOV_ABS32_MODRM)
+        )
+    ):
+        _zero_u32_at(out, addr, after + 1)
+        return True
+    return False
+
+
 def _zero_reloc_fields(insn: capstone.CsInsn, out: bytearray) -> None:
     """Zero the relocatable fields of one detail-disassembled x86-32 insn.
 
@@ -162,35 +205,8 @@ def _zero_reloc_fields(insn: capstone.CsInsn, out: bytearray) -> None:
     op0 = insn.opcode[0]
     # Byte immediately after the (first) opcode byte — ModR/M or 0F secondary.
     after = opi + 1
-    # call rel32 / jmp rel32 / MOV abs32 (A0-A3)
-    if op0 in (0xE8, 0xE9, 0xA0, 0xA1, 0xA2, 0xA3):
-        # The field starts after the opcode byte: with a legacy prefix
-        # (66 A1 …) that is not offset 1, and zeroing from 1 also clobbered
-        # the opcode itself.
-        _zero_u32_at(out, addr, after)
-    # cmp [abs32], imm8 / conditional jmp near (0F 8x rel32)
-    elif (op0 == 0x83 and after < len(b) and b[after] == 0x3D) or (
-        op0 == 0x0F and after < len(b) and (b[after] & 0xF0) == 0x80
-    ):
-        # 83 3D: disp32 at after+1; 0F 8x: rel32 at after+1 (after the 0F secondary).
-        if size >= after + 5:
-            _zero_u32_at(out, addr, after + 1)
-    # push imm32 (if it looks like an address)
-    elif op0 == 0x68 or 0xB8 <= op0 <= 0xBF:
-        if after + 4 <= len(b):
-            imm = int.from_bytes(b[after : after + 4], byteorder="little")
-            if imm > 0x10000000:
-                _zero_u32_at(out, addr, after)
-    # call/jmp dword ptr [abs32] (FF 15/25) or mov reg,[abs32] / mov [abs32],reg
-    elif (
-        size >= after + 5
-        and after < len(b)
-        and (
-            (op0 == 0xFF and b[after] in _FF_ABS32_MODRM)
-            or (op0 in (0x8B, 0x89) and b[after] in _MOV_ABS32_MODRM)
-        )
-    ):
-        _zero_u32_at(out, addr, after + 1)
+    if _zero_reloc_common(addr, size, b, op0, after, out):
+        return
 
     # General fallback: Any instruction with a 32-bit displacement that looks like an address (> 0x10000)
     # Handles SIB+disp32, lea reg, [reg*scale + disp32], and other indirect addressing modes.
@@ -335,38 +351,7 @@ def _zero_reloc_fields_raw(
     opi = _opcode_index(b)
     op0 = _first_opcode_byte(b)
     after = opi + 1
-    # call rel32 / jmp rel32 / MOV abs32 (A0-A3)
-    if op0 in (0xE8, 0xE9, 0xA0, 0xA1, 0xA2, 0xA3):
-        # The relocatable field starts right after the opcode byte; with a
-        # legacy prefix (66 A1 …) that is not offset 1.  Zeroing from offset 1
-        # also clobbered the opcode and left the top displacement byte, so the
-        # raw and detail normalizations disagreed on the same instruction.
-        _zero_u32_at(out, addr, after)
-        return
-    # cmp [abs32], imm8 / conditional jmp near (0F 8x rel32)
-    if (op0 == 0x83 and after < len(b) and b[after] == 0x3D) or (
-        op0 == 0x0F and after < len(b) and (b[after] & 0xF0) == 0x80
-    ):
-        if size >= after + 5:
-            _zero_u32_at(out, addr, after + 1)
-        return
-    # push imm32 (if it looks like an address)
-    if op0 == 0x68 or 0xB8 <= op0 <= 0xBF:
-        if after + 4 <= len(b):
-            imm = int.from_bytes(b[after : after + 4], byteorder="little")
-            if imm > 0x10000000:
-                _zero_u32_at(out, addr, after)
-        return
-    # call/jmp dword ptr [abs32] (FF 15/25) or mov reg,[abs32] / mov [abs32],reg
-    if (
-        size >= after + 5
-        and after < len(b)
-        and (
-            (op0 == 0xFF and b[after] in _FF_ABS32_MODRM)
-            or (op0 in (0x8B, 0x89) and b[after] in _MOV_ABS32_MODRM)
-        )
-    ):
-        _zero_u32_at(out, addr, after + 1)
+    if _zero_reloc_common(addr, size, b, op0, after, out):
         return
 
     # Rare SIB/disp32 fallback — needs detail attributes; re-disassemble just

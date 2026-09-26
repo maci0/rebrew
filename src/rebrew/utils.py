@@ -22,7 +22,7 @@ import unicodedata
 from collections import OrderedDict
 from collections.abc import Callable, Iterator, Sequence
 from pathlib import Path
-from typing import Any
+from typing import IO, Any
 
 import tomlkit
 from rich.console import Console
@@ -754,37 +754,43 @@ _METADATA_WRITE_DEPTH = threading.local()
 
 
 @contextlib.contextmanager
-def file_lock(lock_path: Path) -> Iterator[None]:
-    """Hold an exclusive advisory ``flock`` on *lock_path* (created if absent).
+def file_handle_lock(lock_fh: IO[str], *, shared: bool = False) -> Iterator[None]:
+    """Hold an advisory ``flock`` on an open file handle."""
+    if fcntl is not None:
+        fcntl.flock(lock_fh, fcntl.LOCK_SH if shared else fcntl.LOCK_EX)
+    else:
+        try:
+            import msvcrt
 
-    Cross-process only: ``flock`` does not exclude other threads that open
-    their own fd in the same process, so callers pair it with a thread lock.
-    """
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-    with lock_path.open("a", encoding="utf-8") as lock_fh:
+            lock_fh.seek(0)
+            msvcrt.locking(lock_fh.fileno(), msvcrt.LK_LOCK, 1)
+        except (ImportError, OSError):
+            pass
+    try:
+        yield
+    finally:
         if fcntl is not None:
-            fcntl.flock(lock_fh, fcntl.LOCK_EX)
+            fcntl.flock(lock_fh, fcntl.LOCK_UN)
         else:
             try:
                 import msvcrt
 
                 lock_fh.seek(0)
-                msvcrt.locking(lock_fh.fileno(), msvcrt.LK_LOCK, 1)
+                msvcrt.locking(lock_fh.fileno(), msvcrt.LK_UNLCK, 1)
             except (ImportError, OSError):
                 pass
-        try:
-            yield
-        finally:
-            if fcntl is not None:
-                fcntl.flock(lock_fh, fcntl.LOCK_UN)
-            else:
-                try:
-                    import msvcrt
 
-                    lock_fh.seek(0)
-                    msvcrt.locking(lock_fh.fileno(), msvcrt.LK_UNLCK, 1)
-                except (ImportError, OSError):
-                    pass
+
+@contextlib.contextmanager
+def file_lock(lock_path: Path, *, shared: bool = False) -> Iterator[None]:
+    """Hold an advisory ``flock`` on *lock_path* (created if absent).
+
+    Cross-process only: ``flock`` does not exclude other threads that open
+    their own fd in the same process, so callers pair it with a thread lock.
+    """
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a", encoding="utf-8") as lock_fh, file_handle_lock(lock_fh, shared=shared):
+        yield
 
 
 @contextlib.contextmanager
