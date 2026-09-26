@@ -3,11 +3,12 @@ name: rebrew-init
 description: >-
   Use when scaffolding with `rebrew init` — bare directory, target naming,
   `--guess-compiler` vs `--toolchain`, doctor done-gate, then hand off to
-  rebrew-intake. Triggers on 'new project', 'scaffold', 'bare directory',
-  'create project', 'initialize project', 'init project', 'project setup',
-  'set up rebrew', 'rebrew init', 'guess-compiler', or 'refresh-agents'. If the
-  user hands you a binary to onboard in one shot, use rebrew-intake (`rebrew intake`)
-  instead. Not for day-to-day reversing (rebrew-workflow).
+  rebrew-intake. Triggers on 'new project', 'bootstrap', 'scaffold',
+  'bare directory', 'create project', 'initialize project', 'init project',
+  'project setup', 'start project', 'set up rebrew', 'rebrew init',
+  'guess-compiler', or 'refresh-agents'. If the user hands you a binary to
+  onboard in one shot, use rebrew-intake (`rebrew intake`) instead. Not for
+  day-to-day reversing (rebrew-workflow).
 license: MIT
 ---
 

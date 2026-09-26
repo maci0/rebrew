@@ -50,6 +50,7 @@ rebrew match --all --filter "MyClass::"
 rebrew match --all --timeout-min 5
 rebrew match --all --dry-run
 rebrew match --ga-history --json
+rebrew solutions --best --json                       # best GA score per function from .rebrew/ga_runs.jsonl
 rebrew merge-sweep --dry-run                         # TU-partition search (original was amalgamated)
 rebrew climb src/bench/<file>.c --json            # statement-order hill-climb
 rebrew climb src/bench/<file>.c --objective aligned --json

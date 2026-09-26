@@ -6,10 +6,10 @@ description: >-
   lint, round-trip, progress. Triggers on 'reverse', 'reversing',
   'reverse function', 'match function', 'implement function', 'decompile',
   'skeleton', 'test function', 'verify', 'lint', 'next function', 'workflow',
-  'todo', 'diff', 'asm', 'status', 'blocker', 'naked reconstruction',
-  'SOURCE: naked'. Hand off near-miss GA/prove to rebrew-matching; new
-  binaries to rebrew-intake; globals/BSS to rebrew-data-analysis; Ghidra
-  to rebrew-ghidra-sync.
+  'todo', 'diff', 'asm', 'status', 'coverage', 'progress', 'blocker',
+  'naked reconstruction', 'SOURCE: naked'. Hand off near-miss GA/prove to
+  rebrew-matching; new binaries to rebrew-intake; globals/BSS to
+  rebrew-data-analysis; Ghidra to rebrew-ghidra-sync.
 license: MIT
 ---
 
@@ -80,6 +80,8 @@ rebrew skeleton 0x<VA> --xrefs                     # include caller context from
 rebrew skeleton 0x<VA> --append existing_file.c    # append to multi-function file (path relative to reversed_dir)
 rebrew skeleton --batch 10                         # generate 10 skeletons (smallest first)
 rebrew skeleton 0x<VA> --force                     # overwrite if the file already exists
+rebrew decompile 0x<VA>                            # standalone decompilation (kuna, r2ghidra, r2dec, ghidra)
+rebrew fix src/<target>/<file>.c                   # make raw decompiler output compilable
 ```
 
 The skeleton writes the `// FUNCTION:` marker + a stub body and records SIZE in

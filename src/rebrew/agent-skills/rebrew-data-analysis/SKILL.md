@@ -6,9 +6,9 @@ description: >-
   or cross-TU type conflicts. Triggers on 'global', 'global variable',
   'data section', 'BSS', 'vtable', 'dispatch table', 'bss gap', 'bss padding',
   'fix bss', 'extern', 'type conflict', 'rebrew data', 'data-drift',
-  'layout-audit', 'set-type', 'set-section', 'W016', 'data placement', or
-  'rebrew_globals.h'. Not for function bodies (rebrew-workflow/matching) or
-  Ghidra data pulls (rebrew-ghidra-sync --pull-data).
+  'start-data', 'fill-data', 'layout-audit', 'set-type', 'set-section', 'W016',
+  'data placement', or 'rebrew_globals.h'. Not for function bodies
+  (rebrew-workflow/matching) or Ghidra data pulls (rebrew-ghidra-sync --pull-data).
 license: MIT
 ---
 
@@ -57,6 +57,7 @@ rebrew data --set-type 0x10025000='unsigned char *'  # write type into rebrew-da
 rebrew data --set-section 0x10025000=.rdata     # write section (.data / .rdata / .bss); this fixes W016
 rebrew data --fix-ownership --dry-run           # re-partition defs; fixes layout-audit SPAN/ORDER
 rebrew data --fill-data --dry-run               # emit _dpad_<addr>[N] for uncovered .data runs
+rebrew data --own --dry-run                     # materialize link_stubs.c globals into owner TUs
 rebrew data --converge --dry-run                # adjust _dlead_<tu> pads vs build/<target>; does not rebuild
 rebrew verify --data --built build/<target>     # byte-compare built .data/.rdata per symbol (VERIFIED/DRIFT/UNCHECKED)
 rebrew todo -c data-drift --json                # data symbols whose built bytes differ from the reference
@@ -72,7 +73,8 @@ this header with Ghidra-sourced labels when available (same default path
 source file and metadata.
 
 `--layout-audit` reports SPAN/ORDER and unowned symbols. `--fix-ownership`
-re-partitions definitions; `--fill-data` pads uncovered runs; `--converge`
+re-partitions definitions; `--fill-data` pads uncovered runs; `--own`
+materializes stub-file globals into owner TUs; `--converge`
 adjusts leading pads against the current `build/<target>` and does not invoke
 the build — rebuild, then re-run. Preview each with `--dry-run`.
 

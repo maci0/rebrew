@@ -5,10 +5,11 @@ description: >-
   the byte diff — structural diff, flag sweep, GA, climb/qual-sweep, or
   symbolic prove to reach EXACT/RELOC or PROVEN. Triggers on 'stuck',
   'stuck matching', 'almost matches', 'almost matching', 'byte match',
-  'close diff', 'flag tuning', 'register allocation', 'GA', 'genetic algorithm',
-  'flag sweep', 'near-diag', 'near-miss', 'prove', 'angr', 'symbolic equivalence',
-  'objdiff', 'gap-trace', 'climb', 'qual-sweep', or 'rebrew match'. For
-  first-pass test/verify/todo, use rebrew-workflow instead.
+  'close diff', 'drift', 'flag tuning', 'register allocation', 'GA',
+  'genetic algorithm', 'flag sweep', 'near-diag', 'near-miss', 'prove',
+  'angr', 'symbolic equivalence', 'objdiff', 'gap-trace', 'climb',
+  'qual-sweep', 'solutions', or 'rebrew match'. For first-pass
+  test/verify/todo, use rebrew-workflow instead.
 license: MIT
 ---
 
@@ -48,6 +49,7 @@ rebrew diff src/<target>/<file>.c -m --json      # mismatches only (** lines)
 rebrew diff src/<target>/<file>.c -r --json      # register-aware (mark RR encoding diffs)
 rebrew diff src/<target>/<file>.c --format csv   # CSV for spreadsheet analysis
 rebrew diff 0x10009310 --json                    # resolve a VA directly (no .c path needed)
+rebrew drift src/<target>/<file>.c --json        # localise branch-target drift windows
 rebrew near-diag src/<target>/<file>.c --json    # classify WHY it doesn't match (first-mismatch diagnosis)
 rebrew gap-trace src/<target>/<file>.c --json    # length-gap trace (short body? early table?) when scores stall flat
 rebrew objdiff --output objdiff.json                # GUI diffing project (objdiff) from target objects

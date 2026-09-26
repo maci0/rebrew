@@ -3,6 +3,17 @@
 Run these after doctor when you need identity or threat surface before triage.
 None of them are required for the core intake path.
 
+## Binary dossier
+
+```bash
+rebrew analyze --json                      # one-shot intelligence dossier for the target binary
+rebrew analyze original/<filename>         # analyze a specific binary
+```
+
+Combines binary layout (format/sections), toolchain detection, strings,
+imports/IAT stubs, reference profile, reversed-function coverage, dispatch
+tables, and FLIRT into one report.
+
 ## Fingerprints
 
 ```bash
@@ -26,6 +37,14 @@ Dumps headers/sections (entropy + `IMAGE_SCN_*`), exports, resources,
 DllCharacteristics mitigations, Authenticode summary, debug directory
 (CodeView PDB path/GUID/age), and Rich header. ELF/Mach-O get shared identity
 fields plus a note that PE-only metadata is unavailable.
+
+## Strings
+
+```bash
+rebrew strings --json                      # extract strings with sections and references
+rebrew strings --xref                      # show referencing code addresses
+rebrew strings --filter <regex>            # filter by string content
+```
 
 ## Crypto constants / imports
 
