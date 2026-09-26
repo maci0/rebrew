@@ -80,6 +80,12 @@ class StatusReport:
     # Byte-level coverage
     matched_bytes: int = 0
     total_text_bytes: int = 0
+    #: Bytes of functions not byte-matched (annotated or not yet started).
+    unmatched_bytes: int = 0
+    #: .text bytes in no function: alignment fill (CC/90/00) and the rest.
+    #: None when the binary could not be read (not measured, not zero).
+    padding_bytes: int | None = None
+    unattributed_bytes: int | None = None
 
     # Naked reconstructions (`// SOURCE: naked`) that are byte-exact via a
     # generated skeleton — reproduced, NOT decompiled.  Counted separately so
@@ -187,6 +193,9 @@ class StatusReport:
             d["matched_bytes"] = self.matched_bytes
             d["total_text_bytes"] = self.total_text_bytes
             d["byte_coverage_pct"] = self.byte_coverage_pct
+            d["unmatched_bytes"] = self.unmatched_bytes
+            d["padding_bytes"] = self.padding_bytes
+            d["unattributed_bytes"] = self.unattributed_bytes
         if self.verify_info is not None:
             d["last_verify"] = {
                 "timestamp": self.verify_info.timestamp,
@@ -381,6 +390,48 @@ def effective_status(ann_status: str, cached: str | None) -> str:
     return cached or ann_status
 
 
+#: Fill bytes the linker and compiler place between functions.
+_PADDING_BYTES = frozenset((0xCC, 0x90, 0x00))
+
+
+def classify_text_gaps(text: bytes, text_va: int, spans: list[tuple[int, int]]) -> tuple[int, int]:
+    """``(padding, unattributed)``: bytes of *text* in none of *spans*.
+
+    *spans* are ``(va, size)`` function extents.  A gap byte that is
+    alignment fill counts as padding; anything else is code or data no known
+    function covers (a thunk, a switch table, an undiscovered function).
+    """
+    covered = bytearray(len(text))
+    for va, size in spans:
+        lo = max(0, va - text_va)
+        hi = min(len(text), va - text_va + size)
+        if hi > lo:
+            covered[lo:hi] = b"\x01" * (hi - lo)
+    padding = unattributed = 0
+    for byte, hit in zip(text, covered, strict=True):
+        if not hit:
+            if byte in _PADDING_BYTES:
+                padding += 1
+            else:
+                unattributed += 1
+    return padding, unattributed
+
+
+def _text_gaps(cfg: ProjectConfig, spans: list[tuple[int, int]]) -> tuple[int, int] | None:
+    """:func:`classify_text_gaps` over the target's ``.text``; None if unreadable."""
+    if not cfg.target_binary.is_file():
+        return None
+    try:
+        from rebrew.binary_loader import load_binary
+
+        info = load_binary(cfg.target_binary)
+        sec = info.sections[".text"]
+    except (OSError, KeyError, ValueError):
+        return None
+    text = info.data[sec.file_offset : sec.file_offset + min(sec.size, sec.raw_size)]
+    return classify_text_gaps(text, sec.va, spans)
+
+
 def _compute_text_size(cfg: ProjectConfig) -> int:
     """Compute .text section size from binary headers. Returns 0 if unavailable."""
     if not cfg.target_binary.exists():
@@ -458,20 +509,29 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
     # Single pass: status breakdown + byte-level coverage.
     status_counts: dict[str, int] = {}
     size_by_va: dict[int, int] = {f.va: f.size for f in ghidra_funcs}
-    starts = sorted(size_by_va.keys() | existing.keys())
+    # Pseudo-functions (switch arms inside an annotated function) are not
+    # starts: cutting at one gave the arm the rest of its matched parent.
+    starts = sorted((size_by_va.keys() | existing.keys()) - pseudo_vas)
 
     def _span(va: int, info: dict[str, str]) -> int:
-        """Bytes of *va*: the inventory size, else the annotated SIZE, cut at
-        the next known start (a library SIZE can span a whole .obj)."""
-        size = size_by_va.get(va)
-        if size is None:
-            try:
-                size = int(info.get("size") or 0)
-            except (TypeError, ValueError):
-                size = 0
+        """Bytes of *va*, cut at the next function start.
+
+        A compiled function's annotated SIZE is what verify compared, so it
+        wins; the inventory extent can include padding or a split body.  A
+        library row is never compiled, so its SIZE is unchecked (often short
+        of the linked body) and the discovered extent wins there.
+        """
+        try:
+            annotated = int(info.get("size") or 0)
+        except (TypeError, ValueError):
+            annotated = 0
+        inventory = size_by_va.get(va, 0)
+        size = (inventory or annotated) if va in library_vas else (annotated or inventory)
         return clip_span(starts, va, size)
 
     matched_bytes = 0
+    unmatched_bytes = 0
+    spans: list[tuple[int, int]] = []
     naked_matched = 0
     naked_bytes = 0
     verify_overrides = 0
@@ -488,7 +548,9 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
         # STATUS is ignored: the attribution is the identification.
         if va in library_vas:
             library_identified += 1
-            matched_bytes += _span(va, info)
+            size = _span(va, info)
+            matched_bytes += size
+            spans.append((va, size))
             # Bucketed as LIBRARY: a status left over from before the row was
             # identified as library code would read as reversing progress.
             module = info.get("module") or "?"
@@ -511,15 +573,15 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
         if verify_details.get(va, ("", False))[1] and effective not in MATCHED_STATUSES:
             effective_matches += 1
         status_counts[effective] = status_counts.get(effective, 0) + 1
+        size = _span(va, info)
+        spans.append((va, size))
         if effective in MATCHED_STATUSES:
-            # Fall back to annotation-metadata SIZE when the Ghidra
-            # function_structure.json is missing/stale — otherwise every
-            # matched byte counted 0 and coverage read 0%.
-            size = _span(va, info)
             if naked:
                 naked_matched += 1
                 naked_bytes += size
             matched_bytes += size
+        else:
+            unmatched_bytes += size
         module = info.get("module") or "?"
         report.module_status.setdefault(module, {})
         report.module_status[module][effective] = report.module_status[module].get(effective, 0) + 1
@@ -529,6 +591,15 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
     report.naked_matched = naked_matched
     report.naked_bytes = naked_bytes
     report.total_text_bytes = _compute_text_size(cfg)
+    # Functions nobody has started (not pseudo-functions, not library code).
+    for va in ghidra_vas - existing.keys() - library_vas - pseudo_vas:
+        size = clip_span(starts, va, size_by_va.get(va, 0))
+        unmatched_bytes += size
+        spans.append((va, size))
+    report.unmatched_bytes = unmatched_bytes
+    gaps = _text_gaps(cfg, spans)
+    if gaps is not None:
+        report.padding_bytes, report.unattributed_bytes = gaps
     report.verify_overrides = verify_overrides
     report.verify_missing_size = verify_missing_size
     report.effective_matches = effective_matches
@@ -682,6 +753,13 @@ def _render_terminal(report: StatusReport) -> None:
             f"  [cyan]{report.byte_coverage_pct}%[/cyan] of .text in byte-matched functions"
             f"  [dim]({report.matched_bytes:,}B / {report.total_text_bytes:,}B)[/dim]"
         )
+        # Every .text byte accounted for, so the gap to 100% is explained.
+        if report.padding_bytes is not None and report.unattributed_bytes is not None:
+            summary_lines.append(
+                f"  [dim]rest: {report.unmatched_bytes:,}B in unmatched functions, "
+                f"{report.padding_bytes:,}B alignment padding, "
+                f"{report.unattributed_bytes:,}B in no known function[/dim]"
+            )
 
     # Source file count
     summary_lines.append(f"  [dim]{report.source_files} source files[/dim]")
