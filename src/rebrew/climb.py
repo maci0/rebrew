@@ -91,7 +91,7 @@ def _code_lines(lines: list[str]) -> list[str]:
                 if ch == "\\" and i + 1 < n:
                     i += 2
                     continue
-                if ch == quote or ch == "\n":
+                if ch in (quote, "\n"):
                     buf.append(ch)
                     quote = None
                 i += 1

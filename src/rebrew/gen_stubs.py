@@ -375,7 +375,7 @@ def ensure_param_names(params_str: str) -> str:
         inner = inner[:-1]
     inner = inner.strip()
 
-    if not inner or inner == "void" or inner == "...":
+    if not inner or inner in ("void", "..."):
         return params_str
 
     parts: list[str] = []

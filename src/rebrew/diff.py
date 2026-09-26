@@ -226,16 +226,15 @@ def _write_blocker(
             outcome["written"] = True
             if not json_output:
                 console.print(f"  Updated BLOCKER: {blocker_text} ({delta}B delta)")
+    elif dry_run:
+        if not json_output:
+            console.print("  Would clear BLOCKER (no structural diffs)")
     else:
-        if dry_run:
-            if not json_output:
-                console.print("  Would clear BLOCKER (no structural diffs)")
-        else:
-            deleted_b = remove_field(metadata_dir, va, "blocker", module=module)
-            deleted_d = remove_field(metadata_dir, va, "blocker_delta", module=module)
-            outcome["cleared"] = bool(deleted_b or deleted_d)
-            if (deleted_b or deleted_d) and not json_output:
-                console.print("  Cleared BLOCKER (no structural diffs)")
+        deleted_b = remove_field(metadata_dir, va, "blocker", module=module)
+        deleted_d = remove_field(metadata_dir, va, "blocker_delta", module=module)
+        outcome["cleared"] = bool(deleted_b or deleted_d)
+        if (deleted_b or deleted_d) and not json_output:
+            console.print("  Cleared BLOCKER (no structural diffs)")
     return outcome
 
 

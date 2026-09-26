@@ -284,11 +284,10 @@ def pull_cmd(
         error_exit(str(exc), json_mode=json_output)
     if json_output:
         json_print({"pulled": tag, "already_present": was_present})
+    elif was_present:
+        console.print(f"[green]Already present[/green] {tag} (locally built)")
     else:
-        if was_present:
-            console.print(f"[green]Already present[/green] {tag} (locally built)")
-        else:
-            console.print(f"[green]Pulled[/green] {tag}")
+        console.print(f"[green]Pulled[/green] {tag}")
 
 
 def _trusted_toolchain_download_host(hostname: str | None) -> bool:

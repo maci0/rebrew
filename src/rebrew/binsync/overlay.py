@@ -636,12 +636,11 @@ def overlay_state(
                                 )
                             )
                             applied_globals += 1
+                        elif _apply_global_or_skip(cfg, dst_va, bs_name, entry, section, mod):
+                            applied_globals += 1
+                            touched.add(dst_va)
                         else:
-                            if _apply_global_or_skip(cfg, dst_va, bs_name, entry, section, mod):
-                                applied_globals += 1
-                                touched.add(dst_va)
-                            else:
-                                skipped += 1
+                            skipped += 1
                     elif accept_local:
                         proposed.append(
                             _proposal(
@@ -659,12 +658,11 @@ def overlay_state(
                         _proposal(dst_va, src_va, "global", local_name, bs_name, "would update")
                     )
                     applied_globals += 1
+                elif _apply_global_or_skip(cfg, dst_va, bs_name, entry, section, mod):
+                    applied_globals += 1
+                    touched.add(dst_va)
                 else:
-                    if _apply_global_or_skip(cfg, dst_va, bs_name, entry, section, mod):
-                        applied_globals += 1
-                        touched.add(dst_va)
-                    else:
-                        skipped += 1
+                    skipped += 1
 
     applied_structs = 0
     structs = load_binsync_structs(state_dir)

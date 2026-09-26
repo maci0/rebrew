@@ -568,19 +568,18 @@ def main(
     found = _findings(cfg, index, load_allowlist(allow, json_mode=json_output))
     if json_output:
         json_print({"findings": found, "count": len(found)})
+    elif not found:
+        console.print("[green]No reversed function matches a linked library.[/green]")
     else:
-        if not found:
-            console.print("[green]No reversed function matches a linked library.[/green]")
-        else:
-            console.print("Reversed functions whose bytes come from a linked library:\n")
-            for f in found:
-                console.print(f"  [yellow]{f['va']}[/yellow]  {f['file']}")
-                console.print(f"              {f['symbol']} in {f['object']}")
-            console.print(
-                f"\n{len(found)} function(s). These do not need reversing: the linker supplies "
-                "them. Delete the source, or add the VA to the --allow file with a reason "
-                "if the file must stay for link reasons."
-            )
+        console.print("Reversed functions whose bytes come from a linked library:\n")
+        for f in found:
+            console.print(f"  [yellow]{f['va']}[/yellow]  {f['file']}")
+            console.print(f"              {f['symbol']} in {f['object']}")
+        console.print(
+            f"\n{len(found)} function(s). These do not need reversing: the linker supplies "
+            "them. Delete the source, or add the VA to the --allow file with a reason "
+            "if the file must stay for link reasons."
+        )
     raise typer.Exit(code=EXIT_MISMATCH if found else EXIT_OK)
 
 

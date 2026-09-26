@@ -827,7 +827,6 @@ def main(
         clean=clean,
     )
     print_export_result(result, json_output=json_output, dry_run=dry_run)
-    return
 
 
 def export_state(

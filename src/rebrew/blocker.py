@@ -257,11 +257,10 @@ def blocker_clear(
         json_print(
             {"module": module, "va": f"0x{va_int:08x}", "cleared": cleared, "dry_run": False}
         )
+    elif cleared:
+        console.print(f"[green]Cleared BLOCKER for {module} 0x{va_int:08x}[/green]")
     else:
-        if cleared:
-            console.print(f"[green]Cleared BLOCKER for {module} 0x{va_int:08x}[/green]")
-        else:
-            console.print(f"[dim]No BLOCKER to clear for {module} 0x{va_int:08x}[/dim]")
+        console.print(f"[dim]No BLOCKER to clear for {module} 0x{va_int:08x}[/dim]")
 
 
 @app.command("show")
