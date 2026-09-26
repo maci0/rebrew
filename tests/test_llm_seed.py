@@ -26,6 +26,7 @@ from rebrew.llm_seed import (
     _log_usage,
     _parse_response,
     _resolve_model,
+    _sanitize_log_value,
     _sanitize_source,
     build_prompt,
     extract_seeds,
@@ -417,6 +418,21 @@ class TestSanitizeSource:
         assert "Return exactly 8 alternative C implementations" in prompt_high
         prompt_low = build_prompt("int f(void) { return 0; }", count=-5)
         assert "Return exactly 1 alternative C implementations" in prompt_low
+
+
+class TestSanitizeLogValue:
+    def test_collapses_control_characters(self) -> None:
+        assert _sanitize_log_value("a\nb\r\tc") == "a b c"
+
+    def test_caps_length(self) -> None:
+        out = _sanitize_log_value("x" * 400)
+        assert len(out) == 257
+        assert out.endswith("…")
+
+    def test_provider_error_cannot_forge_a_log_line(self, caplog: pytest.LogCaptureFixture) -> None:
+        with caplog.at_level(logging.WARNING):
+            assert _parse_response({"error": {"message": "rate limited\nWARNING forged"}}) == ""
+        assert "rate limited WARNING forged" in caplog.text
 
 
 class TestParseResponse:

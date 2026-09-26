@@ -24,6 +24,13 @@
   is one line (`unmatched`, `padding`, `no function`).
 
 ### Fixed
+- **LLM provider responses cannot forge log entries.** Every untrusted
+  provider field interpolated into a `logging.*` call (`finish_reason`, the
+  error envelope's message, a refusal, the reported model, and the token
+  counts) passes through `_sanitize_log_value`, which collapses control
+  characters to spaces and caps the value at 256 characters. A compromised
+  or malicious endpoint could otherwise embed newlines and fake warning
+  lines in rebrew's own log output.
 - **`rebrew test` and size-mismatch checks handle missing or non-finite match percentages.**
   `_print_compare_result` and `_run_test_impl` crashed with a `TypeError` when evaluating
   `SIZE_MISMATCH` results whose `match_percent` was `None`. Floating-point comparisons now

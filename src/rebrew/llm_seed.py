@@ -100,6 +100,20 @@ _ALLOWED_TOP_LEVEL = frozenset({"function_definition", "comment"})
 
 _request_count = 0
 _request_lock = threading.Lock()
+# Control characters (including newlines) in provider JSON fields let a
+# malicious or compromised endpoint forge log entries.  Replace them before
+# any ``logging.*`` call that interpolates untrusted response values.
+_CTRL_CHAR_RE = re.compile(r"[\x00-\x1f\x7f-\x9f]+")
+
+
+def _sanitize_log_value(value: Any, *, max_len: int = 256) -> str:
+    """Collapse control characters and cap length for safe log interpolation."""
+    text = str(value)
+    text = _CTRL_CHAR_RE.sub(" ", text)
+    if len(text) > max_len:
+        text = text[:max_len] + "…"
+    return text
+
 
 _SYSTEM_PROMPT = """\
 You are helping byte-match a C function in an old MSVC binary.  The current
@@ -445,7 +459,9 @@ def _chat_choice_message(data: Any) -> dict[str, Any] | None:
         return None
     finish_reason = first.get("finish_reason")
     if finish_reason not in (None, "stop"):
-        logging.info("LLM choice dropped due to finish_reason=%s", finish_reason)
+        logging.info(
+            "LLM choice dropped due to finish_reason=%s", _sanitize_log_value(finish_reason)
+        )
         return None
     msg = first.get("message") or first.get("delta")
     return msg if isinstance(msg, dict) else None
@@ -456,11 +472,11 @@ def _parse_response(data: Any) -> str:
     if isinstance(data, dict) and "error" in data:
         err = data["error"]
         err_msg = err.get("message") if isinstance(err, dict) else str(err)
-        logging.warning("LLM provider returned error envelope: %s", err_msg)
+        logging.warning("LLM provider returned error envelope: %s", _sanitize_log_value(err_msg))
     msg = _chat_choice_message(data)
     if msg is not None:
         if msg.get("refusal"):
-            logging.info("LLM seed model refused request: %s", msg["refusal"])
+            logging.info("LLM seed model refused request: %s", _sanitize_log_value(msg["refusal"]))
             return ""
         content = msg.get("content")
         if isinstance(content, str):
@@ -484,14 +500,14 @@ def _log_usage(data: Any, model: str, *, duration_s: float | None = None) -> Non
     usage = data.get("usage")
     if not isinstance(usage, dict):
         return
-    reported = data.get("model") or model
+    reported = _sanitize_log_value(data.get("model") or model)
     latency_str = f" latency={duration_s:.2f}s" if duration_s is not None else ""
     logging.info(
         "LLM seed usage: model=%s prompt_tokens=%s completion_tokens=%s total_tokens=%s%s",
         reported,
-        usage.get("prompt_tokens"),
-        usage.get("completion_tokens"),
-        usage.get("total_tokens"),
+        _sanitize_log_value(usage.get("prompt_tokens")),
+        _sanitize_log_value(usage.get("completion_tokens")),
+        _sanitize_log_value(usage.get("total_tokens")),
         latency_str,
     )
 
