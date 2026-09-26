@@ -251,7 +251,7 @@ def error_exit(msg: str, *, json_mode: bool = False, code: int = EXIT_ERROR) -> 
     embeds file contents, paths, and remote responses that must not be
     interpreted as markup or escape sequences.
     """
-    if json_mode:
+    if json_mode or _json_requested():
         print(json.dumps({"error": msg, "code": code}, indent=2))
     else:
         # soft_wrap keeps embedded commands/paths contiguous — without it

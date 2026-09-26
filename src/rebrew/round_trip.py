@@ -111,6 +111,7 @@ def main(
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:
+    """Splice every matched function back into the target PE and verify byte equality."""
     cfg = require_config(target=target, json_mode=json_output)
     raise typer.Exit(
         _run_round_trip(

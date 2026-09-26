@@ -1006,7 +1006,10 @@ def set_cflags(
 @app.command("set-compiler")
 def set_compiler(
     target: str = typer.Argument(..., help="Target name (e.g. 'mygame')."),
-    profile: str = typer.Argument(..., help="Compiler profile (see --help for the list)."),
+    profile: str = typer.Argument(
+        ...,
+        help="Compiler profile to set (e.g. 'msvc-6.0', 'gcc-14.2.0'; run 'rebrew toolchain list' for all).",
+    ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
 ) -> None:
     """Set the compiler profile for a target.
@@ -1014,6 +1017,8 @@ def set_compiler(
     Writes ``targets.<TARGET>.compiler.profile`` plus
     ``command``/``includes``/``libs`` from the named profile preset.
     Existing values for that target are overwritten.
+
+    Run 'rebrew toolchain list' to inspect available compiler profiles.
     """
     # Import profile presets from init_profiles (single source of truth,
     # registry-merged)
