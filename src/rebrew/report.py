@@ -1020,13 +1020,25 @@ def _render_graph(cfg: ProjectConfig) -> tuple[str, str | None, str | None]:
                 target,
                 "graph.html",
                 "<h2>Call graph</h2>"
-                "<p class='note'>No reversed source directory configured - call graph is empty.</p>",
+                "<p class='note'>No reversed source directory configured. "
+                "Set reversed_dir in rebrew-project.toml, then regenerate this report.</p>",
             ),
             None,
             None,
         )
     try:
         nodes, edges, dispatch_edges = build_graph(Path(reversed_dir), cfg=cfg)
+        if not nodes:
+            note = (
+                "<h2>Call graph</h2>"
+                "<p class='note'>No reversed functions found. Add annotated sources under the "
+                "project's reversed directory, then regenerate this report.</p>"
+            )
+            return (
+                _page("Call graph", target, "graph.html", note),
+                None,
+                None,
+            )
         # Stub-only projects (e.g. an intake'd NE target) have no source
         # edges — augment with the binary call graph when the target binary
         # is available so graph.html shows the real call structure.

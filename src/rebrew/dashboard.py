@@ -251,7 +251,12 @@ function formatWhen(value) {
 function setFunctionsEmptyMessage() {
   const el = $("empty-state");
   if (filtersActive()) {
-    el.innerHTML = "No functions match these filters. <button type='button' id='empty-clear-fn' class='link-button'>Clear filters</button>, or set Status and Module to any.";
+    const onlyQuery = !$("status").value && !moduleFilterState().blank && !moduleFilterState().value && !!$("q").value.trim();
+    if (onlyQuery) {
+      el.innerHTML = "No functions match this search. <button type='button' id='empty-clear-fn' class='link-button'>Clear search</button> or try another query.";
+    } else {
+      el.innerHTML = "No functions match these filters. <button type='button' id='empty-clear-fn' class='link-button'>Clear filters</button>, or broaden Status and Module.";
+    }
     const btn = $("empty-clear-fn");
     if (btn) btn.onclick = () => $("clear-filters").click();
   } else {
@@ -336,6 +341,7 @@ function updateFilterActions() {
   const canFilter = currentView === "functions" || currentView === "globals";
   $("filter-actions").hidden = !canFilter;
   $("clear-filters").disabled = !filtersActive();
+  $("clear-filters").textContent = currentView === "globals" ? "Clear search" : "Clear filters";
   writeHash();
 }
 function writeHash() {
@@ -888,6 +894,13 @@ function bindControls() {
       clearTimeout(searchTimer);
       resetPaging();
       loadFunctions();
+    } else if (ev.key === "Escape" && $("q").value) {
+      if (ev.preventDefault) ev.preventDefault();
+      $("q").value = "";
+      clearTimeout(searchTimer);
+      resetPaging();
+      loadFunctions();
+      updateFilterActions();
     }
   };
   $("gq").oninput = scheduleGlobalsSearch;
@@ -897,6 +910,13 @@ function bindControls() {
       clearTimeout(globalsSearchTimer);
       resetGlobalsPaging();
       loadGlobals();
+    } else if (ev.key === "Escape" && $("gq").value) {
+      if (ev.preventDefault) ev.preventDefault();
+      $("gq").value = "";
+      clearTimeout(globalsSearchTimer);
+      resetGlobalsPaging();
+      loadGlobals();
+      updateFilterActions();
     }
   };
   $("clear-filters").onclick = () => {
@@ -1091,7 +1111,7 @@ _INDEX_HTML = """<!doctype html>
     margin-bottom: .5rem; }
   .filters > div { display: flex; flex-direction: column; gap: .25rem; font-size: .9rem; }
   select, input { min-height: 2.75rem; padding: .3rem .5rem; min-width: 10rem;
-    font: inherit; border: 1px solid #767676; background: #fff; color: inherit; }
+    font: inherit; border: 1px solid #767676; border-radius: 6px; background: #fff; color: inherit; }
   :focus-visible { outline: 3px solid #005fcc; outline-offset: 2px; }
   h1 { margin-bottom: .25rem; }
   .cards { display: flex; gap: 1rem; flex-wrap: wrap; margin: 1rem 0; }
@@ -1117,7 +1137,7 @@ __STATUS_CSS__
   th, td { border: 1px solid #767676; padding: .3rem .5rem; text-align: left; }
   th { background: #f5f5f5; white-space: nowrap; }
   tbody tr:hover { background: #f9f9f9; }
-  td.va { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; }
+  td.va, code { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; }
   #dashboard-error { color: #9a3412; background: #fff7ed; border: 1px solid #9a3412;
     border-radius: 6px; padding: .6rem .8rem; margin: .75rem 0; }
   #empty-state, #no-targets { color: #4a4a4a; margin: 1rem 0; }
@@ -1127,16 +1147,13 @@ __STATUS_CSS__
   #retry-bar { margin: .35rem 0 .75rem; }
   #clear-filters, #show-more, #show-more-globals, #show-more-history,
   #retry-functions, #retry-summary, #retry-view {
-    min-height: 2.75rem; padding: .3rem .75rem; border: 1px solid #767676; background: #fff; color: inherit; }
-  #clear-filters:hover:not(:disabled), #show-more:hover:not(:disabled),
-  #show-more-globals:hover:not(:disabled), #show-more-history:hover:not(:disabled),
-  #retry-functions:hover:not(:disabled), #retry-summary:hover:not(:disabled),
-  #retry-view:hover:not(:disabled) { border-color: #444; background: #f9f9f9; }
-  #clear-filters:active:not(:disabled), #show-more:active:not(:disabled),
-  #show-more-globals:active:not(:disabled), #show-more-history:active:not(:disabled),
-  #retry-functions:active:not(:disabled), #retry-summary:active:not(:disabled),
-  #retry-view:active:not(:disabled) { background: #f0f0f0; }
-  #clear-filters:disabled { opacity: .55; cursor: not-allowed; }
+    min-height: 2.75rem; padding: .3rem .75rem; border: 1px solid #767676; border-radius: 6px;
+    background: #fff; color: inherit; font: inherit; cursor: pointer; }
+  :is(#clear-filters, #show-more, #show-more-globals, #show-more-history,
+  #retry-functions, #retry-summary, #retry-view):hover:not(:disabled) { border-color: #444; background: #f9f9f9; }
+  :is(#clear-filters, #show-more, #show-more-globals, #show-more-history,
+  #retry-functions, #retry-summary, #retry-view):active:not(:disabled) { background: #f0f0f0; }
+  button:disabled { opacity: .55; cursor: not-allowed; }
   .views { display: flex; flex-wrap: wrap; gap: .35rem; margin: .75rem 0 .25rem; }
   .views button { min-height: 2.75rem; padding: .3rem .85rem; font: inherit; cursor: pointer;
     border: 1px solid #767676; border-radius: 6px; background: #fff; color: inherit; }
@@ -1151,6 +1168,8 @@ __STATUS_CSS__
     body { margin: 1rem; }
     select, input { min-width: 0; width: 100%; }
     .filters > div { flex: 1 1 100%; }
+    .card { min-width: 0; flex: 1 1 calc(50% - 1rem); }
+    .views button { flex: 1 1 auto; text-align: center; }
   }
   @media (forced-colors: active) {
     button.card.active, .views button.active {
