@@ -10,6 +10,7 @@ retargeted major tag cannot silently change CI.
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 import re
@@ -229,10 +230,125 @@ class TestCiPins:
         assert "GIT_CONFIG_GLOBAL" in text
         assert "extraheader = AUTHORIZATION: basic" in text
         assert 'auth_args=(-c "http.https://github.com/.extraheader=' not in text
+        assert text.index("umask 077") < text.index('"$(mktemp)"')
+        assert text.index('token="${GH_TOKEN:-${GITHUB_TOKEN:-}}"') < text.index(
+            "unset GH_TOKEN GITHUB_TOKEN"
+        )
+        assert text.index("unset GH_TOKEN GITHUB_TOKEN") < text.index("clone --depth 1 --branch")
+        assert "core.hooksPath=/dev/null" in text
+        assert "core.fsmonitor=" in text
+        assert "GIT_LFS_SKIP_SMUDGE=1" in text
+        assert 'rm -rf -- "${dest}"' in text
         assert "bash tools/ci_clone_resembl.sh" in UV_ENV_ACTION.read_text(encoding="utf-8")
         for path in (CI_YML, SYNC_YML):
             wf = path.read_text(encoding="utf-8")
             assert "git clone --depth 1 --branch" not in wf, path.name
+
+    def test_main_push_is_not_cancelled(self) -> None:
+        """PR updates cancel the previous run; a main push must finish.
+
+        The package job uploads ``rebrew-dist-<sha>``. Cancelling that run
+        drops the verified wheel for that commit.
+        """
+        head = CI_YML.read_text(encoding="utf-8").split("\njobs:", 1)[0]
+        assert "cancel-in-progress: ${{ github.event_name == 'pull_request' }}" in head
+        assert "cancel-in-progress: true" not in head
+
+    def test_clone_refuses_non_resembl_dest(self, tmp_path: Path) -> None:
+        """``rm -rf`` must not run against a path that is not a resembl checkout."""
+        victim = tmp_path / "other"
+        victim.write_text("keep", encoding="utf-8")
+        result = subprocess.run(
+            ["bash", str(ROOT / "tools" / "ci_clone_resembl.sh"), str(victim)],
+            env={
+                **os.environ,
+                "RESEMBL_REF": "v2.0.0",
+                "RESEMBL_SHA": "a" * 40,
+                "GH_TOKEN": "should-not-be-used",
+            },
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        assert result.returncode == 1
+        assert "basename is not 'resembl'" in result.stderr
+        assert victim.read_text(encoding="utf-8") == "keep"
+
+    def test_clone_hides_token_from_git(self, tmp_path: Path) -> None:
+        """git's argv and environment must not carry the GitHub token.
+
+        The config file is created mode 0600 and removed when the script exits.
+        """
+        bindir = tmp_path / "bin"
+        bindir.mkdir()
+        log = tmp_path / "git.log"
+        fake = bindir / "git"
+        fake.write_text(
+            "#!/usr/bin/env python3\n"
+            "import os, sys\n"
+            "from pathlib import Path\n"
+            f"log = Path({str(log)!r})\n"
+            "with log.open('a', encoding='utf-8') as fh:\n"
+            "    fh.write('ARGV ' + ' '.join(sys.argv[1:]) + '\\n')\n"
+            "    if os.environ.get('GH_TOKEN') or os.environ.get('GITHUB_TOKEN'):\n"
+            "        fh.write('TOKEN_IN_ENV\\n')\n"
+            "    fh.write('LFS ' + os.environ.get('GIT_LFS_SKIP_SMUDGE', '') + '\\n')\n"
+            "    cfg = os.environ.get('GIT_CONFIG_GLOBAL', '')\n"
+            "    if cfg and os.path.isfile(cfg):\n"
+            "        mode = os.stat(cfg).st_mode & 0o777\n"
+            "        fh.write(f'MODE {mode:03o}\\n')\n"
+            "        fh.write('CFG ' + cfg + '\\n')\n"
+            "        fh.write(Path(cfg).read_text(encoding='utf-8'))\n"
+            "args = sys.argv[1:]\n"
+            "if 'rev-parse' in args:\n"
+            "    print(os.environ['EXPECT_SHA'])\n"
+            "    raise SystemExit(0)\n"
+            "if 'clone' in args:\n"
+            "    Path(args[-1]).mkdir(parents=True, exist_ok=True)\n"
+            "    raise SystemExit(0)\n"
+            "raise SystemExit('unexpected git args')\n",
+            encoding="utf-8",
+        )
+        fake.chmod(0o755)
+        token = "test-token-not-a-secret"
+        sha = "a" * 40
+        dest = tmp_path / "resembl"
+        env = {
+            **os.environ,
+            "PATH": f"{bindir}{os.pathsep}{os.environ.get('PATH', '')}",
+            "GH_TOKEN": token,
+            "GITHUB_TOKEN": "other-secret-not-used",
+            "RESEMBL_REF": "v2.0.0",
+            "RESEMBL_SHA": sha,
+            "EXPECT_SHA": sha,
+        }
+        env.pop("GIT_CONFIG_GLOBAL", None)
+        result = subprocess.run(
+            ["bash", str(ROOT / "tools" / "ci_clone_resembl.sh"), str(dest)],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        recorded = log.read_text(encoding="utf-8") if log.exists() else ""
+        assert result.returncode == 0, result.stdout + result.stderr + recorded
+        assert "TOKEN_IN_ENV" not in recorded
+        assert token not in "\n".join(
+            line for line in recorded.splitlines() if line.startswith("ARGV ")
+        )
+        assert "core.hooksPath=/dev/null" in recorded
+        assert "core.fsmonitor=" in recorded
+        assert "filter.lfs.smudge=" in recorded
+        assert "LFS 1" in recorded
+        assert "MODE 600" in recorded
+        assert "-- https://github.com/maci0/resembl.git" in recorded
+        basic = base64.b64encode(f"x-access-token:{token}".encode()).decode()
+        assert f"AUTHORIZATION: basic {basic}" in recorded
+        cfg_line = next(line for line in recorded.splitlines() if line.startswith("CFG "))
+        assert not Path(cfg_line.removeprefix("CFG ")).exists()
+        assert dest.is_dir()
 
     def test_test_job_fetches_tags(self) -> None:
         """Packaging CHANGELOG↔tag contract needs tags on the shallow checkout."""

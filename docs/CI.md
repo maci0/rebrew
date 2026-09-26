@@ -45,8 +45,10 @@ Every job that runs `uv sync` first clones the sibling `resembl` repo
 `v2.0.0`) into the
 directory above the workspace via `tools/ci_clone_resembl.sh` (retries on
 network flake; the job passes `secrets.GITHUB_TOKEN` as the action's
-`github-token` input, which reaches only the clone step — header auth in the
-script — so lint/test steps never see the token):
+`github-token` input, which reaches only the clone step — header auth in a
+gitconfig created under umask 077, with the token unset before `git` runs,
+and hooks / fsmonitor / LFS smudge disabled before the SHA check — so
+lint/test steps never see the token):
 `pyproject.toml`'s `[tool.uv.sources]` resolves
 the `similarity` group's `resembl` from `../resembl`, so a default
 `uv sync --frozen` fails to build the installation plan when that checkout is

@@ -1,6 +1,12 @@
 ## [Unreleased]
 
 ### Fixed
+- **CI keeps the GitHub token out of `git` and finishes main-branch runs.**
+  The resembl clone writes the token into a gitconfig created under umask
+  077, unsets `GH_TOKEN` / `GITHUB_TOKEN` before `git` runs, and disables
+  hooks, fsmonitor, and LFS smudge before the tag SHA check. A pull request
+  update still cancels its previous run; a push to `main` does not, so that
+  commit's package artifact is uploaded.
 - **Call graph status colors match the report.** Mermaid and DOT nodes use
   the report's marks (EXACT green, RELOC blue, PROVEN cyan, near-match
   amber, STUB slate) with the report header as the stroke. STUB is no

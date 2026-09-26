@@ -13,7 +13,10 @@ permissions:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # PR updates supersede the previous run. A push to main must finish:
+  # the package job uploads rebrew-dist-<sha>, and cancelling drops that
+  # commit's verified wheel, sdist, SBOM, and buildinfo.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 # uv / Python / resembl pins and the shared setup steps live in one place:
 # .github/actions/uv-env/action.yml (used by both workflows).

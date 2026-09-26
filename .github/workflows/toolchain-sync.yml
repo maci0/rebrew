@@ -19,6 +19,8 @@ permissions:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
+  # A newer schedule or dispatch replaces a stale drift check. This job
+  # uploads nothing keyed by commit, unlike ci.yml's package artifact.
   cancel-in-progress: true
 
 jobs:
