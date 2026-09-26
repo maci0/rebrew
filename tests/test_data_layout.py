@@ -1073,3 +1073,118 @@ class TestSharedScans:
         )
         assert result["owned"] == 1
         assert "int g_count = 42;" in (shared / "owner.c").read_text()
+
+
+def test_find_dlead_pad() -> None:
+    from rebrew.data_layout import _find_dlead_pad
+
+    text = "// note\nunsigned char _dlead_foo[16] = {0x00, 0x01};\nint x = 0;\n"
+    res = _find_dlead_pad(text)
+    assert res is not None
+    start, end, name, size, indent = res
+    assert name == "_dlead_foo"
+    assert size == 16
+    assert indent == ""
+    assert text[start:end] == "unsigned char _dlead_foo[16] = {0x00, 0x01};\n"
+
+    multiline = "  unsigned char _dlead_bar[32] = {\n    0x01, 0x02\n  };\n"
+    res2 = _find_dlead_pad(multiline)
+    assert res2 is not None
+    start2, end2, name2, size2, indent2 = res2
+    assert name2 == "_dlead_bar"
+    assert size2 == 32
+    assert indent2 == "  "
+    assert multiline[start2:end2] == multiline
+
+
+def test_converge_layout_rerun_updates_existing_pad_idempotent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Running converge_layout twice updates the existing pad without duplicate declarations or syntax corruption."""
+    from rebrew import data_layout as dl
+
+    src = tmp_path / "src"
+    src.mkdir()
+    f = src / "a.c"
+    f.write_text("// Header\n// FUNCTION: SERVER 0x10027000\nint g_a = 1;\n", encoding="utf-8")
+
+    build = tmp_path / "build"
+    build.mkdir()
+    (build / "server.dll").write_bytes(b"MZ")
+    orig = tmp_path / "orig.dll"
+    orig.write_bytes(b"\x00" * 0x80)
+
+    data_base = 0x10027000
+    monkeypatch.setattr(dl, "layout_geometry", lambda p, target=None: (data_base, 0x1000, 0x1000))
+    monkeypatch.setattr(dl, "data_raw_from_binary", lambda p: b"\xab" * 0x80)
+    monkeypatch.setattr(dl, "_converge_target", lambda root, target: "server.dll")
+    monkeypatch.setattr(dl, "built_data_va", lambda d: data_base)
+    monkeypatch.setattr(dl, "link_objects", lambda root: [tmp_path / "a.obj"])
+    monkeypatch.setattr(dl, "_obj_to_source", lambda o, root, src_dir: f)
+
+    # Run 1: offset 0x20 -> needs pad of 32 bytes
+    monkeypatch.setattr(dl, "data_symbols", lambda m: {"g_a": data_base + 0x20})
+    monkeypatch.setattr(dl, "obj_data_symbol_offsets", lambda o: (0x10, {"g_a": 0}))
+
+    r1 = dl.converge_layout(tmp_path, tmp_path / "m.toml", orig, src, rounds=1, target="server.dll")
+    assert len(r1["adjustments"]) == 1
+    content1 = f.read_text(encoding="utf-8")
+    assert content1.count("_dlead_a") == 1
+    assert "unsigned char _dlead_a[32] = " in content1
+    assert "; = " not in content1  # No syntax corruption
+
+    # Run 2: symbol moved further (offset 0x30; object has 32 byte pad -> delta 16 -> pad grows to 48 bytes)
+    monkeypatch.setattr(dl, "data_symbols", lambda m: {"g_a": data_base + 0x30})
+    monkeypatch.setattr(dl, "obj_data_symbol_offsets", lambda o: (0x30, {"g_a": 32}))
+    r2 = dl.converge_layout(tmp_path, tmp_path / "m.toml", orig, src, rounds=1, target="server.dll")
+    assert len(r2["adjustments"]) == 1
+    content2 = f.read_text(encoding="utf-8")
+    # Must update in place: single declaration, no duplicate, no dangling syntax
+    assert content2.count("_dlead_a") == 1
+    assert "unsigned char _dlead_a[48] = " in content2
+    assert "; = " not in content2
+
+    # Run 3: delta is 0 -> strict no-op, leaves content identical
+    monkeypatch.setattr(dl, "obj_data_symbol_offsets", lambda o: (0x40, {"g_a": 48}))
+    r3 = dl.converge_layout(tmp_path, tmp_path / "m.toml", orig, src, rounds=1, target="server.dll")
+    assert len(r3["adjustments"]) == 0
+    assert f.read_text(encoding="utf-8") == content2
+
+
+def test_converge_layout_shrinks_to_zero_removes_pad(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When a pad shrinks to 0 on rerun, it is removed cleanly without leaving dangling syntax."""
+    from rebrew import data_layout as dl
+
+    src = tmp_path / "src"
+    src.mkdir()
+    f = src / "a.c"
+    f.write_text(
+        "// Header\nunsigned char _dlead_a[16] = {0x00};\nint g_a = 1;\n", encoding="utf-8"
+    )
+
+    build = tmp_path / "build"
+    build.mkdir()
+    (build / "server.dll").write_bytes(b"MZ")
+    orig = tmp_path / "orig.dll"
+    orig.write_bytes(b"\x00" * 0x80)
+
+    data_base = 0x10027000
+    monkeypatch.setattr(dl, "layout_geometry", lambda p, target=None: (data_base, 0x1000, 0x1000))
+    monkeypatch.setattr(dl, "data_raw_from_binary", lambda p: b"\xab" * 0x80)
+    monkeypatch.setattr(dl, "_converge_target", lambda root, target: "server.dll")
+    monkeypatch.setattr(dl, "built_data_va", lambda d: data_base)
+    monkeypatch.setattr(dl, "link_objects", lambda root: [tmp_path / "a.obj"])
+    monkeypatch.setattr(dl, "_obj_to_source", lambda o, root, src_dir: f)
+
+    # exp (0) - cur (0x20) = delta -32, old_size 16 -> new_size 0
+    monkeypatch.setattr(dl, "data_symbols", lambda m: {"g_a": data_base})
+    monkeypatch.setattr(dl, "obj_data_symbol_offsets", lambda o: (0x10, {"g_a": 0x20}))
+
+    r = dl.converge_layout(tmp_path, tmp_path / "m.toml", orig, src, rounds=1, target="server.dll")
+    assert len(r["adjustments"]) == 1
+    content = f.read_text(encoding="utf-8")
+    assert "_dlead_a" not in content
+    assert "= {0x00};" not in content
+    assert content == "// Header\nint g_a = 1;\n"
