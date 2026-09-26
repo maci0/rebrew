@@ -1,5 +1,6 @@
 ## [Unreleased]
 
+## [2.13.0] - 2026-09-26
 ### Changed
 - **`status` draws a data bar in the same shape as the `.text` bar.** It is
   the share of file-backed `.data` and `.rdata` covered by VERIFIED
