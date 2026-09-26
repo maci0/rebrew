@@ -486,6 +486,27 @@ class ProjectConfig:
             return self.reversed_dir
         return parent
 
+    def __post_init__(self) -> None:
+        """Coerce string path arguments to :class:`pathlib.Path` instances."""
+        if self.root is not None and not isinstance(self.root, Path):
+            self.root = Path(self.root)
+        if self.target_binary is not None and not isinstance(self.target_binary, Path):
+            self.target_binary = Path(self.target_binary)
+        if self.reversed_dir is not None and not isinstance(self.reversed_dir, Path):
+            self.reversed_dir = Path(self.reversed_dir)
+        if self.shared_dir is not None and not isinstance(self.shared_dir, Path):
+            self.shared_dir = Path(self.shared_dir)
+        if self.bin_dir is not None and not isinstance(self.bin_dir, Path):
+            self.bin_dir = Path(self.bin_dir)
+        if self.db_dir is not None and not isinstance(self.db_dir, Path):
+            self.db_dir = Path(self.db_dir)
+        if self.output_dir is not None and not isinstance(self.output_dir, Path):
+            self.output_dir = Path(self.output_dir)
+        if self.compiler_includes is not None and not isinstance(self.compiler_includes, Path):
+            self.compiler_includes = Path(self.compiler_includes)
+        if self.compiler_libs is not None and not isinstance(self.compiler_libs, Path):
+            self.compiler_libs = Path(self.compiler_libs)
+
     def as_dict(self, redact_secrets: bool = True) -> dict[str, Any]:
         """Return configuration as a dictionary, optionally redacting sensitive keys."""
         return {
@@ -521,6 +542,10 @@ class ProjectConfig:
             "cache_backend": self.cache_backend,
             "all_targets": list(self.all_targets),
         }
+
+    def to_dict(self, redact_secrets: bool = True) -> dict[str, Any]:
+        """Alias for :meth:`as_dict` for API consistency across SDK models."""
+        return self.as_dict(redact_secrets=redact_secrets)
 
     def validate(self) -> None:
         """Validate configuration settings, raising :class:`ConfigError` on invalid values."""

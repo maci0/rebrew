@@ -210,6 +210,41 @@ class TestCompareResultHelpers:
         assert d["reloc_offsets"] == [0]
         assert "obj_bytes" not in d  # raw bytes not dumped in dictionary summary
 
+    def test_compare_result_from_dict_roundtrip(self) -> None:
+        res = CompareResult(
+            matched=True,
+            status="EXACT",
+            match_percent=100.0,
+            delta=0,
+            obj_bytes=b"\x90\x90",
+            reloc_offsets=[0],
+            message="all matched",
+            match_count=2,
+        )
+        d = res.to_dict()
+        restored = CompareResult.from_dict(d)
+        assert restored.matched is True
+        assert restored.status == "EXACT"
+        assert restored.match_percent == 100.0
+        assert restored.delta == 0
+        assert restored.match_count == 2
+        assert restored.reloc_offsets == [0]
+        assert restored.obj_bytes is None
+
+    def test_compare_result_from_dict_extra_fields(self) -> None:
+        d = {
+            "matched": False,
+            "status": "NEAR_MATCHING",
+            "match_percent": 80.0,
+            "delta": 4,
+            "unknown_extra_field": "ignore me",
+        }
+        res = CompareResult.from_dict(d)
+        assert res.matched is False
+        assert res.status == "NEAR_MATCHING"
+        assert res.delta == 4
+        assert res.match_percent == 80.0
+
 
 class TestProjectConfigValidation:
     def test_validate_valid_config(self, tmp_path: Path) -> None:
@@ -259,6 +294,32 @@ class TestProjectConfigValidation:
         )
         with pytest.raises(ConfigError, match="LLM endpoint must use https when an API key is set"):
             cfg.validate()
+
+    def test_project_config_to_dict_matches_as_dict(self, tmp_path: Path) -> None:
+        cfg = ProjectConfig(root=tmp_path)
+        assert cfg.to_dict() == cfg.as_dict()
+
+    def test_project_config_coerces_str_paths(self) -> None:
+        cfg = ProjectConfig(
+            root="/tmp/project",
+            target_binary="bin/game.exe",
+            reversed_dir="src/game",
+            shared_dir="src/shared",
+            bin_dir="bin",
+            db_dir=".rebrew",
+            output_dir="out",
+            compiler_includes="include",
+            compiler_libs="lib",
+        )
+        assert isinstance(cfg.root, Path)
+        assert isinstance(cfg.target_binary, Path)
+        assert isinstance(cfg.reversed_dir, Path)
+        assert isinstance(cfg.shared_dir, Path)
+        assert isinstance(cfg.bin_dir, Path)
+        assert isinstance(cfg.db_dir, Path)
+        assert isinstance(cfg.output_dir, Path)
+        assert isinstance(cfg.compiler_includes, Path)
+        assert isinstance(cfg.compiler_libs, Path)
 
 
 class TestUrlAndModelValidation:
@@ -364,3 +425,91 @@ class TestDecompmeError:
         assert err.kind == "protocol"
         assert err.status_code == 400
         assert err.retryable is False
+
+
+class TestMetadataConvenience:
+    def test_metadata_accepts_str_and_config(self, tmp_path: Path) -> None:
+        from rebrew.metadata import (
+            get_entry,
+            load_metadata,
+            metadata_path,
+            save_metadata,
+            update_field,
+        )
+
+        cfg = ProjectConfig(root=tmp_path, reversed_dir=tmp_path / "src" / "game")
+        cfg.metadata_dir.mkdir(parents=True, exist_ok=True)
+
+        # metadata_path
+        assert metadata_path(str(cfg.metadata_dir)) == cfg.metadata_dir / "rebrew-functions.toml"
+        assert metadata_path(cfg) == cfg.metadata_dir / "rebrew-functions.toml"
+
+        # save and load with str
+        save_metadata(str(cfg.metadata_dir), {("SERVER", 0x1000): {"size": 32}})
+        loaded = load_metadata(str(cfg.metadata_dir))
+        assert ("SERVER", 0x1000) in loaded
+
+        # load and get_entry with config
+        loaded_cfg = load_metadata(cfg)
+        assert ("SERVER", 0x1000) in loaded_cfg
+        entry = get_entry(cfg, 0x1000, "SERVER")
+        assert entry["size"] == 32
+
+        # update_field with str
+        update_field(str(cfg.metadata_dir), 0x1000, "note", "test note", module="SERVER")
+        assert get_entry(cfg, 0x1000, "SERVER")["note"] == "test note"
+
+    def test_data_metadata_accepts_str_and_config(self, tmp_path: Path) -> None:
+        from rebrew.data_metadata import (
+            get_data_entry,
+            load_data_metadata,
+            set_data_field,
+        )
+
+        cfg = ProjectConfig(root=tmp_path, reversed_dir=tmp_path / "src" / "game")
+        cfg.metadata_dir.mkdir(parents=True, exist_ok=True)
+
+        # set with str
+        set_data_field(str(cfg.metadata_dir), 0x2000, "size", 64, module="SERVER")
+
+        # load with config
+        data = load_data_metadata(cfg)
+        assert ("SERVER", 0x2000) in data
+        assert data[("SERVER", 0x2000)]["size"] == 64
+
+        # get with str
+        entry = get_data_entry(str(cfg.metadata_dir), 0x2000, "SERVER")
+        assert entry["size"] == 64
+
+
+class TestGhidraClientInjection:
+    def test_apply_commands_via_mcp_accepts_client(self) -> None:
+        from rebrew.ghidra.client import apply_commands_via_mcp
+
+        class FakeMcpClient:
+            def __init__(self) -> None:
+                self.calls: list[str] = []
+
+            def post(self, url: str, **kwargs: object) -> object:
+                self.calls.append(url)
+                return SimpleNamespace(
+                    status_code=200,
+                    headers={"content-type": "application/json", "mcp-session-id": "sess-1"},
+                    json=lambda: {
+                        "jsonrpc": "2.0",
+                        "result": {"content": [{"type": "text", "text": "ok"}]},
+                    },
+                    text='{"jsonrpc": "2.0", "result": {"content": [{"type": "text", "text": "ok"}]}}',
+                    raise_for_status=lambda: None,
+                    close=lambda: None,
+                )
+
+            def delete(self, url: str, **kwargs: object) -> object:
+                return SimpleNamespace(status_code=200, close=lambda: None)
+
+        fake = FakeMcpClient()
+        cmd = {"tool": "create-function", "args": {"address": "0x1000"}}
+        success, errors = apply_commands_via_mcp([cmd], client=fake)  # type: ignore[arg-type]
+        assert success == 1
+        assert errors == 0
+        assert len(fake.calls) >= 2  # init + command

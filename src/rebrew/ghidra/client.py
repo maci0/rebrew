@@ -633,10 +633,16 @@ def _is_idempotent_success(op: dict[str, Any] | None, error_msg: str) -> bool:
 def apply_commands_via_mcp(
     commands: list[dict[str, Any]],
     endpoint: str = "http://localhost:8080/mcp/message",
+    *,
+    client: httpx.Client | None = None,
+    timeout: float = MCP_REQUEST_TIMEOUT_S,
 ) -> tuple[int, int]:
     """Apply sync commands to Ghidra via ReVa MCP Streamable HTTP.
 
     Returns (success_count, error_count).
+
+    *client*, when given, must be an ``httpx.Client`` (or compatible stand-in).
+    The caller owns its lifetime; the function does not close it.
     """
     import httpx  # deferred: ~46 ms of startup for non-Ghidra commands
 
@@ -644,13 +650,16 @@ def apply_commands_via_mcp(
     errors = 0
     total = len(commands)
 
+    cm: Any = (
+        contextlib.nullcontext(client) if client is not None else httpx.Client(timeout=timeout)
+    )
     with (
-        httpx.Client(timeout=MCP_REQUEST_TIMEOUT_S) as client,
+        cm as http,
         contextlib.ExitStack() as session_cleanup,
     ):
         try:
-            session_id = init_mcp_session(client, endpoint)
-            session_cleanup.callback(end_mcp_session, client, endpoint, session_id)
+            session_id = init_mcp_session(http, endpoint)
+            session_cleanup.callback(end_mcp_session, http, endpoint, session_id)
         except httpx.HTTPStatusError as exc:
             code = exc.response.status_code
             raise McpError(
@@ -677,11 +686,11 @@ def apply_commands_via_mcp(
 
         # Best-effort: ReVa does not require this notification to succeed.
         try:
-            notify = client.post(
+            notify = http.post(
                 endpoint,
                 json={"jsonrpc": "2.0", "method": "notifications/initialized"},
                 headers=headers,
-                timeout=MCP_REQUEST_TIMEOUT_S,
+                timeout=timeout,
             )
             try:
                 notify.raise_for_status()
@@ -701,9 +710,7 @@ def apply_commands_via_mcp(
                 "method": "tools/call",
                 "params": {"name": cmd["tool"], "arguments": cmd["args"]},
             }
-            resp = client.post(
-                endpoint, json=payload, headers=headers, timeout=MCP_REQUEST_TIMEOUT_S
-            )
+            resp = http.post(endpoint, json=payload, headers=headers, timeout=timeout)
             try:
                 resp.raise_for_status()
                 # Read body once to avoid double-decode on non-UTF8 responses.

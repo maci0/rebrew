@@ -229,6 +229,7 @@ __all__ = [
     "refresh_library_presets",
     "remove_field",
     "remove_fields_batch",
+    "resolve_metadata_dir",
     "save_metadata",
     "set_fields",
     "set_fields_batch",
@@ -243,6 +244,15 @@ __all__ = [
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+
+def resolve_metadata_dir(directory: Path | str | Any) -> Path:
+    """Resolve *directory* to a :class:`pathlib.Path`, extracting ``cfg.metadata_dir`` if given config."""
+    if hasattr(directory, "metadata_dir"):
+        return Path(directory.metadata_dir)
+    if hasattr(directory, "reversed_dir"):
+        return Path(directory.reversed_dir).parent
+    return Path(directory)
 
 
 def is_metadata_key(key: str) -> bool:
@@ -261,14 +271,14 @@ def is_table_field(key: str) -> bool:
     return _FIELD_TYPES.get(key.lower()) is dict
 
 
-def metadata_path(directory: Path) -> Path:
+def metadata_path(directory: Path | str | Any) -> Path:
     """Return the ``rebrew-functions.toml`` path for the metadata root directory.
 
     Args:
-        directory: The metadata root directory (``cfg.metadata_dir``).
+        directory: The metadata root directory (``cfg.metadata_dir``), path string, or config.
 
     """
-    return directory / METADATA_FILENAME
+    return resolve_metadata_dir(directory) / METADATA_FILENAME
 
 
 # ---------------------------------------------------------------------------
@@ -277,13 +287,13 @@ def metadata_path(directory: Path) -> Path:
 
 
 def load_metadata(
-    directory: Path,
+    directory: Path | str | Any,
     *,
     deepcopy: bool = True,
 ) -> dict[tuple[str, int], dict[str, Any]]:
     """Load ``rebrew-functions.toml`` from *directory*.
 
-    *directory* must be the metadata root (``cfg.metadata_dir``).  There is
+    *directory* must be the metadata root (``cfg.metadata_dir``), path string, or config.  There is
     no walk-up — the file is expected at exactly ``directory / rebrew-functions.toml``.
 
     Returns a mapping of ``{(module, va_int): {field_name: value}}``.
@@ -297,12 +307,13 @@ def load_metadata(
     mutate the returned mapping (or any nested entry dict).
 
     Args:
-        directory: The metadata root directory (``cfg.metadata_dir``).
+        directory: The metadata root directory (``cfg.metadata_dir``), path string, or config.
         deepcopy: Isolate the returned mapping from the process cache.
 
     """
+    dir_path = resolve_metadata_dir(directory)
     # Resolve so cache keys are stable across relative/absolute call sites.
-    path = (directory / METADATA_FILENAME).resolve()
+    path = (dir_path / METADATA_FILENAME).resolve()
     if not path.exists():
         pop_metadata_doc_cache(_metadata_cache, path)
         return {}
@@ -311,22 +322,23 @@ def load_metadata(
 
 
 def save_metadata(
-    directory: Path,
+    directory: Path | str | Any,
     data: dict[tuple[str, int], dict[str, Any]],
 ) -> None:
     """Atomically write *data* to ``rebrew-functions.toml`` in *directory*.
 
     Args:
-        directory: The directory to write into.
+        directory: The directory to write into (Path, str, or ProjectConfig).
         data: Mapping of ``{(module, va_int): {field: value}}``.
 
     Raises:
         ValueError: The existing store cannot be parsed; it is left untouched.
 
     """
-    path = (directory / METADATA_FILENAME).resolve()
+    dir_path = resolve_metadata_dir(directory)
+    path = (dir_path / METADATA_FILENAME).resolve()
     doc = build_metadata_doc(data, _CANONICAL_ORDER)
-    with metadata_write_lock(directory, METADATA_FILENAME):
+    with metadata_write_lock(dir_path, METADATA_FILENAME):
         # load_metadata reads an unparseable store as empty, so a caller's
         # load-modify-save would otherwise replace every entry it never saw.
         if path.exists():
@@ -343,7 +355,7 @@ def save_metadata(
 # ---------------------------------------------------------------------------
 
 
-def get_entry(directory: Path, va: int, module: str) -> dict[str, Any]:
+def get_entry(directory: Path | str | Any, va: int, module: str) -> dict[str, Any]:
     """Return metadata fields for *(module, va)* in *directory*.
 
     Returns an empty dict if not found.  Loads with ``deepcopy=False`` and
@@ -351,7 +363,7 @@ def get_entry(directory: Path, va: int, module: str) -> dict[str, Any]:
     process cache without copying the entire metadata table.
 
     Args:
-        directory: The metadata root directory (``cfg.metadata_dir``).
+        directory: The metadata root directory (``cfg.metadata_dir``), path string, or config.
         va: Virtual address integer.
         module: Target module name (e.g. ``"SERVER"``).
 
@@ -465,7 +477,7 @@ def _ensure_entry_table(
     return toml_key, typing.cast(dict[str, Any], doc_dict[toml_key])
 
 
-def _set_field(directory: Path, va: int, key: str, value: Any, module: str) -> None:
+def _set_field(directory: Path | str | Any, va: int, key: str, value: Any, module: str) -> None:
     """Set one field for *(module, va)* in the metadata.  **Private** — use
     :func:`update_field` or :func:`update_source_status` instead.
 
@@ -473,9 +485,10 @@ def _set_field(directory: Path, va: int, key: str, value: Any, module: str) -> N
     Uses in-place ``tomlkit`` editing to preserve formatting and comments.
     """
     _require_module(module)
-    path = (directory / METADATA_FILENAME).resolve()
+    dir_path = resolve_metadata_dir(directory)
+    path = (dir_path / METADATA_FILENAME).resolve()
 
-    with metadata_write_lock(directory, METADATA_FILENAME):
+    with metadata_write_lock(dir_path, METADATA_FILENAME):
         doc = load_toml_for_write(path, "metadata")
         doc_dict = typing.cast(dict[str, Any], doc)
         toml_key, entry = _ensure_entry_table(doc_dict, module, va)
@@ -491,7 +504,7 @@ def _set_field(directory: Path, va: int, key: str, value: Any, module: str) -> N
         pop_metadata_doc_cache(_metadata_cache, path)
 
 
-def set_fields(directory: Path, va: int, fields: dict[str, Any], module: str) -> None:
+def set_fields(directory: Path | str | Any, va: int, fields: dict[str, Any], module: str) -> None:
     """Write several fields for *(module, va)* in a single read-modify-write.
 
     Batches what would otherwise be N full TOML rewrites.  Skips fields whose
@@ -502,9 +515,10 @@ def set_fields(directory: Path, va: int, fields: dict[str, Any], module: str) ->
     if not fields:
         return
     _require_module(module)
-    path = (directory / METADATA_FILENAME).resolve()
+    dir_path = resolve_metadata_dir(directory)
+    path = (dir_path / METADATA_FILENAME).resolve()
 
-    with metadata_write_lock(directory, METADATA_FILENAME):
+    with metadata_write_lock(dir_path, METADATA_FILENAME):
         doc = load_toml_for_write(path, "metadata")
         doc_dict = typing.cast(dict[str, Any], doc)
         toml_key, entry = _ensure_entry_table(doc_dict, module, va)
@@ -525,7 +539,7 @@ def set_fields(directory: Path, va: int, fields: dict[str, Any], module: str) ->
             pop_metadata_doc_cache(_metadata_cache, path)
 
 
-def set_fields_batch(metadata_dir: Path, updates: list[dict[str, Any]]) -> int:
+def set_fields_batch(metadata_dir: Path | str | Any, updates: list[dict[str, Any]]) -> int:
     """Set fields for many ``(module, va)`` entries in ONE TOML read-modify-write.
 
     Avoids a full tomlkit parse + dumps + atomic write under the global
@@ -535,6 +549,7 @@ def set_fields_batch(metadata_dir: Path, updates: list[dict[str, Any]]) -> int:
     """
     if not updates:
         return 0
+    metadata_dir = resolve_metadata_dir(metadata_dir)
     path = (metadata_dir / METADATA_FILENAME).resolve()
     changed_entries = 0
     with metadata_write_lock(metadata_dir, METADATA_FILENAME):
@@ -574,7 +589,7 @@ def set_fields_batch(metadata_dir: Path, updates: list[dict[str, Any]]) -> int:
 MARKER_IDENTITY_FIELDS: tuple[str, ...] = ("file", "symbol", "name", "marker_type")
 
 
-def record_migrated_markers(metadata_dir: Path, rows: list[dict[str, Any]]) -> None:
+def record_migrated_markers(metadata_dir: Path | str | Any, rows: list[dict[str, Any]]) -> None:
     """Write ``migrate-markers`` rows into ``rebrew-functions.toml`` in one edit.
 
     Each row carries ``module``, ``va``, ``identity`` (keys from
@@ -590,8 +605,9 @@ def record_migrated_markers(metadata_dir: Path, rows: list[dict[str, Any]]) -> N
     """
     if not rows:
         return
-    path = (metadata_dir / METADATA_FILENAME).resolve()
-    with metadata_write_lock(metadata_dir, METADATA_FILENAME):
+    dir_path = resolve_metadata_dir(metadata_dir)
+    path = (dir_path / METADATA_FILENAME).resolve()
+    with metadata_write_lock(dir_path, METADATA_FILENAME):
         if path.exists():
             try:
                 load_tomllib(path)
@@ -626,7 +642,7 @@ def record_migrated_markers(metadata_dir: Path, rows: list[dict[str, Any]]) -> N
         pop_metadata_doc_cache(_metadata_cache, path)
 
 
-def remove_fields_batch(metadata_dir: Path, updates: list[dict[str, Any]]) -> int:
+def remove_fields_batch(metadata_dir: Path | str | Any, updates: list[dict[str, Any]]) -> int:
     """Drop named fields from many ``(module, va)`` entries in one TOML rewrite.
 
     Sibling of :func:`set_fields_batch` for bulk deletes (``lint --fix`` W029
@@ -637,11 +653,12 @@ def remove_fields_batch(metadata_dir: Path, updates: list[dict[str, Any]]) -> in
     """
     if not updates:
         return 0
-    path = (metadata_dir / METADATA_FILENAME).resolve()
+    dir_path = resolve_metadata_dir(metadata_dir)
+    path = (dir_path / METADATA_FILENAME).resolve()
     if not path.exists():
         return 0
     changed_entries = 0
-    with metadata_write_lock(metadata_dir, METADATA_FILENAME):
+    with metadata_write_lock(dir_path, METADATA_FILENAME):
         doc = load_toml_for_write(path, "metadata")
         doc_dict = typing.cast(dict[str, Any], doc)
         key_index = build_metadata_key_index(doc_dict)
@@ -675,11 +692,11 @@ def remove_fields_batch(metadata_dir: Path, updates: list[dict[str, Any]]) -> in
                 changed_entries += 1
         if changed_entries:
             atomic_write_locked(path, tomlkit.dumps(doc))
-            pop_metadata_doc_cache(_metadata_cache, path)
+        pop_metadata_doc_cache(_metadata_cache, path)
     return changed_entries
 
 
-def delete_entries_batch(metadata_dir: Path, targets: list[tuple[str, int]]) -> int:
+def delete_entries_batch(metadata_dir: Path | str | Any, targets: list[tuple[str, int]]) -> int:
     """Drop whole ``(module, va)`` entries in one TOML rewrite.
 
     Sibling of :func:`remove_fields_batch` for bulk entry deletes (orphan
@@ -689,11 +706,12 @@ def delete_entries_batch(metadata_dir: Path, targets: list[tuple[str, int]]) -> 
     """
     if not targets:
         return 0
-    path = (metadata_dir / METADATA_FILENAME).resolve()
+    dir_path = resolve_metadata_dir(metadata_dir)
+    path = (dir_path / METADATA_FILENAME).resolve()
     if not path.exists():
         return 0
     removed = 0
-    with metadata_write_lock(metadata_dir, METADATA_FILENAME):
+    with metadata_write_lock(dir_path, METADATA_FILENAME):
         doc = load_toml_for_write(path, "metadata")
         doc_dict = typing.cast(dict[str, Any], doc)
         key_index = build_metadata_key_index(doc_dict)
@@ -710,12 +728,12 @@ def delete_entries_batch(metadata_dir: Path, targets: list[tuple[str, int]]) -> 
             removed += 1
         if removed:
             atomic_write_locked(path, tomlkit.dumps(doc))
-            pop_metadata_doc_cache(_metadata_cache, path)
+        pop_metadata_doc_cache(_metadata_cache, path)
     return removed
 
 
 def _mutate_entry_doc(
-    directory: Path,
+    directory: Path | str | Any,
     va: int,
     module: str,
     mutate: Callable[[dict[str, Any], str], bool],
@@ -727,10 +745,11 @@ def _mutate_entry_doc(
     the document back only when *mutate* returns True.  No walk-up.
     Returns True if the file was modified.
     """
-    path = (directory / METADATA_FILENAME).resolve()
+    dir_path = resolve_metadata_dir(directory)
+    path = (dir_path / METADATA_FILENAME).resolve()
     _require_module(module)
 
-    with metadata_write_lock(directory, METADATA_FILENAME):
+    with metadata_write_lock(dir_path, METADATA_FILENAME):
         doc = load_toml_for_write(path, "metadata")
         if not doc:
             return False
@@ -747,7 +766,7 @@ def _mutate_entry_doc(
         return True
 
 
-def _delete_field(directory: Path, va: int, key: str, module: str) -> bool:
+def _delete_field(directory: Path | str | Any, va: int, key: str, module: str) -> bool:
     """Remove *key* from the metadata entry for *(module, va)*.  **Private** —
     use :func:`remove_field` instead.
 
@@ -765,7 +784,7 @@ def _delete_field(directory: Path, va: int, key: str, module: str) -> bool:
     return _mutate_entry_doc(directory, va, module, _drop)
 
 
-def delete_metadata_entry(directory: Path, va: int, module: str) -> bool:
+def delete_metadata_entry(directory: Path | str | Any, va: int, module: str) -> bool:
     """Remove the entire metadata entry for *(module, va)*.
 
     Used when a function disappears from the target on re-discovery (e.g.
@@ -780,7 +799,7 @@ def delete_metadata_entry(directory: Path, va: int, module: str) -> bool:
     return _mutate_entry_doc(directory, va, module, _drop_entry)
 
 
-def update_field(directory: Path, va: int, key: str, value: Any, module: str) -> None:
+def update_field(directory: Path | str | Any, va: int, key: str, value: Any, module: str) -> None:
     """Central gatekeeper for all metadata field writes.
 
     All external callers must use this function (or :func:`update_source_status`
@@ -789,10 +808,10 @@ def update_field(directory: Path, va: int, key: str, value: Any, module: str) ->
     Business rules enforced here:
     - STATUS writes are blocked; callers must use :func:`update_source_status`.
     - *key* must be a known metadata field (:data:`METADATA_FIELDS`) of the
-      right value type — unknown keys and mistyped values raise.
+    right value type — unknown keys and mistyped values raise.
 
     Args:
-        directory: The metadata root directory (``cfg.metadata_dir``).
+        directory: The metadata root directory (``cfg.metadata_dir``), path string, or config.
         va: Virtual address integer.
         key: Lower-case TOML key (e.g. ``"cflags"``, ``"blocker"``).
         value: Value to write.
@@ -811,14 +830,14 @@ def update_field(directory: Path, va: int, key: str, value: Any, module: str) ->
     _set_field(directory, va, key, _validate_field(key, value), module=module)
 
 
-def remove_field(directory: Path, va: int, key: str, module: str) -> bool:
+def remove_field(directory: Path | str | Any, va: int, key: str, module: str) -> bool:
     """Central gatekeeper for metadata field deletes.
 
     All external callers must use this function to remove fields from
     ``rebrew-functions.toml``.
 
     Args:
-        directory: The metadata root directory (``cfg.metadata_dir``).
+        directory: The metadata root directory (``cfg.metadata_dir``), path string, or config.
         va: Virtual address integer.
         key: Lower-case TOML key to remove.
         module: Target module name.
@@ -900,7 +919,7 @@ def should_promote_status(current_status: str, new_status: str) -> bool:
 
 
 def update_source_status(
-    metadata_dir: Path,
+    metadata_dir: Path | str | Any,
     new_status: str,
     module: str,
     va: int,
@@ -921,7 +940,7 @@ def update_source_status(
     calls to minimise I/O.  Atomicity is provided by ``atomic_write_locked``.
 
     Args:
-        metadata_dir: The metadata root directory (``cfg.metadata_dir``).
+        metadata_dir: The metadata root directory (``cfg.metadata_dir``), path string, or config.
         new_status: New status string (e.g. ``EXACT``, ``RELOC``, ``NEAR_MATCHING``).
         module: Target module name from the annotation (e.g. ``NP``).
         va: Virtual address of the function.
@@ -955,7 +974,7 @@ def update_source_status(
     )
 
 
-def update_statuses_batch(metadata_dir: Path, updates: list[dict[str, Any]]) -> int:
+def update_statuses_batch(metadata_dir: Path | str | Any, updates: list[dict[str, Any]]) -> int:
     """Apply many STATUS updates in ONE TOML read-modify-write.
 
     ``verify``'s STATUS sync and ``test --all`` previously called
@@ -978,9 +997,10 @@ def update_statuses_batch(metadata_dir: Path, updates: list[dict[str, Any]]) -> 
     """
     if not updates:
         return 0
-    path = (metadata_dir / METADATA_FILENAME).resolve()
+    dir_path = resolve_metadata_dir(metadata_dir)
+    path = (dir_path / METADATA_FILENAME).resolve()
     changed = 0
-    with metadata_write_lock(metadata_dir, METADATA_FILENAME):
+    with metadata_write_lock(dir_path, METADATA_FILENAME):
         # Single read for the whole batch
         doc = load_toml_for_write(path, "metadata")
         doc_dict = typing.cast(dict[str, Any], doc)
@@ -1057,7 +1077,7 @@ def update_statuses_batch(metadata_dir: Path, updates: list[dict[str, Any]]) -> 
 # ---------------------------------------------------------------------------
 
 
-def merge_into_annotation(ann: Annotation, directory: Path) -> Annotation:
+def merge_into_annotation(ann: Annotation, directory: Path | str | Any) -> Annotation:
     """Overlay metadata values onto *ann*, returning the same object mutated.
 
     The metadata wins for every field it defines.
@@ -1068,7 +1088,7 @@ def merge_into_annotation(ann: Annotation, directory: Path) -> Annotation:
 
     Args:
         ann: The ``Annotation`` object to mutate.
-        directory: The metadata root directory (``cfg.metadata_dir``).
+        directory: The metadata root directory (``cfg.metadata_dir``), path string, or config.
 
     Returns:
         The mutated *ann* (same object, for chaining convenience).
