@@ -633,6 +633,32 @@ def profile_defaults() -> dict[str, dict[str, str]]:
     return merged
 
 
+def profile_hint(answer: str) -> str:
+    """Profiles to try after an unknown compiler-profile answer.
+
+    A prefix (``gcc``, ``msvc-6``) lists that family. A near miss
+    (``msvc6``) lists the closest names. Anything else lists every
+    profile, grouped by family, so the next attempt is not a guess.
+    """
+    import difflib
+
+    names = sorted(profile_defaults())
+    typed = answer.strip().lower()
+    prefix = [name for name in names if typed and name.startswith(typed)]
+    if prefix:
+        return "Matching profiles: " + ", ".join(prefix) + "."
+    close = difflib.get_close_matches(typed, names, n=8, cutoff=0.5)
+    if close:
+        return "Closest profiles: " + ", ".join(close) + "."
+    groups: dict[str, list[str]] = {}
+    for name in names:
+        groups.setdefault(name.split("-", 1)[0], []).append(name)
+    lines = ["Known profiles:"]
+    for family in sorted(groups):
+        lines.append(f"  {family}: " + ", ".join(groups[family]))
+    return "\n".join(lines)
+
+
 MSVC_CONSTRAINTS = """- **C89 only**: no `for(int i=...)`, declare all variables at block top
 - **Comments in code**: use `/* */` only (C89). `//` is used exclusively for annotation headers
 - **Symbol decoration**: `_func` for `__cdecl`, `_func@N` for `__stdcall`

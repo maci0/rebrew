@@ -8,7 +8,8 @@ output directory with four pages:
   so the first paint stays within a few hundred rows.
 - ``strings.html`` — printable strings extracted from the binary's data
   sections (via :mod:`rebrew.analysis`) with per-string reference counts;
-  likewise paginated when the list is long.
+  likewise paginated when the list is long. A multi-page function or
+  strings pager names the address span of its rows.
 - ``imports.html`` — PE import table (dll, API, IAT slot) and detected
   ``jmp [IAT]`` import stubs.  Both tables paginate (``imports-pN.html``,
   ``import-stubs.html``) once they pass the same row budget as the index.
@@ -220,6 +221,18 @@ def _paged_href(stem: str, page: int) -> str:
     return f"{stem}.html" if page <= 1 else f"{stem}-p{page}.html"
 
 
+def _page_va_span(vas: list[int]) -> str:
+    """``0xlo`` or ``0xlo–0xhi`` for the addresses on one report page."""
+    if not vas:
+        return ""
+    lo = min(vas)
+    hi = max(vas)
+    start = f"0x{lo:08x}"
+    if lo == hi:
+        return start
+    return start + "\u2013" + f"0x{hi:08x}"
+
+
 def _pager_nav(
     stem: str,
     page: int,
@@ -227,8 +240,13 @@ def _pager_nav(
     total_rows: int,
     noun: str,
     label: str = "Table pages",
+    span: str = "",
 ) -> str:
-    """No-JS first/prev/next/last pager for multi-page report tables."""
+    """No-JS first/prev/next/last pager for multi-page report tables.
+
+    *span* is the address range of this page (``0x10001000–0x10003f70``),
+    so a reader can open the page that contains an address.
+    """
     if total_pages <= 1:
         return ""
     start = (page - 1) * _TABLE_PAGE_SIZE + 1
@@ -254,9 +272,12 @@ def _pager_nav(
             f"<a href='{_paged_href(stem, total_pages)}' "
             f"aria-label='Last page of {esc_noun}'>Last</a>"
         )
+    shown = f"Showing {start}\u2013{end} of {total_rows} {html.escape(noun)}"
+    if span:
+        shown += f" ({html.escape(span)})"
     return (
         f"<nav class='pager' aria-label='{html.escape(label, quote=True)}'>"
-        f"Showing {start}\u2013{end} of {total_rows} {html.escape(noun)}. "
+        f"{shown}. "
         f"{' · '.join(links)}</nav>"
     )
 
@@ -588,9 +609,16 @@ def _render_index(
             ["Name", "VA", "Status", "Size", "CFLAGS", "Blocker"],
             _function_rows_html(chunk),
         )
-        pager = _pager_nav("index", page_num, total_pages, total, "functions")
+        span = _page_va_span([int(fn["va"]) for fn in chunk])
+        pager = _pager_nav("index", page_num, total_pages, total, "functions", span=span)
         pager_end = _pager_nav(
-            "index", page_num, total_pages, total, "functions", label="Table pages, bottom"
+            "index",
+            page_num,
+            total_pages,
+            total,
+            "functions",
+            label="Table pages, bottom",
+            span=span,
         )
         if page_num == 1:
             body = f"<h2>Function index</h2>{card_html}{ne_html}{pager}{table}{pager_end}"
@@ -683,9 +711,16 @@ def _render_strings(cfg: ProjectConfig) -> list[tuple[str, str]]:
             ["VA", "Section", "Kind", "Text", "Refs", "Referenced from"],
             rows,
         )
-        pager = _pager_nav("strings", page_num, total_pages, total, "strings")
+        span = _page_va_span([s.va for s in chunk])
+        pager = _pager_nav("strings", page_num, total_pages, total, "strings", span=span)
         pager_end = _pager_nav(
-            "strings", page_num, total_pages, total, "strings", label="Table pages, bottom"
+            "strings",
+            page_num,
+            total_pages,
+            total,
+            "strings",
+            label="Table pages, bottom",
+            span=span,
         )
         if page_num == 1:
             body = f"<h2>Strings</h2>{intro}{pager}{table}{pager_end}"

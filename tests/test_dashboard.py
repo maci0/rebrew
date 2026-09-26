@@ -315,6 +315,18 @@ class TestQueryLayer:
         assert data["count"] == 1
         assert data["functions"][0][2] == "_func_a"
 
+    def test_functions_search_by_address(self, dashboard: Dashboard) -> None:
+        """A hex address finds the function when the name does not contain it."""
+        for q in ("0x10001000", "0X10001000", "10001000", "010001000"):
+            data = dashboard.functions("server_dll", q=q)
+            assert data["total"] == 1, q
+            assert data["functions"][0][1] == "func_a"
+        # The address filter composes with status: func_a is EXACT, not STUB.
+        assert dashboard.functions("server_dll", status="STUB", q="0x10001000")["total"] == 0
+        assert dashboard.functions("server_dll", status="EXACT", q="0x10001000")["total"] == 1
+        # Three hex digits stay a name search, so ``add`` is not address 0xadd.
+        assert dashboard.functions("server_dll", q="add")["total"] == 0
+
     def test_sections(self, dashboard: Dashboard) -> None:
         payload = dashboard.sections("server_dll")
         sections = payload["sections"]
@@ -351,6 +363,12 @@ class TestQueryLayer:
         assert data["globals"][0][1] == "g_flag"
         assert data["globals"][0][0] == "0x50001000"
         assert data["cols"] == ["va", "name", "decl", "size", "module"]
+
+    def test_globals_search_by_address(self, dashboard: Dashboard) -> None:
+        for q in ("0x50001000", "50001000"):
+            data = dashboard.globals("server_dll", q=q)
+            assert data["total"] == 1, q
+            assert data["globals"][0][1] == "g_flag"
 
     def test_history_empty(self, dashboard: Dashboard) -> None:
         hist = dashboard.history("server_dll")
@@ -641,9 +659,9 @@ class TestHandle:
         assert 'href="#main"' in body
         assert "Skip to content" in body
         assert 'lang="en"' in body
-        assert '<label for="q">Search name or symbol</label>' in body
+        assert '<label for="q">Search name, symbol, or address</label>' in body
         assert '<label for="module">Module</label>' in body
-        assert '<label for="gq">Search global name</label>' in body
+        assert '<label for="gq">Search name or address</label>' in body
         assert 'role="group" aria-label="Coverage filters"' in body
         assert 'role="group" aria-label="Coverage metrics"' in body
         assert 'id="boot-status" role="status"' in body
@@ -1289,6 +1307,31 @@ class TestEscapeLike:
         assert _escape_like("100%") == "100\\%"
         assert _escape_like("a\\b") == "a\\\\b"
         assert _escape_like("plain") == "plain"
+
+
+class TestVaQuery:
+    """Address-shaped search terms parse to the same integer the table shows."""
+
+    def test_equivalent_spellings(self) -> None:
+        from rebrew.dashboard import _va_query
+
+        assert _va_query("0x10001000") == 0x10001000
+        assert _va_query("0X10001000") == 0x10001000
+        assert _va_query("10001000") == 0x10001000
+        assert _va_query("00401000") == 0x401000
+        assert _va_query("0x401000") == 0x401000
+        assert _va_query("  0x10001000  ") == 0x10001000
+
+    def test_name_fragments_are_not_addresses(self) -> None:
+        from rebrew.dashboard import _va_query
+
+        assert _va_query("func_a") is None
+        assert _va_query("add") is None
+        assert _va_query("0x") is None
+        assert _va_query("0x123") is None
+        assert _va_query("g_flag") is None
+        assert _va_query("f" * 16) is None
+        assert _va_query("f" * 17) is None
 
 
 class TestHttpMethods:

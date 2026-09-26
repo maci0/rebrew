@@ -468,6 +468,10 @@ class TestReportPayloadShape:
         index = (site / "index.html").read_text(encoding="utf-8")
         page2 = (site / "index-p2.html").read_text(encoding="utf-8")
         assert "Showing 1–" in index or "Showing 1\u2013" in index
+        # The pager names this page's addresses so the reader can pick the
+        # page that contains a VA without opening every file.
+        assert "functions (0x10001000\u20130x10003f70)" in index
+        assert "functions (0x10003f80\u20130x10003f90)" in page2
         assert "Next" in index
         assert "Previous" in page2
         assert "<nav class='pager' aria-label='Table pages'>" in index
@@ -483,7 +487,7 @@ class TestReportPayloadShape:
         assert "aria-label='Table pages, bottom'" in index
 
     def test_pager_offers_first_and_last_on_middle_pages(self) -> None:
-        from rebrew.report import _TABLE_PAGE_SIZE, _pager_nav
+        from rebrew.report import _TABLE_PAGE_SIZE, _page_va_span, _pager_nav
 
         total = _TABLE_PAGE_SIZE * 5
         middle = _pager_nav("index", 3, 5, total, "functions")
@@ -496,6 +500,10 @@ class TestReportPayloadShape:
         last = _pager_nav("index", 5, 5, total, "functions")
         assert "Last</a>" not in last
         assert "Next</a>" not in last
+        spanned = _pager_nav("index", 3, 5, total, "functions", span="0x10001000\u20130x10002000")
+        assert "(0x10001000\u20130x10002000)" in spanned
+        assert _page_va_span([0x10001000]) == "0x10001000"
+        assert _page_va_span([0x10002000, 0x10001000]) == "0x10001000\u20130x10002000"
 
     def test_write_static_drops_sidecar_that_no_longer_shrinks(self, tmp_path: Path) -> None:
         """A page that stops compressing must not keep the previous sidecar."""

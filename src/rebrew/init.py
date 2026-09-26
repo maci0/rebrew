@@ -28,6 +28,7 @@ from rebrew.init_profiles import (
     MSVC_CONSTRAINTS,
     profile_defaults,
     profile_families,
+    profile_hint,
 )
 
 if TYPE_CHECKING:
@@ -546,8 +547,9 @@ def _run_wizard(
             "Compiler profile", default=suggestion or compiler_profile, console=console
         )
         if answer not in profile_defaults():
-            # Reprompt once, then fall back to the current value.
-            console.print(f"[yellow]unknown profile '{answer}' (see --help for the list)[/]")
+            # Reprompt once, then fall back to the current value. Name the
+            # profiles here: --help is not a next step while the prompt is open.
+            console.print(f"[yellow]unknown profile '{answer}'.\n{profile_hint(answer)}[/]")
             retry = Prompt.ask("Compiler profile", default=compiler_profile, console=console)
             if retry not in profile_defaults():
                 console.print(f"[yellow]unknown '{retry}' too — keeping {compiler_profile}[/]")
@@ -924,8 +926,8 @@ def main(
         if guess is None:
             error_exit(
                 f"cannot guess a compiler profile for {binary_path} "
-                f"(detected family {guess_tc.family!r}) — pass --toolchain "
-                "<profile> explicitly (see --help for the list)",
+                f"(detected family {guess_tc.family!r}). Pass --toolchain "
+                f"<profile>.\n{profile_hint('')}",
                 json_mode=json_output,
             )
         if guess != compiler_profile:
@@ -939,9 +941,8 @@ def main(
     # `toolchain list` name is accepted, not just the hand-written table).
     defaults = profile_defaults()
     if compiler_profile not in defaults:
-        known = ", ".join(sorted(defaults))
         error_exit(
-            f"Unknown compiler profile '{compiler_profile}'. Known profiles: {known}",
+            f"Unknown compiler profile '{compiler_profile}'.\n{profile_hint(compiler_profile)}",
             json_mode=json_output,
         )
     profile = defaults[compiler_profile]

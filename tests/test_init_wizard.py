@@ -109,6 +109,25 @@ class TestWizardGating:
 # ---------------------------------------------------------------------------
 
 
+class TestProfileHint:
+    """An unknown profile answer names what to type next."""
+
+    def test_prefix_and_near_miss(self) -> None:
+        from rebrew.init_profiles import profile_hint
+
+        gcc = profile_hint("gcc")
+        assert gcc.startswith("Matching profiles:")
+        assert "gcc-14.2.0" in gcc
+        assert "msvc-6.0" not in gcc
+        near = profile_hint("msvc6")
+        assert near.startswith("Closest profiles:")
+        assert "msvc-6.0" in near
+        family = profile_hint("msvc-6")
+        assert family.startswith("Matching profiles:")
+        assert "msvc-6.0-sp6" in family
+        assert "msvc-9.0" not in family
+
+
 class TestWizardFlow:
     """Forced-gate end-to-end runs with the mini_pe fixture in original/."""
 
@@ -168,6 +187,11 @@ class TestWizardFlow:
         assert 'profile = "msvc-6.0"' in content  # fallback: the current default
         assert "unknown profile 'junk1'" in result.stderr
         assert "unknown 'junk2'" in result.stderr
+        # The reprompt lists profiles the wizard will accept. --help is not
+        # reachable without leaving the prompt.
+        assert "Known profiles:" in result.stderr
+        assert "ido-5.3" in result.stderr
+        assert "see --help" not in result.stderr
 
     def test_manual_binary_entry(self, tmp_path: Path, monkeypatch) -> None:
         """The 'm' choice takes a free-form path/name — missing targets warn

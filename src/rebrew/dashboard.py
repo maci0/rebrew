@@ -17,6 +17,11 @@ Endpoints
 ``GET /api/globals?target=``   → global data rows (filters: module, q, limit, offset; includes total)
 ``GET /api/history?target=``   → status-change history (filters: limit, offset; includes total)
 
+``q`` matches a name or symbol substring on functions, and a name substring
+on globals. A term of four or more hex digits, with an optional ``0x``
+prefix, also matches that virtual address exactly. ``0x401000`` and
+``00401000`` are the same address.
+
 A present empty ``module=`` on ``/api/functions`` and ``/api/globals`` matches
 rows whose module is blank. Omitting ``module`` does not filter. Summary
 ``by_module_counts`` keys are those stored strings (``""`` when unset).
@@ -1192,12 +1197,12 @@ __STATUS_FORCED__
 <select id="module"><option value="">any</option></select>
 </div>
 <div id="filter-q">
-<label for="q">Search name or symbol</label>
-<input id="q" type="search" size="24" placeholder="e.g. WinMain" autocomplete="off">
+<label for="q">Search name, symbol, or address</label>
+<input id="q" type="search" size="24" placeholder="e.g. WinMain or 0x401000" autocomplete="off">
 </div>
 <div id="filter-gq" hidden>
-<label for="gq">Search global name</label>
-<input id="gq" type="search" size="24" placeholder="e.g. g_flag" autocomplete="off">
+<label for="gq">Search name or address</label>
+<input id="gq" type="search" size="24" placeholder="e.g. g_flag or 0x401000" autocomplete="off">
 </div>
 </div>
 <div id="filter-actions" hidden>
@@ -1437,6 +1442,38 @@ def _escape_like(term: str) -> str:
     return term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
+def _va_query(term: str) -> int | None:
+    """Integer address when *term* is hex, else ``None``.
+
+    Four or more hex digits, optional ``0x`` prefix. ``0x401000`` and
+    ``00401000`` name the same address. Shorter text stays a name search
+    so ``add`` is not read as ``0xadd``.
+    """
+    text = term.strip()
+    if len(text) >= 2 and text[0] == "0" and text[1] in "xX":
+        text = text[2:]
+    if len(text) < 4 or len(text) > 16:
+        return None
+    if any(c not in "0123456789abcdefABCDEF" for c in text):
+        return None
+    value = int(text, 16)
+    if value > _MAX_OFFSET:
+        return None
+    return value
+
+
+def _text_or_va(q: str, *columns: str) -> tuple[str, list[Any]]:
+    """LIKE match on *columns*, plus exact ``va`` when *q* is an address."""
+    like = f"%{_escape_like(q)}%"
+    parts = [f"{column} LIKE ? ESCAPE '\\'" for column in columns]
+    args: list[Any] = [like] * len(columns)
+    va = _va_query(q)
+    if va is not None:
+        parts.append("va = ?")
+        args.append(va)
+    return "(" + " OR ".join(parts) + ")", args
+
+
 class Dashboard:
     """Read-only query layer over a ``coverage.db`` file."""
 
@@ -1587,8 +1624,9 @@ class Dashboard:
             where.append("module = ?")
             args.append(module)
         if q:
-            where.append("(name LIKE ? ESCAPE '\\' OR symbol LIKE ? ESCAPE '\\')")
-            args.extend([f"%{_escape_like(q)}%", f"%{_escape_like(q)}%"])
+            clause, extra = _text_or_va(q, "name", "symbol")
+            where.append(clause)
+            args.extend(extra)
         # Code rows only; must remain in *where* for the COUNT total.
         where.append(FUNCTION_ROWS_SQL)
         where_sql = " AND ".join(where)
@@ -1688,8 +1726,9 @@ class Dashboard:
             where.append("module = ?")
             args.append(module)
         if q:
-            where.append("name LIKE ? ESCAPE '\\'")
-            args.append(f"%{_escape_like(q)}%")
+            clause, extra = _text_or_va(q, "name")
+            where.append(clause)
+            args.extend(extra)
         where_sql = " AND ".join(where)
         with self._conn() as conn:
             rows = conn.execute(

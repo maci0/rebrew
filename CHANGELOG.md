@@ -1,6 +1,17 @@
 ## [Unreleased]
 
 ### Fixed
+- **Dashboard search accepts a hex address.** The function search matches
+  name or symbol, the global search matches name, and a term of four or
+  more hex digits (optional `0x`) matches that virtual address.
+  `0x401000` and `00401000` are the same address.
+- **Report pages name the addresses they contain.** A function-index or
+  strings page past the first names the address span of its rows, so the
+  page that holds an address is visible from the pager.
+- **An unknown compiler profile names what to type next.** `rebrew init`
+  (the wizard and `--toolchain`), a failed `--guess-compiler`, and
+  `rebrew cfg set-compiler` list a matching family, the closest names,
+  or every profile grouped by family.
 - **CI keeps the GitHub token out of `git` and finishes main-branch runs.**
   The resembl clone writes the token into a gitconfig created under umask
   077, unsets `GH_TOKEN` / `GITHUB_TOKEN` before `git` runs, and disables

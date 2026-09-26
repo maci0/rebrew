@@ -999,12 +999,11 @@ def set_compiler(
     """
     # Import profile presets from init_profiles (single source of truth,
     # registry-merged)
-    from rebrew.init_profiles import profile_defaults
+    from rebrew.init_profiles import profile_defaults, profile_hint
 
     defaults = profile_defaults()
-    known = sorted(defaults)
     if profile not in defaults:
-        error_exit(f"Unknown compiler profile '{profile}'. Valid profiles: {', '.join(known)}")
+        error_exit(f"Unknown compiler profile '{profile}'.\n{profile_hint(profile)}")
 
     doc, toml_path = load_toml()
     target_name = _resolve_target(doc, target)

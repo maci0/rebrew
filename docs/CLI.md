@@ -2314,6 +2314,8 @@ Generate a static self-contained HTML documentation site (`index.html`,
 includes a `Blocker` column carrying near-diag/diff blocker guidance.
 Function, string, import, and import-stub tables split across `*-pN.html`
 once they pass 250 rows, so the first page stays a few hundred rows.
+A function-index or strings page past the first names the address span
+of its rows in the pager.
 A Mermaid call graph larger than 32 KB is written to `callgraph.mmd`;
 `graph.html` keeps the opening lines and links that file. Each text file
 also gets `.gz` and `.zst` sidecars when those are smaller. Regenerating
@@ -2479,6 +2481,9 @@ Missing `target` → 400; unknown target → 404. Corrupt `function_stats` on
 `/api/summary` → 500 (not 404), including a byte count that is not a
 non-negative integer. A present empty `module=` on `/api/functions` and
 `/api/globals` matches a blank module; omitting `module` does not filter.
+`q` matches a name or symbol substring on functions and a name substring
+on globals. Four or more hex digits, with an optional `0x` prefix, also
+match that virtual address (`0x401000` and `00401000` are the same address).
 `by_module_counts` uses those same stored strings (`""` when unset). Any
 other method → 405 with `Allow: GET, HEAD`.
 Every error body is `{"error": "<message>"}`, malformed requests included.
