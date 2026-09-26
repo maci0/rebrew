@@ -12,6 +12,10 @@
   (the wizard and `--toolchain`), a failed `--guess-compiler`, and
   `rebrew cfg set-compiler` list a matching family, the closest names,
   or every profile grouped by family.
+- **CI test job fetches the whole branch history.** `git describe` walks
+  from HEAD back to the last release tag. A depth-1 checkout still fails
+  that walk when the tag refs are present, so the packaging CHANGELOG
+  contract never ran. The test job sets `fetch-depth: 0`.
 - **CI keeps the GitHub token out of `git` and finishes main-branch runs.**
   The resembl clone writes the token into a gitconfig created under umask
   077, unsets `GH_TOKEN` / `GITHUB_TOKEN` before `git` runs, and disables

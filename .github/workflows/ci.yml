@@ -85,8 +85,10 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          # Packaging contract tests enumerate v* tags (CHANGELOG sections).
-          # Default shallow clone omits tags and the test would skip in CI.
+          # Packaging tests run `git describe` and `git show <tag>:file`.
+          # A depth-1 fetch with tags still leaves the tag commit off the
+          # ancestry of HEAD, so describe fails. Full history keeps it.
+          fetch-depth: 0
           fetch-tags: true
       - name: Set up uv and the sibling resembl checkout
         uses: ./.github/actions/uv-env

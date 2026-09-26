@@ -351,9 +351,14 @@ class TestCiPins:
         assert dest.is_dir()
 
     def test_test_job_fetches_tags(self) -> None:
-        """Packaging CHANGELOG↔tag contract needs tags on the shallow checkout."""
+        """Packaging CHANGELOG↔tag contract needs each tag commit on this branch.
+
+        ``fetch-tags`` on a depth-1 checkout fetches tag objects that are not
+        ancestors of HEAD, so ``git describe`` still fails.
+        """
         text = CI_YML.read_text(encoding="utf-8")
         test_job = text.split("\n  test:\n", 1)[1].split("\n  pre-commit:\n", 1)[0]
+        assert "fetch-depth: 0" in test_job
         assert "fetch-tags: true" in test_job
 
     def test_makefile_recipes_are_posix_sh(self) -> None:

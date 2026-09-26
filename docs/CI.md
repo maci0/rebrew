@@ -62,9 +62,9 @@ lockfile sync uses
 `--no-default-groups --no-install-project` (no path dep needed) before the
 `--no-deps` wheel overlay. After the smoke import it uploads the verified
 `dist/` wheel, sdist, `rebrew.buildinfo`, and CycloneDX SBOM as a workflow
-artifact (`rebrew-dist-<sha>`, 14-day retention). The test job sets
-`fetch-tags: true` so
-the packaging CHANGELOG↔tag contract runs under the default shallow checkout.
+artifact (`rebrew-dist-<sha>`, 14-day retention). The test job checks out with `fetch-depth: 0` and `fetch-tags: true`.
+`git describe` walks from HEAD to the last release tag, so the commits
+between them have to be in the clone. Tag refs alone are not enough.
 Dev installs use `uv sync --frozen --all-extras --group similarity` (Makefile
 `make setup`); the `m2c` git dep is a separate `--group m2c` opt-in.
 
