@@ -461,12 +461,13 @@ def check_compiler(cfg: ProjectConfig) -> CheckResult:
             display_runner = "wibo" if is_wibo_runner else "Wine"
             try:
                 from rebrew.compile import maybe_headless_wine
+                from rebrew.utils import run_process_group
 
                 smoke_cmd, smoke_env = maybe_headless_wine(
                     [runner_token, str(cl_path)],
                     {**os.environ, "WINEDEBUG": "-all"},
                 )
-                subprocess.run(
+                run_process_group(
                     smoke_cmd,
                     capture_output=True,
                     timeout=10,

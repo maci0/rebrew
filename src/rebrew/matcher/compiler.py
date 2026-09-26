@@ -503,7 +503,10 @@ def build_candidate_obj_only(
                 return BuildResult(ok=False, error_msg=f"Symbol {symbol} not found in .obj")
             return BuildResult(ok=True, obj_bytes=code, reloc_offsets=relocs)
         finally:
-            shutil.rmtree(base, ignore_errors=True)
+            from rebrew.utils import remove_temp_dir
+
+            with contextlib.suppress(OSError):
+                remove_temp_dir(base)
 
     src_name = f"cand{source_ext}"
     all_flags = shlex.split(cflags)
