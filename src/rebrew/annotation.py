@@ -26,6 +26,7 @@ from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any, ClassVar, Final
 
+from rebrew.c_parser import extract_function_name_from_line
 from rebrew.utils import atomic_write_text, preset_module_key, read_source_text, rel_display_path
 
 logger = logging.getLogger(__name__)
@@ -1025,8 +1026,6 @@ def parse_new_format(lines: list[str]) -> Annotation | None:
         # actual function definitions (lines ending with '{' or just a signature
         # without a semicolon).
         if "_C_FUNC_NAME" not in kv and not stripped.rstrip().endswith(";"):
-            from rebrew.c_parser import extract_function_name_from_line
-
             func_result = extract_function_name_from_line(stripped)
             if func_result:
                 kv["_C_FUNC_NAME"] = func_result[0]
@@ -1169,8 +1168,6 @@ def parse_new_format_multi(lines: list[str]) -> list[Annotation]:
             # (this check runs per scanned code line).
             and "(" in stripped
         ):
-            from rebrew.c_parser import extract_function_name_from_line
-
             func_result = extract_function_name_from_line(stripped)
             if func_result:
                 current_kv["_C_FUNC_NAME"] = func_result[0]

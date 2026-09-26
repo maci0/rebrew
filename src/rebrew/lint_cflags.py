@@ -10,9 +10,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from rebrew.cli import console
 from rebrew.config import ProjectConfig
-from rebrew.utils import atomic_write_text, preset_module_key
+from rebrew.utils import atomic_write_text, console, preset_module_key
 
 
 def _cflags_key(cflags: str) -> frozenset[str]:
