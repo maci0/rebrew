@@ -36,7 +36,7 @@ class TestLibraryMetadata:
 
         bad = tmp_path / LIBRARY_METADATA_FILE
         bad.write_text("toolchain = [unclosed\n", encoding="utf-8")
-        with pytest.raises(LibraryOverrideError):
+        with pytest.raises(LibraryOverrideError, match=r"bad rebrew-libraries\.toml at"):
             parse_library_metadata(bad)
 
     def test_walk_up_finds_nearest(self, tmp_path: Path) -> None:

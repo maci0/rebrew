@@ -619,22 +619,22 @@ class TestErrors:
     def test_unsupported_format_raises_value_error(self, tmp_path: Path) -> None:
         path = tmp_path / "notes.txt"
         path.write_text("not a binary", encoding="utf-8")
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="Cannot detect binary format"):
             pe_info(path)
 
     def test_truncated_pe_does_not_crash(self, tmp_path: Path) -> None:
         path = tmp_path / "truncated.exe"
         path.write_bytes(MINI_PE.read_bytes()[:600])
-        try:
-            info = pe_info(path)
-        except ValueError:
-            return
+        info = pe_info(path)
+        assert isinstance(info, dict)
         assert info["format"] == "pe"
+        assert len(info["sections"]) == 1
+        assert info["sections"][0]["name"] == ".text"
 
     def test_header_only_pe_raises_value_error(self, tmp_path: Path) -> None:
         path = tmp_path / "stub.exe"
         path.write_bytes(MINI_PE.read_bytes()[:200])
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="Failed to parse PE"):
             pe_info(path)
 
 

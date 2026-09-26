@@ -1366,7 +1366,9 @@ class TestPrintTestSummary:
 
 
 class TestSizeMismatchMatchPercentNone:
-    def test_size_mismatch_with_none_match_percent_does_not_crash(self) -> None:
+    def test_size_mismatch_with_none_match_percent_does_not_crash(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         from rebrew.compile import CompareResult
         from rebrew.test import _print_compare_result
 
@@ -1381,6 +1383,9 @@ class TestSizeMismatchMatchPercentNone:
         )
         # Must not raise TypeError: must be real number, not NoneType
         _print_compare_result(cmp, b"\x90\x90\x90\x90")
+        out = capsys.readouterr().err
+        assert "SIZE_MISMATCH" in out
+        assert "all common bytes match; the SIZE annotation is off" not in out
 
     def test_size_mismatch_with_approximate_100_percent_shows_hint(
         self, capsys: pytest.CaptureFixture[str]

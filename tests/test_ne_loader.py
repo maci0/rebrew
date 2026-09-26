@@ -139,8 +139,14 @@ class TestParseNeHeader:
     def test_not_ne_raises(self) -> None:
         from rebrew.ne_loader import NeParseError
 
-        with pytest.raises(NeParseError):
-            parse_ne_header(b"MZ" + b"\x00" * 0x40 + b"XX", 0x40)
+        with pytest.raises(NeParseError, match="not an NE executable"):
+            parse_ne_header(b"\x00" * 0x40 + b"XX" + b"\x00" * 0x3E, 0x40)
+
+    def test_truncated_header_raises(self) -> None:
+        from rebrew.ne_loader import NeParseError
+
+        with pytest.raises(NeParseError, match="NE header truncated"):
+            parse_ne_header(b"\x00" * 0x40 + b"NE\x00\x00", 0x40)
 
 
 class TestParseSegments:
