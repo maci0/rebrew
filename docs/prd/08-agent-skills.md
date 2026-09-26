@@ -139,10 +139,10 @@ Excludes: function bodies, deep matching.
 Trigger keywords: `Ghidra`, `binsync`, `sync`, `push`, `pull`, `state-dir`,
 `ReVa`, `MCP`, `labels`, `pull-data`.
 
-> **Correction (2026-09):** field sync is BinSync-primary
-> (`--push`/`--pull --state-dir`, `--accept-binsync` / `--accept-local`); the
-> removed `--pull-signatures` / `--pull-structs` / `--pull-comments` triggers
-> above are superseded. PRDs are historical records, kept as written.
+> **Architecture note (2026-09):** field sync is BinSync-primary
+> (`--push`/`--pull --state-dir`, `--accept-binsync` / `--accept-local`),
+> while ReVa MCP handles structural operations (`--create-functions`,
+> `--bookmarks`, `--pull-data`).
 
 Scope:
 

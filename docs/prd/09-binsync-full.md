@@ -75,7 +75,7 @@ substrate (ff-only pull + local commit / optional `--git-push` ship today).
 - **Patch tracking** — BinSync supports binary patches. Rebrew has no patch concept and adding one is a different feature; skip in v1.
 - **Custom GUI** — rebrew is CLI-first; no graphical conflict resolver. Conflicts surface as JSON / Rich tables and accept-flags.
 - **Real-time collaboration** (live cursor / presence). BinSync's git substrate gives push/pull semantics, not realtime, and that's enough.
-- **Replacing `rebrew sync`** — Ghidra sync via ReVa MCP stays the primary path for users on Ghidra. BinSync sync is the cross-decompiler portability path.
+- **Replacing `rebrew sync`** — `rebrew sync` is now BinSync-primary for field sync (sharing the BinSync state directory format, with ReVa MCP for structural ops); `rebrew binsync` is the cross-decompiler portability umbrella.
 
 ## Functional Requirements
 
