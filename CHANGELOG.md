@@ -23,6 +23,17 @@
   Function and data rows share column widths, and the `.text` remainder
   is one line (`unmatched`, `padding`, `no function`).
 
+### Fixed
+- **`rebrew test` and size-mismatch checks handle missing or non-finite match percentages.**
+  `_print_compare_result` and `_run_test_impl` crashed with a `TypeError` when evaluating
+  `SIZE_MISMATCH` results whose `match_percent` was `None`. Floating-point comparisons now
+  use `math.isclose` with tolerance so an exact byte match with an inaccurate `SIZE` annotation
+  correctly prints the diagnostic hint. `matched_byte_count` safely handles `None` or non-finite
+  percentages without error and clamps the byte count within bounds.
+- **Batch and single flag sweeps ignore non-finite scores.** Flag and toolchain sweep scoring
+  checks `math.isfinite` instead of `< float("inf")`, preventing `nan` scores from falsely
+  registering as improvements or corrupting JSON reports.
+
 ## [2.12.0] - 2026-09-26
 ### Fixed
 - **`status` prints one progress percentage.** The headline and the footer

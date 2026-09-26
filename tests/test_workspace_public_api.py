@@ -21,6 +21,46 @@ def test_all_names_unique() -> None:
     assert len(workspace.__all__) == len(set(workspace.__all__))
 
 
+def test_workspace_public_api_snapshot() -> None:
+    """Gating: prevent accidental removal or breaking rename of workspace exports."""
+    expected = {
+        "CELLS_JSON_OBJECT_SQL",
+        "CONFIG_NAME",
+        "DB_FILENAME",
+        "DB_VERSION_KEY",
+        "DEFAULT_DB_DIR",
+        "DEFAULT_REVERSED_ROOT",
+        "KNOWN_STATUSES",
+        "MATCHED_STATUSES",
+        "SCHEMA_TARGET",
+        "SECTION_CELLS_AGG_SQL",
+        "SECTION_CELLS_COLUMN",
+        "SECTION_CELLS_TABLE",
+        "VA_MAX",
+        "WorkspaceNotFound",
+        "coverage_db_lock",
+        "db_dir",
+        "db_path",
+        "db_version_matches",
+        "decode_section_cells",
+        "default_target",
+        "encode_section_cells",
+        "find_root",
+        "open_sqlite_ro",
+        "parse_va_candidates",
+        "project_table",
+        "read_config",
+        "read_db_version",
+        "sqlite_ro_uri",
+        "target_binary",
+        "target_marker",
+        "target_reversed_dir",
+        "targets_table",
+        "walk_up_to_root",
+    }
+    assert set(workspace.__all__) == expected
+
+
 @pytest.mark.parametrize(
     "cells_json",
     [
