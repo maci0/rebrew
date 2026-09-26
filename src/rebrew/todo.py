@@ -925,10 +925,12 @@ def _collect_data_drift(cfg: ProjectConfig) -> list[TodoItem]:
     Data VAs live in a separate address space from function VAs in practice
     (.data/.rdata vs .text), so no dedup against function items is needed.
     """
-    from rebrew.data_metadata import load_data_metadata
+    from rebrew.data_metadata import load_data_metadata, module_visible_to_target
 
     items: list[TodoItem] = []
     for (module, va), fields in load_data_metadata(cfg.metadata_dir).items():
+        if not module_visible_to_target(module, cfg):
+            continue
         if str(fields.get("status") or "").upper() != "DRIFT":
             continue
         name = str(fields.get("name") or f"DAT_{va:08x}")
@@ -1035,18 +1037,17 @@ def _collect_start_data(cfg: ProjectConfig) -> list[TodoItem]:
     them already correct (5 with file bytes byte-identical, 111 in the zero-fill
     tail, 84 import slots, 7 without a size).
     """
-    from rebrew.data_metadata import load_data_metadata
-    from rebrew.sources import target_marker
+    from rebrew.data_metadata import load_data_metadata, module_visible_to_target
 
-    marker = target_marker(cfg)
     in_zero_fill_tail = _zero_fill_tail_checker(cfg)
     items: list[TodoItem] = []
     for (module, va), fields in load_data_metadata(cfg.metadata_dir).items():
         # One metadata file serves every target in a unified tree, so a row's
         # module decides whether THIS target still owes work.  Without the
         # filter the server's todo listed 20 GOLDTL data symbols (0x6624a0,
-        # 0x773d80, …) -- VAs no server marker can ever clear.
-        if marker and module != marker:
+        # 0x773d80, …): VAs no server marker can ever clear. Library modules
+        # stay; they are linked into this binary.
+        if not module_visible_to_target(module, cfg):
             continue
         if str(fields.get("status") or "").upper() not in ("", "UNCHECKED"):
             continue

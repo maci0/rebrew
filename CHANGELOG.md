@@ -1,5 +1,23 @@
 ## [Unreleased]
 
+### Fixed
+- **`status` prints one progress percentage.** The headline and the footer
+  both use the share of `.text` in byte-matched functions when that size is
+  known. The function ratio stays a count (`261/262 EXACT+RELOC`). JSON
+  still has `matched_pct` and `byte_coverage_pct`. The report's "Of .text"
+  card and `catalog --summary` use the same figure. The per-status column
+  is labeled `% of functions`.
+- **`status` shows this target's data next to its functions.** Under the
+  function table: verified/total, a verdict breakdown, and the same counts
+  per section. The `.text` figure stays the only progress percentage. JSON
+  `data` gains `total` and `sections`.
+- **Data listings are the active target's.** `rebrew data`, `status`'s data
+  line, `todo`, `recommend`, `verify --data` (including status write-back),
+  and the catalog globals all skip another target's module in a shared
+  `rebrew-data.toml`. A declaration under that other marker is not
+  re-listed as an extern, and a file whose markers are all another target's
+  does not contribute its externs. Library modules stay.
+
 ## [2.11.0] - 2026-09-26
 ### Fixed
 - **Back-jump and float-constant scans follow instruction boundaries.**

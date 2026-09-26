@@ -653,6 +653,14 @@ tools. For image-backed profiles the host runner config is obsolete;
 
 ### `rebrew data`
 
+The default scan lists globals for the active target: its marker, plus
+library modules that are not themselves targets (`MSVCRT`, `ZLIB`).  Another
+target's marker is omitted, including the declaration under it and the
+externs in a file whose markers are all that other target's.  `rebrew
+status`, `rebrew todo`, `rebrew recommend`, and `rebrew verify --data`
+count the same rows.  `rebrew catalog` writes the same set into
+`db/data_<target>.json`.
+
 | Flag | Description |
 |------|-------------|
 | `--conflicts` | Show only type-conflict globals |
@@ -1027,9 +1035,11 @@ missing_typing, for_loops, while_loops, suggestions}]}`.
 | `--root DIR` | Project root directory (auto-detected if omitted) |
 
 The `--summary` progress lines (byte-matched functions, per-status counts,
-library identified) are `rebrew status`'s own figures.  `identified_bytes` /
-`identified_pct` in `--json` are the `.text` bytes claimed by any annotated
-function, stubs and library code included; `registry` is the inventory size.
+library identified, and `Of .text` when the section size is known) are
+`rebrew status`'s own figures.  `identified_bytes` / `identified_pct` in
+`--json` are the `.text` bytes claimed by any annotated function, stubs and
+library code included; `registry` is the inventory size.  Globals in
+`db/data_<target>.json` are this target's markers plus library modules.
 
 ### `rebrew sync`
 
@@ -1538,27 +1548,35 @@ to function-only verify/diff.
 
 `rebrew status [--json] [--target NAME]`
 
-At-a-glance reversing progress.  The headline is byte-matched functions
-(EXACT+RELOC over all functions; `matched_pct` in JSON), then a bar of
-functions with a source file (`coverage_pct`), per-status counts, a separate
-PROVEN line (semantically equivalent, bytes differ), the share of `.text` in
-byte-matched functions (`byte_coverage_pct`), with the rest of `.text` accounted
-for on the next line and in JSON: `unmatched_bytes` (functions not
+At-a-glance reversing progress.  The terminal prints one progress percentage.
+When `.text` size is known, that percentage is `byte_coverage_pct` (share of
+`.text` in byte-matched functions), in the headline and the footer.  The
+function ratio is a count (`261/262 EXACT+RELOC`), not a second percentage.
+When `.text` size is unknown, the percentage is `matched_pct` (EXACT+RELOC
+over all functions) instead.  JSON still carries both fields, plus
+`coverage_pct` (functions with a source file).  The per-status column is
+`% of functions`, a breakdown of that count.  A separate PROVEN line records
+semantic equivalence while the bytes still differ.  The rest of `.text` is
+accounted for on the next line and in JSON: `unmatched_bytes` (functions not
 byte-matched), `padding_bytes` (alignment fill between functions) and
 `unattributed_bytes` (bytes no known function covers, such as import
-thunks); the four add up to `total_text_bytes`.  A compiled function counts
+thunks).  The four add up to `total_text_bytes`.  A compiled function counts
 its annotated SIZE, the extent verify compares; a library row, which nothing
 compiles, counts its discovered extent.  Each span stops at the next function
-start; switch arms inside a function are not starts, the per-module breakdown, and the last verify summary
-(byte-matched vs failed).  When a verify cache exists, reported statuses are the
-**effective** status (verify result overrides metadata; see
-`docs/ANNOTATIONS.md` "Effective Status") — `verify_cache: {overrides,
-missing_size, effective_matches}` in JSON surfaces how many functions the
-cache overrode, plus the effective-match count (register-allocation-only
-delta — the prove queue). Data verdicts from `verify --data` show as
-`data: {verified, drift, unchecked}` in JSON and a terminal summary line.
-`last_verify.library_passed` counts the last verify's passes on functions
-status treats as library code (verify compiles them; progress excludes them).
+start.  Switch arms inside a function are not starts.  When a verify cache
+exists, reported statuses are the **effective** status (verify result
+overrides metadata; see `docs/ANNOTATIONS.md` "Effective Status").
+`verify_cache: {overrides, missing_size, effective_matches}` in JSON surfaces
+how many functions the cache overrode, plus the effective-match count
+(register-allocation-only delta, the prove queue).  Data sits in its own
+block under the function table: `verified/total`, a verdict table (`% of
+data`), and the same counts per section (`.data`, `.rdata`, `.bss`, then
+any other).  That is this target's module and library modules, not other
+targets in the same `rebrew-data.toml`.  JSON is `data: {verified, drift,
+unchecked, total, sections}`.  The `.text` figure stays the only progress
+percentage.  `last_verify.library_passed` counts the last verify's
+passes on functions status treats as library code (verify compiles them;
+progress excludes them).
 
 ### `rebrew similar`
 

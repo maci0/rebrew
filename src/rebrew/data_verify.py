@@ -105,16 +105,20 @@ def section_symbol_bytes(
     metadata_path: Path,
     binary_path: Path,
     sections: tuple[str, ...] = (".data", ".rdata"),
+    cfg: Any | None = None,
 ) -> tuple[dict[int, bytes], dict[int, int]]:
     """Read per-symbol bytes for metadata symbols from *binary_path* sections.
 
     Returns ``(by_va, sizes)``: for each named metadata symbol in *sections*
     with a known size, the raw bytes at its VA sliced from the binary's
     section data.  Symbols outside the section bounds or without a size are
-    skipped (the caller reports them as missing).
+    skipped (the caller reports them as missing).  With *cfg*, another
+    target's module is skipped: its VAs are not in this binary, and writing
+    them back as UNCHECKED would erase that target's verdict.
     """
     from rebrew.binary_loader import load_binary
     from rebrew.data_layout import estimate_type_size
+    from rebrew.data_metadata import module_visible_to_target
     from rebrew.utils import load_tomllib
 
     db = load_tomllib(metadata_path)
@@ -128,8 +132,10 @@ def section_symbol_bytes(
             continue
         if not val.get("name"):
             continue
-        _module, sep, addr_text = str(key).rpartition(".")
+        module, sep, addr_text = str(key).rpartition(".")
         if not sep:
+            continue
+        if not module_visible_to_target(module, cfg):
             continue
         try:
             va = int(addr_text, 16)

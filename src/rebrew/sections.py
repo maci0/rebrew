@@ -116,6 +116,7 @@ def get_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> dict[int, di
     so the estimates cannot drift apart.
     """
     from rebrew.data_layout import estimate_type_size
+    from rebrew.data_metadata import module_visible_to_target
 
     globals_dict: dict[int, dict[str, Any]] = {}
     for p in iter_sources(src_dir, cfg):
@@ -138,6 +139,10 @@ def get_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> dict[int, di
                         name = name_m.group(1)
 
                     origin = m.group("target")  # MODULE from // GLOBAL: MODULE 0xVA
+                    # Same scope as ``rebrew data``: another target's marker
+                    # in a shared tree is that binary's global, not this one.
+                    if not module_visible_to_target(origin, cfg):
+                        continue
 
                     size = estimate_type_size(decl) if decl else 4
 

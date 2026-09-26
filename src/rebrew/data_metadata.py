@@ -183,6 +183,38 @@ def iter_data_symbols(
 
 
 # ---------------------------------------------------------------------------
+# Target scope
+# ---------------------------------------------------------------------------
+
+
+def module_visible_to_target(module: str, cfg: Any) -> bool:
+    """Whether a data row's module belongs on the active target's reports.
+
+    One ``rebrew-data.toml`` holds every binary in a shared tree. Another
+    target's marker does not belong on this target's ``status``, ``data``,
+    ``todo``, or ``verify --data`` output. The active marker does. A module
+    that is not any target's marker (``MSVCRT``, ``ZLIB``) does too: that
+    data is linked into this binary. With no config, or no marker, every
+    module belongs.
+    """
+    if cfg is None:
+        return True
+    from rebrew.config import module_marker
+    from rebrew.utils import preset_module_key
+
+    active = preset_module_key(module_marker(cfg))
+    if not active:
+        return True
+    mod = preset_module_key(module)
+    if not mod or mod == active:
+        return True
+    others = {preset_module_key(m) for m in (getattr(cfg, "all_markers", None) or ())}
+    if not others:
+        return False
+    return mod not in others
+
+
+# ---------------------------------------------------------------------------
 # Load / Save
 # ---------------------------------------------------------------------------
 

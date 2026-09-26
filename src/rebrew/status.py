@@ -118,10 +118,12 @@ class StatusReport:
     inline_metadata_warning: int = 0
 
     # Data verification verdicts from rebrew-data.toml STATUS (written by
-    # `verify --data`): verified / drift / unchecked symbol counts.
+    # `verify --data`): verified / drift / unchecked symbol counts, and the
+    # same counts per section. This target's module and library modules only.
     data_verified: int = 0
     data_drift: int = 0
     data_unchecked: int = 0
+    data_sections: dict[str, dict[str, int]] = field(default_factory=dict)
 
     # Derived percentages
     @property
@@ -165,6 +167,11 @@ class StatusReport:
             return 0.0
         return floor_pct(self.matched_bytes, self.total_text_bytes)
 
+    @property
+    def data_total(self) -> int:
+        """Named data symbols on this target (verified + drift + unchecked)."""
+        return self.data_verified + self.data_drift + self.data_unchecked
+
     def to_dict(self) -> dict[str, Any]:
         """Serialize for JSON output."""
         d: dict[str, Any] = {
@@ -187,6 +194,11 @@ class StatusReport:
                 "verified": self.data_verified,
                 "drift": self.data_drift,
                 "unchecked": self.data_unchecked,
+                "total": self.data_total,
+                "sections": {
+                    name: self.data_sections[name]
+                    for name in _ordered_data_sections(self.data_sections)
+                },
             },
         }
         if self.total_text_bytes > 0:
@@ -607,18 +619,28 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
     # Data verdicts: count rebrew-data.toml STATUS values written by
     # `verify --data`.  Named symbols only — unnamed inventory rows carry
     # no verdict.
-    from rebrew.data_metadata import load_data_metadata
+    from rebrew.data_metadata import load_data_metadata, module_visible_to_target
 
-    for fields in load_data_metadata(cfg.metadata_dir).values():
+    for (module, _va), fields in load_data_metadata(cfg.metadata_dir).items():
+        if not module_visible_to_target(module, cfg):
+            continue
         if not fields.get("name"):
             continue
         verdict = str(fields.get("status") or "UNCHECKED").upper()
         if verdict == "VERIFIED":
+            bucket = "verified"
             report.data_verified += 1
         elif verdict == "DRIFT":
+            bucket = "drift"
             report.data_drift += 1
         else:
+            bucket = "unchecked"
             report.data_unchecked += 1
+        section = str(fields.get("section") or "").strip().lower() or "(no section)"
+        counts = report.data_sections.setdefault(
+            section, {"verified": 0, "drift": 0, "unchecked": 0}
+        )
+        counts[bucket] += 1
 
     # Verify info
     report.verify_info = _load_verify_info(cfg, library_vas)
@@ -635,6 +657,86 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
 # ---------------------------------------------------------------------------
 # Rich output
 # ---------------------------------------------------------------------------
+
+
+_DATA_SECTION_ORDER = (".data", ".rdata", ".bss")
+
+
+def _ordered_data_sections(sections: dict[str, dict[str, int]]) -> list[str]:
+    """``.data``, ``.rdata``, ``.bss``, then any other section name."""
+    head = [name for name in _DATA_SECTION_ORDER if name in sections]
+    tail = sorted(name for name in sections if name not in _DATA_SECTION_ORDER)
+    return head + tail
+
+
+def _data_block(report: StatusReport) -> list[Any]:
+    """Data verdicts for this target, parallel to the function table.
+
+    A count, not a second progress percentage: the headline stays the
+    ``.text`` share.
+    """
+    total = report.data_total
+    if total == 0:
+        return []
+    header = Text()
+    header.append("  Data          ", style="bold")
+    header.append(f"{report.data_verified}/{total} verified")
+    if report.data_drift:
+        header.append(f", {report.data_drift} drift", style="red")
+
+    table = Table(
+        show_header=True,
+        header_style="bold",
+        pad_edge=False,
+        box=None,
+        expand=True,
+    )
+    table.add_column("Data", width=20)
+    table.add_column("Count", justify="right", width=8)
+    table.add_column("% of data", justify="right", width=14)
+    table.add_column("", width=20)
+    rows = (
+        ("VERIFIED", report.data_verified, "green"),
+        ("DRIFT", report.data_drift, "red"),
+        ("UNCHECKED", report.data_unchecked, "yellow"),
+    )
+    for label, count, color in rows:
+        if count == 0:
+            continue
+        pct = floor_pct(count, total)
+        mini = "█" * max(int(20 * count / total), 1)
+        table.add_row(
+            f"[{color}]{label}[/{color}]",
+            f"[{color}]{count}[/{color}]",
+            f"[{color}]{pct}%[/{color}]",
+            f"[{color}]{mini}[/{color}]",
+        )
+    block: list[Any] = [header, table]
+    for name in _ordered_data_sections(report.data_sections):
+        counts = report.data_sections[name]
+        section_total = counts["verified"] + counts["drift"] + counts["unchecked"]
+        detail = f"{name:<14}{counts['verified']}/{section_total} verified"
+        if counts["drift"]:
+            detail += f", {counts['drift']} drift"
+        block.append(Text.from_markup(f"  [dim]{detail}[/dim]"))
+    return block
+
+
+def _progress_text(report: StatusReport) -> tuple[str, str]:
+    """Headline body and footer for the one progress percentage.
+
+    The percentage is the share of ``.text`` in byte-matched functions when
+    that size is known, and the share of functions otherwise. Printing both
+    answered "how done is this binary" with two different numbers (guild-rebrew
+    server.dll: 99.6% of functions, 96.4% of ``.text``).
+    """
+    if report.total_text_bytes > 0:
+        pct = report.byte_coverage_pct
+        headline = f"{pct}% of .text  ({report.matched_bytes:,}B / {report.total_text_bytes:,}B)"
+        return headline, f"{pct}% of .text"
+    pct = report.matched_pct
+    headline = f"{report.matched_functions}/{report.total_functions} functions  ({pct}%)"
+    return headline, f"{pct}% of functions"
 
 
 def _render_terminal(report: StatusReport) -> None:
@@ -659,20 +761,28 @@ def _render_terminal(report: StatusReport) -> None:
     matching = report.status_counts.get("NEAR_MATCHING", 0)
     stub = report.status_counts.get("STUB", 0)
 
+    progress_headline, progress_footer = _progress_text(report)
     headline = Text()
     headline.append("  Byte-matched  ", style="bold")
-    headline.append(
-        f"{report.matched_functions}/{report.total_functions} functions  ({report.matched_pct}%)",
-        style="bold green",
-    )
+    headline.append(progress_headline, style="bold green")
     headline.append("  EXACT+RELOC", style="dim")
+
+    # Function progress is a count. Its percentage is the headline only when
+    # .text size is unknown; otherwise it would be a second progress number.
+    functions_line: Text | None = None
+    if report.total_text_bytes > 0:
+        functions_line = Text()
+        functions_line.append("  Functions     ", style="bold")
+        functions_line.append(
+            f"{report.matched_functions}/{report.total_functions} EXACT+RELOC",
+        )
 
     bar_text = Text()
     bar_text.append("  With source   ", style="bold")
     bar_text.append("█" * filled, style="green")
     bar_text.append("░" * (bar_width - filled), style="dim")
     bar_text.append(
-        f"  {report.covered_functions}/{report.total_functions}  ({report.coverage_pct}%)",
+        f"  {report.covered_functions}/{report.total_functions}",
     )
 
     # --- Status table ---
@@ -685,7 +795,7 @@ def _render_terminal(report: StatusReport) -> None:
     )
     status_table.add_column("Status", width=20)
     status_table.add_column("Count", justify="right", width=8)
-    status_table.add_column("% of Total", justify="right", width=10)
+    status_table.add_column("% of functions", justify="right", width=14)
     status_table.add_column("", width=20)  # Visual bar
 
     for status in _STATUS_ORDER:
@@ -747,19 +857,17 @@ def _render_terminal(report: StatusReport) -> None:
             " byte-exact but not decompiled — implement the C bodies)[/dim]"
         )
 
-    # Byte coverage
-    if report.total_text_bytes > 0:
+    # Every .text byte accounted for, so the gap under the headline is explained.
+    if (
+        report.total_text_bytes > 0
+        and report.padding_bytes is not None
+        and report.unattributed_bytes is not None
+    ):
         summary_lines.append(
-            f"  [cyan]{report.byte_coverage_pct}%[/cyan] of .text in byte-matched functions"
-            f"  [dim]({report.matched_bytes:,}B / {report.total_text_bytes:,}B)[/dim]"
+            f"  [dim]rest: {report.unmatched_bytes:,}B in unmatched functions, "
+            f"{report.padding_bytes:,}B alignment padding, "
+            f"{report.unattributed_bytes:,}B in no known function[/dim]"
         )
-        # Every .text byte accounted for, so the gap to 100% is explained.
-        if report.padding_bytes is not None and report.unattributed_bytes is not None:
-            summary_lines.append(
-                f"  [dim]rest: {report.unmatched_bytes:,}B in unmatched functions, "
-                f"{report.padding_bytes:,}B alignment padding, "
-                f"{report.unattributed_bytes:,}B in no known function[/dim]"
-            )
 
     # Source file count
     summary_lines.append(f"  [dim]{report.source_files} source files[/dim]")
@@ -767,15 +875,6 @@ def _render_terminal(report: StatusReport) -> None:
         summary_lines.append(
             f"  [dim]library:[/dim] [green]{report.library_identified} identified[/green] "
             "(lib-match attributions, not reversing progress)"
-        )
-
-    # Data verification verdicts (from `verify --data`)
-    data_total = report.data_verified + report.data_drift + report.data_unchecked
-    if data_total:
-        summary_lines.append(
-            f"  [dim]data:[/dim] [green]{report.data_verified} verified[/green] / "
-            f"[red]{report.data_drift} drift[/red] / "
-            f"[dim]{report.data_unchecked} unchecked[/dim]"
         )
 
     # Pointer to the prioritized next-action list (PRD 05 status requirement)
@@ -829,11 +928,22 @@ def _render_terminal(report: StatusReport) -> None:
     # --- Assemble panel ---
     from rich.console import Group
 
+    panel_rows: list[Any] = [headline]
+    if functions_line is not None:
+        panel_rows.append(functions_line)
+    panel_rows.extend(
+        [
+            bar_text,
+            Text(""),  # spacer
+            status_table,
+        ]
+    )
+    data_block = _data_block(report)
+    if data_block:
+        panel_rows.append(Text(""))
+        panel_rows.extend(data_block)
     panel_content = Group(
-        headline,
-        bar_text,
-        Text(""),  # spacer
-        status_table,
+        *panel_rows,
         Text(""),  # spacer
         *[Text.from_markup(line) for line in summary_lines],
     )
@@ -844,7 +954,7 @@ def _render_terminal(report: StatusReport) -> None:
         subtitle=(
             f"[green]{exact}E[/green] [cyan]{reloc}R[/cyan]"
             f" [magenta]{proven}P[/magenta] [yellow]{matching}M[/yellow]"
-            f" [dim]{stub}S[/dim] → [bold]{report.matched_pct}% byte-matched[/bold]"
+            f" [dim]{stub}S[/dim] → [bold]{progress_footer}[/bold]"
         ),
         border_style="blue",
     )

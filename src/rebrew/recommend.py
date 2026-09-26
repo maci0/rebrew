@@ -955,12 +955,16 @@ def _collect_hygiene(
         recs.extend(recommend_shared_twins(twins))
 
     with _lane("data-status"):
-        from rebrew.data_metadata import load_data_metadata
+        from rebrew.data_metadata import load_data_metadata, module_visible_to_target
 
-        data_entries = load_data_metadata(cfg.metadata_dir).items()
+        data_entries = [
+            (module, va, fields)
+            for (module, va), fields in load_data_metadata(cfg.metadata_dir).items()
+            if module_visible_to_target(module, cfg)
+        ]
         drift = [
             (module, va, str(fields.get("name") or f"DAT_{va:08x}"))
-            for (module, va), fields in data_entries
+            for module, va, fields in data_entries
             if str(fields.get("status") or "").upper() == "DRIFT"
         ]
         rec = recommend_data_drift(drift)
@@ -968,7 +972,7 @@ def _collect_hygiene(
             recs.append(rec)
         unchecked = [
             (module, va, str(fields.get("name") or f"DAT_{va:08x}"))
-            for (module, va), fields in data_entries
+            for module, va, fields in data_entries
             if str(fields.get("status") or "").upper() in ("", "UNCHECKED")
         ]
         start = recommend_start_data(unchecked)
