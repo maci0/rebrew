@@ -4,19 +4,11 @@
 - **Date**: 2026-05 (updated 2026-09)
 - **Owner**: rebrew team
 
-> **Correction (2026-09):** `rebrew sync` is now BinSync-primary — field sync
+> **Architecture note (2026-09):** `rebrew sync` is BinSync-primary — field sync
 > (names, comments, prototypes, structs, globals) flows through a shared state
 > dir (`--push`/`--pull --state-dir`, conflicts via `--accept-binsync` /
-> `--accept-local`); ReVa MCP remains only for structural ops
-> (`--create-functions`, `--bookmarks`, `--pull-data`). The removed
-> `--pull-signatures`, `--pull-structs`, `--pull-datatypes`, `--pull-params`,
-> `--pull-comments`, `--accept-ghidra`, `--export`, `--apply`, `--force`,
-> `--refresh-cache`, `--sync-sizes`, `--sync-new-functions`, `--sync-data`,
-> `--sync-structs`, `--sync-signatures`, `--skip-generic`, `--types-out`,
-> `--by-module`, `--module` flags in the Functional Requirements below are superseded —
-> see the CLI Surface section (verified against `rebrew sync --help`) and
-> `rebrew sync --help`. Functional Requirements / Open Questions below the
-> banner remain a historical ReVa-era record.
+> `--accept-local`); ReVa MCP is used for structural ops
+> (`--create-functions`, `--bookmarks`, `--pull-data`).
 
 **Feature name:** Bidirectional Ghidra ↔ Rebrew Sync (BinSync state dir + ReVa MCP structural ops)
 **One-line value:** Keep Rebrew's local C source the source of truth for
@@ -37,8 +29,9 @@ a text editor. Without sync:
   with proper names) requires manual data entry.
 
 PRD 07 ships `rebrew sync`, a single command for push + pull of names,
-labels, structs, signatures, comments, and boundary corrections, talking
-to a running Ghidra instance via the ReVa MCP server.
+labels, structs, prototypes, comments, and boundary corrections, using a
+BinSync state directory for field-level sync and the ReVa MCP server
+(or `ghidra-cli` bridge) for structural operations in Ghidra.
 
 ## Users
 
@@ -80,78 +73,52 @@ to a running Ghidra instance via the ReVa MCP server.
 
 ## Functional Requirements
 
-### Push (rebrew → Ghidra)
+### Field sync (BinSync state dir)
 
-- `--push` exports + applies in one step (equivalent to `--export`
-  followed by `--apply`).
-- `--export` writes `ghidra_commands.json` only.
-- `--apply` applies a pre-written `ghidra_commands.json`.
-- `--summary` shows what would be pushed without writing.
-- `--create-functions / --no-create-functions` (default on): create
-  Ghidra functions for every annotated VA (IAT thunks are skipped).
-- `--skip-generic / --no-skip-generic` (default on): never push generic
-  `func_XXXXXXXX` labels.
-- `--sync-sizes` pushes corrected function sizes (Ghidra expansion).
-- `--sync-new-functions` creates functions found by r2 that Ghidra missed.
-- `--sync-data / --no-sync-data` (default on): push `// DATA:` and
-  `// GLOBAL:` labels + bookmarks.
-- `--sync-structs / --no-sync-structs` (default on): push struct
-  definitions to the `/rebrew` DTM category.
-- `--sync-signatures / --no-sync-signatures` (default on): push function
-  prototypes.
+- `--push` exports local annotations (names, comments/notes, prototypes,
+  structs, globals) to the BinSync state directory (`--state-dir PATH`, or
+  configured `binsync_state_dir`).
+- `--pull` imports the BinSync state directory into rebrew's C sources and
+  metadata.
+- `--summary` shows what would be pushed without writing to the state directory.
+- `--watch` watches source files and re-pushes to the state directory on change
+  (requires `--push --state-dir`).
+- Conflict resolution on pull:
+  - Default: report conflict and skip.
+  - `--accept-binsync`: accept BinSync names on pull conflicts, rewriting local
+    sources and updating cross-references.
+  - `--accept-local`: keep local names on pull conflicts, recording BinSync
+    provenance notes in metadata (`GHIDRA: …`).
+- `--create-missing`: creates STUB files for BinSync functions not present in
+  the catalog.
 
-### Pull (Ghidra → rebrew)
+### Structural operations (ReVa MCP)
 
-- `--pull` updates local function names from Ghidra (with cross-ref rewrites),
-  plus data-label names and plate/pre comments (as NOTE).
-- `--pull-signatures` updates `// PROTOTYPE:` annotations from Ghidra
-  prototypes (extern replacement is off — Ghidra types may not be valid
-  C89/MSVC6).
-- `--pull-structs` writes Ghidra struct definitions into `types.h` (default).
-  Use `--types-out PATH` to override the output path (single-file mode).
-  Use `--by-module` to split output into per-module files (`types_server.h`,
-  `types_client.h`, `types_shared.h` for unattributed structs).
-  `--types-out` and `--by-module` are mutually exclusive.
-- `--pull-datatypes` writes an enum/typedef inventory manifest into
-  `enums_types.h` (names/sizes/categories only — ReVa MCP does not expose enum
-  member values; `--types-out` also overrides this output path).
-- `--pull-params` pulls Ghidra parameter names into unnamed parameters of local
-  `.c` files (merge-safe: existing parameter names are never overwritten).
-- `--pull-comments` imports Ghidra eol/pre/post analysis comments as
-  `// ANALYSIS:` metadata annotations (reccmp-compatible).
-- `--pull-data` imports data labels and (re)generates `rebrew_globals.h`.
-- Conflict resolution:
-  - Default: report and skip.
-  - `--accept-ghidra` accepts Ghidra names with cross-ref updates.
-  - `--accept-local` keeps the local name but records the Ghidra name in
-    metadata (`GHIDRA: …`).
-- `--module MSVCRT` restricts pull updates to one origin module.
+- `--create-functions`: creates Ghidra functions for every annotated VA (IAT
+  thunks are skipped); when chained with `--pull`, creates the imported VAs in
+  Ghidra.
+- `--bookmarks`: sets status bookmarks in Ghidra via ReVa MCP.
+- `--pull-data`: pulls data labels from Ghidra and generates `rebrew_globals.h`.
+- Transport fallback: ReVa MCP HTTP is the default transport; when
+  `ghidra_backend = "cli"` is configured in `rebrew-project.toml` (or MCP is
+  unreachable on initial connect), the `ghidra-cli` binary backend applies the
+  same structural operations.
 
-### Cache & runtime
+### Runtime and common options
 
-- `--refresh-cache` re-fetches the full Ghidra function list **and** the
-  data-label list, writing both `function_structure.json` and
-  `ghidra_data_labels.json` (data-label refresh now included).
-- `--endpoint URL` overrides the default ReVa MCP endpoint
+- `--endpoint URL`: overrides the default ReVa MCP endpoint
   (`http://localhost:8080/mcp/message`).
-- `--force` re-exports already-applied operations (with `--export`/`--push`;
-  idempotency state lives in `.rebrew/ghidra_sync_state.json`).
-- `--watch` watches sources and re-pushes on every change (requires `--push`).
-- `--dry-run` previews any push or pull mode.
-- `--json` machine-readable output.
+- `--dry-run`: previews any push, pull, or structural operations without
+  modifying files or Ghidra.
+- `--json`: outputs machine-readable JSON results.
+- `-t, --target`: selects target from `rebrew-project.toml`.
 
-### BinSync exchange (`rebrew binsync-export` / `rebrew binsync-import`)
+### Peer BinSync commands
 
-- Tangential to Ghidra sync but lives in the same export family.
-- Writes a BinSync-compatible state directory
-  (`functions/`, `global_vars.toml`).
-- The export carries only BinSync-native fields; rebrew's STATUS/CFLAGS stay
-  in `rebrew-functions.toml` (STATUS is verify-earned, never exported).
-- Import back into rebrew metadata is supported via
-  `rebrew binsync-import STATE_DIR` (reads `functions/*.toml`,
-  `global_vars.toml`, `structs/*.toml`; `--accept-binsync` / `--accept-local`
-  resolve conflicts, `--create-missing` creates STUB files).
-- `--dry-run`, `--json`, `--module`, `--git`, `--clean`.
+- `rebrew binsync-export`, `rebrew binsync-import`, `rebrew binsync-diff`,
+  `rebrew binsync-init`, `rebrew binsync-overlay` and the `rebrew binsync`
+  umbrella command (`push`, `pull`, `summary`, `init`, `diff`, `overlay`)
+  share the same underlying state directory format (see PRD 09).
 
 ## User Stories / Workflows
 
@@ -247,22 +214,15 @@ rebrew binsync {init,diff,overlay,push,pull,summary}
 
 ## Open Questions / Known Limitations
 
-- Sync requires ReVa MCP on Ghidra by default; an alternative `ghidra-cli`
-  bridge backend (`ghidra_backend = "cli"` in `rebrew-project.toml`) covers
-  the push/apply direction via subprocess, but pull beyond the rename path
-  still expects ReVa.
+- Field sync (`--push`/`--pull --state-dir`) uses the BinSync state directory
+  and works offline without Ghidra running. Structural operations
+  (`--create-functions`, `--bookmarks`, `--pull-data`) require a live ReVa MCP
+  connection (or the `ghidra-cli` bridge backend when `ghidra_backend = "cli"`
+  is configured).
 - The MCP endpoint default is `http://localhost:8080/mcp/message` everywhere
-  (code, skills, examples) — the earlier 8080-vs-8089 disagreement is
-  resolved. Override with `--endpoint`.
-- The MCP structural ops (`--create-functions`, `--bookmarks`,
-  `--pull-data`) require a live ReVa connection; they have no offline path.
+  (code, skills, examples). Override with `--endpoint`.
 - `rebrew sync` does not currently support pulling Ghidra *bookmarks*
   back into source; the push direction is one-way for bookmarks.
-- `--pull-structs --by-module` splits structs into per-module files; structs
-  with no namespace/category in Ghidra land in `types_shared.h`.
-- BinSync import is now supported via `rebrew binsync-import STATE_DIR`
-  (export-only limitation lifted); export and import remain separate commands.
-- Conflict reporting in `--pull` uses the same JSON schema for "Ghidra
+- Conflict reporting in `--pull` uses the same JSON schema for "Ghidra/BinSync
   has X, local has Y" entries; tooling consumers should treat it as
-  schema-versioned but it is not explicitly tagged with a version
-  number.
+  schema-versioned.
