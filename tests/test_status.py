@@ -331,6 +331,56 @@ class TestCollectStatus:
         assert report.library_identified == 1
         assert report.matched_pct == 50.0
 
+    def test_switch_arm_inside_a_matched_function_does_not_cut_it(self, tmp_path: Path) -> None:
+        """A matched function's bytes are its annotated SIZE (what verify
+        compared).  Discovery split it at a switch arm (inventory 0x28 + a
+        case.* entry inside); neither the split nor the arm may shrink it."""
+        cfg = _make_cfg(tmp_path)
+        src = tmp_path / "src"
+        src.mkdir()
+        (src / "function_structure.json").write_text(
+            json.dumps(
+                [
+                    {"va": 0x1000, "size": 0x28, "ghidra_name": "f"},
+                    {"va": 0x1028, "size": 0x20, "ghidra_name": "case.0x1000.3"},
+                ]
+            ),
+            encoding="utf-8",
+        )
+        (src / "f.c").write_text("// FUNCTION: TEST 0x1000\nvoid f(void) {}\n", encoding="utf-8")
+        (tmp_path / "rebrew-functions.toml").write_text(
+            '["TEST.0x1000"]\nstatus = "EXACT"\nsize = 128\n', encoding="utf-8"
+        )
+        report = collect_status(cfg)  # type: ignore[arg-type]
+        assert report.total_functions == 1
+        assert report.matched_bytes == 128
+
+    def test_library_row_counts_its_discovered_extent(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A library SIZE is never checked by a compile and is often short of
+        the linked body; the inventory extent counts, or the tail reads as
+        code in no function."""
+        import rebrew.naming
+        from rebrew.catalog.models import FunctionEntry
+
+        cfg = _make_cfg(tmp_path)
+        existing = {0x1000: {"filename": "library_x.h", "size": "16", "marker_type": "LIBRARY"}}
+        monkeypatch.setattr(
+            rebrew.naming,
+            "load_data",
+            lambda cfg: ([FunctionEntry(va=0x1000, size=0x40)], existing, {0x1000: "x"}),
+        )
+        assert collect_status(cfg).matched_bytes == 0x40  # type: ignore[arg-type]
+
+    def test_classify_text_gaps(self) -> None:
+        """Bytes outside every span split into alignment fill and the rest."""
+        from rebrew.status import classify_text_gaps
+
+        text = b"\x55\xc3" + b"\xcc\xcc" + b"\xff\x25\x04\x10" + b"\x90\x55\xc3"
+        # Functions at +0 (2 bytes) and +9 (2 bytes); +8 is a 0x90 fill byte.
+        assert classify_text_gaps(text, 0x1000, [(0x1000, 2), (0x1009, 2)]) == (3, 4)
+
     def test_matched_bytes_stop_at_next_function(self, tmp_path: Path) -> None:
         """An inventory entry that runs into the next function counts only its
         own bytes: the unmatched neighbour is not byte-matched."""

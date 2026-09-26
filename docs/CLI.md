@@ -1542,9 +1542,14 @@ At-a-glance reversing progress.  The headline is byte-matched functions
 (EXACT+RELOC over all functions; `matched_pct` in JSON), then a bar of
 functions with a source file (`coverage_pct`), per-status counts, a separate
 PROVEN line (semantically equivalent, bytes differ), the share of `.text` in
-byte-matched functions (`byte_coverage_pct`; each function's span stops at the next
-known function start, so an inventory entry that runs through a missed
-neighbour counts once), the per-module breakdown, and the last verify summary
+byte-matched functions (`byte_coverage_pct`), with the rest of `.text` accounted
+for on the next line and in JSON: `unmatched_bytes` (functions not
+byte-matched), `padding_bytes` (alignment fill between functions) and
+`unattributed_bytes` (bytes no known function covers, such as import
+thunks); the four add up to `total_text_bytes`.  A compiled function counts
+its annotated SIZE, the extent verify compares; a library row, which nothing
+compiles, counts its discovered extent.  Each span stops at the next function
+start; switch arms inside a function are not starts, the per-module breakdown, and the last verify summary
 (byte-matched vs failed).  When a verify cache exists, reported statuses are the
 **effective** status (verify result overrides metadata; see
 `docs/ANNOTATIONS.md` "Effective Status") — `verify_cache: {overrides,

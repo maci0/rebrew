@@ -7,6 +7,15 @@
   or an `fld`. Both scans now use Capstone's x86-32 disassembly. A pattern
   that is not its own instruction is ignored. Undecodable bytes are
   skipped, so a real instruction later in the buffer is still seen.
+- **`status` accounts for every `.text` byte.**  "95.5% of .text byte-matched"
+  beside 261 of 262 functions matched left 3.5% unexplained.  A new line
+  splits the rest into unmatched functions, alignment padding and bytes in
+  no known function (JSON `unmatched_bytes`, `padding_bytes`,
+  `unattributed_bytes`; the four sum to the `.text` size).  Byte counts now
+  use a compiled function's annotated SIZE (what verify compares) and a
+  library row's discovered extent (its SIZE is never checked), and a switch
+  arm inside a function no longer cuts the function's span short (1,120
+  matched bytes were counted as unmatched on guild-rebrew).
 
 ## [2.10.0] - 2026-09-26
 ### Fixed
