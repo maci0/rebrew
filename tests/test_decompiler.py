@@ -1307,6 +1307,35 @@ class TestReToolDigestInvalidation:
             dc._clear_re_projects()
         assert len([c for c in calls if "Ps" in c[3]]) == 2
 
+    def test_binary_change_reanalyses(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Modifying or rebuilding the target binary invalidates the cached project."""
+        import rebrew.decompiler as dc
+
+        dc._clear_re_projects()
+        binary = tmp_path / "target.bin"
+        binary.write_bytes(b"MZ1")
+        monkeypatch.setattr(dc.shutil, "which", lambda *a, **k: "rz")
+        calls: list[list[str]] = []
+
+        def fake_run(cmd: list[str], **kwargs: object) -> object:
+            calls.append(cmd)
+            if "Ps" in cmd[3]:
+                proj = cmd[3].split("Ps ", 1)[1].split(";", 1)[0].strip()
+                Path(proj).mkdir(exist_ok=True)
+            return SimpleNamespace(returncode=0, stdout="int f(void) {}\n")
+
+        monkeypatch.setattr("rebrew.decompiler.run_process_group", fake_run)
+        try:
+            assert dc._run_re(binary, 0x1000, "pdg", tmp_path) == "int f(void) {}"
+            # Rebuild the binary (new bytes)
+            binary.write_bytes(b"MZ2_rebuilt")
+            assert dc._run_re(binary, 0x2000, "pdg", tmp_path) == "int f(void) {}"
+        finally:
+            dc._clear_re_projects()
+        assert len([c for c in calls if "Ps" in c[3]]) == 2
+
 
 class TestProjectSweepAtexit:
     def test_hook_armed_once_and_sweeps_dirs(
