@@ -27,6 +27,7 @@ Usage::
 
 from __future__ import annotations
 
+import contextlib
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -166,7 +167,6 @@ def _compile_check(cfg: Any, source_text: str, src_hint: Path) -> str | None:
     compilable output; the equivalent for rebrew is *proving* the fixed
     source compiles before writing it).
     """
-    import shutil
 
     from rebrew.compile import compile_to_obj
     from rebrew.compile_overrides import resolve_cflags
@@ -187,7 +187,10 @@ def _compile_check(cfg: Any, source_text: str, src_hint: Path) -> str | None:
             return (err or "compile failed").strip()
         return None
     finally:
-        shutil.rmtree(workdir, ignore_errors=True)
+        from rebrew.utils import remove_temp_dir
+
+        with contextlib.suppress(OSError):
+            remove_temp_dir(workdir)
 
 
 @app.callback(invoke_without_command=True)

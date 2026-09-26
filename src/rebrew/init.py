@@ -630,7 +630,9 @@ def _toolchain_image_followup(compiler_profile: str) -> None:
         console.print(f"[yellow]rebrew CLI not found on PATH — run '{build_cmd}' yourself[/]")
         return
     try:
-        proc = subprocess.run(
+        from rebrew.utils import run_process_group
+
+        proc = run_process_group(
             [exe, "toolchain", "build", compiler_profile],
             stdin=subprocess.DEVNULL,  # real stdin is a TTY; keep the run non-interactive
             timeout=3600,

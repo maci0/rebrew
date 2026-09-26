@@ -167,16 +167,13 @@ def main(
     # Unpredictable scratch name in the shared temp dir: a fixed
     # "rebrew-calibrate-bss.dll" would let any local user pre-create/symlink
     # the path (the linker follows it) or swap the DLL between iterations and
-    # poison the calibration, and concurrent runs would clobber each other.
+    original_stub = stub_text
     fd, scratch_name = tempfile.mkstemp(prefix="rebrew-calibrate-bss-", suffix=".dll")
     os.close(fd)
     scratch = Path(scratch_name)
 
-    iters: list[dict[str, int]] = []
-    # The loop rewrites the stub tail in place before each relink; a failed
-    # calibration must not leave a wrong pad behind, so snapshot and restore.
-    original_stub = stub_text
     try:
+        iters: list[dict[str, int]] = []
         for it in range(max_iters):
             # Quote the scratch path before shlex.split so a space-bearing
             # temp dir cannot re-split the argv; shell=True is refused so

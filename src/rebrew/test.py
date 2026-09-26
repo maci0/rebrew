@@ -14,10 +14,10 @@ Usage:
     rebrew test --all --dir src/game_dll/ # batch mode, restrict to subdir
 """
 
+import contextlib
 import hashlib
 import logging
 import math
-import shutil
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -1716,7 +1716,10 @@ def _test_multi(
         if json_output:
             json_print({"source": source, "results": results_list})
     finally:
-        shutil.rmtree(workdir, ignore_errors=True)
+        from rebrew.utils import remove_temp_dir
+
+        with contextlib.suppress(OSError):
+            remove_temp_dir(workdir)
 
     # Honor the documented exit-code contract (help: "0 EXACT or RELOC
     # match; 1 NEAR_MATCHING or STUB; 2 Build error") — including under

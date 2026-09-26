@@ -19,6 +19,7 @@ The verdict maps the dominant category to an actionable suggestion
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import re
 from pathlib import Path
@@ -628,7 +629,6 @@ def _diagnose_one(
     source does not compile — single mode turns that into an error_exit,
     batch mode records it per-function and keeps going.
     """
-    import shutil
 
     from rebrew.binary_loader import extract_raw_bytes
     from rebrew.coff_reloc import build_iat_region, build_name_to_va, smart_reloc_compare
@@ -665,7 +665,10 @@ def _diagnose_one(
         if compiled_bytes is None:
             raise _DiagnoseError(f"Symbol '{symbol or '(none)'}' not found in compiled .obj")
     finally:
-        shutil.rmtree(workdir, ignore_errors=True)
+        from rebrew.utils import remove_temp_dir
+
+        with contextlib.suppress(OSError):
+            remove_temp_dir(workdir)
 
     # Mask ONLY the relocation sites that survive the same DIR32/REL32 address
     # validation as `rebrew test` / `rebrew verify` — an invalid reloc (wrong

@@ -27,9 +27,9 @@ message directing users to ``uv tool install --reinstall 'rebrew[prove] @ git+ht
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import re
-import shutil
 import struct
 import time
 import warnings
@@ -1662,7 +1662,10 @@ def _prepare_prove_inputs(
             raise _ProveError(f"Symbol '{symbol}' not found in compiled .obj")
         dir32_watched = _resolve_watched_dir32(obj_path, symbol, cfg, set(watched_vas))
     finally:
-        shutil.rmtree(workdir, ignore_errors=True)
+        from rebrew.utils import remove_temp_dir
+
+        with contextlib.suppress(OSError):
+            remove_temp_dir(workdir)
 
     # Bytes already match → RELOC, not PROVEN. Slice proofs skip this gate.
     # Pass the same name_to_va DIR32 validation that test/verify use —
