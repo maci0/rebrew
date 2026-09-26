@@ -407,6 +407,8 @@ class TestResolveSourceArg:
         nfd_arg = "func_\u0065\u0301"
         assert resolve_source_arg(self._cfg(tmp_path), nfd_arg) == src
         assert resolve_source_arg(self._cfg(tmp_path), f"_{nfd_arg}") == src
+        assert resolve_source_arg(self._cfg(tmp_path), f"{nfd_arg}.c") == src
+        assert resolve_source_arg(self._cfg(tmp_path), str(tmp_path / f"{nfd_arg}.c")) == src
 
     def test_va_lookup_finds_annotation(self, tmp_path: Path) -> None:
         src = tmp_path / "target_func.c"

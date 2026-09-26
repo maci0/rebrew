@@ -85,7 +85,7 @@ def _collect_context(cfg: Any, include_headers: bool = True) -> tuple[list[str],
                 list(extract_structs_from_file(path))
                 + list(extract_type_definitions(path))
                 + list(extract_enums_from_file(path))
-                + [f"{sig};" for sig, _ in extract_function_signatures(path)]
+                + [f"{sig};" for _name, sig in extract_function_signatures(path)]
                 + [f"{sig};" for sig in extract_function_prototypes(path)]
             )
         except (OSError, ValueError, UnicodeDecodeError):

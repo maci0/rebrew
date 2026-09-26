@@ -10,6 +10,7 @@ qualifiers, and function-pointer parameters are stripped or simplified.
 """
 
 import re
+import unicodedata
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -29,6 +30,7 @@ _FUNCPTR_RE = re.compile(r"\w[\w\s\*]*\(\*\s*(\w+)\)\s*\([^)]*\)")
 
 def _normalize_signature(sig: str) -> str:
     """Strip syntax that Ghidra's CParser does not accept (MSVC extensions, const/volatile, function pointers)."""
+    sig = unicodedata.normalize("NFC", sig)
     sig = _DECLSPEC_RE.sub("", sig)
     sig = _CALLING_CONV_RE.sub("", sig)
     sig = _RBW_RE.sub("", sig)
@@ -66,8 +68,11 @@ def extract_function_signatures(filepath: Path) -> Iterator[tuple[str, str]]:
         if node.type == "function_declarator":
             for child in node.children:
                 if child.type == "identifier":
-                    return code_bytes[child.start_byte : child.end_byte].decode(
-                        encoding, errors="replace"
+                    return unicodedata.normalize(
+                        "NFC",
+                        code_bytes[child.start_byte : child.end_byte].decode(
+                            encoding, errors="replace"
+                        ),
                     )
                 res = get_function_name(child)
                 if res:

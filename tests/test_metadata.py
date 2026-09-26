@@ -214,6 +214,14 @@ class TestGetEntry:
         assert entry["status"] == "EXACT"
         assert entry["size"] == 80
 
+    def test_present_va_with_nfd_module(self, tmp_path: Path) -> None:
+        # Saved under NFC module name
+        save_metadata(tmp_path, {("MOD_\u00e9", 0x01006364): {"size": 80, "status": "EXACT"}})
+        # Looked up with NFD module name
+        entry = get_entry(tmp_path, 0x01006364, module="MOD_\u0065\u0301")
+        assert entry["status"] == "EXACT"
+        assert entry["size"] == 80
+
     def test_no_metadata(self, tmp_path: Path) -> None:
         assert get_entry(tmp_path, 0x01006364, module="SERVER") == {}
 

@@ -166,6 +166,35 @@ class TestSolutionsCli:
         assert payload["count"] == 1
         assert payload["rows"][0]["symbol"] == "_malloc"
 
+    def test_symbol_filter_unicode_nfc_nfd(self, tmp_path: Path, monkeypatch) -> None:
+        (tmp_path / ".rebrew").mkdir(exist_ok=True)
+        (tmp_path / ".rebrew" / "ga_runs.jsonl").write_text(
+            json.dumps(
+                {
+                    "ts": "t1",
+                    "target": "SERVER",
+                    "va": "0x1000",
+                    "symbol": "_f\u00e9",
+                    "matched": True,
+                    "score": 0.0,
+                    "cflags": "/O2",
+                    "size": 32,
+                    "source_file": "src/fe.c",
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setattr(
+            "rebrew.solutions_db.require_config",
+            lambda target=None, json_mode=False: _cfg(tmp_path),
+        )
+        # Query with NFD: e + combining acute
+        result = CliRunner().invoke(app, ["solutions", "--symbol", "F\u0065\u0301", "--json"])
+        payload = json.loads(result.stdout)
+        assert payload["count"] == 1
+        assert payload["rows"][0]["symbol"] == "_f\u00e9"
+
     def test_best_json(self, tmp_path: Path, monkeypatch) -> None:
         (tmp_path / ".rebrew").mkdir(exist_ok=True)
         (tmp_path / ".rebrew" / "ga_runs.jsonl").write_text(

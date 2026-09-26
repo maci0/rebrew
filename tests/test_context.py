@@ -100,3 +100,28 @@ class TestContext:
         r = CliRunner().invoke(context.app, ["--output", str(out)])
         assert r.exit_code == 0
         assert out.exists()
+
+    def test_function_definition_signature_extracted(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        src = tmp_path / "impl.c"
+        src.write_text("int compute(int a, int b) { return a + b; }\n", encoding="utf-8")
+        cfg = SimpleNamespace(
+            target_binary=tmp_path / "x.dll",
+            reversed_dir=tmp_path / "src",
+            root=tmp_path,
+            target_name="T",
+            metadata_dir=tmp_path,
+        )
+        cfg.reversed_dir.mkdir(exist_ok=True)
+        monkeypatch.setattr(
+            context, "require_config", lambda target=None, json_mode=False, root=None: cfg
+        )
+        monkeypatch.setattr(context, "iter_library_headers", lambda _d, cfg=None: [])
+        monkeypatch.setattr(context, "iter_sources", lambda _d, cfg=None: [src])
+        out = tmp_path / "ctx.c"
+        r = CliRunner().invoke(context.app, ["--output", str(out)])
+        assert r.exit_code == 0
+        text = out.read_text(encoding="utf-8")
+        assert "int compute(int a, int b);" in text
+        assert "compute;" not in text
