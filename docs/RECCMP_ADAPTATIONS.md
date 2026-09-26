@@ -80,9 +80,10 @@ as the `vtordisp` section (VA, target, disp, addend, size).
 ## float_const — float constant pool
 
 x87 instructions with an absolute memory operand (`D8`-`DF` opcode space,
-`mod=00` forms) can reference constants instead of variables. A pointer is
-kept when it lands in a read-only data region and (optionally) sits at a
-relocation site.
+`mod=00` forms) can reference constants instead of variables. Capstone
+(x86-32) walks each code region, so a copy of those bytes inside another
+instruction's immediate is not a reference. A pointer is kept when it lands
+in a read-only data region and (optionally) sits at a relocation site.
 
 ```python
 from rebrew.float_const import find_float_consts

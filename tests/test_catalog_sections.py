@@ -48,6 +48,19 @@ class TestHasBackJumps:
     def test_no_jumps(self) -> None:
         assert has_back_jumps(b"\x55\x89\xe5", 0x1000, 0x1003, 0x1000) is False
 
+    def test_jump_byte_inside_immediate_is_not_a_jump(self) -> None:
+        # mov eax, 0xfffffbe9. The E9 is the immediate, not a near jmp.
+        data = b"\xb8\xe9\xfb\xff\xff\xff"
+        assert has_back_jumps(data, 0x1000, 0x1006, 0x1000) is False
+
+    def test_jmp_after_another_instruction(self) -> None:
+        # mov eax, 1; jmp rel32 back to the base.
+        data = b"\xb8\x01\x00\x00\x00" + b"\xe9\xf6\xff\xff\xff"
+        assert has_back_jumps(data, 0x1000, 0x100A, 0x1000) is True
+
+    def test_jecxz_is_not_a_back_jump(self) -> None:
+        assert has_back_jumps(b"\xe3\xfe", 0x1000, 0x1002, 0x1000) is False
+
 
 class TestGetTextSectionSize:
     def test_returns_text_size(self, monkeypatch: pytest.MonkeyPatch) -> None:

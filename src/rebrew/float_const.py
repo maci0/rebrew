@@ -5,15 +5,13 @@ Adapted from reccmp (isledecomp/reccmp, MIT License)
 
 x87 instructions with a memory operand that falls in the ``D8``-``DF``
 two-byte opcode space can reference a constant instead of a variable.
-Scanning the code sections for those opcodes and checking each referenced
-address against the read-only data regions yields the binary's float
-constant pool — complements :mod:`rebrew.inline_strings` (strings, not
-floats) for data annotation.
+Capstone walks those instructions; a pointer that lands in a read-only
+data region is a constant. Complements :mod:`rebrew.inline_strings`
+(strings, not floats) for data annotation.
 """
 
 from __future__ import annotations
 
-import re
 import struct
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
@@ -48,13 +46,8 @@ DOUBLE_PRECISION_OPCODES = frozenset(
 
 FLOAT_OPCODES = frozenset([*SINGLE_PRECISION_OPCODES, *DOUBLE_PRECISION_OPCODES])
 
-# Superset of the float instructions above (mod-3 low bits of the second
-# byte are the ModRM reg field; mod=00 forms are all covered by these
-# eight displacement opcodes).  Positive lookahead supports overlapping
-# matches so adjacent instructions are not skipped.
-_FLOAT_INSTRUCTION_RE = re.compile(
-    rb"(?=([\xd8\xd9\xdc\xdd][\x05\x0d\x15\x1d\x25\x2d\x35\x3d].{4}))", re.S
-)
+# Capstone reports a disp32 as a signed value. Image addresses are unsigned.
+_DISP32_MASK = 0xFFFFFFFF
 
 
 @dataclass(frozen=True)
@@ -76,13 +69,32 @@ class FloatConstant:
 
 
 def find_float_instructions_in_buffer(buf: bytes, base_addr: int = 0) -> Iterator[FloatInstruction]:
-    """Scan *buf* for float instructions with an absolute memory operand."""
-    for match in _FLOAT_INSTRUCTION_RE.finditer(buf):
-        inst = match.group(1)
-        opcode = (inst[0], inst[1])
-        if opcode in FLOAT_OPCODES:
-            (pointer,) = struct.unpack("<I", inst[2:6])
-            yield FloatInstruction(base_addr + match.start(), opcode, pointer)
+    """Scan *buf* for float instructions with an absolute memory operand.
+
+    Capstone (x86-32) decides which bytes are an instruction. A ``D9 05``
+    pattern inside another instruction's immediate is not a reference.
+    Undecodable bytes are skipped, so a real instruction later in *buf*
+    is still seen. The operand address is the instruction's disp32.
+    """
+    if not buf:
+        return
+    from capstone.x86 import X86_OP_MEM, X86_REG_INVALID
+
+    from rebrew.analysis import _capstone
+
+    for insn in _capstone().disasm(buf, base_addr):
+        raw = insn.bytes
+        if len(raw) < 2:
+            continue
+        opcode = (raw[0], raw[1])
+        if opcode not in FLOAT_OPCODES:
+            continue
+        for op in insn.operands:
+            mem = op.mem
+            if op.type != X86_OP_MEM or mem.base != X86_REG_INVALID or mem.index != X86_REG_INVALID:
+                continue
+            yield FloatInstruction(insn.address, opcode, mem.disp & _DISP32_MASK)
+            break
 
 
 def find_float_consts(

@@ -115,6 +115,21 @@ class TestFloatConst:
         assert found[0].address == 0x401000
         assert found[0].pointer == 0x403000
 
+    def test_pattern_inside_immediate_is_not_an_instruction(self) -> None:
+        # mov eax, imm32 whose bytes contain D9 05 .... Not an fld.
+        code = b"\xb8\xd9\x05\x00\x30\x40\x00"
+        assert list(find_float_instructions_in_buffer(code, 0x401000)) == []
+
+    def test_float_after_undecodable_byte(self) -> None:
+        code = b"\xff" + b"\xd9\x05" + struct.pack("<I", 0x403000)
+        found = list(find_float_instructions_in_buffer(code, 0x401000))
+        assert [(i.address, i.pointer) for i in found] == [(0x401001, 0x403000)]
+
+    def test_high_pointer_stays_unsigned(self) -> None:
+        code = b"\xd9\x05" + struct.pack("<I", 0xFF000000)
+        found = list(find_float_instructions_in_buffer(code, 0x401000))
+        assert [i.pointer for i in found] == [0xFF000000]
+
     def test_find_float_consts(self) -> None:
         image = struct.pack("<f", 3.5)  # the constant at 0x403000
         # fld [0x403000] from code at 0x401000

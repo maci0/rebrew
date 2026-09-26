@@ -7,7 +7,6 @@ utilities (back-jump detection, padding trimming).
 
 import logging
 import re
-import struct
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -35,6 +34,11 @@ def trim_trailing_padding(data: bytes, padding: tuple[int, ...] | None = None) -
     return end
 
 
+# ``jecxz`` / ``jcxz`` / ``jrcxz`` are relative too, and were never part of the
+# out-of-line-tail check (short and near jmp/jcc only).
+_NOT_A_BACK_JUMP = frozenset({"jcxz", "jecxz", "jrcxz"})
+
+
 def has_back_jumps(
     data: bytes,
     func_start_off: int,
@@ -43,41 +47,26 @@ def has_back_jumps(
 ) -> bool:
     """Check if *data* contains relative jumps targeting [*func_start_off*, *func_end_off*).
 
-    *base_offset* is the VA/file offset where *data* begins, used to compute
-    absolute jump targets from relative displacements.
-
-    Detects x86 near jmp (E9), near jcc (0F 8x), short jmp (EB), and
-    short jcc (70-7F).  Used to identify out-of-line code that belongs
-    to the preceding function.
+    *base_offset* is the address where *data* begins (a VA or a section
+    offset). Capstone disassembles the bytes as x86-32 and reads each
+    relative ``jmp`` / ``jcc`` target. An ``E9`` or ``70``-``7F`` byte inside
+    another instruction's immediate is not a jump. Undecodable bytes are
+    skipped. Used to identify out-of-line code that belongs to the
+    preceding function.
     """
-    i = 0
-    while i < len(data):
-        b = data[i]
-        # Near relative jmp (E9)
-        if b == 0xE9 and i + 5 <= len(data):
-            rel = struct.unpack_from("<i", data, i + 1)[0]
-            target = base_offset + i + 5 + rel
-            if func_start_off <= target < func_end_off:
-                return True
-            i += 5
+    if not data:
+        return False
+    from capstone.x86 import X86_OP_IMM
+
+    from rebrew.analysis import _capstone
+
+    for insn in _capstone().disasm(data, base_offset):
+        mnemonic = insn.mnemonic
+        if not mnemonic.startswith("j") or mnemonic in _NOT_A_BACK_JUMP:
             continue
-        # Near jcc (0F 80-8F)
-        if b == 0x0F and i + 6 <= len(data) and 0x80 <= data[i + 1] <= 0x8F:
-            rel = struct.unpack_from("<i", data, i + 2)[0]
-            target = base_offset + i + 6 + rel
-            if func_start_off <= target < func_end_off:
+        for op in insn.operands:
+            if op.type == X86_OP_IMM and func_start_off <= op.imm < func_end_off:
                 return True
-            i += 6
-            continue
-        # Short jmp (EB) or short jcc (70-7F)
-        if (b == 0xEB or 0x70 <= b <= 0x7F) and i + 2 <= len(data):
-            rel = struct.unpack_from("<b", data, i + 1)[0]
-            target = base_offset + i + 2 + rel
-            if func_start_off <= target < func_end_off:
-                return True
-            i += 2
-            continue
-        i += 1
     return False
 
 

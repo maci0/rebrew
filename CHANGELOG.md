@@ -1,5 +1,13 @@
 ## [Unreleased]
 
+### Fixed
+- **Back-jump and float-constant scans follow instruction boundaries.**
+  `has_back_jumps` and the float-constant pool matched `E9` / `D9 05` at
+  any byte, so an immediate inside another instruction looked like a jump
+  or an `fld`. Both scans now use Capstone's x86-32 disassembly. A pattern
+  that is not its own instruction is ignored. Undecodable bytes are
+  skipped, so a real instruction later in the buffer is still seen.
+
 ## [2.10.0] - 2026-09-26
 ### Fixed
 - **Dashboard search accepts a hex address.** The function search matches
