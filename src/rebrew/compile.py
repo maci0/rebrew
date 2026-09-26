@@ -62,7 +62,7 @@ from collections import Counter
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, Self
 
 from rebrew.binary_loader import BinaryInfo, SectionInfo, load_binary
 from rebrew.coff_reloc import build_iat_region, smart_reloc_compare
@@ -231,6 +231,18 @@ class CompareResult:
             "effective_match": self.effective_match,
             "context_hash": self.context_hash,
         }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> Self:
+        """Construct a :class:`CompareResult` from a dictionary (e.g. from :meth:`to_dict`)."""
+        import dataclasses
+
+        valid_fields = {f.name for f in dataclasses.fields(cls)}
+        kwargs = {k: v for k, v in data.items() if k in valid_fields}
+        kwargs.setdefault("obj_bytes", None)
+        kwargs.setdefault("reloc_offsets", None)
+        kwargs.setdefault("message", "")
+        return cls(**kwargs)
 
 
 #: Compare statuses that mean the compiled bytes equal the target (after
@@ -1299,7 +1311,7 @@ def _publish_obj_cache(
 def compile_to_obj(
     cfg: ProjectConfig,
     source_path: str | Path,
-    cflags: list[str],
+    cflags: list[str] | str,
     workdir: str | Path,
     *,
     cache: CacheBackend | None = None,
@@ -1332,7 +1344,7 @@ def compile_to_obj(
     Args:
         cfg: ProjectConfig with compiler settings.
         source_path: Path to the .c source file.
-        cflags: List of compiler flag strings (e.g. ["/O2", "/Gd"]).
+        cflags: Compiler flags (string or list, e.g. "/O2 /Gd" or ["/O2", "/Gd"]).
         workdir: Working directory for compilation (mounted at /work).
         cache: Explicit ``CompileCache`` instance to use.  When ``None``
             and *use_cache* is True, a shared instance is obtained
@@ -2081,7 +2093,7 @@ def compile_and_compare(
     cfg: ProjectConfig,
     source_path: str | Path,
     symbol: str,
-    target_bytes: bytes,
+    target_bytes: bytes | bytearray | memoryview,
     cflags: str | list[str],
     *,
     cache: CacheBackend | None = None,
@@ -2104,7 +2116,7 @@ def compile_and_compare(
         cfg: ProjectConfig with compiler settings.
         source_path: Path to the .c source file.
         symbol: COFF symbol name to extract (e.g. ``_my_func``).
-        target_bytes: Expected bytes from the target binary.
+        target_bytes: Expected bytes from the target binary (bytes, bytearray, or memoryview).
         cflags: Compiler flags (string or list).
         cache: Optional explicit CompileCache instance.
         use_cache: If True, check and populate the compile cache.
@@ -2120,6 +2132,7 @@ def compile_and_compare(
         :class:`CompareResult` with status, metrics, and byte data.
 
     """
+    target_bytes = bytes(target_bytes)
     cflags_list = safe_shlex_split(cflags) if isinstance(cflags, str) else list(cflags)
     context_hash = context.sha256 if context is not None else None
 

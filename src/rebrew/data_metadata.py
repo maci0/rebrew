@@ -56,7 +56,7 @@ from typing import TYPE_CHECKING, Any
 
 import tomlkit
 
-from rebrew.metadata import as_metadata_int
+from rebrew.metadata import as_metadata_int, resolve_metadata_dir
 from rebrew.utils import (
     MetadataDocCache,
     atomic_write_locked,
@@ -220,20 +220,21 @@ def module_visible_to_target(module: str, cfg: Any) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def load_data_metadata(directory: Path) -> dict[tuple[str, int], dict[str, Any]]:
+def load_data_metadata(directory: Path | str | Any) -> dict[tuple[str, int], dict[str, Any]]:
     """Load ``rebrew-data.toml`` from *directory*.
 
-    *directory* must be the metadata root (``cfg.metadata_dir``).  There is
+    *directory* must be the metadata root (``cfg.metadata_dir``), path string, or config.  There is
     no walk-up — the file is expected at exactly ``directory / rebrew-data.toml``.
 
     Returns a mapping of ``{(module, va_int): {field_name: value}}``.
     Returns an empty dict if no metadata file is found or it cannot be parsed.
 
     Args:
-        directory: The metadata root directory (``cfg.metadata_dir``).
+        directory: The metadata root directory (``cfg.metadata_dir``), path string, or config.
 
     """
-    path = (directory / DATA_METADATA_FILENAME).resolve()
+    dir_path = resolve_metadata_dir(directory)
+    path = (dir_path / DATA_METADATA_FILENAME).resolve()
     if not path.exists():
         return {}
 
@@ -252,32 +253,33 @@ def load_data_metadata(directory: Path) -> dict[tuple[str, int], dict[str, Any]]
 # ---------------------------------------------------------------------------
 
 
-def get_data_entry(directory: Path, va: int, module: str) -> dict[str, Any]:
+def get_data_entry(directory: Path | str | Any, va: int, module: str) -> dict[str, Any]:
     """Return data metadata fields for *(module, va)* in *directory*.
 
     Returns an empty dict if not found.  Copies only the selected entry, not
     the whole table, so per-symbol lookups in batch loops stay O(1).
 
     Args:
-        directory: The metadata root directory (``cfg.metadata_dir``).
+        directory: The metadata root directory (``cfg.metadata_dir``), path string, or config.
         va: Virtual address integer.
         module: Target module name (e.g. ``"SERVER"``).
 
     """
-    path = (directory / DATA_METADATA_FILENAME).resolve()
+    dir_path = resolve_metadata_dir(directory)
+    path = (dir_path / DATA_METADATA_FILENAME).resolve()
     cached = load_metadata_doc(path, _data_metadata_cache, "data metadata", deepcopy=False)
     entry = cached.get((unicodedata.normalize("NFC", module), va))
     return dict(entry) if entry is not None else {}
 
 
-def set_data_field(directory: Path, va: int, key: str, value: Any, module: str) -> None:
+def set_data_field(directory: Path | str | Any, va: int, key: str, value: Any, module: str) -> None:
     """Set one field for *(module, va)* in the data metadata.
 
     Writes directly to ``directory / rebrew-data.toml``.  No walk-up.
     Uses in-place ``tomlkit`` editing to preserve formatting and comments.
 
     Args:
-        directory: The metadata root directory (``cfg.metadata_dir``).
+        directory: The metadata root directory (``cfg.metadata_dir``), path string, or config.
         va: Virtual address integer.
         key: Lower-case TOML key (e.g. ``"size"``, ``"section"``).
         value: Value to write.
@@ -289,9 +291,10 @@ def set_data_field(directory: Path, va: int, key: str, value: Any, module: str) 
     _check_data_field(key, value)
     if va < 0:
         raise ValueError(f"VA must be non-negative, got {va:#x}")
-    path = directory / DATA_METADATA_FILENAME
+    dir_path = resolve_metadata_dir(directory)
+    path = dir_path / DATA_METADATA_FILENAME
 
-    with metadata_write_lock(directory, DATA_METADATA_FILENAME):
+    with metadata_write_lock(dir_path, DATA_METADATA_FILENAME):
         doc = load_toml_for_write(path, "data metadata")
         toml_key = resolve_metadata_key(doc, module, va)
 
@@ -322,7 +325,7 @@ def set_data_field(directory: Path, va: int, key: str, value: Any, module: str) 
         _invalidate_data_cache(path)
 
 
-def set_data_fields_batch(directory: Path, updates: list[dict[str, Any]]) -> int:
+def set_data_fields_batch(directory: Path | str | Any, updates: list[dict[str, Any]]) -> int:
     """Set fields for many ``(module, va)`` entries in one TOML read-modify-write.
 
     Sibling of :func:`rebrew.metadata.set_fields_batch` for the data store.
@@ -332,9 +335,10 @@ def set_data_fields_batch(directory: Path, updates: list[dict[str, Any]]) -> int
     """
     if not updates:
         return 0
-    path = directory / DATA_METADATA_FILENAME
+    dir_path = resolve_metadata_dir(directory)
+    path = dir_path / DATA_METADATA_FILENAME
     changed_entries = 0
-    with metadata_write_lock(directory, DATA_METADATA_FILENAME):
+    with metadata_write_lock(dir_path, DATA_METADATA_FILENAME):
         doc = load_toml_for_write(path, "data metadata")
         key_index = build_metadata_key_index(doc)
         from rebrew.metadata import toml_safe
@@ -378,7 +382,7 @@ def set_data_fields_batch(directory: Path, updates: list[dict[str, Any]]) -> int
     return changed_entries
 
 
-def delete_data_entries_batch(directory: Path, targets: list[tuple[str, int]]) -> int:
+def delete_data_entries_batch(directory: Path | str | Any, targets: list[tuple[str, int]]) -> int:
     """Drop whole ``(module, va)`` entries from ``rebrew-data.toml`` in one rewrite.
 
     Sibling of :func:`rebrew.metadata.delete_entries_batch` for the data
@@ -388,11 +392,12 @@ def delete_data_entries_batch(directory: Path, targets: list[tuple[str, int]]) -
     """
     if not targets:
         return 0
-    path = (directory / DATA_METADATA_FILENAME).resolve()
+    dir_path = resolve_metadata_dir(directory)
+    path = (dir_path / DATA_METADATA_FILENAME).resolve()
     if not path.exists():
         return 0
     removed = 0
-    with metadata_write_lock(directory, DATA_METADATA_FILENAME):
+    with metadata_write_lock(dir_path, DATA_METADATA_FILENAME):
         doc = load_toml_for_write(path, "data metadata")
         key_index = build_metadata_key_index(doc)
         for module, va in targets:
@@ -416,7 +421,7 @@ def delete_data_entries_batch(directory: Path, targets: list[tuple[str, int]]) -
 # ---------------------------------------------------------------------------
 
 
-def merge_into_data_annotation(ann: Annotation, directory: Path) -> Annotation:
+def merge_into_data_annotation(ann: Annotation, directory: Path | str | Any) -> Annotation:
     """Overlay data metadata values onto *ann*, returning the same object mutated.
 
     The metadata wins for every field it defines (SIZE, SECTION, NOTE).
@@ -426,7 +431,7 @@ def merge_into_data_annotation(ann: Annotation, directory: Path) -> Annotation:
     Args:
         ann: The ``Annotation`` object to mutate (must have ``marker_type``
             of ``DATA`` or ``GLOBAL``).
-        directory: The metadata root directory (``cfg.metadata_dir``).
+        directory: The metadata root directory (``cfg.metadata_dir``), path string, or config.
 
     Returns:
         The mutated *ann* (same object, for chaining convenience).
