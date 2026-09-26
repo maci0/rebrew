@@ -963,7 +963,7 @@ def _hex(value: object) -> str:
 
 def _print_human(info: dict[str, object], binary: Path) -> None:
     """Render the payload as Rich tables on stderr."""
-    identity = Table(title=f"PE info: {binary}")
+    identity = Table(title=f"PE info: {binary.name}", expand=False, pad_edge=False)
     identity.add_column("Field", style="bold")
     identity.add_column("Value", overflow="fold")
     for key, value in info.items():

@@ -33,6 +33,9 @@ from rebrew.cli import (
     require_config,
 )
 from rebrew.config import ProjectConfig
+from rebrew.present import BAR_WIDTH as _BAR_WIDTH
+from rebrew.present import filled_cells as _filled
+from rebrew.present import ratio_bar as _bar
 from rebrew.sources import iter_sources
 from rebrew.utils import clip_span, floor_pct
 from rebrew.workspace.status import MATCHED_STATUSES
@@ -124,6 +127,11 @@ class StatusReport:
     data_drift: int = 0
     data_unchecked: int = 0
     data_sections: dict[str, dict[str, int]] = field(default_factory=dict)
+    # Verified symbol bytes inside the file-backed .data and .rdata, and
+    # the size of those ranges. The BSS tail is not file bytes, so it stays
+    # a symbol count and is not part of this ratio.
+    data_verified_bytes: int = 0
+    data_total_bytes: int = 0
 
     # Derived percentages
     @property
@@ -172,6 +180,13 @@ class StatusReport:
         """Named data symbols on this target (verified + drift + unchecked)."""
         return self.data_verified + self.data_drift + self.data_unchecked
 
+    @property
+    def data_byte_pct(self) -> float:
+        """Share of file-backed ``.data`` and ``.rdata`` covered by VERIFIED symbols."""
+        if self.data_total_bytes == 0:
+            return 0.0
+        return floor_pct(self.data_verified_bytes, self.data_total_bytes)
+
     def to_dict(self) -> dict[str, Any]:
         """Serialize for JSON output."""
         d: dict[str, Any] = {
@@ -201,6 +216,10 @@ class StatusReport:
                 },
             },
         }
+        if self.data_total_bytes > 0:
+            d["data"]["verified_bytes"] = self.data_verified_bytes
+            d["data"]["total_bytes"] = self.data_total_bytes
+            d["data"]["byte_pct"] = self.data_byte_pct
         if self.total_text_bytes > 0:
             d["matched_bytes"] = self.matched_bytes
             d["total_text_bytes"] = self.total_text_bytes
@@ -619,9 +638,11 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
     # Data verdicts: count rebrew-data.toml STATUS values written by
     # `verify --data`.  Named symbols only — unnamed inventory rows carry
     # no verdict.
+    from rebrew.data_layout import estimate_type_size
     from rebrew.data_metadata import load_data_metadata, module_visible_to_target
 
-    for (module, _va), fields in load_data_metadata(cfg.metadata_dir).items():
+    verified_spans: list[tuple[int, int]] = []
+    for (module, va), fields in load_data_metadata(cfg.metadata_dir).items():
         if not module_visible_to_target(module, cfg):
             continue
         if not fields.get("name"):
@@ -641,6 +662,19 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
             section, {"verified": 0, "drift": 0, "unchecked": 0}
         )
         counts[bucket] += 1
+        if bucket != "verified":
+            continue
+        try:
+            size = int(fields.get("size") or 0)
+        except (TypeError, ValueError):
+            size = 0
+        if size <= 0 and fields.get("type"):
+            size = estimate_type_size(str(fields["type"]))
+        if size > 0:
+            verified_spans.append((va, va + size))
+    report.data_verified_bytes, report.data_total_bytes = data_byte_coverage(
+        verified_spans, _initialized_data_ranges(cfg)
+    )
 
     # Verify info
     report.verify_info = _load_verify_info(cfg, library_vas)
@@ -660,6 +694,8 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
 
 
 _DATA_SECTION_ORDER = (".data", ".rdata", ".bss")
+# Row ticks. Shorter than the headline bar so the table stays one line.
+_TICK_WIDTH = 16
 
 
 def _ordered_data_sections(sections: dict[str, dict[str, int]]) -> list[str]:
@@ -669,32 +705,118 @@ def _ordered_data_sections(sections: dict[str, dict[str, int]]) -> list[str]:
     return head + tail
 
 
-def _data_block(report: StatusReport) -> list[Any]:
-    """Data verdicts for this target, parallel to the function table.
+def _covered_bytes(spans: list[tuple[int, int]]) -> int:
+    """Bytes covered by half-open spans. Overlap counts once."""
+    ordered = sorted((lo, hi) for lo, hi in spans if hi > lo)
+    if not ordered:
+        return 0
+    total = 0
+    start, end = ordered[0]
+    for lo, hi in ordered[1:]:
+        if lo <= end:
+            end = max(end, hi)
+        else:
+            total += end - start
+            start, end = lo, hi
+    return total + end - start
 
-    A count, not a second progress percentage: the headline stays the
-    ``.text`` share.
+
+def data_byte_coverage(
+    spans: list[tuple[int, int]], ranges: list[tuple[int, int]]
+) -> tuple[int, int]:
+    """Verified bytes inside *ranges*, and the size of those ranges.
+
+    *spans* are half-open extents of VERIFIED symbols. A symbol that runs
+    past the file-backed range is clipped. Overlap counts once.
     """
-    total = report.data_total
-    if total == 0:
-        return []
-    header = Text()
-    header.append("  Data          ", style="bold")
-    header.append(f"{report.data_verified}/{total} verified")
-    if report.data_drift:
-        header.append(f", {report.data_drift} drift", style="red")
+    total = sum(max(0, hi - lo) for lo, hi in ranges)
+    clipped: list[tuple[int, int]] = []
+    for lo, hi in spans:
+        for rlo, rhi in ranges:
+            start, end = max(lo, rlo), min(hi, rhi)
+            if end > start:
+                clipped.append((start, end))
+    return _covered_bytes(clipped), total
 
+
+def _initialized_data_ranges(cfg: ProjectConfig) -> list[tuple[int, int]]:
+    """File-backed ``.data`` and ``.rdata`` ranges.
+
+    Virtual size past the raw size is the BSS tail: those bytes are not in
+    the file, and ``verify --data`` does not compare them. Raw size past the
+    virtual size is file alignment. The overlap is the bytes a verified
+    symbol can cover.
+    """
+    path = getattr(cfg, "target_binary", None)
+    if path is None or not Path(path).is_file():
+        return []
+    try:
+        from rebrew.binary_loader import load_binary
+
+        info = load_binary(Path(path))
+    except (OSError, KeyError, ValueError):
+        return []
+    ranges: list[tuple[int, int]] = []
+    for name in (".data", ".rdata"):
+        sec = info.sections.get(name)
+        if sec is None:
+            continue
+        extent = min(int(sec.size), int(sec.raw_size))
+        if extent > 0:
+            ranges.append((int(sec.va), int(sec.va) + extent))
+    return ranges
+
+
+def _ticks(part: float, whole: float) -> str:
+    """Proportional tick marks for a table row. No empty trail."""
+    return "█" * _filled(part, whole, _TICK_WIDTH)
+
+
+def _breakdown_table() -> Table:
+    """Count table. Fixed columns, so the function and data tables align."""
     table = Table(
         show_header=True,
         header_style="bold",
         pad_edge=False,
+        padding=(0, 2),
         box=None,
-        expand=True,
+        expand=False,
     )
-    table.add_column("Data", width=20)
-    table.add_column("Count", justify="right", width=8)
-    table.add_column("% of data", justify="right", width=14)
-    table.add_column("", width=20)
+    table.add_column(width=16, no_wrap=True)
+    table.add_column("Count", justify="right", width=12, no_wrap=True)
+    table.add_column("%", justify="right", width=7, no_wrap=True)
+    table.add_column("", width=_TICK_WIDTH, no_wrap=True)
+    return table
+
+
+def _data_block(report: StatusReport) -> list[Any]:
+    """Data verdicts for this target, in the same columns as functions.
+
+    When the binary has file-backed ``.data`` / ``.rdata``, a bar above the
+    table shows the share of those bytes covered by VERIFIED symbols. It is
+    labeled ``of data``, so it does not read as a second ``.text`` figure.
+    """
+    total = report.data_total
+    if total == 0:
+        return []
+    block: list[Any] = []
+    if report.data_total_bytes > 0:
+        headline = Text()
+        headline.append(f"{report.data_byte_pct}% of data", style="bold green")
+        headline.append(
+            f"    {report.data_verified_bytes:,}B / {report.data_total_bytes:,}B",
+            style="dim",
+        )
+        block.append(headline)
+        block.append(_bar(report.data_verified_bytes, report.data_total_bytes, _BAR_WIDTH))
+    header = Text()
+    header.append("Data", style="bold")
+    header.append(f"  {report.data_verified}/{total} verified")
+    if report.data_drift:
+        header.append(f", {report.data_drift} drift", style="red")
+
+    table = _breakdown_table()
+    table.columns[0].header = "Data"
     rows = (
         ("VERIFIED", report.data_verified, "green"),
         ("DRIFT", report.data_drift, "red"),
@@ -703,100 +825,75 @@ def _data_block(report: StatusReport) -> list[Any]:
     for label, count, color in rows:
         if count == 0:
             continue
-        pct = floor_pct(count, total)
-        mini = "█" * max(int(20 * count / total), 1)
         table.add_row(
             f"[{color}]{label}[/{color}]",
             f"[{color}]{count}[/{color}]",
-            f"[{color}]{pct}%[/{color}]",
-            f"[{color}]{mini}[/{color}]",
+            f"[{color}]{floor_pct(count, total)}%[/{color}]",
+            f"[{color}]{_ticks(count, total)}[/{color}]",
         )
-    block: list[Any] = [header, table]
     for name in _ordered_data_sections(report.data_sections):
         counts = report.data_sections[name]
         section_total = counts["verified"] + counts["drift"] + counts["unchecked"]
-        detail = f"{name:<14}{counts['verified']}/{section_total} verified"
+        count_cell = f"{counts['verified']}/{section_total}"
         if counts["drift"]:
-            detail += f", {counts['drift']} drift"
-        block.append(Text.from_markup(f"  [dim]{detail}[/dim]"))
+            count_cell += f", {counts['drift']} drift"
+        table.add_row(
+            f"[dim]{name}[/dim]",
+            f"[dim]{count_cell}[/dim]",
+            "",
+            f"[dim]{_ticks(counts['verified'], section_total)}[/dim]",
+        )
+    block.append(header)
+    block.append(table)
     return block
 
 
-def _progress_text(report: StatusReport) -> tuple[str, str]:
-    """Headline body and footer for the one progress percentage.
+def _panel_title(report: StatusReport) -> str:
+    """Target, the binary's file name, and the arch. Not the full path."""
+    parts = [f"[bold]{report.target}[/bold]"]
+    binary = str(report.binary or "")
+    if binary:
+        name = Path(binary).name
+        if name and name != report.target:
+            parts.append(f"[dim]{name}[/dim]")
+    if report.arch:
+        parts.append(f"[dim]{report.arch}[/dim]")
+    return "  ".join(parts)
 
-    The percentage is the share of ``.text`` in byte-matched functions when
-    that size is known, and the share of functions otherwise. Printing both
-    answered "how done is this binary" with two different numbers (guild-rebrew
-    server.dll: 99.6% of functions, 96.4% of ``.text``).
+
+def _headline(report: StatusReport) -> tuple[Text, Text | None]:
+    """The one progress percentage, and the bar that pictures it.
+
+    ``.text`` share when that size is known, otherwise the function share.
+    The bar uses the same ratio, so it cannot disagree with the number.
     """
     if report.total_text_bytes > 0:
-        pct = report.byte_coverage_pct
-        headline = f"{pct}% of .text  ({report.matched_bytes:,}B / {report.total_text_bytes:,}B)"
-        return headline, f"{pct}% of .text"
-    pct = report.matched_pct
-    headline = f"{report.matched_functions}/{report.total_functions} functions  ({pct}%)"
-    return headline, f"{pct}% of functions"
+        text = Text()
+        text.append(f"{report.byte_coverage_pct}% of .text", style="bold green")
+        text.append(
+            f"    {report.matched_bytes:,}B / {report.total_text_bytes:,}B",
+            style="dim",
+        )
+        return text, _bar(report.matched_bytes, report.total_text_bytes, _BAR_WIDTH)
+    text = Text(
+        f"{report.matched_functions}/{report.total_functions} functions  ({report.matched_pct}%)",
+        style="bold green",
+    )
+    bar = None
+    if report.total_functions > 0:
+        bar = _bar(report.matched_functions, report.total_functions, _BAR_WIDTH)
+    return text, bar
 
 
 def _render_terminal(report: StatusReport) -> None:
     """Render the status report as a rich terminal dashboard."""
-    # --- Header ---
-    header_parts = [f"[bold]{report.target}[/bold]"]
-    if report.binary:
-        header_parts.append(f"[dim]{report.binary}[/dim]")
-    header_parts.append(f"[dim]({report.arch})[/dim]")
-
-    # --- Headline + source bar ---
-    bar_width = 40
-    filled = (
-        min(bar_width, max(0, int(bar_width * report.coverage_pct / 100)))
-        if report.total_functions > 0
-        else 0
-    )
-
-    exact = report.status_counts.get("EXACT", 0)
-    reloc = report.status_counts.get("RELOC", 0)
     proven = report.status_counts.get("PROVEN", 0)
-    matching = report.status_counts.get("NEAR_MATCHING", 0)
-    stub = report.status_counts.get("STUB", 0)
 
-    progress_headline, progress_footer = _progress_text(report)
-    headline = Text()
-    headline.append("  Byte-matched  ", style="bold")
-    headline.append(progress_headline, style="bold green")
-    headline.append("  EXACT+RELOC", style="dim")
-
-    # Function progress is a count. Its percentage is the headline only when
-    # .text size is unknown; otherwise it would be a second progress number.
-    functions_line: Text | None = None
-    if report.total_text_bytes > 0:
-        functions_line = Text()
-        functions_line.append("  Functions     ", style="bold")
-        functions_line.append(
-            f"{report.matched_functions}/{report.total_functions} EXACT+RELOC",
-        )
-
-    bar_text = Text()
-    bar_text.append("  With source   ", style="bold")
-    bar_text.append("█" * filled, style="green")
-    bar_text.append("░" * (bar_width - filled), style="dim")
-    bar_text.append(
-        f"  {report.covered_functions}/{report.total_functions}",
-    )
+    headline, bar = _headline(report)
 
     # --- Status table ---
-    status_table = Table(
-        show_header=True,
-        header_style="bold",
-        pad_edge=False,
-        box=None,
-        expand=True,
-    )
-    status_table.add_column("Status", width=20)
-    status_table.add_column("Count", justify="right", width=8)
-    status_table.add_column("% of functions", justify="right", width=14)
-    status_table.add_column("", width=20)  # Visual bar
+    status_table = _breakdown_table()
+    status_table.columns[0].header = "Status"
 
     for status in _STATUS_ORDER:
         count = report.status_counts.get(status, 0)
@@ -804,13 +901,11 @@ def _render_terminal(report: StatusReport) -> None:
             continue
         pct = floor_pct(count, report.total_functions)
         color = STATUS_COLORS.get(status, "white")
-        mini_bar_len = int(20 * count / max(report.total_functions, 1))
-        mini_bar = "█" * max(mini_bar_len, 1)
         status_table.add_row(
             f"[{color}]{status}[/{color}]",
             f"[{color}]{count}[/{color}]",
             f"[{color}]{pct}%[/{color}]",
-            f"[{color}]{mini_bar}[/{color}]",
+            f"[{color}]{_ticks(count, report.total_functions)}[/{color}]",
         )
 
     # Other statuses not in the standard order
@@ -825,7 +920,7 @@ def _render_terminal(report: StatusReport) -> None:
             f"[{color}]{status}[/{color}]",
             f"[{color}]{count}[/{color}]",
             f"[{color}]{pct}%[/{color}]",
-            "",
+            f"[{color}]{_ticks(count, report.total_functions)}[/{color}]",
         )
 
     # Functions without a source file: the rows then add up to the total.
@@ -835,7 +930,7 @@ def _render_terminal(report: StatusReport) -> None:
             "[dim](no source)[/dim]",
             f"[dim]{no_source}[/dim]",
             f"[dim]{floor_pct(no_source, report.total_functions)}%[/dim]",
-            "",
+            f"[dim]{_ticks(no_source, report.total_functions)}[/dim]",
         )
 
     # --- Summary lines ---
@@ -843,7 +938,7 @@ def _render_terminal(report: StatusReport) -> None:
 
     if proven:
         summary_lines.append(
-            f"  [magenta]{proven} PROVEN[/magenta]  [dim]semantically equivalent, bytes still"
+            f"[magenta]{proven} PROVEN[/magenta]  [dim]semantically equivalent, bytes still"
             " differ (not byte-matched)[/dim]"
         )
 
@@ -852,7 +947,7 @@ def _render_terminal(report: StatusReport) -> None:
     # excludes them so mass-generated skeletons can't inflate progress.
     if report.naked_matched:
         summary_lines.append(
-            f"  [magenta]{report.decompiled_pct}% decompiled[/magenta]"
+            f"[magenta]{report.decompiled_pct}% decompiled[/magenta]"
             f"  [dim]({report.naked_matched} naked reconstructions, {report.naked_bytes:,}B"
             " byte-exact but not decompiled — implement the C bodies)[/dim]"
         )
@@ -864,56 +959,55 @@ def _render_terminal(report: StatusReport) -> None:
         and report.unattributed_bytes is not None
     ):
         summary_lines.append(
-            f"  [dim]rest: {report.unmatched_bytes:,}B in unmatched functions, "
-            f"{report.padding_bytes:,}B alignment padding, "
-            f"{report.unattributed_bytes:,}B in no known function[/dim]"
+            "[dim]"
+            f"unmatched {report.unmatched_bytes:,}B"
+            f"    padding {report.padding_bytes:,}B"
+            f"    no function {report.unattributed_bytes:,}B"
+            "[/dim]"
         )
 
-    # Source file count
-    summary_lines.append(f"  [dim]{report.source_files} source files[/dim]")
+    # Source file count, and library rows that are not reversing progress.
+    sources = f"[dim]{report.source_files} source files[/dim]"
     if report.library_identified:
-        summary_lines.append(
-            f"  [dim]library:[/dim] [green]{report.library_identified} identified[/green] "
-            "(lib-match attributions, not reversing progress)"
+        sources += (
+            f"    [green]{report.library_identified} library[/green]"
+            "  [dim]not reversing progress[/dim]"
         )
+    summary_lines.append(sources)
 
     # Pointer to the prioritized next-action list (PRD 05 status requirement)
     summary_lines.append(
-        "  [bold]Next:[/bold] rebrew todo"
+        "[bold]Next[/bold]  rebrew todo"
         if report.total_functions > 0
-        else "  [dim]No functions yet[/dim]"
+        else "[dim]No functions yet[/dim]"
     )
 
     # Verify info
     if report.verify_info is not None:
         v = report.verify_info
         verify_color = "green" if v.failed == 0 else "yellow"
-        stale_suffix = " [yellow](stale — run rebrew verify)[/yellow]" if v.stale else ""
+        stale_suffix = "  [yellow]stale[/yellow]" if v.stale else ""
         summary_lines.append(
-            f"  Last verify: [{verify_color}]{v.passed - v.library_passed}/"
+            f"Last verify  [{verify_color}]{v.passed - v.library_passed}/"
             f"{v.total - v.library_total} byte-matched[/{verify_color}]"
             f", [red]{v.failed - (v.library_total - v.library_passed)} failed[/red]"
-            + (
-                f"; library-attributed {v.library_passed}/{v.library_total}"
-                if v.library_total
-                else ""
-            )
-            + f"  [dim]({v.timestamp})[/dim]{stale_suffix}"
+            + (f", {v.library_passed}/{v.library_total} library" if v.library_total else "")
+            + f"  [dim]{v.timestamp}[/dim]{stale_suffix}"
         )
         # Effective-status overlay: verify results override metadata statuses.
         if report.verify_overrides:
             summary_lines.append(
-                f"  [dim]Effective status: {report.verify_overrides} function(s) overridden"
+                f"[dim]Effective status: {report.verify_overrides} function(s) overridden"
                 " by verify cache (metadata says otherwise — see docs/ANNOTATIONS.md)[/dim]"
             )
         if report.verify_missing_size:
             summary_lines.append(
-                f"  [yellow]{report.verify_missing_size} function(s) MISSING_SIZE[/yellow]"
+                f"[yellow]{report.verify_missing_size} function(s) MISSING_SIZE[/yellow]"
                 " — set SIZE via metadata (rebrew cfg set) then re-run verify"
             )
         if report.effective_matches:
             summary_lines.append(
-                f"  [cyan]{report.effective_matches} effective match(es)[/cyan]"
+                f"[cyan]{report.effective_matches} effective match(es)[/cyan]"
                 " — register-allocation-only delta, prove candidates"
             )
 
@@ -921,7 +1015,7 @@ def _render_terminal(report: StatusReport) -> None:
     if report.inline_metadata_warning:
         n = report.inline_metadata_warning
         summary_lines.append(
-            f"  [yellow]Warning:[/yellow] {n} file(s) contain inline STATUS/CFLAGS/SIZE comments"
+            f"[yellow]Warning:[/yellow] {n} file(s) contain inline STATUS/CFLAGS/SIZE comments"
             " — run [bold]rebrew lint[/bold] to migrate to rebrew-functions.toml"
         )
 
@@ -929,33 +1023,31 @@ def _render_terminal(report: StatusReport) -> None:
     from rich.console import Group
 
     panel_rows: list[Any] = [headline]
-    if functions_line is not None:
-        panel_rows.append(functions_line)
-    panel_rows.extend(
-        [
-            bar_text,
-            Text(""),  # spacer
-            status_table,
-        ]
-    )
+    if bar is not None:
+        panel_rows.append(bar)
+    if report.total_functions > 0:
+        counts = Text()
+        if report.total_text_bytes > 0:
+            counts.append("Functions", style="bold")
+            counts.append(f"  {report.matched_functions}/{report.total_functions}    ")
+        counts.append("With source", style="bold")
+        counts.append(f"  {report.covered_functions}/{report.total_functions}")
+        panel_rows.append(counts)
+    if status_table.row_count:
+        panel_rows.extend([Text(""), status_table])
     data_block = _data_block(report)
     if data_block:
         panel_rows.append(Text(""))
         panel_rows.extend(data_block)
     panel_content = Group(
         *panel_rows,
-        Text(""),  # spacer
+        Text(""),
         *[Text.from_markup(line) for line in summary_lines],
     )
 
     panel = Panel(
         panel_content,
-        title="[bold]Rebrew Status[/bold]  " + "  ".join(header_parts),
-        subtitle=(
-            f"[green]{exact}E[/green] [cyan]{reloc}R[/cyan]"
-            f" [magenta]{proven}P[/magenta] [yellow]{matching}M[/yellow]"
-            f" [dim]{stub}S[/dim] → [bold]{progress_footer}[/bold]"
-        ),
+        title=_panel_title(report),
         border_style="blue",
     )
     console.print(panel)

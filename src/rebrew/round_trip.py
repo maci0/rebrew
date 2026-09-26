@@ -891,10 +891,8 @@ def _render_rich(report: dict[str, Any]) -> None:
     header_parts: list[str] = []
     if binary_name:
         header_parts.append(f"[bold]{binary_name}[/bold]")
-    if binary_path:
-        header_parts.append(f"[dim]{binary_path}[/dim]")
     if arch:
-        header_parts.append(f"[dim]({arch})[/dim]")
+        header_parts.append(f"[dim]{arch}[/dim]")
     title = "[bold]Rebrew Round-Trip[/bold]"
     if header_parts:
         title += "  " + "  ".join(header_parts)
@@ -908,12 +906,13 @@ def _render_rich(report: dict[str, Any]) -> None:
     total = spliced + skipped_proven + skipped_other + n_catalog + n_mismatch
     bar_items: list[Text] = []
     if total > 0:
-        bar_width = 40
-        filled = min(bar_width, max(0, int(bar_width * spliced / total)))
+        from rebrew.present import BAR_WIDTH, filled_cells
+
+        filled = filled_cells(spliced, total, BAR_WIDTH)
         bar_text = Text()
         bar_text.append("  Spliced  ", style="bold")
         bar_text.append("█" * filled, style="green")
-        bar_text.append("░" * (bar_width - filled), style="dim")
+        bar_text.append("░" * (BAR_WIDTH - filled), style="dim")
         bar_text.append(f"  {spliced}/{total}", style="bold")
         bar_items.append(bar_text)
 
@@ -955,10 +954,14 @@ def _render_rich(report: dict[str, Any]) -> None:
         passthru_b = byte_coverage.get("passthrough_bytes", 0)
         spliced_pct = byte_coverage.get("spliced_pct", 0.0)
         passthru_pct = byte_coverage.get("passthrough_pct", 0.0)
-        bar_width = 40
-        sp_filled = int(bar_width * spliced_b / text_size) if text_size else 0
-        pr_filled = int(bar_width * proven_b / text_size) if text_size else 0
-        pass_filled = max(bar_width - sp_filled - pr_filled, 0)
+        from rebrew.present import BAR_WIDTH, filled_cells
+
+        sp_filled = filled_cells(spliced_b, text_size, BAR_WIDTH)
+        pr_filled = filled_cells(proven_b, text_size, BAR_WIDTH)
+        # One bar of the section. Compiled and proven are different shares of it.
+        if sp_filled + pr_filled > BAR_WIDTH:
+            pr_filled = BAR_WIDTH - sp_filled
+        pass_filled = BAR_WIDTH - sp_filled - pr_filled
         byte_bar = Text()
         byte_bar.append("  .text    ", style="bold")
         byte_bar.append("█" * sp_filled, style="green")

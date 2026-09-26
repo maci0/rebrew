@@ -1550,12 +1550,12 @@ to function-only verify/diff.
 
 At-a-glance reversing progress.  The terminal prints one progress percentage.
 When `.text` size is known, that percentage is `byte_coverage_pct` (share of
-`.text` in byte-matched functions), in the headline and the footer.  The
-function ratio is a count (`261/262 EXACT+RELOC`), not a second percentage.
+`.text` in byte-matched functions), in the headline, with a bar of the same
+ratio.  The function ratio is a count (`261/262`), not a second percentage.
 When `.text` size is unknown, the percentage is `matched_pct` (EXACT+RELOC
 over all functions) instead.  JSON still carries both fields, plus
-`coverage_pct` (functions with a source file).  The per-status column is
-`% of functions`, a breakdown of that count.  A separate PROVEN line records
+`coverage_pct` (functions with a source file).  The `%` column is that count's share of functions, and the data table's
+`%` column is the share of data symbols.  A separate PROVEN line records
 semantic equivalence while the bytes still differ.  The rest of `.text` is
 accounted for on the next line and in JSON: `unmatched_bytes` (functions not
 byte-matched), `padding_bytes` (alignment fill between functions) and
@@ -1569,9 +1569,13 @@ overrides metadata; see `docs/ANNOTATIONS.md` "Effective Status").
 `verify_cache: {overrides, missing_size, effective_matches}` in JSON surfaces
 how many functions the cache overrode, plus the effective-match count
 (register-allocation-only delta, the prove queue).  Data sits in its own
-block under the function table: `verified/total`, a verdict table (`% of
-data`), and the same counts per section (`.data`, `.rdata`, `.bss`, then
-any other).  That is this target's module and library modules, not other
+block under the function table. When the binary has file-backed `.data` and
+`.rdata`, the block opens with the same kind of bar as `.text`: the share of
+those bytes covered by `VERIFIED` symbols (`byte_pct`, `verified_bytes`,
+`total_bytes` in JSON). A symbol that runs into the BSS tail is clipped to
+the file bytes. The BSS tail itself stays a symbol count. Under the bar:
+`verified/total`, a verdict table, and the same counts per section (`.data`,
+`.rdata`, `.bss`, then any other).  That is this target's module and library modules, not other
 targets in the same `rebrew-data.toml`.  JSON is `data: {verified, drift,
 unchecked, total, sections}`.  The `.text` figure stays the only progress
 percentage.  `last_verify.library_passed` counts the last verify's

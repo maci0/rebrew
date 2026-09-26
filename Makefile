@@ -1,6 +1,6 @@
 .PHONY: help setup clean test test-one lint format format-check check build sbom all pr-check \
 	gen-fixtures gen-fixtures-check gen-skills gen-skills-check cycles-check idempotency-check mypy audit \
-	cli-contract release-check coverage ensure-uv ensure-resembl ensure-nasm warn-nasm
+	cli-contract release-check coverage ensure-uv ensure-resembl ensure-nasm warn-nasm clone-resembl
 
 # Force POSIX sh for recipes (ignore a caller-exported SHELL=bash).  Recipes
 # below use only POSIX constructs so Alpine/busybox ash and Debian dash work.
@@ -30,7 +30,9 @@ UV_VERSION ?= 0.12.14
 # Single-file / nodeid override for the edit-test loop:
 #   make test-one T=tests/test_annotation.py
 #   make test-one T=tests/test_annotation.py::TestAnnotationDataclass
+#   make test-one T=tests/test_annotation.py FLAGS="-k test_stdcall"
 T ?= tests/test_annotation.py
+FLAGS ?=
 
 # `make coverage` fail-under percentage; keep in step with [tool.slipcover]
 # fail_under in pyproject.toml.
@@ -54,6 +56,7 @@ help:
 	@printf '%s\n' \
 		'Contributor targets:' \
 		'  make setup              # uv sync (frozen + extras + similarity) + pre-commit/pre-push hooks' \
+		'  make clone-resembl      # clone sibling resembl pin into ../resembl (required for uv sync)' \
 		'  make clean              # remove build/dist artifacts and caches' \
 		'  make test               # full pytest suite (needs nasm on PATH)' \
 		'  make test-one T=<node>  # one file/nodeid, e.g. T=tests/test_foo.py::TestBar (nasm optional)' \
@@ -107,7 +110,7 @@ ensure-resembl: ensure-uv
 	  echo "ERROR: sibling resembl checkout missing at $(RESEMBL_DIR)"; \
 	  echo "uv sync needs it even when you are not using the similarity group"; \
 	  echo "(pyproject.toml [tool.uv.sources] pins path = \"../resembl\")."; \
-	  echo "Clone the pin matching CI / uv.lock, then re-run make setup:"; \
+	  echo "Run 'make clone-resembl' or clone manually, then re-run make setup:"; \
 	  echo "  git clone --depth 1 --branch $(RESEMBL_REF) https://github.com/maci0/resembl.git $(RESEMBL_DIR)"; \
 	  exit 1; \
 	fi; \
@@ -115,7 +118,7 @@ ensure-resembl: ensure-uv
 	want="$(RESEMBL_REF)"; want=$${want#v}; \
 	if [ -z "$$resembl_ver" ] || [ "$$resembl_ver" != "$$want" ]; then \
 	  echo "ERROR: $(RESEMBL_DIR) version '$$resembl_ver' does not match RESEMBL_REF=$(RESEMBL_REF)"; \
-	  echo "Re-clone the pin, then re-run make setup:"; \
+	  echo "Re-clone via 'make clone-resembl' or manually, then re-run make setup:"; \
 	  echo "  git clone --depth 1 --branch $(RESEMBL_REF) https://github.com/maci0/resembl.git $(RESEMBL_DIR)"; \
 	  exit 1; \
 	fi; \
@@ -125,7 +128,7 @@ ensure-resembl: ensure-uv
 	  if [ "$$head_sha" != "$(RESEMBL_SHA)" ]; then \
 	    echo "ERROR: $(RESEMBL_DIR) HEAD '$$head_sha' does not match RESEMBL_SHA=$(RESEMBL_SHA)"; \
 	    echo "CI accepts $(RESEMBL_REF) only when the tag resolves to that commit."; \
-	    echo "Check out the pin, then re-run make setup:"; \
+	    echo "Check out the pin (or run 'make clone-resembl'), then re-run make setup:"; \
 	    echo "  git -C $(RESEMBL_DIR) fetch --depth 1 origin $(RESEMBL_SHA)"; \
 	    echo "  git -C $(RESEMBL_DIR) checkout $(RESEMBL_SHA)"; \
 	    echo "To use this checkout locally anyway: make setup RESEMBL_SHA=$$head_sha"; \
@@ -152,6 +155,11 @@ warn-nasm:
 	  echo "Install it before running tests: e.g. apt install nasm / pacman -S nasm / dnf install nasm"; \
 	fi
 
+# Clone sibling resembl pin matching CI and uv.lock into ../resembl
+clone-resembl:
+	@set -eu; \
+	RESEMBL_REF=$(RESEMBL_REF) RESEMBL_SHA=$(RESEMBL_SHA) bash tools/ci_clone_resembl.sh "$(RESEMBL_DIR)"
+
 # Setup the development environment
 setup: ensure-resembl warn-nasm
 	uv sync $(UV_SYNC_FLAGS)
@@ -170,7 +178,7 @@ test: ensure-nasm
 # the nasm round-trip tests skip without it, so unrelated files still run.
 test-one: warn-nasm
 	NO_COLOR=1 TERM=dumb _TYPER_FORCE_DISABLE_TERMINAL=1 \
-		uv run --frozen pytest $(T) -v --tb=short
+		uv run --frozen pytest $(T) $(FLAGS) -v --tb=short
 
 # Coverage floor (AGENTS.md: ratchet up, never down).  slipcover ignores
 # [tool.slipcover] fail_under, so the floor is passed on the command line.

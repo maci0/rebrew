@@ -1,5 +1,28 @@
 ## [Unreleased]
 
+### Changed
+- **`status` draws a data bar in the same shape as the `.text` bar.** It is
+  the share of file-backed `.data` and `.rdata` covered by VERIFIED
+  symbols (`N% of data`, byte counts, then the bar). The BSS tail stays a
+  symbol count. JSON `data` gains `verified_bytes`, `total_bytes`, and
+  `byte_pct`.
+- **The function bar matches the matched count.** When `.text` size is
+  unknown, the bar is byte-matched functions over the total, the same
+  ratio as the percentage above it.
+- **`rebrew test --all` batch rows use that same 40-cell bar.** Each
+  status is its share of the functions tested. `round-trip` splices its
+  coverage bar through the same fill rule, and its title keeps the file
+  name rather than the full path.
+- **Progress screens share one bar width.** `todo`, `data --summary`,
+  `data --bss`, `data --dispatch`, `verify --summary`, `verify --data`,
+  `catalog --summary`, and `round-trip` draw that bar for each percentage
+  of a measured whole. Numeric columns keep a fixed width. `pe-info` and
+  `fingerprint` titles use the file name.
+- **`status` lays the panel out in one column.** The title is the target
+  and the binary's file name. One bar shows the progress percentage.
+  Function and data rows share column widths, and the `.text` remainder
+  is one line (`unmatched`, `padding`, `no function`).
+
 ## [2.12.0] - 2026-09-26
 ### Fixed
 - **`status` prints one progress percentage.** The headline and the footer

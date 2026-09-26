@@ -131,6 +131,8 @@ def run_catalog(
         for st in sorted(progress.status_counts):
             console.print(f"  {st}: {progress.status_counts[st]}")
         console.print(f"Library identified: {progress.library_identified}")
+        from rebrew.present import ratio_bar
+
         if progress.total_text_bytes > 0:
             # Same figure, same words, as `rebrew status`. Identified below
             # counts every annotated function, stubs included.
@@ -139,10 +141,13 @@ def run_catalog(
                 f"({progress.matched_bytes}/{progress.total_text_bytes} bytes) "
                 "in byte-matched functions"
             )
+            console.print(ratio_bar(progress.matched_bytes, progress.total_text_bytes))
         console.print(
             f"Identified: {identified_pct:.1f}% of .text ({covered}/{text_size} bytes) "
             "claimed by an annotated function, stubs and library code included"
         )
+        if text_size:
+            console.print(ratio_bar(covered, text_size))
 
         console.print()
         console.print("=== Tool Detection ===")

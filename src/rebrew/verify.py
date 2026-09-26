@@ -994,13 +994,17 @@ def main(
                             "status write-back suppressed (pass --raw-link to write DRIFT/VERIFIED)"
                         )
         if not json_output:
+            from rebrew.present import ratio_bar
+
             console.print(
                 f"data: {data_report['matched']} matched, "
                 f"{len(data_report['mismatched'])} mismatched, "
                 f"{len(data_report['missing'])} missing "
                 f"({data_report['compared']} of {data_report['total']} symbols compared, "
-                f"{data_report['coverage']:.0%})"
+                f"{data_report['coverage']:.0%} of symbols)"
             )
+            if data_report["total"]:
+                console.print(ratio_bar(data_report["compared"], data_report["total"]))
             if data_report["not_comparable"]:
                 console.print(
                     f"  [dim]{data_report['not_comparable']} symbol(s) not comparable: no file bytes "
@@ -2515,47 +2519,7 @@ def _print_results(
             )
 
     if show_summary:
-        console.print()
-        table = Table(title="Verification Summary", show_header=True)
-        table.add_column("VA", style="cyan")
-        table.add_column("Symbol", style="magenta")
-        table.add_column("Size", justify="right")
-        table.add_column("Status", style="bold")
-        table.add_column("Match %", justify="right")
-        table.add_column("Delta", justify="right")
-        table.add_column("Sim %", justify="right")
-
-        for r in results:
-            st = r["status"]
-            color = STATUS_COLORS.get(st, "red")
-            st_str = f"[{color}]{st}[/{color}]"
-
-            pct = (
-                f"{floor_pct(r['match_percent'], 100):.1f}%"
-                if st in ("STUB", "NEAR_MATCHING")
-                else "-"
-            )
-            dt = f"{r.get('delta', 0)}B" if st in ("STUB", "NEAR_MATCHING") else "-"
-            sim = r.get("similarity")
-            sim_str = f"{sim:.1f}%" if isinstance(sim, (int, float)) else "-"
-            table.add_row(r["va"], r["name"], f"{r['size']}B", st_str, pct, dt, sim_str)
-
-        console.print(table)
-
-        exact = sum(1 for r in results if r["status"] == "EXACT")
-        reloc = sum(1 for r in results if r["status"] == "RELOC")
-        near_matching = sum(1 for r in results if r["status"] == "NEAR_MATCHING")
-        stub = sum(1 for r in results if r["status"] == "STUB")
-
-        stat_table = Table(title="STATUS Breakdown", show_header=False)
-        stat_table.add_column("Category", style="cyan")
-        stat_table.add_column("Count", justify="right")
-        stat_table.add_row("EXACT", str(exact))
-        stat_table.add_row("RELOC", str(reloc))
-        stat_table.add_row("NEAR_MATCHING", str(near_matching))
-        stat_table.add_row("STUB", str(stub))
-
-        console.print(stat_table)
+        render_verify_summary(results)
 
     # Print failures
     if fail_details:
@@ -2619,6 +2583,57 @@ def _print_results(
             "inventory with `rebrew verify --fix-sizes` (or `rebrew catalog "
             "--fix-sizes` without verifying).[/dim]"
         )
+
+
+def render_verify_summary(results: list[dict[str, Any]]) -> None:
+    """Print the verification summary tables. Match % has a bar of that ratio."""
+    from rebrew.present import bar_plain, count_column
+
+    console.print()
+    table = Table(title="Verification Summary", show_header=True, expand=False, pad_edge=False)
+    table.add_column("VA", style="cyan", width=12, no_wrap=True)
+    table.add_column("Symbol", style="magenta", overflow="ellipsis", no_wrap=True)
+    count_column(table, "Size", width=8)
+    table.add_column("Status", style="bold", width=14, no_wrap=True, overflow="ellipsis")
+    count_column(table, "Match %", width=8)
+    count_column(table, "Delta", width=8)
+    count_column(table, "Sim %", width=8)
+
+    for r in results:
+        st = r["status"]
+        color = STATUS_COLORS.get(st, "red")
+        st_str = f"[{color}]{st}[/{color}]"
+
+        show_pct = st in ("STUB", "NEAR_MATCHING")
+        pct = f"{floor_pct(r['match_percent'], 100):.1f}%" if show_pct else "-"
+        dt = f"{r.get('delta', 0)}B" if show_pct else "-"
+        sim = r.get("similarity")
+        sim_str = f"{sim:.1f}%" if isinstance(sim, (int, float)) else "-"
+        table.add_row(r["va"], r["name"], f"{r['size']}B", st_str, pct, dt, sim_str)
+
+    console.print(table)
+
+    exact = sum(1 for r in results if r["status"] == "EXACT")
+    reloc = sum(1 for r in results if r["status"] == "RELOC")
+    near_matching = sum(1 for r in results if r["status"] == "NEAR_MATCHING")
+    stub = sum(1 for r in results if r["status"] == "STUB")
+
+    stat_table = Table(title="STATUS Breakdown", show_header=False, expand=False, pad_edge=False)
+    stat_table.add_column("Category", style="cyan", width=16, no_wrap=True)
+    count_column(stat_table, "Count", width=8)
+    stat_table.add_row("EXACT", str(exact))
+    stat_table.add_row("RELOC", str(reloc))
+    stat_table.add_row("NEAR_MATCHING", str(near_matching))
+    stat_table.add_row("STUB", str(stub))
+
+    console.print(stat_table)
+    # Match % is each function's own ratio, not the pass count above.
+    for r in results:
+        if r["status"] not in ("STUB", "NEAR_MATCHING"):
+            continue
+        match_val = floor_pct(r["match_percent"], 100)
+        console.print(f"{r['name']}  {match_val:.1f}% match")
+        console.print(bar_plain(r["match_percent"], 100))
 
 
 def main_entry() -> None:

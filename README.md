@@ -353,8 +353,8 @@ Run the following from the directory that will hold both checkouts:
 
 ```bash
 git clone https://github.com/maci0/rebrew.git
-git clone --depth 1 --branch v2.0.0 https://github.com/maci0/resembl.git
 cd rebrew/
+make clone-resembl         # clone sibling resembl pin (tag v2.0.0) into ../resembl
 make setup                 # uv sync --frozen --all-extras --group similarity + pre-commit hooks
 make test-one T=tests/test_annotation.py   # single-file edit-test loop
 make test                  # full suite (needs nasm)
