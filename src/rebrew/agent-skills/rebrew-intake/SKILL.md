@@ -4,12 +4,12 @@ description: >-
   Use when onboarding a binary into rebrew — one-shot `rebrew intake` (init + enumerate +
   STUB document) and/or first recon (doctor, FLIRT, catalog, build-db, triage,
   first skeletons). Triggers on 'intake', 'onboard', 'onboard binary',
-  'new binary', 'new target', 'import binary', 'binary recon', 'FLIRT scan',
-  'first triage', 'catalog', 'build-db', 'detect-crt', or 'gen-layout'. Prefer
-  this over rebrew-init when the user hands you a binary to onboard; use
-  rebrew-init only when teaching `rebrew init` / profile / target naming. Not
-  for day-to-day flirt/todo/test, or a later catalog/build-db refresh, on an
-  already-onboarded target (rebrew-workflow).
+  'new binary', 'new target', 'import binary', 'binary recon', 'analyze',
+  'fingerprints', 'FLIRT scan', 'first triage', 'catalog', 'build-db',
+  'detect-crt', or 'gen-layout'. Prefer this over rebrew-init when the user
+  hands you a binary to onboard; use rebrew-init only when teaching
+  `rebrew init` / profile / target naming. Not for day-to-day flirt/todo/test,
+  or a later catalog/build-db refresh, on an already-onboarded target (rebrew-workflow).
 license: MIT
 ---
 
