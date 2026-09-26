@@ -3,10 +3,13 @@
 import json
 import struct
 import sys
+import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 from typer.testing import CliRunner
 
 sys.path.insert(0, str(Path(__file__).parent))  # tests/ on path for bin_util
@@ -398,3 +401,80 @@ class TestImportsPayload:
         path = tmp_path / "not_a_pe.bin"
         path.write_bytes(b"\x00" * 64)
         assert imports_payload(path) == {"binary": str(path), "imports": [], "stubs": []}
+
+
+# ---------------------------------------------------------------------------
+# Hypothesis fuzz — untrusted binary import-table and stub parsing
+# ---------------------------------------------------------------------------
+
+
+@settings(max_examples=150, deadline=None)
+@given(st.binary(min_size=0, max_size=1024))
+def test_parse_imports_random_bytes_no_crash(blob: bytes) -> None:
+    """Random bytes passed to parse_imports / parse_import_table / find_import_stubs
+    must return valid typed structures or empty collections — never unhandled exceptions.
+    """
+    with tempfile.NamedTemporaryFile(suffix=".bin", delete=False) as fh:
+        fh.write(blob)
+        tmp = Path(fh.name)
+    try:
+        recs = parse_imports(tmp)
+        assert isinstance(recs, list)
+        for r in recs:
+            assert isinstance(r, dict)
+            assert isinstance(r.get("dll"), str)
+            assert isinstance(r.get("name"), str)
+            assert isinstance(r.get("iat_va"), int)
+            assert r["iat_va"] >= 0
+            if "ordinal" in r:
+                assert r["ordinal"] is None or isinstance(r["ordinal"], int)
+
+        table = parse_import_table(tmp)
+        assert isinstance(table, dict)
+        for va, name in table.items():
+            assert isinstance(va, int) and va >= 0
+            assert isinstance(name, str)
+
+        stubs = find_import_stubs(tmp)
+        assert isinstance(stubs, dict)
+        for sva, sname in stubs.items():
+            assert isinstance(sva, int) and sva >= 0
+            assert isinstance(sname, str)
+            # Invariant: any stub recognized must reference an imported API in table
+            assert sname in table.values()
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+@settings(max_examples=100, deadline=None)
+@given(st.binary(min_size=1, max_size=64), st.integers(min_value=1, max_value=8))
+def test_imports_fixture_mutation_no_crash(noise: bytes, n_flips: int) -> None:
+    """Mutating a valid PE with import stubs must either preserve import/stub
+    table invariants or degrade cleanly."""
+    with tempfile.TemporaryDirectory() as td:
+        pe_bytes, _, _ = _pe_with_stub(Path(td))
+        data = bytearray(pe_bytes)
+        for i, b in enumerate(noise[:n_flips]):
+            idx = (b + i * 23) % len(data)
+            data[idx] ^= 0xFF if (b & 1) else (b or 1)
+        if len(noise) >= 2 and (noise[0] & 0x40):
+            cut = noise[1] % max(1, len(data) // 2)
+            del data[len(data) - cut :]
+
+        p = Path(td) / "mutated.exe"
+        p.write_bytes(bytes(data))
+
+        recs = parse_imports(p)
+        assert isinstance(recs, list)
+        for r in recs:
+            assert isinstance(r, dict)
+            assert isinstance(r.get("dll"), str)
+            assert isinstance(r.get("name"), str)
+            assert isinstance(r.get("iat_va"), int)
+            assert r["iat_va"] >= 0
+        table = parse_import_table(p)
+        assert isinstance(table, dict)
+        stubs = find_import_stubs(p)
+        assert isinstance(stubs, dict)
+        for sname in stubs.values():
+            assert sname in table.values()

@@ -1,11 +1,18 @@
 """Tests for parse_obj_relocs_full: type-aware COFF relocation extraction."""
 
 import struct
+import tempfile
 from pathlib import Path
 
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
-from rebrew.matcher.parsers import CoffRelocRecord, parse_obj_relocs_full
+from rebrew.matcher.parsers import (
+    CoffRelocRecord,
+    parse_obj_relocs_full,
+    parse_obj_symbol_and_relocs,
+)
 
 
 def _make_coff_blob(code: bytes, reloc_offset: int, reloc_type: int, sym: str) -> bytes:
@@ -392,3 +399,84 @@ def test_omf_to_coff_failed_conversion_raises(monkeypatch, tmp_path: Path) -> No
     out.write_bytes(b"")  # caller pre-creates the tempfile
     with pytest.raises(ValueError, match="objconv failed"):
         parsers_mod._omf_to_coff(_FIXTURES / "tg_watcom.o", out)
+
+
+# ---------------------------------------------------------------------------
+# Hypothesis fuzz — object file symbol and relocation parsing
+# ---------------------------------------------------------------------------
+
+
+@settings(max_examples=150, deadline=None)
+@given(st.binary(min_size=0, max_size=1024), st.text(max_size=32))
+def test_parse_obj_random_bytes_no_crash(blob: bytes, sym: str) -> None:
+    """Arbitrary bytes into parse_obj_symbol_and_relocs and parse_obj_relocs_full
+    must return shaped outputs or clean empty results — never unhandled exceptions.
+    """
+    with tempfile.NamedTemporaryFile(suffix=".obj", delete=False) as fh:
+        fh.write(blob)
+        tmp = Path(fh.name)
+    try:
+        code, reloc_dict, records = parse_obj_symbol_and_relocs(tmp, sym)
+        full_records = parse_obj_relocs_full(tmp, sym)
+
+        # Differential consistency: both APIs must yield the exact same records
+        assert records == full_records
+
+        if code is not None:
+            assert isinstance(code, (bytes, bytearray))
+        if reloc_dict is not None:
+            assert isinstance(reloc_dict, dict)
+            for off, name in reloc_dict.items():
+                assert isinstance(off, int)
+                assert off >= 0
+                assert isinstance(name, str)
+
+        assert isinstance(records, list)
+        for r in records:
+            assert isinstance(r, CoffRelocRecord)
+            assert isinstance(r.offset, int) and r.offset >= 0
+            assert isinstance(r.type, int) and 0 <= r.type <= 0xFFFF
+            assert isinstance(r.symbol, str)
+    finally:
+        tmp.unlink(missing_ok=True)
+
+
+@settings(max_examples=100, deadline=None)
+@given(
+    st.binary(min_size=1, max_size=64),
+    st.integers(min_value=1, max_value=8),
+)
+def test_parse_obj_fixture_mutation_no_crash(noise: bytes, n_flips: int) -> None:
+    """Mutations of a valid synthetic COFF object must preserve invariants or
+    fail cleanly."""
+    base = bytearray(
+        _make_coff_blob(b"\x90" * 32, reloc_offset=4, reloc_type=0x0006, sym="_extern_var")
+    )
+    for i, b in enumerate(noise[:n_flips]):
+        idx = (b + i * 17) % len(base)
+        base[idx] ^= 0xFF if (b & 1) else (b or 1)
+    if len(noise) >= 2 and (noise[0] & 0x40):
+        cut = noise[1] % max(1, len(base) // 2)
+        del base[len(base) - cut :]
+
+    with tempfile.NamedTemporaryFile(suffix=".obj", delete=False) as fh:
+        fh.write(bytes(base))
+        tmp = Path(fh.name)
+    try:
+        code, reloc_dict, records = parse_obj_symbol_and_relocs(tmp, "_myfunc")
+        full_records = parse_obj_relocs_full(tmp, "_myfunc")
+        assert records == full_records
+
+        if code is not None:
+            assert isinstance(code, (bytes, bytearray))
+        if reloc_dict is not None:
+            assert isinstance(reloc_dict, dict)
+            for off in reloc_dict:
+                assert isinstance(off, int) and off >= 0
+        for r in records:
+            assert isinstance(r, CoffRelocRecord)
+            assert isinstance(r.offset, int) and r.offset >= 0
+            assert isinstance(r.type, int) and 0 <= r.type <= 0xFFFF
+            assert isinstance(r.symbol, str)
+    finally:
+        tmp.unlink(missing_ok=True)
