@@ -17,6 +17,7 @@ import threading
 from pathlib import Path
 
 from rebrew.errors import RebrewError
+from rebrew.utils import run_process_group
 
 _DOSBOX_CONF_HEADER = "[sdl]\nfullscreen=false\n\n[cpu]\ncycles=fixed 30000\n\n[autoexec]\n"
 
@@ -211,7 +212,9 @@ def run_dosbox(
     env.setdefault("SDL_VIDEODRIVER", "dummy")
     env.setdefault("SDL_AUDIODRIVER", "dummy")
     try:
-        r = subprocess.run(
+        # Group kill: a timeout must not leave DOSBox's session (and any
+        # helper it started) running after this call has returned.
+        r = run_process_group(
             ["dosbox", "-conf", str(conf), "-noconsole"],
             capture_output=True,
             text=True,
@@ -219,7 +222,6 @@ def run_dosbox(
             errors="replace",
             timeout=timeout,
             env=env,
-            check=False,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise DosboxError(f"DOSBox invocation failed: {exc}") from exc

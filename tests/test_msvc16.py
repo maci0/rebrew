@@ -24,7 +24,7 @@ def _fake_cl(monkeypatch, sandbox: Path) -> None:
         (sandbox / "SRC.OBJ").write_bytes(b"\x80\x08\x00fake")
         return type("R", (), {"returncode": 0})()
 
-    monkeypatch.setattr("rebrew.dosbox.subprocess.run", _run)
+    monkeypatch.setattr("rebrew.dosbox.run_process_group", _run)
 
 
 @pytest.mark.skipif(
@@ -70,7 +70,7 @@ class TestCompileC:
         def _run_no_output(args, **kwargs):
             return type("R", (), {"returncode": 0})()
 
-        monkeypatch.setattr("rebrew.dosbox.subprocess.run", _run_no_output)
+        monkeypatch.setattr("rebrew.dosbox.run_process_group", _run_no_output)
         with pytest.raises(Msvc16Error, match="no object"):
             compile_c(src, tmp_path / "sandbox")
 
@@ -96,7 +96,7 @@ class TestDosboxRunner:
             return type("R", (), {"returncode": 0})()
 
         monkeypatch.setattr("rebrew.dosbox.shutil.which", lambda *a, **k: "/usr/bin/dosbox")
-        monkeypatch.setattr("rebrew.dosbox.subprocess.run", _run)
+        monkeypatch.setattr("rebrew.dosbox.run_process_group", _run)
         run_dosbox(tmp_path, ["C:\\DCC.EXE hello.dpr"])
         conf = (tmp_path / "run.conf").read_text(encoding="utf-8")
         assert f'mount c "{tmp_path}"' in conf
@@ -119,7 +119,7 @@ class TestDosboxRunner:
             return type("R", (), {"returncode": 1, "stdout": "", "stderr": "SDL init failed"})()
 
         monkeypatch.setattr("rebrew.dosbox.shutil.which", lambda *a, **k: "/usr/bin/dosbox")
-        monkeypatch.setattr("rebrew.dosbox.subprocess.run", _run)
+        monkeypatch.setattr("rebrew.dosbox.run_process_group", _run)
         with pytest.raises(DosboxError, match="SDL init failed"):
             run_dosbox(tmp_path, ["dir"])
 

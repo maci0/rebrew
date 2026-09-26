@@ -42,7 +42,7 @@ import typer
 from rebrew.analysis import iter_instructions
 from rebrew.binary_loader import load_binary
 from rebrew.cli import console, error_exit, json_print
-from rebrew.utils import atomic_write_text
+from rebrew.utils import atomic_write_text, run_process_group
 
 app = typer.Typer(help="Enumerate functions: rizin aaa/aap + capstone sweep, sizes validated.")
 
@@ -75,7 +75,8 @@ def _rizin_functions(binary: Path, cmds: list[str]) -> list[tuple[int, int, str]
     from rebrew.catalog import parse_rizin_afl
 
     try:
-        r = subprocess.run(
+        # Group kill: rizin's analysis helpers must not outlive the timeout.
+        r = run_process_group(
             ["rizin", "-q", "-c", "; ".join(cmds) + "; afl", str(binary)],
             capture_output=True,
             text=True,

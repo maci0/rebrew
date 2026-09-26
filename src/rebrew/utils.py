@@ -1183,6 +1183,84 @@ def _kill_process_group(proc: subprocess.Popen[Any]) -> None:
             proc.kill()
 
 
+def _descendant_pids(pid: int) -> set[int]:
+    """PIDs whose parent chain reaches *pid*, from ``/proc`` (empty if absent).
+
+    Taken before the group kill: a grandchild that already called ``setsid``
+    is still listed under its parent, and after the parent dies its ppid is
+    1 and the link is gone.
+    """
+    proc_root = Path("/proc")
+    if pid <= 1 or not proc_root.is_dir():
+        return set()
+    children: dict[int, list[int]] = {}
+    try:
+        entries = list(proc_root.iterdir())
+    except OSError:
+        return set()
+    for entry in entries:
+        if not entry.name.isdigit():
+            continue
+        try:
+            # ``pid (comm) state ppid`` — comm may contain spaces and parens,
+            # so the last ``)`` is the end of the comm field.
+            stat = (entry / "stat").read_text(encoding="utf-8", errors="replace")
+            tail = stat.rsplit(")", 1)[1].split()
+            child = int(entry.name)
+            ppid = int(tail[1])
+        except (OSError, IndexError, ValueError):
+            continue
+        if child <= 1 or ppid <= 0:
+            continue
+        children.setdefault(ppid, []).append(child)
+    out: set[int] = set()
+    stack = list(children.get(pid, []))
+    while stack:
+        child = stack.pop()
+        if child in out or child == pid:
+            continue
+        out.add(child)
+        stack.extend(children.get(child, []))
+    return out
+
+
+def _kill_pids(pids: set[int]) -> None:
+    """SIGKILL each pid; a missing process is already gone."""
+    if not hasattr(signal, "SIGKILL"):
+        return
+    for pid in pids:
+        if pid <= 1:
+            continue
+        with contextlib.suppress(ProcessLookupError, OSError):
+            os.kill(pid, signal.SIGKILL)
+
+
+def _release_captured_pipes(proc: subprocess.Popen[Any]) -> None:
+    """Close captured stdio so a surviving writer cannot pin ``communicate``.
+
+    ``communicate`` waits for EOF. A helper that escaped both the process
+    group and the descendant snapshot, and kept the pipe write end, never
+    delivers that EOF — another ``communicate()`` then blocks for the
+    helper's lifetime.
+    """
+    for stream in (proc.stdout, proc.stderr, proc.stdin):
+        if stream is None:
+            continue
+        with contextlib.suppress(OSError):
+            stream.close()
+
+
+def _stop_process_tree(proc: subprocess.Popen[Any]) -> None:
+    """Kill *proc*'s session and descendants snapshotted before the signal."""
+    descendants = _descendant_pids(proc.pid)
+    _kill_process_group(proc)
+    _kill_pids(descendants)
+    with contextlib.suppress(ProcessLookupError, OSError):
+        proc.kill()
+    with contextlib.suppress(subprocess.TimeoutExpired):
+        proc.wait(timeout=1)
+
+
 def run_process_group(
     cmd: Sequence[str], *, timeout: float, **popen_kwargs: Any
 ) -> subprocess.CompletedProcess[Any]:
@@ -1191,32 +1269,37 @@ def run_process_group(
     Plain ``subprocess.run`` SIGKILLs only the direct child on timeout, so a
     driver's grandchildren (gcc's ``cc1``/``as``, ``xvfb-run``'s Xvfb and
     wine, a wrapper script's compiler) are orphaned and keep running.  The
-    child here leads its own session; on timeout the group is killed and
-    the child reaped before :class:`subprocess.TimeoutExpired` is raised.
-    ``popen_kwargs`` take ``subprocess.run``'s keywords except ``input``
-    and ``check``; pass ``capture_output=True`` to collect output.
+    child here leads its own session; on timeout the group is killed, any
+    descendant that already left the session is signalled from a ``/proc``
+    snapshot, and the child is reaped before :class:`subprocess.TimeoutExpired`
+    is raised.  A writer that still holds a captured pipe cannot pin the
+    caller: the read ends are closed instead of waiting for its EOF.
+    ``popen_kwargs`` take ``subprocess.run``'s keywords except ``check``;
+    ``input`` is written to the child's stdin.  Pass ``capture_output=True``
+    to collect output.
     """
+    stdin_input = popen_kwargs.pop("input", None)
     if popen_kwargs.pop("capture_output", False):
         popen_kwargs["stdout"] = subprocess.PIPE
         popen_kwargs["stderr"] = subprocess.PIPE
+    if stdin_input is not None and popen_kwargs.get("stdin") is None:
+        popen_kwargs["stdin"] = subprocess.PIPE
     with subprocess.Popen(list(cmd), start_new_session=True, **popen_kwargs) as proc:
         try:
-            stdout, stderr = proc.communicate(timeout=timeout)
+            stdout, stderr = proc.communicate(stdin_input, timeout=timeout)
         except subprocess.TimeoutExpired:
-            # The group may already be gone (child exited, pipes still open).
-            _kill_process_group(proc)
-            # Drain remaining output after the SIGKILL.  A short timeout
-            # guards against grandchildren that inherited the pipe fds and
-            # survived the group kill (e.g. a leaked wine server or a
-            # detached helper).  Without it, communicate() blocks forever.
+            _stop_process_tree(proc)
+            # Drain output the kill left in the pipe.  A short timeout covers
+            # a writer the snapshot missed; closing the read ends then lets
+            # the caller return instead of blocking on that writer.
             try:
                 proc.communicate(timeout=5)
             except subprocess.TimeoutExpired:
-                proc.kill()
-                proc.communicate()
+                _stop_process_tree(proc)
+                _release_captured_pipes(proc)
             raise
         except BaseException:
-            _kill_process_group(proc)
+            _stop_process_tree(proc)
             raise
     return subprocess.CompletedProcess(proc.args, proc.returncode, stdout, stderr)
 

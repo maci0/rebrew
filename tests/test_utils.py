@@ -4,6 +4,8 @@ import contextlib
 import os
 import signal
 import subprocess
+import sys
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -1145,6 +1147,16 @@ class TestRunProcessGroup:
         )
         assert (r.returncode, r.stdout, r.stderr) == (3, "out\n", "err\n")
 
+    def test_input_reaches_stdin(self) -> None:
+        r = run_process_group(
+            ["sh", "-c", "cat"],
+            input=b"hello\n",
+            capture_output=True,
+            timeout=10,
+        )
+        assert r.returncode == 0
+        assert r.stdout == b"hello\n"
+
     def test_timeout_kills_grandchildren(self, tmp_path: Path) -> None:
         """A driver's background child must die with it on timeout, not
         keep running as an orphan (plain subprocess.run kills only the
@@ -1154,6 +1166,68 @@ class TestRunProcessGroup:
         with pytest.raises(subprocess.TimeoutExpired):
             run_process_group(["sh", "-c", script], capture_output=True, timeout=1)
         _assert_grandchild_killed(pidfile)
+
+    def test_timeout_kills_detached_pipe_holder(self, tmp_path: Path) -> None:
+        """A setsid grandchild holding stdout must die without pinning the caller.
+
+        Group-kill misses a child that already left the session. Waiting on
+        the pipe it inherited then blocks until that child exits.
+        """
+        pidfile = tmp_path / "detached.pid"
+        script = (
+            "import os, time\n"
+            "from pathlib import Path\n"
+            "pidfile = Path(os.environ['REBREW_TEST_PIDFILE'])\n"
+            "r, w = os.pipe()\n"
+            "if os.fork() == 0:\n"
+            "    os.close(r)\n"
+            "    os.setsid()\n"
+            "    pidfile.write_text(str(os.getpid()))\n"
+            "    os.write(w, b'x')\n"
+            "    os.close(w)\n"
+            "    time.sleep(120)\n"
+            "    raise SystemExit(0)\n"
+            "os.close(w)\n"
+            "os.read(r, 1)\n"
+            "os.close(r)\n"
+            "time.sleep(120)\n"
+        )
+        env = os.environ.copy()
+        env["REBREW_TEST_PIDFILE"] = str(pidfile)
+        caught: list[BaseException] = []
+
+        def _run() -> None:
+            try:
+                run_process_group(
+                    [sys.executable, "-c", script],
+                    capture_output=True,
+                    timeout=1,
+                    env=env,
+                )
+            except BaseException as exc:
+                caught.append(exc)
+
+        worker = threading.Thread(target=_run)
+        worker.start()
+        worker.join(15)
+        stuck = worker.is_alive()
+        try:
+            if stuck:
+                text = pidfile.read_text() if pidfile.exists() else ""
+                if text.strip():
+                    with contextlib.suppress(ProcessLookupError, OSError, ValueError):
+                        os.kill(int(text), signal.SIGKILL)
+                worker.join(5)
+            else:
+                _assert_grandchild_killed(pidfile)
+        finally:
+            text = pidfile.read_text() if pidfile.exists() else ""
+            if text.strip():
+                with contextlib.suppress(ProcessLookupError, OSError, ValueError):
+                    os.kill(int(text), signal.SIGKILL)
+        assert not stuck
+        assert len(caught) == 1
+        assert isinstance(caught[0], subprocess.TimeoutExpired)
 
 
 class TestMd5File:

@@ -38,6 +38,7 @@ from pathlib import Path
 from typing import Any
 
 from rebrew.registry import RegistryError
+from rebrew.utils import run_process_group
 
 # ANSI escape code stripper
 _ANSI_RE = re.compile(r"\x1B\[[0-9;]*[a-zA-Z]")
@@ -128,7 +129,7 @@ def _re_init_project(binary: Path, tool: str, root: Path) -> str | None:
         warnings.warn(f"{tool} could not create project dir: {e}", stacklevel=3)
         return None
     try:
-        result = subprocess.run(
+        result = run_process_group(
             [
                 tool,
                 "-q",
@@ -268,7 +269,7 @@ def _run_re(binary: Path, va: int, cmd: str, root: Path) -> str | None:
     if proj_dir is None:
         return None
     try:
-        result = subprocess.run(
+        result = run_process_group(
             [tool, "-q", "-p", proj_dir, "-c", f"s 0x{va:08x}; af; {cmd}", str(binary)],
             capture_output=True,
             text=True,
@@ -451,7 +452,7 @@ def fetch_kuna(binary: Path, va: int, root: Path, **_kwargs: Any) -> str | None:
     spec_dir = None if "KUNA_SPECS" in os.environ else kuna_spec_dir()
     env = None if spec_dir is None else {**os.environ, "KUNA_SPECS": spec_dir}
     try:
-        result = subprocess.run(
+        result = run_process_group(
             [kuna, "decompile", str(binary), f"0x{va:x}", "--addr"],
             capture_output=True,
             text=True,
@@ -810,7 +811,7 @@ def fetch_m2c(binary: Path, va: int, root: Path, **_kwargs: Any) -> str | None:
     if ctx.exists():
         args += ["--context", str(ctx)]
     try:
-        result = subprocess.run(
+        result = run_process_group(
             [sys.executable, "-c", _M2C_RUN_CMD] + args,
             input=asm,
             capture_output=True,

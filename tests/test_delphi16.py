@@ -32,7 +32,7 @@ def _fake_compile(monkeypatch, sandbox: Path) -> None:
         (sandbox / "HELLO.EXE").write_bytes(_build_ne(segments=[(code, 0x01)]))
         return type("R", (), {"returncode": 0})()
 
-    monkeypatch.setattr("rebrew.dosbox.subprocess.run", _run)
+    monkeypatch.setattr("rebrew.dosbox.run_process_group", _run)
 
 
 @pytest.mark.skipif(
@@ -77,7 +77,7 @@ class TestCompileNe:
         def _run_no_output(args, **kwargs):
             return type("R", (), {"returncode": 0})()
 
-        monkeypatch.setattr("rebrew.dosbox.subprocess.run", _run_no_output)
+        monkeypatch.setattr("rebrew.dosbox.run_process_group", _run_no_output)
         with pytest.raises(Delphi16Error, match="no executable"):
             compile_ne(src, tmp_path / "sandbox", units_dir=tmp_path / "u")
 
@@ -94,7 +94,7 @@ class TestCompileNe:
         def _run_timeout(args, **kwargs):
             raise subprocess.TimeoutExpired("dosbox", 5)
 
-        monkeypatch.setattr("rebrew.dosbox.subprocess.run", _run_timeout)
+        monkeypatch.setattr("rebrew.dosbox.run_process_group", _run_timeout)
         src = tmp_path / "hello.dpr"
         src.write_text("program Hello;\n", encoding="utf-8")
         with pytest.raises(Delphi16Error, match="DOSBox"):
@@ -127,7 +127,7 @@ class TestLongSourceName:
             (workdir / "SRC.EXE").write_bytes(_build_ne(segments=[(code, 0x01)]))
             return type("R", (), {"returncode": 0})()
 
-        monkeypatch.setattr("rebrew.dosbox.subprocess.run", _run)
+        monkeypatch.setattr("rebrew.dosbox.run_process_group", _run)
 
         # spy on the autoexec line DCC receives: must be the short name
         real_run_dosbox = __import__("rebrew.dosbox", fromlist=["run_dosbox"]).run_dosbox

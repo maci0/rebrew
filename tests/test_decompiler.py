@@ -72,7 +72,7 @@ class TestBackendDispatch:
     @patch(
         "rebrew.decompiler.shutil.which", side_effect=lambda x: "/usr/bin/r2" if x == "r2" else None
     )
-    @patch("rebrew.decompiler.subprocess.run")
+    @patch("rebrew.decompiler.run_process_group")
     def test_r2ghidra_uses_r2(self, mock_run, _mock_which, tmp_path: Path) -> None:
         binary = tmp_path / "target.bin"
         binary.write_bytes(b"MZ")
@@ -109,7 +109,7 @@ class TestBackendDispatch:
     @patch(
         "rebrew.decompiler.shutil.which", side_effect=lambda x: "/usr/bin/rz" if x == "rz" else None
     )
-    @patch("rebrew.decompiler.subprocess.run")
+    @patch("rebrew.decompiler.run_process_group")
     def test_r2ghidra_uses_rz(self, mock_run, _mock_which, tmp_path: Path) -> None:
         binary = tmp_path / "target.bin"
         binary.write_bytes(b"MZ")
@@ -509,28 +509,24 @@ class TestRunRe:
     def test_success_returns_cleaned_output(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        import subprocess
-
         import rebrew.decompiler as dc
 
         monkeypatch.setattr(dc.shutil, "which", lambda *a, **k: "rz")
         monkeypatch.setattr(
-            subprocess,
-            "run",
+            dc,
+            "run_process_group",
             lambda *a, **k: SimpleNamespace(returncode=0, stdout="\x1b[0m  int f(void) {}\n"),
         )
         out = dc._run_re(tmp_path / "x", 0x1000, "pdg", tmp_path)
         assert out == "  int f(void) {}"  # _clean_output trims blank lines, not indent
 
     def test_nonzero_returns_none(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        import subprocess
-
         import rebrew.decompiler as dc
 
         monkeypatch.setattr(dc.shutil, "which", lambda *a, **k: "rz")
         monkeypatch.setattr(
-            subprocess,
-            "run",
+            dc,
+            "run_process_group",
             lambda *a, **k: SimpleNamespace(returncode=1, stdout="", stderr="bad binary\n"),
         )
         with pytest.warns(UserWarning, match="exited 1 analyzing x: bad binary"):
@@ -546,13 +542,11 @@ class TestRunRe:
         def _boom(*a: object, **k: object) -> object:
             raise subprocess.TimeoutExpired("rz", 120)
 
-        monkeypatch.setattr(subprocess, "run", _boom)
+        monkeypatch.setattr(dc, "run_process_group", _boom)
         with pytest.warns(UserWarning, match="timed out"):
             assert dc._run_re(tmp_path / "x", 0x1000, "pdg", tmp_path) is None
 
     def test_oserror_warns(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        import subprocess
-
         import rebrew.decompiler as dc
 
         monkeypatch.setattr(dc.shutil, "which", lambda *a, **k: "rz")
@@ -560,7 +554,7 @@ class TestRunRe:
         def _boom(*a: object, **k: object) -> object:
             raise OSError("rz missing")
 
-        monkeypatch.setattr(subprocess, "run", _boom)
+        monkeypatch.setattr(dc, "run_process_group", _boom)
         try:
             # Analysis runs first: the OSError surfaces as an analysis warning
             # and no query is attempted.
@@ -571,8 +565,6 @@ class TestRunRe:
 
     def test_query_oserror_warns(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """OSError on the query (analysis healthy) warns 'failed decompiling'."""
-        import subprocess
-
         import rebrew.decompiler as dc
 
         monkeypatch.setattr(dc.shutil, "which", lambda *a, **k: "rz")
@@ -589,7 +581,7 @@ class TestRunRe:
                 return SimpleNamespace(returncode=0, stdout="")
             raise OSError("rz missing")
 
-        monkeypatch.setattr(subprocess, "run", _flaky)
+        monkeypatch.setattr(dc, "run_process_group", _flaky)
         try:
             with pytest.warns(UserWarning, match="failed decompiling"):
                 assert dc._run_re(tmp_path / "x", 0x1000, "pdg", tmp_path) is None
@@ -640,7 +632,7 @@ class TestKunaBackend:
             assert "--addr" in cmd
             return _R()
 
-        monkeypatch.setattr(dc.subprocess, "run", _run)
+        monkeypatch.setattr(dc, "run_process_group", _run)
         out = dc.fetch_kuna(binary, 0x401000, tmp_path)
         assert out is not None
         assert "Kuna v1.0" in out
@@ -658,7 +650,7 @@ class TestKunaBackend:
             stderr = "boom"
 
         monkeypatch.setattr(dc.shutil, "which", lambda n: "/usr/bin/kuna")
-        monkeypatch.setattr(dc.subprocess, "run", lambda *a, **k: _R())
+        monkeypatch.setattr(dc, "run_process_group", lambda *a, **k: _R())
         assert dc.fetch_kuna(binary, 0x401000, tmp_path) is None
 
     def test_kuna_spec_dirs_only_qualifies_sla_dirs(self, tmp_path: Path) -> None:
@@ -770,7 +762,7 @@ class TestKunaBackend:
             seen.update(kw)
             return _R()
 
-        monkeypatch.setattr(dc.subprocess, "run", _run)
+        monkeypatch.setattr(dc, "run_process_group", _run)
         assert dc.fetch_kuna(binary, 0x401000, tmp_path) is not None
         assert seen.get("env", {}).get("KUNA_SPECS") == str(spec)
 
@@ -794,7 +786,7 @@ class TestKunaBackend:
             seen.update(kw)
             return _R()
 
-        monkeypatch.setattr(dc.subprocess, "run", _run)
+        monkeypatch.setattr(dc, "run_process_group", _run)
         assert dc.fetch_kuna(binary, 0x401000, tmp_path) is not None
         assert seen.get("env") is None
 
@@ -1038,7 +1030,7 @@ class TestM2CBackend:
                 cmd, 0, stdout="s32 func_1000(void) { return 1; }\n", stderr=""
             )
 
-        monkeypatch.setattr("rebrew.decompiler.subprocess.run", fake_run)
+        monkeypatch.setattr("rebrew.decompiler.run_process_group", fake_run)
         code = fetch_m2c(bin_path, 0x1000, tmp_path)
         assert code == "s32 func_1000(void) { return 1; }"
         assert "--target" in captured["cmd"]
@@ -1070,7 +1062,7 @@ class TestM2CBackend:
                 cmd, 0, stdout="s32 f(void) { return 1; }\n", stderr=""
             )
 
-        monkeypatch.setattr("rebrew.decompiler.subprocess.run", fake_run)
+        monkeypatch.setattr("rebrew.decompiler.run_process_group", fake_run)
         assert fetch_m2c(bin_path, 0x1000, tmp_path) == "s32 f(void) { return 1; }"
         assert "--context" in captured["cmd"]
 
@@ -1133,7 +1125,7 @@ class TestM2CPpc:
                 cmd, 0, stdout="s32 f(void) { return 1; }\n", stderr=""
             )
 
-        monkeypatch.setattr("rebrew.decompiler.subprocess.run", fake_run)
+        monkeypatch.setattr("rebrew.decompiler.run_process_group", fake_run)
         assert fetch_m2c(bin_path, 0x1000, tmp_path) == "s32 f(void) { return 1; }"
         assert captured["cmd"][captured["cmd"].index("--target") + 1] == "ppc-mwcc-c"
         assert "blr" in captured["input"]
@@ -1164,7 +1156,7 @@ class TestReSessionReuse:
                 ).write_text("rz\n\n", encoding="utf-8")
             return SimpleNamespace(returncode=0, stdout="int f(void) {}\n")
 
-        monkeypatch.setattr("rebrew.decompiler.subprocess.run", fake_run)
+        monkeypatch.setattr("rebrew.decompiler.run_process_group", fake_run)
         return calls, binary
 
     def test_analysis_runs_once_across_calls(
@@ -1212,7 +1204,7 @@ class TestReSessionReuse:
                     return SimpleNamespace(returncode=1, stdout="")
                 return SimpleNamespace(returncode=0, stdout="int f(void) {}\n")
 
-            monkeypatch.setattr("rebrew.decompiler.subprocess.run", flaky_run)
+            monkeypatch.setattr("rebrew.decompiler.run_process_group", flaky_run)
             assert dc._run_re(binary, 0x2000, "pdg", tmp_path) is None
             assert not dc._RE_PROJECT_DIRS, "stale project must be dropped"
             assert dc._run_re(binary, 0x2000, "pdg", tmp_path) == "int f(void) {}"
@@ -1233,7 +1225,7 @@ class TestReSessionReuse:
             proj_dir = next(iter(dc._RE_PROJECT_DIRS.values()))
             assert Path(proj_dir).is_dir()
             monkeypatch.setattr(
-                "rebrew.decompiler.subprocess.run",
+                "rebrew.decompiler.run_process_group",
                 lambda cmd, **kw: SimpleNamespace(returncode=1, stdout=""),
             )
             assert dc._run_re(binary, 0x2000, "pdg", tmp_path) is None
@@ -1305,7 +1297,7 @@ class TestReToolDigestInvalidation:
                 Path(proj, "rebrew_tool.sha256").write_text("rz\n\n", encoding="utf-8")
             return SimpleNamespace(returncode=0, stdout="int f(void) {}\n")
 
-        monkeypatch.setattr("rebrew.decompiler.subprocess.run", fake_run)
+        monkeypatch.setattr("rebrew.decompiler.run_process_group", fake_run)
         try:
             assert dc._run_re(binary, 0x1000, "pdg", tmp_path) == "int f(void) {}"
             # The tool binary changed under the same name.

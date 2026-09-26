@@ -30,7 +30,7 @@ def _fake_tcc(monkeypatch, sandbox: Path) -> None:
         (sandbox / "SRC.OBJ").write_bytes(b"\x80\x08\x00fake")
         return type("R", (), {"returncode": 0})()
 
-    monkeypatch.setattr("rebrew.dosbox.subprocess.run", _run)
+    monkeypatch.setattr("rebrew.dosbox.run_process_group", _run)
 
 
 @pytest.mark.skipif(
@@ -50,7 +50,7 @@ class TestTc16Compile:
         def _run(args, **kwargs):
             (tmp_path / "TCOUT.TXT").write_text("Error: cannot open", encoding="utf-8")
 
-        monkeypatch.setattr("rebrew.dosbox.subprocess.run", _run)
+        monkeypatch.setattr("rebrew.dosbox.run_process_group", _run)
         src = tmp_path / "bad.c"
         src.write_text("int x;\n", encoding="utf-8")
         with pytest.raises(Tc16Error, match="produced no object"):
@@ -80,7 +80,7 @@ class TestHeadlessDosbox:
             return type("R", (), {"returncode": 0})()
 
         monkeypatch.setattr(dosbox_mod.shutil, "which", lambda _: "/usr/bin/dosbox")
-        monkeypatch.setattr(dosbox_mod.subprocess, "run", _fake_run)
+        monkeypatch.setattr(dosbox_mod, "run_process_group", _fake_run)
         (tmp_path / "probe.c").write_text("int x;\n", encoding="utf-8")
         dosbox_mod.run_dosbox(tmp_path, ["dir"])
         env = captured["env"]
