@@ -1096,7 +1096,10 @@ class TestDoctorTableRendering:
         import rebrew.doctor as doctor
 
         out = io.StringIO()
-        monkeypatch.setattr(doctor, "console", Console(file=out, width=400))
+        # Width alone is ignored when Rich sees a dumb terminal (TERM=dumb and
+        # any FORCE_COLOR, including "0"): size falls back to 80x25 and the
+        # cells wrap. Height set with width keeps the explicit size.
+        monkeypatch.setattr(doctor, "console", Console(file=out, width=400, height=40))
         report = DoctorReport(
             target="t",
             checks=[
