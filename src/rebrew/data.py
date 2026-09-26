@@ -35,7 +35,7 @@ from rebrew.data_scan import (
 from rebrew.utils import atomic_write_text
 
 app = typer.Typer(
-    help="Global data scanner — inventory .data/.rdata/.bss globals.",
+    help="Global data scanner — inventory this target's .data/.rdata/.bss globals.",
     rich_markup_mode="rich",
     epilog=(
         "[bold]Modes:[/bold]\n\n"
@@ -47,7 +47,7 @@ app = typer.Typer(
         "  --fix-bss · · · · · Auto-generate bss_padding.c with dummy arrays for gaps\n\n"
         "  --gen-header · · · · Generate rebrew_globals.h from annotations (no Ghidra)\n\n"
         "[bold]Examples:[/bold]\n\n"
-        "  rebrew data · · · · · · · · · · · · · Scan all globals (default mode)\n\n"
+        "  rebrew data · · · · · · · · · · · · · Scan this target's globals (default mode)\n\n"
         "  rebrew data --conflicts · · · · · · · · Show type conflicts across files\n\n"
         "  rebrew data --summary · · · · · · · · · Section-level overview\n\n"
         "  rebrew data --dispatch · · · · · · · · · Detect vtables in data sections\n\n"

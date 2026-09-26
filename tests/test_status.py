@@ -1404,22 +1404,72 @@ class TestRenderTerminal:
         assert "3 source files" in out
 
     def test_headline_is_byte_matched(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """One headline number (EXACT+RELOC over all functions); the bar says
-        it counts functions with source; PROVEN has its own line."""
+        """One progress percentage: the .text share, in the headline and the
+        footer. Function progress is a count. PROVEN has its own line."""
         from rebrew.status import _render_terminal
 
         buf = self._capture(monkeypatch)
         _render_terminal(self._report())
         out = buf.getvalue()
-        assert "Byte-matched  5/10 functions  (50.0%)  EXACT+RELOC" in out
+        assert "Byte-matched  50.0% of .text  (512B / 1,024B)  EXACT+RELOC" in out
+        assert "Functions     5/10 EXACT+RELOC" in out
         assert "With source" in out
-        assert "6/10  (60.0%)" in out
+        assert "6/10" in out
+        assert "(60.0%)" not in out
+        assert "(50.0%)" not in out
+        assert out.count("50.0% of .text") == 2
         assert "1 PROVEN  semantically equivalent, bytes still differ (not byte-matched)" in out
-        assert "50.0% of .text in byte-matched functions" in out
         assert "blocked" not in out
-        assert "50.0% byte-matched" in out  # panel subtitle
         assert "reversed" not in out
         assert "Coverage" not in out
+
+    def test_function_percent_is_not_a_second_headline(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A project whose function share and byte share differ prints the
+        byte share only. The function ratio stays a count."""
+        from rebrew.status import _render_terminal
+
+        buf = self._capture(monkeypatch)
+        _render_terminal(
+            self._report(
+                total_functions=262,
+                covered_functions=262,
+                status_counts={"EXACT": 27, "RELOC": 234, "NEAR_MATCHING": 1},
+                matched_bytes=136_414,
+                total_text_bytes=141_382,
+            )
+        )
+        out = buf.getvalue()
+        assert "96.4% of .text" in out
+        assert out.count("96.4% of .text") == 2
+        assert "261/262 EXACT+RELOC" in out
+        assert "99.6%" not in out
+
+    def test_data_block_sits_with_functions(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Data is a block of its own: verified count, verdicts, sections.
+        It does not add a second progress percentage."""
+        from rebrew.status import _render_terminal
+
+        buf = self._capture(monkeypatch)
+        report = self._report()
+        report.data_verified = 2
+        report.data_unchecked = 2
+        report.data_sections = {
+            ".rdata": {"verified": 0, "drift": 0, "unchecked": 1},
+            ".data": {"verified": 2, "drift": 0, "unchecked": 1},
+        }
+        _render_terminal(report)
+        out = buf.getvalue()
+        assert "Data          2/4 verified" in out
+        assert "VERIFIED" in out
+        assert "UNCHECKED" in out
+        assert "DRIFT" not in out
+        assert ".data         2/3 verified" in out
+        assert ".rdata        0/1 verified" in out
+        # .data before .rdata, the section order, not alphabetical.
+        assert out.index(".data") < out.index(".rdata")
+        assert "50.0% of .text" in out
 
     def test_status_rows_add_up_to_the_total(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Functions with no source get their own row, so the table sums to the
@@ -1455,7 +1505,7 @@ class TestRenderTerminal:
         _render_terminal(StatusReport(target="X"))  # zeroed → no divide-by-zero
         out = buf.getvalue()
         assert "X" in out
-        assert "0/0  (0.0%)" in out
+        assert "0/0 functions  (0.0%)" in out
 
     def test_other_statuses(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from rebrew.status import _render_terminal
@@ -1518,16 +1568,44 @@ class TestDataVerdicts:
         from rebrew.status import collect_status
 
         cfg = _make_cfg(tmp_path)
-        set_data_field(tmp_path, 0x1000, "name", "g_a", "SERVER")
-        set_data_field(tmp_path, 0x1000, "status", "VERIFIED", "SERVER")
-        set_data_field(tmp_path, 0x2000, "name", "g_b", "SERVER")
-        set_data_field(tmp_path, 0x2000, "status", "DRIFT", "SERVER")
-        set_data_field(tmp_path, 0x3000, "name", "g_c", "SERVER")
+        set_data_field(tmp_path, 0x1000, "name", "g_a", "TEST")
+        set_data_field(tmp_path, 0x1000, "status", "VERIFIED", "TEST")
+        set_data_field(tmp_path, 0x1000, "section", ".data", "TEST")
+        set_data_field(tmp_path, 0x2000, "name", "g_b", "TEST")
+        set_data_field(tmp_path, 0x2000, "status", "DRIFT", "TEST")
+        set_data_field(tmp_path, 0x2000, "section", ".data", "TEST")
+        set_data_field(tmp_path, 0x3000, "name", "g_c", "TEST")
+        set_data_field(tmp_path, 0x3000, "section", ".bss", "TEST")
         report = collect_status(cfg)
         assert report.data_verified == 1
         assert report.data_drift == 1
         assert report.data_unchecked == 1
-        assert report.to_dict()["data"] == {"verified": 1, "drift": 1, "unchecked": 1}
+        assert report.to_dict()["data"] == {
+            "verified": 1,
+            "drift": 1,
+            "unchecked": 1,
+            "total": 3,
+            "sections": {
+                ".data": {"verified": 1, "drift": 1, "unchecked": 0},
+                ".bss": {"verified": 0, "drift": 0, "unchecked": 1},
+            },
+        }
+
+    def test_other_target_data_is_not_counted(self, tmp_path: Path) -> None:
+        from rebrew.data_metadata import set_data_field
+        from rebrew.status import collect_status
+
+        cfg = _make_cfg(tmp_path, all_markers={"TEST", "GOLD"})
+        set_data_field(tmp_path, 0x1000, "name", "g_ours", "TEST")
+        set_data_field(tmp_path, 0x1000, "status", "VERIFIED", "TEST")
+        set_data_field(tmp_path, 0x401000, "name", "g_client", "GOLD")
+        set_data_field(tmp_path, 0x401000, "status", "VERIFIED", "GOLD")
+        set_data_field(tmp_path, 0x2000, "name", "g_crt", "MSVCRT")
+        set_data_field(tmp_path, 0x2000, "status", "DRIFT", "MSVCRT")
+        report = collect_status(cfg)
+        assert report.data_verified == 1
+        assert report.data_drift == 1
+        assert report.data_unchecked == 0
 
 
 class TestEffectiveMatches:
@@ -1601,6 +1679,7 @@ class TestRenderTerminalBarClamping:
         )
         _render_terminal(report)
         out = buf.getvalue()
-        assert "150/100  (150.0%)" in out
+        assert "150/100" in out
+        assert "(150.0%)" not in out
         assert out.count("█") == 40
         assert "░" not in out

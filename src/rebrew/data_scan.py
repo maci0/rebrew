@@ -17,7 +17,8 @@ from pathlib import Path
 from typing import Any
 
 from rebrew.config import ProjectConfig, inventory_path_for
-from rebrew.utils import preset_module_key, read_source_text
+from rebrew.data_metadata import module_visible_to_target
+from rebrew.utils import read_source_text
 
 # ---------------------------------------------------------------------------
 # Regexes
@@ -29,6 +30,13 @@ from rebrew.utils import preset_module_key, read_source_text
 # holds {"GLOBAL", "DATA"} and `Annotation.is_data` treats them identically.
 _GLOBAL_RE = re.compile(
     r"(?://|/\*)\s*(?:GLOBAL|DATA):\s*(?P<module>[A-Z0-9_]+)\s+(?P<va>0x[0-9a-fA-F]+)"
+)
+# Any annotation marker, so a file that only carries another target's
+# FUNCTION/STUB lines is that target's source even when its externs have
+# no GLOBAL line of their own.
+_ANY_MARKER_RE = re.compile(
+    r"(?://|/\*)\s*(?:FUNCTION|STUB|LIBRARY|DATA|GLOBAL|VTABLE|STRING):\s*"
+    r"(?P<module>[A-Z0-9_]+)\s+0x[0-9a-fA-F]+"
 )
 
 # extern data declarations are parsed by c_parser.find_extern_variables()
@@ -185,6 +193,27 @@ def classify_section(va: int, sections: dict[str, dict[str, Any]]) -> str:
 # ---------------------------------------------------------------------------
 
 
+def _source_visible_to_target(lines: list[str], cfg: ProjectConfig | None) -> bool:
+    """Whether *lines* may contribute unannotated externs to the active target.
+
+    No marker means a shared file. A marker for this target, or for a
+    library module, means the file is in scope. A file whose markers are
+    all another target's is that binary's source (guild-rebrew
+    ``GOLD.fcn_*.c`` externs were listed on the server).
+    """
+    if cfg is None:
+        return True
+    saw_marker = False
+    for line in lines:
+        match = _ANY_MARKER_RE.search(line)
+        if match is None:
+            continue
+        saw_marker = True
+        if module_visible_to_target(match.group("module"), cfg):
+            return True
+    return not saw_marker
+
+
 def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
     """Scan reversed source files for global declarations.
 
@@ -194,6 +223,11 @@ def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
 
     Returns a ScanResult with all discovered globals and type conflicts;
     every entry of a conflicting name has ``conflict`` set.
+
+    With *cfg*, another target's ``// GLOBAL:`` / ``// DATA:`` marker is
+    omitted, and the declaration under it is not re-listed as an extern.
+    A file whose markers are all another target's contributes nothing.
+    Library-module markers stay: they are not targets.
     """
     from rebrew.c_parser import find_extern_variables
     from rebrew.sources import iter_sources
@@ -221,8 +255,6 @@ def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
         if not any(e is entry for e in bucket):
             bucket.append(entry)
 
-    other_markers = {preset_module_key(m) for m in (getattr(cfg, "all_markers", None) or set())}
-    active_marker = preset_module_key(str(getattr(cfg, "marker", "") or ""))
     for cfile in iter_sources(src_dir, cfg):
         try:
             # Tolerant read: a legacy-encoded source must not have its
@@ -234,13 +266,39 @@ def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
 
         lines = text.splitlines()
         fname = rel_display_path(cfile, src_dir)
+        if not _source_visible_to_target(lines, cfg):
+            continue
+
+        # A shared file annotates one global per target, each marker followed
+        # by its own declaration. Skipping the marker is not enough: the
+        # declaration is still an extern, and the last target's name was
+        # listed on every target (guild-rebrew `g_6624a0` under GOLD and
+        # GOLDTL showed up on the server with no VA). Blank those lines for
+        # the extern pass only; the marker walk below still sees them.
+        foreign_decl_lines: set[int] = set()
+        if cfg is not None:
+            for i, line in enumerate(lines):
+                gm = _GLOBAL_RE.search(line)
+                if (
+                    gm
+                    and not module_visible_to_target(gm.group("module"), cfg)
+                    and i + 1 < len(lines)
+                ):
+                    foreign_decl_lines.add(i + 1)
+        extern_text = text
+        if foreign_decl_lines:
+            extern_text = "\n".join(
+                "" if i in foreign_decl_lines else line for i, line in enumerate(lines)
+            )
 
         # Pre-compute extern variables from tree-sitter (used for unannotated
         # scan).  Definitions are included: a global's real type lives on its
         # definition, and conflict detection that only sees `extern` lines
         # cannot report the mismatch that matters most -- `int g[4] = {...}`
         # in one file against `extern short g;` in another.
-        extern_vars = {v.name: v for v in find_extern_variables(text, include_definitions=True)}
+        extern_vars = {
+            v.name: v for v in find_extern_variables(extern_text, include_definitions=True)
+        }
 
         # Track which names are already handled via GLOBAL annotation
         annotated_names: set[str] = set()
@@ -252,15 +310,13 @@ def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
                 # Marker-scope the scan when the module is another TARGET's
                 # marker: the same global name sits at a different VA in each
                 # binary, and an unscoped scan let the last marker win the
-                # name in every target's VA map (guild-rebrew round 1292 —
+                # name in every target's VA map (guild-rebrew round 1292:
                 # GOLDTL's log tables resolved to the SERVER VAs, failing
                 # DIR32 validation on bytes that are correct for the client).
                 # Library-module markers (MSVCRT, ZLIB, ...) are kept: they
                 # are not targets and carry no competing VA.
-                if cfg is not None and gm.group("module"):
-                    mod = preset_module_key(gm.group("module"))
-                    if mod in other_markers and mod != active_marker:
-                        continue
+                if cfg is not None and not module_visible_to_target(gm.group("module"), cfg):
+                    continue
                 va = int(gm.group("va"), 16)
                 # Next line should be the declaration
                 decl = lines[i + 1].strip() if i + 1 < len(lines) else ""

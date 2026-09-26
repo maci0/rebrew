@@ -901,10 +901,10 @@ def main(
         if not metadata_path.exists():
             error_exit(f"data metadata not found: {metadata_path}", json_mode=json_output)
         ref_bytes, ref_sizes = section_symbol_bytes(
-            metadata_path=metadata_path, binary_path=cfg.target_binary
+            metadata_path=metadata_path, binary_path=cfg.target_binary, cfg=cfg
         )
         built_bytes, built_sizes = section_symbol_bytes(
-            metadata_path=metadata_path, binary_path=built_path
+            metadata_path=metadata_path, binary_path=built_path, cfg=cfg
         )
         data_report = verify_data_bytes(
             metadata_path=metadata_path,
@@ -949,12 +949,15 @@ def main(
                 DATA_STATUS_UNCHECKED,
                 DATA_STATUS_VERIFIED,
                 load_data_metadata,
+                module_visible_to_target,
                 set_data_fields_batch,
             )
 
             entries = load_data_metadata(cfg.metadata_dir)
             names_by_va: dict[int, tuple[str, str]] = {}
             for (module, va), fields in entries.items():
+                if not module_visible_to_target(module, cfg):
+                    continue
                 name = str(fields.get("name") or "")
                 if name:
                     names_by_va[va] = (module, name)

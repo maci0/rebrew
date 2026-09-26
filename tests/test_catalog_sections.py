@@ -126,6 +126,21 @@ class TestGetGlobals:
         assert globals_dict[0x10006000]["name"] == "unknown"
         assert globals_dict[0x10006000]["size"] == 4
 
+    def test_other_target_marker_is_omitted(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        src = (
+            "// GLOBAL: SERVER 0x10001000\nint g_server;\n"
+            "// GLOBAL: GOLD 0x401000\nint g_client;\n"
+            "// GLOBAL: MSVCRT 0x10030000\nint __argc;\n"
+        )
+        f = tmp_path / "data.c"
+        f.write_text(src, encoding="utf-8")
+        monkeypatch.setattr("rebrew.sections.iter_sources", lambda _d, _c: [f])
+        cfg = SimpleNamespace(marker="SERVER", all_markers={"SERVER", "GOLD"}, source_ext=".c")
+        globals_dict = get_globals(tmp_path, cfg)  # type: ignore[arg-type]
+        assert set(globals_dict) == {0x10001000, 0x10030000}
+
 
 class TestBackJumpsForward:
     def test_near_jmp_forward_out_of_range(self) -> None:

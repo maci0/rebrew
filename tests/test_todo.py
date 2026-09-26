@@ -1724,6 +1724,18 @@ class TestDataDrift:
         assert items[0].name == "g_a"
         assert items[0].va == 0x1000
 
+    def test_other_target_drift_is_omitted(self, tmp_path: Path) -> None:
+        from rebrew.data_metadata import set_data_field
+        from rebrew.todo import _collect_data_drift
+
+        cfg = _make_cfg(tmp_path, all_markers={"TEST", "GOLD"})
+        set_data_field(tmp_path, 0x1000, "name", "g_ours", "TEST")
+        set_data_field(tmp_path, 0x1000, "status", "DRIFT", "TEST")
+        set_data_field(tmp_path, 0x401000, "name", "g_client", "GOLD")
+        set_data_field(tmp_path, 0x401000, "status", "DRIFT", "GOLD")
+        items = _collect_data_drift(cfg)
+        assert [i.name for i in items] == ["g_ours"]
+
     def test_no_drift_no_items(self, tmp_path: Path) -> None:
         from rebrew.todo import _collect_data_drift
 

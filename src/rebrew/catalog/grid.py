@@ -295,13 +295,15 @@ def generate_data_json(
     # every global in a .cpp or shared source vanishes from the coverage DB.
     globals_dict = get_globals(src_dir, cfg) if src_dir else {}
     if metadata_dir is not None:
-        from rebrew.data_metadata import load_data_metadata
+        from rebrew.data_metadata import load_data_metadata, module_visible_to_target
 
         try:
             data_entries = load_data_metadata(metadata_dir)
         except OSError:
             data_entries = {}
-        for (_module, va), fields in data_entries.items():
+        for (module, va), fields in data_entries.items():
+            if not module_visible_to_target(module, cfg):
+                continue
             if va in globals_dict and fields.get("status"):
                 globals_dict[va]["status"] = str(fields["status"])
     ghidra_data_labels = load_ghidra_data_labels(src_dir)

@@ -131,6 +131,14 @@ def run_catalog(
         for st in sorted(progress.status_counts):
             console.print(f"  {st}: {progress.status_counts[st]}")
         console.print(f"Library identified: {progress.library_identified}")
+        if progress.total_text_bytes > 0:
+            # Same figure, same words, as `rebrew status`. Identified below
+            # counts every annotated function, stubs included.
+            console.print(
+                f"Of .text: {progress.byte_coverage_pct}% "
+                f"({progress.matched_bytes}/{progress.total_text_bytes} bytes) "
+                "in byte-matched functions"
+            )
         console.print(
             f"Identified: {identified_pct:.1f}% of .text ({covered}/{text_size} bytes) "
             "claimed by an annotated function, stubs and library code included"

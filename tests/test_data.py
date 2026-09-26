@@ -228,6 +228,52 @@ class TestScanGlobals:
         vas = sorted(g.va for g in result.globals.values() if g.name == "g_dup")
         assert vas == [0x10001000, 0x10002000]
 
+    def test_other_target_global_is_omitted(self, tmp_path: Path) -> None:
+        """A shared file's other-target marker, and the extern under it, stay
+        off this target's inventory. A library marker stays."""
+        _write_c(
+            tmp_path,
+            "twin.c",
+            "// GLOBAL: GOLDTL 0x6624a0\n"
+            "extern unsigned int g_6624a0[];\n"
+            "// GLOBAL: GOLD 0x5eb380\n"
+            "extern unsigned int g_6624a0[];\n"
+            "// GLOBAL: SERVER 0x10027078\n"
+            "extern int g_server_only;\n"
+            "// GLOBAL: MSVCRT 0x10030000\n"
+            "extern int __argc;\n",
+        )
+        cfg = SimpleNamespace(
+            marker="SERVER",
+            all_markers={"SERVER", "GOLD", "GOLDTL"},
+            source_ext=".c",
+            metadata_dir=tmp_path,
+        )
+        names = set(scan_globals(tmp_path, cfg).globals)
+        assert names == {"g_server_only", "__argc"}
+
+    def test_other_target_file_externs_are_omitted(self, tmp_path: Path) -> None:
+        """An extern in a file that only marks another target is that
+        target's data, even with no GLOBAL line above it."""
+        _write_c(
+            tmp_path,
+            "client.c",
+            "// FUNCTION: GOLD 0x410610\nextern int g_005f3234;\n",
+        )
+        _write_c(
+            tmp_path,
+            "server.c",
+            "// FUNCTION: SERVER 0x10001000\nextern int g_server;\n",
+        )
+        cfg = SimpleNamespace(
+            marker="SERVER",
+            all_markers={"SERVER", "GOLD", "GOLDTL"},
+            source_ext=".c",
+            metadata_dir=tmp_path,
+        )
+        names = set(scan_globals(tmp_path, cfg).globals)
+        assert names == {"g_server"}
+
 
 def test_function_pointer_declaration_not_treated_as_function() -> None:
     from rebrew.c_parser import find_extern_variables
