@@ -1,5 +1,6 @@
 ## [Unreleased]
 
+## [2.10.0] - 2026-09-26
 ### Fixed
 - **Dashboard search accepts a hex address.** The function search matches
   name or symbol, the global search matches name, and a term of four or
