@@ -1799,31 +1799,31 @@ def precompile_batch(
                         link.parent.mkdir(parents=True, exist_ok=True)
                         shutil.copyfile(child, link)
             for e in members:
-                src = Path(cfg.reversed_dir) / e.filepath
+                source = Path(cfg.reversed_dir) / e.filepath
                 # Mirror the source tree (foo/bar.c → workdir/foo/bar.c):
                 # flat staging breaks relative #includes
                 # ("../../Units/Err/x.h") and same-dir header lookup.
                 # Several functions can share one file: stage the path once
                 # but track EVERY entry (path → entries) so each gets the
                 # built object fanned out below.
-                rel = src.relative_to(cfg.reversed_dir)
-                dest = workdir / rel
+                rel = source.relative_to(cfg.reversed_dir)
+                target = workdir / rel
                 rel_s = rel.as_posix()
                 if rel_s in staged:
                     staged[rel_s].append(e)
                 else:
                     with contextlib.suppress(OSError):
-                        dest.parent.mkdir(parents=True, exist_ok=True)
-                        # Unlink first: dest may be a tree copy from above and
+                        target.parent.mkdir(parents=True, exist_ok=True)
+                        # Unlink first: target may be a tree copy from above and
                         # write_bytes must replace it, not merge.
-                        if dest.is_symlink() or dest.exists():
-                            dest.unlink()
-                        dest.write_bytes(src.read_bytes())
+                        if target.is_symlink() or target.exists():
+                            target.unlink()
+                        target.write_bytes(source.read_bytes())
                         staged[rel_s] = [e]
                 # Collect this member's own /I flags for the union below.
                 _, own_cflags = resolve_compile_overrides(
                     cfg,
-                    src.parent,
+                    source.parent,
                     getattr(e, "toolchain", ""),
                     getattr(e, "cflags", ""),
                     getattr(e, "module", ""),

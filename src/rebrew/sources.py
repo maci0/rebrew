@@ -12,6 +12,7 @@ without pulling in the presentation layer.
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 from pathlib import Path
 
 from rebrew.config import ProjectConfig
@@ -57,6 +58,33 @@ def target_marker(cfg: ProjectConfig | None) -> str | None:
     return cfg.marker if cfg is not None else None
 
 
+#: Directories rglob must not descend into when scanning for sources.
+_EXCLUDE_DIRS = {
+    ".git",
+    ".hg",
+    "__pycache__",
+    ".venv",
+    "venv",
+    "build",
+    "dist",
+    ".tox",
+    "node_modules",
+}
+
+
+def _files_matching(directory: Path | str, predicate: Callable[[Path], bool]) -> list[Path]:
+    """Sorted non-symlink files under *directory* matching *predicate*, skipping :data:`_EXCLUDE_DIRS`."""
+    dir_path = Path(directory)
+    matches: list[Path] = []
+    for root, dirs, files in os.walk(dir_path):
+        dirs[:] = [name for name in dirs if name not in _EXCLUDE_DIRS]
+        for f in files:
+            p = Path(root) / f
+            if not p.is_symlink() and predicate(p):
+                matches.append(p)
+    return sorted(matches)
+
+
 def _library_headers_under(directory: Path | str) -> list[Path]:
     """``library_*.h`` files under *directory*, skipping :data:`_EXCLUDE_DIRS`.
 
@@ -64,16 +92,9 @@ def _library_headers_under(directory: Path | str) -> list[Path]:
     scan descended into ``build/``, ``.venv/``, and a copied dependency tree,
     counting their headers as the project's own library markers.
     """
-    dir_path = Path(directory)
-    matches: list[Path] = []
-    for root, dirs, files in os.walk(dir_path):
-        dirs[:] = [name for name in dirs if name not in _EXCLUDE_DIRS]
-        for f in files:
-            if f.startswith("library_") and f.endswith(".h"):
-                p = Path(root) / f
-                if not p.is_symlink():
-                    matches.append(p)
-    return sorted(matches)
+    return _files_matching(
+        directory, lambda p: p.name.startswith("library_") and p.name.endswith(".h")
+    )
 
 
 def _resolve_dir_and_cfg(
@@ -130,35 +151,13 @@ def iter_library_headers(
     return files
 
 
-#: Directories rglob must not descend into when scanning for sources.
-_EXCLUDE_DIRS = {
-    ".git",
-    ".hg",
-    "__pycache__",
-    ".venv",
-    "venv",
-    "build",
-    "dist",
-    ".tox",
-    "node_modules",
-}
-
-
 def _files_with_ext(directory: Path | str, wanted: set[str]) -> list[Path]:
     """Sorted files under *directory* whose lower-cased suffix is in *wanted*.
 
     Shared by the target's own scan and the shared-sources scan so both halves
     apply the same extension set and the same exclusion rules.
     """
-    dir_path = Path(directory)
-    matches: list[Path] = []
-    for root, dirs, files in os.walk(dir_path):
-        dirs[:] = [name for name in dirs if name not in _EXCLUDE_DIRS]
-        for f in files:
-            p = Path(root) / f
-            if p.suffix.lower() in wanted and not p.is_symlink():
-                matches.append(p)
-    return sorted(matches)
+    return _files_matching(directory, lambda p: p.suffix.lower() in wanted)
 
 
 def iter_sources(

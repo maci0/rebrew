@@ -347,29 +347,29 @@ def _link_toolchain(
         return None
 
     candidates = toolchain_link_candidates(compiler_profile) or [tools_name]
-    src: Path | None = None
+    source: Path | None = None
     for cand in candidates:
         cand_path = Path(master).expanduser() / cand
         if cand_path.is_dir():
-            src = cand_path
+            source = cand_path
             break
-    if src is None:
+    if source is None:
         error_exit(
             f"Toolchain not found in {Path(master).expanduser()} "
             f"(looked for {', '.join(candidates)})",
             json_mode=json_output,
         )
 
-    rel = src.relative_to(Path(master).expanduser())
-    dest = cwd / "toolchain" / rel
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    if dest.is_symlink() or dest.exists():
+    rel = source.relative_to(Path(master).expanduser())
+    target = cwd / "toolchain" / rel
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if target.is_symlink() or target.exists():
         console.print(f"[yellow]toolchain/{rel} already exists; leaving it as-is[/]")
-        return dest
+        return target
 
-    dest.symlink_to(src, target_is_directory=True)
-    console.print(f"[green]Linked toolchain/{rel} -> {src}[/]")
-    return dest
+    target.symlink_to(source, target_is_directory=True)
+    console.print(f"[green]Linked toolchain/{rel} -> {source}[/]")
+    return target
 
 
 def _rewrite_compiler_paths(toml_path: Path, layout: tuple[str, str, str]) -> None:
