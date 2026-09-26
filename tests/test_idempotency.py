@@ -214,3 +214,45 @@ class TestBlockerSetIdempotent:
         assert r2.exit_code == 0
         digest_after_second = _tree_digest(tmp_path)
         assert digest_after_first == digest_after_second
+
+
+class TestConvergeLayoutIdempotent:
+    def test_converge_layout_twice_identical_tree(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """converge_layout adjusts a pad on round 1; running again on converged state leaves the tree identical."""
+        from rebrew import data_layout as dl
+
+        src = tmp_path / "src"
+        src.mkdir()
+        f = src / "a.c"
+        f.write_text("// Header\n// FUNCTION: SERVER 0x10027000\nint g_a = 1;\n", encoding="utf-8")
+
+        build = tmp_path / "build"
+        build.mkdir()
+        (build / "server.dll").write_bytes(b"MZ")
+        orig = tmp_path / "orig.dll"
+        orig.write_bytes(b"\x00" * 0x80)
+
+        data_base = 0x10027000
+        monkeypatch.setattr(
+            dl, "layout_geometry", lambda p, target=None: (data_base, 0x1000, 0x1000)
+        )
+        monkeypatch.setattr(dl, "data_raw_from_binary", lambda p: b"\xab" * 0x80)
+        monkeypatch.setattr(dl, "_converge_target", lambda root, target: "server.dll")
+        monkeypatch.setattr(dl, "built_data_va", lambda d: data_base)
+        monkeypatch.setattr(dl, "link_objects", lambda root: [tmp_path / "a.obj"])
+        monkeypatch.setattr(dl, "_obj_to_source", lambda o, root, src_dir: f)
+
+        # Initial layout needs 32-byte pad
+        monkeypatch.setattr(dl, "data_symbols", lambda m: {"g_a": data_base + 0x20})
+        monkeypatch.setattr(dl, "obj_data_symbol_offsets", lambda o: (0x10, {"g_a": 0}))
+
+        dl.converge_layout(tmp_path, tmp_path / "m.toml", orig, src, rounds=1, target="server.dll")
+        digest_after_first = _tree_digest(tmp_path)
+
+        # Re-run when converged (offset now reflects the 32-byte pad): delta is 0
+        monkeypatch.setattr(dl, "obj_data_symbol_offsets", lambda o: (0x30, {"g_a": 32}))
+        dl.converge_layout(tmp_path, tmp_path / "m.toml", orig, src, rounds=1, target="server.dll")
+        digest_after_second = _tree_digest(tmp_path)
+        assert digest_after_first == digest_after_second

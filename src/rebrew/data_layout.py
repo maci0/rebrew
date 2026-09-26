@@ -1184,7 +1184,40 @@ def fix_ownership(
 # data --converge: fixed-point .data placement via leading _dlead_ pads
 # ---------------------------------------------------------------------------
 
-_DLEAD_RE = re.compile(r"^unsigned char (_dlead_\w+)\[(\d+)\]")
+_DLEAD_RE = re.compile(r"^[ \t]*unsigned char (_dlead_\w+)\[(\d+)\]", re.MULTILINE)
+
+
+def _find_dlead_pad(text: str) -> tuple[int, int, str, int, str] | None:
+    """Find an existing ``_dlead_`` pad definition/declaration in *text*.
+
+    Returns ``(start, end, pad_name, size, indent)`` where ``[start:end]`` spans
+    the entire declaration up to and including the terminating semicolon (and
+    any immediate trailing newline).  Returns ``None`` when absent.
+    """
+    for pos, ln in _iter_line_spans(text):
+        m = re.match(r"^([ \t]*)unsigned char\s+(_dlead_\w+)\s*\[\s*(\d+)\s*\]", ln)
+        if m:
+            indent = m.group(1)
+            pad_name = m.group(2)
+            size = int(m.group(3))
+            start = pos
+            depth = 0
+            i = pos
+            n = len(text)
+            while i < n:
+                c = text[i]
+                if c == "{":
+                    depth += 1
+                elif c == "}":
+                    depth -= 1
+                elif c == ";" and depth == 0:
+                    end = i + 1
+                    if end < n and text[end] == "\n":
+                        end += 1
+                    return start, end, pad_name, size, indent
+                i += 1
+            return start, n, pad_name, size, indent
+    return None
 
 
 def _converge_target(root: Path, target: str | None) -> str:
@@ -1292,36 +1325,39 @@ def converge_layout(
             if f is None:
                 continue
             text, encoding = read_source_text(f)
-            m = _DLEAD_RE.search(text)
-            old_size = int(m.group(2)) if m else 0
+            pad_info = _find_dlead_pad(text)
+            old_size = pad_info[3] if pad_info else 0
             new_size = max(0, old_size + delta)
-            if m is None and new_size == 0:
+            if pad_info is None and new_size == 0:
                 # No lead pad to shrink: the TU starts too late for a pad to
                 # fix.  Inserting an empty line here grew the TU on every run.
                 continue
-            pad_name = "_dlead_" + re.sub(r"\W", "_", f.stem)
+            pad_name = pad_info[2] if pad_info else "_dlead_" + re.sub(r"\W", "_", f.stem)
+            indent = pad_info[4] if pad_info else ""
             if new_size > 0 and exp - new_size >= data_base:
                 off = (exp - new_size) - data_base
                 data = orig[off : off + new_size]
-                line = f"unsigned char {pad_name}[{new_size}] = {hex_list(data)};"
+                decl_line = f"{indent}unsigned char {pad_name}[{new_size}] = {hex_list(data)};\n"
             elif new_size > 0:
-                line = f"unsigned char {pad_name}[{new_size}];"
+                decl_line = f"{indent}unsigned char {pad_name}[{new_size}];\n"
             else:
                 # The pad shrank to nothing — emit NO declaration.  `[0]` is
                 # not valid C89 and would break the very build this tool
                 # converges.
-                line = ""
-            if m:
-                text = text[: m.start()] + line + text[m.end() :]
+                decl_line = ""
+            if pad_info:
+                start, end, _, _, _ = pad_info
+                text = text[:start] + decl_line + text[end:]
             else:
-                text = re.sub(
+                new_text = re.sub(
                     r"(\n)(?=\s*(?:extern|static|__declspec|// FUNCTION|// GLOBAL))",
-                    r"\1" + line + "\n",
+                    r"\1" + decl_line,
                     text,
                     count=1,
                 )
-                if line not in text:
-                    text = line + "\n" + text
+                if decl_line not in new_text:
+                    new_text = decl_line + text
+                text = new_text
             if not dry_run:
                 atomic_write_text(f, text, encoding=encoding)
             changes.append(
