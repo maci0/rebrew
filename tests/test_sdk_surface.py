@@ -32,12 +32,35 @@ class TestTopLevelPackageExports:
         assert isinstance(rebrew.__version__, str)
 
     def test_top_level_lazy_attribute_access(self) -> None:
+        from rebrew.compile import compile_and_compare
+        from rebrew.toolchain import ToolchainError, get_toolchain
+
         assert rebrew.load_config is load_config
+        assert rebrew.ConfigError is ConfigError
         assert rebrew.RebrewError is RebrewError
         assert rebrew.ProjectConfig is ProjectConfig
         assert rebrew.CompareResult is CompareResult
+        assert rebrew.compile_and_compare is compile_and_compare
+        assert rebrew.ToolchainError is ToolchainError
+        assert rebrew.get_toolchain is get_toolchain
         assert rebrew.iter_sources is iter_sources
         assert rebrew.iter_library_headers is iter_library_headers
+
+    def test_top_level_lazy_exports_snapshot(self) -> None:
+        """Gating: prevent accidental dropping or renaming of top-level exports."""
+        expected = {
+            "CompareResult",
+            "ConfigError",
+            "ProjectConfig",
+            "RebrewError",
+            "ToolchainError",
+            "compile_and_compare",
+            "get_toolchain",
+            "iter_library_headers",
+            "iter_sources",
+            "load_config",
+        }
+        assert set(rebrew._LAZY_EXPORTS.keys()) == expected
 
     def test_top_level_dir_includes_lazy_exports(self) -> None:
         d = dir(rebrew)
@@ -54,11 +77,33 @@ class TestTopLevelPackageExports:
 class TestErrorsLazyExports:
     def test_lazy_error_imports(self) -> None:
         import rebrew.errors as err_mod
+        from rebrew.toolchain import ToolchainError
 
         assert err_mod.ConfigError is ConfigError
+        assert err_mod.ToolchainError is ToolchainError
         assert err_mod.DecompmeError is DecompmeError
         assert issubclass(err_mod.DecompmeError, RebrewError)
         assert issubclass(err_mod.DecompmeError, RuntimeError)
+        assert issubclass(err_mod.ToolchainError, RebrewError)
+
+    def test_lazy_errors_snapshot(self) -> None:
+        """Gating: prevent accidental removal of lazy error exports."""
+        import rebrew.errors as err_mod
+
+        expected = {
+            "ConfigError",
+            "ConfigNotFoundError",
+            "ConfigKeyError",
+            "DecompmeError",
+            "McpApplyAborted",
+            "McpError",
+            "MetadataValidationError",
+            "RecompileError",
+            "RegistryError",
+            "ToolchainError",
+            "WorkspaceNotFound",
+        }
+        assert set(err_mod._LAZY_ERRORS.keys()) == expected
 
     def test_errors_dir_and_all(self) -> None:
         import rebrew.errors as err_mod
