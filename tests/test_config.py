@@ -1991,3 +1991,78 @@ profile = "msvc-6.0"
         cfg.recompile_url = "ftp://invalid"
         with pytest.raises(ConfigError, match=r"compiler\.recompile_url must be an http\(s\) URL"):
             cfg.validate()
+        cfg.recompile_url = ""
+
+        # Test format validation
+        cfg.binary_format = "invalid_format"
+        with pytest.raises(ConfigError, match=r"unknown format 'invalid_format'"):
+            cfg.validate()
+        cfg.binary_format = "pe"
+
+        # Test ghidra_backend validation
+        cfg.ghidra_backend = "invalid_backend"
+        with pytest.raises(ConfigError, match=r"unknown ghidra_backend 'invalid_backend'"):
+            cfg.validate()
+        cfg.ghidra_backend = "reva"
+
+        # Test cache_backend validation
+        cfg.cache_backend = "invalid_cache"
+        with pytest.raises(
+            ConfigError, match=r"cache_backend 'invalid_cache' is not a registered backend"
+        ):
+            cfg.validate()
+        cfg.cache_backend = "diskcache"
+
+        # Test default_jobs validation
+        cfg.default_jobs = 0
+        with pytest.raises(ConfigError, match=r"project\.jobs \(0\) must be >= 1"):
+            cfg.validate()
+        cfg.default_jobs = 4
+
+        # Test compile_timeout validation
+        cfg.compile_timeout = 0
+        with pytest.raises(ConfigError, match=r"compiler\.timeout \(0\) must be >= 1"):
+            cfg.validate()
+        cfg.compile_timeout = 60
+
+        # Test lint_max_line_length validation
+        cfg.lint_max_line_length = -1
+        with pytest.raises(ConfigError, match=r"lint_max_line_length \(-1\) must be >= 0"):
+            cfg.validate()
+        cfg.lint_max_line_length = 200
+
+        # Test link stack reserve/commit validation
+        from rebrew.config import LinkConfig
+
+        cfg.link = LinkConfig(stack_reserve=0x1000, stack_commit=0x2000)
+        with pytest.raises(
+            ConfigError, match=r"link\.stack_commit \(8192\) exceeds link\.stack_reserve \(4096\)"
+        ):
+            cfg.validate()
+
+    def test_lint_max_line_length_zero_accepted(self, tmp_path: Path) -> None:
+        toml = """\
+[project]
+default_target = "main"
+lint.max_line_length = 0
+
+[targets.main]
+binary = "game.exe"
+"""
+        root = _make_project(tmp_path, toml)
+        cfg = load_config(root)
+        assert cfg.lint_max_line_length == 0
+
+    def test_project_config_as_dict_contains_all_fields(self, tmp_path: Path) -> None:
+        root = _make_project(tmp_path, self.BASE_TOML)
+        cfg = load_config(root)
+        d = cfg.as_dict()
+        assert "ghidra_backend" in d
+        assert "ghidra_program_path" in d
+        assert "binsync_state_dir" in d
+        assert "inventory_file" in d
+        assert "source_ext" in d
+        assert "lint_naming_convention" in d
+        assert "lint_brace_style" in d
+        assert "lint_indent_style" in d
+        assert "lint_max_line_length" in d

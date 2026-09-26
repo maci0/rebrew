@@ -33,8 +33,12 @@ import tomlkit
 import typer
 
 from rebrew.cli import EXIT_ERROR, TargetOption, console, error_exit, json_print
+from rebrew.config import (
+    _KNOWN_PROJECT_KEYS,
+    _KNOWN_TARGET_KEYS,
+    validate_http_url,
+)
 from rebrew.config import find_root as _config_find_root
-from rebrew.config import validate_http_url
 from rebrew.utils import atomic_write_text, parse_int_literal, preset_module_key
 
 #: Config key suffixes whose values must never be echoed to the terminal /
@@ -89,51 +93,16 @@ def _redact_secrets(obj: Any) -> Any:
 # Target-scoped config keys
 # ---------------------------------------------------------------------------
 
-#: Keys that live under ``[targets.<name>]``.  ``rebrew cfg set <key> <value>``
-#: with a bare (non-dotted) key routes to the default target automatically;
-#: an explicit ``targets.<name>.<key>`` path always wins.
 #: Keys that live under ``[targets.<name>]``.  Kept in sync with
 #: ``config._KNOWN_TARGET_KEYS``; bare ``cfg set <key>`` routes these to the
 #: default target automatically (an explicit ``targets.<name>.<key>`` wins).
-_TARGET_SCOPED_KEYS: frozenset[str] = frozenset(
-    {
-        "binary",
-        "format",
-        "arch",
-        "reversed_dir",
-        "bin_dir",
-        "source_ext",
-        "marker",
-        "defines",
-        "ignored_symbols",
-        "origins",
-        "crt_sources",
-        "ghidra_program_path",
-        "ghidra_backend",
-        "r2_bogus_vas",
-        "iat_thunks",
-        "dll_exports",
-        "library_modules",
-        "cflags_presets",
-        "binsync_state_dir",
-    }
-)
+_TARGET_SCOPED_KEYS: frozenset[str] = frozenset(_KNOWN_TARGET_KEYS - {"compiler"})
 
 #: Keys that live under ``[project]``.  Kept in sync with
 #: ``config._KNOWN_PROJECT_KEYS``; bare ``cfg set <key>`` routes these to the
 #: ``[project]`` table (writing them at the document top level produced keys
 #: the config reader rejects with an "unrecognized top-level keys" warning).
-_PROJECT_SCOPED_KEYS: frozenset[str] = frozenset(
-    {
-        "name",
-        "jobs",
-        "db_dir",
-        "output_dir",
-        "default_target",
-        "shared_dir",
-        "lint",
-    }
-)
+_PROJECT_SCOPED_KEYS: frozenset[str] = frozenset(_KNOWN_PROJECT_KEYS)
 
 
 def _resolve_dotted_key(
@@ -768,6 +737,55 @@ def set_value(
             parsed_value = validate_http_url(str(parsed_value), url_label)
         except ValueError as exc:
             error_exit(str(exc), code=EXIT_ERROR)
+
+    leaf = key.rsplit(".", 1)[-1]
+    parts = key.split(".")
+    if (key == "llm.model" or (leaf == "model" and "llm" in parts)) and parsed_value:
+        try:
+            from rebrew.config import validate_llm_model
+
+            validate_llm_model(str(parsed_value))
+        except ValueError as exc:
+            error_exit(str(exc), code=EXIT_ERROR)
+
+    if (leaf == "format" or key == "format") and parsed_value:
+        from rebrew.config import _KNOWN_FORMATS
+
+        if parsed_value not in _KNOWN_FORMATS:
+            error_exit(
+                f"unknown format {parsed_value!r} (known: {', '.join(sorted(_KNOWN_FORMATS))})",
+                code=EXIT_ERROR,
+            )
+
+    if (leaf == "arch" or key == "arch") and parsed_value:
+        from rebrew.config import _ARCH_PRESETS
+
+        if parsed_value not in _ARCH_PRESETS:
+            error_exit(
+                f"unknown arch {parsed_value!r} (known: {', '.join(sorted(_ARCH_PRESETS))})",
+                code=EXIT_ERROR,
+            )
+
+    if (
+        (leaf == "ghidra_backend" or key == "ghidra_backend")
+        and parsed_value
+        and parsed_value not in ("reva", "cli")
+    ):
+        error_exit(
+            f"unknown ghidra_backend {parsed_value!r} (known: reva, cli)",
+            code=EXIT_ERROR,
+        )
+
+    if (leaf == "backend" and "cache" in parts) and parsed_value:
+        from rebrew.compile_cache import available_cache_backends
+
+        known_backends = available_cache_backends()
+        if parsed_value not in known_backends:
+            error_exit(
+                f"cache.backend = {parsed_value!r} is not a registered backend "
+                f"(known: {', '.join(known_backends)})",
+                code=EXIT_ERROR,
+            )
 
     shown = _display_config_value(key, parsed_value)
     if dry_run:
