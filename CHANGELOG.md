@@ -1,5 +1,6 @@
 ## [Unreleased]
 
+## [2.12.0] - 2026-09-26
 ### Fixed
 - **`status` prints one progress percentage.** The headline and the footer
   both use the share of `.text` in byte-matched functions when that size is
