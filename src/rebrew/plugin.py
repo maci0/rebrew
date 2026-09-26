@@ -39,9 +39,12 @@ import typer
 from rich.console import Console
 from rich.markup import escape
 
-from rebrew.cli import EXIT_ERROR
 from rebrew.errors import RebrewError
 from rebrew.registry import Registration, RegistryError, import_registration
+
+#: Process exit code reported by unavailable stub commands.
+_EXIT_ERROR: int = 2
+
 
 Disposer = Callable[[], None]
 
@@ -476,7 +479,7 @@ def make_stub_command(module: str, error: Exception, console: Console) -> Callab
 
     def _stub() -> None:
         console.print(f"[red]error:[/red] could not load '{escape(module)}': {escape(str(error))}")
-        raise typer.Exit(code=EXIT_ERROR)
+        raise typer.Exit(code=_EXIT_ERROR)
 
     return _stub
 
