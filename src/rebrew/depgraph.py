@@ -23,6 +23,7 @@ import typer
 from rebrew.annotation import parse_c_file_multi
 from rebrew.cli import (
     DISPLAY_STATUSES,
+    STATUS_HEX,
     TargetOption,
     console,
     error_exit,
@@ -422,19 +423,22 @@ def _focus_graph(
     return filtered_nodes, filtered_edges, filtered_dispatch
 
 
+# Mermaid class per status. PROVEN must not share EXACT's fill: it is not a
+# byte match. Fills themselves live in ``STATUS_HEX``.
+_MERMAID_CLASS: dict[str, str] = {
+    "EXACT": "exact",
+    "RELOC": "reloc",
+    "PROVEN": "proven",
+    "NEAR_MATCHING": "matching",
+    "STUB": "stub",
+    "UNKNOWN": "unknown",
+    "DISPATCH": "dispatch",
+}
+
+
 def _status_style(status: str) -> str:
     """Return a mermaid node style class for the given status."""
-    return {
-        "EXACT": "exact",
-        "RELOC": "reloc",
-        # PROVEN is not a byte match: it must not share the EXACT colour, or
-        # the graph presents proven work as byte-perfect.
-        "PROVEN": "proven",
-        "NEAR_MATCHING": "matching",
-        "STUB": "stub",
-        "UNKNOWN": "unknown",
-        "DISPATCH": "dispatch",
-    }.get(status, "unknown")
+    return _MERMAID_CLASS.get(status, "unknown")
 
 
 def render_mermaid(
@@ -450,14 +454,9 @@ def render_mermaid(
     """
     lines = ["graph LR"]
 
-    # Style definitions
-    lines.append("    classDef exact fill:#2ecc71,stroke:#27ae60,color:#fff")
-    lines.append("    classDef reloc fill:#3498db,stroke:#2980b9,color:#fff")
-    lines.append("    classDef proven fill:#1abc9c,stroke:#16a085,color:#fff")
-    lines.append("    classDef matching fill:#f39c12,stroke:#e67e22,color:#fff")
-    lines.append("    classDef stub fill:#e74c3c,stroke:#c0392b,color:#fff")
-    lines.append("    classDef unknown fill:#95a5a6,stroke:#7f8c8d,color:#fff")
-    lines.append("    classDef dispatch fill:#9b59b6,stroke:#8e44ad,color:#fff")
+    # STATUS_HEX fills. White type meets WCAG AA on each; stroke is header ink.
+    for status, cls in _MERMAID_CLASS.items():
+        lines.append(f"    classDef {cls} fill:{STATUS_HEX[status]},stroke:#1a1a1a,color:#fff")
     lines.append("")
 
     # Deduplicate edges
@@ -505,25 +504,16 @@ def render_dot(
     """
     lines = ["digraph G {", "    rankdir=LR;", "    node [shape=box, style=filled];", ""]
 
-    color_map = {
-        "EXACT": "#2ecc71",
-        "RELOC": "#3498db",
-        # Distinct from EXACT: PROVEN is not a byte match.
-        "PROVEN": "#1abc9c",
-        "NEAR_MATCHING": "#f39c12",
-        "STUB": "#e74c3c",
-        "UNKNOWN": "#95a5a6",
-        "DISPATCH": "#9b59b6",
-    }
-
     for name, info in sorted(nodes.items()):
         nid = _sanitize_id(name)
         status = info["status"]
-        color = color_map.get(status, "#95a5a6")
-        font_color = "black" if status == "NEAR_MATCHING" else "white"
+        # Unknown statuses stay on the UNKNOWN mark, not a second gray.
+        color = STATUS_HEX.get(status, STATUS_HEX["UNKNOWN"])
         shown = info.get("symbol", "") or name
         label = f"{shown}\\n[{status}]" if status not in ("UNKNOWN", "DISPATCH") else shown
-        lines.append(f'    {nid} [label="{label}", fillcolor="{color}", fontcolor="{font_color}"];')
+        lines.append(
+            f'    {nid} [label="{label}", fillcolor="{color}", color="#1a1a1a", fontcolor="white"];'
+        )
 
     lines.append("")
 

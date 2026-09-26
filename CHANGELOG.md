@@ -1,6 +1,12 @@
 ## [Unreleased]
 
 ### Fixed
+- **Call graph status colors match the report.** Mermaid and DOT nodes use
+  the report's marks (EXACT green, RELOC blue, PROVEN cyan, near-match
+  amber, STUB slate) with the report header as the stroke. STUB is no
+  longer drawn in error red, and a dispatch node uses that header ink
+  instead of a purple chart default. The dashboard status column, history,
+  and summary cards use the same marks.
 - **The SBOM identifies rebrew by its GitHub repository.** The root
   component purl is `pkg:github/maci0/rebrew@v<version>` (the release tag).
   Project URLs are copied onto the component as external references.

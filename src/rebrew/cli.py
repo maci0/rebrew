@@ -70,6 +70,20 @@ STATUS_COLORS: dict[str, str] = {
     "SKIP": "dim",
 }
 
+# Page and call-graph marks for the same statuses. Text on white (report,
+# dashboard) and white on the fill (Mermaid, DOT) both meet WCAG AA.
+# STUB is slate, like the dim terminal tag, not an error red. DISPATCH is
+# the report header ink: a jump table is structure, not a match status.
+STATUS_HEX: dict[str, str] = {
+    "EXACT": "#15803d",
+    "RELOC": "#0369a1",
+    "PROVEN": "#0e7490",
+    "NEAR_MATCHING": "#b45309",
+    "STUB": "#475569",
+    "UNKNOWN": "#555",
+    "DISPATCH": "#1a1a1a",
+}
+
 # User-visible classification statuses, in canonical display order: the
 # byte-matched ones, then PROVEN (semantically equivalent, bytes differ),
 # then the unmatched ones.
@@ -499,6 +513,7 @@ __all__ = [
     "EXIT_OK",
     "EXIT_SIGPIPE",
     "STATUS_COLORS",
+    "STATUS_HEX",
     "TargetOption",
     "all_targets_run",
     "console",

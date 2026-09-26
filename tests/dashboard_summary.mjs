@@ -74,7 +74,7 @@ for (const staleFailure of [false, true]) {
   assert.equal(element("status").disabled, false);
   assert.match(element("cards").innerHTML, /EXACT/);
   // Button cards: hint only in title (the description), never repeated in the name.
-  assert.match(element("cards").innerHTML, /<button[^>]*title='Filter by EXACT'[^>]*><span class=value>1<\/span><span class=label>EXACT<\/span><\/button>/);
+  assert.match(element("cards").innerHTML, /<button[^>]*title='Filter by EXACT'[^>]*><span class=value>1<\/span><span class='label status-EXACT'>EXACT<\/span><\/button>/);
   assert.match(element("cards").innerHTML, /<div class=card title='Total functions for this target'>.*<span class=visually-hidden>, Total functions for this target<\/span><\/div>/);
   const options = element("status").innerHTML;
   const cards = element("cards").innerHTML;
@@ -227,13 +227,20 @@ assert.equal(element("results-status").textContent, "1 global shown");
 renderGlobals({ total: 2, globals: [["0x10", "g_a", "", 4, ""], ["0x14", "g_b", "", 4, ""]] });
 assert.equal(element("results-status").textContent, "2 globals shown");
 
-// History timestamps: zone-less UTC instants format like toLocaleString, on
-// every row (the formatter is shared); unparseable values pass through.
-const when = (iso) => new Date(iso).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+// History timestamps: zone-less UTC instants go through the shared formatter
+// (zone abbreviation included); unparseable values pass through.
+const when = (iso) => new Intl.DateTimeFormat(undefined, {
+  year: "numeric", month: "short", day: "numeric",
+  hour: "numeric", minute: "2-digit",
+  timeZoneName: "short",
+}).format(new Date(iso));
 renderHistory({ total: 3, history: [
   ["0x10", "f", "STUB", "EXACT", "2026-01-02T03:04:05"],
   ["0x14", "g", "STUB", "RELOC", "2026-03-04T05:06:00Z"],
   ["0x18", "h", "STUB", "EXACT", "not a date"],
 ] });
+assert.match(element("history-rows").innerHTML, /<span class=status-STUB>STUB<\/span>/);
+assert.match(element("history-rows").innerHTML, /<span class=status-EXACT>EXACT<\/span>/);
+assert.match(element("history-rows").innerHTML, /<span class=status-RELOC>RELOC<\/span>/);
 const stamps = [...element("history-rows").innerHTML.matchAll(/<td>([^<]*)<\/td><\/tr>/g)].map(m => m[1]);
 assert.deepEqual(stamps, [when("2026-01-02T03:04:05Z"), when("2026-03-04T05:06:00Z"), "not a date"]);

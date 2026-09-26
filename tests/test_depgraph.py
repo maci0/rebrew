@@ -398,9 +398,14 @@ class TestRenderers:
         assert "->" in result
 
     def test_dot_matching_reloc_color(self) -> None:
+        """NEAR_MATCHING uses the report amber, with white type (AA on that fill)."""
+        from rebrew.cli import STATUS_HEX
+
         nodes: dict[str, NodeInfo] = {"FuncM": {"status": "NEAR_MATCHING", "va": 1, "file": "m.c"}}
         result = render_dot(nodes, [])
-        assert "#f39c12" in result
+        assert STATUS_HEX["NEAR_MATCHING"] in result
+        assert 'fontcolor="white"' in result
+        assert "#f39c12" not in result
 
     def test_dot_dispatch_style(self) -> None:
         """Dispatch edges render with style=dashed in DOT output."""
@@ -414,12 +419,33 @@ class TestRenderers:
         assert "style=dashed" in result
 
     def test_dot_dispatch_node_color(self) -> None:
-        """Dispatch nodes get a distinct fill color (#9b59b6)."""
+        """Dispatch nodes use the report header ink, not a purple chart default."""
+        from rebrew.cli import STATUS_HEX
+
         nodes: dict[str, NodeInfo] = {
             "dispatch_0x20000000": {"status": "DISPATCH", "va": 0x20000000, "file": ""},
         }
         result = render_dot(nodes, [])
-        assert "#9b59b6" in result
+        assert STATUS_HEX["DISPATCH"] in result
+        assert "#9b59b6" not in result
+
+    def test_status_fills_match_report_marks(self) -> None:
+        """Graph fills are the report marks. STUB is slate, not an error red."""
+        from rebrew.cli import STATUS_HEX
+
+        nodes: dict[str, NodeInfo] = {
+            "FuncA": {"status": "EXACT", "va": 1, "file": "a.c"},
+            "FuncB": {"status": "STUB", "va": 2, "file": "b.c"},
+        }
+        mermaid = render_mermaid(nodes, [])
+        dot = render_dot(nodes, [])
+        assert f"fill:{STATUS_HEX['EXACT']}" in mermaid
+        assert f"fill:{STATUS_HEX['STUB']}" in mermaid
+        assert "stroke:#1a1a1a" in mermaid
+        assert STATUS_HEX["STUB"] in dot
+        for stale in ("#e74c3c", "#2ecc71", "#9b59b6", "#3498db", "#f39c12"):
+            assert stale not in mermaid
+            assert stale not in dot
 
     def test_summary_output(self) -> None:
         nodes, edges = self._sample()

@@ -88,7 +88,7 @@ import zstandard
 from rich.markup import escape
 
 from rebrew.build_db import FUNCTION_ROWS_SQL, resolve_db_dir
-from rebrew.cli import console, error_exit, json_print
+from rebrew.cli import STATUS_HEX, console, error_exit, json_print
 from rebrew.metadata import canonical_status
 from rebrew.utils import floor_pct
 from rebrew.workspace import coverage_db_lock, open_sqlite_ro
@@ -440,13 +440,21 @@ function resetHistoryPaging() {
   loadedHistoryCount = 0;
   retryHistoryAppend = false;
 }
+function statusMark(s) {
+  return /^[A-Z][A-Z0-9_]*$/.test(s || "") ? "status-" + s : "";
+}
+function statusText(s) {
+  const text = esc(s || "");
+  const mark = statusMark(s);
+  return mark ? "<span class=" + mark + ">" + text + "</span>" : text;
+}
 const rowHtml = (f) => {
   const r = Array.isArray(f)
     ? f
     : [f.va, f.name, f.symbol, f.size, f.status, f.module, f.files];
   return "<tr><td class=va>" + esc(r[0] ?? "") + "</td><td>" + esc(r[1] || "")
     + "</td><td>" + esc(r[2] || "") + "</td><td>" + esc(r[3] ?? "")
-    + "</td><td>" + esc(r[4] || "") + "</td><td>" + esc(r[5] || "")
+    + "</td><td>" + statusText(r[4] || "") + "</td><td>" + esc(r[5] || "")
     + "</td><td>" + esc(r[6] || "") + "</td></tr>";
 };
 function renderFunctions(data, options) {
@@ -547,8 +555,9 @@ function renderSummary(s) {
   // after the visible text (WCAG 2.5.3). A button already exposes title as its
   // description; a span there too would announce the hint twice.
   $("cards").innerHTML = cards.map(([k, v, status, title]) => {
-    const inner = "<span class=value>" + esc(v) + "</span>"
-      + "<span class=label>" + esc(k) + "</span>";
+    const mark = status ? statusMark(status) : "";
+    const label = mark ? "<span class='label " + mark + "'>" : "<span class=label>";
+    const inner = "<span class=value>" + esc(v) + "</span>" + label + esc(k) + "</span>";
     if (status) {
       const pressed = $("status").value === status;
       const active = pressed ? " active" : "";
@@ -683,7 +692,7 @@ const historyRowHtml = (h) => {
     ? h
     : [h.va, h.name, h.old_status, h.new_status, h.changed_at];
   return "<tr><td class=va>" + esc(r[0] ?? "") + "</td><td>" + esc(r[1] || "")
-    + "</td><td>" + esc(r[2] || "") + "</td><td>" + esc(r[3] || "")
+    + "</td><td>" + statusText(r[2] || "") + "</td><td>" + statusText(r[3] || "")
     + "</td><td>" + esc(formatWhen(r[4])) + "</td></tr>";
 };
 function renderHistory(data, options) {
@@ -1091,6 +1100,7 @@ _INDEX_HTML = """<!doctype html>
   button.card.active .label, .views button.active { font-weight: 700; }
   .card .value { font-size: 1.4rem; font-weight: 700; display: block; }
   .card .label { color: #333; }
+__STATUS_CSS__
   .table-scroll { overflow-x: auto; position: relative; min-height: 6rem; -webkit-overflow-scrolling: touch; }
   .table-scroll[aria-busy="true"]::after {
     content: "Loading…"; position: absolute; inset: 0; display: flex; align-items: center;
@@ -1149,6 +1159,7 @@ _INDEX_HTML = """<!doctype html>
       color: CanvasText;
       border: 1px solid CanvasText;
     }
+__STATUS_FORCED__
   }
   @media (prefers-reduced-motion: reduce) {
     * { transition: none !important; animation: none !important; }
@@ -1282,7 +1293,31 @@ _INDEX_HTML = """<!doctype html>
 _APP_JS_BYTES = _APP_JS.encode("utf-8")
 _APP_JS_VERSION = hashlib.sha256(_APP_JS_BYTES).hexdigest()[:16]
 _APP_JS_ETAG = f'"{_APP_JS_VERSION}"'
+
+
+def _dashboard_status_css() -> str:
+    """Status text rules from ``STATUS_HEX``. DISPATCH is a graph fill only."""
+    lines: list[str] = []
+    for name, color in STATUS_HEX.items():
+        if name == "DISPATCH":
+            continue
+        weight = "" if name == "UNKNOWN" else " font-weight: 600;"
+        # .card .label is equally specific and comes first; the second
+        # selector wins for summary cards. The first colors table cells.
+        lines.append(f"  .status-{name}, .card .status-{name} {{ color: {color};{weight} }}")
+    return "\n".join(lines)
+
+
+def _dashboard_status_forced() -> str:
+    """One forced-colors rule so status marks follow the system palette."""
+    names = ", ".join(f".status-{name}" for name in STATUS_HEX if name != "DISPATCH")
+    return f"    {names} {{ color: CanvasText; font-weight: 700; }}"
+
+
 # The shell links the content-hashed URL, so only that URL is cached immutable.
+_INDEX_HTML = _INDEX_HTML.replace("__STATUS_CSS__", _dashboard_status_css()).replace(
+    "__STATUS_FORCED__", _dashboard_status_forced()
+)
 _INDEX_HTML = _INDEX_HTML.replace("__APP_JS_URL__", f"/app.js?v={_APP_JS_VERSION}")
 _INDEX_HTML_BYTES = _INDEX_HTML.encode("utf-8")
 _INDEX_ETAG = '"' + hashlib.sha256(_INDEX_HTML_BYTES).hexdigest()[:16] + '"'

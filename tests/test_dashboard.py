@@ -668,6 +668,12 @@ class TestHandle:
         assert 'aria-label="Retry failed loads"' in body
         assert "border: 1px solid #767676" in body  # WCAG 1.4.11 non-text contrast
         assert "#ccc" not in body
+        assert ".status-EXACT" in html  # same marks as the report
+        assert "#475569" in html  # STUB
+        assert "#15803d" in html  # EXACT
+        assert "#e74c3c" not in body
+        assert "#9b59b6" not in body
+        assert "function statusText" in js
         assert "forced-colors" in body
         assert "prefers-reduced-motion" in body
         assert 'name="viewport"' in body

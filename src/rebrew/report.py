@@ -48,6 +48,7 @@ from rebrew.annotation import Annotation, iter_annotations, min_valid_va_for, pa
 from rebrew.binary_loader import load_binary
 from rebrew.cli import (
     DISPLAY_STATUSES,
+    STATUS_HEX,
     TargetOption,
     console,
     json_print,
@@ -103,8 +104,34 @@ _OWNED_REPORT_FILE = re.compile(
     r"|^callgraph\.mmd$"
 )
 
+
+def _status_text_css() -> str:
+    """Status text rules from ``STATUS_HEX``. DISPATCH is a graph fill only.
+
+    UNKNOWN stays at regular weight; the match statuses are semibold.
+    """
+    lines: list[str] = []
+    for name, color in STATUS_HEX.items():
+        if name == "DISPATCH":
+            continue
+        if name == "UNKNOWN":
+            lines.append(f".status-{name} {{ color: {color}; }}")
+        else:
+            lines.append(f".status-{name} {{ color: {color}; font-weight: 600; }}")
+    return "\n".join(lines)
+
+
+def _status_forced_selectors() -> str:
+    """Forced-colors selectors for the status text rules, wrapped to two lines."""
+    names = [name for name in STATUS_HEX if name != "DISPATCH"]
+    head = ", ".join(f".status-{name}" for name in names[:4])
+    tail = ", ".join(f".status-{name}" for name in names[4:])
+    return f"  {head},\n  {tail}"
+
+
 # Shared with the coverage dashboard: plain tool chrome (system-ui, #005fcc
 # focus, #767676 borders) — not a Tailwind slate/blue demo palette.
+# Status text colors are cli.STATUS_HEX, the same marks as the call graph.
 _CSS = """
 body { font-family: system-ui, sans-serif;
        margin: 0; background: #f5f5f5; color: #1a1a1a; }
@@ -149,15 +176,9 @@ td.mono, code { font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
 td.blocker { max-width: 28rem; overflow-wrap: anywhere; }
 td details { max-width: 40rem; overflow-wrap: anywhere; }
 td summary { cursor: pointer; padding: 0.25rem 0; }
-.status-EXACT { color: #15803d; font-weight: 600; }
-.status-RELOC { color: #0369a1; font-weight: 600; }
-.status-PROVEN { color: #0e7490; font-weight: 600; }
-.status-NEAR_MATCHING { color: #b45309; font-weight: 600; }
-.status-STUB { color: #475569; font-weight: 600; }
-.status-UNKNOWN { color: #555; }
+__STATUS_TEXT_CSS__
 @media (forced-colors: active) {
-  .status-EXACT, .status-RELOC, .status-PROVEN, .status-NEAR_MATCHING,
-  .status-STUB, .status-UNKNOWN { color: CanvasText; font-weight: 700; }
+__STATUS_FORCED__ { color: CanvasText; font-weight: 700; }
   header nav a.active { text-decoration: underline; }
   :focus-visible { outline-color: Highlight; }
   .note { border-color: CanvasText; color: CanvasText; background: Canvas; }
@@ -182,6 +203,9 @@ pre.mermaid { background: #fff; border: 1px solid #767676;
 /* Skip layout/paint for off-screen rows on large result pages. */
 tbody tr { content-visibility: auto; contain-intrinsic-size: auto 2.2rem; }
 """
+_CSS = _CSS.replace("__STATUS_TEXT_CSS__", _status_text_css()).replace(
+    "__STATUS_FORCED__", _status_forced_selectors()
+)
 
 
 def _nav_link(href: str, label: str, active: bool) -> str:
