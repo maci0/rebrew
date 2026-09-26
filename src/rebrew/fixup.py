@@ -36,7 +36,7 @@ import typer
 
 from rebrew.cli import EXIT_ERROR, TargetOption, console, error_exit, json_print, require_config
 from rebrew.pseudo_c import sanitize_tokens
-from rebrew.utils import read_source_text
+from rebrew.utils import atomic_write_text, read_source_text
 
 # ---------------------------------------------------------------------------
 # Diagnostic-driven injection
@@ -233,7 +233,7 @@ def main(
             payload["compile_error"] = compile_error.splitlines()[0]
         if not dry_run and not result.error:
             dest = out or source_file.with_suffix(source_file.suffix + ".fixed.c")
-            dest.write_text(result.source, encoding="utf-8")
+            atomic_write_text(dest, result.source, encoding="utf-8")
             payload["wrote"] = str(dest)
         json_print(payload)
         if compile_error or result.error:
@@ -265,7 +265,7 @@ def main(
             raise typer.Exit(code=EXIT_ERROR)
         return
     dest = out or source_file.with_suffix(source_file.suffix + ".fixed.c")
-    dest.write_text(result.source, encoding="utf-8")
+    atomic_write_text(dest, result.source, encoding="utf-8")
     console.print(
         f"\n[green]Wrote {dest}[/green] ({len(result.changes)} fix(es), "
         f"{len(result.injected)} injection(s))"

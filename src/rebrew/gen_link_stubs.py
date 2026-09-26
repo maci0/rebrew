@@ -22,7 +22,7 @@ import typer
 
 from rebrew.cli import console, error_exit, json_print
 from rebrew.data_metadata import iter_data_symbols
-from rebrew.utils import is_safe_c_ident, load_tomllib
+from rebrew.utils import atomic_write_text, is_safe_c_ident, load_tomllib
 
 app = typer.Typer(
     help="Generate a link_stubs.c-style BSS placeholder TU from the data metadata.",
@@ -101,7 +101,7 @@ def main(
         else:
             print(content)
         return
-    target.write_text(content, encoding="utf-8")
+    atomic_write_text(target, content, encoding="utf-8")
     if json_output:
         json_print(
             {

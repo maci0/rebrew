@@ -600,6 +600,8 @@ def load_binary(path: Path, fmt: str = "auto") -> BinaryInfo:
                 oldest_key = next(iter(_load_binary_cache))
                 del _load_binary_cache[oldest_key]
             _load_binary_cache[cache_key] = result
+        else:
+            result = _load_binary_cache[cache_key]
     return result
 
 
@@ -1004,11 +1006,13 @@ def iat_slot_vas(binary_path: Path | str) -> set[int]:
                     # LIEF reports the IAT slot as an RVA; canonicalize.
                     out.add(va + image_base)
         with _iat_slot_lock:
-            if cache_key not in _iat_slot_cache:
-                if len(_iat_slot_cache) >= _IAT_SLOT_CACHE_MAX:
-                    oldest_key = next(iter(_iat_slot_cache))
-                    del _iat_slot_cache[oldest_key]
-                _iat_slot_cache[cache_key] = set(out)
+            existing = _iat_slot_cache.get(cache_key)
+            if existing is not None:
+                return set(existing)
+            if len(_iat_slot_cache) >= _IAT_SLOT_CACHE_MAX:
+                oldest_key = next(iter(_iat_slot_cache))
+                del _iat_slot_cache[oldest_key]
+            _iat_slot_cache[cache_key] = set(out)
         return out
     except Exception as exc:
         # A silent empty result here would silently disable IAT reloc
