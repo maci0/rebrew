@@ -540,5 +540,5 @@ class TestCompileViaRecompile:
     def test_missing_url_is_a_bug(self, tmp_path: Path) -> None:
         src = tmp_path / "f.c"
         src.write_text("int f(void) {}")
-        with pytest.raises(AssertionError):
+        with pytest.raises(AssertionError, match="recompile backend selected without a URL"):
             _compile_via_recompile(self._cfg(""), src, [], tmp_path, "f.obj", "msvc-6.0", False)

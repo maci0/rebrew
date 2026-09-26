@@ -467,7 +467,7 @@ class TestCatalogScanFailClosed:
 
         from rebrew.coff_reloc import CatalogScanError, build_name_to_va
 
-        with pytest.raises(CatalogScanError):
+        with pytest.raises(CatalogScanError, match="global/function scan failed"):
             build_name_to_va(SimpleNamespace())  # no reversed_dir attr
 
     def test_typed_reloc_unusable_map_mismatches(self) -> None:

@@ -245,7 +245,7 @@ class TestDownloadWiboErrors:
             close=lambda: None,
         )
 
-    def test_metadata_fetch_failure(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_metadata_fetch_failure(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         import httpx
 
         def boom(url: str, **kw: object) -> SimpleNamespace:
@@ -253,22 +253,22 @@ class TestDownloadWiboErrors:
 
         monkeypatch.setattr("httpx.get", boom)
         with pytest.raises(RuntimeError, match="Failed to fetch wibo release metadata"):
-            wibo_mod.download_wibo(Path("/tmp/wibo"))
+            wibo_mod.download_wibo(tmp_path / "wibo")
 
-    def test_metadata_not_dict(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_metadata_not_dict(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr("httpx.get", lambda url, **kw: self._meta([1, 2]))
         with pytest.raises(RuntimeError, match="Invalid wibo release metadata response"):
-            wibo_mod.download_wibo(Path("/tmp/wibo"))
+            wibo_mod.download_wibo(tmp_path / "wibo")
 
-    def test_assets_not_a_list(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_assets_not_a_list(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(
             "httpx.get",
             lambda url, **kw: self._meta({"tag_name": "v1", "assets": "nope"}),
         )
         with pytest.raises(RuntimeError, match="assets is not a list"):
-            wibo_mod.download_wibo(Path("/tmp/wibo"))
+            wibo_mod.download_wibo(tmp_path / "wibo")
 
-    def test_missing_download_url(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_missing_download_url(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(
             "httpx.get",
             lambda url, **kw: self._meta(
@@ -279,9 +279,9 @@ class TestDownloadWiboErrors:
             ),
         )
         with pytest.raises(RuntimeError, match="missing download URL"):
-            wibo_mod.download_wibo(Path("/tmp/wibo"))
+            wibo_mod.download_wibo(tmp_path / "wibo")
 
-    def test_missing_digest(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_missing_digest(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(
             "httpx.get",
             lambda url, **kw: self._meta(
@@ -299,7 +299,7 @@ class TestDownloadWiboErrors:
             ),
         )
         with pytest.raises(RuntimeError, match="missing SHA256 digest"):
-            wibo_mod.download_wibo(Path("/tmp/wibo"))
+            wibo_mod.download_wibo(tmp_path / "wibo")
 
     def test_untrusted_download_host_rejected(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -335,7 +335,7 @@ class TestDownloadWiboErrors:
         assert fetched == [_WIBO_API_URL]
         assert not dest.exists()
 
-    def test_download_failure(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_download_failure(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         import httpx
 
         def get(url: str, **kw: object) -> SimpleNamespace:
@@ -358,7 +358,7 @@ class TestDownloadWiboErrors:
 
         monkeypatch.setattr("httpx.get", get)
         with pytest.raises(RuntimeError, match="Failed to download wibo asset"):
-            wibo_mod.download_wibo(Path("/tmp/wibo"))
+            wibo_mod.download_wibo(tmp_path / "wibo")
 
 
 class TestTrustedRedirects:

@@ -141,7 +141,7 @@ class TestMigrateMarkersEndToEnd:
             raise OSError("disk full")
 
         monkeypatch.setattr(md, "record_migrated_markers", _fail)
-        with pytest.raises(OSError):
+        with pytest.raises(OSError, match="disk full"):
             _migrate_file(cfg, src / "f.c", "S", dry_run=False)
         assert "// SIZE: 4" in (src / "f.c").read_text(encoding="utf-8")
 
