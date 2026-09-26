@@ -1363,3 +1363,40 @@ class TestPrintTestSummary:
         # Parked SKIP stays put; PROVEN yields to the byte verdict.
         assert "SKIP →" not in out
         assert "PROVEN → NEAR_MATCHING" in out
+
+
+class TestSizeMismatchMatchPercentNone:
+    def test_size_mismatch_with_none_match_percent_does_not_crash(self) -> None:
+        from rebrew.compile import CompareResult
+        from rebrew.test import _print_compare_result
+
+        cmp = CompareResult(
+            matched=False,
+            status="SIZE_MISMATCH",
+            match_percent=None,  # type: ignore[arg-type]
+            delta=2,
+            obj_bytes=b"\x90\x90",
+            reloc_offsets=None,
+            full_obj_size=2,
+        )
+        # Must not raise TypeError: must be real number, not NoneType
+        _print_compare_result(cmp, b"\x90\x90\x90\x90")
+
+    def test_size_mismatch_with_approximate_100_percent_shows_hint(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        from rebrew.compile import CompareResult
+        from rebrew.test import _print_compare_result
+
+        cmp = CompareResult(
+            matched=False,
+            status="SIZE_MISMATCH",
+            match_percent=99.99999999,
+            delta=2,
+            obj_bytes=b"\x90\x90",
+            reloc_offsets=None,
+            full_obj_size=2,
+        )
+        _print_compare_result(cmp, b"\x90\x90\x90\x90")
+        out = capsys.readouterr().err
+        assert "all common bytes match; the SIZE annotation is off" in out

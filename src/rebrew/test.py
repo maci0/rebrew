@@ -783,8 +783,8 @@ def _print_compare_result(cmp: CompareResult, target_bytes: bytes) -> None:
     if (
         cmp.status == "SIZE_MISMATCH"
         and (
-            cmp.match_percent == 100.0
-            or math.isclose(cmp.match_percent, 100.0, rel_tol=1e-7, abs_tol=1e-7)
+            cmp.match_percent is not None
+            and math.isclose(cmp.match_percent, 100.0, rel_tol=1e-7, abs_tol=1e-7)
         )
         and obj_len
     ):
@@ -1078,8 +1078,8 @@ def _run_test_impl(
         fix_sizes
         and cmp.status == "SIZE_MISMATCH"
         and (
-            cmp.match_percent == 100.0
-            or math.isclose(cmp.match_percent, 100.0, rel_tol=1e-7, abs_tol=1e-7)
+            cmp.match_percent is not None
+            and math.isclose(cmp.match_percent, 100.0, rel_tol=1e-7, abs_tol=1e-7)
         )
         and cmp.full_obj_size is not None
         and cmp.full_obj_bytes is not None
