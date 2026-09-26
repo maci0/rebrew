@@ -1295,6 +1295,17 @@ def main(
                     "resolved file covers different functions",
                     json_mode=json_output,
                 )
+    if ann is None and not was_va_arg and not Path(source).exists():
+        from rebrew.utils import fold_ident
+
+        want_sym = fold_ident(source.strip()).lstrip("_")
+        for a in annotations:
+            for candidate in (a.symbol or "", a.name or ""):
+                if fold_ident(candidate.strip()).lstrip("_") == want_sym:
+                    ann = a
+                    break
+            if ann is not None:
+                break
     if ann is None:
         for a in annotations:
             if a.status == "NEAR_MATCHING":

@@ -599,17 +599,18 @@ def main(
             for s in sections.values()
             if s.get("va") and s.get("size")
         ]
-        out_of_range = [
-            (name, g.va)
-            for name, g in scan.globals.items()
-            if g.va and not any(lo <= g.va < hi for lo, hi in section_ranges)
-        ]
-        if out_of_range:
-            console.print(
-                f"[yellow]warning:[/yellow] {len(out_of_range)} annotated global(s) "
-                "fall outside every PE section range: "
-                + ", ".join(f"{n}@0x{va:x}" for n, va in out_of_range[:8])
-            )
+        if section_ranges:
+            out_of_range = [
+                (name, g.va)
+                for name, g in scan.globals.items()
+                if g.va and not any(lo <= g.va < hi for lo, hi in section_ranges)
+            ]
+            if out_of_range:
+                console.print(
+                    f"[yellow]warning:[/yellow] {len(out_of_range)} annotated global(s) "
+                    "fall outside every PE section range: "
+                    + ", ".join(f"{n}@0x{va:x}" for n, va in out_of_range[:8])
+                )
 
     data_anns = scan_data_annotations(src_dir, cfg=cfg)
     scan.data_annotations = data_anns

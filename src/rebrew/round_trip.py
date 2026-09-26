@@ -179,7 +179,7 @@ def _collect_splice_set(
             fn = _SpliceFn(
                 symbol=_catalog_key(ann, path),
                 va=ann.va,
-                size=int(md.get("size", 0) or 0),
+                size=int(getattr(ann, "size", 0) or md.get("size", 0) or 0),
                 status=status,
                 path=path,
                 module=ann.module,
