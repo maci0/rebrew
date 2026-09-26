@@ -359,7 +359,6 @@ def main(
     )
 
     print_import_result(result, json_output=json_output, dry_run=dry_run)
-    return
 
 
 def import_state(
@@ -651,12 +650,11 @@ def import_state(
                     {"va": f"0x{va:08x}", "field": "name", "local": local_name, "binsync": bs_name}
                 )
                 applied_names += 1
+            elif _try_apply_binsync_name(cfg, local, bs_stripped, local_filepath, va):
+                applied_names += 1
+                touched_vas.append(va)
             else:
-                if _try_apply_binsync_name(cfg, local, bs_stripped, local_filepath, va):
-                    applied_names += 1
-                    touched_vas.append(va)
-                else:
-                    skipped += 1
+                skipped += 1
             continue
 
         # Both meaningful and different → conflict
@@ -680,12 +678,11 @@ def import_state(
                     }
                 )
                 applied_names += 1
+            elif _try_apply_binsync_name(cfg, local, bs_stripped, local_filepath, va):
+                applied_names += 1
+                touched_vas.append(va)
             else:
-                if _try_apply_binsync_name(cfg, local, bs_stripped, local_filepath, va):
-                    applied_names += 1
-                    touched_vas.append(va)
-                else:
-                    skipped += 1
+                skipped += 1
             continue
         if accept_local:
             if not dry_run:

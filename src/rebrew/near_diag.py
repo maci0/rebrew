@@ -356,7 +356,7 @@ def _verdict(counts: dict[str, int], raw_total: int) -> tuple[str, str]:
     # structural churn WITH register allocation noise is a different fix
     # than structural churn alone.
     secondary = max(
-        (k for k in counts if k != dominant and k != "match"),
+        (k for k in counts if k not in (dominant, "match")),
         key=lambda k: counts[k],
         default=None,
     )
@@ -525,7 +525,7 @@ def analyze(
     non_match = raw_total - counts["match"]
     if non_match > 0:
         secondary = max(
-            (k for k in counts if k != dominant and k != "match" and k != "reloc"),
+            (k for k in counts if k not in (dominant, "match", "reloc")),
             key=lambda k: counts[k],
             default=None,
         )

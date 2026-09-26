@@ -1063,7 +1063,7 @@ def detect_source_language(binary_path: Path) -> tuple[str, str]:
         pass
 
     for name in section_names:
-        if name == ".gopclntab" or name == ".gosymtab":
+        if name in (".gopclntab", ".gosymtab"):
             return ("Go", ".go")
         if name in ("__objc_methnames", "__objc_classlist", "__objc_selrefs"):
             return ("Objective-C", ".m")

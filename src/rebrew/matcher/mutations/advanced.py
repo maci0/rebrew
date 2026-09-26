@@ -157,7 +157,7 @@ def mut_merge_nested_ifs(s: str, rng: random.Random) -> str | None:
             outer_body = outer_body[0]
 
         # Ensure the outer_body only contains the inner_if statement
-        block_nodes = [c for c in outer_body.children if c.type != "{" and c.type != "}"]
+        block_nodes = [c for c in outer_body.children if c.type not in ("{", "}")]
         if len(block_nodes) != 1:
             continue
 

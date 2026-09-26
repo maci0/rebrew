@@ -1102,12 +1102,11 @@ def _run_test_impl(
                     section_va,
                     exc,
                 )
-        else:
-            if not json_output:
-                console.print(
-                    f"[dim]would fix SIZE {size_val or 0} → {new_size} for "
-                    f"0x{section_va:x} ({'--dry-run' if dry_run else '--no-promote'})[/dim]"
-                )
+        elif not json_output:
+            console.print(
+                f"[dim]would fix SIZE {size_val or 0} → {new_size} for "
+                f"0x{section_va:x} ({'--dry-run' if dry_run else '--no-promote'})[/dim]"
+            )
         matched = True
         total = new_size
         match_count = new_size
@@ -1550,12 +1549,11 @@ def _test_multi(
                         cfg.metadata_dir,
                         [{"module": ann.module, "va": ann.va, "fields": {"size": new_size}}],
                     )
-                else:
-                    if not json_output:
-                        console.print(
-                            f"[dim]  would fix SIZE {ann.size} → {new_size} for "
-                            f"0x{ann.va:x} ({'--dry-run' if dry_run else '--no-promote'})[/dim]"
-                        )
+                elif not json_output:
+                    console.print(
+                        f"[dim]  would fix SIZE {ann.size} → {new_size} for "
+                        f"0x{ann.va:x} ({'--dry-run' if dry_run else '--no-promote'})[/dim]"
+                    )
                 ann.size = new_size
                 fixed_size = True
                 size_mismatch = False
@@ -1728,8 +1726,6 @@ def _test_multi(
         raise typer.Exit(code=EXIT_ERROR)
     if any_failed:
         raise typer.Exit(code=EXIT_MISMATCH)
-
-    return
 
 
 def emit_test_batch(

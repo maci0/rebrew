@@ -2521,7 +2521,6 @@ def _print_results(
     if show_summary:
         render_verify_summary(results)
 
-    # Print failures
     if fail_details:
         console.print()
 

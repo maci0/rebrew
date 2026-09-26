@@ -1788,38 +1788,35 @@ def lint_file(
                     and preset_module_key(mod) in _known_folded
                 ):
                     _check_W018_cflags(result, found_keys, cfg)
-            else:
-                # For DATA/GLOBAL: overlay data metadata fields (size, section, note).
-                # SIZE is co-read; SECTION/NOTE follow the same store-wins rule
-                # as function metadata above.
-                if va_int is not None and mod:
-                    _ds_override = _data_metadata_entries.get((mod, va_int), {})
-                    _DS_TO_FOUND = {"size": "SIZE", "section": "SECTION", "note": "NOTE"}
-                    for _ds_key, _ds_found_key in _DS_TO_FOUND.items():
-                        if _ds_key not in _ds_override:
-                            continue
-                        store_val = str(_ds_override[_ds_key])
-                        if _ds_found_key not in found_keys:
-                            found_keys[_ds_found_key] = store_val
-                        elif _ds_found_key == "SIZE":
-                            pass  # co-read; W019 reports disagreement
-                        elif _inline_equals_store(
-                            _ds_found_key, found_keys[_ds_found_key], store_val
-                        ):
-                            result._inline_dup_strips.append((mod, va_int, _ds_found_key))
-                            found_keys[_ds_found_key] = store_val
-                        else:
-                            inline_val = found_keys[_ds_found_key].strip()
-                            result.warning(
-                                result.marker_line,
-                                "W019",
-                                f"Inline '// {_ds_found_key}: {inline_val}' disagrees "
-                                f"with metadata {_ds_found_key} '{store_val}' — "
-                                "rebrew-data.toml is the source of truth; "
-                                "align or remove the inline copy",
-                            )
-                            found_keys[_ds_found_key] = store_val
-                        _metadata_sourced_keys.add(_ds_found_key)
+            # For DATA/GLOBAL: overlay data metadata fields (size, section, note).
+            # SIZE is co-read; SECTION/NOTE follow the same store-wins rule
+            # as function metadata above.
+            elif va_int is not None and mod:
+                _ds_override = _data_metadata_entries.get((mod, va_int), {})
+                _DS_TO_FOUND = {"size": "SIZE", "section": "SECTION", "note": "NOTE"}
+                for _ds_key, _ds_found_key in _DS_TO_FOUND.items():
+                    if _ds_key not in _ds_override:
+                        continue
+                    store_val = str(_ds_override[_ds_key])
+                    if _ds_found_key not in found_keys:
+                        found_keys[_ds_found_key] = store_val
+                    elif _ds_found_key == "SIZE":
+                        pass  # co-read; W019 reports disagreement
+                    elif _inline_equals_store(_ds_found_key, found_keys[_ds_found_key], store_val):
+                        result._inline_dup_strips.append((mod, va_int, _ds_found_key))
+                        found_keys[_ds_found_key] = store_val
+                    else:
+                        inline_val = found_keys[_ds_found_key].strip()
+                        result.warning(
+                            result.marker_line,
+                            "W019",
+                            f"Inline '// {_ds_found_key}: {inline_val}' disagrees "
+                            f"with metadata {_ds_found_key} '{store_val}' — "
+                            "rebrew-data.toml is the source of truth; "
+                            "align or remove the inline copy",
+                        )
+                        found_keys[_ds_found_key] = store_val
+                    _metadata_sourced_keys.add(_ds_found_key)
 
             module = found_keys.get("MODULE", "")
             # Canonicalize so hand-edited `status = "exact"` / `// STATUS: stub`
@@ -2310,7 +2307,6 @@ def main(
                         f"// {key}: (not a data metadata field)"
                     )
                     continue
-                # Check if the destination store already has this field.
                 if is_data_marker:
                     existing = get_data_entry(cfg.metadata_dir, va, module)
                     present = toml_key in {k.lower() for k in existing}

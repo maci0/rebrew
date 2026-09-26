@@ -1475,16 +1475,15 @@ def main(
 
     if json_output:
         json_print(result)
-    else:
-        if proven:
-            console.print(f"[green bold]PROVEN:[/green bold] {message}")
-            if dry_run:
-                console.print("[dim]--dry-run: STATUS not updated[/dim]")
-            else:
-                console.print(f"[green]STATUS updated: {ann.status} → PROVEN[/green]")
+    elif proven:
+        console.print(f"[green bold]PROVEN:[/green bold] {message}")
+        if dry_run:
+            console.print("[dim]--dry-run: STATUS not updated[/dim]")
         else:
-            console.print(f"[yellow bold]NOT PROVEN:[/yellow bold] {message}")
-            console.print(f"[dim]STATUS unchanged — function remains {ann.status}[/dim]")
+            console.print(f"[green]STATUS updated: {ann.status} → PROVEN[/green]")
+    else:
+        console.print(f"[yellow bold]NOT PROVEN:[/yellow bold] {message}")
+        console.print(f"[dim]STATUS unchanged — function remains {ann.status}[/dim]")
 
     if not proven:
         if message.startswith("Slice [") and "out of range" in message:

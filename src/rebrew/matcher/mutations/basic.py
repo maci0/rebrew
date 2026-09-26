@@ -1139,7 +1139,7 @@ def mut_change_param_order(s: str, rng: random.Random) -> str | None:
 
     def _repl(captures: dict[str, ts.Node]) -> bytes:
         params = captures["expr"]
-        children = [c for c in params.children if c.type != "," and c.type != "(" and c.type != ")"]
+        children = [c for c in params.children if c.type not in (",", "(", ")")]
         if len(children) < 2:
             return b_source[params.start_byte : params.end_byte]
         i, j = rng.sample(range(len(children)), 2)

@@ -186,7 +186,7 @@ def _find_function_name(declarator: Any, source_bytes: bytes) -> str | None:
                 name = _find_function_name(child, source_bytes)
                 if name:
                     return name
-    elif declarator.type == "pointer_declarator" or declarator.type == "parenthesized_declarator":
+    elif declarator.type in ("pointer_declarator", "parenthesized_declarator"):
         # The name lives in the nested function_declarator; look for it FIRST
         # so Borland convention keywords that tree-sitter marks as ERROR
         # (e.g. ``void far *pascal f(...)`` — ``far``/``pascal`` are not C89
