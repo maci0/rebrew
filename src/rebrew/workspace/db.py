@@ -13,7 +13,10 @@ import sqlite3
 from collections.abc import Iterator
 from pathlib import Path
 
-from rebrew.utils import file_handle_lock
+try:
+    import fcntl
+except ImportError:
+    fcntl = None  # type: ignore[assignment]
 
 #: Busy-wait budget for read-only opens (matches build_db / dashboard).
 _SQLITE_TIMEOUT_SECONDS = 30.0
@@ -152,8 +155,30 @@ def coverage_db_lock(path: Path, *, shared: bool = False) -> Iterator[None]:
             yield
             return
         raise
-    with lock_fh, file_handle_lock(lock_fh, shared=shared):
-        yield
+    with lock_fh:
+        if fcntl is not None:
+            fcntl.flock(lock_fh, fcntl.LOCK_SH if shared else fcntl.LOCK_EX)
+        else:
+            try:
+                import msvcrt
+
+                lock_fh.seek(0)
+                msvcrt.locking(lock_fh.fileno(), msvcrt.LK_LOCK, 1)
+            except (ImportError, OSError):
+                pass
+        try:
+            yield
+        finally:
+            if fcntl is not None:
+                fcntl.flock(lock_fh, fcntl.LOCK_UN)
+            else:
+                try:
+                    import msvcrt
+
+                    lock_fh.seek(0)
+                    msvcrt.locking(lock_fh.fileno(), msvcrt.LK_UNLCK, 1)
+                except (ImportError, OSError):
+                    pass
 
 
 def open_sqlite_ro(path: Path) -> sqlite3.Connection:

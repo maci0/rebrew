@@ -7,6 +7,7 @@ single-function and batch flag/toolchain sweeps.
 from __future__ import annotations
 
 import logging
+import math
 import shlex
 from dataclasses import dataclass
 from pathlib import Path
@@ -421,7 +422,7 @@ def _run_single_flag_sweep(
             "symbol": p.symbol,
             "mode": "flag_sweep",
             "tier": tier,
-            "best_score": round(best_score, 2) if best_score < float("inf") else None,
+            "best_score": round(best_score, 2) if math.isfinite(best_score) else None,
             "best_flags": results[0][1] if results else None,
             "exact": best_score < EXACT_SCORE_THRESHOLD,
             "results": sweep_items,
@@ -717,7 +718,7 @@ def _run_single_toolchain_flag_sweep(
         rows.append(
             {
                 "toolchain": profile,
-                "best_score": best_score if best_score < float("inf") else None,
+                "best_score": round(best_score, 2) if math.isfinite(best_score) else None,
                 "flags": best_flags,
                 "exact": best_score < EXACT_SCORE_THRESHOLD,
             }

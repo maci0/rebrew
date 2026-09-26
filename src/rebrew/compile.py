@@ -50,6 +50,7 @@ All functions read from ``cfg`` (a ``ProjectConfig`` instance):
 import atexit
 import contextlib
 import hashlib
+import math
 import os
 import re
 import shlex
@@ -247,7 +248,7 @@ UNCLASSIFIED_DIFF = "NEAR_MATCHING/STUB"
 
 
 def matched_byte_count(
-    match_percent: float,
+    match_percent: float | None,
     *,
     matched: bool,
     compared_len: int,
@@ -275,9 +276,9 @@ def matched_byte_count(
         return total
     if match_count is not None:
         return match_count
-    if compared_len <= 0:
+    if compared_len <= 0 or match_percent is None or not math.isfinite(match_percent):
         return 0
-    return round(match_percent / 100.0 * compared_len)
+    return max(0, min(compared_len, round(match_percent / 100.0 * compared_len)))
 
 
 _INLINE_ASM = re.compile(r"\b(?:__asm|_asm|__emit)\b")

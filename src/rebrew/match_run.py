@@ -1095,7 +1095,7 @@ def _run_all(
         if flag_sweep_then_ga:
             try:
                 _s, best_flags, _all = run_flag_sweep(stub, cfg, tier=tier, jobs=intra_jobs)
-                if best_flags and _s < float("inf"):
+                if best_flags and math.isfinite(_s):
                     sweep_flags = best_flags
                     if not json_output:
                         console.print(
@@ -1308,7 +1308,7 @@ def _run_batch_flag_sweep(
             "va": stub.va,
             "size": stub.size,
             "symbol": stub.symbol,
-            "best_score": round(best_score, 2) if best_score < float("inf") else None,
+            "best_score": round(best_score, 2) if math.isfinite(best_score) else None,
             "best_flags": best_flags or None,
             "exact": is_exact,
         }
@@ -1434,7 +1434,7 @@ def _run_batch_flag_sweep(
                 )
             )
 
-        if best_score < float("inf"):
+        if math.isfinite(best_score):
             improved_count += 1
 
         if not json_output:
