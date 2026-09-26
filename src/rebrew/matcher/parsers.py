@@ -109,7 +109,10 @@ def parse_obj_symbol_and_relocs(
 
         with tempfile.TemporaryDirectory(prefix="omfcoff-") as td:
             coff_path = Path(td) / "conv.coff"
-            _omf_to_coff(obj_path, coff_path)
+            try:
+                _omf_to_coff(obj_path, coff_path)
+            except (ValueError, OSError):
+                return None, None, []
             return _parse_coff(obj_path, coff_path, symbol)
 
     return _parse_coff(obj_path, None, symbol)
@@ -129,7 +132,10 @@ def _parse_coff(
     import lief
 
     parse_path = coff_path if coff_path is not None else obj_path
-    coff = lief.COFF.parse(str(parse_path))
+    try:
+        coff = lief.COFF.parse(str(parse_path))
+    except Exception:
+        return None, None, []
     if coff is None:
         return None, None, []
 

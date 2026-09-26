@@ -63,24 +63,33 @@ def parse_imports(binary_path: Path) -> list[dict[str, Any]]:
         return []
     if pe is None:
         return []
-    imagebase = int(pe.optional_header.imagebase)
+    opt = getattr(pe, "optional_header", None)
+    if opt is None:
+        return []
+    try:
+        imagebase = int(opt.imagebase)
+    except (AttributeError, TypeError, ValueError):
+        return []
     out: list[dict[str, Any]] = []
-    for entry in pe.imports:
-        for fn in entry.entries:
-            # An ordinal-only import (MFC's DLLs import by ordinal almost
-            # exclusively) has no name in the hint/name table; naming it
-            # ``ordinal_<N>`` keeps the IAT slot visible instead of dropping
-            # it, and ``ordinal`` lets callers re-derive the linker's
-            # ``__imp_<dll>_ord<N>`` spelling.  0 means a named import.
-            ordinal = int(getattr(fn, "ordinal", 0) or 0)
-            out.append(
-                {
-                    "dll": str(entry.name),
-                    "name": str(fn.name) if fn.name else f"ordinal_{ordinal}",
-                    "iat_va": int(fn.iat_address) + imagebase,
-                    "ordinal": ordinal or None,
-                }
-            )
+    try:
+        for entry in pe.imports:
+            for fn in entry.entries:
+                # An ordinal-only import (MFC's DLLs import by ordinal almost
+                # exclusively) has no name in the hint/name table; naming it
+                # ``ordinal_<N>`` keeps the IAT slot visible instead of dropping
+                # it, and ``ordinal`` lets callers re-derive the linker's
+                # ``__imp_<dll>_ord<N>`` spelling.  0 means a named import.
+                ordinal = int(getattr(fn, "ordinal", 0) or 0)
+                out.append(
+                    {
+                        "dll": str(entry.name or ""),
+                        "name": str(fn.name) if fn.name else f"ordinal_{ordinal}",
+                        "iat_va": int(fn.iat_address) + imagebase,
+                        "ordinal": ordinal or None,
+                    }
+                )
+    except Exception:
+        return out
     return out
 
 
@@ -188,7 +197,7 @@ def find_import_stubs(binary_path: Path) -> dict[int, str]:
     except (OSError, KeyError, ValueError):
         return {}
     text = info.sections.get(".text")
-    if text is None:
+    if text is None or text.file_offset < 0 or text.size <= 0:
         return {}
     blob = info.data[text.file_offset : text.file_offset + text.size]
     stubs: dict[int, str] = {}
