@@ -1109,9 +1109,11 @@ def _shared_recompile_client(timeout: float) -> Any:
     *timeout* is reused by every thread (``httpx.Client`` is thread-safe)
     and closed at exit.
 
-    Callers must bracket their use with :func:`_recompile_retain` and
-    :func:`_recompile_release` so an evicted client is closed exactly once
-    its last request has finished.
+    The returned client is already retained: a nonzero inflight count is
+    recorded in the same critical section that hands it out.  Retaining
+    separately would leave a window where a concurrent eviction reads a
+    zero count and closes a client another thread is about to use.  Pair
+    every call with :func:`_recompile_release`.
     """
     import httpx
 
@@ -1119,6 +1121,7 @@ def _shared_recompile_client(timeout: float) -> Any:
         client = _recompile_clients.pop(timeout, None)
         if client is not None:
             _recompile_clients[timeout] = client  # refresh LRU order
+            _recompile_inflight[id(client)] = _recompile_inflight.get(id(client), 0) + 1
             return client
         while len(_recompile_clients) >= _RECOMPILE_CLIENTS_MAX:
             victim = _recompile_clients.pop(next(iter(_recompile_clients)))
@@ -1129,14 +1132,8 @@ def _shared_recompile_client(timeout: float) -> Any:
                 victim.close()
         client = httpx.Client(timeout=timeout)
         _recompile_clients[timeout] = client
+        _recompile_inflight[id(client)] = 1
         return client
-
-
-def _recompile_retain(client: Any) -> None:
-    """Mark *client* in use so eviction defers its close."""
-    with _recompile_client_lock:
-        key = id(client)
-        _recompile_inflight[key] = _recompile_inflight.get(key, 0) + 1
 
 
 def _recompile_release(client: Any) -> None:
@@ -1201,7 +1198,6 @@ def _compile_via_recompile(
         + 120.0
     )
     client = _shared_recompile_client(timeout)
-    _recompile_retain(client)
     try:
         res = compile_source(
             url,

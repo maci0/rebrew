@@ -145,20 +145,21 @@ def make_sandbox_dir(prefix: str) -> Path:
         )
     with _SANDBOX_LOCK:
         # Re-check: another worker may have published the same key while
-        # we created a dir — keep theirs and drop the orphan.
+        # we created a dir — keep theirs and drop the orphan.  The orphan
+        # delete happens after the lock is dropped, like the reaper's.
         existing = _SANDBOX_BY_PREFIX.get(cache_key)
-        if existing is not None and existing.is_dir():
-            shutil.rmtree(sandbox, ignore_errors=True)
-            return existing
-        _SANDBOX_BY_PREFIX[cache_key] = sandbox
-        _SANDBOXES.append(sandbox)
-        global _SANDBOX_ATEXIT_REGISTERED
-        if not _SANDBOX_ATEXIT_REGISTERED:
-            # ignore_errors=True: a still-mounted sandbox ("Device or resource busy")
-            # must not turn interpreter shutdown into a traceback.
-            atexit.register(_cleanup_sandboxes)
-            _SANDBOX_ATEXIT_REGISTERED = True
-    return sandbox
+        if existing is None or not existing.is_dir():
+            _SANDBOX_BY_PREFIX[cache_key] = sandbox
+            _SANDBOXES.append(sandbox)
+            global _SANDBOX_ATEXIT_REGISTERED
+            if not _SANDBOX_ATEXIT_REGISTERED:
+                # ignore_errors=True: a still-mounted sandbox ("Device or resource busy")
+                # must not turn interpreter shutdown into a traceback.
+                atexit.register(_cleanup_sandboxes)
+                _SANDBOX_ATEXIT_REGISTERED = True
+            return sandbox
+    shutil.rmtree(sandbox, ignore_errors=True)
+    return existing
 
 
 def release_sandbox(path: Path) -> None:
