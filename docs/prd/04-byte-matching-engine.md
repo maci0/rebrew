@@ -122,7 +122,8 @@ prover that promotes NEAR_MATCHING → PROVEN.
 ### Story 1 — Closing a 4-byte near-miss
 
 1. `rebrew test foo.c` says NEAR_MATCHING delta=4.
-2. `rebrew diff foo.c -m -r` reports two `**` lines, classified as
+2. `rebrew diff foo.c --mismatches-only --register-aware` reports two `**`
+   lines, classified as
    "register allocation".
 3. `rebrew match foo.c --flag-sweep-only --tier targeted` cycles register
    allocation flags and reports `/O1 /Gd` produces EXACT.

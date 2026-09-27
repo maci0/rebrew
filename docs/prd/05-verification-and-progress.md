@@ -290,8 +290,8 @@ rebrew round-trip [OPTIONS]
 
 - `verify` does not detect *header* changes; users must add `--full` after
   editing any shared header. (FIXED: the verify cache key now hashes every
-  reachable header via `_headers_hash` + `_external_includes_hash` in
-  `verify.py`, so editing a shared header re-verifies exactly the entries
+  reachable header via `headers_hash` + `_external_includes_hash` in
+  `verify_hash.py`, so editing a shared header re-verifies exactly the entries
   whose sources reach it; `--full` remains available for a hard reset.)
 - `verify --compare` baseline lives in a single local gitignored file
   (`.rebrew/verify_baseline.json`, with target/compiler/binary identity

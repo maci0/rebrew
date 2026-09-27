@@ -88,8 +88,9 @@ you what to attack next.
   as the function body (a real GA seed) instead of a comment block.
 - `--xrefs --endpoint URL` fetches cross-references from Ghidra and
   injects them as comments.
-- All volatile metadata (STATUS=STUB, SIZE, CFLAGS, BLOCKER) is written to
-  `rebrew-functions.toml`, never inlined into the `.c` file.
+- No volatile metadata is inlined into the `.c` file. `skeleton` itself only
+  fills a missing `SIZE` in `rebrew-functions.toml`; `STATUS`/`BLOCKER` come
+  from `rebrew blocker` and `rebrew intake`.
 
 ### `rebrew test`
 
@@ -188,6 +189,9 @@ you what to attack next.
   - `run-prover` — small near-matches eligible for `rebrew prove`.
   - `documented` — IAT thunks / non-reproducible code (audit only, hidden
     from the default list).
+  - `naked-reconstruction` — byte-exact via a generated naked skeleton
+    (`// SOURCE: naked`); reproduced, not decompiled, so it stays queued
+    until the real C body matches.
   - `data-drift` / `start-data` — data symbols needing `rebrew verify --data`.
 - `--count N`, `--category C` filters.
 - `--stats` adds coverage stats header.

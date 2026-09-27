@@ -118,4 +118,4 @@ Every other surface checked shared-correct, no change needed:
   `reversed_dir` collides all targets' `function_structure.json`.
   `[targets.<name>].inventory_file` (project-root-relative) overrides the
   home per target; `cfg.inventory_path` / `inventory_path_for` centralize
-  all 27 touch points (mock-safe via getattr).
+  every call site (mock-safe via getattr).

@@ -116,7 +116,7 @@ BinSync clients ignore it (the write-only `[rebrew] STATUS=… CFLAGS=…`
 comment was removed; see `rebrew/binsync/export.py`). *(This PRD originally
 named the layer `libbs`; the shipped dependency is `declib>=4.5`.)*
 
-`push` adds an auto-commit step after writing: `git -C <state-dir> add -A && git commit -m "rebrew push: <target> @ <utc>"`. With `--git-push`, also `git push`. With `--no-git`, skip git entirely (current `binsync-export` behaviour).
+`push` adds an auto-commit step after writing: `git -C <state-dir> add -A && git commit -m "rebrew binsync-export: <target> @ <utc>"` (the message the shipped `binsync-export --git` already writes). With `--git-push`, also `git push`. With `--no-git`, skip git entirely (current `binsync-export` behaviour).
 
 ### F3 — `pull` reads via declib, applies to rebrew metadata
 

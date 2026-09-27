@@ -75,7 +75,8 @@ Single-source rules enforced by code where cheap:
   without the lock.
 - Writes to canonical stores go through the gated APIs only; STATUS
   strictly via `update_source_status` / `update_statuses_batch` (one
-  promotion gate; `rebrew verify` and `rebrew test --all` batch the writes).
+  promotion gate; `rebrew verify` and `rebrew intake` batch the writes,
+  `rebrew test` writes per file through `update_source_status`).
 - No module-less metadata keys; `TOOLCHAIN` is a declared metadata field.
 - BinSync import routes STATUS through the metadata gate.
 - Volatile metadata (`STATUS`/`BLOCKER`/`NOTE`/…) is not parsed from
