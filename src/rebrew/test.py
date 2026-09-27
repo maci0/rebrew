@@ -1377,15 +1377,27 @@ def _test_multi(
     def _effective_overrides(ann: Annotation) -> tuple[str | None, str]:
         from rebrew.compile_overrides import resolve_compile_overrides
 
-        return resolve_compile_overrides(
-            cfg,
-            Path(source).resolve().parent,
-            toolchain or getattr(ann, "toolchain", ""),
-            cflags_override or getattr(ann, "cflags", "") or None,
+        # The resolution walks rebrew-libraries.toml parents per call and is
+        # hit once per annotation twice; it varies only with these three fields.
+        memo_key = (
+            getattr(ann, "toolchain", ""),
+            getattr(ann, "cflags", "") or None,
             getattr(ann, "module", ""),
         )
+        cached = _override_memo.get(memo_key)
+        if cached is None:
+            cached = resolve_compile_overrides(
+                cfg,
+                Path(source).resolve().parent,
+                toolchain or memo_key[0],
+                cflags_override or memo_key[1],
+                memo_key[2],
+            )
+            _override_memo[memo_key] = cached
+        return cached
 
     results_list: list[dict[str, Any]] = []
+    _override_memo: dict[tuple[str, str | None, str], tuple[str | None, str]] = {}
     # Tracks whether ANY function came back unmatched — the documented exit
     # contract (help: "1 NEAR_MATCHING or STUB") must hold for multi-function
     # files too, not just single-function and --all.
@@ -1401,6 +1413,11 @@ def _test_multi(
     try:
         objs: dict[tuple[str | None, str], Any] = {}
         for group_idx, (tc_name, cf) in enumerate(_effective_overrides(a) for a in annotations):
+            # One compile per distinct (toolchain, cflags): every annotation
+            # resolves the same override for most of a file, and a compile is a
+            # container invocation, not a parse.
+            if (tc_name, cf) in objs:
+                continue
             # A per-group object, so groups never read each other's bytes.
             # Only msvc (/Fo) and posix (-o) honor an explicit name; borland
             # and dos name the object after the source stem, so those groups

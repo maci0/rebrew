@@ -1860,7 +1860,9 @@ def _scope_entries(
     if library_excluded or batch_dir or origin_filter or batch_file:
         keep = {f"0x{e.va:08x}" for e in unique_entries}
         results = [r for r in results if r.get("va") in keep]
-        fail_details = [(e, m) for e, m in fail_details if e in unique_entries]
+        # Key on va, like the result/size filters beside it: a list scan with
+        # dataclass equality is O(failures x entries) field-by-field.
+        fail_details = [(e, m) for e, m in fail_details if f"0x{e.va:08x}" in keep]
         size_divergences = [d for d in size_divergences if d.get("va") in keep]
         missing_sizes = [d for d in missing_sizes if d.get("va") in keep]
         # Recompute the pre-compile counts from the filtered structures —

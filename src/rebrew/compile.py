@@ -1949,15 +1949,28 @@ def precompile_batch(
             assert workdir is not None
             stage_dir = workdir
 
+            staged_texts: dict[str, str] = {}
+
+            def _staged_text(staged_name: str) -> str:
+                # The staging sweep above is done writing, so the bytes are
+                # fixed for the group; read each file once, not once per member.
+                text = staged_texts.get(staged_name)
+                if text is None:
+                    text = (
+                        (stage_dir / staged_name)
+                        .read_bytes()
+                        .decode("utf-8", errors="surrogateescape")
+                    )
+                    staged_texts[staged_name] = text
+                return text
+
             def _staged_cache_key(entry: Any, staged_name: str) -> str:
                 src = Path(cfg.reversed_dir) / entry.filepath
                 src_parent = src.resolve().parent
                 member_flags = _effective_compile_flags(
                     cfg, spec, member_cflags[id(entry)], src_parent
                 )
-                staged_text = (
-                    (stage_dir / staged_name).read_bytes().decode("utf-8", errors="surrogateescape")
-                )
+                staged_text = _staged_text(staged_name)
                 return _cache_key_for(
                     cfg,
                     spec,
