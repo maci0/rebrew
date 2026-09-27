@@ -103,8 +103,9 @@ from rich.markup import escape
 
 from rebrew import theme
 from rebrew.build_db import FUNCTION_ROWS_SQL, resolve_db_dir
-from rebrew.cli import console, error_exit, json_print, status_mark_groups
+from rebrew.cli import console, error_exit, json_print
 from rebrew.metadata import canonical_status
+from rebrew.status_style import status_mark_groups
 from rebrew.utils import floor_pct
 from rebrew.workspace import VA_MAX, coverage_db_lock, open_sqlite_ro
 

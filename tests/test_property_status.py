@@ -194,23 +194,23 @@ class TestVocabularyCoverage:
     """Every KNOWN_STATUS must be covered by the display + gate tables.
 
     The canonical vocabulary lives in rebrew.workspace.status (re-exported
-    by rebrew.metadata); the color tables (cli.STATUS_COLORS for the
-    terminal, cli.STATUS_HEX for the report/dashboard/call-graph marks), the
+    by rebrew.metadata); the color tables (status_style.STATUS_COLORS for the
+    terminal, status_style.STATUS_HEX for the report/dashboard/call-graph marks), the
     compare-gate ranks (verify._STATUS_RANK / _STATUS_ORDER), and the
     metadata re-export must not silently miss a status (uncolored output,
     fail-open gating).
     """
 
     def test_colors_cover_known_statuses(self) -> None:
-        from rebrew.cli import STATUS_COLORS
         from rebrew.metadata import KNOWN_STATUSES
+        from rebrew.status_style import STATUS_COLORS
 
         missing = set(KNOWN_STATUSES) - set(STATUS_COLORS)
         assert not missing, f"statuses without display color: {missing}"
 
     def test_hex_marks_cover_known_statuses(self) -> None:
-        from rebrew.cli import STATUS_HEX
         from rebrew.metadata import KNOWN_STATUSES
+        from rebrew.status_style import STATUS_HEX
 
         # report/dashboard render ``status-<STATUS>`` for whatever a row
         # carries, so a status with no STATUS_HEX mark is unstyled ink.
@@ -271,10 +271,10 @@ def _contrast_ratio(a: str, b: str) -> float:
 
 
 class TestStatusMarkContrast:
-    """cli.STATUS_HEX claims WCAG AA on both surfaces it is used on."""
+    """status_style.STATUS_HEX claims WCAG AA on both surfaces it is used on."""
 
     def test_text_marks_meet_aa_on_page_surfaces(self) -> None:
-        from rebrew.cli import STATUS_HEX
+        from rebrew.status_style import STATUS_HEX
 
         # A status mark is body text in the report function table and the
         # dashboard rows/cards: on the white surface, on the sunken page
@@ -285,7 +285,7 @@ class TestStatusMarkContrast:
                 assert ratio >= 4.5, f"{status} {color} on {surface}: {ratio:.2f}"
 
     def test_graph_fills_carry_white_type(self) -> None:
-        from rebrew.cli import STATUS_HEX
+        from rebrew.status_style import STATUS_HEX
 
         # Mermaid/DOT draw white type on the same value as a node fill.
         for status, color in STATUS_HEX.items():
