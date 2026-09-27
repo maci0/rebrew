@@ -17,6 +17,9 @@ from typing import Any
 
 from rebrew.config import ProjectConfig
 
+#: Sentinel stored in VerifyCacheEntry.toolchain when no override names a
+#: compiler (the project's default profile applies).  Distinct from ``""`` so
+#: legacy entries (written before the field existed) are re-verified once.
 DEFAULT_TOOLCHAIN = "(default)"
 
 log = logging.getLogger(__name__)

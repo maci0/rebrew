@@ -78,10 +78,6 @@ from rebrew.workspace.status import EARNED_STATUSES
 
 log = logging.getLogger(__name__)
 
-#: Sentinel stored in VerifyCacheEntry.toolchain when no override names a
-#: compiler (the project's default profile applies).  Distinct from ``""`` so
-#: legacy entries (written before the field existed) are re-verified once.
-
 # ---------------------------------------------------------------------------
 # Verification
 # ---------------------------------------------------------------------------

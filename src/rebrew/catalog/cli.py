@@ -1,7 +1,7 @@
 """catalog/cli.py - CLI entry point for the catalog command.
 
 Orchestrates annotation scanning, registry building, and output generation
-(data.json, reccmp CSV, Ghidra label export, size fixing).
+(per-target coverage JSON, reccmp CSV, Ghidra label export, size fixing).
 
 ``run_catalog()`` holds the orchestration so it is callable in-process; the
 Typer callback is a thin wrapper that resolves config, validates CLI-only
