@@ -29,7 +29,7 @@ class EntryFingerprint:
     """Every verify-cache identity input for one entry, computed once.
 
     Shared by the hit check (:func:`rebrew.verify.prepare_entries`) and the
-    writer (:func:`rebrew.verify_cache._save_verify_cache`) so the two cannot
+    writer (:func:`rebrew.verify_cache.save_verify_cache`) so the two cannot
     drift — previously each recomputed resolved flags/toolchain/headers/
     source-hash independently.
     """
@@ -144,7 +144,7 @@ def compiler_config_hash(cfg: ProjectConfig) -> str:
     # Do NOT inline target binary mtime/size here — compiler config is an
     # input to the cache predicate, not a per-call probe of the binary.  The
     # binary identity is guarded separately via VerifyCache.binary_id and
-    # _verify_cache_matches_identity; mixing it in would bust the cache on
+    # _cache_identity_matches; mixing it in would bust the cache on
     # every run that touches the binary even when nothing relevant changed.
     parts = [
         cfg.compiler_command,
@@ -159,7 +159,7 @@ def compiler_config_hash(cfg: ProjectConfig) -> str:
         _compare_logic_hash(),
         # NOTE: cfg.cflags and cfg.cflags_presets are NOT hashed here — they
         # feed the effective-flags resolution, which is stored PER ENTRY in
-        # the cache (see _save_verify_cache) and compared at hit-check time,
+        # the cache (see save_verify_cache) and compared at hit-check time,
         # so a config-level cflags/preset edit invalidates the affected
         # entries without nuking the whole cache.
     ]

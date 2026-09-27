@@ -721,7 +721,13 @@ def extract_bytes_at_va(
             ``False`` when exact byte fidelity is required (e.g. scoring).
 
     Returns:
-        Extracted bytes, or ``None`` if the VA is not in any section.
+        The bytes found at *va*, ``b""`` for a zero-length request or a read
+        starting past the section's raw bytes (a BSS tail), or ``None`` when
+        the VA is in no section, the size is negative, or the read runs past
+        the end of the file image.
+
+    Raises:
+        ValueError: *size* exceeds the per-read cap.
 
     Note:
         Trimming is appropriate when the caller wants only the semantic

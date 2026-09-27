@@ -380,8 +380,8 @@ def _zero_reloc_fields_raw(
 
 def _mask_registers_inplace(insns: list[capstone.CsInsn], buf: bytearray) -> None:
     """Apply the register-encoding mask to *buf* using ALREADY-disassembled
-    (detail) instructions — the old path re-disassembled each side inside
-    ``_mask_registers_x86_32``, adding two detail passes per diff.
+    (detail) instructions, so a caller that holds the disassembly does not pay
+    for a second detail pass.
 
     Mask semantics are identical: reg (bits 3-5) and rm (bits 0-2) of the
     ModR/M byte are cleared (mod bits kept), and the opcode byte of

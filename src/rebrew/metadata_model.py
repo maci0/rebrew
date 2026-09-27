@@ -81,7 +81,7 @@ FIELD_TO_ATTR: dict[str, str] = {
     "source": "source",
     "prove_constraints": "prove_constraints",
     # Provenance of the last STATUS write (mirrors METADATA_FIELDS /
-    # Annotation / merge_into_annotation — without these they land in
+    # Annotation / apply_metadata_entry — without these they land in
     # ``extra`` and update_annotation_key cannot idempotency-check them).
     "updated_by": "updated_by",
     "updated_at": "updated_at",

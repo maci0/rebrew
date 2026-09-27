@@ -63,10 +63,13 @@ lock + ``atomic_write_locked`` (chmod writable → atomic replace → mode 0444)
 
 Merge semantics
 ---------------
-When a rebrew tool reads an ``Annotation`` from ``parse_c_file_multi()``, it
-calls ``merge_into_annotation(ann, directory)`` which overlays *metadata* values
-on top.  Metadata always wins for the fields it owns.  The legacy ``analysis``
-field is mapped to ``note`` when the annotation has no explicit note.
+``parse_c_file_multi()`` already overlays *metadata* values on every
+annotation it returns (``apply_metadata_entry``, one TOML load per file
+rather than per function).  ``merge_into_annotation(ann, directory)`` is the
+single-annotation form, for a caller that already holds one ``Annotation``
+and knows its ``cfg.metadata_dir``.  Metadata always wins for the fields it
+owns.  The legacy ``analysis`` field is mapped to ``note`` when the
+annotation has no explicit note.
 
 Atomicity
 ---------
@@ -1121,10 +1124,12 @@ def merge_into_annotation(ann: Annotation, directory: Path | str | Any) -> Annot
 def apply_metadata_entry(ann: Annotation, entry: dict[str, Any]) -> None:
     """Overlay one ``{field: value}`` metadata *entry* onto *ann* in place.
 
-    Shared by :func:`merge_into_annotation` (single function) and
-    :func:`rebrew.annotation.parse_c_file_text` (whole-file batches, which
-    load the metadata once and apply it per function instead of re-loading
-    the TOML for every annotation — the per-function hot path).
+    Shared by :func:`merge_into_annotation` (one annotation against a
+    freshly loaded entry) and the parse paths in
+    :mod:`rebrew.annotation` (``_finalize_entries``,
+    ``_annotations_from_metadata``, ``parse_library_header``), which load
+    the metadata once per file and apply it per function instead of
+    re-loading the TOML for every annotation — the per-function hot path.
     """
     if "size" in entry:
         with contextlib.suppress(ValueError, TypeError):
