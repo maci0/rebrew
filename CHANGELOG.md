@@ -78,6 +78,16 @@
   vocabulary was derived from `KNOWN_STATUSES`. The table now lists the full
   set with each state's `section_cell_stats` bucket, and a test compares it
   against `_KNOWN_CELL_STATES` so the two cannot drift.
+- **A dashboard 500 no longer hides the reason it happened.** An unexpected
+  handler error logged its traceback at `DEBUG` with `exc_info`, which Python
+  drops when no handler is configured, so a bug answered the client with a
+  bare 500 and left the operator with `repr(exc)` and no frames. The
+  traceback is now an ERROR record, formatted and control-char-escaped like
+  the request line (an exception raised on a request carries query text and DB
+  rows into its frames), and a route that answers 500 on its own, such as a
+  corrupt `function_stats` row, logs the request that produced it. One ERROR
+  per failed request, no duplicates. The access line also reports handler
+  time and stays on one line instead of wrapping into several.
 - **The init wizard asks every question before it asks for confirmation.**
   "Write shell completion scripts into completions/?" was asked *after*
   "Create project with these settings?", so the user confirmed a summary and

@@ -2,9 +2,12 @@
 
 import gzip
 import json
+import logging
 import os
 import shutil
+import sqlite3
 import subprocess
+import time
 from pathlib import Path
 
 import pytest
@@ -20,6 +23,13 @@ from rebrew.dashboard import (
     Dashboard,
     _files_display,
 )
+
+
+class _NullWFile:
+    """Swallow the response body of a handler built without a socket."""
+
+    def write(self, data: bytes) -> int:
+        return len(data)
 
 
 def _write_data(db_dir: Path, target: str = "server_dll") -> Path:
@@ -2215,6 +2225,129 @@ class TestHostValidation:
         handler.wfile = _FakeWFile()
         handler._respond("GET")
         assert [v for k, v in sent if k == "status"] == [500]
+
+    def test_handler_unexpected_error_logs_traceback(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A handler bug must leave a traceback, not just the wire's 500."""
+        from rebrew.dashboard import Dashboard, _Handler, allowed_hosts_for
+
+        handler = _Handler.__new__(_Handler)  # bypass __init__: no socket needed
+        handler.headers = {"Host": "127.0.0.1:8000"}
+        handler.path = "/api/targets"
+        handler.allowed_hosts = allowed_hosts_for("127.0.0.1", 8000)
+        handler.dashboard = Dashboard(Path("/nonexistent/coverage.db"))
+        handler.dashboard.handle = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom"))  # type: ignore[method-assign]
+        handler.send_response = lambda status: None  # type: ignore[method-assign]
+        handler.send_header = lambda name, value: None  # type: ignore[method-assign]
+        handler.end_headers = lambda: None  # type: ignore[method-assign]
+        handler.wfile = _NullWFile()
+
+        with caplog.at_level(logging.ERROR, logger="rebrew.dashboard"):
+            handler._respond("GET")
+
+        errors = [r for r in caplog.records if r.levelno == logging.ERROR]
+        assert len(errors) == 1
+        text = errors[0].getMessage()
+        assert "dashboard handler failed for /api/targets" in text
+        assert "RuntimeError: boom" in text
+        assert "Traceback" in text
+
+    def test_route_level_500_is_logged_with_the_request(
+        self, dashboard: Dashboard, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A route that answers 500 on its own still names the failing request."""
+        from rebrew.dashboard import _Handler, allowed_hosts_for
+
+        conn = sqlite3.connect(dashboard.db_path)
+        conn.execute(
+            "UPDATE metadata SET value = '[1]' WHERE target = 'server_dll' "
+            "AND key = 'function_stats'"
+        )
+        conn.commit()
+        conn.close()
+        handler = _Handler.__new__(_Handler)
+        handler.headers = {"Host": "127.0.0.1:8000"}
+        handler.path = "/api/summary?target=server_dll"
+        handler.allowed_hosts = allowed_hosts_for("127.0.0.1", 8000)
+        handler.dashboard = dashboard
+        handler.send_response = lambda status: None  # type: ignore[method-assign]
+        handler.send_header = lambda name, value: None  # type: ignore[method-assign]
+        handler.end_headers = lambda: None  # type: ignore[method-assign]
+        handler.wfile = _NullWFile()
+
+        with caplog.at_level(logging.ERROR, logger="rebrew.dashboard"):
+            handler._respond("GET")
+
+        errors = [r for r in caplog.records if r.levelno == logging.ERROR]
+        assert [r.getMessage() for r in errors] == [
+            "dashboard GET /api/summary?target=server_dll returned 500"
+        ]
+
+    def test_failed_request_log_escapes_control_chars(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """The traceback carries remote text, so it is escaped like the request line."""
+        from rebrew.dashboard import _log_failed_request
+
+        with caplog.at_level(logging.ERROR, logger="rebrew.dashboard"):
+            try:
+                raise RuntimeError("no such table: secrets\x1b")
+            except RuntimeError as exc:
+                _log_failed_request("dashboard query failed", "/api/targets\x1b", exc)
+
+        text = caplog.records[-1].getMessage()
+        assert "\x1b" not in text
+        assert "/api/targets\\x1b" in text
+        assert "secrets\\x1b" in text
+
+
+class TestAccessLog:
+    """The access line has to answer status and how long the handler took."""
+
+    def test_request_line_carries_handler_time(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from io import StringIO
+
+        from rich.console import Console
+
+        from rebrew.dashboard import _Handler
+
+        output = StringIO()
+        monkeypatch.setattr(
+            "rebrew.dashboard.console",
+            Console(file=output, width=40, color_system=None, highlight=False),
+        )
+        handler = _Handler.__new__(_Handler)
+        handler.client_address = ("127.0.0.1", 8000)
+        handler.requestline = "GET /api/summary?target=server_dll HTTP/1.1"
+        handler._request_started = time.perf_counter() - 0.25
+        handler.log_request(200, 1024)
+        rendered = output.getvalue()
+        assert '"GET /api/summary?target=server_dll HTTP/1.1" 200 1024' in rendered
+        assert "ms" in rendered
+        # width=40: a wrapped line would break log parsing.
+        assert rendered.count("\n") == 1
+
+    def test_each_request_on_a_connection_restamps_the_clock(self) -> None:
+        """A keep-alive handler serves many requests; the clock must reset each time."""
+        from io import BytesIO
+
+        from rebrew.dashboard import _Handler, allowed_hosts_for
+
+        handler = _Handler.__new__(_Handler)
+        handler.rfile = BytesIO(
+            b"GET / HTTP/1.1\r\nHost: 127.0.0.1:8000\r\n\r\n"
+            b"GET /api/targets HTTP/1.1\r\nHost: 127.0.0.1:8000\r\n\r\n"
+        )
+        handler.wfile = BytesIO()
+        handler.allowed_hosts = allowed_hosts_for("127.0.0.1", 8000)
+        handler.dashboard = Dashboard(Path("/nonexistent/coverage.db"))
+        handler.log_message = lambda *a, **k: None  # type: ignore[method-assign]
+        for _ in range(2):
+            stale = time.perf_counter() - 60.0
+            handler._request_started = stale
+            handler.handle_one_request()
+            assert handler._request_started > stale
 
 
 class TestKeepAliveTimeout:
