@@ -7,6 +7,7 @@ description: >-
   'reverse function', 'match function', 'implement function', 'decompile',
   'skeleton', 'test function', 'verify', 'lint', 'next function', 'workflow',
   'todo', 'diff', 'asm', 'status', 'coverage', 'progress', 'blocker',
+  'rebrew test', 'rebrew verify', 'rebrew skeleton', 'rebrew todo',
   'naked reconstruction', 'SOURCE: naked'. Hand off near-miss GA/prove to
   rebrew-matching; new binaries to rebrew-intake; globals/BSS to
   rebrew-data-analysis; Ghidra to rebrew-ghidra-sync.
@@ -84,8 +85,6 @@ rebrew skeleton 0x<VA> --xrefs                     # include caller context from
 rebrew skeleton 0x<VA> --append existing_file.c    # append to multi-function file (path relative to reversed_dir)
 rebrew skeleton --batch 10                         # generate 10 skeletons (smallest first)
 rebrew skeleton 0x<VA> --force                     # overwrite if the file already exists
-rebrew decompile 0x<VA>                            # standalone decompilation (kuna, r2ghidra, r2dec, ghidra)
-rebrew fix src/<target>/<file>.c                   # make raw decompiler output compilable
 ```
 
 The skeleton writes the `// FUNCTION:` marker + a stub body and records SIZE in
@@ -177,36 +176,12 @@ rebrew blocker clear src/<target>/<file>.c       # remove BLOCKER again
 `--fix-blocker` writes BLOCKER metadata. Unresolved `[0]` globals → add `// GLOBAL:`.
 Deep GA/prove → `rebrew-matching`.
 
-## 5. File Organization
+## 5. File Organization and Dependency Graph
 
-```bash
-rebrew split src/<target>/multi.c [--dry-run] [--va 0x...]
-rebrew merge a.c b.c -o merged.c
-rebrew merge-sweep --dry-run
-rebrew link-order --check
-rebrew layout-map
-rebrew rename old_func new_func [--dry-run]
-rebrew graph --cu-map --json              # infer TU boundaries for merge decisions
-rebrew recommend --json                   # all lanes: TU layout + hygiene + next action
-```
+Splitting/merging source files and reading the call graph:
+`references/file-organization.md`.
 
-Split for different CFLAGS; merge for shared TU (statics/file globals).
-`rebrew merge --shared` collapses per-target twin copies into one stacked
-`src/shared` file (refuses divergent bodies).
-`rebrew cross-import --shared` stacks one matched function at a time
-(`--promote` moves the file first); `split --va` matches any stacked marker.
-
-## 6. Global Data
-
-Globals → `rebrew-data-analysis` (`// GLOBAL:` / `// DATA:`, `rebrew data`).
-Metadata in `rebrew-data.toml` at `cfg.metadata_dir`.
-
-## 7. Stubborn NEAR_MATCHING
-
-When `rebrew diff` / C edits stall, switch to `rebrew-matching` (flag sweep, GA,
-`near-diag`, `prove`). Do not run long GA/prove from this skill.
-
-## 8. Verify and Track Progress
+## 6. Verify and Track Progress
 
 ```bash
 rebrew doctor
@@ -220,7 +195,7 @@ rebrew types apply-type <file> --param N --type T
 Full flag set + coverage DB + decomp.me: `references/verify-and-progress.md`.
 `verify --compare` is the CI regression gate.
 
-## 9. Final Validation: Round-Trip
+## 7. Final Validation: Round-Trip
 
 When a whole set is matched, splice EXACT/RELOC back into a byte-identical PE:
 
@@ -231,15 +206,6 @@ rebrew round-trip --dry-run             # preview without writing <binary>.reasm
 
 SIZE must live in `rebrew-functions.toml` (`rebrew lint --fix` migrates inline keys).
 PROVEN is skipped. Full fallback/drift rules: `references/round-trip.md`.
-
-## 10. Dependency Graph
-
-```bash
-rebrew graph --format summary           # stats, leaf functions, top blockers
-rebrew graph --focus <Func> --depth 2   # neighbourhood of a specific function
-rebrew graph                            # full mermaid call graph
-rebrew graph --cu-map --json            # infer compilation unit boundaries
-```
 
 ## Toolchains
 
