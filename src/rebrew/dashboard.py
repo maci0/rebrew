@@ -447,7 +447,10 @@ function setListPageMessage(opts) {
     hint.hidden = false;
     const next = Math.min(count + PAGE_STEP, total, PAGE_MAX);
     more.hidden = capped;
-    $(moreBtnId).textContent = "Show more " + noun + " (up to " + next + ")";
+    // The label counts the rows this click adds; the running total is already
+    // in the hint above the table.
+    const step = next - count;
+    $(moreBtnId).textContent = "Show " + step + " more " + (step === 1 ? nounOne : noun);
   } else {
     $("results-status").textContent = count + " " + (count === 1 ? nounOne : noun) + " shown";
     hint.textContent = "Showing " + (count === 1 ? ("1 " + nounOne) : (count + " " + noun));

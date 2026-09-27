@@ -452,7 +452,9 @@ def _prompt_binary(cwd: Path, binary_name: str) -> str:
     Scans ``original/`` first, then the cwd root (non-recursive) for known
     binary extensions and offers the hits as numbered choices plus an
     "m" (manual path/name) option; manual input keeps the value on Enter
-    and validates the path with a warning when nothing exists there."""
+    and validates the path with a warning when nothing exists there.  The
+    default is the first listed binary, so Enter takes the obvious choice
+    instead of dropping the user into a second prompt to type it again."""
     found: list[Path] = []
     for base in (cwd / "original", cwd):
         if not base.is_dir():
@@ -472,7 +474,7 @@ def _prompt_binary(cwd: Path, binary_name: str) -> str:
         console.print(f"  {i}. {label}")
     console.print(f"  m. enter a path/name manually (default: {binary_name})")
     options = [str(i) for i in range(1, len(labels) + 1)] + ["m"]
-    choice = Prompt.ask("Binary", choices=options, default="m", console=console)
+    choice = Prompt.ask("Binary", choices=options, default="1", console=console)
     if choice == "m":
         return _resolve_manual_binary(
             cwd, Prompt.ask("Binary path or name", default=binary_name, console=console)
@@ -563,10 +565,21 @@ def _run_wizard(
             Prompt.ask("Target name", default=stem or target_name, console=console) or target_name
         )
 
+    # Every wizard question is asked before the summary: a prompt after the
+    # confirmation would ask about a setting the user already said yes to.
+    if not _wizard_param_explicit(ctx, "install_completions"):
+        install_completions = Confirm.ask(
+            "Write shell completion scripts into completions/?", default=False, console=console
+        )
+
     rows = [
         ("target", target_name),
         ("binary", f"original/{binary_name}"),
         ("compiler profile", compiler_profile),
+        (
+            "shell completions",
+            "completions/ (bash, zsh, fish)" if install_completions else "no",
+        ),
     ]
     if suggestion and suggestion != compiler_profile:
         rows.append(("suggested profile", f"{suggestion} (not used)"))
@@ -574,16 +587,18 @@ def _run_wizard(
     for key, value in rows:
         console.print(f"  [cyan]{key:>18}:[/] {value}")
     if not Confirm.ask("Create project with these settings?", default=True, console=console):
+        # The recovery line repeats every answer the wizard collected, including
+        # the completion choice, so a re-run reproduces the same project.
+        flags = (
+            f"  rebrew init --no-wizard --target {target_name} "
+            f"--binary {binary_name} --toolchain {compiler_profile}"
+        )
+        if install_completions:
+            flags += " --install-completions"
         console.print(
-            "Aborted — nothing was written. Re-run with flags to skip the wizard:\n"
-            "  rebrew init --no-wizard --target <name> --binary <file> --toolchain <profile>"
+            "Aborted — nothing was written. Re-run with flags to skip the wizard:\n" + flags
         )
         raise typer.Exit(code=EXIT_OK)
-
-    if not _wizard_param_explicit(ctx, "install_completions"):
-        install_completions = Confirm.ask(
-            "Write shell completion scripts into completions/?", default=False, console=console
-        )
 
     return target_name, binary_name, compiler_profile, install_completions
 
