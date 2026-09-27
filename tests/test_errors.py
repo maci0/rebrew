@@ -166,3 +166,14 @@ class TestHierarchyCoverage:
             cls = getattr(err_mod, name)
             assert cls is getattr(importlib.import_module(module_name), attr)
             assert issubclass(cls, RebrewError)
+
+    def test_all_covers_every_lazy_export(self) -> None:
+        """``__all__`` is the surface a star-import or docs generator reads;
+        it must name every type the module promises to re-export."""
+        import rebrew.errors as err_mod
+
+        assert sorted(err_mod.__all__) == sorted(
+            ["RebrewError", *err_mod._LAZY_ERRORS, *err_mod._LAZY_ERROR_KINDS]
+        )
+        for name in err_mod.__all__:
+            assert getattr(err_mod, name) is not None, name

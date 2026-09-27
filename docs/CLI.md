@@ -2826,7 +2826,7 @@ that returns a `CompareResult` dataclass used by both `rebrew test` and
 
 | Symbol | Module | Purpose |
 |--------|--------|---------|
-| `CompareResult` | `compile.py` | Structured result for compile+compare operations (`matched`, `status`, `match_percent`, `delta`, `obj_bytes`, `message`) |
+| `CompareResult` | `compile.py` | Structured result for compile+compare operations (`matched`, `status`, `match_percent`, `delta`, `obj_bytes`, `message`, `error`) |
 | `classify_compare_result` | `compile.py` | Pure helper: classifies raw byte comparison into a `CompareResult` |
 | `compile_and_compare` | `compile.py` | High-level: compile → extract → compare → `CompareResult` |
 | `update_source_status` | `metadata.py` | Canonical STATUS writer — promotes STATUS in `rebrew-functions.toml`; never touches `.c` files |
@@ -2835,6 +2835,13 @@ that returns a `CompareResult` dataclass used by both `rebrew test` and
 Both `rebrew test` (auto-promote after single test) and `rebrew verify`
 (always-on batch promotion) call `update_source_status`.  The `.c` file is **never modified**
 by either tool's status logic.
+
+A compile that fails inside the remote recompile backend
+(`[compiler] recompile_url` / `REBREW_RECOMPILE_URL`) is reported as
+`status = "COMPILE_ERROR"` with the structured
+`rebrew.recompile_client.RecompileError` on `CompareResult.error`, so a
+library consumer branches on `result.error.kind` / `result.error.retryable`
+instead of matching `result.message` substrings.
 
 ## Exit Code Alignment: `rebrew diff` vs `rebrew test`
 

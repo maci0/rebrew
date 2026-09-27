@@ -1,5 +1,22 @@
 ## [Unreleased]
 
+### Added
+- **`CompareResult.error` carries the structured compile-backend failure.** A
+  remote recompile failure (`[compiler] recompile_url` /
+  `REBREW_RECOMPILE_URL`) was flattened into `result.message`, so a library
+  consumer could not tell "the compile service was unreachable" from "your C
+  does not build" without matching message substrings, and the
+  `except RebrewError: if exc.retryable` recovery the README documents never
+  fired for that backend. `compile_and_compare` now attaches the
+  `RecompileError` to the result; `compile_to_obj` and
+  `_compile_via_recompile` take a `backend_errors` sink list to carry it
+  through the compile boundary.
+- **`rebrew.errors.__all__` listed 5 of the 32 names the module re-exports.**
+  A star-import or a docs generator reading the declared surface saw a fraction
+  of the error types the module documents as importable from this one place.
+  `__all__` now names every lazy export (classes and `kind` aliases), and
+  `tests/test_errors.py` pins it to the lazy tables so the two cannot drift.
+
 ### Fixed
 - **`rebrew analyze` disassembled every code section twice.** The string census
   and the reference profile each ran `scan_references` over the whole `.text`.

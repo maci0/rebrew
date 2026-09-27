@@ -644,3 +644,73 @@ class TestCompileViaRecompile:
         src.write_text("int f(void) {}")
         with pytest.raises(AssertionError, match="recompile backend selected without a URL"):
             _compile_via_recompile(self._cfg(""), src, [], tmp_path, "f.obj", "msvc-6.0", False)
+
+    def test_service_error_is_recorded_for_the_caller(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The structured error reaches the caller, not just the message."""
+        import rebrew.recompile_client as rc
+
+        def fake(*a: Any, **k: Any) -> Any:
+            raise RecompileError("503 from svc", kind="http", status_code=503, retryable=True)
+
+        monkeypatch.setattr(rc, "compile_source", fake)
+        errors: list[BaseException] = []
+        out, err = _compile_via_recompile(
+            self._cfg(),
+            tmp_path / "f.c",
+            [],
+            tmp_path,
+            "f.obj",
+            "msvc-6.0",
+            False,
+            source_text="int f(void) { return 0; }",
+            backend_errors=errors,
+        )
+
+        assert out is None and err.startswith("recompile service error:")
+        assert [type(e) for e in errors] == [RecompileError]
+        assert errors[0].kind == "http"  # type: ignore[attr-defined]
+        assert errors[0].status_code == 503  # type: ignore[attr-defined]
+        assert errors[0].retryable is True
+
+    def test_compare_result_carries_the_service_error(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A consumer of compile_and_compare branches on result.error, not
+        on message substrings."""
+        import rebrew.recompile_client as rc
+        from rebrew.compile import compile_and_compare
+
+        def fake(*a: Any, **k: Any) -> Any:
+            raise RecompileError("connection refused", kind="network", retryable=True)
+
+        monkeypatch.setattr(rc, "compile_source", fake)
+        monkeypatch.setattr(compile_mod, "_recompile_clients", {})
+        src = tmp_path / "f.c"
+        src.write_text("int f(void) { return 0; }")
+        cfg = SimpleNamespace(
+            root=tmp_path,
+            recompile_url="http://svc",
+            recompile_emit_assembly=False,
+            compile_timeout=30,
+            compiler_profile="msvc-6.0",
+            compiler_command="",
+            base_cflags="",
+            compiler_includes=tmp_path,
+            compiler_runner="",
+        )
+
+        result = compile_and_compare(
+            cfg,
+            src,
+            "_f",
+            b"\x55\x8b\xec",
+            [],
+            use_cache=False,
+        )
+
+        assert result.status == "COMPILE_ERROR"
+        assert isinstance(result.error, RecompileError)
+        assert result.error.kind == "network"
+        assert result.error.retryable is True

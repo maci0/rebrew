@@ -179,6 +179,15 @@ except RebrewError as exc:
     if exc.retryable:
         ...  # transient docker/daemon blip or transport hiccup
     raise
+
+# A remote recompile failure does not raise: it is a COMPILE_ERROR result
+# with the structured error attached, so the retry decision survives the
+# compile boundary.
+if result.status == "COMPILE_ERROR" and result.error is not None:
+    if result.error.retryable:
+        ...  # compile service unreachable / 503 - retry later
+    else:
+        ...  # the service rejected the request; rebrewing the C will not help
 ```
 
 Every rebrew error type inherits `RebrewError` alongside its original
