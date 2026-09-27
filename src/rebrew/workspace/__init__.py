@@ -1,9 +1,11 @@
 """Shared workspace/config and coverage.db resolution for the rebrew tools.
 
-Stdlib-only apart from two things: the ``section_cells_json`` codec
+Stdlib-only apart from three things: the ``section_cells_json`` codec
 (``encode``/``decode_section_cells``, which defer their ``zstandard`` import to
-the call) and ``rebrew.errors``, a leaf module that imports nothing and gives
-:class:`WorkspaceNotFound` the shared ``RebrewError`` base.  Resolving a
+the call), ``rebrew.errors``, a leaf module that imports nothing and gives
+:class:`WorkspaceNotFound` the shared ``RebrewError`` base, and
+``rebrew.utils.file_handle_lock``, imported inside ``db.coverage_db_lock``
+because ``rebrew.utils`` pulls tomlkit and rich.  Resolving a
 workspace and reading a coverage.db never pulls in the rebrew toolchain (no
 LIEF, capstone or tree-sitter) and never requires a compression dependency
 either.  The codec is still shared rather than duplicated per consumer: one

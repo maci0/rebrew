@@ -45,9 +45,9 @@ Bare `uv run --frozen pytest` matches `make test` (`pyproject.toml` pytest confi
 src/rebrew/          # package; discover modules there; do not rely on an inline inventory
 ├── matcher/         # GA engine: src/rebrew/matcher/AGENTS.md
 ├── catalog/         # function registry + coverage grid: src/rebrew/catalog/AGENTS.md
-├── ghidra/          # BinSync-primary field sync + MCP structural ops
-├── binsync/         # declib BinSync state I/O
-├── workspace/       # workspace status DB and config cache
+├── ghidra/          # BinSync-primary field sync + MCP structural ops: src/rebrew/ghidra/AGENTS.md
+├── binsync/         # declib BinSync state I/O: src/rebrew/binsync/AGENTS.md
+├── workspace/       # workspace status DB and config cache: src/rebrew/workspace/AGENTS.md
 └── agent-skills/    # packaged skill source of truth (rebrew skills list/show)
 tests/               # pytest; typically test_<module>.py
 ```

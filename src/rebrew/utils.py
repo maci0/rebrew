@@ -1,4 +1,42 @@
-"""Shared utilities for rebrew."""
+"""utils.py — the leaf helpers every other rebrew module can depend on.
+
+This module has no rebrew imports, so anything here may be called from
+anywhere without a cycle.  That freedom is also its cost: the name says
+nothing about what it owns, so the map below is the index.  Helpers are
+grouped by concern and stay in that group; a new helper joins the group
+it belongs to rather than starting a sixth.
+
+- **Text and identifiers**: ``strip_bidi_format``, ``strip_body``,
+  ``strip_comment_blocks``, ``strip_generated_timestamp``, ``filename_component``,
+  ``is_safe_c_ident``, ``fold_ident``, ``parse_int_literal``,
+  ``parse_c_integer_literal``, ``source_newline``, ``safe_shlex_split``
+- **Source and config reading**: ``read_source_text`` / ``read_compile_source``
+  (with the LRU memo and its ``clear_source_text_memo`` reset),
+  ``detect_source_encoding``, ``read_toml_text``, ``load_tomllib``,
+  ``load_toml_for_write``, ``resolve_msvc_toolchain`` / ``toolchain_link_candidates``
+- **Atomic and locked writes**: ``atomic_write_text`` / ``atomic_write_bytes``,
+  ``atomic_write_locked``, ``file_lock`` / ``file_handle_lock``,
+  ``metadata_write_lock``, ``preserve_corrupt``
+- **Metadata document access**: ``load_metadata_doc``, ``parse_metadata_doc``,
+  ``build_metadata_doc``, the metadata key algebra
+  (``qualified_key``, ``canonical_va_key``, ``parse_metadata_key``,
+  ``build_metadata_key_index``, ``resolve_metadata_key``, ``preset_module_key``)
+  and the doc cache (``pop_metadata_doc_cache``, ``clear_metadata_doc_cache``)
+- **Subprocesses**: ``run_process_group`` (process-tree teardown, timeout,
+  captured pipes), ``watch_files``
+- **Host environment**: ``container_runtime`` / ``DEFAULT_CONTAINER_RUNTIME`` /
+  ``CONTAINER_RUNTIMES``, ``find_install_tool``, ``md5_file``,
+  ``SOURCE_CHECKOUT`` (the contributor checkout, ``None`` in an install),
+  ``xdg_cache_home``, ``writable_temp_dir``, ``remove_temp_dir``,
+  ``rel_display_path``
+- **Presentation helpers**: ``clip_span``, ``floor_pct``, ``close_response``
+  (plus ``RETRYABLE_HTTP_STATUS``)
+
+``utils`` is not a place for domain logic.  A helper that knows about a
+toolchain, a metadata field, or a rebrew-project layout belongs in the
+module that owns that concept (``toolchain``, ``metadata``, ``workspace``,
+``config``), not here.
+"""
 
 import bisect
 import contextlib
