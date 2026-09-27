@@ -96,9 +96,11 @@ from __future__ import annotations
 import errno
 import gzip
 import hashlib
+import itertools
 import json
 import logging
 import sqlite3
+import threading
 import time
 import traceback
 from collections.abc import Iterator
@@ -126,6 +128,16 @@ log = logging.getLogger(__name__)
 
 _LOG_CONTROL_CHARS = {code: f"\\x{code:02x}" for code in (*range(0x20), *range(0x7F, 0xA0))}
 _LOG_CONTROL_CHARS[ord("\\")] = "\\\\"
+
+#: Correlation id per request: the access line, the 5xx line, and the escaped
+#: traceback all carry it, so an operator can pivot from a failure back to the
+#: request that produced it even while other threads interleave their lines.
+_REQUEST_IDS = itertools.count(1)
+#: Both log streams (access lines on ``console``, errors on ``log``) start with
+#: this stamp, so one grep orders the whole server output.
+_LOG_TIME_FORMAT = "%H:%M:%S"
+#: Level column, padded to the width of the longest name we emit (CRITICAL).
+_LOG_LEVEL_FORMAT = "%(levelname)-8s"
 
 _DEFAULT_LIMIT = 100
 _MAX_LIMIT = 5000
@@ -1973,6 +1985,15 @@ class Dashboard:
             return 200, "application/javascript; charset=utf-8", _BOOT_GUARD_JS
         if parsed.path == "/api/bootstrap":
             return self._json(200, self.bootstrap())
+        if parsed.path == "/api/health":
+            # Liveness plus one real read of the database: a process whose
+            # coverage.db has been moved, truncated, or replaced by something
+            # unreadable must report 500, not a cheerful 200 over an empty
+            # page.  The read is one indexed row fetch, not the full query
+            # chain, so a slow route cannot make the probe flap.
+            return self._json(
+                200, {"status": "ok", "db": str(self.db_path), "targets": len(self.targets())}
+            )
         if parsed.path == "/api/targets":
             targets = self.targets()
             return self._json(
@@ -2285,8 +2306,29 @@ def _escape_log_text(text: str) -> str:
     return strip_bidi_format(text).translate(_LOG_CONTROL_CHARS)
 
 
-def _log_failed_request(reason: str, path: str, exc: BaseException) -> None:
-    """One ERROR line per failed request: reason, path, and a scrubbed traceback.
+def _attach_server_log_handler() -> None:
+    """Send this module's ERROR/WARNING lines to the same console as the access log.
+
+    Without a handler, ``logging`` falls back to ``lastResort``: bare messages
+    on stderr with no timestamp, interleaved with stamped access lines.  The
+    formatter below gives the errors the same leading stamp and a level column,
+    so the server's whole output is one greppable stream.
+    """
+    handler = logging.StreamHandler(console.file)
+    handler.setFormatter(
+        logging.Formatter(f"%(asctime)s {_LOG_LEVEL_FORMAT} %(message)s", _LOG_TIME_FORMAT)
+    )
+    handler.set_name("rebrew-dashboard")
+    for existing in list(log.handlers):
+        if existing.get_name() == handler.get_name():
+            log.removeHandler(existing)
+    log.addHandler(handler)
+    log.setLevel(logging.INFO)
+    log.propagate = False
+
+
+def _log_failed_request(reason: str, path: str, exc: BaseException, request_id: str) -> None:
+    """One ERROR line per failed request: id, reason, path, and a scrubbed traceback.
 
     The traceback used to ride along on a ``log.debug(..., exc_info=True)``,
     which Python drops without a DEBUG-configured handler: a handler bug
@@ -2295,10 +2337,12 @@ def _log_failed_request(reason: str, path: str, exc: BaseException) -> None:
     because an exception raised on a request carries remote-controlled text
     (a route's query value, a DB row) into its frames, and that must be
     escaped before it reaches a terminal, exactly as ``log_message`` escapes
-    the request line.
+    the request line.  ``request_id`` is the id on the request's access line.
     """
     frames = "".join(traceback.format_exception(exc)).rstrip()
-    log.error("%s for %s\n%s", reason, _escape_log_text(path), _escape_log_text(frames))
+    log.error(
+        "%s %s for %s\n%s", request_id, reason, _escape_log_text(path), _escape_log_text(frames)
+    )
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -2320,6 +2364,13 @@ class _Handler(BaseHTTPRequestHandler):
     disable_nagle_algorithm = True
     #: Access-log clock for the request in flight (see handle_one_request).
     _request_started: float
+    #: Correlation id stamped per request; ``"-"`` until the first one is parsed.
+    _request_id: str = "-"
+    #: Served-request totals, printed once when the server stops.
+    _stats_lock: ClassVar[threading.Lock] = threading.Lock()
+    _requests: ClassVar[int] = 0
+    _server_errors: ClassVar[int] = 0
+    _slowest_ms: ClassVar[float] = 0.0
 
     def _respond(self, method: str) -> None:
         if not _host_allowed(self.headers.get("Host", ""), self.allowed_hosts):
@@ -2370,7 +2421,7 @@ class _Handler(BaseHTTPRequestHandler):
                 f"[red]dashboard query failed:[/red] "
                 f"{escape(_escape_log_text(self.path))}: {escape(_escape_log_text(str(exc)))}"
             )
-            _log_failed_request("dashboard query failed", self.path, exc)
+            _log_failed_request("dashboard query failed", self.path, exc, self._request_id)
             logged_error = True
             status, content_type, body = self.dashboard._error(
                 500, "database_error", "database error"
@@ -2385,7 +2436,7 @@ class _Handler(BaseHTTPRequestHandler):
                 f"[red]dashboard handler failed:[/red] "
                 f"{escape(_escape_log_text(self.path))}: {escape(_escape_log_text(repr(exc)))}"
             )
-            _log_failed_request("dashboard handler failed", self.path, exc)
+            _log_failed_request("dashboard handler failed", self.path, exc, self._request_id)
             logged_error = True
             status, content_type, body = self.dashboard._error(
                 500, "internal_error", "internal server error"
@@ -2394,7 +2445,13 @@ class _Handler(BaseHTTPRequestHandler):
             # A route that answers 500 on its own (corrupt function_stats) is
             # a server-side failure with no exception to attach: the request
             # line names the path and the caller's own log explains the row.
-            log.error("dashboard %s %s returned %d", method, _escape_log_text(self.path), status)
+            log.error(
+                "%s dashboard %s %s returned %d",
+                self._request_id,
+                method,
+                _escape_log_text(self.path),
+                status,
+            )
         if status == HTTPStatus.NOT_MODIFIED:
             self._send_not_modified(etag, _success_cache_control(parsed.path, query))
             return
@@ -2551,9 +2608,13 @@ class _Handler(BaseHTTPRequestHandler):
         # markup=False: the logged request line is remote-controlled text; a
         # path like "/[bold]x" must not be interpreted as Rich markup (log
         # tampering / terminal escape injection).  soft_wrap: a long request
-        # line must stay one log entry instead of wrapping into several.
+        # line must stay one log entry instead of wrapping into several.  The
+        # stamp and level match the ``log`` records, so the access line and the
+        # error line for one request sort and read as one stream.
         console.print(
-            _escape_log_text(f"  {self.address_string()} {fmt % args}"),
+            _escape_log_text(
+                f"{time.strftime(_LOG_TIME_FORMAT)} {'INFO':<8} {self.address_string()} {fmt % args}"
+            ),
             markup=False,
             soft_wrap=True,
         )
@@ -2563,17 +2624,34 @@ class _Handler(BaseHTTPRequestHandler):
         # Access-log clock: stamped per request so log_request can report how
         # long the handler took.  A keep-alive connection runs many requests
         # through one handler instance, so this cannot be set once at init.
+        # The correlation id is stamped here too, for the same reason: one
+        # id per request, shared by the access line and every error line it
+        # produces.
         self._request_started = time.perf_counter()
+        self._request_id = f"r{next(_REQUEST_IDS)}"
         super().handle_one_request()
 
     @override
     def log_request(
         self, code: int | str = "-", size: int | str = "-"
     ) -> None:  # (http.server API)
-        """Request line, status, and handler time: the server-side latency."""
+        """Request line, status, handler time, and the served-request totals."""
         started = getattr(self, "_request_started", None)
         elapsed_ms = 0.0 if started is None else (time.perf_counter() - started) * 1000.0
-        self.log_message('"%s" %s %s %.1fms', self.requestline, str(code), str(size), elapsed_ms)
+        status = int(code) if str(code).lstrip("-").isdigit() else 0
+        with self._stats_lock:
+            type(self)._requests += 1
+            if status >= 500:
+                type(self)._server_errors += 1
+            type(self)._slowest_ms = max(type(self)._slowest_ms, elapsed_ms)
+        self.log_message(
+            '%s "%s" %s %s %.1fms',
+            self._request_id,
+            self.requestline,
+            str(code),
+            str(size),
+            elapsed_ms,
+        )
 
 
 app = typer.Typer(
@@ -2589,6 +2667,7 @@ app = typer.Typer(
         "  / · · · · · · · · · · · · HTML shell (targets, summary, function search)\n\n"
         "  /app.js · · · · · · · · · Deferred dashboard client\n\n"
         "  /api/bootstrap · · · · · · Targets + first target summary/functions\n\n"
+        "  /api/health · · · · · · · · Liveness: server up + coverage.db readable\n\n"
         "  /api/targets · · · · · · List targets\n\n"
         "  /api/summary?target= · · Coverage stats (target required)\n\n"
         "  /api/functions?target= · Function rows (status/module/q/limit/offset)\n\n"
@@ -2663,12 +2742,20 @@ def main(
         f"[green]Rebrew dashboard on http://{host}:{port}[/] — "
         f"[dim]serving {db_path} (Ctrl+C to stop)[/dim]"
     )
+    _attach_server_log_handler()
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         console.print("[dim]Dashboard stopped.[/dim]")
     finally:
         server.server_close()
+        # Lifetime totals: the per-request access line says how one request
+        # went, this says how the run went (volume, 5xx count, worst latency).
+        console.print(
+            f"[dim]served {_Handler._requests} requests, "
+            f"{_Handler._server_errors} server errors, "
+            f"slowest {_Handler._slowest_ms:.1f}ms[/dim]"
+        )
 
 
 def main_entry() -> None:

@@ -2308,6 +2308,7 @@ class TestHostValidation:
         handler.allowed_hosts = allowed_hosts_for("127.0.0.1", 8000)
         handler.dashboard = Dashboard(Path("/nonexistent/coverage.db"))
         handler.dashboard.handle = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom"))  # type: ignore[method-assign]
+        handler._request_id = "r7"
         handler.send_response = lambda status: None  # type: ignore[method-assign]
         handler.send_header = lambda name, value: None  # type: ignore[method-assign]
         handler.end_headers = lambda: None  # type: ignore[method-assign]
@@ -2322,6 +2323,7 @@ class TestHostValidation:
         assert "dashboard handler failed for /api/targets" in text
         assert "RuntimeError: boom" in text
         assert "Traceback" in text
+        assert text.split()[0] == handler._request_id
 
     def test_route_level_500_is_logged_with_the_request(
         self, dashboard: Dashboard, caplog: pytest.LogCaptureFixture
@@ -2351,7 +2353,7 @@ class TestHostValidation:
 
         errors = [r for r in caplog.records if r.levelno == logging.ERROR]
         assert [r.getMessage() for r in errors] == [
-            "dashboard GET /api/summary?target=server_dll returned 500"
+            "- dashboard GET /api/summary?target=server_dll returned 500"
         ]
 
     def test_failed_request_log_escapes_control_chars(
@@ -2364,12 +2366,13 @@ class TestHostValidation:
             try:
                 raise RuntimeError("no such table: secrets\x1b")
             except RuntimeError as exc:
-                _log_failed_request("dashboard query failed", "/api/targets\x1b", exc)
+                _log_failed_request("dashboard query failed", "/api/targets\x1b", exc, "r3")
 
         text = caplog.records[-1].getMessage()
         assert "\x1b" not in text
         assert "/api/targets\\x1b" in text
         assert "secrets\\x1b" in text
+        assert text.startswith("r3 dashboard query failed")
 
 
 class TestAccessLog:
@@ -2418,6 +2421,80 @@ class TestAccessLog:
             handler._request_started = stale
             handler.handle_one_request()
             assert handler._request_started > stale
+
+    def test_each_request_gets_its_own_correlation_id(self) -> None:
+        """The id has to advance per request, or an error line cannot be pivoted."""
+        from io import BytesIO
+
+        from rebrew.dashboard import Dashboard, _Handler, allowed_hosts_for
+
+        handler = _Handler.__new__(_Handler)
+        handler.rfile = BytesIO(b"GET / HTTP/1.1\r\nHost: 127.0.0.1:8000\r\n\r\n")
+        handler.wfile = BytesIO()
+        handler.allowed_hosts = allowed_hosts_for("127.0.0.1", 8000)
+        handler.dashboard = Dashboard(Path("/nonexistent/coverage.db"))
+        handler.log_message = lambda *a, **k: None  # type: ignore[method-assign]
+        handler.handle_one_request()
+        first = handler._request_id
+        assert first.startswith("r")
+        handler._request_started = time.perf_counter()
+        handler.handle_one_request()
+        assert handler._request_id != first
+
+
+class TestServedCounters:
+    """The access log also feeds the lifetime totals printed on shutdown."""
+
+    def test_requests_errors_and_slowest_are_counted(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from rebrew.dashboard import _Handler
+
+        monkeypatch.setattr(_Handler, "_requests", 0)
+        monkeypatch.setattr(_Handler, "_server_errors", 0)
+        monkeypatch.setattr(_Handler, "_slowest_ms", 0.0)
+        handler = _Handler.__new__(_Handler)
+        handler.client_address = ("127.0.0.1", 8000)
+        handler.requestline = "GET /api/targets HTTP/1.1"
+        handler._request_id = "r1"
+        handler.log_message = lambda *a, **k: None  # type: ignore[method-assign]
+        handler._request_started = time.perf_counter() - 0.05
+        handler.log_request(200, 1024)
+        handler._request_started = time.perf_counter()
+        handler.log_request(500, 64)
+        assert _Handler._requests == 2
+        assert _Handler._server_errors == 1
+        assert _Handler._slowest_ms >= 50.0
+
+
+class TestHealthRoute:
+    """The probe must prove the database is readable, not just that we are up."""
+
+    def test_health_reports_targets(self, dashboard: Dashboard) -> None:
+        status, content_type, body = dashboard.handle("GET", "/api/health", {})
+        assert status == 200
+        assert content_type.startswith("application/json")
+        payload = json.loads(body)
+        assert payload["status"] == "ok"
+        assert payload["db"] == str(dashboard.db_path)
+        assert payload["targets"] == len(dashboard.targets())
+
+    def test_health_is_not_an_etag_route(self) -> None:
+        """A 304 on the probe would report a stale 'healthy' for a dead db."""
+        from rebrew.dashboard import _ROUTES
+
+        assert "/api/health" not in _ROUTES
+
+    def test_health_propagates_an_unreadable_database(self) -> None:
+        """The probe's read must raise, which _respond turns into 500 database_error."""
+        from rebrew.dashboard import Dashboard
+
+        dashboard = Dashboard(Path("/nonexistent/coverage.db"))
+        with pytest.raises(sqlite3.Error):
+            dashboard.handle("GET", "/api/health", {})
+
+    def test_health_rejects_writes(self, dashboard: Dashboard) -> None:
+        status, _, body = dashboard.handle("POST", "/api/health", {})
+        assert status == 405
+        assert json.loads(body)["code"] == "method_not_allowed"
 
 
 class TestKeepAliveTimeout:

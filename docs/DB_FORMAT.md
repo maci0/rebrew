@@ -442,7 +442,11 @@ The `recovery` server exposes the following endpoints. All data endpoints return
 > `/api/sections?target=`, `/api/globals?target=` with `module`/`q`/`limit`/`offset`
 > (`q` matches the global name or a hex address),
 > `/api/history?target=` with `limit`/`offset`, plus `/api/bootstrap`,
-> `/app.js`, `/boot-guard.js`, and `/api/targets`). Function, global, and history list rows are
+> `/app.js`, `/boot-guard.js`, `/api/targets`, and `/api/health`
+> (`{"status": "ok", "db": "<path>", "targets": <n>}` after one real read of
+> the target list, so an unreadable `coverage.db` answers 500
+> `database_error`; never ETagged, so a probe cannot be revalidated into a
+> stale "healthy")). Function, global, and history list rows are
 > compact arrays under `cols`. List envelopes carry `count` (this page),
 > `total`, the applied `limit`/`offset`, and `paged` — `true` on
 > `/api/functions`, `/api/globals`, `/api/history`; `false` on
@@ -458,5 +462,11 @@ The `recovery` server exposes the following endpoints. All data endpoints return
 > `database_error`, `internal_error`, plus `bad_request` / `uri_too_long` /
 > `header_fields_too_large` / `http_version_not_supported` for requests
 > rejected before routing). It does **not** implement
-> the path-style recovery endpoints above, `/api/regen`, or `/api/health`.
-> See [`dashboard.py`](../src/rebrew/dashboard.py).
+> the path-style recovery endpoints above or `/api/regen`.
+> Its stderr log is one stream: every access line is
+> `HH:MM:SS INFO    <addr> r<N> "<request line>" <status> <bytes> <ms>`
+> and every error line `HH:MM:SS ERROR   rebrew.dashboard r<N> <reason> <path>`
+> (plus an escaped single-line traceback), so `r<N>` pivots from a failure to
+> its request; a 500 the route raised itself is logged the same way with no
+> traceback. Totals (`requests`, `server errors`, `slowest ms`) print once on
+> shutdown. See [`dashboard.py`](../src/rebrew/dashboard.py).
