@@ -182,6 +182,61 @@ class TestBreakClassification:
         assert surface["utils"]["toolchain"] == ("re-export from .",)
         assert surface[""]["load_config"] == ("re-export from rebrew.config",)
 
+    def test_default_named_by_a_module_constant_is_compared_by_value(self) -> None:
+        """Naming a constant is not a signature change; moving its value is.
+
+        ``max_size: int = 9999`` written as ``max_size: int = NO_MAX_SIZE``
+        accepts the same calls, so the gate must not demand a ``**Breaking:``**
+        note for it.  A constant whose value moved is a real break and still
+        reads as one.
+        """
+        root = Path("src/rebrew")
+
+        def _signature(skeleton: str) -> tuple[str, ...]:
+            source = {
+                Path("src/rebrew/skeleton.py"): f"NO_MAX_SIZE = 9999\n\n{skeleton}\n",
+                Path("src/rebrew/match.py"): (
+                    "from rebrew.skeleton import NO_MAX_SIZE\n\n"
+                    "def main(max_size: int = NO_MAX_SIZE) -> None:\n    return None\n"
+                ),
+            }
+            surface = public_surface(root, source=source)
+            return surface["skeleton"]["filter_by_size"] + surface["match"]["main"]
+
+        literal = _signature("def filter_by_size(max_size: int = 9999) -> None:\n    return None\n")
+        named = _signature(
+            "def filter_by_size(max_size: int = NO_MAX_SIZE) -> None:\n    return None\n"
+        )
+        assert named == literal
+
+        lowered = public_surface(
+            root,
+            source={
+                Path("src/rebrew/skeleton.py"): (
+                    "NO_MAX_SIZE = 4096\n\ndef filter_by_size(max_size: int = NO_MAX_SIZE) -> None:\n"
+                    "    return None\n"
+                )
+            },
+        )["skeleton"]["filter_by_size"]
+        _, changed, _ = diff_surfaces(
+            {"skeleton": {"filter_by_size": literal[:3]}},
+            {"skeleton": {"filter_by_size": lowered[:3]}},
+        )
+        assert changed
+
+    def test_unresolvable_default_keeps_its_name(self) -> None:
+        """A computed binding has no value to read, so the name is what compares."""
+        source = {
+            Path("src/rebrew/utils.py"): (
+                "from os import environ\n"
+                "PAGE_SIZE = int(environ.get('PAGE_SIZE', '100'))\n"
+                "\n"
+                "def page(size: int = PAGE_SIZE) -> int:\n    return size\n"
+            )
+        }
+        surface = public_surface(Path("src/rebrew"), source=source)["utils"]
+        assert surface["page"] == ("def page", "size: int=PAGE_SIZE", "-> int")
+
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__]))

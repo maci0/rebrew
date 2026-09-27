@@ -654,9 +654,7 @@ class TestCiPins:
         )
         # The second build has no .git of its own, so the epoch travels in
         # the environment; a different path, TZ and locale come with it.
-        assert (
-            "SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) TZ=Asia/Tokyo LC_ALL=C.UTF-8" in body
-        )
+        assert "SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) TZ=Asia/Tokyo LC_ALL=C.UTF-8" in body
 
     def test_repro_check_runs_from_the_makefile(self) -> None:
         """CI calls the target: an inline recipe is a gate no contributor can run.
@@ -673,18 +671,16 @@ class TestCiPins:
             .split("\n  cli-contract:\n", 1)[0]
         )
         step = next(
-            block
-            for block in package_job.split("\n      - name: ")
-            if "make build-repro" in block
+            block for block in package_job.split("\n      - name: ") if "make build-repro" in block
         )
-        assert "git archive" not in step.split("run:", 1)[1], (
-            "the recipe is inlined in CI again"
-        )
+        assert "git archive" not in step.split("run:", 1)[1], "the recipe is inlined in CI again"
         # The copy has no .git, so the second build needs the epoch from the
         # environment; the Makefile default cannot supply it.
         assert "SOURCE_DATE_EPOCH=" in step
         assert "export SOURCE_DATE_EPOCH" in step
-        pr_check = re.search(r"(?m)^pr-check:(?P<deps>[^\n]*)$", MAKEFILE.read_text(encoding="utf-8"))
+        pr_check = re.search(
+            r"(?m)^pr-check:(?P<deps>[^\n]*)$", MAKEFILE.read_text(encoding="utf-8")
+        )
         assert pr_check is not None
         assert "build-repro" in pr_check.group("deps").split()
 
