@@ -12,6 +12,7 @@ from rebrew.status import (
     StatusReport,
     VerifyInfo,
     collect_status,
+    effective_status,
 )
 
 
@@ -1831,3 +1832,33 @@ class TestRenderTerminalBarClamping:
             if "█" in line or "░" in line
         )
         assert bar == "█" * 8 + "░" * 32
+
+
+class TestEffectiveStatus:
+    """The metadata/cache overlay that decides the status a function is reported with.
+
+    A wrong overlay either parks a broken function behind STUB or serves a stale
+    verdict for a source that has since been proven, so every branch is pinned.
+    """
+
+    @pytest.mark.parametrize("pinned", ["PROVEN", "SKIP"])
+    def test_metadata_pin_beats_a_cached_verdict(self, pinned: str) -> None:
+        assert effective_status(pinned, "NEAR_MATCHING") == pinned
+
+    @pytest.mark.parametrize("cached", ["STUB", "SIZE_MISMATCH", "MISSING_SIZE"])
+    def test_stub_survives_its_own_expected_mismatch(self, cached: str) -> None:
+        """A stub's size mismatch is the expected outcome, not a regression."""
+        assert effective_status("STUB", cached) == "STUB"
+
+    def test_cached_verdict_still_overrides_a_stub(self) -> None:
+        """A real verdict outranks STUB: the source is no longer a stub."""
+        assert effective_status("STUB", "EXACT") == "EXACT"
+
+    def test_stub_is_kept_when_uncached(self) -> None:
+        assert effective_status("STUB", None) == "STUB"
+
+    def test_uncached_falls_back_to_metadata(self) -> None:
+        assert effective_status("NEAR_MATCHING", None) == "NEAR_MATCHING"
+
+    def test_cached_verdict_overrides_metadata(self) -> None:
+        assert effective_status("NEAR_MATCHING", "EXACT") == "EXACT"

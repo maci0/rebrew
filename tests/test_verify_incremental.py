@@ -17,7 +17,9 @@ from rebrew.config import ProjectConfig
 from rebrew.verify import app
 from rebrew.verify_cache import load_verify_cache, save_verify_cache
 from rebrew.verify_hash import (
+    cflags_equivalent,
     compiler_config_hash,
+    entry_fingerprint,
     entry_headers_fp,
     headers_hash,
     source_hash,
@@ -1518,3 +1520,98 @@ class TestCompareLogicHashMembership:
         assert all("rebrew" in n for n in names)
         h = _compare_logic_hash()
         assert isinstance(h, str) and len(h) == 64
+
+
+class TestCflagsEquivalent:
+    """The cache predicate that decides reuse vs recompile of a cached verdict.
+
+    Too strict costs a recompile; too loose serves a verdict the current flags
+    would not reach, which is the failure the whole verify cache exists to
+    prevent.
+    """
+
+    def test_identical_strings_are_equivalent(self) -> None:
+        assert cflags_equivalent("/O2 /Gd", "/O2 /Gd")
+
+    def test_reorder_across_option_groups_is_equivalent(self) -> None:
+        """Different option groups commute, so /O2 /Gd and /Gd /O2 compile alike."""
+        assert cflags_equivalent("/O2 /Gd", "/Gd /O2")
+
+    def test_repeated_known_option_collapses(self) -> None:
+        """MSVC is last-wins inside one option group, so a repeat is redundant."""
+        assert cflags_equivalent("/O2 /O2 /Gd", "/O2 /Gd")
+
+    def test_last_wins_difference_is_not_equivalent(self) -> None:
+        """/O1 /O2 and /O2 /O1 leave a different last flag set: not equivalent."""
+        assert not cflags_equivalent("/O1 /O2", "/O2 /O1")
+
+    def test_order_sensitive_anchors_are_not_equivalent(self) -> None:
+        """/D and /I are anchors whose order changes macro/include resolution."""
+        assert not cflags_equivalent("/D A /D B", "/D B /D A")
+
+    @pytest.mark.parametrize("stored, current", [("", "/O2"), ("/O2", ""), ("", "")])
+    def test_an_empty_side_is_never_equivalent(self, stored: str, current: str) -> None:
+        """A legacy or degenerate stored value is re-verified once, not trusted."""
+        assert not cflags_equivalent(stored, current)
+
+
+class TestEntryFingerprint:
+    """The per-entry cache identity shared by the hit check and the writer."""
+
+    def test_missing_source_path_is_a_miss(self, tmp_path: Path) -> None:
+        cfg = _make_cfg(tmp_path)
+        entry = SimpleNamespace(filepath="", size=4, cflags="", module="", toolchain="")
+        assert entry_fingerprint(cfg, entry) is None
+
+    def test_unreadable_source_is_a_miss(self, tmp_path: Path) -> None:
+        """A None return is a cache miss, never a hit on a file that is gone."""
+        cfg = _make_cfg(tmp_path)
+        entry = SimpleNamespace(filepath="gone.c", size=4, cflags="", module="", toolchain="")
+        assert entry_fingerprint(cfg, entry) is None
+
+    def test_fingerprint_pins_toolchain_cflags_size_and_source(self, tmp_path: Path) -> None:
+        from rebrew.verify_hash import DEFAULT_TOOLCHAIN
+
+        cfg = _make_cfg(tmp_path)
+        (cfg.reversed_dir / "a.c").write_text("int a(void) { return 1; }\n", encoding="utf-8")
+        entry = SimpleNamespace(filepath="a.c", size=4, cflags="/O1", module="", toolchain="")
+        fp = entry_fingerprint(cfg, entry)
+        assert fp is not None
+        # No override names a compiler, so the project default applies and the
+        # sentinel distinguishes it from a stored empty string.
+        assert fp.toolchain == DEFAULT_TOOLCHAIN
+        # The resolved flags, not the entry's raw override: a preset edit has
+        # to reach the cache key or cached verdicts outlive it.
+        assert fp.cflags
+        assert "/O1" in fp.cflags
+        assert fp.size == 4
+        assert fp.source_hash == hashlib.sha256(b"int a(void) { return 1; }\n").hexdigest()
+        assert fp.mtime_ns == (cfg.reversed_dir / "a.c").stat().st_mtime_ns
+
+    def test_defines_are_order_independent(self, tmp_path: Path) -> None:
+        """Two -D orders define the same program, so they must not bust the cache."""
+        cfg = _make_cfg(tmp_path)
+        (cfg.reversed_dir / "a.c").write_text("int a(void) { return 1; }\n", encoding="utf-8")
+        entry = SimpleNamespace(filepath="a.c", size=4, cflags="", module="", toolchain="")
+        cfg.defines = ["B", "A"]
+        first = entry_fingerprint(cfg, entry)
+        cfg.defines = ["A", "B"]
+        second = entry_fingerprint(cfg, entry)
+        assert first is not None and second is not None
+        assert first.defines == second.defines
+
+    def test_source_edit_changes_the_source_hash(self, tmp_path: Path) -> None:
+        """The hash, not just mtime, is what makes a content edit a miss.
+
+        The edit changes the length too, so the assertion does not depend on the
+        filesystem's mtime granularity beating the source-text memo.
+        """
+        cfg = _make_cfg(tmp_path)
+        source = cfg.reversed_dir / "a.c"
+        source.write_text("int a(void) { return 1; }\n", encoding="utf-8")
+        entry = SimpleNamespace(filepath="a.c", size=4, cflags="", module="", toolchain="")
+        before = entry_fingerprint(cfg, entry)
+        source.write_text("int a(void) { return 1 + 1; }\n", encoding="utf-8")
+        after = entry_fingerprint(cfg, entry)
+        assert before is not None and after is not None
+        assert before.source_hash != after.source_hash

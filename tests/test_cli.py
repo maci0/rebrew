@@ -716,6 +716,47 @@ class TestUntrustedTextBidi:
 
         assert untrusted_text("sub_401000 [dim]") == r"sub_401000 \[dim]"
 
+    @pytest.mark.parametrize("code", [0x1B, 0x07, 0x00, 0x9B, 0x7F])
+    def test_terminal_drivers_are_neutralized(self, code: int) -> None:
+        """A raw ESC/BEL would write the title or beep from a remote response body."""
+        from rebrew.cli import untrusted_text
+
+        assert untrusted_text(f"a{chr(code)}b") == f"a\\x{code:02x}b"
+
+    def test_tab_and_newline_survive(self) -> None:
+        """Layout controls carry meaning in a message and are not terminal drivers."""
+        from rebrew.cli import untrusted_text
+
+        assert untrusted_text("a\tb\nc") == "a\tb\nc"
+
+
+class TestUntrustedLiteral:
+    """untrusted_text's sibling for markup=False output: same scrubbing, no escaping.
+
+    An LLM prompt preview or a C snippet is the text under review, so ``a[i]``
+    and ``[bold]`` must survive verbatim while still carrying no terminal driver.
+    """
+
+    def test_markup_is_not_escaped(self) -> None:
+        from rebrew.cli import untrusted_literal
+
+        assert untrusted_literal("int a[0]; [bold]x[/]") == "int a[0]; [bold]x[/]"
+
+    def test_bidi_and_invisible_still_dropped(self) -> None:
+        from rebrew.cli import untrusted_literal
+
+        assert untrusted_literal("sub_A\u202etxt_b\u200b") == "sub_Atxt_b"
+
+    def test_terminal_drivers_are_neutralized(self) -> None:
+        from rebrew.cli import untrusted_literal
+
+        assert untrusted_literal("\x1b]0;title\x07rest") == r"\x1b]0;title\x07rest"
+
+    def test_tab_and_newline_survive(self) -> None:
+        from rebrew.cli import untrusted_literal
+
+        assert untrusted_literal("a\tb\nc") == "a\tb\nc"
+
 
 # ---------------------------------------------------------------------------
 # confirm_abort()

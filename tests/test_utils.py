@@ -20,12 +20,14 @@ from rebrew.utils import (
     detect_source_encoding,
     filename_component,
     floor_pct,
+    is_safe_c_ident,
     load_tomllib,
     merged_span_bytes,
     read_compile_source,
     read_source_text,
     read_toml_text,
     run_process_group,
+    strip_bidi_format,
 )
 
 
@@ -1553,3 +1555,53 @@ class TestSourceLines:
         text = raw.decode("latin-1")
         rebuilt = join_source_lines(text, split_source_lines(text))
         assert rebuilt.encode("latin-1") == raw
+
+
+class TestIsSafeCIdent:
+    """The gate that decides whether external text lands verbatim in C source.
+
+    Names arrive from linker output, BinSync state, and the CLI.  A name that
+    passes is emitted into a generated ``.c`` unchanged, so the accepted set
+    must be C89 ASCII identifiers and nothing wider.
+    """
+
+    @pytest.mark.parametrize("name", ["func_a", "_private", "A1", "x"])
+    def test_plain_c_identifiers(self, name: str) -> None:
+        assert is_safe_c_ident(name)
+
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "",
+            "1abc",  # leading digit
+            "has space",
+            "func(x)",  # anything that could carry an injection
+            "a\nb",
+            "café",  # str.isidentifier() would accept this; MSVC6 would not
+            "名前",
+            "abcé",  # trailing non-ASCII
+        ],
+    )
+    def test_rejected(self, name: str) -> None:
+        assert not is_safe_c_ident(name)
+
+    def test_anchored_at_both_ends(self) -> None:
+        """A valid prefix followed by junk is still junk."""
+        assert not is_safe_c_ident('ok; system("x")')
+
+
+class TestStripBidiFormat:
+    """Invisible reordering characters must not reach a status column or DOM."""
+
+    def test_removes_reordering_characters(self) -> None:
+        assert strip_bidi_format("sub_A\u202etxt\u202c") == "sub_Atxt"
+
+    def test_removes_invisible_operators_and_bom(self) -> None:
+        assert strip_bidi_format("a\u200bb\u2060c\ufeff") == "abc"
+
+    def test_leaves_visible_text_alone(self) -> None:
+        assert strip_bidi_format("func_a") == "func_a"
+
+    def test_keeps_ordinary_unicode(self) -> None:
+        """Scrubbing targets invisible formatting, not every non-ASCII char."""
+        assert strip_bidi_format("café") == "café"
