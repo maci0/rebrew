@@ -69,8 +69,10 @@ rather than per function).  ``merge_into_annotation(ann, directory)`` is the
 single-annotation form, for a caller that already holds one ``Annotation``
 and knows its ``cfg.metadata_dir``.  Metadata wins for the fields it owns,
 except where a stored value is malformed: an unparsable ``size``,
-``blocker_delta``, ``globals``, ``locals``, ``comments``, or
-``prove_constraints`` is dropped and the annotation's own value survives.
+``globals``, ``locals``, ``comments``, or ``prove_constraints`` is dropped and
+the annotation's own value survives.  ``blocker_delta`` is the exception: a
+non-numeric value clears it to ``None`` rather than keeping the annotation's
+own, so a corrupt delta cannot keep steering a stuck function.
 The legacy ``analysis`` field is mapped to ``note`` when the annotation has
 no explicit note.
 

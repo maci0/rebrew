@@ -187,10 +187,6 @@ SECTION_CELL_STATS_TABLE = "section_cell_stats"
 #: pages of history while bounding unbounded growth.
 _HISTORY_RETENTION = 10_000
 
-# Reserved metadata target holding the schema-level db_version stamp, so the
-# version is read deterministically regardless of which targets exist (a
-# scoped --target rebuild must not leave the DB reporting a stale version).
-#: `SCHEMA_TARGET` comes from rebrew.workspace (the shared reader uses it too).
 _SQLITE_TIMEOUT_SECONDS = 30.0
 
 
@@ -648,6 +644,9 @@ def _check_db_version(
     On mismatch without ``--force``: emit a clear error.
     With ``--force``: delete the DB file so it is recreated from scratch, and
     return the :data:`_PERSISTENT_TABLES` rows the caller must restore.
+    An existing file with no schema at all (an aborted build) is unlinked the
+    same way even without ``--force``: there is nothing to migrate from, and
+    keeping it would make every later query fail.
     """
     if not db_path.exists():
         return {}
@@ -700,8 +699,9 @@ def _check_db_version(
         return _unlink_db(db_path)
 
     if stored_version == _CURRENT_DB_VERSION:
-        # The version string alone is not proof of shape: a DB stamped "4" can
-        # be missing required objects (history table, section_cell_stats)
+        # The version string alone is not proof of shape: a DB stamped
+        # _CURRENT_DB_VERSION can be missing required objects (history table,
+        # section_cell_stats)
         # and pass the gate, then 500 at query time.  Verify the objects the
         # version promises exist.
         try:
@@ -739,8 +739,9 @@ def _missing_required_objects(db_path: Path) -> set[str]:
     alone is not proof of shape — a hand-made or half-written DB can carry
     the right stamp and still miss tables/views.
 
-    Checks object names AND the query-critical columns: a DB stamped "4"
-    whose ``functions`` table lacks ``textOffset``/``similarity`` (or whose
+    Checks object names AND the query-critical columns: a DB carrying the
+    current version stamp whose ``functions`` table lacks
+    ``textOffset``/``similarity`` (or whose
     ``section_cell_stats`` is missing a counted bucket) passes a name-only gate
     and then 500s at query time.  Missing columns are reported as
     ``table.column``.

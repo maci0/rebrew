@@ -594,12 +594,11 @@ def _iter_include_specs(text: str) -> Iterator[tuple[str, str]]:
     """Yield ``(kind, name)`` for every ``#include`` directive in *text*.
 
     *kind* is ``"quote"`` (``#include "x.h"``), ``"angle"`` (``#include
-    <x.h>``), ``"next"`` (``#include_next`` — treated as an angle search of
-    the remaining dirs), or ``"nonliteral"`` for a macro-expanded include
-    (``#include LIB_H``) that cannot be resolved statically.  Malformed
-    directives yield ``("nonliteral", "")``.  Includes inside comments and
-    ``#include``-shaped text outside directives are not matched (lines are
-    scanned only at directive position).
+    <x.h>`` and ``#include_next``), or ``"nonliteral"`` for a macro-expanded
+    include (``#include LIB_H``) that cannot be resolved statically.
+    Malformed directives yield ``("nonliteral", "")``.  Includes inside
+    comments and ``#include``-shaped text outside directives are not matched
+    (lines are scanned only at directive position).
     """
     for raw in text.splitlines():
         line = _strip_leading_comments(raw)

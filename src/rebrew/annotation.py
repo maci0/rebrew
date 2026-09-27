@@ -108,9 +108,14 @@ OPTIONAL_KEYS = {
 }
 # Rebrew-specific keys that must live exclusively in the metadata (or, for the
 # legacy pair, never inline at all).  Finding any of these inline fires lint
-# W019.  Kept in sync with metadata.METADATA_FIELDS + LEGACY_KEYS: ANALYSIS and
-# PROVE_CONSTRAINTS are metadata-routed fields, so an inline occurrence must
-# warn just like STATUS/CFLAGS.
+# W019.  This is deliberately not the same set as metadata.METADATA_FIELDS, and
+# the two differ in both directions:
+#   ORIGIN    the legacy inline spelling; the TOML field is SOURCE
+#   SECTION   owned by data_metadata.py for DATA/GLOBAL, never written to
+#             rebrew-functions.toml, but an inline occurrence still warns
+#   UPDATED_BY, UPDATED_AT  written by the STATUS writer, never authored
+#             inline, so there is nothing for the linter to catch
+# The rest (STATUS/CFLAGS/ANALYSIS/PROVE_CONSTRAINTS/...) overlap exactly.
 METADATA_KEYS: frozenset[str] = frozenset(
     {
         "STATUS",
@@ -500,7 +505,11 @@ class Annotation:
 
     @property
     def is_function(self) -> bool:
-        """True for compilable code annotations (FUNCTION/LIBRARY/STUB)."""
+        """True for compilable code annotations (FUNCTION/LIBRARY/STUB).
+
+        An empty ``marker_type`` also counts, so a caller scanning raw records
+        can read this before the marker has been resolved.
+        """
         if not self.marker_type:
             return True
         return self.marker_type in FUNCTION_MARKERS

@@ -1,4 +1,4 @@
-"""catalog/grid.py - Coverage grid and data.json generation.
+"""catalog/grid.py - Coverage grid and per-target data.json generation.
 
 Builds cell-level coverage maps for binary sections, handling jump table
 detection, gap absorption, padding classification, and thunk identification.
@@ -254,7 +254,7 @@ def generate_data_json(
     metadata_dir: Path | None = None,
     cfg: Any = None,
 ) -> dict[str, Any]:
-    """Generate the coverage database structure (db/data.json).
+    """Generate the coverage database structure (db/data_<target>.json).
 
     Builds function coverage maps, cell-level grids per section, and gap
     classification from annotations and the target binary.  Includes

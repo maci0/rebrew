@@ -4,9 +4,10 @@ Provides mutation functions that transform C89 source code to explore
 the MSVC6 code generation space.  Uses tree-sitter AST for most mutations,
 with regex fallback for complex multi-statement patterns.
 
-Public API: ``mutate_code(source, rng, track_mutation=False)`` applies a random
-mutation.  When ``track_mutation=True``, returns ``(mutated_source, mutation_name)``
-instead of just str.  Returns original source unchanged if all attempts fail.
+Public API: ``mutate_code(source, rng, track_mutation=False,
+mutation_weights=None)`` applies a random mutation.  When ``track_mutation=True``,
+returns ``(mutated_source, mutation_name)`` instead of just str.  Returns original
+source unchanged if all attempts fail.
 """
 
 import logging

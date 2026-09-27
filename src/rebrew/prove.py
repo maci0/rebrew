@@ -9,7 +9,9 @@ Architecture
 ~~~~~~~~~~~~
 1. Extract target bytes from the DLL and compiled bytes from the .obj
 2. Load both into separate angr Projects using the ``blob`` backend
-3. Read the ``PROTOTYPE`` field from rebrew-functions.toml metadata for calling convention + arg count
+3. Take the calling convention, arg count, and return width from the parsed
+   annotation's ``prototype`` (the raw declaration line in the C source; it is
+   derived, never stored in rebrew-functions.toml)
 4. Hook IAT-indirect calls with Win32 API-aware SimProcedures (constrained
    return values) to prevent path explosion from API calls.  Falls back to
    ``ReturnUnconstrained`` for unknown APIs.
