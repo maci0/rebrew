@@ -11,7 +11,7 @@ Endpoints
 ``GET /app.js``                → deferred dashboard client (preloaded + ``defer``)
 ``GET /boot-guard.js``        → deferred guard that reports a client that never booted
 ``GET /api/bootstrap``         → targets + first target's summary/functions (one RTT)
-``GET /api/health``            → liveness probe (no database read)
+``GET /api/health``            → liveness probe (one real read of the target list)
 ``GET /api/targets``           → list of targets (includes count/total)
 ``GET /api/summary?target=``   → function stats + coverage % (target required)
 ``GET /api/functions?target=`` → function rows as arrays under ``cols`` (filters: status, module, q, limit, offset)
@@ -41,7 +41,8 @@ methods (including ones http.server does not know) return 405 with
 ``corrupt_function_stats``, ``database_error``, ``internal_error``, and
 ``bad_request`` / ``uri_too_long`` / ``header_fields_too_large`` /
 ``http_version_not_supported`` for malformed requests rejected before
-routing) and show ``error`` to the reader.
+routing, plus ``request_error`` for any other status raised there) and
+show ``error`` to the reader.
 A ``status`` filter outside the STATUS vocabulary is 400
 ``invalid_status`` rather than an empty page, which would read as "this
 target has no functions in that status".
@@ -64,6 +65,8 @@ quality weights; explicit ``coding;q=0`` beats ``*``), carry an ``ETag`` (HTML
 or ``/app.js`` content hash, or DB mtime), and use ``Cache-Control: private,
 no-cache`` so browsers can 304 without serving a stale body after ``build-db``;
 the shell links ``/app.js?v=<content hash>``, which alone is ``immutable``.
+``/api/health`` is the exception: it reads the database, so it answers
+``no-store`` with no ``ETag`` at all (see ``_UNCACHEABLE_ROUTES``).
 An inline ``data:,`` icon stops the per-load ``/favicon.ico`` 404.
 A matching ``If-None-Match`` on a routed path is answered 304 only when a GET
 would answer 200 (target-scoped ones need a known ``target``; ``/api/summary``
@@ -176,6 +179,13 @@ _TARGET_ROUTES = frozenset(
 _ROUTES = (
     frozenset({"/", "/app.js", "/boot-guard.js", "/api/bootstrap", "/api/targets"}) | _TARGET_ROUTES
 )
+#: Routes that answer 200 but must carry no validator and no cache directive.
+#: ``/api/health`` reads the database, so a revalidated body would keep
+#: reporting "ok" for a process whose ``coverage.db`` has since gone unreadable.
+#: It is deliberately not in ``_ROUTES`` either: that stops the 304
+#: short-circuit, while this stops the ``ETag`` a client could otherwise hold
+#: and revalidate by hand.
+_UNCACHEABLE_ROUTES = frozenset({"/api/health"})
 #: ``code`` for the errors http.server raises before routing (400/414/431/505);
 #: any other parse error falls back to ``request_error``.
 _HTTP_ERROR_CODES: dict[int, str] = {
@@ -2292,6 +2302,8 @@ def _if_none_match(header: str, etag: str) -> bool:
 
 def _success_cache_control(path: str, query: dict[str, list[str]]) -> str:
     """Immutable for the current content-hashed asset URLs; revalidate everything else."""
+    if path in _UNCACHEABLE_ROUTES:
+        return "no-store"
     if path == "/app.js" and _opt_query(query, "v") == _APP_JS_VERSION:
         return _CACHE_IMMUTABLE
     if path == "/boot-guard.js" and _opt_query(query, "v") == _BOOT_GUARD_JS_VERSION:
@@ -2487,7 +2499,12 @@ class _Handler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body_bytes)))
-        if status == 200:
+        # An uncacheable route answers 200 with no validator: the probe's
+        # ETag, once handed out, would outlive the database read that
+        # produced it, and a client revalidating it by hand gets a stale
+        # "ok" for a coverage.db that has since gone unreadable.
+        cacheable = status == 200 and parsed.path not in _UNCACHEABLE_ROUTES
+        if cacheable:
             self.send_header("ETag", etag)
         if encoding:
             self.send_header("Content-Encoding", encoding)
