@@ -1366,6 +1366,47 @@ class TestSmokePrintGoldens:
         assert killed == names
         assert names[0].startswith("rebrew-smoke-msvc-6.0-")
 
+    def test_golden_drift_exits_mismatch_not_error(self, monkeypatch) -> None:
+        """A reproducible-but-different object is the finding the gate exists
+        to report (exit 1), not a broken toolchain (exit 2)."""
+        import json
+        import subprocess
+        from types import SimpleNamespace
+
+        from typer.testing import CliRunner
+
+        from rebrew.main import app as umbrella
+
+        def _fake_run(cmd, **kwargs):
+            from pathlib import Path
+
+            v = cmd[cmd.index("-v") + 1]
+            (Path(v.split(":")[0]) / "t.obj").write_bytes(b"OBJ" + b"\xff" * 4 + b"TAIL")
+            return SimpleNamespace(returncode=0, stdout=b"", stderr=b"")
+
+        monkeypatch.setattr(subprocess, "run", _fake_run)
+        result = CliRunner().invoke(umbrella, ["toolchain", "smoke", "msvc-6.0", "--json"])
+        assert result.exit_code == 1, result.output
+        payload = json.loads(result.stdout)
+        assert payload["passed"] is False
+        assert payload["results"]["msvc-6.0"].startswith("MISMATCH (")
+
+    def test_docker_timeout_exits_error(self, monkeypatch) -> None:
+        """A toolchain that could not run at all stays infrastructure (2)."""
+        import subprocess
+
+        from typer.testing import CliRunner
+
+        from rebrew.main import app as umbrella
+
+        def _fake_run(cmd, **kwargs):
+            raise subprocess.TimeoutExpired(cmd, kwargs["timeout"])
+
+        monkeypatch.setattr(subprocess, "run", _fake_run)
+        monkeypatch.setattr("rebrew.toolchain.kill_container", lambda name: None)
+        result = CliRunner().invoke(umbrella, ["toolchain", "smoke", "msvc-6.0", "--json"])
+        assert result.exit_code == 2, result.output
+
 
 class TestPullToolchainHint:
     """pull on an absent locally-built image must point at `toolchain

@@ -7,6 +7,7 @@ Uses capstone for x86 disassembly and numpy for vectorized byte comparison.
 
 import difflib
 import threading
+from collections.abc import Callable
 from typing import Any
 
 import capstone
@@ -891,7 +892,11 @@ def diff_functions(
 
 
 def print_diff_summary(
-    summary: dict[str, Any], *, mismatches_only: bool = False, register_aware: bool = False
+    summary: dict[str, Any],
+    *,
+    mismatches_only: bool = False,
+    register_aware: bool = False,
+    write: Callable[[str], None] = print,
 ) -> None:
     """Render a ``diff_functions(..., as_dict=True)`` payload as the human table.
 
@@ -899,6 +904,11 @@ def print_diff_summary(
     and embeds the dict in ``--json``) disassemble once instead of calling
     ``diff_functions`` twice.  Every count comes from the payload, so a
     hand-built summary prints ``0`` for the keys it omits.
+
+    *write* takes each rendered line and defaults to :func:`print`.  A CLI
+    passes its stderr console there: the table is the human report, and stdout
+    belongs to the machine documents (``--json``, ``--csv``), so
+    ``rebrew diff f.c > out`` must not bury them.
     """
     s = summary["summary"]
     mismatch_count = s.get("structural", 0)
@@ -906,19 +916,19 @@ def print_diff_summary(
     reloc_count = s.get("reloc", 0)
     exact_count = s.get("exact", 0)
     invalid_reloc_count = s.get("invalid", 0)
-    print(
+    write(
         f"\nTarget ({summary.get('target_size', '?')}B) vs Candidate ({summary.get('candidate_size', '?')}B)"
     )
     if mismatches_only:
         # `structural` also counts XX (invalid-reloc overlap) rows, which this
         # filter skips, so name the marker class rather than print the count.
-        print("Showing ** lines only (structural mismatches, excluding XX)")
-    print("-" * 80)
-    print(
+        write("Showing ** lines only (structural mismatches, excluding XX)")
+    write("-" * 80)
+    write(
         f"{'Target bytes':20} {'Target disassembly':30} | MS | "
         f"{'Candidate bytes':20} {'Candidate disassembly'}"
     )
-    print("-" * 80)
+    write("-" * 80)
 
     for row in summary.get("instructions") or []:
         match = row.get("match")
@@ -929,18 +939,18 @@ def print_diff_summary(
         c = row.get("candidate") or {}
         t_str = _pad_disasm(t.get("disasm") or "")
         c_str = _pad_disasm(c.get("disasm") or "")
-        print(
+        write(
             f"{t.get('bytes', ''):20} {t_str:30} | {match_char} | {c.get('bytes', ''):20} {c_str}"
         )
 
-    print("-" * 80)
+    write("-" * 80)
     if not mismatches_only:
-        print("== : exact match")
-        print("~~ : relocation difference (acceptable)")
+        write("== : exact match")
+        write("~~ : relocation difference (acceptable)")
         if register_aware:
-            print("RR : register encoding difference")
-        print("** : structural difference")
-    print(
+            write("RR : register encoding difference")
+        write("** : structural difference")
+    write(
         f"Summary: {mismatch_count} structural diff(s), "
         f"{reg_count} register diff(s), "
         f"{reloc_count} reloc diff(s), {invalid_reloc_count} invalid reloc(s), "

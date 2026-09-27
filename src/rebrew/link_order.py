@@ -340,6 +340,17 @@ def _drift_diff(current: list[str], ordered: list[str]) -> str:
     return "\n".join(lines)
 
 
+def _print_drift(diff: str) -> None:
+    """Write the human drift report to stderr.
+
+    The ordered source list is piped data and stays on stdout, but the diff is
+    the human explanation that sits beside a ``console`` status line, so
+    ``rebrew link-order --check > out`` captures the same thing on both
+    branches instead of a report on one and a message on the other.
+    """
+    console.print(diff, soft_wrap=True, markup=False, highlight=False)
+
+
 def _payload(
     cmake: Path,
     computed: list[str],
@@ -402,7 +413,7 @@ def main(
         if json_output:
             json_print(_payload(cmake, computed, current, in_sync, False, dropped, diff))
         elif not in_sync:
-            print(diff)
+            _print_drift(diff)
         else:
             console.print(
                 f"[green]{_CMAKE_LISTS} SOURCES match VA order ({len(computed)} files)[/green]"
@@ -436,7 +447,7 @@ def main(
     for entry in computed:
         print(entry)
     if dry_run and diff:
-        print(diff)
+        _print_drift(diff)
     if not in_sync:
         console.print(
             f"[yellow]{_CMAKE_LISTS} SOURCES differ from VA order "

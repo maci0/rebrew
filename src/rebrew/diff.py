@@ -304,7 +304,14 @@ def run_diff(
     if not json_output and not csv_output and isinstance(summary, dict):
         from rebrew.matcher.scoring import print_diff_summary
 
-        print_diff_summary(summary, mismatches_only=mismatches_only, register_aware=register_aware)
+        # stderr, not stdout: the table is the human report, and stdout is
+        # reserved for the --json / --csv documents.
+        print_diff_summary(
+            summary,
+            mismatches_only=mismatches_only,
+            register_aware=register_aware,
+            write=lambda line: console.print(line, soft_wrap=True, markup=False, highlight=False),
+        )
 
     if isinstance(summary, dict) and summary.get("instructions"):
         _resolve_global_names(summary["instructions"], p.cfg)

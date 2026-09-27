@@ -74,6 +74,12 @@ def _stdout(result: Any) -> str:
     return out if isinstance(out, str) else result.output
 
 
+def _stderr(result: Any) -> str:
+    """Stderr only — the status line and the drift report live here."""
+    out = result.stderr
+    return out if isinstance(out, str) else ""
+
+
 class TestFindSourcesBlock:
     def test_set_sources_wins(self) -> None:
         text = _CMAKE_SET + "\nadd_executable(other src/c.c)\n"
@@ -154,8 +160,11 @@ class TestLinkOrderCli:
         _make_project(tmp_path, {"a.c": 0x10001000, "b.c": 0x10003000})
         result = _invoke(tmp_path, monkeypatch, "--check")
         assert result.exit_code == 1
-        assert "src/a.c" in _stdout(result)
-        assert "src/b.c" in _stdout(result)
+        # The drift report is the human explanation and belongs beside the
+        # status line on stderr; stdout carries only piped data.
+        assert "src/a.c" in _stderr(result)
+        assert "src/b.c" in _stderr(result)
+        assert _stdout(result) == ""
 
     def test_check_passes_when_in_sync(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

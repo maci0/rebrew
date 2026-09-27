@@ -783,3 +783,23 @@ class TestDiffRegisterAwareWithRelocs:
             with redirect_stdout(new_buf):
                 print_diff_summary(payload, mismatches_only=mismatches_only)
             assert new_buf.getvalue() == old_buf.getvalue()
+
+    def test_print_diff_summary_write_sink_keeps_stdout_clean(self) -> None:
+        """``write=`` receives the table line by line, so a CLI can send the
+        human report to stderr and leave stdout to --json / --csv."""
+        import io
+        from contextlib import redirect_stdout
+
+        from rebrew.matcher.scoring import diff_functions, print_diff_summary
+
+        target = b"\x55\x8b\xec\x83\xec\x10\x83\xc0\x01\xc3"
+        cand = b"\x55\x8b\xec\x83\xec\x20\x83\xc0\x02\xc3"
+        payload = diff_functions(target, cand, None, as_dict=True)
+        assert payload is not None
+        lines: list[str] = []
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            print_diff_summary(payload, write=lines.append)
+        assert buf.getvalue() == ""
+        assert lines[0] == "\nTarget (10B) vs Candidate (10B)"
+        assert lines[-1].startswith("Summary: ")

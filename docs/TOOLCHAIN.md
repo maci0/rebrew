@@ -389,6 +389,11 @@ tarball/snapshot), `rebrew toolchain smoke --print-goldens`
 regenerates the masked hashes WITHOUT comparing — run it twice, confirm
 the hashes are stable, then paste them into `_SMOKE_GOLDEN`.
 
+Exit code: `1` when an object does not match its golden (the image drifted,
+which is the finding this gate exists to surface), `2` when a toolchain
+could not run at all (missing image, docker timeout, no object produced).
+`--json` reports the same split in `{"results": …, "passed": false}`.
+
 `rebrew toolchain vendor <name>` assembles the **host tree** from the same
 pinned source the image builds from (16-bit media tarball or sha256-verified
 download), extracting into `<family>/<version>-<arch>/source` under the

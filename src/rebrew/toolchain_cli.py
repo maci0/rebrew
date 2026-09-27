@@ -20,7 +20,15 @@ from typing import TYPE_CHECKING, Any
 import typer
 from rich.table import Table
 
-from rebrew.cli import EXIT_ERROR, TargetOption, console, error_exit, json_print
+from rebrew.cli import (
+    EXIT_ERROR,
+    EXIT_MISMATCH,
+    EXIT_OK,
+    TargetOption,
+    console,
+    error_exit,
+    json_print,
+)
 from rebrew.toolchain import (
     ToolchainError,
     docker_available,
@@ -1113,7 +1121,12 @@ def smoke_cmd(
 
     targets = [name] if name else sorted(_SMOKE_GOLDEN)
     results: dict[str, str] = {}
-    ok = True
+    # Two failure kinds, two exit codes: a toolchain that cannot run at all
+    # is infrastructure (2), an image that compiles different bytes than its
+    # recorded golden is an actionable finding (1), exactly like a byte
+    # mismatch in `rebrew test`.
+    infra_ok = True
+    reproducible = True
     # A real-disk, docker-visible workdir (the system temp dir may be
     # tmpfs or docker-invisible in sandboxed environments).
     from rebrew.utils import remove_temp_dir, writable_temp_dir
@@ -1137,7 +1150,7 @@ def smoke_cmd(
                     )
                 except subprocess.TimeoutExpired:
                     results[tool] = f"FAIL (docker run timed out after {_SMOKE_TIMEOUT_S}s)"
-                    ok = False
+                    infra_ok = False
                     continue
                 detail = (r.stdout + r.stderr)[-120:].strip()
             else:
@@ -1153,12 +1166,12 @@ def smoke_cmd(
                     detail = (rr.stdout + rr.stderr)[-120:].strip()
                 except ToolchainError as exc:
                     results[tool] = "FAIL (" + str(exc)[-120:] + ")"
-                    ok = False
+                    infra_ok = False
                     continue
             obj = workdir / out_name
             if not obj.exists():
                 results[tool] = "FAIL (no object: " + detail + ")"
-                ok = False
+                infra_ok = False
                 continue
             # Zero the compiler's build-timestamp fields (e.g. the COFF
             # TimeDateStamp, or Turbo C's per-run COMENT ticks + record
@@ -1170,29 +1183,29 @@ def smoke_cmd(
                 obj.unlink(missing_ok=True)
                 continue
             results[tool] = "OK" if actual == golden else f"MISMATCH ({actual[:12]}…)"
-            ok = ok and actual == golden
+            reproducible = reproducible and actual == golden
             obj.unlink(missing_ok=True)
+        # An infrastructure failure outranks a reproducibility finding: the
+        # toolchain that could not run tells nothing about the others.
+        code = EXIT_ERROR if not infra_ok else (EXIT_OK if reproducible else EXIT_MISMATCH)
         if json_output:
             json_print(
-                {"goldens": results} if print_goldens else {"results": results, "passed": ok}
+                {"goldens": results}
+                if print_goldens
+                else {"results": results, "passed": infra_ok and reproducible}
             )
-            if not ok:
-                raise typer.Exit(code=EXIT_ERROR)
-            return
-        if print_goldens:
+        elif print_goldens:
             for tool, h in results.items():
                 console.print(f"  {tool:12s} {h}")
-            if not ok:
-                raise typer.Exit(code=EXIT_ERROR)
-            return
-        for tool, status in results.items():
-            console.print(f"  [{'green' if status == 'OK' else 'red'}]{tool:12s}[/] {status}")
-        if ok:
-            console.print(
-                f"[green]Smoke: {sum(1 for s in results.values() if s == 'OK')} toolchains byte-reproducible[/green]"
-            )
         else:
-            raise typer.Exit(code=EXIT_ERROR)
+            for tool, status in results.items():
+                console.print(f"  [{'green' if status == 'OK' else 'red'}]{tool:12s}[/] {status}")
+            if code == EXIT_OK:
+                console.print(
+                    f"[green]Smoke: {sum(1 for s in results.values() if s == 'OK')} toolchains byte-reproducible[/green]"
+                )
+        if code != EXIT_OK:
+            raise typer.Exit(code=code)
     finally:
         remove_temp_dir(workdir)
 
@@ -1247,32 +1260,18 @@ def build_cmd(
         base_tag = base_from
         base_dockerfile = base_dir / "Dockerfile"
         if base_dockerfile.exists():
-            r = subprocess.run(
-                [container_runtime(), "build", "-t", base_tag, str(base_dir)],
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                timeout=3600,
-            )
-            if r.returncode != 0:
-                msg = f"docker build {base_tag} failed: {r.stderr[-300:]}"
+            rc, log = _docker_build(base_tag, base_dir, stream=not json_output)
+            if rc != 0:
+                msg = f"docker build {base_tag} failed: {_build_failure(rc, log)}"
                 error_exit(msg, json_mode=json_output)
 
     # Build through swap_toolchain_image (backup→swap→rollback): docker tags
     # on success, and a failed build leaves the previous image under the tag —
     # the swap verifies that and restores it if the tag was ever left dangling.
     def _build_image() -> None:
-        r = subprocess.run(
-            [container_runtime(), "build", "-t", image, str(build_dir)],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=3600,
-        )
-        if r.returncode != 0:
-            raise ToolchainError(f"docker build {image} failed: {r.stderr[-300:]}")
+        rc, log = _docker_build(image, build_dir, stream=not json_output)
+        if rc != 0:
+            raise ToolchainError(f"docker build {image} failed: {_build_failure(rc, log)}")
 
     try:
         swap_toolchain_image(image, _build_image)
@@ -1286,6 +1285,44 @@ def build_cmd(
 
 
 _SMOKE_TIMEOUT_S = 300
+
+#: A docker build of one toolchain image, base plus toolchain, is the long
+#: pole of `rebrew toolchain build`.
+_DOCKER_BUILD_TIMEOUT_S = 3600
+
+#: Tail of a captured docker log kept in a failure message.
+_BUILD_LOG_TAIL = 300
+
+
+def _docker_build(tag: str, context: Path, *, stream: bool) -> tuple[int, str]:
+    """``docker build -t *tag* *context*``; return ``(returncode, log_tail)``.
+
+    A toolchain build runs for minutes to an hour, and docker's own
+    layer-by-layer output is the only progress signal it emits, so
+    *stream* lets it reach the terminal live.  ``--json`` turns streaming off:
+    docker writes that log to stdout, which would land in the middle of the
+    JSON document, so it is captured and only its tail survives a failure.
+    """
+    argv = [container_runtime(), "build", "-t", tag, str(context)]
+    if stream:
+        proc = subprocess.run(argv, timeout=_DOCKER_BUILD_TIMEOUT_S)
+        return proc.returncode, ""
+    r = subprocess.run(
+        argv,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=_DOCKER_BUILD_TIMEOUT_S,
+    )
+    return r.returncode, (r.stdout + r.stderr)[-_BUILD_LOG_TAIL:].strip()
+
+
+def _build_failure(returncode: int, log_tail: str) -> str:
+    """The failure clause of a build error, naming the log when one was kept."""
+    if log_tail:
+        return f"{log_tail} (exit {returncode})"
+    return f"exit {returncode}"
 
 
 def _run_smoke_container(
