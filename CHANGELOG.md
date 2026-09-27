@@ -50,6 +50,15 @@
   candidate. The dashboard's "Show more" button also counts the rows a click
   adds ("Show 50 more functions") instead of a running total the hint above
   the table already carries.
+- **A failed `make sdist-check` no longer leaves untracked work.** The
+  comparison wheel is built in `.sdist-check/`, which the target removed only
+  on success, so the scratch tree survived a failure and showed up as
+  untracked files (breaking `make release-check`'s clean-tree gate). It is
+  now gitignored and removed by `make clean` alongside `.venv-pkg`.
+- **The `build` recipe's own comment is attached to it again.** The block
+  explaining the pinned umask/locale/timezone, the egg-info cleanup, and the
+  build backend hash check had drifted above `clean`, leaving `build`
+  undocumented and `clean` documented as a build.
 - **The README quickstart passes the config once.** `iter_sources` accepts a
   `ProjectConfig` directly, so the snippet reads `iter_sources(cfg)` instead of
   passing `cfg.reversed_dir` and `cfg` for the same object.
