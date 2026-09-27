@@ -194,7 +194,7 @@ angr mechanics: `references/prove.md`. Needs the `[prove]` extra (angr); if
 Once a swept or GA'd function reaches EXACT/RELOC, splice it back with
 `rebrew round-trip --json` (`--dry-run` previews). Splice rules, resolution
 fallbacks, and `compile_drift` / `catalog_resolution_drift` triage live in
-`rebrew-workflow` §7 and its `references/round-trip.md`. Use in CI alongside
+`rebrew-workflow` §7 and its round-trip reference. Use in CI alongside
 `verify --compare`.
 
 ## 8. Library Flag Overrides

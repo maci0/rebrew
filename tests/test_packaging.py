@@ -218,6 +218,68 @@ class TestPackagingMetadata:
         text = (ROOT / "CONTRIBUTING.md").read_text(encoding="utf-8")
         assert f"Rebrew is {major}.x." in text
 
+    def test_console_script_dropped_since_last_tag_is_breaking(self) -> None:
+        """CONTRIBUTING: the script names are frozen from 1.0.0.
+
+        A ``[project.scripts]`` key that disappears (a rename writes a new key
+        and drops the old) is a rename for whoever calls the script, so each
+        dropped name needs a ``**Breaking:**`` entry naming it. Three renames
+        in the 2.13.1 delta shipped with only one of them written down.
+        """
+        import subprocess
+
+        from rebrew import __version__
+
+        tag_proc = subprocess.run(
+            ["git", "describe", "--tags", "--abbrev=0"],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if tag_proc.returncode != 0 or not tag_proc.stdout.strip():
+            if os.environ.get("GITHUB_ACTIONS"):
+                pytest.fail("expected a v* tag in CI (test job must fetch tags)")
+            pytest.skip("no git tags in this checkout")
+        last_tag = tag_proc.stdout.strip()
+        show = subprocess.run(
+            ["git", "show", f"{last_tag}:pyproject.toml"],
+            cwd=ROOT,
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        if show.returncode != 0:
+            pytest.skip(f"cannot read pyproject.toml at {last_tag}")
+        tagged_scripts = tomllib.loads(show.stdout)["project"].get("scripts", {})
+
+        dropped = sorted(set(tagged_scripts) - set(_project().get("scripts", {})))
+        if not dropped:
+            return
+
+        text = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+        if __version__ != last_tag.lstrip("v"):
+            section_hdr = f"## [{__version__}]"
+            assert section_hdr in text, f"CHANGELOG.md has no {section_hdr} section"
+            block = text.split(section_hdr, 1)[1]
+        else:
+            first = next(line for line in text.splitlines() if line.startswith("## "))
+            assert first == "## [Unreleased]", (
+                f"{last_tag} dropped the console scripts {', '.join(dropped)} but "
+                f"CHANGELOG does not open with [Unreleased]"
+            )
+            block = text.split("## [Unreleased]", 1)[1]
+        next_hdr = block.find("\n## [")
+        if next_hdr != -1:
+            block = block[:next_hdr]
+
+        undeclared = [name for name in dropped if name not in block]
+        assert undeclared == [], (
+            f"console script(s) dropped since {last_tag} with no **Breaking:** "
+            f"entry naming them under [Unreleased] or [{__version__}]: "
+            f"{', '.join(undeclared)}"
+        )
+
     def test_coverage_db_bump_since_last_tag_is_breaking_in_unreleased(self) -> None:
         """CONTRIBUTING: coverage.db version bumps need ``**Breaking:**`` notes.
 
