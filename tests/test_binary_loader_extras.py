@@ -52,8 +52,19 @@ class _FakeELFData(enum.Enum):
     MSB = 2
 
 
+class _FakeELFClass(enum.Enum):
+    """Stand-in for the LIEF ``CLASS`` enum (not importable by name)."""
+
+    ELF32 = 1
+    ELF64 = 2
+
+
 def _mock_elf_header() -> SimpleNamespace:
-    return SimpleNamespace(machine_type=0, identity_data=_FakeELFData.LSB)
+    return SimpleNamespace(
+        machine_type=0,
+        identity_data=_FakeELFData.LSB,
+        identity_class=_FakeELFClass.ELF32,
+    )
 
 
 class TestLoadPe:
@@ -173,6 +184,100 @@ class TestLoadElf:
         )
         info = bl._load_elf(elf, Path("/tmp/x.so"))
         assert info.sections == {}
+
+
+class TestElfWordSize:
+    """``EM_MIPS`` covers both 32- and 64-bit images; EI_CLASS decides."""
+
+    @staticmethod
+    def _header(elf_class: int) -> bytes:
+        """A minimal header-only ELF for *elf_class* (``1`` = ELF32, ``2`` = ELF64)."""
+        import struct
+
+        ident = b"\x7fELF" + bytes([elf_class, 1, 1, 0]) + b"\0" * 8  # EI_DATA = LSB
+        if elf_class == 2:
+            rest = struct.pack(
+                "<HHIQQQIHHHHHH",
+                2,
+                8,
+                1,  # ET_EXEC, EM_MIPS, EV_CURRENT
+                0x400000,
+                0x400078,
+                0,
+                0,  # entry, phoff, shoff, flags
+                64,
+                56,
+                0,
+                0,
+                64,
+                0,
+            )
+        else:
+            rest = struct.pack(
+                "<HHIIIIIHHHHHH",
+                2,
+                8,
+                1,  # ET_EXEC, EM_MIPS, EV_CURRENT
+                0x400000,
+                0x400034,
+                0,
+                0,
+                52,
+                32,
+                0,
+                0,
+                40,
+                0,
+            )
+        return ident + rest
+
+    @pytest.mark.parametrize(("elf_class", "expected"), [(1, "mips32"), (2, "mips64")])
+    def test_mips_class_byte_picks_the_width(
+        self, tmp_path: Path, elf_class: int, expected: str
+    ) -> None:
+        f = tmp_path / f"mips{elf_class * 32}.elf"
+        f.write_bytes(self._header(elf_class))
+        assert bl.load_binary(f).arch == expected
+
+    @pytest.mark.parametrize(("elf_class", "expected"), [(1, 4), (2, 8)])
+    def test_pointer_size_comes_from_the_class_byte(
+        self, tmp_path: Path, elf_class: int, expected: int
+    ) -> None:
+        f = tmp_path / f"mips{elf_class * 32}.elf"
+        f.write_bytes(self._header(elf_class))
+        assert bl.load_binary(f).pointer_size == expected
+
+    def test_mips64_loader_reports_arch_and_width(self) -> None:
+        """``.eh_frame`` sizing reads pointer_size, not the arch name suffix."""
+        import lief
+
+        elf = SimpleNamespace(
+            header=SimpleNamespace(
+                machine_type=lief.ELF.ARCH.MIPS,
+                identity_data=_FakeELFData.LSB,
+                identity_class=_FakeELFClass.ELF64,
+            ),
+            segments=[SimpleNamespace(type=1, virtual_address=0x1000)],
+            sections=[],
+        )
+        info = bl._load_elf(elf, Path("/tmp/mips64.elf"))
+        assert (info.arch, info.pointer_size) == ("mips64", 8)
+
+    def test_x86_64_elf_keeps_its_map_name_and_width(self) -> None:
+        """EI_CLASS must not rewrite an arch the machine enum already split."""
+        import lief
+
+        elf = SimpleNamespace(
+            header=SimpleNamespace(
+                machine_type=lief.ELF.ARCH.X86_64,
+                identity_data=_FakeELFData.LSB,
+                identity_class=_FakeELFClass.ELF64,
+            ),
+            segments=[SimpleNamespace(type=1, virtual_address=0x1000)],
+            sections=[],
+        )
+        info = bl._load_elf(elf, Path("/tmp/x86_64.so"))
+        assert (info.arch, info.pointer_size) == ("x86_64", 8)
 
 
 class TestBinaryInfoData:

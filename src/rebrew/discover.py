@@ -248,7 +248,7 @@ def _discover_eh_frame(binary: Path) -> list[tuple[int, int, str]]:
     extents = _parse_eh_frame(
         data,
         section.va,
-        pointer_size=8 if info.arch.endswith("64") else 4,
+        pointer_size=info.pointer_size,
         big_endian=info.endian == "big",
     )
     return [

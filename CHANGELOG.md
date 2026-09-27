@@ -26,6 +26,14 @@
   unnamed; an NFD spelling of an accented name failed every equality
   comparison against the NFC one and the skill was listed twice or not found
   by `rebrew skills show` / `rebrew init` overlay.
+- **A 64-bit MIPS image is not detected as 32-bit.** `EM_MIPS` names both
+  widths and LIEF has no `MIPS64` member, so a 64-bit ELF (N64, PS2) loaded
+  as `mips32` and was disassembled in `CS_MODE_MIPS32`. The ELF ident
+  `EI_CLASS` byte now decides, the same way `EI_DATA` already decided
+  endianness. `BinaryInfo` carries `pointer_size` from that byte, so the
+  `.eh_frame` reader sizes FDE pointers off the image rather than off an
+  arch-name suffix, which is wrong for every machine the ELF header reports
+  as `mips32`.
 
 ### Changed
 - **The report pages and the coverage dashboard share one chrome token

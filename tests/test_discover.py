@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import struct
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -331,11 +333,22 @@ def _cie(encoding: int) -> bytes:
     return len(body).to_bytes(4, "little") + body
 
 
-def _fde(record_offset: int, cie_offset: int, section_va: int, start: int, size: int) -> bytes:
-    """A pc-relative sdata4 FDE at *record_offset* covering ``[start, start + size)``."""
+def _fde(
+    record_offset: int,
+    cie_offset: int,
+    section_va: int,
+    start: int,
+    size: int,
+    ptr_size: int = 4,
+) -> bytes:
+    """A pc-relative sdata4 FDE at *record_offset* covering ``[start, start + size)``.
+
+    *ptr_size* is the image word size, which fixes the width of the CIE
+    pointer that opens the record (4 on ELF32, 8 on ELF64).
+    """
     id_field = record_offset + 4
-    begin_field = id_field + 4
-    body = (id_field - cie_offset).to_bytes(4, "little")
+    begin_field = id_field + ptr_size
+    body = (id_field - cie_offset).to_bytes(ptr_size, "little")
     body += (start - (section_va + begin_field)).to_bytes(4, "little", signed=True)
     body += size.to_bytes(4, "little") + b"\x00"
     return len(body).to_bytes(4, "little") + body
@@ -432,6 +445,60 @@ class TestEhFrame:
                 assert all(size > 0 for _start, size in result)
 
         parse()
+
+    @pytest.mark.parametrize(("pointer_size", "start"), [(4, 0x401000), (8, 0x401000)])
+    def test_the_discoverer_reads_the_image_word_size(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, pointer_size: int, start: int
+    ) -> None:
+        """``.eh_frame`` pointer width comes from the image, not the arch name.
+
+        The CIE here carries no ``zR`` augmentation, so each FDE's initial
+        location is an absolute pointer whose width is the image word size —
+        the one field that only ``pointer_size`` decides.  ``EM_MIPS`` spans
+        both widths, so the arch name cannot supply it.
+        """
+        from rebrew import discover
+
+        data = self._absolute_frame(pointer_size, start, 0x40)
+        image = tmp_path / "prog.elf"
+        image.write_bytes(data)
+        info = SimpleNamespace(
+            format="elf",
+            arch="mips32",  # the same name for a 32- and a 64-bit MIPS image
+            endian="little",
+            pointer_size=pointer_size,
+            sections={
+                ".eh_frame": SimpleNamespace(
+                    name=".eh_frame",
+                    va=self.SECTION_VA,
+                    size=len(data),
+                    file_offset=0,
+                    raw_size=len(data),
+                    is_code=False,
+                ),
+                ".text": SimpleNamespace(
+                    name=".text",
+                    va=0x401000,
+                    size=0x100,
+                    file_offset=0,
+                    raw_size=0x100,
+                    is_code=True,
+                ),
+            },
+            data=data,
+        )
+        monkeypatch.setattr(discover, "load_binary", lambda _p: info)
+        assert discover._discover_eh_frame(image) == [(0x401000, 0x40, "fcn.00401000")]
+
+    def _absolute_frame(self, pointer_size: int, start: int, size: int) -> bytes:
+        """CIE with an empty augmentation (absolute FDE pointers) + one FDE."""
+        cie = struct.pack("<I", 9) + b"\x00\x00\x00\x00" + b"\x01\x00\x01\x78\x10"
+        id_at = len(cie) + 4
+        width = "<I" if pointer_size == 4 else "<Q"
+        body = struct.pack("<I", id_at)  # CIE pointer, relative to the id field
+        # Encoding 0x00 sizes both the initial location and the range.
+        body += struct.pack(width, start) + struct.pack(width, size) + b"\x00"
+        return cie + struct.pack("<I", len(body)) + body
 
     def test_a_vouched_start_survives_a_noreturn_predecessor(self, monkeypatch) -> None:
         """Code ending in ``call abort`` runs into the next function with no
