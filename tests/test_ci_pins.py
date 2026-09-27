@@ -769,6 +769,36 @@ class TestCiPins:
         assert "git status --porcelain >&2" in body
         assert "exit 1" in body[body.index(guard) : body.index("trap ")]
 
+    def test_repro_mismatch_names_the_differing_members(self) -> None:
+        """Two hashes say the artifact drifted; not what in it.
+
+        A reproducibility failure is only actionable once the differing member
+        is known, and the usual causes (an unnormalized timestamp, an unsorted
+        entry, an embedded build path) are what diffoscope prints in one run.
+        The gate stays dependency-free: the tool is consulted only on the
+        failure path and its absence is a hint, never a skip of the diff.
+        """
+        text = MAKEFILE.read_text(encoding="utf-8")
+        recipe = re.search(
+            r"(?m)^build-repro:.*?^\t@set -eu; \\$(?P<body>.*?)(?=\n\n)",
+            text,
+            re.S,
+        )
+        assert recipe is not None, "build-repro target not found"
+        body = recipe.group("body")
+        mismatch = body.index("is not reproducible")
+        branch = body[mismatch : body.index("exit 1", mismatch)]
+        assert "command -v diffoscope" in branch
+        assert 'diffoscope "$$f" "$(BUILD_REPRO_DIR)/$$f" >&2 || true' in branch
+        # The copy builds into its own dist/, so the counterpart path is the
+        # scratch tree prefixed to the same relative path. Stripping dist/
+        # points diffoscope at a file that does not exist.
+        assert "${f#dist/}" not in branch
+        # diffoscope's exit status is not the gate's verdict; the mismatch is,
+        # so a diffoscope failure must not mask it or hide it.
+        assert "|| true" in branch
+        assert "install diffoscope" in branch
+
     def test_repro_check_runs_from_the_makefile(self) -> None:
         """CI calls the target: an inline recipe is a gate no contributor can run.
 
@@ -837,9 +867,56 @@ class TestCiPins:
         after = build.split(version_line, 1)[1]
         assert "set -- dist/rebrew-$$ver-*.whl" in after
         assert '[ -f "dist/rebrew-$$ver.tar.gz" ]' in after
-        # Both checks must precede the redirect that writes the manifest, so a
+        # Both checks must precede the move that publishes the manifest, so a
         # mismatch fails the build instead of recording it.
-        assert after.index("dist/rebrew-$$ver.tar.gz") < after.index("> dist/rebrew.buildinfo")
+        assert after.index("dist/rebrew-$$ver.tar.gz") < after.index(
+            'mv -f "$$tmpinfo" dist/rebrew.buildinfo'
+        )
+
+    def test_buildinfo_is_published_atomically(self) -> None:
+        """A half-written manifest reads as an up-to-date dist/ and hides staleness.
+
+        ``dist/rebrew.buildinfo`` is the file target ``sdist-check``,
+        ``smoke-wheel`` and ``build-repro`` depend on, so anything left at
+        that path after a failed run makes make skip the rebuild and the three
+        gates verify the *previous* tree's artifacts.  Redirecting the block
+        straight into it truncated the manifest in place: a run that died
+        between the first and last ``echo`` left a file that existed, was
+        newer than every build input, and described nothing.  Write to a
+        sibling temp file, move it into place, and let the trap take the temp
+        back on every exit path.
+        """
+        build = MAKEFILE.read_text(encoding="utf-8")
+        build = build.split("\nbuild: warn-uv-version\n", 1)[1].split("\n# Prove the wheel", 1)[0]
+        assert '} > "$$tmpinfo"; \\' in build
+        assert 'mv -f "$$tmpinfo" dist/rebrew.buildinfo' in build
+        # The move is its own statement: as the tail of an `&&` list the whole
+        # group would be exempt from `set -e`.
+        assert '> "$$tmpinfo"; \\\n\tmv -f' in build
+        # Nothing may truncate the published path directly any more.
+        assert "> dist/rebrew.buildinfo" not in build
+        # A failed run leaves no temp file behind either.
+        assert "trap 'rm -f \"$$tmpinfo\"' EXIT" in build
+        assert build.index("trap 'rm -f") < build.index('} > "$$tmpinfo"')
+
+    def test_buildinfo_toolchain_lines_cannot_report_a_failed_command_as_empty(self) -> None:
+        """A command substitution inside an ``echo`` argument hides its failure.
+
+        ``echo "python=$$("$$(uv python find)" --version)"`` succeeds whatever
+        the substitution did: a host with no managed interpreter got
+        ``python=`` and an otherwise complete manifest, and ``set -e`` never
+        saw the failure.  An assignment takes the command's exit status, so
+        both toolchain versions are captured before the block of echoes.
+        """
+        build = MAKEFILE.read_text(encoding="utf-8")
+        build = build.split("\nbuild: warn-uv-version\n", 1)[1].split("\n# Prove the wheel", 1)[0]
+        assert "uv_ver=$$(uv --version); \\" in build
+        assert 'py_ver=$$("$$(uv python find)" --version); \\' in build
+        block = build.split('echo "name=rebrew"', 1)[1]
+        for line in block.splitlines():
+            if line.lstrip().startswith("echo "):
+                assert "uv --version" not in line
+                assert "uv python find" not in line
 
     def test_makefile_build_writes_buildinfo_and_cleans_residue(self) -> None:
         text = MAKEFILE.read_text(encoding="utf-8")

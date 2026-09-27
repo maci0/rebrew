@@ -438,6 +438,13 @@ clean:
 # removed it from both, leaving that gate green on a wheel missing the file it
 # exists to catch.  Building the wheel from the source tree is what makes the
 # two member lists independent, and sdist-check can fail again.
+# The manifest is written to a sibling temp file and moved into place.  It is
+# the file target sdist-check / smoke-wheel / build-repro depend on, so a
+# truncated one left behind by a failed run reads as "up to date" and those
+# gates then verify the previous tree's artifacts.  The values that shell out
+# (`uv --version`, the managed interpreter) are captured in assignments rather
+# than inside an `echo` argument, where a failing command substitution only
+# blanks the line and the manifest ships a hole.
 build: warn-uv-version
 	@mkdir -p dist
 	@rm -f dist/*.whl dist/*.tar.gz dist/*.buildinfo dist/*.cdx.json
@@ -478,6 +485,10 @@ build: warn-uv-version
 	if [ "$$dirty" = yes ]; then \
 	  echo "WARNING: uncommitted changes; dist/ does not match source-commit=$$(git rev-parse HEAD) and 'make build-repro' rebuilds from HEAD." >&2; \
 	fi; \
+	tmpinfo=dist/.rebrew.buildinfo.tmp; \
+	trap 'rm -f "$$tmpinfo"' EXIT; \
+	uv_ver=$$(uv --version); \
+	py_ver=$$("$$(uv python find)" --version); \
 	{ \
 	  echo "name=rebrew"; \
 	  echo "version=$$ver"; \
@@ -486,8 +497,8 @@ build: warn-uv-version
 	  echo "TZ=UTC"; \
 	  echo "LC_ALL=C"; \
 	  echo "PYTHONHASHSEED=0"; \
-	  echo "uv=$$(uv --version)"; \
-	  echo "python=$$("$$(uv python find)" --version)"; \
+	  echo "uv=$$uv_ver"; \
+	  echo "python=$$py_ver"; \
 	  echo "python-version=$$(cat .python-version)"; \
 	  echo "setuptools=$$st"; \
 	  echo "build-constraints-sha256=$$bsum"; \
@@ -496,7 +507,8 @@ build: warn-uv-version
 	  echo "sdist-sha256=$$sdistsum"; \
 	  echo "source-commit=$$(git rev-parse HEAD 2>/dev/null || echo n/a)"; \
 	  echo "source-dirty=$$dirty"; \
-	} > dist/rebrew.buildinfo
+	} > "$$tmpinfo"; \
+	mv -f "$$tmpinfo" dist/rebrew.buildinfo
 
 # Prove the wheel and the sdist are byte-reproducible from a second source
 # tree: a `git archive HEAD` copy under .scratch/, extracted with umask 077
@@ -515,6 +527,12 @@ build: warn-uv-version
 # A build failure or a hash mismatch exits non-zero and ends the recipe, so a
 # trailing `rm -rf` never runs and the extracted copy would outlive it; the
 # EXIT trap covers the failure, the mismatch, and the happy path alike.
+#
+# A mismatch names the differing members: two hashes say that the artifact
+# drifted, not what in it, and the usual causes (a timestamp, an ordering, a
+# path) are one diffoscope run from the cause.  diffoscope is optional and
+# only consulted on the failure path, so the passing build keeps no new
+# dependency.
 #
 # The CI package job runs this target; do not re-inline the recipe there.
 build-repro: dist/rebrew.buildinfo
@@ -547,6 +565,13 @@ build-repro: dist/rebrew.buildinfo
 		second=$$(sha "$$repro"/dist/*.$$ext); \
 		if [ "$$first" != "$$second" ]; then \
 			echo "ERROR: .$$ext is not reproducible (dist/=$$first $(BUILD_REPRO_DIR)/dist/=$$second)" >&2; \
+			if command -v diffoscope >/dev/null 2>&1; then \
+			  for f in dist/*.$$ext; do \
+			    diffoscope "$$f" "$(BUILD_REPRO_DIR)/$$f" >&2 || true; \
+			  done; \
+			else \
+			  echo "hint: install diffoscope to name the differing members" >&2; \
+			fi; \
 			exit 1; \
 		fi; \
 		echo ".$$ext reproducible: $$first"; \
