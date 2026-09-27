@@ -39,6 +39,54 @@ class TestLibraryMetadata:
         with pytest.raises(LibraryOverrideError, match=r"bad rebrew-libraries\.toml at"):
             parse_library_metadata(bad)
 
+    def test_non_string_field_raises(self, tmp_path: Path) -> None:
+        """A table where a string belongs would be str()'d into the argv."""
+        from rebrew.metadata import LibraryOverrideError
+
+        bad = tmp_path / LIBRARY_METADATA_FILE
+        bad.write_text('toolchain = { name = "msvc-6.0" }\n', encoding="utf-8")
+        with pytest.raises(LibraryOverrideError, match="toolchain must be a string, got dict"):
+            parse_library_metadata(bad)
+
+    def test_unknown_key_warns_and_still_applies(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        proj, lib, fn = _tree(tmp_path)
+        (lib / LIBRARY_METADATA_FILE).write_text(
+            'toolchain = "msvc-6.0"\ntoolchn = "msvc-6.0-sp6"\n', encoding="utf-8"
+        )
+        with caplog.at_level("WARNING", logger="rebrew.metadata"):
+            ovr = find_library_override(fn, proj)
+        assert ovr is not None and ovr.toolchain == "msvc-6.0"
+        assert "unrecognized keys: ['toolchn']" in caplog.text
+
+    def test_unknown_toolchain_and_preset_warn(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        proj, lib, fn = _tree(tmp_path)
+        (lib / LIBRARY_METADATA_FILE).write_text(
+            'toolchain = "msvc-6.0-sp99"\nlibrary = "msvcrt-sttaic"\n', encoding="utf-8"
+        )
+        with caplog.at_level("WARNING", logger="rebrew.metadata"):
+            ovr = find_library_override(fn, proj)
+        # Declared fields still apply: a warning is not a silent drop.
+        assert ovr is not None and ovr.toolchain == "msvc-6.0-sp99"
+        assert "unknown toolchain 'msvc-6.0-sp99'" in caplog.text
+        assert "unknown library preset 'msvcrt-sttaic'" in caplog.text
+
+    def test_known_fields_do_not_warn(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        proj, lib, fn = _tree(tmp_path)
+        (lib / LIBRARY_METADATA_FILE).write_text(
+            'library = "msvcrt-static"\ntoolchain = "msvc-6.0"\ncflags = "/O2 /Gd"\n',
+            encoding="utf-8",
+        )
+        with caplog.at_level("WARNING", logger="rebrew.metadata"):
+            ovr = find_library_override(fn, proj)
+        assert ovr is not None and ovr.presets == ("msvcrt-static",)
+        assert "rebrew-libraries.toml" not in caplog.text
+
     def test_walk_up_finds_nearest(self, tmp_path: Path) -> None:
         proj, lib, fn = _tree(tmp_path)
         (proj / LIBRARY_METADATA_FILE).write_text('toolchain = "msvc-6.0"\n', encoding="utf-8")
@@ -177,6 +225,14 @@ class TestLibraryCli:
         # the preset's cflags still fill in
         ovr = find_library_override(lib, tmp_path)
         assert ovr is not None and ovr.cflags == "/O2 /Gd /MT"
+
+    def test_set_unknown_library_name_warns(self, tmp_path: Path) -> None:
+        lib = tmp_path / "lib"
+        lib.mkdir()
+        res = self._invoke("set", str(lib), "--library", "msvcrt-sttaic")
+        assert res.exit_code == 0, res.output
+        assert "not a known library preset" in res.output
+        assert "msvcrt-sttaic" in (lib / LIBRARY_METADATA_FILE).read_text(encoding="utf-8")
 
     def test_set_dry_run_writes_nothing(self, tmp_path: Path) -> None:
         lib = tmp_path / "lib"

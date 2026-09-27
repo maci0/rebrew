@@ -270,7 +270,7 @@ class TestDataMetadataCache:
         parse_calls: list[object] = []
         monkeypatch.setattr(
             "rebrew.utils.parse_metadata_doc",
-            lambda doc: parse_calls.append(doc) or {},
+            lambda doc, **kwargs: parse_calls.append(doc) or {},
         )
         f = tmp_path / "rebrew-data.toml"
         f.write_text('["SERVER.0x1000"]\nsize = 4\n', encoding="utf-8")
