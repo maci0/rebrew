@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import importlib
+import importlib.util
+import re
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -24,6 +27,8 @@ from rebrew.recompile_client import compile_source
 from rebrew.sources import iter_library_headers, iter_sources
 from rebrew.workspace.config import find_root as workspace_find_root
 from rebrew.workspace.config import read_config as workspace_read_config
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 class TestTopLevelPackageExports:
@@ -526,3 +531,48 @@ class TestGhidraClientInjection:
         assert success == 1
         assert errors == 0
         assert len(fake.calls) >= 2  # init + command
+
+
+class TestDocumentedLibrarySurface:
+    """Every import a doc shows must resolve against the shipped package.
+
+    The README's Library usage block and the ``rebrew`` package docstring are
+    the only map a consumer has of the import surface.  A module move or a
+    rename that leaves them behind is a broken quickstart, not a stale
+    sentence, so the docs are walked the way a reader would.
+    """
+
+    _IMPORT_RE = re.compile(r"(?m)^[ \t]*from[ \t]+(rebrew[\w.]*)[ \t]+import[ \t]+([^\n#]+)")
+    _MODULE_RE = re.compile(r"`(rebrew(?:\.[a-z_][a-z_0-9]*)+)`")
+
+    def _doc_paths(self) -> list[Path]:
+        return [ROOT / "README.md", *sorted((ROOT / "docs").glob("*.md"))]
+
+    def test_documented_imports_resolve(self) -> None:
+        missing: list[str] = []
+        checked = 0
+        for path in self._doc_paths():
+            for mod_name, raw in self._IMPORT_RE.findall(path.read_text(encoding="utf-8")):
+                if "(" in raw:  # parenthesized multi-line import; names not on this line
+                    continue
+                mod = importlib.import_module(mod_name)
+                for name in raw.split(","):
+                    name = name.partition(" as ")[0].strip()
+                    if not name.isidentifier():
+                        continue
+                    checked += 1
+                    if not hasattr(mod, name):
+                        missing.append(f"{path.name}: from {mod_name} import {name}")
+        assert checked >= 8, f"only {checked} documented imports found; the regex drifted"
+        assert missing == [], "documented imports do not exist: " + ", ".join(missing)
+
+    def test_documented_modules_exist(self) -> None:
+        """Every ``rebrew.x.y`` the README and package docstring name is importable."""
+        sources = {"README.md": (ROOT / "README.md").read_text(encoding="utf-8")}
+        sources["rebrew/__init__.py"] = rebrew.__doc__ or ""
+        missing: list[str] = []
+        for label, text in sources.items():
+            for name in sorted(set(self._MODULE_RE.findall(text))):
+                if importlib.util.find_spec(name) is None:
+                    missing.append(f"{label}: {name}")
+        assert missing == [], "documented modules do not exist: " + ", ".join(missing)

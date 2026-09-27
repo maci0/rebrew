@@ -8,8 +8,17 @@
   the shell's CSP allows `script-src 'self'` with no inline script. Like the
   shell and `/app.js` it is precompressed at import and linked with a content
   hash, so it is served `immutable` and adds no per-request compression CPU.
+- **A documented import that no longer exists fails the test suite.** The
+  README's Library usage block and the `rebrew` package docstring are the only
+  map a library consumer has of the import surface, so
+  `tests/test_sdk_surface.py` now walks every `from rebrew... import ...` they
+  show and every `rebrew.<module>` they name, and fails when one does not
+  resolve. A module move can no longer leave a broken quickstart behind.
 
 ### Fixed
+- **The README quickstart passes the config once.** `iter_sources` accepts a
+  `ProjectConfig` directly, so the snippet reads `iter_sources(cfg)` instead of
+  passing `cfg.reversed_dir` and `cfg` for the same object.
 - **`make format-check` passes again.** Four test modules had drifted from
   the committed formatting (`tests/test_annotation.py`,
   `tests/test_link_tools.py`, `tests/test_match.py`, `tests/test_solutions.py`),
