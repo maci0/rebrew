@@ -80,8 +80,12 @@ class TestFindNearMiss:
     def test_sorted_by_delta(self, tmp_path: Path) -> None:
         _make_c(tmp_path, "Big", 0x10001000, "NEAR_MATCHING", "8B diff")
         _make_c(tmp_path, "Small", 0x10002000, "NEAR_MATCHING", "1B diff")
+        _make_c(tmp_path, "Mid", 0x10003000, "NEAR_MATCHING", "3B diff")
+        _make_c(tmp_path, "Tie", 0x10004000, "NEAR_MATCHING", "3B diff")
         results = find_near_miss(tmp_path, max_delta=10)
-        assert results[0].delta <= results[1].delta
+        # More than two keys, so a sort that handles the first pair and mangles
+        # the rest fails; the tie pins that equal deltas keep their input order.
+        assert [r.filepath.stem for r in results] == ["Small", "Mid", "Tie", "Big"]
 
 
 # ---------------------------------------------------------------------------

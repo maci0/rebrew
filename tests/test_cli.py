@@ -826,7 +826,11 @@ class TestConfirmAbort:
     def test_accept_proceeds(self) -> None:
         from typer.testing import CliRunner
 
-        assert CliRunner().invoke(self._app(), input="y\n").exit_code == 0
+        result = CliRunner().invoke(self._app(), input="y\n")
+        assert result.exit_code == 0
+        # The prompt must have been asked: without the question, "y" is unused
+        # input and the command would exit 0 either way.
+        assert "Delete everything?" in result.stderr
 
     def test_decline_exits_two(self) -> None:
         from typer.testing import CliRunner

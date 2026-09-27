@@ -1064,13 +1064,16 @@ marker = "V1"
         assert _inside_project(tmp_path / "src" / "V1" / "a.c", cfg)
         assert _inside_project(tmp_path / "src" / "shared" / "f.c", cfg)
         assert not _inside_project(tmp_path / "elsewhere" / "x.c", cfg)
-        assert (
-            not _inside_project(
-                tmp_path / "src" / "shared",
-                SimpleNamespace(reversed_dir=tmp_path / "src" / "V1", shared_dir=None),
-            )
-            or True
-        )  # dir itself, not a file — guard is path-based only
+        # Containment is decided on the path alone, so a directory inside the
+        # shared tree is accepted and one outside every root is not.
+        assert _inside_project(
+            tmp_path / "src" / "shared",
+            SimpleNamespace(reversed_dir=tmp_path / "src" / "V1", shared_dir=tmp_path / "src" / "shared"),
+        )
+        assert not _inside_project(
+            tmp_path / "src" / "shared",
+            SimpleNamespace(reversed_dir=tmp_path / "src" / "V1", shared_dir=None),
+        )
 
     def test_prototype_pull_applies_to_shared_file(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

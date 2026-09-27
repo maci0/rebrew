@@ -63,8 +63,6 @@ timeout = 60
 class TestCollectFunctions:
     def test_ghidra_functions_preferred(self, tmp_path: Path, monkeypatch) -> None:
         """A Ghidra export takes precedence for functions.total."""
-        import json as _json
-
         from rebrew.analyze import _collect_functions
 
         cfg = SimpleNamespace(
@@ -72,26 +70,21 @@ class TestCollectFunctions:
             metadata_dir=tmp_path / "src",
         )
         (tmp_path / "src").mkdir(exist_ok=True)
-        (tmp_path / "src" / "function_structure.json").write_text(
-            _json.dumps(
-                [
-                    {"va": 0x00401000, "size": 32, "name": "f1"},
-                    {"va": 0x00401020, "size": 64, "name": "f2"},
-                ]
-            ),
-            encoding="utf-8",
-        )
 
         def _fake_load_data(cfg):
             class _F:
-                size = 100
+                def __init__(self, size: int) -> None:
+                    self.size = size
 
-            return [_F()], {}, {}
+            return [_F(100), _F(30)], {0x401000: {"filename": "a.c"}, 0x401020: {}}, {}
 
         monkeypatch.setattr("rebrew.naming.load_data", _fake_load_data)
         out = _collect_functions(cfg)
-        assert out["total"] == 1  # Ghidra list wins
-        assert out["total_bytes"] == 100
+        # The Ghidra list drives total and total_bytes; the inventory fallback
+        # is what the sibling test pins.
+        assert out["total"] == 2
+        assert out["total_bytes"] == 130
+        assert out["covered"] == 2
 
     def test_inventory_fallback(self, tmp_path: Path) -> None:
         """Without a Ghidra export, functions.total comes from the discovery

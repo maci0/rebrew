@@ -1,6 +1,5 @@
 """Unit tests for the whole-binary parity core."""
 
-import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -126,7 +125,6 @@ class TestCompareSnapshots:
             "rebrew.import_table.parse_imports",
             lambda path: [{"dll": "kernel32.dll", "name": "ExitProcess"}],
         )
-        monkeypatch.setitem(sys.modules, "rebrew.verify_exports", None)
 
         assert snapshot_binary(Path("x.dll")) == {
             "sections": {".text": 100, ".rsrc": 8},

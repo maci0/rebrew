@@ -2141,9 +2141,11 @@ class TestEnvKnobValidators:
     def test_wineprefix_unset_or_absolute_passes(self, tmp_path: Path) -> None:
         from rebrew.config import check_env_wineprefix
 
-        check_env_wineprefix("")
-        check_env_wineprefix("  ")
-        check_env_wineprefix(str(tmp_path / "prefix"))
+        # These return None; asserting the return pins the "no complaint" half
+        # of the knob, which a bare call cannot distinguish from a no-op.
+        assert check_env_wineprefix("") is None
+        assert check_env_wineprefix("  ") is None
+        assert check_env_wineprefix(str(tmp_path / "prefix")) is None
 
     def test_dir_knob_rejects_a_non_directory(self, tmp_path: Path) -> None:
         from rebrew.config import check_env_dir

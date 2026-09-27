@@ -59,6 +59,26 @@ class TestExtractBytes:
         result = extract_bytes_at_va(bi, 0x20000000, 4)
         assert result is None
 
+    def test_zero_size_is_empty_and_negative_size_is_none(self, tmp_path: Path) -> None:
+        """Callers branch on the two: b"" is a read, None is a refused request.
+
+        Both land on the same `size <= 0` guard, and the docstring gives them
+        different meanings, so neither result may be inferred from the other.
+        """
+        data = b"\x55\x8b\xec\xc3"
+        bi = self._make_binary_info(data, tmp_path)
+        assert extract_bytes_at_va(bi, 0x10001000, 0) == b""
+        assert extract_bytes_at_va(bi, 0x10001000, -1) is None
+        assert extract_bytes_at_va(bi, 0x20000000, 0) == b""
+
+    def test_size_over_the_cap_raises(self, tmp_path: Path) -> None:
+        from rebrew.binary_model import MAX_BINARY_SIZE
+
+        data = b"\x55\x8b\xec\xc3"
+        bi = self._make_binary_info(data, tmp_path)
+        with pytest.raises(ValueError, match="too large"):
+            extract_bytes_at_va(bi, 0x10001000, MAX_BINARY_SIZE + 1)
+
 
 # ---------------------------------------------------------------------------
 # detect_reversed_vas

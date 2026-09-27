@@ -2130,7 +2130,9 @@ class TestBuildDbCorruptInput:
             conn.close()
         assert count == 2
 
-    def test_corrupt_json_errors_with_file_context(self, tmp_path: Path) -> None:
+    def test_corrupt_json_errors_with_file_context(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         from typer import Exit as TyperExit
 
         db_dir = tmp_path / "db"
@@ -2139,8 +2141,13 @@ class TestBuildDbCorruptInput:
 
         with pytest.raises(TyperExit):
             build_db(tmp_path)
+        err = capsys.readouterr().err
+        assert "data_bad.json" in err
+        assert "not valid JSON" in err
 
-    def test_non_object_json_errors_with_file_context(self, tmp_path: Path) -> None:
+    def test_non_object_json_errors_with_file_context(
+        self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
         """A valid-JSON-but-not-object file (e.g. a JSON array) must name the file."""
         from typer import Exit as TyperExit
 
@@ -2150,6 +2157,10 @@ class TestBuildDbCorruptInput:
 
         with pytest.raises(TyperExit):
             build_db(tmp_path)
+        err = capsys.readouterr().err
+        assert "data_bad.json" in err
+        assert "expected a JSON object" in err
+        assert "list" in err
 
     def test_reserved_schema_target_name_rejected(self, tmp_path: Path) -> None:
         """A target named ``__schema__`` would share the reserved metadata

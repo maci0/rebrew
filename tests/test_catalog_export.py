@@ -95,8 +95,8 @@ class TestGenerateReccmpCsv:
 
     def test_iat_thunk_via_cfg(self) -> None:
         registry = {0x1000: {"canonical_size": 5, "is_thunk": False}}
-        cfg = SimpleNamespace(iat_thunks={0x1000})
-        out = generate_reccmp_csv([], [], registry=registry, cfg=cfg)  # type: ignore[arg-type]
+        cfg = SimpleNamespace(iat_thunks=[0x1000])
+        out = generate_reccmp_csv([], [], registry=registry, cfg=cfg)
         assert "|stub|" in out
 
     def test_size_from_funcs_fallback(self) -> None:

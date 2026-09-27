@@ -521,9 +521,8 @@ class TestMalformedInputRobustness:
         p.write_bytes(data)
         try:
             info = load_binary(p)
-        except (ValueError, FileNotFoundError) as exc:
+        except (ValueError, FileNotFoundError):
             # Clean rejection is the expected path for most garbage.
-            assert type(exc) in (ValueError, FileNotFoundError)
             return
         # LIEF may tolerate partial headers — the result must be usable.
         assert isinstance(info, BinaryInfo)

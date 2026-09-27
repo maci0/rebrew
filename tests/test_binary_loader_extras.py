@@ -9,13 +9,6 @@ import pytest
 import rebrew.binary_loader as bl
 
 
-class _FakeELFData(enum.Enum):
-    """Stand-in for the LIEF ``ELF_DATA`` enum (not importable by name)."""
-
-    LSB = 1
-    MSB = 2
-
-
 def _mock_section(
     name: str, va: int, vsize: int, raw_offset: int, raw_size: int
 ) -> SimpleNamespace:

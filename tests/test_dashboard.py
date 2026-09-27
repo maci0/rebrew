@@ -2832,8 +2832,6 @@ class TestParseRejectionLog:
     def test_rejected_request_logs_at_warning_with_its_id(
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
-        from rebrew.dashboard import _Handler
-
         with caplog.at_level(logging.WARNING, logger="rebrew.dashboard"):
             self._handler().send_error(400, "Bad request syntax")
         assert [(r.levelname, r.getMessage()) for r in caplog.records] == [
@@ -2842,7 +2840,6 @@ class TestParseRejectionLog:
                 "r51 rejected GET /x\\x1b HTTP/1.1: code 400, message Bad request syntax",
             )
         ]
-        assert _Handler is not None
 
     def test_server_side_rejection_logs_at_error(self, caplog: pytest.LogCaptureFixture) -> None:
 
@@ -2853,12 +2850,9 @@ class TestParseRejectionLog:
     def test_control_chars_in_the_message_are_escaped(
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
-        from rebrew.dashboard import _Handler
-
         with caplog.at_level(logging.WARNING, logger="rebrew.dashboard"):
             self._handler().send_error(400, "Bad request syntax\x1b")
         assert "\x1b" not in caplog.records[0].getMessage()
-        assert _Handler is not None
 
 
 class TestLifecycleLines:
@@ -3168,14 +3162,20 @@ class TestConnectionCap:
     """Each accepted socket costs a thread and a descriptor, so admission is bounded."""
 
     @staticmethod
-    def _server(dashboard: Dashboard, cap: int) -> tuple[_DashboardServer, threading.Thread]:
+    def _server(
+        dashboard: Dashboard, cap: int, monkeypatch: pytest.MonkeyPatch
+    ) -> tuple[_DashboardServer, threading.Thread]:
         from rebrew.dashboard import allowed_hosts_for
 
         server = _DashboardServer(("127.0.0.1", 0), _Handler)
         server.daemon_threads = True
         server._max_active_connections = cap
-        _Handler.dashboard = dashboard
-        _Handler.allowed_hosts = allowed_hosts_for("127.0.0.1", server.server_port)
+        # monkeypatch, not a plain assignment: _Handler is the production class,
+        # and a dashboard from a deleted tmp_path would outlive the test.
+        monkeypatch.setattr(_Handler, "dashboard", dashboard, raising=False)
+        monkeypatch.setattr(
+            _Handler, "allowed_hosts", allowed_hosts_for("127.0.0.1", server.server_port)
+        )
         serve = threading.Thread(target=server.serve_forever, daemon=True)
         serve.start()
         return server, serve
@@ -3187,7 +3187,7 @@ class TestConnectionCap:
         import socket
 
         monkeypatch.setattr(_Handler, "timeout", 5.0)
-        server, serve = self._server(dashboard, 1)
+        server, serve = self._server(dashboard, 1, monkeypatch)
         try:
             with socket.create_connection(server.server_address[:2], timeout=5) as first:
                 # Say nothing: the first handler thread stays parked in readline,
@@ -3201,11 +3201,14 @@ class TestConnectionCap:
             server.shutdown()
             server.server_close()
             serve.join(timeout=5)
+            assert not serve.is_alive()
 
-    def test_slot_comes_back_when_the_handler_thread_ends(self, dashboard: Dashboard) -> None:
+    def test_slot_comes_back_when_the_handler_thread_ends(
+        self, dashboard: Dashboard, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         import http.client
 
-        server, serve = self._server(dashboard, 1)
+        server, serve = self._server(dashboard, 1, monkeypatch)
         try:
             for _ in range(2):
                 conn = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=5)

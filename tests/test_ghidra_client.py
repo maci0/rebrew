@@ -77,11 +77,18 @@ class TestParseSseResponse:
 
 
 def _mock_client(status_code: int = 200, text: str = "", content_type: str = "application/json"):
+    def _raise_for_status() -> None:
+        if status_code >= 400:
+            raise httpx.HTTPStatusError(
+                f"HTTP {status_code}", request=None, response=None  # type: ignore[arg-type]
+            )
+
     resp = SimpleNamespace(
         status_code=status_code,
         text=text,
         headers={"content-type": content_type},
         json=lambda: json.loads(text),
+        raise_for_status=_raise_for_status,
         closed=False,
     )
 

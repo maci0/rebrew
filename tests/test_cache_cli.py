@@ -59,6 +59,14 @@ class TestStats:
         r = runner.invoke(cache_cli.app, ["stats"])
         assert r.exit_code == 0
         assert stats_called == [True]
+        # Every field the fake reports has to reach the rendered table; the
+        # call assertion above alone would pass with an empty body.
+        assert "diskcache" in r.output
+        assert "Entries:" in r.output
+        assert "1.5 MiB" in r.output
+        assert "100 MiB" in r.output
+        assert "2 hits, 1 misses" in r.output
+        assert "66.7" in r.output
 
 
 class TestClear:

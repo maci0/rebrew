@@ -192,8 +192,19 @@ def test_cli_exits_nonzero_on_drift(tmp_path):
 
 @pytest.mark.parametrize("token", ["/O2", "/Gd", "/REBREW_TOOLCHAIN:msvc-6.0-sp5-pp"])
 def test_recorded_tokens_are_not_drift(tmp_path, token):
-    result = check(_tree(tmp_path, BUILD_MAKE))
-    assert all(d["flag"] != token for d in result["drift"])
+    """A token flags.make records is never reported, whichever build.make has.
+
+    Drift is one-directional: the checker reports build.make tokens missing from
+    flags.make, so a recorded token stays quiet both while it is in the compile
+    line and after a hand-edit drops it.
+    """
+    dropped = BUILD_MAKE.replace(f" {token}", "")
+    assert token not in dropped, "the edit must actually remove the token"
+    for i, build_make in enumerate((BUILD_MAKE, dropped)):
+        result = check(_tree(tmp_path / f"case{i}", build_make))
+        assert result["status"] == "ok", result["message"]
+        assert all(d["flag"] != token for d in result["drift"])
+        assert result["checked"] == 2
 
 
 def test_missing_source_is_drift(tmp_path):
