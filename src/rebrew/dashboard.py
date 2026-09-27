@@ -47,7 +47,9 @@ resource to list methods for.  Every error body is
 ``bad_request`` / ``uri_too_long`` / ``header_fields_too_large`` /
 ``http_version_not_supported`` for malformed requests rejected before
 routing, plus ``request_error`` for any other status raised there) and
-show ``error`` to the reader.
+show ``error`` to the reader.  Every response carries
+``X-Request-Id: r<N>``, the same id the access and error log lines use, so
+a reported failure is one grep away.
 A ``status`` filter outside the STATUS vocabulary is 400
 ``invalid_status`` rather than an empty page, which would read as "this
 target has no functions in that status".

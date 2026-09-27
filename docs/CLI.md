@@ -108,7 +108,7 @@ exit is 120, and click's is 1; `run_cli` overrides both.
 | `rebrew xrefs` | `xrefs.py` | Cross-reference explorer: find code that references an address (calls, jumps, `push`/`mov`/`lea`, IAT slots) |
 | `rebrew describe` | `describe.py` | Per-function recon dossier: callers, callees, strings, globals, imports (project-based) |
 | `rebrew report` | `report.py` | Generate a static self-contained HTML documentation site (`--output`; index, strings, imports, call graph) |
-| `rebrew dashboard` | `dashboard.py` | Read-only web dashboard over `db/coverage.db` (`--port`, `--host`) |
+| `rebrew dashboard` | `dashboard.py` | Read-only web dashboard over `db/coverage.db` (`--port`, `--host`, `--root`) |
 | `rebrew crt-match` | `crt_match.py` | CRT source cross-reference matcher (index, match, ASM detection) |
 | `rebrew data` | `data.py` | Global data scanner for .data/.rdata/.bss; `--bss` layout verification; `--dispatch` vtable detection |
 | `rebrew graph` | `depgraph.py` | Function dependency graph (mermaid, DOT, summary); `--cu-map` infers compilation unit boundaries |
@@ -2573,8 +2573,10 @@ address (calls, jmps, data references).
 
 Read-only stdlib `ThreadingHTTPServer` dashboard over `db/coverage.db` for
 triaging large binaries. GET/HEAD only; bind defaults to `127.0.0.1`.
-`--json` prints `{"url", "db"}` and exits without serving (script-friendly
-bind probe).
+`--root` points at the project root holding the database (the working
+directory by default).  `--json` prints `{"url", "db"}` and exits without
+serving (script-friendly bind probe).  The full JSON contract, kept against
+the code, is [dashboard-api.yaml](dashboard-api.yaml).
 
 Endpoints: `/`, `/app.js`, `/boot-guard.js`, `/api/bootstrap`, `/api/targets`,
 `/api/health` (liveness plus one real read of the target list, so an

@@ -175,6 +175,17 @@
   stale call sites reported a message and nothing about the failure that
   produced it. `binsync/importer.py` and both `rename_ops.py` sites call
   `logger.exception`, which carries the traceback.
+- **The dashboard's published API contract now matches what it serves.**
+  `docs/dashboard-api.yaml` declared 200, 400, 404, and 500, and left out the
+  rest: the 304 a matching `If-None-Match` gets, the 403 `host_not_allowed`
+  the `Host` guard answers, the 405 with `Allow: GET, HEAD`, and the
+  `X-Request-Id` header every response carries. It also declared a `Health`
+  schema of `status`/`db`/`targets` while `/api/health` serves the running
+  `requests`, `server_errors`, and `slowest_ms` totals beside them, so a
+  generated client could not read the error rate those totals exist to
+  report. All four are declared now, and `test_dashboard.py` checks the
+  statuses and the health envelope against the server rather than trusting
+  the file.
 - **A non-UTF-8 filename no longer aborts the verify and compile caches.**
   A POSIX filename is a byte string, so a header named `caf\xe9.h` is legal
   and reaches Python as a lone surrogate (U+DCE9). Three hash sites still

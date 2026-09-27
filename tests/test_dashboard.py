@@ -3360,6 +3360,42 @@ class TestOpenApiSpec:
             assert declared | meta == set(payload), path
             assert declared <= set(payload), path
 
+    def test_documented_health_envelope_matches(self, dashboard: Dashboard) -> None:
+        """The probe's running totals are part of its body, so the schema must
+        declare them: a field the server sends and the schema omits is
+        invisible to a generated client, which then cannot read the error
+        rate the totals exist to report.
+        """
+        from rebrew.dashboard import served_totals
+
+        schemas = _spec()["components"]["schemas"]
+        served = Dashboard(dashboard.db_path, served=served_totals)
+        status, _, body = served.handle("GET", "/api/health", {})
+        assert status == 200
+        payload = json.loads(body)
+        assert set(schemas["Health"]["properties"]) == set(payload)
+        assert set(schemas["Health"]["required"]) == set(payload)
+
+    def test_every_route_declares_the_cross_cutting_statuses(self) -> None:
+        """A status the server can answer on any route is documented on any
+        route.  A client generated from a spec that omits one has no branch
+        for it and treats the response as an unlisted failure.
+        """
+        from rebrew.dashboard import _UNCACHEABLE_ROUTES
+
+        spec = _spec()
+        for path, item in spec["paths"].items():
+            for method in ("get", "head"):
+                responses = item[method]["responses"]
+                uncacheable = path in _UNCACHEABLE_ROUTES
+                assert ("304" in responses) is not uncacheable, (path, method)
+                for status in ("403", "405", "500"):
+                    assert status in responses, (path, method, status)
+        # The 405 documents the methods it refuses by; a client that cannot
+        # read the Allow header has no way to know which verb to use.
+        allow = spec["components"]["responses"]["MethodNotAllowed"]["headers"]
+        assert "Allow" in allow
+
     def test_documented_cols_match_the_row_layout(self, dashboard: Dashboard) -> None:
         from rebrew import dashboard as module
 

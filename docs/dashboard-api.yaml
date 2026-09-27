@@ -23,6 +23,12 @@ info:
     target that exists but whose stats row cannot be parsed.  A 500 is a
     server-side failure a client cannot fix, so it retries later rather than
     changing the request.
+
+    Three statuses are cross-cutting and declared on every route: 304 when the
+    client's `If-None-Match` matched, 403 `host_not_allowed` for a `Host`
+    header that is not the bound host, and 405 `method_not_allowed` with
+    `Allow: GET, HEAD`.  Every response, of every status, carries
+    `X-Request-Id`.
 servers:
   - url: http://127.0.0.1:8000
     description: Default bind (`rebrew dashboard --host/--port`).
@@ -45,6 +51,9 @@ paths:
       responses:
         "200":
           $ref: "#/components/responses/HtmlOk"
+        "304": { $ref: "#/components/responses/NotModified" }
+        "403": { $ref: "#/components/responses/HostNotAllowed" }
+        "405": { $ref: "#/components/responses/MethodNotAllowed" }
         "500": { $ref: "#/components/responses/DatabaseError" }
     head:
       tags: [assets]
@@ -53,6 +62,9 @@ paths:
       responses:
         "200":
           $ref: "#/components/responses/HtmlOk"
+        "304": { $ref: "#/components/responses/NotModified" }
+        "403": { $ref: "#/components/responses/HostNotAllowed" }
+        "405": { $ref: "#/components/responses/MethodNotAllowed" }
         "500": { $ref: "#/components/responses/DatabaseError" }
 
   /app.js:
@@ -69,6 +81,9 @@ paths:
       responses:
         "200":
           $ref: "#/components/responses/ScriptOk"
+        "304": { $ref: "#/components/responses/NotModified" }
+        "403": { $ref: "#/components/responses/HostNotAllowed" }
+        "405": { $ref: "#/components/responses/MethodNotAllowed" }
         "500": { $ref: "#/components/responses/DatabaseError" }
     head:
       tags: [assets]
@@ -79,6 +94,9 @@ paths:
       responses:
         "200":
           $ref: "#/components/responses/ScriptOk"
+        "304": { $ref: "#/components/responses/NotModified" }
+        "403": { $ref: "#/components/responses/HostNotAllowed" }
+        "405": { $ref: "#/components/responses/MethodNotAllowed" }
         "500": { $ref: "#/components/responses/DatabaseError" }
 
   /boot-guard.js:
@@ -91,6 +109,9 @@ paths:
       responses:
         "200":
           $ref: "#/components/responses/ScriptOk"
+        "304": { $ref: "#/components/responses/NotModified" }
+        "403": { $ref: "#/components/responses/HostNotAllowed" }
+        "405": { $ref: "#/components/responses/MethodNotAllowed" }
         "500": { $ref: "#/components/responses/DatabaseError" }
     head:
       tags: [assets]
@@ -101,6 +122,9 @@ paths:
       responses:
         "200":
           $ref: "#/components/responses/ScriptOk"
+        "304": { $ref: "#/components/responses/NotModified" }
+        "403": { $ref: "#/components/responses/HostNotAllowed" }
+        "405": { $ref: "#/components/responses/MethodNotAllowed" }
         "500": { $ref: "#/components/responses/DatabaseError" }
 
   /api/health:
@@ -121,9 +145,12 @@ paths:
             Cache-Control: { $ref: "#/components/headers/CacheControl" }
             Vary: { $ref: "#/components/headers/Vary" }
             Server-Timing: { $ref: "#/components/headers/ServerTiming" }
+            X-Request-Id: { $ref: "#/components/headers/XRequestId" }
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Health" }
+        "403": { $ref: "#/components/responses/HostNotAllowed" }
+        "405": { $ref: "#/components/responses/MethodNotAllowed" }
         "500":
           $ref: "#/components/responses/DatabaseError"
     head:
@@ -137,9 +164,12 @@ paths:
             Cache-Control: { $ref: "#/components/headers/CacheControl" }
             Vary: { $ref: "#/components/headers/Vary" }
             Server-Timing: { $ref: "#/components/headers/ServerTiming" }
+            X-Request-Id: { $ref: "#/components/headers/XRequestId" }
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Health" }
+        "403": { $ref: "#/components/responses/HostNotAllowed" }
+        "405": { $ref: "#/components/responses/MethodNotAllowed" }
         "500":
           $ref: "#/components/responses/DatabaseError"
 
@@ -156,9 +186,13 @@ paths:
             Cache-Control: { $ref: "#/components/headers/CacheControl" }
             Vary: { $ref: "#/components/headers/Vary" }
             Server-Timing: { $ref: "#/components/headers/ServerTiming" }
+            X-Request-Id: { $ref: "#/components/headers/XRequestId" }
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Targets" }
+        "304": { $ref: "#/components/responses/NotModified" }
+        "403": { $ref: "#/components/responses/HostNotAllowed" }
+        "405": { $ref: "#/components/responses/MethodNotAllowed" }
         "500": { $ref: "#/components/responses/DatabaseError" }
     head:
       tags: [database]
@@ -172,9 +206,13 @@ paths:
             Cache-Control: { $ref: "#/components/headers/CacheControl" }
             Vary: { $ref: "#/components/headers/Vary" }
             Server-Timing: { $ref: "#/components/headers/ServerTiming" }
+            X-Request-Id: { $ref: "#/components/headers/XRequestId" }
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Targets" }
+        "304": { $ref: "#/components/responses/NotModified" }
+        "403": { $ref: "#/components/responses/HostNotAllowed" }
+        "405": { $ref: "#/components/responses/MethodNotAllowed" }
         "500": { $ref: "#/components/responses/DatabaseError" }
 
   /api/bootstrap:
@@ -201,9 +239,13 @@ paths:
             Cache-Control: { $ref: "#/components/headers/CacheControl" }
             Vary: { $ref: "#/components/headers/Vary" }
             Server-Timing: { $ref: "#/components/headers/ServerTiming" }
+            X-Request-Id: { $ref: "#/components/headers/XRequestId" }
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Bootstrap" }
+        "304": { $ref: "#/components/responses/NotModified" }
+        "403": { $ref: "#/components/responses/HostNotAllowed" }
+        "405": { $ref: "#/components/responses/MethodNotAllowed" }
         "500": { $ref: "#/components/responses/DatabaseError" }
     head:
       tags: [database]
@@ -217,9 +259,13 @@ paths:
             Cache-Control: { $ref: "#/components/headers/CacheControl" }
             Vary: { $ref: "#/components/headers/Vary" }
             Server-Timing: { $ref: "#/components/headers/ServerTiming" }
+            X-Request-Id: { $ref: "#/components/headers/XRequestId" }
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Bootstrap" }
+        "304": { $ref: "#/components/responses/NotModified" }
+        "403": { $ref: "#/components/responses/HostNotAllowed" }
+        "405": { $ref: "#/components/responses/MethodNotAllowed" }
         "500": { $ref: "#/components/responses/DatabaseError" }
 
   /api/summary:
@@ -241,11 +287,15 @@ paths:
             Cache-Control: { $ref: "#/components/headers/CacheControl" }
             Vary: { $ref: "#/components/headers/Vary" }
             Server-Timing: { $ref: "#/components/headers/ServerTiming" }
+            X-Request-Id: { $ref: "#/components/headers/XRequestId" }
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Summary" }
+        "304": { $ref: "#/components/responses/NotModified" }
         "400": { $ref: "#/components/responses/MissingTarget" }
+        "403": { $ref: "#/components/responses/HostNotAllowed" }
         "404": { $ref: "#/components/responses/UnknownTarget" }
+        "405": { $ref: "#/components/responses/MethodNotAllowed" }
         "500": { $ref: "#/components/responses/CorruptStats" }
     head:
       tags: [database]
@@ -261,11 +311,15 @@ paths:
             Cache-Control: { $ref: "#/components/headers/CacheControl" }
             Vary: { $ref: "#/components/headers/Vary" }
             Server-Timing: { $ref: "#/components/headers/ServerTiming" }
+            X-Request-Id: { $ref: "#/components/headers/XRequestId" }
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Summary" }
+        "304": { $ref: "#/components/responses/NotModified" }
         "400": { $ref: "#/components/responses/MissingTarget" }
+        "403": { $ref: "#/components/responses/HostNotAllowed" }
         "404": { $ref: "#/components/responses/UnknownTarget" }
+        "405": { $ref: "#/components/responses/MethodNotAllowed" }
         "500": { $ref: "#/components/responses/CorruptStats" }
 
   /api/functions:
@@ -292,11 +346,15 @@ paths:
             Cache-Control: { $ref: "#/components/headers/CacheControl" }
             Vary: { $ref: "#/components/headers/Vary" }
             Server-Timing: { $ref: "#/components/headers/ServerTiming" }
+            X-Request-Id: { $ref: "#/components/headers/XRequestId" }
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Functions" }
+        "304": { $ref: "#/components/responses/NotModified" }
         "400": { $ref: "#/components/responses/InvalidRequest" }
+        "403": { $ref: "#/components/responses/HostNotAllowed" }
         "404": { $ref: "#/components/responses/UnknownTarget" }
+        "405": { $ref: "#/components/responses/MethodNotAllowed" }
         "500": { $ref: "#/components/responses/DatabaseError" }
     head:
       tags: [database]
@@ -317,11 +375,15 @@ paths:
             Cache-Control: { $ref: "#/components/headers/CacheControl" }
             Vary: { $ref: "#/components/headers/Vary" }
             Server-Timing: { $ref: "#/components/headers/ServerTiming" }
+            X-Request-Id: { $ref: "#/components/headers/XRequestId" }
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Functions" }
+        "304": { $ref: "#/components/responses/NotModified" }
         "400": { $ref: "#/components/responses/InvalidRequest" }
+        "403": { $ref: "#/components/responses/HostNotAllowed" }
         "404": { $ref: "#/components/responses/UnknownTarget" }
+        "405": { $ref: "#/components/responses/MethodNotAllowed" }
         "500": { $ref: "#/components/responses/DatabaseError" }
 
   /api/sections:
@@ -343,12 +405,16 @@ paths:
             Cache-Control: { $ref: "#/components/headers/CacheControl" }
             Vary: { $ref: "#/components/headers/Vary" }
             Server-Timing: { $ref: "#/components/headers/ServerTiming" }
+            X-Request-Id: { $ref: "#/components/headers/XRequestId" }
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Sections" }
-        "500": { $ref: "#/components/responses/DatabaseError" }
+        "304": { $ref: "#/components/responses/NotModified" }
         "400": { $ref: "#/components/responses/MissingTarget" }
+        "403": { $ref: "#/components/responses/HostNotAllowed" }
         "404": { $ref: "#/components/responses/UnknownTarget" }
+        "405": { $ref: "#/components/responses/MethodNotAllowed" }
+        "500": { $ref: "#/components/responses/DatabaseError" }
     head:
       tags: [database]
       operationId: headSections
@@ -363,12 +429,16 @@ paths:
             Cache-Control: { $ref: "#/components/headers/CacheControl" }
             Vary: { $ref: "#/components/headers/Vary" }
             Server-Timing: { $ref: "#/components/headers/ServerTiming" }
+            X-Request-Id: { $ref: "#/components/headers/XRequestId" }
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Sections" }
-        "500": { $ref: "#/components/responses/DatabaseError" }
+        "304": { $ref: "#/components/responses/NotModified" }
         "400": { $ref: "#/components/responses/MissingTarget" }
+        "403": { $ref: "#/components/responses/HostNotAllowed" }
         "404": { $ref: "#/components/responses/UnknownTarget" }
+        "405": { $ref: "#/components/responses/MethodNotAllowed" }
+        "500": { $ref: "#/components/responses/DatabaseError" }
 
   /api/globals:
     get:
@@ -389,12 +459,16 @@ paths:
             Cache-Control: { $ref: "#/components/headers/CacheControl" }
             Vary: { $ref: "#/components/headers/Vary" }
             Server-Timing: { $ref: "#/components/headers/ServerTiming" }
+            X-Request-Id: { $ref: "#/components/headers/XRequestId" }
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Globals" }
-        "500": { $ref: "#/components/responses/DatabaseError" }
+        "304": { $ref: "#/components/responses/NotModified" }
         "400": { $ref: "#/components/responses/MissingTarget" }
+        "403": { $ref: "#/components/responses/HostNotAllowed" }
         "404": { $ref: "#/components/responses/UnknownTarget" }
+        "405": { $ref: "#/components/responses/MethodNotAllowed" }
+        "500": { $ref: "#/components/responses/DatabaseError" }
     head:
       tags: [database]
       operationId: headGlobals
@@ -413,12 +487,16 @@ paths:
             Cache-Control: { $ref: "#/components/headers/CacheControl" }
             Vary: { $ref: "#/components/headers/Vary" }
             Server-Timing: { $ref: "#/components/headers/ServerTiming" }
+            X-Request-Id: { $ref: "#/components/headers/XRequestId" }
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Globals" }
-        "500": { $ref: "#/components/responses/DatabaseError" }
+        "304": { $ref: "#/components/responses/NotModified" }
         "400": { $ref: "#/components/responses/MissingTarget" }
+        "403": { $ref: "#/components/responses/HostNotAllowed" }
         "404": { $ref: "#/components/responses/UnknownTarget" }
+        "405": { $ref: "#/components/responses/MethodNotAllowed" }
+        "500": { $ref: "#/components/responses/DatabaseError" }
 
   /api/history:
     get:
@@ -440,12 +518,16 @@ paths:
             Cache-Control: { $ref: "#/components/headers/CacheControl" }
             Vary: { $ref: "#/components/headers/Vary" }
             Server-Timing: { $ref: "#/components/headers/ServerTiming" }
+            X-Request-Id: { $ref: "#/components/headers/XRequestId" }
           content:
             application/json:
               schema: { $ref: "#/components/schemas/History" }
-        "500": { $ref: "#/components/responses/DatabaseError" }
+        "304": { $ref: "#/components/responses/NotModified" }
         "400": { $ref: "#/components/responses/MissingTarget" }
+        "403": { $ref: "#/components/responses/HostNotAllowed" }
         "404": { $ref: "#/components/responses/UnknownTarget" }
+        "405": { $ref: "#/components/responses/MethodNotAllowed" }
+        "500": { $ref: "#/components/responses/DatabaseError" }
     head:
       tags: [database]
       operationId: headHistory
@@ -462,12 +544,16 @@ paths:
             Cache-Control: { $ref: "#/components/headers/CacheControl" }
             Vary: { $ref: "#/components/headers/Vary" }
             Server-Timing: { $ref: "#/components/headers/ServerTiming" }
+            X-Request-Id: { $ref: "#/components/headers/XRequestId" }
           content:
             application/json:
               schema: { $ref: "#/components/schemas/History" }
-        "500": { $ref: "#/components/responses/DatabaseError" }
+        "304": { $ref: "#/components/responses/NotModified" }
         "400": { $ref: "#/components/responses/MissingTarget" }
+        "403": { $ref: "#/components/responses/HostNotAllowed" }
         "404": { $ref: "#/components/responses/UnknownTarget" }
+        "405": { $ref: "#/components/responses/MethodNotAllowed" }
+        "500": { $ref: "#/components/responses/DatabaseError" }
 
 components:
   parameters:
@@ -648,11 +734,19 @@ components:
 
     Health:
       type: object
-      required: [status, db, targets]
+      description: |
+        Liveness plus one real read of the target list.  The three running
+        totals are there so a probe can watch the error rate while the
+        server is up, rather than learning of a run that fails every query
+        only when the process stops.
+      required: [status, db, targets, requests, server_errors, slowest_ms]
       properties:
         status: { type: string, const: ok }
         db: { type: string, description: Absolute path of the coverage database being served. }
         targets: { type: integer, minimum: 0, description: Target count read from the database. }
+        requests: { type: integer, minimum: 0, description: Requests served since the server started. }
+        server_errors: { type: integer, minimum: 0, description: 5xx responses and unhandled handler faults since the server started. }
+        slowest_ms: { type: number, minimum: 0, description: Slowest request handled since the server started, in milliseconds. }
 
     Summary:
       type: object
@@ -795,6 +889,7 @@ components:
         ETag: { $ref: "#/components/headers/ETag" }
         Cache-Control: { $ref: "#/components/headers/CacheControl" }
         Vary: { $ref: "#/components/headers/Vary" }
+        X-Request-Id: { $ref: "#/components/headers/XRequestId" }
       content:
         text/html:
           schema: { type: string }
@@ -805,6 +900,7 @@ components:
         ETag: { $ref: "#/components/headers/ETag" }
         Cache-Control: { $ref: "#/components/headers/CacheControl" }
         Vary: { $ref: "#/components/headers/Vary" }
+        X-Request-Id: { $ref: "#/components/headers/XRequestId" }
       content:
         application/javascript:
           schema: { type: string }
@@ -834,6 +930,47 @@ components:
         value is not.  The handler guard can answer this status on the same
         route with `database_error` or `internal_error`; all three share the
         `Error` envelope, so branch on `code`.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+    NotModified:
+      description: |
+        The client's `If-None-Match` matched this representation, so the
+        route never ran.  The body is empty; revalidate the same URL to get
+        one.  Never sent by `/api/health`, which carries no validator.
+      headers:
+        ETag: { $ref: "#/components/headers/ETag" }
+        Cache-Control: { $ref: "#/components/headers/CacheControl" }
+        Vary: { $ref: "#/components/headers/Vary" }
+        X-Request-Id: { $ref: "#/components/headers/XRequestId" }
+
+    HostNotAllowed:
+      description: |
+        The request's `Host` header is neither the bound host nor one of its
+        loopback aliases, so it is refused with `host_not_allowed` before it
+        is routed.  This is the DNS-rebinding guard: it is what keeps a page
+        the analyst is visiting from reaching the dashboard.
+      headers:
+        Cache-Control: { $ref: "#/components/headers/CacheControl" }
+        X-Request-Id: { $ref: "#/components/headers/XRequestId" }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+    MethodNotAllowed:
+      description: |
+        A method other than `GET`/`HEAD` on a path this server serves
+        (`method_not_allowed`).  Nothing here writes, so no other verb has
+        a resource to act on.  A path the server does not serve answers 404
+        `not_found` whatever the method, since there is no resource to list
+        methods for.
+      headers:
+        Allow:
+          description: 'The methods this resource serves: `GET, HEAD`.'
+          schema: { type: string }
+        Cache-Control: { $ref: "#/components/headers/CacheControl" }
+        X-Request-Id: { $ref: "#/components/headers/XRequestId" }
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
@@ -875,4 +1012,10 @@ components:
         three entry assets (`/`, `/app.js`, `/boot-guard.js`), whose cold
         flight is budgeted against the initial congestion window and would
         read as a constant anyway.  Absent on every error and on 304.
+      schema: { type: string }
+    XRequestId:
+      description: |
+        `r<N>`, this request's correlation id, on every response: 200, 304,
+        403, 405, and 5xx alike.  It is the id the access and error log
+        lines carry, so a reported failure is one grep away.
       schema: { type: string }
