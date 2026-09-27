@@ -489,7 +489,20 @@ _SQLITE_SIDECAR_SUFFIXES = ("-wal", "-shm", "-journal")
 #: them across the delete.
 _PERSISTENT_TABLES: dict[str, tuple[str, ...]] = {
     "history": ("target", "va", "old_status", "new_status", "changed_at", "updated_by"),
-    "verify_results": ("target", "va"),
+    # Every column, not just the key: a restore that re-inserted (target, va)
+    # alone left verified_at NULL, which the NOT NULL CHECK rejects — and
+    # INSERT OR IGNORE swallows that rejection, so --force dropped every
+    # verify result it had just saved.
+    "verify_results": (
+        "target",
+        "va",
+        "verified_at",
+        "byte_delta",
+        "diff_lines",
+        "similarity",
+        "reg_delta",
+        "effective_match",
+    ),
 }
 
 
@@ -502,6 +515,11 @@ def _unlink_db(db_path: Path) -> dict[str, list[tuple[Any, ...]]]:
     every status change and every verify result, and a second ``--force`` run
     compounds the loss.  Returns an empty mapping when the tables are absent
     or unreadable, in which case there is nothing worth restoring.
+
+    A pre-CHECK table from an older build may lack a column this build knows
+    about, so the projection is intersected with the table's actual columns
+    and the result padded back to the declared width; the restore then binds
+    NULL for whatever the old table never had.
     """
     saved: dict[str, list[tuple[Any, ...]]] = {}
     try:
@@ -513,8 +531,19 @@ def _unlink_db(db_path: Path) -> dict[str, list[tuple[Any, ...]]]:
                 )
             }
             for table, columns in _PERSISTENT_TABLES.items():
-                if table in present:
-                    saved[table] = conn.execute(f"SELECT {', '.join(columns)} FROM {table}").fetchall()
+                if table not in present:
+                    continue
+                actual = [row[1] for row in conn.execute(f"PRAGMA table_info({table})")]
+                width = len(columns)
+                keep = [col for col in columns if col in actual]
+                if not keep:
+                    continue
+                indexes = [columns.index(col) for col in keep]
+                for row in conn.execute(f"SELECT {', '.join(keep)} FROM {table}"):
+                    values = [None] * width
+                    for slot, value in zip(indexes, row, strict=True):
+                        values[slot] = value
+                    saved.setdefault(table, []).append(tuple(values))
     except sqlite3.Error:
         saved = {}
     db_path.unlink()
@@ -533,11 +562,18 @@ def _restore_persistent_rows(
     ``verify_results`` is keyed ``(target, va)``; a ``history`` row is the
     status transition it records, and an identical transition at the same
     ``changed_at`` is the same fact.
+
+    The history dedupe compares with ``IS`` rather than ``=`` so two rows that
+    both carry a NULL old/new status count as the same transition.  That
+    doubles the statement's placeholders (the six inserted values are also the
+    six compared), so each row is bound twice.
     """
     rows = saved.get("verify_results")
     if rows:
         c.executemany(
-            "INSERT OR IGNORE INTO verify_results (target, va) VALUES (?, ?)",
+            "INSERT OR IGNORE INTO verify_results (target, va, verified_at, byte_delta, "
+            "diff_lines, similarity, reg_delta, effective_match) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             rows,
         )
     rows = saved.get("history")
@@ -552,7 +588,7 @@ def _restore_persistent_rows(
                   AND h.old_status IS ? AND h.new_status IS ? AND h.updated_by IS ?
             )
             """,
-            rows,
+            [(*row, *row) for row in rows],
         )
 
 

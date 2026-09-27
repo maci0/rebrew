@@ -30,6 +30,7 @@ def test_workspace_public_api_snapshot() -> None:
         "DB_VERSION_KEY",
         "DEFAULT_DB_DIR",
         "DEFAULT_REVERSED_ROOT",
+        "EARNED_STATUSES",
         "KNOWN_STATUSES",
         "MATCHED_STATUSES",
         "SCHEMA_TARGET",

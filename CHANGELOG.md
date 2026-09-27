@@ -1,5 +1,38 @@
 ## [Unreleased]
-### Added
+### Fixed
+- **`rebrew init --refresh-agents` converges instead of accumulating stale
+  skills.** The render wrote every packaged skill but never removed one the
+  package no longer ships, and `--check` only looked at the packaged set, so an
+  upgrade left a deleted `SKILL.md` on disk and reported no drift. Each render
+  now records the files it wrote (path plus digest) in
+  `.agents/skills/.rebrew-scaffold.json`; a later refresh prunes a file that
+  dropped out of the set, and `--check` reports it as `stale`. A stale file
+  edited since it was written is reported as `stale-modified` and kept.
+- **`rebrew build-db --force` keeps the history it cannot rebuild.** The force
+  path unlinked the database file, which discarded `history` and
+  `verify_results` even though the rest of the build treats both as persistent
+  (nothing else in the DB is their source). The rows of those two tables are
+  now read out before the delete and restored in the rebuild's transaction,
+  skipping rows already present, so a second `--force` run adds no duplicate.
+- **`rebrew build-db --force` no longer drops the rows it just saved.** The
+  salvage path read only `(target, va)` out of `verify_results` and re-inserted
+  only those two columns; `verified_at` is `NOT NULL`, so `INSERT OR IGNORE`
+  rejected every row without raising and the force rebuild lost all of them.
+  The `history` restore was worse: its duplicate check compared the six values
+  it was inserting against six bound parameters the statement never received,
+  so any database carrying history rows failed the rebuild outright with
+  `Incorrect number of bindings supplied`. Both tables now round-trip every
+  column, and each history row is bound twice (once inserted, once compared, so
+  the `IS`-based dedupe still treats two NULL statuses as one transition). A
+  table from an older build that lacks a column is projected down to the
+  columns it has and padded back to full width.
+- **The `--force` regression test exercised nothing.** `_write_stale_db`
+  stamped the version under a target the version gate never reads first
+  (`_schema` rather than `__schema__`), so a real database already carrying a
+  current schema stamp kept passing the gate: the file was never unlinked and
+  the restore never ran. It now stamps `SCHEMA_TARGET`, and the assertions
+  cover the verify metrics as well as the keys.
+>### Added
 - **Shell is linted too.** `tools/ci_clone_resembl.sh` is the one shell
   script both workflows run, and nothing looked at it: the gate was ruff,
   ruff format, and mypy, so a quoting or unset-variable regression in the
