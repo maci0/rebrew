@@ -1091,6 +1091,22 @@ def _reject_reserved_target(target_name: str, *, json_output: bool) -> None:
         )
 
 
+def _measured_verdicts(c: sqlite3.Cursor, target: str) -> dict[int, tuple[tuple[object, ...], str]]:
+    """Return ``{va: (measured values, verified_at)}`` for *target*'s rows.
+
+    ``verified_at`` answers "when was this verdict measured", so a rebuild
+    that measures the same values again must not move it.
+    """
+    out: dict[int, tuple[tuple[object, ...], str]] = {}
+    for va, verified_at, *measurements in c.execute(
+        "SELECT va, verified_at, byte_delta, diff_lines, similarity, reg_delta, "
+        "effective_match FROM verify_results WHERE target = ?",
+        (target,),
+    ):
+        out[int(va)] = (tuple(measurements), str(verified_at))
+    return out
+
+
 def build_db(
     project_root: Path | None = None,
     target: str | None = None,
@@ -2099,6 +2115,17 @@ def _build_coverage_db(
                         )
                     )
             if vr_rows:
+                # A rebuild re-measures the same verdicts from the same
+                # cache, and the cache file's mtime moves on every verify
+                # run, so stamping that mtime would relabel an unchanged
+                # verdict as freshly measured on every build-db.  A row
+                # whose measurements are identical keeps the time it was
+                # first measured; a changed or new verdict gets the new one.
+                measured = _measured_verdicts(c, target_name)
+                for index, row in enumerate(vr_rows):
+                    known = measured.get(row[1])
+                    if known is not None and known[0] == row[3:]:
+                        vr_rows[index] = (row[0], row[1], known[1], *row[3:])
                 c.executemany(
                     "INSERT OR REPLACE INTO verify_results "
                     "(target, va, verified_at, byte_delta, diff_lines, "

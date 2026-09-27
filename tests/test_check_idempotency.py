@@ -198,6 +198,35 @@ class TestFixtureProject:
         # purpose so the inventory-driven write commands have real work.
         assert {f["name"] for f in cached_function_list(cfg)} == {"_func1", "_func2"}
 
+    def test_rerun_reassembles_over_its_own_fixture(self, tmp_path: Path) -> None:
+        from tools.check_idempotency import write_fixture_project
+
+        project = write_fixture_project(tmp_path / "proj")
+        (project / "src" / "SERVER" / "fcn.c").write_text("/* edited */\n", encoding="utf-8")
+        again = write_fixture_project(tmp_path / "proj")
+        assert (again / "src" / "SERVER" / "fcn.c").read_text(encoding="utf-8") != "/* edited */\n"
+
+    def test_refuses_to_delete_a_directory_it_did_not_assemble(self, tmp_path: Path) -> None:
+        from tools.check_idempotency import write_fixture_project
+
+        real = tmp_path / "my-project"
+        real.mkdir()
+        (real / "src").mkdir()
+        (real / "src" / "main.c").write_text("int main(void) { return 0; }\n", encoding="utf-8")
+        with pytest.raises(SystemExit):
+            write_fixture_project(real)
+        assert (real / "src" / "main.c").is_file()
+
+    def test_refuses_to_clear_a_sweep_base_it_did_not_assemble(self, tmp_path: Path) -> None:
+        from tools.check_idempotency import _clear_sweep_base
+
+        base = tmp_path / "proj-write"
+        base.mkdir()
+        (base / "notes.txt").write_text("mine\n", encoding="utf-8")
+        with pytest.raises(SystemExit):
+            _clear_sweep_base(base)
+        assert (base / "notes.txt").is_file()
+
     def test_fixture_dir_without_value_errors(self, capsys) -> None:
         from tools.check_idempotency import main
 

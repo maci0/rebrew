@@ -599,6 +599,46 @@ binary = "test.exe"
         assert c.fetchone()[0] == 1  # row survived despite the unparseable report
         conn.close()
 
+    def test_verify_results_unchanged_verdict_keeps_verified_at(self, project_root: Path) -> None:
+        """`verified_at` is when the verdict was measured, so a rebuild that
+        re-imports the same cache must leave it alone. The cache file's mtime
+        is not the measurement time: it moves on every verify run, so
+        stamping it restamped every row on every `build-db`."""
+        entry = {"0x00001000": {"va": "0x00001000", "status": "EXACT", "delta": 3}}
+        _write_cache(project_root, "testbin", entry)
+        build_db(project_root)
+        conn = sqlite3.connect(project_root / "db" / "coverage.db")
+        first = conn.execute(
+            "SELECT verified_at FROM verify_results WHERE target = 'testbin' AND va = 4096"
+        ).fetchone()[0]
+        conn.close()
+
+        # A verify run rewrote the cache file, so its mtime moved on.
+        _write_cache(project_root, "testbin", entry)
+        build_db(project_root)
+        conn = sqlite3.connect(project_root / "db" / "coverage.db")
+        again = conn.execute(
+            "SELECT verified_at FROM verify_results WHERE target = 'testbin' AND va = 4096"
+        ).fetchone()[0]
+        conn.close()
+        assert again == first
+
+        # A verdict that actually changed is re-measured, so it moves.
+        _write_cache(
+            project_root,
+            "testbin",
+            {"0x00001000": {"va": "0x00001000", "status": "NEAR_MATCHING", "delta": 9}},
+        )
+        build_db(project_root)
+        conn = sqlite3.connect(project_root / "db" / "coverage.db")
+        changed = conn.execute(
+            "SELECT verified_at, byte_delta FROM verify_results "
+            "WHERE target = 'testbin' AND va = 4096"
+        ).fetchone()
+        conn.close()
+        assert changed[1] == 9
+        assert changed[0] != again
+
     def test_verify_results_prune_past_sqlite_variable_limit(self, project_root: Path) -> None:
         """A cache with more VAs than SQLITE_MAX_VARIABLE_NUMBER must still
         import and prune stale rows (one bound parameter per VA overflowed)."""

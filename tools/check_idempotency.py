@@ -78,6 +78,52 @@ timeout = 60
 """
 
 
+def _is_scratch_project(path: Path) -> bool:
+    """True when *path* looks like a fixture project this module assembled.
+
+    The write sweep deletes the directories it is handed, and both come from
+    a caller-supplied ``--fixture-dir``.  A typo, or a real project, must not
+    be removable: only a tree carrying the fixture's own config, or an empty
+    one, is scratch.
+    """
+    if not path.is_dir():
+        return False
+    if not any(path.iterdir()):
+        return True
+    return (path / "rebrew-project.toml").is_file()
+
+
+def _clear_scratch(path: Path) -> None:
+    """Delete a scratch tree this module owns, refusing anything else."""
+    if not path.exists():
+        return
+    if not _is_scratch_project(path):
+        raise SystemExit(
+            f"refusing to remove {path}: it is not an empty directory or an "
+            f"assembled fixture project (no rebrew-project.toml)"
+        )
+    for p in path.rglob("*"):
+        if not p.is_symlink() and p.is_file():
+            with contextlib.suppress(OSError):
+                p.chmod(0o600)
+    shutil.rmtree(path, ignore_errors=True)
+
+
+def _clear_sweep_base(base: Path) -> None:
+    """Remove a previous run's ``write<N>`` scratch trees under *base*.
+
+    Only a directory whose every child is one of those trees is scratch;
+    anything else means the caller pointed ``--fixture-dir`` at a real tree.
+    """
+    if not base.exists():
+        return
+    if not base.is_dir() or not all(
+        child.is_dir() and child.name.startswith("write") for child in base.iterdir()
+    ):
+        raise SystemExit(f"refusing to clear {base}: it is not a rebrew write-sweep scratch base")
+    shutil.rmtree(base, ignore_errors=True)
+
+
 def write_fixture_project(project_dir: Path) -> Path:
     """Assemble the minimal fixture project at *project_dir*; return it.
 
@@ -92,12 +138,7 @@ def write_fixture_project(project_dir: Path) -> Path:
     :func:`check_write_idempotency`, which now rejects that outcome.  One
     function is left uncovered on purpose so those commands have work.
     """
-    if project_dir.exists():
-        for p in project_dir.rglob("*"):
-            if not p.is_symlink() and p.is_file():
-                with contextlib.suppress(OSError):
-                    p.chmod(0o600)
-        shutil.rmtree(project_dir, ignore_errors=True)
+    _clear_scratch(project_dir)
     project_dir.mkdir(parents=True, exist_ok=True)
     (project_dir / "original").mkdir(exist_ok=True)
     (project_dir / "src" / "SERVER").mkdir(parents=True, exist_ok=True)
@@ -426,6 +467,10 @@ def main(argv: list[str] | None = None) -> int:
     # so it only runs when the caller supplied --fixture-dir.
     write_outcomes: list[tuple[str, bool, str]] = []
     if sweep_base is not None:
+        # Clear the whole base first: per-command dirs are addressed by
+        # index, so shrinking or reordering WRITE_COMMANDS would otherwise
+        # leave the stale write7/, write8/... trees behind forever.
+        _clear_sweep_base(sweep_base)
         for index, cmd in enumerate(WRITE_COMMANDS):
             write_outcomes.append(
                 (

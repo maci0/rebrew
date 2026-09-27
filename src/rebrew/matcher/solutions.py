@@ -20,6 +20,7 @@ import hashlib
 import json
 import logging
 import math
+import os
 import threading
 from collections import OrderedDict
 from collections.abc import Iterator
@@ -438,6 +439,47 @@ def _normalize_cflags(cflags: str) -> str:
 #
 # Wins carry the full solution fingerprint, so `load_solutions` derives the
 # winning entry per (target, symbol) from this same log — no second file.
+#
+# Replaying a stub (same seed, same source, same outcome) writes the same
+# record again, so an immediate repeat is dropped rather than appended: every
+# consumer counts records (`--skip-recent`, `--ga-history`), and a duplicate
+# says "ran twice" where the truth is "ran once, re-entered".
+
+#: Fields that differ between two otherwise identical runs.
+_VOLATILE_RECORD_FIELDS = frozenset({"ts", "solved_at"})
+
+#: How far back the repeat check reads.  A record larger than this is never
+#: recognized as a repeat and is appended, which is safe: the only cost of a
+#: miss is the duplicate the drop was meant to avoid.
+_TAIL_READ_BYTES = 64 * 1024
+
+
+def _last_record(path: Path) -> dict[str, Any] | None:
+    """Return the last well-formed record in *path*, or None if there is none."""
+    try:
+        with path.open("rb") as fh:
+            fh.seek(0, os.SEEK_END)
+            fh.seek(max(0, fh.tell() - _TAIL_READ_BYTES))
+            tail = fh.read().decode("utf-8", errors="replace")
+    except OSError:
+        return None
+    for line in reversed(tail.splitlines()):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue  # a torn or malformed line: the check declines to judge
+        return record if isinstance(record, dict) else None
+    return None
+
+
+def _same_run(left: dict[str, Any], right: dict[str, Any]) -> bool:
+    """True when two records describe the same GA run, clock fields aside."""
+    return {k: v for k, v in left.items() if k not in _VOLATILE_RECORD_FIELDS} == {
+        k: v for k, v in right.items() if k not in _VOLATILE_RECORD_FIELDS
+    }
 
 
 def record_ga_run(
@@ -463,6 +505,10 @@ def record_ga_run(
     record into a solution fingerprint readable by ``load_solutions``.
     *rng_seed* is the seed the GA ran from; replay the stub with
     ``rebrew match --seed <rng_seed>``.
+
+    A record identical to the log's last one apart from *ts* / *solved_at* is
+    a replay of the run already recorded, so it is dropped: re-running a seed
+    must not inflate the count ``--skip-recent`` and ``--ga-history`` read.
     """
     record: dict[str, Any] = {
         "ts": datetime.now(UTC).isoformat(),
@@ -492,8 +538,12 @@ def record_ga_run(
         record["solved_at"] = solved_at or datetime.now(UTC).isoformat()
     p = _ensure_runs_dir(project_root)
     line = json.dumps(record) + "\n"
-    with _ga_runs_append_lock(p), p.open("a", encoding="utf-8") as f:
-        f.write(line)
+    with _ga_runs_append_lock(p):
+        previous = _last_record(p)
+        if previous is not None and _same_run(previous, record):
+            return p
+        with p.open("a", encoding="utf-8") as f:
+            f.write(line)
     return p
 
 

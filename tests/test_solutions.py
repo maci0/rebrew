@@ -440,6 +440,37 @@ class TestGaRunHistory:
         assert runs[0]["matched"] is False
         assert runs[1]["symbol"] == "_a"
 
+    def test_replaying_a_run_does_not_grow_the_log(self, project_root: Path) -> None:
+        # One seed replays a run, so re-running it records the same outcome.
+        # --skip-recent and --ga-history count records: a replay must not
+        # look like a second run.
+        for _ in range(3):
+            record_ga_run(
+                project_root,
+                target="SERVER",
+                va=0x1000,
+                symbol="_a",
+                matched=True,
+                rng_seed=7,
+                cflags="/O2",
+            )
+        assert len(list(iter_ga_runs(project_root))) == 1
+        assert len(load_ga_runs(project_root)) == 1
+
+    def test_a_different_run_still_appends(self, project_root: Path) -> None:
+        record_ga_run(project_root, target="SERVER", va=0x1000, symbol="_a", matched=False)
+        record_ga_run(project_root, target="SERVER", va=0x1000, symbol="_a", matched=True)
+        # A different outcome for the same stub, and a run between two
+        # identical ones, all stay in the log.
+        record_ga_run(project_root, target="CLIENT", va=0x2000, symbol="_b", matched=False)
+        record_ga_run(project_root, target="SERVER", va=0x1000, symbol="_a", matched=True)
+        assert [r["target"] for r in iter_ga_runs(project_root)] == [
+            "SERVER",
+            "SERVER",
+            "CLIENT",
+            "SERVER",
+        ]
+
     def test_target_filter(self, project_root: Path) -> None:
         record_ga_run(project_root, target="SERVER", va=0x1000, symbol="_a", matched=True)
         record_ga_run(project_root, target="CLIENT", va=0x1000, symbol="_a", matched=False)
