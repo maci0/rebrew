@@ -24,7 +24,7 @@ from __future__ import annotations
 # and a commit-pinned git dependency are recorded by name.
 PATH_OR_GIT_LICENSES = {
     "m2c": "GPL-3.0-only",
-    "resembl": "GPL-3.0-only",  # upstream classifier text is "GPLv3"
+    "resembl": "GPL-3.0-only",  # the pinned sibling declares it under PEP 639
 }
 
 # ``name==version`` -> the artifact's own declared license string.
