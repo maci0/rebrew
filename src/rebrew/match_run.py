@@ -23,7 +23,7 @@ from rich.markup import escape
 
 from rebrew.annotation import parse_c_file_multi
 from rebrew.binary_loader import capstone_mode_for_arch, extract_raw_bytes
-from rebrew.cli import EXIT_MISMATCH, console, json_print
+from rebrew.cli import EXIT_MISMATCH, console, json_print, untrusted_literal
 from rebrew.compile import resolve_compiler_env
 from rebrew.config import ProjectConfig
 from rebrew.match_batch import (
@@ -175,8 +175,15 @@ def run_single_ga(
             elif dry_run:
                 # Prompt preview only — never bill the endpoint or run the GA.
                 console.print("\n[bold]LLM seed prompt (dry-run):[/bold]\n")
-                # Verbatim: C subscripts like b[i] would otherwise parse as markup.
-                console.print(build_prompt(p.seed_src), markup=False, highlight=False)
+                # Verbatim: C subscripts like b[i] would otherwise parse as
+                # markup.  Stripped of terminal controls and invisible
+                # bidi first, so an ESC or RLO pasted into the source cannot
+                # drive the terminal the operator is reading the prompt in.
+                console.print(
+                    untrusted_literal(build_prompt(p.seed_src)),
+                    markup=False,
+                    highlight=False,
+                )
                 console.print("\n[dim]Dry run: prompt only — no LLM request and no GA run.[/dim]")
                 return
             llm_snippets = request_seeds(p.cfg, p.seed_src)

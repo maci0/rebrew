@@ -65,6 +65,17 @@
   fields on `RecompileError`, and the `retries=` / `timeout=` knobs.
 
 ### Fixed
+- **The LLM seed prompt preview is the request, and the completion cap covers
+  the seed count it asks for.** `build_prompt` flattened the system and user
+  turns into one string, so `--seed-llm --dry-run` showed a prompt the endpoint
+  never receives; both now render `chat_messages`, the array `_request` posts,
+  behind role headers, and the preview is stripped of C0/C1 controls and bidi
+  overrides so a control character pasted into the source cannot drive the
+  terminal it prints in (`untrusted_literal` in `cli.py`). Separately,
+  `max_tokens` was clamped to 2048 regardless of the count, so asking for more
+  than four seeds earned `finish_reason=length`, which the completion gate
+  drops whole: the request was billed and every seed lost. The cap is now
+  `count * _TOKENS_PER_SEED` under a 4096 ceiling.
 - **`make -j` no longer races the build against the targets that read
   dist/.** Prerequisites are ordered only by dependency, not by their position
   on the line, so `make -j pr-check` ran `build`, `sdist-check` and `sbom`
