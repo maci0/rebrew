@@ -44,6 +44,8 @@ def _last_tag() -> str:
         ["git", "describe", "--tags", "--abbrev=0"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         check=False,
     )
     return result.stdout.strip() or _NO_TAG
@@ -138,6 +140,8 @@ def main() -> int:
         ["git", "status", "--porcelain"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         check=False,
     ).stdout.strip()
     if dirty:

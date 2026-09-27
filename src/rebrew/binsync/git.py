@@ -63,6 +63,12 @@ def run_git(
     plain ``subprocess.run`` timeout SIGKILLs only ``git`` itself, so the ssh
     transport (and the remote session it holds) outlives the call.  A failure
     to spawn, run, or finish comes back as a nonzero ``CompletedProcess``.
+
+    ``surrogateescape``, like every other hash of process and path text here:
+    a state-dir file name or config value is not required to be valid UTF-8,
+    and the platform default decode either mojibakes it or raises
+    ``UnicodeDecodeError`` — a ``ValueError``, so it escaped the handler
+    below and killed the command.
     """
     argv = git_argv(directory, *args)
     try:
@@ -70,6 +76,8 @@ def run_git(
             argv,
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="surrogateescape",
             timeout=timeout,
         )
     except FileNotFoundError:

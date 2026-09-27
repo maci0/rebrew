@@ -206,6 +206,28 @@ class TestGitExecOverrides:
         assert not marker.exists()
 
 
+class TestRunGitDecoding:
+    """run_git decodes with an explicit utf-8/surrogateescape, not the
+    platform default: a state-dir name or config value is not required to be
+    valid UTF-8, and a locale-default decode either mojibakes it or raises a
+    UnicodeDecodeError the caller cannot catch."""
+
+    def test_non_utf8_output_survives_as_surrogates(self, tmp_path: Path) -> None:
+        state = tmp_path / "state"
+        state.mkdir()
+        subprocess.run(["git", "init", "-q", str(state)], check=True)
+        raw = b"caf\xe9"
+        # Bytes argv: a str argument would reach git UTF-8 encoded, and the
+        # point is a value that is not valid UTF-8 in the first place.
+        subprocess.run(
+            [b"git", b"-C", os.fsencode(state), b"config", b"user.name", raw], check=True
+        )
+
+        result = run_git(state, "config", "user.name")
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.strip().encode("utf-8", "surrogateescape") == raw
+
+
 class TestRunGitProcessGroup:
     """run_git kills the whole process group: an ``ssh`` transport spawned by
     a push/pull would otherwise outlive the timed-out call."""

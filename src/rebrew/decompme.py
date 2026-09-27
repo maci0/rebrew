@@ -694,6 +694,11 @@ def main(
         error_exit(str(exc), json_mode=json_output)
 
     context_text = _build_context(cfg, context, no_context)
+    # UTF-8 bytes, not code points: the field is posted as form data, so that
+    # is what decomp.me receives.  A context with a non-ASCII comment (a `é`
+    # in a cp1252 source, an emoji) counted short under len(), and the figure
+    # sat beside target_obj_bytes, which really is a byte count.
+    context_bytes = len(context_text.encode("utf-8"))
     try:
         payload = build_scratch_payload(
             cfg,
@@ -718,7 +723,7 @@ def main(
                     "compiler": compiler,
                     "platform": platform,
                     "flags": flags_str,
-                    "context_bytes": len(context_text),
+                    "context_bytes": context_bytes,
                     "source_file": str(source_path),
                     "va": f"0x{ann_va:08x}",
                     "target_obj_bytes": len(payload["files"]["target_obj"][1]),
@@ -730,7 +735,7 @@ def main(
         console.print(f"  platform:    {platform}")
         console.print(f"  flags:       {untrusted_text(flags_str) or '(none)'}")
         console.print(f"  function:    {untrusted_text(symbol)} @ 0x{ann_va:08x} ({size_val}B)")
-        console.print(f"  context:     {len(context_text)} bytes")
+        console.print(f"  context:     {context_bytes} bytes")
         console.print(f"  target_obj:  {len(payload['files']['target_obj'][1])} bytes (COFF)")
         return
 

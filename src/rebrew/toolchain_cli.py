@@ -1317,6 +1317,8 @@ def _docker_build(tag: str, context: Path, *, stream: bool) -> tuple[int, str]:
         argv,
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         timeout=_DOCKER_BUILD_TIMEOUT_S,
     )
     return r.returncode, (r.stdout + r.stderr)[-_BUILD_LOG_TAIL:].strip()

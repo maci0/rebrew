@@ -455,6 +455,19 @@ class TestCli:
         assert data["platform"] == "win32"
         assert data["va"] == "0x00401000"
 
+    def test_json_dry_run_context_bytes_are_utf8_bytes(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        cfg, src = self._patch(tmp_path, monkeypatch)
+        ctx = tmp_path / "ctx.c"
+        text = "/* café \U0001f600 */\nstruct Vec { int x; };"
+        ctx.write_text(text, encoding="utf-8")
+        r = runner.invoke(decompme.app, ["--dry-run", "--json", "--context", str(ctx), str(src)])
+        assert r.exit_code == 0
+        data = json.loads(r.stdout)
+        assert data["context_bytes"] == len(text.encode("utf-8"))
+        assert data["context_bytes"] > len(text)
+
     def test_unmapped_toolchain_errors(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
