@@ -3,6 +3,7 @@
 import pytest
 from tree_sitter import Node, Tree
 
+from rebrew.matcher import ast_engine
 from rebrew.matcher.ast_engine import (
     decode_source,
     encode_source,
@@ -88,3 +89,38 @@ class TestLegacyEncodedSource:
 
     def test_encode_decode_roundtrip_is_lossless(self) -> None:
         assert decode_source(encode_source(self.SRC)) == self.SRC
+
+
+class TestParseTreeMemo:
+    """The AST memo is bounded by retained source bytes, not entry count.
+
+    A sweep mutates one function through every flag combination, so each
+    mutant is unique text that parks a full tree for the process lifetime; the
+    working set that actually earns hits is the one unchanged body per running
+    worker.
+    """
+
+    def test_repeated_parse_returns_the_same_tree(self) -> None:
+        ast_engine.clear_parse_tree_memo()
+        src = b"int f(void) { return 1; }"
+        assert ast_engine._parse_c_ast_cached(src) is ast_engine._parse_c_ast_cached(src)
+        ast_engine.clear_parse_tree_memo()
+
+    def test_a_new_body_never_serves_the_previous_tree(self) -> None:
+        ast_engine.clear_parse_tree_memo()
+        first = ast_engine._parse_c_ast_cached(b"int f(void) { return 1; }")
+        second = ast_engine._parse_c_ast_cached(b"int g(int x) { return x; }")
+        assert first is not second
+        assert b"g" in second.root_node.text
+        ast_engine.clear_parse_tree_memo()
+
+    def test_retained_bytes_stay_within_the_budget(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        ast_engine.clear_parse_tree_memo()
+        monkeypatch.setattr(ast_engine, "_PARSE_TREE_MAX_BYTES", 1024)
+        body = b"int f(int x) { return x + 1; }\n"
+        for i in range(64):
+            ast_engine._parse_c_ast_cached(body + f"/* {i} */".encode())
+        assert ast_engine._PARSE_TREE_MEMO_BYTES <= 1024
+        assert len(ast_engine._PARSE_TREE_MEMO) < 64
+        ast_engine.clear_parse_tree_memo()
+        assert ast_engine._PARSE_TREE_MEMO_BYTES == 0
