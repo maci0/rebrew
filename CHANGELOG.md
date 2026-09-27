@@ -143,6 +143,14 @@
   prefixes the candidate. A host without `/proc` keeps the previous behavior:
   a dir that cannot be probed is used, because refusing every candidate there
   would break every run.
+- **A second `rebrew verify` no longer rewrites the report for an unchanged
+  verdict.** The fresh-compile path built a result row in the order the verify
+  loop reads fields, while a cache hit rebuilt the same row from the cache
+  entry's field order, so `verify_baseline.json` (and any `--output` report)
+  changed bytes the first time the cache started serving a function, even
+  though nothing about the result had. Both paths now serialize through
+  `verify_cache.order_result_row`, which emits `RESULT_FIELDS` order. Reported
+  values are unchanged.
 - **A headless X display is authenticated, and an unauthenticated one is no
   longer adopted.** rebrew reuses an Xvfb left running by an earlier invocation
   (or one named by `REBREW_XVFB_DISPLAY`), which was reachable by any process

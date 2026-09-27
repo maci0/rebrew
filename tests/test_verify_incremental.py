@@ -1069,6 +1069,83 @@ class TestIncrementalVerify:
         second = runner.invoke(app, ["--json"])
         assert second.exit_code == 0, second.output
 
+    def test_cache_hit_reports_the_same_row_bytes_as_a_fresh_run(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A second run must not rewrite the report for an unchanged verdict.
+
+        The fresh path built its row in verify's own literal order while the
+        cache hit rebuilt it from the entry field order, so the same verdict
+        serialized to different bytes once the cache started serving it, and
+        ``.rebrew/verify_baseline.json`` churned on every re-run.
+        """
+        cfg = _make_cfg(tmp_path)
+        (cfg.reversed_dir / "func_a.c").write_text(
+            "int func_a(void) { return 1; }\n", encoding="utf-8"
+        )
+        entries = [
+            Annotation(
+                va=0x10001000,
+                name="func_a",
+                filepath="func_a.c",
+                size=16,
+                cflags="",
+                symbol="",
+                status="EXACT",
+                marker_type="FUNCTION",
+            )
+        ]
+
+        def fake_require_config(*args: object, **kwargs: object) -> ProjectConfig:
+            return cfg
+
+        def fake_scan_reversed_dir(*args: object, **kwargs: object) -> list[dict[str, object]]:
+            return entries
+
+        def fake_cached_function_list(*args: object, **kwargs: object) -> list[dict[str, object]]:
+            return []
+
+        def fake_build_registry(*args: object, **kwargs: object) -> dict[int, dict[str, object]]:
+            return {}
+
+        def fake_verify_entry(
+            entry: Annotation,
+            _cfg: ProjectConfig,
+            cache: object = None,
+            **_kwargs: object,
+        ) -> CompareResult:
+            return CompareResult(
+                matched=True,
+                status="EXACT",
+                match_percent=100.0,
+                delta=0,
+                obj_bytes=b"\x90",
+                reloc_offsets=[],
+                message="EXACT MATCH",
+            )
+
+        monkeypatch.setattr("rebrew.verify.require_config", fake_require_config)
+        monkeypatch.setattr("rebrew.verify.scan_reversed_dir", fake_scan_reversed_dir)
+        monkeypatch.setattr("rebrew.verify.cached_function_list", fake_cached_function_list)
+        monkeypatch.setattr("rebrew.verify.build_function_registry", fake_build_registry)
+        monkeypatch.setattr("rebrew.verify.verify_entry", fake_verify_entry)
+
+        baseline_path = cfg.root / ".rebrew" / "verify_baseline.json"
+        first = runner.invoke(app, ["--json"])
+        assert first.exit_code == 0, first.output
+        fresh = baseline_path.read_text(encoding="utf-8")
+        second = runner.invoke(app, ["--json"])
+        assert second.exit_code == 0, second.output
+        cached = baseline_path.read_text(encoding="utf-8")
+
+        # Everything but the by-design wall-clock stamp must match byte for byte.
+        # Compared as text, not as dicts: dict equality ignores key order, which
+        # is the whole property under test here.
+        def without_timestamp(doc: str) -> str:
+            return json.dumps({k: v for k, v in json.loads(doc).items() if k != "timestamp"})
+
+        assert without_timestamp(fresh) == without_timestamp(cached)
+
 
 class TestHeadersHash:
     def test_empty_when_no_headers(self, tmp_path: Path) -> None:

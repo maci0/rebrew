@@ -68,6 +68,7 @@ from rebrew.utils import atomic_write_text, canonical_va_key, floor_pct, preset_
 from rebrew.verify_cache import (
     VerifyCacheEntry,
     load_verify_cache,
+    order_result_row,
     save_verify_cache,
 )
 
@@ -2433,24 +2434,26 @@ def run_verification(
                             deferred_fixes.append((entry, result.status, result.delta))
 
                         results.append(
-                            {
-                                "va": f"0x{entry.va:08x}",
-                                "name": name,
-                                "symbol": _entry_symbol(entry),
-                                "module": getattr(entry, "module", ""),
-                                "filepath": getattr(entry, "filepath", ""),
-                                "size": getattr(entry, "size", 0),
-                                "status": result.status,
-                                "message": result.message,
-                                "passed": result.matched,
-                                "match_percent": result.match_percent,
-                                "delta": result.delta,
-                                "diff_lines": result.diff_lines,
-                                "similarity": result.similarity,
-                                "reg_delta": result.reg_delta,
-                                "effective_match": result.effective_match,
-                                "context_hash": result.context_hash,
-                            }
+                            order_result_row(
+                                {
+                                    "va": f"0x{entry.va:08x}",
+                                    "name": name,
+                                    "symbol": _entry_symbol(entry),
+                                    "module": getattr(entry, "module", ""),
+                                    "filepath": getattr(entry, "filepath", ""),
+                                    "size": getattr(entry, "size", 0),
+                                    "status": result.status,
+                                    "message": result.message,
+                                    "passed": result.matched,
+                                    "match_percent": result.match_percent,
+                                    "delta": result.delta,
+                                    "diff_lines": result.diff_lines,
+                                    "similarity": result.similarity,
+                                    "reg_delta": result.reg_delta,
+                                    "effective_match": result.effective_match,
+                                    "context_hash": result.context_hash,
+                                }
+                            )
                         )
     finally:
         # Batch-published .obj files are no longer needed — drop lasting temp

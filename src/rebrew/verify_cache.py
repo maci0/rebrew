@@ -164,6 +164,20 @@ RESULT_FIELDS: tuple[str, ...] = (
 )
 
 
+def order_result_row(row: dict[str, Any]) -> dict[str, Any]:
+    """*row*'s verdict fields in :data:`RESULT_FIELDS` order, extras dropped.
+
+    One key order for a report row however it was produced.  A fresh compile
+    builds its row with whatever literal order the verify loop reads
+    naturally, while a cache hit rebuilds it from the entry's field order; the
+    two orders differ, so the same verdict serialized to
+    ``.rebrew/verify_baseline.json`` (and to ``verify --output``) changed bytes
+    on the first cache-served run even though nothing about the result had.
+    Ordering both paths here keeps a second run byte-identical to the first.
+    """
+    return {k: row[k] for k in RESULT_FIELDS if k in row}
+
+
 @dataclass
 class VerifyCacheEntry:
     """One cached verdict: the report row + its cache-identity inputs, flat.
@@ -240,8 +254,7 @@ class VerifyCacheEntry:
 
     def result_row(self) -> dict[str, Any]:
         """The report row: verdict fields only, no cache-identity inputs."""
-        d = asdict(self)
-        return {k: d[k] for k in RESULT_FIELDS if k in d}
+        return order_result_row(asdict(self))
 
 
 @dataclass
