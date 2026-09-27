@@ -1402,6 +1402,11 @@ def parse_mz_header(path: str | Path) -> dict[str, int]:
     if lfarlc == 0:
         # No relocation table — code starts right after the header.
         code_offset = header_size
+    # A truncated or forged header can place the code region past EOF (a
+    # header paragraph count or relocation pointer beyond the file).  Clamp
+    # it to the last byte so every consumer of the offset (section
+    # file_offset, text_raw_offset) stays inside the image.
+    code_offset = min(code_offset, actual_size)
     code_size = max(0, file_size - code_offset)
     entry_va = (cs * 16 + ip) & REAL_MODE_ADDRESS_MASK
     return {

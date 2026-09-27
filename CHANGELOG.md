@@ -415,6 +415,14 @@
   `[cache] size_limit_mib` in `rebrew-project.toml` replaces that default
   with no upper clamp (`cache_size_limit` in `config.py`), so a cloned
   project can raise the bound.
+- **A truncated MZ header reported a code region past the end of the file.**
+  `binary_loader.parse_mz_header` clamped the code region's *size* to the real
+  file size but never its *offset*, so a header whose paragraph count or
+  relocation pointer pointed beyond a truncated copy answered with a
+  `code_offset` larger than the image. Every consumer of that offset (the
+  pseudo `.text` `file_offset`, `text_raw_offset`) was then handed a file
+  position that does not exist. The offset is now clamped to the last byte, so
+  the whole region stays inside the image.
 - **The SBOM asserted two license grants no artifact declares.** The
   expression/name form was picked by a regex over the recorded string, so any
   single bare token read as an SPDX identifier. `resembl` states the trove
