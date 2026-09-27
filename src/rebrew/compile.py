@@ -1084,16 +1084,20 @@ def recompile_url(cfg: ProjectConfig) -> str | None:
 
 
 _recompile_client_lock = threading.Lock()
-#: One pooled client per request timeout, in LRU order.  Eviction drops the
-#: victim's last reference rather than closing it: another thread may still be
-#: mid-request on it, and an ``httpx.Client`` closes its pool when the object
-#: is finally collected.
+#: One pooled client per request timeout, in LRU order.
 _recompile_clients: dict[float, Any] = {}
 #: Cap on live clients.  One per distinct timeout was treated as self-bounding,
 #: but the timeout is a project config value, so a long-lived process walking
 #: many project roots grew one keep-alive connection pool per root, which is
 #: the socket exhaustion this map exists to prevent.
 _RECOMPILE_CLIENTS_MAX = 4
+#: Requests currently running per pooled client, keyed by ``id(client)``.
+#: An evicted client cannot be closed while a thread is mid-request on it, so
+#: eviction defers the close until the last holder releases; without this the
+#: victim's keep-alive sockets stayed open until the GC happened to reclaim it.
+_recompile_inflight: dict[int, int] = {}
+#: Evicted clients still held by a caller, closed on release (or at exit).
+_recompile_retired: list[Any] = []
 
 
 def _shared_recompile_client(timeout: float) -> Any:
@@ -1104,6 +1108,10 @@ def _shared_recompile_client(timeout: float) -> Any:
     remote backend could exhaust ephemeral ports.  One pooled client per
     *timeout* is reused by every thread (``httpx.Client`` is thread-safe)
     and closed at exit.
+
+    Callers must bracket their use with :func:`_recompile_retain` and
+    :func:`_recompile_release` so an evicted client is closed exactly once
+    its last request has finished.
     """
     import httpx
 
@@ -1113,18 +1121,44 @@ def _shared_recompile_client(timeout: float) -> Any:
             _recompile_clients[timeout] = client  # refresh LRU order
             return client
         while len(_recompile_clients) >= _RECOMPILE_CLIENTS_MAX:
-            _recompile_clients.pop(next(iter(_recompile_clients)))
+            victim = _recompile_clients.pop(next(iter(_recompile_clients)))
+            if _recompile_inflight.get(id(victim), 0) > 0:
+                _recompile_retired.append(victim)
+            else:
+                _recompile_inflight.pop(id(victim), None)
+                victim.close()
         client = httpx.Client(timeout=timeout)
         _recompile_clients[timeout] = client
         return client
 
 
+def _recompile_retain(client: Any) -> None:
+    """Mark *client* in use so eviction defers its close."""
+    with _recompile_client_lock:
+        key = id(client)
+        _recompile_inflight[key] = _recompile_inflight.get(key, 0) + 1
+
+
+def _recompile_release(client: Any) -> None:
+    """Drop one hold; close *client* if eviction already retired it."""
+    with _recompile_client_lock:
+        key = id(client)
+        if _recompile_inflight.get(key, 1) > 1:
+            _recompile_inflight[key] -= 1
+            return
+        _recompile_inflight.pop(key, None)
+        if client in _recompile_retired:
+            _recompile_retired.remove(client)
+            client.close()
+
+
 def _close_recompile_client() -> None:
     """Close the shared recompile clients (``atexit`` hook)."""
     with _recompile_client_lock:
-        for client in _recompile_clients.values():
+        for client in (*_recompile_clients.values(), *_recompile_retired):
             client.close()
         _recompile_clients.clear()
+        _recompile_retired.clear()
 
 
 atexit.register(_close_recompile_client)
@@ -1166,6 +1200,8 @@ def _compile_via_recompile(
         float(getattr(cfg, "compile_timeout", DEFAULT_COMPILE_TIMEOUT) or DEFAULT_COMPILE_TIMEOUT)
         + 120.0
     )
+    client = _shared_recompile_client(timeout)
+    _recompile_retain(client)
     try:
         res = compile_source(
             url,
@@ -1175,7 +1211,7 @@ def _compile_via_recompile(
             filename=source_path.name,
             timeout=timeout,
             emit_assembly=emit_assembly,
-            client=_shared_recompile_client(timeout),
+            client=client,
             # Transient 503/timeout on the compile service is common under
             # load; two retries with backoff beat a hard COMPILE_ERROR that
             # would demote STATUS for a healthy source.
@@ -1183,6 +1219,8 @@ def _compile_via_recompile(
         )
     except RecompileError as exc:
         return None, f"recompile service error: {exc}"
+    finally:
+        _recompile_release(client)
     if not res.ok or res.obj_bytes is None:
         err = (res.log or "").strip()[-400:]
         return None, err or "recompile service reported failure with no log"
