@@ -10,7 +10,7 @@ Sync rebrew annotations with Ghidra. Field-level sync (names, comments, prototyp
 | `client.py` | ReVa MCP HTTP client: session init, JSON-RPC tool invocation, `McpError` / `McpApplyAborted` |
 | `commands.py` | MCP command builders (`build_new_function_commands`, `build_bookmark_commands`) + apply orchestration |
 | `cli_backend.py` | `ghidra-cli` subprocess backend, the alternative transport to MCP |
-| `cli.py` | `rebrew ghidra-*` Typer entry points |
+| `cli.py` | the single `rebrew sync` command (`--push` / `--pull` / `--create-functions` / `--bookmarks` / `--pull-data`) |
 
 Externals (the only packages this one may import): `binary_loader`, `binsync.export`, `binsync.importer`, `catalog`, `cli`, `config`, `errors`, `sources`, `utils`. The `binsync.*` imports are the read side of the sync; a field write still goes out through `rebrew.binsync`.
 
