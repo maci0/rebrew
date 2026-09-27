@@ -28,11 +28,16 @@ app = typer.Typer(
 
 
 def _collect_python_files(root: Path) -> list[Path]:
-    """Return all .py files under src/ and tests/."""
+    """Return all .py files under src/ and tests/, in a stable order.
+
+    ``Path.glob`` yields directory order, which differs between checkouts,
+    so the findings table and the JSON report came out in a different order
+    for the same tree.
+    """
     py_files: list[Path] = []
     for pattern in ("src/**/*.py", "tests/**/*.py"):
         py_files.extend(root.glob(pattern))
-    return py_files
+    return sorted(py_files)
 
 
 def _analyse_file(path: Path, root: Path) -> dict[str, Any]:

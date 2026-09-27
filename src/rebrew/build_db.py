@@ -980,7 +980,9 @@ def _load_coverage_datasets(
             datasets.append((tgt, build_catalog_data(tgt_cfg)["data"]))
         return datasets
 
-    json_files = list(db_path.parent.glob("data_*.json"))
+    # Sorted: the loop below inserts one coverage row set per file, so
+    # directory order would decide row order in the written database.
+    json_files = sorted(db_path.parent.glob("data_*.json"))
     if target:
         json_files = [f for f in json_files if f.stem.removeprefix("data_") == target]
     if not json_files:

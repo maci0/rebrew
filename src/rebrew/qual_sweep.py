@@ -235,14 +235,18 @@ def main(
             tempfile.TemporaryDirectory(dir=sweep_root, prefix=f"{sym_file}-") as rnd_dir,
             cf.ThreadPoolExecutor(max_workers=max(1, jobs)) as ex,
         ):
-            # Submit futures and collect them one at a time: a candidate that
-            # raises (a write error, an unexpected toolchain failure) must not
-            # abort the round, and every future must be drained so a failed
-            # worker's exception is not reported as "never retrieved" at exit.
+            # Drain every future, one at a time, in submission order: a
+            # candidate that raises (a write error, an unexpected toolchain
+            # failure) must not abort the round, and an undrained future is
+            # reported as "never retrieved" at exit. Order matters because
+            # the winner is picked with a strict `>`, so candidates tying on
+            # score are separated by iteration order alone, and the winner's
+            # declaration is written back into the .c. Submission order makes
+            # that choice a function of the candidate list, not of how the
+            # pool happened to schedule.
             futures = {ex.submit(submit, c, Path(rnd_dir)): c for c in cands}
             results = []
-            for fut in cf.as_completed(futures):
-                cand = futures[fut]
+            for fut, cand in futures.items():
                 try:
                     results.append(fut.result())
                 except Exception as exc:
