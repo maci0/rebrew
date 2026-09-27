@@ -1,6 +1,18 @@
 ## [Unreleased]
 
 ### Fixed
+- **MCP list pagination had no memory bound and could stop after one page.**
+  `_paginate_mcp_list` recognized a page's metadata row only by `totalCount`
+  and read a missing one as `0`, which both discarded the row and made
+  `start >= total` true on the first page: a server that reports only
+  `nextStartIndex` yielded just its first page. The row is now recognized by
+  either key, a missing total pages until the server sends an empty page, and
+  `MAX_MCP_ITEMS` caps the retained list in both this walk and
+  `sync --pull-data`, where a failed count probe left the same total-less walk
+  bounded only by the page cap (a loop counter, not a bound).
+- **`test_ghidra_client_public_all` asserted a stale `__all__`.** The expected
+  list predated `is_idempotent_success` becoming public, so the export test
+  failed against a module that star-imports correctly.
 - **The rizin SLEIGH plugin dir is probed for the host's multiarch triplet.**
   `decompiler._rizin_sleigh_dirs` named `x86_64-linux-gnu` outright, so a
   kuna spec dir was never found on any other host architecture. The triplet now

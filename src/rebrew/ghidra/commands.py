@@ -22,6 +22,7 @@ from rich.console import Console
 
 from rebrew.config import ProjectConfig
 from rebrew.ghidra.client import (
+    MAX_MCP_ITEMS,
     MAX_MCP_PAGES,
     MCP_REQUEST_TIMEOUT_S,
     McpError,
@@ -374,6 +375,15 @@ def pull_data(
             all_symbols.extend(sym for sym in page if isinstance(sym, dict))
 
             start += page_size
+            # A server whose count probe failed leaves total_count at 0, which
+            # disables the check below; the item cap bounds the retained list
+            # in that case (the page cap alone is a loop counter, not a bound).
+            if len(all_symbols) >= MAX_MCP_ITEMS:
+                console.print(
+                    f"[yellow]warning:[/yellow] Symbol pagination hit the "
+                    f"{MAX_MCP_ITEMS}-symbol cap; continuing with a partial list"
+                )
+                break
             if total_count > 0 and start >= total_count:
                 break
             if len(page) < page_size:

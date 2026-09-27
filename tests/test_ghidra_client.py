@@ -29,6 +29,7 @@ def test_ghidra_client_public_all() -> None:
         "fetch_mcp_tool",
         "fetch_mcp_tool_raw",
         "init_mcp_session",
+        "is_idempotent_success",
     ]
     for name in client.__all__:
         assert getattr(client, name, None) is not None, name
@@ -554,6 +555,54 @@ class TestFetchAllPaginated:
             lambda client, ep, tool, args, rid, session_id="": [{"totalCount": 5}],
         )
         assert fetch_all_functions(None, "http://x", "/prog", "s") == []  # type: ignore[arg-type]
+
+    def test_item_cap_stops_a_server_without_total_count(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A full page whose metadata omits totalCount pages on, capped by MAX_MCP_ITEMS.
+
+        A missing total leaves the count check unable to stop the walk, so
+        without an item bound the list grows to MAX_MCP_PAGES * batch_size
+        entries.
+        """
+        import rebrew.ghidra.client as client
+
+        monkeypatch.setattr(client, "MAX_MCP_ITEMS", 3)
+        seen: list[int] = []
+
+        def _fake(_c: object, _ep: object, _tool: object, args: dict, *_a: object, **_k: object):
+            start = int(args["startIndex"])
+            seen.append(start)
+            return [
+                {"nextStartIndex": start + 2},
+                {"address": f"0x{start:04x}", "name": f"s{start}"},
+                {"address": f"0x{start + 1:04x}", "name": f"s{start + 1}"},
+            ]
+
+        monkeypatch.setattr(client, "fetch_mcp_tool", _fake)
+        syms = client.fetch_all_symbols(None, "http://x", "/prog", "s", batch_size=2)  # type: ignore[arg-type]
+        assert len(syms) == 4  # second page reaches the 3-item cap
+        assert seen == [0, 2]
+
+    def test_pages_past_a_first_page_without_total_count(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A server that reports no total is walked until a page comes back empty."""
+        import rebrew.ghidra.client as client
+
+        pages = [
+            [{"nextStartIndex": 2}, {"address": "0x1000", "name": "a"}],
+            [{"nextStartIndex": 4}, {"address": "0x1001", "name": "b"}],
+        ]
+        monkeypatch.setattr(
+            client,
+            "fetch_mcp_tool",
+            lambda *a, **k: pages.pop(0) if pages else [],
+        )
+        syms = client.fetch_all_symbols(  # type: ignore[arg-type]
+            None, "http://x", "/prog", "s", batch_size=2
+        )
+        assert [s["name"] for s in syms] == ["a", "b"]
 
     def test_non_positive_batch_size_is_validation_error(self) -> None:
         from rebrew.ghidra.client import McpError, fetch_all_functions, fetch_all_symbols

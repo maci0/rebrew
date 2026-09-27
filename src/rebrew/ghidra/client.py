@@ -100,6 +100,13 @@ MCP_SESSION_END_TIMEOUT_S = 5
 #: without ever satisfying ``start >= total``.
 MAX_MCP_PAGES = 100_000
 
+#: Hard cap on items one paginated MCP list may retain.  A page cap is a
+#: loop counter, not a memory bound: a page whose metadata row omits
+#: ``totalCount`` parses to ``0``, which disables the ``start >= total``
+#: check, so the page cap alone lets the list grow to
+#: ``MAX_MCP_PAGES * batch_size`` entries before it trips.
+MAX_MCP_ITEMS = 500_000
+
 
 def _parse_sse_response(text: str) -> JsonRpcResponse | None:
     """Extract JSON-RPC result from an SSE (text/event-stream) response body."""
@@ -396,7 +403,7 @@ def _paginate_mcp_list(
     request_id_start: int,
     filter_default_names: bool,
 ) -> list[dict[str, Any]]:
-    """Page through a ReVa list tool until exhausted or ``MAX_MCP_PAGES``.
+    """Page through a ReVa list tool until exhausted, ``MAX_MCP_ITEMS``, or ``MAX_MCP_PAGES``.
 
     Shared by ``fetch_all_symbols`` / ``fetch_all_functions`` so the
     nextStartIndex / totalCount advance guards cannot drift apart.
@@ -429,7 +436,10 @@ def _paginate_mcp_list(
         for item in raw:
             if not isinstance(item, dict):
                 continue
-            if "totalCount" in item:
+            # ``nextStartIndex`` marks the metadata row too: a page whose
+            # metadata carries only that key is not a symbol, and treating it
+            # as one would end the walk after the first page.
+            if "totalCount" in item or "nextStartIndex" in item:
                 metadata = item
             elif "address" in item or "name" in item:
                 page.append(item)
@@ -438,10 +448,21 @@ def _paginate_mcp_list(
 
         if metadata is None or len(page) == 0:
             return items
+        if len(items) >= MAX_MCP_ITEMS:
+            logger.warning(
+                "MCP %s pagination hit the %s-item cap for %s; returning partial list",
+                tool_name,
+                MAX_MCP_ITEMS,
+                program_path,
+            )
+            return items
+        # A metadata row without a usable ``totalCount`` reports no total, so
+        # the count check below cannot stop the walk; the page runs until the
+        # server sends a short or empty page, bounded by MAX_MCP_ITEMS.
         try:
-            total = int(metadata.get("totalCount", 0))
-        except (ValueError, TypeError):
-            total = 0
+            total = int(metadata["totalCount"])
+        except (KeyError, ValueError, TypeError):
+            total = -1
         try:
             next_start = int(metadata.get("nextStartIndex", start + batch_size))
         except (ValueError, TypeError):
@@ -451,7 +472,7 @@ def _paginate_mcp_list(
         if next_start <= start:
             return items
         start = next_start
-        if start >= total:
+        if total >= 0 and start >= total:
             return items
 
     logger.warning(
