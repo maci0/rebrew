@@ -508,9 +508,16 @@ class TestCompileViaRecompile:
         assert compile_mod._shared_recompile_client(10.0) is first
         third = compile_mod._shared_recompile_client(30.0)
         assert sorted(compile_mod._recompile_clients) == [10.0, 30.0]
+        # Acquisition retains, so the victim is still held by this test and
+        # eviction defers its close until the last release.
+        assert closed == []
+        assert compile_mod._recompile_retired == [second]
+        compile_mod._recompile_release(second)
         assert closed == [20.0]
         assert compile_mod._shared_recompile_client(20.0) is not second
         assert compile_mod._shared_recompile_client(30.0) is third
+        compile_mod._recompile_release(first)
+        compile_mod._recompile_release(third)
 
     def test_evicted_client_in_use_is_closed_on_release(
         self, monkeypatch: pytest.MonkeyPatch
@@ -534,7 +541,6 @@ class TestCompileViaRecompile:
         monkeypatch.setattr(compile_mod, "_recompile_inflight", {})
         monkeypatch.setattr(httpx, "Client", lambda timeout: _Closable(timeout))
         held = compile_mod._shared_recompile_client(10.0)
-        compile_mod._recompile_retain(held)
         compile_mod._shared_recompile_client(20.0)
         assert closed == []
         compile_mod._recompile_release(held)
@@ -542,6 +548,40 @@ class TestCompileViaRecompile:
         assert compile_mod._recompile_retired == []
         compile_mod._close_recompile_client()
         assert sorted(closed) == [10.0, 20.0]
+
+    def test_acquisition_retains_so_no_interleaving_can_close_a_handed_out_client(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Retention must happen in the same critical section as the handout.
+
+        When it was a separate lock acquisition, a thread that had just been
+        given a client but had not yet retained it could be raced by an
+        eviction that read a zero inflight count and closed the client out
+        from under the request that was about to use it.
+        """
+        import httpx
+
+        closed: list[float] = []
+
+        class _Closable:
+            def __init__(self, timeout: float) -> None:
+                self.timeout = timeout
+
+            def close(self) -> None:
+                closed.append(self.timeout)
+
+        monkeypatch.setattr(compile_mod, "_RECOMPILE_CLIENTS_MAX", 1)
+        monkeypatch.setattr(compile_mod, "_recompile_clients", {})
+        monkeypatch.setattr(compile_mod, "_recompile_retired", [])
+        monkeypatch.setattr(compile_mod, "_recompile_inflight", {})
+        monkeypatch.setattr(httpx, "Client", lambda timeout: _Closable(timeout))
+        # No retain call: the handout alone must make the client unevictable.
+        held = compile_mod._shared_recompile_client(10.0)
+        assert compile_mod._recompile_inflight[id(held)] == 1
+        compile_mod._shared_recompile_client(20.0)
+        assert closed == []
+        compile_mod._recompile_release(held)
+        assert closed == [10.0]
 
     def test_service_failure_returns_the_log(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
