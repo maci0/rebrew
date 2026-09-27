@@ -19,7 +19,9 @@ A name is part of the surface when it is
 
 Descriptors are compared as text, so a changed default, a dropped parameter, a
 reordered argument, a new base class, and a changed constant all read as a
-change rather than as the same name.
+change rather than as the same name.  A default written as a module constant
+(``max_size: int = NO_MAX_SIZE``) is resolved to that constant's value first:
+naming it is not a signature change, while a value that moved is.
 
 Run from the repo root::
 
@@ -41,6 +43,7 @@ import subprocess
 import sys
 from collections.abc import Iterable, Mapping
 from pathlib import Path
+from typing import TypeGuard, override
 
 PKG_ROOT = Path("src") / "rebrew"
 
@@ -50,6 +53,27 @@ _INIT = "__init__"
 #: A literal is anything ``ast.literal_eval`` can turn into a constant; a
 #: computed module-level binding has no stable text to compare.
 _Literal = ast.Constant | ast.Tuple | ast.List | ast.Set | ast.Dict | ast.UnaryOp
+
+#: A scalar value a name may be replaced by before the tool stops following it.
+#: A composite (a tuple, a list, a dict) is left as spelled: substituting it
+#: would put an ``ast.Constant`` where the AST has no such node.
+ConstValue = str | int | float | bool | None
+
+
+def _is_const(value: object) -> TypeGuard[ConstValue]:
+    return isinstance(value, (str, int, float, bool, type(None)))
+
+
+#: How many ``from .x import NAME`` hops a default may travel while the value
+#: is resolved.  Past this the name is compared as spelled, which is the same
+#: answer the literal path gives for an unresolved import.
+_MAX_CONST_HOPS = 4
+
+#: Package the tree was cut from; an absolute import names its sibling.
+_PACKAGE = "rebrew"
+
+#: Returned when a name's value cannot be read out of the AST.
+_UNRESOLVED = object()
 
 
 # --- argument and descriptor rendering -----------------------------------
@@ -142,6 +166,108 @@ def _render_returns(node: ast.FunctionDef | ast.AsyncFunctionDef) -> str:
     return f"-> {_render_expr(node.returns)}"
 
 
+# --- constant resolution --------------------------------------------------
+
+
+def _import_target(node: ast.ImportFrom, module: str) -> str:
+    """The package-relative module ``node`` imports *from*, empty for the package."""
+    if not node.level:
+        name = node.module or ""
+        return name[len(_PACKAGE) + 1 :] if name.startswith(f"{_PACKAGE}.") else name
+    parts = module.split(".")
+    base = ".".join(parts[: len(parts) - node.level])
+    if not node.module:
+        return base
+    return f"{base}.{node.module}" if base else node.module
+
+
+def _resolve_value(
+    name: str,
+    module: str,
+    defined: Mapping[str, Mapping[str, ast.expr]],
+    imported: Mapping[str, Mapping[str, str]],
+    hops: int,
+    seen: frozenset[tuple[str, str]],
+) -> object:
+    """The value ``module``'s ``name`` binds, or ``_UNRESOLVED``.
+
+    A module constant is a default written under its own name, so both trees
+    carry the same value even where only the spelling moved.  Follow the
+    import to the module that defines it; a computed binding, a third-party
+    import, or a cycle gives up and leaves the name to be compared as spelled.
+    """
+    node = defined.get(module, {}).get(name)
+    if node is not None:
+        try:
+            value = ast.literal_eval(node)
+        except (ValueError, TypeError, SyntaxError, MemoryError, RecursionError):
+            return _UNRESOLVED
+        return value if _is_const(value) else _UNRESOLVED
+    origin = imported.get(module, {}).get(name) if hops else None
+    if origin is None or (origin, name) in seen:
+        return _UNRESOLVED
+    return _resolve_value(name, origin, defined, imported, hops - 1, seen | {(origin, name)})
+
+
+def _constant_values(trees: Mapping[str, ast.Module]) -> dict[str, dict[str, ConstValue]]:
+    """Per module, the constants a signature may name, resolved to their values."""
+    defined = {module: _literal_bindings(tree.body) for module, tree in trees.items()}
+    imported = {
+        module: {
+            alias.asname or alias.name: _import_target(node, module)
+            for node in tree.body
+            if isinstance(node, ast.ImportFrom)
+            for alias in node.names
+            if alias.name != "*"
+        }
+        for module, tree in trees.items()
+    }
+    values: dict[str, dict[str, ConstValue]] = {}
+    for module in trees:
+        resolved: dict[str, ConstValue] = {}
+        for name in set(defined[module]) | set(imported[module]):
+            value = _resolve_value(name, module, defined, imported, _MAX_CONST_HOPS, frozenset())
+            if value is not _UNRESOLVED and _is_const(value):
+                resolved[name] = value
+        values[module] = resolved
+    return values
+
+
+class _SubstituteConstants(ast.NodeTransformer):
+    """Replace a resolvable constant name with the value it binds.
+
+    Applied to the whole module, not just the defaults: a Typer option hides
+    its default in a call, and only the substituted form compares as a value.
+    """
+
+    def __init__(self, values: Mapping[str, ConstValue]) -> None:
+        self._values = values
+
+    @override
+    def visit_Assign(self, node: ast.Assign) -> ast.Assign:
+        # A binding target is a name, not the value it takes: substituting it
+        # would rewrite the module's own constant declarations.
+        return ast.copy_location(ast.Assign(node.targets, self.visit(node.value)), node)
+
+    @override
+    def visit_AnnAssign(self, node: ast.AnnAssign) -> ast.AnnAssign:
+        return ast.copy_location(
+            ast.AnnAssign(
+                node.target,
+                self.visit(node.annotation),
+                self.visit(node.value) if node.value is not None else None,
+                node.simple,
+            ),
+            node,
+        )
+
+    @override
+    def visit_Name(self, node: ast.Name) -> ast.expr:
+        if node.id not in self._values:
+            return node
+        return ast.copy_location(ast.Constant(self._values[node.id]), node)
+
+
 # --- module surface -------------------------------------------------------
 
 
@@ -166,8 +292,9 @@ def _body_functions(body: Iterable[ast.stmt]) -> list[ast.FunctionDef | ast.Asyn
     ]
 
 
-def _literal_constants(body: Iterable[ast.stmt]) -> dict[str, tuple[str, ...]]:
-    out: dict[str, tuple[str, ...]] = {}
+def _literal_bindings(body: Iterable[ast.stmt]) -> dict[str, ast.expr]:
+    """Every name this body binds to a literal, private ones included."""
+    out: dict[str, ast.expr] = {}
     for node in body:
         targets: list[ast.expr]
         if isinstance(node, ast.Assign) and isinstance(node.value, _Literal):
@@ -177,9 +304,17 @@ def _literal_constants(body: Iterable[ast.stmt]) -> dict[str, tuple[str, ...]]:
         else:
             continue
         for target in targets:
-            if isinstance(target, ast.Name) and _public(target.id):
-                out[target.id] = (_render_expr(node.value),)
+            if isinstance(target, ast.Name):
+                out[target.id] = node.value
     return out
+
+
+def _literal_constants(body: Iterable[ast.stmt]) -> dict[str, tuple[str, ...]]:
+    return {
+        name: (_render_expr(value),)
+        for name, value in _literal_bindings(body).items()
+        if _public(name)
+    }
 
 
 def _module_names(tree: ast.Module, is_package: bool) -> dict[str, tuple[str, ...]]:
@@ -217,8 +352,13 @@ def _module_name(path: Path, root: Path) -> str:
     return ".".join(parts)
 
 
-def _surface_from_source(source: str, is_package: bool) -> dict[str, tuple[str, ...]]:
-    return _module_names(ast.parse(source), is_package)
+def _surface_from_source(
+    source: str, is_package: bool, constants: Mapping[str, ConstValue]
+) -> dict[str, tuple[str, ...]]:
+    tree = ast.parse(source)
+    if constants:
+        tree = ast.fix_missing_locations(_SubstituteConstants(constants).visit(tree))
+    return _module_names(tree, is_package)
 
 
 def public_surface(
@@ -234,12 +374,16 @@ def public_surface(
         paths = sorted(p for p in source if p.suffix == ".py")
     else:
         paths = sorted(root.rglob("*.py"))
-    return {
-        _module_name(p, root): _surface_from_source(
-            source[p] if source is not None else p.read_text(encoding="utf-8"),
-            p.name == f"{_INIT}.py",
-        )
+    # Every module is parsed before any is scored: a default may name a
+    # constant another module defines, and the value is what has to match.
+    text = {
+        _module_name(p, root): (source[p] if source is not None else p.read_text(encoding="utf-8"))
         for p in paths
+    }
+    constants = _constant_values({m: ast.parse(t) for m, t in text.items()})
+    return {
+        module: _surface_from_source(source, p.name == f"{_INIT}.py", constants.get(module, {}))
+        for (module, source), p in zip(text.items(), paths, strict=True)
     }
 
 
