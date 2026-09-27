@@ -10,13 +10,20 @@ from __future__ import annotations
 import zipfile
 from pathlib import Path
 
-from tools.check_sdist_wheel import diff_members, main, wheel_members
+from tools.check_sdist_wheel import diff_contents, diff_members, main, wheel_digests, wheel_members
 
 
 def _wheel(path: Path, names: list[str]) -> Path:
     with zipfile.ZipFile(path, "w") as zf:
         for name in names:
             zf.writestr(name, b"x")
+    return path
+
+
+def _wheel_of(path: Path, payload: dict[str, bytes]) -> Path:
+    with zipfile.ZipFile(path, "w") as zf:
+        for name, data in payload.items():
+            zf.writestr(name, data)
     return path
 
 
@@ -47,6 +54,27 @@ class TestCheckSdistWheel:
         assert main(["check_sdist_wheel.py", str(shipped), str(from_sdist)]) == 1
         problems = diff_members(wheel_members(shipped), wheel_members(from_sdist))
         assert problems == ["only in the sdist-built wheel: rebrew/stale.py"]
+
+    def test_stale_member_content_fails(self, tmp_path: Path, capsys: object) -> None:
+        """A member that ships in both wheels with different bytes is drift.
+
+        Name-only comparison passed when the sdist carried a stale copy of a
+        runtime file: the manifest kept the name, the content did not match,
+        and a source install ran code the wheel never shipped.
+        """
+        shipped = _wheel_of(tmp_path / "a.whl", {"rebrew/agent-skills/x/SKILL.md": b"new\n"})
+        from_sdist = _wheel_of(tmp_path / "b.whl", {"rebrew/agent-skills/x/SKILL.md": b"old\n"})
+        assert main(["check_sdist_wheel.py", str(shipped), str(from_sdist)]) == 1
+        problems = diff_contents(wheel_digests(shipped), wheel_digests(from_sdist))
+        assert len(problems) == 1
+        assert "content differs: rebrew/agent-skills/x/SKILL.md" in problems[0]
+
+    def test_identical_member_content_passes(self, tmp_path: Path) -> None:
+        payload = {"rebrew/__init__.py": b"x", "rebrew-1.0.dist-info/RECORD": b"y"}
+        shipped = _wheel_of(tmp_path / "a.whl", payload)
+        from_sdist = _wheel_of(tmp_path / "b.whl", payload)
+        assert diff_contents(wheel_digests(shipped), wheel_digests(from_sdist)) == []
+        assert main(["check_sdist_wheel.py", str(shipped), str(from_sdist)]) == 0
 
     def test_missing_wheel_is_an_error_not_a_pass(self, tmp_path: Path) -> None:
         shipped = _wheel(tmp_path / "a.whl", ["rebrew/__init__.py"])

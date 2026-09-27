@@ -75,7 +75,13 @@ BUILD_REPRO_DIR ?= .scratch/rebuild
 # byte of the package.  tools/normalize_sdist.py is here because it rewrites
 # both archives after the build, and .python-version because it selects the
 # interpreter uv builds with: neither lives under src/, and omitting them let
-# an edit to either leave dist/ describing the previous tree.
+# an edit to either leave dist/ describing the previous tree.  The sdist's
+# top-level docs are here for the same reason from the other side:
+# README.md / CHANGELOG.md / SECURITY.md / LICENSE / NOTICE are sdist members
+# (MANIFEST.in includes the first three, [project] license-files pulls in the
+# last two, setuptools auto-ships the README) and the license files also land
+# in the wheel's dist-info, so editing one changes what ships while every
+# listed prerequisite stayed untouched.
 #
 # The directories are prerequisites too.  `find src -type f` only sees the files
 # that exist when make expands this list, and make rebuilds a target when a
@@ -90,6 +96,7 @@ BUILD_INPUT_DIRS := $(shell find src -type d \
 	-not -path '*/__pycache__*' -not -path '*.egg-info*')
 BUILD_INPUTS := Makefile pyproject.toml build-constraints.txt MANIFEST.in \
 	.python-version tools/normalize_sdist.py \
+	README.md CHANGELOG.md SECURITY.md LICENSE NOTICE \
 	$(shell find src -type f -not -path '*/__pycache__/*' -not -path '*.egg-info/*')
 
 # Reproducible package builds: honor SOURCE_DATE_EPOCH when set; otherwise use
@@ -366,6 +373,12 @@ clean:
 # setuptools version must equal the pyproject.toml [build-system] pin.
 # setuptools= is parsed from pyproject.toml [build-system] (never hardcoded —
 # a stale pin next to requires = ["setuptools==…"] would lie in the manifest).
+# Two `uv build` calls, not the default one: bare `uv build` builds the wheel
+# *from the sdist it just made*, so the shipped wheel and `make sdist-check`'s
+# wheel share an input and a MANIFEST.in prune that dropped a runtime file
+# removed it from both, leaving that gate green on a wheel missing the file it
+# exists to catch.  Building the wheel from the source tree is what makes the
+# two member lists independent, and sdist-check can fail again.
 build: warn-uv-version
 	@mkdir -p dist
 	@rm -f dist/*.whl dist/*.tar.gz dist/*.buildinfo dist/*.cdx.json
@@ -377,7 +390,9 @@ build: warn-uv-version
 	  exit 1; \
 	fi
 	umask 022 && SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) TZ=UTC LC_ALL=C PYTHONHASHSEED=0 \
-		uv build --build-constraints build-constraints.txt --require-hashes
+		uv build --sdist --out-dir dist --build-constraints build-constraints.txt --require-hashes
+	umask 022 && SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) TZ=UTC LC_ALL=C PYTHONHASHSEED=0 \
+		uv build --wheel --out-dir dist --build-constraints build-constraints.txt --require-hashes
 	SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) uv run --no-project --offline python tools/normalize_sdist.py dist/*.tar.gz dist/*.whl
 	@rm -rf build rebrew.egg-info src/rebrew.egg-info
 	@set -eu; \

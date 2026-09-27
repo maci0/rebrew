@@ -1,17 +1,5 @@
 ## [Unreleased]
 
-### Fixed
-- **Ghidra data-label JSON no longer crashes the catalog on a corrupt
-  `label`/`state`.** `GhidraDataLabel.from_dict` passed the raw JSON value
-  through while promising `str`, so an export whose `label` is an object, a
-  number, or a bool raised `AttributeError: ... has no attribute 'lower'`
-  from `_classify_ghidra_label` instead of skipping the row. A non-string
-  field now falls back to its default (`""` / `"data"`). `load_ghidra_data_labels`
-  additionally drops a non-positive `size` or `va`: `grid.py` ends a gap at
-  `label_va + size`, so a negative size from a half-written export shrank the
-  gap backwards. Both are property-tested over arbitrary JSON
-  (`tests/test_property_catalog_loaders.py`).
-
 ### Added
 - **`make build-repro` runs the package job's reproducibility check.** The
   wheel/sdist byte-reproducibility gate was an inline bash step in
@@ -524,6 +512,16 @@
   `binsync` extra through declib, so the SBOM's copyleft table and `NOTICE`
   both missed it and the declared inventory called a reciprocal-licensed
   component unattributed.
+- **Ghidra data-label JSON no longer crashes the catalog on a corrupt
+  `label`/`state`.** `GhidraDataLabel.from_dict` passed the raw JSON value
+  through while promising `str`, so an export whose `label` is an object, a
+  number, or a bool raised `AttributeError: ... has no attribute 'lower'`
+  from `_classify_ghidra_label` instead of skipping the row. A non-string
+  field now falls back to its default (`""` / `"data"`). `load_ghidra_data_labels`
+  additionally drops a non-positive `size` or `va`: `grid.py` ends a gap at
+  `label_va + size`, so a negative size from a half-written export shrank the
+  gap backwards. Both are property-tested over arbitrary JSON
+  (`tests/test_property_catalog_loaders.py`).
 
 ### Changed
 - **Breaking:** **A dashboard request for a path the server does not serve

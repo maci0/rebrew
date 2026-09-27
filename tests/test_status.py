@@ -1716,9 +1716,7 @@ class TestDataVerdicts:
         set_data_field(tmp_path, 0x2000, "status", "DRIFT", "TEST")
         set_data_field(tmp_path, 0x2000, "section", ".idata", "TEST")
         set_data_field(tmp_path, 0x2000, "size", "4", "TEST")
-        monkeypatch.setattr(
-            "rebrew.status.postlink_copied_ranges", lambda _cfg: [(0x2000, 0x2010)]
-        )
+        monkeypatch.setattr("rebrew.status.postlink_copied_ranges", lambda _cfg: [(0x2000, 0x2010)])
         report = collect_status(cfg)
         assert report.data_verified == 1
         assert report.data_drift == 0
