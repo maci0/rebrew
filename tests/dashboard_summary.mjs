@@ -1,29 +1,22 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 
-const source = readFileSync(0, "utf8");
-const elements = new Map();
-globalThis.document = {
-  getElementById(id) {
-    if (!elements.has(id)) {
-      elements.set(id, {
-        value: "",
-        innerHTML: "",
-        textContent: "",
-        hidden: true,
-        attributes: {},
-        setAttribute(name, value) { this.attributes[name] = value; },
-        querySelector() { return this; },
-        querySelectorAll() { return []; },
-        insertAdjacentHTML(position, html) { this.innerHTML += html; },
-      });
-    }
-    return elements.get(id);
-  },
-  querySelectorAll() { return []; },
+import { installDom, loadApp } from "./dashboard_dom.mjs";
+
+installDom(
+  () => ({
+    value: "",
+    innerHTML: "",
+    textContent: "",
+    hidden: true,
+    attributes: {},
+    setAttribute(name, value) { this.attributes[name] = value; },
+    querySelector() { return this; },
+    querySelectorAll() { return []; },
+    insertAdjacentHTML(position, html) { this.innerHTML += html; },
+  }),
   // Focus is not modeled here; report it as held so restoreFocus is a no-op.
-  activeElement: {},
-};
+  { activeElement: {} },
+);
 const pending = [];
 globalThis.fetch = (path, options) => {
   if (path === "/api/bootstrap") return Promise.resolve({ ok: true, json: async () => ({ targets: [] }) });
@@ -42,9 +35,13 @@ globalThis.AbortController = class {
     this.aborted = true;
   }
 };
-const { loadSummary, bindControls, renderSections, renderGlobals, renderHistory } = await import(
-  "data:text/javascript;base64," + Buffer.from(source + "\nexport { loadSummary, bindControls, renderSections, renderGlobals, renderHistory };\n").toString("base64")
-);
+const { loadSummary, bindControls, renderSections, renderGlobals, renderHistory } = await loadApp([
+  "loadSummary",
+  "bindControls",
+  "renderSections",
+  "renderGlobals",
+  "renderHistory",
+]);
 const element = (id) => document.getElementById(id);
 const summary = (status) => ({
   function_stats: { total: 1, by_status: { [status]: 1 } },

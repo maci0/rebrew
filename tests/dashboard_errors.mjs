@@ -1,30 +1,22 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 
-const source = readFileSync(0, "utf8");
-const elements = new Map();
+import { installDom, loadApp } from "./dashboard_dom.mjs";
+
 const body = { id: "body" };
-globalThis.document = {
-  body,
-  activeElement: body,
-  getElementById(id) {
-    if (!elements.has(id)) {
-      elements.set(id, {
-        id,
-        value: "",
-        innerHTML: "",
-        textContent: "",
-        hidden: id !== "main",
-        disabled: false,
-        setAttribute() {},
-        closest() { return null; },
-        focus() { document.activeElement = this; },
-      });
-    }
-    return elements.get(id);
-  },
-  querySelectorAll() { return []; },
-};
+installDom(
+  (id) => ({
+    id,
+    value: "",
+    innerHTML: "",
+    textContent: "",
+    hidden: id !== "main",
+    disabled: false,
+    setAttribute() {},
+    closest() { return null; },
+    focus() { document.activeElement = this; },
+  }),
+  { body, activeElement: body },
+);
 globalThis.location = { hash: "" };
 globalThis.history = { replaceState() {} };
 let respond = async () => ({
@@ -34,9 +26,7 @@ let respond = async () => ({
 });
 globalThis.fetch = (path) => respond(path);
 
-const { start } = await import(
-  "data:text/javascript;base64," + Buffer.from(source + "\nexport { start };\n").toString("base64")
-);
+const { start } = await loadApp(["start"]);
 await start();
 await start();  // the module already ran start() once on import; this awaits a fresh run
 

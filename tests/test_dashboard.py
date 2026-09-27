@@ -32,6 +32,25 @@ class _NullWFile:
         return len(data)
 
 
+def _run_script(script: str, **env: str) -> None:
+    """Run a tests/dashboard_*.mjs interaction script against the dashboard JS."""
+    node = shutil.which("node")
+    if node is None:
+        pytest.skip("Node.js is required for dashboard interaction tests")
+    environ = os.environ.copy()
+    environ.update(env)
+    result = subprocess.run(
+        [node, str(Path(__file__).with_name(script))],
+        input=_APP_JS,
+        capture_output=True,
+        text=True,
+        timeout=15,
+        check=False,
+        env=environ,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
 def _write_data(db_dir: Path, target: str = "server_dll") -> Path:
     db_dir.mkdir(parents=True, exist_ok=True)
     data = {
@@ -571,115 +590,35 @@ class TestQueryLayer:
 
 class TestSummaryRequests:
     def test_latest_summary_wins(self) -> None:
-        node = shutil.which("node")
-        if node is None:
-            pytest.skip("Node.js is required for dashboard interaction tests")
-        result = subprocess.run(
-            [node, str(Path(__file__).with_name("dashboard_summary.mjs"))],
-            input=_APP_JS,
-            capture_output=True,
-            text=True,
-            timeout=15,
-            check=False,
-        )
-        assert result.returncode == 0, result.stdout + result.stderr
+        _run_script("dashboard_summary.mjs")
 
 
 class TestHashState:
     def test_reload_restores_target_view_and_filters(self) -> None:
-        node = shutil.which("node")
-        if node is None:
-            pytest.skip("Node.js is required for dashboard interaction tests")
-        result = subprocess.run(
-            [node, str(Path(__file__).with_name("dashboard_hash_state.mjs"))],
-            input=_APP_JS,
-            capture_output=True,
-            text=True,
-            timeout=15,
-            check=False,
-        )
-        assert result.returncode == 0, result.stdout + result.stderr
+        _run_script("dashboard_hash_state.mjs")
 
     def test_restored_target_loads_summary_functions_and_view_in_parallel(self) -> None:
-        node = shutil.which("node")
-        if node is None:
-            pytest.skip("Node.js is required for dashboard interaction tests")
-        result = subprocess.run(
-            [node, str(Path(__file__).with_name("dashboard_parallel_boot.mjs"))],
-            input=_APP_JS,
-            capture_output=True,
-            text=True,
-            timeout=15,
-            check=False,
-        )
-        assert result.returncode == 0, result.stdout + result.stderr
+        _run_script("dashboard_parallel_boot.mjs")
 
 
 class TestFocusManagement:
     def test_show_more_keeps_keyboard_focus(self) -> None:
-        node = shutil.which("node")
-        if node is None:
-            pytest.skip("Node.js is required for dashboard interaction tests")
-        result = subprocess.run(
-            [node, str(Path(__file__).with_name("dashboard_focus.mjs"))],
-            input=_APP_JS,
-            capture_output=True,
-            text=True,
-            timeout=15,
-            check=False,
-        )
-        assert result.returncode == 0, result.stdout + result.stderr
+        _run_script("dashboard_focus.mjs")
 
 
 class TestListReset:
     def test_fresh_load_drops_stale_rows_and_title_names_the_target(self) -> None:
-        node = shutil.which("node")
-        if node is None:
-            pytest.skip("Node.js is required for dashboard interaction tests")
-        result = subprocess.run(
-            [node, str(Path(__file__).with_name("dashboard_list_reset.mjs"))],
-            input=_APP_JS,
-            capture_output=True,
-            text=True,
-            timeout=15,
-            check=False,
-        )
-        assert result.returncode == 0, result.stdout + result.stderr
+        _run_script("dashboard_list_reset.mjs")
 
 
 class TestLoadErrors:
     def test_error_messages_carry_the_server_reason(self) -> None:
-        node = shutil.which("node")
-        if node is None:
-            pytest.skip("Node.js is required for dashboard interaction tests")
-        result = subprocess.run(
-            [node, str(Path(__file__).with_name("dashboard_errors.mjs"))],
-            input=_APP_JS,
-            capture_output=True,
-            text=True,
-            timeout=15,
-            check=False,
-        )
-        assert result.returncode == 0, result.stdout + result.stderr
+        _run_script("dashboard_errors.mjs")
 
 
 class TestHistoryClock:
     def test_zone_less_instants_and_fallback_hour(self) -> None:
-        node = shutil.which("node")
-        if node is None:
-            pytest.skip("Node.js is required for dashboard interaction tests")
-        env = os.environ.copy()
-        env["TZ"] = "America/New_York"
-        result = subprocess.run(
-            [node, str(Path(__file__).with_name("dashboard_time.mjs"))],
-            input=_APP_JS,
-            capture_output=True,
-            text=True,
-            timeout=15,
-            check=False,
-            env=env,
-        )
-        assert result.returncode == 0, result.stdout + result.stderr
+        _run_script("dashboard_time.mjs", TZ="America/New_York")
 
 
 class TestHandle:

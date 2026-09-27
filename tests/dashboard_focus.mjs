@@ -1,53 +1,47 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 
-const source = readFileSync(0, "utf8");
-const elements = new Map();
+import { installDom, loadApp } from "./dashboard_dom.mjs";
+
 const parents = { "show-more": "show-more-wrap" };
 const body = { id: "body" };
 const isWithin = (el, ancestor) => {
   for (let node = el; node; node = node.parent) if (node === ancestor) return true;
   return false;
 };
-globalThis.document = {
-  body,
-  activeElement: body,
-  getElementById(id) {
-    if (!elements.has(id)) {
-      let hidden = id !== "main";
-      const el = {
-        id,
-        value: "",
-        innerHTML: "",
-        textContent: "",
-        disabled: false,
-        attributes: {},
-        classList: { toggle() {} },
-        get parent() { return parents[id] ? document.getElementById(parents[id]) : null; },
-        get hidden() { return hidden; },
-        // Browser focus fixup: hiding the focused element or an ancestor
-        // moves focus to <body>.
-        set hidden(value) {
-          hidden = value;
-          if (value && isWithin(document.activeElement, el)) document.activeElement = body;
-        },
-        setAttribute(name, value) { this.attributes[name] = value; },
-        querySelector() { return this; },
-        querySelectorAll() { return []; },
-        insertAdjacentHTML(position, html) { this.innerHTML += html; },
-        closest(selector) {
-          assert.equal(selector, "[hidden]");
-          for (let node = this; node; node = node.parent) if (node.hidden) return node;
-          return null;
-        },
-        focus() { document.activeElement = this; },
-      };
-      elements.set(id, el);
-    }
-    return elements.get(id);
+installDom(
+  (id) => {
+    let hidden = id !== "main";
+    const el = {
+      id,
+      value: "",
+      innerHTML: "",
+      textContent: "",
+      disabled: false,
+      attributes: {},
+      classList: { toggle() {} },
+      get parent() { return parents[id] ? document.getElementById(parents[id]) : null; },
+      get hidden() { return hidden; },
+      // Browser focus fixup: hiding the focused element or an ancestor
+      // moves focus to <body>.
+      set hidden(value) {
+        hidden = value;
+        if (value && isWithin(document.activeElement, el)) document.activeElement = body;
+      },
+      setAttribute(name, value) { this.attributes[name] = value; },
+      querySelector() { return this; },
+      querySelectorAll() { return []; },
+      insertAdjacentHTML(position, html) { this.innerHTML += html; },
+      closest(selector) {
+        assert.equal(selector, "[hidden]");
+        for (let node = this; node; node = node.parent) if (node.hidden) return node;
+        return null;
+      },
+      focus() { document.activeElement = this; },
+    };
+    return el;
   },
-  querySelectorAll() { return []; },
-};
+  { body, activeElement: body },
+);
 globalThis.location = { hash: "#target=a" };
 globalThis.history = { replaceState() {} };
 const row = (i) => ["0x" + i.toString(16), "f" + i, "", 1, "EXACT", "", ""];
@@ -65,9 +59,7 @@ globalThis.fetch = async (path) => {
   return { ok: true, json: async () => payload };
 };
 
-const { init } = await import(
-  "data:text/javascript;base64," + Buffer.from(source + "\nexport { init };\n").toString("base64")
-);
+const { init } = await loadApp(["init"]);
 await init();
 await new Promise((resolve) => setTimeout(resolve, 0));
 

@@ -46,6 +46,7 @@ def _target_pointer_size(info: Any) -> int:
     arch = str(getattr(info, "arch", "") or "")
     return arch_pointer_size(arch) if arch else _DEFAULT_PTR_SIZE
 
+
 # ---------------------------------------------------------------------------
 # Regexes
 # ---------------------------------------------------------------------------
