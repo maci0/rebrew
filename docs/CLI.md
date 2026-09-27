@@ -2588,8 +2588,11 @@ Its stderr is one log stream: each access line reads
 `HH:MM:SS INFO    <addr> r<N> "<request line>" <status> <bytes> <ms>` and
 each error line `HH:MM:SS ERROR   rebrew.dashboard r<N> <reason> <path>` plus
 an escaped single-line traceback, so grepping `r<N>` pivots from a 500 to the
-request behind it. Totals (requests served, server errors, slowest request)
-print once when the server stops.
+request behind it. A fault that escapes the handler is logged there too, as
+`r<N> unhandled <Exc> from <peer> serving <request line>`; a client that
+closed the connection mid-response is `r<N> client disconnected serving
+<request line>` at INFO and does not count as a server error. Totals (requests
+served, server errors, slowest request) print once when the server stops.
 
 ## Examples
 
