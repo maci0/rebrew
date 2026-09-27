@@ -62,7 +62,7 @@ from collections import Counter
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal, Self
+from typing import Any, Literal, Self, cast, get_args
 
 from rebrew.binary_loader import BinaryInfo, SectionInfo, load_binary
 from rebrew.coff_reloc import build_iat_region, smart_reloc_compare
@@ -112,6 +112,10 @@ CompareStatus = Literal[
     "INVALID_VA",
     "INTERNAL_ERROR",
 ]
+
+#: The same vocabulary at runtime, for validating a status that arrived as
+#: data (:meth:`CompareResult.from_dict` on a foreign payload).
+_COMPARE_STATUS_VALUES: frozenset[str] = frozenset(get_args(CompareStatus))
 
 
 class CompareResultError(RebrewError, ValueError):
@@ -273,6 +277,12 @@ class CompareResult:
         ``full_obj_bytes=None``.  Report and dashboard on it; do not make a
         ``--fix-sizes``-style decision from it, which needs the untruncated
         bytes.  Unknown keys are ignored.
+
+        A payload this cannot build a result from (a required field absent, or
+        a ``status`` outside :data:`CompareStatus`) raises
+        :class:`CompareResultError`, so a caller parsing foreign JSON handles
+        it in the same ``except RebrewError`` clause as a contradictory
+        result instead of catching a bare ``TypeError``.
         """
         import dataclasses
 
@@ -281,7 +291,22 @@ class CompareResult:
         kwargs.setdefault("obj_bytes", None)
         kwargs.setdefault("reloc_offsets", None)
         kwargs.setdefault("message", "")
-        return cls(**kwargs)
+        status = kwargs.get("status")
+        if status not in _COMPARE_STATUS_VALUES:
+            raise CompareResultError(
+                f"CompareResult.from_dict got status {status!r}, "
+                f"expected one of {sorted(_COMPARE_STATUS_VALUES)}",
+                matched=bool(kwargs.get("matched", False)),
+                status="INTERNAL_ERROR",
+            )
+        try:
+            return cls(**kwargs)
+        except TypeError as exc:
+            raise CompareResultError(
+                f"CompareResult.from_dict cannot build a result: {exc}",
+                matched=bool(kwargs.get("matched", False)),
+                status=cast(CompareStatus, status),
+            ) from exc
 
 
 #: Compare statuses that mean the compiled bytes equal the target (after
