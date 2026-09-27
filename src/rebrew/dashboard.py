@@ -90,8 +90,8 @@ wire size stays inside the RFC 6928 initial congestion window minus a
 per-response header reserve, so a cold connection paints without an extra
 round trip; a test pins that budget, and a change that does not fit pays for
 itself in the client's own comment prose rather than in the budget.  As
-measured: 12100 B zstd and 12671 B gzip against a 12680 B budget, so gzip has
-9 B of room and zstd 580 B — a client-side edit budgets against gzip.  Remaining
+measured: 12092 B zstd and 12666 B gzip against a 12680 B budget, so gzip has
+14 B of room and zstd 588 B — a client-side edit budgets against gzip.  Remaining
 JSON compresses per request at mid effort, except ``/api/bootstrap``: the cold
 start needs it to paint, a client sends it once per load and 304s after that,
 so it takes the same max effort the static blobs do.  The shell
@@ -380,10 +380,11 @@ async function whileBusy(id, operation) {
     if (remaining === 0) element.setAttribute("aria-busy", "false");
   }
 }
+// One table, not one per matched character: esc() runs per cell per row.
+const ESCAPES = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+const ESCAPE_RE = /[&<>"']/g;
 function esc(s) {
-  return String(s).replace(/[&<>"']/g, c => ({
-      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
-    })[c]);
+  return String(s).replace(ESCAPE_RE, (c) => ESCAPES[c]);
 }
 function formatWhen(value) {
   if (!value) return "";
@@ -412,7 +413,8 @@ function formatWhen(value) {
 function setFunctionsEmptyMessage() {
   const el = $("empty-state");
   if (filtersActive()) {
-    const onlyQuery = !$("status").value && !moduleFilterState().blank && !moduleFilterState().value && !!$("q").value.trim();
+    const m = moduleFilterState();
+    const onlyQuery = !$("status").value && !m.blank && !m.value && !!$("q").value.trim();
     if (onlyQuery) {
       el.innerHTML = "No functions match this search. <button type='button' id='empty-clear-fn' class='link-button'>Clear search</button> or try another query.";
     } else {
@@ -831,8 +833,6 @@ function renderSections(data) {
     nounOne: "section",
     hintId: "sections-hint",
     moreWrapId: null,
-    tip: "",
-    tipCapped: "",
   });
 }
 const globalRowHtml = (r) => {
@@ -868,10 +868,7 @@ function renderGlobals(data, options) {
   });
   updateFilterActions();
 }
-const historyRowHtml = (h) => {
-  const r = Array.isArray(h)
-    ? h
-    : [h.va, h.name, h.old_status, h.new_status, h.changed_at];
+const historyRowHtml = (r) => {
   // A blank old status is the first recorded change, not a missing value.
   return "<tr><td class=va>" + esc(r[0] ?? "") + "</td><td>" + esc(r[1] || "")
     + "</td><td>" + statusText(r[2] || "(first change)") + "</td><td>" + statusText(r[3] || "")

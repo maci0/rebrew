@@ -1864,6 +1864,35 @@ class TestEncodingNegotiation:
             f"entry assets {wire} B over {_ENTRY_WIRE_BUDGET_BYTES} B budget"
         )
 
+    def test_entry_assets_carry_no_vendor_or_superseded_css(self) -> None:
+        """The entry budget forbids decorative CSS and superseded prefixes.
+
+        ``-webkit-overflow-scrolling: touch`` only ever reached iOS Safari 12
+        and older, which cannot run the ``content-visibility`` and
+        ``:focus-visible`` rules the same stylesheet already depends on.  It
+        is a per-load cost on the cold path for a browser that will never see
+        it.  ``/app.js`` is asserted for the same reason: it is the resource
+        that gates interactivity, and a compatibility branch there is the same
+        cost.
+        """
+        from rebrew.dashboard import _APP_JS, _INDEX_HTML
+
+        for asset in (_INDEX_HTML, _APP_JS):
+            assert "-webkit-overflow-scrolling" not in asset
+
+    def test_history_rows_are_positional_only(self) -> None:
+        """``historyRowHtml`` takes the ``cols`` array, not the old object row.
+
+        ``/api/history`` answers positional arrays under ``cols`` (see
+        ``test_functions_omit_unused_marker_type``), so the object shape the
+        renderer used to unpack is a branch no response can reach, and it ships
+        on the cold path.
+        """
+        from rebrew.dashboard import _APP_JS
+
+        assert "const historyRowHtml = (r) =>" in _APP_JS
+        assert "Array.isArray(h)" not in _APP_JS
+
     def test_bootstrap_json_compresses_at_max_effort(self) -> None:
         """The preloaded cold-start body pays max effort, later routes do not.
 

@@ -115,17 +115,17 @@ precompressed at both codecs at import. Measured 500-row functions JSON:
 gzip-5 4728 → zstd-5 2912 bytes. Gates: `TestEncodingNegotiation`,
 `test_handler_serves_precompressed_static`.
 
-Shell HTML (zstd-19): 3352 bytes on the wire (was ~8.2 KB with inlined JS).
-All three entry assets total 12088 bytes zstd / 12669 gzip, inside the RFC 6928
+Shell HTML (zstd-19): 3353 bytes on the wire (was ~8.2 KB with inlined JS).
+All three entry assets total 12092 bytes zstd / 12666 gzip, inside the RFC 6928
 14600-byte initial window less a 640-byte-per-response header reserve
 (`_ENTRY_WIRE_BUDGET_BYTES`, 12680), so the loading chrome paints before
-`/app.js` (8593 zstd) and `/boot-guard.js` (143 zstd) finish. Gate:
+`/app.js` (8507 zstd) and `/boot-guard.js` (232 zstd) finish. Gate:
 `test_entry_assets_fit_initial_congestion_window`.
 
-The gzip path is the binding one: 12669 of 12680 budgeted bytes, 11 to spare
-(zstd has 592). With the measured 1728 bytes of response headers the cold
-flight is 14397 of the 14600-byte window. Any shell or client growth has to
-come out of those 11 gzip bytes, so trim copy before adding an asset.
+The gzip path is the binding one: 12666 of 12680 budgeted bytes, 14 to spare
+(zstd has 588). With the measured 1728 bytes of response headers the cold
+flight is 14394 of the 14600-byte window. Any shell or client growth has to
+come out of those 14 gzip bytes, so trim copy before adding an asset.
 
 Every non-entry 200 answers `Server-Timing: route;dur=<ms>`, so the browser's
 Network panel separates the query from the transfer and a slow route shows up
@@ -184,9 +184,21 @@ entry assets: measured, the three static assets alone leave the window before
 any data, so folding that fourth response in needs the static shell to shrink
 first.
 
-Dashboard shell gzip is 3433 bytes, `/app.js` gzip is 9078 bytes, and
-`/boot-guard.js` gzip is 158 (same
-lengths as a timestamped header; the mtime field is 4 bytes either way).
+`/app.js` pays for the row render too, not only the download. `esc()` looked
+up its five entities in a fresh object literal on every matched character, so
+a 5000-row page allocated one per escaped cell; the table and the regex now
+sit at module scope (1.1x over 35000 cells, bun). Two dead paths went with it
+to stay inside the window: the object shape `historyRowHtml` still accepted
+(`/api/history` answers positional arrays under `cols` and has for some time),
+and the sections page's empty `tip`/`tipCapped` (it is unpaged, so the branch
+that reads them is unreachable). The shell lost `-webkit-overflow-scrolling:
+touch`, which only ever affected iOS Safari 12 and older while the same
+stylesheet already requires Safari 15.4 for `content-visibility`; the report
+page carries the same dead declaration and it is gone there too. Gate:
+`test_entry_assets_fit_initial_congestion_window` is what forces the trade.
+
+Dashboard shell gzip is 3433 bytes, `/app.js` gzip is 8988 bytes, and
+`/boot-guard.js` gzip is 245 (same
 `mtime=0` makes those bytes a function of the content, so a restart does
 not serve a different body under the same ETag. Gate:
 `test_handler_serves_precompressed_static`.
