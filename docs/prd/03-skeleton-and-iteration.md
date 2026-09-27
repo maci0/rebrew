@@ -242,7 +242,7 @@ rebrew skeleton [VA]
       --append PATH
       --decomp
       --decomp-body
-      --decomp-backend auto|r2ghidra|r2dec|ghidra (default auto)
+      --decomp-backend auto|r2ghidra|r2dec|ghidra|kuna|m2c (default auto)
       --xrefs
       --endpoint URL  (default http://localhost:8080/mcp/message)
       --dry-run
@@ -264,9 +264,12 @@ rebrew test [SOURCE]
       --no-promote
       --force-status
       --fix-sizes
+      --linked
       --watch
+      --context PATH
       --json
   -t, --target TEXT
+      --all-targets
 
 rebrew diff SEED_C
   -m, --mismatches-only
@@ -287,6 +290,7 @@ rebrew lint [FILES...]
       --summary
       --json
   -t, --target TEXT
+      --all-targets
 
 rebrew migrate-markers
       --dry-run
@@ -304,6 +308,7 @@ rebrew split [SOURCE]
 rebrew merge [SOURCES...]
   -o, --output TEXT (required)
       --consolidate
+      --shared
       --dry-run
       --force
       --delete
@@ -312,6 +317,7 @@ rebrew merge [SOURCES...]
 
 rebrew rename TARGET_IDENT NEW_NAME
       --file TEXT
+      --data
       --dry-run
       --json
   -t, --target TEXT
@@ -320,8 +326,10 @@ rebrew todo
   -n, --count N (default 20)
   -c, --category TEXT
   -s, --stats
+      --data
       --json
   -t, --target TEXT
+      --all-targets
 ```
 
 ## Success Metrics

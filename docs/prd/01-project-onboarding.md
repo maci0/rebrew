@@ -227,6 +227,7 @@ rebrew doctor [OPTIONS]
 
 rebrew cfg list-targets [--json]
 rebrew cfg show [KEY] [--target TARGET] [--json]
+rebrew cfg effective [KEY] [--target TARGET] [--json]
 rebrew cfg raw [--format json|toml]
 rebrew cfg path
 rebrew cfg add-target NAME --binary FILE [--arch ARCH] [--format FORMAT] [--modules LIST] [--source-ext EXT] [--copy/--no-copy] [--force]
