@@ -20,7 +20,9 @@ _NAME_RE = re.compile(r"REBREW_[A-Z0-9_]+")
 #: REBREW_* names that never reach the process environment: preprocessor
 #: defines (``-DREBREW_ALLOW_NAKED``), CMake variables the generated
 #: ``rebrew cmake-sources`` CMakeLists consumes, a generated C header guard,
-#: a binsync state-dir marker, and Python identifier fragments.
+#: a binsync state-dir marker, the ownership cookie rebrew stamps on its own
+#: Xvfb child (read back from ``/proc``, never set by the analyst), and
+#: Python identifier fragments.
 _NOT_ENV_VARS = frozenset(
     {
         "REBREW_ALLOW_NAKED",
@@ -35,6 +37,7 @@ _NOT_ENV_VARS = frozenset(
         "REBREW_SOURCES",
         "REBREW_STATE_VERSION",
         "REBREW_TOML",
+        "REBREW_XVFB_AUTH",
     }
 )
 

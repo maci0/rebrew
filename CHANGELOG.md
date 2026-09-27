@@ -1,5 +1,29 @@
 ## [Unreleased]
 
+### Fixed
+- **`rebrew cfg effective` names every `REBREW_*` variable in the
+  environment, not a seven-entry allowlist.** The `env_overrides` list was a
+  hardcoded tuple of the knobs `load_config` reads, so a run driven by
+  `REBREW_TOOLCHAINS_DIR`, `REBREW_CONTAINER_RUNTIME`, `REBREW_SKILLS_DIR`,
+  `REBREW_WINE_HEADLESS`, `REBREW_WINEPREFIX` or a toolchain overlay dir
+  reported an empty list while the help text promised the variables present in
+  the environment. The command now derives the list from the environment
+  itself, by name and never by value, so a knob added anywhere in the package
+  is reported without touching this file. `rebrew.config.__all__` also gained
+  the public names other modules import (`llm_max_requests`, `llm_timeout`,
+  `inventory_path_for`, `validate_target_name`, `arch_byte_order`,
+  `arch_pointer_size`, `KNOWN_PROJECT_KEYS`, `KNOWN_FORMATS`, `ARCH_PRESETS`,
+  `ConfigWarning`); no behavior change.
+- **`rebrew cfg effective` reports a mistyped env knob instead of leaving it
+  to a compile.** `REBREW_CONTAINER_RUNTIME` and `REBREW_WINE_HEADLESS` are
+  read at the point of use, so `load_config` never sees them: a typo such as
+  `REBREW_CONTAINER_RUNTIME=dockre` surfaced as a spawn failure from inside a
+  compile. The command now runs each knob's own parser and adds an
+  `env_errors` map (name to the message the consuming code raises) to its
+  output, so the bad value is named where the rest of the configuration is
+  resolved. `rebrew.utils.container_runtime` takes an optional value to
+  validate a candidate without reading the process environment.
+
 ### Added
 - **A moved public helper cannot reach a release unflagged.** The import
   surface is unfrozen by policy, so a removal, move, or signature change there

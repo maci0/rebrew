@@ -32,7 +32,7 @@ import shlex
 import sys
 import tomllib
 import unicodedata
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, TypedDict, override
@@ -1179,6 +1179,51 @@ def parse_env_bool(name: str, raw: str, *, default: bool) -> bool:
     raise ConfigError(f"{name}={raw!r} is not a boolean (use 1/true/yes/on or 0/false/no/off)")
 
 
+#: ``REBREW_*`` knobs whose value is only read at the point of use, so
+#: ``load_config`` never sees them and a typo surfaces as a spawn failure from
+#: inside a compile.  Each parser takes the raw value and returns ``None``; it
+#: raises when the value is unusable.  Kept as data so ``rebrew config
+#: effective`` can report them without re-deciding what a valid value is.
+def _env_knob_parsers() -> tuple[tuple[str, Callable[[str], None]], ...]:
+    """(name, parser) pairs for the lazily-read env knobs.
+
+    Imports are deferred: ``rebrew.utils`` imports this module, so a
+    top-level import would be a cycle.
+    """
+    from rebrew.utils import container_runtime
+
+    def _container_runtime(raw: str) -> None:
+        container_runtime(raw)
+
+    def _wine_headless(raw: str) -> None:
+        parse_env_bool("REBREW_WINE_HEADLESS", raw, default=True)
+
+    return (
+        ("REBREW_CONTAINER_RUNTIME", _container_runtime),
+        ("REBREW_WINE_HEADLESS", _wine_headless),
+    )
+
+
+def env_knob_errors(environ: Mapping[str, str] | None = None) -> dict[str, str]:
+    """Map each set-but-unparseable lazily-read env knob to its error message.
+
+    Reports; it never raises, so the caller can print the resolved
+    configuration *and* the bad knobs in one pass.  The messages come from the
+    same parsers the consuming code runs, so what this says a value is
+    unacceptable is what a compile would say.
+    """
+    env = os.environ if environ is None else environ
+    errors: dict[str, str] = {}
+    for name, parser in _env_knob_parsers():
+        if name not in env:
+            continue
+        try:
+            parser(env[name])
+        except (ConfigError, ValueError) as exc:
+            errors[name] = str(exc)
+    return errors
+
+
 def llm_max_requests(raw: str) -> int:
     """Parse the ``REBREW_LLM_MAX_REQUESTS`` ceiling, the process LLM call budget.
 
@@ -2116,22 +2161,33 @@ def load_config(
 
 
 __all__ = [
+    "ARCH_PRESETS",
+    "KNOWN_FORMATS",
+    "KNOWN_PROJECT_KEYS",
+    "KNOWN_TARGET_KEYS",
     "ConfigError",
     "ConfigKeyError",
     "ConfigNotFoundError",
+    "ConfigWarning",
     "DEFAULT_COMPILE_TIMEOUT",
     "DEFAULT_LINT_MAX_LINE_LENGTH",
     "FUNCTION_STRUCTURE_JSON",
-    "KNOWN_TARGET_KEYS",
     "LinkConfig",
     "ProjectConfig",
+    "arch_byte_order",
+    "arch_pointer_size",
     "detect_crt_sources",
+    "env_knob_errors",
     "find_root",
+    "inventory_path_for",
     "is_key_safe_endpoint",
+    "llm_max_requests",
+    "llm_timeout",
     "load_config",
     "module_marker",
     "parse_env_bool",
     "profile_flags_style",
     "validate_http_url",
     "validate_llm_model",
+    "validate_target_name",
 ]

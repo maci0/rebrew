@@ -568,7 +568,7 @@ rebrew cfg path                                 # print path to config file
 
 # See which value actually won, not what the file says
 rebrew cfg effective                            # resolved values, api_key redacted
-rebrew cfg effective --json                     # + names of REBREW_* env vars present
+rebrew cfg effective --json                     # + env var names, and any rejected value
 ```
 
 `cfg show` / `cfg raw` echo `rebrew-project.toml`. `cfg effective` resolves it
@@ -577,6 +577,12 @@ told apart. `llm_api_key` prints as `***`; the `env_overrides` list holds
 variable names only, never their values. Presence there is not precedence: a
 set `[llm] endpoint` / `model` still wins over the matching env var, while
 `REBREW_LLM_API_KEY` and `REBREW_RECOMPILE_URL` win over TOML.
+
+`env_errors` covers the knobs no command reads until the moment of use
+(`REBREW_CONTAINER_RUNTIME`, `REBREW_WINE_HEADLESS`), which a mistyped value
+would otherwise report as a spawn failure from inside a compile. The message is
+the one the code that reads the knob raises, so a name listed here is unusable
+for the next command that touches it.
 
 ## Compiler profiles from `rebrew init`
 

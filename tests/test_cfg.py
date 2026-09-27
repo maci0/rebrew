@@ -1,6 +1,7 @@
 """Tests for rebrew-cfg (programmatic config editor)."""
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -1637,26 +1638,62 @@ class TestCLIEffective:
         assert result.exit_code == 0
         assert "REBREW_LLM_ALLOW_PROJECT_ENDPOINT" in json.loads(result.stdout)["env_overrides"]
 
-    def test_every_env_var_reaches_effective(self) -> None:
-        """Every env knob `load_config` reads is named by `cfg effective`.
+    def test_bad_env_knob_is_reported_with_its_own_message(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        """A knob only read at use time is reported here, not from inside a compile."""
+        _make_project(tmp_path, '[project]\ndefault_target = "server.dll"\n\n' + SAMPLE_TOML)
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("REBREW_CONTAINER_RUNTIME", "dockre")
+        monkeypatch.setenv("REBREW_WINE_HEADLESS", "flase")
+        result = runner.invoke(cfg_app, ["effective", "--json"])
+        assert result.exit_code == 0
+        errors = json.loads(result.stdout)["env_errors"]
+        assert "dockre" in errors["REBREW_CONTAINER_RUNTIME"]
+        assert "flase" in errors["REBREW_WINE_HEADLESS"]
 
-        Without this, a new env-wins setting is added and an operator
-        debugging it sees no trace of the variable that overrode the file.
+    def test_valid_env_knobs_report_no_errors(self, tmp_path: Path, monkeypatch) -> None:
+        _make_project(tmp_path, '[project]\ndefault_target = "server.dll"\n\n' + SAMPLE_TOML)
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("REBREW_CONTAINER_RUNTIME", "podman")
+        monkeypatch.setenv("REBREW_WINE_HEADLESS", "0")
+        result = runner.invoke(cfg_app, ["effective", "--json"])
+        assert result.exit_code == 0
+        assert json.loads(result.stdout)["env_errors"] == {}
+
+    def test_every_env_var_reaches_effective(self, tmp_path: Path, monkeypatch) -> None:
+        """Every documented env knob is named by `cfg effective`, in force or not.
+
+        Without this, an env knob is added (or an old one misses the list) and
+        an operator debugging a project sees no trace of the variable that
+        changed the run.  The set is read from the environment, so a knob
+        `load_config` never reads -- `REBREW_TOOLCHAINS_DIR`,
+        `REBREW_CONTAINER_RUNTIME` -- is reported too.
         """
-        import re
-
-        from rebrew import config as rebrew_config
-        from rebrew.cfg import _ENV_OVERRIDE_VARS
-
-        source = Path(rebrew_config.__file__).read_text(encoding="utf-8")
-        read_by_load = set(re.findall(r'os\.environ\["(REBREW_[A-Z0-9_]+)"\]', source))
-        assert read_by_load, "no env reads found in config.py — the regex needs updating"
-        missing = sorted(read_by_load - set(_ENV_OVERRIDE_VARS))
-        assert not missing, f"env vars read by load_config but not reported: {missing}"
+        _make_project(tmp_path, '[project]\ndefault_target = "server.dll"\n\n' + SAMPLE_TOML)
+        monkeypatch.chdir(tmp_path)
+        for name in list(os.environ):
+            if name.startswith("REBREW_"):
+                monkeypatch.delenv(name, raising=False)
+        knobs = {
+            "REBREW_RECOMPILE_URL": "http://localhost:8000",
+            "REBREW_LLM_API_KEY": "s3cret",
+            "REBREW_TOOLCHAINS_DIR": str(tmp_path / "toolchains"),
+            "REBREW_CONTAINER_RUNTIME": "podman",
+            "REBREW_SKILLS_DIR": str(tmp_path / "skills"),
+        }
+        for name, value in knobs.items():
+            monkeypatch.setenv(name, value)
+        monkeypatch.setenv("GH_TOKEN", "not-a-rebrew-knob")
+        result = runner.invoke(cfg_app, ["effective", "--json"])
+        assert result.exit_code == 0
+        assert "s3cret" not in result.stdout
+        assert json.loads(result.stdout)["env_overrides"] == sorted(knobs)
 
     def test_toml_value_used_without_env(self, tmp_path: Path, monkeypatch) -> None:
-        monkeypatch.delenv("REBREW_LLM_ENDPOINT", raising=False)
-        monkeypatch.delenv("REBREW_LLM_API_KEY", raising=False)
+        for name in list(os.environ):
+            if name.startswith("REBREW_"):
+                monkeypatch.delenv(name, raising=False)
         _make_project(
             tmp_path,
             '[project]\ndefault_target = "server.dll"\n\n'

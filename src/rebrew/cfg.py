@@ -25,7 +25,9 @@ Usage::
 import contextlib
 import json
 import math
+import os
 import shutil
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -44,6 +46,7 @@ from rebrew.config import (
     KNOWN_PROJECT_KEYS,
     KNOWN_TARGET_KEYS,
     ConfigError,
+    env_knob_errors,
     validate_http_url,
     validate_target_name,
 )
@@ -414,18 +417,23 @@ def show(
         print(str(_display_config_value(key, current)))
 
 
-#: Env vars that shape a resolved value (``load_config`` reads each one);
-#: listed by name only, never by value.  ``test_every_env_var_reaches_effective``
-#: fails when a new env knob is read without landing here.
-_ENV_OVERRIDE_VARS = (
-    "REBREW_RECOMPILE_URL",
-    "REBREW_LLM_ENDPOINT",
-    "REBREW_LLM_API_KEY",
-    "REBREW_LLM_MODEL",
-    "REBREW_LLM_MAX_REQUESTS",
-    "REBREW_LLM_TIMEOUT",
-    "REBREW_LLM_ALLOW_PROJECT_ENDPOINT",
-)
+#: Prefix every documented runtime knob carries (``.env.example``,
+#: ``docs/CONFIG.md``).  ``cfg effective`` reports the names present in the
+#: environment from the environment itself rather than from a maintained
+#: allowlist, which had drifted behind the knobs ``load_config`` never reads
+#: (``REBREW_TOOLCHAINS_DIR``, ``REBREW_SKILLS_DIR``, ...) while the help
+#: text promised all of them.
+ENV_VAR_PREFIX = "REBREW_"
+
+
+def env_vars_present(environ: Mapping[str, str] | None = None) -> list[str]:
+    """Sorted names of the ``REBREW_*`` variables set in *environ*.
+
+    Names only, never values: a credential exported as ``REBREW_LLM_API_KEY``
+    must not reach the terminal or a CI log through a debugging command.
+    """
+    env = os.environ if environ is None else environ
+    return sorted(name for name in env if name.startswith(ENV_VAR_PREFIX))
 
 
 @app.command("effective")
@@ -440,16 +448,18 @@ def effective(
     redacted, and `env_overrides` names the REBREW_* variables present in the
     environment, never their values: `[llm]` endpoint and model still lose to
     a set TOML field, so presence alone does not mean the value was used.
+    `env_errors` names the knobs whose value the code that reads them would
+    reject, so a mistyped container runtime or wine-headless flag is reported
+    here rather than as a spawn failure from inside a compile.
     """
-    import os
-
     from rebrew.cli import require_config
 
     cfg = require_config(target=target, json_mode=json_output)
     resolved: dict[str, Any] = cfg.as_dict()
     payload: dict[str, Any] = {
         "config": resolved,
-        "env_overrides": [name for name in _ENV_OVERRIDE_VARS if name in os.environ],
+        "env_overrides": env_vars_present(),
+        "env_errors": env_knob_errors(),
     }
     if json_output:
         json_print(payload)
@@ -462,6 +472,8 @@ def effective(
             "[bold]env vars present[/bold] (name only, values stay in the environment): "
             + ", ".join(payload["env_overrides"])
         )
+    for name, message in payload["env_errors"].items():
+        console.print(f"[bold]{name}[/bold]: {message}")
 
 
 @app.command("raw")
