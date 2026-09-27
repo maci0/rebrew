@@ -4,7 +4,10 @@ Third-party licenses
 Rebrew's own source is MIT. See LICENSE.
 
 The optional dependencies below use other grants. Each one ships its own
-license text. The expressions match the revisions pinned in uv.lock.
+license text. The grants match the revisions pinned in uv.lock. An artifact
+that already writes SPDX goes into the SBOM as an expression; one that ships
+only trove text has that text recorded verbatim, because choosing an SPDX id
+upstream never wrote would put a license claim in a release artifact.
 ``make sbom`` writes them into ``dist/rebrew.cdx.json``.
 
 The grant every other pinned distribution declares is recorded in
@@ -15,11 +18,12 @@ only for the copyleft entries below.
 similarity group — resembl
 --------------------------
 
-resembl 2.0.0 (sibling checkout ``../resembl``,
-https://github.com/maci0/resembl) declares ``License: GPLv3``. That is
+resembl 3.0.0 (sibling checkout ``../resembl``,
+https://github.com/maci0/resembl) declares ``License: GPLv3``. That reads as
 GPL-3.0-only: GNU GPL version 3, and the upstream declaration has no
-later-version clause. ``make setup`` installs this group through the path
-dependency in ``[dependency-groups]`` / ``[tool.uv.sources]``. Wheel
+later-version clause. The SBOM records the declared ``GPLv3`` rather than the
+SPDX id upstream did not write. ``make setup`` installs this group through the
+path dependency in ``[dependency-groups]`` / ``[tool.uv.sources]``. Wheel
 Requires-Dist stays limited to packages that resolve on PyPI.
 
 m2c group — m2c

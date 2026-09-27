@@ -391,6 +391,29 @@
   said so comes later.
 
 ### Fixed
+- **The SBOM asserted two license grants no artifact declares.** The
+  expression/name form was picked by a regex over the recorded string, so any
+  single bare token read as an SPDX identifier. `resembl` states the trove
+  text `GPLv3` and `sympy` states `BSD`; neither is an SPDX id, and both
+  shipped in `dist/rebrew.cdx.json` as a `licenses[].expression`, which is a
+  claim about the grant rather than a quote of it. The form now comes from the
+  recorded SPDX identifier set (an id the table has not seen yet falls back to
+  `name`, the side that quotes instead of asserting), and the two entries are
+  recorded as their artifacts declare them, alongside the other trove text the
+  table already kept verbatim.
+- **`NOTICE` attributed `resembl` to a version the lock stopped pinning.**
+  The entry still read `resembl 2.0.0` after `RESEMBL_REF` and `uv.lock` moved
+  to 3.0.0, so the attribution a consumer reads did not name the revision they
+  install. The version and the grant string now match the lock.
+- **The SBOM license test failed on a venv without the optional groups.**
+  `test_generate_sbom_from_lock` read `resembl` and `pyvex` metadata straight
+  from the environment, so a default `uv sync` (no `similarity` group) and a
+  `uv sync --all-extras` (no `similarity` group) both raised
+  `PackageNotFoundError` on a gate that had nothing to do with either. The
+  lock-driven half of the test is unchanged; the cross-check against installed
+  metadata now runs for the distributions the environment actually has, and
+  still asserts that `certifi` and `hypothesis`, which ride every resolve,
+  were among them.
 - **A section with no cells disappeared from the coverage DB's derived
   tables.** `section_cell_stats` and `section_cells_json` were both filled
   from `cells`, so a section that contributed none (a zero-size section, or

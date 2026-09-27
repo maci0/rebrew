@@ -15,6 +15,7 @@ import sys
 import tomllib
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -555,25 +556,40 @@ class TestCycloneDxSbom:
             ("advisories", "https://github.com/maci0/rebrew/blob/main/SECURITY.md"),
         }
         by_name = {c["name"]: c for c in bom["components"]}
-        assert by_name["resembl"]["licenses"] == [{"expression": "GPL-3.0-only"}]
+        # resembl states the trove text "GPLv3"; recording the SPDX id it does
+        # not write would put a license claim in a release artifact.
+        assert by_name["resembl"]["licenses"] == [{"license": {"name": "GPLv3"}}]
         assert by_name["m2c"]["licenses"] == [{"expression": "GPL-3.0-only"}]
         assert by_name["pyvex"]["licenses"] == [{"expression": "BSD-2-Clause AND GPL-2.0-or-later"}]
         assert by_name["certifi"]["licenses"] == [{"expression": "MPL-2.0"}]
         assert by_name["hypothesis"]["licenses"] == [{"expression": "MPL-2.0"}]
-        # The expressions above are the locked artifacts' own declarations.
-        # A lock bump that changes either string has to update NOTICE too.
+        # The declarations above are the locked artifacts' own.  A lock bump
+        # that changes one has to update NOTICE too.  resembl (similarity
+        # group) and pyvex (prove extra) are absent from a default `uv sync`
+        # and from `uv sync --all-extras` respectively, so check each against
+        # the installed artifact only where it is installed: the SBOM itself is
+        # built from the lock and needs no environment.
         import importlib.metadata as importlib_metadata
 
-        resembl_meta = importlib_metadata.metadata("resembl")
-        assert resembl_meta.get("License") == "GPLv3"
-        pyvex_meta = importlib_metadata.metadata("pyvex")
-        assert pyvex_meta.get("License-Expression") == "BSD-2-Clause AND GPL-2.0-or-later"
+        installed: dict[str, Any] = {}
+        for dist in ("resembl", "pyvex", "certifi", "hypothesis"):
+            try:
+                installed[dist] = importlib_metadata.metadata(dist)
+            except importlib_metadata.PackageNotFoundError:
+                continue
+        if "resembl" in installed:
+            assert installed["resembl"].get("License") == "GPLv3"
+        if "pyvex" in installed:
+            assert installed["pyvex"].get("License-Expression") == (
+                "BSD-2-Clause AND GPL-2.0-or-later"
+            )
+        # certifi and hypothesis ride every resolve, so this asserts the loop
+        # above saw the environment rather than skipping over it.
+        assert {"certifi", "hypothesis"} <= set(installed)
         # certifi predates PEP 639 and still uses the free-text field.
-        certifi_meta = importlib_metadata.metadata("certifi")
-        assert certifi_meta.get("License") == "MPL-2.0"
-        assert certifi_meta.get("License-Expression") is None
-        hypothesis_meta = importlib_metadata.metadata("hypothesis")
-        assert hypothesis_meta.get("License-Expression") == "MPL-2.0"
+        assert installed["certifi"].get("License") == "MPL-2.0"
+        assert installed["certifi"].get("License-Expression") is None
+        assert installed["hypothesis"].get("License-Expression") == "MPL-2.0"
         names = {c["name"] for c in bom["components"]}
         assert "httpx" in names
         assert "typer" in names

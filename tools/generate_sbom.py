@@ -43,11 +43,33 @@ _INIT = _REPO_ROOT / "src" / "rebrew" / "__init__.py"
 _PYPROJECT = _REPO_ROOT / "pyproject.toml"
 _VERSION_RE = re.compile(r'^__version__\s*=\s*"([^"]+)"', re.M)
 
-# A declared grant goes in ``expression`` when it already reads as SPDX
-# (bare ids joined by AND/OR/WITH) and in ``name`` when it is the trove text
-# or prose an artifact actually ships.  Normalizing a classifier to an id the
-# upstream never wrote would put a license claim in a release artifact.
-_SPDX_EXPRESSION_RE = re.compile(r"^[A-Za-z0-9.+-]+(?:\s+(?:AND|OR|WITH)\s+[A-Za-z0-9.+-]+)*$")
+# A declared grant goes in ``expression`` when every id in it is an SPDX
+# identifier, and in ``name`` when it is the trove text or prose an artifact
+# actually ships.  Normalizing a classifier to an id the upstream never wrote
+# would put a license claim in a release artifact.  "BSD" (sympy) and "GPLv3"
+# (resembl) are both single bare tokens and neither is an SPDX id, so the set
+# of known ids is what decides the form, not the shape of the string.  An id
+# this table has not recorded yet falls back to ``name``: that form quotes the
+# declaration instead of asserting a claim, which is the side to err on.
+_SPDX_IDS = frozenset(
+    {
+        "0BSD",
+        "Apache-2.0",
+        "BSD-2-Clause",
+        "BSD-3-Clause",
+        "CC0-1.0",
+        "GPL-2.0-or-later",
+        "GPL-3.0-only",
+        "MIT",
+        "MIT-0",
+        "MPL-2.0",
+        "NOASSERTION",
+        "OLDAP-2.8",
+        "PSF-2.0",
+        "Zlib",
+    }
+)
+_EXPRESSION_JOINER_RE = re.compile(r"\s+(?:AND|OR|WITH)\s+")
 
 
 def _license_field(source_kind: str, name: str, version: str) -> dict[str, Any]:
@@ -61,26 +83,29 @@ def _license_field(source_kind: str, name: str, version: str) -> dict[str, Any]:
             f"no recorded license for {name}=={version} ({source_kind}): add the grant "
             f"it declares to tools/licenses.py, and NOTICE if it is not permissive"
         )
-    if _SPDX_EXPRESSION_RE.match(declared):
+    tokens = _EXPRESSION_JOINER_RE.split(declared)
+    if all(token in _SPDX_IDS for token in tokens):
         return {"expression": declared}
     return {"license": {"name": declared}}
 
 
 # Copyleft dependencies pinned in uv.lock.  Expressions were read from the
-# locked artifacts: resembl 3.0.0 ``License: GPL-3.0-only``, m2c aa869da
-# ``License-Expression: GPL-3.0-only``, pyvex 9.3.4
-# ``License-Expression: BSD-2-Clause AND GPL-2.0-or-later``, and the MPL-2.0
-# packages below.  certifi 2026.7.22 and hypothesis 6.168.0 declare
-# ``MPL-2.0`` and every resolve pulls them in; tqdm 4.70.1 declares
-# ``License-Expression: MPL-2.0 AND MIT`` and arrives with the ``binsync``
-# extra (declib's progress bars).  See NOTICE.
+# locked artifacts: m2c aa869da ``License-Expression: GPL-3.0-only``, pyvex
+# 9.3.4 ``License-Expression: BSD-2-Clause AND GPL-2.0-or-later``, and the
+# MPL-2.0 packages below.  resembl states the trove text ``GPLv3`` (which
+# reads as GPL-3.0-only), so the emitted component carries that name rather
+# than an expression upstream never wrote.  certifi 2026.7.22 and hypothesis
+# 6.168.0 declare ``MPL-2.0`` and every resolve pulls them in; tqdm 4.70.1
+# declares ``License-Expression: MPL-2.0 AND MIT`` and arrives with the
+# ``binsync`` extra (declib's progress bars).  See NOTICE.
 # Permissive dependencies keep the license metadata inside their own wheels.
 #
 # ``tests/test_packaging.py`` fails when the resolved environment holds a
 # copyleft distribution missing from this table, so a lock bump cannot drop
-# the attribution silently.
+# the attribution silently.  Only the names are load-bearing: the emitted
+# license always comes from ``tools/licenses.py``.
 _COPYLEFT_EXPRESSIONS = {
-    "resembl": "GPL-3.0-only",
+    "resembl": "GPLv3",
     "m2c": "GPL-3.0-only",
     "pyvex": "BSD-2-Clause AND GPL-2.0-or-later",
     "certifi": "MPL-2.0",
