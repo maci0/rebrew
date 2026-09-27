@@ -39,6 +39,7 @@ module that owns that concept (``toolchain``, ``metadata``, ``workspace``,
 """
 
 import bisect
+import codecs
 import contextlib
 import copy
 import hashlib
@@ -528,7 +529,14 @@ def detect_source_encoding(data: bytes) -> str:
     detecting the real encoding on read lets write-backs round-trip
     byte-for-byte.  Ordering note: cp1252 is tried last; shift_jis is
     stricter and catches Japanese sources first.
+
+    A UTF-8 BOM answers ``utf-8-sig`` rather than ``utf-8``: plain UTF-8
+    keeps U+FEFF as the text's first character, which hides a leading
+    ``// FUNCTION:`` marker from every line-anchored parser, while
+    ``utf-8-sig`` strips it on read and re-emits it on write-back.
     """
+    if data.startswith(codecs.BOM_UTF8):
+        return "utf-8-sig"
     for enc in _SOURCE_ENCODINGS:
         try:
             data.decode(enc)
@@ -541,6 +549,37 @@ def detect_source_encoding(data: bytes) -> str:
     # encode (write-back raises UnicodeEncodeError).  0x80-0x9F then read as
     # C1 controls instead of CP1252 glyphs.
     return "latin-1"
+
+
+def split_source_lines(text: str) -> list[str]:
+    """*text* split into lines on ``\\n`` only, terminators dropped.
+
+    ``str.splitlines`` also breaks on VT, FF, NEL (U+0085), LS (U+2028) and
+    PS (U+2029).  Those code points are legal inside a C string literal, and
+    a source that falls back to Latin-1 (:func:`detect_source_encoding`)
+    decodes byte ``0x85`` as NEL, so a write-back that joins the result with
+    ``"\\n"`` turns that byte into a newline and corrupts the file.  Only
+    ``\\n`` ends a line in C source.
+
+    Trailing-newline handling matches ``splitlines``: a final ``"\\n"``
+    produces no empty last element, so ``"\\n".join(split_source_lines(t))``
+    plus that terminator reproduces a ``\\n``-only file byte for byte.
+    """
+    lines = text.split("\n")
+    if lines and lines[-1] == "":
+        lines.pop()
+    return lines
+
+
+def join_source_lines(original: str, lines: list[str]) -> str:
+    """*lines* joined with ``\\n``, keeping *original*'s trailing newline.
+
+    The pair for :func:`split_source_lines`.  A writer that always appends
+    ``"\\n"`` adds a terminator to a file that had none, which shows up as
+    unrelated churn in every later diff.
+    """
+    text = "\n".join(lines)
+    return text + "\n" if original.endswith("\n") else text
 
 
 def read_compile_source(filepath: Path) -> str:

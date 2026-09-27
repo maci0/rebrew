@@ -711,6 +711,23 @@ class TestSourceEncoding:
         data = "// 日本語コメント\n".encode("shift_jis")
         assert detect_source_encoding(data) == "shift_jis"
 
+    def test_detect_utf8_bom_is_sig(self) -> None:
+        assert detect_source_encoding(b"\xef\xbb\xbfint x;\n") == "utf-8-sig"
+
+    def test_bom_leading_marker_parses_and_survives_write_back(self, tmp_path: Path) -> None:
+        """A Notepad-saved BOM must not hide the first ``// FUNCTION:`` line."""
+        from rebrew.utils import atomic_write_text, read_source_text
+
+        f = tmp_path / "bom.c"
+        f.write_bytes(b"\xef\xbb\xbf// FUNCTION: TEST 0x1000\nint f(void) { return 1; }\n")
+        text, encoding = read_source_text(f)
+        assert not text.startswith("\ufeff")
+        assert encoding == "utf-8-sig"
+        atomic_write_text(f, text.replace("return 1", "return 2"), encoding=encoding)
+        assert (
+            f.read_bytes() == b"\xef\xbb\xbf// FUNCTION: TEST 0x1000\nint f(void) { return 2; }\n"
+        )
+
     def test_read_compile_source_preserves_cp1252_bytes(self, tmp_path: Path) -> None:
         """Compile-path read must keep 0xE9 as a surrogate, not Unicode é.
 
@@ -1364,3 +1381,28 @@ class TestFloorPct:
 
     def test_zero_whole(self) -> None:
         assert floor_pct(5, 0) == 0.0
+
+
+class TestSourceLines:
+    def test_only_newline_ends_a_line(self) -> None:
+        from rebrew.utils import split_source_lines
+
+        text = 'char *s = "a\x0bb\x0cc\x85d\u2028e";\nint f(void) { return 0; }\n'
+        assert split_source_lines(text) == [
+            'char *s = "a\x0bb\x0cc\x85d\u2028e";',
+            "int f(void) { return 0; }",
+        ]
+
+    def test_trailing_newline_state_round_trips(self) -> None:
+        from rebrew.utils import join_source_lines, split_source_lines
+
+        for text in ("a\nb\n", "a\nb", "", "a\n\n"):
+            assert join_source_lines(text, split_source_lines(text)) == text
+
+    def test_latin1_source_survives_split_and_join(self) -> None:
+        from rebrew.utils import join_source_lines, split_source_lines
+
+        raw = b'char *s = "caf\xe9 \x85 end";\nint f(void) { return 0; }\n'
+        text = raw.decode("latin-1")
+        rebuilt = join_source_lines(text, split_source_lines(text))
+        assert rebuilt.encode("latin-1") == raw

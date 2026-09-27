@@ -18,8 +18,10 @@ from rebrew.data_metadata import iter_data_symbols
 from rebrew.utils import (
     atomic_write_text,
     is_safe_c_ident,
+    join_source_lines,
     load_tomllib,
     read_source_text,
+    split_source_lines,
     strip_generated_timestamp,
 )
 
@@ -81,7 +83,7 @@ def annotate_globals(
     per_file: dict[str, int] = {}
     for f in iter_sources(src_dir, cfg):
         text, encoding = read_source_text(f)
-        lines = text.splitlines()
+        lines = split_source_lines(text)
         existing = {int(m.group(1), 16) for m in (_GLOBAL_MARKER_RE.match(ln) for ln in lines) if m}
         pending = {
             name: (mod, addr) for name, (mod, addr) in symbols.items() if addr not in existing
@@ -111,7 +113,7 @@ def annotate_globals(
             lines.insert(hit + shift, marker_line)
         per_file[rel_display_path(f, src_dir)] = len(insertions)
         if not dry_run:
-            atomic_write_text(f, "\n".join(lines) + "\n", encoding=encoding)
+            atomic_write_text(f, join_source_lines(text, lines), encoding=encoding)
     return per_file, skipped_unnamed
 
 

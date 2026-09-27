@@ -43,7 +43,12 @@ from rebrew.struct_recover import (
     pointer_element_widths,
     type_width,
 )
-from rebrew.utils import parse_c_integer_literal, parse_int_literal
+from rebrew.utils import (
+    join_source_lines,
+    parse_c_integer_literal,
+    parse_int_literal,
+    split_source_lines,
+)
 
 # ---------------------------------------------------------------------------
 # Struct layout parsing
@@ -343,10 +348,10 @@ def apply_known_names(
     code = _ACCESS_RE.sub(
         lambda m: _rewrite_access(m, var_structs, layouts, elem_widths, pointer_vars), text
     )
-    lines = code.splitlines()
+    lines = split_source_lines(code)
     if lines:
         lines[0] = _SIG_TYPE_RE.sub(lambda m: _rewrite_sig_type(m, var_structs), lines[0], count=0)
-    return NamingResult(code="\n".join(lines), applied=applied)
+    return NamingResult(code=join_source_lines(code, lines), applied=applied)
 
 
 def _rewrite_sig_type(m: re.Match[str], var_structs: dict[str, str]) -> str:

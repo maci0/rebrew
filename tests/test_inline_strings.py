@@ -176,3 +176,50 @@ class TestEncodingSafety:
         raw = f.read_bytes()
         assert b"\xa9" in raw
         assert b'"hello"' in raw
+
+    def test_define_keeps_nel_inside_string_literal(self, tmp_path: Path) -> None:
+        """0x85 decodes as NEL in a Latin-1 source; it must not become a newline."""
+        from rebrew.inline_strings import define_remaining_strings
+
+        f = tmp_path / "a.c"
+        f.write_bytes(
+            "// FUNCTION: TEST 0x1000\n"
+            'char *note = "caf\xe9 \x85 end";\n'
+            "extern char s_msg_10027000[];\n"
+            "int f(void) {\n"
+            "    __asm { push offset s_msg_10027000 }\n"
+            "    return 0;\n"
+            "}\n".encode("latin-1")
+        )
+        assert (
+            define_remaining_strings(
+                [f],
+                b"hi\x00",
+                0x10027000,
+                re.compile(r"\bs_[A-Za-z0-9_]+_([0-9a-fA-F]{6,8})\b"),
+                dry_run=False,
+            )
+            == 1
+        )
+        raw = f.read_bytes()
+        assert b"caf\xe9 \x85 end" in raw
+        assert b'char s_msg_10027000[3] = "hi";' in raw
+
+    def test_define_keeps_missing_trailing_newline_missing(self, tmp_path: Path) -> None:
+        from rebrew.inline_strings import define_remaining_strings
+
+        f = tmp_path / "a.c"
+        f.write_text(
+            "// FUNCTION: TEST 0x1000\n"
+            "extern char s_msg_10027000[];\n"
+            "int f(void) { __asm { push offset s_msg_10027000 } return 0; }",
+            encoding="utf-8",
+        )
+        define_remaining_strings(
+            [f],
+            b"hi\x00",
+            0x10027000,
+            re.compile(r"\bs_[A-Za-z0-9_]+_([0-9a-fA-F]{6,8})\b"),
+            dry_run=False,
+        )
+        assert not f.read_bytes().endswith(b"\n")
