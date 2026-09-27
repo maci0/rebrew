@@ -262,6 +262,14 @@ jobs:
           .venv-pkg/bin/python -c "from importlib.metadata import version; import rebrew; print(version('rebrew'))"
           .venv-pkg/bin/rebrew --help >/dev/null
           .venv-pkg/bin/python -c "from pathlib import Path; import rebrew; p=Path(rebrew.__file__).parent; assert (p/'agent-skills').is_dir(), p; assert (p/'AGENTS.md.template').is_file(); assert (p/'PRINCIPLES.md').is_file()"
+      - name: Verify the sdist ships what the wheel ships
+        # The wheel above is smoke-installed; the sdist only gets hashed, and
+        # its file list comes from MANIFEST.in plus normalize_sdist.py's
+        # post-build rewrite rather than from package-data. A prune rule that
+        # drops a runtime file would ship a working wheel and a broken source
+        # install. Builds a wheel from the sdist through the same hash-pinned
+        # constraints `make build` uses, then diffs the member lists.
+        run: make sdist-check
       - name: Upload package artifacts
         # Retain the verified wheel/sdist/SBOM/buildinfo for the commit (short
         # retention so Actions storage does not accumulate stale builds).
