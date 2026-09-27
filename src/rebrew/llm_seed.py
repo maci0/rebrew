@@ -37,6 +37,9 @@ request that left the process and then failed (timeout, 5xx after
 generation) is recorded too, with unreported tokens, so an endpoint that
 charges for work whose answer never arrived is not read as a free run.
 ``--seed-llm --dry-run`` previews the prompt without calling the endpoint.
+Each billed request adds to a process-wide :class:`SeedUsage` total that
+``rebrew match --seed-llm`` prints, so a ``--watch`` run reports every call it
+made rather than the last one.
 """
 
 from __future__ import annotations
@@ -119,10 +122,11 @@ _ALLOWED_TOP_LEVEL = frozenset({"function_definition", "comment"})
 
 _request_count = 0
 _request_lock = threading.Lock()
-# Cost of the most recent billed request, surfaced to the run summary: the
-# INFO log line that records it is invisible without ``-v``, so a paid
-# endpoint would otherwise bill silently.
-_last_usage: SeedUsage | None = None
+# Cost of every billed request this process made, surfaced to the run summary:
+# the INFO log line that records it is invisible without ``-v``, so a paid
+# endpoint would otherwise bill silently.  A ``--watch`` run bills once per
+# edit, so the total is what the operator budgets against, not the last call.
+_usage_total: SeedUsage | None = None
 # Control characters (including newlines) in provider JSON fields let a
 # malicious or compromised endpoint forge log entries.  Replace them before
 # any ``logging.*`` call that interpolates untrusted response values.
@@ -140,13 +144,21 @@ def _sanitize_log_value(value: Any, *, max_len: int = 256) -> str:
 
 @dataclass(frozen=True)
 class SeedUsage:
-    """What one billed LLM request cost, and which prompt wording produced it.
+    """What the billed LLM requests in this process cost, and what produced them.
+
+    A record holds one request until :func:`merge_usage` folds more in, so
+    ``requests`` is 1 for a single call and the run summary reports the whole
+    process: ``rebrew match --seed-llm --watch`` bills once per file edit, and
+    printing only the last request made a multi-request run read as one.
 
     ``model`` is the pinned id that was *requested* (already charset-validated
     by :func:`rebrew.config.validate_llm_model`), never the provider-reported
-    one, so ``describe()`` is safe to print unescaped.  Token counts are
-    ``None`` when the provider omitted or mangled its ``usage`` object; the
-    request was billed either way.
+    one, so ``describe()`` is safe to print unescaped.  A merged record whose
+    requests named different models reports ``mixed models`` instead.  Token
+    counts are ``None`` when the provider omitted or mangled its ``usage``
+    object; the request was billed either way.  In a merged record the counts
+    sum what *was* reported and ``unreported`` says how many requests reported
+    nothing, so a partial total never reads as a whole one.
     """
 
     model: str
@@ -155,26 +167,65 @@ class SeedUsage:
     completion_tokens: int | None
     total_tokens: int | None
     duration_s: float
+    requests: int = 1
+    unreported: int = 0
 
     def describe(self) -> str:
         """One-line cost summary for the ``match --seed-llm`` run output."""
-        tokens = (
-            f"{self.total_tokens} tokens (prompt {self.prompt_tokens}, "
-            f"completion {self.completion_tokens})"
-            if self.total_tokens is not None
-            else "token usage unreported"
+        if self.total_tokens is None or self.unreported == self.requests:
+            tokens = "token usage unreported"
+        else:
+            tokens = (
+                f"{self.total_tokens} tokens (prompt {self.prompt_tokens}, "
+                f"completion {self.completion_tokens})"
+            )
+            if self.unreported:
+                # A sum that silently omits a billed request understates spend.
+                tokens = f"{tokens} +{self.unreported} request(s) unreported"
+        if self.requests == 1:
+            return f"{self.model}, prompt {self.prompt_version}, {tokens}, {self.duration_s:.1f}s"
+        return (
+            f"{self.requests} requests, {self.model}, prompt {self.prompt_version}, "
+            f"{tokens}, {self.duration_s:.1f}s"
         )
-        return f"{self.model}, prompt {self.prompt_version}, {tokens}, {self.duration_s:.1f}s"
 
 
-def last_seed_usage() -> SeedUsage | None:
-    """Cost of the most recent billed request, or None when none was made.
+def merge_usage(into: SeedUsage, other: SeedUsage) -> SeedUsage:
+    """Fold *other* (an earlier record) into *into* (the running total)."""
+    return SeedUsage(
+        model=into.model if into.model == other.model else "mixed models",
+        prompt_version=(
+            into.prompt_version if into.prompt_version == other.prompt_version else "mixed prompts"
+        ),
+        prompt_tokens=_sum_known(into.prompt_tokens, other.prompt_tokens),
+        completion_tokens=_sum_known(into.completion_tokens, other.completion_tokens),
+        total_tokens=_sum_known(into.total_tokens, other.total_tokens),
+        duration_s=into.duration_s + other.duration_s,
+        requests=into.requests + other.requests,
+        unreported=into.unreported + other.unreported,
+    )
 
-    Cleared at the start of every :func:`request_seeds` call, so a run that
-    made no request (no endpoint, budget exhausted, unparseable source)
-    reports None rather than a previous function's cost.
+
+def _sum_known(left: int | None, right: int | None) -> int:
+    """Sum the counts that were reported; :attr:`SeedUsage.unreported` carries the rest.
+
+    Dropping the known total to None because one request omitted its ``usage``
+    would hide real spend; the unreported count is what keeps the sum honest.
     """
-    return _last_usage
+    return (left or 0) + (right or 0)
+
+
+def seed_usage_total() -> SeedUsage | None:
+    """Every billed LLM request this process made, or None when none was made.
+
+    Deliberately *not* cleared by :func:`request_seeds`: a later call that
+    bills nothing does not erase what earlier calls spent, and a ``--watch``
+    run that billed on three edits reports all three.  ``None`` therefore
+    means no request ever left the process (no endpoint, budget exhausted,
+    unparseable source), not "this function was free".
+    """
+    with _request_lock:
+        return _usage_total
 
 
 _SYSTEM_PROMPT = """\
@@ -565,13 +616,15 @@ def _log_usage(data: Any, model: str, *, duration_s: float | None = None) -> See
         return None
     raw = data.get("usage") if isinstance(data, dict) else None
     usage: dict[str, Any] = raw if isinstance(raw, dict) else {}
+    total = _count(usage, "total_tokens")
     record = SeedUsage(
         model=model,
         prompt_version=_PROMPT_VERSION,
         prompt_tokens=_count(usage, "prompt_tokens"),
         completion_tokens=_count(usage, "completion_tokens"),
-        total_tokens=_count(usage, "total_tokens"),
+        total_tokens=total,
         duration_s=duration_s,
+        unreported=1 if total is None else 0,
     )
     _record_usage(record)
     if usage:
@@ -603,10 +656,10 @@ def _count(usage: dict[str, Any], field: str) -> int | None:
 
 
 def _record_usage(record: SeedUsage) -> None:
-    """Make *record* the cost the run summary reports."""
-    global _last_usage
+    """Add *record* to the process cost total the run summary reports."""
+    global _usage_total
     with _request_lock:
-        _last_usage = record
+        _usage_total = record if _usage_total is None else merge_usage(_usage_total, record)
 
 
 def _record_attempt(model: str, duration_s: float) -> None:
@@ -626,6 +679,7 @@ def _record_attempt(model: str, duration_s: float) -> None:
             completion_tokens=None,
             total_tokens=None,
             duration_s=duration_s,
+            unreported=1,
         )
     )
 
@@ -775,13 +829,11 @@ def request_seeds(
     response carries no valid C.
     Never raises (the GA must run unchanged when the LLM is unavailable).
     Never retries on 429/503/529 — a retry storm would multiply spend.
-    Resets :func:`last_seed_usage` so a run that bills nothing reports no cost;
-    a request that was sent and then failed still records one, with unreported
-    token counts, because the provider may have billed it.
+    Adds to :func:`seed_usage_total`: a request that was sent and then failed
+    still records one, with unreported token counts, because the provider may
+    have billed it, and a call that bills nothing leaves the earlier requests'
+    cost in the total rather than hiding it.
     """
-    global _last_usage
-    with _request_lock:
-        _last_usage = None
     try:
         conf = llm_config(cfg)
     except ValueError as exc:
