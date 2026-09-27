@@ -65,6 +65,19 @@
   fields on `RecompileError`, and the `retries=` / `timeout=` knobs.
 
 ### Fixed
+- **`make -j` no longer races the build against the targets that read
+  dist/.** Prerequisites are ordered only by dependency, not by their position
+  on the line, so `make -j pr-check` ran `build`, `sdist-check` and `sbom`
+  concurrently: `build` deleted the `dist/rebrew.cdx.json` `sbom` had just
+  written, and the phony `build` raced the recursive one behind
+  `dist/rebrew.buildinfo` over the same files. The Makefile is now
+  `.NOTPARALLEL`. The `sbom`-last ordering its comment describes holds under
+  `make -j` for the first time.
+- **Editing `tools/normalize_sdist.py` or `.python-version` rebuilds dist/.**
+  Both are read by `make build` and change what ships, but neither lives under
+  `src/`, so the `find src` in `BUILD_INPUTS` missed them: a change to the
+  normalizer left `sdist-check` and `smoke-wheel` verifying archives built by
+  the previous version of it. Both are now build inputs.
 - **A headless X display is authenticated, and an unauthenticated one is no
   longer adopted.** rebrew reuses an Xvfb left running by an earlier invocation
   (or one named by `REBREW_XVFB_DISPLAY`), which was reachable by any process
