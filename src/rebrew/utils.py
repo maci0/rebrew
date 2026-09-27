@@ -1007,6 +1007,7 @@ def load_metadata_doc(
     description: str,
     *,
     deepcopy: bool = True,
+    known_fields: frozenset[str] | None = None,
 ) -> dict[tuple[str, int], dict[str, Any]]:
     """Parse a qualified-key metadata TOML (``rebrew-functions.toml`` /
     ``rebrew-data.toml``) into ``{(module, va): fields}``.
@@ -1019,7 +1020,9 @@ def load_metadata_doc(
 
     *path* is resolved for stable cache keys.  *cache* is the caller's
     stat-fingerprinted in-memory cache (invalidated by write helpers).  Returns an
-    empty dict when the file is missing or unparseable.
+    empty dict when the file is missing or unparseable.  Pass *known_fields*
+    (the store's closed field set, upper case) to have a hand-edited key that
+    no reader understands reported instead of dropped.
 
     When *deepcopy* is True (default), each caller receives an isolated
     copy so mutating overlays cannot corrupt the cache.  Read-only
@@ -1052,7 +1055,7 @@ def load_metadata_doc(
         logger.warning("Failed to parse %s %s: %s", description, path, exc)
         return {}
 
-    result = parse_metadata_doc(doc)
+    result = parse_metadata_doc(doc, known_fields=known_fields, source=str(path))
     with _METADATA_DOC_CACHE_LOCK:
         # Re-check: a writer may have invalidated (or another reader filled)
         # while we parsed — prefer a fresher entry if one landed.
@@ -1198,7 +1201,17 @@ def resolve_metadata_key(
     return canonical
 
 
-def parse_metadata_doc(doc: dict[str, Any]) -> dict[tuple[str, int], dict[str, Any]]:
+#: Entry keys reported per file in the unknown-key warning.  A file with
+#: hundreds of typo'd keys is one mistake, not hundreds of lines of output.
+_UNKNOWN_KEY_REPORT_MAX = 5
+
+
+def parse_metadata_doc(
+    doc: dict[str, Any],
+    *,
+    known_fields: frozenset[str] | None = None,
+    source: str = "",
+) -> dict[tuple[str, int], dict[str, Any]]:
     """Convert a parsed metadata TOML document into ``{(module, va): fields}``.
 
     Accepts either a tomlkit ``TOMLDocument`` (writes) or a plain ``dict``
@@ -1211,13 +1224,27 @@ def parse_metadata_doc(doc: dict[str, Any]) -> dict[tuple[str, int], dict[str, A
     field) and logged.  Whole-table replacement would silently drop the
     earlier entry's fields, which is how a duplicated key turned a populated
     entry into a status-only stub.
+
+    *known_fields* is the closed field set of the store, compared
+    case-insensitively.  A hand-edited key outside it (``CFLAGSS``,
+    ``TOOLCHIAN``) is dropped by every reader, so the function silently
+    compiles with the wrong flags; the store's writers reject such a key
+    already, and this makes a hand edit just as loud.  One warning per parse,
+    naming *source* and the offending keys.
     """
     result: dict[tuple[str, int], dict[str, Any]] = {}
     first_key: dict[tuple[str, int], str] = {}
+    unknown: dict[str, list[str]] = {}
     for key, value in doc.items():
         parsed = parse_metadata_key(key)
         if parsed is None or not isinstance(value, dict):
             continue
+        if known_fields is not None:
+            bad = sorted(
+                str(f) for f in value if isinstance(f, str) and f.upper() not in known_fields
+            )
+            if bad:
+                unknown.setdefault(qualified_key(parsed[0], parsed[1]), []).extend(bad)
         previous = result.get(parsed)
         if previous is not None:
             logger.warning(
@@ -1234,6 +1261,16 @@ def parse_metadata_doc(doc: dict[str, Any]) -> dict[tuple[str, int], dict[str, A
             continue
         result[parsed] = copy.deepcopy(value)
         first_key[parsed] = key
+    if unknown:
+        shown = sorted(unknown.items())[:_UNKNOWN_KEY_REPORT_MAX]
+        detail = ", ".join(f"{entry}: {sorted(set(keys))}" for entry, keys in shown)
+        extra = f" (+{len(unknown) - len(shown)} more entries)" if len(unknown) > len(shown) else ""
+        logger.warning(
+            "%sunknown metadata field(s) ignored: %s%s — fix the key or rebrew never reads it",
+            f"{source}: " if source else "",
+            detail,
+            extra,
+        )
     return result
 
 

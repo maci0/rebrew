@@ -139,6 +139,14 @@ def set_cmd(
     if preset is not None and preset not in all_library_presets():
         msg = f"unknown preset {preset!r} (known: {sorted(all_library_presets())})"
         error_exit(msg, json_mode=json_output)
+    if library is not None and library not in all_library_presets():
+        # --library is a free-form name (it may only label the tree), but a
+        # typo would write a file whose preset never matches.  Warn, do not
+        # refuse: the name is also a label.
+        console.print(
+            f"[yellow]warning:[/yellow] {library!r} is not a known library preset "
+            f"(known: {sorted(all_library_presets())}); no toolchain or cflags will be filled in"
+        )
     if toolchain is not None:
         from rebrew.toolchain import TOOLCHAINS
 

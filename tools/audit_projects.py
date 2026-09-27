@@ -26,8 +26,12 @@ from rebrew.workspace.status import KNOWN_STATUSES
 
 
 def _default_root() -> Path:
-    """Projects root: --root / REBREW_PROJECTS_ROOT, else the repo's parent dir."""
-    env = os.environ.get("REBREW_PROJECTS_ROOT")
+    """Projects root: --root / REBREW_PROJECTS_ROOT, else the repo's parent dir.
+
+    A whitespace-only value is "unset": ``Path(" ")`` would otherwise audit
+    a directory named after a space, silently.
+    """
+    env = os.environ.get("REBREW_PROJECTS_ROOT", "").strip()
     if env:
         return Path(env).expanduser()
     return Path(__file__).resolve().parents[2]

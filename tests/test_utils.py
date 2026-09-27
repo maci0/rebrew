@@ -412,6 +412,43 @@ class TestParseMetadataDocDuplicates:
 
         assert caplog.text == ""
 
+    def test_unknown_key_warns_when_field_set_known(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A hand-edited CFLAGSS is dropped by every reader: say so."""
+        from rebrew.utils import parse_metadata_doc
+
+        with caplog.at_level("WARNING", logger="rebrew.utils"):
+            parse_metadata_doc(
+                {"SERVER.0x1000": {"CFLAGSS": "/O2", "cflags": "/O1"}},
+                known_fields=frozenset({"STATUS", "CFLAGS"}),
+                source="rebrew-functions.toml",
+            )
+
+        assert "['CFLAGSS']" in caplog.text
+        assert "SERVER.0x00001000" in caplog.text
+        assert "rebrew-functions.toml" in caplog.text
+
+    def test_known_keys_do_not_warn(self, caplog: pytest.LogCaptureFixture) -> None:
+        from rebrew.utils import parse_metadata_doc
+
+        with caplog.at_level("WARNING", logger="rebrew.utils"):
+            parse_metadata_doc(
+                {"SERVER.0x1000": {"cflags": "/O2", "file": "a.c"}},
+                known_fields=frozenset({"STATUS", "CFLAGS", "FILE"}),
+            )
+
+        assert caplog.text == ""
+
+    def test_report_is_capped_per_file(self, caplog: pytest.LogCaptureFixture) -> None:
+        from rebrew.utils import parse_metadata_doc
+
+        doc = {f"SERVER.0x{va:04x}": {"typo": 1} for va in range(10)}
+        with caplog.at_level("WARNING", logger="rebrew.utils"):
+            parse_metadata_doc(doc, known_fields=frozenset({"STATUS"}), source="m.toml")
+
+        assert "(+5 more entries)" in caplog.text
+
 
 class TestSafeShlexSplit:
     def test_normal(self) -> None:

@@ -529,7 +529,10 @@ def main(
     else:
         project_dir = cfg.root / "flirt_sigs"
         repo_dir = _flirt_sigs_repo()
-        if os.environ.get("REBREW_FLIRT_SIGS_DIR") and not repo_dir.is_dir():
+        # Same strip() _flirt_sigs_repo applies, so a whitespace-only export
+        # is "unset" here too and cannot be reported as a bad path.
+        sigs_env = os.environ.get("REBREW_FLIRT_SIGS_DIR", "").strip()
+        if sigs_env and not repo_dir.is_dir():
             error_exit(
                 f"REBREW_FLIRT_SIGS_DIR={repo_dir} is not a directory",
                 json_mode=json_output,

@@ -148,6 +148,12 @@ toolchain = "msvc-6.0-sp6"     # optional: compiler profile (docker image)
 cflags = "/O2 /Gd /MT"       # optional: compiler flags
 ```
 
+The only keys are `library`, `toolchain`, and `cflags`.  A hand-edited file
+is checked on every read: an unrecognized key, a `toolchain` that names no
+registered profile, or a `library` that is not a known preset logs a warning
+(the fields rebrew does understand still apply), and a non-string value is a
+hard error rather than a silently stringified compiler argument.
+
 Resolution (most specific first): per-function `TOOLCHAIN`/`CFLAGS` → the
 nearest `rebrew-libraries.toml` walking up from the function's directory →
 project defaults.  **Known-library presets** cover the shipped runtimes

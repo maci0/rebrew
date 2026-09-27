@@ -318,7 +318,13 @@ def load_metadata(
         pop_metadata_doc_cache(_metadata_cache, path)
         return {}
 
-    return load_metadata_doc(path, _metadata_cache, "metadata", deepcopy=deepcopy)
+    return load_metadata_doc(
+        path,
+        _metadata_cache,
+        "metadata",
+        deepcopy=deepcopy,
+        known_fields=_KNOWN_METADATA_FIELDS,
+    )
 
 
 def save_metadata(
@@ -587,6 +593,14 @@ def set_fields_batch(metadata_dir: Path | str | Any, updates: list[dict[str, Any
 #: and the typed writers never touch them; only :func:`record_migrated_markers`
 #: writes them.
 MARKER_IDENTITY_FIELDS: tuple[str, ...] = ("file", "symbol", "name", "marker_type")
+
+#: Every key a hand-written ``rebrew-functions.toml`` entry may carry, upper
+#: case.  The reader reports anything else as unread rather than dropping it
+#: (see :func:`rebrew.utils.parse_metadata_doc`): a typo'd ``CFLAGSS`` would
+#: otherwise compile the function with flags nobody declared.
+_KNOWN_METADATA_FIELDS: frozenset[str] = METADATA_FIELDS | {
+    f.upper() for f in MARKER_IDENTITY_FIELDS
+}
 
 
 def record_migrated_markers(metadata_dir: Path | str | Any, rows: list[dict[str, Any]]) -> None:
@@ -1351,11 +1365,60 @@ _LIBRARY_META_CACHE_MAX = 64
 _LIBRARY_CACHE_LOCK = threading.Lock()
 
 
+#: Keys a ``rebrew-libraries.toml`` may declare.  ``rebrew library set``
+#: writes exactly these; anything else is a typo that would otherwise be
+#: dropped silently and the library would compile with project defaults.
+LIBRARY_OVERRIDE_KEYS = frozenset({"toolchain", "cflags", "library"})
+
+
+def _validate_library_override(path: Path, raw: dict[str, Any]) -> None:
+    """Warn on a hand-written ``rebrew-libraries.toml`` that will not apply.
+
+    A value that is not a string raises :class:`LibraryOverrideError`:
+    ``str()`` would turn a table into ``"{'a': 1}"`` and hand that to the
+    compiler as a profile name.  Everything that is merely wrong (unknown
+    key, unknown toolchain, unknown preset name) warns, matching
+    ``rebrew-project.toml``'s treatment of unrecognized keys, so a run is
+    never blocked by a field rebrew did not recognize.
+    """
+    problems: list[str] = []
+    unknown = sorted(str(k) for k in raw if k not in LIBRARY_OVERRIDE_KEYS)
+    if unknown:
+        problems.append(f"unrecognized keys: {unknown}")
+    for key in sorted(LIBRARY_OVERRIDE_KEYS & set(raw)):
+        value = raw[key]
+        if not isinstance(value, str):
+            raise LibraryOverrideError(
+                f"{path}: {key} must be a string, got {type(value).__name__}"
+            )
+    toolchain = str(raw.get("toolchain") or "").strip()
+    if toolchain:
+        from rebrew.toolchain import TOOLCHAINS
+
+        if toolchain not in TOOLCHAINS:
+            problems.append(
+                f"unknown toolchain {toolchain!r} (known: {', '.join(sorted(TOOLCHAINS))})"
+            )
+    library = str(raw.get("library") or "").strip()
+    if library and library not in all_library_presets():
+        problems.append(
+            f"unknown library preset {library!r} "
+            f"(known: {', '.join(sorted(all_library_presets()))})"
+        )
+    if problems:
+        logger.warning(
+            "%s: %s — the fields rebrew understands still apply", path, "; ".join(problems)
+        )
+
+
 def parse_library_metadata(path: Path) -> dict[str, Any]:
     """Parse a ``rebrew-libraries.toml`` into a plain dict.
 
     Returns ``{}`` for an absent file.  Raises :class:`LibraryOverrideError`
-    on malformed TOML or a non-dict document.
+    on malformed TOML, a non-dict document, or a non-string field value.
+    Unrecognized keys, an unknown toolchain name, and an unknown preset name
+    warn (:func:`_validate_library_override`) and are otherwise ignored, the
+    same rule ``rebrew-project.toml`` applies to unknown keys.
 
     Memoized per process behind an ``mtime_ns``+``size``+inode stat guard:
     override resolution runs once per function (verify's cache-hit check,
@@ -1383,6 +1446,7 @@ def parse_library_metadata(path: Path) -> dict[str, Any]:
         raise LibraryOverrideError(f"bad {LIBRARY_METADATA_FILE} at {path}: {exc}") from exc
     if not isinstance(raw, dict):
         raise LibraryOverrideError(f"{path} must be a TOML table")
+    _validate_library_override(path, raw)
     with _LIBRARY_CACHE_LOCK:
         # Re-check: another worker may have filled it while we parsed.
         cached = _LIBRARY_META_CACHE.get(key)
