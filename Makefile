@@ -125,7 +125,7 @@ help:
 		'  make format             # ruff format (writes)' \
 		'  make format-check       # ruff format --check' \
 		'  make mypy               # mypy (matches CI lint job)' \
-		'  make audit              # uv audit --locked (matches CI lint job)' \
+		'  make audit              # uv audit --locked --ignore-until-fixed GHSA-w8v5-vhqr-4h9v (CI lint job)' \
 		'  make check              # pre-commit run --all-files (CI pre-commit job)' \
 		'  make cli-contract       # high-value --help greps (CI cli-contract job)' \
 		'  make build              # reproducible sdist+wheel + dist/rebrew.buildinfo' \
@@ -134,7 +134,7 @@ help:
 		'  make build-repro        # rebuild HEAD under .scratch/ at another path/mode/TZ/locale and diff the hashes' \
 		'  make smoke-wheel        # install dist/*.whl into .venv-pkg and smoke-import it (CI package job)' \
 		'  make all                # local mirror of CI lint+test(+coverage floor)+cli-contract gates' \
-		'  make pr-check           # full local CI verification (all + check + build + sdist-check + smoke-wheel + sbom)' \
+		'  make pr-check           # full local CI verification (all + check + build + sdist-check + smoke-wheel + build-repro + sbom)' \
 		'  make gen-fixtures       # regenerate tests/fixtures/ from tools/gen_fixtures.py' \
 		'  make gen-fixtures-check # tools/gen_fixtures.py --check' \
 		'  make gen-skills         # regenerate .agents/skills/ from src/rebrew/agent-skills/' \

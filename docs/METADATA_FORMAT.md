@@ -113,8 +113,10 @@ Owned fields per entry: `name`, `type`, `size`, `section`, `note`, `status`
 (`VERIFIED`/`DRIFT`/`UNCHECKED` data verdicts, written by `verify --data`).
 
 Managed exclusively by `rebrew.data_metadata` (locked + atomic) — via
-`rebrew data` (scan/annotate), `rebrew sync --pull-data`, etc. Never
-hand-edit `rebrew-data.toml` either.
+`rebrew data` (the bare command scans; `--annotate`, `--set-type`,
+`--set-section`, `--fix-bss`), `rebrew verify --data`, and `rebrew rename`.
+`rebrew sync --pull-data` does not touch it: that writes the derived
+`rebrew_globals.h`.  Never hand-edit `rebrew-data.toml` either.
 
 ## Status Lifecycle
 

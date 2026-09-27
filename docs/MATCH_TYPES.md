@@ -234,7 +234,7 @@ out bytes that are expected to differ between compilations:
 | Conditional jumps near | `0F 8x` | bytes 2-5 | 32-bit relative offsets in Jcc instructions |
 | `push imm32` | `68` | bytes 1-4 | Only when value looks like an address (> 0x10000000) |
 | `mov reg, imm32` | `B8`-`BF` | bytes 1-4 | Only when value looks like an address |
-| `mov reg, [abs32]` | `8B 0D/15/1D/25/2D/35/3D` | bytes 2-5 | Global variable loads |
+| `mov reg, [abs32]` | `8B 05/0D/15/1D/25/2D/35/3D` | bytes 2-5 | Global variable loads |
 | `mov [abs32], reg` | `89 0D/15/1D/25/2D/35/3D` | bytes 2-5 | Global variable stores |
 | `call/jmp dword ptr [abs32]` | `FF 15/25` | bytes 2-5 | Indirect call/jump through an IAT slot |
 
@@ -250,7 +250,7 @@ knowledge about what actually blocks byte-level matching in practice.
 
 ### Close NEAR_MATCHING analysis (0-3B delta)
 
-GA mutations (100 gen, pop 30) consistently fail to improve close NEAR_MATCHING functions. All blockers are compiler-internal decisions that C source mutations cannot influence.
+GA mutations (100 gen, pop 64) consistently fail to improve close NEAR_MATCHING functions. All blockers are compiler-internal decisions that C source mutations cannot influence.
 
 Common uncontrollable blocker categories:
 1. **Register allocation** — ebx vs edi, eax vs ecx swaps (most common)

@@ -85,7 +85,7 @@ Measured 50 warmed calls on 500 synthetic functions (CPU time, `getrusage`):
 
 `_load_list` used `json.loads` once per function row (55 % of `/api/functions`
 CPU on 500 rows). `_files_display` now slices the common `["a.c"]` cell.
-`COUNT(*)` is skipped when the page is already short. Gate:
+`COUNT(*)` is skipped when the first page is already short; a later short page (offset past the end) still pays for it. Gate:
 `test_files_display_skips_json_loads_for_common_cells`.
 
 Measured 100 warmed `/api/functions` calls on 500 synthetic functions
@@ -134,7 +134,7 @@ is budgeted to the byte, and the value is a constant there. Gate:
 `TestServerTiming`.
 
 Two per-response costs came off that same window. `send_response` is overridden
-to send the status line and `Date` only, dropping the stdlib
+to send the status line, `Date` and `X-Request-Id` only, dropping the stdlib
 `Server: BaseHTTP/0.6 Python/<patch>` banner: measured header blocks 592 → 555
 (shell), 624 → 587 (`/app.js`), 623 → 586 (`/boot-guard.js`), 13797 bytes for
 the three responses with bodies instead of 14070. `disable_nagle_algorithm`
@@ -201,7 +201,7 @@ Every offline `--json` command is deterministic across runs — enforced by
 `tools/check_idempotency.py` (17 commands, run twice, byte-compared) as a CI
 step; see `docs/CI.md`.
 
-The same tool runs each of its nine mutating commands (`migrate-markers`,
+The same tool runs each of its eight mutating commands (`migrate-markers`,
 `document-unmatched`, `gen-link-stubs`, `catalog`, `symbol-addrs`,
 `cmake-toolchain`, `fix`, `context`) twice against their own fresh fixture
 project and content-digests the whole tree after each run, so a command that

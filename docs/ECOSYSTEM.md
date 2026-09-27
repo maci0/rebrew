@@ -93,8 +93,10 @@ What rebrew *produces* for the ecosystem:
 Standalone docker images for every legacy Windows/DOS compiler. This repo is
 the *build source only*: Dockerfiles, the shared `base` image, wrapper
 scripts, and the sha256-pinned `sources.json` manifest. No compiler binaries
-live here — 32-bit images download verified sources at build time; the six
-16-bit images need a user-supplied media tarball next to the Dockerfile.
+live here — 32-bit images download verified sources at build time. Seven
+16-bit images build; six of them (msvc-1.0/1.5/1.52, borland-2.0/3.1,
+delphi-1.0) need a user-supplied media tarball next to the Dockerfile, while
+`watcom-2.0-win16` curls a sha256-verified snapshot.
 
 The images are self-contained (runtime — wine/wibo/DOSBox — baked in, the
 wrapper is the entrypoint), so any tool can use them without rebrew itself.

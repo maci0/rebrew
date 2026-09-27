@@ -14,7 +14,8 @@ boundaries: `rebrew-toolchains` supplies the docker compiler images,
 the `db/coverage.db` this repo builds, `recompile` wraps the toolchain zoo
 as an HTTP API, and `reagent` automates the loop with an LLM. External
 tools interoperate through file formats: reccmp-compatible source
-markers/catalog CSV, and the BinSync state directory (`rebrew binsync-*`).
+markers/catalog CSV, and the BinSync state directory (`rebrew binsync`, plus `rebrew binsync-export` / `-import` /
+`-diff` / `-init` / `-overlay`).
 The full cross-repo map, dependency layering, and mermaid diagrams are in
 [ECOSYSTEM.md](ECOSYSTEM.md). Open [architecture.drawio](architecture.drawio)
 in diagrams.net for the same map as nine pages: ecosystem, compile-compare
@@ -67,9 +68,9 @@ flowchart LR
 | `rebrew/` top-level tools | One CLI command each (`test`, `verify`, `diff`, `match`, `lint`, `data`, `status`, `todo`, …), declared as `CliComponent` rows in `builtins.py` (plus `main.py::_EXTRA_COMPONENTS` for `import-splat`) |
 | `rebrew/plugin.py` | Cordis composition runtime: `Context`, `CoeffectScope`, `activate()`, `CliComponent`. Mounts are reversible effects; inverses fire at most once. Unmet `needs` stay inactive; disposing the context closes the scope. HMR/loader tier is not built (ADR 014) |
 | `rebrew/intake.py` | One-shot binary onboarding: init + toolchain detect (diec → PDB → heuristics) + plugin function discovery + STUB/blocker documentation |
-| `rebrew/main.py` | Umbrella CLI. Provides `cli`/`console`, then `activate()`s packaged `CliComponent`s plus `rebrew.commands` / `rebrew.multicommands` plugins |
+| `rebrew/main.py` | Umbrella CLI. Provides `app` (and the re-exported `console`), then `activate()`s packaged `CliComponent`s plus `rebrew.commands` / `rebrew.multicommands` plugins |
 | `rebrew/cli.py` | Shared options/helpers: `TargetOption`, `require_config`, `error_exit`, `json_print`, exit codes |
-| `rebrew/errors.py` | `RebrewError`, the base every public exception type inherits alongside its original `RuntimeError`/`ValueError`/`FileNotFoundError` base — one `except` clause for library consumers. Re-exports every public error class by lazy attribute, so `from rebrew.errors import DosboxError` works without knowing the defining submodule. Imports nothing at module scope (leaf module) |
+| `rebrew/errors.py` | `RebrewError`, the base every public exception type inherits alongside its original `RuntimeError`/`ValueError`/`FileNotFoundError` base — one `except` clause for library consumers. Re-exports every public error class by lazy attribute, so `from rebrew.errors import DosboxError` works without knowing the defining submodule. Imports no other `rebrew` module at module scope (leaf module; stdlib only) |
 | `rebrew/sources.py` | Source-tree discovery: `source_exts`, `source_glob`, `target_marker`, `iter_sources`, `iter_library_headers` (pure pathlib/config logic, importable by library modules) |
 | `rebrew/config.py` | `ProjectConfig` dataclass + `rebrew-project.toml` loader (multi-target) |
 | `rebrew/annotation.py` | Marker/KV annotation parsing (`// FUNCTION: MOD 0xVA`), key classification (file-only vs metadata), `iter_annotations` batch loader |
@@ -88,13 +89,13 @@ flowchart LR
 | `rebrew/flirt.py` | FLIRT signature scanning |
 | `rebrew/prove.py` | Symbolic equivalence prover via angr (optional dep) |
 | `rebrew/delphi16.py` | Delphi 1.0 (16-bit) compile support — headless DOSBox sandbox + NE parse (ADR-001 foundation) |
-| `rebrew/msvc16.py` | MSVC 1.52 (16-bit) compile support — DOSBox + 16-bit OMF objects |
+| `rebrew/msvc16.py` | MSVC 1.0 / 1.5 / 1.52 (16-bit) compile support — DOSBox + 16-bit OMF objects |
 | `rebrew/dosbox.py` | Shared headless DOSBox runner (mount sandbox as C:, FAT-uppercase reads) |
 | `rebrew/toolchain.py` | Toolchain abstraction: spec registry + docker-only runner for every shipped profile (plugin toolchains without `image` may run as a host binary), plus the project-side MSVC layout table (`resolve_msvc_toolchain` / `toolchain_link_candidates`) init and config resolve against |
 | `rebrew/toolchain_cli.py` | `rebrew toolchain` CLI (`list`/`status`/`detect`/`pull`/`build`/`vendor`/`smoke`/`update`/`check-updates`) |
 | `rebrew/round_trip.py` | Splice matched functions back into the target PE, verify byte equality |
 | `rebrew/similar.py` | Structural clone detection (mnemonic-histogram similarity) |
-| `rebrew/near_diag.py` | NEAR_MATCHING delta classification (register/reloc/structural buckets) |
+| `rebrew/near_diag.py` | NEAR_MATCHING delta classification (register/encoding/reloc/structural buckets) |
 | `rebrew/headless.py` | Persistent per-process Xvfb for headless wine compiles (no window, no DISPLAY needed) |
 | `rebrew/toolchain_detect.py` | Layered compiler-family detector: Detect It Easy (diec) → PDB → codegen heuristics; feeds init's CRT/opt seeding and doctor's alignment check |
 | `rebrew/wibo.py` | Auto-download + SHA256-verify the wibo runner (fast headless wine alternative) |
@@ -115,10 +116,10 @@ flowchart LR
 
 ## Which similarity tool
 
-Six surfaces answer similarity questions (the last row is library
+Seven surfaces answer similarity questions (the last row is library
 identification, which is not a similarity score). They are not alternatives
 to each other: each measures a different thing, and picking the wrong one
-wastes the answer. Use this table before adding a seventh.
+wastes the answer. Use this table before adding an eighth.
 
 | Surface | Answers | Input and cost |
 |---|---|---|

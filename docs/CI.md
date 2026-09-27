@@ -26,7 +26,7 @@ MIT license on the rebrew component, a `pkg:github/maci0/rebrew` purl at the
 `v` tag for `__version__`, project URLs as external references, each
 locked distribution's own declared license from `tools/licenses.py`, and the
 copyleft expressions listed in `NOTICE` — certifi and hypothesis (MPL-2.0,
-in every resolve) plus the optional resembl, m2c, and pyvex; the
+in every resolve) plus the optional resembl, m2c, pyvex, and tqdm (`MPL-2.0 AND MIT`, pulled in by the binsync extra); the
 generator validates the document it emits, so a lock that parsed short, or a
 component whose grant nobody recorded, fails the build instead of shipping a
 BOM that reads to a scanner as a clean bill of health), writes
@@ -129,7 +129,7 @@ is not the same everywhere:
 | Job | Sync | Why |
 |-----|------|-----|
 | `lint`, `test`, `pre-commit` | `uv sync --locked --all-extras --group similarity` | the contributor env: extras on, so mypy sees the `prove` stubs and the `resembl` path dep resolves; `--locked` fails a `pyproject.toml` edit that never reached `uv.lock` |
-| `package` | `UV_PROJECT_ENVIRONMENT=.venv-pkg uv sync --frozen --no-dev --no-default-groups --no-install-project`, then `uv pip install --no-deps dist/*.whl` | runtime deps from the lock, then the built wheel layered on top; nothing from `src/`; `--frozen` rather than `--locked` because re-resolving reads `[tool.uv.sources]` and this job has no `../resembl` |
+| `package` | `UV_PROJECT_ENVIRONMENT=.venv-pkg uv sync --frozen --no-dev --no-default-groups --no-install-project`, then `UV_PROJECT_ENVIRONMENT=.venv-pkg uv pip install --no-deps dist/*.whl` | runtime deps from the lock, then the built wheel layered on top; nothing from `src/`; `--frozen` rather than `--locked` because re-resolving reads `[tool.uv.sources]` and this job has no `../resembl` |
 | `cli-contract`, `toolchain-sync` | `uv sync --locked` | default groups only: the CLI surface being grepped and the toolchain drift check need no extra |
 
 The workflow sets `_TYPER_FORCE_DISABLE_TERMINAL`, typer's switch for the
@@ -168,7 +168,9 @@ and binaries), not necessarily this package:
 rebrew verify --compare --json
 
 # End-to-end splice check. Default: fail only on hard mismatches.
-# --strict-catalog also fails on unresolved symbols / zero successful splices.
+# --strict-catalog also fails when any splice-set entry lands in
+# skipped_catalog (unresolved symbol, size mismatch, ...). No separate
+# zero-splice rule.
 rebrew round-trip --strict-catalog --json
 ```
 

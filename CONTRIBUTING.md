@@ -75,13 +75,13 @@ make lint                     # ruff check .
 make format                   # ruff format (writes)
 make format-check             # ruff format --check
 make mypy                     # mypy type check (matches CI lint job)
-make audit                    # uv audit --locked (matches CI lint job)
+make audit                    # uv audit --locked --ignore-until-fixed GHSA-w8v5-vhqr-4h9v (matches CI lint job)
 make check                    # pre-commit hook parity (CI pre-commit job)
 make build                    # reproducible sdist+wheel + dist/rebrew.buildinfo (CI package job)
 make sbom                     # CycloneDX 1.5 JSON from uv.lock (offline)
 make cli-contract             # high-value --help greps (CI cli-contract job)
 make all                      # local mirror of CI lint+test+cli-contract gates
-make pr-check                 # full local CI verification (all + check + build + sdist-check + smoke-wheel + sbom)
+make pr-check                 # full local CI verification (all + check + build + sdist-check + smoke-wheel + build-repro + sbom)
 make sdist-check              # build a wheel from the sdist, diff it against dist/*.whl
 make build-repro              # rebuild HEAD under .scratch/ at another path/mode/TZ/locale, diff the hashes
 make smoke-wheel              # install dist/*.whl into .venv-pkg and smoke-import it
@@ -171,7 +171,7 @@ no `**Breaking:**` entry naming it.
    `ci/`, `chore/`) and open the pull request against `main`; do not commit
    straight to `main`.  Every CI job runs on the pull request, so a green local
    `make pr-check` plus a green `pre-commit` job is what review expects.
-1. `make pr-check` (or `make all && make check && make build && make sdist-check && make smoke-wheel && make sbom`)
+1. `make pr-check` (or `make all && make check && make build && make sdist-check && make smoke-wheel && make build-repro && make sbom`)
    — mirrors CI
    lint+test+cli-contract gates, the pre-commit job, the package job's
    `make build` (sdist/wheel + `dist/rebrew.buildinfo`), its
