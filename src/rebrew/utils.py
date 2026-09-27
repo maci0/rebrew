@@ -245,10 +245,8 @@ def container_runtime(runtime: str | None = None) -> str:
     report a mistyped variable through ``rebrew config effective``.
     """
     if runtime is None:
-        runtime = (
-            os.environ.get("REBREW_CONTAINER_RUNTIME", DEFAULT_CONTAINER_RUNTIME).strip()
-            or DEFAULT_CONTAINER_RUNTIME
-        )
+        runtime = os.environ.get("REBREW_CONTAINER_RUNTIME", DEFAULT_CONTAINER_RUNTIME)
+    runtime = runtime.strip() or DEFAULT_CONTAINER_RUNTIME
     if not _CONTAINER_RUNTIME_RE.fullmatch(runtime):
         raise ValueError(f"REBREW_CONTAINER_RUNTIME={runtime!r} contains invalid characters")
     if "/" not in runtime and runtime not in CONTAINER_RUNTIMES:
@@ -281,8 +279,6 @@ def md5_file(path: Path) -> str:
     Binary Ninja (``md5(bv.file.raw)``), and declib's file loader all hash the
     raw binary bytes, so this reproduces the value a BinSync state dir stores.
     """
-    import hashlib
-
     with path.open("rb") as stream:
         return hashlib.file_digest(stream, lambda: hashlib.md5(usedforsecurity=False)).hexdigest()
 
@@ -443,7 +439,7 @@ def read_toml_text(path: Path) -> str:
     return path.read_text(encoding="utf-8-sig")
 
 
-def load_tomllib(path: Path) -> Any:
+def load_tomllib(path: Path) -> dict[str, Any]:
     """Parse *path* with :mod:`tomllib`, tolerating a UTF-8 BOM.
 
     Prefer this over ``tomllib.load`` on a binary handle: CPython's tomllib
@@ -497,14 +493,13 @@ def _atomic_replace(filepath: Path) -> Iterator[Path]:
     try:
         yield tmp_path
         _fsync_path(tmp_path)
-        os.replace(tmp_path, filepath)
-    except PermissionError as exc:
-        with contextlib.suppress(OSError):
-            tmp_path.unlink()
-        raise PermissionError(
-            f"{exc}: cannot write next to {filepath} (directory is read-only?) — "
-            "pass an explicit output path"
-        ) from exc
+        try:
+            os.replace(tmp_path, filepath)
+        except PermissionError as exc:
+            raise PermissionError(
+                f"{exc}: cannot write next to {filepath} (directory is read-only?) — "
+                "pass an explicit output path"
+            ) from exc
     except BaseException:
         with contextlib.suppress(OSError):
             tmp_path.unlink()
