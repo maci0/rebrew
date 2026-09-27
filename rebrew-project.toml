@@ -1,10 +1,20 @@
+# Smoke config for dogfooding the CLI in this package checkout: it exists so
+# `rebrew` has a project root to resolve, not to describe a real target.
+# `binary` names a fixture that is not checked in, so every parse degrades to
+# the "target binary not found" warning and no toolchain round trip happens.
+#
+# `reversed_dir` must not be a package directory. A command run from this root
+# that writes markers, skeletons or metadata (`document-unmatched`,
+# `skeleton`, `migrate-markers`, `catalog`) writes into it, and src/rebrew is
+# the shipped package: those files would be committed and packed into the
+# wheel. A gitignored scratch path keeps a stray write out of the tree.
 [project]
 name = "guild-rebrew"
 default_target = "test"
 
 [targets.test]
 binary = "dummy.bin"
-reversed_dir = "src/rebrew"
+reversed_dir = ".scratch/reversed"
 
 [compiler]
 profile = "msvc-6.0"

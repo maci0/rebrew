@@ -107,7 +107,8 @@ the tag points anywhere else.  `make setup` checks the same commit
 before `uv sync`, with the checkout command, instead of diverging from CI.
 Both host packages the jobs install come from one helper,
 `tools/ci_apt_install.sh` (nasm for the asm round-trip tests, shellcheck for
-the pre-commit gate): apt mirrors flake under load, so it retries update and
+the pre-commit gate, jq for the nightly drift result gate): apt mirrors flake
+under load, so it retries update and
 install with a backoff, skips packages already on `PATH`, and fails the step
 naming the package after the last attempt.
 The package job skips the sibling clone (`clone-resembl: "false"`): its
@@ -152,7 +153,8 @@ the audited lockfile. It checks sources once, prints that JSON result, and
 fails on drift, failed checks, unpinned sources, or an empty source inventory.
 `GH_TOKEN` is mapped onto the resembl-clone and `check-updates` steps only
 (authenticated git + GitHub API rate limits). The result gate uses `jq`,
-included in the Ubuntu runner image.
+installed up front through the same `tools/ci_apt_install.sh` helper nasm and
+shellcheck come from, rather than assumed from the runner image.
 
 ## Project / workspace CI
 

@@ -402,19 +402,38 @@ def test_size_falls_back_to_declared_type(tmp_path: Path, monkeypatch) -> None:
     assert 0x10001008 not in sizes
 
 
-class TestDropUncoveredZeroFill:
-    """A zero-fill span past the built image's virtual size was never
-    compared, so it is dropped instead of reported as missing. A span the
-    built image does cover stays, and its zero bytes still compare."""
+class TestUncoveredZeroFill:
+    """Reference zero-fill the built image stops short of compares as the
+    zeros the reference loader actually holds; a span the built image does
+    cover keeps the bytes that image holds."""
 
-    def test_uncovered_span_is_dropped_and_covered_span_kept(self) -> None:
-        from rebrew.data_verify import drop_uncovered_zero_fill
+    def test_covered_span_keeps_the_built_bytes(self) -> None:
+        from rebrew.data_verify import fill_uncovered_zero_fill
 
         ref_bytes = {0x1100: b"\x00\x00\x00\x00", 0x1200: b"\x00\x00\x00\x00"}
         ref_sizes = {0x1100: 4, 0x1200: 4}
-        zero_fill = {0x1100, 0x1200}
+        built_bytes = {0x1100: b"\x11\x22\x33\x44"}
+        built_sizes = {0x1100: 4}
 
-        drop_uncovered_zero_fill(ref_bytes, ref_sizes, {0x1100: 4}, zero_fill)
+        fill_uncovered_zero_fill(ref_bytes, ref_sizes, built_bytes, built_sizes, {0x1100, 0x1200})
 
-        assert ref_bytes == {0x1100: b"\x00\x00\x00\x00"}
-        assert ref_sizes == {0x1100: 4}
+        # 0x1100 is covered, so the built image's own bytes stand and a drift
+        # there is still reported.  0x1200 is past the image, so the two sides
+        # agree on zeros instead of the symbol reading as missing.
+        assert built_bytes == {0x1100: b"\x11\x22\x33\x44", 0x1200: b"\x00\x00\x00\x00"}
+        assert built_sizes == {0x1100: 4, 0x1200: 4}
+        assert ref_bytes == {0x1100: b"\x00\x00\x00\x00", 0x1200: b"\x00\x00\x00\x00"}
+        assert ref_sizes == {0x1100: 4, 0x1200: 4}
+
+    def test_covered_span_with_shorter_size_keeps_the_built_bytes(self) -> None:
+        from rebrew.data_verify import fill_uncovered_zero_fill
+
+        ref_bytes = {0x1100: b"\x00\x00\x00\x00"}
+        ref_sizes = {0x1100: 4}
+        built_bytes = {0x1100: b"\x11\x22"}
+        built_sizes = {0x1100: 2}
+
+        fill_uncovered_zero_fill(ref_bytes, ref_sizes, built_bytes, built_sizes, {0x1100})
+
+        assert built_bytes == {0x1100: b"\x11\x22"}
+        assert built_sizes == {0x1100: 2}

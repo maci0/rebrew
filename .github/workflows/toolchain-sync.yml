@@ -40,10 +40,19 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Install dependencies
-        # --frozen installs exactly the audited uv.lock versions; a raw
-        # `pip install -e .` here would resolve fresh from PyPI nightly,
-        # bypassing review.
+        # --locked installs exactly the audited uv.lock versions and fails when
+        # pyproject.toml has moved past it; a raw `pip install -e .` here would
+        # resolve fresh from PyPI nightly, bypassing review.
         run: uv sync --locked
+      - name: Install jq (drift result gate)
+        # The result gate below parses with jq, so the job needs it before it
+        # runs. Install explicitly rather than trusting the runner image to
+        # keep carrying it, through the same retrying helper the test job
+        # installs nasm with and the pre-commit job installs shellcheck with.
+        run: |
+          set -euo pipefail
+          bash tools/ci_apt_install.sh jq
+          jq --version
       - name: Check toolchain source drift
         shell: bash
         env:

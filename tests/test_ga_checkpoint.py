@@ -91,19 +91,31 @@ class TestGACheckpointData:
             {"extra_include_dirs": ["inc"]},
             {"defines": ["A=1"]},
         ):
-            assert _ga_args_hash(
-                _SOURCE, _TARGET, "_f", "/O2", 4, 5, 1, **{**base, **changed}
-            ) != baseline, changed
+            assert (
+                _ga_args_hash(_SOURCE, _TARGET, "_f", "/O2", 4, 5, 1, **{**base, **changed})
+                != baseline
+            ), changed
         # Reordered include/define lists are the same compile input.
-        assert (
-            _ga_args_hash(
-                _SOURCE, _TARGET, "_f", "/O2", 4, 5, 1,
-                extra_include_dirs=["vendor", "inc"], defines=["B=2", "A=1"],
-            )
-            == _ga_args_hash(
-                _SOURCE, _TARGET, "_f", "/O2", 4, 5, 1,
-                extra_include_dirs=["inc", "vendor"], defines=["A=1", "B=2"],
-            )
+        assert _ga_args_hash(
+            _SOURCE,
+            _TARGET,
+            "_f",
+            "/O2",
+            4,
+            5,
+            1,
+            extra_include_dirs=["vendor", "inc"],
+            defines=["B=2", "A=1"],
+        ) == _ga_args_hash(
+            _SOURCE,
+            _TARGET,
+            "_f",
+            "/O2",
+            4,
+            5,
+            1,
+            extra_include_dirs=["inc", "vendor"],
+            defines=["A=1", "B=2"],
         )
 
 
