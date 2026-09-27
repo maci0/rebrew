@@ -333,7 +333,8 @@ by the CLI layer and win for that invocation.
 - `REBREW_LLM_ENDPOINT` / `REBREW_LLM_API_KEY` / `REBREW_LLM_MODEL` — LLM
   seeding endpoint, key, and model pin (`rebrew match --seed-llm`). Required
   for LLM seeding when `[llm]` is unset. The key is sent only as a `Bearer`
-  header to the configured endpoint, never logged. Prefer these env vars over
+  header to the configured endpoint, never logged, and is redacted from any
+  error text a failed request logs. Prefer these env vars over
   `[llm] api_key` in TOML. Endpoint must be an `http(s)` URL with a host;
   with a key set it must be `https` unless the host is loopback.
 - `REBREW_LLM_ALLOW_PROJECT_ENDPOINT` — set to `1` to let an `[llm] endpoint`
@@ -348,7 +349,11 @@ by the CLI layer and win for that invocation.
   (default `32`). Stops `--watch` / batch seeding from burning a paid
   endpoint. `0` disables further calls for the process. A set-but-non-integer
   or negative value is a `ValueError` (not silently reset to the default).
-  Values above `10000` clamp to `10000` with a warning.
+  Values above `10000` clamp to `10000` with a warning. A prompt this
+  process already sent is answered from an in-process cache instead of the
+  endpoint, so a `--watch` rerun that leaves the function under match
+  unchanged costs no request slot and no tokens; only non-empty answers are
+  cached, so a refusal or an outage is retried rather than remembered.
 - `REBREW_LLM_TIMEOUT` — per-request HTTP budget for one LLM seeding call,
   in seconds (default `90`). A timed-out request is still billed and its
   seeds are lost, so raise it for a local model that needs minutes for a

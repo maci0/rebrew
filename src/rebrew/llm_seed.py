@@ -25,7 +25,11 @@ a stop at the requested seed count (so a response stuffed with fenced blocks
 cannot buy one tree-sitter parse each), and a process-wide request budget
 (``REBREW_LLM_MAX_REQUESTS``, default 32;
 ``0`` disables further calls; a set-but-invalid value raises ``ValueError``)
-so ``--seed-llm --watch`` cannot bill unboundedly.  Rate limits / overload
+so ``--seed-llm --watch`` cannot bill unboundedly.  A prompt this process
+already sent is answered from an in-process cache instead of the endpoint, so
+a watch rerun that leaves the function under match byte-identical costs
+nothing (only non-empty results are cached: an empty answer is a refusal, a
+truncation, or an outage, and re-asking can succeed).  Rate limits / overload
 (429/503/529) are never retried, so the GA continues with empty seeds.  A
 response whose reported ``model`` differs from the pinned id warns (a
 substituted model means different cost and different seeds),
@@ -37,7 +41,9 @@ that ``rebrew match --seed-llm`` prints in the run summary, because the
 INFO log line carrying the same numbers is invisible without ``-v``.  A
 request that left the process and then failed (timeout, 5xx after
 generation) is recorded too, with unreported tokens, so an endpoint that
-charges for work whose answer never arrived is not read as a free run.
+charges for work whose answer never arrived is not read as a free run.  A
+bearer key that reaches the transport inside an exception message (an illegal
+header value comes back quoted) is redacted before any log or console line.
 ``--seed-llm --dry-run`` previews the prompt without calling the endpoint.
 Each billed request adds to a running :class:`SeedUsage` total for the thread
 that made it, which ``rebrew match --seed-llm`` prints, so a ``--watch`` run
@@ -54,6 +60,7 @@ import os
 import re
 import threading
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlparse
@@ -66,12 +73,21 @@ from rebrew.config import (
     validate_http_url,
     validate_llm_model,
 )
+from rebrew.utils import strip_bidi_format
 
 # Cost / injection caps at the single LLM call site.
 _MAX_SOURCE_CHARS = 16_000  # ~4k tokens of C; larger functions truncate
 _MAX_RESPONSE_CHARS = 32_000
 _MAX_SEED_CHARS = 8_000
 _MAX_HTTP_BODY_BYTES = 256_000  # reject before json.loads blows memory/budget
+#: Validated seeds kept per process, keyed by the exact prompt that produced
+#: them.  A ``--watch`` run re-runs the whole match on every save, and a save
+#: that touches another function in the same file leaves this function's seed
+#: source byte-identical, so the prompt is byte-identical too: without this
+#: every keystroke-triggered rerun bills the endpoint for an answer it
+#: already holds.  Bounded so a long watch loop cannot grow it without limit;
+#: the oldest entry is dropped.
+_MAX_CACHED_PROMPTS = 64
 _DEFAULT_MAX_TOKENS = 2_048
 _DEFAULT_COUNT = 3
 _DEFAULT_MODEL = "gpt-4o-mini-2024-07-18"  # dated snapshot; bare alias floats
@@ -128,6 +144,11 @@ _ALLOWED_TOP_LEVEL = frozenset({"function_definition", "comment"})
 
 _request_count = 0
 _request_lock = threading.Lock()
+# Validated seeds from prompts this process already sent, so an identical
+# rerun costs nothing.  Guarded separately from the request budget so a cache
+# lookup never waits on a slot another thread is spending.
+_seed_cache: dict[str, list[str]] = {}
+_cache_lock = threading.Lock()
 # Running cost of the billed requests this thread made, surfaced to the run
 # summary: the INFO log line that records it is invisible without ``-v``, so a
 # paid endpoint would otherwise bill silently.  A ``--watch`` run bills once
@@ -139,6 +160,10 @@ _usage_tls = threading.local()
 # malicious or compromised endpoint forge log entries.  Replace them before
 # any ``logging.*`` call that interpolates untrusted response values.
 _CTRL_CHAR_RE = re.compile(r"[\x00-\x1f\x7f-\x9f]+")
+#: Stand-in written over a secret in any text bound for a log or console.
+#: No bracket or asterisk characters: the same string can reach a Rich console
+#: that would read them as markup.
+_REDACTED = "redacted"
 #: Operator opt-in that lets ``[llm].endpoint`` from ``rebrew-project.toml``
 #: receive ``REBREW_LLM_API_KEY``.  The project file outranks the environment
 #: for the endpoint, so without this a checked-out project picks where the
@@ -146,8 +171,8 @@ _CTRL_CHAR_RE = re.compile(r"[\x00-\x1f\x7f-\x9f]+")
 _TRUST_ENV_VAR = "REBREW_LLM_ALLOW_PROJECT_ENDPOINT"
 
 
-def sanitize_log_value(value: Any, *, max_len: int = 256) -> str:
-    """Collapse control characters and cap length for safe log/console interpolation.
+def sanitize_log_value(value: Any, *, max_len: int = 256, secrets: Sequence[str] = ()) -> str:
+    """Collapse control characters, redact secrets, and cap length for safe logging.
 
     Every untrusted string this module emits goes through here: provider
     fields, the text a config error quotes back (``llm_config`` interpolates
@@ -156,9 +181,20 @@ def sanitize_log_value(value: Any, *, max_len: int = 256) -> str:
     --seed-llm``) must use this rather than ``str(exc)``, because a Rich
     console also parses ``[...]`` as markup and a terminal interprets the
     escape sequences a control character starts.
+
+    *secrets* are literal substrings to overwrite with :data:`_REDACTED` before
+    the text leaves the process.  httpx quotes the offending header verbatim
+    when a request header is illegal, so a ``REBREW_LLM_API_KEY`` carrying an
+    interior CR (a CRLF-terminated key file, a spliced paste) reaches the
+    transport, comes back inside the exception text, and would otherwise be
+    written to a log or console line that has weaker protection than the
+    environment variable it came from.
     """
     text = str(value)
     text = _CTRL_CHAR_RE.sub(" ", text)
+    for secret in secrets:
+        if secret:
+            text = text.replace(secret, _REDACTED)
     if len(text) > max_len:
         text = text[:max_len] + "…"
     return text
@@ -287,9 +323,12 @@ def _sanitize_source(source: str) -> str:
     Project C never needs literal ```; neutralizing them stops a retrieved or
     pasted snippet from closing a prompt fence and injecting instructions.
     Also neutralize the XML-ish delimiters used in the user prompt and special
-    chat-template control tokens.
+    chat-template control tokens.  Invisible reordering characters go too, for
+    the reason every other rebrew display surface strips them: a source that
+    renders one way to a reader and another to the model (or hides a directive
+    inside an override) is the same attack the display rule already refuses.
     """
-    text = source.replace("\x00", "")
+    text = strip_bidi_format(source.replace("\x00", ""))
     # Strip chat template control tokens so an adversarial snippet cannot fake roles.
     text = _CONTROL_TOKENS_RE.sub("", text)
     # Collapse fence markers so they cannot terminate a surrounding ```c block.
@@ -721,6 +760,40 @@ def _count(usage: dict[str, Any], field: str) -> int | None:
     return value
 
 
+def _cache_key(conf: dict[str, str], model: str, source: str, count: int) -> str:
+    """Identity of one seed request: everything the endpoint would see.
+
+    Endpoint, model, prompt version, seed count, and the *sanitized* source
+    (the exact user message).  A hit therefore means byte-identical prompt
+    text to the one already billed, not merely the same C function.
+    """
+    return "\x00".join(
+        (conf["endpoint"], model, _PROMPT_VERSION, str(count), _sanitize_source(source))
+    )
+
+
+def _cached_seeds(key: str) -> list[str] | None:
+    """Seeds an identical request already produced, or None when never sent."""
+    with _cache_lock:
+        cached = _seed_cache.get(key)
+    return list(cached) if cached is not None else None
+
+
+def _cache_seeds(key: str, seeds: list[str]) -> None:
+    """Keep *seeds* for a later identical request, dropping the oldest entry.
+
+    Only non-empty results are stored: an empty answer is a refusal, a
+    truncated completion, or an endpoint that was down at that moment, and
+    re-asking after any of those can legitimately succeed.
+    """
+    if not seeds:
+        return
+    with _cache_lock:
+        _seed_cache[key] = list(seeds)
+        while len(_seed_cache) > _MAX_CACHED_PROMPTS:
+            del _seed_cache[next(iter(_seed_cache))]
+
+
 def _record_usage(record: SeedUsage) -> None:
     """Add *record* to the cost total this thread's run summary reports."""
     total: SeedUsage | None = getattr(_usage_tls, "value", None)
@@ -903,7 +976,9 @@ def request_seeds(
     Adds to :func:`seed_usage_total`: a request that was sent and then failed
     still records one, with unreported token counts, because the provider may
     have billed it, and a call that bills nothing leaves the earlier requests'
-    cost in the total rather than hiding it.
+    cost in the total rather than hiding it.  An identical prompt this process
+    already answered is answered from :func:`_cached_seeds` instead: no HTTP,
+    no request slot, and no cost record, because nothing was billed.
     """
     try:
         conf = llm_config(cfg)
@@ -931,6 +1006,14 @@ def request_seeds(
             "so model output could not be validated against it"
         )
         return []
+    key = _cache_key(conf, model, source, count)
+    cached = _cached_seeds(key)
+    if cached is not None:
+        # Nothing left the process, so nothing was billed: no slot consumed
+        # and no cost record, which is why the run total still names only the
+        # requests the operator actually paid for.
+        logging.debug("LLM seeding: %d cached seed(s) for an identical prompt", len(cached))
+        return cached
     if not _consume_request_slot():
         logging.warning(
             "LLM seeding request budget exhausted (%s calls this process; "
@@ -941,11 +1024,12 @@ def request_seeds(
     _started = time.monotonic()
     try:
         if client is not None:
-            return _request(client, conf, source, count, expect, model=model)
-        import httpx
+            seeds = _request(client, conf, source, count, expect, model=model)
+        else:
+            import httpx
 
-        with httpx.Client(timeout=_request_timeout()) as http:
-            return _request(http, conf, source, count, expect, model=model)
+            with httpx.Client(timeout=_request_timeout()) as http:
+                seeds = _request(http, conf, source, count, expect, model=model)
     except Exception as exc:  # LLM availability must never break the GA
         # The request left this process, so the provider may already have
         # billed it; without a record the run reports no cost for a call that
@@ -957,8 +1041,11 @@ def request_seeds(
         status = _http_status(exc)
         # The message can embed provider-controlled text (a JSON decode error
         # quotes the body), so it gets the same log sanitizing as response
-        # fields: a hostile endpoint must not forge log lines.
-        detail = sanitize_log_value(exc)
+        # fields: a hostile endpoint must not forge log lines.  The bearer key
+        # is redacted too, because an illegal header value comes back inside
+        # the exception text and a log line has weaker protection than the
+        # environment variable.
+        detail = sanitize_log_value(exc, secrets=(conf.get("api_key", ""),))
         if status in _NO_RETRY_HTTP:
             logging.warning(
                 "LLM seeding HTTP %s (rate-limit/overload); not retrying — "
@@ -969,3 +1056,5 @@ def request_seeds(
         else:
             logging.warning("LLM seeding requested but failed: %s", detail)
         return []
+    _cache_seeds(key, seeds)
+    return seeds
