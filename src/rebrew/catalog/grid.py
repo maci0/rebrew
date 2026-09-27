@@ -734,7 +734,7 @@ def generate_data_json(
         except ValueError:
             original_dll_path = f"/{bin_path.name}"
 
-    # Project-relative reversed-source root; recoverage uses it to resolve .c
+    # Project-relative reversed-source root; recovery uses it to resolve .c
     # file paths for the detail panels.  Falls back to "/src/<target>" only
     # when root_dir is unavailable (path-less invocation).
     source_root = ""

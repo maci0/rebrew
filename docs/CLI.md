@@ -591,7 +591,7 @@ to load or parse, which counts as drift).
 Per-function result rows carry `diff_lines` (structural diff count),
 `similarity`, `reg_delta` (register-encoding-only diff count), and
 `effective_match` (true when the entire delta is register allocation) —
-all recoverage-consumed via `rebrew build-db`.
+all recovery-consumed via `rebrew build-db`.
 
 A function that fails to byte-match whose source is fenced behind
 `#ifdef REBREW_ALLOW_NAKED` is reported with an explanatory note: the

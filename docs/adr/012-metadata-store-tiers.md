@@ -111,7 +111,7 @@ Single-source rules enforced by code where cheap:
 - We deliberately did **not** merge `rebrew-data.toml` into
   `rebrew-functions.toml` or drop `coverage.db`: distinct key spaces
   (functions vs data symbols) and a real query consumer (dashboard,
-  recoverage) justify the split.  Simplification came from shared
+  recovery) justify the split.  Simplification came from shared
   mechanics and documented tiers, not fewer files.  The layout package
   (`layout/<target>/`) is a derived-but-VCS-intended tier of its own —
   committed so postlink never needs `original/` around, regenerable from

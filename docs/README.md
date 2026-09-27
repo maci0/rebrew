@@ -16,7 +16,7 @@
 |----------|-------------|
 | [CLI.md](CLI.md) | All CLI commands (umbrella `rebrew` + multi-command groups) — flags, examples, internal modules |
 | [CONFIG.md](CONFIG.md) | `rebrew-project.toml` format, config loader, arch presets, compiler profiles |
-| [ANNOTATIONS.md](ANNOTATIONS.md) | Source-file marker format (`// FUNCTION:` / `library_*.h`) and linter codes E000–E023 / W003–W029 |
+| [ANNOTATIONS.md](ANNOTATIONS.md) | Source-file marker format (`// FUNCTION:` / `library_*.h`) and linter codes E000–E023 / W003–W030 |
 | [METADATA_FORMAT.md](METADATA_FORMAT.md) | TOML metadata files (`rebrew-functions.toml`, `rebrew-data.toml`) — volatile fields, status lifecycle |
 | [METADATA.md](METADATA.md) | The full store map — canonical vs derived vs cache tiers, who owns which fact, precedence rules |
 | [MATCH_TYPES.md](MATCH_TYPES.md) | EXACT / RELOC / NEAR_MATCHING / PROVEN / SKIP — byte-level examples and relocation masking |
@@ -52,7 +52,7 @@
 
 | Document | Description |
 |----------|-------------|
-| [ECOSYSTEM.md](ECOSYSTEM.md) | Cross-repo architecture: how rebrew fits with rebrew-toolchains, resembl, recoverage, reportal, recompile, reagent, relumea, decompedia, recondb — mermaid diagrams |
+| [ECOSYSTEM.md](ECOSYSTEM.md) | Cross-repo architecture: how rebrew fits with rebrew-toolchains, resembl, recovery, reportal, recompile, reagent, relumea, decompedia, recondb — mermaid diagrams |
 | [architecture.drawio](architecture.drawio) | Same map in diagrams.net: ecosystem, compile loop, toolchains, FLIRT/resembl/GA, reverse data flows, config/store tiers, data/globals/layout, LLM training export, AI-decomp research |
 
 ## Project

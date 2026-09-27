@@ -714,6 +714,12 @@ def prove_equivalence(
             ``watched_vas``).  Each offset is patched to ``symbol_va + addend``
             so the compiled side reads and writes the same watched globals as the
             original (whose linked operands are already correct).
+        stub_thunks: Also stub every absolute address the compiled blob
+            references through a DIR32 that LIEF did not classify as an import,
+            so a pointer reached through an internal ``jmp`` stub or a
+            table-driven dispatch terminates instead of dead-ending the CFG at
+            address 0.  Adds no stub for an address inside the blob itself (an
+            intra-function data reference, not a thunk).
 
     Returns:
         (proven, message) — proven is True if semantic equivalence was proved.

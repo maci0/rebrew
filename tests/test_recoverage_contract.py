@@ -1,14 +1,14 @@
-"""Recoverage schema contract test.
+"""Recovery schema contract test.
 
-Recoverage (the sibling dashboard) is a pure consumer of ``db/coverage.db``
+Recovery (the sibling dashboard) is a pure consumer of ``db/coverage.db``
 built by ``rebrew build-db`` — either from ``db/data_*.json`` written by
 ``rebrew catalog --data-json``, or in-process via ``rebrew build-db
 --regen``.  This test runs the real pipeline on the checked-in fixture
 binary and asserts the SQLite schema contains exactly the objects and
-columns recoverage queries — so a rebrew change that silently breaks the
-dashboard is caught here, without importing recoverage.
+columns recovery queries — so a rebrew change that silently breaks the
+dashboard is caught here, without importing recovery.
 
-Recoverage's queries (src/recoverage/api.py): metadata(key/value), sections,
+Recovery's queries (src/recovery/api.py): metadata(key/value), sections,
 cells(state/functions/label/parent_function), functions, globals,
 verify_results(verified_at/byte_delta/diff_lines), section_cell_stats view.
 """
@@ -95,11 +95,11 @@ def _run_pipeline(tmp_path: Path, monkeypatch, *, regen: bool = False) -> Path:
     return root
 
 
-class TestRecoverageContract:
+class TestRecoveryContract:
     def test_pipeline_produces_data_json_and_db(self, tmp_path, monkeypatch) -> None:
         root = _run_pipeline(tmp_path, monkeypatch)
         assert (root / "db" / "coverage.db").is_file()
-        # The data JSON has the top-level structure recoverage's importer reads.
+        # The data JSON has the top-level structure recovery's importer reads.
         data = json.loads((root / "db" / "data_SERVER.json").read_text(encoding="utf-8"))
         for key in ("sections", "functions", "summary"):
             assert key in data, f"data JSON missing {key}"
@@ -176,12 +176,12 @@ class TestRecoverageContract:
         conn.close()
         assert row is not None and row[0] == 0
 
-    def test_db_schema_matches_recoverage_queries(self, tmp_path, monkeypatch) -> None:
+    def test_db_schema_matches_recovery_queries(self, tmp_path, monkeypatch) -> None:
         root = _run_pipeline(tmp_path, monkeypatch)
         conn = sqlite3.connect(root / "db" / "coverage.db")
         c = conn.cursor()
 
-        # Objects recoverage's api.py queries, plus history (the in-repo
+        # Objects recovery's api.py queries, plus history (the in-repo
         # dashboard's timeline reads it — a silent drop breaks that path).
         c.execute("SELECT name FROM sqlite_master WHERE type IN ('table','view') ORDER BY name")
         objects = {r[0] for r in c.fetchall()}
@@ -197,7 +197,7 @@ class TestRecoverageContract:
         ):
             assert required in objects, f"missing DB object {required}"
 
-        # functions key columns recoverage filters/groups on.
+        # functions key columns recovery filters/groups on.
         c.execute("PRAGMA table_info(functions)")
         fn_cols = {r[1] for r in c.fetchall()}
         for col in ("target", "va", "name", "status", "module", "size", "updated_by"):
@@ -209,7 +209,7 @@ class TestRecoverageContract:
         for col in ("target", "va", "name", "size", "status"):
             assert col in g_cols, f"globals missing column {col}"
 
-        # cells carries the recoverage-specific label/parent_function columns.
+        # cells carries the recovery-specific label/parent_function columns.
         c.execute("PRAGMA table_info(cells)")
         cell_cols = {r[1] for r in c.fetchall()}
         for col in (
@@ -238,7 +238,7 @@ class TestRecoverageContract:
         ):
             assert col in vr_cols, f"verify_results missing column {col}"
 
-        # The target is registered in metadata (recoverage lists targets from it).
+        # The target is registered in metadata (recovery lists targets from it).
         c.execute("SELECT COUNT(DISTINCT target) FROM metadata")
         assert c.fetchone()[0] >= 1
         conn.close()
@@ -266,7 +266,7 @@ class TestRecoverageContract:
     def test_materialized_cells_match_live_query(self, tmp_path, monkeypatch) -> None:
         """Every cached cell blob must equal what the live query produces.
 
-        Recoverage serves ``section_cells_json`` instead of re-aggregating
+        Recovery serves ``section_cells_json`` instead of re-aggregating
         ``cells``, so the cache is only sound while the two are byte-identical.
         Equality is what lets the dashboard serve the blob with no runtime
         cross-check; if the shared SECTION_CELLS_AGG_SQL ever diverges between
@@ -295,7 +295,7 @@ class TestRecoverageContract:
     def test_stamp_and_cache_codec_agree(self, tmp_path, monkeypatch) -> None:
         """The v7 stamp must mean what the reader assumes it means.
 
-        Recoverage probes for ``SECTION_CELLS_COLUMN`` and decodes with zstd,
+        Recovery probes for ``SECTION_CELLS_COLUMN`` and decodes with zstd,
         without consulting the version.  So the two have to agree: a database
         stamped 7 that carries a different codec's column, or a blob that is not
         zstd, would make the fast path either silently unreachable or wrongly

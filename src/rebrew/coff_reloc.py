@@ -464,6 +464,12 @@ def smart_reloc_compare(
         section_va: Function start VA — enables precise REL32 checks for typed
             reloc records.  Optional.
         iat_region: Set of import-address-slot VAs (``.idata``) — optional.
+        reloc_table: Which relocation-type table decodes the records'
+            ``type`` field: ``"coff-i386"`` (default), ``"elf-mips"``, or
+            ``"elf-ppc"``.  Only consulted for typed records; an unknown name
+            falls back to ``coff-i386``.  A type absent from the table is
+            masked as a difference (compare path) — the round-trip
+            :func:`apply_coff_relocations` instead raises for it.
 
     Returns:
         (matched, match_count, total_bytes, valid_relocs, invalid_relocs)

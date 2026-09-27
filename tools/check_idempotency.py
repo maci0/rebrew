@@ -92,9 +92,7 @@ def write_fixture_project(project_dir: Path) -> Path:
     (project_dir / "original").mkdir(exist_ok=True)
     (project_dir / "src" / "SERVER").mkdir(parents=True, exist_ok=True)
     (project_dir / "bin" / "SERVER").mkdir(parents=True, exist_ok=True)
-    fixture = (
-        Path(__file__).resolve().parent.parent / "tests" / "fixtures" / "mini_pe.exe"
-    )
+    fixture = Path(__file__).resolve().parent.parent / "tests" / "fixtures" / "mini_pe.exe"
     shutil.copy(fixture, project_dir / "original" / "mini_pe.exe")
     (project_dir / "rebrew-project.toml").write_text(_PROJECT_TOML, encoding="utf-8")
     (project_dir / "src" / "SERVER" / "functions.txt").write_text(
@@ -129,9 +127,7 @@ def tree_digest(root: Path) -> dict[str, str]:
     for path in sorted(root.rglob("*")):
         if path.is_symlink() or not path.is_file():
             continue
-        out[path.relative_to(root).as_posix()] = hashlib.sha256(
-            path.read_bytes()
-        ).hexdigest()
+        out[path.relative_to(root).as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
     return out
 
 
@@ -143,11 +139,7 @@ def _tree_diff(before: dict[str, str], after: dict[str, str]) -> str:
     parts: list[str] = []
     for label, paths in (("added", added), ("removed", removed), ("changed", changed)):
         if paths:
-            parts.append(
-                f"{label}: "
-                + ", ".join(paths[:10])
-                + (" ..." if len(paths) > 10 else "")
-            )
+            parts.append(f"{label}: " + ", ".join(paths[:10]) + (" ..." if len(paths) > 10 else ""))
     return "; ".join(parts) or "(no path differs)"
 
 
@@ -196,9 +188,7 @@ def check_command_idempotency(cmd: str, cwd: Path) -> tuple[bool, str]:
             dump1 = json.dumps(norm1, indent=2, sort_keys=True).splitlines()
             dump2 = json.dumps(norm2, indent=2, sort_keys=True).splitlines()
             diff = list(
-                difflib.unified_diff(
-                    dump1, dump2, fromfile="run1", tofile="run2", lineterm=""
-                )
+                difflib.unified_diff(dump1, dump2, fromfile="run1", tofile="run2", lineterm="")
             )
             diff_text = "\n".join(diff[:20])
             if len(diff) > 20:
@@ -295,12 +285,7 @@ WRITE_COMMANDS = [
 
 #: One ``.data`` symbol, so the gen-link-stubs sweep has metadata to generate
 #: from (the read-only fixture ships no data markers).
-_DATA_TOML = (
-    "[SYMBOLS.SERVER.g_player]\n"
-    "section = '.data'\n"
-    "name = 'g_player'\n"
-    "size = 0x40\n"
-)
+_DATA_TOML = "[SYMBOLS.SERVER.g_player]\nsection = '.data'\nname = 'g_player'\nsize = 0x40\n"
 
 #: Commands in :data:`WRITE_COMMANDS` that take ``--data-metadata``.
 _DATA_METADATA_COMMANDS = ("gen-link-stubs",)
@@ -314,9 +299,7 @@ def _write_sweep_dir(base: Path, index: int, cmd: str) -> Path:
     """
     project_dir = write_fixture_project(base / f"write{index}")
     if any(cmd.startswith(c) for c in _DATA_METADATA_COMMANDS):
-        (project_dir / "src" / "rebrew-data.toml").write_text(
-            _DATA_TOML, encoding="utf-8"
-        )
+        (project_dir / "src" / "rebrew-data.toml").write_text(_DATA_TOML, encoding="utf-8")
     return project_dir
 
 
@@ -353,9 +336,7 @@ def main(argv: list[str] | None = None) -> int:
     failed = 0
     failures: list[tuple[str, str]] = []
     with ThreadPoolExecutor(max_workers=8) as pool:
-        outcomes = list(
-            pool.map(lambda cmd: (cmd, *check_command_idempotency(cmd, cwd)), commands)
-        )
+        outcomes = list(pool.map(lambda cmd: (cmd, *check_command_idempotency(cmd, cwd)), commands))
     for cmd, ok, reason in outcomes:
         marker = "PASS" if ok else "FAIL"
         print(f"[{marker}] {cmd}")
@@ -371,9 +352,7 @@ def main(argv: list[str] | None = None) -> int:
             write_outcomes.append(
                 (
                     cmd,
-                    *check_write_idempotency(
-                        cmd, _write_sweep_dir(sweep_base, index, cmd)
-                    ),
+                    *check_write_idempotency(cmd, _write_sweep_dir(sweep_base, index, cmd)),
                 )
             )
         for cmd, ok, reason in write_outcomes:

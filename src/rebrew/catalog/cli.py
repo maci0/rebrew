@@ -49,7 +49,7 @@ app = typer.Typer(
         "  4. Generates cell-level coverage data for the .text section\n\n"
         "  5. Outputs structured data\n\n"
         "[dim]Run 'rebrew catalog --data-json && rebrew build-db' to populate the "
-        "recoverage SQLite database.[/dim]"
+        "recovery SQLite database.[/dim]"
     ),
 )
 

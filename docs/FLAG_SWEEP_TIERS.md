@@ -92,7 +92,7 @@ pass, not an exhaustive one.
 | `msvc_inline` | (same as normal) |
 | `msvc_alignment` | (same as thorough) |
 | `msvc_callconv` | (same as quick) |
-| `msvc_compile_cpp` | `/TP` (checkbox) |
+| `msvc_source_language` | `/TP` |
 | `msvc_use_rtti` | `/GR` (checkbox) |
 | `msvc_use_ehsc` | `/GX` (checkbox) |
 | `msvc_disable_stack_checking` | `/Gs` (checkbox) |
@@ -119,10 +119,13 @@ rebrew match --all --flag-sweep --fix-cflags
 See also [CLI.md](CLI.md) under `rebrew match` for the full flag reference,
 and `rebrew-matching/SKILL.md` for the AI-agent workflow that wraps the GA engine.
 
-## Non-MSVС6 sweep grids
+## Non-MSVC6 sweep grids
 
-The MSVC6 tier definitions above are the CLI sweep.  The other grids in
-`flag_data.py` are reached only through the toolchain sweep
+The tier table above lists the MSVC6 axes (`MSVC6_FLAGS`), which is what the
+CLI sweep runs.  `MSVC_SWEEP_TIERS` is shared with the 7.x-and-later flag set
+(`COMMON_MSVC_FLAGS`), where `normal` and `thorough` also resolve `msvc_fp`
+(`/fp:*`) — an id that `MSVC6_FLAGS` does not carry, so it contributes nothing
+there.  The other grids in `flag_data.py` are reached only through the toolchain sweep
 (`--flag-sweep-only --flag-sweep-toolchains`), which enumerates the image-backed
 **MSVC** toolchains (`--sweep-toolchains`/`--sweep-exclude-toolchains` filter by profile
 name or version prefix, e.g. `msvc-6.0,6.0,win16`).

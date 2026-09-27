@@ -17,7 +17,7 @@ ground-truth catalog the user:
 - Cannot tell what's done, in-progress, or untouched.
 - Cannot tell which functions are first-party game code vs. third-party
   library code (CRT, zlib, DirectX) that can be matched from upstream sources.
-- Has no machine-readable coverage data to feed dashboards (recoverage) or
+- Has no machine-readable coverage data to feed dashboards (recovery) or
   CI gates.
 - Re-disassembles the same VA multiple times instead of extracting `.bin`
   files once.
@@ -168,7 +168,7 @@ Output `.bin` files land in the configured `bin_dir`.
    uncovered functions.
 3. `rebrew extract batch 20` produces 20 `.bin` files ready for the
    reversing loop.
-4. `rebrew build-db` produces `db/coverage.db` consumed by the recoverage
+4. `rebrew build-db` produces `db/coverage.db` consumed by the recovery
    dashboard.
 
 ### Story 2 — Mapping library functions to upstream source
@@ -193,7 +193,7 @@ Output `.bin` files land in the configured `bin_dir`.
 
 1. CI runs `rebrew catalog --data-json --json` then `rebrew build-db --json`
    on every push to main.
-2. `db/coverage.db` is uploaded as an artifact and consumed by recoverage.
+2. `db/coverage.db` is uploaded as an artifact and consumed by recovery.
 
 ## CLI Surface
 

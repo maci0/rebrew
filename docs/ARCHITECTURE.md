@@ -10,7 +10,7 @@ STATUS promotion and the GA matching engine.
 
 rebrew is one repo in a wider workspace. Sibling projects plug in at stable
 boundaries: `rebrew-toolchains` supplies the docker compiler images,
-`resembl` supplies the assembly-similarity scoring core, `recoverage` serves
+`resembl` supplies the assembly-similarity scoring core, `recovery` serves
 the `db/coverage.db` this repo builds, `recompile` wraps the toolchain zoo
 as an HTTP API, and `reagent` automates the loop with an LLM. External
 tools interoperate through file formats: reccmp-compatible source
