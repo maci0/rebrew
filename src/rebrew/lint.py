@@ -310,9 +310,6 @@ def count_migratable_files(src_dir: Path, cfg: Any) -> int:
     Only scans files returned by ``iter_sources`` so that the extension
     filter (``cfg.source_ext``) is respected.
     """
-    from rebrew.data_metadata import load_data_metadata
-    from rebrew.metadata import load_metadata
-
     fn_entries = load_metadata(cfg.metadata_dir, deepcopy=False)
     data_entries = load_data_metadata(cfg.metadata_dir)
     count = 0
@@ -978,8 +975,8 @@ def _check_E023_naked_asm(
     """Flag whole-function ``__declspec(naked)`` + ``__asm`` dumps (E023).
 
     *code_lines* is the shared ``_strip_all`` view of *lines*; the raw
-    *lines* are still read for the ``REBREW_ALLOW_NAKED`` guard and the
-    padding checks below, which inspect literal source text.
+    *lines* are still read by the padding checks below, which inspect
+    literal source text.
 
     ``__declspec(naked)`` is only allowed for *minor padding* (1-2 alignment
     ``nop``/``int3`` bytes, e.g. ``_emit 0x90`` / ``_emit 0xCC`` or
@@ -1002,7 +999,9 @@ def _check_E023_naked_asm(
     # Skip E023 for naked bodies gated by REBREW_ALLOW_NAKED.
     if "REBREW_ALLOW_NAKED" in metadata_cflags:
         return
-    for line in lines:
+    # Scan the stripped CODE view, not raw lines: a commented-out mention
+    # of the guard (a // todo) would otherwise disable E023 for the file.
+    for line in code_lines:
         if "REBREW_ALLOW_NAKED" in line:
             return
 
@@ -2111,14 +2110,13 @@ def main(
     # VA when possible; presets and unattributed VAs land on a synthetic entry.
     preset_redundant: list[RedundantPreset] = []
     fn_redundant: list[RedundantFunctionCflags] = []
-    # File results only (the W029 synthetic entries appended below have no file
-    # and must not be counted as passed files).
-    file_results = list(all_results)
     if cfg is not None:
         preset_redundant, fn_redundant = check_redundant_cflags(cfg, _preloaded_metadata)
         if preset_redundant or fn_redundant:
             # Build VA -> file index from this run, for per-function attribution.
-            va_to_result: dict[tuple[str, int], LintResult] = {}
+            # LintResult.marker_line holds the LAST marker in the file, so
+            # the header's own line travels with the index.
+            va_to_result: dict[tuple[str, int], tuple[LintResult, int]] = {}
             for r in all_results:
                 headers = r._headers if r._headers is not None else _parse_multi_headers(r._lines)
                 for keys, _flags in headers:
@@ -2127,7 +2125,7 @@ def main(
                     if not m or not v:
                         continue
                     with contextlib.suppress(ValueError):
-                        va_to_result[(m, int(v, 16))] = r
+                        va_to_result[(m, int(v, 16))] = (r, int(keys.get("_LINE", "1")))
             # Presets: no single file — emit on a synthetic "config" result.
             if preset_redundant:
                 syn = LintResult(Path("rebrew-project.toml"))
@@ -2141,11 +2139,12 @@ def main(
             unattributed: list[RedundantFunctionCflags] = []
             w029_inline: list[str] = []
             for fn_hit in fn_redundant:
-                dest = va_to_result.get((fn_hit.module, fn_hit.va))
+                located = va_to_result.get((fn_hit.module, fn_hit.va))
                 msg = fn_hit.message()
-                if dest is not None:
+                if located is not None:
+                    dest, line = located
                     if not any(c == "W029" and msg in m for _, c, m in dest.warnings):
-                        dest.warning(dest.marker_line, "W029", f"redundant cflags: {msg}")
+                        dest.warning(line, "W029", f"redundant cflags: {msg}")
                         warning_count += 1
                         if not json_output and not quiet:
                             # Show the newly added warnings inline (the batch
@@ -2154,7 +2153,7 @@ def main(
                             # prints were 1600 console calls on a
                             # 400-file tree, ~27% of lint's runtime.
                             w029_inline.append(
-                                f"  [bold]{dest.filepath.name}[/bold]:{dest.marker_line}: "
+                                f"  [bold]{dest.filepath.name}[/bold]:{line}: "
                                 f"[yellow]W029[/yellow]: redundant cflags: {msg}"
                             )
                 else:
@@ -2169,8 +2168,6 @@ def main(
                 if not json_output and not quiet:
                     syn2.display(quiet=False)
                 warning_count += len(syn2.warnings)
-            # Recompute passed in case we flipped some files from passed->warned.
-            passed = sum(1 for r in file_results if r.passed)
 
     if json_output:
         # --quiet keeps the counts but lists only failing files, without

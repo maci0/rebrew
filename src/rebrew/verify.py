@@ -148,6 +148,21 @@ def _fenced_naked_note(cfile: Path) -> str:
     return _fenced_naked_note_cached(path_key, st.st_mtime_ns, st.st_size, st.st_ino)
 
 
+def _entry_symbol(entry: Any) -> str:
+    """COFF symbol for *entry*, synthesizing it for legacy marker-only entries.
+
+    Mangling must stay consistent with the COFF symbol lookup in
+    parsers._parse_coff (which handles _/name_/_name variants).  Keep the
+    annotation symbol as-is when present; only synthesize "_" + name for
+    legacy entries lacking a symbol field.  Do not double-prefix.
+    """
+    if entry.symbol:
+        return str(entry.symbol)
+    if entry.name and not entry.name.startswith("_"):
+        return "_" + str(entry.name)
+    return str(entry.name or entry.symbol or "")
+
+
 def verify_entry(
     entry: Annotation,
     cfg: ProjectConfig,
@@ -201,16 +216,7 @@ def verify_entry(
         getattr(entry, "cflags", ""),
         getattr(entry, "module", ""),
     )
-    # Symbol mangling must stay consistent with the COFF symbol lookup in
-    # parsers._parse_coff (which handles _/name_/_name variants).  Keep the
-    # annotation symbol as-is when present; only synthesize "_" + name for
-    # legacy entries lacking a symbol field.  Do not double-prefix.
-    if entry.symbol:
-        symbol = entry.symbol
-    elif entry.name and not entry.name.startswith("_"):
-        symbol = "_" + entry.name
-    else:
-        symbol = entry.name or entry.symbol or ""
+    symbol = _entry_symbol(entry)
 
     from rebrew.binary_loader import extract_raw_bytes
 
@@ -1840,13 +1846,17 @@ def _scope_entries(
         unique_entries = [
             e for e in unique_entries if (Path(cfg.reversed_dir) / e.filepath).resolve() == target
         ]
-        if not unique_entries:
-            from rebrew.cli import error_exit
+    if not unique_entries and (batch_dir or origin_filter or batch_file):
+        # A scope filter that matched nothing (a mistyped --dir or --origin)
+        # would otherwise verify zero functions and exit green.  --nolib is
+        # not in this set: emptying the work list that way is the point.
+        from rebrew.cli import error_exit
 
-            error_exit(
-                f"no annotations found in {batch_file} — empty scope is not a green gate",
-                json_mode=json_output,
-            )
+        scope = batch_file or batch_dir or origin_filter
+        error_exit(
+            f"no annotations found for {scope} — empty scope is not a green gate",
+            json_mode=json_output,
+        )
     if library_excluded or batch_dir or origin_filter or batch_file:
         keep = {f"0x{e.va:08x}" for e in unique_entries}
         results = [r for r in results if r.get("va") in keep]
@@ -2351,7 +2361,7 @@ def run_verification(
                             {
                                 "va": f"0x{entry.va:08x}",
                                 "name": name,
-                                "symbol": getattr(entry, "symbol", "") or "_" + name,
+                                "symbol": _entry_symbol(entry),
                                 "module": getattr(entry, "module", ""),
                                 "filepath": getattr(entry, "filepath", ""),
                                 "size": getattr(entry, "size", 0),

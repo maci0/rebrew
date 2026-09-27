@@ -538,6 +538,8 @@ def _diec_version_hint(dets: list[dict[str, object]]) -> str:
         if not isinstance(values, list):
             continue
         for v in values:
+            if not isinstance(v, dict):
+                continue
             name = str(v.get("name") or "")
             ver = str(v.get("version") or "")
             if "Visual C/C++" in name and ver:
@@ -547,8 +549,8 @@ def _diec_version_hint(dets: list[dict[str, object]]) -> str:
                 return f"MSVC {ver}"
             if "Delphi" in name and ver:
                 return f"Borland Delphi {ver}"
-            if "Watcom" in name or "Open Watcom" in name:
-                return f"Watcom C/C++ {ver}".strip()
+            if ("Watcom" in name or "Open Watcom" in name) and ver:
+                return f"Watcom C/C++ {ver}"
             if ("Borland C" in name or "Turbo C" in name) and ver:
                 return f"Borland C/C++ {ver}"
             if "GNU C" in name or "MinGW" in name:
