@@ -152,28 +152,36 @@ widens the CHECK without a schema bump. The table below is the full set;
 `tests/test_build_db.py::TestCellStateVocabulary` fails if it and the CHECK drift
 apart.
 
-| State | Description | Bucket in `section_cell_stats` | Color in UI |
-|-------|-------------|------------------------------|-------------|
-| `none` | Uncovered / unmatched region | `none_count` | Gray |
-| `exact` | Byte-identical match | `exact_count` | Green |
-| `verified` | Data verdict `VERIFIED` (`rebrew verify --data`) | `exact_count` | Green |
-| `reloc` | Match after relocation normalization | `reloc_count` | Cyan |
-| `near_matching` / `near_match` | Functionally matching (not byte-identical) | `near_match_count` | Yellow |
-| `proven` | PROVEN status (semantic equivalence, bytes differ) | `proven_count` | Bold cyan |
-| `size_mismatch` | SIZE_MISMATCH status | `size_mismatch_count` | Yellow |
-| `stub` | Stub implementation (placeholder) | `stub_count` | Red |
-| `padding` | NOP/INT3 alignment padding | `padding_count` | Silver |
-| `data` | Non-code data in .text (residual switch tables, etc.) | `data_count` | Purple |
-| `thunk` | IAT thunk stub (not reversible) | `thunk_count` | Orange |
-| `skip` | Parked by annotation | `other_count` | Red/Dim |
-| `unknown` | Unset or unrecognized (the insert-path coercion target) | `other_count` | Red/Dim |
-| `compile_error` | The compile step failed | `other_count` | Red/Dim |
-| `extract_error` | No bytes could be extracted for the VA | `other_count` | Red/Dim |
-| `missing_size` | Target size unknown | `other_count` | Red/Dim |
-| `missing_file` | Source file missing | `other_count` | Red/Dim |
-| `invalid_va` | VA below the arch-aware floor | `other_count` | Red/Dim |
-| `drift` | Data verdict `DRIFT`: the recompiled bytes no longer match | `other_count` | Red/Dim |
-| `unchecked` | Data verdict `UNCHECKED` | `other_count` | Red/Dim |
+| State | Description | Bucket in `section_cell_stats` | Mark in the report |
+|-------|-------------|------------------------------|-------------------|
+| `none` | Uncovered / unmatched region | `none_count` | none (count only) |
+| `exact` | Byte-identical match | `exact_count` | EXACT `#15803d` |
+| `verified` | Data verdict `VERIFIED` (`rebrew verify --data`) | `exact_count` | none (count only) |
+| `reloc` | Match after relocation normalization | `reloc_count` | RELOC `#0369a1` |
+| `near_matching` / `near_match` | Functionally matching (not byte-identical) | `near_match_count` | NEAR_MATCHING `#b45309` |
+| `proven` | PROVEN status (semantic equivalence, bytes differ) | `proven_count` | PROVEN `#0e7490` |
+| `size_mismatch` | SIZE_MISMATCH status | `size_mismatch_count` | SIZE_MISMATCH `#92400e` |
+| `stub` | Stub implementation (placeholder) | `stub_count` | STUB `#475569` |
+| `padding` | NOP/INT3 alignment padding | `padding_count` | none (count only) |
+| `data` | Non-code data in .text (residual switch tables, etc.) | `data_count` | none (count only) |
+| `thunk` | IAT thunk stub (not reversible) | `thunk_count` | none (count only) |
+| `skip` | Parked by annotation | `other_count` | SKIP `#556070` |
+| `unknown` | Unset or unrecognized (the insert-path coercion target) | `other_count` | UNKNOWN `#555` |
+| `compile_error` | The compile step failed | `other_count` | error `#b91c1c` |
+| `extract_error` | No bytes could be extracted for the VA | `other_count` | error `#b91c1c` |
+| `missing_size` | Target size unknown | `other_count` | error `#b91c1c` |
+| `missing_file` | Source file missing | `other_count` | error `#b91c1c` |
+| `invalid_va` | VA below the arch-aware floor | `other_count` | error `#b91c1c` |
+| `drift` | Data verdict `DRIFT`: the recompiled bytes no longer match | `other_count` | none (count only) |
+| `unchecked` | Data verdict `UNCHECKED` | `other_count` | none (count only) |
+
+A state gets a mark only when it is a function `STATUS`: the report and the
+dashboard paint `STATUS_HEX[<STATUS>]`, so a cell state that names a status
+(`exact`, `reloc`, `stub`, the machine verdicts) is coloured the same as a
+function row carrying it, and the gap/label/data states are only ever counts in
+the sections table.
+`tests/test_docs_hygiene.py::TestCellStateMarks` fails if a hex here and
+`rebrew.status_style.STATUS_HEX` disagree.
 
 `other_count` is a catch-all, not a fixed list: its `NOT IN (...)` term
 (`_SECTION_CELL_STATS_SELECT`) enumerates the named buckets above, so any state

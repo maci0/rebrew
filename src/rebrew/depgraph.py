@@ -14,6 +14,7 @@ Usage:
 
 import bisect
 import contextlib
+import json
 import logging
 import re
 from pathlib import Path
@@ -42,6 +43,42 @@ log = logging.getLogger(__name__)
 
 # Pre-compiled regex for graph node ID sanitization.
 _NODE_ID_RE = re.compile(r"[^a-zA-Z0-9_]")
+
+# Mermaid init directive, so a graph opened in any viewer is painted the report
+# chrome rather than Mermaid's stock theme (Trebuchet labels, its own edge
+# grey, HTML foreignObject labels). ``htmlLabels: false`` is what puts the
+# token font on the node labels at all.
+_MERMAID_INIT = (
+    "%%{"
+    + json.dumps(
+        {
+            "theme": "base",
+            "themeVariables": {
+                "fontFamily": TOKENS["mono"],
+                "background": TOKENS["surface"],
+                "primaryColor": TOKENS["sunken"],
+                "primaryTextColor": TOKENS["ink"],
+                "primaryBorderColor": TOKENS["ink"],
+                "lineColor": TOKENS["line"],
+                "secondaryColor": TOKENS["sunken"],
+                "tertiaryColor": TOKENS["surface"],
+                "textColor": TOKENS["ink"],
+                "mainBkg": TOKENS["surface"],
+                "nodeBorder": TOKENS["ink"],
+                "edgeLabelBackground": TOKENS["surface"],
+                "clusterBkg": TOKENS["surface"],
+                "clusterBorder": TOKENS["line"],
+            },
+            "flowchart": {"htmlLabels": False, "curve": "linear"},
+        }
+    )
+    + "}%%"
+)
+
+# Graphviz resolves a font family by name, not by CSS stack, so the mono token
+# cannot be passed through; ``monospace`` is the family every fontconfig
+# resolves the stack to.
+_DOT_FONT = "monospace"
 
 # Placeholder node names the graph synthesises for unnamed call targets.
 _PLACEHOLDER_NAME_RE = re.compile(r"fn_0x[0-9a-f]+_")
@@ -494,7 +531,7 @@ def render_mermaid(
     Dispatch-table edges (when *dispatch_edges* is provided) are rendered as
     dashed arrows (``..>``), matching Mermaid's linkStyle for indirect calls.
     """
-    lines = ["graph LR"]
+    lines = [_MERMAID_INIT, "graph LR"]
 
     # STATUS_HEX fills. White type meets WCAG AA on each; stroke is header ink.
     lines.extend(_mermaid_class_defs())
@@ -543,7 +580,13 @@ def render_dot(
     Dispatch-table edges (when *dispatch_edges* is provided) are rendered with
     ``style=dashed`` to visually distinguish indirect calls through dispatch tables.
     """
-    lines = ["digraph G {", "    rankdir=LR;", "    node [shape=box, style=filled];", ""]
+    lines = [
+        "digraph G {",
+        "    rankdir=LR;",
+        f'    node [shape=box, style=filled, fontname="{_DOT_FONT}"];',
+        f'    edge [color="{TOKENS["line"]}"];',
+        "",
+    ]
 
     for name, info in sorted(nodes.items()):
         nid = _sanitize_id(name)

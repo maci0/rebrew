@@ -548,20 +548,25 @@ graph TD
     C -->|"Old single-line<br/>/* name @ 0xVA ... */"| D["Parse name, VA,<br/>size, flags, status"]
     C -->|"Block-comment<br/>/* FUNCTION: ... */"| E["Parse marker + KV<br/>block comments"]
     C -->|"Javadoc<br/>@address, @status"| F["Parse @key value<br/>pairs"]
-    C -->|"Already canonical"| G["Skip — no change"]
+    C -->|"Already canonical"| G["Skip: no change"]
 
     D --> H["Generate canonical<br/>// KEY: value header"]
     E --> H
     F --> H
 
     H --> I["Write updated file<br/>(preserves code body)"]
-    I --> J["✅ Migrated"]
+    I --> J["Migrated"]
 
-    style A fill:#dbeafe,stroke:#3b82f6,color:#1e3a5f
-    style J fill:#d1fae5,stroke:#059669,color:#065f46
-    style G fill:#f3f4f6,stroke:#9ca3af,color:#4b5563
-    style C fill:#fef3c7,stroke:#d97706,color:#92400e
+    style A fill:#f5f5f5,stroke:#1a1a1a,color:#1a1a1a
+    style J fill:#15803d,stroke:#1a1a1a,color:#fff
+    style G fill:#475569,stroke:#1a1a1a,color:#fff
+    style C fill:#b45309,stroke:#1a1a1a,color:#fff
 ```
+
+The node fills are the marks the report and the call graph paint
+(`rebrew.status_style.STATUS_HEX`, `rebrew.theme.TOKENS`): EXACT green for a
+migrated file, STUB slate for one left alone, NEAR_MATCHING amber for the
+branch, and plain chrome for the entry point.
 
 ### JSON Output Schema
 

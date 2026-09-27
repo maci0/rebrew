@@ -1,5 +1,6 @@
 """Tests for rebrew.depgraph graph building and rendering."""
 
+import json
 from types import SimpleNamespace
 
 from rebrew.data_scan import DispatchEntry, DispatchTable
@@ -390,6 +391,31 @@ class TestRenderers:
         assert f'color="{TOKENS["ink"]}"' in dot
         assert f'fontcolor="{TOKENS["surface"]}"' in dot
         assert f"fill:{STATUS_HEX['DISPATCH']}" in mermaid
+
+    def test_mermaid_opens_in_the_report_chrome_not_the_stock_theme(self) -> None:
+        """The init directive paints the file, so no viewer supplies a default.
+
+        Without it a viewer falls back to Mermaid's own theme: Trebuchet
+        labels in HTML foreignObjects and its own edge grey, neither of which
+        is in the token set. DOT has no directive, so its font and edge colour
+        are set on the graph itself.
+        """
+        from rebrew.theme import TOKENS
+
+        nodes, edges = self._sample()
+        first = render_mermaid(nodes, edges).splitlines()[0]
+        assert first.startswith("%%{") and first.endswith("}%%")
+        init = json.loads(first[3:-3])
+        assert init["theme"] == "base"
+        assert init["themeVariables"]["fontFamily"] == TOKENS["mono"]
+        assert init["themeVariables"]["lineColor"] == TOKENS["line"]
+        assert init["themeVariables"]["nodeBorder"] == TOKENS["ink"]
+        # HTML labels would put the token font nowhere: it is a foreignObject.
+        assert init["flowchart"]["htmlLabels"] is False
+
+        dot = render_dot(nodes, edges)
+        assert 'fontname="monospace"' in dot
+        assert f'edge [color="{TOKENS["line"]}"];' in dot
 
     def test_mermaid_dispatch_style(self) -> None:
         """Dispatch edges render as dashed arrows (..>) in mermaid output."""
