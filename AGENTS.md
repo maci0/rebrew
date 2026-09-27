@@ -54,6 +54,8 @@ tests/               # pytest; typically test_<module>.py
 
 The only shipped packaging format is the PyPI wheel + sdist. `make build` pins the build backend by hash, `make sdist-check` proves the sdist reproduces the wheel, and `tests/test_package_metadata.py` gates the declared metadata: every third-party top-level import under `src/rebrew` needs a `[project].dependencies` floor or a justified `_OPTIONAL_IMPORTS` entry, and every `[project.scripts]` target must import. Both failures otherwise surface only on a user's machine.
 
+**Third-party grants**: every distribution in `uv.lock` has its artifact's own declared license in `tools/licenses.py`; `make sbom` (CycloneDX) refuses to emit a component without one, and `tests/test_packaging.py` fails when the lock and the table disagree. A `uv lock --upgrade` therefore lands with its license recorded, and a copyleft or restrictive grant also gets a `NOTICE` section in the same change. Record the declared string verbatim; do not rewrite a trove classifier into an SPDX id the upstream never wrote.
+
 Dockerfiles / wrappers / 16-bit media: sibling **rebrew-toolchains** (not vendored here). `rebrew init` renders `agent-skills/` and `PRINCIPLES.md` into a project; this repo's `.agents/skills/` (target `bench`) and root `PRINCIPLES.md` are rendered copies. Edit `src/rebrew/agent-skills/` or `src/rebrew/PRINCIPLES.md`, re-render (`make gen-skills`; copy `PRINCIPLES.md` over the root); `tests/test_skills_sync.py` and `tools/validate_skill_commands.py` gate drift.
 
 ## CLI Conventions

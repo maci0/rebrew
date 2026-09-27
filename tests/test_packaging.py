@@ -439,6 +439,71 @@ class TestCycloneDxSbom:
             assert c["purl"].startswith("pkg:")
             assert c["version"]
 
+    def test_every_component_carries_its_declared_license(self) -> None:
+        """A component with no license field reads to a scanner as public domain.
+
+        The grants come from tools/licenses.py, each transcribed from the pinned
+        artifact's own METADATA; a lock bump that adds a package must add its
+        row there or `make sbom` fails rather than emitting a blank field.
+        """
+        from tools.generate_sbom import _project_version, build_bom
+
+        bom = build_bom((ROOT / "uv.lock").read_text(encoding="utf-8"), _project_version())
+        for component in bom["components"]:
+            (entry,) = component["licenses"]
+            assert entry.keys() & {"expression", "license"}, component["name"]
+
+    def test_validator_rejects_an_unlicensed_component(self) -> None:
+        from tools.generate_sbom import MIN_COMPONENTS, validate_bom
+
+        bom = {
+            "bomFormat": "CycloneDX",
+            "specVersion": "1.5",
+            "metadata": {"component": {"name": "rebrew"}},
+            "components": [
+                {"name": f"p{i}", "licenses": [{"expression": "MIT"}]}
+                for i in range(MIN_COMPONENTS)
+            ],
+        }
+        validate_bom(bom)
+        bom["components"][3] = {"name": "blank"}
+        with pytest.raises(ValueError, match="without a license"):
+            validate_bom(bom)
+
+    def test_license_table_covers_the_lock_exactly(self) -> None:
+        """`uv lock --upgrade` adds a distribution; an unrecorded grant means the
+        released SBOM and NOTICE both describe a tree nobody reviewed."""
+        from tools.licenses import PATH_OR_GIT_LICENSES, REGISTRY_LICENSES
+
+        lock_text = (ROOT / "uv.lock").read_text(encoding="utf-8")
+        registry: set[str] = set()
+        by_name: dict[str, str] = {}
+        for block in lock_text.split("[[package]]")[1:]:
+            name = re.search(r'^name = "(.*)"', block, re.M)
+            version = re.search(r'^version = "(.*)"', block, re.M)
+            source = re.search(r"^source = (.*)$", block, re.M)
+            assert name, block
+            if version is None:
+                # The editable self-package; its version lives in the wheel.
+                continue
+            by_name.setdefault(name.group(1), version.group(1))
+            if source and "registry" in source.group(1):
+                registry.add(f"{name.group(1)}=={version.group(1)}")
+
+        assert set(REGISTRY_LICENSES) == registry, {
+            "unrecorded": sorted(registry - set(REGISTRY_LICENSES)),
+            "stale": sorted(set(REGISTRY_LICENSES) - registry),
+        }
+        non_registry = {
+            name
+            for name in by_name
+            if f"{name}=={by_name[name]}" not in registry and name != "rebrew"
+        }
+        assert set(PATH_OR_GIT_LICENSES) == non_registry, sorted(non_registry)
+        recorded = dict(REGISTRY_LICENSES) | PATH_OR_GIT_LICENSES
+        for key, value in recorded.items():
+            assert value.strip(), key
+
     def test_generated_bom_passes_its_own_validator(self) -> None:
         """`make sbom` gates on this, so the real lock must clear it."""
         from tools.generate_sbom import _project_version, build_bom, validate_bom

@@ -19,10 +19,11 @@ wheel entry modes), checks both artifacts hash the same when
 another path under another TZ and locale, emits a CycloneDX 1.5 SBOM
 (`dist/rebrew.cdx.json` from `uv.lock` via `tools/generate_sbom.py`, with the
 MIT license on the rebrew component, a `pkg:github/maci0/rebrew` purl at the
-`v` tag for `__version__`, project URLs as external references, and the
-optional copyleft expressions from `NOTICE`; the generator validates the
-document it emits, so a lock that parsed short fails the build instead of
-shipping a BOM that reads to a scanner as a clean bill of health), writes
+`v` tag for `__version__`, project URLs as external references, and each
+locked distribution's own declared license from `tools/licenses.py`; the
+generator validates the document it emits, so a lock that parsed short, or a
+component whose grant nobody recorded, fails the build instead of shipping a
+BOM that reads to a scanner as a clean bill of health), writes
 `dist/rebrew.buildinfo`
 (uv/python/`.python-version`/setuptools parsed from `pyproject.toml` + epoch
 knobs, source commit and dirty flag), and installs the

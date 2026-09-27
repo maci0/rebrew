@@ -202,8 +202,10 @@ jobs:
         # `uv sync` needed, and it still uses the setup-uv Python pin (not the
         # runner's unpinned /usr/bin/python3).  generate_sbom.py validates
         # the document it emits (format header, spec version, non-empty
-        # inventory) and exits 1 otherwise, so a lock that parsed short fails
-        # the job here instead of shipping a BOM that reads as clean.
+        # inventory, a license on every component) and exits 1 otherwise, so a
+        # lock that parsed short, or a distribution whose grant is missing
+        # from tools/licenses.py, fails the job here instead of shipping a BOM
+        # that reads as clean.
         run: make sbom
       - name: Verify wheel and sdist reproducibility (second build, other path)
         # Rebuild the same commit with `make build` from a `git archive` copy

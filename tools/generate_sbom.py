@@ -10,6 +10,10 @@ re-resolving PyPI.  The rebrew component's purl is the GitHub repository
 Every emitted document passes ``validate_bom``; a lock that parsed to a near
 empty inventory exits 1 rather than writing a BOM a scanner reads as clean.
 
+Licenses come from ``tools/licenses.py`` (each pinned artifact's own declared
+string), not from the network, so a component without a recorded grant fails
+the run instead of reaching a scanner as a blank field.
+
 Usage::
 
     uv run --no-project --offline python tools/generate_sbom.py
@@ -27,22 +31,39 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
+# `make sbom` runs this file directly under `uv --no-project`, so the repo root
+# is not on sys.path the way pytest puts it there.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from tools.licenses import PATH_OR_GIT_LICENSES, REGISTRY_LICENSES
+
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _LOCK = _REPO_ROOT / "uv.lock"
 _INIT = _REPO_ROOT / "src" / "rebrew" / "__init__.py"
 _PYPROJECT = _REPO_ROOT / "pyproject.toml"
 _VERSION_RE = re.compile(r'^__version__\s*=\s*"([^"]+)"', re.M)
 
-# Optional copyleft pinned in uv.lock. Expressions were read from the locked
-# artifacts (resembl 2.0.0 ``License: GPLv3`` with no later-version clause,
-# m2c aa869da ``License-Expression: GPL-3.0-only``, pyvex 9.3.4
-# ``License-Expression: BSD-2-Clause AND GPL-2.0-or-later``). See NOTICE.
-# Permissive dependencies keep the license metadata inside their own wheels.
-_COPYLEFT_EXPRESSIONS = {
-    "resembl": "GPL-3.0-only",
-    "m2c": "GPL-3.0-only",
-    "pyvex": "BSD-2-Clause AND GPL-2.0-or-later",
-}
+# A declared grant goes in ``expression`` when it already reads as SPDX
+# (bare ids joined by AND/OR/WITH) and in ``name`` when it is the trove text
+# or prose an artifact actually ships.  Normalizing a classifier to an id the
+# upstream never wrote would put a license claim in a release artifact.
+_SPDX_EXPRESSION_RE = re.compile(r"^[A-Za-z0-9.+-]+(?:\s+(?:AND|OR|WITH)\s+[A-Za-z0-9.+-]+)*$")
+
+
+def _license_field(source_kind: str, name: str, version: str) -> dict[str, Any]:
+    """The CycloneDX ``licenses`` entry for one locked distribution."""
+    if source_kind == "registry":
+        declared = REGISTRY_LICENSES.get(f"{name}=={version}")
+    else:
+        declared = PATH_OR_GIT_LICENSES.get(name)
+    if declared is None:
+        raise ValueError(
+            f"no recorded license for {name}=={version} ({source_kind}): add the grant "
+            f"it declares to tools/licenses.py, and NOTICE if it is not permissive"
+        )
+    if _SPDX_EXPRESSION_RE.match(declared):
+        return {"expression": declared}
+    return {"license": {"name": declared}}
 
 
 def _project_version() -> str:
@@ -148,9 +169,7 @@ def _parse_lock(text: str) -> list[dict[str, Any]]:
                 for h in sorted(hashes)
                 if h.startswith("sha256:")
             ]
-        expr = _COPYLEFT_EXPRESSIONS.get(name)
-        if expr:
-            component["licenses"] = [{"expression": expr}]
+        component["licenses"] = [_license_field(source_kind, name, version)]
         components.append(component)
         name = version = None
         source_kind = "registry"
@@ -216,9 +235,10 @@ MIN_COMPONENTS = 10
 def validate_bom(bom: dict[str, Any]) -> None:
     """Raise ValueError unless ``bom`` is a scannable CycloneDX document.
 
-    Checks the format header, the spec version, and a non-trivial component
-    list.  Deliberately structural: field-level schema validation belongs to
-    the CycloneDX validator, not to this generator.
+    Checks the format header, the spec version, a non-trivial component list,
+    and a license on every component.  Deliberately structural: field-level
+    schema validation belongs to the CycloneDX validator, not to this
+    generator.
     """
     if bom.get("bomFormat") != "CycloneDX":
         raise ValueError(f"bomFormat is {bom.get('bomFormat')!r}, expected 'CycloneDX'")
@@ -233,6 +253,9 @@ def validate_bom(bom: dict[str, Any]) -> None:
             f"components lists {found} entries, expected at least {MIN_COMPONENTS}: "
             f"the lock parsed short, so the inventory would read as complete"
         )
+    unlicensed = sorted(c.get("name", "?") for c in components if not c.get("licenses"))
+    if unlicensed:
+        raise ValueError(f"components without a license: {unlicensed}")
 
 
 def build_bom(lock_text: str, project_version: str) -> dict[str, Any]:
@@ -267,8 +290,8 @@ def main(argv: list[str] | None = None) -> int:
     if not args.lock.is_file():
         print(f"error: lockfile not found: {args.lock}", file=sys.stderr)
         return 1
-    bom = build_bom(args.lock.read_text(encoding="utf-8"), _project_version())
     try:
+        bom = build_bom(args.lock.read_text(encoding="utf-8"), _project_version())
         validate_bom(bom)
     except ValueError as exc:
         print(f"error: generated SBOM is not scannable: {exc}", file=sys.stderr)

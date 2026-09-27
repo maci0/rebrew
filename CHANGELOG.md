@@ -92,8 +92,6 @@
   of the compile stack. `tests/test_errors.py` scans the package for a
   `RebrewError` subclass missing from that map, so the next added error
   cannot ship without its re-export.
-
-### Fixed
 - **A CRLF source keeps CRLF in everything written back into it.**
   `split`, `skeleton --append`, and `merge` spliced a hardcoded `"\n"`
   separator (and an LF-only block, for the append) into the target file, so
@@ -405,6 +403,17 @@
   added to `KNOWN_STATUS` without a mark fails the test that compares the two.
 
 ### Changed
+- **The released SBOM names a license for every component.** `make sbom`
+  emitted a `licenses` field only for the three copyleft entries, so 109 of
+  112 components reached a downstream scanner blank, which reads as
+  public domain. Each pinned artifact's own declared string now lives in
+  `tools/licenses.py` and is emitted per component; the declared text is
+  recorded verbatim rather than rewritten into an SPDX id the upstream never
+  wrote, so a trove classifier stays recognizable as one. `make sbom` refuses
+  to run when the lock and the table disagree, and `tests/test_packaging.py`
+  fails on the same disagreement, so a `uv lock --upgrade` lands with its
+  grant recorded. `NOTICE` gains the `binsync` extra's `declib`
+  (BSD-2-Clause) and names the table.
 - **The threat model names the CI boundary instead of denying it.**
   `docs/THREAT_MODEL.md` claimed the surface had no scheduled jobs. CI does
   have one: `.github/workflows/toolchain-sync.yml` runs
