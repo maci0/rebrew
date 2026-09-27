@@ -40,12 +40,14 @@ def parse_imports(binary_path: Path) -> list[dict[str, Any]]:
             if mod.imports:
                 for imp in mod.imports:
                     name = imp.name if imp.name is not None else f"ordinal_{imp.ordinal}"
-                    ne_out.append({"dll": mod.module, "name": name, "iat_va": 0})
+                    ne_out.append(
+                        {"dll": mod.module, "name": name, "iat_va": 0, "ordinal": None}
+                    )
             else:
                 # Module reference with no per-API detail (many Win16 binaries
                 # carry no classic import table) — still report the module so
                 # the DLL set is visible.
-                ne_out.append({"dll": mod.module, "name": "", "iat_va": 0})
+                ne_out.append({"dll": mod.module, "name": "", "iat_va": 0, "ordinal": None})
         return ne_out
 
     import lief
@@ -110,7 +112,9 @@ def elf_import_records(elf: Any) -> list[dict[str, Any]]:
         for entry in elf.dynamic_entries
         if entry.tag == lief.ELF.DynamicEntry.TAG.NEEDED
     ]
-    out: list[dict[str, Any]] = [{"dll": library, "name": "", "iat_va": 0} for library in libraries]
+    out: list[dict[str, Any]] = [
+        {"dll": library, "name": "", "iat_va": 0, "ordinal": None} for library in libraries
+    ]
     slots = _elf_import_slots(elf)
     versions = _elf_version_libraries(elf)
     for symbol in elf.imported_symbols:
@@ -122,6 +126,7 @@ def elf_import_records(elf: Any) -> list[dict[str, Any]]:
                 "dll": versions.get(_elf_symbol_version(symbol), ""),
                 "name": name,
                 "iat_va": slots.get(name, 0),
+                "ordinal": None,
             }
         )
     return out
