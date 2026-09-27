@@ -113,6 +113,18 @@ REBREW_SKILLS_DIR_ENV = "REBREW_SKILLS_DIR"
 """Env var naming a directory of user/community skills (one SKILL.md dir per
 skill).  Unset means packaged skills only."""
 
+REBREW_FLIRT_SIGS_DIR_ENV = "REBREW_FLIRT_SIGS_DIR"
+"""Env var naming the rebrew-flirt-sigs checkout (``*.sig``/``*.pat`` files).
+
+Absent from the environment the sibling checkout is used.  A wrong value here
+is the quiet kind of misconfiguration: the loader skips a directory that is not
+one, so signature matching silently runs on fewer patterns."""
+
+REBREW_PROJECTS_ROOT_ENV = "REBREW_PROJECTS_ROOT"
+"""Env var naming the directory ``tools/audit_projects.py`` scans.  Without it
+the audit walks the parent of the rebrew checkout, so a wrong value reports
+zero projects rather than failing."""
+
 # ---------------------------------------------------------------------------
 # Canonical filename for the function structure cache
 # ---------------------------------------------------------------------------
@@ -1269,6 +1281,7 @@ def _env_knob_parsers() -> tuple[tuple[str, Callable[[str], None]], ...]:
     Imports are deferred: ``rebrew.utils`` imports this module, so a
     top-level import would be a cycle.
     """
+    from rebrew.toolchain_paths import TOOLCHAINS_DIR_ENV
     from rebrew.utils import container_runtime
 
     def _container_runtime(raw: str) -> None:
@@ -1282,9 +1295,12 @@ def _env_knob_parsers() -> tuple[tuple[str, Callable[[str], None]], ...]:
 
     return (
         ("REBREW_CONTAINER_RUNTIME", _container_runtime),
+        (REBREW_FLIRT_SIGS_DIR_ENV, partial(check_env_dir, REBREW_FLIRT_SIGS_DIR_ENV)),
         ("REBREW_LOG_LEVEL", _log_level),
+        (REBREW_PROJECTS_ROOT_ENV, partial(check_env_dir, REBREW_PROJECTS_ROOT_ENV)),
         ("REBREW_SKILLS_DIR", partial(check_env_dir, REBREW_SKILLS_DIR_ENV)),
-        ("REBREW_TOOLCHAIN_OVERLAY_DIR", partial(check_env_dir, TOOLCHAIN_OVERLAY_ENV)),
+        (TOOLCHAIN_OVERLAY_ENV, partial(check_env_dir, TOOLCHAIN_OVERLAY_ENV)),
+        (TOOLCHAINS_DIR_ENV, partial(check_env_dir, TOOLCHAINS_DIR_ENV)),
         ("REBREW_WINEPREFIX", check_env_wineprefix),
         ("REBREW_WINE_HEADLESS", _wine_headless),
     )

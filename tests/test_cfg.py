@@ -66,6 +66,11 @@ def _make_project(tmp_path: Path, toml_content: str = SAMPLE_TOML) -> Path:
     return tmp_path
 
 
+def _dir(path: Path) -> Path:
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
 # ---------------------------------------------------------------------------
 # load_toml / save_toml
 # ---------------------------------------------------------------------------
@@ -1658,11 +1663,20 @@ class TestCLIEffective:
         monkeypatch.chdir(tmp_path)
         monkeypatch.setenv("REBREW_WINEPREFIX", "relative/prefix")
         monkeypatch.setenv("REBREW_SKILLS_DIR", str(tmp_path / "absent"))
+        monkeypatch.setenv("REBREW_FLIRT_SIGS_DIR", str(tmp_path / "absent"))
+        monkeypatch.setenv("REBREW_PROJECTS_ROOT", str(tmp_path / "absent"))
+        monkeypatch.setenv("REBREW_TOOLCHAINS_DIR", str(tmp_path / "absent"))
         result = runner.invoke(cfg_app, ["effective", "--json"])
         assert result.exit_code == 0
         errors = json.loads(result.stdout)["env_errors"]
         assert "absolute" in errors["REBREW_WINEPREFIX"]
-        assert "not a directory" in errors["REBREW_SKILLS_DIR"]
+        for name in (
+            "REBREW_SKILLS_DIR",
+            "REBREW_FLIRT_SIGS_DIR",
+            "REBREW_PROJECTS_ROOT",
+            "REBREW_TOOLCHAINS_DIR",
+        ):
+            assert "not a directory" in errors[name], name
 
     def test_good_path_env_knobs_report_no_errors(self, tmp_path: Path, monkeypatch) -> None:
         _make_project(tmp_path, '[project]\ndefault_target = "server.dll"\n\n' + SAMPLE_TOML)
@@ -1699,9 +1713,9 @@ class TestCLIEffective:
         knobs = {
             "REBREW_RECOMPILE_URL": "http://localhost:8000",
             "REBREW_LLM_API_KEY": "s3cret",
-            "REBREW_TOOLCHAINS_DIR": str(tmp_path / "toolchains"),
+            "REBREW_TOOLCHAINS_DIR": str(_dir(tmp_path / "toolchains")),
             "REBREW_CONTAINER_RUNTIME": "podman",
-            "REBREW_SKILLS_DIR": str(tmp_path / "skills"),
+            "REBREW_SKILLS_DIR": str(_dir(tmp_path / "skills")),
         }
         for name, value in knobs.items():
             monkeypatch.setenv(name, value)

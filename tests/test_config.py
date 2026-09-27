@@ -2169,6 +2169,26 @@ class TestEnvKnobValidators:
             "REBREW_WINEPREFIX": "relative/prefix",
             "REBREW_LOG_LEVEL": "chatty",
             "REBREW_TOOLCHAINS_DIR": str(tmp_path / "absent"),
+            "REBREW_FLIRT_SIGS_DIR": str(tmp_path / "absent"),
+            "REBREW_PROJECTS_ROOT": str(tmp_path / "absent"),
         }
         errors = env_knob_errors(env)
-        assert set(errors) == {"REBREW_WINEPREFIX", "REBREW_LOG_LEVEL"}
+        assert set(errors) == {
+            "REBREW_WINEPREFIX",
+            "REBREW_LOG_LEVEL",
+            "REBREW_TOOLCHAINS_DIR",
+            "REBREW_FLIRT_SIGS_DIR",
+            "REBREW_PROJECTS_ROOT",
+        }
+
+    def test_unset_path_knob_is_not_an_error(self, tmp_path: Path) -> None:
+        """A path knob the operator never set stays unvalidated.
+
+        An absent REBREW_TOOLCHAINS_DIR means "the sibling checkout, if there
+        is one": rebrew runs from a snapshot with no sibling, so a knob that
+        defaults to missing must not report a missing default.
+        """
+        from rebrew.config import env_knob_errors
+
+        assert env_knob_errors({"REBREW_TOOLCHAINS_DIR": "  "}) == {}
+        assert env_knob_errors({}) == {}

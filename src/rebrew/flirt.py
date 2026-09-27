@@ -19,6 +19,7 @@ import typer
 
 from rebrew.binary_loader import load_binary
 from rebrew.cli import TargetOption, console, error_exit, json_print, parse_va, require_config
+from rebrew.config import REBREW_FLIRT_SIGS_DIR_ENV, ConfigError, check_env_dir
 from rebrew.utils import atomic_write_bytes, read_json_text
 
 _MAX_FUNC_SCAN = 4096
@@ -35,7 +36,7 @@ def _flirt_sigs_repo() -> Path:
     rebrew-toolchains; overridable via REBREW_FLIRT_SIGS_DIR.  Project-specific
     sigs stay in the project's own ``flirt_sigs/`` and are merged on top.
     """
-    env = os.environ.get("REBREW_FLIRT_SIGS_DIR", "").strip()
+    env = os.environ.get(REBREW_FLIRT_SIGS_DIR_ENV, "").strip()
     if env:
         return Path(env)
     return Path(__file__).resolve().parents[2].parent / "rebrew-flirt-sigs"
@@ -538,12 +539,12 @@ def main(
         repo_dir = _flirt_sigs_repo()
         # Same strip() _flirt_sigs_repo applies, so a whitespace-only export
         # is "unset" here too and cannot be reported as a bad path.
-        sigs_env = os.environ.get("REBREW_FLIRT_SIGS_DIR", "").strip()
-        if sigs_env and not repo_dir.is_dir():
-            error_exit(
-                f"REBREW_FLIRT_SIGS_DIR={repo_dir} is not a directory",
-                json_mode=json_output,
-            )
+        sigs_env = os.environ.get(REBREW_FLIRT_SIGS_DIR_ENV, "").strip()
+        if sigs_env:
+            try:
+                check_env_dir(REBREW_FLIRT_SIGS_DIR_ENV, sigs_env)
+            except ConfigError as exc:
+                error_exit(str(exc), json_mode=json_output)
         sigs = load_signatures_for([project_dir, repo_dir], arch)
         sig_sources = [str(project_dir), str(repo_dir)]
     if not sigs:

@@ -18,7 +18,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from rebrew.annotation import parse_c_file_multi
 from rebrew.catalog.loaders import load_function_structure
 from rebrew.compile import resolve_cl_command
-from rebrew.config import FUNCTION_STRUCTURE_JSON, load_config
+from rebrew.config import (
+    FUNCTION_STRUCTURE_JSON,
+    REBREW_PROJECTS_ROOT_ENV,
+    ConfigError,
+    check_env_dir,
+    load_config,
+)
 from rebrew.data_metadata import load_data_metadata
 from rebrew.metadata import load_metadata
 from rebrew.toolchain import TOOLCHAINS
@@ -29,15 +35,18 @@ def _default_root() -> Path:
     """Projects root: --root / REBREW_PROJECTS_ROOT, else the repo's parent dir.
 
     A whitespace-only value is "unset": ``Path(" ")`` would otherwise audit
-    a directory named after a space, silently.
+    a directory named after a space, silently.  Read per call, not at import,
+    so the audit sees the environment it runs under.
     """
-    env = os.environ.get("REBREW_PROJECTS_ROOT", "").strip()
-    if env:
-        return Path(env).expanduser()
-    return Path(__file__).resolve().parents[2]
-
-
-ROOT = _default_root()
+    env = os.environ.get(REBREW_PROJECTS_ROOT_ENV, "").strip()
+    if not env:
+        return Path(__file__).resolve().parents[2]
+    root = Path(env).expanduser()
+    try:
+        check_env_dir(REBREW_PROJECTS_ROOT_ENV, env)
+    except ConfigError as exc:
+        raise SystemExit(f"audit_projects: {exc}") from exc
+    return root
 
 
 def check_functions_txt(ft: Path) -> list[str]:
@@ -207,4 +216,4 @@ def main(argv: list[str] | None = None) -> int:
 if __name__ == "__main__":
     sys.exit(main())
 
-__all__ = ["ROOT", "main"]
+__all__ = ["main"]

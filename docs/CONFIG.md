@@ -589,12 +589,16 @@ set `[llm] endpoint` / `model` still wins over the matching env var, while
 `REBREW_LLM_API_KEY` and `REBREW_RECOMPILE_URL` win over TOML.
 
 `env_errors` covers the knobs no command reads until the moment of use
-(`REBREW_CONTAINER_RUNTIME`, `REBREW_LOG_LEVEL`, `REBREW_WINE_HEADLESS`,
-`REBREW_SKILLS_DIR`, `REBREW_TOOLCHAIN_OVERLAY_DIR`, `REBREW_WINEPREFIX`),
-which a mistyped value would otherwise report as a spawn failure from inside a
-compile. The message is the one the code that reads the knob raises, so a name
-listed here is unusable for the next command that touches it. A directory knob
-absent from the environment is not an error.
+(`REBREW_CONTAINER_RUNTIME`, `REBREW_FLIRT_SIGS_DIR`, `REBREW_LOG_LEVEL`,
+`REBREW_PROJECTS_ROOT`, `REBREW_SKILLS_DIR`, `REBREW_TOOLCHAIN_OVERLAY_DIR`,
+`REBREW_TOOLCHAINS_DIR`, `REBREW_WINE_HEADLESS`, `REBREW_WINEPREFIX`), which a
+mistyped value would otherwise report as a spawn failure from inside a compile,
+or (for the two path knobs the consumers skip) as silently reduced output: a
+`REBREW_FLIRT_SIGS_DIR` that is not a directory drops every standard-library
+signature and a `REBREW_PROJECTS_ROOT` that is not a directory audits nothing.
+The message is the one the code that reads the knob raises, so a name listed
+here is unusable for the next command that touches it. A directory knob absent
+from the environment is not an error.
 
 ## Compiler profiles from `rebrew init`
 

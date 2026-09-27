@@ -36,6 +36,8 @@ _NOT_ENV_VARS = frozenset(
         "REBREW_LINK_EXE",
         "REBREW_LLM_",
         "REBREW_NAKED",
+        "REBREW_FLIRT_SIGS_DIR_ENV",
+        "REBREW_PROJECTS_ROOT_ENV",
         "REBREW_SKILLS_DIR_ENV",
         "REBREW_SOURCES",
         "REBREW_STATE_VERSION",

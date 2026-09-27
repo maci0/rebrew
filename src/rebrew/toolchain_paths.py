@@ -11,6 +11,10 @@ from pathlib import Path
 
 TOOLCHAINS_REPO_URL = "https://github.com/maci0/rebrew-toolchains"
 
+TOOLCHAINS_DIR_ENV = "REBREW_TOOLCHAINS_DIR"
+"""Env var overriding the rebrew-toolchains checkout location.  Unset means the
+sibling directory next to this repo."""
+
 
 def toolchains_repo() -> Path:
     """Root of the standalone rebrew-toolchains docker build source.
@@ -28,7 +32,7 @@ def toolchains_repo() -> Path:
     :func:`rebrew.toolchain.require_toolchains_repo`, which raises the
     actionable error.
     """
-    env = os.environ.get("REBREW_TOOLCHAINS_DIR", "").strip()
+    env = os.environ.get(TOOLCHAINS_DIR_ENV, "").strip()
     if env:
         return Path(env)
     for parent in Path(__file__).resolve().parents:

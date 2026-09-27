@@ -191,6 +191,18 @@
   `match_count / total` and fell back to `0.0` when a caller supplied neither,
   overwriting the last real measurement; `delta` already kept the cached value
   in that case. Both fields now fall back the same way.
+- **A mistyped path env knob is reported, not silently ignored.**
+  `REBREW_FLIRT_SIGS_DIR`, `REBREW_TOOLCHAINS_DIR` and `REBREW_PROJECTS_ROOT`
+  were the only directory-valued knobs without a check, and the first two fail
+  quietly: the signature loader skips a directory that is not one, so
+  `rebrew flirt` matched against a smaller pattern set than intended, and the
+  projects audit walks a tree it never checked, so it reported "0 projects" for
+  a root that did not exist. All three now go through `check_env_dir` (the
+  validator `REBREW_SKILLS_DIR` and `REBREW_TOOLCHAIN_OVERLAY_DIR` already
+  use), so `rebrew flirt` and `tools/audit_projects.py` name the bad value,
+  and `rebrew cfg effective` lists them under `env_errors` beside the other
+  use-time knobs. An unset variable stays unvalidated, so a rebrew without the
+  sibling `rebrew-toolchains` checkout still runs.
 - **The dashboard OpenAPI spec matches what the server actually does.**
   Three contracts a client generates from `docs/dashboard-api.yaml` were
   wrong or missing:
