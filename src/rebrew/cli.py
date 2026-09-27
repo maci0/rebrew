@@ -27,11 +27,15 @@ import unicodedata
 import warnings
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Literal, NoReturn
+from typing import Any, Literal, NoReturn, override
 
 import typer
 from rich.console import Console
 from rich.markup import escape
+from typer._click.core import Command as TyperBaseCommand
+from typer._click.core import Context as TyperContext
+from typer._click.core import Parameter as TyperParameter
+from typer.core import TyperGroup, TyperOption
 
 from rebrew.annotation import Annotation, parse_c_file_multi
 from rebrew.config import ConfigWarning, ProjectConfig, load_config
@@ -279,6 +283,69 @@ def _standalone_command_kwargs(main: Any) -> dict[str, Any]:
     }
 
 
+#: Help text for the option :func:`add_version_option` attaches everywhere.
+VERSION_HELP = "Show version and exit."
+
+
+def _print_version(ctx: TyperContext, param: TyperParameter, value: bool) -> None:
+    """Eager ``--version`` callback: print ``rebrew <version>`` and exit 0.
+
+    The module's ``__version__``, not ``importlib.metadata``: the installed
+    metadata is baked at install time, so in an editable checkout it drifts
+    from the code that is actually running.
+    """
+    if not value or ctx.resilient_parsing:
+        return
+    from rebrew import __version__
+
+    Console().print(f"rebrew {__version__}")
+    ctx.exit(EXIT_OK)
+
+
+def add_version_option(cmd: TyperBaseCommand) -> TyperBaseCommand:
+    """Give *cmd* a ``--version`` / ``-V`` flag unless it declares one.
+
+    The umbrella's ``rebrew --version`` covers the group, but each tool also
+    ships as its own console script (``rebrew-diff``, ``rebrew-test``, …), and
+    asking one of those for its version got click's ``No such option:
+    --version`` and exit 2.  Injected as an eager, ``expose_value=False``
+    Typer option so the tool callbacks keep their own signatures: no wrapper,
+    no re-annotated copy of every command.  Groups recurse, so
+    ``rebrew binsync push --version`` works like the flat form.
+    """
+    if any("--version" in param.opts for param in cmd.params):
+        return cmd
+    cmd.params.append(
+        TyperOption(
+            param_decls=["--version", "-V"],
+            is_flag=True,
+            is_eager=True,
+            expose_value=False,
+            callback=_print_version,
+            help=VERSION_HELP,
+        )
+    )
+    for sub in getattr(cmd, "commands", {}).values():
+        add_version_option(sub)
+    return cmd
+
+
+class VersionedGroup(TyperGroup):
+    """Umbrella group offering ``--version`` on every subcommand.
+
+    The umbrella registers its commands from the plugin component graph at
+    startup, so ``run_cli``'s eager walk of ``cmd.commands`` runs before they
+    exist.  Hooking ``get_command`` covers them the moment click resolves one,
+    which is also what makes ``rebrew diff --version`` work next to the
+    group-level ``rebrew --version``.
+    """
+
+    @override
+    def get_command(self, ctx: TyperContext, name: str) -> TyperBaseCommand | None:
+        cmd = super().get_command(ctx, name)
+        return None if cmd is None else add_version_option(cmd)
+
+
 def run_standalone(main: Any) -> None:
     """Run a module's ``main`` callback as a plain command on a fresh app.
 
@@ -337,12 +404,23 @@ def run_cli(app: Callable[[], Any]) -> None:
     - Ctrl+C: ``EXIT_INTERRUPTED``
     - ``ConfigWarning`` stays out of Python's warning display: ``_config_warn``
       already printed it to stderr
+
+    A :class:`typer.Typer` argument is converted to its click command first so
+    every entry point — umbrella, flat tool, group subcommand — gets the
+    shared ``--version`` flag from :func:`add_version_option`.
     """
     warnings.simplefilter("ignore", ConfigWarning)
+
+    def entry() -> None:
+        if isinstance(app, typer.Typer):
+            add_version_option(typer.main.get_command(app))()
+        else:
+            app()
+
     stdout_was_fifo = _stdout_is_fifo()
     try:
         try:
-            app()
+            entry()
         except SystemExit as exc:
             if exc.code == EXIT_MISMATCH and _stdout_pipe_closed(stdout_was_fifo):
                 raise BrokenPipeError from None
@@ -595,6 +673,9 @@ __all__ = [
     "EXIT_OK",
     "EXIT_SIGPIPE",
     "TargetOption",
+    "VERSION_HELP",
+    "VersionedGroup",
+    "add_version_option",
     "all_targets_run",
     "confirm_abort",
     "console",

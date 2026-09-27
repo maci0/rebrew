@@ -55,7 +55,19 @@ from rebrew.sources import target_marker
 from rebrew.utils import atomic_write_text, read_source_text
 
 app = typer.Typer(
-    help="Deterministic single-statement hill-climb for one function.", rich_markup_mode="rich"
+    help="Deterministic single-statement hill-climb for one function.",
+    rich_markup_mode="rich",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew climb src/f.c · · · · · · · · · · Hill-climb one function in place\n\n"
+        "  rebrew climb src/f.c --dry-run · · · · · Report the winning edits, write nothing\n\n"
+        "  rebrew climb src/f.c --passes 200 · · · · Longer search before giving up\n\n"
+        "  rebrew climb src/f.c --json · · · · · · · Machine-readable pass log to stdout\n\n"
+        "[bold]Exit codes:[/bold]\n\n"
+        "  0   The climb finished (report the matched-byte delta on stderr)\n\n"
+        "  2   Build or config error (also a usage error: unknown flag, missing argument)\n\n"
+        "[dim]130 = interrupted (Ctrl+C), 141 = stdout closed early (piped into head).[/dim]"
+    ),
 )
 
 # ---------------------------------------------------------------------------

@@ -44,6 +44,17 @@ from rebrew.utils import atomic_write_text, filename_component, read_source_text
 app = typer.Typer(
     help="Sweep declaration qualifiers over one function, keeping winners.",
     rich_markup_mode="rich",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew qual-sweep src/f.c · · · · · · · · Try every qualifier set, keep winners\n\n"
+        "  rebrew qual-sweep src/f.c --rounds 5 · · · Re-sweep until the result stops changing\n\n"
+        "  rebrew qual-sweep src/f.c --dry-run · · · Report the winning declaration, write nothing\n\n"
+        "  rebrew qual-sweep src/f.c --json · · · · · · Machine-readable winner table to stdout\n\n"
+        "[bold]Exit codes:[/bold]\n\n"
+        "  0   The sweep finished (report the winner on stderr)\n\n"
+        "  2   Build or config error (also a usage error: unknown flag, missing argument)\n\n"
+        "[dim]130 = interrupted (Ctrl+C), 141 = stdout closed early (piped into head).[/dim]"
+    ),
 )
 
 #: (label, pattern, replacement) — each must keep the declaration legal and
