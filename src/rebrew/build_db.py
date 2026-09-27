@@ -878,10 +878,16 @@ def _create_schema(c: sqlite3.Cursor, target: str | None) -> None:
         # last-verified target's (re-imported below from
         # verify_results.json).  The per-target INSERT OR REPLACE + prune
         # below keeps it current without the drop.
-        # v3-era index superseded by idx_history_target_id — history is
-        # never dropped (accumulates by design), so remove the dead index
-        # explicitly or it survives every rebuild.
-        c.execute("DROP INDEX IF EXISTS idx_history_target_va")
+
+    # v3-era index superseded by idx_history_target_id, which this module
+    # creates below.  history is never dropped (it accumulates by design), so
+    # the dead index outlives the rebuild that made it dead unless it is
+    # dropped explicitly.  Outside the full-rebuild branch on purpose: a
+    # scoped --target rebuild keeps the history table and its indexes, so
+    # dropping it only there left the dead index in place — and paying its
+    # write cost on every history insert — for exactly the builds that append
+    # the most rows.
+    c.execute("DROP INDEX IF EXISTS idx_history_target_va")
 
     c.execute(f"""
         CREATE TABLE IF NOT EXISTS functions (

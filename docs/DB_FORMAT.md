@@ -122,7 +122,7 @@ Represents chunks (cells) of memory to be rendered in the UI coverage map.
 |---|---|---|
 | `id` | `INTEGER` | Auto-increment primary key. |
 | `target` | `TEXT` | The binary target. |
-| `section_name` | `TEXT` | The section this cell belongs to. Indexed. |
+| `section_name` | `TEXT` | The section this cell belongs to. Leftmost-but-one column of the `UNIQUE (target, section_name, start)` constraint that indexes it. |
 | `start` | `INTEGER` | Start offset of the cell (relative to section start). |
 | `end` | `INTEGER` | End offset of the cell (relative to section start). |
 | `span` | `INTEGER` | Width of the cell in grid units. |
@@ -138,19 +138,40 @@ Represents chunks (cells) of memory to be rendered in the UI coverage map.
 
 #### Cell States
 
-| State | Description | Color in UI |
-|-------|-------------|-------------|
-| `none` | Uncovered / unmatched region | Gray |
-| `exact` | Byte-identical match | Green |
-| `reloc` | Match after relocation normalization | Cyan |
-| `near_matching` / `near_match` | Functionally matching (not byte-identical) | Yellow |
-| `proven` | PROVEN status (semantic equivalence, bytes differ) | Bold cyan |
-| `size_mismatch` | SIZE_MISMATCH status | Yellow |
-| `compile_error`, `missing_file`, `missing_size`, `skip`, `unknown` | Error/other states (counted in `other_count`) | Red/Dim |
-| `stub` | Stub implementation (placeholder) | Red |
-| `padding` | NOP/INT3 alignment padding | Silver |
-| `data` | Non-code data in .text (residual switch tables, etc.) | Purple |
-| `thunk` | IAT thunk stub (not reversible) | Orange |
+The CHECK vocabulary is derived, not hand-listed: `KNOWN_STATUSES` lowercased,
+unioned with the gap/label states and the data-metadata verdicts
+(`_KNOWN_CELL_STATES` in `build_db.py`). Adding an annotation `STATUS` therefore
+widens the CHECK without a schema bump. The table below is the full set;
+`tests/test_build_db.py::TestCellStateVocabulary` fails if it and the CHECK drift
+apart.
+
+| State | Description | Bucket in `section_cell_stats` | Color in UI |
+|-------|-------------|------------------------------|-------------|
+| `none` | Uncovered / unmatched region | `none_count` | Gray |
+| `exact` | Byte-identical match | `exact_count` | Green |
+| `verified` | Data verdict `VERIFIED` (`rebrew verify --data`) | `exact_count` | Green |
+| `reloc` | Match after relocation normalization | `reloc_count` | Cyan |
+| `near_matching` / `near_match` | Functionally matching (not byte-identical) | `near_match_count` | Yellow |
+| `proven` | PROVEN status (semantic equivalence, bytes differ) | `proven_count` | Bold cyan |
+| `size_mismatch` | SIZE_MISMATCH status | `size_mismatch_count` | Yellow |
+| `stub` | Stub implementation (placeholder) | `stub_count` | Red |
+| `padding` | NOP/INT3 alignment padding | `padding_count` | Silver |
+| `data` | Non-code data in .text (residual switch tables, etc.) | `data_count` | Purple |
+| `thunk` | IAT thunk stub (not reversible) | `thunk_count` | Orange |
+| `skip` | Parked by annotation | `other_count` | Red/Dim |
+| `unknown` | Unset or unrecognized (the insert-path coercion target) | `other_count` | Red/Dim |
+| `compile_error` | The compile step failed | `other_count` | Red/Dim |
+| `extract_error` | No bytes could be extracted for the VA | `other_count` | Red/Dim |
+| `missing_size` | Target size unknown | `other_count` | Red/Dim |
+| `missing_file` | Source file missing | `other_count` | Red/Dim |
+| `invalid_va` | VA below the arch-aware floor | `other_count` | Red/Dim |
+| `drift` | Data verdict `DRIFT`: the recompiled bytes no longer match | `other_count` | Red/Dim |
+| `unchecked` | Data verdict `UNCHECKED` | `other_count` | Red/Dim |
+
+`other_count` is a catch-all, not a fixed list: its `NOT IN (...)` term
+(`_SECTION_CELL_STATS_SELECT`) enumerates the named buckets above, so any state
+added later lands there and `total_cells` keeps equalling the sum of the
+counted columns.
 
 ### `metadata` Table
 Stores arbitrary target-specific key-value pairs. Primary Key is `(target, key)`. Values are serialized JSON.
