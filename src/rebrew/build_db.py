@@ -195,26 +195,39 @@ _SQLITE_TIMEOUT_SECONDS = 30.0
 #: is > 0, so a stray 0 would abort the whole rebuild).
 _DEFAULT_GRID_GEOMETRY = 64
 
+#: SQLite stores INTEGERs in 8 bytes and the driver raises ``OverflowError``
+#: for anything wider, so a JSON number past this range is a malformed row,
+#: not a storable one.
+_SQLITE_INT_MAX = 2**63 - 1
+_SQLITE_INT_MIN = -(2**63)
+
 
 def _parse_int(value: Any, default: int = 0) -> int:
-    """Parse an integer from JSON-ish input, returning *default* on invalid values."""
+    """Parse an integer from JSON-ish input, returning *default* on invalid values.
+
+    A value outside SQLite's 64-bit INTEGER range is out of range for every
+    column it feeds, and the driver rejects it with ``OverflowError``, so it
+    takes the same path as any other unusable value: *default*.
+    """
     if isinstance(value, bool):
         return default
     if isinstance(value, int):
-        return value
-    if isinstance(value, float):
+        parsed = value
+    elif isinstance(value, float):
         if not math.isfinite(value) or not value.is_integer():
             return default
-        return int(value)
-    if isinstance(value, str):
+        parsed = int(value)
+    elif isinstance(value, str):
         s = value.strip()
         if not s:
             return default
         try:
-            return int(s, 0)
+            parsed = int(s, 0)
         except ValueError:
             return default
-    return default
+    else:
+        return default
+    return parsed if _SQLITE_INT_MIN <= parsed <= _SQLITE_INT_MAX else default
 
 
 def _clamp_nonneg_int(value: Any) -> int | None:
@@ -225,25 +238,30 @@ def _clamp_nonneg_int(value: Any) -> int | None:
     bound (``max(0, min(1, nan))`` → ``1``), which would invent a delta.
     Non-integral floats (``12.9``, ``-1.5``) are also rejected: ``int()``
     truncates toward zero and would store a wrong byte_delta (``12`` for
-    ``12.9``, or ``0`` after clamping a truncated ``-1``).
+    ``12.9``, or ``0`` after clamping a truncated ``-1``).  A value past
+    SQLite's INTEGER ceiling is rejected, as :func:`_parse_int` drops it.
     """
     if value is None or isinstance(value, bool):
         return None
     if isinstance(value, int):
-        return max(0, value)
-    if isinstance(value, float):
+        parsed = value
+    elif isinstance(value, float):
         if not math.isfinite(value) or not value.is_integer():
             return None
-        return max(0, int(value))
-    if isinstance(value, str):
+        parsed = int(value)
+    elif isinstance(value, str):
         s = value.strip()
         if not s:
             return None
         try:
-            return max(0, int(s, 0))
+            parsed = int(s, 0)
         except ValueError:
             return None
-    return None
+    else:
+        return None
+    if parsed > _SQLITE_INT_MAX:
+        return None
+    return max(0, parsed)
 
 
 def _positive_int_or(value: Any, default: int) -> int:
@@ -251,9 +269,11 @@ def _positive_int_or(value: Any, default: int) -> int:
 
     ``bool`` is rejected on its own: it subclasses ``int``, so ``True``
     passes both an ``isinstance(..., int)`` and a ``> 0`` guard and would
-    land as a 1-byte grid cell, one cell per byte of the section.
+    land as a 1-byte grid cell, one cell per byte of the section.  A value
+    past SQLite's INTEGER ceiling is rejected for the reason
+    :func:`_parse_int` drops it.
     """
-    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+    if isinstance(value, bool) or not isinstance(value, int) or not 0 < value <= _SQLITE_INT_MAX:
         return default
     return value
 

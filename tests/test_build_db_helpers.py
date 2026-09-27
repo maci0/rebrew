@@ -33,6 +33,14 @@ class TestParseInt:
         assert _parse_int("zzz", default=7) == 7
         assert _parse_int(None, default=3) == 3
 
+    def test_rejects_beyond_sqlite_integer_range(self) -> None:
+        """The driver raises OverflowError past 2**63-1, aborting the rebuild."""
+        assert _parse_int(2**63, default=7) == 7
+        assert _parse_int(str(2**63), default=7) == 7
+        assert _parse_int(1e30, default=7) == 7
+        assert _parse_int(-(2**63) - 1, default=7) == 7
+        assert _parse_int(2**63 - 1) == 2**63 - 1
+
 
 class TestClampNonnegInt:
     def test_rejects_nonfinite_floats(self) -> None:
@@ -53,6 +61,12 @@ class TestClampNonnegInt:
     def test_clamps_negative(self) -> None:
         assert _clamp_nonneg_int(-3) == 0
         assert _clamp_nonneg_int(-4.0) == 0
+
+    def test_rejects_beyond_sqlite_integer_range(self) -> None:
+        assert _clamp_nonneg_int(2**63) is None
+        assert _clamp_nonneg_int(str(2**63)) is None
+        assert _clamp_nonneg_int(1e30) is None
+        assert _clamp_nonneg_int(2**63 - 1) == 2**63 - 1
 
 
 class TestClampUnitInterval:
