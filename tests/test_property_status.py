@@ -194,7 +194,8 @@ class TestVocabularyCoverage:
     """Every KNOWN_STATUS must be covered by the display + gate tables.
 
     The canonical vocabulary lives in rebrew.workspace.status (re-exported
-    by rebrew.metadata); the color table (cli.STATUS_COLORS), the
+    by rebrew.metadata); the color tables (cli.STATUS_COLORS for the
+    terminal, cli.STATUS_HEX for the report/dashboard/call-graph marks), the
     compare-gate ranks (verify._STATUS_RANK / _STATUS_ORDER), and the
     metadata re-export must not silently miss a status (uncolored output,
     fail-open gating).
@@ -207,6 +208,15 @@ class TestVocabularyCoverage:
         missing = set(KNOWN_STATUSES) - set(STATUS_COLORS)
         assert not missing, f"statuses without display color: {missing}"
 
+    def test_hex_marks_cover_known_statuses(self) -> None:
+        from rebrew.cli import STATUS_HEX
+        from rebrew.metadata import KNOWN_STATUSES
+
+        # report/dashboard render ``status-<STATUS>`` for whatever a row
+        # carries, so a status with no STATUS_HEX mark is unstyled ink.
+        missing = set(KNOWN_STATUSES) - set(STATUS_HEX)
+        assert not missing, f"statuses without page mark: {missing}"
+
     def test_gate_ranks_cover_known_statuses(self) -> None:
         from rebrew.metadata import KNOWN_STATUSES
         from rebrew.verify import _STATUS_ORDER, _STATUS_RANK
@@ -217,6 +227,14 @@ class TestVocabularyCoverage:
             missing = set(KNOWN_STATUSES) - set(table)
             assert not missing, f"statuses without gate rank: {missing}"
         assert "INTERNAL_ERROR" in _STATUS_RANK and "INTERNAL_ERROR" in _STATUS_ORDER
+
+    def test_earned_is_matched_plus_proven(self) -> None:
+        from rebrew.workspace.status import EARNED_STATUSES, MATCHED_STATUSES
+
+        # Every "protect the work a reverser earned" caller reads this tuple;
+        # PROVEN is not a byte match but only a new prove run restores it.
+        assert (*MATCHED_STATUSES, "PROVEN") == EARNED_STATUSES
+        assert "PROVEN" not in MATCHED_STATUSES
 
     def test_workspace_mirror_is_identical(self) -> None:
         from rebrew import metadata as _metadata
@@ -235,3 +253,41 @@ class TestVocabularyCoverage:
         # Literal must be exactly the persisted vocabulary plus the one
         # never-persisted tooling verdict.
         assert set(get_args(CompareStatus)) == KNOWN_STATUSES | {"INTERNAL_ERROR"}
+
+
+def _relative_luminance(hex_color: str) -> float:
+    """WCAG relative luminance of ``#rgb`` / ``#rrggbb``."""
+    digits = hex_color.lstrip("#")
+    if len(digits) == 3:
+        digits = "".join(c * 2 for c in digits)
+    channels = [int(digits[i : i + 2], 16) / 255 for i in (0, 2, 4)]
+    linear = [c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4 for c in channels]
+    return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+
+
+def _contrast_ratio(a: str, b: str) -> float:
+    la, lb = _relative_luminance(a), _relative_luminance(b)
+    return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
+
+
+class TestStatusMarkContrast:
+    """cli.STATUS_HEX claims WCAG AA on both surfaces it is used on."""
+
+    def test_text_marks_meet_aa_on_page_surfaces(self) -> None:
+        from rebrew.cli import STATUS_HEX
+
+        # A status mark is body text in the report function table and the
+        # dashboard rows/cards: on the white surface, on the sunken page
+        # background, and on the hover tint.
+        for status, color in STATUS_HEX.items():
+            for surface in ("#ffffff", "#f5f5f5", "#f9f9f9"):
+                ratio = _contrast_ratio(color, surface)
+                assert ratio >= 4.5, f"{status} {color} on {surface}: {ratio:.2f}"
+
+    def test_graph_fills_carry_white_type(self) -> None:
+        from rebrew.cli import STATUS_HEX
+
+        # Mermaid/DOT draw white type on the same value as a node fill.
+        for status, color in STATUS_HEX.items():
+            ratio = _contrast_ratio(color, "#ffffff")
+            assert ratio >= 4.5, f"{status} fill {color} with white type: {ratio:.2f}"

@@ -72,6 +72,7 @@ from rebrew.verify_cache import (
 #: Re-exported for tests/consumers (canonical home: verify_hash).
 from rebrew.verify_hash import _DEFAULT_TOOLCHAIN as _DEFAULT_TOOLCHAIN
 from rebrew.verify_hash import _expected_text_functions
+from rebrew.workspace.status import EARNED_STATUSES
 
 log = logging.getLogger(__name__)
 
@@ -1669,7 +1670,7 @@ def _skip_validated_overcount(ann_size: int, canonical: int, status: str | None)
     can false-EXACT on a prefix.  PROVEN is included for the same reason
     :func:`_partition_size_fixes` protects it.
     """
-    return ann_size > canonical and status in ("EXACT", "RELOC", "PROVEN")
+    return ann_size > canonical and status in EARNED_STATUSES
 
 
 def _partition_size_fixes(
@@ -1697,9 +1698,7 @@ def _partition_size_fixes(
     includes a 5-entry jump table and a 13-byte case map, and 667 is the
     correct value.
     """
-    protected = [
-        f for f in fixes if str(f.get("status", "")).upper() in ("EXACT", "RELOC", "PROVEN")
-    ]
+    protected = [f for f in fixes if str(f.get("status", "")).upper() in EARNED_STATUSES]
     if not protected:
         return fixes, []
     protected_vas = {f["va"] for f in protected}

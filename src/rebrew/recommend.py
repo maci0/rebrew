@@ -44,6 +44,7 @@ from rich.table import Table
 
 from rebrew.cli import TargetOption, console, error_exit, json_print, require_config
 from rebrew.config import ProjectConfig, inventory_path_for
+from rebrew.workspace.status import EARNED_STATUSES
 
 log = logging.getLogger(__name__)
 
@@ -510,14 +511,12 @@ def recommend_cluster_fill(
 def recommend_matched_orphans(
     orphans: list[dict[str, Any]],
 ) -> list[Recommendation]:
-    """Flag earned orphans (:data:`rebrew.orphans.EARNED_STATUSES`) with no marker.
+    """Flag earned orphans (:data:`rebrew.workspace.status.EARNED_STATUSES`) with no marker.
 
     The ``orphans`` lane prunes the safe subset; these are held back because
     deleting them destroys matched work.  The fix is re-attaching a marker,
     never pruning — so they surface here as human-fix items.
     """
-    from rebrew.orphans import EARNED_STATUSES
-
     matched = [o for o in orphans if o.get("status") in EARNED_STATUSES]
     return [
         Recommendation(

@@ -19,12 +19,10 @@ from rebrew.cli import TargetOption, console, error_exit, json_print, require_co
 from rebrew.config import inventory_path_for
 from rebrew.errors import RebrewError
 from rebrew.utils import preset_module_key
-from rebrew.workspace.status import MATCHED_STATUSES
+from rebrew.workspace.status import EARNED_STATUSES
 
-#: STATUS values whose orphaned block records earned work: a byte match,
-#: or a PROVEN result (not a match, but only a new prove run restores it).
-#: ``--prune`` holds these back unless ``--include-matched``.
-EARNED_STATUSES: tuple[str, ...] = (*MATCHED_STATUSES, "PROVEN")
+#: ``--prune`` holds back :data:`EARNED_STATUSES` blocks (a byte match or a
+#: PROVEN result) unless ``--include-matched``.
 
 
 class OrphanInventoryError(RebrewError, RuntimeError):

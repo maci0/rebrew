@@ -74,7 +74,7 @@ for (const staleFailure of [false, true]) {
   assert.equal(element("status").disabled, false);
   assert.match(element("cards").innerHTML, /EXACT/);
   // Button cards: hint only in title (the description), never repeated in the name.
-  assert.match(element("cards").innerHTML, /<button[^>]*title='Filter by EXACT'[^>]*><span class=value>1<\/span><span class='label status-EXACT'>EXACT<\/span><\/button>/);
+  assert.match(element("cards").innerHTML, /<button[^>]*title='Filter by EXACT'[^>]*><span class=value>1<\/span><span class='label st status-EXACT'>EXACT<\/span><\/button>/);
   assert.match(element("cards").innerHTML, /<div class=card title='Total functions for this target'>.*<span class=visually-hidden>, Total functions for this target<\/span><\/div>/);
   const options = element("status").innerHTML;
   const cards = element("cards").innerHTML;
@@ -239,8 +239,8 @@ renderHistory({ total: 3, history: [
   ["0x14", "g", "STUB", "RELOC", "2026-03-04T05:06:00Z"],
   ["0x18", "h", "STUB", "EXACT", "not a date"],
 ] });
-assert.match(element("history-rows").innerHTML, /<span class=status-STUB>STUB<\/span>/);
-assert.match(element("history-rows").innerHTML, /<span class=status-EXACT>EXACT<\/span>/);
-assert.match(element("history-rows").innerHTML, /<span class=status-RELOC>RELOC<\/span>/);
+assert.match(element("history-rows").innerHTML, /<span class=st status-STUB>STUB<\/span>/);
+assert.match(element("history-rows").innerHTML, /<span class=st status-EXACT>EXACT<\/span>/);
+assert.match(element("history-rows").innerHTML, /<span class=st status-RELOC>RELOC<\/span>/);
 const stamps = [...element("history-rows").innerHTML.matchAll(/<td>([^<]*)<\/td><\/tr>/g)].map(m => m[1]);
 assert.deepEqual(stamps, [when("2026-01-02T03:04:05Z"), when("2026-03-04T05:06:00Z"), "not a date"]);
