@@ -1541,13 +1541,7 @@ def _save_report(
         else:
             json_print(report)
 
-        _raise_if_regression(
-            diff_result,
-            failed,
-            text_misplaced=text_misplaced,
-            data_failed=data_failed,
-            whole_failed=whole_failed,
-        )
+        _raise_if_regression(gate_failed)
         return
 
     _print_results(
@@ -1564,13 +1558,7 @@ def _save_report(
         library_total=library_total,
     )
 
-    _raise_if_regression(
-        diff_result,
-        failed,
-        text_misplaced=text_misplaced,
-        data_failed=data_failed,
-        whole_failed=whole_failed,
-    )
+    _raise_if_regression(gate_failed)
 
 
 def _apply_size_fixes(cfg: Any, size_divergences: list[dict[str, Any]], dry_run: bool) -> int:
@@ -1632,25 +1620,13 @@ def _gate_fails(
     return failed > 0
 
 
-def _raise_if_regression(
-    diff_result: dict[str, Any] | None,
-    failed: int,
-    *,
-    text_misplaced: int = 0,
-    data_failed: int = 0,
-    whole_failed: bool = False,
-) -> None:
+def _raise_if_regression(gate_failed: bool) -> None:
     """Raise ``typer.Exit(EXIT_MISMATCH)`` per the CI regression gate.
 
-    Shared gate logic lives in :func:`_gate_fails`; this raises on it.
+    Takes the verdict :func:`_gate_fails` already produced for this run, so
+    the gate is evaluated once rather than re-scanned at every raise site.
     """
-    if _gate_fails(
-        diff_result,
-        failed,
-        text_misplaced=text_misplaced,
-        data_failed=data_failed,
-        whole_failed=whole_failed,
-    ):
+    if gate_failed:
         raise typer.Exit(code=EXIT_MISMATCH)
 
 
@@ -1659,15 +1635,20 @@ def _raise_if_regression(
 # ---------------------------------------------------------------------------
 
 
+#: Functions start on a 16-byte boundary, so the canonical size is the
+#: annotation length rounded up to the next multiple of this.
+_FUNCTION_ALIGNMENT = 16
+
+
 def _alignment_padding(ann_size: int, canonical: int) -> bool:
     """Whether the canonical size is just the annotation rounded up to the
     next 16-byte function-alignment boundary (functions start 16-aligned, so
     the function-list extent includes the trailing pad). The annotation is the
     true code length and the two agree on the code; this is not a divergence."""
+    if ann_size >= canonical:
+        return False  # only a trailing pad counts, never a shorter annotation
     pad = canonical - ann_size
-    if not (0 < pad <= 15):
-        return False
-    return (ann_size + pad) % 16 == 0
+    return pad < _FUNCTION_ALIGNMENT and canonical % _FUNCTION_ALIGNMENT == 0
 
 
 def _skip_validated_overcount(ann_size: int, canonical: int, status: str | None) -> bool:
@@ -2298,7 +2279,7 @@ def run_verification(
                 # memory stays proportional to the worker count, not the corpus.
                 futures: dict[concurrent.futures.Future[Any], Annotation] = {}
                 entry_iter = iter(entries_to_verify)
-                for _ in range(min(effective_jobs, len(entries_to_verify))):
+                for _ in range(effective_jobs):
                     with contextlib.suppress(StopIteration):
                         e = next(entry_iter)
                         futures[pool.submit(_verify, e)] = e
@@ -2327,17 +2308,7 @@ def run_verification(
                                     f"[yellow]warning:[/yellow] internal error verifying "
                                     f"{getattr(entry, 'name', '?')}: {exc}"
                                 )
-                            from rebrew.compile import CompareResult
-
-                            result = CompareResult(
-                                matched=False,
-                                status="INTERNAL_ERROR",
-                                match_percent=0.0,
-                                delta=0,
-                                obj_bytes=None,
-                                reloc_offsets=None,
-                                message=f"INTERNAL_ERROR: {exc}",
-                            )
+                            result = _failed_result("INTERNAL_ERROR", f"INTERNAL_ERROR: {exc}")
                         # Refill the pool slot with the next entry (if any).
                         with contextlib.suppress(StopIteration):
                             e = next(entry_iter)

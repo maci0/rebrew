@@ -423,6 +423,8 @@ def patch_verify_cache_entries(cfg: ProjectConfig, patches: list[dict[str, Any]]
             return
 
         entries = raw.get("entries", {})
+        if not isinstance(entries, dict):
+            return  # Corrupt document: the loader's own shape check, on the write path
         changed = False
         for p in patches:
             va_key = f"0x{p['va']:08x}"
@@ -482,10 +484,10 @@ def patch_verify_cache_entries(cfg: ProjectConfig, patches: list[dict[str, Any]]
         for p in patches:
             va_key = f"0x{p['va']:08x}"
             entry = entries.get(va_key)
-            if entry is None:
+            if not isinstance(entry, dict):
                 continue
             fpath = entry.get("filepath", "")
-            if not fpath:
+            if not fpath or not isinstance(fpath, str):
                 continue
             fspath = cfg.reversed_dir / fpath
             # The cache is a project file, but its ``filepath`` entries are

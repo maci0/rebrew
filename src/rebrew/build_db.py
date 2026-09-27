@@ -189,6 +189,11 @@ _HISTORY_RETENTION = 10_000
 
 _SQLITE_TIMEOUT_SECONDS = 30.0
 
+#: Fallback cell geometry for a section row whose hand-edited JSON omits
+#: ``unitBytes``/``columns`` or carries a non-positive value (the schema CHECK
+#: is > 0, so a stray 0 would abort the whole rebuild).
+_DEFAULT_GRID_GEOMETRY = 64
+
 
 def _parse_int(value: Any, default: int = 0) -> int:
     """Parse an integer from JSON-ish input, returning *default* on invalid values."""
@@ -238,6 +243,18 @@ def _clamp_nonneg_int(value: Any) -> int | None:
         except ValueError:
             return None
     return None
+
+
+def _positive_int_or(value: Any, default: int) -> int:
+    """Return *value* when it is a positive ``int``, else *default*.
+
+    ``bool`` is rejected on its own: it subclasses ``int``, so ``True``
+    passes both an ``isinstance(..., int)`` and a ``> 0`` guard and would
+    land as a 1-byte grid cell, one cell per byte of the section.
+    """
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        return default
+    return value
 
 
 def _clamp_unit_interval(value: Any) -> float | None:
@@ -1791,10 +1808,8 @@ def _build_coverage_db(
                 # Clamp unitBytes/columns to sane positive defaults: the schema
                 # CHECK (> 0) would abort the whole rebuild on a stray 0 from
                 # hand-edited JSON (same pattern as the negative-offset clamps).
-                ub_raw = sec.get("unitBytes", 64)
-                col_raw = sec.get("columns", 64)
-                unit_bytes = ub_raw if isinstance(ub_raw, int) and ub_raw > 0 else 64
-                columns = col_raw if isinstance(col_raw, int) and col_raw > 0 else 64
+                unit_bytes = _positive_int_or(sec.get("unitBytes"), _DEFAULT_GRID_GEOMETRY)
+                columns = _positive_int_or(sec.get("columns"), _DEFAULT_GRID_GEOMETRY)
                 # va/size/fileOffset are CHECK (>= 0 OR NULL): clamp like the
                 # function-row path so a stray negative does not abort rebuild.
                 sec_va = _clamp_nonneg_int(sec.get("va"))

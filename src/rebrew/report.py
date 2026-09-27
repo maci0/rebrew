@@ -476,7 +476,7 @@ def _collect_functions(cfg: ProjectConfig) -> list[dict[str, Any]]:
     # were missing from this table: iter_sources does not glob library_*.h, and
     # their minimal marker format needs parse_library_header.
     for header in iter_library_headers(reversed_path, cfg):
-        for ann in parse_library_header(header, metadata_dir=cfg.metadata_dir):
+        for ann in parse_library_header(header, metadata_dir=metadata_dir):
             if ann.va < min_valid_va_for(cfg):
                 continue
             functions.append(
@@ -488,7 +488,12 @@ def _collect_functions(cfg: ProjectConfig) -> list[dict[str, Any]]:
                     "cflags": ann.cflags,
                     "module": ann.module,
                     "file": rel_display_path(header, reversed_path),
-                    "blocker": ann.blocker or "",
+                    # rebrew-functions.toml is the authoritative blocker store;
+                    # the minimal header marker is the fallback for entries that
+                    # have not been migrated yet.
+                    "blocker": str(
+                        entries.get((ann.module, ann.va), {}).get("blocker") or ann.blocker or ""
+                    ),
                 }
             )
     functions.sort(key=lambda fn: (fn["va"], fn["name"]))
@@ -819,11 +824,14 @@ def _paginate_rows(
     continued_heading: str,
     extra_first: str = "",
     extra_all: str = "",
+    row_vas: list[int] | None = None,
 ) -> list[tuple[str, str]]:
     """One HTML page per ``_TABLE_PAGE_SIZE`` chunk of *rows_html*.
 
     *extra_first* is appended on page 1 only.  *extra_all* is appended on
-    every page (a link to a table that did not fit here).
+    every page (a link to a table that did not fit here).  *row_vas* is the
+    address of each row in the same order as *rows_html*; when given, each
+    pager names the address range it covers.
     """
     total = len(rows_html)
     if total == 0:
@@ -834,9 +842,16 @@ def _paginate_rows(
         start = (page_num - 1) * _TABLE_PAGE_SIZE
         chunk = "".join(rows_html[start : start + _TABLE_PAGE_SIZE])
         table = _data_table(caption, headers, chunk)
-        pager = _pager_nav(stem, page_num, total_pages, total, noun)
+        span = _page_va_span(row_vas[start : start + _TABLE_PAGE_SIZE]) if row_vas else ""
+        pager = _pager_nav(stem, page_num, total_pages, total, noun, span=span)
         pager_end = _pager_nav(
-            stem, page_num, total_pages, total, noun, label="Table pages, bottom"
+            stem,
+            page_num,
+            total_pages,
+            total,
+            noun,
+            label="Table pages, bottom",
+            span=span,
         )
         if page_num == 1:
             body = f"{first_heading}{first_intro}{pager}{table}{pager_end}{extra_first}{extra_all}"
@@ -919,6 +934,10 @@ def _render_imports(cfg: ProjectConfig) -> list[tuple[str, str]]:
 
     import_rows = _import_rows_html(imports)
     stub_rows = _stub_rows_html(stubs)
+    # Same order the two row builders use, so a pager's VA span lines up with
+    # its rows.
+    import_vas = [int(rec["iat_va"]) for rec in sorted(imports, key=lambda r: int(r["iat_va"]))]
+    stub_vas = sorted(stubs)
     stubs_inline = (
         bool(stub_rows)
         and len(import_rows) <= _TABLE_PAGE_SIZE
@@ -952,6 +971,7 @@ def _render_imports(cfg: ProjectConfig) -> list[tuple[str, str]]:
             ),
             continued_heading="<h2>Import stubs (continued)</h2>",
             extra_all="<p><a href='imports.html'>Back to imported APIs</a>.</p>",
+            row_vas=stub_vas,
         )
 
     if not import_rows:
@@ -976,6 +996,7 @@ def _render_imports(cfg: ProjectConfig) -> list[tuple[str, str]]:
         continued_heading="<h2>Imports (continued)</h2>",
         extra_first=extra_first,
         extra_all=extra_all,
+        row_vas=import_vas,
     )
     return pages + stub_pages
 

@@ -168,6 +168,28 @@
   every other writer uses. `build_db._snapshot_inputs`, which names the same
   file when deciding whether a `data_*.json` snapshot is stale, was doing the
   same with a literal.
+- **A hand-edited `unitBytes: true` no longer turns the coverage grid into one
+  cell per byte.** The section geometry clamp tested `isinstance(x, int)` and
+  `x > 0`, and `bool` passes both, so a stray JSON `true` landed as a 1-byte
+  cell width for every section.  The clamp is now `_positive_int_or`, which
+  rejects `bool` the way the function, global, and offset rows in the same file
+  already do.
+- **A corrupt verify cache cannot abort a STATUS promotion.** The patcher read
+  `entries` and each patched row as a dict without checking, while the loader
+  checked the same document: a `null` row made the refresh loop raise
+  `AttributeError` inside the callers' bare `except`, dropping the promotion.
+- **A win record with a non-finite GA score still seeds later runs.** The run
+  log stores such a score as `null` to keep the JSON valid, and the reader
+  rejected every record whose `score` was not a number, so the whole win
+  fingerprint vanished.  The reader now defaults the field instead.
+- **Imports and import-stubs pagers name the address range they cover.** The
+  extracted `_paginate_rows` helper dropped the `0x…–0x…` span the index and
+  strings pagers already show, because only the two inline copies computed it.
+- **The report's blocker column reads the toml for library headers.**
+  `library_*.h` entries took the blocker from the minimal header marker, so a
+  function whose `BLOCKER` lives in `rebrew-functions.toml` rendered an empty
+  cell; the same function also dereferenced `cfg.metadata_dir` directly after
+  defensively reading it with `getattr` two loops earlier.
 - **The LLM seed prompt preview is the request, and the completion cap covers
   the seed count it asks for.** `build_prompt` flattened the system and user
   turns into one string, so `--seed-llm --dry-run` showed a prompt the endpoint
