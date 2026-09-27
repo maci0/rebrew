@@ -470,10 +470,10 @@ def valid_c_source(
     before the single function definition.
     """
     from rebrew.c_parser import (
-        _strip_cc,
         extract_function_name_and_proto,
         find_c_function_definitions,
         get_ts_parser,
+        strip_cc,
     )
 
     if len(src) > _MAX_SEED_CHARS:
@@ -500,7 +500,7 @@ def valid_c_source(
         if parser_pair is None:
             return False
         parser, _ = parser_pair
-        code = _strip_cc(src).encode("utf-8")
+        code = strip_cc(src).encode("utf-8")
         tree = parser.parse(code)
         if tree.root_node.has_error:
             return False

@@ -14,8 +14,8 @@ from typer.testing import CliRunner
 
 from rebrew.identify_library import (
     LibCandidate,
-    _infer_module,
     collect_candidates,
+    infer_module,
     write_candidates,
 )
 from rebrew.main import app
@@ -37,11 +37,11 @@ def _cfg(tmp_path: Path) -> SimpleNamespace:
 
 class TestInferModule:
     def test_crt_prefix(self) -> None:
-        assert _infer_module("_malloc", "ZLIB") == "MSVCRT"
-        assert _infer_module("memcpy", "ZLIB") == "MSVCRT"
+        assert infer_module("_malloc", "ZLIB") == "MSVCRT"
+        assert infer_module("memcpy", "ZLIB") == "MSVCRT"
 
     def test_unclassified_uses_default(self) -> None:
-        assert _infer_module("DeflateInit", "ZLIB") == "ZLIB"
+        assert infer_module("DeflateInit", "ZLIB") == "ZLIB"
 
 
 class TestCollectCandidates:
@@ -508,13 +508,13 @@ class TestSigFileModuleAttribution:
         assert _module_from_sig_file("weird.pat", "X") == "WEIRD"
 
     def test_zlib_prefixes(self) -> None:
-        from rebrew.identify_library import _infer_module
+        from rebrew.identify_library import infer_module
 
-        assert _infer_module("deflateInit", "X") == "ZLIB"
-        assert _infer_module("inflate", "X") == "ZLIB"
-        assert _infer_module("adler32", "X") == "ZLIB"
-        assert _infer_module("_crc32", "X") == "ZLIB"
-        assert _infer_module("memcpy", "X") == "MSVCRT"  # CRT still wins
+        assert infer_module("deflateInit", "X") == "ZLIB"
+        assert infer_module("inflate", "X") == "ZLIB"
+        assert infer_module("adler32", "X") == "ZLIB"
+        assert infer_module("_crc32", "X") == "ZLIB"
+        assert infer_module("memcpy", "X") == "MSVCRT"  # CRT still wins
 
     def test_flirt_uses_file_module(self, tmp_path: Path, monkeypatch) -> None:
         """A zlib_vc6.pat hit gets ZLIB, not the CRT default."""

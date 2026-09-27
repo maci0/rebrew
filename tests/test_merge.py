@@ -277,20 +277,20 @@ class TestMergeBasic:
 
 class TestMergeHelpers:
     def test_block_metadata_extracts_marker(self) -> None:
-        from rebrew.merge import _block_metadata
+        from rebrew.merge import block_metadata
 
-        meta = _block_metadata("// FUNCTION: SERVER 0x10001000\nint f(void) {}\n")
+        meta = block_metadata("// FUNCTION: SERVER 0x10001000\nint f(void) {}\n")
         assert meta == {"module": "SERVER", "va": 0x10001000}
 
     def test_block_metadata_no_marker_returns_none(self) -> None:
-        from rebrew.merge import _block_metadata
+        from rebrew.merge import block_metadata
 
-        assert _block_metadata("int f(void) {}\n") is None
+        assert block_metadata("int f(void) {}\n") is None
 
     def test_merge_preambles_dedups_and_collapses_blanks(self) -> None:
-        from rebrew.merge import _merge_preambles
+        from rebrew.merge import merge_preambles
 
-        out = _merge_preambles(
+        out = merge_preambles(
             ["#include <a.h>\n\n#include <a.h>\n\nint x;\n", "#include <b.h>\n\n\n"]
         )
         assert out.count("#include <a.h>") == 1
@@ -300,9 +300,9 @@ class TestMergeHelpers:
         assert not out.endswith("\n\n\n")
 
     def test_merge_preambles_empty(self) -> None:
-        from rebrew.merge import _merge_preambles
+        from rebrew.merge import merge_preambles
 
-        assert _merge_preambles(["", ""]) == ""
+        assert merge_preambles(["", ""]) == ""
 
     def test_collect_input_files_filters_extension(self, tmp_path: Path) -> None:
         from rebrew.merge import _collect_input_files
@@ -570,11 +570,11 @@ class TestMergeShared:
         assert not out.exists()
 
     def test_normalize_body_ignores_markers_and_size(self) -> None:
-        from rebrew.merge import _normalize_body
+        from rebrew.merge import normalize_body
 
         a = "// FUNCTION: SERVER 0x1000\n// SIZE: 11\nint f(void){return 1;}\n"
         b = "// FUNCTION: GOLDTL 0x2000\nint f(void){return 1;}\n"
-        assert _normalize_body(a) == _normalize_body(b)
+        assert normalize_body(a) == normalize_body(b)
 
 
 class TestMergeSameVaAcrossModules:

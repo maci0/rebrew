@@ -254,7 +254,7 @@ def consolidate_declarations(text: str) -> tuple[str, ExternReport]:
     return out, report
 
 
-def _normalize_body(block: str) -> str:
+def normalize_body(block: str) -> str:
     """The block minus identity lines: markers and their SIZE lines.
 
     Two per-target copies of one function differ exactly here (module, VA,
@@ -314,7 +314,7 @@ def _collapse_twins(
 ) -> list[tuple[int, str]]:
     """Collapse same-body blocks into one stacked block per body.
 
-    Groups by normalized body (:func:`_normalize_body`).  A group whose
+    Groups by normalized body (:func:`normalize_body`).  A group whose
     blocks name ≥2 distinct modules is one function in several targets:
     emit a single stacked block (markers + SIZE lines preserved, one shared
     body).  A group with one distinct module passes through unchanged.
@@ -329,7 +329,7 @@ def _collapse_twins(
     groups: dict[str, list[tuple[int, str]]] = {}
     order: list[str] = []
     for va, block in blocks_with_va:
-        key = _normalize_body(block)
+        key = normalize_body(block)
         if key not in groups:
             groups[key] = []
             order.append(key)
@@ -379,7 +379,7 @@ def _collapse_twins(
     return out
 
 
-def _block_metadata(block: str) -> dict[str, Any] | None:
+def block_metadata(block: str) -> dict[str, Any] | None:
     """Extract marker module/VA from a function block."""
     for line in block.splitlines():
         marker = NEW_FUNC_CAPTURE_RE.match(line.strip())
@@ -391,7 +391,7 @@ def _block_metadata(block: str) -> dict[str, Any] | None:
     return None
 
 
-def _merge_preambles(preambles: list[str]) -> str:
+def merge_preambles(preambles: list[str]) -> str:
     """Merge preambles with include-line dedup and collapsed blank lines.
 
     Comment blocks (e.g. Ghidra decompilation references) are stripped before
@@ -558,7 +558,7 @@ def main(
         included_inputs.append(file_path)
 
         for block in blocks:
-            meta = _block_metadata(block)
+            meta = block_metadata(block)
             if meta is None:
                 continue
             module = str(meta["module"])
@@ -601,7 +601,7 @@ def main(
         )
 
     extern_report: ExternReport | None = None
-    merged_preamble = _merge_preambles(preambles)
+    merged_preamble = merge_preambles(preambles)
 
     # DATA/GLOBAL definition blocks sort before FUNCTION blocks: C89 needs
     # declarations before use, and VA order alone can place a string table

@@ -123,12 +123,12 @@ def apply_commands_via_cli(
             combined = f"{proc.stdout or ''}\n{proc.stderr or ''}".strip()
             # Ghidra treats re-applying an existing label/comment/bookmark as
             # an error, but the MCP path counts it as success (idempotent
-            # re-push). The CLI backend delegates to _is_idempotent_success so
+            # re-push). The CLI backend delegates to is_idempotent_success so
             # both backends enforce the identical idempotency contract and
             # multi-line stack traces do not cause spurious failures.
-            from rebrew.ghidra.client import _is_idempotent_success
+            from rebrew.ghidra.client import is_idempotent_success
 
-            if _is_idempotent_success(op, combined) or any(
+            if is_idempotent_success(op, combined) or any(
                 marker in combined.lower()
                 for marker in ("already exists", "duplicate", "already has")
             ):

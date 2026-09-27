@@ -1248,9 +1248,9 @@ def generate_decomp_dev_report(cfg: ProjectConfig, out_path: Path) -> dict[str, 
     # both sides through int() instead of testing key types.
     cached_pct: dict[int, float] = {}
     try:
-        from rebrew.verify_cache import _load_verify_cache
+        from rebrew.verify_cache import load_verify_cache
 
-        cache = _load_verify_cache(cfg.root / ".rebrew" / "verify_cache.json", cfg)
+        cache = load_verify_cache(cfg.root / ".rebrew" / "verify_cache.json", cfg)
         if cache is not None:
             for key, entry in cache.entries.items():
                 mp = entry.match_percent

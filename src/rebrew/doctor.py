@@ -293,9 +293,9 @@ def check_compiler(cfg: ProjectConfig) -> CheckResult:
     # to the image check; otherwise a 32-bit compiler cannot build the
     # target, so a missing toolchain is expected, not a project defect.
     # Downgrade to a warning and suggest a profile via the detector.
-    from rebrew.toolchain_detect import _bitness16_profiles
+    from rebrew.toolchain_detect import bitness16_profiles
 
-    profiles_16 = _bitness16_profiles()
+    profiles_16 = bitness16_profiles()
     if (
         getattr(cfg, "arch", "") == "x86_16"
         and getattr(cfg, "compiler_profile", "") not in profiles_16
@@ -541,13 +541,13 @@ def check_toolchain_alignment(cfg: ProjectConfig) -> CheckResult:
     if binary is None or not Path(binary).exists():
         return CheckResult(name="Toolchain alignment", status=_SKIP, message="binary not available")
 
-    from rebrew.toolchain_cli import _external_ranges
+    from rebrew.toolchain_cli import external_ranges
     from rebrew.toolchain_detect import detect_toolchain, profile_matches_detection
 
     try:
         # Game code only: library bands (`external_ranges`) were compiled with
         # Microsoft's own settings and must not decide the code-generator family.
-        info = detect_toolchain(binary, exclude_ranges=_external_ranges(cfg))
+        info = detect_toolchain(binary, exclude_ranges=external_ranges(cfg))
     except Exception as exc:  # a broken detector must not kill the doctor
         return CheckResult(
             name="Toolchain alignment", status=_SKIP, message=f"detection failed: {exc}"
@@ -827,9 +827,9 @@ def check_includes(cfg: ProjectConfig) -> CheckResult:
     # msvc-1.52 told a working borland, watcom, msvc-1.0, or msvc-1.5 project
     # to switch toolchains.  With one configured, the vendored INCLUDE is
     # staged into the sandbox as C:\INCLUDE, so the host path check still applies.
-    from rebrew.toolchain_detect import _bitness16_profiles
+    from rebrew.toolchain_detect import bitness16_profiles
 
-    profiles_16 = _bitness16_profiles()
+    profiles_16 = bitness16_profiles()
     if (
         getattr(cfg, "arch", "") == "x86_16"
         and getattr(cfg, "compiler_profile", "") not in profiles_16
@@ -1789,11 +1789,11 @@ def check_opt_level(cfg: ProjectConfig) -> CheckResult:
     if not profile.startswith("msvc"):
         return CheckResult(name="Optimization level", status=_SKIP, message="non-msvc profile")
 
-    from rebrew.toolchain_cli import _external_ranges
+    from rebrew.toolchain_cli import external_ranges
     from rebrew.toolchain_detect import detect_toolchain, opt_level_without_library
 
     try:
-        info = detect_toolchain(binary, exclude_ranges=_external_ranges(cfg))
+        info = detect_toolchain(binary, exclude_ranges=external_ranges(cfg))
     except Exception as exc:  # a broken detector must not kill the doctor
         return CheckResult(
             name="Optimization level", status=_SKIP, message=f"detection failed: {exc}"

@@ -33,7 +33,7 @@ from typing import Any
 
 from rebrew.binary_loader import load_binary
 from rebrew.data_metadata import iter_data_symbols
-from rebrew.sources import _files_with_ext
+from rebrew.sources import files_with_ext
 from rebrew.utils import (
     atomic_write_text,
     load_tomllib,
@@ -43,14 +43,14 @@ from rebrew.utils import (
 from rebrew.workspace.config import config_path
 
 
-def _scan_files(src_dir: Path, shared_dir: Path | None = None) -> list[Path]:
+def scan_files(src_dir: Path, shared_dir: Path | None = None) -> list[Path]:
     """``*.c`` files under *src_dir* plus the shared tree (deduplicated).
 
     DATA markers in ``src/shared`` belong to every target; a ``reversed_dir``
     -only scan misses them (fill-data never pads them, --own never owns
     them).  *shared_dir* ``None`` or missing keeps the old behavior.
     """
-    files = _files_with_ext(src_dir, {".c"})
+    files = files_with_ext(src_dir, {".c"})
     if shared_dir is not None:
         try:
             is_same = shared_dir.resolve() == src_dir.resolve()
@@ -58,7 +58,7 @@ def _scan_files(src_dir: Path, shared_dir: Path | None = None) -> list[Path]:
             is_same = False
         if not is_same and shared_dir.is_dir():
             seen = {p.resolve() for p in files}
-            files.extend(p for p in _files_with_ext(shared_dir, {".c"}) if p.resolve() not in seen)
+            files.extend(p for p in files_with_ext(shared_dir, {".c"}) if p.resolve() not in seen)
     return files
 
 
@@ -579,7 +579,7 @@ def fill_data(
     # raw_end and become the zero-init pads — a `.data`-only read dropped them,
     # so BSS pads were never emitted and `--bss-only` was a no-op.
     toml = data_symbols(metadata, (".data", ".bss"))
-    files = _scan_files(src_dir, shared_dir)
+    files = scan_files(src_dir, shared_dir)
     by_addr = sorted(toml.items(), key=lambda kv: kv[1])
     if not by_addr:
         return {"init_pads": 0, "bss_pads": 0}
@@ -882,7 +882,7 @@ def own_data_globals(
     byte_order = data_byte_order(bin_path)
     toml = data_symbols(metadata)
     stub_resolved = stub_file.resolve()
-    files = [f for f in _scan_files(src_dir, shared_dir) if f.resolve() != stub_resolved]
+    files = [f for f in scan_files(src_dir, shared_dir) if f.resolve() != stub_resolved]
     references = reference_counts(files)
     by_addr = sorted(toml.items(), key=lambda kv: kv[1])
     toml_next: dict[str, int] = {
@@ -1082,7 +1082,7 @@ def fix_ownership(
     data_base, raw_end, _section_end = layout_geometry(root / "rebrew-project.toml", target=target)
     orig = data_raw_from_binary(bin_path)
     byte_order = data_byte_order(bin_path)
-    files = _scan_files(src_dir, shared_dir)
+    files = scan_files(src_dir, shared_dir)
 
     owner: dict[str, Path] = {}
     for f in files:

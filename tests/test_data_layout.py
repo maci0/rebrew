@@ -1025,7 +1025,7 @@ class TestSharedScans:
     """DATA tooling sees src/shared (DATA markers belong to every target)."""
 
     def test_scan_files_includes_shared(self, tmp_path: Path) -> None:
-        from rebrew.data_layout import _scan_files
+        from rebrew.data_layout import scan_files
 
         src = tmp_path / "src" / "V1"
         src.mkdir(parents=True)
@@ -1033,18 +1033,18 @@ class TestSharedScans:
         shared = tmp_path / "src" / "shared"
         shared.mkdir(parents=True)
         (shared / "s.c").write_text("int s;\n", encoding="utf-8")
-        files = _scan_files(src, shared)
+        files = scan_files(src, shared)
         assert (src / "a.c") in files
         assert (shared / "s.c") in files
 
     def test_scan_files_no_shared_unchanged(self, tmp_path: Path) -> None:
-        from rebrew.data_layout import _scan_files
+        from rebrew.data_layout import scan_files
 
         src = tmp_path / "src"
         src.mkdir(parents=True)
         (src / "a.c").write_text("int a;\n", encoding="utf-8")
-        assert _scan_files(src, None) == [src / "a.c"]
-        assert _scan_files(src, tmp_path / "nope") == [src / "a.c"]
+        assert scan_files(src, None) == [src / "a.c"]
+        assert scan_files(src, tmp_path / "nope") == [src / "a.c"]
 
     def test_own_materializes_in_shared_owner(self, tmp_path: Path) -> None:
         """--own finds the extern in a shared TU and defines it there."""

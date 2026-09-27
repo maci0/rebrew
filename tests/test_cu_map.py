@@ -9,12 +9,12 @@ import pytest
 from rebrew.cu_map import (
     TUCluster,
     _call_graph_boost,
-    _classify_gap,
     _cluster_to_dict,
     _contiguity_score,
     _invert_call_map,
-    _scan_call_targets,
+    classify_gap,
     cluster_functions,
+    scan_call_targets,
 )
 
 # ---------------------------------------------------------------------------
@@ -74,18 +74,18 @@ def _make_binary_info(
 class TestClassifyGap:
     def test_all_padding_cc(self) -> None:
         data = bytes([0xCC] * 8)
-        assert _classify_gap(data, 0x10000000, 0x10000) == "padding"
+        assert classify_gap(data, 0x10000000, 0x10000) == "padding"
 
     def test_all_padding_nop(self) -> None:
         data = bytes([0x90] * 4)
-        assert _classify_gap(data, 0x10000000, 0x10000) == "padding"
+        assert classify_gap(data, 0x10000000, 0x10000) == "padding"
 
     def test_mixed_padding(self) -> None:
         data = bytes([0xCC, 0x90, 0xCC, 0x90])
-        assert _classify_gap(data, 0x10000000, 0x10000) == "padding"
+        assert classify_gap(data, 0x10000000, 0x10000) == "padding"
 
     def test_empty_gap(self) -> None:
-        assert _classify_gap(b"", 0x10000000, 0x10000) == "padding"
+        assert classify_gap(b"", 0x10000000, 0x10000) == "padding"
 
     def test_jump_table(self) -> None:
         """A gap with valid .text pointers is a jump table."""
@@ -93,22 +93,22 @@ class TestClassifyGap:
         text_size = 0x10000
         # Build 3 valid pointers within .text
         ptrs = struct.pack("<III", text_va + 0x100, text_va + 0x200, text_va + 0x300)
-        assert _classify_gap(ptrs, text_va, text_size) == "jump_table"
+        assert classify_gap(ptrs, text_va, text_size) == "jump_table"
 
     def test_small_nonpadding(self) -> None:
         data = bytes([0x55, 0x8B, 0xEC] * 5)  # 15 bytes of non-padding
-        assert _classify_gap(data, 0x10000000, 0x10000) == "small_nonpadding"
+        assert classify_gap(data, 0x10000000, 0x10000) == "small_nonpadding"
 
     def test_large_nonpadding(self) -> None:
         data = bytes(range(256)) * 2  # 512 bytes > 64 threshold
         # Make sure it's not detected as padding or jump table
-        assert _classify_gap(data, 0x10000000, 0x10000) == "large_nonpadding"
+        assert classify_gap(data, 0x10000000, 0x10000) == "large_nonpadding"
 
     def test_custom_padding_bytes(self) -> None:
         data = bytes([0x00] * 8)
-        assert _classify_gap(data, 0x10000000, 0x10000, padding_bytes=(0x00,)) == "padding"
+        assert classify_gap(data, 0x10000000, 0x10000, padding_bytes=(0x00,)) == "padding"
         # Without 0x00 in padding set, should be small_nonpadding
-        assert _classify_gap(data, 0x10000000, 0x10000, padding_bytes=(0xCC,)) == "small_nonpadding"
+        assert classify_gap(data, 0x10000000, 0x10000, padding_bytes=(0xCC,)) == "small_nonpadding"
 
 
 # ---------------------------------------------------------------------------
@@ -186,7 +186,7 @@ class TestScanCallTargets:
             padding_bytes=[0xCC, 0x90],
         )
 
-        result = _scan_call_targets(info, registry, cfg)  # type: ignore[arg-type]
+        result = scan_call_targets(info, registry, cfg)  # type: ignore[arg-type]
         # 0x1000 should call 0x100A
         # E8 05000000 at VA 0x1000: target = 0x1000 + 5 + 5 = 0x100A
         assert 0x1000 in result
@@ -196,7 +196,7 @@ class TestScanCallTargets:
         """Empty registry (and None cfg defaults) yields an empty call map."""
         info = _make_binary_info(0x1000, 0, b"")
         registry: dict[int, dict[str, Any]] = {}
-        result = _scan_call_targets(info, registry, None)  # type: ignore[arg-type]
+        result = scan_call_targets(info, registry, None)  # type: ignore[arg-type]
         assert result == {}
 
 
@@ -452,7 +452,7 @@ class TestScanCallTargetsEdge:
         monkeypatch.setattr(capstone, "Cs", _FakeCs)
         info = _make_binary_info(0x1000, 16, b"\x90" * 16)
         registry = {0x1000: _make_entry(0x1000, 4, "f")}
-        result = _scan_call_targets(
+        result = scan_call_targets(
             info, registry, SimpleNamespace(capstone_arch=1, capstone_mode=2)
         )
         assert result == {}
@@ -534,7 +534,7 @@ class TestClusterFunctionsEdge:
             0x1000: _make_entry(0x1000, 4, "A"),
             0x1004: _make_entry(0x1004, 4, "B"),
         }
-        monkeypatch.setattr(cu_map, "_scan_call_targets", lambda *a, **k: {0x1000: {0x1004}})
+        monkeypatch.setattr(cu_map, "scan_call_targets", lambda *a, **k: {0x1000: {0x1004}})
         clusters = cluster_functions(registry, info, None)  # type: ignore[arg-type]
         assert len(clusters) == 1
         # A callee called only from within the cluster boosts confidence.

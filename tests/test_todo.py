@@ -861,30 +861,30 @@ class TestLoadVerifyEntries:
         return SimpleNamespace(root=tmp_path)
 
     def test_missing_file(self, tmp_path: Path) -> None:
-        from rebrew.todo import _load_verify_entries
+        from rebrew.todo import load_verify_entries
 
-        assert _load_verify_entries(self._cfg(tmp_path)) == {}
+        assert load_verify_entries(self._cfg(tmp_path)) == {}
 
     def test_corrupt_file(self, tmp_path: Path) -> None:
 
-        from rebrew.todo import _load_verify_entries
+        from rebrew.todo import load_verify_entries
 
         d = tmp_path / ".rebrew"
         d.mkdir()
         (d / "verify_cache.json").write_text("{broken", encoding="utf-8")
-        assert _load_verify_entries(self._cfg(tmp_path)) == {}
+        assert load_verify_entries(self._cfg(tmp_path)) == {}
 
     def test_wrong_version(self, tmp_path: Path) -> None:
         import json
 
-        from rebrew.todo import _load_verify_entries
+        from rebrew.todo import load_verify_entries
 
         d = tmp_path / ".rebrew"
         d.mkdir()
         (d / "verify_cache.json").write_text(
             json.dumps({"version": 99, "entries": {}}), encoding="utf-8"
         )
-        assert _load_verify_entries(self._cfg(tmp_path)) == {}
+        assert load_verify_entries(self._cfg(tmp_path)) == {}
 
     def test_other_target_rejected(self, tmp_path: Path) -> None:
         """Another target's verify results must never drive todo's categories
@@ -892,7 +892,7 @@ class TestLoadVerifyEntries:
         entries — a SERVER run produced phantom fix-delta items for CLIENT)."""
         import json
 
-        from rebrew.todo import _load_verify_entries
+        from rebrew.todo import load_verify_entries
         from rebrew.verify_cache import VerifyCacheEntry
 
         d = tmp_path / ".rebrew"
@@ -921,8 +921,8 @@ class TestLoadVerifyEntries:
         # CLIENT config must see nothing; SERVER config must see the entry.
         cfg_server = SimpleNamespace(root=tmp_path, target_name="SERVER")
         cfg_client = SimpleNamespace(root=tmp_path, target_name="CLIENT")
-        assert _load_verify_entries(cfg_client) == {}
-        assert len(_load_verify_entries(cfg_server)) == 1
+        assert load_verify_entries(cfg_client) == {}
+        assert len(load_verify_entries(cfg_server)) == 1
 
     def test_targetless_cache_rejected_for_a_named_target(self, tmp_path: Path) -> None:
         """A legacy cache with no `target` must not drive todo when the config
@@ -930,7 +930,7 @@ class TestLoadVerifyEntries:
         same file (the old guard accepted any empty `target`)."""
         import json
 
-        from rebrew.todo import _load_verify_entries
+        from rebrew.todo import load_verify_entries
         from rebrew.verify_cache import VerifyCacheEntry
 
         d = tmp_path / ".rebrew"
@@ -955,9 +955,9 @@ class TestLoadVerifyEntries:
         }
         (d / "verify_cache.json").write_text(json.dumps(cache), encoding="utf-8")
 
-        assert _load_verify_entries(SimpleNamespace(root=tmp_path, target_name="TEST")) == {}
+        assert load_verify_entries(SimpleNamespace(root=tmp_path, target_name="TEST")) == {}
         # A minimal config with no target still accepts a target-less cache.
-        assert len(_load_verify_entries(SimpleNamespace(root=tmp_path))) == 1
+        assert len(load_verify_entries(SimpleNamespace(root=tmp_path))) == 1
 
 
 class TestCalculateRoiEdges:
@@ -1102,7 +1102,7 @@ class TestLoadVerifyEntriesValid:
     def test_valid_cache_returns_entries(self, tmp_path: Path) -> None:
         import json
 
-        from rebrew.todo import _load_verify_entries
+        from rebrew.todo import load_verify_entries
 
         d = tmp_path / ".rebrew"
         d.mkdir()
@@ -1124,7 +1124,7 @@ class TestLoadVerifyEntriesValid:
             encoding="utf-8",
         )
         cfg = SimpleNamespace(root=tmp_path)
-        entries = _load_verify_entries(cfg)  # type: ignore[arg-type]
+        entries = load_verify_entries(cfg)  # type: ignore[arg-type]
         # Keys are canonicalized: consumers look entries up with
         # `f"0x{va:08x}"`, so a short-spelled cache key was seen by the coverage
         # union (which normalizes) but missed by the category/delta selection
@@ -1310,7 +1310,7 @@ class TestTodoCli:
             match_percent=99.6,
             delta=8,
         )
-        monkeypatch.setattr("rebrew.todo._load_verify_entries", lambda cfg: {"0x00001000": entry})
+        monkeypatch.setattr("rebrew.todo.load_verify_entries", lambda cfg: {"0x00001000": entry})
         from rebrew.cli import console
 
         monkeypatch.setattr(console, "_width", 250)

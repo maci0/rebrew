@@ -163,7 +163,7 @@ def status_cmd(
         )
 
 
-def _external_ranges(cfg: Any) -> list[tuple[int, int]]:
+def external_ranges(cfg: Any) -> list[tuple[int, int]]:
     """The project's library bands as ``[(lo, hi)]`` (empty without a project)."""
     out: list[tuple[int, int]] = []
     for entry in getattr(cfg, "external_ranges", None) or ():
@@ -188,7 +188,7 @@ def detect_cmd(
 ) -> None:
     """Detect which compiler/toolchain built a binary; check profile alignment."""
     from rebrew.toolchain_detect import (
-        _PROFILE_COMPAT_ALL,
+        PROFILE_COMPAT_ALL,
         detect_toolchain,
         profile_matches_detection,
     )
@@ -206,7 +206,7 @@ def detect_cmd(
         cfg = load_config(target=target)
     except (FileNotFoundError, KeyError, ValueError):
         cfg = None
-    exclude = _external_ranges(cfg)
+    exclude = external_ranges(cfg)
     try:
         info = detect_toolchain(binary_path, exclude_ranges=exclude)
     except Exception as exc:  # detection is best-effort
@@ -215,7 +215,7 @@ def detect_cmd(
     # The plugin-merged table, the same one profile_matches_detection
     # reads: the packaged-only table would report a plugin family as
     # unmatchable while the alignment check right below calls it aligned.
-    compat: set[str] | None = _PROFILE_COMPAT_ALL.get(info.family)
+    compat: set[str] | None = PROFILE_COMPAT_ALL.get(info.family)
     data: dict[str, Any] = {
         "binary": str(binary_path),
         "family": info.family,

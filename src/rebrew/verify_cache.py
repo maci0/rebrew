@@ -24,9 +24,9 @@ from typing import TYPE_CHECKING, Any
 
 from rebrew.utils import atomic_write_text, file_lock
 from rebrew.verify_hash import (
-    _compiler_config_hash,
-    _headers_hash,
+    compiler_config_hash,
     entry_fingerprint,
+    headers_hash,
 )
 from rebrew.workspace.status import MATCHED_STATUSES
 
@@ -279,7 +279,7 @@ class VerifyCache:
         return asdict(self)
 
 
-def _binary_id(cfg: ProjectConfig) -> str:
+def binary_id(cfg: ProjectConfig) -> str:
     """Stable id for the target binary (mtime_ns + size + inode), "" when unreadable.
 
     Guards the verify cache: a rebuilt binary of the same target name must
@@ -325,11 +325,11 @@ def _cache_identity_matches(raw: dict[str, Any], cfg: ProjectConfig) -> bool:
     if raw.get("version") != CACHE_VERSION:
         return False
     raw_bin = raw.get("binary_id")
-    if raw_bin and raw_bin != _binary_id(cfg):
+    if raw_bin and raw_bin != binary_id(cfg):
         return False
     return bool(
         raw.get("target") == cfg.target_name
-        and raw.get("compiler_hash") == _compiler_config_hash(cfg)
+        and raw.get("compiler_hash") == compiler_config_hash(cfg)
     )
 
 
@@ -486,10 +486,10 @@ def patch_verify_cache_entries(cfg: ProjectConfig, patches: list[dict[str, Any]]
                 continue
             entry["mtime_ns"] = st.st_mtime_ns
             try:
-                from rebrew.verify_hash import _entry_headers_fp, _source_hash
+                from rebrew.verify_hash import entry_headers_fp, source_hash
 
-                entry["source_hash"] = _source_hash(fspath)
-                entry["headers_fp"] = _entry_headers_fp(cfg, fspath, entry.get("cflags", ""))
+                entry["source_hash"] = source_hash(fspath)
+                entry["headers_fp"] = entry_headers_fp(cfg, fspath, entry.get("cflags", ""))
             except OSError:
                 continue
             entries[va_key] = entry
@@ -503,7 +503,7 @@ def patch_verify_cache_entries(cfg: ProjectConfig, patches: list[dict[str, Any]]
             )
 
 
-def _load_verify_cache(cache_path: Path, cfg: ProjectConfig) -> VerifyCache | None:
+def load_verify_cache(cache_path: Path, cfg: ProjectConfig) -> VerifyCache | None:
     # The canonical path goes through the memoized raw loader: status/todo call
     # it in the same process before report/verify ask here, and re-reading +
     # JSON-decoding the whole document a second time was a full redundant pass
@@ -533,7 +533,7 @@ def _load_verify_cache(cache_path: Path, cfg: ProjectConfig) -> VerifyCache | No
         return None
     if data.target != cfg.target_name:
         return None
-    if data.compiler_hash != _compiler_config_hash(cfg):
+    if data.compiler_hash != compiler_config_hash(cfg):
         return None
     # Header invalidation is per-entry via VerifyCacheEntry.headers_fp (a
     # reached-header fingerprint), checked at serve time in prepare_entries —
@@ -541,12 +541,12 @@ def _load_verify_cache(cache_path: Path, cfg: ProjectConfig) -> VerifyCache | No
     # header change, defeating per-source precision.
     # Legacy caches carry no binary_id — accept them; a cached binary_id that
     # no longer matches the current binary must invalidate.
-    if data.binary_id and data.binary_id != _binary_id(cfg):
+    if data.binary_id and data.binary_id != binary_id(cfg):
         return None
     return data
 
 
-def _save_verify_cache(
+def save_verify_cache(
     cache_path: Path,
     cfg: ProjectConfig,
     results: list[dict[str, Any]],
@@ -644,10 +644,10 @@ def _save_verify_cache(
 
         cache_data = VerifyCache(
             version=CACHE_VERSION,
-            compiler_hash=_compiler_config_hash(cfg),
-            headers_hash=_headers_hash(cfg),
+            compiler_hash=compiler_config_hash(cfg),
+            headers_hash=headers_hash(cfg),
             target=cfg.target_name,
-            binary_id=_binary_id(cfg),
+            binary_id=binary_id(cfg),
             entries={str(k): VerifyCacheEntry.from_dict(v) for k, v in cache_entries.items()},
         )
         atomic_write_text(cache_path, json.dumps(cache_data.to_dict(), indent=2), encoding="utf-8")
@@ -682,9 +682,9 @@ def load_baseline(cfg: ProjectConfig) -> tuple[dict[str, Any] | None, str | None
         return None, f"Verify baseline at {path} is invalid JSON object"
     if loaded.get("target") != cfg.target_name:
         return None, f"Verify baseline at {path} targets {loaded.get('target')!r}; skipping diff"
-    if loaded.get("compiler_hash") != _compiler_config_hash(cfg):
+    if loaded.get("compiler_hash") != compiler_config_hash(cfg):
         return None, f"Verify baseline at {path} was earned under different compiler config"
-    if loaded.get("binary_id") and loaded.get("binary_id") != _binary_id(cfg):
+    if loaded.get("binary_id") and loaded.get("binary_id") != binary_id(cfg):
         return None, f"Verify baseline at {path} was earned against a different binary"
     return loaded, None
 
@@ -697,8 +697,8 @@ def save_baseline(cfg: ProjectConfig, report: dict[str, Any]) -> None:
     --watch`` save cannot interleave.
     """
     baseline = dict(report)
-    baseline["compiler_hash"] = _compiler_config_hash(cfg)
-    baseline["binary_id"] = _binary_id(cfg)
+    baseline["compiler_hash"] = compiler_config_hash(cfg)
+    baseline["binary_id"] = binary_id(cfg)
     path = baseline_path(cfg)
     path.parent.mkdir(parents=True, exist_ok=True)
     with _verify_cache_write_lock(path):

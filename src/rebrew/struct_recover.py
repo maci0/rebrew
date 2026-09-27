@@ -75,31 +75,29 @@ from rebrew.utils import fold_ident, parse_int_literal
 #: ``p->field_8`` / ``p->field_0x10`` / ``p->field_0008`` (Ghidra/Kuna);
 #: the base pointer is optional — a cast may precede the access
 #: (``((PlayerInfo *)raw)->field_8``), in which case there is no variable.
-_FIELD_ACCESS_RE = re.compile(
-    r"(?:(?P<var>[A-Za-z_]\w*)\s*->\s*)?field_0?x?(?P<off>[0-9a-fA-F]+)\b"
-)
+FIELD_ACCESS_RE = re.compile(r"(?:(?P<var>[A-Za-z_]\w*)\s*->\s*)?field_0?x?(?P<off>[0-9a-fA-F]+)\b")
 #: ``*(T *)(var + 0xN)`` / ``*(T *)(var + N)`` / ``*(T *)&var + 0xN`` — the
 #: variable is captured so evidence can be attributed precisely, and the
 #: offset accepts hex or decimal (Kuna emits both).
-_CAST_DEREF_RE = re.compile(
+CAST_DEREF_RE = re.compile(
     r"\*\s*\(\s*(?P<type>[A-Za-z_]\w*(?:\s+\w+)*?)\s*\*\s*\)\s*"
     r"(?:&?\s*(?P<var1>[A-Za-z_]\w*)\s*\+\s*(?P<off1>0x[0-9a-fA-F]+|\d+)"
     r"|\(\s*(?P<var2>[A-Za-z_]\w*)\s*\+\s*(?P<off2>0x[0-9a-fA-F]+|\d+)\s*\))"
 )
 #: ``(T *)p`` casts — base-type evidence; the variable is captured so
 #: ``(PlayerInfo *)raw`` types later accesses through ``raw``.
-_CAST_RE = re.compile(r"\(\s*(?P<type>[A-Za-z_]\w*)\s*\*\s*\)\s*(?P<var>[A-Za-z_]\w*)")
+CAST_RE = re.compile(r"\(\s*(?P<type>[A-Za-z_]\w*)\s*\*\s*\)\s*(?P<var>[A-Za-z_]\w*)")
 #: ``T *var`` declarations (incl. params) — base-type evidence.
-_DECL_RE = re.compile(r"\b(?P<type>[A-Za-z_]\w*)\s*\*\s*(?P<var>[A-Za-z_]\w*)\b")
+DECL_RE = re.compile(r"\b(?P<type>[A-Za-z_]\w*)\s*\*\s*(?P<var>[A-Za-z_]\w*)\b")
 #: ``*(int *)&a0[10]`` — Kuna indexes pointer params as arrays; the byte
 #: offset is index × element width of the declared base type.
-_ARRAY_DEREF_RE = re.compile(
+ARRAY_DEREF_RE = re.compile(
     r"\*\s*\(\s*(?P<type>[A-Za-z_]\w*(?:\s+\w+)*?)\s*\*\s*\)\s*&?\s*"
     r"(?P<var>[A-Za-z_]\w*)\s*\[\s*(?P<idx>\d+)\s*\]"
 )
 #: Bare ``a0[10]`` (no cast) — same evidence, element width only.  The
 #: lookbehind keeps the ``&a0[10]`` cast-deref form from double-counting.
-_ARRAY_IDX_RE = re.compile(r"(?<![\w&])(?P<var>[A-Za-z_]\w*)\s*\[\s*(?P<idx>\d+)\s*\]")
+ARRAY_IDX_RE = re.compile(r"(?<![\w&])(?P<var>[A-Za-z_]\w*)\s*\[\s*(?P<idx>\d+)\s*\]")
 
 #: Pseudo-types that never name a recoverable struct.
 PSEUDO_TYPES = frozenset(
@@ -250,7 +248,7 @@ def pointer_element_widths(text: str) -> dict[str, int]:
     ``rebrew.name_decomp`` uses this to rewrite array-index accesses.
     """
     out: dict[str, int] = {}
-    for m in _DECL_RE.finditer(text):
+    for m in DECL_RE.finditer(text):
         w = TYPE_WIDTHS.get(m.group("type"))
         if w is not None:
             out[m.group("var")] = w
@@ -320,9 +318,9 @@ def parse_decomp_for_structs(text: str, max_offset: int = _MAX_MEMBER_OFFSET) ->
         else:
             var_types[var] = t
 
-    for m in _DECL_RE.finditer(text):
+    for m in DECL_RE.finditer(text):
         _set_var_type(m.group("var"), m.group("type"))
-    for m in _CAST_RE.finditer(text):
+    for m in CAST_RE.finditer(text):
         _set_var_type(m.group("var"), m.group("type"))
 
     bases_with_pointers = {t for t in var_types.values() if t not in PSEUDO_TYPES}
@@ -351,11 +349,11 @@ def parse_decomp_for_structs(text: str, max_offset: int = _MAX_MEMBER_OFFSET) ->
 
     # Offset evidence from field accesses (offsets are always hex — the
     # ``field_10`` naming convention is hex; only cast-deref offsets vary).
-    for m in _FIELD_ACCESS_RE.finditer(text):
+    for m in FIELD_ACCESS_RE.finditer(text):
         _record(m.group("var"), int(m.group("off"), 16), 4)
 
     # Width evidence from explicit casts.
-    for m in _CAST_DEREF_RE.finditer(text):
+    for m in CAST_DEREF_RE.finditer(text):
         width = type_width(m.group("type"))
         if width is None:
             continue
@@ -368,14 +366,14 @@ def parse_decomp_for_structs(text: str, max_offset: int = _MAX_MEMBER_OFFSET) ->
     # Array-index accesses (``*(int *)&a0[10]`` / ``v2[10]``) — Kuna types
     # struct pointers as primitive arrays; byte offset = index × element
     # width of the declared base type.
-    for m in _ARRAY_DEREF_RE.finditer(text):
+    for m in ARRAY_DEREF_RE.finditer(text):
         width = type_width(m.group("type"))
         var = m.group("var")
         elem = TYPE_WIDTHS.get(var_types.get(var, ""))
         if width is None or elem is None:
             continue
         _record(var, int(m.group("idx")) * elem, width)
-    for m in _ARRAY_IDX_RE.finditer(text):
+    for m in ARRAY_IDX_RE.finditer(text):
         var = m.group("var")
         elem = TYPE_WIDTHS.get(var_types.get(var, ""))
         if elem is None:
@@ -390,7 +388,7 @@ def parse_decomp_for_structs(text: str, max_offset: int = _MAX_MEMBER_OFFSET) ->
 # ---------------------------------------------------------------------------
 
 
-def _majority_width(slots: dict[int, int]) -> int:
+def majority_width(slots: dict[int, int]) -> int:
     """The most-observed width at an offset (ties → largest)."""
     best = max(slots, key=lambda w: (slots[w], int(w)))
     return int(best)
@@ -408,7 +406,7 @@ def synthesize_struct(name: str, offsets: dict[int, dict[int, int]]) -> str:
     fields: list[str] = []
     prev_end = 0
     for offset, slots in sorted(offsets.items()):
-        width = _majority_width(slots)
+        width = majority_width(slots)
         if offset > prev_end:
             fields.append(f"\tchar gap_{prev_end:04X}[0x{offset - prev_end:x}];")
         fields.append(_field_line(offset, width))

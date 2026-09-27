@@ -55,11 +55,11 @@ from rebrew.data_metadata import load_data_metadata
 from rebrew.lint_cflags import (
     RedundantFunctionCflags,
     RedundantPreset,
-    _cflags_key,
-    _codegen_cflags_key,
-    _drop_redundant_presets,
-    _inline_equals_store,
+    cflags_key,
     check_redundant_cflags,
+    codegen_cflags_key,
+    drop_redundant_presets,
+    inline_equals_store,
 )
 from rebrew.metadata import (
     canonical_status,
@@ -84,7 +84,7 @@ _HEADER_MARKER_RE = re.compile(r"(?://|/\*)\s*(\w+):\s*(\S+)\s+(0x[0-9a-fA-F]+)"
 _SIZE_ANNOTATION_RE = re.compile(r"//\s*SIZE\s+0x[0-9a-fA-F]+")
 # Patterns for default function names (to be used with --pedantic flag).
 # Pre-compiled: W023 runs ``fullmatch`` per function in the TU.
-_DEFAULT_FUNC_NAME_PATTERNS = [
+DEFAULT_FUNC_NAME_PATTERNS = [
     re.compile(r"\bfcn\b"),
     re.compile(r"\bfn\b"),
     re.compile(r"\bfun\b"),
@@ -918,7 +918,7 @@ def _check_W019_inline_metadata(
             # `rebrew test`/`verify` compile with the metadata CFLAGS while a
             # build that reads the .c compiles with this one.
             inline_cflags = found_keys[key].strip()
-            if metadata_cflags and _codegen_cflags_key(inline_cflags) != _codegen_cflags_key(
+            if metadata_cflags and codegen_cflags_key(inline_cflags) != codegen_cflags_key(
                 metadata_cflags
             ):
                 result.warning(
@@ -1384,7 +1384,7 @@ def _check_W023_default_func_names(result: LintResult, lines: list[str], pedanti
         last_pos = match.start()
 
         # Check against default patterns
-        for pattern in _DEFAULT_FUNC_NAME_PATTERNS:
+        for pattern in DEFAULT_FUNC_NAME_PATTERNS:
             if pattern.fullmatch(func_name):
                 result.warning(
                     line_num,
@@ -1460,7 +1460,7 @@ def _check_style_rules(result: LintResult, cfg: ProjectConfig | None) -> None:
 _SUPPORT_MARKER_RE = re.compile(r"//\s*SUPPORT:\s*(\S+)(?:\s+(.*))?")
 
 
-def _support_declaration(lines: list[str]) -> tuple[int, str, str] | None:
+def support_declaration(lines: list[str]) -> tuple[int, str, str] | None:
     """Return ``(line_no, module, reason)`` for a ``// SUPPORT:`` declaration, or None.
 
     A support TU exists purely for link reasons (linker-forced shims, CRT
@@ -1591,7 +1591,7 @@ def lint_file(
     # none of the annotation checks below apply (there are no headers to
     # check).  Body rules (W003/W007) still run — a support file with no
     # code at all is dead weight, not support.
-    support = _support_declaration(lines)
+    support = support_declaration(lines)
     if support is not None:
         _support_line, _support_module, _support_reason = support
         if not _support_reason:
@@ -1695,11 +1695,11 @@ def lint_file(
                     elif _found_key in _coread_keys:
                         # Co-read: leave inline in found_keys; W019 handles
                         # disagreement.  Equal CFLAGS still strip below.
-                        if _found_key == "CFLAGS" and _inline_equals_store(
+                        if _found_key == "CFLAGS" and inline_equals_store(
                             _found_key, found_keys[_found_key], store_val
                         ):
                             result._inline_dup_strips.append((mod, _va_int, _found_key))
-                    elif _inline_equals_store(_found_key, found_keys[_found_key], store_val):
+                    elif inline_equals_store(_found_key, found_keys[_found_key], store_val):
                         # Dead duplicate of the store value — strip on --fix.
                         result._inline_dup_strips.append((mod, _va_int, _found_key))
                         found_keys[_found_key] = store_val
@@ -1802,7 +1802,7 @@ def lint_file(
                         found_keys[_ds_found_key] = store_val
                     elif _ds_found_key == "SIZE":
                         pass  # co-read; W019 reports disagreement
-                    elif _inline_equals_store(_ds_found_key, found_keys[_ds_found_key], store_val):
+                    elif inline_equals_store(_ds_found_key, found_keys[_ds_found_key], store_val):
                         result._inline_dup_strips.append((mod, va_int, _ds_found_key))
                         found_keys[_ds_found_key] = store_val
                     else:
@@ -2283,7 +2283,7 @@ def main(
                 # strip it without writing.
                 if toml_key == "cflags":
                     inherited = resolve_cflags(cfg, None, module)
-                    if _cflags_key(value.strip()) == _cflags_key(inherited):
+                    if cflags_key(value.strip()) == cflags_key(inherited):
                         if dry_run:
                             console.print(
                                 f"  [dim]Would strip[/dim] {r.filepath.name} "
@@ -2394,7 +2394,7 @@ def main(
                         f"  [dim]Would drop[/dim] redundant preset "
                         f"cflags_presets.{preset_hit.module}"
                     )
-            w029_preset_count = _drop_redundant_presets(cfg, preset_redundant, dry_run=dry_run)
+            w029_preset_count = drop_redundant_presets(cfg, preset_redundant, dry_run=dry_run)
             if dry_run and w029_preset_count == 0:
                 w029_preset_count = len(preset_redundant)
 

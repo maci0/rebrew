@@ -304,7 +304,7 @@ def recommend_shared_twins(
     """Advise ``rebrew merge --shared`` per twin group.
 
     *groups* are file lists with identical normalized bodies (grouped by
-    :func:`rebrew.merge._normalize_body`); singletons never arrive here.
+    :func:`rebrew.merge.normalize_body`); singletons never arrive here.
     """
     recs = []
     for i, files in enumerate(groups):
@@ -610,7 +610,7 @@ def recommend_verify_failures(
     """Surface actionable verify-cache failures (one rec per VA).
 
     *entries* maps ``0x%08x`` VA keys to objects with a ``status`` attr
-    (the normalized :func:`rebrew.todo._load_verify_entries` shape, with
+    (the normalized :func:`rebrew.todo.load_verify_entries` shape, with
     todo's target guard already applied by the caller).
     """
     recs = []
@@ -671,10 +671,10 @@ def recommend_default_names(
     named: list[tuple[int, str]],
 ) -> list[Recommendation]:
     """Advise renaming functions still carrying decompiler default names."""
-    from rebrew.lint import _DEFAULT_FUNC_NAME_PATTERNS
+    from rebrew.lint import DEFAULT_FUNC_NAME_PATTERNS
 
     hits = sorted(
-        va for va, name in named if any(p.fullmatch(name) for p in _DEFAULT_FUNC_NAME_PATTERNS)
+        va for va, name in named if any(p.fullmatch(name) for p in DEFAULT_FUNC_NAME_PATTERNS)
     )
     if not hits:
         return []
@@ -896,9 +896,9 @@ def _collect_hygiene(
         rec = recommend_orphans(split_prunable(cfg, fn, data))
         if rec:
             recs.append(rec)
-        from rebrew.orphans import _orphan_dicts
+        from rebrew.orphans import orphan_dicts
 
-        recs.extend(recommend_matched_orphans(_orphan_dicts(cfg, fn, data)))
+        recs.extend(recommend_matched_orphans(orphan_dicts(cfg, fn, data)))
 
     with _lane("lint"):
         from rebrew.lint import lint_file
@@ -933,7 +933,7 @@ def _collect_hygiene(
 
     with _lane("shared-twins"):
         from rebrew.annotation import split_annotation_sections
-        from rebrew.merge import _block_metadata, _normalize_body
+        from rebrew.merge import block_metadata, normalize_body
         from rebrew.sources import iter_sources
         from rebrew.utils import read_source_text
 
@@ -946,10 +946,10 @@ def _collect_hygiene(
             _, blocks = split_annotation_sections(text)
             if len(blocks) != 1:
                 continue
-            meta = _block_metadata(blocks[0])
+            meta = block_metadata(blocks[0])
             if meta is None:
                 continue
-            bodies.setdefault(_normalize_body(blocks[0]), []).append(str(cfile))
+            bodies.setdefault(normalize_body(blocks[0]), []).append(str(cfile))
         twins = [sorted(v) for v in bodies.values() if len(v) > 1]
         recs.extend(recommend_shared_twins(twins))
 
@@ -988,9 +988,9 @@ def _collect_hygiene(
                 recs.append(rec)
 
     with _lane("verify-failures"):
-        from rebrew.todo import _load_verify_entries
+        from rebrew.todo import load_verify_entries
 
-        recs.extend(recommend_verify_failures(_load_verify_entries(cfg)))
+        recs.extend(recommend_verify_failures(load_verify_entries(cfg)))
 
     with _lane("stale-cache"):
         from rebrew.sources import iter_sources

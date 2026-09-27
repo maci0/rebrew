@@ -716,12 +716,12 @@ class TestUnparsedTypeComment:
     def test_unparsed_definition_becomes_comment(self, tmp_path: Path) -> None:
         from types import SimpleNamespace
 
-        from rebrew.binsync.importer import _import_type_definitions
+        from rebrew.binsync.importer import import_type_definitions
 
         src = tmp_path / "src"
         src.mkdir()
         cfg = SimpleNamespace(reversed_dir=src, metadata_dir=tmp_path, source_ext=".c")
-        applied = _import_type_definitions(
+        applied = import_type_definitions(
             cfg,
             {"Weird": {"definition": "not a struct at all {{{"}},
             dry_run=False,
@@ -741,7 +741,7 @@ class TestUnparsedTypeComment:
         """
         from types import SimpleNamespace
 
-        from rebrew.binsync.importer import _import_type_definitions
+        from rebrew.binsync.importer import import_type_definitions
 
         src = tmp_path / "src"
         src.mkdir()
@@ -750,10 +750,10 @@ class TestUnparsedTypeComment:
             "Weird": {"definition": "not a struct at all {{{"},
             "Alias": {"type": "int", "definition": "typedef int Other;"},
         }
-        assert _import_type_definitions(cfg, definitions, dry_run=False, proposed=[]) == 2
+        assert import_type_definitions(cfg, definitions, dry_run=False, proposed=[]) == 2
         header = src / "binsync_types.h"
         text = header.read_text(encoding="utf-8")
-        assert _import_type_definitions(cfg, definitions, dry_run=False, proposed=[]) == 0
+        assert import_type_definitions(cfg, definitions, dry_run=False, proposed=[]) == 0
         assert header.read_text(encoding="utf-8") == text
         assert text.count("UNPARSED") == 1
         assert text.count("typedef int Other;") == 1
@@ -761,12 +761,12 @@ class TestUnparsedTypeComment:
     def test_definition_cannot_escape_comment(self, tmp_path: Path) -> None:
         from types import SimpleNamespace
 
-        from rebrew.binsync.importer import _import_type_definitions
+        from rebrew.binsync.importer import import_type_definitions
 
         src = tmp_path / "src"
         src.mkdir()
         cfg = SimpleNamespace(reversed_dir=src, metadata_dir=tmp_path, source_ext=".c")
-        _import_type_definitions(
+        import_type_definitions(
             cfg,
             {
                 "Esc": {"definition": "x */ int injected(void) { return 1; } /*"},
@@ -1103,7 +1103,7 @@ class TestSharedHeaderTypeDedup:
     def test_shared_header_name_skipped(self, tmp_path: Path) -> None:
         from types import SimpleNamespace
 
-        from rebrew.binsync.importer import _import_type_definitions, _local_type_names
+        from rebrew.binsync.importer import _local_type_names, import_type_definitions
 
         rev = tmp_path / "src" / "V1"
         rev.mkdir(parents=True)
@@ -1119,7 +1119,7 @@ class TestSharedHeaderTypeDedup:
             source_ext=".c",
         )
         assert "ENTITY" in _local_type_names(cfg)
-        applied = _import_type_definitions(
+        applied = import_type_definitions(
             cfg,
             {"ENTITY": {"definition": "typedef struct {\n\tint id;\n} ENTITY;"}},
             dry_run=False,

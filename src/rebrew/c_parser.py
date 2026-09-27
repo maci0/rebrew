@@ -37,7 +37,7 @@ _CALLING_CONVENTIONS = frozenset(
     }
 )
 
-# Pre-compiled regex for stripping calling conventions (used by _strip_cc).
+# Pre-compiled regex for stripping calling conventions (used by strip_cc).
 _CC_PATTERN = re.compile(
     r"\b("
     + "|".join(re.escape(cc) for cc in sorted(_CALLING_CONVENTIONS, key=len, reverse=True))
@@ -49,7 +49,7 @@ _CC_PATTERN = re.compile(
 # including a nested (...) such as align(16).
 _DECLSPEC_PATTERN = re.compile(r"__declspec\s*\((?:[^()]*|\([^)]*\))*\)")
 # The declared name of a `__declspec(dllimport)` variable, read from the raw
-# source because `_strip_cc` removes the declspec before parsing.
+# source because `strip_cc` removes the declspec before parsing.
 _DLLIMPORT_DECL_RE = re.compile(
     r"__declspec\s*\(\s*dllimport\s*\)[^;{}]*?([A-Za-z_]\w*)\s*(?:\[[^\]]*\]\s*)*[;=]"
 )
@@ -158,7 +158,7 @@ def protected_spans(source: str | bytes) -> list[tuple[int, int]]:
     return sorted(spans)
 
 
-def _strip_cc(source: str) -> str:
+def strip_cc(source: str) -> str:
     """Remove MSVC calling conventions from C source before tree-sitter parsing.
 
     Tree-sitter's standard C grammar doesn't recognise ``__cdecl``,
@@ -378,7 +378,7 @@ def extract_function_name_from_line(line: str) -> tuple[str, str] | None:
     if not stripped:
         return None
     # Strip MSVC calling conventions so tree-sitter can parse the function
-    cleaned = _strip_cc(stripped)
+    cleaned = strip_cc(stripped)
     try:
         result = extract_function_name_and_proto(cleaned + " {}")
     except UnicodeEncodeError:
@@ -397,7 +397,7 @@ def find_c_function_definitions(source: str) -> list[tuple[str, int]]:
     if not source or not source.strip():
         return []
     try:
-        tree, src_bytes = parse_c_source(_strip_cc(source))
+        tree, src_bytes = parse_c_source(strip_cc(source))
     except ImportError:
         return []
 
@@ -424,7 +424,7 @@ def find_extern_function_names(source: str) -> list[str]:
     if not source or not source.strip():
         return []
     try:
-        tree, src_bytes = parse_c_source(_strip_cc(source))
+        tree, src_bytes = parse_c_source(strip_cc(source))
     except ImportError:
         return []
 
@@ -489,11 +489,11 @@ def find_extern_variables(source: str, *, include_definitions: bool = False) -> 
     if not source or not source.strip():
         return []
     try:
-        tree, src_bytes = parse_c_source(_strip_cc(source))
+        tree, src_bytes = parse_c_source(strip_cc(source))
     except ImportError:
         return []
 
-    # `_strip_cc` deletes the whole `__declspec(...)` before tree-sitter sees
+    # `strip_cc` deletes the whole `__declspec(...)` before tree-sitter sees
     # it, so the in-tree dllimport check below can never fire on a declaration
     # that has no `extern` -- it only ever worked because such declarations
     # were rejected for lacking `extern`.  Once definitions are in scope that

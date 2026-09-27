@@ -58,7 +58,7 @@ def collect(cfg: ProjectConfig, marker: str) -> tuple[list[Path], list[Path]]:
     holds annotated files with no block for *marker* (reported so the
     caller can confirm the exclusion).
     """
-    from rebrew.lint import _support_declaration
+    from rebrew.lint import support_declaration
 
     own: list[Path] = []
     foreign: list[Path] = []
@@ -70,7 +70,7 @@ def collect(cfg: ProjectConfig, marker: str) -> tuple[list[Path], list[Path]]:
                 # with the locale encoding, so under LANG=C a cp1252 or
                 # Shift-JIS TU loses its SUPPORT line to U+FFFD and the file
                 # silently lands in the wrong target's source list.
-                support = _support_declaration(read_source_text(src)[0].splitlines())
+                support = support_declaration(read_source_text(src)[0].splitlines())
             except OSError:
                 support = None
             if support is not None and preset_module_key(support[1]) == preset_module_key(marker):

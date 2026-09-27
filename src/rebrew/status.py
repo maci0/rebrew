@@ -283,9 +283,9 @@ def _load_verify_info(
         return None
     raw_bin = raw.get("binary_id")
     if raw_bin:
-        from rebrew.verify_cache import _binary_id
+        from rebrew.verify_cache import binary_id
 
-        if raw_bin != _binary_id(cfg):
+        if raw_bin != binary_id(cfg):
             return None
 
     entries = raw.get("entries")
@@ -379,9 +379,9 @@ def load_verify_details(cfg: ProjectConfig) -> dict[int, tuple[str, bool]]:
         return {}
     raw_bin = raw.get("binary_id")
     if raw_bin:
-        from rebrew.verify_cache import _binary_id
+        from rebrew.verify_cache import binary_id
 
-        if raw_bin != _binary_id(cfg):
+        if raw_bin != binary_id(cfg):
             return {}
 
     entries = raw.get("entries")

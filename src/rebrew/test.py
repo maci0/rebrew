@@ -1793,10 +1793,10 @@ def emit_test_batch(
     # Scope preview without compiling: prepare_entries is cheap, the
     # compile is not — dry-run lists candidates straight from the scan.
     if dry_run:
-        from rebrew.verify import _scope_entries, prepare_entries
+        from rebrew.verify import prepare_entries, scope_entries
 
         scanned = prepare_entries(cfg, True, json_output, context=context)
-        scoped = _scope_entries(
+        scoped = scope_entries(
             scanned[0],
             (scanned[1], scanned[2], scanned[3], scanned[4], scanned[5]),
             (scanned[6], scanned[7]),

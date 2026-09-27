@@ -19,7 +19,7 @@ from typer.testing import CliRunner
 from rebrew.cli import EXIT_ERROR
 from rebrew.cmake_flags import _defines, app, collect
 from rebrew.config import load_config
-from rebrew.lint_cflags import _codegen_cflags_key
+from rebrew.lint_cflags import codegen_cflags_key
 
 TOML = """\
 [project]
@@ -95,9 +95,9 @@ def test_define_alone_is_not_a_conflict_and_is_not_emitted(tmp_path: Path) -> No
 
 
 def test_codegen_key_ignores_order_and_defines() -> None:
-    assert _codegen_cflags_key("/Gd /O2") == _codegen_cflags_key("/O2 /Gd")
-    assert _codegen_cflags_key("/O2 /Gd /DX=1") == _codegen_cflags_key("/O2 /Gd")
-    assert _codegen_cflags_key("/O2 /Gd") != _codegen_cflags_key("/O2 /Gd /Ow")
+    assert codegen_cflags_key("/Gd /O2") == codegen_cflags_key("/O2 /Gd")
+    assert codegen_cflags_key("/O2 /Gd /DX=1") == codegen_cflags_key("/O2 /Gd")
+    assert codegen_cflags_key("/O2 /Gd") != codegen_cflags_key("/O2 /Gd /Ow")
     assert _defines("/O2 /Gd /DX=1 -DY") == {"/DX=1", "-DY"}
 
 

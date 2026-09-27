@@ -315,19 +315,19 @@ class TestOnlyVaGuard:
         """``--va`` on an already matched destination function must not re-add
         it through the disassembler (that path skipped the status filter)."""
         cfg = SimpleNamespace()
-        monkeypatch.setattr(ci, "_annotations_by_va", lambda cfg: {0x401040: ("EXACT", "f1.c")})
-        monkeypatch.setattr(ci, "_registry", lambda cfg: {0x401040: {"canonical_size": 16}})
-        monkeypatch.setattr(ci, "_disasm_sizes", lambda cfg, vas: ({0x401040: 16}, []))
-        monkeypatch.setattr(ci, "_target_bytes_by_va", lambda cfg, vas: dict.fromkeys(vas, b"\xc3"))
+        monkeypatch.setattr(ci, "annotations_by_va", lambda cfg: {0x401040: ("EXACT", "f1.c")})
+        monkeypatch.setattr(ci, "registry", lambda cfg: {0x401040: {"canonical_size": 16}})
+        monkeypatch.setattr(ci, "disasm_sizes", lambda cfg, vas: ({0x401040: 16}, []))
+        monkeypatch.setattr(ci, "target_bytes_by_va", lambda cfg, vas: dict.fromkeys(vas, b"\xc3"))
         assert ci.unmatched_dest_bytes(cfg, only_va=0x401040) == {}
 
     def test_proven_is_importable_destination_not_donor(self, monkeypatch) -> None:
         """PROVEN bytes differ from the target: a PROVEN destination is still
         unmatched work and a PROVEN source is not a byte-exact donor."""
         cfg = SimpleNamespace()
-        monkeypatch.setattr(ci, "_annotations_by_va", lambda cfg: {0x401040: ("PROVEN", "f1.c")})
-        monkeypatch.setattr(ci, "_registry", lambda cfg: {0x401040: {"canonical_size": 16}})
-        monkeypatch.setattr(ci, "_target_bytes_by_va", lambda cfg, vas: dict.fromkeys(vas, b"\xc3"))
+        monkeypatch.setattr(ci, "annotations_by_va", lambda cfg: {0x401040: ("PROVEN", "f1.c")})
+        monkeypatch.setattr(ci, "registry", lambda cfg: {0x401040: {"canonical_size": 16}})
+        monkeypatch.setattr(ci, "target_bytes_by_va", lambda cfg, vas: dict.fromkeys(vas, b"\xc3"))
         assert set(ci.unmatched_dest_bytes(cfg, only_va=0x401040)) == {0x401040}
         assert ci.matched_source_bytes(cfg) == {}
 
@@ -335,10 +335,10 @@ class TestOnlyVaGuard:
         """A NOT-matched VA without a registry size still gets the disasm size
         (the guard must only block the matched case)."""
         cfg = SimpleNamespace()
-        monkeypatch.setattr(ci, "_annotations_by_va", lambda cfg: {0x401040: ("STUB", "f1.c")})
-        monkeypatch.setattr(ci, "_registry", lambda cfg: {})
-        monkeypatch.setattr(ci, "_disasm_sizes", lambda cfg, vas: ({0x401040: 16}, []))
-        monkeypatch.setattr(ci, "_target_bytes_by_va", lambda cfg, vas: dict.fromkeys(vas, b"\xc3"))
+        monkeypatch.setattr(ci, "annotations_by_va", lambda cfg: {0x401040: ("STUB", "f1.c")})
+        monkeypatch.setattr(ci, "registry", lambda cfg: {})
+        monkeypatch.setattr(ci, "disasm_sizes", lambda cfg, vas: ({0x401040: 16}, []))
+        monkeypatch.setattr(ci, "target_bytes_by_va", lambda cfg, vas: dict.fromkeys(vas, b"\xc3"))
         assert set(ci.unmatched_dest_bytes(cfg, only_va=0x401040)) == {0x401040}
 
 
@@ -347,11 +347,11 @@ class TestTargetBytes:
         """A missing binary is an error, not an empty catalog of bytes."""
         cfg = SimpleNamespace(target_binary=tmp_path / "gone.exe")
         with pytest.raises(FileNotFoundError):
-            ci._target_bytes_by_va(cfg, {0x401000: 16})
+            ci.target_bytes_by_va(cfg, {0x401000: 16})
 
     def test_no_vas_skips_binary_load(self, tmp_path: Path) -> None:
         cfg = SimpleNamespace(target_binary=tmp_path / "gone.exe")
-        assert ci._target_bytes_by_va(cfg, {}) == {}
+        assert ci.target_bytes_by_va(cfg, {}) == {}
 
 
 class TestImportMechanics:
@@ -385,7 +385,7 @@ class TestImportMechanics:
         (tmp_path / "rebrew-functions.toml").write_text(
             '["FIXT.0x00401040"]\nstatus = "EXACT"\nsize = 11\n'
         )
-        assert ci._annotations_by_va(cfg) == {0x401040: ("EXACT", "f1.c")}
+        assert ci.annotations_by_va(cfg) == {0x401040: ("EXACT", "f1.c")}
 
     def test_source_symbol_comes_from_the_definition(self) -> None:
         """A leading prototype or ``extern`` must not name the import.
@@ -674,7 +674,7 @@ class TestSizelessMatching:
             "rebrew.binary_loader.function_extent_from_disasm",
             lambda _p, _va, with_kind=False: (11, "ret") if with_kind else 11,
         )
-        sizes, refused = ci._disasm_sizes(cfg, [A_F1, A_F2])
+        sizes, refused = ci.disasm_sizes(cfg, [A_F1, A_F2])
         assert sizes == {A_F1: 11, A_F2: 11}
         assert refused == []
 
@@ -690,7 +690,7 @@ class TestSizelessMatching:
             return None
 
         monkeypatch.setattr("rebrew.binary_loader.function_extent_from_disasm", fake_extent)
-        sizes, refused = ci._disasm_sizes(cfg, [A_F1, A_F2])
+        sizes, refused = ci.disasm_sizes(cfg, [A_F1, A_F2])
         assert sizes == {}
         assert refused == [A_F1, A_F2]
 
@@ -700,8 +700,8 @@ class TestSizelessMatching:
         pa = tmp_path / "a.exe"
         pa.write_bytes(_pe_a())
         cfg = self._cfg(tmp_path, "DST", pa)
-        monkeypatch.setattr(ci, "_annotations_by_va", lambda _c: {A_F1: ("STUB", "f1.c")})
-        monkeypatch.setattr(ci, "_registry", lambda _c: {A_F1: {"canonical_size": 0}})
+        monkeypatch.setattr(ci, "annotations_by_va", lambda _c: {A_F1: ("STUB", "f1.c")})
+        monkeypatch.setattr(ci, "registry", lambda _c: {A_F1: {"canonical_size": 0}})
         monkeypatch.setattr(
             "rebrew.binary_loader.function_extent_from_disasm",
             lambda _p, _va, with_kind=False: (len(F1), "ret") if with_kind else len(F1),
@@ -715,8 +715,8 @@ class TestSizelessMatching:
         pa = tmp_path / "a.exe"
         pa.write_bytes(_pe_a())
         cfg = self._cfg(tmp_path, "DST", pa)
-        monkeypatch.setattr(ci, "_annotations_by_va", lambda _c: {A_F1: ("STUB", "f1.c")})
-        monkeypatch.setattr(ci, "_registry", lambda _c: {A_F1: {"canonical_size": 0}})
+        monkeypatch.setattr(ci, "annotations_by_va", lambda _c: {A_F1: ("STUB", "f1.c")})
+        monkeypatch.setattr(ci, "registry", lambda _c: {A_F1: {"canonical_size": 0}})
         monkeypatch.setattr(
             "rebrew.binary_loader.function_extent_from_disasm",
             lambda _p, _va, with_kind=False: (len(F1), "ret") if with_kind else len(F1),
@@ -730,8 +730,8 @@ class TestSizelessMatching:
         pa = tmp_path / "a.exe"
         pa.write_bytes(_pe_a())
         cfg = self._cfg(tmp_path, "SRC", pa)
-        monkeypatch.setattr(ci, "_annotations_by_va", lambda _c: {A_F1: ("EXACT", "f1.c")})
-        monkeypatch.setattr(ci, "_registry", lambda _c: {A_F1: {"canonical_size": 0}})
+        monkeypatch.setattr(ci, "annotations_by_va", lambda _c: {A_F1: ("EXACT", "f1.c")})
+        monkeypatch.setattr(ci, "registry", lambda _c: {A_F1: {"canonical_size": 0}})
         monkeypatch.setattr(
             "rebrew.binary_loader.function_extent_from_disasm",
             lambda _p, _va, with_kind=False: (len(F1), "ret") if with_kind else len(F1),
@@ -784,9 +784,9 @@ class TestCLI:
         monkeypatch.setattr(
             "rebrew.cross_import.cross_match", lambda d, s, **k: {B_F1: (A_F1, 100.0)}
         )
-        monkeypatch.setattr("rebrew.cross_import._registry", lambda cfg: {})
+        monkeypatch.setattr("rebrew.cross_import.registry", lambda cfg: {})
         monkeypatch.setattr(
-            "rebrew.cross_import._annotations_by_va",
+            "rebrew.cross_import.annotations_by_va",
             lambda cfg: {B_F1: ("STUB", "f1.c"), A_F1: ("EXACT", "f1.c")},
         )
         monkeypatch.setattr(
@@ -832,9 +832,9 @@ class TestCLI:
             "rebrew.cross_import.cross_match",
             lambda d, s, **k: {B_F1: (A_F1, 100.0), B_F2: (A_F2, 100.0)},
         )
-        monkeypatch.setattr("rebrew.cross_import._registry", lambda cfg: {})
+        monkeypatch.setattr("rebrew.cross_import.registry", lambda cfg: {})
         monkeypatch.setattr(
-            "rebrew.cross_import._annotations_by_va",
+            "rebrew.cross_import.annotations_by_va",
             lambda cfg: {B_F1: ("STUB", "f1.c"), A_F1: ("EXACT", "f1.c")},
         )
         calls: list[Any] = []
@@ -878,9 +878,9 @@ class TestCLI:
         monkeypatch.setattr(
             "rebrew.cross_import.cross_match", lambda d, s, **k: {B_F1: (A_F1, 100.0)}
         )
-        monkeypatch.setattr("rebrew.cross_import._registry", lambda cfg: {})
+        monkeypatch.setattr("rebrew.cross_import.registry", lambda cfg: {})
         monkeypatch.setattr(
-            "rebrew.cross_import._annotations_by_va",
+            "rebrew.cross_import.annotations_by_va",
             lambda cfg: {B_F1: ("STUB", "f1.c"), A_F1: ("EXACT", "f1.c")},
         )
         # B_F1 sized by disassembly, 0x499999 refused by it.
@@ -1222,10 +1222,10 @@ class TestPromoteToShared:
             "rebrew.cross_import.cross_match", lambda d, s, **k: {B_F1: (A_F1, 100.0)}
         )
         monkeypatch.setattr(
-            "rebrew.cross_import._registry", lambda cfg: {B_F1: {"canonical_size": 11}}
+            "rebrew.cross_import.registry", lambda cfg: {B_F1: {"canonical_size": 11}}
         )
         monkeypatch.setattr(
-            "rebrew.cross_import._annotations_by_va",
+            "rebrew.cross_import.annotations_by_va",
             lambda cfg: (
                 {B_F1: ("STUB", ""), A_F1: ("EXACT", "f1.c")}
                 if cfg.target_name == "DST"
@@ -1774,9 +1774,9 @@ class TestCandidatesOnly:
         monkeypatch.setattr(
             "rebrew.cross_import.cross_match", lambda d, s, **k: {B_F1: (A_F1, 100.0)}
         )
-        monkeypatch.setattr("rebrew.cross_import._registry", lambda cfg: {})
+        monkeypatch.setattr("rebrew.cross_import.registry", lambda cfg: {})
         monkeypatch.setattr(
-            "rebrew.cross_import._annotations_by_va",
+            "rebrew.cross_import.annotations_by_va",
             lambda cfg: {A_F1: ("EXACT", "Units/vfs/f1.c")},
         )
 

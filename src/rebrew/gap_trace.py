@@ -74,9 +74,9 @@ def reference_window(cfg: Any, va: int) -> int | None:
     is longer than the metadata ``size`` (code only).  Comparing only the
     metadata window decodes table bytes as phantom instructions.
     """
-    from rebrew.asm import _next_function_va
+    from rebrew.asm import next_function_va
 
-    nxt = _next_function_va(cfg, va)
+    nxt = next_function_va(cfg, va)
     return (nxt - va) if nxt else None
 
 
@@ -218,9 +218,9 @@ def main(
     if obj_path is None:
         error_exit(f"Compile failed: {err}", json_mode=json_output)
 
-    from rebrew.analysis import _capstone
+    from rebrew.analysis import capstone_for
 
-    md = _capstone(info)
+    md = capstone_for(info)
     obj_seq: list[tuple[int, bytes, str, str]] = []
     body, rels = _obj_text(obj_path)
     local_rels = {r for r in rels if r < len(body)}

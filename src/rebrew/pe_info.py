@@ -47,12 +47,12 @@ from rebrew.binary_loader import detect_format_and_arch
 from rebrew.cli import EXIT_ERROR, TargetOption, console, error_exit, json_print, resolve_binary_arg
 from rebrew.pe_symbols import (
     PeDirectories,
-    _export_table,
-    _forwarder_target,
+    export_table,
+    forwarder_target,
     pe_directories,
 )
 from rebrew.pe_symbols import (
-    _as_list as _safe_list,
+    as_list as _safe_list,
 )
 
 # ---------------------------------------------------------------------------
@@ -704,12 +704,12 @@ def _exports(pe: Any) -> list[dict[str, object]]:
     keeping the record instead of dropping it.  An ordinal-only export keeps an
     empty ``name``; the ordinal identifies it.
     """
-    export = _export_table(pe)
+    export = export_table(pe)
     image_base = _to_int(getattr(getattr(pe, "optional_header", None), "imagebase", 0)) or 0
     entries: list[dict[str, object]] = []
     for entry in _safe_list(export, "entries"):
         forwarded = _flag(getattr(entry, "is_forwarded", None))
-        forwarder = _forwarder_target(entry) if forwarded else None
+        forwarder = forwarder_target(entry) if forwarded else None
         address = _to_int(getattr(entry, "address", None))
         entries.append(
             {

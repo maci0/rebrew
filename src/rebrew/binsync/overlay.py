@@ -39,14 +39,14 @@ import typer
 from rich.table import Table
 
 from rebrew.binsync.importer import (
-    _apply_binsync_func_name,
-    _import_type_definitions,
-    _strip_cdecl_prefix,
+    apply_binsync_func_name,
+    import_type_definitions,
     is_meaningful,
     is_safe_prototype,
     normalize_prototype,
     normalize_stack_vars,
     resolve_state_dir,
+    strip_cdecl_prefix,
 )
 from rebrew.binsync.state import (
     load_binsync_comments,
@@ -67,12 +67,12 @@ from rebrew.cli import (
 )
 from rebrew.config import ProjectConfig, module_marker
 from rebrew.cross_import import (
-    _annotations_by_va,
-    _disasm_sizes,
-    _registry,
-    _signature_for,
-    _target_bytes_by_va,
+    annotations_by_va,
     cross_match,
+    disasm_sizes,
+    registry,
+    signature_for,
+    target_bytes_by_va,
     unmatched_dest_bytes,
 )
 from rebrew.utils import strip_body
@@ -191,21 +191,21 @@ def _source_signatures(cfg_src: ProjectConfig, vas: list[int]) -> dict[int, dict
     the disassembly-derived extent.  VAs with no size or no readable bytes are
     skipped (they simply cannot participate in the match).
     """
-    registry = _registry(cfg_src)
+    entries = registry(cfg_src)
     sizes: dict[int, int] = {}
     for va in vas:
-        entry = registry.get(va)
+        entry = entries.get(va)
         size = int(entry.get("canonical_size") or 0) if entry is not None else 0
         if size > 0:
             sizes[va] = size
     sizeless = [va for va in vas if va not in sizes]
     if sizeless:
-        disasm_sizes, _refused = _disasm_sizes(cfg_src, sizeless)
-        sizes.update(disasm_sizes)
-    codes = _target_bytes_by_va(cfg_src, sizes)
+        derived, _refused = disasm_sizes(cfg_src, sizeless)
+        sizes.update(derived)
+    codes = target_bytes_by_va(cfg_src, sizes)
     out: dict[int, dict[str, Any]] = {}
     for va, code in codes.items():
-        sig = _signature_for(cfg_src, code, va)
+        sig = signature_for(cfg_src, code, va)
         if sig is not None:
             out[va] = sig
     return out
@@ -216,7 +216,7 @@ def _dest_signatures(cfg: ProjectConfig) -> dict[int, dict[str, Any]]:
     codes = unmatched_dest_bytes(cfg)
     out: dict[int, dict[str, Any]] = {}
     for va, code in codes.items():
-        sig = _signature_for(cfg, code, va)
+        sig = signature_for(cfg, code, va)
         if sig is not None:
             out[va] = sig
     return out
@@ -330,7 +330,7 @@ def overlay_state(
     dest_sigs = _dest_signatures(cfg)
     matches = cross_match(dest_sigs, src_sigs, min_score=min_score, min_gap=min_gap)
 
-    statuses = _annotations_by_va(cfg)
+    statuses = annotations_by_va(cfg)
     applied_names = 0
     applied_prototypes = 0
     applied_notes = 0
@@ -377,9 +377,9 @@ def overlay_state(
         if "name" in fields:
             bs_name = remote.get("name", "")
             local_name = getattr(local, "symbol", "") or getattr(local, "name", "") or ""
-            bs_stripped = _strip_cdecl_prefix(bs_name) if bs_name.startswith("_") else bs_name
+            bs_stripped = strip_cdecl_prefix(bs_name) if bs_name.startswith("_") else bs_name
             local_stripped = (
-                _strip_cdecl_prefix(local_name) if local_name.startswith("_") else local_name
+                strip_cdecl_prefix(local_name) if local_name.startswith("_") else local_name
             )
             if bs_name and is_meaningful(bs_name) and bs_stripped != local_stripped:
                 local_meaningful = is_meaningful(local_name)
@@ -397,7 +397,7 @@ def overlay_state(
                         applied.append("name")
                     else:
                         try:
-                            if _apply_binsync_func_name(cfg, local, bs_stripped, filepath):
+                            if apply_binsync_func_name(cfg, local, bs_stripped, filepath):
                                 applied_names += 1
                                 touched.add(dst_va)
                                 applied.append("name")
@@ -674,17 +674,17 @@ def overlay_state(
     applied_structs = 0
     structs = load_binsync_structs(state_dir)
     if structs:
-        applied_structs = _import_type_definitions(cfg, structs, dry_run=dry_run, proposed=proposed)
+        applied_structs = import_type_definitions(cfg, structs, dry_run=dry_run, proposed=proposed)
 
     applied_enums = 0
     enums = load_binsync_enums(state_dir)
     if enums:
-        applied_enums = _import_type_definitions(cfg, enums, dry_run=dry_run, proposed=proposed)
+        applied_enums = import_type_definitions(cfg, enums, dry_run=dry_run, proposed=proposed)
 
     applied_typedefs = 0
     typedefs = load_binsync_typedefs(state_dir)
     if typedefs:
-        applied_typedefs = _import_type_definitions(
+        applied_typedefs = import_type_definitions(
             cfg, typedefs, dry_run=dry_run, proposed=proposed
         )
 

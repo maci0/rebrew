@@ -82,7 +82,7 @@ _PRINCIPLES_SRC = Path(__file__).parent / "PRINCIPLES.md"
 _SCAFFOLD_MANIFEST = ".agents/skills/.rebrew-scaffold.json"
 
 
-def _warn_profile_family_mismatch(profile: str, tc: ToolchainInfo) -> None:
+def warn_profile_family_mismatch(profile: str, tc: ToolchainInfo) -> None:
     """Warn when a high-confidence compiler-family detection contradicts the
     chosen profile — a Zig-built DLL with an ``msvc-6.0`` profile can never
     byte-match, so say so at init instead of after the first verify."""
@@ -102,7 +102,7 @@ def _warn_profile_family_mismatch(profile: str, tc: ToolchainInfo) -> None:
     )
 
 
-def _warn_profile_mismatch(profile: str, binary_format: str, arch: str) -> None:
+def warn_profile_mismatch(profile: str, binary_format: str, arch: str) -> None:
     """Warn when the chosen compiler profile contradicts the detected binary.
 
     The config is still written with the detected format/arch (so doctor's
@@ -212,9 +212,9 @@ def _agent_skill_files(target_name: str) -> dict[str, bytes]:
         for src in _iter_skill_tree_files(_AGENT_SKILLS_SRC):
             files[src.relative_to(_AGENT_SKILLS_SRC).as_posix()] = src.read_bytes()
 
-    from rebrew.skills import _parse_frontmatter, _read_skill_md, _safe_skill_name, _user_skills_dir
+    from rebrew.skills import parse_frontmatter, read_skill_md, safe_skill_name, user_skills_dir
 
-    user_skills = _user_skills_dir()
+    user_skills = user_skills_dir()
     if user_skills is not None and user_skills.is_dir():
         for skill_dir in sorted(user_skills.iterdir()):
             # A skill directory that is itself a symlink would let rglob walk
@@ -227,8 +227,8 @@ def _agent_skill_files(target_name: str) -> dict[str, bytes]:
             # Merge by canonical skill name (frontmatter name or dir name) —
             # the same key `rebrew skills list` uses, so a user skill named
             # "rebrew-workflow" overrides the packaged one in place.
-            fm = _parse_frontmatter(_read_skill_md(skill_md))
-            name = _safe_skill_name(fm.get("name") or skill_dir.name)
+            fm = parse_frontmatter(read_skill_md(skill_md))
+            name = safe_skill_name(fm.get("name") or skill_dir.name)
             if not name:
                 continue
             for src in _iter_skill_tree_files(skill_dir):
@@ -1133,7 +1133,7 @@ def main(
     # Warn when the detected format/arch contradicts the chosen profile —
     # e.g. a 16-bit NE binary with a 32-bit msvc-6.0 profile (doctor will flag
     # it as a misalignment; surface it here instead of after the fact).
-    _warn_profile_mismatch(compiler_profile, binary_format, target_arch)
+    warn_profile_mismatch(compiler_profile, binary_format, target_arch)
 
     # Compiler-family alignment: a high-confidence detection that contradicts
     # the profile (Zig-built DLL with msvc-6.0) can never byte-match — warn at
@@ -1144,7 +1144,7 @@ def main(
             from rebrew.toolchain_detect import detect_toolchain
 
             tc = detect_toolchain(binary_path)
-            _warn_profile_family_mismatch(compiler_profile, tc)
+            warn_profile_family_mismatch(compiler_profile, tc)
         except Exception:
             logger.debug(
                 "toolchain detection failed for %s", binary_path, exc_info=True

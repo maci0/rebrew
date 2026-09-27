@@ -900,108 +900,108 @@ class TestApplyCommandsViaMcp:
 
 
 class TestIdempotentSuccess:
-    """_is_idempotent_success pins the error to the op: same noun/address,
+    """is_idempotent_success pins the error to the op: same noun/address,
     never a substring match on unrelated errors."""
 
     def test_label_noun_match_counts(self) -> None:
-        from rebrew.ghidra.client import _is_idempotent_success
+        from rebrew.ghidra.client import is_idempotent_success
 
         op = {"tool": "create-label", "args": {"addressOrSymbol": "0x1000"}}
-        assert _is_idempotent_success(op, "Label already exists") is True
+        assert is_idempotent_success(op, "Label already exists") is True
 
     def test_op_plus_address_match_counts(self) -> None:
-        from rebrew.ghidra.client import _is_idempotent_success
+        from rebrew.ghidra.client import is_idempotent_success
 
         op = {"tool": "create-function", "args": {"address": "0x1000"}}
-        assert _is_idempotent_success(op, "create-function 0x1000: already exists") is True
+        assert is_idempotent_success(op, "create-function 0x1000: already exists") is True
 
     def test_different_address_rejected(self) -> None:
-        from rebrew.ghidra.client import _is_idempotent_success
+        from rebrew.ghidra.client import is_idempotent_success
 
         op = {"tool": "create-label", "args": {"addressOrSymbol": "0x1000"}}
-        assert _is_idempotent_success(op, "create-label 0x2000 already exists") is False
+        assert is_idempotent_success(op, "create-label 0x2000 already exists") is False
 
     def test_different_operation_rejected(self) -> None:
-        from rebrew.ghidra.client import _is_idempotent_success
+        from rebrew.ghidra.client import is_idempotent_success
 
         op = {"tool": "create-label", "args": {"addressOrSymbol": "0x1000"}}
-        assert _is_idempotent_success(op, "create-function 0x1000 already exists") is False
+        assert is_idempotent_success(op, "create-function 0x1000 already exists") is False
 
     def test_different_operation_space_form_rejected(self) -> None:
         """The server may spell the other op with a space — it must still be
         rejected (only the hyphenated slug was matched before)."""
-        from rebrew.ghidra.client import _is_idempotent_success
+        from rebrew.ghidra.client import is_idempotent_success
 
         op = {"tool": "create-label", "args": {"addressOrSymbol": "0x1000"}}
-        assert _is_idempotent_success(op, "create function 0x1000 already exists") is False
-        assert _is_idempotent_success(op, "create_function 0x1000: duplicate") is False
+        assert is_idempotent_success(op, "create function 0x1000 already exists") is False
+        assert is_idempotent_success(op, "create_function 0x1000: duplicate") is False
 
     def test_different_operation_bare_noun_rejected(self) -> None:
         """The server may name the other op without its slug."""
-        from rebrew.ghidra.client import _is_idempotent_success
+        from rebrew.ghidra.client import is_idempotent_success
 
         op = {"tool": "create-label", "args": {"addressOrSymbol": "0x1000"}}
-        assert _is_idempotent_success(op, "function 0x1000 already exists") is False
+        assert is_idempotent_success(op, "function 0x1000 already exists") is False
 
     def test_padded_address_is_the_same_address(self) -> None:
         """Addresses compare numerically: an op carrying 0x00001000 matches a
         server payload echoing 0x1000."""
-        from rebrew.ghidra.client import _is_idempotent_success
+        from rebrew.ghidra.client import is_idempotent_success
 
         op = {"tool": "create-function", "args": {"address": "0x00001000"}}
-        assert _is_idempotent_success(op, "create-function 0x1000 already exists") is True
+        assert is_idempotent_success(op, "create-function 0x1000 already exists") is True
 
     def test_unrelated_error_with_substring_rejected(self) -> None:
-        from rebrew.ghidra.client import _is_idempotent_success
+        from rebrew.ghidra.client import is_idempotent_success
 
         op = {"tool": "set-comment", "args": {"addressOrSymbol": "0x1000"}}
-        assert _is_idempotent_success(op, "failed: output file already exists on disk") is False
+        assert is_idempotent_success(op, "failed: output file already exists on disk") is False
 
     def test_no_marker_rejected(self) -> None:
-        from rebrew.ghidra.client import _is_idempotent_success
+        from rebrew.ghidra.client import is_idempotent_success
 
         op = {"tool": "create-label", "args": {"addressOrSymbol": "0x1000"}}
-        assert _is_idempotent_success(op, "connection reset") is False
+        assert is_idempotent_success(op, "connection reset") is False
 
     def test_parse_c_structure_duplicate_name_counts(self) -> None:
         """A sync re-push / dependency retry that hits Ghidra's typed
         DuplicateNameException must count as success (type already present)."""
-        from rebrew.ghidra.client import _is_idempotent_success
+        from rebrew.ghidra.client import is_idempotent_success
 
         op = {
             "tool": "parse-c-structure",
             "args": {"cDefinition": "struct A { int x; };"},
         }
-        assert _is_idempotent_success(op, "DuplicateNameException: already exists") is True
+        assert is_idempotent_success(op, "DuplicateNameException: already exists") is True
 
     def test_parse_c_structure_structure_noun_counts(self) -> None:
-        from rebrew.ghidra.client import _is_idempotent_success
+        from rebrew.ghidra.client import is_idempotent_success
 
         op = {
             "tool": "parse-c-structure",
             "args": {"cDefinition": "struct A { int x; };"},
         }
-        assert _is_idempotent_success(op, "structure A already exists") is True
+        assert is_idempotent_success(op, "structure A already exists") is True
 
     def test_set_comment_noun_counts(self) -> None:
-        from rebrew.ghidra.client import _is_idempotent_success
+        from rebrew.ghidra.client import is_idempotent_success
 
         op = {"tool": "set-comment", "args": {"addressOrSymbol": "0x1000"}}
-        assert _is_idempotent_success(op, "comment already exists at 0x1000") is True
+        assert is_idempotent_success(op, "comment already exists at 0x1000") is True
 
     def test_set_bookmark_noun_counts(self) -> None:
-        from rebrew.ghidra.client import _is_idempotent_success
+        from rebrew.ghidra.client import is_idempotent_success
 
         op = {"tool": "set-bookmark", "args": {"addressOrSymbol": "0x1000"}}
-        assert _is_idempotent_success(op, "bookmark already exists") is True
+        assert is_idempotent_success(op, "bookmark already exists") is True
 
     def test_prototype_does_not_false_reject_create_function(self) -> None:
         """``set-function-prototype`` shares the substring ``function`` with
         ``create-function`` — a valid create-function re-apply must still count."""
-        from rebrew.ghidra.client import _is_idempotent_success
+        from rebrew.ghidra.client import is_idempotent_success
 
         op = {"tool": "create-function", "args": {"address": "0x1000"}}
-        assert _is_idempotent_success(op, "function 0x1000 already exists") is True
+        assert is_idempotent_success(op, "function 0x1000 already exists") is True
 
 
 class TestApplyAbort:

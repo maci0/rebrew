@@ -139,7 +139,7 @@ def _apply_global_type_size(
         set_data_field(metadata_dir, va, field, value, module)
 
 
-def _strip_cdecl_prefix(name: str) -> str:
+def strip_cdecl_prefix(name: str) -> str:
     return name[1:] if name.startswith("_") else name
 
 
@@ -200,9 +200,7 @@ def normalize_stack_vars(stack_vars: Any) -> dict[str, dict[str, Any]]:
     }
 
 
-def _apply_binsync_func_name(
-    cfg: Any, local: Any, bs_name: str, local_filepath: str | None
-) -> bool:
+def apply_binsync_func_name(cfg: Any, local: Any, bs_name: str, local_filepath: str | None) -> bool:
     """Rename the local function *local* to the BinSync name, everywhere.
 
     Returns False (nothing written) when the source file is missing or the
@@ -251,7 +249,7 @@ def _entry_module(cfg: Any, local: Any = None) -> str:
 
 def _stub_text(cfg: Any, va: int, bs_name: str, bs_proto: str) -> tuple[Path, str, str]:
     """``(path, source, module)`` of the stub ``--create-missing`` would write."""
-    bs_stripped = _strip_cdecl_prefix(bs_name) if bs_name.startswith("_") else bs_name
+    bs_stripped = strip_cdecl_prefix(bs_name) if bs_name.startswith("_") else bs_name
     target_func = bs_stripped if is_safe_c_ident(bs_stripped) else f"func_{va:08x}"
     mod = module_marker(cfg)
     if not mod:
@@ -310,7 +308,7 @@ def _try_apply_binsync_name(
 ) -> bool:
     """Apply a BinSync rename. False when nothing was written."""
     try:
-        return _apply_binsync_func_name(cfg, local, bs_name, local_filepath)
+        return apply_binsync_func_name(cfg, local, bs_name, local_filepath)
     except Exception:
         log.warning("rename apply failed for VA 0x%x", va, exc_info=True)
         return False
@@ -536,9 +534,9 @@ def import_state(
 
         # Resolve BinSync name to a local symbol form (strip cdecl prefix for comparison)
         # BinSync names are typically "_foo" (cdecl) — local symbol is also "_foo"
-        bs_stripped = _strip_cdecl_prefix(bs_name) if bs_name.startswith("_") else bs_name
+        bs_stripped = strip_cdecl_prefix(bs_name) if bs_name.startswith("_") else bs_name
         local_stripped = (
-            _strip_cdecl_prefix(local_name) if local_name.startswith("_") else local_name
+            strip_cdecl_prefix(local_name) if local_name.startswith("_") else local_name
         )
 
         # Prototype import (independent of name; whitespace-normalized compare).
@@ -786,15 +784,15 @@ def import_state(
 
     # --- Structs / enums / typedefs: unknown definitions into a local header ---
     if structs_by_name:
-        applied_structs = _import_type_definitions(
+        applied_structs = import_type_definitions(
             cfg, structs_by_name, dry_run=dry_run, proposed=proposed
         )
     if enums_by_name:
-        applied_enums = _import_type_definitions(
+        applied_enums = import_type_definitions(
             cfg, enums_by_name, dry_run=dry_run, proposed=proposed
         )
     if typedefs_by_name:
-        applied_typedefs = _import_type_definitions(
+        applied_typedefs = import_type_definitions(
             cfg, typedefs_by_name, dry_run=dry_run, proposed=proposed
         )
 
@@ -1040,7 +1038,7 @@ def _definition_is_valid(definition: str, name: str, entry: dict[str, object]) -
     return False
 
 
-def _import_type_definitions(
+def import_type_definitions(
     cfg: ProjectConfig,
     definitions: dict[str, dict[str, object]],
     *,

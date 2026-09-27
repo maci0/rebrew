@@ -34,8 +34,8 @@ import typer
 
 from rebrew.cli import EXIT_ERROR, TargetOption, console, error_exit, json_print
 from rebrew.config import (
-    _KNOWN_PROJECT_KEYS,
-    _KNOWN_TARGET_KEYS,
+    KNOWN_PROJECT_KEYS,
+    KNOWN_TARGET_KEYS,
     ConfigError,
     validate_http_url,
     validate_target_name,
@@ -96,15 +96,15 @@ def _redact_secrets(obj: Any) -> Any:
 # ---------------------------------------------------------------------------
 
 #: Keys that live under ``[targets.<name>]``.  Kept in sync with
-#: ``config._KNOWN_TARGET_KEYS``; bare ``cfg set <key>`` routes these to the
+#: ``config.KNOWN_TARGET_KEYS``; bare ``cfg set <key>`` routes these to the
 #: default target automatically (an explicit ``targets.<name>.<key>`` wins).
-_TARGET_SCOPED_KEYS: frozenset[str] = frozenset(_KNOWN_TARGET_KEYS - {"compiler"})
+_TARGET_SCOPED_KEYS: frozenset[str] = frozenset(KNOWN_TARGET_KEYS - {"compiler"})
 
 #: Keys that live under ``[project]``.  Kept in sync with
-#: ``config._KNOWN_PROJECT_KEYS``; bare ``cfg set <key>`` routes these to the
+#: ``config.KNOWN_PROJECT_KEYS``; bare ``cfg set <key>`` routes these to the
 #: ``[project]`` table (writing them at the document top level produced keys
 #: the config reader rejects with an "unrecognized top-level keys" warning).
-_PROJECT_SCOPED_KEYS: frozenset[str] = frozenset(_KNOWN_PROJECT_KEYS)
+_PROJECT_SCOPED_KEYS: frozenset[str] = frozenset(KNOWN_PROJECT_KEYS)
 
 
 def _resolve_dotted_key(
@@ -806,20 +806,20 @@ def set_value(
             error_exit(str(exc), code=EXIT_ERROR)
 
     if (leaf == "format" or key == "format") and parsed_value:
-        from rebrew.config import _KNOWN_FORMATS
+        from rebrew.config import KNOWN_FORMATS
 
-        if parsed_value not in _KNOWN_FORMATS:
+        if parsed_value not in KNOWN_FORMATS:
             error_exit(
-                f"unknown format {parsed_value!r} (known: {', '.join(sorted(_KNOWN_FORMATS))})",
+                f"unknown format {parsed_value!r} (known: {', '.join(sorted(KNOWN_FORMATS))})",
                 code=EXIT_ERROR,
             )
 
     if (leaf == "arch" or key == "arch") and parsed_value:
-        from rebrew.config import _ARCH_PRESETS
+        from rebrew.config import ARCH_PRESETS
 
-        if parsed_value not in _ARCH_PRESETS:
+        if parsed_value not in ARCH_PRESETS:
             error_exit(
-                f"unknown arch {parsed_value!r} (known: {', '.join(sorted(_ARCH_PRESETS))})",
+                f"unknown arch {parsed_value!r} (known: {', '.join(sorted(ARCH_PRESETS))})",
                 code=EXIT_ERROR,
             )
 

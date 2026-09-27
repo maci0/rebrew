@@ -326,7 +326,7 @@ def _merged_msvc_version_tables() -> tuple[
     return rich, eras
 
 
-_RICH_BUILD_PROFILES_ALL, _LINKER_ERA_PROFILES_ALL = _merged_msvc_version_tables()
+RICH_BUILD_PROFILES_ALL, LINKER_ERA_PROFILES_ALL = _merged_msvc_version_tables()
 
 #: CRT import names -> MSVC version binder (msvcp60.dll = VC 6.0, etc.).
 #: The msvcpX.dll import is written by the /MD CRT of that toolchain; a
@@ -394,7 +394,7 @@ def backend_display_name(detected_by: str) -> str:
 #: member is a callable ``(path: Path) -> ToolchainInfo | None``; the first
 #: non-None result supplies the family when the packaged pipeline left it
 #: unknown, so a genuinely novel compiler becomes detectable end-to-end:
-#: its family flows into ``_PROFILE_COMPAT_ALL`` (extensible via
+#: its family flows into ``PROFILE_COMPAT_ALL`` (extensible via
 #: ``rebrew.toolchain_detectors``) for doctor/init profile alignment.
 BINARY_DETECTOR_ENTRY_POINT_GROUP = "rebrew.binary_detectors"
 
@@ -429,22 +429,22 @@ _PLUGIN_DETECTORS: list[tuple[str, Any]] = _discover_binary_detectors()
 def refresh_detection_tables() -> dict[str, int]:
     """Re-run discovery and refresh the detection registries.
 
-    Refreshes :data:`_PROFILE_COMPAT_ALL`, the MSVC version-exact tables
-    (:data:`_RICH_BUILD_PROFILES_ALL` / :data:`_LINKER_ERA_PROFILES_ALL`),
+    Refreshes :data:`PROFILE_COMPAT_ALL`, the MSVC version-exact tables
+    (:data:`RICH_BUILD_PROFILES_ALL` / :data:`LINKER_ERA_PROFILES_ALL`),
     and :data:`_PLUGIN_DETECTORS` — long-lived processes can pick up
     detection plugins installed after startup without a restart.  Returns
     the resulting entry counts keyed by entry-point group, for
     :func:`rebrew.registry.refresh_all`."""
-    global _PROFILE_COMPAT_ALL, _RICH_BUILD_PROFILES_ALL
-    global _LINKER_ERA_PROFILES_ALL, _PLUGIN_DETECTORS
+    global PROFILE_COMPAT_ALL, RICH_BUILD_PROFILES_ALL
+    global LINKER_ERA_PROFILES_ALL, _PLUGIN_DETECTORS
 
-    _PROFILE_COMPAT_ALL = _merged_profile_compat()
-    _RICH_BUILD_PROFILES_ALL, _LINKER_ERA_PROFILES_ALL = _merged_msvc_version_tables()
+    PROFILE_COMPAT_ALL = _merged_profile_compat()
+    RICH_BUILD_PROFILES_ALL, LINKER_ERA_PROFILES_ALL = _merged_msvc_version_tables()
     _PLUGIN_DETECTORS = _discover_binary_detectors()
     return {
         "binary_detectors": len(_PLUGIN_DETECTORS),
-        "toolchain_detectors": len(_PROFILE_COMPAT_ALL),
-        "msvc_versions": len(_RICH_BUILD_PROFILES_ALL) + len(_LINKER_ERA_PROFILES_ALL),
+        "toolchain_detectors": len(PROFILE_COMPAT_ALL),
+        "msvc_versions": len(RICH_BUILD_PROFILES_ALL) + len(LINKER_ERA_PROFILES_ALL),
     }
 
 
@@ -1186,7 +1186,7 @@ def detect_with_pe_meta(path: Path) -> ToolchainInfo | None:
         info.family = "msvc"
         info.confidence = "high"
         build = _rich_compiler_build(rich_entries)  # the C1/C2 pair (mode)
-        profiles = _RICH_BUILD_PROFILES_ALL.get(build) or _LINKER_ERA_PROFILES_ALL.get(
+        profiles = RICH_BUILD_PROFILES_ALL.get(build) or LINKER_ERA_PROFILES_ALL.get(
             linker_mm or (12, 0)
         )
         mm = linker_mm or (12, 0)  # unknown linker -> VC6-era fallback
@@ -1207,7 +1207,7 @@ def detect_with_pe_meta(path: Path) -> ToolchainInfo | None:
     if linker_mm is not None:
         version = f"{linker_mm[0]}.{linker_mm[1]:02d}"
         info.msvc_version = version
-        info.suggested_profiles = list(_LINKER_ERA_PROFILES_ALL.get(linker_mm, ()))
+        info.suggested_profiles = list(LINKER_ERA_PROFILES_ALL.get(linker_mm, ()))
         if linker_mm == (9, 0):
             info.add(f"linker {linker_ver} (MSVC 2.0 or MinGW GNU ld)")
             if msvcp_version:
@@ -1877,7 +1877,7 @@ def detect_toolchain(
     return info
 
 
-def _bitness16_profiles() -> tuple[str, ...]:
+def bitness16_profiles() -> tuple[str, ...]:
     """Profiles registered with ``bits = 16``, for DOS/NE byte-matching.
 
     Comes straight from the toolchain registry, so a plugin toolchain
@@ -1978,7 +1978,7 @@ def _merged_profile_compat() -> dict[str, set[str] | None]:
     return compat
 
 
-_PROFILE_COMPAT_ALL: dict[str, set[str] | None] = _merged_profile_compat()
+PROFILE_COMPAT_ALL: dict[str, set[str] | None] = _merged_profile_compat()
 
 
 def profile_matches_detection(profile: str, info: ToolchainInfo) -> tuple[bool, str | None]:
@@ -1987,7 +1987,7 @@ def profile_matches_detection(profile: str, info: ToolchainInfo) -> tuple[bool, 
     *aligned* is True when the configured profile can plausibly byte-match
     the detected family; *explanation* carries a fix hint when not.
     """
-    compatible = _PROFILE_COMPAT_ALL.get(info.family)
+    compatible = PROFILE_COMPAT_ALL.get(info.family)
     if compatible is None:
         if info.family == "unknown":
             return True, None  # unknown family: don't second-guess the user
@@ -2049,14 +2049,14 @@ def profile_matches_detection(profile: str, info: ToolchainInfo) -> tuple[bool, 
     # explicit (msvc-1.52 = NE/DOS, borland-3.1/borland-2.0/watcom-2.0-win16 = DOS); watcom's
     # wcc386 is a 32-bit compiler (Open Watcom 2.0 x86-32) and must NOT be
     # flagged as 16-bit.
-    if info.arch == "x86_16" and profile not in _bitness16_profiles():
+    if info.arch == "x86_16" and profile not in bitness16_profiles():
         return (
             False,
             f"detected 16-bit binary but profile '{profile}' is a 32/64-bit "
-            f"compiler — switch to one of: {', '.join(_bitness16_profiles())} "
+            f"compiler — switch to one of: {', '.join(bitness16_profiles())} "
             "(e.g. msvc-1.52 / borland-3.1 / borland-2.0) or document the functions as blockers",
         )
-    if info.arch and info.arch != "x86_16" and profile in _bitness16_profiles():
+    if info.arch and info.arch != "x86_16" and profile in bitness16_profiles():
         return (
             False,
             f"profile '{profile}' is a 16-bit compiler but the binary is "
@@ -2096,7 +2096,7 @@ def suggest_profile(info: ToolchainInfo, binary: Path | None = None) -> str | No
 
     The single source of truth for family→profile selection, used by
     ``rebrew init --guess-compiler``, ``rebrew intake``, and doctor.  Uses
-    ``_PROFILE_COMPAT_ALL`` (the byte-match compatibility table) and prefers the
+    ``PROFILE_COMPAT_ALL`` (the byte-match compatibility table) and prefers the
     16-bit profile when the binary is 16-bit (NE x86_16 or a plain DOS MZ
     executable).  Version-exact ``suggested_profiles`` (Rich header / linker
     era, or plugin evidence) win over the generic preference lists, so e.g.
@@ -2104,7 +2104,7 @@ def suggest_profile(info: ToolchainInfo, binary: Path | None = None) -> str | No
     than the msvc-1.52 default.  Returns ``None`` when no rebrew profile can
     match.
     """
-    compatible = _PROFILE_COMPAT_ALL.get(info.family)
+    compatible = PROFILE_COMPAT_ALL.get(info.family)
     if not compatible:
         return None
     is16 = _is_16bit_target(info, binary)
@@ -2113,7 +2113,7 @@ def suggest_profile(info: ToolchainInfo, binary: Path | None = None) -> str | No
     # suggestion must agree with the target bitness (a 32-bit suggestion on
     # a 16-bit binary, or vice versa, can never byte-match).
     if info.suggested_profiles:
-        bit16 = set(_bitness16_profiles())
+        bit16 = set(bitness16_profiles())
         for p in info.suggested_profiles:
             if p not in compatible:
                 continue
@@ -2126,7 +2126,7 @@ def suggest_profile(info: ToolchainInfo, binary: Path | None = None) -> str | No
         for p in ("msvc-1.52", "borland-3.1", "watcom-2.0-win16"):
             if p in compatible:
                 return p
-        for p in _bitness16_profiles():
+        for p in bitness16_profiles():
             if p in compatible:
                 return p
     for p in (

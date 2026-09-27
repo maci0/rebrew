@@ -431,11 +431,11 @@ def _read_rva_array(image: _Image, table_va: int, count: int, *, extra_byte: boo
 
 def _read_exports(pe: Any, image_base: int) -> tuple[list[PeExport], list[str]]:
     """Export records, code and forwarded alike."""
-    table = _export_table(pe)
+    table = export_table(pe)
     if table is None:
         return [], []
     exports: list[PeExport] = []
-    for entry in _as_list(table, "entries"):
+    for entry in as_list(table, "entries"):
         original = str(getattr(entry, "name", "") or "")
         ordinal = _int_or_none(getattr(entry, "ordinal", None))
         name = original or (f"export_{ordinal}" if ordinal is not None else "")
@@ -443,7 +443,7 @@ def _read_exports(pe: Any, image_base: int) -> tuple[list[PeExport], list[str]]:
             continue
         if bool(getattr(entry, "is_forwarded", False)):
             exports.append(
-                PeExport(name=name, ordinal=ordinal, va=None, forwarder=_forwarder_target(entry))
+                PeExport(name=name, ordinal=ordinal, va=None, forwarder=forwarder_target(entry))
             )
             continue
         address = _int_or_none(getattr(entry, "address", None))
@@ -453,7 +453,7 @@ def _read_exports(pe: Any, image_base: int) -> tuple[list[PeExport], list[str]]:
     return exports, []
 
 
-def _export_table(pe: Any) -> Any | None:
+def export_table(pe: Any) -> Any | None:
     """The PE export table, or ``None`` when LIEF cannot expose one."""
     get_export = getattr(pe, "get_export", None)
     if get_export is None:
@@ -464,7 +464,7 @@ def _export_table(pe: Any) -> Any | None:
         return None
 
 
-def _forwarder_target(entry: Any) -> str | None:
+def forwarder_target(entry: Any) -> str | None:
     """The ``DLL.Function`` an export forwards to, or ``None``."""
     info = getattr(entry, "forward_information", None)
     if info is None:
@@ -487,7 +487,7 @@ def _read_tls_callbacks(pe: Any) -> tuple[list[int], list[str]]:
     tls = getattr(pe, "tls", None)
     if tls is None:
         return [], []
-    callbacks = [_int_or_none(va) for va in _as_list(tls, "callbacks")]
+    callbacks = [_int_or_none(va) for va in as_list(tls, "callbacks")]
     resolved = [va for va in callbacks if va is not None]
     if resolved:
         return resolved, []
@@ -586,7 +586,7 @@ def pe_directories(path: str | Path) -> PeDirectories:
 
     delay_records: list[PeImport] = []
     delay_notes: list[str] = []
-    for directory in _as_list(pe, "data_directories"):
+    for directory in as_list(pe, "data_directories"):
         if str(getattr(directory, "type", "")).endswith("DELAY_IMPORT_DESCRIPTOR"):
             rva = _int_or_none(getattr(directory, "rva", None))
             if rva:
@@ -763,7 +763,7 @@ def _symbol_sort_key(symbol: PeSymbol) -> tuple[int, int, str, str]:
 # ---------------------------------------------------------------------------
 
 
-def _as_list(obj: Any, attr: str) -> list[Any]:
+def as_list(obj: Any, attr: str) -> list[Any]:
     """``obj.attr`` as a list, or ``[]`` when missing or not iterable."""
     try:
         value = getattr(obj, attr, None)

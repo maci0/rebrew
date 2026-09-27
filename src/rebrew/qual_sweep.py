@@ -36,7 +36,7 @@ from rebrew.cli import (
     require_config,
     select_annotation,
 )
-from rebrew.climb import _function_span as climb_function_span
+from rebrew.climb import function_span as climb_function_span
 from rebrew.compile import compile_and_compare
 from rebrew.compile_overrides import resolve_compile_overrides
 from rebrew.utils import atomic_write_text, filename_component, read_source_text
@@ -68,7 +68,7 @@ def variants(decl: str) -> list[tuple[str, str]]:
     return out
 
 
-def _function_span(lines: list[str], symbol: str) -> tuple[int, int]:
+def function_span(lines: list[str], symbol: str) -> tuple[int, int]:
     """Half-open line range of *symbol*'s definition, closing brace included.
 
     Raises:
@@ -143,7 +143,7 @@ def main(
     original, encoding = read_source_text(path)
     lines = original.splitlines(keepends=True)
     try:
-        lo, hi = _function_span(lines, sym)
+        lo, hi = function_span(lines, sym)
     except ValueError as exc:
         error_exit(str(exc), json_mode=json_output)
     head, body_lines, tail = lines[:lo], lines[lo:hi], lines[hi:]

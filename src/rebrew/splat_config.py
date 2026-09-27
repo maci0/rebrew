@@ -1309,13 +1309,13 @@ def _plan_library_annotations(
     Splat writes those files for symbols referenced but *not defined* in the
     image: code that lives in a library, which is what rebrew's ``LIBRARY``
     marker records.  The module is inferred with
-    :func:`rebrew.identify_library._infer_module` (the CRT/zlib name tables,
+    :func:`rebrew.identify_library.infer_module` (the CRT/zlib name tables,
     the same inference ``identify_library``'s import backend uses) and falls
     back to the target's own marker.  The VA has to land inside the image,
     else there is no address to anchor an annotation to and the row is
     reported as skipped.
     """
-    from rebrew.identify_library import _infer_module
+    from rebrew.identify_library import infer_module
     from rebrew.naming import sanitize_name
 
     planned: list[Annotation] = []
@@ -1337,7 +1337,7 @@ def _plan_library_annotations(
             )
             continue
         name = sanitize_name(row.name)
-        module = _infer_module(row.name, marker or "LIBRARY")
+        module = infer_module(row.name, marker or "LIBRARY")
         rel = f"library_{module.lower()}.h"
         # No file check for a library entry: the header is appended to, so it
         # existing is the normal case.

@@ -167,7 +167,7 @@ class TestRecoveryContract:
                 "delta": 0,
             }
         ]
-        vc._save_verify_cache(cache_path, _Cfg(), results, entries)
+        vc.save_verify_cache(cache_path, _Cfg(), results, entries)
         build_db(root, regen=True)
         conn = sqlite3.connect(root / "db" / "coverage.db")
         c = conn.cursor()

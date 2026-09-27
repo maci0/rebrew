@@ -532,7 +532,7 @@ def disassembled_extent_window(cfg: ProjectConfig, va: int) -> tuple[list[Any], 
         return [], None
 
 
-def _next_function_va(cfg: ProjectConfig, va: int) -> int | None:
+def next_function_va(cfg: ProjectConfig, va: int) -> int | None:
     """Start VA of the function after *va* in the function list, if known.
 
     Lets ``calling_convention`` trim a disassembly window that bleeds past
@@ -559,7 +559,7 @@ def calling_convention_at(cfg: ProjectConfig, va: int) -> str:
     insns, _kind = disassembled_extent_window(cfg, va)
     if not insns:
         return "unknown"
-    return calling_convention(insns, next_va=_next_function_va(cfg, va))
+    return calling_convention(insns, next_va=next_function_va(cfg, va))
 
 
 _HEX_OPERAND_RE = re.compile(r"0x([0-9a-fA-F]+)")
@@ -726,7 +726,7 @@ def _hex_view(
     shown_list = insn_list[shown_offset:]
     # Trim the bleed window at the next function's start so a `ret`
     # from the neighbor never decides this function's convention.
-    bleed_next = _next_function_va(cfg, va_int)
+    bleed_next = next_function_va(cfg, va_int)
     conv_insns = [i for i in shown_list if i.address < bleed_next] if bleed_next else shown_list
     return _HexView(
         bin_path=bin_path,

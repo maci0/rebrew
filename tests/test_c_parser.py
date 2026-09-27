@@ -320,7 +320,7 @@ class TestDefinitionsAndDllimport:
         assert find_extern_variables(src, include_definitions=True) == []
 
     def test_dllimport_variables_are_skipped(self) -> None:
-        """`_strip_cc` deletes the declspec before tree-sitter sees it, so the
+        """`strip_cc` deletes the declspec before tree-sitter sees it, so the
         in-tree check could never fire; `extern __declspec(dllimport) int g;`
         was reported despite the documented intent to skip it."""
         from rebrew.c_parser import find_extern_variables

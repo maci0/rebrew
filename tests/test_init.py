@@ -606,9 +606,9 @@ class TestFamilyMismatchWarning:
         return SimpleNamespace(family=family, confidence=confidence, version_hint=hint)
 
     def test_mismatch_warns(self, capsys: pytest.CaptureFixture[str]) -> None:
-        from rebrew.init import _warn_profile_family_mismatch
+        from rebrew.init import warn_profile_family_mismatch
 
-        _warn_profile_family_mismatch("msvc-6.0", self._tc("zig", hint="Zig/LLVM 20.1"))
+        warn_profile_family_mismatch("msvc-6.0", self._tc("zig", hint="Zig/LLVM 20.1"))
         out = capsys.readouterr()
         assert "looks like zig" in out.err
         assert "mingw-16.2.0" in out.err  # suggests the counterpart profile
@@ -616,22 +616,22 @@ class TestFamilyMismatchWarning:
         assert "--compiler" not in out.err
 
     def test_matching_family_silent(self, capsys: pytest.CaptureFixture[str]) -> None:
-        from rebrew.init import _warn_profile_family_mismatch
+        from rebrew.init import warn_profile_family_mismatch
 
-        _warn_profile_family_mismatch("mingw-16.2.0", self._tc("mingw"))
-        _warn_profile_family_mismatch("msvc-6.0", self._tc("msvc"))
+        warn_profile_family_mismatch("mingw-16.2.0", self._tc("mingw"))
+        warn_profile_family_mismatch("msvc-6.0", self._tc("msvc"))
         assert "looks like" not in capsys.readouterr().err
 
     def test_low_confidence_silent(self, capsys: pytest.CaptureFixture[str]) -> None:
-        from rebrew.init import _warn_profile_family_mismatch
+        from rebrew.init import warn_profile_family_mismatch
 
-        _warn_profile_family_mismatch("msvc-6.0", self._tc("zig", confidence="low"))
+        warn_profile_family_mismatch("msvc-6.0", self._tc("zig", confidence="low"))
         assert "looks like" not in capsys.readouterr().err
 
     def test_unknown_family_silent(self, capsys: pytest.CaptureFixture[str]) -> None:
-        from rebrew.init import _warn_profile_family_mismatch
+        from rebrew.init import warn_profile_family_mismatch
 
-        _warn_profile_family_mismatch("msvc-6.0", self._tc("unknown"))
+        warn_profile_family_mismatch("msvc-6.0", self._tc("unknown"))
         assert "looks like" not in capsys.readouterr().err
 
 
@@ -1020,9 +1020,9 @@ class TestProfileMismatchWarning:
     (a 16-bit NE binary with a 32-bit msvc-6.0 profile would fail doctor)."""
 
     def test_ne_binary_warns_on_msvc_6_0(self, capsys) -> None:
-        from rebrew.init import _warn_profile_mismatch
+        from rebrew.init import warn_profile_mismatch
 
-        _warn_profile_mismatch("msvc-6.0", "ne", "x86_16")
+        warn_profile_mismatch("msvc-6.0", "ne", "x86_16")
         out = capsys.readouterr().err
         assert "16-bit binary (ne/x86_16)" in out
         # the suggestion lists the 16-bit-capable profiles (derived from
@@ -1033,22 +1033,22 @@ class TestProfileMismatchWarning:
         assert "--compiler" not in out
 
     def test_ne_binary_silent_on_msvc152(self, capsys) -> None:
-        from rebrew.init import _warn_profile_mismatch
+        from rebrew.init import warn_profile_mismatch
 
-        _warn_profile_mismatch("msvc-1.52", "ne", "x86_16")
+        warn_profile_mismatch("msvc-1.52", "ne", "x86_16")
         assert "warning" not in capsys.readouterr().err
 
     def test_32bit_pe_warns_on_msvc152(self, capsys) -> None:
-        from rebrew.init import _warn_profile_mismatch
+        from rebrew.init import warn_profile_mismatch
 
-        _warn_profile_mismatch("msvc-1.52", "pe", "x86_32")
+        warn_profile_mismatch("msvc-1.52", "pe", "x86_32")
         out = capsys.readouterr().err
         assert "16-bit compiler" in out
 
     def test_32bit_pe_silent_on_msvc_6_0(self, capsys) -> None:
-        from rebrew.init import _warn_profile_mismatch
+        from rebrew.init import warn_profile_mismatch
 
-        _warn_profile_mismatch("msvc-6.0", "pe", "x86_32")
+        warn_profile_mismatch("msvc-6.0", "pe", "x86_32")
         assert "warning" not in capsys.readouterr().err
 
     def test_init_emits_warning_stderr_not_stdout(

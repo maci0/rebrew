@@ -824,7 +824,7 @@ def _header_key_entries(
     return sorted(entries)
 
 
-def _dir_fingerprint_hash(source_dir: str | None, include_dirs: list[str]) -> str:
+def dir_fingerprint_hash(source_dir: str | None, include_dirs: list[str]) -> str:
     """Conservative whole-directory header fingerprint (ccache-style).
 
     Covers *source_dir* as well as the ``/I`` dirs: quote includes search it
@@ -932,7 +932,7 @@ _NO_DEPS_HASH = hashlib.sha256(b"").hexdigest()
 #: MSVC ``/FI`` (also spelled ``-FI``), GCC/Clang ``-include`` /
 #: ``--include`` / ``-imacros``, Watcom ``-fi=``.  Case-sensitive: MSVC
 #: ``/Fi`` names the preprocessor output file instead.
-_FORCE_INCLUDE_PREFIXES = ("/FI", "-FI", "-include", "--include", "-imacros", "-fi=")
+FORCE_INCLUDE_PREFIXES = ("/FI", "-FI", "-include", "--include", "-imacros", "-fi=")
 
 
 def header_dependency_hash(
@@ -954,7 +954,7 @@ def header_dependency_hash(
     """
     paths, fallback = _resolve_include_paths(source_content, source_dir, tuple(include_dirs))
     if fallback:
-        return _dir_fingerprint_hash(source_dir, include_dirs)
+        return dir_fingerprint_hash(source_dir, include_dirs)
     if not paths:
         return _NO_DEPS_HASH
     h = hashlib.sha256()
@@ -1029,11 +1029,11 @@ def compile_cache_key(
     # A force-include pulls a header's content into every compile regardless
     # of the source's directives — resolution cannot see it, so fall back to
     # conservative per-directory fingerprints.
-    force_include = any(f.startswith(_FORCE_INCLUDE_PREFIXES) for f in cflags)
+    force_include = any(f.startswith(FORCE_INCLUDE_PREFIXES) for f in cflags)
     headers = (
         header_dependency_hash(source_content, source_dir, include_dirs)
         if not force_include
-        else _dir_fingerprint_hash(source_dir, include_dirs)
+        else dir_fingerprint_hash(source_dir, include_dirs)
     )
     h.update(f"\0headers={headers}\0".encode())
     h.update(f"\0toolchain={toolchain_id}\0".encode("utf-8", errors="surrogateescape"))

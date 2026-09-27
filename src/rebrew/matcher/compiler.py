@@ -618,10 +618,10 @@ def build_candidate_obj_only(
             return BuildResult(ok=False, error_msg=detailed_err)
 
         if cache is not None and cache_key is not None:
-            from rebrew.compile import _publish_obj_cache
+            from rebrew.compile import publish_obj_cache
 
             with contextlib.suppress(OSError):
-                _publish_obj_cache(
+                publish_obj_cache(
                     cache,
                     cache_key,
                     obj_path.read_bytes(),

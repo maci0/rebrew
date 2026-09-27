@@ -70,7 +70,7 @@ def _patch_flow(monkeypatch: pytest.MonkeyPatch, cfg: SimpleNamespace) -> None:
     )
     monkeypatch.setattr("rebrew.verify.run_verification", lambda *a, **k: (0, 0, [], [], []))
     monkeypatch.setattr("rebrew.verify_cache.load_baseline", lambda cfg: (None, None))
-    monkeypatch.setattr("rebrew.verify._save_verify_cache", lambda *a, **k: None)
+    monkeypatch.setattr("rebrew.verify.save_verify_cache", lambda *a, **k: None)
     monkeypatch.setattr("rebrew.verify._apply_or_preview_status", lambda *a, **k: None)
 
 

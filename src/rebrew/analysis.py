@@ -110,7 +110,7 @@ class StringEntry:
 _capstone_tls = threading.local()
 
 
-def _capstone(info: BinaryInfo | None = None) -> Any:
+def capstone_for(info: BinaryInfo | None = None) -> Any:
     """Return a capstone ``Cs`` disassembler.
 
     Defaults to x86-32.  A ``BinaryInfo`` selects the arch, the x86 bitness
@@ -153,7 +153,7 @@ def capstone_handle(cs_arch: int, cs_mode: int, *, detail: bool = False) -> Any:
 
     ``detail`` off is the hot path: mnemonics, operands and bytes only, no
     operand/detail decoding.  Cached per thread for the same reason
-    :func:`_capstone` is: a ``Cs`` mutates its libcapstone handle on every
+    :func:`capstone_for` is: a ``Cs`` mutates its libcapstone handle on every
     ``disasm``, so one instance cannot be shared across threads.
     """
     from capstone import Cs
@@ -254,7 +254,7 @@ def iter_instruction_stream(info: BinaryInfo, va: int, size: int) -> Iterator[In
     if size <= 0:
         return
     raw = extract_bytes(info, va, size)
-    md = _capstone(info)
+    md = capstone_for(info)
     for insn in md.disasm(raw, va):
         yield Insn(
             va=insn.address,
@@ -351,7 +351,7 @@ def scan_references(
     binaries, else ``[".text"]``).
     """
     names = section_names if section_names is not None else _default_scan_sections(info)
-    md = _capstone(info)
+    md = capstone_for(info)
     xrefs: list[Xref] = []
     for name in names:
         rng = section_range(info, name)
@@ -392,7 +392,7 @@ def data_references(info: BinaryInfo, va: int, size: int) -> list[Xref]:
     raw = extract_bytes(info, va, size)
     if not raw:
         return []
-    md = _capstone(info)
+    md = capstone_for(info)
     # NE code segments carry a 2-byte Borland index marker before the
     # instruction stream, the same offset scan_references skips.
     start = 2 if info.format == "ne" and len(raw) > 2 else 0

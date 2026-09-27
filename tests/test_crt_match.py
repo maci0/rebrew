@@ -8,11 +8,11 @@ import pytest
 from rebrew.config import ProjectConfig, load_config
 from rebrew.crt_match import (
     CrtSourceEntry,
-    _source_ref,
     build_crt_index,
     is_asm_only,
     match_function,
     normalize_name,
+    source_ref,
 )
 
 
@@ -245,15 +245,15 @@ class TestFunctionMatching:
 class TestSourceRef:
     def test_c_source_with_line(self) -> None:
         entry = CrtSourceEntry(name="malloc", file="MALLOC.C", line=42, is_asm=False, module="X")
-        assert _source_ref(entry) == "MALLOC.C:42"
+        assert source_ref(entry) == "MALLOC.C:42"
 
     def test_asm_source_omits_line(self) -> None:
         entry = CrtSourceEntry(name="memcpy", file="MEMCPY.ASM", line=12, is_asm=True, module="X")
-        assert _source_ref(entry) == "MEMCPY.ASM"
+        assert source_ref(entry) == "MEMCPY.ASM"
 
     def test_filename_entry_omits_line(self) -> None:
         entry = CrtSourceEntry(name="qsort", file="QSORT.C", line=0, is_asm=False, module="X")
-        assert _source_ref(entry) == "QSORT.C"
+        assert source_ref(entry) == "QSORT.C"
 
 
 class TestIndexEdgeCases:

@@ -551,7 +551,7 @@ _IDEMPOTENT_OPS = frozenset(
 _OP_VERB_PREFIXES = ("create-", "set-", "parse-")
 
 
-def _is_idempotent_success(op: dict[str, Any] | None, error_msg: str) -> bool:
+def is_idempotent_success(op: dict[str, Any] | None, error_msg: str) -> bool:
     """True when *error_msg* is an idempotent re-apply of *op*, not a failure.
 
     The error arrived as the result of this op's own ``tools/call`` request,
@@ -756,7 +756,7 @@ def apply_commands_via_mcp(
                         content = res.content
                         error_msg = content[0].text if content else str(data.result)
                 if is_error:
-                    if _is_idempotent_success(cmd, error_msg):
+                    if is_idempotent_success(cmd, error_msg):
                         return True, ""
                     return False, str(error_msg)
                 return True, ""
@@ -877,4 +877,5 @@ __all__ = [
     "fetch_mcp_tool",
     "fetch_mcp_tool_raw",
     "init_mcp_session",
+    "is_idempotent_success",
 ]

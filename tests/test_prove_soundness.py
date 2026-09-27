@@ -93,7 +93,7 @@ def _install_fake_angr(monkeypatch: pytest.MonkeyPatch) -> types.ModuleType:
     monkeypatch.setitem(sys.modules, "angr", fake)
     monkeypatch.setattr(prove_mod, "_run_simulation", real_simulation)
     monkeypatch.setattr(simprocs_mod, "_WIN32_SIMPROCS", None)
-    monkeypatch.setattr(prove_mod, "_get_win32_simprocs", lambda: {})
+    monkeypatch.setattr(prove_mod, "get_win32_simprocs", lambda: {})
     return fake
 
 

@@ -608,7 +608,7 @@ def _collect_prover_candidates(
     return items
 
 
-def _load_verify_entries(cfg: ProjectConfig) -> dict[str, "VerifyCacheEntry"]:
+def load_verify_entries(cfg: ProjectConfig) -> dict[str, "VerifyCacheEntry"]:
     """Load verify cache entries, returning {} on missing/corrupt cache.
 
     Mirrors status.py's target guard: the cache is a single shared file whose
@@ -638,9 +638,9 @@ def _load_verify_entries(cfg: ProjectConfig) -> dict[str, "VerifyCacheEntry"]:
     cfg_target = getattr(cfg, "target_name", None)
     if cache_target != cfg_target and (cache_target or cfg_target):
         return {}
-    from rebrew.verify_cache import _binary_id
+    from rebrew.verify_cache import binary_id
 
-    if data.binary_id and data.binary_id != _binary_id(cfg):
+    if data.binary_id and data.binary_id != binary_id(cfg):
         return {}
     # Re-key canonically: the cache is a JSON file, so a VA may be spelled
     # "0x1000" instead of "0x00001000" (the union at `:317` already normalizes
@@ -664,9 +664,9 @@ def _inferred_module(name: str) -> str:
     ``estimate_difficulty``'s reference-source levels) infers it from the name
     with the same heuristic the FLIRT/import backends use.
     """
-    from rebrew.identify_library import _infer_module
+    from rebrew.identify_library import infer_module
 
-    return _infer_module(name, "")
+    return infer_module(name, "")
 
 
 def _collect_new_functions(
@@ -1107,7 +1107,7 @@ def collect_all(
 
     size_by_va: dict[int, int] = {f.va: f.size for f in ghidra_funcs}
     name_by_va: dict[int, str] = {f.va: f.name or "" for f in ghidra_funcs}
-    verify_entries = _load_verify_entries(cfg)
+    verify_entries = load_verify_entries(cfg)
 
     # 1. Collect all active functions tracked in the project
     # A caller whose own function is already byte-matched does not need its

@@ -18,7 +18,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent))  # tests/ on path for bin_util
 from bin_util import make_pe
 
-from rebrew.analysis import _capstone
+from rebrew.analysis import capstone_for
 from rebrew.asm import _annotation_for_operand, _hint_for, _run_hex_mode
 
 IMAGE_BASE = 0x400000
@@ -26,7 +26,7 @@ TEXT_VA = 0x401000
 
 
 def _insns(hex_bytes: str) -> list[object]:
-    md = _capstone()
+    md = capstone_for()
     return list(md.disasm(bytes.fromhex(hex_bytes), TEXT_VA))
 
 

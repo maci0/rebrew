@@ -30,7 +30,7 @@ from rebrew.cli import (
     require_config,
 )
 from rebrew.data_layout import built_text_va
-from rebrew.verify_hash import _expected_text_functions as _expected_functions
+from rebrew.verify_hash import expected_text_functions as _expected_functions
 
 app = typer.Typer(
     help="Compare .text function VAs of the current build against the source markers.",

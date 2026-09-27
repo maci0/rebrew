@@ -58,9 +58,9 @@ def has_back_jumps(
         return False
     from capstone.x86 import X86_OP_IMM
 
-    from rebrew.analysis import _capstone
+    from rebrew.analysis import capstone_for
 
-    for insn in _capstone().disasm(data, base_offset):
+    for insn in capstone_for().disasm(data, base_offset):
         mnemonic = insn.mnemonic
         if not mnemonic.startswith("j") or mnemonic in _NOT_A_BACK_JUMP:
             continue

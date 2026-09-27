@@ -66,7 +66,7 @@ def _raise_unbounded_copy() -> None:
     )
 
 
-def _get_win32_simprocs() -> dict[str, type]:
+def get_win32_simprocs() -> dict[str, type]:
     """Build and cache the Win32 SimProcedure registry (requires angr)."""
     global _WIN32_SIMPROCS
     if _WIN32_SIMPROCS is not None:

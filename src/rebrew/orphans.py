@@ -125,13 +125,13 @@ def split_prunable(
     Shared by the ``orphans --prune`` path and ``verify --prune-orphans`` so
     both hold back :data:`EARNED_STATUSES` blocks unless *include_matched*.
     """
-    orphans = _orphan_dicts(cfg, fn_orphans, data_orphans)
+    orphans = orphan_dicts(cfg, fn_orphans, data_orphans)
     if include_matched:
         return orphans
     return [o for o in orphans if o["status"] not in EARNED_STATUSES]
 
 
-def _orphan_dicts(
+def orphan_dicts(
     cfg: Any,
     fn_orphans: list[tuple[str, int, str]],
     data_orphans: list[tuple[str, int, str]],
@@ -172,7 +172,7 @@ def main(
         error_exit(str(exc), json_mode=json_output)
     total = len(fn_orphans) + len(data_orphans)
 
-    orphans = _orphan_dicts(cfg, fn_orphans, data_orphans)
+    orphans = orphan_dicts(cfg, fn_orphans, data_orphans)
     if not prune:
         if json_output:
             json_print({"orphans": orphans, "pruned": 0})
@@ -245,10 +245,10 @@ def drop(
     target: str | None = TargetOption,
 ) -> None:
     """Delete one VA's metadata block from rebrew-functions.toml / rebrew-data.toml."""
-    from rebrew.blocker import _resolve_function
+    from rebrew.blocker import resolve_function
 
     cfg = require_config(target=target, json_mode=json_output)
-    module, va_int = _resolve_function(cfg, function, va_override, json_output)
+    module, va_int = resolve_function(cfg, function, va_override, json_output)
 
     from rebrew.data_metadata import delete_data_entries_batch, get_data_entry
     from rebrew.metadata import delete_entries_batch, get_entry
