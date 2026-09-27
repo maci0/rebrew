@@ -715,3 +715,43 @@ class TestUntrustedTextBidi:
         from rebrew.cli import untrusted_text
 
         assert untrusted_text("sub_401000 [dim]") == r"sub_401000 \[dim]"
+
+
+# ---------------------------------------------------------------------------
+# confirm_abort()
+# ---------------------------------------------------------------------------
+
+
+class TestConfirmAbort:
+    """A declined or unanswerable prompt is a usage error, not a mismatch."""
+
+    def _app(self) -> typer.Typer:
+        from rebrew.cli import confirm_abort
+
+        app = typer.Typer()
+
+        @app.command()
+        def main() -> None:
+            confirm_abort("Delete everything?")
+
+        return app
+
+    def test_accept_proceeds(self) -> None:
+        from typer.testing import CliRunner
+
+        assert CliRunner().invoke(self._app(), input="y\n").exit_code == 0
+
+    def test_decline_exits_two(self) -> None:
+        from typer.testing import CliRunner
+
+        result = CliRunner().invoke(self._app(), input="n\n")
+        assert result.exit_code == EXIT_ERROR
+        assert "Delete everything?" in result.stderr
+
+    def test_no_stdin_names_the_skip_flag(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from typer.testing import CliRunner
+
+        monkeypatch.setattr("rebrew.cli._stdin_is_tty", lambda: False)
+        result = CliRunner().invoke(self._app(), input="")
+        assert result.exit_code == EXIT_ERROR
+        assert "--force" in result.stderr

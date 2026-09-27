@@ -26,6 +26,7 @@ from rebrew.annotation import (
 )
 from rebrew.cli import (
     TargetOption,
+    confirm_abort,
     console,
     error_exit,
     json_print,
@@ -639,9 +640,7 @@ def main(
                 "Pass --force to apply it in --json mode, or omit --delete.",
                 json_mode=True,
             )
-        typer.confirm(
-            f"Delete {len(included_inputs)} input file(s) after merge?", abort=True, err=True
-        )
+        confirm_abort(f"Delete {len(included_inputs)} input file(s) after merge?")
 
     if not dry_run:
         output_path.parent.mkdir(parents=True, exist_ok=True)

@@ -403,6 +403,38 @@ def parse_va(va_str: str, *, json_mode: bool = False) -> int:
     return va
 
 
+def _stdin_is_tty() -> bool:
+    try:
+        return sys.stdin.isatty()
+    except (AttributeError, ValueError, OSError):  # stdin closed or replaced
+        return False
+
+
+def confirm_abort(prompt: str, *, skip_flag: str = "--force") -> None:
+    """Ask *prompt* on stderr for a destructive action, aborting on "no".
+
+    An abort is a usage error, not a mismatch: ``typer.confirm(abort=True)``
+    raises on "no" *and* on EOF, and Click reports both as ``Aborted.`` with
+    exit 1 — the code rebrew reserves for "the code needs work", per the exit
+    table in ``rebrew --help``.  Route both to ``EXIT_ERROR`` and, when there
+    was no terminal to answer the question, name the flag that skips the
+    prompt.
+    """
+    # typer.confirm raises typer's own Abort on "no" and on EOF; click's
+    # Abort is a sibling class, not a base of it.
+    from click.exceptions import Abort as ClickAbort
+
+    eof = False
+    try:
+        answer = typer.confirm(prompt, err=True)
+    except (typer.Abort, ClickAbort, EOFError, OSError):
+        answer, eof = False, not _stdin_is_tty()
+    if answer:
+        return
+    hint = f" (stdin is not a terminal; pass {skip_flag})" if eof else ""
+    error_exit(f"aborted: {prompt}{hint}")
+
+
 def resolve_binary_arg(
     binary: Path | None,
     *,
@@ -551,6 +583,7 @@ __all__ = [
     "EXIT_SIGPIPE",
     "TargetOption",
     "all_targets_run",
+    "confirm_abort",
     "console",
     "error_exit",
     "json_print",
