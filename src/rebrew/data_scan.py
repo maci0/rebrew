@@ -490,16 +490,11 @@ def enrich_with_sections(scan: ScanResult, sections: dict[str, dict[str, Any]]) 
 # ---------------------------------------------------------------------------
 
 
-def build_dispatch_known_functions(cfg: ProjectConfig, src_dir: Path) -> dict[int, dict[str, str]]:
-    """Map VA -> {"name", "status"} for dispatch-table naming.
+def build_source_known_functions(cfg: ProjectConfig, src_dir: Path) -> dict[int, dict[str, str]]:
+    """Map VA -> {"name", "status"} from the reversed source files under *src_dir*.
 
-    Source-file annotations take precedence; the function list / Ghidra
-    structure registry then fills in targets no source file covers (e.g.
-    FLIRT-identified CRT functions).  A "0% resolved" table is misleading
-    when the catalog already knows the names.
-
-    Shared by ``rebrew data --dispatch`` and ``rebrew analyze``'s dossier, so
-    both report the same resolution count.
+    A source with no name falls back to its path relative to *src_dir*, so
+    every annotation is named even before the catalog fills the gaps.
     """
     from rebrew.annotation import parse_c_file_multi
     from rebrew.sources import iter_sources, target_marker
@@ -515,6 +510,21 @@ def build_dispatch_known_functions(cfg: ProjectConfig, src_dir: Path) -> dict[in
                     "name": entry.name or rel_display_path(cfile, src_dir),
                     "status": entry.status,
                 }
+    return known_functions
+
+
+def build_dispatch_known_functions(cfg: ProjectConfig, src_dir: Path) -> dict[int, dict[str, str]]:
+    """Map VA -> {"name", "status"} for dispatch-table naming.
+
+    Source-file annotations take precedence; the function list / Ghidra
+    structure registry then fills in targets no source file covers (e.g.
+    FLIRT-identified CRT functions).  A "0% resolved" table is misleading
+    when the catalog already knows the names.
+
+    Shared by ``rebrew data --dispatch`` and ``rebrew analyze``'s dossier, so
+    both report the same resolution count.
+    """
+    known_functions = build_source_known_functions(cfg, src_dir)
 
     try:
         from rebrew.catalog import build_function_registry, cached_function_list

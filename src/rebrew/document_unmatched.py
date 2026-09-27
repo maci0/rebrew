@@ -73,11 +73,8 @@ def _documented_vas(src_dir: Path, cfg: Any) -> set[int]:
     # count too, so match the trailing ``fcn_<8 hex>`` in either shape.
     for stub in (*src_dir.glob("fcn_*.c"), *src_dir.glob("*.fcn_*.c")):
         m = re.search(r"fcn_([0-9a-fA-F]{8})$", stub.stem)
-        try:
-            if m:
-                documented.add(int(m.group(1), 16))
-        except ValueError:
-            continue
+        if m:
+            documented.add(int(m.group(1), 16))
     return documented
 
 

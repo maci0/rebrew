@@ -721,28 +721,13 @@ def main(
                 json_mode=json_output,
             )
         try:
-            from rebrew.annotation import parse_c_file_multi
             from rebrew.binary_loader import load_binary, section_dict
-            from rebrew.data_scan import find_dispatch_tables
-            from rebrew.sources import iter_sources, target_marker
-            from rebrew.utils import rel_display_path
+            from rebrew.data_scan import build_source_known_functions, find_dispatch_tables
 
             info = load_binary(bin_path)
             sec_dict = section_dict(info)
 
-            # Build known functions map from reversed source files
-            known_functions: dict[int, dict[str, str]] = {}
-            for cfile in iter_sources(reversed_dir, cfg):
-                for entry in parse_c_file_multi(
-                    cfile,
-                    target_name=target_marker(cfg),
-                    metadata_dir=cfg.metadata_dir,
-                ):
-                    if entry.va:
-                        known_functions[entry.va] = {
-                            "name": entry.name or rel_display_path(cfile, reversed_dir),
-                            "status": entry.status,
-                        }
+            known_functions = build_source_known_functions(cfg, reversed_dir)
 
             dispatch_tables = find_dispatch_tables(
                 info.data,

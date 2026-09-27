@@ -177,24 +177,6 @@ def _resolve_canonical_size(
 # ---------------------------------------------------------------------------
 
 
-def _iat_slot_vas(bin_path: Path | None) -> set[int]:
-    """Absolute VAs of the PE import-address-table slots, or ``set()``.
-
-    MSVC PEs place the IAT at the START of ``.text`` (before the code), so
-    linear-sweep discovery walks it as code and emits a fake function per
-    slot (``sym.imp.`` entries from rizin, or generic ``fcn.`` names from
-    other sweeps).  The registry must not treat those data slots as
-    functions — skeleton generation would create bogus source files for
-    them.  Thin wrapper over the shared LIEF scan (also used by reloc
-    masking); returns ``set()`` on any failure.
-    """
-    if not bin_path or not Path(bin_path).is_file():
-        return set()
-    from rebrew.binary_loader import iat_slot_vas
-
-    return iat_slot_vas(bin_path)
-
-
 def build_function_registry(
     funcs: list[dict[str, Any]],
     cfg: ProjectConfig | None,
@@ -212,11 +194,17 @@ def build_function_registry(
         canonical_size: best-known size
         size_reason: explanation for chosen canonical size
 
-    VAs inside the PE import-address table are dropped (see
-    :func:`_iat_slot_vas`) — they are data, not functions.
+    VAs inside the PE import-address table are dropped — they are data, not
+    functions.  MSVC PEs place the IAT at the START of ``.text`` (before the
+    code), so a linear sweep walks it as code and reports a fake function per
+    slot (``sym.imp.`` entries from rizin, or generic ``fcn.`` names from
+    other sweeps); skeleton generation would create bogus source files for
+    them.
     """
+    from rebrew.binary_loader import iat_slot_vas
+
     registry: dict[int, RegistryEntry] = {}
-    iat_vas = _iat_slot_vas(bin_path) if bin_path else set()
+    iat_vas = iat_slot_vas(bin_path) if bin_path else set()
 
     # --- Discovery inventory ---
     r2_bogus = set(getattr(cfg, "r2_bogus_vas", [])) if cfg else set()

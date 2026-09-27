@@ -43,6 +43,7 @@ trusted to describe the source tree it was generated from.
 from __future__ import annotations
 
 import re
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -92,18 +93,24 @@ def parse_recorded(flags_text: str) -> dict[str, set[str]]:
     return recorded
 
 
-def parse_compile_lines(build_text: str) -> list[tuple[str, str]]:
-    """[(object path, compile line)] for every real compile rule.
+def _real_compile_lines(build_text: str) -> Iterator[str]:
+    """Yield the build lines that invoke the compiler to produce an object.
 
     The ``/FAs`` listing rules are excluded: they assemble the same file to a
     ``.s`` and are not what produces the linked object.
     """
-    out: list[tuple[str, str]] = []
     for line in build_text.splitlines():
         if "cl " not in line.lower() and "cl.exe" not in line.lower():
             continue
         if "/FAs" in line or "cl  /nologo /E " in line:
             continue
+        yield line
+
+
+def parse_compile_lines(build_text: str) -> list[tuple[str, str]]:
+    """[(object path, compile line)] for every real compile rule."""
+    out: list[tuple[str, str]] = []
+    for line in _real_compile_lines(build_text):
         mo = _OBJ_IN_LINE.search(line)
         if mo:
             out.append((mo.group(1), line))
@@ -169,11 +176,7 @@ def parse_sources(build_text: str) -> list[str]:
     """
     out: list[str] = []
     seen: set[str] = set()
-    for line in build_text.splitlines():
-        if "cl " not in line.lower() and "cl.exe" not in line.lower():
-            continue
-        if "/FAs" in line or "cl  /nologo /E " in line:
-            continue
+    for line in _real_compile_lines(build_text):
         for match in _SOURCE_IN_LINE.finditer(line):
             src = match.group(1)
             if src not in seen:

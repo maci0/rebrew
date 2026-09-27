@@ -69,6 +69,23 @@ _SANDBOX_ATEXIT_REGISTERED = False
 _SANDBOX_LOCK = threading.Lock()
 
 
+def _untrack_sandbox(path: Path) -> None:
+    """Drop *path* from :data:`_SANDBOXES`, matching on resolved form.
+
+    Caller must hold :data:`_SANDBOX_LOCK`.  A path can be handed back in a
+    non-normalized spelling (``./sandbox``), which ``list.remove`` misses, so
+    fall back to a linear scan by resolved path.
+    """
+    try:
+        _SANDBOXES.remove(path)
+    except ValueError:
+        resolved = path.resolve()
+        for i, s in enumerate(_SANDBOXES):
+            if s == path or s.resolve() == resolved:
+                del _SANDBOXES[i]
+                break
+
+
 def _reap_dead_thread_sandboxes_locked() -> list[Path]:
     """Drop map entries whose owner thread is gone; return paths to rmtree.
 
@@ -82,13 +99,7 @@ def _reap_dead_thread_sandboxes_locked() -> list[Path]:
         if key[1] in live:
             continue
         _SANDBOX_BY_PREFIX.pop(key, None)
-        try:
-            _SANDBOXES.remove(path)
-        except ValueError:
-            for i, s in enumerate(_SANDBOXES):
-                if s == path or s.resolve() == path.resolve():
-                    del _SANDBOXES[i]
-                    break
+        _untrack_sandbox(path)
         doomed.append(path)
     return doomed
 
@@ -173,13 +184,7 @@ def release_sandbox(path: Path) -> None:
         stale_prefixes = [p for p, s in _SANDBOX_BY_PREFIX.items() if s.resolve() == resolved]
         for p in stale_prefixes:
             _SANDBOX_BY_PREFIX.pop(p, None)
-        try:
-            _SANDBOXES.remove(path)
-        except ValueError:
-            for i, s in enumerate(_SANDBOXES):
-                if s.resolve() == resolved:
-                    del _SANDBOXES[i]
-                    break
+        _untrack_sandbox(path)
     shutil.rmtree(path, ignore_errors=True)
 
 

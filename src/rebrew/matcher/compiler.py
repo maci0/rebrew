@@ -318,7 +318,6 @@ def _get_pe_symbol_size(exe_path: Path, symbol: str) -> int | None:
         if pe is None:
             return None
 
-        # Find symbol in COFF symbol table (present in debug/MAP-linked PEs)
         target_sym = None
         for sym in pe.symbols:
             if sym.name == symbol:
@@ -328,7 +327,6 @@ def _get_pe_symbol_size(exe_path: Path, symbol: str) -> int | None:
         if target_sym is None:
             return None
 
-        # Find next symbol in the same section with a higher offset
         section_number = getattr(target_sym, "section_number", None)
         sym_value = target_sym.value
         if section_number is None:
