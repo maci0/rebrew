@@ -5,6 +5,7 @@
 	smoke-wheel \
 	ensure-extras \
 	sdist-check \
+	build-repro \
 	clone-resembl warn-uv-version
 
 # Force POSIX sh for recipes (ignore a caller-exported SHELL=bash).  Recipes
@@ -58,6 +59,13 @@ FLAGS ?=
 # `make coverage` fail-under percentage; keep in step with [tool.slipcover]
 # fail_under in pyproject.toml.
 COV_FLOOR ?= 85
+
+# Second source tree `make build-repro` builds the same commit in, at a
+# different path, file mode, timezone and locale.  Inside the checkout (not a
+# sibling of it) so the copy never sits outside the tree, and gitignored like
+# every other scratch path; `make clean` does not need a rule for it because
+# the recipe removes it on every exit path.
+BUILD_REPRO_DIR ?= .scratch/rebuild
 
 # Everything `make build` reads that can change what ships, minus build
 # residue.  `dist/rebrew.buildinfo` depends on this list, so editing a source
@@ -116,6 +124,7 @@ help:
 		'  make build              # reproducible sdist+wheel + dist/rebrew.buildinfo' \
 		'  make sbom               # CycloneDX 1.5 JSON from uv.lock (offline)' \
 		'  make sdist-check        # build a wheel from the sdist and diff it against dist/*.whl' \
+		'  make build-repro        # rebuild HEAD under .scratch/ at another path/mode/TZ/locale and diff the hashes' \
 		'  make smoke-wheel        # install dist/*.whl into .venv-pkg and smoke-import it (CI package job)' \
 		'  make all                # local mirror of CI lint+test(+coverage floor)+cli-contract gates' \
 		'  make pr-check           # full local CI verification (all + check + build + sdist-check + smoke-wheel + sbom)' \
@@ -399,6 +408,47 @@ build: warn-uv-version
 	  echo "source-dirty=$$(if ! git rev-parse --git-dir >/dev/null 2>&1; then echo n/a; elif [ -n "$$(git status --porcelain)" ]; then echo yes; else echo no; fi)"; \
 	} > dist/rebrew.buildinfo
 
+# Prove the wheel and the sdist are byte-reproducible from a second source
+# tree: a `git archive HEAD` copy under .scratch/, extracted with umask 077
+# (git stores only the executable bit, so every file mode differs) and built
+# under a different timezone and locale.  Both the path and the environment
+# knobs are what the archives must not encode.
+#
+# The copy comes from HEAD, so this describes the committed tree, not the
+# working one: run it after committing, as CI does on the pushed commit.
+#
+# A build failure or a hash mismatch exits non-zero and ends the recipe, so a
+# trailing `rm -rf` never runs and the extracted copy would outlive it; the
+# EXIT trap covers the failure, the mismatch, and the happy path alike.
+#
+# The CI package job runs this target; do not re-inline the recipe there.
+build-repro: dist/rebrew.buildinfo
+	@set -eu; \
+	repro="$(BUILD_REPRO_DIR)"; \
+	trap 'rm -rf -- "$$repro"' EXIT; \
+	umask 077; \
+	rm -rf "$$repro"; \
+	mkdir -p "$$repro"; \
+	git archive HEAD | tar -x -C "$$repro"; \
+	SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) TZ=Asia/Tokyo LC_ALL=C.UTF-8 \
+		$(MAKE) -C "$$repro" build; \
+	sha() { \
+		if command -v sha256sum >/dev/null 2>&1; then \
+			sha256sum "$$1" | cut -d' ' -f1; \
+		else \
+			shasum -a 256 "$$1" | cut -d' ' -f1; \
+		fi; \
+	}; \
+	for ext in whl tar.gz; do \
+		first=$$(sha dist/*.$$ext); \
+		second=$$(sha "$$repro"/dist/*.$$ext); \
+		if [ "$$first" != "$$second" ]; then \
+			echo "ERROR: .$$ext is not reproducible (first=$$first second=$$second)" >&2; \
+			exit 1; \
+		fi; \
+		echo ".$$ext reproducible: $$first"; \
+	done
+
 # CycloneDX 1.5 SBOM from the committed lock (no network).  Writes
 # dist/rebrew.cdx.json so package CI / release consumers share one inventory.
 # generate_sbom.py is stdlib-only: --no-project skips the project sync (and
@@ -481,7 +531,7 @@ all: format-check lint mypy audit coverage gen-fixtures-check cycles-check idemp
 # earlier sbom leaves dist/ with no BOM for the same reason CI had to move its
 # step.  ``smoke-wheel`` runs after ``sdist-check`` so it installs the same
 # wheel the sdist comparison already accepted.
-pr-check: all check build sdist-check smoke-wheel sbom
+pr-check: all check build sdist-check smoke-wheel build-repro sbom
 
 # Regenerate checked-in binary fixtures (run after editing tools/gen_fixtures.py).
 gen-fixtures: ensure-uv

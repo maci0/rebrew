@@ -598,16 +598,11 @@ class TestCiPins:
         assert "dist/rebrew.buildinfo" in package_job
         # Repro check rebuilds through `make build` at another path (no
         # re-inlined recipe) and must not hide a failing build behind `tail`.
-        assert "make -C ../rebrew-repro build" in package_job
+        # The reproducibility check itself is pinned in
+        # test_repro_tree_is_removed_on_every_exit_path /
+        # test_repro_check_runs_from_the_makefile, which read the Makefile.
         assert "uv build" not in package_job
         assert "| tail" not in package_job
-        # umask must apply to the extract. Set after tar, it never reaches
-        # the source modes setuptools copies into the wheel.
-        assert re.search(
-            r"umask 077\n\s+mkdir \.\./rebrew-repro\n"
-            r"\s+git archive HEAD \| tar -x -C \.\./rebrew-repro",
-            package_job,
-        )
 
     def test_version_independent_gates_run_on_one_matrix_entry(self) -> None:
         """Fixture freshness and the idempotency sweep read the tree, not the
@@ -629,10 +624,48 @@ class TestCiPins:
     def test_repro_tree_is_removed_on_every_exit_path(self) -> None:
         """A failed reproducibility check must not leave the second tree behind.
 
-        A hash mismatch exits non-zero and ends the step, so a trailing
-        ``rm -rf`` never runs and ``../rebrew-repro`` (a full source copy
-        sitting in the parent of the workspace) outlives it. An EXIT trap
-        covers the build failure, the mismatch, and the happy path alike.
+        A hash mismatch exits non-zero and ends the recipe, so a trailing
+        ``rm -rf`` never runs and the extracted source copy under
+        ``.scratch/rebuild`` outlives it. An EXIT trap covers the build
+        failure, the mismatch, and the happy path alike.
+        """
+        text = MAKEFILE.read_text(encoding="utf-8")
+        recipe = re.search(
+            r"(?m)^build-repro:.*?^\t@set -eu; \\$(?P<body>.*?)(?=\n\n)",
+            text,
+            re.S,
+        )
+        assert recipe is not None, "build-repro target not found"
+        body = recipe.group("body")
+        assert "trap 'rm -rf -- \"$$repro\"' EXIT" in body
+        # The trap is armed before the tree is created, and the literal
+        # trailing rm is gone (the trap replaced it).
+        assert body.index("trap ") < body.index('mkdir -p "$$repro"')
+        assert body.count("rm -rf") == 2, (
+            "the trap and the pre-extract clean are the only removals; a trailing "
+            "rm -rf is what the trap replaced"
+        )
+        # umask must apply to the extract. Set after tar, it never reaches
+        # the source modes setuptools copies into the wheel.
+        assert re.search(
+            r"umask 077; \\\n\trm -rf \"\$\$repro\"; \\\n\tmkdir -p \"\$\$repro\"; \\\n"
+            r"\tgit archive HEAD \| tar -x -C \"\$\$repro\"",
+            body,
+        )
+        # The second build has no .git of its own, so the epoch travels in
+        # the environment; a different path, TZ and locale come with it.
+        assert (
+            "SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) TZ=Asia/Tokyo LC_ALL=C.UTF-8" in body
+        )
+
+    def test_repro_check_runs_from_the_makefile(self) -> None:
+        """CI calls the target: an inline recipe is a gate no contributor can run.
+
+        The package job's reproducibility step used to inline the whole
+        `git archive` / rebuild / hash-diff sequence in YAML, so a
+        non-reproducible artifact surfaced only after the push. The step now
+        exports the commit epoch and runs the target, and ``pr-check`` runs it
+        with everything else.
         """
         package_job = (
             CI_YML.read_text(encoding="utf-8")
@@ -642,13 +675,18 @@ class TestCiPins:
         step = next(
             block
             for block in package_job.split("\n      - name: ")
-            if "make -C ../rebrew-repro" in block
+            if "make build-repro" in block
         )
-        assert "trap 'rm -rf -- \"${repro}\"' EXIT" in step
-        # The trap is armed before the tree is created, and the literal
-        # trailing rm is gone (the trap replaced it).
-        assert step.index("trap ") < step.index("mkdir ../rebrew-repro")
-        assert step.count("rm -rf") == 1
+        assert "git archive" not in step.split("run:", 1)[1], (
+            "the recipe is inlined in CI again"
+        )
+        # The copy has no .git, so the second build needs the epoch from the
+        # environment; the Makefile default cannot supply it.
+        assert "SOURCE_DATE_EPOCH=" in step
+        assert "export SOURCE_DATE_EPOCH" in step
+        pr_check = re.search(r"(?m)^pr-check:(?P<deps>[^\n]*)$", MAKEFILE.read_text(encoding="utf-8"))
+        assert pr_check is not None
+        assert "build-repro" in pr_check.group("deps").split()
 
     def test_makefile_build_writes_buildinfo_and_cleans_residue(self) -> None:
         text = MAKEFILE.read_text(encoding="utf-8")

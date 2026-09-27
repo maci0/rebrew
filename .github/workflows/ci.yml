@@ -213,28 +213,15 @@ jobs:
         # (git only stores the executable bit). Both artifacts must be
         # byte-identical: the Makefile pins own path, time, locale, and mode.
         # The copy has no .git, so SOURCE_DATE_EPOCH must come from the env.
+        # `make build-repro` owns the recipe, like `make build` and
+        # `make smoke-wheel` own theirs: inlined here it was a check no
+        # contributor could run before pushing, and the drift risk the other
+        # two steps call out applies to it too.
         run: |
           set -euo pipefail
           SOURCE_DATE_EPOCH="$(git log -1 --pretty=%ct)"
           export SOURCE_DATE_EPOCH
-          repro=../rebrew-repro
-          # A hash mismatch or a build failure exits non-zero and ends the
-          # step, so the second source tree would otherwise outlive it in the
-          # parent of the workspace. Remove it on every exit path.
-          trap 'rm -rf -- "${repro}"' EXIT
-          umask 077
-          mkdir ../rebrew-repro
-          git archive HEAD | tar -x -C ../rebrew-repro
-          TZ=Asia/Tokyo LC_ALL=C.UTF-8 make -C ../rebrew-repro build
-          for ext in whl tar.gz; do
-            first_sha=$(sha256sum dist/*.$ext | cut -d' ' -f1)
-            second_sha=$(sha256sum ../rebrew-repro/dist/*.$ext | cut -d' ' -f1)
-            if [[ "$first_sha" != "$second_sha" ]]; then
-              echo "::error::$ext is not reproducible (first=$first_sha second=$second_sha)" >&2
-              exit 1
-            fi
-            echo "$ext reproducible: $first_sha"
-          done
+          make build-repro
       - name: Install wheel into clean venv and smoke-import
         # `make smoke-wheel` owns the recipe, the same way `make build` owns
         # the build above: the four commands were inlined here once and the
