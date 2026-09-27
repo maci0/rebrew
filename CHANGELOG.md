@@ -1,5 +1,15 @@
 ## [Unreleased]
 ### Fixed
+- **Bidi and zero-width controls no longer reach a display surface.** A symbol
+  name, module, blocker, or status arriving from a target binary, BinSync
+  state, or an import table could carry U+202A-U+202E, U+2066-U+2069, the
+  directional marks, zero-width characters, or a BOM. Those render as nothing
+  while reordering or hiding the text around them, so `sub_A‮txt` reads as
+  `sub_txt_A` and a status cell next to a hostile name could be made to look
+  like a different function or verdict. `untrusted_text` (every CLI surface
+  that prints untrusted strings, `error_exit` included) now drops them, and
+  the dashboard scrubs the whole JSON payload on the way out, before it reaches
+  the DOM.
 - **`rebrew init --refresh-agents` converges instead of accumulating stale
   skills.** The render wrote every packaged skill but never removed one the
   package no longer ships, and `--check` only looked at the packaged set, so an

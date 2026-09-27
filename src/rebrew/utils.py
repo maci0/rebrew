@@ -49,6 +49,30 @@ _C_IDENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
 _FILENAME_COMPONENT_RE = re.compile(r"[^A-Za-z0-9._@-]+")
 _FILENAME_COMPONENT_MAX_CHARS = 200
 
+#: Invisible reordering / hiding characters: the bidi embeddings, overrides and
+#: isolates, the left-to-right and right-to-left marks, the zero-width
+#: space/joiners, the word joiner, the soft hyphen, and the BOM.  They occupy
+#: no glyph, so ``sub_A\u202etxt`` renders as ``sub_txt_A`` and a status column
+#: beside a hostile symbol name can be made to read as something else.  Symbol
+#: names reach a display surface from a target binary, BinSync state, or an
+#: import table, so every surface that prints one drops them.
+_BIDI_FORMAT_CHARS = frozenset(
+    "\u00ad"  # soft hyphen
+    "\u180e"  # mongolian vowel separator
+    "\u200b\u200c\u200d"  # zero-width space / non-joiner / joiner
+    "\u200e\u200f"  # left-to-right / right-to-left mark
+    "\u202a\u202b\u202c\u202d\u202e"  # embeddings, overrides, pop
+    "\u2060\u2061\u2062\u2063\u2064"  # word joiner, invisible operators
+    "\u2066\u2067\u2068\u2069"  # isolates
+    "\ufeff"  # zero-width no-break space (BOM)
+)
+_BIDI_FORMAT_TABLE = {ord(char): None for char in _BIDI_FORMAT_CHARS}
+
+
+def strip_bidi_format(value: str) -> str:
+    """*value* with the invisible reordering and hiding characters removed."""
+    return value.translate(_BIDI_FORMAT_TABLE)
+
 
 def clip_span(starts: list[int], va: int, size: int) -> int:
     """*size* cut so ``va + size`` does not pass the next of the sorted *starts*.
