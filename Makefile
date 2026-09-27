@@ -1,6 +1,7 @@
 .PHONY: help setup clean test test-one lint format format-check check build sbom all pr-check \
 	gen-fixtures gen-fixtures-check gen-skills gen-skills-check cycles-check idempotency-check mypy audit \
-	cli-contract release-check coverage ensure-uv ensure-resembl ensure-nasm warn-nasm ensure-extras \
+	cli-contract release-check coverage ensure-uv ensure-resembl ensure-nasm warn-nasm warn-shellcheck \
+	ensure-extras \
 	sdist-check \
 	clone-resembl warn-uv-version
 
@@ -85,6 +86,7 @@ help:
 		'' \
 		'Bootstrap (clean clone):' \
 		'  1. Install uv $(UV_VERSION)+ (CI pin), Python 3.13+ (.python-version), nasm on PATH' \
+		'     (shellcheck too: the pre-commit shell hook skips itself without it, CI runs it)' \
 		'  2. Clone sibling resembl at $(RESEMBL_REF) into ../resembl' \
 		'     git clone --depth 1 --branch $(RESEMBL_REF) https://github.com/maci0/resembl.git ../resembl' \
 		'     setup fails unless that checkout HEAD is $(RESEMBL_SHA) (CI resembl-sha)' \
@@ -167,6 +169,16 @@ warn-nasm:
 	  echo "Install it before running tests: e.g. apt install nasm / pacman -S nasm / dnf install nasm"; \
 	fi
 
+# The shellcheck hook exits 0 when the binary is absent, so a contributor
+# without it sees `make check` pass and CI (which installs shellcheck) fail.
+warn-shellcheck:
+	@set -eu; \
+	if ! command -v shellcheck >/dev/null 2>&1; then \
+	  echo "WARNING: shellcheck not on PATH; the pre-commit shell hook skips itself locally."; \
+	  echo "CI installs it, so a clean 'make check' here can still fail after push:"; \
+	  echo "  apt install shellcheck / pacman -S shellcheck / dnf install shellcheck"; \
+	fi
+
 # Clone sibling resembl pin matching CI and uv.lock into ../resembl
 clone-resembl:
 	@set -eu; \
@@ -225,7 +237,7 @@ format-check: ensure-uv
 
 # Run pre-commit checks on all files.  Match CI workflow env so Rich/typer
 # ANSI cannot split option names when GITHUB_ACTIONS/FORCE_COLOR is set.
-check: ensure-uv
+check: warn-shellcheck ensure-uv
 	NO_COLOR=1 TERM=dumb _TYPER_FORCE_DISABLE_TERMINAL=1 \
 		uv run --frozen pre-commit run --all-files
 

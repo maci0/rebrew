@@ -19,7 +19,11 @@ pinned docker image).
 
 Needs **uv** (CI pins `uv-version` in `.github/actions/uv-env/action.yml`,
 currently `0.12.14`), **Python 3.13+** (see `.python-version`), and **nasm** on `PATH`
-(CI installs nasm for asm round-trip tests).  `uv sync` also needs the sibling
+(CI installs nasm for asm round-trip tests).  **shellcheck** is optional locally
+but not in CI: the pre-commit shell hook exits 0 without the binary, so
+`make check` on a host without it can pass where CI's pre-commit job (which
+installs shellcheck) fails; `make check` warns when it is missing.  `uv sync` also
+needs the sibling
 [`resembl`](https://github.com/maci0/resembl) checkout at `../resembl` — the
 path pin in `pyproject.toml` / `uv.lock` (tag `v2.0.0`, same as CI's
 `resembl-ref`).  Without it, sync fails with a cryptic “Distribution not found”
@@ -131,6 +135,10 @@ import rebrew as a library.
 
 ## Before submitting
 
+0. Branch off `main` (`feat/`, `fix/`, `refactor/`, `docs/`, `test/`, `build/`,
+   `ci/`, `chore/`) and open the pull request against `main`; do not commit
+   straight to `main`.  Every CI job runs on the pull request, so a green local
+   `make pr-check` plus a green `pre-commit` job is what review expects.
 1. `make pr-check` (or `make all && make check && make build && make sdist-check`)
    — mirrors CI
    lint+test+cli-contract gates, the pre-commit job, the package job's
