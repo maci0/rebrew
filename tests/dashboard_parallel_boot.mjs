@@ -1,29 +1,20 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 
-const source = readFileSync(0, "utf8");
-const elements = new Map();
-globalThis.document = {
-  getElementById(id) {
-    if (!elements.has(id)) {
-      elements.set(id, {
-        value: "",
-        innerHTML: "",
-        textContent: "",
-        hidden: true,
-        attributes: {},
-        classList: { toggle() {} },
-        setAttribute(name, value) { this.attributes[name] = value; },
-        querySelector() { return this; },
-        querySelectorAll() { return []; },
-        insertAdjacentHTML(position, html) { this.innerHTML += html; },
-        focus() {},
-      });
-    }
-    return elements.get(id);
-  },
+import { installDom, loadApp } from "./dashboard_dom.mjs";
+
+installDom(() => ({
+  value: "",
+  innerHTML: "",
+  textContent: "",
+  hidden: true,
+  attributes: {},
+  classList: { toggle() {} },
+  setAttribute(name, value) { this.attributes[name] = value; },
+  querySelector() { return this; },
   querySelectorAll() { return []; },
-};
+  insertAdjacentHTML(position, html) { this.innerHTML += html; },
+  focus() {},
+}));
 // Non-first target without Status/Module: the bootstrap payload does not fit.
 globalThis.location = { hash: "#target=b&view=globals&q=Win" };
 globalThis.history = { replaceState() {} };
@@ -44,9 +35,7 @@ globalThis.fetch = (path) => {
   return new Promise((resolve) => held.push(() => resolve({ ok: true, json: async () => body })));
 };
 
-const { init } = await import(
-  "data:text/javascript;base64," + Buffer.from(source + "\nexport { init };\n").toString("base64")
-);
+const { init } = await loadApp(["init"]);
 const booted = init();
 for (let i = 0; i < 5; i += 1) await new Promise((resolve) => setTimeout(resolve, 0));
 

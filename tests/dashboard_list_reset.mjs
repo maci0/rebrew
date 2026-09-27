@@ -1,31 +1,26 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 
-const source = readFileSync(0, "utf8");
-const elements = new Map();
-globalThis.document = {
-  body: { id: "body" },
-  activeElement: { id: "body" },
-  title: "Rebrew coverage dashboard",
-  getElementById(id) {
-    if (!elements.has(id)) {
-      elements.set(id, {
-        id,
-        value: "",
-        innerHTML: "",
-        textContent: "",
-        hidden: false,
-        disabled: false,
-        setAttribute() {},
-        querySelector() { return this; },
-        closest() { return null; },
-        focus() { document.activeElement = this; },
-      });
-    }
-    return elements.get(id);
+import { installDom, loadApp } from "./dashboard_dom.mjs";
+
+installDom(
+  (id) => ({
+    id,
+    value: "",
+    innerHTML: "",
+    textContent: "",
+    hidden: false,
+    disabled: false,
+    setAttribute() {},
+    querySelector() { return this; },
+    closest() { return null; },
+    focus() { document.activeElement = this; },
+  }),
+  {
+    body: { id: "body" },
+    activeElement: { id: "body" },
+    title: "Rebrew coverage dashboard",
   },
-  querySelectorAll() { return []; },
-};
+);
 globalThis.location = { hash: "" };
 globalThis.history = { replaceState() {} };
 
@@ -52,9 +47,7 @@ globalThis.fetch = async (path) => {  const url = new URL(path, "http://127.0.0.
 // the stub does not, so seed it the way the browser would.
 document.getElementById("target").value = "a.exe";
 
-const { start } = await import(
-  "data:text/javascript;base64," + Buffer.from(source + "\nexport { start };\n").toString("base64")
-);
+const { start } = await loadApp(["start"]);
 await start();  // the module already ran start() on import; this awaits a fresh run
 
 const el = (id) => document.getElementById(id);
