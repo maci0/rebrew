@@ -226,6 +226,37 @@ class TestCiPins:
         assert "retention-days: 14" in package_job
         assert "if-no-files-found: error" in package_job
 
+    def test_sbom_outlives_every_later_build(self) -> None:
+        """``make build`` clears dist/*.cdx.json and ``sdist-check`` rebuilds.
+
+        The SBOM must be the last build-touching step in the package job and
+        the last target in ``pr-check``; anything that runs ``make build``
+        afterwards deletes the BOM, and the upload's
+        ``if-no-files-found: error`` stays green because the wheel, sdist and
+        buildinfo patterns still match.
+        """
+        text = CI_YML.read_text(encoding="utf-8")
+        package_job = text.split("\n  package:\n", 1)[1].split("\n  cli-contract:\n", 1)[0]
+        steps = package_job.split("\n      - name: ")[1:]
+        sbom = next(i for i, step in enumerate(steps) if "make sbom" in step)
+        for later in steps[sbom + 1 :]:
+            assert "make sbom" not in later
+            # A step that reaches `make build` (directly or via sdist-check)
+            # drops the BOM the previous step wrote.
+            assert not re.search(r"(?m)^\s*run:.*\bmake (build|sdist-check)\b", later), later
+        assert "test -s dist/rebrew.cdx.json" in steps[sbom], (
+            "the SBOM step must prove it wrote one"
+        )
+
+        pr_check = MAKEFILE.read_text(encoding="utf-8")
+        deps = re.search(r"(?m)^pr-check:(?P<deps>[^\n]*)$", pr_check)
+        assert deps is not None
+        order = deps.group("deps").split()
+        assert order.index("sdist-check") < order.index("sbom")
+        # No build-touching prerequisite on `sbom` itself: one there would
+        # rebuild dist/ and drop the BOM it just wrote.
+        assert not _makefile_prereqs("sbom") & {"build", "sdist-check"}
+
     def test_resembl_clone_uses_retry_helper(self) -> None:
         """Network flakes cloning resembl must retry (same posture as apt-get)."""
         helper = ROOT / "tools" / "ci_clone_resembl.sh"

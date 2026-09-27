@@ -45,7 +45,15 @@ same hash-pinned build constraints and diffs the archive member lists
 the artifact a source install compiles, its file list comes from
 `MANIFEST.in` rather than package-data, and `tools/normalize_sdist.py` rewrites
 its tar metadata after the build, so a prune rule that dropped a runtime file
-would otherwise ship a working wheel and a broken source install. The lint job also runs
+would otherwise ship a working wheel and a broken source install.
+`make sbom` is the last build-touching step of the package job (and the last
+target in `make pr-check`), because `make build` clears `dist/*.cdx.json` so a
+bumped version cannot leave a stale BOM, and `make sdist-check` rebuilds through
+`make build`. An SBOM generated before either one is deleted again, and the
+upload's `if-no-files-found: error` still passes on the wheel, sdist and
+buildinfo patterns, so the artifact would ship with no BOM. The step asserts
+`test -s dist/rebrew.cdx.json`; `tests/test_ci_pins.py` pins the order.
+The lint job also runs
 `make audit` (`uv audit --locked`; diskcache's unfixed pickle advisory is
 `--ignore-until-fixed` until upstream ships a fix). Every job installs uv
 through the local composite action `.github/actions/uv-env`, which holds the

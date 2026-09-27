@@ -196,17 +196,6 @@ jobs:
           grep -q "^SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH}$" dist/rebrew.buildinfo
           grep -q '^setuptools=' dist/rebrew.buildinfo
           ls -la dist/
-      - name: Generate CycloneDX SBOM from uv.lock
-        # Offline inventory for consumers/scanners.  `make sbom` owns the
-        # command line (`uv run --no-project --offline`): no prior
-        # `uv sync` needed, and it still uses the setup-uv Python pin (not the
-        # runner's unpinned /usr/bin/python3).  generate_sbom.py validates
-        # the document it emits (format header, spec version, non-empty
-        # inventory, a license on every component) and exits 1 otherwise, so a
-        # lock that parsed short, or a distribution whose grant is missing
-        # from tools/licenses.py, fails the job here instead of shipping a BOM
-        # that reads as clean.
-        run: make sbom
       - name: Verify wheel and sdist reproducibility (second build, other path)
         # Rebuild the same commit with `make build` from a `git archive` copy
         # at a different path under a different TZ/locale. Extract that copy
@@ -254,6 +243,27 @@ jobs:
         # install. Builds a wheel from the sdist through the same hash-pinned
         # constraints `make build` uses, then diffs the member lists.
         run: make sdist-check
+      - name: Generate CycloneDX SBOM from uv.lock
+        # Offline inventory for consumers/scanners.  `make sbom` owns the
+        # command line (`uv run --no-project --offline`): no prior
+        # `uv sync` needed, and it still uses the setup-uv Python pin (not
+        # the runner's unpinned /usr/bin/python3).  generate_sbom.py validates
+        # the document it emits (format header, spec version, non-empty
+        # inventory, a license on every component) and exits 1 otherwise, so a
+        # lock that parsed short, or a distribution whose grant is missing
+        # from tools/licenses.py, fails the job here instead of shipping a BOM
+        # that reads as clean.
+        #
+        # Last build-touching step on purpose: `make build` clears dist/*.cdx.json
+        # so a bumped version cannot leave a stale BOM, and `make sdist-check`
+        # rebuilds through `make build`.  Generating the SBOM before either one
+        # deleted it again, and the upload below then shipped a wheel, sdist and
+        # buildinfo with no BOM while `if-no-files-found: error` stayed green
+        # (the other three patterns matched).  `test -s` is the guard for that.
+        run: |
+          set -euo pipefail
+          make sbom
+          test -s dist/rebrew.cdx.json
       - name: Upload package artifacts
         # Retain the verified wheel/sdist/SBOM/buildinfo for the commit (short
         # retention so Actions storage does not accumulate stale builds).
