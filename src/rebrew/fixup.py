@@ -211,7 +211,11 @@ def main(
     """Sanitize SOURCE_FILE (and inject missing decls) so it compiles."""
     if not source_file.exists():
         error_exit(f"source file not found: {source_file}", json_mode=json_output)
-    text, _encoding = read_source_text(source_file)
+    # Keep the detected encoding: read_source_text decodes a legacy source as
+    # itself, so writing the result back as UTF-8 would turn every cp1252 /
+    # Shift-JIS byte into multi-byte UTF-8 and change the source's string
+    # literals, which is exactly what the byte-match loop measures.
+    text, encoding = read_source_text(source_file)
     result = fixup_source(text)
 
     cfg: Any = None
@@ -236,7 +240,7 @@ def main(
             payload["compile_error"] = compile_error.splitlines()[0]
         if not dry_run and not result.error:
             dest = out or source_file.with_suffix(source_file.suffix + ".fixed.c")
-            atomic_write_text(dest, result.source, encoding="utf-8")
+            atomic_write_text(dest, result.source, encoding=encoding)
             payload["wrote"] = str(dest)
         json_print(payload)
         if compile_error or result.error:
@@ -268,7 +272,7 @@ def main(
             raise typer.Exit(code=EXIT_ERROR)
         return
     dest = out or source_file.with_suffix(source_file.suffix + ".fixed.c")
-    atomic_write_text(dest, result.source, encoding="utf-8")
+    atomic_write_text(dest, result.source, encoding=encoding)
     console.print(
         f"\n[green]Wrote {dest}[/green] ({len(result.changes)} fix(es), "
         f"{len(result.injected)} injection(s))"

@@ -116,7 +116,10 @@ def _migrate_file(
     if any(ann.marker_type in DATA_MARKERS for ann in everyone):
         return _skip(filepath, "data-markers")
 
-    text, _ = read_source_text(filepath)
+    # The stripped text is written back below; re-encoding a legacy source as
+    # UTF-8 here would rewrite every cp1252 / Shift-JIS byte in the file that
+    # the marker lines happen to sit next to.
+    text, encoding = read_source_text(filepath)
     lines = text.splitlines(keepends=True)
     kept = list(_strip_marker_blocks(lines))
     if kept == lines:
@@ -161,7 +164,7 @@ def _migrate_file(
         record_migrated_markers(cfg.metadata_dir, rows)
         # Strip only once the TOML holds the values: a failed metadata write
         # must leave the inline markers in place.
-        atomic_write_text(filepath, "".join(kept))
+        atomic_write_text(filepath, "".join(kept), encoding=encoding)
     return {"file": str(filepath), "functions": len(recorded)}
 
 

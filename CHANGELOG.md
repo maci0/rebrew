@@ -629,6 +629,19 @@
   current schema stamp kept passing the gate: the file was never unlinked and
   the restore never ran. It now stamps `SCHEMA_TARGET`, and the assertions
   cover the verify metrics as well as the keys.
+- **`rebrew fix` and `rebrew migrate-markers` re-encoded legacy sources as
+  UTF-8.** Both read through `read_source_text`, which detects the file's
+  encoding, then discarded the detected value and wrote the result with the
+  default UTF-8. A CP1252 source containing `const char *s = "Café";` came
+  back with that one byte turned into two, so the string literal the byte-match
+  loop measures changed on every run. Both now pass the detected encoding to
+  `atomic_write_text`, the convention every other annotation/edit path
+  follows.
+- **`rebrew.workspace.config.target_marker` returned an unnormalized marker.**
+  An explicit `marker` went back out as written, while
+  `rebrew.config.module_marker` and the loader both normalize to NFC. A config
+  spelled NFD and a source spelled NFC therefore named two different
+  `MODULE.0xVA` metadata keys. The explicit branch now normalizes too.
 
 ## [2.13.1] - 2026-09-27
 
