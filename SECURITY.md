@@ -117,10 +117,14 @@ plugin cache backends or remove the open upstream diskcache advisory.
   `patch_verify_cache_entries`); `rebrew verify` (`cfg.reversed_dir /
   entry.filepath` in `verify.py` `verify_entry`, plus that module's
   cache-validity `stat()` and deferred STATUS pass), the batch cache-key probe
-  that reads the source at that path (`compile.py` `precompile_batch`), and
-  `rebrew test`'s blocker clear do not. An entry in a cloned
+  that reads the source at that path (`compile.py` `precompile_batch`),
+  `rebrew test`'s blocker clear, and the write path in `rebrew cross-import`
+  (`cross_import.py` `import_function`, `import_shared_function`, and
+  `promote_to_shared`, which write or `shutil.move` a second target's `file`
+  into the destination tree) do not. An entry in a cloned
   `rebrew-functions.toml` naming an absolute or `../` path therefore makes
-  `rebrew verify` read that path with the analyst's privileges. Fix direction
+  `rebrew verify` read that path with the analyst's privileges, and makes
+  `rebrew cross-import` write outside the destination tree. Fix direction
   and full call-site list: [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) §4
   and §5.
 - No claim that `REBREW_CONTAINER_RUNTIME` is restricted to a container
