@@ -357,7 +357,9 @@ class TestQueryLayer:
         sections = payload["sections"]
         assert payload["count"] == len(sections)
         assert payload["total"] == len(sections)
-        by_name = {s["name"]: s for s in sections}
+        # Rows ship positionally; name every column through ``cols``.
+        named = [dict(zip(payload["cols"], row, strict=True)) for row in sections]
+        by_name = {row["name"]: row for row in named}
         assert by_name[".text"]["exact"] == 1
         assert by_name[".text"]["stub"] == 1
         assert by_name[".text"]["size"] == 128

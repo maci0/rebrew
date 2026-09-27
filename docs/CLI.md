@@ -2545,7 +2545,8 @@ Endpoints: `/`, `/app.js`, `/boot-guard.js`, `/api/bootstrap`, `/api/targets`,
 `/api/health` (liveness plus one real read of the target list, so an
 unreadable `coverage.db` answers 500 `database_error`; never ETagged),
 `/api/summary?target=`, `/api/functions?target=` (status/module/q/limit/offset;
-compact row arrays under `cols`), `/api/sections?target=`,
+compact row arrays under `cols`), `/api/sections?target=` (compact row arrays
+under `cols`),
 `/api/globals?target=` (module/q/limit/offset; compact arrays under `cols`),
 `/api/history?target=` (limit/offset; compact arrays under `cols`).
 Missing `target` → 400; unknown target → 404; a `status` filter outside the

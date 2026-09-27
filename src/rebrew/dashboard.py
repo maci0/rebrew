@@ -14,7 +14,7 @@ Endpoints
 ``GET /api/targets``           → list of targets (includes count/total)
 ``GET /api/summary?target=``   → function stats + coverage % (target required)
 ``GET /api/functions?target=`` → function rows as arrays under ``cols`` (filters: status, module, q, limit, offset)
-``GET /api/sections?target=``  → per-section cell stats (includes count/total/limit/offset)
+``GET /api/sections?target=``  → per-section cell stats (rows as arrays under ``cols``; includes count/total/limit/offset)
 ``GET /api/globals?target=``   → global data rows (filters: module, q, limit, offset; includes total)
 ``GET /api/history?target=``   → status-change history (filters: limit, offset; includes total)
 
@@ -83,7 +83,7 @@ reached its first statement, so an aborted transfer or a parse error leaves a
 message and a reload prompt instead of a permanent "Loading coverage…".  The
 shell carries no inline script (the CSP allows ``script-src 'self'`` only), so
 that guard is a same-origin asset rather than an ``onerror`` attribute.  JSON
-uses compact separators; function/global/history rows are arrays under
+uses compact separators; function/global/history/section rows are arrays under
 ``cols``.  The handler speaks HTTP/1.1 so browsers reuse one TCP connection for
 the shell, ``/app.js``, bootstrap payload, and later filter fetches.
 
@@ -144,6 +144,23 @@ _MAX_LIMIT = 5000
 _FUNCTION_COLS = ("va", "name", "symbol", "size", "status", "module", "files")
 _GLOBAL_COLS = ("va", "name", "decl", "size", "module")
 _HISTORY_COLS = ("va", "name", "old_status", "new_status", "changed_at")
+#: Section rows ship in table-column order, so the SELECT order is this tuple's.
+_SECTION_COLS = (
+    "name",
+    "size",
+    "total_cells",
+    "exact",
+    "reloc",
+    "near_match",
+    "stub",
+    "proven",
+    "size_mismatch",
+    "thunk",
+    "data",
+    "padding",
+    "none",
+    "other",
+)
 #: Routes that require ``?target=``.
 _TARGET_ROUTES = frozenset(
     {
@@ -696,17 +713,20 @@ function onModuleChange() {
   updateFilterActions();
   loadFunctions();
 }
+const sectionRowHtml = (r) => {
+  return "<tr><td>" + esc(r[0] || "") + "</td><td>"
+    + esc(r[1] ?? "") + "</td><td>" + esc(r[2] ?? "") + "</td><td>"
+    + esc(r[3] ?? 0) + "</td><td>" + esc(r[4] ?? 0) + "</td><td>"
+    + esc(r[5] ?? 0) + "</td><td>" + esc(r[6] ?? 0) + "</td><td>"
+    + esc(r[7] ?? 0) + "</td><td>" + esc(r[8] ?? 0) + "</td><td>"
+    + esc(r[9] ?? 0) + "</td><td>" + esc(r[10] ?? 0) + "</td><td>"
+    + esc(r[11] ?? 0) + "</td><td>" + esc(r[12] ?? 0) + "</td><td>"
+    + esc(r[13] ?? 0) + "</td></tr>";
+};
 function renderSections(data) {
   const rows = data.sections || [];
   const body = $("sections-rows").querySelector("tbody");
-  body.innerHTML = rows.map(s => "<tr><td>" + esc(s.name || "") + "</td><td>"
-    + esc(s.size ?? "") + "</td><td>" + esc(s.total_cells ?? "") + "</td><td>"
-    + esc(s.exact ?? 0) + "</td><td>" + esc(s.reloc ?? 0) + "</td><td>"
-    + esc(s.near_match ?? 0) + "</td><td>" + esc(s.stub ?? 0) + "</td><td>"
-    + esc(s.proven ?? 0) + "</td><td>" + esc(s.size_mismatch ?? 0) + "</td><td>"
-    + esc(s.thunk ?? 0) + "</td><td>" + esc(s.data ?? 0) + "</td><td>"
-    + esc(s.padding ?? 0) + "</td><td>" + esc(s.none ?? 0) + "</td><td>"
-    + esc(s.other ?? 0) + "</td></tr>").join("");
+  body.innerHTML = rows.map(sectionRowHtml).join("");
   $("sections-empty").hidden = rows.length !== 0;
   $("sections-results").hidden = rows.length === 0;
   const hint = $("sections-hint");
@@ -1801,47 +1821,31 @@ class Dashboard:
         }
 
     def sections(self, target: str) -> dict[str, Any]:
+        # One pass: the sections row is 1:1 on the (target, name) primary key,
+        # so the join replaces the per-section size lookup table.  Rows ship as
+        # arrays under ``cols`` like every other list route; a per-row key costs
+        # more than the numbers it labels once a target has a few hundred
+        # sections, and this response is never paged.
         with self._conn() as conn:
             rows = conn.execute(
-                "SELECT section_name, total_cells, exact_count, reloc_count, "
-                "near_match_count, stub_count, padding_count, data_count, "
-                "thunk_count, none_count, proven_count, size_mismatch_count, "
-                "other_count "
-                "FROM section_cell_stats WHERE target = ? ORDER BY section_name",
+                "SELECT s.section_name, sec.size, s.total_cells, s.exact_count, "
+                "s.reloc_count, s.near_match_count, s.stub_count, s.proven_count, "
+                "s.size_mismatch_count, s.thunk_count, s.data_count, "
+                "s.padding_count, s.none_count, s.other_count "
+                "FROM section_cell_stats s LEFT JOIN sections sec "
+                "ON sec.target = s.target AND sec.name = s.section_name "
+                "WHERE s.target = ? ORDER BY s.section_name",
                 (target,),
             ).fetchall()
-            sizes = dict(
-                conn.execute(
-                    "SELECT name, size FROM sections WHERE target = ?", (target,)
-                ).fetchall()
-            )
-        sections = [
-            {
-                "name": r[0],
-                "size": sizes.get(r[0]),
-                "total_cells": r[1],
-                "exact": r[2] or 0,
-                "reloc": r[3] or 0,
-                "near_match": r[4] or 0,
-                "stub": r[5] or 0,
-                "padding": r[6] or 0,
-                "data": r[7] or 0,
-                "thunk": r[8] or 0,
-                "none": r[9] or 0,
-                "proven": r[10] or 0,
-                "size_mismatch": r[11] or 0,
-                "other": r[12] or 0,
-            }
-            for r in rows
-        ]
         return {
             "target": target,
-            "count": len(sections),
-            "total": len(sections),
-            "limit": len(sections),
+            "count": len(rows),
+            "total": len(rows),
+            "limit": len(rows),
             "offset": 0,
             "paged": False,
-            "sections": sections,
+            "cols": list(_SECTION_COLS),
+            "sections": [list(r) for r in rows],
         }
 
     def globals(

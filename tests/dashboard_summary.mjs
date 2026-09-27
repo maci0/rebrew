@@ -213,10 +213,9 @@ assert.equal(element("retry-functions").hidden, true);
 assert.equal(pending.length, 0);
 
 // Every counted cell state gets a column, so a row's cells sum to its Cells total.
-renderSections({ sections: [{
-  name: ".text", size: 64, total_cells: 66, exact: 1, reloc: 2, near_match: 3, stub: 4,
-  proven: 5, size_mismatch: 6, thunk: 7, data: 8, padding: 9, none: 10, other: 11,
-}] });
+renderSections({ sections: [[
+  ".text", 64, 66, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11,
+]] });
 const cells = [...element("sections-rows").innerHTML.matchAll(/<td>([^<]*)<\/td>/g)].map(m => m[1]);
 assert.deepEqual(cells, [".text", "64", "66", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"]);
 assert.equal(cells.slice(3).reduce((sum, n) => sum + Number(n), 0), 66);

@@ -446,7 +446,7 @@ The `recovery` server exposes the following endpoints. All data endpoints return
 > (`{"status": "ok", "db": "<path>", "targets": <n>}` after one real read of
 > the target list, so an unreadable `coverage.db` answers 500
 > `database_error`; never ETagged, so a probe cannot be revalidated into a
-> stale "healthy")). Function, global, and history list rows are
+> stale "healthy")). Function, global, history, and section list rows are
 > compact arrays under `cols`. List envelopes carry `count` (this page),
 > `total`, the applied `limit`/`offset`, and `paged` — `true` on
 > `/api/functions`, `/api/globals`, `/api/history`; `false` on
