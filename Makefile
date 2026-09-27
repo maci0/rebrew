@@ -490,7 +490,11 @@ sbom: warn-uv-version
 dist/rebrew.buildinfo: $(BUILD_INPUTS) $(BUILD_INPUT_DIRS)
 	@$(MAKE) --no-print-directory build
 
-sdist-check: dist/rebrew.buildinfo
+# ensure-uv first: it is the cheap check, and the buildinfo rule below can
+# trigger a full rebuild, so a missing uv should be named before that runs.
+# (The buildinfo rule reaches ensure-uv through `build` only when it actually
+# rebuilds; on an up-to-date dist/ the recipe below was the only uv caller.)
+sdist-check: ensure-uv dist/rebrew.buildinfo
 	@set -eu; \
 	for f in dist/*.tar.gz; do set -- "$$@" "$$f"; done; \
 	[ $$# -eq 1 ] && [ -f "$$1" ] || { echo "ERROR: expected exactly one sdist in dist/ (run 'make build')"; exit 1; }; \
@@ -594,7 +598,7 @@ audit: ensure-uv
 # Manual gate by design (CONTRIBUTING.md): wiring it into CI would fail every
 # push except the release commit, since __version__ stays equal to the last
 # tag during normal development. Run `make release-check` before tagging.
-release-check:
+release-check: ensure-uv
 	@set -eu; \
 	V=$$(uv run --frozen python -c "from rebrew import __version__; print(__version__)"); \
 	LAST=$$(git describe --tags --abbrev=0 2>/dev/null || echo v0.0.0); \
