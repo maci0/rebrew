@@ -42,8 +42,9 @@ commands that round-trip TOML.
 ## Goals
 
 - One-command project bootstrap that creates a working directory layout
-  (`original/`, `src/<target>/`, `bin/<target>/`), an empty function list,
-  metadata TOMLs, and a valid `rebrew-project.toml`.
+  (`original/`, `src/<target>/`, `bin/<target>/`), metadata TOMLs, and a valid
+  `rebrew-project.toml`. No function list is scaffolded; `rebrew intake` writes
+  `function_structure.json`.
 - Compiler profile selection: `--toolchain` picks the profile explicitly
   (default `msvc-6.0`; full list via `rebrew toolchain list`), or `--guess-compiler`
   auto-selects from the target binary (diec → PDB → heuristics; prefers the
