@@ -182,3 +182,8 @@ name. Gates: `TestReportPayloadShape`.
 Every offline `--json` command is deterministic across runs — enforced by
 `tools/check_idempotency.py` (17 commands, run twice, byte-compared) as a CI
 step; see `docs/CI.md`.
+
+The same tool runs the mutating commands (`migrate-markers`,
+`document-unmatched`, `gen-link-stubs`) twice against their own fresh fixture
+project and content-digests the whole tree after each run, so a command that
+appends a marker, a stub or a metadata row on every execution fails the gate.
