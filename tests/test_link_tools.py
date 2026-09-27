@@ -10,7 +10,7 @@ import pytest
 
 from rebrew.calibrate_bss import find_link_cmd, read_data_vs
 from rebrew.gen_layout import gen_data_restore
-from rebrew.gen_link_stubs import gen_link_stubs, load_data_symbols
+from rebrew.gen_link_stubs import gen_link_stubs, load_data_symbols, read_calibrated_tail
 from rebrew.link_order import file_va, order_sources
 
 # ---------------------------------------------------------------------------
@@ -115,6 +115,65 @@ def test_gen_link_stubs_json_still_writes(tmp_path: Path, monkeypatch: pytest.Mo
     assert payload["written"] is True
     assert out.is_file()
     assert "char g_a[1] = {0};" in out.read_text(encoding="utf-8")
+
+
+def test_gen_link_stubs_keeps_calibrated_tail(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Re-running after calibrate-bss must not reset the pad it measured.
+
+    calibrate-bss tunes ``g_bss_tail`` in the generated TU and leaves it
+    there; a regeneration that hard-codes the placeholder silently reverts a
+    byte-match the user had already converged.
+    """
+    import json
+
+    from typer.testing import CliRunner
+
+    from rebrew.gen_link_stubs import app
+
+    monkeypatch.chdir(tmp_path)
+    meta = tmp_path / "src" / "rebrew-data.toml"
+    meta.parent.mkdir(parents=True)
+    meta.write_text('["SERVER.0x10027000"]\nname = "g_a"\nsection = ".data"\n', encoding="utf-8")
+    out = tmp_path / "src" / "link_stubs.c"
+    runner = CliRunner()
+    args = ["--data-metadata", str(meta), "--output", str(out), "--json"]
+
+    assert runner.invoke(app, args).exit_code == 0
+    # Stand in for a converged calibrate-bss run.
+    out.write_text(
+        out.read_text(encoding="utf-8").replace("g_bss_tail[0x400000]", "g_bss_tail[0x1234]"),
+        encoding="utf-8",
+    )
+    assert read_calibrated_tail(out) == 0x1234
+
+    result = runner.invoke(app, args)
+    assert result.exit_code == 0, result.output
+    payload = json.loads(result.stdout)
+    assert payload["tail"] == "0x1234"
+    assert payload["tail_preserved"] is True
+    text = out.read_text(encoding="utf-8")
+    assert "g_bss_tail[0x1234]" in text
+    assert "char g_a[1] = {0};" in text
+
+
+def test_read_calibrated_tail_ignores_hand_written_stub(tmp_path: Path) -> None:
+    """A stub this command did not generate is not ours to measure."""
+    p = tmp_path / "link_stubs.c"
+    p.write_text("unsigned char g_bss_tail[0x99] = {0};\n", encoding="utf-8")
+    assert read_calibrated_tail(p) is None
+    assert read_calibrated_tail(tmp_path / "missing.c") is None
+
+
+def test_gen_link_stubs_dedups_repeated_names(tmp_path: Path) -> None:
+    """Two addresses with one name would emit the definition twice."""
+    meta = tmp_path / "rebrew-data.toml"
+    meta.write_text(
+        '["SERVER.0x10027000"]\nname = "g_a"\nsection = ".data"\n'
+        '["SERVER.0x10027010"]\nname = "g_a"\nsection = ".data"\n',
+        encoding="utf-8",
+    )
+    text = gen_link_stubs(meta)
+    assert text.count("char g_a[1] = {0};") == 1
 
 
 # ---------------------------------------------------------------------------

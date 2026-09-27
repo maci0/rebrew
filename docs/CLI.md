@@ -873,6 +873,11 @@ stub per `.data` symbol in the data metadata plus a `g_bss_tail[0x400000]`
 pad array.  The pad is what `rebrew calibrate-bss` later sizes so the raw
 link's `.data` VirtualSize matches the reference.
 
+Regenerating keeps the pad size already tuned in by `rebrew calibrate-bss`
+(`--json` reports it as `tail` / `tail_preserved`); only a fresh file gets the
+`0x400000` placeholder.  Two `.data` addresses sharing one name emit a single
+stub, so a re-annotated global cannot produce a TU that does not compile.
+
 ### `rebrew calibrate-bss`
 
 `rebrew calibrate-bss [--stub src/link_stubs.c] [--symbol g_bss_tail] [--target-vs 0x...] [--max-iters 8] [--dry-run] [--json]`
