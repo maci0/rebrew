@@ -327,23 +327,47 @@ def _verify_cache_write_lock(cache_path: Path) -> Iterator[None]:
         yield
 
 
+#: Config fields :func:`rebrew.verify_hash.compiler_config_hash` reads.  A
+#: config that does not carry all of them (a test fixture, a tool that knows
+#: only the project root) cannot answer the compiler dimension.
+_COMPILER_IDENTITY_FIELDS = (
+    "compiler_command",
+    "base_cflags",
+    "compiler_includes",
+    "compiler_libs",
+)
+
+
 def cache_identity_matches(raw: dict[str, Any], cfg: ProjectConfig) -> bool:
     """True when a parsed verify-cache document belongs to *cfg*'s identity.
 
-    Single definition of the ``(target, compiler_hash, binary_id)`` check shared by
-    :func:`verify_cache_matches_cfg` (whole-file predicate),
-    :func:`patch_verify_cache_entries` (in-lock guard), and ``build_db``
-    (coverage import), so they cannot drift.
+    Single definition of the ``(version, target, compiler_hash, binary_id)``
+    check, used by :func:`verify_cache_matches_cfg` (whole-file predicate),
+    :func:`patch_verify_cache_entries` (in-lock guard), :func:`load_verify_cache`
+    (the serve path), and every read-only consumer (``status``, ``todo``,
+    ``residue``, ``build_db``), so they cannot drift.
+
+    Drift is not cosmetic: a reader that omits the compiler dimension keeps
+    reporting verdicts earned under a toolchain or comparison-logic version
+    the compile path has already rejected, so ``status`` and ``verify``
+    disagree about the same file until the next full verify.
+
+    A dimension the config does not carry cannot reject — a partial config has
+    no opinion on the compiler, and inventing a verdict for it would make
+    every fixture look like a foreign cache.
     """
     if raw.get("version") != CACHE_VERSION:
         return False
     raw_bin = raw.get("binary_id")
     if raw_bin and raw_bin != binary_id(cfg):
         return False
-    return bool(
-        raw.get("target") == cfg.target_name
-        and raw.get("compiler_hash") == compiler_config_hash(cfg)
-    )
+    cache_target = raw.get("target")
+    cfg_target = getattr(cfg, "target_name", None)
+    if cache_target != cfg_target and (cache_target or cfg_target):
+        return False
+    if all(hasattr(cfg, field) for field in _COMPILER_IDENTITY_FIELDS):
+        return raw.get("compiler_hash") == compiler_config_hash(cfg)
+    return True
 
 
 def verify_cache_matches_cfg(cache_path: Path, cfg: ProjectConfig) -> bool:
@@ -561,19 +585,11 @@ def load_verify_cache(cache_path: Path, cfg: ProjectConfig) -> VerifyCache | Non
         # everything without explaining why the on-disk cache was ignored.
         logging.warning("Ignoring corrupt verify cache %s: %s", cache_path, exc)
         return None
-    if data.version != CACHE_VERSION:
-        return None
-    if data.target != cfg.target_name:
-        return None
-    if data.compiler_hash != compiler_config_hash(cfg):
-        return None
     # Header invalidation is per-entry via VerifyCacheEntry.headers_fp (a
     # reached-header fingerprint), checked at serve time in prepare_entries —
     # the old global headers_hash gate re-verified the whole cache on any
     # header change, defeating per-source precision.
-    # Legacy caches carry no binary_id — accept them; a cached binary_id that
-    # no longer matches the current binary must invalidate.
-    if data.binary_id and data.binary_id != binary_id(cfg):
+    if not cache_identity_matches(raw, cfg):
         return None
     return data
 

@@ -633,25 +633,19 @@ def load_verify_entries(cfg: ProjectConfig) -> dict[str, "VerifyCacheEntry"]:
     if raw is None:
         return {}
     try:
-        from rebrew.verify_cache import CACHE_VERSION, VerifyCache
+        from rebrew.verify_cache import VerifyCache
 
         data = VerifyCache.from_dict(raw)
     except (ValueError, AttributeError, ImportError, TypeError):
         return {}
-    if data.version != CACHE_VERSION:
-        return {}
-    # Mirrors status.py's target guard: any mismatch is rejected, including a
-    # legacy cache with no `target` against a named target (the old
-    # `and data.target` accepted that one, so todo's categories/deltas could be
-    # driven by a cache `rebrew status` refuses to read).  A minimal config with
-    # no `target_name` still accepts a target-less cache (tests, tools).
-    cache_target = data.target
-    cfg_target = getattr(cfg, "target_name", None)
-    if cache_target != cfg_target and (cache_target or cfg_target):
-        return {}
-    from rebrew.verify_cache import binary_id
+    # One shared identity guard: version, target, compiler config, and binary.
+    # Re-deriving it here is how todo came to accept a cache the compile path
+    # rejects — another target's entries surfaced as phantom quick-wins, and a
+    # cache earned under a superseded compiler config kept driving categories
+    # and deltas after `rebrew verify` had stopped serving it.
+    from rebrew.verify_cache import cache_identity_matches
 
-    if data.binary_id and data.binary_id != binary_id(cfg):
+    if not cache_identity_matches(raw, cfg):
         return {}
     # Re-key canonically: the cache is a JSON file, so a VA may be spelled
     # "0x1000" instead of "0x00001000" (the union at `:317` already normalizes

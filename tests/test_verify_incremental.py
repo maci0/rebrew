@@ -15,7 +15,7 @@ from rebrew.annotation import Annotation
 from rebrew.compile import CompareResult
 from rebrew.config import ProjectConfig
 from rebrew.verify import app
-from rebrew.verify_cache import load_verify_cache, save_verify_cache
+from rebrew.verify_cache import binary_id, load_verify_cache, save_verify_cache
 from rebrew.verify_hash import (
     cflags_equivalent,
     compiler_config_hash,
@@ -349,6 +349,77 @@ class TestLoadVerifyCache:
         cache_path.write_text(json.dumps(data), encoding="utf-8")
 
         assert load_verify_cache(cache_path, cfg) is None
+
+
+class TestCacheIdentityAgreesAcrossReaders:
+    """Every reader of ``.rebrew/verify_cache.json`` asks the same question.
+
+    ``rebrew verify`` refuses a cache earned under a superseded compiler
+    config and recompiles; a reader that re-derives a narrower identity
+    predicate keeps reporting those verdicts as current, so status, todo, and
+    verify disagree about the same file until the next full verify.
+    """
+
+    @staticmethod
+    def _write(cfg: ProjectConfig, **overrides: Any) -> Path:
+        cache_path = cfg.root / ".rebrew" / "verify_cache.json"
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        data = {
+            "version": 2,
+            "compiler_hash": compiler_config_hash(cfg),
+            "target": cfg.target_name,
+            "binary_id": binary_id(cfg),
+            "entries": {
+                "0x00002000": {
+                    "status": "EXACT",
+                    "va": "0x00002000",
+                    "size": 8,
+                    "filepath": "func_b.c",
+                    "name": "func_b",
+                    "passed": True,
+                    "delta": 0,
+                    "match_percent": 100.0,
+                }
+            },
+        }
+        data.update(overrides)
+        cache_path.write_text(json.dumps(data), encoding="utf-8")
+        return cache_path
+
+    def test_own_cache_accepted_by_every_reader(self, tmp_path: Path) -> None:
+        from rebrew.status import _load_cache_raw
+        from rebrew.todo import load_verify_entries
+
+        cfg = _make_cfg(tmp_path)
+        self._write(cfg)
+
+        assert _load_cache_raw(cfg) is not None
+        assert len(load_verify_entries(cfg)) == 1
+        assert load_verify_cache(cfg.root / ".rebrew" / "verify_cache.json", cfg) is not None
+
+    def test_foreign_compiler_hash_rejected_by_every_reader(self, tmp_path: Path) -> None:
+        from rebrew.residue import _nonmatching_from_cache
+        from rebrew.status import _load_cache_raw
+        from rebrew.todo import load_verify_entries
+
+        cfg = _make_cfg(tmp_path)
+        self._write(cfg, compiler_hash="deadbeef")
+
+        assert _load_cache_raw(cfg) is None
+        assert load_verify_entries(cfg) == {}
+        assert _nonmatching_from_cache(cfg, 0x400000, 0x1000) == []
+        assert load_verify_cache(cfg.root / ".rebrew" / "verify_cache.json", cfg) is None
+
+    def test_rebuilt_binary_rejected_by_every_reader(self, tmp_path: Path) -> None:
+        from rebrew.status import _load_cache_raw
+        from rebrew.todo import load_verify_entries
+
+        cfg = _make_cfg(tmp_path)
+        self._write(cfg, binary_id="stale-binary-id")
+
+        assert _load_cache_raw(cfg) is None
+        assert load_verify_entries(cfg) == {}
+        assert load_verify_cache(cfg.root / ".rebrew" / "verify_cache.json", cfg) is None
 
 
 class TestVerifyCacheMatchesCfg:

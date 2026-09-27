@@ -162,15 +162,10 @@ def residue_report(
 
 def _nonmatching_from_cache(cfg: Any, image_base: int, text_rva: int) -> list[tuple[int, int, str]]:
     """(text-relative offset, size, name) for every non-byte-matched function."""
-    from rebrew.verify_cache import CACHE_VERSION, binary_id, load_verify_cache_raw
+    from rebrew.verify_cache import cache_identity_matches, load_verify_cache_raw
 
     raw = load_verify_cache_raw(cfg)
-    if not isinstance(raw, dict) or raw.get("version") != CACHE_VERSION:
-        return []
-    if raw.get("target") != getattr(cfg, "target_name", ""):
-        return []
-    raw_bin = raw.get("binary_id")
-    if raw_bin and raw_bin != binary_id(cfg):
+    if not isinstance(raw, dict) or not cache_identity_matches(raw, cfg):
         return []
 
     entries = raw.get("entries") or raw.get("functions")

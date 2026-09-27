@@ -275,19 +275,17 @@ def _load_cache_raw(cfg: ProjectConfig) -> dict[str, Any] | None:
     """The verify-cache document for *cfg*, or None when it is not ours.
 
     One guard for every status reader: a cache written for another target,
-    another binary, or another cache schema version must not drive this
-    project's summary or effective statuses.  The version comes from
-    ``CACHE_VERSION`` so a schema bump cannot leave one reader behind.
+    another binary, another compiler config, or another cache schema
+    version must not drive this project's summary or effective statuses.
+    The predicate itself lives in :mod:`rebrew.verify_cache` so status, todo,
+    residue, and the compile path cannot drift apart on what "ours" means —
+    each re-deriving it is how a cache earned under an older toolchain kept
+    being reported as current while ``rebrew verify`` recompiled it away.
     """
-    from rebrew.verify_cache import CACHE_VERSION, binary_id, load_verify_cache_raw
+    from rebrew.verify_cache import cache_identity_matches, load_verify_cache_raw
 
     raw = load_verify_cache_raw(cfg)
-    if not isinstance(raw, dict) or raw.get("version") != CACHE_VERSION:
-        return None
-    if raw.get("target") != getattr(cfg, "target_name", ""):
-        return None
-    raw_bin = raw.get("binary_id")
-    if raw_bin and raw_bin != binary_id(cfg):
+    if not isinstance(raw, dict) or not cache_identity_matches(raw, cfg):
         return None
     return raw
 
