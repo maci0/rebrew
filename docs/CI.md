@@ -9,7 +9,8 @@ across the supported Python versions (3.13–3.14; the 3.13 entry runs it as
 `make coverage`, failing below `COV_FLOOR`) — including a fixture-freshness
 check (`tools/gen_fixtures.py --check`) and an idempotency sweep over the
 offline `--json` CLI surface — a pre-commit hook-parity job (`make check` with
-the ruff and mypy hooks skipped, since the lint job runs them), a package job
+the ruff and mypy hooks skipped, since the lint job runs them; it installs
+shellcheck first, so the shell hook is enforced there), a package job
 that builds the sdist/wheel via `make build` (SOURCE_DATE_EPOCH, umask 022, C/UTC,
 `PYTHONHASHSEED=0`; `tools/normalize_sdist.py` rewrites sdist tar metadata and
 wheel entry modes), checks both artifacts hash the same when

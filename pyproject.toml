@@ -371,12 +371,22 @@ enable_error_code = [
 ]
 # src/ is the shipped library; tools/ are the repo's own dev scripts (CI and
 # the pre-commit hook both run plain `uv run mypy`, which checks both).  The
-# two tests/ modules below are the non-test_ files: the pytest plugin every
-# run loads through `addopts` and the COFF builders the fixture generator
-# imports, both of which a typing regression would reach only at runtime.
-# The rest of tests/ is still unchecked (hundreds of strict errors); add a
-# module here as it comes clean rather than relaxing the gate for the tree.
-files = ["src/rebrew", "tools", "tests/pytest_ansi_env.py", "tests/bin_util.py"]
+# tests/ modules below are the ones that came clean first: the two non-test_
+# helper modules (the pytest plugin every run loads through `addopts`, and
+# the COFF builders the fixture generator imports, both of which a typing
+# regression would reach only at runtime) plus the three leaf test modules
+# typed so far.  The rest of tests/ is still unchecked (hundreds of strict
+# errors); add a module here as it comes clean rather than relaxing the gate
+# for the tree.
+files = [
+    "src/rebrew",
+    "tools",
+    "tests/pytest_ansi_env.py",
+    "tests/bin_util.py",
+    "tests/test_span_contains.py",
+    "tests/test_core.py",
+    "tests/test_catalog_models.py",
+]
 exclude = ["venv", ".venv"]
 # tools/gen_fixtures.py imports the COFF builders from tests/bin_util.py at
 # runtime (sys.path.insert); this makes that import resolvable to mypy too,

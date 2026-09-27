@@ -64,6 +64,16 @@ repos:
         pass_filenames: false
         always_run: true
 
+      # Shell is the repo's only non-Python source language (the resembl
+      # clone helper both workflows call).  CI installs shellcheck before
+      # `make check`, so the gate is blocking there; a contributor without
+      # it on PATH skips instead of failing a commit they cannot fix.
+      - id: shellcheck
+        name: ShellCheck
+        entry: bash -c 'command -v shellcheck >/dev/null 2>&1 || exit 0; exec shellcheck "$@"' --
+        language: system
+        types: [shell]
+
       - id: mypy
         name: Mypy type check
         # `make mypy` first checks the `prove` extra is installed: without it
