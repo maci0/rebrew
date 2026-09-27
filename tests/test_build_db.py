@@ -6,6 +6,7 @@ textOffset, globals origin/size, and the section_cell_stats view).
 """
 
 import json
+import re
 import sqlite3
 from pathlib import Path
 from typing import Any
@@ -1977,3 +1978,62 @@ class TestBuildDbCorruptInput:
         conn.close()
         assert functions == [(0x2000, "f")]
         assert globals_ == [(4096, "g")]
+
+
+class TestCellStateVocabulary:
+    """docs/DB_FORMAT.md's Cell States table must equal the CHECK vocabulary.
+
+    The CHECK is derived from ``KNOWN_STATUSES`` plus the gap/data states, so
+    adding an annotation ``STATUS`` widens it silently.  The doc is the only
+    place a reader learns which states are storable, and it already omitted
+    ``extract_error`` / ``invalid_va`` / ``verified`` / ``drift`` /
+    ``unchecked`` while the CHECK accepted all five.
+    """
+
+    def test_documented_cell_states_match_check_vocabulary(self) -> None:
+        from rebrew.build_db import _KNOWN_CELL_STATES
+
+        doc = (Path(__file__).resolve().parents[1] / "docs" / "DB_FORMAT.md").read_text(
+            encoding="utf-8"
+        )
+        section = doc.split("#### Cell States", 1)[1].split("\n### ", 1)[0]
+        documented = {
+            state
+            for line in section.splitlines()
+            if line.startswith("| `")
+            for state in re.findall(r"`([a-z_]+)`", line.split("|")[1])
+        }
+        assert documented == _KNOWN_CELL_STATES
+
+    def test_scoped_rebuild_drops_superseded_history_index(self, tmp_path: Path) -> None:
+        """A scoped --target rebuild prunes the dead v3-era history index too.
+
+        history is never dropped, so ``idx_history_target_va`` (superseded by
+        ``idx_history_target_id``) survives unless dropped explicitly.  It was
+        dropped only on a full rebuild, leaving the write cost on every history
+        insert for the scoped builds that append the most rows.
+        """
+        db_dir = tmp_path / "db"
+        db_dir.mkdir()
+        (db_dir / "data_alpha.json").write_text(json.dumps(SAMPLE_DATA), encoding="utf-8")
+        build_db(tmp_path, target="alpha")
+
+        conn = sqlite3.connect(db_dir / "coverage.db")
+        try:
+            conn.execute("CREATE INDEX idx_history_target_va ON history(target, va)")
+            conn.commit()
+        finally:
+            conn.close()
+
+        build_db(tmp_path, target="alpha")
+
+        conn = sqlite3.connect(db_dir / "coverage.db")
+        try:
+            indexes = {
+                row[0]
+                for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'index'")
+            }
+        finally:
+            conn.close()
+        assert "idx_history_target_va" not in indexes
+        assert "idx_history_target_id" in indexes

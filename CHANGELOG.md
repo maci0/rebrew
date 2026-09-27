@@ -51,6 +51,18 @@
   cannot ship without its re-export.
 
 ### Fixed
+- **A scoped `build-db --target` no longer keeps a dead `history` index.**
+  `idx_history_target_va` was superseded by `idx_history_target_id` but only
+  dropped on a full rebuild. `history` is never dropped, so a database that
+  carried the v3-era index kept it, and paid its write cost on every history
+  insert, for exactly the scoped builds that append the most rows. The drop
+  moved out of the full-rebuild branch.
+- **The documented cell-state list matches the `cells.state` CHECK.**
+  `docs/DB_FORMAT.md` omitted `extract_error`, `invalid_va`, `verified`,
+  `drift`, and `unchecked` — five states the CHECK has accepted since the
+  vocabulary was derived from `KNOWN_STATUSES`. The table now lists the full
+  set with each state's `section_cell_stats` bucket, and a test compares it
+  against `_KNOWN_CELL_STATES` so the two cannot drift.
 - **The init wizard asks every question before it asks for confirmation.**
   "Write shell completion scripts into completions/?" was asked *after*
   "Create project with these settings?", so the user confirmed a summary and
