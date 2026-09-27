@@ -1,5 +1,16 @@
 ## [Unreleased]
 
+### Docs
+- **The README's library-usage section shows how to inject an HTTP client.**
+  `rebrew.recompile_client.compile_source` and `rebrew.decompme`'s upload
+  helpers take a `client=`, and `HttpClient` is the two-method shape they
+  call, so a consumer can test its own code against a fake instead of a live
+  compile service. That escape hatch was documented only in the two module
+  docstrings, and the two `HttpClient` protocols have the same name with
+  different signatures, so a consumer had no way to learn that one stand-in
+  taking `**kwargs` satisfies both. The quickstart now carries the fake, the
+  fields on `RecompileError`, and the `retries=` / `timeout=` knobs.
+
 ### Fixed
 - **The sibling `resembl` pin is back in step with `uv.lock`.** The lock records
   `resembl` 3.0.0 while `RESEMBL_REF` / the `uv-env` action still named

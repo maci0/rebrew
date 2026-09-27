@@ -774,3 +774,52 @@ class TestMatcherLazyExportsStayTyped:
         from rebrew.matcher.compiler import build_candidate
 
         assert matcher_mod.build_candidate is build_candidate
+
+
+class TestDocumentedTransportInjection:
+    """The README's fake-service snippet must work as written.
+
+    The library-usage section tells a consumer that a stand-in taking
+    ``**kwargs`` satisfies both ``HttpClient`` protocols and drives a remote
+    compile with no live service.  A protocol that grew a required keyword,
+    or a call that stopped passing the payload as ``json=``, would leave the
+    documented quickstart broken, so the snippet's own shape is pinned here.
+    """
+
+    def test_kwargs_fake_satisfies_both_client_protocols(self) -> None:
+        from rebrew.decompme import HttpClient as DecompmeHttpClient
+        from rebrew.recompile_client import HttpClient
+
+        class _Response:
+            def __init__(self, status_code: int, payload: object) -> None:
+                self.status_code = status_code
+                self._payload = payload
+                self.content = payload if isinstance(payload, bytes) else b""
+                self.text = str(payload)
+
+            def json(self) -> object:
+                return self._payload
+
+            def close(self) -> None:
+                return None
+
+        class FakeService:
+            def post(self, url: str, **kwargs: object) -> _Response:
+                return _Response(200, {"status": "ok", "artifact_url": "/api/v1/artifacts/1.obj"})
+
+            def get(self, url: str, **kwargs: object) -> _Response:
+                return _Response(200, b"\x90" * 8)
+
+        fake = FakeService()
+        assert isinstance(fake, HttpClient)
+        assert isinstance(fake, DecompmeHttpClient)
+
+        result = compile_source(
+            "http://localhost:8080",
+            "msvc-6.0",
+            "int f(void) { return 0; }",
+            ["/O2"],
+            client=fake,
+        )
+        assert result.ok is True
+        assert result.obj_bytes == b"\x90" * 8
