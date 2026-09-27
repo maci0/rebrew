@@ -45,6 +45,7 @@ worker does not report a sibling stub's spend.
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import logging
 import os
@@ -53,6 +54,7 @@ import threading
 import time
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import urlparse
 
 from rebrew.config import (
     is_key_safe_endpoint,
@@ -134,6 +136,11 @@ _usage_tls = threading.local()
 # malicious or compromised endpoint forge log entries.  Replace them before
 # any ``logging.*`` call that interpolates untrusted response values.
 _CTRL_CHAR_RE = re.compile(r"[\x00-\x1f\x7f-\x9f]+")
+#: Operator opt-in that lets ``[llm].endpoint`` from ``rebrew-project.toml``
+#: receive ``REBREW_LLM_API_KEY``.  The project file outranks the environment
+#: for the endpoint, so without this a checked-out project picks where the
+#: operator's bearer key goes.
+_TRUST_ENV_VAR = "REBREW_LLM_ALLOW_PROJECT_ENDPOINT"
 
 
 def _sanitize_log_value(value: Any, *, max_len: int = 256) -> str:
@@ -303,15 +310,22 @@ def llm_config(cfg: Any) -> dict[str, str] | None:
     as ``compiler.recompile_url``), as does an unpinned or malformed model,
     or an API key paired with a plain-``http`` endpoint on a non-loopback
     host (the key would travel as a cleartext ``Authorization`` header).
+
+    An operator key from the environment is never sent to a project-supplied
+    ``[llm].endpoint`` unless that endpoint is loopback (a local ollama / vllm)
+    or ``REBREW_LLM_ALLOW_PROJECT_ENDPOINT=1`` opts in: the project file picks
+    the destination and takes precedence over ``REBREW_LLM_ENDPOINT``, so a
+    hostile tree would otherwise collect the key as a bearer token.
     """
-    endpoint = str(getattr(cfg, "llm_endpoint", "") or "").strip()
-    if not endpoint:
-        endpoint = os.environ.get("REBREW_LLM_ENDPOINT", "").strip()
+    from_project = str(getattr(cfg, "llm_endpoint", "") or "").strip()
+    endpoint = from_project or os.environ.get("REBREW_LLM_ENDPOINT", "").strip()
     # Secret: env presence wins so an empty export clears a TOML key.
     if "REBREW_LLM_API_KEY" in os.environ:
         api_key = os.environ["REBREW_LLM_API_KEY"].strip()
+        key_from_env = True
     else:
         api_key = str(getattr(cfg, "llm_api_key", "") or "").strip()
+        key_from_env = False
     if not endpoint:
         return None
     endpoint = validate_http_url(endpoint, "LLM endpoint")
@@ -319,6 +333,14 @@ def llm_config(cfg: Any) -> dict[str, str] | None:
         raise ValueError(
             "LLM endpoint must use https when an API key is set "
             "(plain http is allowed only for loopback hosts)"
+        )
+    if api_key and key_from_env and from_project and not _project_endpoint_allowed(endpoint):
+        raise ValueError(
+            "refusing to send REBREW_LLM_API_KEY to [llm].endpoint from "
+            "rebrew-project.toml: a project tree can name any host, so that "
+            "combination hands the key to whoever wrote the project. Point "
+            "REBREW_LLM_ENDPOINT at the same host, or set "
+            f"{_TRUST_ENV_VAR}=1 to accept the project's endpoint."
         )
     # Validate the process ceiling, request budget, and model id while
     # resolving config so a bad REBREW_LLM_MAX_REQUESTS, REBREW_LLM_TIMEOUT,
@@ -332,6 +354,26 @@ def llm_config(cfg: Any) -> dict[str, str] | None:
 def _key_safe_endpoint(endpoint: str) -> bool:
     """True when a bearer key may be sent to *endpoint*: https, or http to loopback."""
     return is_key_safe_endpoint(endpoint)
+
+
+def _project_endpoint_allowed(endpoint: str) -> bool:
+    """True when a ``[llm].endpoint`` from the project may receive the env key.
+
+    Loopback needs no opt-in: the destination is on this machine, so it is a
+    local inference server, not an off-host collector. Everything else needs
+    :data:`_TRUST_ENV_VAR`, which an operator sets knowingly.
+    """
+    if _TRUST_ENV_VAR in os.environ and os.environ[_TRUST_ENV_VAR].strip() not in ("", "0"):
+        return True
+    return urlparse(endpoint).hostname == "localhost" or _is_loopback_host(endpoint)
+
+
+def _is_loopback_host(endpoint: str) -> bool:
+    """True when *endpoint*'s host is a loopback IP literal."""
+    try:
+        return ipaddress.ip_address(urlparse(endpoint).hostname or "").is_loopback
+    except ValueError:
+        return False
 
 
 def _max_requests() -> int:
