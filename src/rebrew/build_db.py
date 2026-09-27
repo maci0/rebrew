@@ -1436,10 +1436,12 @@ def _build_coverage_db(
                 if not isinstance(fn, dict):
                     bad_va += 1
                     continue
-                va_int = _parse_int(va)
-                if va_int <= 0:
-                    va_int = _parse_int(fn.get("vaStart"))
-                if va_int <= 0:
+                # -1, not 0, marks "unparseable": VA 0 is a real address on
+                # 16-bit targets (the functions CHECK allows va >= 0).
+                va_int = _parse_int(va, -1)
+                if va_int < 0:
+                    va_int = _parse_int(fn.get("vaStart"), -1)
+                if va_int < 0:
                     bad_va += 1
                     continue
 
@@ -1542,12 +1544,13 @@ def _build_coverage_db(
                 if not isinstance(g, dict):
                     bad_global_va += 1
                     continue
-                # An unresolvable VA is SKIPPED: a va=0 row is a poison entry
-                # the readers mis-group.
-                va_int = _parse_int(va)
-                if va_int <= 0:
-                    va_int = _parse_int(g.get("va"))
-                if va_int <= 0:
+                # An unresolvable VA is SKIPPED.  -1 marks "unparseable", not
+                # 0: the globals CHECK allows va >= 0 and 16-bit targets place
+                # data at segment 0.
+                va_int = _parse_int(va, -1)
+                if va_int < 0:
+                    va_int = _parse_int(g.get("va"), -1)
+                if va_int < 0:
                     bad_global_va += 1
                     continue
                 g_size = g.get("size")
