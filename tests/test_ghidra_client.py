@@ -1,6 +1,7 @@
 """Tests for ghidra/client.py — SSE parsing and MCP tool calls."""
 
 import json
+import logging
 from types import SimpleNamespace
 from typing import Any
 
@@ -1141,3 +1142,53 @@ class TestEndMcpSession:
         down = _Down()
         end_mcp_session(down, "http://x", "sess-9")  # type: ignore[arg-type]
         assert down.calls == 1
+
+
+class TestApplyRunSummary:
+    """One log record per apply run: volume, duration, and the failure class.
+
+    The console stream stops printing after the first failures, so without
+    these records a bulk failure leaves the operator with no way to say what
+    broke or how long the run took.
+    """
+
+    def _cmd(self, tool: str, **args: object) -> dict:
+        return {"tool": tool, "args": args}
+
+    def test_failed_run_logs_counts_duration_and_suppressed_reasons(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        from rebrew.ghidra.client import apply_commands_via_mcp
+
+        caplog.set_level(logging.ERROR, logger="rebrew.ghidra.client")
+        script: list[object] = [
+            _FakeResp(headers={"Mcp-Session-Id": "s1"}),
+            _ok_rpc(),
+        ] + [_err_rpc()] * 40
+        monkeypatch.setattr("httpx.Client", lambda **kw: _FakeClient(script))
+        cmds = [self._cmd("create-function", address=f"0x{i:x}") for i in range(40)]
+        success, errors = apply_commands_via_mcp(cmds)
+        assert (success, errors) == (0, 40)
+
+        summary = [r for r in caplog.records if "40 of 40 op(s) failed" in r.getMessage()]
+        assert len(summary) == 1
+        assert summary[0].levelno == logging.ERROR
+        # The console stops printing after 30; the record counts the whole class.
+        grouped = [r.getMessage() for r in caplog.records if "op(s) failed: " in r.getMessage()]
+        assert len(grouped) == 1
+        assert "40 op(s) failed: create-function: boom" in grouped[0]
+
+    def test_successful_run_logs_duration(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        from rebrew.ghidra.client import apply_commands_via_mcp
+
+        with caplog.at_level(logging.INFO, logger="rebrew.ghidra.client"):
+            script: list[object] = [
+                _FakeResp(headers={"Mcp-Session-Id": "s1"}),
+                _ok_rpc(),
+                _ok_rpc(),
+            ]
+            monkeypatch.setattr("httpx.Client", lambda **kw: _FakeClient(script))
+            apply_commands_via_mcp([self._cmd("create-function", address="0x1")])
+        assert any("1 op(s) applied in " in r.getMessage() for r in caplog.records)

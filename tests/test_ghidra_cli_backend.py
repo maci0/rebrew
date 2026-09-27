@@ -247,3 +247,39 @@ class TestApplyCommandsViaCli:
         )
         assert (ok, errs) == (0, 1)
         _assert_grandchild_killed(pidfile)
+
+
+class TestApplyRunSummary:
+    """One log record per ghidra-cli run: volume, duration, failure class."""
+
+    def test_failed_run_logs_counts_and_reasons(self, monkeypatch, caplog) -> None:
+        import logging
+
+        def fake_run(argv, capture_output=False, text=False, timeout=None, **_kwargs):
+            return type("P", (), {"returncode": 1, "stdout": "", "stderr": "boom\nat Ghidra"})()
+
+        monkeypatch.setattr("rebrew.ghidra.cli_backend.run_process_group", fake_run)
+        with caplog.at_level(logging.ERROR, logger="rebrew.ghidra.cli_backend"):
+            ok, errs = apply_commands_via_cli(
+                [
+                    {"tool": "create-label", "args": {"addressOrSymbol": f"0x{i:x}"}}
+                    for i in range(35)
+                ]
+            )
+        assert (ok, errs) == (0, 35)
+        summary = [r for r in caplog.records if "35 of 35 op(s) failed" in r.getMessage()]
+        assert len(summary) == 1
+        grouped = [r.getMessage() for r in caplog.records if "op(s) failed: " in r.getMessage()]
+        assert len(grouped) == 1
+        assert "35 op(s) failed: create-label: rc=1: at Ghidra" in grouped[0]
+
+    def test_successful_run_logs_duration(self, monkeypatch, caplog) -> None:
+        import logging
+
+        def fake_run(argv, capture_output=False, text=False, timeout=None, **_kwargs):
+            return type("P", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+
+        monkeypatch.setattr("rebrew.ghidra.cli_backend.run_process_group", fake_run)
+        with caplog.at_level(logging.INFO, logger="rebrew.ghidra.cli_backend"):
+            apply_commands_via_cli([{"tool": "create-label", "args": {"addressOrSymbol": "0x1"}}])
+        assert any("1 op(s) applied in " in r.getMessage() for r in caplog.records)

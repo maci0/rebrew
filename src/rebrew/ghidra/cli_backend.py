@@ -12,18 +12,29 @@ Only the push (apply) direction is covered; pull operations still use MCP.
 
 from __future__ import annotations
 
+import logging
 import os
 import shutil
 import subprocess
+import time
 from typing import Any
 
 from rich.console import Console
 
 from rebrew.utils import run_process_group
 
+log = logging.getLogger(__name__)
+
 # Local console: rebrew.ghidra must stay importable without rebrew.cli
 # (library layering test).
 console = Console(stderr=True)
+
+#: Op failures printed inline before the stream is suppressed; the rest are
+#: counted by op tool and reported once in the run summary.
+ERROR_PRINT_LIMIT = 30
+#: Longest failure text kept in the run summary; ghidra-cli prints stack
+#: traces, which would break the one-record-per-line log format.
+SUMMARY_REASON_CHARS = 200
 
 
 def _op_to_args(op: dict[str, Any]) -> list[str] | None:
@@ -90,6 +101,24 @@ def apply_commands_via_cli(
     """
     success = 0
     errors = 0
+    started = time.perf_counter()
+    # Every failure, keyed by op tool and reason: the console stream stops
+    # printing partway through a bulk failure, so this is the only place that
+    # still says which op class broke and how often.
+    unreported: dict[str, int] = {}
+
+    def _report_failure(tool: str, addr: object, reason: object) -> None:
+        """Print the first failures inline, count the rest for the run summary."""
+        if errors <= ERROR_PRINT_LIMIT:
+            console.print(
+                f"[yellow]warning:[/yellow] ghidra-cli {tool} failed for {addr}: {reason}"
+            )
+        elif errors == ERROR_PRINT_LIMIT + 1:
+            console.print("[yellow]warning:[/yellow] ... suppressing further errors")
+        key = f"{tool}: {str(reason).splitlines()[0] if str(reason).strip() else reason}"
+        key = key[:SUMMARY_REASON_CHARS]
+        unreported[key] = unreported.get(key, 0) + 1
+
     for op in commands:
         argv = _op_to_args(op)
         if argv is None:
@@ -112,10 +141,8 @@ def apply_commands_via_cli(
                 timeout=timeout,
             )
         except (subprocess.TimeoutExpired, OSError) as exc:
-            console.print(
-                f"[yellow]warning:[/yellow] ghidra-cli failed for {op.get('tool')}: {exc}"
-            )
             errors += 1
+            _report_failure(str(op.get("tool")), op.get("args", {}).get("address") or "?", exc)
             continue
         if proc.returncode == 0:
             success += 1
@@ -144,10 +171,22 @@ def apply_commands_via_cli(
             )
             detail = combined.splitlines()
             last = detail[-1] if detail else ""
-            console.print(
-                f"[yellow]warning:[/yellow] ghidra-cli {op.get('tool')} "
-                f"failed for {addr} (rc={proc.returncode}): {last}"
-            )
+            _report_failure(str(op.get("tool")), addr, f"rc={proc.returncode}: {last}")
+    # One record per run on the logging stream: how long the apply took, how
+    # many ops failed, and which op class and reason the console suppressed.
+    elapsed_s = time.perf_counter() - started
+    if errors:
+        log.error(
+            "ghidra-cli apply: %d of %d op(s) failed, %d applied, %.1fs",
+            errors,
+            len(commands),
+            success,
+            elapsed_s,
+        )
+        for key, count in sorted(unreported.items(), key=lambda kv: -kv[1]):
+            log.error("ghidra-cli apply: %d op(s) failed: %s", count, key)
+    else:
+        log.info("ghidra-cli apply: %d op(s) applied in %.1fs", success, elapsed_s)
     return success, errors
 
 

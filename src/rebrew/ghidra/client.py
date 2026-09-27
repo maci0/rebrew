@@ -145,6 +145,18 @@ MCP_REQUEST_TIMEOUT_S = 30
 #: so a stalled server must not hold up the caller for a full request timeout.
 MCP_SESSION_END_TIMEOUT_S = 5
 
+#: Op failures printed inline before the console stream stops; every failure
+#: past this one is counted and reported once in the run summary instead, so a
+#: bulk failure leaves a record an operator can act on rather than hundreds of
+#: near-identical lines.
+MCP_ERROR_PRINT_LIMIT = 30
+#: Retry passes for ``parse-c-structure`` ops, whose ordering is a dependency
+#: graph the server resolves across pushes.
+MCP_STRUCT_RETRY_PASSES = 3
+#: Longest failure text kept in the run summary; a Ghidra stack trace is
+#: multi-line and would break the one-record-per-line log format.
+MCP_SUMMARY_REASON_CHARS = 200
+
 #: Hard cap on MCP list pages.  ``totalCount`` / ``nextStartIndex`` already
 #: stop a well-behaved server; this bounds a server that keeps advancing
 #: without ever satisfying ``start >= total``.
@@ -735,6 +747,21 @@ def apply_commands_via_mcp(
     success = 0
     errors = 0
     total = len(commands)
+    started = time.perf_counter()
+    # Every failure, keyed by op tool and reason: the console stream stops
+    # printing partway through a bulk failure, so this is the only place that
+    # still says which op class broke and how often.
+    unreported: dict[str, int] = {}
+
+    def _report_op_failure(tool: str, va: object, reason: object) -> None:
+        """Print the first failures inline, count the rest for the run summary."""
+        if errors <= MCP_ERROR_PRINT_LIMIT:
+            console.print(f"  ERROR at {va} ({tool}): {reason}")
+        elif errors == MCP_ERROR_PRINT_LIMIT + 1:
+            console.print("  ... suppressing further errors")
+        key = f"{tool}: {str(reason).splitlines()[0] if str(reason).strip() else reason}"
+        key = key[:MCP_SUMMARY_REASON_CHARS]
+        unreported[key] = unreported.get(key, 0) + 1
 
     cm: Any = (
         contextlib.nullcontext(client) if client is not None else httpx.Client(timeout=timeout)
@@ -864,10 +891,7 @@ def apply_commands_via_mcp(
                         struct_failures.append(cmd)
                     errors += 1
                     va = cmd["args"].get("addressOrSymbol", cmd["args"].get("address", "?"))
-                    if errors <= 30:
-                        console.print(f"  ERROR at {va} ({cmd['tool']}): {error_msg}")
-                    elif errors == 31:
-                        console.print("  ... suppressing further errors")
+                    _report_op_failure(cmd["tool"], va, error_msg)
             except httpx.HTTPError as exc:
                 if tool == "parse-c-structure":
                     struct_failures.append(cmd)
@@ -877,6 +901,15 @@ def apply_commands_via_mcp(
                     # landed server-side before the transport died):
                     # re-running the full list via a fallback would duplicate
                     # them.  Report progress and let the caller decide.
+                    logger.exception(
+                        "MCP apply to %s aborted at op %d/%d after %.1fs: %d applied, %d error(s)",
+                        endpoint,
+                        i + 1,
+                        total,
+                        time.perf_counter() - started,
+                        success,
+                        errors,
+                    )
                     raise McpApplyAborted(
                         f"MCP transport failed at op {i + 1}/{total} "
                         f"({success} applied, {errors} error(s)): {exc}",
@@ -884,10 +917,7 @@ def apply_commands_via_mcp(
                         errors=errors,
                     ) from exc
                 va = cmd["args"].get("addressOrSymbol", cmd["args"].get("address", "?"))
-                if errors <= 30:
-                    console.print(f"  ERROR at {va} ({cmd['tool']}): {exc}")
-                elif errors == 31:
-                    console.print("  ... suppressing further errors")
+                _report_op_failure(cmd["tool"], va, exc)
 
             # Progress indicator
             if (i + 1) % 50 == 0 or i == total - 1:
@@ -899,8 +929,7 @@ def apply_commands_via_mcp(
                 time.sleep(0.1)
 
         # Retry failed parse-c-structure ops (dependency ordering)
-        max_retries = 3
-        for retry in range(max_retries):
+        for retry in range(MCP_STRUCT_RETRY_PASSES):
             if not struct_failures:
                 break
             console.print(
@@ -915,12 +944,12 @@ def apply_commands_via_mcp(
                         errors -= 1
                     else:
                         still_failing.append(cmd)
-                        if retry == max_retries - 1:
+                        if retry == MCP_STRUCT_RETRY_PASSES - 1:
                             defn = cmd["args"].get("cDefinition", "")[:80]
                             console.print(f"  PERMANENT FAIL: {error_msg} | {defn}")
                 except httpx.HTTPError as exc:
                     still_failing.append(cmd)
-                    if retry == max_retries - 1:
+                    if retry == MCP_STRUCT_RETRY_PASSES - 1:
                         defn = cmd["args"].get("cDefinition", "")[:80]
                         console.print(f"  PERMANENT FAIL (HTTP): {exc} | {defn}")
             resolved = len(struct_failures) - len(still_failing)
@@ -931,6 +960,30 @@ def apply_commands_via_mcp(
                 break
 
     console.print()  # newline after progress
+    # One record per run, on the logging stream the caller can grep and keep:
+    # how long the apply took, how many ops failed, and which op class and
+    # reason the console stream stopped printing.
+    elapsed_s = time.perf_counter() - started
+    if errors:
+        logger.error(
+            "MCP apply to %s: %d of %d op(s) failed, %d applied, %.1fs",
+            endpoint,
+            errors,
+            total,
+            success,
+            elapsed_s,
+        )
+        if struct_failures:
+            logger.error(
+                "MCP apply to %s: %d parse-c-structure op(s) still failing after %d retry pass(es)",
+                endpoint,
+                len(struct_failures),
+                MCP_STRUCT_RETRY_PASSES,
+            )
+        for key, count in sorted(unreported.items(), key=lambda kv: -kv[1]):
+            logger.error("MCP apply to %s: %d op(s) failed: %s", endpoint, count, key)
+    else:
+        logger.info("MCP apply to %s: %d op(s) applied in %.1fs", endpoint, success, elapsed_s)
     return McpApplyResult(success, errors)
 
 

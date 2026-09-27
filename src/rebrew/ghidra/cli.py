@@ -137,8 +137,15 @@ def _mcp_apply(
         )
     except (McpError, OSError) as exc:
         # Clean transport failure (init/session setup — nothing applied):
-        # fall back to the ghidra-cli binary backend.
-        log.debug("MCP apply failed before any op landed (%s); falling back to ghidra-cli", exc)
+        # fall back to the ghidra-cli binary backend.  The transport that
+        # actually applied the ops changed, so say so where the operator reads
+        # the run: at debug level the fallback is invisible in a -v run.
+        log.warning("MCP apply failed before any op landed (%s); falling back to ghidra-cli", exc)
+        if not json_output:
+            console.print(
+                f"[yellow]warning:[/yellow] MCP unavailable ({exc}); "
+                "applying via ghidra-cli instead"
+            )
         _report(*_apply_cli())
         return
     _report(ok, err)
