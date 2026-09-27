@@ -28,6 +28,7 @@ from rebrew.llm_seed import (
     _DEFAULT_MODEL,
     _MAX_COMPLETION_TOKENS,
     _MAX_HTTP_BODY_BYTES,
+    _MAX_SEED_ATTEMPTS,
     _MAX_SOURCE_CHARS,
     _PROMPT_VERSION,
     _TOKENS_PER_SEED,
@@ -761,6 +762,39 @@ class TestRequestSeeds:
         assert seeds == blocks[:2]
         assert calls == blocks[:2]
 
+    def test_rejected_blocks_cannot_buy_a_parse_each(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A response of failing blocks is bounded by the attempt cap, not by its length.
+
+        The stop at the requested count only fires once a block *passes*, so a
+        response packed with fences that all fail the C gate would otherwise
+        cost one tree-sitter parse per block — thousands of them inside the
+        response cap.
+        """
+        stuffed = "```c\nnope\n```\n" * 2000
+        client = _FakeClient({"choices": [{"message": {"content": stuffed}}]})
+        calls: list[str] = []
+
+        def counting(src: str, **kwargs: object) -> bool:
+            calls.append(src)
+            return False
+
+        monkeypatch.setattr(rebrew.llm_seed, "valid_c_source", counting)
+        assert (
+            request_seeds(_cfg("https://llm/v1"), "int f(void) { return 0; }", client=client) == []
+        )
+        assert len(calls) == _MAX_SEED_ATTEMPTS
+
+    def test_no_valid_seed_reports_how_many_blocks_were_checked(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """The warning cannot claim every block failed when the cap left some unread."""
+        stuffed = "```c\nnope\n```\n" * 2000
+        client = _FakeClient({"choices": [{"message": {"content": stuffed}}]})
+        with caplog.at_level(logging.WARNING):
+            request_seeds(_cfg("https://llm/v1"), "int f(void) { return 0; }", client=client)
+        line = caplog.text
+        assert f"2000 fenced block(s), {_MAX_SEED_ATTEMPTS} checked" in line
+
     @pytest.mark.parametrize("finish_reason", ["length", "content_filter", "tool_calls", "error"])
     def test_incomplete_completion_dropped(
         self, finish_reason: str, caplog: pytest.LogCaptureFixture
@@ -1034,7 +1068,7 @@ class TestRequestSeeds:
         with caplog.at_level(logging.WARNING):
             seeds = request_seeds(_cfg("https://llm/v1"), "int f(void){return 0;}", client=client)
         assert seeds == []
-        assert "1 fenced block(s), none a valid f" in caplog.text
+        assert "1 fenced block(s), 1 checked, none a valid f" in caplog.text
 
 
 class TestStreamingResponse:
