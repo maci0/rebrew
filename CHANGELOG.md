@@ -1,6 +1,37 @@
 ## [Unreleased]
 
+### Added
+- **A dashboard handler fault names the request it happened on.** A fault
+  escaping a handler went through `socketserver.BaseServer.handle_error`, which
+  prints a bare traceback: no timestamp, no level, and no way to match the
+  trace against the access log it interrupted. The server is now
+  `_DashboardServer`, logging `r<N> unhandled <Exc> from <peer> serving <request
+  line>` plus the escaped traceback at ERROR (counted as a server error), and
+  `r<N> client disconnected serving <request line>` at INFO for the
+  `BrokenPipeError` / `ConnectionResetError` a closing browser produces (not
+  counted). The request id and request line are stamped per handler thread and
+  reset each request. No `/api/*` JSON changed.
+
 ### Changed
+- **Breaking:** **`resolve_msvc_toolchain` and `toolchain_link_candidates`
+  moved from `rebrew.utils` to `rebrew.toolchain`.** Both names were public
+  module-level functions of `rebrew.utils`; `rebrew init` and
+  `rebrew.config.load_config` now import them from `rebrew.toolchain`, which
+  owns the MSVC layout tables they read, and the old names are gone rather than
+  aliased. `from rebrew.utils import resolve_msvc_toolchain` raises
+  `ImportError` on upgrade; import it from `rebrew.toolchain` instead.
+  Resolution behavior is unchanged.
+- **Breaking:** **`REBREW_LLM_ALLOW_PROJECT_ENDPOINT` is parsed strictly.** The
+  opt-in that lets a `rebrew-project.toml` `[llm] endpoint` receive
+  `REBREW_LLM_API_KEY` read any non-empty value other than `0` as consent, so
+  `REBREW_LLM_ALLOW_PROJECT_ENDPOINT=y` granted the key and
+  `REBREW_LLM_ALLOW_PROJECT_ENDPOINT=off` granted it too. It now goes through
+  the shared `rebrew.config.parse_env_bool`: `1`/`true`/`yes`/`on` consent,
+  `0`/`false`/`no`/`off` refuse, empty or unset keeps the refusal, and any other
+  value raises `ConfigError` instead of reading as consent. An environment
+  already setting a value outside those spellings fails the run rather than
+  silently sending the key. The var also now appears by name in
+  `rebrew config`'s `env_overrides` list.
 - **The suite now gates the files the wheel ships.** A
   `[tool.setuptools.package-data]` glob that stops matching (a moved skill
   directory, a renamed template) dropped `AGENTS.md.template`, `PRINCIPLES.md`
@@ -34,6 +65,69 @@
   fields on `RecompileError`, and the `retries=` / `timeout=` knobs.
 
 ### Fixed
+- **A headless X display is authenticated, and an unauthenticated one is no
+  longer adopted.** rebrew reuses an Xvfb left running by an earlier invocation
+  (or one named by `REBREW_XVFB_DISPLAY`), which was reachable by any process
+  on the machine. The server rebrew starts now carries a fresh MIT-MAGICK
+  cookie in a mode-0600 file, passed as `-auth` and exported as `XAUTHORITY` to
+  the children that need it; a pre-existing server is adopted only when this
+  process holds a cookie for it, and an unauthenticated one is skipped for a
+  private server. `REBREW_XVFB_DISPLAY` must now name a display rebrew holds a
+  cookie for (see `docs/CONFIG.md`).
+- **Every dashboard response carries `X-Request-Id`.** The `r<N>` id in the
+  access and error log lines was not returned to the client, so a report of
+  "the dashboard threw" could not be tied to the request that caused it. The
+  header rides on error responses too, and `http.server`'s own `send_error`
+  text is run through `strip_bidi_format` before it reaches the `error` JSON
+  field, closing an RLO injection path. The `code` values are unchanged.
+- **The dashboard's row counts agree with the rows it shows.** The unpaged
+  `/api/sections` view reported "Showing N sections" through a hand-rolled
+  copy of the message the functions, globals, and history views share, and
+  every view cleared its count hint when "Show more" appended a page, so the
+  hint and the displayed rows could disagree. All four now go through the
+  shared pager message and keep the hint.
+- **Four commands no longer drop or misreport their inputs.** `rebrew analyze
+  --json` built a per-function dossier and left it out of the payload; `rebrew
+  climb --va X` compiled the first annotation's symbol against another
+  function's bytes instead of reporting that `X` has no annotation; `rebrew
+  migrate-markers` dropped the `source` field when it stripped the inline
+  markers; and `rebrew near-diag --catalog --json` printed the markdown
+  symptom index after the JSON, so stdout would not parse.
+- **`rebrew verify` no longer reuses one target's overrides for the next, or
+  a stale comparison hash for a whole process.** The override memo was keyed
+  without the target or the project defaults, so `rebrew verify --all-targets`
+  in one process resolved every later target's sources against the first
+  target's flags. The key now spans the target name, the profile, `cflags`,
+  `posix_style`, the module preset, and a fingerprint of the library override
+  file (path, mtime, size, inode), so a `rebrew library set` write or a
+  `--watch` edit takes effect without a restart. `verify_hash`'s
+  comparison-logic hash was cached for the process lifetime and missed an edit
+  to the compare logic; it is now keyed on a source-stat fingerprint, and the
+  headers hash keys on the resolved `src_dir` so two project roots cannot share
+  a digest. Cached verify hashes from an earlier run change value; that is
+  cache invalidation, not a format bump.
+- **A parse or scan that failed no longer reads as an empty result.** Steps
+  guarded by `except: pass` now log, so a failure is visible instead of
+  indistinguishable from "nothing found". `rebrew todo` prints a `WARNING:
+  cannot parse <binary>` line and disables unmatchable detection when the
+  target binary will not load, and a failed probe logs and skips the function
+  rather than silently recommending it as new work; `rebrew toolchain
+  check-updates` records why a `check failed` row appeared, and its smoke and
+  docker errors log; `rebrew gen-layout`, `rebrew layout-map` and
+  `rebrew config` warn when a LIEF parse or an `inventory_file` override does
+  not resolve instead of falling back silently. Output and exit codes are
+  otherwise unchanged.
+- **One status transition is one `history` row, in the table and not only in
+  the restore probe.** `history` deduped a repeated transition inside
+  `rebrew verify --force`'s restore path alone, so the same
+  `(target, va, old_status, new_status, changed_at, updated_by)` could be
+  written twice by any other path. A `UNIQUE` over exactly those six columns
+  enforces it in the schema, and its b-tree serves the probe the separate
+  `idx_history_restore` index used to. A database written by an earlier version
+  migrates in place on the next build (rows preserved by `id`, repeats
+  collapsed to the newest of each transition, values clamped as before), so no
+  `db_version` bump or `--force` rebuild is required, and the `UNIQUE` is
+  invisible to an older rebrew reading the same file.
 - **A `REBREW_LLM_API_KEY` can no longer reach an LLM seeding log line.** httpx
   quotes an illegal header value verbatim when it rejects one, so a key with
   an interior CR (a CRLF-terminated key file, a spliced paste) came back
