@@ -438,6 +438,18 @@
   `UV_SYNC_FLAGS` use `--locked`, and the difference is exactly the one that
   let this land, so the threat model now names the flag CI actually runs and
   says why the weaker one would not have caught it.
+- **The public-surface gate could not read a correct breaking note.** The
+  note-to-symbol match looked for the bare name in backticks, so the spelling
+  a note naturally uses, `ProjectConfig.to_dict()` (a method called as it is at
+  the call site) or `ProjectConfig.to_dict` (the class-qualified path), scored
+  as unnamed. 2.14.0 removed `ProjectConfig.to_dict` and documented it in
+  exactly that spelling, so a correctly written `**Breaking:**` entry read as
+  missing. A move also could not be named by its destination, which is the
+  half a reader needs and the half CONTRIBUTING asks for ("the old and new
+  import path"); the gate now resolves the module a name reappeared under and
+  accepts it. `tests/test_public_surface.py::TestNoteNaming` pins the
+  spellings, and the coincidence case (one leaf name added to two modules is
+  not a destination) stays a failure.
 - **The SBOM asserted two license grants no artifact declares.** The
   expression/name form was picked by a regex over the recorded string, so any
   single bare token read as an SPDX identifier. `resembl` states the trove

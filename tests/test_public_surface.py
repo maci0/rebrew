@@ -58,7 +58,7 @@ class TestSurfaceGate:
         old = surface_at_ref(_last_tag(), PKG, cwd=ROOT)
         if old is None:
             pytest.skip(f"cannot read {_last_tag()} from this checkout")
-        removed, changed, _ = diff_surfaces(old, public_surface(PKG))
+        removed, changed, added = diff_surfaces(old, public_surface(PKG))
 
         broken = {
             f"{module}.{name}": module for module, names in removed.items() for name in names
@@ -73,8 +73,14 @@ class TestSurfaceGate:
             "CONTRIBUTING.md: a removal, move, or signature change there ships in "
             "a minor with a **Breaking:** entry naming the old and new import path."
         )
+        leaves: dict[str, set[str]] = {}
+        for module, names in added.items():
+            for name in names:
+                leaves.setdefault(_leaf(name), set()).add(module)
         unnamed = [
-            symbol for symbol, module in sorted(broken.items()) if not _named(notes, symbol, module)
+            symbol
+            for symbol, module in sorted(broken.items())
+            if not _named(notes, symbol, module, _destination(leaves, symbol))
         ]
         assert unnamed == [], f"**Breaking:** entries do not name {unnamed}"
 
@@ -83,12 +89,89 @@ def _leaf(symbol: str) -> str:
     return symbol.rsplit(".", 1)[-1]
 
 
-def _named(notes: str, symbol: str, module: str) -> bool:
-    """A note names a symbol by its qualified path or by the part readers type."""
+def _spellings(symbol: str) -> tuple[str, ...]:
+    """The dotted paths a note may use for a symbol, longest first.
+
+    A method is written ``Class.method`` far more often than ``module.Class.method``,
+    so every trailing run of components counts, with or without its call suffix.
+    """
+    parts = symbol.split(".")
+    return tuple(
+        f"{'.'.join(parts[index:])}()" if callable_suffix else ".".join(parts[index:])
+        for index in range(len(parts))
+        for callable_suffix in (False, True)
+    )
+
+
+def _named(notes: str, symbol: str, module: str, moved_to: str | None = None) -> bool:
+    """A note names a symbol by its qualified path or by the part readers type.
+
+    The spellings are the ones a note actually uses: the bare name, the name
+    called as it is at the call site (`` `to_dict()` ``), the qualified path
+    (`` `ProjectConfig.to_dict` ``), or the module holding it.  2.14.0 removed
+    ``ProjectConfig.to_dict`` and wrote `` `ProjectConfig.to_dict()` ``, which
+    the bare-name test below missed, so a correctly documented break scored as
+    undocumented; a gate that cries wolf on a correct note is one an author
+    learns to route around.
+
+    A move is named by its destination, so the new module counts too.  The
+    notes are required to give "the old and new import path" (CONTRIBUTING),
+    and the destination is the half a reader needs.
+    """
     leaf = _leaf(symbol)
-    if len(leaf) >= _MIN_LEAF and (f"`{leaf}`" in notes or f" {leaf} " in notes):
+    if len(leaf) >= _MIN_LEAF and any(
+        spelling in notes for spelling in (f"`{leaf}`", f"`{leaf}()`", f" {leaf} ")
+    ):
         return True
-    return f"`{module}`" in notes or f"`rebrew.{module}`" in notes
+    if any(f"`{part}`" in notes for part in _spellings(symbol)):
+        return True
+    paths: tuple[str, ...] = (module, f"rebrew.{module}")
+    if moved_to is not None:
+        paths += (moved_to, f"rebrew.{moved_to}")
+    return any(f"`{path}`" in notes for path in paths)
+
+
+def _destination(leaves: dict[str, set[str]], symbol: str) -> str | None:
+    """The one module a moved name now lives in, or ``None`` when it did not move.
+
+    A name that vanishes here and reappears under a single other module is a
+    move; the same leaf name added to two modules is a coincidence, and the
+    note has to name the symbol itself.
+    """
+    targets = leaves.get(_leaf(symbol), set()) - {symbol.rsplit(".", 1)[0]}
+    return next(iter(targets)) if len(targets) == 1 else None
+
+
+class TestNoteNaming:
+    """How a note spells a symbol, pinned against the spellings notes use.
+
+    The gate fails the build on an unnamed break, so a correct note that the
+    matcher cannot read is the expensive failure: 2.14.0 removed
+    ``ProjectConfig.to_dict`` and wrote `` `ProjectConfig.to_dict()` ``, which
+    the bare-name spelling did not match.
+    """
+
+    def test_name_written_as_a_call_names_the_symbol(self) -> None:
+        assert _named("call `to_dict()` instead", "config.ProjectConfig.to_dict", "config")
+
+    def test_qualified_path_names_the_symbol(self) -> None:
+        assert _named("`ProjectConfig.to_dict` is gone", "config.ProjectConfig.to_dict", "config")
+
+    def test_module_path_names_the_symbol(self) -> None:
+        assert _named("nothing public left in `rebrew.exports`", "exports.main", "exports")
+
+    def test_destination_module_names_a_moved_symbol(self) -> None:
+        assert _named(
+            "now `rebrew.verify_exports`", "exports.compare_exports", "exports", "verify_exports"
+        )
+
+    def test_unrelated_prose_does_not_name_the_symbol(self) -> None:
+        assert not _named("the exports table grew a column", "exports.compare_exports", "exports")
+
+    def test_a_name_in_two_new_modules_is_not_a_destination(self) -> None:
+        leaves = {"helper": {"toolchain", "utils"}, "main": {"toolchain"}}
+        assert _destination(leaves, "renamed.helper") is None
+        assert _destination(leaves, "renamed.main") == "toolchain"
 
 
 class TestBreakClassification:
