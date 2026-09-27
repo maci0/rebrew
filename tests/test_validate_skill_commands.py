@@ -89,3 +89,22 @@ class TestRunHelp:
 
         monkeypatch.setattr(subprocess, "run", _run)
         assert vsc._run_help("test") == (False, "<uv not found>")
+
+
+class TestProbeFailureMessage:
+    def test_timeout_is_not_reported_as_a_stale_skill(self) -> None:
+        msg = vsc._probe_failure_message("rebrew-workflow", "data", "<timeout>")
+        assert "timeout" in msg
+        assert "not a skill defect" in msg
+        assert "subcommand not found" not in msg
+
+    def test_missing_subcommand_is_reported_as_missing(self) -> None:
+        msg = vsc._probe_failure_message("rebrew-workflow", "data", "Usage: no such command")
+        assert msg.endswith("subcommand not found")
+
+    def test_help_timeout_survives_a_cold_import(self) -> None:
+        # A cold tree pays bytecode compilation for the whole rebrew import
+        # graph under _HELP_WORKERS concurrent probes; the old 30s bound made
+        # every one of them look like a stale skill.
+        assert vsc._HELP_TIMEOUT_SECONDS >= 120
+        assert vsc._HELP_WORKERS >= 1
