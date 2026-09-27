@@ -1,4 +1,14 @@
 ## [Unreleased]
+### Added
+- **The coverage dashboard says so when its client fails to load.** A new
+  same-origin `/boot-guard.js` runs deferred after `/app.js` and, when the
+  client never set `__rebrewBooted` (aborted transfer, 5xx from a proxy, a
+  parse error), replaces the stuck "Loading coverage…" with a message and a
+  reload prompt. It is an asset rather than an `onerror` attribute because
+  the shell's CSP allows `script-src 'self'` with no inline script. Like the
+  shell and `/app.js` it is precompressed at import and linked with a content
+  hash, so it is served `immutable` and adds no per-request compression CPU.
+
 ### Fixed
 - **Provider-controlled text cannot forge LLM log lines.** A transport
   failure that echoes the response body (and a tree-sitter error quoting the
@@ -10,6 +20,12 @@
   response's `model` against the pin and warns on a mismatch. A completion
   cut off by the `max_tokens` cap (`finish_reason=length`) also warns at
   warning level: the seed set is incomplete and the request was still billed.
+- **The entry-asset wire budget now covers every entry asset.** The budget
+  was a hardcoded 12 KB for the shell and `/app.js`; the three cold-load
+  responses are held to the RFC 6928 14600-byte initial window less a
+  measured 640-byte-per-response header reserve, so an added entry asset pays
+  for its own headers. `docs/PERFORMANCE.md` carries the current measured
+  shell, client, and guard sizes.
 - **`gen-link-stubs` no longer throws away a calibrated BSS tail.**
   `calibrate-bss` tunes `g_bss_tail[<size>]` in the generated TU and leaves
   it there; regenerating the TU reset it to the `0x400000` placeholder, so

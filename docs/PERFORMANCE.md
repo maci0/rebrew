@@ -98,24 +98,37 @@ globals JSON 8053 → 4597 bytes (0.57×); gzip-5 872 → 821. Gate:
 `test_functions_omit_unused_marker_type` (cols lists).
 
 Wire encoding: responses negotiate `zstd` then `gzip` from `Accept-Encoding`
-(q-values; zstd wins ties). HTML shell and `/app.js` are precompressed at both
-codecs at import. Measured 500-row functions JSON: gzip-5 4728 → zstd-5 2912
-bytes. Gates: `TestEncodingNegotiation`,
+(q-values; zstd wins ties). HTML shell, `/app.js`, and `/boot-guard.js` are
+precompressed at both codecs at import. Measured 500-row functions JSON:
+gzip-5 4728 → zstd-5 2912 bytes. Gates: `TestEncodingNegotiation`,
 `test_handler_serves_precompressed_static`.
 
-Shell HTML (zstd-19): ~2.7 KB on the wire (was ~8.2 KB with inlined JS) —
-under one congestion window so the loading chrome can paint before `/app.js`
-(~5.9 KB zstd) finishes. `<link rel="preload" href="/api/bootstrap" as="fetch"
+Shell HTML (zstd-19): 3341 bytes on the wire (was ~8.2 KB with inlined JS).
+All three entry assets total 11981 bytes zstd / 12567 gzip, inside the RFC 6928
+14600-byte initial window less a 640-byte-per-response header reserve
+(`_ENTRY_WIRE_BUDGET_BYTES`, 12680), so the loading chrome paints before
+`/app.js` (8497 zstd) and `/boot-guard.js` (143 zstd) finish. Gate:
+`test_entry_assets_fit_initial_congestion_window`.
+
+`<link rel="preload" href="/api/bootstrap" as="fetch"
 crossorigin fetchpriority="high">` plus `/app.js` script preload lets
 bootstrap overlap the deferred client download. The client `fetch()` keeps
 the default `same-origin` credentials, the mode `crossorigin` (anonymous)
 preloads with; any other mode misses the preload and fetches bootstrap twice. Gate: `test_index_html_bootstraps_in_one_round_trip`.
 
-Repeat loads: the shell links `/app.js?v=<content hash>`, served
+`/boot-guard.js` runs deferred after the client and reports a client that
+never set `globalThis.__rebrewBooted`, so an aborted transfer or a parse error
+leaves a message and a reload prompt instead of a permanent "Loading coverage…".
+It is a same-origin asset, not an `onerror` attribute, because the shell's CSP
+allows `script-src 'self'` with no inline script. Gates:
+`test_boot_guard_js_route`, `test_boot_guard_follows_the_client_and_keeps_its_message`.
+
+Repeat loads: the shell links `/app.js?v=<content hash>` and
+`/boot-guard.js?v=<content hash>`, both served
 `private, max-age=31536000, immutable`, and an inline `data:,` icon replaces
 the implicit `/favicon.ico` fetch (a no-store 404). A warm reload drops from
-four requests (shell 304, `/app.js` 304, bootstrap, favicon 404) to two
-(shell 304, bootstrap). Gates: `test_handler_caches_only_hashed_app_js_immutable`,
+five requests (shell 304, `/app.js` 304, `/boot-guard.js` 304, bootstrap,
+favicon 404) to two (shell 304, bootstrap). Gates: `test_handler_caches_only_hashed_client_urls_immutable`,
 `test_index_html_links_favicon_inline`.
 
 First page default is 100 rows (Show more still 500). On 2000 synthetic
@@ -125,7 +138,8 @@ functions, `/api/functions` CPU / 100: 500 rows 0.059 s / 32 KB → 100 rows
 Remaining: 100-row HTML join. Table virtualization and cross-request pooling
 were not measured.
 
-Dashboard shell gzip is 3216 bytes and `/app.js` gzip is 7924 bytes (same
+Dashboard shell gzip is 3428 bytes, `/app.js` gzip is 8981 bytes, and
+`/boot-guard.js` gzip is 158 (same
 lengths as a timestamped header; the mtime field is 4 bytes either way).
 `mtime=0` makes those bytes a function of the content, so a restart does
 not serve a different body under the same ETag. Gate:
