@@ -22,16 +22,25 @@ This command builds the scratch from rebrew's own data:
 Anonymous create (like objdiff's integration): the response carries a
 ``claim_token``; the printed URL claims the scratch.
 
+decomp.me has no idempotency key, so a re-run with an unchanged payload
+would leave a second identical scratch behind.  The created slug is kept in
+``.rebrew/decompme-uploads.json`` keyed by a digest of the payload, and a
+repeat prints the same claim URL; ``--reupload`` opts out.
+
 Usage:
     rebrew decompme src/game/func.c                # upload the first function
     rebrew decompme src/game/func.c --va 0x401000 # upload a specific VA
+    rebrew decompme src/game/func.c --reupload     # force a second scratch
     rebrew decompme src/game/func.c --dry-run     # preview the payload
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
+import logging
 import re
+import time
 from pathlib import Path
 from typing import Any, Literal, Protocol, runtime_checkable
 
@@ -48,7 +57,7 @@ from rebrew.cli import (
 )
 from rebrew.config import validate_http_url
 from rebrew.errors import RebrewError
-from rebrew.utils import RETRYABLE_HTTP_STATUS, read_source_text
+from rebrew.utils import RETRYABLE_HTTP_STATUS, atomic_write_text, file_lock, read_source_text
 
 app = typer.Typer(
     help="Upload a function to decomp.me as a collaborative scratch.",
@@ -299,6 +308,128 @@ def scratch_url(slug: str, claim_token: str, api: str = _DEFAULT_API) -> str:
     return f"{api}/scratch/{slug}/claim?token={claim_token}"
 
 
+# --- Upload ledger ---------------------------------------------------------
+#
+# A decomp.me create always makes a new public scratch; decomp.me has no
+# idempotency key, so a re-run of an unchanged `rebrew decompme` would pile up
+# duplicate scratches.  The ledger maps a digest of the exact payload to the
+# slug the first run got, and a repeat prints that claim URL instead of
+# uploading again.  ``--reupload`` forces a fresh scratch.
+
+#: Project-relative ledger path (``.rebrew/`` holds other tool-owned state).
+_UPLOADS_REL_PATH = ".rebrew/decompme-uploads.json"
+
+#: Entries older than this are dropped on write, so the ledger stays bounded.
+_UPLOADS_RETENTION_SECONDS = 90 * 24 * 3600
+
+#: Hard cap on ledger size, applied after the age prune.
+_UPLOADS_MAX_ENTRIES = 500
+
+
+def scratch_digest(payload: dict[str, Any], api: str) -> str:
+    """Content digest of a scratch payload, the ledger's idempotency key.
+
+    Covers every field the service receives (form data plus each uploaded
+    file's name and bytes) and the service it goes to, so two runs of
+    ``rebrew decompme`` share a digest exactly when decomp.me would receive
+    the identical request.
+    """
+    h = hashlib.sha256()
+    h.update(api.encode("utf-8"))
+    for key in sorted(payload.get("data", {})):
+        h.update(key.encode("utf-8"))
+        h.update(b"\0")
+        h.update(str(payload["data"][key]).encode("utf-8"))
+        h.update(b"\0")
+    for key in sorted(payload.get("files", {})):
+        entry = payload["files"][key]
+        filename, blob = entry[0], entry[1]
+        h.update(key.encode("utf-8"))
+        h.update(b"\0")
+        h.update(str(filename).encode("utf-8"))
+        h.update(b"\0")
+        h.update(blob if isinstance(blob, bytes) else bytes(blob))
+        h.update(b"\0")
+    return h.hexdigest()
+
+
+def _uploads_path(root: Path) -> Path:
+    return root / _UPLOADS_REL_PATH
+
+
+def read_uploads(root: Path) -> dict[str, dict[str, str]]:
+    """The upload ledger as ``{digest: {slug, claim_token, api, at}}``.
+
+    A missing, unreadable, or malformed file reads as empty: the ledger is a
+    cache of remote state, and a corrupt one must degrade to a plain upload
+    rather than fail the command.
+    """
+    try:
+        raw = _uploads_path(root).read_text(encoding="utf-8")
+    except OSError:
+        return {}
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    entries: dict[str, dict[str, str]] = {}
+    for digest, entry in data.items():
+        if not isinstance(digest, str) or not isinstance(entry, dict):
+            continue
+        if not isinstance(entry.get("slug"), str) or not isinstance(entry.get("claim_token"), str):
+            continue
+        entries[digest] = {k: str(v) for k, v in entry.items()}
+    return entries
+
+
+def recorded_upload(root: Path, digest: str, api: str) -> dict[str, str] | None:
+    """The ledger entry for *digest* on *api*, or None when there is none.
+
+    An entry recorded against a different service is not a match: the same
+    payload uploaded elsewhere produced a different scratch.
+    """
+    entry = read_uploads(root).get(digest)
+    if entry is None or entry.get("api") != api:
+        return None
+    return entry
+
+
+def record_upload(root: Path, digest: str, slug: str, claim_token: str, api: str) -> None:
+    """Remember the scratch created for *digest*, pruning aged-out entries.
+
+    Best-effort: a ledger that cannot be written (read-only project, full
+    disk) must not turn a successful upload into a command failure, so the
+    scratch is still created and only the dedup is lost.
+    """
+    path = _uploads_path(root)
+    now = time.time()
+    try:
+        with file_lock(path.with_suffix(".lock")):
+            entries = read_uploads(root)
+            entries[digest] = {"slug": slug, "claim_token": claim_token, "api": api, "at": str(now)}
+            fresh = {k: v for k, v in entries.items() if _is_recent(v, now)}
+            if len(fresh) > _UPLOADS_MAX_ENTRIES:
+                ordered = sorted(fresh.items(), key=lambda kv: float(kv[1].get("at", 0) or 0))
+                fresh = dict(ordered[-_UPLOADS_MAX_ENTRIES:])
+            path.parent.mkdir(parents=True, exist_ok=True)
+            atomic_write_text(path, json.dumps(fresh, indent=2, sort_keys=True) + "\n")
+    except OSError as exc:
+        logging.warning(
+            "decomp.me upload ledger not written (%s); the next run will upload again",
+            exc,
+        )
+
+
+def _is_recent(entry: dict[str, str], now: float) -> bool:
+    try:
+        at = float(entry.get("at", 0) or 0)
+    except ValueError:
+        return False
+    return now - at < _UPLOADS_RETENTION_SECONDS
+
+
 def verify_compiler(
     compiler: str,
     api: str = _DEFAULT_API,
@@ -431,6 +562,9 @@ def main(
     ),
     no_context: bool = typer.Option(False, "--no-context", help="Send an empty context"),
     api: str = typer.Option(_DEFAULT_API, "--api", help="decomp.me API base URL"),
+    reupload: bool = typer.Option(
+        False, "--reupload", help="Create a new scratch even if this payload was uploaded before"
+    ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
@@ -536,13 +670,22 @@ def main(
         console.print(f"  target_obj:  {len(payload['files']['target_obj'][1])} bytes (COFF)")
         return
 
-    try:
-        result = upload_scratch(payload, api=api)
-    except RuntimeError as exc:
-        error_exit(str(exc), json_mode=json_output)
+    root = Path(getattr(cfg, "root", ".") or ".")
+    digest = scratch_digest(payload, api)
+    reused = None if reupload else recorded_upload(root, digest, api)
 
-    slug = str(result.get("slug", ""))
-    token = str(result.get("claim_token", ""))
+    if reused is not None:
+        slug = reused["slug"]
+        token = reused["claim_token"]
+    else:
+        try:
+            result = upload_scratch(payload, api=api)
+        except RuntimeError as exc:
+            error_exit(str(exc), json_mode=json_output)
+        slug = str(result.get("slug", ""))
+        token = str(result.get("claim_token", ""))
+        record_upload(root, digest, slug, token, api)
+
     url = scratch_url(slug, token, api=api)
     if json_output:
         json_print(
@@ -552,7 +695,14 @@ def main(
                 "url": url,
                 "compiler": compiler,
                 "platform": platform,
+                "reused": reused is not None,
             }
+        )
+        return
+    if reused is not None:
+        console.print(f"[green]Existing scratch:[/green] {url}")
+        console.print(
+            "[dim]Identical payload was already uploaded; pass --reupload to create a new one.[/dim]"
         )
         return
     console.print(f"[green]Scratch created:[/green] {url}")
@@ -578,6 +728,10 @@ __all__ = [
     "HttpClient",
     "map_compiler",
     "map_platform",
+    "read_uploads",
+    "record_upload",
+    "recorded_upload",
+    "scratch_digest",
     "scratch_url",
     "upload_scratch",
     "verify_compiler",

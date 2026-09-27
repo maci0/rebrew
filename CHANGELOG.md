@@ -12,6 +12,15 @@
   fields on `RecompileError`, and the `retries=` / `timeout=` knobs.
 
 ### Fixed
+- **`rebrew decompme` no longer piles up duplicate scratches.** Every run
+  POSTed a fresh scratch to decomp.me and printed its claim URL, so
+  re-running the command on an unchanged function left another public
+  scratch behind each time. The created slug is kept in
+  `.rebrew/decompme-uploads.json`, keyed by a digest of the payload sent
+  (form data plus the COFF object bytes, per `--api`), and an unchanged
+  re-run reprints the same claim URL (`"reused": true` under `--json`).
+  Entries older than 90 days are pruned and the file is capped at 500
+  entries; `--reupload` forces a new scratch.
 - **The sibling `resembl` pin is back in step with `uv.lock`.** The lock records
   `resembl` 3.0.0 while `RESEMBL_REF` / the `uv-env` action still named
   `v2.0.0`, so `make clone-resembl` and the CI clone step fetched a checkout

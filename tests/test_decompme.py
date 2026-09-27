@@ -431,6 +431,145 @@ class TestCli:
         assert r.exit_code == 2
         assert "Unknown platform" in r.output
 
+    def test_second_run_reuses_scratch(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An unchanged re-run must not leave a second scratch on decomp.me."""
+        cfg, src = self._patch(tmp_path, monkeypatch)
+        calls: list[str] = []
+
+        def fake_post(url: str, **kw: object) -> SimpleNamespace:
+            calls.append(url)
+            slug = f"abc{len(calls)}"
+            return SimpleNamespace(
+                status_code=201,
+                json=lambda: {"slug": slug, "claim_token": "tok"},
+                close=lambda: None,
+            )
+
+        monkeypatch.setattr("httpx.post", fake_post)
+        first = runner.invoke(decompme.app, ["--json", str(src)])
+        assert first.exit_code == 0
+        assert json.loads(first.stdout)["reused"] is False
+
+        second = runner.invoke(decompme.app, ["--json", str(src)])
+        assert second.exit_code == 0
+        data = json.loads(second.stdout)
+        assert data["reused"] is True
+        assert data["slug"] == "abc1"
+        assert calls == ["https://decomp.me/api/scratch"]
+
+    def test_reupload_forces_a_new_scratch(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        cfg, src = self._patch(tmp_path, monkeypatch)
+        calls: list[str] = []
+
+        def fake_post(url: str, **kw: object) -> SimpleNamespace:
+            calls.append(url)
+            return SimpleNamespace(
+                status_code=201,
+                json=lambda: {"slug": f"abc{len(calls)}", "claim_token": "tok"},
+                close=lambda: None,
+            )
+
+        monkeypatch.setattr("httpx.post", fake_post)
+        runner.invoke(decompme.app, [str(src)])
+        again = runner.invoke(decompme.app, ["--json", "--reupload", str(src)])
+        assert again.exit_code == 0
+        data = json.loads(again.stdout)
+        assert data["reused"] is False
+        assert data["slug"] == "abc2"
+        assert len(calls) == 2
+
+    def test_changed_payload_uploads_again(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The ledger keys on payload content, so an edited function is new."""
+        cfg, src = self._patch(tmp_path, monkeypatch)
+        calls: list[str] = []
+
+        def fake_post(url: str, **kw: object) -> SimpleNamespace:
+            calls.append(url)
+            return SimpleNamespace(
+                status_code=201,
+                json=lambda: {"slug": f"abc{len(calls)}", "claim_token": "tok"},
+                close=lambda: None,
+            )
+
+        monkeypatch.setattr("httpx.post", fake_post)
+        runner.invoke(decompme.app, [str(src)])
+        src.write_text(
+            "// FUNCTION: T 0x401000\n// SIZE: 16\nint func_a(void){return 1;}\n",
+            encoding="utf-8",
+        )
+        again = runner.invoke(decompme.app, ["--json", str(src)])
+        assert again.exit_code == 0
+        assert json.loads(again.stdout)["reused"] is False
+        assert len(calls) == 2
+
+
+class TestUploadLedger:
+    def _payload(self, source: str = "int f(void){return 0;}", blob: bytes = b"\x01") -> dict:
+        return {
+            "data": {"compiler": "msvc6.0", "platform": "win32", "source_code": source},
+            "files": {"target_obj": ("f.o", blob, "application/octet-stream")},
+        }
+
+    def test_digest_tracks_every_field(self) -> None:
+        base = decompme.scratch_digest(self._payload(), "https://decomp.me")
+        assert base == decompme.scratch_digest(self._payload(), "https://decomp.me")
+        assert base != decompme.scratch_digest(
+            self._payload(source="int f(void){return 1;}"), "https://decomp.me"
+        )
+        assert base != decompme.scratch_digest(self._payload(blob=b"\x02"), "https://decomp.me")
+        assert base != decompme.scratch_digest(self._payload(), "https://staging.decomp.me")
+
+    def test_recorded_upload_round_trip(self, tmp_path: Path) -> None:
+        payload = self._payload()
+        digest = decompme.scratch_digest(payload, "https://decomp.me")
+        assert decompme.recorded_upload(tmp_path, digest, "https://decomp.me") is None
+        decompme.record_upload(tmp_path, digest, "abc", "tok", "https://decomp.me")
+        entry = decompme.recorded_upload(tmp_path, digest, "https://decomp.me")
+        assert entry is not None
+        assert entry["slug"] == "abc"
+        assert entry["claim_token"] == "tok"
+
+    def test_entry_does_not_match_another_api(self, tmp_path: Path) -> None:
+        digest = decompme.scratch_digest(self._payload(), "https://decomp.me")
+        decompme.record_upload(tmp_path, digest, "abc", "tok", "https://decomp.me")
+        assert decompme.recorded_upload(tmp_path, digest, "https://staging.decomp.me") is None
+
+    def test_expired_entries_are_pruned(self, tmp_path: Path) -> None:
+        digest = decompme.scratch_digest(self._payload(), "https://decomp.me")
+        decompme.record_upload(tmp_path, digest, "abc", "tok", "https://decomp.me")
+        path = tmp_path / ".rebrew" / "decompme-uploads.json"
+        stale = json.loads(path.read_text(encoding="utf-8"))
+        stale[digest]["at"] = "0"
+        path.write_text(json.dumps(stale), encoding="utf-8")
+        decompme.record_upload(tmp_path, "other", "def", "tok2", "https://decomp.me")
+        assert decompme.recorded_upload(tmp_path, digest, "https://decomp.me") is None
+        assert "other" in decompme.read_uploads(tmp_path)
+
+    def test_corrupt_ledger_reads_as_empty(self, tmp_path: Path) -> None:
+        path = tmp_path / ".rebrew" / "decompme-uploads.json"
+        path.parent.mkdir(parents=True)
+        path.write_text("{not json", encoding="utf-8")
+        assert decompme.read_uploads(tmp_path) == {}
+
+    def test_unwritable_ledger_is_not_fatal(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A scratch that exists remotely must not be lost to a local write error."""
+        digest = decompme.scratch_digest(self._payload(), "https://decomp.me")
+
+        def boom(*args: object, **kw: object) -> None:
+            raise OSError("read-only file system")
+
+        monkeypatch.setattr(decompme, "atomic_write_text", boom)
+        decompme.record_upload(tmp_path, digest, "abc", "tok", "https://decomp.me")
+        assert decompme.read_uploads(tmp_path) == {}
+
 
 class TestVerifyCompiler:
     def test_known_compiler_passes(self, monkeypatch: pytest.MonkeyPatch) -> None:
