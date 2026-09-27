@@ -952,11 +952,21 @@ class TestCiAptInstall:
         assert "is still not on PATH" in text
 
     def test_every_apt_step_uses_the_helper(self) -> None:
+        """No workflow may inline `apt-get install`: the retrying helper is the
+        one place the mirror-flake policy lives, and the drift result gate's
+        `jq` is as much a host dependency as nasm and shellcheck.
+        """
+        for path in (CI_YML, SYNC_YML):
+            text = path.read_text(encoding="utf-8")
+            assert "apt-get install" not in text, (
+                f"{path.name}: call tools/ci_apt_install.sh instead"
+            )
         ci = CI_YML.read_text(encoding="utf-8")
-        assert "apt-get install" not in ci, "call tools/ci_apt_install.sh instead"
         assert ci.count("bash tools/ci_apt_install.sh") == 2, ci
         for pkg in ("nasm", "shellcheck"):
             assert f"bash tools/ci_apt_install.sh {pkg}" in ci, pkg
+        sync = SYNC_YML.read_text(encoding="utf-8")
+        assert "bash tools/ci_apt_install.sh jq" in sync
 
     def test_install_is_skipped_when_the_binary_exists(self, tmp_path: Path) -> None:
         """A runner image that already ships the package needs no apt round trip."""
@@ -1024,6 +1034,23 @@ class TestCiAptInstall:
 
 
 class TestToolchainSync:
+    def test_drift_gate_parses_with_a_declared_host_dependency(self) -> None:
+        """``jq`` gates the drift verdict, so the job installs it before use.
+
+        Assuming the runner image keeps shipping ``jq`` makes a nightly
+        failure mode the repo cannot fix by re-running: a dropped package
+        fails every run until the image is pinned differently. Same posture
+        as the shellcheck install in ci.yml's pre-commit job.
+        """
+        sync = SYNC_YML.read_text(encoding="utf-8")
+        _, _, rest = sync.partition("      - name: Install jq (drift result gate)")
+        assert rest, "no jq install step in toolchain-sync.yml"
+        step, _, drift = rest.partition("      - name: Check toolchain source drift\n")
+        assert step, "the jq install is not its own step"
+        assert "bash tools/ci_apt_install.sh jq" in step, step
+        assert "jq --version" in step, step
+        assert "jq -e" in drift, drift
+
     @pytest.mark.parametrize(
         ("status", "drifted", "expected"),
         [

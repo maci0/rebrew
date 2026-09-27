@@ -512,11 +512,7 @@ def add_target(
         None,
         "--arch",
         "-a",
-        help=(
-            "Architecture: "
-            + ", ".join(ARCH_PRESETS)
-            + " (auto-detected if omitted)."
-        ),
+        help=("Architecture: " + ", ".join(ARCH_PRESETS) + " (auto-detected if omitted)."),
     ),
     fmt: str | None = typer.Option(
         None,
@@ -835,11 +831,7 @@ def set_value(
                 code=EXIT_ERROR,
             )
 
-    if (
-        (leaf == "arch" or key == "arch")
-        and parsed_value
-        and parsed_value not in ARCH_PRESETS
-    ):
+    if (leaf == "arch" or key == "arch") and parsed_value and parsed_value not in ARCH_PRESETS:
         error_exit(
             f"unknown arch {parsed_value!r} (known: {', '.join(sorted(ARCH_PRESETS))})",
             code=EXIT_ERROR,

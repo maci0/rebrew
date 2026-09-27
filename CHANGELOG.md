@@ -87,6 +87,23 @@
   reset each request. No `/api/*` JSON changed.
 
 ### Fixed
+- **`make format-check` failed on two committed files.** `src/rebrew/cfg.py`
+  and `tests/test_ga_checkpoint.py` carried formatting the pinned ruff
+  (`ruff format --check . --exclude docs`, the lint job's gate) rejects, so
+  the gate was red on a clean tree. Reformatted; no behavior change.
+
+- **`tests/test_data_verify.py` imported a function that no longer exists.**
+  `TestDropUncoveredZeroFill::test_uncovered_span_is_dropped_and_covered_span_kept`
+  imported `drop_uncovered_zero_fill`, which a data-verify rewrite replaced
+  with `fill_uncovered_zero_fill` (reference zero-fill the built image stops
+  short of now compares as the zeros the reference loader holds, instead of
+  being dropped). The test body was left behind, so `make test` and CI's
+  `TestDropUncoveredZeroFill` failed at import with
+  `ImportError: cannot import name 'drop_uncovered_zero_fill'`. Rewritten as
+  `TestUncoveredZeroFill` against the current behavior, covering the branch
+  the earlier single-case test did not: a span the built image *does* cover
+  keeps its own bytes, so drift there is still reported.
+
 - **The GA splice took a second, hand-written lock name for the metadata
   store.** `_run_one_stub_ga` passed the literal `"rebrew-functions.toml"` to
   `metadata_write_lock`, which keys both its thread lock and its `flock` sidecar
