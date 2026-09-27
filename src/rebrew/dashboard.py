@@ -2,8 +2,8 @@
 
 Serves the SQLite ``coverage.db`` (built by ``rebrew build-db``) over a tiny
 HTTP server with no dependencies beyond the stdlib.  Every endpoint is
-read-only: the database is opened in ``mode=ro`` and non-GET requests are
-rejected with 405.
+read-only: the database is opened in ``mode=ro`` and non-GET/HEAD requests
+are rejected with 405.
 
 Endpoints
 ---------

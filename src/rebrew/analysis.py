@@ -97,7 +97,7 @@ class StringEntry:
     """A printable string run in a data section."""
 
     va: int
-    size: int  # bytes on disk (includes terminator for ascii)
+    size: int  # bytes on disk (no NUL terminator; pascal includes its length prefix)
     text: str  # decoded text (without terminator)
     kind: str  # "ascii" | "utf16" | "pascal" (16-bit NE length-prefixed)
     section: str

@@ -370,12 +370,12 @@ skipped.
 Apply postlink fixers to BUILT (default `build/<target>`) and report the remaining byte residue:
 per-section diffs plus per-function attribution of the `.text` bytes
 `verify` still reports as not byte-matched. `--new-baseline` writes the
-report as JSON (adopt as baseline); `--baseline` prints per-function
-deltas vs a previous report instead of absolutes.
+report as JSON (adopt as baseline); `--baseline` adds per-function
+deltas vs a previous report after the absolute figures.
 
 | Option | Description |
 | --- | --- |
-| `--baseline PATH` | Baseline JSON: print per-function deltas vs it |
+| `--baseline PATH` | Baseline JSON: also print per-function deltas vs it |
 | `--new-baseline PATH` | Write this run's report as JSON to PATH |
 | `--json` | Output results as JSON |
 

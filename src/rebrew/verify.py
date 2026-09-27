@@ -751,8 +751,8 @@ def main(
 
     if compile_context is not None and not json_output:
         console.print(
-            "[dim]--context: result cache bypassed; every verdict is compiled "
-            "under the supplied context[/dim]"
+            "[dim]--context: verdicts are cached per context digest, so a "
+            "changed context re-compiles them[/dim]"
         )
 
     # 16-bit NE compare walks per-function objects (OMF via omf16).  That

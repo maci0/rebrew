@@ -207,7 +207,7 @@ def main(
     baseline: str | None = typer.Option(
         None,
         "--baseline",
-        help="Baseline JSON file: print per-function delta vs it instead of absolutes",
+        help="Baseline JSON file: also print per-function deltas vs it",
     ),
     new_baseline: str | None = typer.Option(
         None, "--new-baseline", help="Write this run's report as JSON to PATH (adopt as baseline)"

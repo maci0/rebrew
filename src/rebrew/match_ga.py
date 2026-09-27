@@ -175,8 +175,6 @@ _GA_MEMO_MAX_FACTOR = 32
 #: Fits a signed 64-bit int so it round-trips through JSON and ``--seed``.
 _DRAWN_SEED_BITS = 63
 
-#: Default floor (bytes) for a function considered by a batch GA/sweep run.
-
 
 def mutation_focus_weights(
     focus: str | None, blocker: str | None = None
