@@ -40,10 +40,18 @@ commit cannot be checked.
 # from the directory that will hold both checkouts:
 git clone https://github.com/maci0/rebrew.git
 cd rebrew
+make doctor                   # report every missing prerequisite, with the fix for each
 make clone-resembl            # clones sibling resembl pin (tag v3.0.0) into ../resembl
 make setup                    # uv sync --locked --all-extras --group similarity + pre-commit/pre-push hooks
 make test-one T=tests/test_annotation.py   # smoke the edit-test loop
 ```
+
+`make doctor` is read-only and runs every preflight the other targets use (uv
+and its version, the sibling `../resembl` checkout, bash, nasm, shellcheck, and
+the `prove` extra / `similarity` group in `.venv`), so a host missing several of
+them sees all of them at once instead of one failed target at a time.  The
+checks still guard their own targets: a missing nasm surfaces at `make test`
+whether or not `make doctor` was run.
 
 `make setup` installs the `prove` extra and the `similarity` group. Those
 pull the copyleft components named in [`NOTICE`](NOTICE) (`pyvex`/LibVEX and
@@ -65,6 +73,7 @@ a bare `uv: not found`.
 
 ```bash
 make help                     # list contributor make targets
+make doctor                   # report every missing prerequisite (uv, ../resembl, nasm, shellcheck, venv extras)
 make clone-resembl            # clone sibling resembl pin into ../resembl (required for uv sync)
 make setup                    # locked sync (extras + similarity) + pre-commit install (checks uv + ../resembl first)
 make clean                    # remove build/dist artifacts and caches

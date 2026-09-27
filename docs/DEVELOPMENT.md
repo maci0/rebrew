@@ -108,6 +108,8 @@ checks both and prints the clone or checkout line when either is wrong.  `make h
 lists every contributor target.
 
 ```bash
+make doctor                             # report every missing prerequisite (uv, ../resembl, bash, nasm,
+                                        # shellcheck, venv extras) with the fix for each; read-only
 make setup                              # --locked sync (extras + similarity) + pre-commit/pre-push hooks (push runs
                                         # make test, needs nasm; SKIP=pytest git push to skip)
 make test-one T=tests/test_annotation.py  # single file / pytest nodeid

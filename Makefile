@@ -1,4 +1,4 @@
-.PHONY: help setup clean test test-one lint format format-check check build sbom all pr-check \
+.PHONY: help doctor setup clean test test-one lint format format-check check build sbom all pr-check \
 	gen-fixtures gen-fixtures-check gen-skills gen-skills-check cycles-check idempotency-check mypy audit \
 	cli-contract release-check coverage ensure-uv ensure-resembl ensure-nasm warn-nasm warn-shellcheck \
 	ensure-bash \
@@ -119,7 +119,7 @@ override SOURCE_DATE_EPOCH := $(or $(SOURCE_DATE_EPOCH),0)
 
 help:
 	@printf '%s\n' \
-		'Contributor targets:' \
+		'  make doctor             # report every missing prerequisite (uv, resembl, nasm, shellcheck, extras)' \
 		'  make setup              # uv sync (locked + extras + similarity) + pre-commit/pre-push hooks' \
 		'  make clone-resembl      # clone sibling resembl pin into ../resembl (required for uv sync)' \
 		'  make clean              # remove build/dist artifacts and caches' \
@@ -149,6 +149,7 @@ help:
 		'  make release-check      # version/changelog/tag preflight before tagging' \
 		'' \
 		'Bootstrap (clean clone):' \
+		'  0. make doctor          # reports which of the steps below this host is missing' \
 		'  1. Install uv $(UV_VERSION)+ (CI pin), Python 3.13+ (.python-version), nasm on PATH' \
 		'     (shellcheck too: the pre-commit shell hook skips itself without it, CI runs it;' \
 		'     bash for step 2: tools/ci_clone_resembl.sh runs under it)' \
@@ -291,6 +292,46 @@ ensure-extras:
 	  echo "(make setup also needs the sibling $(RESEMBL_DIR) checkout; 'make clone-resembl' fetches the pinned ref.)"; \
 	  exit 1; \
 	fi
+
+# Whole-environment preflight.  Every other target checks one prerequisite and
+# names it when it is missing, so a host without nasm, without shellcheck, or
+# with a bare `uv sync` venv finds out one failed command at a time: `make
+# setup` (uv, ../resembl), `make test` (nasm), `make check` (shellcheck), `make
+# mypy` (extras).  This runs each of those checks in one pass and prints what
+# it said, so the fix text stays written once, next to the check.
+#
+# Read-only: it runs the preflight targets and nothing else, installs nothing,
+# and never edits .venv.  It runs the hard checks (uv, ../resembl, nasm, the
+# venv extras) and the warn-level ones (the uv version, shellcheck), so a
+# non-zero exit names a prerequisite the suite or the lint gate needs, and a
+# warning still prints for a host that only costs a CI-only gate.
+doctor:
+	@set -u; \
+	rc=0; \
+	for check in ensure-uv warn-uv-version ensure-resembl ensure-bash ensure-nasm warn-shellcheck ensure-extras; do \
+	  case $$check in \
+	    ensure-uv) label='uv on PATH' ;; \
+	    warn-uv-version) label="uv >= $(UV_VERSION) (CI pin)" ;; \
+	    ensure-resembl) label="sibling resembl at $(RESEMBL_DIR)" ;; \
+	    ensure-bash) label='bash on PATH (make clone-resembl)' ;; \
+	    ensure-nasm) label='nasm on PATH (make test; optional for test-one)' ;; \
+	    warn-shellcheck) label='shellcheck on PATH (pre-commit shell hook)' ;; \
+	    ensure-extras) label="venv extras (angr/claripy, rapidfuzz/resembl)" ;; \
+	  esac; \
+	  out=$$($(MAKE) --no-print-directory $$check 2>&1) || rc=1; \
+	  if [ -z "$$out" ]; then \
+	    printf 'ok    %s\n' "$$label"; \
+	  else \
+	    printf 'CHECK %s\n' "$$label"; \
+	    printf '%s\n' "$$out" | grep -v '^make\[[0-9]*\]: \*\*\*' | sed 's/^/      /'; \
+	  fi; \
+	done; \
+	if [ $$rc -eq 0 ]; then \
+	  echo 'environment ready: run make setup, then make test-one T=tests/test_annotation.py'; \
+	else \
+	  echo 'environment incomplete: fix the CHECK lines above before make setup' >&2; \
+	fi; \
+	exit $$rc
 
 # Run tests.  Match CI: a TTY / FORCE_COLOR / GITHUB_ACTIONS makes Rich/typer
 # emit ANSI, which splits numbers and option names and breaks assertions on

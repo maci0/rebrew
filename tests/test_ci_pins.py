@@ -1063,6 +1063,34 @@ class TestCiPins:
             .startswith("#!/usr/bin/env bash")
         )
 
+    def test_doctor_covers_every_preflight(self) -> None:
+        """``make doctor`` is the one-shot version of the per-target preflights.
+
+        Each check names its own missing prerequisite, but a host missing
+        several of them learns about them one failed target at a time. The
+        doctor list is a copy, so a new preflight target added later would be
+        absent from the one place a contributor is told to look.
+        """
+        text = MAKEFILE.read_text(encoding="utf-8")
+        recipe = text.split("\ndoctor:\n", 1)[1].split("\n# ", 1)[0]
+        checked = set(re.findall(r"(?m)^\tfor check in ([^;]+);", recipe)[0].split())
+        used = {
+            dep
+            for match in re.finditer(r"(?m)^([A-Za-z][A-Za-z0-9_.-]*):([^\n]*)$", text)
+            for dep in match.group(2).split()
+            if re.fullmatch(r"(?:ensure|warn)-[a-z-]+", dep)
+        }
+        # One host dep, two strengths: the hard check is the one doctor runs
+        # (it is a superset of the soft one, which only downgrades the exit).
+        used.discard("warn-nasm")
+        assert used, "no preflight targets found; the regex may be stale"
+        assert used <= checked, f"make doctor skips: {sorted(used - checked)}"
+        # Read-only: the report runs the checks, it must not install anything.
+        assert "$(MAKE)" in recipe
+        assert not re.search(r"(?m)^\t(?:uv |.*uv sync|.*uv pip)", recipe), (
+            "make doctor installs nothing; it runs the preflight targets only"
+        )
+
     @pytest.mark.parametrize("target", sorted(_makefile_uv_targets()))
     def test_uv_targets_preflight_uv(self, target: str) -> None:
         """A missing uv must be a named error, not a bare ``uv: not found`` from the recipe."""
