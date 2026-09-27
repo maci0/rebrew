@@ -90,6 +90,7 @@ class TestReportCli:
         assert "#94a3b8" not in index
         assert "min-height: 2.75rem" in index  # nav link touch target (WCAG 2.5.8)
         assert "border: 1px solid #767676" in index  # WCAG 1.4.11 non-text contrast
+        assert "var(--rb-" not in index  # theme.TOKENS resolved at build time
         assert "#e2e8f0" not in index
         assert "#64748b" not in index  # no raw Tailwind slate chrome
         assert "text-transform: uppercase" not in index
@@ -656,3 +657,18 @@ class TestSummaryCards:
         assert "<dl class='cards'>" in page
         assert "<dt class='label'>Total functions</dt><dd class='value'>" in page
         assert "<div class='value'>" not in page
+
+
+class TestChromeTokens:
+    """Both HTML surfaces render the shared rebrew.theme token set."""
+
+    def test_tokens_resolve_in_the_report_css(self) -> None:
+        from rebrew.dashboard import _INDEX_HTML
+        from rebrew.report import _CSS
+        from rebrew.theme import TOKENS
+
+        for shell in (_CSS, _INDEX_HTML):
+            assert "var(--rb-" not in shell
+        both = _CSS + _INDEX_HTML
+        for value in TOKENS.values():
+            assert value in both, f"{value} is declared but never rendered"

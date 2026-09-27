@@ -44,6 +44,7 @@ from typing import Any
 
 import typer
 
+from rebrew import theme
 from rebrew.analysis import StringEntry, Xref, iter_strings, string_refs
 from rebrew.annotation import Annotation, iter_annotations, min_valid_va_for, parse_library_header
 from rebrew.binary_loader import load_binary
@@ -130,50 +131,51 @@ def _status_forced_selectors() -> str:
     return f"  {head},\n  {tail}"
 
 
-# Shared with the coverage dashboard: plain tool chrome (system-ui, #005fcc
-# focus, #767676 borders) — not a Tailwind slate/blue demo palette.
-# Status text colors are cli.STATUS_HEX, the same marks as the call graph.
+# Chrome is the shared token set (rebrew.theme, resolved below) and the status
+# marks are cli.STATUS_HEX, the same ones the coverage dashboard renders.
 _CSS = """
-body { font-family: system-ui, sans-serif;
-       margin: 0; background: #f5f5f5; color: #1a1a1a; }
+body { font-family: var(--rb-sans);
+       margin: 0; background: var(--rb-sunken); color: var(--rb-ink); }
 .skip-link { position: absolute; left: -9999px; top: 0; z-index: 100;
-             padding: 0.5rem 1rem; background: #fff; color: #005fcc;
+             padding: 0.5rem 1rem; background: var(--rb-surface); color: var(--rb-accent);
              text-decoration: underline; }
 .skip-link:focus { left: 1rem; top: 1rem; }
-header { background: #1a1a1a; color: #fff; padding: 0.75rem 1.5rem;
+header { background: var(--rb-ink); color: var(--rb-surface); padding: 0.75rem 1.5rem;
          display: flex; flex-wrap: wrap; align-items: baseline; gap: 1rem 2rem; }
 header h1 { font-size: 1.05rem; margin: 0; }
 header nav { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; }
-header nav a { color: #c8c8c8; text-decoration: underline; min-height: 2.75rem; padding: 0.5rem 0.35rem;
+header nav a { color: var(--rb-nav); text-decoration: underline; min-height: 2.75rem; padding: 0.5rem 0.35rem;
         display: inline-flex; align-items: center; }
-header nav a:hover { color: #fff; }
-header nav a.active { color: #fff; font-weight: 600; text-decoration-thickness: 2px; }
-:focus-visible { outline: 3px solid #005fcc; outline-offset: 2px; }
-header nav a:focus-visible { outline-color: #9dc4f5; }
+header nav a:hover { color: var(--rb-surface); }
+header nav a.active { color: var(--rb-surface); font-weight: 600; text-decoration-thickness: 2px; }
+:focus-visible { outline: 3px solid var(--rb-accent); outline-offset: 2px; }
+header nav a:focus-visible { outline-color: var(--rb-accent-soft); }
 main { max-width: 1100px; margin: 1.5rem auto; padding: 0 1.5rem; }
+h2 { font-size: var(--rb-size-heading); margin: 1.5rem 0 .5rem; }
 .cards { display: flex; flex-wrap: wrap; gap: 1rem; margin: 0 0 1.5rem; }
 /* Label reads first (dt before dd); column-reverse shows the value on top. */
-.card { background: #fff; border: 1px solid #767676; border-radius: 6px;
+.card { background: var(--rb-surface); border: 1px solid var(--rb-line);
+        border-radius: var(--rb-radius);
         padding: 0.9rem 1.1rem; min-width: 140px;
         display: flex; flex-direction: column-reverse; }
 .card dd { margin: 0; }
-.card .value { font-size: 1.5rem; font-weight: 700; }
-.card .label { color: #333; font-size: 0.85rem; }
+.card .value { font-size: var(--rb-size-value); font-weight: 700; }
+.card .label { color: var(--rb-muted); font-size: var(--rb-size-caption); }
 .table-scroll { overflow-x: auto; margin-bottom: 1.5rem; -webkit-overflow-scrolling: touch; }
-table { width: 100%; border-collapse: collapse; background: #fff;
-        border: 1px solid #767676; border-radius: 6px; overflow: hidden;
-        margin-bottom: 0; }
+table { width: 100%; border-collapse: collapse; background: var(--rb-surface);
+        border: 1px solid var(--rb-line); border-radius: var(--rb-radius);
+        overflow: hidden; margin-bottom: 0; }
 th, td { text-align: left; padding: 0.5rem 0.75rem;
-         border-bottom: 1px solid #767676; font-size: 0.85rem; }
-th { background: #f5f5f5; font-weight: 600; white-space: nowrap; }
-tbody tr:hover { background: #f9f9f9; }
+         border-bottom: 1px solid var(--rb-line); font-size: var(--rb-size-cell); }
+th { background: var(--rb-sunken); font-weight: 600; white-space: nowrap; }
+tbody tr:hover { background: var(--rb-hover); }
 caption { caption-side: top; text-align: left; padding: 0.5rem 0.75rem;
-          font-size: 0.85rem; font-weight: 600; color: #333; }
+          font-size: var(--rb-size-cell); font-weight: 600; color: var(--rb-muted); }
 .visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0;
                    margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0);
                    white-space: nowrap; border: 0; }
 tr:last-child td { border-bottom: none; }
-td.mono, code { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; }
+td.mono, code { font-family: var(--rb-mono); }
 td.blocker { max-width: 28rem; overflow-wrap: anywhere; }
 td details { max-width: 40rem; overflow-wrap: anywhere; }
 td summary { cursor: pointer; padding: 0.25rem 0; }
@@ -184,15 +186,16 @@ __STATUS_FORCED__ { color: CanvasText; font-weight: 700; }
   :focus-visible { outline-color: Highlight; }
   .note { border-color: CanvasText; color: CanvasText; background: Canvas; }
 }
-.note { background: #fff7ed; border: 1px solid #9a3412; border-radius: 6px;
-        padding: 0.9rem 1.1rem; color: #9a3412; margin-bottom: 1.5rem; }
-.pager { color: #333; font-size: 0.9rem; margin: 0.75rem 0 1rem; }
-.pager a { color: #005fcc; text-decoration: underline; min-height: 2.75rem; padding: 0.35rem 0.5rem;
+.note { background: var(--rb-note-bg); border: 1px solid var(--rb-note-ink);
+        border-radius: var(--rb-radius);
+        padding: 0.9rem 1.1rem; color: var(--rb-note-ink); margin-bottom: 1.5rem; }
+.pager { color: var(--rb-muted); font-size: var(--rb-size-note); margin: 0.75rem 0 1rem; }
+.pager a { color: var(--rb-accent); text-decoration: underline; min-height: 2.75rem; padding: 0.35rem 0.5rem;
            display: inline-flex; align-items: center; }
-.pager a:hover { color: #003e85; }
-pre.mermaid { background: #fff; border: 1px solid #767676;
-        border-radius: 6px; padding: 1rem; overflow-x: auto;
-        font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+.pager a:hover { color: var(--rb-accent-hi); }
+pre.mermaid { background: var(--rb-surface); border: 1px solid var(--rb-line);
+        border-radius: var(--rb-radius); padding: 1rem; overflow-x: auto;
+        font-family: var(--rb-mono);
         font-size: 0.8rem; line-height: 1.4; }
 @media (max-width: 40rem) {
   header, main { padding-left: 1rem; padding-right: 1rem; }
@@ -207,6 +210,7 @@ tbody tr { content-visibility: auto; contain-intrinsic-size: auto 2.2rem; }
 _CSS = _CSS.replace("__STATUS_TEXT_CSS__", _status_text_css()).replace(
     "__STATUS_FORCED__", _status_forced_selectors()
 )
+_CSS = theme.inline(_CSS)
 
 
 def _nav_link(href: str, label: str, active: bool) -> str:
