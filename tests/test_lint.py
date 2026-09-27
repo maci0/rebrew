@@ -2580,3 +2580,41 @@ class TestMarkerVaOrder:
         )
         w030 = self._w030(lint_file(f, cfg=_make_cfg()))
         assert w030 == []
+
+
+class TestDataSectionNamesMemoConcurrent:
+    """The W022 exemption memo is shared, so its two parallel dicts must be
+    mutated under one lock.  A racing owner store lands after an eviction
+    clear, leaving an OWNER entry with no INDEX entry; the owner hit must
+    then rebuild instead of raising KeyError, and every caller must get the
+    names of the document it passed in."""
+
+    @staticmethod
+    def _entries(prefix: str) -> dict[tuple[str, int], dict[str, Any]]:
+        return {
+            ("SERVER", 0x1000 + i): {"name": f"{prefix}_g{i}", "section": ".data"} for i in range(4)
+        }
+
+    def test_concurrent_lookups_return_their_own_document(self) -> None:
+        from concurrent.futures import ThreadPoolExecutor
+
+        from rebrew.lint import _DATA_SECTION_NAMES, _data_section_names_for
+
+        _DATA_SECTION_NAMES.clear()
+        docs = [self._entries(f"t{i}") for i in range(8)]
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            results = list(pool.map(_data_section_names_for, docs * 16))
+        for doc, names in zip(docs * 16, results, strict=True):
+            assert names == frozenset(e["name"] for e in doc.values())
+
+    def test_missing_index_entry_after_a_racing_clear_rebuilds(self) -> None:
+        from rebrew import lint
+
+        entries = self._entries("solo")
+        key = id(entries)
+        expected = frozenset(e["name"] for e in entries.values())
+        assert lint._data_section_names_for(entries) == expected
+        # The interleaving an unlocked eviction can produce: the owner store
+        # lands after the index clear, so the owner hits with no index entry.
+        lint._DATA_SECTION_NAMES.pop(key, None)
+        assert lint._data_section_names_for(entries) == expected
