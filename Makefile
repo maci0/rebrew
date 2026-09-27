@@ -74,7 +74,7 @@ help:
 		'  make sbom               # CycloneDX 1.5 JSON from uv.lock (offline)' \
 		'  make sdist-check        # build a wheel from the sdist and diff it against dist/*.whl' \
 		'  make all                # local mirror of CI lint+test(+coverage floor)+cli-contract gates' \
-		'  make pr-check           # full local CI verification (all + check + build + sbom + sdist-check)' \
+		'  make pr-check           # full local CI verification (all + check + build + sdist-check + sbom)' \
 		'  make gen-fixtures       # regenerate tests/fixtures/ from tools/gen_fixtures.py' \
 		'  make gen-fixtures-check # tools/gen_fixtures.py --check' \
 		'  make gen-skills         # regenerate .agents/skills/ from src/rebrew/agent-skills/' \
@@ -359,7 +359,10 @@ all: format-check lint mypy audit coverage gen-fixtures-check cycles-check idemp
 
 # Full local verification: single runnable step mirroring every CI gate
 # (all non-mutating gates + pre-commit hook parity + reproducible build + SBOM).
-pr-check: all check build sbom sdist-check
+# ``sbom`` runs last on purpose: ``make build`` clears dist/*.cdx.json, and
+# ``sdist-check`` depends on ``build``, so an earlier sbom leaves dist/ with no
+# BOM for the same reason CI had to move its step.
+pr-check: all check build sdist-check sbom
 
 # Regenerate checked-in binary fixtures (run after editing tools/gen_fixtures.py).
 gen-fixtures: ensure-uv

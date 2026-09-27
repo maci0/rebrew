@@ -76,7 +76,7 @@ make build                    # reproducible sdist+wheel + dist/rebrew.buildinfo
 make sbom                     # CycloneDX 1.5 JSON from uv.lock (offline)
 make cli-contract             # high-value --help greps (CI cli-contract job)
 make all                      # local mirror of CI lint+test+cli-contract gates
-make pr-check                 # full local CI verification (all + check + build + sbom + sdist-check)
+make pr-check                 # full local CI verification (all + check + build + sdist-check + sbom)
 make sdist-check              # build a wheel from the sdist, diff it against dist/*.whl
 make gen-fixtures             # regenerate tests/fixtures/ after editing tools/gen_fixtures.py
 make gen-skills               # regenerate .agents/skills/ after editing src/rebrew/agent-skills/
@@ -139,12 +139,14 @@ import rebrew as a library.
    `ci/`, `chore/`) and open the pull request against `main`; do not commit
    straight to `main`.  Every CI job runs on the pull request, so a green local
    `make pr-check` plus a green `pre-commit` job is what review expects.
-1. `make pr-check` (or `make all && make check && make build && make sdist-check`)
+1. `make pr-check` (or `make all && make check && make build && make sdist-check && make sbom`)
    — mirrors CI
    lint+test+cli-contract gates, the pre-commit job, the package job's
    `make build` (sdist/wheel + `dist/rebrew.buildinfo`), and its
    sdist-completeness check (a wheel built from the sdist must carry the same
-   files as the shipped wheel).
+   files as the shipped wheel). `make sbom` goes last: `make build` clears
+   `dist/*.cdx.json` and `make sdist-check` rebuilds through it, so an earlier
+   SBOM is deleted before you can ship it.
 2. Keep changes minimal and scoped; match the surrounding style.
 3. Add tests for new behavior — the suite sits at ~86% line coverage
    (`make coverage`), and new pure logic is expected to keep it there.
