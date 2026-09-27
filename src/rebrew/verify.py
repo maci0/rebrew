@@ -2383,6 +2383,22 @@ def run_verification(
             f"both plain and --compare modes)"
         )
 
+    # The pool drains in completion order, and `done` is a set of futures, so
+    # these three lists would otherwise be a function of thread timing.  The
+    # STATUS batch creates any missing metadata entry as it walks them, so an
+    # unordered walk writes rebrew-functions.toml in a different section order
+    # on every run of the same corpus.  Sort on the entry's own identity.
+    def _entry_order(item: tuple[Any, ...]) -> tuple[str, int, str]:
+        entry = item[0]
+        return (
+            getattr(entry, "module", "") or "",
+            int(getattr(entry, "va", 0) or 0),
+            getattr(entry, "name", "") or "",
+        )
+
+    fail_details.sort(key=_entry_order)
+    deferred_fixes.sort(key=_entry_order)
+
     return passed, failed, fail_details, results, deferred_fixes
 
 

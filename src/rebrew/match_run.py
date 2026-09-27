@@ -12,7 +12,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 
 import typer
 
@@ -56,6 +56,24 @@ log = logging.getLogger(__name__)
 
 #: Serializes in-process appends to solutions_out across parallel batch workers.
 _SOLUTIONS_COLLECT_LOCK = threading.Lock()
+
+
+class _GaRunRecord(NamedTuple):
+    """One ``ga_runs.jsonl`` line, built by a batch worker and appended by the
+    driver.
+
+    A parallel batch hands each stub to a thread; the record is carried back
+    and appended in stub order so the run log is a function of the batch
+    contents and the seeds, not of which worker finished first.
+    """
+
+    target: str
+    va: str
+    symbol: str
+    matched: bool
+    score: float
+    generations: int
+    rng_seed: int | None
 
 
 def run_single_ga(
@@ -1095,7 +1113,7 @@ def run_all(
         seeds: list[str],
         seed_cflags: str | None,
         seed_mutations: tuple[str, ...] = (),
-    ) -> tuple[StubInfo, bool, str]:
+    ) -> tuple[StubInfo, bool, str, _GaRunRecord | None]:
         # A batch --mutation-focus overrides the per-stub transfer from the
         # seeded solution; without one, the seed's winning operators bias
         # this GA the same way a verdict blocker would.
@@ -1175,27 +1193,20 @@ def run_all(
                 f"  [yellow]warning:[/yellow] GA run failed for {stub.symbol}: "
                 f"{exc.__class__.__name__}: {exc}"
             )
-            return stub, False, f"error: {exc.__class__.__name__}: {exc}"
-        # Persist the outcome for cross-run progress tracking (append-only
-        # log; O_APPEND small-line writes are atomic across threads).
-        try:
-            from rebrew.matcher import record_ga_run
-
-            record_ga_run(
-                cfg.root,
-                target=getattr(cfg, "target_name", ""),
-                va=stub.va,
-                symbol=stub.symbol,
-                matched=matched,
-                score=best_score,
-                generations=generations_run,
-                rng_seed=used_seed,
-            )
-        except Exception:
-            # A failed record makes --skip-recent re-run this stub next batch
-            # (hours of GA).  Visible at WARNING, not swallowed at DEBUG.
-            log.warning("GA run record failed for %s", stub.symbol, exc_info=True)
-        return stub, matched, output_summary
+            return stub, False, f"error: {exc.__class__.__name__}: {exc}", None
+        # The outcome is recorded by the caller, in stub order: appending
+        # from the worker would put thread completion order into the log, so
+        # the same --seed replays to a different ga_runs.jsonl.
+        record = _GaRunRecord(
+            target=getattr(cfg, "target_name", ""),
+            va=stub.va,
+            symbol=stub.symbol,
+            matched=matched,
+            score=best_score,
+            generations=generations_run,
+            rng_seed=used_seed,
+        )
+        return stub, matched, output_summary, record
 
     if jobs > 1 and len(stubs) > 1:
         with ThreadPoolExecutor(max_workers=jobs) as executor:
@@ -1212,7 +1223,22 @@ def run_all(
             )
         ]
 
-    for stub, matched, output_summary in outcomes:
+    # Persist the outcomes for cross-run progress tracking (append-only log).
+    # Stub order, never completion order: the log is the replay record, and
+    # --skip-recent / --ga-history read it back.
+    for outcome_stub, _matched, _summary, record in outcomes:
+        if record is None:
+            continue
+        try:
+            from rebrew.matcher import record_ga_run
+
+            record_ga_run(cfg.root, **record._asdict())
+        except Exception:
+            # A failed record makes --skip-recent re-run this stub next batch
+            # (hours of GA).  Visible at WARNING, not swallowed at DEBUG.
+            log.warning("GA run record failed for %s", outcome_stub.symbol, exc_info=True)
+
+    for stub, matched, output_summary, _record in outcomes:
         result_entry: dict[str, Any] = {
             "file": str(stub.filepath),
             "va": stub.va,

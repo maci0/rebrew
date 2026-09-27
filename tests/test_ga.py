@@ -477,6 +477,33 @@ class TestGADeadline:
     """BinaryMatchingGA.run(deadline=...) cooperatively stops between
     generations — the thread-safe replacement for SIGALRM."""
 
+    def test_unseeded_run_leaves_the_process_rng_alone(self, tmp_path: Path) -> None:
+        """An unseeded run draws its own seed, not from the shared generator.
+
+        The module-level Random belongs to the whole process: a parallel batch
+        (or any other module drawing from it) would otherwise decide which
+        stub got which drawn seed.
+        """
+        import random
+
+        from rebrew.match_ga import BinaryMatchingGA
+
+        before = random.getstate()
+        ga = BinaryMatchingGA(
+            seed_source="int f(void) { return 0; }",
+            target_bytes=b"\xc3",
+            cl_cmd="cl",
+            inc_dir="",
+            cflags="/O2",
+            symbol="_f",
+            out_dir=tmp_path,
+            num_generations=1,
+            pop_size=2,
+            num_jobs=1,
+        )
+        assert random.getstate() == before
+        assert isinstance(ga.rng_seed, int)
+
     def test_past_deadline_returns_immediately(self, tmp_path: Path) -> None:
         import time
 
