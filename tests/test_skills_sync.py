@@ -9,6 +9,7 @@ This repo's own ``.agents/skills/`` is such a rendered copy (target
 Fix on failure (from repo root)::
 
     make gen-skills
+    cp src/rebrew/PRINCIPLES.md PRINCIPLES.md   # only if the principles drift
 """
 
 from pathlib import Path
@@ -16,6 +17,7 @@ from pathlib import Path
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _SRC = _REPO_ROOT / "src" / "rebrew" / "agent-skills"
 _RENDERED = _REPO_ROOT / ".agents" / "skills"
+_PRINCIPLES_SRC = _REPO_ROOT / "src" / "rebrew" / "PRINCIPLES.md"
 
 #: Target name this repo's .agents/skills/ copy was rendered with.
 RENDER_TARGET = "bench"
@@ -50,6 +52,27 @@ class TestSkillsSync:
         assert stale == [], (
             f"{stale} drifted from src/rebrew/agent-skills/; run 'make gen-skills' to re-render"
         )
+
+
+class TestPrinciplesSync:
+    """The checked-in root PRINCIPLES.md is a copy of the packaged one.
+
+    ``rebrew init --check`` compares a project's PRINCIPLES.md byte for
+    byte against ``src/rebrew/PRINCIPLES.md``, so this repo is drifted the
+    moment the packaged copy moves without the root.  ``docs/PRINCIPLES.md``
+    is a symlink and must stay one, or it drifts silently instead.
+    """
+
+    def test_root_copy_matches_packaged(self) -> None:
+        stale = (_REPO_ROOT / "PRINCIPLES.md").read_bytes()
+        assert stale == _PRINCIPLES_SRC.read_bytes(), (
+            "PRINCIPLES.md drifted from src/rebrew/PRINCIPLES.md; copy the packaged file over it"
+        )
+
+    def test_docs_entry_is_a_symlink(self) -> None:
+        docs_copy = _REPO_ROOT / "docs" / "PRINCIPLES.md"
+        assert docs_copy.is_symlink(), "docs/PRINCIPLES.md must symlink src/rebrew/PRINCIPLES.md"
+        assert docs_copy.resolve() == _PRINCIPLES_SRC.resolve()
 
 
 class TestSkillFacts:
