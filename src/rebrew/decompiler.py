@@ -30,6 +30,7 @@ import re
 import shutil
 import subprocess
 import sys
+import sysconfig
 import tempfile
 import threading
 import warnings
@@ -416,6 +417,17 @@ def _uv_tool_roots() -> list[Path]:
     return roots
 
 
+def _rizin_multiarch_triplets() -> list[str]:
+    """Multiarch libdir triplet this host's Python was built for, if any.
+
+    Distros install into ``/usr/lib/<triplet>``; the triplet is a build
+    property of the host (``x86_64-linux-gnu``, ``aarch64-linux-gnu``), not
+    a constant, so read it from the interpreter instead of naming one.
+    """
+    value = sysconfig.get_config_var("MULTIARCH")
+    return [value] if isinstance(value, str) and value else []
+
+
 def _rizin_sleigh_dirs() -> list[Path]:
     """Candidate rizin ``rz_ghidra_sleigh`` plugin dirs across Linux layouts.
 
@@ -425,8 +437,15 @@ def _rizin_sleigh_dirs() -> list[Path]:
     candidates: list[Path] = [
         Path("/usr/lib/rizin/plugins/rz_ghidra_sleigh"),
         Path("/usr/lib64/rizin/plugins/rz_ghidra_sleigh"),
-        Path("/usr/lib/x86_64-linux-gnu/rizin/plugins/rz_ghidra_sleigh"),
+        *(
+            Path("/usr/lib") / t / "rizin/plugins/rz_ghidra_sleigh"
+            for t in _rizin_multiarch_triplets()
+        ),
     ]
+    # A triplet this interpreter was not built for (a cross-built Python, a
+    # foreign-prefix distroless image) still names a real libdir on disk.
+    with contextlib.suppress(OSError):
+        candidates.extend(sorted(Path("/usr/lib").glob("*/rizin/plugins/rz_ghidra_sleigh")))
     for name in ("rizin", "rz"):
         found = shutil.which(name)
         if found is None:
