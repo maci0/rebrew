@@ -1331,6 +1331,38 @@ class TestSplitAnnotationSectionsRescue:
         assert preamble == ""
         assert len(blocks) == 1
 
+    def test_commented_out_kv_is_not_rescued(self) -> None:
+        """A KV line inside a ``/* ... */`` run stays in the preamble.
+
+        Lifting it into the block put a marker the source had commented out at
+        the head of a block, where the block's own scan read it as live and the
+        block claimed a marker the source never declared.
+        """
+        from rebrew.annotation import block_markers, split_annotation_sections
+
+        text = "/*\n/* FUNCTION: SERVER 0x1000 */\n/* FUNCTION: SERVER 0x1000 */\n"
+        preamble, blocks = split_annotation_sections(text)
+        assert preamble == "/*\n/* FUNCTION: SERVER 0x1000 */\n"
+        assert blocks == ["/* FUNCTION: SERVER 0x1000 */\n"]
+        assert block_markers(text) == block_markers(blocks[0])
+
+    def test_adjacent_markers_share_one_block(self) -> None:
+        """A marker line matches the key-value regex too, so the back-scan that
+        collects a marker's preceding annotations reaches back over the
+        previous marker.  The pair shares a block (ADR-010/022), and the
+        leading empty block is what keeps the earlier marker's key-value lines
+        from becoming a block with no marker in it.
+        """
+        from rebrew.annotation import block_markers, split_annotation_sections
+
+        text = "// STATUS: EXACT\n/* FUNCTION: SERVER 0x1000 */\n/* FUNCTION: SERVER 0x1000 */\n"
+        preamble, blocks = split_annotation_sections(text)
+        assert preamble == ""
+        assert [block for block in blocks if block.strip()] == [
+            "// STATUS: EXACT\n/* FUNCTION: SERVER 0x1000 */\n/* FUNCTION: SERVER 0x1000 */\n"
+        ]
+        assert block_markers(blocks[-1]) == [("SERVER", 0x1000), ("SERVER", 0x1000)]
+
 
 class TestAnnotationValidateBranches:
     def test_library_without_source_warns(self) -> None:

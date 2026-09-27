@@ -238,6 +238,7 @@ def _re_cached_project(binary: Path, tool: str, root: Path) -> str | None:
     """
     key = _re_project_key(binary, tool)
     while True:
+        stale: str | None = None
         with _RE_PROJECT_DIRS_LOCK:
             cached = _RE_PROJECT_DIRS.get(key)
             if cached is not None:
@@ -246,10 +247,16 @@ def _re_cached_project(binary: Path, tool: str, root: Path) -> str | None:
                 # A tool upgrade invalidates the analysis; remove the old project dir
                 # (a full rizin database) instead of orphaning it — only the entries
                 # still in the map get cleaned at exit.
-                shutil.rmtree(cached, ignore_errors=True)
                 del _RE_PROJECT_DIRS[key]
+                stale = cached
             leader = key not in _RE_PROJECT_INFLIGHT
             event = _RE_PROJECT_INFLIGHT.setdefault(key, threading.Event())
+
+        # Unlinked from the map, so no other caller can still reach it — and
+        # removed without the lock: a rizin database is thousands of files, and
+        # every other binary's decompile serializes on that lock.
+        if stale is not None:
+            shutil.rmtree(stale, ignore_errors=True)
 
         if not leader:
             # A leader is already running ``aaa`` for this key.  Wait for it
@@ -268,25 +275,34 @@ def _re_cached_project(binary: Path, tool: str, root: Path) -> str | None:
             proj_dir = _re_init_project(binary, tool, root)
             if proj_dir is None:
                 return None
+            superseded: list[str] = []
             with _RE_PROJECT_DIRS_LOCK:
                 existing = _RE_PROJECT_DIRS.get(key)
                 if existing is not None and _re_cached_digest_ok(existing, tool, binary):
-                    shutil.rmtree(proj_dir, ignore_errors=True)
-                    return existing
-                if existing is not None:
-                    shutil.rmtree(existing, ignore_errors=True)
-                # Evict oldest insertion when at capacity so batch decomp of many
-                # binaries does not retain every analysis DB until process exit.
-                while key not in _RE_PROJECT_DIRS and len(_RE_PROJECT_DIRS) >= _RE_PROJECT_DIRS_MAX:
-                    oldest_key = next(iter(_RE_PROJECT_DIRS))
-                    old_dir = _RE_PROJECT_DIRS.pop(oldest_key)
-                    shutil.rmtree(old_dir, ignore_errors=True)
-                _RE_PROJECT_DIRS[key] = proj_dir
-                global _RE_PROJECT_ATEXIT_REGISTERED
-                if not _RE_PROJECT_ATEXIT_REGISTERED:
-                    atexit.register(_clear_re_projects)
-                    _RE_PROJECT_ATEXIT_REGISTERED = True
-                return proj_dir
+                    superseded.append(proj_dir)
+                    published = existing
+                else:
+                    if existing is not None:
+                        superseded.append(existing)
+                    # Evict oldest insertion when at capacity so batch decomp of many
+                    # binaries does not retain every analysis DB until process exit.
+                    while (
+                        key not in _RE_PROJECT_DIRS
+                        and len(_RE_PROJECT_DIRS) >= _RE_PROJECT_DIRS_MAX
+                    ):
+                        superseded.append(_RE_PROJECT_DIRS.pop(next(iter(_RE_PROJECT_DIRS))))
+                    _RE_PROJECT_DIRS[key] = proj_dir
+                    global _RE_PROJECT_ATEXIT_REGISTERED
+                    if not _RE_PROJECT_ATEXIT_REGISTERED:
+                        atexit.register(_clear_re_projects)
+                        _RE_PROJECT_ATEXIT_REGISTERED = True
+                    published = proj_dir
+            # Same reason as the stale drop above: the removals are already
+            # unlinked from the map, and rmtree-ing a database under the lock
+            # stalls every other binary's decompile for its duration.
+            for path in superseded:
+                shutil.rmtree(path, ignore_errors=True)
+            return published
         finally:
             with _RE_PROJECT_DIRS_LOCK:
                 _RE_PROJECT_INFLIGHT.pop(key, None)
