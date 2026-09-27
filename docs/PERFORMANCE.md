@@ -3,6 +3,12 @@
 Measured facts about where rebrew's hot paths spend time, and what was done
 (and deliberately *not* done) about it.
 
+Every figure below carries the workload it was taken on, and the sections that
+have a committed gate name it. The host and the commit are not recorded:
+re-measure rather than trust a number, and `tools/bench_hotpaths.py` is the
+repeatable harness for the pure-Python rows (fixed seeds, `score_candidate`
+among them).
+
 ## GA scoring hot loop (`score_candidate`)
 
 Profiled on 512-byte functions with 40 reloc offsets (5000 iterations):
@@ -50,6 +56,7 @@ Measured on smygb (512-byte function, real MSVC6 toolchain):
 
 - one compile + byte-compare (`rebrew test`): **≈ 585 ms**
 - one `score_candidate` call (reloc path, precomputed target): **≈ 0.36 ms**
+  (`tools/bench_hotpaths.py`, "GA candidate scoring" row)
 
 Scoring is ~1600× cheaper than a compile, so the GA's wall-clock is
 dominated by Wine/compiler subprocesses (which the compile cache
