@@ -324,17 +324,32 @@ _CELL_STATE_CHECK_SQL: str = ", ".join(repr(s) for s in sorted(_KNOWN_CELL_STATE
 _CellRow = tuple[str, str, int, int, int, str, str, str | None, str | None]
 
 
+def _canonical_cell_state(value: Any) -> str | None:
+    """Return the known cell state *value* names, or ``None`` if it names none.
+
+    Case and surrounding whitespace are normalized first: every entry in
+    :data:`_KNOWN_CELL_STATES` is lower-case by construction, so a hand-edited
+    ``"EXACT"`` or ``"Stub"`` names a state the store already holds rather than
+    an unknown one.  A cell left in the wrong case silently counted as neither
+    its own state nor a known gap state in ``section_cell_stats`` and in the
+    per-section byte summary, because every reader there compares lower-case
+    literals.
+    """
+    state = str(value or "none").strip().lower()
+    return state if state in _KNOWN_CELL_STATES else None
+
+
 def _normalize_cell_row(target_name: str, sec_name: str, cell: dict[str, Any]) -> _CellRow:
     """Return a DB-safe cell row from generated coverage JSON."""
     start = max(0, _parse_int(cell.get("start"), 0))
     end = max(start, _parse_int(cell.get("end"), start))
     span = max(1, _parse_int(cell.get("span"), 1))
-    state = str(cell.get("state") or "none")
-    if state not in _KNOWN_CELL_STATES:
+    state = _canonical_cell_state(cell.get("state"))
+    if state is None:
         logging.warning(
             "build_db: cell state %r not in known set — coercing to "
             "'unknown' (check the generator or hand-edited JSON); known: %s",
-            state,
+            cell.get("state"),
             ", ".join(sorted(_KNOWN_CELL_STATES)),
         )
         state = "unknown"
@@ -1200,6 +1215,21 @@ def _create_schema(c: sqlite3.Cursor, target: str | None) -> None:
     # long-lived project that regenerates often does not accumulate rows
     # forever.
     c.execute("CREATE INDEX IF NOT EXISTS idx_history_target_id ON history(target, id)")
+    # The --force restore dedupe (see _restore_persistent_rows) probes
+    # (target, va, changed_at, old_status, new_status, updated_by) once per
+    # saved row.  idx_history_target_id only pins `target`, so each probe
+    # scanned that target's whole partition: with the _HISTORY_RETENTION cap
+    # reached that is quadratic (10k x 10k per target) on the one path that
+    # is already rewriting the file.  (target, va, changed_at) is selective —
+    # a VA is re-verified once per rebuild, so changed_at distinguishes the
+    # transition — and leaves only the three equality-remaining columns as a
+    # filter.  Kept out of the version stamp: an index is created on every
+    # build and _missing_required_objects checks tables and columns, so a
+    # database written before this line picks it up on its next rebuild.
+    c.execute(
+        "CREATE INDEX IF NOT EXISTS idx_history_restore "
+        "ON history(target, va, changed_at, old_status, new_status, updated_by)"
+    )
 
     c.execute(f"CREATE TABLE IF NOT EXISTS verify_results ({_VERIFY_RESULTS_COLUMNS_SQL})")
     # verify_results is never dropped on rebuild, so CREATE IF NOT EXISTS
@@ -1572,7 +1602,10 @@ def _build_coverage_db(
                     total_items: int = 0
 
                     for cell in sec.get("cells", []):
-                        state = cell.get("state")
+                        # Same normalization the stored row gets, so a
+                        # differently-cased state lands in the same bucket
+                        # here as in section_cell_stats.
+                        state = _canonical_cell_state(cell.get("state")) or "unknown"
                         if state != "none":
                             start = max(0, _parse_int(cell.get("start"), 0))
                             end = max(start, _parse_int(cell.get("end"), start))

@@ -5,6 +5,7 @@ schema and populates all columns (including the new detected_by, size_by_tool,
 textOffset, globals origin/size, and the section_cell_stats view).
 """
 
+import copy
 import json
 import re
 import sqlite3
@@ -679,6 +680,52 @@ binary = "test.exe"
                 f"WHERE target = 'testbin' AND {FUNCTION_ROWS_SQL}"
             ).fetchall()
             assert any("idx_functions_list" in row[3] for row in plan)
+        finally:
+            conn.close()
+
+    def test_case_variant_cell_state_lands_in_its_own_bucket(self, tmp_path: Path) -> None:
+        """A hand-edited data_*.json spelling a state in a different case must
+        land in that state's bucket everywhere: the stored cells row, the
+        section_cell_stats counter, and the per-section summary byte counts all
+        read the raw JSON and compare lower-case literals."""
+        data = copy.deepcopy(SAMPLE_DATA)
+        data["sections"][".text"]["cells"][0]["state"] = "EXACT"
+        # The per-section byte summary is only computed for non-.text
+        # sections, so the case variant needs a section of its own.
+        data["sections"][".rdata"] = {
+            "va": 0x10002000,
+            "size": 256,
+            "unitBytes": 64,
+            "columns": 64,
+            "cells": [{"start": 0, "end": 128, "span": 2, "state": "RELOC", "functions": ["g_a"]}],
+        }
+        db_dir = tmp_path / "db"
+        db_dir.mkdir()
+        (db_dir / "data_testbin.json").write_text(json.dumps(data), encoding="utf-8")
+        build_db(tmp_path)
+
+        conn = sqlite3.connect(db_dir / "coverage.db")
+        try:
+            c = conn.cursor()
+            assert (
+                c.execute(
+                    "SELECT state FROM cells "
+                    "WHERE target = 'testbin' AND section_name = '.text' AND start = 0"
+                ).fetchone()[0]
+                == "exact"
+            )
+            exact_count, other_count = c.execute(
+                "SELECT exact_count, other_count FROM section_cell_stats "
+                "WHERE target = 'testbin' AND section_name = '.text'"
+            ).fetchone()
+            assert (exact_count, other_count) == (1, 0)
+            summary = json.loads(
+                c.execute(
+                    "SELECT value FROM metadata WHERE target = 'testbin' AND key = 'summary'"
+                ).fetchone()[0]
+            )
+            assert summary[".rdata"]["relocMatches"] == 1
+            assert summary[".rdata"]["relocBytes"] == 128
         finally:
             conn.close()
 
@@ -2106,6 +2153,33 @@ class TestCellStateVocabulary:
             conn.close()
         assert "idx_history_target_va" not in indexes
         assert "idx_history_target_id" in indexes
+
+    def test_restore_dedupe_probe_is_indexed(self, tmp_path: Path) -> None:
+        """The --force history restore probes one full transition per saved
+        row.  Without a matching index each probe scanned the target's whole
+        history partition, making the restore quadratic on a database that
+        has reached the retention cap.
+        """
+        db_dir = tmp_path / "db"
+        db_dir.mkdir()
+        (db_dir / "data_alpha.json").write_text(json.dumps(SAMPLE_DATA), encoding="utf-8")
+        build_db(tmp_path, target="alpha")
+
+        conn = sqlite3.connect(db_dir / "coverage.db")
+        try:
+            plan = conn.execute(
+                "EXPLAIN QUERY PLAN SELECT 1 FROM history h "
+                "WHERE h.target IS 'alpha' AND h.va IS 4096 "
+                "AND h.changed_at IS '2026-01-01T00:00:00+00:00' "
+                "AND h.old_status IS NULL AND h.new_status IS 'EXACT' "
+                "AND h.updated_by IS ''"
+            ).fetchall()
+            detail = " ".join(row[3] for row in plan)
+            assert "idx_history_restore" in detail
+            # A scan of the table means the index was not used.
+            assert "SCAN h" not in detail
+        finally:
+            conn.close()
 
 
 # ---------------------------------------------------------------------------

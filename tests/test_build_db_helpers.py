@@ -120,6 +120,21 @@ class TestNormalizeCellRow:
         row = _normalize_cell_row("T", ".text", {"state": state})
         assert row[5] == state
 
+    @pytest.mark.parametrize(
+        ("spelling", "expected"),
+        [("EXACT", "exact"), ("Stub", "stub"), (" Near_Matching ", "near_matching")],
+    )
+    def test_state_spelling_normalized(
+        self, spelling: str, expected: str, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A differently-cased state names a state the store already holds.
+        Left as-is it counted as neither its own bucket nor a known gap state
+        in section_cell_stats and in the per-section byte summary."""
+        with caplog.at_level(logging.WARNING):
+            row = _normalize_cell_row("T", ".text", {"state": spelling})
+        assert row[5] == expected
+        assert not any("not in known set" in r.message for r in caplog.records)
+
     def test_clamping(self) -> None:
         row = _normalize_cell_row("T", ".text", {"start": -5, "end": -1})
         assert row[2] == 0  # start clamped
