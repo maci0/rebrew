@@ -10,6 +10,11 @@
   hash, so it is served `immutable` and adds no per-request compression CPU.
 
 ### Fixed
+- **`make format-check` passes again.** Four test modules had drifted from
+  the committed formatting (`tests/test_annotation.py`,
+  `tests/test_link_tools.py`, `tests/test_match.py`, `tests/test_solutions.py`),
+  so the CI lint job's blocking `ruff format --check` step failed on a clean
+  tree.
 - **Provider-controlled text cannot forge LLM log lines.** A transport
   failure that echoes the response body (and a tree-sitter error quoting the
   snippet it rejected) reached `logging` verbatim, while every other
@@ -52,6 +57,12 @@
   as `mips32`.
 
 ### Changed
+- **The two non-`test_` modules under `tests/` are type-checked.**
+  `tests/pytest_ansi_env.py` (the plugin every run loads through
+  `addopts`) and `tests/bin_util.py` (the COFF builders the fixture
+  generator imports) join `mypy`'s `files`; both already pass strict, and a
+  typing regression in either would otherwise surface only at runtime. The
+  rest of `tests/` stays out until it is clean.
 - **The report pages and the coverage dashboard share one chrome token
   set.** Colors, radii, font stacks, and type sizes live in `rebrew.theme`;
   each stylesheet resolves them at build time, so the palette and the scale
