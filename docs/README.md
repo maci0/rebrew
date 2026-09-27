@@ -24,6 +24,7 @@
 | [GA_MUTATIONS.md](GA_MUTATIONS.md) | All 128 GA mutation operators — categories, rationale, discovery origins |
 | [FLAG_SWEEP_TIERS.md](FLAG_SWEEP_TIERS.md) | MSVC6 flag-sweep tiers (quick/targeted/normal/thorough/full) — axes and combination counts |
 | [DB_FORMAT.md](DB_FORMAT.md) | SQLite schema for `coverage.db`, JSON intermediate format, REST API |
+| [dashboard-api.yaml](dashboard-api.yaml) | OpenAPI 3.1 contract for the `rebrew dashboard` HTTP API, checked against the code by `tests/test_dashboard.py` |
 | [NAME_NORMALIZATION.md](NAME_NORMALIZATION.md) | Cross-tool function name normalization (Ghidra/r2/IDA → canonical `func_` form) |
 | [TOOLCHAIN.md](TOOLCHAIN.md) | The toolchain zoo — compilers (MSVC 1.0–11.0, Borland C++ 5.5, Turbo C 2.0/3.1, Open Watcom, Delphi 1.0, GCC, Clang, MinGW), docker images, reproducible builds (`rebrew toolchain vendor`/`smoke`), external tools, Python deps |
 | [SDK_MEDIA.md](SDK_MEDIA.md) | DirectX and Platform SDK media provenance: verified archive.org checksums, gaps, official and license-clean sources |

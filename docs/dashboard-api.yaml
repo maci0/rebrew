@@ -1,0 +1,748 @@
+openapi: 3.1.0
+info:
+  title: Rebrew dashboard API
+  version: "1.0.0"
+  summary: Read-only coverage data served by `rebrew dashboard`.
+  description: |
+    Every route is read-only: the SQLite database is opened `mode=ro` and
+    non-`GET`/`HEAD` methods answer 405 with `Allow: GET, HEAD`.  A path the
+    server does not serve answers 404 whatever the method.
+
+    The server has no authentication.  It binds `127.0.0.1:8000` by default
+    and rejects a `Host` header that is not the bound host or a loopback
+    alias, with 403 `host_not_allowed`.  See
+    [THREAT_MODEL.md](THREAT_MODEL.md).
+
+    Row lists are compact JSON arrays positioned by `cols`, never per-row
+    objects.  Every text column in a row is a JSON string: a database NULL is
+    sent as `""`.
+servers:
+  - url: http://127.0.0.1:8000
+    description: Default bind (`rebrew dashboard --host/--port`).
+
+tags:
+  - name: assets
+    description: HTML shell and its scripts.
+  - name: database
+    description: Target-scoped coverage data.  All require `?target=`.
+
+paths:
+  /:
+    get:
+      tags: [assets]
+      operationId: getIndex
+      summary: Dashboard HTML shell.
+      description: |
+        Carries a strong `ETag` over its own bytes, so a shell change
+        invalidates a held validator.  `Cache-Control: private, no-cache`.
+      responses:
+        "200":
+          $ref: "#/components/responses/HtmlOk"
+    head:
+      tags: [assets]
+      operationId: headIndex
+      summary: Headers for the dashboard HTML shell.
+      responses:
+        "200":
+          $ref: "#/components/responses/HtmlOk"
+
+  /app.js:
+    get:
+      tags: [assets]
+      operationId: getAppJs
+      summary: Dashboard client.
+      description: |
+        `?v=<content hash>` is served `private, max-age=31536000,
+        immutable`; any other value revalidates.  An unrecognised `v` is
+        ignored, like any other unrecognised query parameter.
+      parameters:
+        - $ref: "#/components/parameters/CacheBuster"
+      responses:
+        "200":
+          $ref: "#/components/responses/ScriptOk"
+    head:
+      tags: [assets]
+      operationId: headAppJs
+      summary: Headers for the dashboard client.
+      parameters:
+        - $ref: "#/components/parameters/CacheBuster"
+      responses:
+        "200":
+          $ref: "#/components/responses/ScriptOk"
+
+  /boot-guard.js:
+    get:
+      tags: [assets]
+      operationId: getBootGuardJs
+      summary: Reports a client that never reached its first statement.
+      parameters:
+        - $ref: "#/components/parameters/CacheBuster"
+      responses:
+        "200":
+          $ref: "#/components/responses/ScriptOk"
+    head:
+      tags: [assets]
+      operationId: headBootGuardJs
+      summary: Headers for the boot guard.
+      parameters:
+        - $ref: "#/components/parameters/CacheBuster"
+      responses:
+        "200":
+          $ref: "#/components/responses/ScriptOk"
+
+  /api/health:
+    get:
+      tags: [database]
+      operationId: getHealth
+      summary: Liveness plus one real read of the target list.
+      description: |
+        The exception to the caching rules: served `no-store` with no `ETag`
+        at all, so a probe that reported "ok" cannot be cached or
+        revalidated into a stale "healthy" for a database that has since
+        gone unreadable.  `db` is the absolute path of the `coverage.db`
+        being served.
+      responses:
+        "200":
+          description: The database was read.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Health" }
+        "500":
+          $ref: "#/components/responses/DatabaseError"
+    head:
+      tags: [database]
+      operationId: headHealth
+      summary: Headers for the liveness probe.
+      responses:
+        "200":
+          description: The database was read.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Health" }
+        "500":
+          $ref: "#/components/responses/DatabaseError"
+
+  /api/targets:
+    get:
+      tags: [database]
+      operationId: getTargets
+      summary: Every target in the database, ordered by name.
+      responses:
+        "200":
+          description: The target list.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Targets" }
+    head:
+      tags: [database]
+      operationId: headTargets
+      summary: Headers for the target list.
+      responses:
+        "200":
+          description: The target list.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Targets" }
+
+  /api/bootstrap:
+    get:
+      tags: [database]
+      operationId: getBootstrap
+      summary: Targets plus the first target's summary and functions.
+      description: |
+        Collapses the cold-start waterfall (targets, then summary, then
+        functions) into one round trip; filtering and paging after the first
+        paint use the dedicated endpoints.  Degrades instead of failing:
+        `summary` and `functions` are `null` when the first target's
+        `function_stats` is unreadable, so one broken target does not cost
+        the target list.
+      responses:
+        "200":
+          description: The target list and the first target's data.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Bootstrap" }
+    head:
+      tags: [database]
+      operationId: headBootstrap
+      summary: Headers for the bootstrap payload.
+      responses:
+        "200":
+          description: The target list and the first target's data.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Bootstrap" }
+
+  /api/summary:
+    get:
+      tags: [database]
+      operationId: getSummary
+      summary: Coverage stats for one target.
+      description: |
+        `function_stats` is the stored metadata object passed through
+        untyped, so a field added to it reaches the client without a change
+        here; `coverage_pct` and `identified_pct` are derived from it.
+      parameters:
+        - $ref: "#/components/parameters/Target"
+      responses:
+        "200":
+          description: The target's stats.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Summary" }
+        "400": { $ref: "#/components/responses/MissingTarget" }
+        "404": { $ref: "#/components/responses/UnknownTarget" }
+        "500": { $ref: "#/components/responses/CorruptStats" }
+    head:
+      tags: [database]
+      operationId: headSummary
+      summary: Headers for one target's stats.
+      parameters:
+        - $ref: "#/components/parameters/Target"
+      responses:
+        "200":
+          description: The target's stats.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Summary" }
+        "400": { $ref: "#/components/responses/MissingTarget" }
+        "404": { $ref: "#/components/responses/UnknownTarget" }
+        "500": { $ref: "#/components/responses/CorruptStats" }
+
+  /api/functions:
+    get:
+      tags: [database]
+      operationId: getFunctions
+      summary: Paged function rows for one target.
+      description: |
+        Ordered by virtual address.  `q` matches name or symbol, and also
+        matches the address exactly when it is a hex number of four or more
+        digits (`0x401000` and `00401000` name the same address).
+      parameters:
+        - $ref: "#/components/parameters/Target"
+        - $ref: "#/components/parameters/Status"
+        - $ref: "#/components/parameters/Module"
+        - $ref: "#/components/parameters/Query"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: One page of function rows.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Functions" }
+        "400": { $ref: "#/components/responses/InvalidRequest" }
+        "404": { $ref: "#/components/responses/UnknownTarget" }
+    head:
+      tags: [database]
+      operationId: headFunctions
+      summary: Headers for one page of function rows.
+      parameters:
+        - $ref: "#/components/parameters/Target"
+        - $ref: "#/components/parameters/Status"
+        - $ref: "#/components/parameters/Module"
+        - $ref: "#/components/parameters/Query"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: One page of function rows.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Functions" }
+        "400": { $ref: "#/components/responses/InvalidRequest" }
+        "404": { $ref: "#/components/responses/UnknownTarget" }
+
+  /api/sections:
+    get:
+      tags: [database]
+      operationId: getSections
+      summary: Per-section cell counts for one target.
+      description: |
+        Unpaged: the section list is 1:1 on its key and small enough to send
+        whole, so the envelope reports `paged: false` and `limit` is the row
+        count.  `limit`/`offset` are not accepted here.
+      parameters:
+        - $ref: "#/components/parameters/Target"
+      responses:
+        "200":
+          description: Every section row.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Sections" }
+        "400": { $ref: "#/components/responses/MissingTarget" }
+        "404": { $ref: "#/components/responses/UnknownTarget" }
+    head:
+      tags: [database]
+      operationId: headSections
+      summary: Headers for the section rows.
+      parameters:
+        - $ref: "#/components/parameters/Target"
+      responses:
+        "200":
+          description: Every section row.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Sections" }
+        "400": { $ref: "#/components/responses/MissingTarget" }
+        "404": { $ref: "#/components/responses/UnknownTarget" }
+
+  /api/globals:
+    get:
+      tags: [database]
+      operationId: getGlobals
+      summary: Paged global data rows for one target, ordered by address.
+      parameters:
+        - $ref: "#/components/parameters/Target"
+        - $ref: "#/components/parameters/Module"
+        - $ref: "#/components/parameters/Query"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: One page of global rows.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Globals" }
+        "400": { $ref: "#/components/responses/MissingTarget" }
+        "404": { $ref: "#/components/responses/UnknownTarget" }
+    head:
+      tags: [database]
+      operationId: headGlobals
+      summary: Headers for one page of global rows.
+      parameters:
+        - $ref: "#/components/parameters/Target"
+        - $ref: "#/components/parameters/Module"
+        - $ref: "#/components/parameters/Query"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: One page of global rows.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Globals" }
+        "400": { $ref: "#/components/responses/MissingTarget" }
+        "404": { $ref: "#/components/responses/UnknownTarget" }
+
+  /api/history:
+    get:
+      tags: [database]
+      operationId: getHistory
+      summary: Paged status-change history for one target, newest first.
+      description: |
+        `old_status` and `new_status` are `""` for a VA's first recorded
+        transition, where the database stores NULL.
+      parameters:
+        - $ref: "#/components/parameters/Target"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: One page of history rows.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/History" }
+        "400": { $ref: "#/components/responses/MissingTarget" }
+        "404": { $ref: "#/components/responses/UnknownTarget" }
+    head:
+      tags: [database]
+      operationId: headHistory
+      summary: Headers for one page of history rows.
+      parameters:
+        - $ref: "#/components/parameters/Target"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Offset"
+      responses:
+        "200":
+          description: One page of history rows.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/History" }
+        "400": { $ref: "#/components/responses/MissingTarget" }
+        "404": { $ref: "#/components/responses/UnknownTarget" }
+
+components:
+  parameters:
+    Target:
+      name: target
+      in: query
+      required: true
+      description: |
+        The target name, as listed by `/api/targets`.  Missing or blank is
+        400 `missing_target`; a name with no stats row is 404
+        `unknown_target`.  A repeated parameter takes its first value.
+      schema: { type: string, minLength: 1 }
+    Status:
+      name: status
+      in: query
+      required: false
+      description: |
+        A match status.  A value outside the vocabulary is 400
+        `invalid_status` rather than an empty page, which would read as
+        "this target has no functions in that status".
+      schema:
+        type: string
+        enum: [EXACT, RELOC, PROVEN, NEAR_MATCHING, STUB, SKIP, INVALID_VA, MISSING_FILE, MISSING_SIZE, SIZE_MISMATCH, COMPILE_ERROR, EXTRACT_ERROR]
+    Module:
+      name: module
+      in: query
+      required: false
+      description: |
+        A module name as stored.  Omitting it does not filter; a *present*
+        empty value (`module=`) matches rows with a blank module.  LIKE
+        wildcards in the value are escaped, so it matches literally.
+      schema: { type: string }
+    Query:
+      name: q
+      in: query
+      required: false
+      description: |
+        A case-insensitive substring of the row's name (and symbol, on
+        functions).  A hex number of four or more digits, with or without a
+        `0x` prefix, also matches that virtual address exactly.  LIKE
+        wildcards are escaped.
+      schema: { type: string }
+    Limit:
+      name: limit
+      in: query
+      required: false
+      description: |
+        Page size.  Missing, empty, non-numeric, or non-positive falls back
+        to 100; larger values clamp to 5000.  The applied value is read back
+        from the envelope's `limit`.
+      schema: { type: integer, minimum: 1, maximum: 5000, default: 100 }
+    Offset:
+      name: offset
+      in: query
+      required: false
+      description: |
+        Rows to skip.  Missing, empty, non-numeric, or negative falls back to
+        0; values past SQLite's int64 range clamp to it, so an oversized
+        skip is an empty page rather than a 500.  Read back from `offset`.
+      schema: { type: integer, minimum: 0, default: 0 }
+    CacheBuster:
+      name: v
+      in: query
+      required: false
+      description: |
+        The script's content hash.  The shell links the scripts at
+        `?v=<content hash>`, and that exact value is the one served
+        `immutable`; any other value revalidates.
+      schema: { type: string }
+
+  schemas:
+    Error:
+      type: object
+      description: |
+        The one error envelope.  Branch on `code`; `error` is prose for a
+        human reader and is not a stable contract.
+      required: [error, code]
+      properties:
+        error:
+          type: string
+          description: Human-readable reason for the failure.
+        code:
+          $ref: "#/components/schemas/ErrorCode"
+      examples:
+        - error: "unknown target 'server_dll2'"
+          code: unknown_target
+
+    ErrorCode:
+      type: string
+      description: |
+        Stable machine-readable code.  A client should branch on this, never
+        on `error` or on the message text.
+      enum:
+        - missing_target
+        - unknown_target
+        - invalid_status
+        - not_found
+        - method_not_allowed
+        - host_not_allowed
+        - corrupt_function_stats
+        - database_error
+        - internal_error
+        - bad_request
+        - uri_too_long
+        - header_fields_too_large
+        - http_version_not_supported
+        - request_error
+
+    ListMeta:
+      type: object
+      description: |
+        The envelope every list response carries.  `count` is the rows in
+        this page, `total` the rows matching the filter, and `limit`/
+        `offset` the *applied* values, not the requested ones.
+      required: [target, count, total, limit, offset, paged]
+      properties:
+        target: { type: string }
+        count: { type: integer, minimum: 0, description: Rows in this page. }
+        total: { type: integer, minimum: 0, description: Rows matching the filter. }
+        limit: { type: integer, minimum: 0, description: Applied page size (the row count where `paged` is false). }
+        offset: { type: integer, minimum: 0, description: Applied skip. }
+        paged:
+          type: boolean
+          description: |
+            Whether `limit` is a page size.  True on `/api/functions`,
+            `/api/globals`, and `/api/history`; false where the whole
+            collection is sent, in which case `limit` is the row count and
+            `offset` is 0.
+
+    Targets:
+      type: object
+      description: "The target list envelope.  It carries no `target` field, since it names no one target."
+      required: [targets, count, total, limit, offset, paged]
+      properties:
+        targets:
+          type: array
+          items: { type: string }
+        count: { type: integer, minimum: 0 }
+        total: { type: integer, minimum: 0 }
+        limit: { type: integer, minimum: 0 }
+        offset: { type: integer, minimum: 0 }
+        paged: { type: boolean, const: false }
+
+    Bootstrap:
+      type: object
+      description: |
+        The `/api/targets` envelope, widened with the first target's summary
+        and first page of functions.
+      required: [targets, count, total, limit, offset, paged, target, summary, functions]
+      properties:
+        targets:
+          type: array
+          items: { type: string }
+        count: { type: integer, minimum: 0 }
+        total: { type: integer, minimum: 0 }
+        limit: { type: integer, minimum: 0 }
+        offset: { type: integer, minimum: 0 }
+        paged: { type: boolean, const: false }
+        target:
+          type: [string, "null"]
+          description: The first target, or null when the database has none.
+        summary:
+          oneOf:
+            - $ref: "#/components/schemas/Summary"
+            - type: "null"
+          description: Null when there is no target, or its stats are unreadable.
+        functions:
+          oneOf:
+            - $ref: "#/components/schemas/Functions"
+            - type: "null"
+          description: Null under the same conditions as `summary`.
+
+    Health:
+      type: object
+      required: [status, db, targets]
+      properties:
+        status: { type: string, const: ok }
+        db: { type: string, description: Absolute path of the coverage database being served. }
+        targets: { type: integer, minimum: 0, description: Target count read from the database. }
+
+    Summary:
+      type: object
+      required: [target, function_stats, coverage_pct, identified_pct]
+      properties:
+        target: { type: string }
+        function_stats:
+          type: object
+          description: |
+            The stored `function_stats` metadata object, passed through
+            untyped: fields added to it reach the client without a change
+            here.  `matched_bytes` and `covered_bytes` must be
+            non-negative integers when present; anything else makes the row
+            unreadable and answers 500 `corrupt_function_stats`.
+          additionalProperties: true
+        coverage_pct:
+          type: number
+          description: Byte-matched bytes (`EXACT`/`RELOC`) over total bytes, floored.
+        identified_pct:
+          type: number
+          description: Identified bytes, stubs included, over total bytes, floored.
+
+    Functions:
+      allOf:
+        - $ref: "#/components/schemas/ListMeta"
+        - type: object
+          required: [cols, functions]
+          properties:
+            cols:
+              type: array
+              description: Column names, positionally labelling every row in `functions`.
+              items: { type: string }
+              const: [va, name, symbol, size, status, module, files]
+            functions:
+              type: array
+              items:
+                type: array
+                prefixItems:
+                  - { $ref: "#/components/schemas/Va" }
+                  - { type: string, description: Function name, or "" when unnamed. }
+                  - { type: string, description: Linkage symbol, or "". }
+                  - { type: [integer, "null"], minimum: 0, description: Size in bytes. }
+                  - { type: string, description: Match status, or "". }
+                  - { type: string, description: Module, or "" when unset. }
+                  - { type: string, description: Source files, comma-separated, or "". }
+                minItems: 7
+                maxItems: 7
+
+    Sections:
+      allOf:
+        - $ref: "#/components/schemas/ListMeta"
+        - type: object
+          required: [cols, sections]
+          properties:
+            cols:
+              type: array
+              items: { type: string }
+              const: [name, size, total_cells, exact, reloc, near_match, stub, proven, size_mismatch, thunk, data, padding, none, other]
+            sections:
+              type: array
+              items:
+                type: array
+                prefixItems:
+                  - { type: string, description: Section name. }
+                  - { type: [integer, "null"], minimum: 0, description: Section size in bytes. }
+                  - { type: [integer, "null"], minimum: 0, description: Cells in the section. }
+                  - { type: integer, minimum: 0 }
+                  - { type: integer, minimum: 0 }
+                  - { type: integer, minimum: 0 }
+                  - { type: integer, minimum: 0 }
+                  - { type: integer, minimum: 0 }
+                  - { type: integer, minimum: 0 }
+                  - { type: integer, minimum: 0 }
+                  - { type: integer, minimum: 0 }
+                  - { type: integer, minimum: 0 }
+                  - { type: integer, minimum: 0 }
+                  - { type: integer, minimum: 0 }
+                minItems: 14
+                maxItems: 14
+
+    Globals:
+      allOf:
+        - $ref: "#/components/schemas/ListMeta"
+        - type: object
+          required: [cols, globals]
+          properties:
+            cols:
+              type: array
+              items: { type: string }
+              const: [va, name, decl, size, module]
+            globals:
+              type: array
+              items:
+                type: array
+                prefixItems:
+                  - { $ref: "#/components/schemas/Va" }
+                  - { type: string }
+                  - { type: string, description: Declaration text, or "". }
+                  - { type: [integer, "null"], minimum: 0 }
+                  - { type: string, description: Module, or "" when unset. }
+                minItems: 5
+                maxItems: 5
+
+    History:
+      allOf:
+        - $ref: "#/components/schemas/ListMeta"
+        - type: object
+          required: [cols, history]
+          properties:
+            cols:
+              type: array
+              items: { type: string }
+              const: [va, name, old_status, new_status, changed_at]
+            history:
+              type: array
+              items:
+                type: array
+                prefixItems:
+                  - { $ref: "#/components/schemas/Va" }
+                  - { type: string, description: Current function name, or "" if the row is gone. }
+                  - { type: string, description: Previous status, or "" for a VA's first transition. }
+                  - { type: string }
+                  - { type: [string, "null"], format: date-time, description: UTC instant of the change. }
+                minItems: 5
+                maxItems: 5
+
+    Va:
+      type: string
+      description: |
+        Virtual address as `0x` plus eight lowercase hex digits, or `???` when
+        the database holds no address.
+      pattern: '^(0x[0-9a-f]{8}|\?\?\?)$'
+
+  responses:
+    HtmlOk:
+      description: The shell.
+      headers:
+        ETag: { $ref: "#/components/headers/ETag" }
+        Cache-Control: { $ref: "#/components/headers/CacheControl" }
+        Vary: { $ref: "#/components/headers/Vary" }
+      content:
+        text/html:
+          schema: { type: string }
+
+    ScriptOk:
+      description: A script.
+      headers:
+        ETag: { $ref: "#/components/headers/ETag" }
+        Cache-Control: { $ref: "#/components/headers/CacheControl" }
+        Vary: { $ref: "#/components/headers/Vary" }
+      content:
+        application/javascript:
+          schema: { type: string }
+
+    MissingTarget:
+      description: '`target` is missing or blank (`missing_target`).'
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+    InvalidRequest:
+      description: 'A query parameter is outside its vocabulary (`invalid_status`).'
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+    UnknownTarget:
+      description: 'No target by that name has stats (`unknown_target`).'
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+    CorruptStats:
+      description: |
+        The target's `function_stats` row exists but is unreadable
+        (`corrupt_function_stats`).  Not 404: the target is present, its
+        value is not.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+    DatabaseError:
+      description: 'The database could not be read (`database_error`).'
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+  headers:
+    ETag:
+      description: |
+        Validator for this exact representation.  `/` and the two scripts
+        carry a strong content hash; the JSON routes carry a weak tag over
+        the database mtime/size *and* the request's path and query, so a
+        validator held for one route, target, or filter never stands for
+        another.  Absent on `/api/health`.
+      schema: { type: string }
+    CacheControl:
+      description: |
+        `private, no-cache` on a revalidated response, `no-store` on
+        `/api/health` and on every error, and
+        `private, max-age=31536000, immutable` on a script at its `?v=`
+        content-hash URL.
+      schema: { type: string }
+    Vary:
+      description: '`Accept-Encoding`; the body is served zstd or gzip.'
+      schema: { type: string }

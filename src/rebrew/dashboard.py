@@ -67,7 +67,9 @@ to 5000; a missing, malformed, or negative ``offset`` uses 0 and values past
 SQLite's int64 range clamp to it.  Clients read the applied values back.
 Successful 200 responses negotiate ``zstd`` then ``gzip`` (``Accept-Encoding``
 quality weights; explicit ``coding;q=0`` beats ``*``), carry an ``ETag`` (HTML
-or ``/app.js`` content hash, or DB mtime), and use ``Cache-Control: private,
+or ``/app.js`` content hash, or DB mtime plus a hash of the request's path
+and query, so one validator never stands for two different routes, targets,
+or filter selections), and use ``Cache-Control: private,
 no-cache`` so browsers can 304 without serving a stale body after ``build-db``;
 the shell links ``/app.js?v=<content hash>``, which alone is ``immutable``.
 ``/api/health`` is the exception: it reads the database, so it answers
@@ -1588,6 +1590,19 @@ def _opt_query(params: dict[str, list[str]], name: str) -> str | None:
     return stripped or None
 
 
+def _query_scope(query: str) -> str:
+    """Short suffix naming one path+query pair, or ``""`` when there is none.
+
+    Raw request bytes are not put in the tag: an attacker-chosen path or
+    query would then control a response header, and the tag grows without
+    bound.  A truncated hash keeps the ETag header a fixed size and still
+    separates every representation the server routes on.
+    """
+    if not query:
+        return ""
+    return "-" + hashlib.sha256(query.encode("utf-8", "surrogateescape")).hexdigest()[:8]
+
+
 def _module_query(params: dict[str, list[str]]) -> str | None:
     """Module filter: None when absent, else the stripped value.
 
@@ -2001,7 +2016,15 @@ class Dashboard:
         return self.target_known(target)
 
     def response_etag(self, path: str) -> str:
-        """Strong shell/asset etag; weak DB etag so rebuilds invalidate JSON caches."""
+        """Strong shell/asset etag; weak DB+request etag so rebuilds invalidate JSON caches.
+
+        The weak tag covers the path and query as well as the database file:
+        a validator identifies one representation, and two routes on the same
+        target answer different bodies.  Tagging everything with the DB alone
+        let a validator held from ``/api/functions?target=a`` answer 304 for
+        ``/api/summary?target=a``, and the client then rendered one endpoint's
+        cached rows under the other's labels.
+        """
         parsed = urlparse(path)
         if parsed.path == "/":
             return _INDEX_ETAG
@@ -2009,11 +2032,12 @@ class Dashboard:
             return _APP_JS_ETAG
         if parsed.path == "/boot-guard.js":
             return _BOOT_GUARD_JS_ETAG
+        scope = _query_scope(f"{parsed.path}?{parsed.query}" if parsed.query else "")
         try:
             st = self.db_path.stat()
         except OSError:
-            return 'W/"0"'
-        return f'W/"{st.st_mtime_ns:x}-{st.st_size:x}"'
+            return f'W/"0{scope}"'
+        return f'W/"{st.st_mtime_ns:x}-{st.st_size:x}{scope}"'
 
     def handle(self, method: str, path: str, query: dict[str, list[str]]) -> tuple[int, str, str]:
         """Route a request.  Returns (status, content-type, body)."""
