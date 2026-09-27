@@ -1723,8 +1723,13 @@ def parse_library_header(filepath: Path, metadata_dir: Path | None = None) -> li
             size = 0
             size_str = kv.get("SIZE", "")
             if size_str:
+                # Base 0, like the FUNCTION-marker parser and lint's W019
+                # comparison: E008 blesses the hex spelling, so a library
+                # header carrying `// SIZE: 0x1a4` parsed decimal-only raised
+                # ValueError and the annotation landed on size 0 — a silent
+                # MISSING_SIZE for a function whose extent is known.
                 with contextlib.suppress(ValueError):
-                    size = int(size_str)
+                    size = int(size_str, 0)
 
             results.append(
                 Annotation(
