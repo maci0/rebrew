@@ -218,9 +218,11 @@ def main(
         # Private dir per round: a concurrent sweep of the same symbol (another
         # target sharing this root) would otherwise overwrite a candidate
         # between its write and its compile, scoring the wrong source.
+        # -j 0 (or negative) bypasses config's _positive_int validation, so
+        # clamp before the pool: max_workers=0 raises ValueError.
         with (
             tempfile.TemporaryDirectory(dir=sweep_root, prefix=f"{sym_file}-") as rnd_dir,
-            cf.ThreadPoolExecutor(max_workers=jobs) as ex,
+            cf.ThreadPoolExecutor(max_workers=max(1, jobs)) as ex,
         ):
             results = list(ex.map(lambda c: submit(c, Path(rnd_dir)), cands))
 

@@ -801,6 +801,12 @@ def flag_sweep(
     combos = generate_flag_combinations(tier=tier, profile=profile)
     log.info("Sweeping %d flag combinations (tier=%s)...", len(combos), tier)
 
+    # The CLI -j flag bypasses config's _positive_int validation, so `match
+    # --flag-sweep-only -j 0` reaches the pool verbatim and
+    # ThreadPoolExecutor(max_workers=0) raises ValueError.  Clamp to a single
+    # worker instead of aborting the sweep; 1 worker is the same serial result.
+    n_jobs = max(1, n_jobs)
+
     # Pre-compute target normalization and mnemonics once for all workers.
     # The arch comes from config: 16-bit DOS/NE targets (x86_16) must score
     # in 16-bit mode with 2-byte reloc slots, matching the match.py GA path
