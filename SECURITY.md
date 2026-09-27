@@ -38,6 +38,13 @@ cmake bridge wineprefix / profile pins (`REBREW_WINEPREFIX`, `REBREW_TOOLCHAIN`)
 fast-forwards and imports by default), and installed Python entry-point plugins
 (including `rebrew.cache_backends`) as part of the trust boundary.
 
+CI is a boundary of its own: `pull_request` (never `pull_request_target`),
+workflow `permissions: contents: read`, no `id-token`, `secrets.GITHUB_TOKEN`
+mapped only onto the resembl clone step, `persist-credentials: false`, and
+every third-party Action pinned by commit SHA. `.github/workflows/toolchain-sync.yml`
+runs nightly and reports toolchain pin drift without applying it. There is no
+publish step and no artifact signing in this repository.
+
 The packaged compile-cache backends refuse pickle deserialize
 (`NoPickleDisk` in `src/rebrew/compile_cache.py`); that does not attest
 plugin cache backends or remove the open upstream diskcache advisory.

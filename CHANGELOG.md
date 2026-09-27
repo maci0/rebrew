@@ -395,6 +395,17 @@
   added to `KNOWN_STATUS` without a mark fails the test that compares the two.
 
 ### Changed
+- **The threat model names the CI boundary instead of denying it.**
+  `docs/THREAT_MODEL.md` claimed the surface had no scheduled jobs. CI does
+  have one: `.github/workflows/toolchain-sync.yml` runs
+  `rebrew toolchain check-updates` on a nightly `cron` and on
+  `workflow_dispatch`. The model now carries the three CI trust boundaries
+  (fork PR into the runner, the schedule into the pin-check, artifacts out to
+  operators) with the controls that back them, plus the gaps that survive
+  them: no publish step, no artifact signing, and a `schedule` trigger that
+  attributes a nightly run to the repository owner rather than a committer.
+  `[Unreleased]` also lost a stray duplicate `### Fixed` heading
+  that made `tests/test_packaging.py` red.
 - **The two non-`test_` modules under `tests/` are type-checked.**
   `tests/pytest_ansi_env.py` (the plugin every run loads through
   `addopts`) and `tests/bin_util.py` (the COFF builders the fixture
