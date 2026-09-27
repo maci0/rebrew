@@ -273,6 +273,10 @@ def _source_decls_by_va(
             try:
                 ext_vars = find_extern_variables(decl + ";")
             except Exception:
+                # Falling back to the regex spelling below keeps the decl, but
+                # a parser that fails here usually fails on that too — say which
+                # declaration lost its type instead of dropping it in silence.
+                log.debug("extern-variable parse failed for %r in %s", decl, cfile, exc_info=True)
                 ext_vars = []
             if ext_vars:
                 name, type_str = ext_vars[0].name, ext_vars[0].type_str

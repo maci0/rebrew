@@ -299,7 +299,13 @@ def generate_data_json(
 
         try:
             data_entries = load_data_metadata(metadata_dir)
-        except OSError:
+        except OSError as exc:
+            # A degraded grid (every global back to "no status") must not be
+            # written as if it were the real one — say so, the way the binary
+            # load above does.
+            log.warning(
+                "Failed to load data metadata from %s; global STATUS omitted: %s", metadata_dir, exc
+            )
             data_entries = {}
         for (module, va), fields in data_entries.items():
             if not module_visible_to_target(module, cfg):
