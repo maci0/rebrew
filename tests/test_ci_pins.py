@@ -1149,6 +1149,37 @@ class TestCiPins:
         assert "shellcheck" in pre_commit_job
         assert pre_commit_job.index("shellcheck") < pre_commit_job.index("make check")
 
+    def test_pre_commit_job_skips_exactly_the_lint_jobs_hooks(self) -> None:
+        """``SKIP`` is a hand-written list; a renamed or new hook id makes it lie.
+
+        The pre-commit job runs ``make check`` with the lint job's hooks
+        skipped, because the lint job already runs the same commands. Two
+        failures come from the list drifting: a hook whose id is renamed
+        leaves the skip as a no-op and the pre-commit job silently duplicates
+        (or, with a missing extra installed, fails on) work the lint job owns,
+        and a hook added to the config that the lint job also covers never
+        gets skipped. Both are invisible in a green run, so the list is
+        pinned here: every id must exist, and it must be exactly the set the
+        lint job runs.
+        """
+        import yaml
+
+        skipped = {"ruff-check", "ruff-format", "mypy"}
+        ci = CI_YML.read_text(encoding="utf-8")
+        pre_commit_job = ci.split("\n  pre-commit:\n", 1)[1].split("\n  # Package build:", 1)[0]
+        match = re.search(r"(?m)^\s*SKIP: (?P<ids>[^\n#]+)$", pre_commit_job)
+        assert match is not None, "the pre-commit job no longer declares SKIP"
+        assert {name.strip() for name in match.group("ids").split(",")} == skipped
+
+        config = yaml.safe_load((ROOT / ".pre-commit-config.yaml").read_text(encoding="utf-8"))
+        ids = {hook["id"] for repo in config["repos"] for hook in repo["hooks"]}
+        assert not skipped - ids, f"SKIP names hooks the config no longer defines: {skipped - ids}"
+        # Every target the lint job runs is one of the skipped hooks, so the
+        # pre-commit job never re-runs a gate rather than dropping one.
+        lint_job = ci.split("\n  lint:\n", 1)[1].split("\n  test:\n", 1)[0]
+        for target in ("make lint", "make format-check", "make mypy"):
+            assert target in lint_job, target
+
     @pytest.mark.parametrize(
         "path",
         [
@@ -1189,9 +1220,9 @@ class TestCiPins:
 
 
 class TestCiAptInstall:
-    """One retrying helper for every apt step (nasm, shellcheck).
+    """One retrying helper for every apt step (nasm, shellcheck, jq).
 
-    Both packages come from apt mirrors that flake under load; an inlined
+    All three come from apt mirrors that flake under load; an inlined
     retry loop per job is how one of them ends up without a retry.
     """
 
@@ -1224,6 +1255,34 @@ class TestCiAptInstall:
             assert f"bash tools/ci_apt_install.sh {pkg}" in ci, pkg
         sync = SYNC_YML.read_text(encoding="utf-8")
         assert "bash tools/ci_apt_install.sh jq" in sync
+
+    def test_documented_packages_match_the_installed_ones(self) -> None:
+        """The helper's docstring and docs/CI.md must name what the jobs install.
+
+        A package added to a job without a line in the helper's header leaves
+        the next reader (and the next failure triage) believing the mirror
+        policy covers fewer host dependencies than it does; a package dropped
+        from a job leaves both documents promising a retry loop nothing calls.
+        The installed set is read from the workflows, not restated here.
+        """
+        installed = {
+            pkg
+            for path in (CI_YML, SYNC_YML)
+            for pkg in re.findall(
+                r"(?m)^ *bash tools/ci_apt_install\.sh (?P<pkgs>[^\n#]*)$",
+                path.read_text(encoding="utf-8"),
+            )
+            for pkg in pkg.split()
+        }
+        assert installed, "no ci_apt_install.sh call found in the workflows"
+        header = self.HELPER.read_text(encoding="utf-8").split("\n\n", 1)[0]
+        undocumented = sorted(pkg for pkg in installed if pkg not in header)
+        assert undocumented == [], f"tools/ci_apt_install.sh header omits {undocumented}"
+        docs = (ROOT / "docs" / "CI.md").read_text(encoding="utf-8")
+        assert "tools/ci_apt_install.sh" in docs
+        assert not [pkg for pkg in installed if pkg not in docs], (
+            "docs/CI.md does not name every package the jobs install"
+        )
 
     def test_install_is_skipped_when_the_binary_exists(self, tmp_path: Path) -> None:
         """A runner image that already ships the package needs no apt round trip."""

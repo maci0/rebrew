@@ -396,6 +396,23 @@
   project is (correctly) refused and the table stayed empty. The test now
   writes the cache through the project's own config, which is the contract it
   means to pin.
+- **The pre-commit job's `SKIP` list was unchecked against the hook config.**
+  `.github/workflows/ci.yml` skips `ruff-check,ruff-format,mypy` by hand so
+  the pre-commit job does not redo the lint job's work. A hook id renamed in
+  `.pre-commit-config.yaml` turned the skip into a no-op and the job
+  silently duplicated (or failed on) a gate, in green, with nothing pointing
+  at the cause.
+  `tests/test_ci_pins.py::TestCiPins::test_pre_commit_job_skips_exactly_the_lint_jobs_hooks`
+  now reads the hook ids out of the config and the targets out of the lint
+  job, so a stale or misspelled id fails the gate.
+- **The apt helper's docs named two of the three packages CI installs.**
+  `tools/ci_apt_install.sh` and `docs/CI.md` still described the helper as
+  covering nasm and shellcheck after the nightly drift gate added jq to it,
+  so a reader sizing a mirror-flake failure could miss a host dependency.
+  Both now name all three, and
+  `tests/test_ci_pins.py::TestCiAptInstall::test_documented_packages_match_the_installed_ones`
+  reads the installed set out of the workflows and fails when the helper
+  header or `docs/CI.md` omits one.
 - **`VTABLE` and `STRING` markers no longer fail the size check.**
   `Annotation.validate` exempted data markers by re-spelling a two-element
   subset of `DATA_MARKERS` instead of using it, so the two markers added

@@ -110,7 +110,7 @@ and `resembl-sha` with the commit that tag resolves to: the clone fails when
 the tag points anywhere else.  `make setup` checks the same commit
 (`RESEMBL_SHA` in the Makefile) so a local checkout on another commit fails
 before `uv sync`, with the checkout command, instead of diverging from CI.
-Both host packages the jobs install come from one helper,
+Every host package the jobs install comes from one helper,
 `tools/ci_apt_install.sh` (nasm for the asm round-trip tests, shellcheck for
 the pre-commit gate, jq for the nightly drift result gate): apt mirrors flake
 under load, so it retries update and
