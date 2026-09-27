@@ -36,6 +36,7 @@ from rebrew.cli import (
 from rebrew.intake import classify_all
 from rebrew.sources import (
     iter_sources,
+    target_marker,
 )
 
 app = typer.Typer(
@@ -59,7 +60,11 @@ _PROFILE_FAMILY: dict[str, str] = {
 def _documented_vas(src_dir: Path, cfg: Any) -> set[int]:
     """VAs already covered by a stub file or a FUNCTION/STUB marker."""
     documented: set[int] = set()
-    for _path, anns in iter_annotations(iter_sources(src_dir, cfg)):
+    for _path, anns in iter_annotations(
+        iter_sources(src_dir, cfg),
+        target=target_marker(cfg),
+        metadata_dir=cfg.metadata_dir,
+    ):
         for ann in anns:
             documented.add(ann["va"])
     # Intake's stub convention — also covers files the annotation parser

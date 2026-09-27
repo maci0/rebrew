@@ -39,8 +39,9 @@ def imports_payload(
     Combines :func:`parse_imports` with the ``jmp dword ptr [iat]`` stub map
     *stubs* (computed via :func:`find_import_stubs` when omitted) into the
     exact object ``rebrew imports --json`` prints: one record per imported API
-    with a hex ``iat_va`` string, and one stub record per detected import
-    thunk with a hex ``va`` string.  An unrecognized or unparseable binary
+    with a hex ``iat_va`` string and an ``ordinal`` (null when the import is by
+    name), and one stub record per detected import thunk with a hex ``va``
+    string.  An unrecognized or unparseable binary
     yields empty ``imports`` / ``stubs`` lists, never an exception.
     """
     if stubs is None:
@@ -52,6 +53,7 @@ def imports_payload(
                 "dll": i["dll"],
                 "name": i["name"],
                 "iat_va": f"0x{i['iat_va']:08x}",
+                "ordinal": i["ordinal"],
             }
             for i in parse_imports(binary_path)
         ],
