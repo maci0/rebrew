@@ -1,6 +1,22 @@
 ## [Unreleased]
 
-### Fixed
+### Added
+- **The ReVa MCP client takes a protocol, not `httpx.Client`.**
+  `rebrew.ghidra.client` and `rebrew.ghidra.commands` typed every `client=`
+  parameter as the concrete `httpx.Client`, so a consumer injecting a
+  stand-in (which the parameter and the README both invite) got no check on
+  the stand-in at all, and the only two HTTP clients in rebrew that agreed on
+  how to be faked were the recompile and decomp.me ones.  `McpHttpClient`
+  (with `McpResponse`) is the shape those functions call: `post` / `delete`,
+  and a reply carrying `status_code`, `headers`, `text`, `json()` and
+  `raise_for_status()`.  It is `runtime_checkable` like the other two
+  protocols, and an `httpx.Client` still satisfies it, so no caller changes.
+- **`ResidueError` is importable from `rebrew.errors`.** Every other public
+  error was re-exported from the one module a consumer is told to import
+  from; `ResidueError` needed a `rebrew.residue` import, which is what
+  `test_errors.py::test_every_public_error_is_importable_from_rebrew_errors`
+  had been failing on.
+
 - **`rebrew cfg effective` names every `REBREW_*` variable in the
   environment, not a seven-entry allowlist.** The `env_overrides` list was a
   hardcoded tuple of the knobs `load_config` reads, so a run driven by
@@ -23,25 +39,6 @@
   output, so the bad value is named where the rest of the configuration is
   resolved. `rebrew.utils.container_runtime` takes an optional value to
   validate a candidate without reading the process environment.
-
-### Added
-- **The ReVa MCP client takes a protocol, not `httpx.Client`.**
-  `rebrew.ghidra.client` and `rebrew.ghidra.commands` typed every `client=`
-  parameter as the concrete `httpx.Client`, so a consumer injecting a
-  stand-in (which the parameter and the README both invite) got no check on
-  the stand-in at all, and the only two HTTP clients in rebrew that agreed on
-  how to be faked were the recompile and decomp.me ones.  `McpHttpClient`
-  (with `McpResponse`) is the shape those functions call: `post` / `delete`,
-  and a reply carrying `status_code`, `headers`, `text`, `json()` and
-  `raise_for_status()`.  It is `runtime_checkable` like the other two
-  protocols, and an `httpx.Client` still satisfies it, so no caller changes.
-- **`ResidueError` is importable from `rebrew.errors`.** Every other public
-  error was re-exported from the one module a consumer is told to import
-  from; `ResidueError` needed a `rebrew.residue` import, which is what
-  `test_errors.py::test_every_public_error_is_importable_from_rebrew_errors`
-  had been failing on.
-
-### Fixed
 - **`REBREW_XVFB_AUTH` is documented.** The Xvfb cookie path rebrew writes
   next to `REBREW_XVFB_DISPLAY` was read by `rebrew.headless` and named in
   neither `docs/CONFIG.md` nor `.env.example`, so the env-doc gate failed.
@@ -88,75 +85,6 @@
   `BrokenPipeError` / `ConnectionResetError` a closing browser produces (not
   counted). The request id and request line are stamped per handler thread and
   reset each request. No `/api/*` JSON changed.
-
-### Changed
-- **Breaking:** **A dashboard request for a path the server does not serve
-  answers 404, not 405.** `Dashboard.handle` checked the method before the
-  path, so a `POST` to an endpoint that does not exist came back `405` with
-  `Allow: GET, HEAD`, advertising a resource the server has no route for. The
-  method check now runs only for a served path: anything outside the route set
-  is `404` with code `not_found` on every method, which is what the same path
-  already answered to a `GET`. A client branching on `code` sees
-  `method_not_allowed` become `not_found`, and a probe that read 405 as "wrong
-  method, retry as GET" no longer does.
-- **Breaking:** **A `/api/history` row's `old_status` / `new_status` are `""`,
-  never `null`.** A VA's first recorded transition has no previous status, and
-  the row went out as a JSON `null` in the middle of otherwise-string `cols` —
-  a client that null-checked `/api/functions` and read the history rows
-  positionally got a `TypeError` or a silent blank on one route and not the
-  next. Both columns are now `""`, like every other text column on the
-  functions, globals, and sections routes. The column positions and the
-  `cols` array shape are unchanged.
-- **Breaking:** **`resolve_msvc_toolchain` and `toolchain_link_candidates`
-  moved from `rebrew.utils` to `rebrew.toolchain`.** Both names were public
-  module-level functions of `rebrew.utils`; `rebrew init` and
-  `rebrew.config.load_config` now import them from `rebrew.toolchain`, which
-  owns the MSVC layout tables they read, and the old names are gone rather than
-  aliased. `from rebrew.utils import resolve_msvc_toolchain` raises
-  `ImportError` on upgrade; import it from `rebrew.toolchain` instead.
-  Resolution behavior is unchanged.
-- **Breaking:** **`REBREW_LLM_ALLOW_PROJECT_ENDPOINT` is parsed strictly.** The
-  opt-in that lets a `rebrew-project.toml` `[llm] endpoint` receive
-  `REBREW_LLM_API_KEY` read any non-empty value other than `0` as consent, so
-  `REBREW_LLM_ALLOW_PROJECT_ENDPOINT=y` granted the key and
-  `REBREW_LLM_ALLOW_PROJECT_ENDPOINT=off` granted it too. It now goes through
-  the shared `rebrew.config.parse_env_bool`: `1`/`true`/`yes`/`on` consent,
-  `0`/`false`/`no`/`off` refuse, empty or unset keeps the refusal, and any other
-  value raises `ConfigError` instead of reading as consent. An environment
-  already setting a value outside those spellings fails the run rather than
-  silently sending the key. The var also now appears by name in
-  `rebrew config`'s `env_overrides` list.
-- **The suite now gates the files the wheel ships.** A
-  `[tool.setuptools.package-data]` glob that stops matching (a moved skill
-  directory, a renamed template) dropped `AGENTS.md.template`, `PRINCIPLES.md`
-  and the `agent-skills/` tree from the artifact while `make test` stayed
-  green, because the suite runs from the source tree; the failure then landed
-  on a user's first `rebrew skills list` or `rebrew init`.
-  `tests/test_package_metadata.py` matches every non-`.py` file under
-  `src/rebrew` against the declared patterns, pins the three assets `rebrew
-  init` copies, and keeps `exclude-package-data` scoped to the subpackage
-  `AGENTS.md`. `rebrew init` now raises on a missing packaged asset instead of
-  rendering a project with no instructions and no skills.
-- **`rebrew match --seed-llm` no longer re-bills a prompt it already sent.**
-  `--watch` re-runs the whole match on every save, and a save that touches a
-  different function leaves the function under match byte-identical, so the
-  prompt was byte-identical too: each such rerun spent real tokens on an
-  answer already in hand. Identical prompts (endpoint, model, prompt version,
-  seed count, sanitized source) are now answered from a bounded in-process
-  cache, which costs no request slot and records no usage because nothing
-  was billed. Only non-empty answers are cached, so a refusal, a truncated
-  completion, or an endpoint that was down is asked again rather than
-  remembered.
-
-- **The README's library-usage section shows how to inject an HTTP client.**
-  `rebrew.recompile_client.compile_source` and `rebrew.decompme`'s upload
-  helpers take a `client=`, and `HttpClient` is the two-method shape they
-  call, so a consumer can test its own code against a fake instead of a live
-  compile service. That escape hatch was documented only in the two module
-  docstrings, and the two `HttpClient` protocols have the same name with
-  different signatures, so a consumer had no way to learn that one stand-in
-  taking `**kwargs` satisfies both. The quickstart now carries the fake, the
-  fields on `RecompileError`, and the `retries=` / `timeout=` knobs.
 
 ### Fixed
 - **The GA splice took a second, hand-written lock name for the metadata
@@ -423,6 +351,75 @@
   `binsync` extra through declib, so the SBOM's copyleft table and `NOTICE`
   both missed it and the declared inventory called a reciprocal-licensed
   component unattributed.
+
+### Changed
+- **Breaking:** **A dashboard request for a path the server does not serve
+  answers 404, not 405.** `Dashboard.handle` checked the method before the
+  path, so a `POST` to an endpoint that does not exist came back `405` with
+  `Allow: GET, HEAD`, advertising a resource the server has no route for. The
+  method check now runs only for a served path: anything outside the route set
+  is `404` with code `not_found` on every method, which is what the same path
+  already answered to a `GET`. A client branching on `code` sees
+  `method_not_allowed` become `not_found`, and a probe that read 405 as "wrong
+  method, retry as GET" no longer does.
+- **Breaking:** **A `/api/history` row's `old_status` / `new_status` are `""`,
+  never `null`.** A VA's first recorded transition has no previous status, and
+  the row went out as a JSON `null` in the middle of otherwise-string `cols` —
+  a client that null-checked `/api/functions` and read the history rows
+  positionally got a `TypeError` or a silent blank on one route and not the
+  next. Both columns are now `""`, like every other text column on the
+  functions, globals, and sections routes. The column positions and the
+  `cols` array shape are unchanged.
+- **Breaking:** **`resolve_msvc_toolchain` and `toolchain_link_candidates`
+  moved from `rebrew.utils` to `rebrew.toolchain`.** Both names were public
+  module-level functions of `rebrew.utils`; `rebrew init` and
+  `rebrew.config.load_config` now import them from `rebrew.toolchain`, which
+  owns the MSVC layout tables they read, and the old names are gone rather than
+  aliased. `from rebrew.utils import resolve_msvc_toolchain` raises
+  `ImportError` on upgrade; import it from `rebrew.toolchain` instead.
+  Resolution behavior is unchanged.
+- **Breaking:** **`REBREW_LLM_ALLOW_PROJECT_ENDPOINT` is parsed strictly.** The
+  opt-in that lets a `rebrew-project.toml` `[llm] endpoint` receive
+  `REBREW_LLM_API_KEY` read any non-empty value other than `0` as consent, so
+  `REBREW_LLM_ALLOW_PROJECT_ENDPOINT=y` granted the key and
+  `REBREW_LLM_ALLOW_PROJECT_ENDPOINT=off` granted it too. It now goes through
+  the shared `rebrew.config.parse_env_bool`: `1`/`true`/`yes`/`on` consent,
+  `0`/`false`/`no`/`off` refuse, empty or unset keeps the refusal, and any other
+  value raises `ConfigError` instead of reading as consent. An environment
+  already setting a value outside those spellings fails the run rather than
+  silently sending the key. The var also now appears by name in
+  `rebrew config`'s `env_overrides` list.
+- **The suite now gates the files the wheel ships.** A
+  `[tool.setuptools.package-data]` glob that stops matching (a moved skill
+  directory, a renamed template) dropped `AGENTS.md.template`, `PRINCIPLES.md`
+  and the `agent-skills/` tree from the artifact while `make test` stayed
+  green, because the suite runs from the source tree; the failure then landed
+  on a user's first `rebrew skills list` or `rebrew init`.
+  `tests/test_package_metadata.py` matches every non-`.py` file under
+  `src/rebrew` against the declared patterns, pins the three assets `rebrew
+  init` copies, and keeps `exclude-package-data` scoped to the subpackage
+  `AGENTS.md`. `rebrew init` now raises on a missing packaged asset instead of
+  rendering a project with no instructions and no skills.
+- **`rebrew match --seed-llm` no longer re-bills a prompt it already sent.**
+  `--watch` re-runs the whole match on every save, and a save that touches a
+  different function leaves the function under match byte-identical, so the
+  prompt was byte-identical too: each such rerun spent real tokens on an
+  answer already in hand. Identical prompts (endpoint, model, prompt version,
+  seed count, sanitized source) are now answered from a bounded in-process
+  cache, which costs no request slot and records no usage because nothing
+  was billed. Only non-empty answers are cached, so a refusal, a truncated
+  completion, or an endpoint that was down is asked again rather than
+  remembered.
+
+- **The README's library-usage section shows how to inject an HTTP client.**
+  `rebrew.recompile_client.compile_source` and `rebrew.decompme`'s upload
+  helpers take a `client=`, and `HttpClient` is the two-method shape they
+  call, so a consumer can test its own code against a fake instead of a live
+  compile service. That escape hatch was documented only in the two module
+  docstrings, and the two `HttpClient` protocols have the same name with
+  different signatures, so a consumer had no way to learn that one stand-in
+  taking `**kwargs` satisfies both. The quickstart now carries the fake, the
+  fields on `RecompileError`, and the `retries=` / `timeout=` knobs.
 
 ## [2.14.0] - 2026-09-27
 
