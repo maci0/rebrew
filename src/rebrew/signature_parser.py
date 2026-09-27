@@ -45,24 +45,34 @@ def _normalize_signature(sig: str) -> str:
     return sig.strip()
 
 
+def _parse_source(filepath: Path) -> tuple[bytes, str, Any] | None:
+    """Read and parse *filepath* into ``(code_bytes, encoding, root_node)``.
+
+    Returns None when tree-sitter is unavailable or the file cannot be read,
+    so every extractor fails the same way instead of one silently yielding.
+    """
+    result = get_ts_parser()
+    if result is None:
+        return None
+    parser, _ = result
+    try:
+        code_bytes = filepath.read_bytes()
+    except OSError:
+        return None
+    encoding = detect_source_encoding(code_bytes)
+    return code_bytes, encoding, parser.parse(code_bytes).root_node
+
+
 def extract_function_signatures(filepath: Path) -> Iterator[tuple[str, str]]:
     """Parse a C file using tree-sitter and yield (function_name, signature_string).
 
     Signatures are normalized (MSVC extensions stripped) for Ghidra CParser
     compatibility.  Returns empty if tree-sitter is unavailable or file unreadable.
     """
-    result = get_ts_parser()
-    if result is None:
+    parsed = _parse_source(filepath)
+    if parsed is None:
         return
-    parser, _ = result
-
-    try:
-        code_bytes = filepath.read_bytes()
-    except OSError:
-        return
-
-    encoding = detect_source_encoding(code_bytes)
-    tree = parser.parse(code_bytes)
+    code_bytes, encoding, root = parsed
 
     def get_function_name(node: Any) -> str | None:
         if node.type == "function_declarator":
@@ -111,7 +121,7 @@ def extract_function_signatures(filepath: Path) -> Iterator[tuple[str, str]]:
             for child in node.children:
                 yield from walk(child)
 
-    yield from walk(tree.root_node)
+    yield from walk(root)
 
 
 def extract_function_prototypes(filepath: Path) -> Iterator[str]:
@@ -123,16 +133,10 @@ def extract_function_prototypes(filepath: Path) -> Iterator[str]:
     walks ``function_definition`` nodes.  Normalized identically, so a
     prototype and a definition of the same function deduplicate by text.
     """
-    result = get_ts_parser()
-    if result is None:
+    parsed = _parse_source(filepath)
+    if parsed is None:
         return
-    parser, _ = result
-    try:
-        code_bytes = filepath.read_bytes()
-    except OSError:
-        return
-    encoding = detect_source_encoding(code_bytes)
-    tree = parser.parse(code_bytes)
+    code_bytes, encoding, root = parsed
 
     def _is_plain_prototype(node: Any) -> bool:
         """True when *node* is a declaration with a plain function
@@ -184,4 +188,4 @@ def extract_function_prototypes(filepath: Path) -> Iterator[str]:
         for child in getattr(node, "children", []):
             yield from walk(child)
 
-    yield from walk(tree.root_node)
+    yield from walk(root)

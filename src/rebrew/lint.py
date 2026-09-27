@@ -249,31 +249,6 @@ def _parse_multi_headers(lines: list[str]) -> list[tuple[dict[str, str], dict[st
     return results
 
 
-#: Inline metadata keys whose presence in a header block makes a file a
-#: ``lint --fix`` migration candidate (mirrors ``annotation.METADATA_KEYS``).
-_W019_MIGRATABLE_KEYS = frozenset(
-    {
-        "STATUS",
-        "ORIGIN",
-        "CFLAGS",
-        "SKIP",
-        "GLOBALS",
-        "BLOCKER",
-        "BLOCKER_DELTA",
-        "SOURCE",
-        "NOTE",
-        "SECTION",
-        "GHIDRA",
-        "SIZE",
-        "ANALYSIS",
-        "PROVE_CONSTRAINTS",
-        "TOOLCHAIN",
-        "LOCALS",
-        "COMMENTS",
-    }
-)
-
-
 def _w019_key_backed(
     key: str,
     block: tuple[str, str, int],
@@ -360,7 +335,7 @@ def count_migratable_files(src_dir: Path, cfg: Any) -> int:
                 continue
             block = (marker, module, int(va_hex, 16))
             for key, value in found_keys.items():
-                if key not in _W019_MIGRATABLE_KEYS:
+                if key not in METADATA_KEYS:
                     continue
                 if key == "SIZE":
                     continue

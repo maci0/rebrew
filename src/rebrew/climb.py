@@ -49,7 +49,7 @@ from rebrew.cli import (
     require_positive_size,
 )
 from rebrew.coff_reloc import build_name_to_va
-from rebrew.compile import compile_and_compare, matched_byte_count
+from rebrew.compile import CompareResult, compile_and_compare, matched_byte_count
 from rebrew.compile_overrides import resolve_compile_overrides
 from rebrew.config import ProjectConfig
 from rebrew.sources import target_marker
@@ -205,6 +205,40 @@ _SHORT_ADDEND_RE = re.compile(r"\[0x[0-9a-f]{1,5}\]")
 _AT_DECORATION_RE = re.compile(r"@\d+$")
 
 
+def _compile_candidate(
+    cfg: ProjectConfig,
+    path: Path,
+    symbol: str,
+    target_bytes: bytes,
+    cflags: str,
+    name_to_va: dict[str, int],
+    section_va: int,
+    toolchain: str | None,
+) -> tuple[bytes, CompareResult, int] | None:
+    """Compile *path* into ``(obj_bytes, comparison, object's real length)``.
+
+    None when the candidate does not compile.  Both scorers share this call
+    so they cannot drift into scoring two different compile inputs.
+    """
+    result = compile_and_compare(
+        cfg,
+        path,
+        symbol,
+        target_bytes,
+        cflags,
+        name_to_va=name_to_va,
+        section_va=section_va,
+        toolchain=toolchain,
+    )
+    obj_bytes = result.obj_bytes
+    if obj_bytes is None:
+        return None
+    # The longer side is truncated before comparison, so ``obj_bytes`` is not
+    # the object's real length on a size mismatch; ``full_obj_size`` is.
+    obj_len = result.full_obj_size if result.full_obj_size is not None else len(obj_bytes)
+    return obj_bytes, result, obj_len
+
+
 def _score(
     cfg: ProjectConfig,
     path: Path,
@@ -228,7 +262,7 @@ def _score(
     more of a growing common prefix while walking away from the target's
     length.  ``_within_size_budget`` is what refuses those.
     """
-    result = compile_and_compare(
+    candidate = _compile_candidate(
         cfg,
         path,
         symbol,
@@ -238,15 +272,13 @@ def _score(
         section_va=section_va,
         toolchain=toolchain,
     )
-    if result.obj_bytes is None:
+    if candidate is None:
         return -1.0, 0
-    # The longer side is truncated before comparison, so ``obj_bytes`` is not
-    # the object's real length on a size mismatch; ``full_obj_size`` is.
+    obj_bytes, result, obj_len = candidate
     # Prefer ``result.match_count`` (integer from classify) over reconstructing
     # from the float percent — a rounded percent invents/drops a byte on
     # multi-KiB functions.
-    obj_len = result.full_obj_size if result.full_obj_size is not None else len(result.obj_bytes)
-    compared = len(result.obj_bytes)
+    compared = len(obj_bytes)
     total = max(len(target_bytes), compared)
     return (
         float(
@@ -291,7 +323,7 @@ def _score_aligned(
     clear of the ``-1.0`` no-compile result.  Counting *bytes* instead let one long instruction outweigh two
     short ones: 1886 -> 2004 aligned bytes was worth only 740 -> 743 pairs.
     """
-    result = compile_and_compare(
+    candidate = _compile_candidate(
         cfg,
         path,
         symbol,
@@ -301,9 +333,9 @@ def _score_aligned(
         section_va=section_va,
         toolchain=toolchain,
     )
-    if result.obj_bytes is None:
+    if candidate is None:
         return -1.0, 0
-    obj_len = result.full_obj_size if result.full_obj_size is not None else len(result.obj_bytes)
+    obj_bytes, result, obj_len = candidate
     from rebrew.analysis import Insn, disasm_insns
 
     arch = getattr(cfg, "capstone_arch", "CS_ARCH_X86")
@@ -323,13 +355,13 @@ def _score_aligned(
         text = text.replace("[0]", "[g]")
         return _SHORT_ADDEND_RE.sub("[g]", text).strip()
 
-    compiled = disasm_insns(result.obj_bytes, section_va, arch, mode)
+    compiled_insns = disasm_insns(obj_bytes, section_va, arch, mode)
     target = disasm_insns(target_bytes, section_va, arch, mode)
     # autojunk=False: difflib's default drops "popular" elements, which on a
     # 1000-instruction stream collapses the alignment (523 pairs against the
     # 740 the same streams pair with the heuristic off).
     aligner = difflib.SequenceMatcher(
-        a=[text(i) for i in compiled], b=[text(i) for i in target], autojunk=False
+        a=[text(i) for i in compiled_insns], b=[text(i) for i in target], autojunk=False
     )
     pairs = sum(block.size for block in aligner.get_matching_blocks())
     hunks = sum(1 for op in aligner.get_opcodes() if op[0] != "equal")
