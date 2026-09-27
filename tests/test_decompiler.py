@@ -2,6 +2,8 @@
 
 import importlib.util
 import subprocess
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -1332,6 +1334,44 @@ class TestReSessionReuse:
         finally:
             dc._clear_re_projects()
         assert len([c for c in calls if "Ps" in c[3]]) == 3
+
+    def test_concurrent_callers_share_one_analysis(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Parallel decompiles of one binary must not each run a full aaa.
+
+        Batch skeleton and name-decomp fan out over worker threads; without a
+        singleflight every one of them ran its own multi-minute analysis and
+        built its own full rizin database for the same answer.
+        """
+        import rebrew.decompiler as dc
+
+        calls, binary = self._setup(tmp_path, monkeypatch)
+        entered = threading.Event()
+        release = threading.Event()
+        real_init = dc._re_init_project
+
+        def slow_init(b: Path, tool: str, root: Path) -> str | None:
+            entered.set()
+            assert release.wait(10), "analysis gate never released"
+            return real_init(b, tool, root)
+
+        monkeypatch.setattr(dc, "_re_init_project", slow_init)
+        results: list[str | None] = []
+        try:
+            with ThreadPoolExecutor(max_workers=4) as pool:
+                futures = [
+                    pool.submit(dc._run_re, binary, 0x1000 + 0x100 * i, "pdg", tmp_path)
+                    for i in range(4)
+                ]
+                assert entered.wait(10), "no caller started the analysis"
+                release.set()
+                results = [f.result(timeout=30) for f in futures]
+        finally:
+            dc._clear_re_projects()
+        assert results == ["int f(void) {}"] * 4
+        assert len([c for c in calls if "Ps" in c[3]]) == 1
+        assert len([c for c in calls if "-p" in c]) == 4
 
 
 class TestReToolDigestInvalidation:

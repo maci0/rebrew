@@ -481,6 +481,32 @@ class TestCompileViaRecompile:
         compile_mod._close_recompile_client()
         assert sorted(closed) == [10.0, 20.0]
 
+    def test_client_pool_is_bounded_by_lru_cap(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A process walking many project roots must not keep a connection
+        pool per distinct ``compile_timeout`` — the socket exhaustion the
+        shared client exists to prevent."""
+        import httpx
+
+        class _Closable:
+            def __init__(self, timeout: float) -> None:
+                self.timeout = timeout
+
+            def close(self) -> None: ...
+
+        monkeypatch.setattr(compile_mod, "_RECOMPILE_CLIENTS_MAX", 2)
+        monkeypatch.setattr(compile_mod, "_recompile_clients", {})
+        monkeypatch.setattr(httpx, "Client", lambda timeout: _Closable(timeout))
+        first = compile_mod._shared_recompile_client(10.0)
+        second = compile_mod._shared_recompile_client(20.0)
+        # Refresh the first so the *second* is the eviction victim.
+        assert compile_mod._shared_recompile_client(10.0) is first
+        third = compile_mod._shared_recompile_client(30.0)
+        assert sorted(compile_mod._recompile_clients) == [10.0, 30.0]
+        # An evicted client is dropped, not closed: another thread may still be
+        # mid-request on it.
+        assert compile_mod._shared_recompile_client(20.0) is not second
+        assert compile_mod._shared_recompile_client(30.0) is third
+
     def test_service_failure_returns_the_log(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

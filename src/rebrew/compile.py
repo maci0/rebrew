@@ -1084,10 +1084,16 @@ def recompile_url(cfg: ProjectConfig) -> str | None:
 
 
 _recompile_client_lock = threading.Lock()
-#: One pooled client per request timeout.  Never closed before exit: another
-#: thread may still be mid-request on it.  Keyed by timeout, so entries are
-#: bounded by the distinct ``compile_timeout`` values a process sees.
+#: One pooled client per request timeout, in LRU order.  Eviction drops the
+#: victim's last reference rather than closing it: another thread may still be
+#: mid-request on it, and an ``httpx.Client`` closes its pool when the object
+#: is finally collected.
 _recompile_clients: dict[float, Any] = {}
+#: Cap on live clients.  One per distinct timeout was treated as self-bounding,
+#: but the timeout is a project config value, so a long-lived process walking
+#: many project roots grew one keep-alive connection pool per root, which is
+#: the socket exhaustion this map exists to prevent.
+_RECOMPILE_CLIENTS_MAX = 4
 
 
 def _shared_recompile_client(timeout: float) -> Any:
@@ -1102,10 +1108,14 @@ def _shared_recompile_client(timeout: float) -> Any:
     import httpx
 
     with _recompile_client_lock:
-        client = _recompile_clients.get(timeout)
-        if client is None:
-            client = httpx.Client(timeout=timeout)
-            _recompile_clients[timeout] = client
+        client = _recompile_clients.pop(timeout, None)
+        if client is not None:
+            _recompile_clients[timeout] = client  # refresh LRU order
+            return client
+        while len(_recompile_clients) >= _RECOMPILE_CLIENTS_MAX:
+            _recompile_clients.pop(next(iter(_recompile_clients)))
+        client = httpx.Client(timeout=timeout)
+        _recompile_clients[timeout] = client
         return client
 
 

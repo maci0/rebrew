@@ -80,6 +80,13 @@ def _find_re_tool() -> str | None:
 
 _ALLOWED_RE_CMDS = frozenset({"pdg", "pdd"})
 
+#: Wall-clock cap for one ``aaa`` analysis (:func:`_re_init_project`).
+_RE_ANALYSIS_TIMEOUT_S = 300
+#: How long a caller waits on another caller's in-flight analysis before
+#: giving up the wait and trying for the key itself.  Matches the analysis
+#: timeout plus slack so a healthy leader is always awaited to completion.
+_RE_ANALYSIS_WAIT_S = _RE_ANALYSIS_TIMEOUT_S + 30
+
 #: Per-process rizin/radare2 project dirs, keyed by
 #: ``(resolved binary path, tool)``.  The first ``_run_re`` call for a binary
 #: pays the full ``aaa`` analysis (the 120s timeout exists for that), then
@@ -88,12 +95,17 @@ _ALLOWED_RE_CMDS = frozenset({"pdg", "pdd"})
 #: function.  Entries are removed when the project export fails or the tool
 #: vanishes, so a later call retries from scratch.
 #: Guarded: concurrent callers (batch skeleton / name-decomp) must not both
-#: miss, both spawn ``aaa``, and both publish — that orphans one mkdtemp dir.
+#: miss and both spawn ``aaa``.  A double-check on publish alone still let two
+#: racers each run a full multi-minute analysis and each build a full rizin DB
+#: for the same binary; :data:`_RE_PROJECT_INFLIGHT` collapses them to one.
 #: Cap keeps a long-lived process from retaining one full rizin DB per binary
 #: touched across a multi-target session; eviction rmtree's the dir.
 _RE_PROJECT_DIRS: dict[tuple[str, str], str] = {}
 _RE_PROJECT_DIRS_MAX = 8
 _RE_PROJECT_DIRS_LOCK = threading.Lock()
+#: Per-key singleflight for the ``aaa`` run.  Entries are removed in a
+#: ``finally``, so a failed analysis does not wedge the key for the process.
+_RE_PROJECT_INFLIGHT: dict[tuple[str, str], threading.Event] = {}
 #: atexit sweep armed once, with the first cached project dir (registering at
 #: import would run work at module load before any dir exists).
 _RE_PROJECT_ATEXIT_REGISTERED = False
@@ -160,7 +172,7 @@ def _re_init_project(binary: Path, tool: str, root: Path) -> str | None:
             encoding="utf-8",
             errors="replace",
             cwd=root,
-            timeout=300,
+            timeout=_RE_ANALYSIS_TIMEOUT_S,
         )
     except subprocess.TimeoutExpired:
         warnings.warn(f"{tool} timed out analyzing {binary.name}", stacklevel=3)
@@ -214,44 +226,70 @@ def _re_cached_digest_ok(proj_dir: str, tool: str, binary: Path | None = None) -
 
 
 def _re_cached_project(binary: Path, tool: str, root: Path) -> str | None:
-    """Return the analyzed project dir for (*binary*, *tool*), creating it once."""
-    key = _re_project_key(binary, tool)
-    with _RE_PROJECT_DIRS_LOCK:
-        cached = _RE_PROJECT_DIRS.get(key)
-        if cached is not None:
-            if _re_cached_digest_ok(cached, tool, binary):
-                return cached
-            # A tool upgrade invalidates the analysis; remove the old project dir
-            # (a full rizin database) instead of orphaning it — only the entries
-            # still in the map get cleaned at exit.
-            shutil.rmtree(cached, ignore_errors=True)
-            del _RE_PROJECT_DIRS[key]
+    """Return the analyzed project dir for (*binary*, *tool*), creating it once.
 
-    # Analyze outside the lock: ``aaa`` can take minutes, and holding the lock
-    # would stall every other binary's decompile for the duration.  Publish
-    # under the lock with a double-check so two racers don't both keep a dir.
-    proj_dir = _re_init_project(binary, tool, root)
-    if proj_dir is None:
-        return None
-    with _RE_PROJECT_DIRS_LOCK:
-        existing = _RE_PROJECT_DIRS.get(key)
-        if existing is not None and _re_cached_digest_ok(existing, tool, binary):
-            shutil.rmtree(proj_dir, ignore_errors=True)
-            return existing
-        if existing is not None:
-            shutil.rmtree(existing, ignore_errors=True)
-        # Evict oldest insertion when at capacity so batch decomp of many
-        # binaries does not retain every analysis DB until process exit.
-        while key not in _RE_PROJECT_DIRS and len(_RE_PROJECT_DIRS) >= _RE_PROJECT_DIRS_MAX:
-            oldest_key = next(iter(_RE_PROJECT_DIRS))
-            old_dir = _RE_PROJECT_DIRS.pop(oldest_key)
-            shutil.rmtree(old_dir, ignore_errors=True)
-        _RE_PROJECT_DIRS[key] = proj_dir
-        global _RE_PROJECT_ATEXIT_REGISTERED
-        if not _RE_PROJECT_ATEXIT_REGISTERED:
-            atexit.register(_clear_re_projects)
-            _RE_PROJECT_ATEXIT_REGISTERED = True
-        return proj_dir
+    Singleflight per key: the first caller for a binary runs ``aaa`` (up to
+    300 s) while the others wait on its event and then take the published dir.
+    Without it every concurrent caller of the same binary — batch skeleton and
+    name-decomp both fan out over worker threads — ran its own full analysis
+    and built its own full rizin database, N times the CPU and disk for one
+    answer.
+    """
+    key = _re_project_key(binary, tool)
+    while True:
+        with _RE_PROJECT_DIRS_LOCK:
+            cached = _RE_PROJECT_DIRS.get(key)
+            if cached is not None:
+                if _re_cached_digest_ok(cached, tool, binary):
+                    return cached
+                # A tool upgrade invalidates the analysis; remove the old project dir
+                # (a full rizin database) instead of orphaning it — only the entries
+                # still in the map get cleaned at exit.
+                shutil.rmtree(cached, ignore_errors=True)
+                del _RE_PROJECT_DIRS[key]
+            leader = key not in _RE_PROJECT_INFLIGHT
+            event = _RE_PROJECT_INFLIGHT.setdefault(key, threading.Event())
+
+        if not leader:
+            # A leader is already running ``aaa`` for this key.  Wait for it
+            # (bounded by the same 300 s the analysis itself gets) and take
+            # whatever it published; a failed analysis publishes nothing and
+            # the waiter loops round to try for itself.
+            event.wait(_RE_ANALYSIS_WAIT_S)
+            continue
+
+        try:
+            # Analyze outside the lock: ``aaa`` can take minutes, and holding
+            # the lock would stall every other binary's decompile for the
+            # duration.  The singleflight claim above is what keeps two callers
+            # off ``aaa``; the double-check below still guards a dir published
+            # while this one was starting.
+            proj_dir = _re_init_project(binary, tool, root)
+            if proj_dir is None:
+                return None
+            with _RE_PROJECT_DIRS_LOCK:
+                existing = _RE_PROJECT_DIRS.get(key)
+                if existing is not None and _re_cached_digest_ok(existing, tool, binary):
+                    shutil.rmtree(proj_dir, ignore_errors=True)
+                    return existing
+                if existing is not None:
+                    shutil.rmtree(existing, ignore_errors=True)
+                # Evict oldest insertion when at capacity so batch decomp of many
+                # binaries does not retain every analysis DB until process exit.
+                while key not in _RE_PROJECT_DIRS and len(_RE_PROJECT_DIRS) >= _RE_PROJECT_DIRS_MAX:
+                    oldest_key = next(iter(_RE_PROJECT_DIRS))
+                    old_dir = _RE_PROJECT_DIRS.pop(oldest_key)
+                    shutil.rmtree(old_dir, ignore_errors=True)
+                _RE_PROJECT_DIRS[key] = proj_dir
+                global _RE_PROJECT_ATEXIT_REGISTERED
+                if not _RE_PROJECT_ATEXIT_REGISTERED:
+                    atexit.register(_clear_re_projects)
+                    _RE_PROJECT_ATEXIT_REGISTERED = True
+                return proj_dir
+        finally:
+            with _RE_PROJECT_DIRS_LOCK:
+                _RE_PROJECT_INFLIGHT.pop(key, None)
+            event.set()
 
 
 def _re_drop_project(binary: Path, tool: str) -> None:
@@ -266,10 +304,21 @@ def _re_drop_project(binary: Path, tool: str) -> None:
 
 
 def _clear_re_projects() -> None:
-    """Remove every cached rizin/radare2 project dir (test hook + atexit)."""
+    """Remove every cached rizin/radare2 project dir (test hook + atexit).
+
+    Wakes any caller waiting on an in-flight singleflight so a forced clear
+    (or an atexit sweep) cannot leave a waiter blocked for the full analysis
+    timeout on a project that no longer exists.
+    """
     with _RE_PROJECT_DIRS_LOCK:
         dirs = list(_RE_PROJECT_DIRS.values())
         _RE_PROJECT_DIRS.clear()
+        events = list(_RE_PROJECT_INFLIGHT.values())
+        # Drop the claims too: a waiter that woke onto a still-registered key
+        # would re-arm as a waiter and spin on an already-set event.
+        _RE_PROJECT_INFLIGHT.clear()
+    for event in events:
+        event.set()
     for proj_dir in dirs:
         shutil.rmtree(proj_dir, ignore_errors=True)
 
