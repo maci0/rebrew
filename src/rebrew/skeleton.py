@@ -1183,7 +1183,7 @@ def _run_append_mode(
         _write_skeleton_metadata(cfg, va_int, size, module_val)
 
     rel_path_val = rel_display_path(append_path, root)
-    symbol_val = "_" + name if name else "_" + sanitize_name(ghidra_name)
+    symbol_val = "_" + sanitize_name(name if name else ghidra_name)
     if not dry_run:
         console.print(f"[bold green]APPENDED[/] to {rel_path_val}:")
     console.print(f"  VA:     [cyan]0x{va_int:08x}[/]")
@@ -1274,7 +1274,7 @@ def _run_single_va_mode(
         _write_skeleton_metadata(cfg, va_int, size, module_val)
 
     # Compute test commands
-    symbol_val = "_" + name if name else "_" + sanitize_name(ghidra_name)
+    symbol_val = "_" + sanitize_name(name if name else ghidra_name)
     test_cmd = generate_test_command(str(rel_path_val), symbol_val, va_int, size)
     diff_cmd = generate_diff_command(str(rel_path_val))
 

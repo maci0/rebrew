@@ -511,7 +511,10 @@ def mutate_code(
                     )
                 continue
             if new_body and new_body != body:
-                new_source = preamble + "\n" + new_body
+                # The separator belongs to the split, not to the source: a
+                # source with no preamble line rejoins without it, matching
+                # body_offset above.
+                new_source = preamble + "\n" + new_body if preamble else new_body
                 if quick_validate(new_source):
                     if track_mutation:
                         return new_source, mut_func.__name__

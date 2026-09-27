@@ -49,6 +49,48 @@
   measured 640-byte-per-response header reserve, so an added entry asset pays
   for its own headers. `docs/PERFORMANCE.md` carries the current measured
   shell, client, and guard sizes.
+- **A 4-column `afl` line with a 0x-prefixed size parses correctly.** The
+  4-column layout was selected by `p[2].isdecimal()`, so a hex size fell
+  through to the 3-column branch: the offset column was read as the size and
+  the size column as the function name (`0x1000 0x2000 0x20 func_a` became
+  `(0x1000, 0x2000, "0x20")`). The layout is now picked by whether `p[2]`
+  parses as a number, in either radix.
+- **`rebrew skeleton --name` reports the symbol that was actually emitted.**
+  The generated function name goes through `sanitize_name`, but the printed
+  `Symbol:`, the `symbol` JSON field, and the suggested `rebrew test
+  --symbol` used the raw `--name`, so `--name my-func` produced `--symbol
+  _my-func`, which resolves to no symbol in the object. Both single-VA and
+  append modes now report the sanitized spelling, as batch mode already did.
+- **`round-trip --fix-blocker` records a size mismatch as a delta.** The
+  object buffer is clipped to the target length before the blocker delta is
+  computed, so the length term was always zero and an over-long candidate
+  whose prefix matched was written as `delta = 0`. The pre-clipping length is
+  now threaded through, matching what `test` already does.
+- **`link.tsaware` sets or clears one bit of `dll_characteristics`.** It
+  wrote the whole word: `tsaware = false` produced `0` and dropped
+  `DYNAMIC_BASE`, `NX_COMPAT`, and `HIGH_ENTROPY_VA` from the rebuilt PE, and
+  `tsaware = true` replaced the word with `0x8000`. The original binary's
+  value is now the base and only `0x8000` is set or cleared.
+- **An NE binary is detected as 16-bit x86 even when a stronger backend
+  already named the family.** `info.arch = "x86_16"` sat inside the
+  `family == "unknown"` branch, so an NE Delphi binary identified by DIE or a
+  PDB kept `arch = ""`; `profile_matches_detection` then accepted a 32-bit
+  profile and `suggest_profile` offered one. The MZ branch already applied
+  the arch unconditionally.
+- **Include search order survives the case-insensitive header fallback.**
+  `_find_in_dirs` ran every exact match across all directories first and only
+  then the case-folded scan, so a later `-I` directory's exact hit outranked
+  an earlier one's case-folded hit and the header fingerprint tracked the file
+  wine never reads. The fallback now runs per directory.
+- **`mutate_code` no longer prepends a blank line to a preamble-less
+  source.** The reconstruction joined `preamble + "\n" + body` unconditionally
+  while the scope offset guard already special-cased the empty preamble, so
+  the returned source and the offset mutations were told about disagreed by
+  one byte.
+- **`code_similarity` no longer scores two undecodable buffers as 100.0.**
+  With neither side decoding to instructions the old ternary returned the
+  perfect score; the byte-equality fast path above had already returned, so
+  reaching that point proves the bytes differ.
 - **`gen-link-stubs` no longer throws away a calibrated BSS tail.**
   `calibrate-bss` tunes `g_bss_tail[<size>]` in the generated TU and leaves
   it there; regenerating the TU reset it to the `0x400000` placeholder, so

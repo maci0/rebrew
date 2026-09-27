@@ -201,6 +201,12 @@ _ARCH_PRESETS: dict[str, _ArchPreset] = {
 }
 
 
+#: IMAGE_DLLCHARACTERISTICS_TERMINAL_SERVER_AWARE, the one bit ``link.tsaware``
+#: owns.  Every other bit of DllCharacteristics (DYNAMIC_BASE, NX_COMPAT, ...)
+#: belongs to the original binary and must survive the patch.
+_TSAWARE_BIT = 0x8000
+
+
 @dataclass
 class LinkConfig:
     """Declarative linker settings for byte-identical PE reconstruction.
@@ -215,7 +221,7 @@ class LinkConfig:
     file_align: int | None = None
     stack_reserve: int | None = None
     stack_commit: int | None = None
-    tsaware: bool | None = None  # sets 0x8000 in dll_characteristics
+    tsaware: bool | None = None  # sets or clears _TSAWARE_BIT in dll_characteristics
     linker_version: str | None = None  # e.g. "5.12"
     os_version: str | None = None  # e.g. "5.0"
     subsystem_version: str | None = None  # e.g. "4.0"
@@ -244,8 +250,15 @@ class LinkConfig:
             )
             return None
 
-    def to_patch_fields(self) -> dict[str, int]:
-        """Map configured values to pe_headers field labels (empty if unset)."""
+    def to_patch_fields(self, original_fields: Mapping[str, int] | None = None) -> dict[str, int]:
+        """Map configured values to pe_headers field labels (empty if unset).
+
+        *original_fields* are the target's current header values.  They are
+        needed only by the bit-flag ``tsaware`` setting, which sets or clears
+        one bit of ``dll_characteristics`` rather than replacing the word: a
+        target carrying ``DYNAMIC_BASE`` / ``NX_COMPAT`` keeps them either way.
+        Without them the existing word is assumed to be 0.
+        """
         fields: dict[str, int] = {}
         vp = self._version_pair("linker_version", self.linker_version)
         if vp is not None:
@@ -258,7 +271,10 @@ class LinkConfig:
             if vp is not None:
                 fields[f"{label}_major"], fields[f"{label}_minor"] = vp
         if self.tsaware is not None:
-            fields["dll_characteristics"] = 0x8000 if self.tsaware else 0
+            current = (original_fields or {}).get("dll_characteristics", 0)
+            fields["dll_characteristics"] = (
+                current | _TSAWARE_BIT if self.tsaware else current & ~_TSAWARE_BIT
+            )
         if self.stack_reserve is not None:
             fields["stack_reserve"] = self.stack_reserve
         if self.stack_commit is not None:
