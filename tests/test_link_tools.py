@@ -7,6 +7,7 @@ import struct
 from pathlib import Path
 
 import pytest
+from typer.testing import Result
 
 from rebrew.calibrate_bss import find_link_cmd, read_data_vs
 from rebrew.gen_layout import gen_data_restore
@@ -248,3 +249,65 @@ def test_find_link_cmd(tmp_path: Path) -> None:
     assert target_dir == build
     assert "/out:{out}" in tpl and "/pdb:{out}.pdb" in tpl
     assert "{options}" in tpl
+
+
+# ---------------------------------------------------------------------------
+# order-sources CLI
+# ---------------------------------------------------------------------------
+
+
+class TestOrderSourcesCli:
+    """The command's own argument gate: a malformed --first-va must name the
+    problem and exit, not reach int("", 0) and leak a raw ValueError."""
+
+    @staticmethod
+    def _run(*args: str) -> Result:
+        from typer.testing import CliRunner
+
+        from rebrew import order_sources as mod
+
+        return CliRunner().invoke(mod.app, list(args))
+
+    def test_prints_ordered_files(self, tmp_path: Path) -> None:
+        lo = _mk_src(tmp_path, "b.c", 0x10001000)
+        hi = _mk_src(tmp_path, "a.c", 0x10003000)
+        result = self._run(str(hi), str(lo))
+        assert result.exit_code == 0
+        assert result.stdout.split() == [str(lo), str(hi)]
+
+    def test_json_orders_and_reports_excluded(self, tmp_path: Path) -> None:
+        import json
+
+        lo = _mk_src(tmp_path, "b.c", 0x10001000)
+        dead = _mk_src(tmp_path, "dead.c", None)
+        result = self._run("--json", "--exclude", "dead.c", str(dead), str(lo))
+        assert result.exit_code == 0
+        payload = json.loads(result.stdout)
+        assert payload["ordered"] == [str(lo)]
+        assert payload["excluded"] == ["dead.c"]
+
+    def test_first_va_table_orders_a_markerless_file(self, tmp_path: Path) -> None:
+        zlib = _mk_src(tmp_path, "zlib.c", None)
+        game = _mk_src(tmp_path, "game.c", 0x10002000)
+        result = self._run("--json", "--first-va", "zlib.c=0x10001000", str(game), str(zlib))
+        assert result.exit_code == 0
+        import json
+
+        assert json.loads(result.stdout)["ordered"] == [str(zlib), str(game)]
+
+    @pytest.mark.parametrize("entry", ["zlib.c", "=0x1000", "zlib.c=", "zlib.c=0xzz"])
+    def test_malformed_first_va_exits_with_the_offending_value(
+        self, tmp_path: Path, entry: str
+    ) -> None:
+        src = _mk_src(tmp_path, "a.c", 0x1000)
+        result = self._run("--first-va", entry, str(src))
+        assert result.exit_code == 2  # EXIT_ERROR
+        assert entry in result.stderr
+
+    def test_malformed_first_va_is_json_when_json_is_requested(self, tmp_path: Path) -> None:
+        import json
+
+        src = _mk_src(tmp_path, "a.c", 0x1000)
+        result = self._run("--json", "--first-va", "nope", str(src))
+        assert result.exit_code != 0
+        assert "nope" in json.loads(result.stdout)["error"]

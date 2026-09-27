@@ -1,11 +1,11 @@
 """refactor.py — Provide refactoring recommendations for the rebrew codebase.
 
-This tool scans the source tree and emits high‑level suggestions such as:
+This tool scans the source tree and emits high-level suggestions such as:
 * extracting duplicated code into utilities,
 * splitting overly large modules,
 * adding missing type hints,
 * converting repetitive loops to comprehensions or parallel execution,
-* and noting places where a new sub‑command or skill could be introduced.
+* and noting places where a new sub-command or skill could be introduced.
 
 It is intentionally lightweight — its purpose is to give maintainers a quick
 starting point for refactoring efforts, not to enforce strict rules.
@@ -89,7 +89,7 @@ def _make_suggestions(
         suggestions.append("Add `from __future__ import annotations` and complete type hints.")
     if for_loops > 10:
         suggestions.append(
-            "Many for‑loops detected – review for vectorisation or parallel execution opportunities."
+            "Many for-loops detected – review for vectorisation or parallel execution opportunities."
         )
     if while_loops > 5:
         suggestions.append(
@@ -105,7 +105,7 @@ def main(
     root: Path | None = typer.Option(
         None,
         "--root",
-        help="Project root directory (auto‑detected from rebrew-project.toml if omitted)",
+        help="Project root directory (auto-detected from rebrew-project.toml if omitted)",
     ),
     min_lines: int = typer.Option(
         200,

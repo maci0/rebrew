@@ -477,6 +477,7 @@ files = [
     "tests/test_project_toml_example.py",
     "tests/test_public_surface.py",
     "tests/test_reccmp_adaptations.py",
+    "tests/test_refactor.py",
     "tests/test_render_skills.py",
     "tests/test_resource.py",
     "tests/test_security_scan.py",
