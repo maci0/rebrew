@@ -13,8 +13,6 @@ import sqlite3
 from collections.abc import Iterator
 from pathlib import Path
 
-from rebrew.utils import file_handle_lock
-
 #: Busy-wait budget for read-only opens (matches build_db / dashboard).
 _SQLITE_TIMEOUT_SECONDS = 30.0
 
@@ -152,6 +150,11 @@ def coverage_db_lock(path: Path, *, shared: bool = False) -> Iterator[None]:
             yield
             return
         raise
+    # Imported here, not at module scope: rebrew.utils pulls tomlkit and rich,
+    # and importing this module must stay free of that stack
+    # (test_workspace_public_api::test_submodules_import_without_rebrew_stack).
+    from rebrew.utils import file_handle_lock
+
     with lock_fh, file_handle_lock(lock_fh, shared=shared):
         yield
 

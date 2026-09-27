@@ -144,3 +144,25 @@ class TestHierarchyCoverage:
             "these exception types are unreachable via `except RebrewError`; "
             f"add RebrewError as a base: {orphans}"
         )
+
+    def test_every_public_error_is_importable_from_rebrew_errors(self) -> None:
+        """``rebrew.errors`` is the one import point for the concrete types.
+
+        A consumer catching a specific failure should not have to know which
+        submodule defines which error.
+        """
+        import importlib
+
+        import rebrew.errors as err_mod
+
+        defined = {node.name for _, node in _exception_classes()}
+        exported = set(err_mod._LAZY_ERRORS)
+        assert not sorted(defined - exported), (
+            "these error types are not re-exported from rebrew.errors: "
+            f"{sorted(defined - exported)}"
+        )
+
+        for name, (module_name, attr) in err_mod._LAZY_ERRORS.items():
+            cls = getattr(err_mod, name)
+            assert cls is getattr(importlib.import_module(module_name), attr)
+            assert issubclass(cls, RebrewError)
