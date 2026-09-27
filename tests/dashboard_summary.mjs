@@ -126,7 +126,7 @@ assert.equal(retryResponse.path, failed.path);
 assert.equal(element("retry-functions").hidden, true);
 retryResponse.resolve({
   ok: true,
-  json: async () => ({ count: 1, total: 1, functions: [{ va: "0x1", name: "win" }] }),
+  json: async () => ({ count: 1, total: 1, functions: [["0x1", "win", "", 0, "", "", ""]] }),
 });
 await retried;
 assert.equal(element("dashboard-error").hidden, true);
@@ -155,7 +155,7 @@ const retryGrowResponse = pending.shift();
 assert.equal(retryGrowResponse.path, failedGrow.path);
 retryGrowResponse.resolve({
   ok: true,
-  json: async () => ({ count: 1, total: 2, functions: [{ va: "0x2", name: "lose" }] }),
+  json: async () => ({ count: 1, total: 2, functions: [["0x2", "lose", "", 0, "", "", ""]] }),
 });
 await retriedGrow;
 assert.equal(element("dashboard-error").hidden, true);
@@ -182,7 +182,7 @@ const retryDelta = pending.shift();
 assert.equal(retryDelta.path, failedAppend.path);
 retryDelta.resolve({
   ok: true,
-  json: async () => ({ count: 1, total: 3, functions: [{ va: "0x3", name: "draw" }] }),
+  json: async () => ({ count: 1, total: 3, functions: [["0x3", "draw", "", 0, "", "", ""]] }),
 });
 await retriedAppend;
 assert.equal(element("retry-functions").hidden, true);

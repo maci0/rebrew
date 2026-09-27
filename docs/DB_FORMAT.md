@@ -463,7 +463,8 @@ The `recovery` server exposes the following endpoints. All data endpoints return
 > `database_error`, `internal_error`, plus `bad_request` / `uri_too_long` /
 > `header_fields_too_large` / `http_version_not_supported` for requests
 > rejected before routing, and `request_error` for any other status raised
-> there). It does **not** implement
+> there). Every response, error included, carries `X-Request-Id: r<N>`, the id
+> its access and error log lines carry. It does **not** implement
 > the path-style recovery endpoints above or `/api/regen`.
 > Its stderr log is one stream: every access line is
 > `HH:MM:SS INFO    <addr> r<N> "<request line>" <status> <bytes> <ms>`

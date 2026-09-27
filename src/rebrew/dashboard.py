@@ -550,10 +550,9 @@ function statusText(s) {
   const mark = statusMark(s);
   return mark ? "<span class=" + mark + ">" + text + "</span>" : text;
 }
-const rowHtml = (f) => {
-  const r = Array.isArray(f)
-    ? f
-    : [f.va, f.name, f.symbol, f.size, f.status, f.module, f.files];
+// Rows are positional arrays named by the response's ``cols``; the server
+// sends no other shape, so the renderers index them directly.
+const rowHtml = (r) => {
   return "<tr><td class=va>" + esc(r[0] ?? "") + "</td><td>" + esc(r[1] || "")
     + "</td><td>" + esc(r[2] || "") + "</td><td>" + esc(r[3] ?? "")
     + "</td><td>" + statusText(r[4] || "") + "</td><td>" + esc(r[5] || "")
@@ -756,10 +755,7 @@ function renderSections(data) {
     ? rows.length + " section" + (rows.length === 1 ? "" : "s")
     : "No sections";
 }
-const globalRowHtml = (g) => {
-  const r = Array.isArray(g)
-    ? g
-    : [g.va, g.name, g.decl, g.size, g.module];
+const globalRowHtml = (r) => {
   return "<tr><td class=va>" + esc(r[0] ?? "") + "</td><td>" + esc(r[1] || "")
     + "</td><td>" + esc(r[2] || "") + "</td><td>" + esc(r[3] ?? "")
     + "</td><td>" + esc(r[4] || "") + "</td></tr>";
@@ -2575,17 +2571,21 @@ class _Handler(BaseHTTPRequestHandler):
 
     @override
     def send_response(self, code: int, message: str | None = None) -> None:
-        """Status line and ``Date`` only; no ``Server`` banner.
+        """Status line, ``Date``, and the request id; no ``Server`` banner.
 
         ``BaseHTTPRequestHandler.send_response`` also emits ``Server:
         BaseHTTP/0.6 Python/<patch>``.  It is 38 bytes on every response,
         charged against the per-response header reserve on the cold-load
         congestion window, and it names the interpreter patch level to a LAN
         client that has no use for it.
+
+        ``X-Request-Id`` carries the same ``r<N>`` the access and error log
+        lines use, so a caller holding a 500 can hand the operator one token.
         """
         self.log_request(code)
         self.send_response_only(code, message)
         self.send_header("Date", self.date_time_string())
+        self.send_header("X-Request-Id", self._request_id)
 
     @override
     def send_error(self, code: int, message: str | None = None, explain: str | None = None) -> None:
@@ -2601,9 +2601,12 @@ class _Handler(BaseHTTPRequestHandler):
             return
         self.log_error("code %d, message %s", code, message)
         status = HTTPStatus(code)
+        # Scrub like every routed body (``Dashboard._json``): http.server's own
+        # messages quote the request line, so an RLO in a crafted request would
+        # otherwise reach the client as unscrubbed formatting text.
         body = json.dumps(
             {
-                "error": message or status.phrase,
+                "error": strip_bidi_format(message) if message else status.phrase,
                 "code": _HTTP_ERROR_CODES.get(code, "request_error"),
             },
             separators=(",", ":"),
