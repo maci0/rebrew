@@ -134,9 +134,9 @@ def cmd_extract(
                 return
 
             console.print(f"\n[bold]=== {name} @ 0x{va:08X}, {len(code)} bytes ===[/]")
-            print(f"Hex: {code.hex()}")
-            print()
-            print(asm_text)
+            console.print(f"Hex: {code.hex()}")
+            console.print()
+            console.print(asm_text, markup=False, highlight=False, soft_wrap=True)
             console.print(f"Saved to {bin_path}")
             return
     error_exit(
@@ -235,9 +235,9 @@ def cmd_batch(
         console.print(f"\n[bold]{'=' * 60}[/]")
         console.print(f"[bold]=== {name} @ 0x{va:08X}, {len(code)} bytes ===[/]")
         console.print(f"[bold]{'=' * 60}[/]")
-        print(f"Hex: {code.hex()}")
-        print()
-        print(asm_text)
+        console.print(f"Hex: {code.hex()}")
+        console.print()
+        console.print(asm_text, markup=False, highlight=False, soft_wrap=True)
 
     if json_output:
         json_print(

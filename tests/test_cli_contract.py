@@ -196,6 +196,24 @@ class TestVersionFlag:
         assert result.exit_code == 0
         assert __version__ in result.stdout
 
+    def test_umbrella_short_version_flag_matches_subcommands(self) -> None:
+        """`rebrew -V` answers the version, like `rebrew diff -V` does.
+
+        The group declares its own ``--version`` option, so the shared
+        ``add_version_option`` injection skips it; before this was pinned the
+        group carried the long form only and every subcommand answered
+        ``-V``, so the one spelling a script learned from a subcommand
+        exited 2 on the group.
+        """
+        from typer.testing import CliRunner
+
+        from rebrew import __version__
+        from rebrew.main import app as umbrella
+
+        result = CliRunner().invoke(umbrella, ["-V"])
+        assert result.exit_code == 0, result.output
+        assert __version__ in result.stdout
+
     def test_version_is_eager_over_a_missing_argument(self) -> None:
         """`rebrew diff --version` reports the version, not a usage error.
 

@@ -96,6 +96,7 @@ def _global_options(
     version: bool = typer.Option(
         False,
         "--version",
+        "-V",
         callback=_version_callback,
         is_eager=True,
         help="Show version and exit.",
