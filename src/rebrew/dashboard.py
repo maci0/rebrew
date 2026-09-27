@@ -2221,6 +2221,10 @@ class _Handler(BaseHTTPRequestHandler):
     # keep-alive client is dropped instead of pinning its handler thread and
     # descriptor for the server's lifetime.
     timeout: ClassVar[float | None] = _KEEPALIVE_IDLE_TIMEOUT_S
+    # Headers and body leave as two writes on an unbuffered socket, so Nagle
+    # holds the body's first segment until the header block is acknowledged:
+    # a delayed-ACK round trip on the critical path to first byte.
+    disable_nagle_algorithm = True
 
     def _respond(self, method: str) -> None:
         if not _host_allowed(self.headers.get("Host", ""), self.allowed_hosts):
@@ -2391,6 +2395,20 @@ class _Handler(BaseHTTPRequestHandler):
 
     def do_HEAD(self) -> None:
         self._respond("HEAD")
+
+    @override
+    def send_response(self, code: int, message: str | None = None) -> None:
+        """Status line and ``Date`` only; no ``Server`` banner.
+
+        ``BaseHTTPRequestHandler.send_response`` also emits ``Server:
+        BaseHTTP/0.6 Python/<patch>``.  It is 38 bytes on every response,
+        charged against the per-response header reserve on the cold-load
+        congestion window, and it names the interpreter patch level to a LAN
+        client that has no use for it.
+        """
+        self.log_request(code)
+        self.send_response_only(code, message)
+        self.send_header("Date", self.date_time_string())
 
     @override
     def send_error(self, code: int, message: str | None = None, explain: str | None = None) -> None:
