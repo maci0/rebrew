@@ -34,9 +34,10 @@ import threading
 import tomllib
 import unicodedata
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any, Literal
 
 from rebrew.config import TOOLCHAIN_OVERLAY_ENV, ConfigError, check_env_dir
@@ -266,13 +267,17 @@ def _fill_image_entrypoints(registry: dict[str, ToolchainSpec]) -> None:
 #: Provenance of each registered toolchain name (built alongside
 #: :func:`build_toolchain_registry`): "packaged", "entry-point:<module>",
 #: or "data-file <path>".  A name not present is packaged (defensive default).
-TOOLCHAIN_ORIGINS: dict[str, str] = {}
+TOOLCHAIN_ORIGINS: Mapping[str, str] = {}
 
-#: Serializes in-place refresh of :data:`TOOLCHAINS` / :data:`TOOLCHAIN_ORIGINS`.
-#: Readers (verify -j N / GA / cmake) do not take this lock — they must never
-#: observe an empty registry mid-refresh, so writers update-then-drop instead
-#: of clear-then-fill.  Origins are published under the same critical section
-#: so ``toolchain list`` never sees a half-merged provenance map.
+#: Serializes republication of :data:`TOOLCHAINS` / :data:`TOOLCHAIN_ORIGINS`.
+#: Readers (verify -j N / GA / cmake) do not take this lock: they iterate the
+#: registry unlocked (``TOOLCHAINS.items()`` in ``init-profiles``,
+#: ``sorted(TOOLCHAINS)`` on the unknown-toolchain error path).  Mutating the
+#: published dict under them lets a single read span two generations — a
+#: retired name still visible while its replacement is not, and a profile
+#: enumerated with no matching origin.  So the writer never mutates a
+#: published map: it builds a fresh one and rebinds both names.  A reader
+#: resolves one generation and keeps it, frozen, for the whole operation.
 _TOOLCHAIN_REGISTRY_LOCK = threading.Lock()
 
 
@@ -305,20 +310,34 @@ def _assemble_toolchain_registry() -> tuple[dict[str, ToolchainSpec], dict[str, 
     return registry, origins
 
 
-def _publish_toolchain_origins(origins: dict[str, str]) -> None:
-    """Replace :data:`TOOLCHAIN_ORIGINS` without an empty mid-refresh window.
+def _publish_registry(registry: dict[str, ToolchainSpec], origins: dict[str, str]) -> None:
+    """Rebind :data:`TOOLCHAINS` and :data:`TOOLCHAIN_ORIGINS` to a new generation.
 
-    Same update-then-drop discipline as :data:`TOOLCHAINS`: unlocked readers
-    (``toolchain list`` / dashboard) must never observe a cleared map.
-    Caller must hold :data:`_TOOLCHAIN_REGISTRY_LOCK`.
+    Both names are rebound rather than mutated, so a reader that resolved one
+    keeps a self-consistent view for the rest of its operation instead of
+    straddling the update.  The published maps are
+    :class:`~types.MappingProxyType` so a reference taken before a refresh is a
+    frozen snapshot that later refreshes cannot write through.
+
+    Callers must hold :data:`_TOOLCHAIN_REGISTRY_LOCK`.
     """
-    obsolete = [name for name in TOOLCHAIN_ORIGINS if name not in origins]
-    TOOLCHAIN_ORIGINS.update(origins)
-    for name in obsolete:
-        del TOOLCHAIN_ORIGINS[name]
+    global TOOLCHAINS, TOOLCHAIN_ORIGINS
+    TOOLCHAINS = MappingProxyType(registry)
+    TOOLCHAIN_ORIGINS = MappingProxyType(origins)
 
 
-def build_toolchain_registry() -> dict[str, ToolchainSpec]:
+def registry_snapshot() -> tuple[Mapping[str, ToolchainSpec], Mapping[str, str]]:
+    """The registry and its origins, read as one consistent generation.
+
+    A caller that pairs a profile with its provenance (an error message, a
+    ``toolchain list`` row) must not read the two names separately: a refresh
+    landing between the reads would mix generations.
+    """
+    with _TOOLCHAIN_REGISTRY_LOCK:
+        return TOOLCHAINS, TOOLCHAIN_ORIGINS
+
+
+def build_toolchain_registry() -> Mapping[str, ToolchainSpec]:
     """The full registry: packaged built-ins + entry points + TOML overlay.
 
     Merging order: built-ins first, then ``rebrew.toolchains`` entry-point
@@ -331,38 +350,36 @@ def build_toolchain_registry() -> dict[str, ToolchainSpec]:
     ``rebrew toolchain list`` can show where a toolchain came from."""
     registry, origins = _assemble_toolchain_registry()
     with _TOOLCHAIN_REGISTRY_LOCK:
-        _publish_toolchain_origins(origins)
-    return registry
+        _publish_registry(registry, origins)
+    return TOOLCHAINS
 
 
 #: The canonical toolchain registry.  Profiles in config.py map to these by
 #: name; ``rebrew toolchain list`` shows them.  Built from
 #: :func:`build_toolchain_registry` so entry-point providers and the
 #: project-level TOML overlay extend it without touching host source.
-TOOLCHAINS: dict[str, ToolchainSpec] = build_toolchain_registry()
+#: Read it through the module (``toolchain.TOOLCHAINS``) or
+#: :func:`registry_snapshot`, never a module-level ``from ... import``, which
+#: would pin one generation for the life of the importing module.
+TOOLCHAINS: Mapping[str, ToolchainSpec] = build_toolchain_registry()
 
 
-def refresh_toolchain_registry() -> dict[str, ToolchainSpec]:
-    """Re-run discovery and refresh the :data:`TOOLCHAINS` snapshot in place.
+def refresh_toolchain_registry() -> Mapping[str, ToolchainSpec]:
+    """Re-run discovery and republish the :data:`TOOLCHAINS` snapshot.
 
     Long-lived processes (a dashboard, an agent harness) can pick up
-    toolchains installed after startup without a restart.  The snapshot is
-    updated in place so a module that bound ``TOOLCHAINS`` at import time
-    (``rebrew.compile``, ``rebrew.cmake_tc``) sees the new registrations;
-    also refreshes :data:`TOOLCHAIN_ORIGINS` (built alongside the registry).
+    toolchains installed after startup without a restart.  Refreshes
+    :data:`TOOLCHAIN_ORIGINS` alongside the registry (built in the same pass).
 
-    Writers must not ``clear()`` then ``update()``: concurrent workers read
-    ``TOOLCHAINS`` unlocked, and an empty window makes every lookup fail as
-    "unknown toolchain" for the duration of the rebuild.
+    A reader that resolved ``rebrew.toolchain.TOOLCHAINS`` at call time sees
+    the new registrations immediately.  Writers must not mutate the published
+    map: concurrent workers read it unlocked and iterate it, and an in-place
+    ``update()``/``del`` lets one read straddle two generations.
     """
     registry, origins = _assemble_toolchain_registry()
     with _TOOLCHAIN_REGISTRY_LOCK:
-        obsolete = [name for name in TOOLCHAINS if name not in registry]
-        TOOLCHAINS.update(registry)
-        for name in obsolete:
-            del TOOLCHAINS[name]
-        _publish_toolchain_origins(origins)
-    return TOOLCHAINS
+        _publish_registry(registry, origins)
+        return TOOLCHAINS
 
 
 def get_toolchain(name: str) -> ToolchainSpec:

@@ -538,12 +538,15 @@ class TestCli:
         from typer.testing import CliRunner
 
         from rebrew.main import app as umbrella
+        from rebrew import toolchain as toolchain_mod
         from rebrew.toolchain import TOOLCHAINS
         from rebrew.toolchain_spec import ToolchainSpec
 
         monkeypatch.setattr("rebrew.toolchain.docker_available", lambda: False)
-        monkeypatch.setitem(
-            TOOLCHAINS, "hostcc", ToolchainSpec(name="hostcc", image=None, binary="hostcc")
+        monkeypatch.setattr(
+            toolchain_mod,
+            "TOOLCHAINS",
+            {**TOOLCHAINS, "hostcc": ToolchainSpec(name="hostcc", image=None, binary="hostcc")},
         )
         result = CliRunner().invoke(umbrella, ["toolchain", "pull", "hostcc"])
         assert result.exit_code == 2
@@ -636,11 +639,14 @@ class TestCli:
         from typer.testing import CliRunner
 
         from rebrew.main import app as umbrella
+        from rebrew import toolchain as toolchain_mod
         from rebrew.toolchain import TOOLCHAINS
         from rebrew.toolchain_spec import ToolchainSpec
 
-        monkeypatch.setitem(
-            TOOLCHAINS, "hostcc", ToolchainSpec(name="hostcc", image=None, binary="hostcc")
+        monkeypatch.setattr(
+            toolchain_mod,
+            "TOOLCHAINS",
+            {**TOOLCHAINS, "hostcc": ToolchainSpec(name="hostcc", image=None, binary="hostcc")},
         )
         result = CliRunner().invoke(umbrella, ["toolchain", "build", "hostcc"])
         assert result.exit_code == 2
@@ -744,6 +750,7 @@ class TestPullToolchain:
         image is wine-driven too but holds a single gcc, no CL/LINK/LIB
         tools, so it declares no tool_root — the bridge refuses it, see
         tests/test_cmake_tc.py.)"""
+        from rebrew import toolchain as toolchain_mod
         from rebrew.toolchain import TOOLCHAINS
 
         missing = [
@@ -1206,6 +1213,7 @@ class TestDockerfileSanity:
         rebrew-toolchains checkout — a fresh clone must be able to rebuild
         the image (borland-3.1/borland-2.0 images were built from UNTRACKED Dockerfiles,
         silently unreproducible)."""
+        from rebrew import toolchain as toolchain_mod
         from rebrew.toolchain import TOOLCHAINS
 
         repo = self._repo()
@@ -1232,6 +1240,7 @@ class TestDockerfileSanity:
         image can never drift."""
         import re
 
+        from rebrew import toolchain as toolchain_mod
         from rebrew.toolchain import TOOLCHAINS
 
         repo = self._repo()

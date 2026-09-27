@@ -212,12 +212,12 @@ class TestDockerBackedProfiles:
         from rebrew.matcher import compiler as compiler_mod
         from rebrew.registry import refresh_all
 
-        real = dict(toolchain_mod.TOOLCHAINS)
-        toolchain_mod.TOOLCHAINS["plugin-native"] = SimpleNamespace(image=None)
-        try:
-            refresh_all()
-            assert "plugin-native" not in compiler_mod.docker_backed_profiles()
-        finally:
-            toolchain_mod.TOOLCHAINS.clear()
-            toolchain_mod.TOOLCHAINS.update(real)
-            refresh_all()
+        # ``TOOLCHAINS`` is republished, never mutated, so a generation is
+        # injected by rebinding the module attribute.
+        monkeypatch.setattr(
+            toolchain_mod,
+            "TOOLCHAINS",
+            {**toolchain_mod.TOOLCHAINS, "plugin-native": SimpleNamespace(image=None)},
+        )
+        refresh_all()
+        assert "plugin-native" not in compiler_mod.docker_backed_profiles()

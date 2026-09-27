@@ -39,7 +39,6 @@ from rebrew.matcher import (
 )
 from rebrew.matcher.core import EXACT_SCORE_THRESHOLD
 from rebrew.sources import target_marker
-from rebrew.toolchain import TOOLCHAINS
 from rebrew.utils import fold_ident, read_compile_source
 
 if TYPE_CHECKING:
@@ -593,8 +592,11 @@ def _vendored_msvc_toolchains(
     only_f = [f for f in (only or "").split(",") if f.strip()]
     excl_f = [f for f in (exclude or "").split(",") if f.strip()]
 
+    from rebrew import toolchain
+
+    registry, _origins = toolchain.registry_snapshot()
     out: list[tuple[str, str, str]] = []
-    for name, spec in sorted(TOOLCHAINS.items()):
+    for name, spec in sorted(registry.items()):
         if spec.image is not None and spec.family == "msvc" and spec.binary == "cl":
             verarch = spec.image.rsplit(":", 1)[-1] if spec.image else ""
             if only_f and not _sweep_filter_matches(name, verarch, only_f):
@@ -609,7 +611,7 @@ def _vendored_msvc_toolchains(
     # first without being listed twice.
     configured = getattr(cfg, "compiler_profile", "") or "msvc-6.0"
     out = [entry for entry in out if entry[0] != configured]
-    cfg_spec = TOOLCHAINS.get(configured)
+    cfg_spec = registry.get(configured)
     verarch = cfg_spec.image.rsplit(":", 1)[-1] if cfg_spec is not None and cfg_spec.image else ""
     only_ok = not only_f or _sweep_filter_matches(configured, verarch, only_f)
     excl_ok = not _sweep_filter_matches(configured, verarch, excl_f)

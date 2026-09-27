@@ -627,11 +627,14 @@ class TestCheckToolchainAlignment:
 class TestCheckToolchainBacked:
     def test_skipped_for_imageless_plugin_profile(self, monkeypatch) -> None:
         from rebrew.doctor import _SKIP, check_toolchain_backed
+        from rebrew import toolchain as toolchain_mod
         from rebrew.toolchain import TOOLCHAINS
         from rebrew.toolchain_spec import ToolchainSpec
 
-        monkeypatch.setitem(
-            TOOLCHAINS, "hostcc", ToolchainSpec(name="hostcc", image=None, binary="hostcc")
+        monkeypatch.setattr(
+            toolchain_mod,
+            "TOOLCHAINS",
+            {**TOOLCHAINS, "hostcc": ToolchainSpec(name="hostcc", image=None, binary="hostcc")},
         )
         result = check_toolchain_backed(
             SimpleNamespace(compiler_profile="hostcc", root=Path("/tmp"))

@@ -16,6 +16,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import threading
+
 import pytest
 import typer
 from rich.console import Console
@@ -1300,6 +1302,92 @@ class TestToolchainOrigin:
         rows = {r["name"]: r for r in toolchain.list_toolchains()}
         assert rows["mytc"]["origin"] == f"data-file {overlay / 'mytc.toml'}"
         assert rows["msvc-6.0"]["origin"] == "packaged"
+
+
+class TestToolchainRegistryConcurrency:
+    """A refresh must publish a new generation, never edit the live one.
+
+    Readers take no lock (``TOOLCHAINS.items()`` in ``init-profiles``,
+    ``sorted(TOOLCHAINS)`` on the unknown-toolchain error path).  An in-place
+    ``update()``/``del`` let a single read straddle two generations: a retired
+    name still visible while its replacement is not.  Republishing instead
+    gives every reader one frozen, self-consistent snapshot.
+    """
+
+    def test_refresh_does_not_mutate_a_published_registry(self) -> None:
+        import rebrew.toolchain as toolchain
+
+        before = toolchain.TOOLCHAINS
+        toolchain.refresh_toolchain_registry()
+        after = toolchain.TOOLCHAINS
+        assert after is not before, "a refresh must publish a new generation, not edit the old"
+        assert set(after) == set(before)
+
+    def test_snapshot_held_across_a_refresh_stays_complete_and_frozen(self) -> None:
+        import rebrew.toolchain as toolchain
+
+        # Publish a generation carrying a name the next refresh retires.
+        stale = next(iter(toolchain.TOOLCHAINS.values()))
+        published = {**toolchain.TOOLCHAINS, "obsolete-tc": stale}
+        toolchain.TOOLCHAINS = published
+        try:
+            toolchain.refresh_toolchain_registry()
+            assert "obsolete-tc" not in toolchain.TOOLCHAINS
+            # The reader that resolved the old generation still holds every
+            # name it saw, rather than a map edited under it mid-iteration.
+            assert set(published) == set(toolchain.TOOLCHAINS) | {"obsolete-tc"}
+            assert all(published[name] is not None for name in published)
+        finally:
+            toolchain.refresh_toolchain_registry()
+
+    def test_concurrent_readers_never_see_a_half_retired_registry(self) -> None:
+        import rebrew.toolchain as toolchain
+
+        stale = next(iter(toolchain.TOOLCHAINS.values()))
+        mixed: list[str] = []
+        start = threading.Event()
+        done = threading.Event()
+
+        def reader() -> None:
+            start.set()
+            while not done.is_set():
+                registry = toolchain.TOOLCHAINS
+                names = set(registry)
+                # Every name the reader saw must still resolve in the very same
+                # generation; an in-place refresh could drop one mid-scan.
+                if any(name not in registry for name in names):
+                    mixed.append("registry lost a name during a single read")
+
+        t = threading.Thread(target=reader, name="registry-reader")
+        t.start()
+        start.wait(5)
+        try:
+            for _ in range(300):
+                toolchain.TOOLCHAINS = {**toolchain.TOOLCHAINS, "obsolete-tc": stale}
+                toolchain.refresh_toolchain_registry()
+        finally:
+            done.set()
+            t.join(10)
+            toolchain.refresh_toolchain_registry()
+
+        assert not t.is_alive(), "reader thread did not finish"
+        assert mixed == []
+
+    def test_published_registry_is_frozen(self) -> None:
+        import rebrew.toolchain as toolchain
+
+        with pytest.raises(TypeError):
+            toolchain.TOOLCHAINS["injected"] = None  # type: ignore[index]
+        with pytest.raises(TypeError):
+            del toolchain.TOOLCHAINS["msvc-6.0"]
+
+    def test_snapshot_reads_both_maps_as_one_generation(self) -> None:
+        import rebrew.toolchain as toolchain
+
+        registry, origins = toolchain.registry_snapshot()
+        assert registry is toolchain.TOOLCHAINS
+        assert origins is toolchain.TOOLCHAIN_ORIGINS
+        assert set(origins) == set(registry)
 
 
 class TestDoctorCacheCheck:

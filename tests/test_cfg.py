@@ -1351,11 +1351,17 @@ class TestCLISetCompiler:
     def test_set_compiler_native_keeps_command(self, tmp_path: Path, monkeypatch) -> None:
         """set-compiler on an image-less (plugin) profile keeps its host command
         — the docker-only blank is for image-backed profiles only."""
+        from rebrew import toolchain as toolchain_mod
         from rebrew.toolchain import TOOLCHAINS
         from rebrew.toolchain_spec import ToolchainSpec
 
-        monkeypatch.setitem(
-            TOOLCHAINS, "nativecc", ToolchainSpec(name="nativecc", image=None, binary="nativecc")
+        monkeypatch.setattr(
+            toolchain_mod,
+            "TOOLCHAINS",
+            {
+                **TOOLCHAINS,
+                "nativecc": ToolchainSpec(name="nativecc", image=None, binary="nativecc"),
+            },
         )
         _make_project(tmp_path)
         monkeypatch.chdir(tmp_path)

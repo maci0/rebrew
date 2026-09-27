@@ -35,7 +35,7 @@ import typer
 
 from rebrew.cli import console, error_exit, json_print
 from rebrew.config import ConfigError, check_env_wineprefix
-from rebrew.toolchain import TOOLCHAINS, ToolchainSpec, kill_container
+from rebrew.toolchain import ToolchainSpec, kill_container
 from rebrew.utils import (
     atomic_write_text,
     container_runtime,
@@ -120,9 +120,12 @@ def _load_profile(root: Path) -> str:
 
 
 def _resolve_spec(name: str, *, json_mode: bool = False) -> ToolchainSpec:
-    spec = TOOLCHAINS.get(name)
+    from rebrew import toolchain
+
+    registry, _origins = toolchain.registry_snapshot()
+    spec = registry.get(name)
     if spec is None:
-        error_exit(f"unknown toolchain {name!r} (known: {sorted(TOOLCHAINS)})", json_mode=json_mode)
+        error_exit(f"unknown toolchain {name!r} (known: {sorted(registry)})", json_mode=json_mode)
     if spec.image is None:
         error_exit(
             f"toolchain {name!r} has no docker image — nothing to bridge", json_mode=json_mode
