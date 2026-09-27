@@ -682,6 +682,35 @@ class TestWheelSmokeScript:
             str(package / entry) for entry, _ in RUNTIME_ENTRIES
         ]
 
+    def test_names_a_skill_directory_without_a_manifest(self, tmp_path: Path) -> None:
+        """A wheel carrying ``agent-skills/`` but no ``SKILL.md`` installs and
+        imports, then ships an empty ``rebrew skills list``."""
+        import rebrew
+        from tools.smoke_wheel_install import RUNTIME_ENTRIES, check
+
+        package = tmp_path / "pkg"
+        package.mkdir()
+        (package / "__init__.py").write_text("", encoding="utf-8")
+        for entry, kind in RUNTIME_ENTRIES:
+            path = package / entry
+            if kind == "dir":
+                path.mkdir(parents=True)
+            else:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("", encoding="utf-8")
+        (package / "agent-skills" / "rebrew-workflow").mkdir()
+        (package / "agent-skills" / "rebrew-init").mkdir()
+        (package / "agent-skills" / "rebrew-init" / "SKILL.md").write_text("", encoding="utf-8")
+        monkey = pytest.MonkeyPatch()
+        monkey.setattr(rebrew, "__file__", str(package / "__init__.py"))
+        try:
+            missing = check()
+        finally:
+            monkey.undo()
+        assert missing == [
+            f"missing file {package / 'agent-skills' / 'rebrew-workflow' / 'SKILL.md'}"
+        ]
+
     def test_every_expected_runtime_entry_is_declared(self) -> None:
         from tools.smoke_wheel_install import RUNTIME_ENTRIES
 
