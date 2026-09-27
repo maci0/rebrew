@@ -35,6 +35,9 @@ EXACT/RELOC clears BLOCKER unless the source still has `__asm`, `_asm`, or `__em
 (kept; lint W020). Exit 1 if any function fails. `passed` counts EXACT/RELOC only.
 `rebrew lint` exit 1 on errors. Link-only files use `// SUPPORT: <MODULE> <reason>`.
 
+`verify --data` suppresses DRIFT status write-backs unless `--raw-link` says the
+built binary is a raw link; without it `rebrew todo -c data-drift` stays empty.
+
 ## Coverage / interchange
 
 ```bash

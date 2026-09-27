@@ -73,7 +73,7 @@ ROI tiers: compile/extract errors → near-misses → stubs → new starts → p
 > ```bash
 > rebrew flirt --va 0x<VA> --json
 > rebrew crt-match 0x<VA> --json
-> rebrew lib-match --lib LIBCMT.LIB --va 0x<VA>
+> rebrew lib-match --stock-lib LIBCMT.LIB --va 0x<VA>   # --lib takes a path to a local .lib
 > ```
 >
 > A miss is inconclusive. FLIRT can under-match across library builds;

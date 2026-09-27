@@ -9,7 +9,8 @@ description: >-
   'rebrew data', 'rebrew data --bss', 'rebrew data --fix-bss',
   'rebrew data --gen-header', 'data-drift',
   'start-data', 'fill-data', 'layout-audit', 'set-type', 'set-section', 'W016',
-  'data placement', or 'rebrew_globals.h'. Not for function bodies
+  'data placement', 'converge', 'fix-ownership', 'rebrew verify --data',
+  or 'rebrew_globals.h'. Not for function bodies
   (rebrew-workflow/matching) or Ghidra data pulls (rebrew-ghidra-sync --pull-data).
 license: MIT
 ---
@@ -64,6 +65,10 @@ rebrew data --converge --dry-run                # adjust _dlead_<tu> pads vs bui
 rebrew verify --data --built build/<target>     # byte-compare built .data/.rdata per symbol (VERIFIED/DRIFT/UNCHECKED)
 rebrew todo -c data-drift --json                # data symbols whose built bytes differ from the reference
 ```
+
+`--data` only writes the `status` field back when `--built` is a postlinked
+deliverable; add `--raw-link` when it is a raw link, or DRIFT stays unreported
+and `todo -c data-drift` stays empty.
 
 Use `--gen-header` when working offline or before any Ghidra sync — it emits typed
 `extern` declarations grouped by PE section. `rebrew sync --pull-data` overwrites

@@ -104,39 +104,6 @@ there with `rebrew cross-import --from <src> --promote`; import with
 
 ## Data Annotations
 
-DATA/GLOBAL metadata lives in a **`rebrew-data.toml` metadata file** — the data
-analogue of `rebrew-functions.toml`. Only the stable marker line stays in
-the `.c` file:
-
-**`.c` file:**
-```c
-// DATA: SERVER 0x10025000
-
-const unsigned char g_sprite_lut[256] = { ... };
-```
-
-**`rebrew-data.toml`** (auto-managed, lives at `cfg.metadata_dir`):
-```toml
-["SERVER.0x10025000"]
-name    = "g_sprite_lut"      # preferred label (BinSync/Ghidra import target)
-size    = 256
-section = ".rdata"
-note    = "lookup table for sprite indices"
-```
-
-> [!NOTE]
-> `name` is the primary Ghidra interop field. When `rebrew sync --pull --state-dir <dir>`
-> receives a renamed data label from Ghidra it writes the name here (not inline).
-
-> [!CAUTION]
-> **Never manually edit `rebrew-data.toml`.** It is managed automatically by
-> `rebrew data`, `rebrew data --fix-bss`, and `rebrew sync --pull --state-dir <dir>`.
-
-## Global Annotations
-
-```c
-// GLOBAL: SERVER 0x10050000
-extern int g_frame_counter;
-```
-
-Metadata (size, section, note, name) goes in `rebrew-data.toml` — same format as DATA.
+`// DATA:` and `// GLOBAL:` markers, their `rebrew-data.toml` fields, and the
+`rebrew data` commands that write them are the `rebrew-data-analysis` skill's
+subject. Load that skill for a data marker or a global you are about to touch.
