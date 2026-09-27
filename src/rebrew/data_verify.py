@@ -33,12 +33,11 @@ def verify_data_bytes(
     cannot be attributed).
     **Coverage is reported, because the summary is otherwise misleading.** A
     symbol is comparable only when its ``section`` is in *sections* *and*
-    ``section_symbol_bytes`` could read bytes for it -- anything running past a
-    section's ``raw_size`` lives in the zero-fill tail and has no file bytes.
-    Those VAs never reach *sizes*, so ``matched`` can be a small fraction of the
-    metadata while reading as a whole-tree pass.  ``total`` counts every named
-    symbol, ``not_comparable`` the difference, and ``coverage`` is the fraction
-    compared, so a caller can tell "122 matched" from "122 of 329 matched".
+    ``section_symbol_bytes`` could read bytes for it. A zero-fill span inside
+    the image is supplied as zeros; a span past that image's virtual size never
+    reaches *sizes*. ``total`` counts every named symbol, ``not_comparable``
+    the difference, and ``coverage`` is the fraction compared, so a caller can
+    tell "122 matched" from "122 of 329 matched".
     """
     from rebrew.utils import load_tomllib
 
@@ -59,7 +58,7 @@ def verify_data_bytes(
         except ValueError:
             continue
         names[va] = str(name)
-        if str(val.get("section") or "") in sections:
+        if _section_selected(str(val.get("section") or ""), sections):
             kept.add(va)
 
     matched = 0
@@ -100,21 +99,58 @@ def verify_data_bytes(
     }
 
 
+# PE images from MSVC keep BSS as the .data tail and the IAT inside .rdata.
+# Metadata still labels those rows .bss and .idata.
+_SECTION_ALIAS = {".bss": ".data", ".idata": ".rdata"}
+
+
+def _canonical_section(name: str) -> str:
+    return _SECTION_ALIAS.get(name, name)
+
+
+def _section_selected(declared: str, sections: tuple[str, ...]) -> bool:
+    """True when *declared* or its file section is one of *sections*."""
+    return declared in sections or _canonical_section(declared) in sections
+
+
+def omit_uncovered_zero_fill(
+    ref_bytes: dict[int, bytes],
+    ref_sizes: dict[int, int],
+    built_sizes: dict[int, int],
+    ref_zero_fill: set[int],
+) -> list[int]:
+    """Drop reference zero-fill spans the built image does not cover.
+
+    Those addresses sit past the built virtual size. They were not compared,
+    so the caller leaves them UNCHECKED instead of reporting them missing.
+    """
+    uncovered = [va for va in ref_zero_fill if va not in built_sizes]
+    for va in uncovered:
+        ref_bytes.pop(va, None)
+        ref_sizes.pop(va, None)
+    return uncovered
+
+
 def section_symbol_bytes(
     *,
     metadata_path: Path,
     binary_path: Path,
     sections: tuple[str, ...] = (".data", ".rdata"),
     cfg: Any | None = None,
+    zero_fill: set[int] | None = None,
 ) -> tuple[dict[int, bytes], dict[int, int]]:
     """Read per-symbol bytes for metadata symbols from *binary_path* sections.
 
     Returns ``(by_va, sizes)``: for each named metadata symbol in *sections*
     with a known size, the raw bytes at its VA sliced from the binary's
-    section data.  Symbols outside the section bounds or without a size are
-    skipped (the caller reports them as missing).  With *cfg*, another
-    target's module is skipped: its VAs are not in this binary, and writing
-    them back as UNCHECKED would erase that target's verdict.
+    section data.  A ``.bss`` row is read from ``.data`` and a ``.idata`` row
+    from ``.rdata`` when the image has no section of the declared name.  A
+    span that lies in the zero-fill tail and inside the virtual size is
+    returned as zeros, and its VA is added to *zero_fill* when that set is
+    given.  A zero-fill span past the virtual size is skipped.  A file-backed
+    span past the virtual size raises.  With *cfg*, another target's module
+    is skipped: its VAs are not in this binary, and writing them back as
+    UNCHECKED would erase that target's verdict.
     """
     from rebrew.binary_loader import load_binary
     from rebrew.data_layout import estimate_type_size
@@ -128,7 +164,8 @@ def section_symbol_bytes(
     for key, val in db.items():
         if not isinstance(val, dict):
             continue
-        if str(val.get("section") or "") not in sections:
+        declared = str(val.get("section") or "")
+        if not _section_selected(declared, sections):
             continue
         if not val.get("name"):
             continue
@@ -155,7 +192,9 @@ def section_symbol_bytes(
             size = estimate_type_size(str(val.get("type") or "")) if val.get("type") else 0
         if size <= 0:
             continue
-        sec = info.sections.get(str(val.get("section")))
+        sec = info.sections.get(declared)
+        if sec is None:
+            sec = info.sections.get(_canonical_section(declared))
         if sec is None:
             continue
         offset = va - sec.va
@@ -163,13 +202,27 @@ def section_symbol_bytes(
         if offset < 0 or offset >= extent:
             continue
         if offset + size > extent:
+            # A zero-fill span past this image is not a bad SIZE. The
+            # reference virtual size can be longer than the built image.
+            if offset >= sec.raw_size:
+                continue
             raise ValueError(
                 f"symbol {val.get('name')} at 0x{va:x} (size {size}) overruns "
                 f"section {sec.name} extent 0x{sec.va:x}+0x{extent:x} — fix the "
                 "SIZE in rebrew-data.toml"
             )
+        if offset >= sec.raw_size:
+            if zero_fill is not None:
+                zero_fill.add(va)
+            by_va[va] = b"\x00" * size
+            sizes[va] = size
+            continue
         if offset + size > sec.raw_size:
-            continue  # zero-fill tail (BSS): no file bytes to read
+            file_n = sec.raw_size - offset
+            start = sec.file_offset + offset
+            by_va[va] = bytes(info.data[start : start + file_n]) + b"\x00" * (size - file_n)
+            sizes[va] = size
+            continue
         start = sec.file_offset + offset
         by_va[va] = bytes(info.data[start : start + size])
         sizes[va] = size

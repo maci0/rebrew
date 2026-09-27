@@ -1571,6 +1571,16 @@ class TestCollectStatusSizeFallback:
 
 
 class TestDataByteCoverage:
+    def test_cut_range_drops_a_copied_span(self) -> None:
+        from rebrew.status import _cut_range
+
+        assert _cut_range([(0x1000, 0x2000)], 0x1800, 0x2000) == [(0x1000, 0x1800)]
+        assert _cut_range([(0x1000, 0x2000)], 0x1000, 0x1100) == [(0x1100, 0x2000)]
+        assert _cut_range([(0x1000, 0x2000)], 0x1400, 0x1600) == [
+            (0x1000, 0x1400),
+            (0x1600, 0x2000),
+        ]
+
     def test_overlap_counts_once_and_clips_to_the_range(self) -> None:
         from rebrew.status import data_byte_coverage
 

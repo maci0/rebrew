@@ -260,9 +260,15 @@ def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
     omitted, and the declaration under it is not re-listed as an extern.
     A file whose markers are all another target's contributes nothing.
     Library-module markers stay: they are not targets.
+
+    Headers are scanned after sources. A header redeclaration does not
+    conflict with a ``.c`` declaration of the same name, and the ``.c``
+    type is the one kept for size: ``extern int g[]`` in a header beside
+    ``unsigned int g[4]`` in a source is one global. Two headers that
+    disagree, with no ``.c`` declaration, still conflict.
     """
     from rebrew.c_parser import find_extern_variables
-    from rebrew.sources import iter_sources
+    from rebrew.sources import iter_sources_and_headers
     from rebrew.utils import rel_display_path
 
     result = ScanResult()
@@ -287,7 +293,13 @@ def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
         if not any(e is entry for e in bucket):
             bucket.append(entry)
 
-    for cfile in iter_sources(src_dir, cfg):
+    header_files: set[str] = set()
+    # Type taken from the line under a GLOBAL/DATA marker. An unmarked
+    # definition of the same name (a link stand-in, or a header that spells
+    # the array differently) does not override it and is not a second global.
+    annotated_type: dict[str, str] = {}
+    for cfile in iter_sources_and_headers(src_dir, cfg):
+        is_header = cfile.suffix.lower() == ".h"
         try:
             # Tolerant read: a legacy-encoded source must not have its
             # non-ASCII bytes silently deleted, which would corrupt string
@@ -302,6 +314,8 @@ def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
 
         lines = text.splitlines()
         fname = rel_display_path(cfile, src_dir)
+        if is_header:
+            header_files.add(fname)
         if not _source_visible_to_target(lines, cfg):
             continue
 
@@ -422,13 +436,35 @@ def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
 
                 if type_str:
                     type_by_name[name][type_str].append(fname)
+                    # A .c marker is the definition's reference type. A header
+                    # marker fills it in only when no source marker did.
+                    if not is_header or name not in annotated_type:
+                        annotated_type[name] = type_str
 
                 continue
 
         # 2. Add unannotated extern variables from tree-sitter
         for ev_name, ev in extern_vars.items():
             if ev_name in annotated_names:
-                continue  # Already handled via GLOBAL annotation
+                # The marker already named it. Keep that spelling when it
+                # parsed a type: a second form in the same file (`[88]` and
+                # `[0x58]`) is one object. Fill the type only when the marker
+                # line did not parse one, so a header's `T[]` cannot become
+                # the size.
+                if not is_header and ev.type_str:
+                    known = type_by_name[ev_name]
+                    c_known = [
+                        t
+                        for t, files in known.items()
+                        if any(path not in header_files for path in files)
+                    ]
+                    if not c_known:
+                        type_by_name[ev_name][ev.type_str].append(fname)
+                        annotated_type[ev_name] = ev.type_str
+                        for entry in entries_by_name.get(ev_name, ()):
+                            if not entry.type_str:
+                                entry.type_str = ev.type_str
+                continue
 
             key = (ev_name, 0)
             entry = by_key.get(key)
@@ -463,11 +499,34 @@ def scan_globals(src_dir: Path, cfg: ProjectConfig | None = None) -> ScanResult:
     # cosmetic ones is what makes a report like this get ignored.  The original
     # spellings are still what the conflict carries, since the point is to show
     # where each came from.
+    def _norm(type_str: str) -> str:
+        return " ".join(type_str.split()).replace(" *", "*")
+
+    def _header_only(files: list[str]) -> bool:
+        return all(path in header_files for path in files)
+
     for name, types in type_by_name.items():
-        if len({" ".join(t.split()).replace(" *", "*") for t in types}) > 1:
+        # A header is a redeclaration. It must not invent a conflict against
+        # the .c definition, and it must not replace that definition's type.
+        # A marker type wins over every unmarked spelling of the same name:
+        # the marker is the reference description, the other file is often a
+        # link stand-in with a different bound.
+        marked = annotated_type.get(name)
+        if marked:
+            for entry in entries_by_name.get(name, ()):
+                entry.type_str = marked
+            compared = {marked: types.get(marked, [])}
+        else:
+            c_types = {t: files for t, files in types.items() if not _header_only(files)}
+            compared = c_types or types
+            if c_types:
+                for entry in entries_by_name.get(name, ()):
+                    if entry.type_str not in c_types:
+                        entry.type_str = next(iter(c_types))
+        if len({_norm(t) for t in compared}) > 1:
             conflict = {
                 "name": name,
-                "types": dict(types),
+                "types": dict(compared),
             }
             result.type_conflicts.append(conflict)
             for entry in entries_by_name.get(name, ()):
@@ -485,14 +544,14 @@ def scan_data_annotations(src_dir: Path, cfg: ProjectConfig | None = None) -> li
     """
     from rebrew.annotation import parse_c_file_multi
     from rebrew.data_metadata import merge_into_data_annotation
-    from rebrew.sources import iter_sources, target_marker
+    from rebrew.sources import iter_sources_and_headers, target_marker
     from rebrew.utils import rel_display_path
 
     entries: list[dict[str, Any]] = []
     if not src_dir.exists():
         return entries
 
-    for cfile in iter_sources(src_dir, cfg):
+    for cfile in iter_sources_and_headers(src_dir, cfg):
         rel_name = rel_display_path(cfile, src_dir)
         for ann in parse_c_file_multi(
             cfile, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir if cfg else None

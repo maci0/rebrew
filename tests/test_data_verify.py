@@ -268,15 +268,92 @@ class TestSectionSymbolBytesBounds:
         pytest.importorskip("lief")
         from rebrew.data_verify import section_symbol_bytes
 
-        # Inside the mapped extent but past raw_size (zero-fill tail):
-        # no file bytes exist, so the symbol is skipped (caller: missing).
+        # Inside the mapped extent but past raw_size: the loader supplies
+        # zeros, and that is what the compare sees.
         self._fake_info(monkeypatch, size=0x20, raw_size=0x10, data=bytes(range(0x10)))
+        zero_fill: set[int] = set()
         by_va, sizes = section_symbol_bytes(
             metadata_path=self._meta(tmp_path, 4, va=0x1010),
+            binary_path=tmp_path / "x.dll",
+            zero_fill=zero_fill,
+        )
+        assert by_va[0x1010] == b"\x00\x00\x00\x00"
+        assert sizes[0x1010] == 4
+        assert zero_fill == {0x1010}
+
+    def test_bss_symbol_past_short_virtual_size_is_skipped(
+        self,
+        tmp_path: Path,
+        monkeypatch,
+    ) -> None:
+        import pytest
+
+        pytest.importorskip("lief")
+        from rebrew.data_verify import section_symbol_bytes
+
+        # Declared size runs past a built image whose VirtualSize is shorter
+        # than the reference. The symbol starts in the zero-fill tail, so
+        # there are still no file bytes to read and no overrun to report.
+        self._fake_info(monkeypatch, size=0x18, raw_size=0x10, data=bytes(range(0x10)))
+        by_va, sizes = section_symbol_bytes(
+            metadata_path=self._meta(tmp_path, 0x20, va=0x1010),
             binary_path=tmp_path / "x.dll",
         )
         assert by_va == {}
         assert sizes == {}
+
+    def test_straddle_reads_file_prefix_plus_zeros(
+        self,
+        tmp_path: Path,
+        monkeypatch,
+    ) -> None:
+        import pytest
+
+        pytest.importorskip("lief")
+        from rebrew.data_verify import section_symbol_bytes
+
+        self._fake_info(monkeypatch, size=0x20, raw_size=0x10, data=bytes(range(0x10)))
+        by_va, sizes = section_symbol_bytes(
+            metadata_path=self._meta(tmp_path, 8, va=0x100C),
+            binary_path=tmp_path / "x.dll",
+        )
+        assert by_va[0x100C] == bytes(range(0x0C, 0x10)) + b"\x00\x00\x00\x00"
+        assert sizes[0x100C] == 8
+
+    def test_bss_and_idata_use_the_section_that_holds_the_bytes(
+        self,
+        tmp_path: Path,
+        monkeypatch,
+    ) -> None:
+        from types import SimpleNamespace
+
+        import pytest
+
+        pytest.importorskip("lief")
+        from rebrew.data_verify import section_symbol_bytes
+
+        info = SimpleNamespace(
+            sections={
+                ".data": SimpleNamespace(
+                    name=".data", va=0x2000, size=0x20, raw_size=0x10, file_offset=0
+                ),
+                ".rdata": SimpleNamespace(
+                    name=".rdata", va=0x1000, size=0x10, raw_size=0x10, file_offset=0x10
+                ),
+            },
+            data=b"\x00" * 0x10 + b"\x11\x22\x33\x44" + b"\x00" * 12,
+        )
+        monkeypatch.setattr("rebrew.binary_loader.load_binary", lambda _p: info)
+        meta = tmp_path / "rebrew-data.toml"
+        meta.write_text(
+            '["SERVER.0x2010"]\nname = "g_bss"\nsize = 4\nsection = ".bss"\n'
+            '["SERVER.0x1000"]\nname = "imp"\nsize = 4\nsection = ".idata"\n',
+            encoding="utf-8",
+        )
+        by_va, sizes = section_symbol_bytes(metadata_path=meta, binary_path=tmp_path / "x.dll")
+        assert by_va[0x2010] == b"\x00\x00\x00\x00"
+        assert by_va[0x1000] == b"\x11\x22\x33\x44"
+        assert sizes == {0x2010: 4, 0x1000: 4}
 
 
 def test_size_falls_back_to_declared_type(tmp_path: Path, monkeypatch) -> None:

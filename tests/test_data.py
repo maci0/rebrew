@@ -187,6 +187,65 @@ class TestScanGlobals:
         assert entry.to_dict()["conflict"] is True
         assert entry.to_dict()["type"] == "int"
 
+    def test_header_redeclaration_keeps_definition_type(self, tmp_path: Path) -> None:
+        """A header's incomplete redeclaration is the same global, not a conflict.
+
+        The .c definition's type is the one the size ruler uses.
+        """
+        _write_c(
+            tmp_path,
+            "obj.c",
+            "// GLOBAL: SERVER 0x10001000\nunsigned int g_table[4];\n",
+        )
+        _write_c(
+            tmp_path,
+            "obj.h",
+            "// GLOBAL: SERVER 0x10001000\nextern int g_table[];\n",
+        )
+        result = scan_globals(tmp_path)
+        entry = result.globals["g_table"]
+        assert entry.annotated is True
+        assert entry.va == 0x10001000
+        assert entry.type_str == "unsigned int[4]"
+        assert result.type_conflicts == []
+        assert any(path.endswith("obj.h") for path in entry.declared_in)
+        assert any(path.endswith("obj.c") for path in entry.declared_in)
+
+    def test_unmarked_definition_keeps_the_marker_type(self, tmp_path: Path) -> None:
+        """A fat link definition does not fork or retype an annotated global."""
+        _write_c(
+            tmp_path,
+            "def.c",
+            "unsigned char g_blob[100] = {0};\n",
+        )
+        _write_c(
+            tmp_path,
+            "span.c",
+            "// GLOBAL: SERVER 0x10001000\nextern unsigned char g_blob[4];\n",
+        )
+        result = scan_globals(tmp_path)
+        assert set(result.globals) == {"g_blob"}
+        entry = result.globals["g_blob"]
+        assert entry.annotated is True
+        assert entry.va == 0x10001000
+        assert entry.type_str == "unsigned char[4]"
+        assert result.type_conflicts == []
+
+    def test_header_only_marker_is_annotated(self, tmp_path: Path) -> None:
+        _write_c(tmp_path, "only.h", "// GLOBAL: SERVER 0x10002000\nextern int g_only;\n")
+        result = scan_globals(tmp_path)
+        entry = result.globals["g_only"]
+        assert entry.annotated is True
+        assert entry.va == 0x10002000
+        assert entry.type_str == "int"
+
+    def test_headers_still_conflict_without_a_definition(self, tmp_path: Path) -> None:
+        _write_c(tmp_path, "a.h", "extern int g_shared;\n")
+        _write_c(tmp_path, "b.h", "extern char *g_shared;\n")
+        result = scan_globals(tmp_path)
+        assert len(result.type_conflicts) == 1
+        assert result.type_conflicts[0]["name"] == "g_shared"
+
     def test_no_conflict_same_type(self, tmp_path: Path) -> None:
         content_a = TYPE_CONFLICT_A  # extern int g_shared;
         content_b = TYPE_CONFLICT_B.replace("extern char *g_shared;", "extern int g_shared;")

@@ -668,6 +668,28 @@ class TestSectionSummary:
         assert data_row["annotated_bytes"] == 24
         assert data_row["coverage_pct"] == 9.4
 
+    def test_unaddressed_declaration_is_not_a_section(self, tmp_path: Path) -> None:
+        """A link stand-in with no VA does not open an unknown section.
+
+        The placed global still tiles its own section.
+        """
+        cfg = _cfg(tmp_path)
+        (cfg.reversed_dir / "a.c").write_text(
+            "// GLOBAL: SERVER 0x1000\nextern char g_buf[4];\nint g_stand_in;\n",
+            encoding="utf-8",
+        )
+        scan = scan_globals(cfg.reversed_dir, cfg)
+        sections = {".data": {"va": 0x1000, "size": 4}}
+        from rebrew.data_scan import enrich_with_sections
+
+        enrich_with_sections(scan, sections)
+        rows = section_summary(scan, sections)
+        assert [r["name"] for r in rows] == [".data"]
+        assert rows[0]["annotated_bytes"] == 4
+        assert rows[0]["coverage_pct"] == 100.0
+        assert "g_stand_in" in scan.globals
+        assert scan.globals["g_stand_in"].va == 0
+
     def test_no_section_size_reports_dash(self, tmp_path: Path) -> None:
         """Without a binary section size, coverage is not computed (no crash)."""
         cfg = _cfg(tmp_path)
