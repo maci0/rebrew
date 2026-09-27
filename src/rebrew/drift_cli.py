@@ -146,8 +146,8 @@ def main(
     size_val = size
     if size_val is None and selected is not None and selected.size > 0:
         size_val = selected.size
-    # ``meta["SIZE"]`` is the first annotation only — a --va-selected sibling
-    # with no SIZE must not borrow that span.
+    # ``meta["SIZE"]`` is the first annotation only — a sibling selected
+    # via --va with no SIZE must not borrow that span.
     if (
         size_val is None
         and "SIZE" in meta

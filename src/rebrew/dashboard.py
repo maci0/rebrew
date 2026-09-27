@@ -71,7 +71,8 @@ or ``/app.js`` content hash, or DB mtime plus a hash of the request's path
 and query, so one validator never stands for two different routes, targets,
 or filter selections), and use ``Cache-Control: private,
 no-cache`` so browsers can 304 without serving a stale body after ``build-db``;
-the shell links ``/app.js?v=<content hash>``, which alone is ``immutable``.
+the shell links ``/app.js?v=<content hash>`` and ``/boot-guard.js?v=<version>``,
+each of which is ``immutable``.
 ``/api/health`` is the exception: it reads the database, so it answers
 ``no-store`` with no ``ETag`` at all (see ``_UNCACHEABLE_ROUTES``).
 An inline ``data:,`` icon stops the per-load ``/favicon.ico`` 404.

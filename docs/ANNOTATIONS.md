@@ -232,18 +232,20 @@ overlay rules, in order:
 1. **`PROVEN`** (from `rebrew prove`) wins over the cache: prove compiles
    after any cached verdict.  The next `rebrew verify`/`test` replaces the
    metadata PROVEN with the byte result.
-2. **Metadata `STUB`** stays `STUB` unless the cache holds a *more actionable*
+2. **Metadata `SKIP`** (user-parked) also wins over the cache.
+3. **Metadata `STUB`** stays `STUB` unless the cache holds a *more actionable*
    status (`COMPILE_ERROR`, `EXACT`, `RELOC`, `NEAR_MATCHING`, ...).  Cache
    states `SIZE_MISMATCH`, `MISSING_SIZE`, and `STUB` do **not** override —
    a stub's size mismatch is expected until it is decompiled.
-3. **Anything else** (metadata `EXACT`/`RELOC`/`NEAR_MATCHING`) is replaced by
+4. **Anything else** (metadata `EXACT`/`RELOC`/`NEAR_MATCHING`) is replaced by
    the cached verify result when one exists; otherwise the metadata value is
    kept.
 
 `rebrew status` surfaces this explicitly: the terminal output prints how many
 functions the cache overrode, and how many are stuck on `MISSING_SIZE`
 (metadata `SIZE` missing → verify could not extract the function; set `SIZE`
-via `rebrew cfg set` and re-verify).  JSON output carries the same numbers
+via `rebrew catalog --fix-sizes` or the inline `// SIZE:` marker and
+re-verify).  JSON output carries the same numbers
 under `verify_cache: {overrides, missing_size}` (present only when a verify
 cache exists).
 
@@ -774,15 +776,10 @@ functions you've **identified** — they show up in coverage stats as covered, a
 
 ### Filename Convention
 
-Files must be named `library_<suffix>.h`. The suffix determines the default ORIGIN:
-
-| Filename | Inferred ORIGIN |
-|----------|----------------|
-| `library_msvc.h` | MSVCRT |
-| `library_msvcrt.h` | MSVCRT |
-| `library_crt.h` | MSVCRT |
-| `library_zlib.h` | ZLIB |
-| `library_<other>.h` | `<OTHER>` (uppercased) |
+Files must be named `library_<suffix>.h`, which is how `iter_library_headers`
+finds them. The `library_` prefix and `.h` suffix are the whole convention:
+the module recorded for each function comes from the `// LIBRARY: <MODULE>`
+marker, never from the filename.
 
 ### Minimal Format (reccmp-compatible)
 

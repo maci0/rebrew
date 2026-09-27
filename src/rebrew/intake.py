@@ -276,7 +276,7 @@ def prune_stale_stubs(
 
     A discovery that came back *shorter* than the inventory it would prune
     against is treated as degraded (a provider that timed out or errored
-    contributes zero rows, see :func:`rebrew.discover.run_providers`), and
+    contributes zero rows, see ``rebrew.discover._run_providers``), and
     nothing is deleted: a short list is indistinguishable from a real
     removal, and the caller has already overwritten the previous inventory.
 

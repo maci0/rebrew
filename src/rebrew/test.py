@@ -963,7 +963,7 @@ def _run_test_impl(
 
     size_val = size
     # ``meta["SIZE"]`` is the first annotation only (parse_source_metadata).
-    # A --va-selected sibling with no SIZE must not borrow that span.
+    # A sibling selected via --va with no SIZE must not borrow that span.
     if (
         size_val is None
         and "SIZE" in meta

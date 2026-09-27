@@ -1234,7 +1234,7 @@ def _create_schema(c: sqlite3.Cursor, target: str | None) -> None:
     # Per-section cell JSON, pre-aggregated and zstd-compressed.  Serving a
     # dashboard grid otherwise re-runs json_group_array over every cell on
     # each cold request: measured 10.7 ms of SQLite per 39k-cell section
-    # versus 0.3 ms to read this row, for 188 KB stored across the whole
+    # versus 0.3 ms to read this row, for 176 KB stored across the whole
     # table.  WITHOUT ROWID because it is accessed only by its primary key,
     # so the implicit rowid (and its index) would be dead weight.
     #
