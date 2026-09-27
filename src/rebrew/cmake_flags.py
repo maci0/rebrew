@@ -28,6 +28,7 @@ error naming the functions and their flags, not silently averaged.
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
 from pathlib import Path
 
 import typer
@@ -134,6 +135,27 @@ def collect(cfg: ProjectConfig, marker: str) -> tuple[dict[Path, str], list[str]
     return files, problems, notes
 
 
+def _emit_json(
+    written: str | None,
+    emit: Mapping[str, str],
+    problems: list[str],
+    notes: list[str],
+) -> None:
+    """Print the result payload shared by the success and problem paths.
+
+    ``written`` is the output path, or ``None`` when nothing was written (a
+    rejected run) or a dry run.
+    """
+    json_print(
+        {
+            "written": written,
+            "files": dict(emit),
+            "problems": problems,
+            "notes": notes,
+        }
+    )
+
+
 @app.callback(invoke_without_command=True)
 def main(
     output: Path = typer.Option(
@@ -202,14 +224,7 @@ def main(
 
     if problems:
         if json_output:
-            json_print(
-                {
-                    "written": None,
-                    "files": dict(emit),
-                    "problems": problems,
-                    "notes": notes,
-                }
-            )
+            _emit_json(None, emit, problems, notes)
         raise typer.Exit(code=EXIT_ERROR)
 
     written: str | None = None
@@ -224,14 +239,7 @@ def main(
         # Report the same table the include uses (emit), including
         # --sources-file entries that lack annotations — not collect()'s
         # annotated-only map.
-        json_print(
-            {
-                "written": written,
-                "files": dict(emit),
-                "problems": problems,
-                "notes": notes,
-            }
-        )
+        _emit_json(written, emit, problems, notes)
     elif not dry_run:
         console.print(f"[green]cmake-flags:[/] wrote {output} ({len(emit)} source files)")
 

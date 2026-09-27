@@ -544,13 +544,11 @@ def add_target(
     except ConfigError as exc:
         error_exit(str(exc), json_mode=json_output)
 
-    # Ensure [targets] exists
     targets = doc.get("targets")
     if targets is None:
         targets = tomlkit.table()
         doc["targets"] = targets
 
-    # Idempotent: if target already exists, just ensure dirs exist and return
     if name in targets:
         (root / "src" / name).mkdir(parents=True, exist_ok=True)
         (root / "bin" / name).mkdir(parents=True, exist_ok=True)
@@ -562,10 +560,8 @@ def add_target(
 
     binary_path = Path(binary)
 
-    # Resolve the binary against the project root for existence checks
     resolved = (root / binary_path) if not binary_path.is_absolute() else binary_path
 
-    # Guard: refuse when the binary is missing unless --force
     forced_missing = False
     if not resolved.exists():
         if not force:

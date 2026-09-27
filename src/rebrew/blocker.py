@@ -77,10 +77,9 @@ def resolve_function(
                 "Cannot determine module for bare VA — pass a file path or set a marker",
                 json_mode=json_mode,
             )
-        if va_int is not None:
-            if va_int == 0:
-                error_exit("VA must be non-zero", json_mode=json_mode)
-            return module, va_int
+        if va_int == 0:
+            error_exit("VA must be non-zero", json_mode=json_mode)
+        return module, va_int
 
     resolved = str(resolve_source_arg(cfg, raw))
     source_path = Path(resolved).resolve()
@@ -125,13 +124,11 @@ def resolve_function(
                 "the file covers different functions (pass --va 0x… to override)",
                 json_mode=json_mode,
             )
-        if not matched and va_from_flag:
-            # Explicit --va override: file's compile settings still intended,
-            # but the VA itself is the requested target (covers stub files
-            # where the annotation VA won't match the override).
-            pass
+        # An explicit --va that matches no annotation falls through on
+        # purpose: the file's compile settings still apply, but the VA is the
+        # requested target (covers stub files whose annotation VA differs).
 
-    if va_int is not None and va_int == 0:
+    if va_int == 0:
         error_exit("VA must be non-zero", json_mode=json_mode)
 
     if va_from_flag and va_int is not None:

@@ -440,20 +440,29 @@ def _flatten_wrapper_dir(payload: Path, extract_dir: Path) -> None:
         shutil.move(child, extract_dir / child.name)
 
 
+def _probe_vendored(spec: Any, host: Path) -> Path | None:
+    """Locate the toolchain's binary under *host*, or ``None`` if absent.
+
+    Falls back to the pre-``source/`` flat layout, so a tree vendored before
+    the canonical nesting still resolves.
+    """
+    from rebrew.toolchain import vendored_binary
+
+    probe = vendored_binary(replace(spec, host_path=host))
+    if probe is None:
+        probe = vendored_binary(replace(spec, host_path=host / "source"))
+    return probe
+
+
 def _vendor_tree_complete(host: Path, name: str) -> bool:
     """True when *host* already holds a usable vendored compiler for *name*.
 
     Used so a failed prior ``vendor`` (empty or partial ``source/``) can be
     retried instead of refusing to clobber forever.
     """
-    from rebrew.toolchain import get_toolchain, vendored_binary
+    from rebrew.toolchain import get_toolchain
 
-    spec = get_toolchain(name)
-    probe = vendored_binary(replace(spec, host_path=host))
-    if probe is None:
-        # Pre-source/ flat layout still counts as complete when the binary is there.
-        probe = vendored_binary(replace(spec, host_path=host / "source"))
-    return probe is not None
+    return _probe_vendored(get_toolchain(name), host) is not None
 
 
 def _abort_incomplete_vendor(extract_dir: Path, msg: str, *, json_mode: bool) -> None:
@@ -481,7 +490,7 @@ def vendor_cmd(
     import hashlib
     import tempfile
 
-    from rebrew.toolchain import get_toolchain, require_toolchains_repo, vendored_binary
+    from rebrew.toolchain import get_toolchain, require_toolchains_repo
     from rebrew.toolchain_data import SOURCES
 
     repo = require_toolchains_repo()
@@ -501,9 +510,7 @@ def vendor_cmd(
     # Complete tree: re-run is a no-op success (same posture as ``pull``).
     if host.exists() and _vendor_tree_complete(host, name):
         spec = get_toolchain(name)
-        probe = vendored_binary(replace(spec, host_path=host))
-        if probe is None:
-            probe = vendored_binary(replace(spec, host_path=host / "source"))
+        probe = _probe_vendored(spec, host)
         if probe is None:
             error_exit(
                 f"vendor {name}: tree reported complete but {spec.binary} missing under {host}",
@@ -632,11 +639,7 @@ def vendor_cmd(
     # Probe the ACTUAL extracted dir (src.host_dir) — the spec's host_path
     # is captured at import time and may predate the extraction.
     spec = get_toolchain(name)
-    probe = vendored_binary(replace(spec, host_path=host))
-    if probe is None:
-        # Pre-source/ flat layout (trees vendored before the canonical
-        # nesting) — still resolve so re-vendoring is not blocked.
-        probe = vendored_binary(replace(spec, host_path=host / "source"))
+    probe = _probe_vendored(spec, host)
     if probe is None:
         _abort_incomplete_vendor(
             extract_dir,
