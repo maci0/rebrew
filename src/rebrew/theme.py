@@ -4,7 +4,9 @@ and the exported call graph.
 Plain tool chrome: a system font stack, one link/focus blue, grey borders,
 one 6px radius. Deliberately not a component-library palette, and small on
 purpose: these surfaces are read for addresses and bytes, so nothing here
-competes with the data. Status marks are ``status_style.STATUS_HEX``, the same values
+competes with the data. A role named here is rendered the same way by every
+surface that uses it, so the report and the dashboard read as one tool.
+Status marks are ``status_style.STATUS_HEX``, the same values
 the call graph uses, and are not repeated here; the graph's node stroke, label
 colour, label font and edge colour read the ``ink``, ``surface``, ``mono`` and
 ``line`` tokens here instead of their own literals, so a graph exported beside
@@ -47,14 +49,15 @@ TOKENS: dict[str, str] = {
     # type
     "sans": "system-ui, sans-serif",
     "mono": 'ui-monospace, "Cascadia Code", Consolas, monospace',
+    # One ladder, 24/20/18 for display and 15/14/13 for text, so a level
+    # reads as a step rather than as a default.
     "size-title": "1.5rem",
-    "size-heading": "1.25rem",
-    "size-bar": "1.05rem",
-    "size-code": "0.8rem",
-    "size-value": "1.5rem",
-    "size-cell": "0.85rem",
-    "size-note": "0.9rem",
-    "size-caption": "0.85rem",
+    "size-value": "1.25rem",
+    "size-heading": "1.125rem",
+    "size-note": "0.9375rem",
+    "size-cell": "0.875rem",
+    "size-caption": "0.8125rem",
+    "size-code": "0.8125rem",
     # shape
     "radius": "6px",
 }

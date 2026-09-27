@@ -1315,7 +1315,7 @@ _INDEX_HTML = """<!doctype html>
 <link rel="icon" href="data:,">
 <style>
   body { font-family: var(--rb-sans); margin: 1.5rem;
-    background: var(--rb-surface); color: var(--rb-ink); }
+    background: var(--rb-sunken); color: var(--rb-ink); }
   .skip-link { position: absolute; left: -9999px; top: 0; z-index: 100;
     padding: .5rem 1rem; background: var(--rb-surface); color: var(--rb-accent);
     text-decoration: underline; }
@@ -1331,18 +1331,18 @@ _INDEX_HTML = """<!doctype html>
   .cards { display: flex; gap: 1rem; flex-wrap: wrap; margin: 1rem 0;
     min-height: 4.3rem; }
   .card { border: 1px solid var(--rb-line); border-radius: var(--rb-radius);
-    padding: .6rem 1rem; min-width: 110px; background: var(--rb-surface); }
+    padding: .9rem 1.1rem; min-width: 110px; background: var(--rb-surface); }
   button.card { font: inherit; color: inherit; text-align: left; cursor: pointer; }
   button.card:hover { border-color: var(--rb-line-hi); background: var(--rb-hover); }
   button.card:active { background: var(--rb-pressed); }
-  button.card.active { border-color: var(--rb-accent); border-width: 2px;
-    box-shadow: 0 0 0 2px var(--rb-ring); }
+  button.card.active, .views button.active { border-color: var(--rb-accent);
+    border-width: 2px; box-shadow: 0 0 0 2px var(--rb-ring); }
   /* Weight marks the selected card and tab without relying on border colour (WCAG 1.4.1). */
   button.card.active .label, .views button.active { font-weight: 700; }
   .card .value { font-size: var(--rb-size-value); font-weight: 700; display: block; }
   .label { color: var(--rb-muted); font-size: var(--rb-size-caption); }
 __STATUS_CSS__
-  .table-scroll { overflow-x: auto; position: relative; min-height: 6rem; -webkit-overflow-scrolling: touch; }
+  .table-scroll { overflow-x: auto; position: relative; min-height: 6rem; }
   .table-scroll[aria-busy="true"]::after {
     content: "Loading…"; position: absolute; inset: 0; display: flex; align-items: center;
     justify-content: center; background: var(--rb-veil);
@@ -1352,7 +1352,7 @@ __STATUS_CSS__
     overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
   table { border-collapse: collapse; width: 100%; margin-top: 1rem;
     font-size: var(--rb-size-cell); background: var(--rb-surface); }
-  th, td { border: 1px solid var(--rb-line); padding: .3rem .5rem; text-align: left; }
+  th, td { border-bottom: 1px solid var(--rb-line); padding: .3rem .5rem; text-align: left; }
   th { background: var(--rb-sunken); white-space: nowrap; font-weight: 600; }
   tbody tr:hover { background: var(--rb-hover); }
   td.va, code { font-family: var(--rb-mono); }
@@ -1372,8 +1372,6 @@ __STATUS_CSS__
   button:disabled { opacity: .55; cursor: not-allowed; }
   .views { display: flex; flex-wrap: wrap; gap: .35rem; margin: .75rem 0 .25rem; }
   .views .btn { padding: .3rem .85rem; }
-  .views button.active { border-color: var(--rb-accent); border-width: 2px;
-    box-shadow: 0 0 0 2px var(--rb-ring); }
   .view-panel[hidden] { display: none; }
   .link-button { background: none; border: none; padding: 0; color: var(--rb-accent);
     text-decoration: underline; font: inherit; cursor: pointer; }

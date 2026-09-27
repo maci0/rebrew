@@ -142,7 +142,7 @@ body { font-family: var(--rb-sans);
 .skip-link:focus { left: 1rem; top: 1rem; }
 header { background: var(--rb-ink); color: var(--rb-surface); padding: 0.75rem 1.5rem;
          display: flex; flex-wrap: wrap; align-items: baseline; gap: 1rem 2rem; }
-header h1 { font-size: var(--rb-size-bar); margin: 0; }
+header h1 { font-size: var(--rb-size-title); margin: 0; }
 header nav { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; }
 header nav a { color: var(--rb-nav); text-decoration: underline; min-height: 2.75rem; padding: 0.5rem 0.35rem;
         display: inline-flex; align-items: center; }
@@ -161,7 +161,7 @@ h2 { font-size: var(--rb-size-heading); margin: 1.5rem 0 .5rem; }
 .card dd { margin: 0; }
 .card .value { font-size: var(--rb-size-value); font-weight: 700; }
 .card .label { color: var(--rb-muted); font-size: var(--rb-size-caption); }
-.table-scroll { overflow-x: auto; margin-bottom: 1.5rem; -webkit-overflow-scrolling: touch; }
+.table-scroll { overflow-x: auto; margin-bottom: 1.5rem; }
 table { width: 100%; border-collapse: collapse; background: var(--rb-surface);
         border: 1px solid var(--rb-line); border-radius: var(--rb-radius);
         overflow: hidden; margin-bottom: 0; }
