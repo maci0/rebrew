@@ -387,7 +387,10 @@ by the CLI layer and win for that invocation.
   is on PATH.
 - `REBREW_XVFB_DISPLAY` — display (e.g. `:99`) of the virtual X server
   headless wine uses.  Set by rebrew itself on first use; override to pin
-  a specific display (it must host a live Xvfb).
+  a specific display (it must host a live Xvfb this process holds the
+  MIT-MAGICK cookie for — an unauthenticated server is never reused).
+  The Xvfb rebrew starts carries a fresh cookie file exported as
+  `XAUTHORITY`, which travels to the wine children with the display.
 - `REBREW_WINEPREFIX` — Wine prefix for cmake toolchain bridge scripts.
   Must be an absolute path (`~` expands); a relative value is an error.
   Default: `$XDG_CACHE_HOME/rebrew-<toolchain>-wineprefix`.
