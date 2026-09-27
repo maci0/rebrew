@@ -109,6 +109,36 @@ class TestClassifyCompareResult:
         assert r.status == "NEAR_MATCHING"
         assert r.delta == 1
 
+    def test_at_threshold_is_near_matching(self) -> None:
+        """Exactly at the threshold is NEAR_MATCHING: the comparison is
+        inclusive (>=), so a `>` here demotes a still-close function to
+        STUB with no test else catching it."""
+        total = 10
+        count = int(NEAR_MATCH_THRESHOLD * total)
+        r = classify_compare_result(
+            False,
+            "diff",
+            b"\x00" * count + b"\x01" * (total - count),
+            b"\x00" * count + b"\x02" * (total - count),
+            None,
+        )
+        assert r.match_percent == NEAR_MATCH_THRESHOLD * 100
+        assert r.status == "NEAR_MATCHING"
+
+    def test_just_below_threshold_is_stub(self) -> None:
+        total = 10
+        count = int(NEAR_MATCH_THRESHOLD * total) - 1
+        r = classify_compare_result(
+            False,
+            "diff",
+            b"\x00" * count + b"\x01" * (total - count),
+            b"\x00" * count + b"\x02" * (total - count),
+            None,
+        )
+        assert r.match_percent < NEAR_MATCH_THRESHOLD * 100
+        assert r.status == "STUB"
+        assert r.delta == total - count
+
     def test_message_names_the_decided_status(self) -> None:
         """The compare step does not know NEAR_MATCHING from STUB yet; the
         message must carry the status classification decided, not both."""
