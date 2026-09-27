@@ -101,19 +101,27 @@ checks both and prints the clone or checkout line when either is wrong.  `make h
 lists every contributor target.
 
 ```bash
-make setup                              # frozen lock + pre-commit/pre-push hooks (push runs
+make setup                              # --locked sync (extras + similarity) + pre-commit/pre-push hooks (push runs
                                         # make test, needs nasm; SKIP=pytest git push to skip)
 make test-one T=tests/test_annotation.py  # single file / pytest nodeid
 make test                               # full suite (ANSI-safe; same as CI)
-uv run --frozen ruff check .                # lint (same scope as the pre-commit hook)
-uv run --frozen ruff format --check src/ tests/ tools/
-uv run --frozen mypy                             # type check (0 issues expected; strict,
+make lint                             # ruff check . (same scope as the pre-commit hook)
+make format-check                     # ruff format --check
+make mypy                             # type check (0 issues expected; strict,
                                         # covers src/rebrew + tools + every tests/ module
                                         # that has come clean; the rest is not yet clean)
-uv run --frozen pre-commit run --all-files       # 14 of 16 hooks — pytest (pre-push) and
-                                        # validate-skill-commands (manual) are stage-gated
+make check                            # 14 of 16 pre-commit hooks — pytest (pre-push) and
+                                        # validate-skill-commands (manual) are stage-gated.
+                                        # Exports NO_COLOR / TERM=dumb /
+                                        # _TYPER_FORCE_DISABLE_TERMINAL first, so a
+                                        # FORCE_COLOR or GITHUB_ACTIONS export in the
+                                        # shell cannot split the option names the
+                                        # skills and help-text hooks assert on. The
+                                        # raw pre-commit call below does not, which is
+                                        # why the make target is the documented one.
+NO_COLOR=1 TERM=dumb _TYPER_FORCE_DISABLE_TERMINAL=1 \
+  uv run --frozen pre-commit run --all-files   # same 14 hooks, ANSI-safe by hand
 make all                                # local mirror of CI lint + test + cli-contract
-make check                              # pre-commit hook parity (CI pre-commit job)
 make cli-contract                       # high-value --help greps (CI cli-contract job)
 make gen-fixtures                       # regenerate tests/fixtures/ (then commit)
 make build                              # sdist+wheel (CI package job; run before a PR)
