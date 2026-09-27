@@ -672,6 +672,38 @@ class TestSummaryCards:
         assert "<dt class='label'>Total functions</dt><dd class='value'>" in page
         assert "<div class='value'>" not in page
 
+    def test_byte_coverage_over_text_size_reads_as_capped(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Annotated sizes past .text give "100%+", not a percentage above 100.
+
+        The stub PE carries a 32-byte .text and the two fixtures annotate 300
+        bytes, so the raw ratio is 312.5%, which reads as a broken number.
+        """
+        _write_project(tmp_path, pe_bytes=make_pe(b"\x90" * 32))
+        monkeypatch.chdir(tmp_path)
+        site = tmp_path / "site"
+        result = runner.invoke(app, ["--output", str(site)])
+        assert result.exit_code == 0, result.output
+        page = (site / "index.html").read_text(encoding="utf-8")
+        assert "<dd class='value'>100%+</dd>" in page
+        assert "312.5%" not in page
+        assert "more than the 32-byte .text section" in page
+
+    def test_byte_coverage_within_text_size_is_a_plain_percentage(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A .text larger than the annotated sizes keeps the plain percentage."""
+        _write_project(tmp_path, pe_bytes=make_pe(b"\x90" * 4096))
+        monkeypatch.chdir(tmp_path)
+        site = tmp_path / "site"
+        result = runner.invoke(app, ["--output", str(site)])
+        assert result.exit_code == 0, result.output
+        page = (site / "index.html").read_text(encoding="utf-8")
+        assert "100%+" not in page
+        assert "byte coverage is shown as 100%+" not in page
+        assert "<dd class='value'>2.4%</dd>" in page  # func_a's 100 of 4096, floored
+
 
 class TestChromeTokens:
     """Both HTML surfaces render the shared rebrew.theme token set."""
