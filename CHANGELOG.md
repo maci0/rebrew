@@ -62,6 +62,22 @@
   build when the delta holds a removed or reshaped name and `[Unreleased]`
   carries no `**Breaking:**` entry naming it, so a move that is not documented
   is a red test rather than a line in an upgrade guide that is missing.
+
+- **The schema-version gate now checks indexes, not just tables and columns.**
+  `_missing_required_objects` verified the required objects and the
+  query-critical columns, so a database carrying the current `db_version` but
+  missing `idx_functions_status_va` (or any other index the dashboard's
+  filters, joins, and sorts depend on) passed the gate and then answered every
+  request from a full scan of the target's rows. A missing index is now
+  reported as a version mismatch and takes the same `--force` path as a
+  missing column.
+- **`build-db` refuses a target named `__schema__`.** `metadata` is keyed
+  `(target, key)` and `__schema__` is the reserved `target` holding
+  database-level rows, so a binary with that name (reachable through a
+  `data___schema__.json` snapshot, whose name is not validated upstream) would
+  have appeared in the dashboard's target list and overwritten the schema
+  version stamp with its own per-target `db_version` write. The build now
+  fails before the write transaction opens.
 - **A dashboard handler fault names the request it happened on.** A fault
   escaping a handler went through `socketserver.BaseServer.handle_error`, which
   prints a bare traceback: no timestamp, no level, and no way to match the
@@ -143,6 +159,15 @@
   fields on `RecompileError`, and the `retries=` / `timeout=` knobs.
 
 ### Fixed
+- **The GA splice took a second, hand-written lock name for the metadata
+  store.** `_run_one_stub_ga` passed the literal `"rebrew-functions.toml"` to
+  `metadata_write_lock`, which keys both its thread lock and its `flock` sidecar
+  by that string. Renaming the store would have left this one read-modify-write
+  unserialized against every other metadata writer, silently dropping one
+  writer's STATUS promotion. It now passes `METADATA_FILENAME`, the constant
+  every other writer uses. `build_db._snapshot_inputs`, which names the same
+  file when deciding whether a `data_*.json` snapshot is stale, was doing the
+  same with a literal.
 - **The LLM seed prompt preview is the request, and the completion cap covers
   the seed count it asks for.** `build_prompt` flattened the system and user
   turns into one string, so `--seed-llm --dry-run` showed a prompt the endpoint

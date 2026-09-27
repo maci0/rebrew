@@ -434,6 +434,8 @@ def _run_one_stub_ga(
     (virtual time) makes the generation count a function of the seed rather
     than of how fast the compiles ran, so a replay reproduces the run exactly.
     """
+    from rebrew.metadata import METADATA_FILENAME
+
     filepath = stub.filepath
     try:
         rel = filepath.relative_to(cfg.root)
@@ -593,7 +595,12 @@ def _run_one_stub_ga(
                     # taken by concurrent verify/test patches, and metadata→
                     # verify-cache nesting makes AB-BA deadlock possible with
                     # any path that ever took verify-cache first.
-                    with metadata_write_lock(cfg.metadata_dir, "rebrew-functions.toml"):
+                    #
+                    # METADATA_FILENAME, not a literal: the lock is keyed by
+                    # the file it guards, so a second spelling of the name is a
+                    # second lock and the read-modify-write below goes
+                    # unserialized against every metadata writer.
+                    with metadata_write_lock(cfg.metadata_dir, METADATA_FILENAME):
                         spliced_ok = update_stub_to_matched(
                             filepath, best_src, stub, metadata_dir=cfg.metadata_dir
                         )

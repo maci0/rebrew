@@ -884,6 +884,24 @@ binary = "test.exe"
         assert c.fetchone() == ("idx_metadata_key",)
         conn.close()
 
+    def test_missing_serving_index_rejected_by_version_gate(self, project_root: Path) -> None:
+        """A database stamped with the current version but missing an index the
+        dashboard queries depend on must not be accepted: the queries would run
+        but every request would full-scan the target's rows."""
+        from typer import Exit as TyperExit
+
+        build_db(project_root)
+        db_path = project_root / "db" / "coverage.db"
+        conn = sqlite3.connect(db_path)
+        try:
+            conn.execute("DROP INDEX idx_functions_status_va")
+            conn.commit()
+        finally:
+            conn.close()
+
+        with pytest.raises(TyperExit):
+            build_db(project_root)
+
     def test_globals_module_va_index_exists(self, project_root: Path) -> None:
         """idx_globals_module_va serves module-filtered globals queries with ORDER BY va."""
         build_db(project_root)
@@ -1115,6 +1133,10 @@ binary = "test.exe"
             )
             """
         )
+        # Dropping the table dropped its index with it; an older build's DDL
+        # still carried it, and without it the version gate rejects the file
+        # before the in-place migration below ever runs.
+        c.execute("CREATE INDEX idx_history_target_id ON history(target, id)")
         c.execute(
             "INSERT INTO history (id, target, va, old_status, new_status, changed_at) "
             "VALUES (42, 'testbin', -7, 'BOGUS', 'EXACT', '')"
@@ -2098,6 +2120,34 @@ class TestBuildDbCorruptInput:
         with pytest.raises(TyperExit):
             build_db(tmp_path)
 
+    def test_reserved_schema_target_name_rejected(self, tmp_path: Path) -> None:
+        """A target named ``__schema__`` would share the reserved metadata
+        namespace with the database-level rows, so it must fail before the
+        write transaction and leave no database behind."""
+        from typer import Exit as TyperExit
+
+        from rebrew.workspace import SCHEMA_TARGET
+
+        db_dir = tmp_path / "db"
+        db_dir.mkdir()
+        (db_dir / f"data_{SCHEMA_TARGET}.json").write_text(
+            json.dumps(
+                {
+                    "functions": {"0x1000": {"name": "f", "size": 8, "status": "STUB"}},
+                    "globals": {},
+                    "sections": {},
+                    "summary": {},
+                    "paths": {},
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        with pytest.raises(TyperExit):
+            build_db(tmp_path)
+
+        assert not (db_dir / "coverage.db").exists()
+
     def test_unparseable_va_rows_skipped_with_warning(
         self, tmp_path: Path, capsys: pytest.CaptureFixture[str]
     ) -> None:
@@ -2310,6 +2360,9 @@ class TestCellStateVocabulary:
                 updated_by TEXT NOT NULL DEFAULT ''
             )
             """)
+        # See test_history_migrates_pre_check_ddl: the dropped index has to come
+        # back or the version gate rejects the file before this migration runs.
+        c.execute("CREATE INDEX idx_history_target_id ON history(target, id)")
         # Rows 1 and 2 are the same transition once BOGUS clamps to UNKNOWN
         # and '' clamps to the epoch; row 3 is a second, distinct transition.
         c.executemany(

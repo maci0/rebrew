@@ -187,12 +187,24 @@ leftmost-`target` primary key.
 | `paths` | JSON object with file paths (originalDll, sourceRoot) |
 | `db_version` | Schema version string (current: `"10"`) |
 
+`target = "__schema__"` (`rebrew.workspace.SCHEMA_TARGET`) is reserved for
+database-level rows and is not a binary name. `build-db` rejects a
+`data___schema__.json` snapshot before opening the write transaction, so the
+reserved namespace cannot be reached through the filename-derived target name.
+
 #### Schema Version History
 
 `rebrew build-db` refuses to write into a database whose stored `db_version`
 differs from the version it was built for; pass `--force` to delete and recreate
 it. Bump `_CURRENT_DB_VERSION` in `src/rebrew/build_db.py` and add a row here
 whenever the schema changes.
+
+The version stamp alone is not treated as proof of shape: after reading the
+stamp, `build-db` also verifies the required tables, the query-critical
+columns, and the indexes the shipped queries depend on
+(`idx_metadata_key`, `idx_functions_status_va`, `idx_functions_module_va`,
+`idx_functions_list`, `idx_globals_module_va`, `idx_history_target_id`). Any
+gap is reported as a version mismatch, so it takes the same `--force` path.
 
 | Version | Change |
 |---|---|
