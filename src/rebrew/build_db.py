@@ -627,7 +627,7 @@ def _check_db_version(
                 stored_version = str(row[0])
     except sqlite3.Error as exc:
         if "locked" in str(exc).lower():
-            # A live DB under contention (concurrent build-db, recoverage
+            # A live DB under contention (concurrent build-db, recovery
             # regen) must NEVER be deleted — that is silent data loss.
             error_exit(
                 f"Database at '{db_path}' is locked by another process: {exc}. "
@@ -706,7 +706,7 @@ def _missing_required_objects(db_path: Path) -> set[str]:
         "section_cell_stats",
         SECTION_CELLS_TABLE,
     }
-    # Columns the recoverage queries depend on; a DB missing any of these
+    # Columns the recovery queries depend on; a DB missing any of these
     # fails at runtime despite a correct version stamp.
     required_columns: dict[str, set[str]] = {
         "metadata": {"target", "key", "value"},
@@ -1900,7 +1900,7 @@ app = typer.Typer(
         "  Run 'rebrew catalog --data-json' first to generate db/data_*.json files.\n\n"
         "[bold]What it creates:[/bold]\n\n"
         "  db/coverage.db · · · · · · SQLite database with functions, globals, sections, cells\n\n"
-        "[dim]The database is used by recoverage (coverage dashboard) and can be queried "
+        "[dim]The database is used by recovery (coverage dashboard) and can be queried "
         "directly for reports. Schema version is stamped in the metadata table.[/dim]"
     ),
 )

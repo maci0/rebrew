@@ -350,14 +350,27 @@ def main(
         va: Optional hex VA used with ``size`` to extract target bytes.
         size: Optional byte count for the target function.
         cflags: Optional compiler flags string overriding annotation/config defaults.
+        toolchain: Vendored compiler profile overriding the project default.
         all_sources: Batch mode — verify's engine over every .c file in
         reversed_dir (always recompiles).
         batch_dir: Optional subdirectory to restrict batch mode.
         origin: Optional module filter for batch mode.
         dry_run: List batch candidates without running tests.
+        jobs: Parallel compile jobs for ``--all`` (defaults to the project
+        ``[project].jobs``).
+        no_promote: Measure only — write no STATUS, CFLAGS, TOOLCHAIN, or SIZE.
+        force_status: Write STATUS where the promotion policy refuses it
+        (unpark a SKIP, replace a STUB with SIZE_MISMATCH); single-function only.
+        fix_sizes: Rewrite a stale SIZE when all common bytes match.
+        linked: Linked compare (shell + real DLL link, no reloc masking);
+        single-function only and needs a VA.
         watch: Re-test the source file on every change (single-file mode only).
+        context: Extra declarations to compile with the source; the result
+        records the context hash the match was earned under.
         json_output: Emit machine-readable JSON responses.
         target: Optional target profile name from ``rebrew-project.toml``.
+        all_targets: Repeat the run across every configured target; refused
+        with ``--va``, ``--target-bin``, and ``--watch``.
 
     """
     all_targets = option_default(all_targets, False)

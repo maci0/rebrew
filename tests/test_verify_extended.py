@@ -355,7 +355,7 @@ class TestVerifyEntryBranches:
 
     def test_unmatched_populates_diff_lines(self, tmp_path: Path, monkeypatch) -> None:
         """verify_entry must populate diff_lines for UNMATCHED functions so
-        the recoverage-consumed verify_results.diff_lines column carries real
+        the recovery-consumed verify_results.diff_lines column carries real
         data (it was documented but never produced)."""
         import rebrew.binary_loader
         import rebrew.compile

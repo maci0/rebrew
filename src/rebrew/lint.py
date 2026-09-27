@@ -1561,6 +1561,7 @@ def lint_file(
                         ``section_hits``.
         section_hits: Optional list collecting :class:`MissingSection` for
                       DATA/GLOBAL markers whose VA resolves to a section.
+        pedantic: Enable the pedantic-only W023 (default function name) check.
 
     """
     result = LintResult(filepath)

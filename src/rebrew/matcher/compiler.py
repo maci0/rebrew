@@ -763,10 +763,18 @@ def flag_sweep(
         source_ext: Extension of the source file.
         cache: Optional ``CacheBackend`` for cross-run persistence.
         timeout: Subprocess timeout in seconds.
+        extra_include_dirs: Extra include roots (the source's own directory,
+            so relative ``#include "..."`` resolves) passed to every compile.
+        posix_style: Force ``-``-style flag emission for a profile the registry
+            has no entry for.  A posix profile with no registered flag set is
+            refused rather than swept with the MSVC fallback axes.
         profile: Compiler profile id ("msvc-6.0", "watcom-2.0-win32", "msvc-1.52", ...) —
             selects the flag set and (for toolchain-backed profiles) the
             compile runner.
         cfg: Optional project config for toolchain-backed compile routing.
+        deadline: ``time.monotonic()`` value after which no further combination
+            is started; ``None`` means no wall-clock bound.  Combinations
+            already in flight still finish.
 
     """
     from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait

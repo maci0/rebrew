@@ -25,9 +25,7 @@ class TestNormalize:
 
 
 class TestOutputsIdentical:
-    def _install_rebrew(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, script: str
-    ) -> None:
+    def _install_rebrew(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, script: str) -> None:
         """Install a fake `rebrew` on PATH that runs *script*."""
         bin_dir = tmp_path / "bin"
         bin_dir.mkdir()
@@ -36,17 +34,11 @@ class TestOutputsIdentical:
         script_path.chmod(0o755)
         monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ.get('PATH', '')}")
 
-    def test_identical_outputs(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        self._install_rebrew(
-            tmp_path, monkeypatch, 'echo \'{"timestamp": "t", "a": 1}\''
-        )
+    def test_identical_outputs(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        self._install_rebrew(tmp_path, monkeypatch, 'echo \'{"timestamp": "t", "a": 1}\'')
         assert outputs_identical("status --json", tmp_path)
 
-    def test_differing_outputs(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_differing_outputs(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         self._install_rebrew(
             tmp_path,
             monkeypatch,
@@ -55,9 +47,7 @@ class TestOutputsIdentical:
         # A different nanosecond value → not identical.
         assert not outputs_identical("status --json", tmp_path)
 
-    def test_differing_exit_codes(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_differing_exit_codes(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         # First invocation exits 0, second exits 1 (count via a marker file
         # in the sandbox — $HOME is unreliable in the test subprocess).
         marker = tmp_path / "count"
@@ -108,9 +98,7 @@ class TestTreeDigest:
 class TestWriteIdempotency:
     """A mutating command must leave the same project behind on its second run."""
 
-    def _install_rebrew(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, script: str
-    ) -> None:
+    def _install_rebrew(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, script: str) -> None:
         bin_dir = tmp_path / "bin"
         bin_dir.mkdir()
         script_path = bin_dir / "rebrew"
@@ -132,16 +120,12 @@ class TestWriteIdempotency:
         )
         assert check_write_idempotency("migrate-markers", project) == (True, "")
 
-    def test_appending_command_fails(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_appending_command_fails(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         from tools.check_idempotency import check_write_idempotency
 
         project = tmp_path / "proj"
         project.mkdir()
-        self._install_rebrew(
-            tmp_path, monkeypatch, 'echo "// GLOBAL: SERVER 0x401000" >> note.c'
-        )
+        self._install_rebrew(tmp_path, monkeypatch, 'echo "// GLOBAL: SERVER 0x401000" >> note.c')
         ok, reason = check_write_idempotency("document-unmatched", project)
         assert not ok
         assert "note.c" in reason
@@ -171,9 +155,7 @@ class TestFixtureProject:
         assert (project / "rebrew-project.toml").is_file()
         assert (project / "original" / "mini_pe.exe").is_file()
         assert (project / "src" / "SERVER" / "fcn.c").is_file()
-        assert "mini_pe.exe" in (project / "rebrew-project.toml").read_text(
-            encoding="utf-8"
-        )
+        assert "mini_pe.exe" in (project / "rebrew-project.toml").read_text(encoding="utf-8")
 
     def test_fixture_dir_without_value_errors(self, capsys) -> None:
         from tools.check_idempotency import main

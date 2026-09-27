@@ -83,6 +83,8 @@ def compile_c(
             breaks on tmpfs mounts; removed at process exit).
         cflags: Extra TCC flags (default ``["-c"]``).
         timeout: DOSBox subprocess timeout.
+        version: Borland profile under the vendored tree (``"3.1"``,
+            ``"2.0"``) — selects which TCC/INCLUDE/LIB set is staged.
 
     Raises:
         Tc16Error: toolchain/DOSBox missing, compile failure, or no object.

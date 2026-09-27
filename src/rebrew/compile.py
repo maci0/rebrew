@@ -180,7 +180,7 @@ class CompareResult:
     match_count: int | None = None
     #: Number of differing disassembly lines between the compiled and target
     #: bytes (``None`` when not computed).  Populated by ``rebrew verify`` for
-    #: unmatched functions so the recoverage-consumed ``verify_results``
+    #: unmatched functions so the recovery-consumed ``verify_results``
     #: ``diff_lines`` column carries real data instead of NULL.
     diff_lines: int | None = None
     #: Structural code-similarity score (0-100) between the compiled and
@@ -399,6 +399,12 @@ def classify_compare_result(
             caller in :func:`_extract_and_compare`).
         full_obj_size: Full compiled ``.obj`` size before truncation, when
             the SIZE_MISMATCH caller truncated ``obj_bytes`` for comparison.
+        full_obj_bytes: The untruncated compiled bytes, so the caller can still
+            emit the whole function on a STUB / SIZE_MISMATCH verdict.
+        full_target_size: The target's real function size, when the caller
+            truncated ``target_bytes`` for comparison — the STUB "minimal body
+            against a much larger target" test measures against this, not the
+            truncated slice.
 
     Returns:
         A fully-populated :class:`CompareResult`.
@@ -1394,6 +1400,9 @@ def compile_to_obj(
             and *use_cache* is True, a shared instance is obtained
             automatically from the project root.
         use_cache: Set to ``False`` to bypass the cache entirely.
+        obj_name: Name of the produced object inside *workdir*.  Defaults to
+            the source stem plus ``.obj``; must be a plain filename (a path
+            separator is refused) so the container mount stays predictable.
         toolchain: Per-function toolchain override (metadata TOOLCHAIN) -
             compile with THAT toolchain's docker image.
         extra_include_dirs: Additional absolute include dirs (e.g. the GA/
@@ -2184,6 +2193,11 @@ def compile_and_compare(
             (:class:`rebrew.compile_context.CompileContext`); the resulting
             ``CompareResult.context_hash`` records the digest the verdict was
             earned under.
+        toolchain: Per-function toolchain override, passed through to
+            :func:`compile_to_obj`.
+        _precompiled_obj: Path to an already-built ``.obj`` (verify's batch
+            precompile hands one back here), skipping both the compile and the
+            per-call workdir.  Ignored when the path is not an existing file.
 
     Returns:
         :class:`CompareResult` with status, metrics, and byte data.

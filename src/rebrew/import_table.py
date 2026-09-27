@@ -40,9 +40,7 @@ def parse_imports(binary_path: Path) -> list[dict[str, Any]]:
             if mod.imports:
                 for imp in mod.imports:
                     name = imp.name if imp.name is not None else f"ordinal_{imp.ordinal}"
-                    ne_out.append(
-                        {"dll": mod.module, "name": name, "iat_va": 0, "ordinal": None}
-                    )
+                    ne_out.append({"dll": mod.module, "name": name, "iat_va": 0, "ordinal": None})
             else:
                 # Module reference with no per-API detail (many Win16 binaries
                 # carry no classic import table) — still report the module so

@@ -273,7 +273,7 @@ def verify_entry(
         # Populate diff_lines (number of differing disassembly lines) for
         # UNMATCHED functions only — matched functions are 0 trivially, and
         # a full disassembly diff per function is wasted work on the common
-        # exact/reloc path.  Feeds the recoverage-consumed
+        # exact/reloc path.  Feeds the recovery-consumed
         # verify_results.diff_lines column (it was documented
         # but never produced, so every row was NULL).  Best-effort: any
         # disassembly failure leaves it None.
@@ -308,7 +308,7 @@ def verify_entry(
                 # operands, different registers.  Not byte-identical, but the
                 # cause is compiler register allocation, not source logic —
                 # name it so the user does not chase a phantom source bug.
-                # Exposed to recoverage via the result row (effective_match).
+                # Exposed to recovery via the result row (effective_match).
                 # Classification is shared with near-diag (match_semantics).
                 if is_effective_match(
                     structural=int(d["summary"]["structural"]), register=int(d["summary"]["reg"])
@@ -326,7 +326,7 @@ def verify_entry(
             result.diff_lines = None
     # Structural code-similarity score (0–100), computed for EVERY verified
     # function with compiled bytes — matched (short-circuit ~100) and
-    # unmatched alike — so the recoverage-consumed verify_results.similarity
+    # unmatched alike — so the recovery-consumed verify_results.similarity
     # column carries a per-function value.  Reuses the optional `resembl`
     # scoring core; best-effort like diff_lines (a missing extra or a scoring
     # failure leaves it None rather than failing the run).

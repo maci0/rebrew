@@ -10,6 +10,33 @@
   that prints untrusted strings, `error_exit` included) now drops them, and
   the dashboard scrubs the whole JSON payload on the way out, before it reaches
   the DOM.
+- **The sibling project name was misspelled across the tree.** `rebrew`'s
+  coverage-database consumer is `recoverage`; source comments, docstrings, the
+  `rebrew catalog` and `rebrew build-db` help epilogs, the docs, and the
+  drawio map all spelled it `recoverage`, so a reader grepping for the
+  sibling repo found nothing.
+- **`rebrew lint`'s code inventory was understated.** The README counted 19
+  W-codes; W030 (markers out of VA order) had shipped since, making 20.
+- **`docs/FLAG_SWEEP_TIERS.md` named an axis that does not exist.** The `full`
+  tier table listed `msvc_compile_cpp`; the flag set calls it
+  `msvc_source_language`, so the row could not be found in `flag_data.py`.
+  The same file's per-tier axis counts also described the shared
+  `MSVC_SWEEP_TIERS` map, where `normal` and `thorough` additionally name
+  `msvc_fp` — an id `MSVC6_FLAGS` does not carry, so it contributes nothing
+  on the MSVC6 path the page documents.
+- **`docs/README.md` capped the linter codes at W029** while the reference
+  page documents through W030.
+- **Docstrings on six public callables omitted parameters they take.**
+  `rebrew.prove.prove_equivalence` (no `stub_thunks`), `rebrew.test.main`
+  (eight flags, including every `--all-targets` interaction),
+  `rebrew.matcher.compiler.flag_sweep` (no `extra_include_dirs`,
+  `posix_style`, `deadline`), `rebrew.coff_reloc.smart_reloc_compare` (no
+  `reloc_table`), `rebrew.compile.classify_compare_result` /
+  `compile_to_obj` / `compile_and_compare`,
+  `rebrew.lint.lint_file` (no `pedantic`), and `rebrew.tc16.compile_c` (no
+  `version`). A caller reading only the docstring could not tell that
+  `--stub-thunks` stubs non-import DIR32 thunks, that `--timeout-min` bounds
+  the flag sweep, or that `obj_name` must be a plain filename.
 - **`rebrew init --refresh-agents` converges instead of accumulating stale
   skills.** The render wrote every packaged skill but never removed one the
   package no longer ships, and `--check` only looked at the packaged set, so an

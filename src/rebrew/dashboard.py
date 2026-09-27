@@ -1554,7 +1554,7 @@ def _byte_count(value: Any) -> int:
 def _escape_like(term: str) -> str:
     """Escape LIKE wildcards so user input is matched literally.
 
-    Mirrors recoverage's _escape_like: `%`, `_`, and `\\` are escaped and the
+    Mirrors recovery's _escape_like: `%`, `_`, and `\\` are escaped and the
     query must add ``ESCAPE '\\'``.
     """
     return term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")

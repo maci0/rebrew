@@ -1,7 +1,7 @@
 """``rebrew-project.toml`` lookup and coverage.db path resolution.
 
-One implementation of the resolution recoverage, reportal and rebrew each
-carried separately: recoverage's ``_paths._db_path``, reportal's
+One implementation of the resolution recovery, reportal and rebrew each
+carried separately: recovery's ``_paths._db_path``, reportal's
 ``cli._resolve_rebrew_db`` / ``auto_llm_worker.target_config`` and rebrew's
 ``config.walk_up_to_root`` / ``find_root``.
 

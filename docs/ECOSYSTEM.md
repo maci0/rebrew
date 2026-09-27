@@ -29,7 +29,7 @@ flowchart TB
 
     subgraph L2["Intelligence & visualization"]
         RES["resembl<br/>MinHash + LSH asm similarity<br/>own DB (SQLite/Postgres/…)"]
-        RECOV["recoverage<br/>Bottle + VanJS coverage SPA<br/>reads db/coverage.db"]
+        RECOV["recovery<br/>Bottle + VanJS coverage SPA<br/>reads db/coverage.db"]
         REPORTAL["reportal<br/>self-hosted portal: binaries ·<br/>functions · matches · scans · reports"]
         REAGENT["reagent<br/>autonomous LLM RE agent<br/>imports rebrew internals"]
     end
@@ -83,7 +83,7 @@ What rebrew *produces* for the ecosystem:
 
 - matched C sources + per-function `rebrew-functions.toml` / `rebrew-data.toml`
   metadata (the durable output),
-- `db/coverage.db` — the SQLite coverage database consumed by recoverage
+- `db/coverage.db` — the SQLite coverage database consumed by recovery
   ([DB_FORMAT.md](DB_FORMAT.md)),
 - GA run history (`ga_runs.jsonl`) and FLIRT signature indexes,
 - docker image names/builds (consumed via rebrew-toolchains).
@@ -129,16 +129,16 @@ detection belongs on `resembl`; see
 [ARCHITECTURE.md](ARCHITECTURE.md#which-similarity-tool) for the full list of
 similarity surfaces.
 
-### recoverage — coverage dashboard
+### recovery — coverage dashboard
 
 Standalone consumer of rebrew's output: a Bottle web server + zero-build
 VanJS SPA rendering a defrag-style per-byte coverage grid over
 `db/coverage.db` (exact/reloc/matching/stub/none cells, function detail
-panel, live cross-references, potato mode, CI gate via `recoverage check`).
+panel, live cross-references, potato mode, CI gate via `recovery check`).
 
 The contract is the database file alone: `rebrew catalog --data-json` →
-`db/data_*.json` → `rebrew build-db` → `db/coverage.db` → `recoverage serve`.
-recoverage imports nothing from rebrew and runs on any machine with a
+`db/data_*.json` → `rebrew build-db` → `db/coverage.db` → `recovery serve`.
+recovery imports nothing from rebrew and runs on any machine with a
 compiled `coverage.db` — no toolchain required.
 
 ### reportal — the self-hosted portal
@@ -332,7 +332,7 @@ flowchart LR
     CAT --> JSON["db/data_*.json"]
     JSON --> BDB["rebrew build-db"]
     BDB --> DB[("db/coverage.db")]
-    DB --> DASH["recoverage serve<br/>defrag grid SPA"]
+    DB --> DASH["recovery serve<br/>defrag grid SPA"]
 ```
 
 The compile-service flow is the same compiler boundary, served over HTTP
@@ -347,7 +347,7 @@ Edges point strictly upward in the diagram above — the graph is acyclic:
 | Component | Depends on | Boundary contract |
 |---|---|---|
 | rebrew | resembl (scoring core), rebrew-toolchains (image source) | python import; sibling checkout + `docker run` |
-| recoverage | (nothing from rebrew) | `db/coverage.db` SQLite schema |
+| recovery | (nothing from rebrew) | `db/coverage.db` SQLite schema |
 | recompile | rebrew (toolchain catalog), toolchain images | path dependency + HTTP API out |
 | reagent | rebrew (internals) | direct `rebrew.*` imports |
 | relumea | none yet — vision layer over the stack | — |
@@ -360,7 +360,7 @@ Decoupling is by stable contract, not shared code:
 - **toolchains** — docker images + the `sources.json` manifest; rebrew and
   recompile are interchangeable consumers,
 - **coverage** — the SQLite schema in [DB_FORMAT.md](DB_FORMAT.md); rebrew
-  writes it, recoverage reads it, and the two never import each other,
+  writes it, recovery reads it, and the two never import each other,
 - **similarity** — the `resembl/scoring.py` module, importable without
   resembl's database stack,
 - **compiles** — `POST /api/v1/compile` for remote consumers,
@@ -380,7 +380,7 @@ Decoupling is by stable contract, not shared code:
 ├── rebrew-projects/     # *-rebrew project instances (win2k-*, skifree16/32,
 │                        #   test_*, bench, smygb, makehm, ...)
 ├── resembl/             # asm similarity search library
-├── recoverage/          # coverage dashboard SPA
+├── recovery/          # coverage dashboard SPA
 ├── recompile/           # compiler-as-a-service API
 ├── reagent/             # autonomous LLM RE agent
 ├── relumea/             # SaaS workbench vision (Go backend + React frontend)
@@ -404,10 +404,10 @@ binary being decompiled.
   AI-decomp research landscape
 - [TOOLCHAIN.md](TOOLCHAIN.md) — the toolchain zoo and image provenance
 - [DB_FORMAT.md](DB_FORMAT.md) — the `coverage.db` schema shared with
-  recoverage
+  recovery
 - [BINSYNC_INTEGRATION.md](BINSYNC_INTEGRATION.md) — the BinSync state-dir
   bridge in detail
 - [PRINCIPLES.md](PRINCIPLES.md) — idempotency, score monotonicity, snowball
   effect
-- Sibling READMEs: `../rebrew-toolchains`, `../resembl`, `../recoverage`,
+- Sibling READMEs: `../rebrew-toolchains`, `../resembl`, `../recovery`,
   `../recompile`, `../relumea`, `../reagent`
