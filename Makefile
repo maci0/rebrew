@@ -14,6 +14,18 @@ SHELL := /bin/sh
 
 .DEFAULT_GOAL := help
 
+# Several targets here write the same output dir and some of them delete it.
+# `build` opens by removing dist/*.whl, dist/*.tar.gz, dist/*.buildinfo and
+# dist/*.cdx.json; `sbom` writes dist/rebrew.cdx.json; `sdist-check` and
+# `smoke-wheel` read the wheel `build` produced.  Prerequisites are not
+# ordered, so `make -j pr-check` ran `build`, `sdist-check` and `sbom`
+# concurrently: one `build` deleted the BOM the other had just written (the
+# exact failure the `sbom`-last comment below describes), and the phony
+# `build` and the recursive `make build` behind dist/rebrew.buildinfo raced
+# over the same dist/ files.  Sequencing the whole file is the one-line fix;
+# none of these recipes parallelize internally.
+.NOTPARALLEL:
+
 # Prefer lockfile-pinned deps. Override with `make setup UV_SYNC_FLAGS=` if needed.
 # --locked, not --frozen: --frozen only skips the lock update, it never checks
 # that uv.lock still matches pyproject.toml, so a dependency edited without
@@ -52,8 +64,12 @@ COV_FLOOR ?= 85
 # file rebuilds dist/ instead of leaving `sdist-check` / `smoke-wheel` to
 # verify the artifacts of an earlier tree.  __pycache__ and egg-info are
 # excluded: a test run or a bare `uv build` writes them and neither changes a
-# byte of the package.
+# byte of the package.  tools/normalize_sdist.py is here because it rewrites
+# both archives after the build, and .python-version because it selects the
+# interpreter uv builds with: neither lives under src/, and omitting them let
+# an edit to either leave dist/ describing the previous tree.
 BUILD_INPUTS := Makefile pyproject.toml build-constraints.txt MANIFEST.in \
+	.python-version tools/normalize_sdist.py \
 	$(shell find src -type f -not -path '*/__pycache__/*' -not -path '*.egg-info/*')
 
 # Reproducible package builds: honor SOURCE_DATE_EPOCH when set; otherwise use

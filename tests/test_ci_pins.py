@@ -478,6 +478,28 @@ class TestCiPins:
         assert "-not -path '*/__pycache__/*'" in text
         assert "-not -path '*.egg-info/*'" in text
         assert "dist/rebrew.buildinfo: $(BUILD_INPUTS)" in text
+        # The normalizer rewrites both archives after the build, so it decides
+        # the shipped bytes; it lives under tools/, not src/, so a rewrite of
+        # it was invisible to the find() above and left dist/ describing the
+        # previous tree.  .python-version picks the interpreter uv builds with.
+        build_inputs = text.split("BUILD_INPUTS :=", 1)[1].split("\n\n", 1)[0]
+        assert "tools/normalize_sdist.py" in build_inputs
+        assert ".python-version" in build_inputs
+
+    def test_makefile_is_sequential(self) -> None:
+        """Targets that share dist/ must not run concurrently under `make -j`.
+
+        `build` deletes dist/*.whl, dist/*.tar.gz, dist/*.buildinfo and
+        dist/*.cdx.json before it builds; `sbom` writes dist/rebrew.cdx.json;
+        `sdist-check` and `smoke-wheel` read the wheel `build` leaves there.
+        Make orders prerequisites only by dependency, never by position on the
+        line, so without .NOTPARALLEL a `make -j pr-check` deleted the BOM it
+        had just generated (the failure test_sbom_outlives_every_later_build
+        exists for) and raced the phony `build` against the recursive one
+        behind dist/rebrew.buildinfo.
+        """
+        text = MAKEFILE.read_text(encoding="utf-8")
+        assert ".NOTPARALLEL:" in text
 
     def test_sdist_check_does_not_rebuild_over_the_sbom(self) -> None:
         """`sdist-check` must not re-run `build` and wipe dist/.
