@@ -396,7 +396,7 @@ def load_verify_details(cfg: ProjectConfig) -> dict[int, tuple[str, bool]]:
         status = entry_data.get("status", "")
         if not status:
             continue
-        from rebrew.verify_cache import canonical_va_key
+        from rebrew.utils import canonical_va_key
 
         va = canonical_va_key(va_str)
         if not isinstance(va, int):

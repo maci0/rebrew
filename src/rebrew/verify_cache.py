@@ -23,7 +23,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from rebrew.utils import atomic_write_text, file_lock
-from rebrew.utils import canonical_va_key as canonical_va_key
 from rebrew.verify_hash import (
     _compiler_config_hash,
     _headers_hash,

@@ -546,6 +546,15 @@ def _atomic_replace(filepath: Path) -> Iterator[Path]:
     _fsync_path(filepath.parent)
 
 
+def strip_generated_timestamp(text: str) -> str:
+    """*text* without its ``Generated:`` line.
+
+    Header regenerators rewrite that line on every run; comparing the rest is
+    what makes a rewrite idempotent and free of git churn.
+    """
+    return "\n".join(line for line in text.splitlines() if "Generated:" not in line)
+
+
 def atomic_write_text(
     filepath: Path,
     text: str,

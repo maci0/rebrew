@@ -55,6 +55,7 @@ import difflib
 import hashlib
 import re
 from dataclasses import dataclass, field
+from types import SimpleNamespace
 from typing import Any
 
 from rebrew.analysis import DEFAULT_CS_ARCH, DEFAULT_CS_MODE, disasm_insns, normalized_operands
@@ -159,16 +160,6 @@ class DuplicateCluster:
 # ---------------------------------------------------------------------------
 
 
-class _InsnView:
-    """Minimal ``.op_str`` carrier for the diff path's operand stripper."""
-
-    __slots__ = ("mnemonic", "op_str")
-
-    def __init__(self, op_str: str) -> None:
-        self.mnemonic = ""
-        self.op_str = op_str
-
-
 def normalize_operands(op_str: str) -> str:
     """Operand text with registers and immediates replaced by placeholders.
 
@@ -177,7 +168,7 @@ def normalize_operands(op_str: str) -> str:
     the comparison key's operand part: it is identical for two instructions
     that differ only in register allocation or in the address they name.
     """
-    return _IMMEDIATE_RE.sub("IMM", normalized_operands(_InsnView(op_str)))
+    return _IMMEDIATE_RE.sub("IMM", normalized_operands(SimpleNamespace(op_str=op_str)))
 
 
 def normalized_instructions(

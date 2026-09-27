@@ -212,9 +212,10 @@ def normalized_operands(insn: _OperandCarrier) -> str:
     ``mov eax, ebx`` vs ``mov ecx, edx`` both normalise to ``mov R, R``.
 
     Takes anything with an ``op_str`` (not just ``Insn``) because the codegen
-    comparison surfaces share it: ``instruction_clones`` normalises through a lightweight
-    view and masks immediates on top, and any future instruction-level matcher
-    should normalise registers the same way rather than growing a second rule.
+    comparison surfaces share it: ``instruction_clones`` wraps a bare operand
+    string in a namespace and masks immediates on top, and any future
+    instruction-level matcher should normalise registers the same way rather
+    than growing a second rule.
     """
     return _REGISTER_RE.sub("R", insn.op_str)
 

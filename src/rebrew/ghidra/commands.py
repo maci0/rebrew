@@ -29,7 +29,7 @@ from rebrew.ghidra.client import (
     fetch_mcp_tool_raw,
     init_mcp_session,
 )
-from rebrew.utils import atomic_write_text, parse_int_literal
+from rebrew.utils import atomic_write_text, parse_int_literal, strip_generated_timestamp
 
 # Local console: rebrew.ghidra must stay importable without rebrew.cli
 # (library layering test).
@@ -527,15 +527,14 @@ def pull_data(
     # Idempotency: regeneration only bumps the "Generated:" timestamp —
     # skip the write when the body is otherwise identical to avoid needless
     # git churn (and mtime-driven rebuilds) on every --pull-data.
-    def _strip_timestamp(text: str) -> str:
-        return "\n".join(line for line in text.splitlines() if "Generated:" not in line)
-
     if out_file.exists():
         try:
             existing = out_file.read_text(encoding="utf-8")
         except OSError:
             existing = ""
-        if existing and _strip_timestamp(existing) == _strip_timestamp(header_text):
+        if existing and strip_generated_timestamp(existing) == strip_generated_timestamp(
+            header_text
+        ):
             console.print(
                 f"[dim]{out_file.name} unchanged[/dim] ({len(rows)} data labels from Ghidra)"
             )
