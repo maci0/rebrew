@@ -246,6 +246,31 @@ class TestBuildResultDict:
         assert 3 not in mismatch_offsets
         assert 4 not in mismatch_offsets
 
+    def test_include_mismatches_false_keeps_every_other_field(self) -> None:
+        """Skipping the mismatch list must not change any other field.
+
+        The non-JSON path of ``rebrew test`` reads status and the skip
+        reason only, so it opts out of the per-byte list; everything the
+        terminal and --json paths share has to be identical either way.
+        """
+        target = b"\x55\x8b\xec\x5d\xc3"
+        candidate = b"\x55\x8b\xec\xaa\xaa"
+        args = (
+            "src/test.c",
+            "_func",
+            "0x10001000",
+            5,
+            self._cmp(matched=False, status="STUB", match_percent=40.0, obj_bytes=candidate),
+            target,
+        )
+        with_mismatches = build_result_dict_from_compare(*args)
+        without = build_result_dict_from_compare(*args, include_mismatches=False)
+        assert without["mismatches"] == []
+        assert len(with_mismatches["mismatches"]) == 2
+        assert {k: v for k, v in without.items() if k != "mismatches"} == {
+            k: v for k, v in with_mismatches.items() if k != "mismatches"
+        }
+
     def test_json_serializable(self) -> None:
         data = b"\x55\x8b\xec"
         result = build_result_dict_from_compare(

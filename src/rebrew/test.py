@@ -648,8 +648,15 @@ def build_result_dict_from_compare(
     size_val: int,
     cmp: CompareResult,
     target_bytes: bytes,
+    *,
+    include_mismatches: bool = True,
 ) -> dict[str, Any]:
-    """Build JSON from a :class:`CompareResult` (canonical status source)."""
+    """Build JSON from a :class:`CompareResult` (canonical status source).
+
+    Pass ``include_mismatches=False`` when the caller will not serialize the
+    result: the per-byte mismatch list is a dict plus two f-strings for every
+    differing byte, which the plain terminal path discards.
+    """
     relocs = cmp.reloc_offsets or []
     obj_bytes = cmp.obj_bytes or b""
     obj_len, total, match_count = _resolve_total_and_match_count(cmp, target_bytes)
@@ -668,6 +675,7 @@ def build_result_dict_from_compare(
         cmp.inv_reloc_offsets,
         obj_size=obj_len,
         context_hash=cmp.context_hash,
+        include_mismatches=include_mismatches,
     )
 
 
@@ -686,9 +694,10 @@ def _result_dict_body(
     invalid_relocs: list[int],
     obj_size: int | None = None,
     context_hash: str | None = None,
+    include_mismatches: bool = True,
 ) -> dict[str, Any]:
     mismatches: list[dict[str, str | int]] = []
-    if not matched and obj_bytes:
+    if include_mismatches and not matched and obj_bytes:
         min_len = min(len(obj_bytes), len(target_bytes))
         reloc_set = _expand_reloc_offsets(relocs or [], min_len)
         inv_reloc_set = _expand_reloc_offsets(invalid_relocs or [], min_len)
@@ -1166,6 +1175,10 @@ def _run_test_impl(
         size_val or 0,
         cmp,
         target_bytes,
+        # Only --json serializes the per-byte mismatch list; the terminal path
+        # reads only status/status_skip_reason out of this dict, so building
+        # a dict and two f-strings per differing byte there is pure waste.
+        include_mismatches=json_output,
     )
     if no_promote and status_skip_reason:
         # Fold the skip reason into the single JSON document so --json

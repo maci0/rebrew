@@ -290,7 +290,14 @@ def build_graph(
                 log.warning("skipping unreadable source %s: %s", cfile, exc)
                 continue
         text = _file_text_cache[cfile]
-        blocks = _split_entry_blocks(text)
+        # VA -> block, built once per file: the per-entry lookup below would
+        # otherwise re-run _block_va's marker regex over every block for every
+        # entry, which is quadratic in the functions of a merged TU.
+        blocks_by_va: dict[int, str] = {}
+        for b in _split_entry_blocks(text):
+            bva = _block_va(b)
+            if bva is not None:
+                blocks_by_va.setdefault(bva, b)
         for entry in parse_c_file_multi(
             cfile, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir if cfg else None
         ):
@@ -314,7 +321,7 @@ def build_graph(
             # The entry's own annotation block carries its externs — a
             # merged TU's union of externs no longer leaks across functions.
             own_va = int(getattr(entry, "va", 0) or 0)
-            own = next((b for b in blocks if _block_va(b) == own_va), text)
+            own = blocks_by_va.get(own_va, text)
             file_callers.append((cfile, key, label, own))
 
     # library_*.h entries (identify-library / crt-match --fix-source) are

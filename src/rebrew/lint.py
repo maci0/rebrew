@@ -279,6 +279,7 @@ def _w019_key_backed(
     block: tuple[str, str, int],
     fn_entries: dict[tuple[str, int], dict[str, Any]],
     data_entries: dict[tuple[str, int], dict[str, Any]],
+    lowered_keys: dict[tuple[str, int, str], frozenset[str]] | None = None,
 ) -> bool:
     """True when the metadata store already owns *key* for *block*'s function.
 
@@ -286,6 +287,12 @@ def _w019_key_backed(
     sourced from rebrew-data.toml; everything else comes from
     rebrew-functions.toml.  Shared by W019's check and
     :func:`count_migratable_files` so the two can never disagree.
+
+    *lowered_keys* is an optional ``{(module, va, "fn"|"data"): frozenset}``
+    cache of the entries' lowercased field names.  A caller that checks many
+    keys against one store passes one in; without it each call rebuilds the
+    set, which is a fresh allocation per (file, block, key) triple over the
+    whole tree.
     """
     marker_type, module, va = block
     mod_va = (module, va)
@@ -293,11 +300,25 @@ def _w019_key_backed(
 
     if marker_type in DATA_MARKERS:
         if key.lower() in {"size", "section", "note"}:
-            entry = data_entries.get(mod_va, {})
-            return key.lower() in {k.lower() for k in entry}
+            if lowered_keys is not None:
+                cache_key = (module, va, "data")
+                names = lowered_keys.get(cache_key)
+                if names is None:
+                    names = frozenset(k.lower() for k in data_entries.get(mod_va, {}))
+                    lowered_keys[cache_key] = names
+            else:
+                names = frozenset(k.lower() for k in data_entries.get(mod_va, {}))
+            return key.lower() in names
         return False
-    entry = fn_entries.get(mod_va, {})
-    return key.lower() in {k.lower() for k in entry}
+    if lowered_keys is not None:
+        cache_key = (module, va, "fn")
+        names = lowered_keys.get(cache_key)
+        if names is None:
+            names = frozenset(k.lower() for k in fn_entries.get(mod_va, {}))
+            lowered_keys[cache_key] = names
+    else:
+        names = frozenset(k.lower() for k in fn_entries.get(mod_va, {}))
+    return key.lower() in names
 
 
 def count_migratable_files(src_dir: Path, cfg: Any) -> int:
@@ -319,6 +340,9 @@ def count_migratable_files(src_dir: Path, cfg: Any) -> int:
     fn_entries = load_metadata(cfg.metadata_dir, deepcopy=False)
     data_entries = load_data_metadata(cfg.metadata_dir)
     count = 0
+    # One lowercased field-name set per metadata entry, reused across every
+    # key of every block in the tree.
+    lowered_keys: dict[tuple[str, int, str], frozenset[str]] = {}
     for src in iter_sources(src_dir, cfg):
         try:
             lines = split_source_lines(read_source_text(src)[0])
@@ -342,7 +366,9 @@ def count_migratable_files(src_dir: Path, cfg: Any) -> int:
                     continue
                 if key == "SOURCE" and value.strip().lower() == "naked":
                     continue
-                if not _w019_key_backed(key, block, fn_entries, data_entries):
+                if not _w019_key_backed(
+                    key, block, fn_entries, data_entries, lowered_keys=lowered_keys
+                ):
                     count += 1
                     break
     return count
