@@ -806,8 +806,7 @@ def _load_config(pe: Any) -> Any | None:
     a LIEF version that exposes the structure but not the boolean would
     otherwise report GS and SafeSEH as absent.
     """
-    config = getattr(pe, "load_configuration", None)
-    return config if config is not None else None
+    return getattr(pe, "load_configuration", None)
 
 
 def _security_flags(pe: Any) -> dict[str, object]:
