@@ -49,8 +49,8 @@ Adopt an explicit **four-tier model** and document it as the contract
    `rebrew-layout.toml` + `*.hex`), `<target>.def`, `crt_region/*.c`,
    `src/link_stubs.c`, `flirt_sigs/*.pat`, toolchain files.  Generated
    from the binary but committed so a rebuild never needs `original/`
-   around; regenerable via the generating command (gen-layout, discover,
-   catalog, link-stubs).
+   around; regenerable via the generating command (gen-layout,
+   discover-functions, gen-link-stubs, catalog).
 3. **Derived, gitignored (build output)** — grid JSON, coverage.db, CSV,
    `bin/<target>/*.bin`, `output/report/`.  Rebuildable via one command;
    never hand-edited.  The `--compare` baseline lives in

@@ -1,6 +1,6 @@
 # ADR-018: Single-file verify scope and baseline
 
-- **Status**: Accepted, partially implemented (the scoped-run baseline merge recorded under Decision is open; `save_baseline` still writes the run's report wholesale)
+- **Status**: Accepted, implemented
 - **Date**: 2026-09
 
 ## Context
@@ -23,14 +23,12 @@ per-entry comparison.
   verified nor reported — the gate answers "did *this file* regress".
 - The baseline stays whole-project (`verify_baseline.json` unchanged);
   comparison filters to the scoped entries. No per-file baseline files.
-  **Unresolved conflict:** the comparison filter is implemented, the
-  "unchanged" half is not. `save_baseline` writes the run's report
-  wholesale, so a scoped `rebrew verify <file.c>` leaves a baseline holding
-  that file's rows only and the next whole-project `--compare` reads every
-  other function as new (a `new` row is not a regression, so the gate still
-  passes). Either merge the scoped rows into the existing document or stop
-  a scoped run from advancing the baseline; the decision above says the
-  document must stay whole-project.
+- A scope-filtered run never advances the baseline. `--nolib`, `--dir`,
+  `--origin` and the positional FILE all narrow the run, and a baseline
+  written from a narrowed report would drop every excluded function's row,
+  so the next unscoped run reports the whole corpus as new. The baseline is
+  written by an unscoped run only; a scoped run updates the cache file but
+  leaves the baseline where it was.
 - Exit codes unchanged: 0 clean, 1 regression/mismatch, 2 error.
 
 ## Consequences

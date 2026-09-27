@@ -35,8 +35,8 @@ and the entrypoint wrapper is `/usr/local/bin/mingw`, so both images are
 rebuilt rather than retagged.
 
 Old profile names are removed, not aliased: a project or plugin naming one of
-them fails the same way any unknown profile does, with a warning and the
-documented fallback.
+them fails the same way any unknown profile does, with an error naming the
+registered profiles. There is no alias and no fallback.
 
 ## Consequences
 

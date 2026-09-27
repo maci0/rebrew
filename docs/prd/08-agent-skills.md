@@ -128,8 +128,9 @@ Excludes: picking what to match, skeleton/edit, global-data debugging.
 
 ### `rebrew-data-analysis` (globals & BSS)
 
-Trigger keywords: `global`, `data section`, `BSS`, `vtable`, `dispatch
-table`, `relocation`, `extern`, `type conflict`.
+Trigger keywords: `global`, `global variable`, `data section`, `BSS`,
+`vtable`, `dispatch table`, `bss gap`, `bss padding`, `fix bss`,
+`extern`, `missing extern`, `type conflict`.
 
 Scope:
 
@@ -143,8 +144,9 @@ Excludes: function bodies, deep matching.
 
 ### `rebrew-ghidra-sync` (Ghidra ↔ rebrew)
 
-Trigger keywords: `Ghidra`, `binsync`, `sync`, `push`, `pull`, `state-dir`,
-`ReVa`, `MCP`, `labels`, `pull-data`.
+Trigger keywords: `Ghidra`, `binsync`, `sync ghidra`, `binsync push`,
+`binsync pull`, `state-dir`, `ReVa`, `rebrew sync`, `create-functions`,
+`bookmarks`, `pull-data`.
 
 > **Architecture note (2026-09):** field sync is BinSync-primary
 > (`--push`/`--pull --state-dir`, `--accept-binsync` / `--accept-local`),

@@ -217,10 +217,10 @@ rebrew data [OPTIONS]
 ```
 
 (Read-only modes compose with `--json`. The write modes are mutually
-exclusive: `--gen-header` is handled first and returns, then the
+exclusive: each returns as it runs, so a single invocation runs one write
+mode. Dispatch order is `--set-type`, `--set-section`, `--gen-header`, the
 `.data` placement family (`--fill-data` / `--own` / `--fix-ownership` /
-`--converge`), then `--bss` / `--fix-bss` — so a single invocation runs
-one write mode, with `--gen-header` taking precedence. Write modes are
+`--converge`), `--annotate`, then `--bss` / `--fix-bss`. Write modes are
 previewable with `--dry-run`.)
 
 ## Success Metrics

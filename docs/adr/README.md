@@ -42,7 +42,7 @@ itself, and the consequences (including trade-offs accepted).
 | 015 | Compile backends: local docker images plus the recompile service *(amended by 016)* |
 | 016 | Image-backed native compiler profiles (gcc-14.2.0, clang-18.1.8, mingw-16.2.0, watcom-2.0-win16) *(amended by 017)* |
 | 017 | Standardized toolchain profile names (`<image-family>-<version>`) |
-| 018 | Single-file verify scope and baseline (`rebrew verify <file.c> --compare`) *(scoped-baseline merge open)* |
+| 018 | Single-file verify scope and baseline (`rebrew verify <file.c> --compare`) |
 | 019 | Todo blocked category (`rebrew todo -c blocked`) *(superseded by 025)* |
 | 020 | Init scaffolding skill (`rebrew-init`) |
 | 021 | Batch container compiles (`compile_batch_objs` / `precompile_batch`) |
