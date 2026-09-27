@@ -588,7 +588,10 @@ class TestSourcePinning:
             project_root,
             SolutionEntry(symbol="_f", cflags="/O2", size=8, source_file="solved.c"),
         )
-        (rec,) = [json.loads(line) for line in (project_root / ".rebrew/ga_runs.jsonl").read_text().splitlines()]
+        (rec,) = [
+            json.loads(line)
+            for line in (project_root / ".rebrew/ga_runs.jsonl").read_text().splitlines()
+        ]
         assert rec["source_sha"] == hashlib.sha256(src.read_bytes()).hexdigest()
 
     def test_edited_source_is_not_seeded(self, project_root: Path) -> None:

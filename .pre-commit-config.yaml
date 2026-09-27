@@ -66,7 +66,10 @@ repos:
 
       - id: mypy
         name: Mypy type check
-        entry: uv run --frozen mypy
+        # `make mypy` first checks the `prove` extra is installed: without it
+        # mypy reports ~39 phantom errors (unknown SimProcedure, unused-ignore,
+        # import-not-found) that all trace to the missing extra, not the diff.
+        entry: make --no-print-directory mypy
         language: system
         pass_filenames: false
         always_run: true
