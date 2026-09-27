@@ -335,3 +335,26 @@ Status `open` unless noted. Promote to ROADMAP when scoped.
   Feature: `rebrew data --set-size 0xVA=N` (mirror `--set-type`) so extent corrections go through
   the sanctioned atomic writer.
   Evidence: guild-rebrew `src/rebrew-data.toml` s_rb_1002944c size 84 vs binary 4 (round 1282).
+
+## Optimization level
+
+- [ ] **Byte heuristics for opt flags other than MSVC `/O1` and `/O2`.**
+  Pain: `detect_toolchain` seeds project `cflags` from wrapper-call counts, and that vote only
+  separates `/O1` from `/O2` (three sites, two-to-one, else `mixed` or empty). `/Od`, `/Os`,
+  `/Ot`, `/Og`, and `/Ox` stay on the flag sweep, and so do GCC/Clang/MinGW `-O`, Watcom
+  `-od`/`-os`/`-ot`/`-ox`, Borland `-O`, and IDO `-O`.
+  Feature: extend the codegen corpus (`docs/codegen/`, today `/O1` and `/O2` for MSVC) with the
+  missing flag rows, then add a detector only for a pattern the matrix actually separates. No
+  signature database covers this: Detect It Easy, RetDec, capa, IDA FLIRT, and Ghidra's Rich
+  header name the compiler, not the flag. GCC/Clang classifiers (o-glassesX, Pizzolotto) emit a
+  coarse `-O` class and are not an MSVC `cflags` source. When the record exists, read the command
+  line instead: PDB `LF_BUILDINFO` argument 4, or GCC/Clang `.GCC.command.line` /
+  `DW_AT_producer`. `S_COMPILE3` has no `/O` bits, and a VC 6 PDB was not shown to carry
+  `LF_BUILDINFO`.
+  Hold these until a compile shows them: do not score `/Ox` as `/O2` (`/Ox` is `/Ob2 /Oi /Ot /Oy`
+  and drops `/GF` and `/Gy`); `/Os` and `/Ot` alone leave codegen debug-like; a missing GCC frame
+  pointer means "not `-O0`" and does not separate `-O1`/`-O2`/`-O3`; a missing Watcom stack check
+  means `-s` or `-ox`, not `-os` versus `-ot`; ReC98's Borland rules apply only once the compiler
+  is Turbo C++ 4.0J; an IDO loop that did not unroll is not a lower `-O`. The verdict stays per
+  function, and two styles clearing the bar stays `mixed`.
+  Evidence: [Compiler opt level heuristics](../reports/Compiler%20opt%20level%20heuristics.md).
