@@ -31,7 +31,7 @@ Manual inspection and linkage tools outside the main reverse loop. Run
 | `rebrew refactor` | Analyse the source tree and suggest refactoring opportunities. |
 | `rebrew recommend` | Deterministic advice lanes (TU layout, hygiene, next action); `--apply` fixes safe lanes. |
 | `rebrew analyze` | One-shot intelligence dossier for a target binary (layout, strings, imports, coverage, FLIRT). |
-| `rebrew decompile` | Decompile a function VA with chosen backend (kuna, r2ghidra, r2dec, ghidra). |
+| `rebrew decompile` | Decompile a function VA (`--decompiler`: kuna, r2ghidra, r2dec, ghidra, auto; default kuna). |
 | `rebrew fix` | Make raw decompiler output compilable (DecBench-style fixup). |
 | `rebrew drift` | Localise where compiled bytes drift from reference, from branch targets. |
 | `rebrew switch` | Decode jump-table switch dispatches in a function (case → handler map). |
@@ -42,3 +42,5 @@ Manual inspection and linkage tools outside the main reverse loop. Run
 | `rebrew imports` | List import-table symbols (PE IAT/ELF/NE) and detect/mark import stubs (`--mark`). |
 | `rebrew strings` | Extract strings from binary with cross-references (`--xref`, `--section`). |
 | `rebrew identify-library` | Batch identify library functions (FLIRT + imports + CRT) into `library_<module>.h`. |
+| `rebrew import-splat` | Seed a project from a splat YAML config (names, layout, annotations); dry run unless `--write`. |
+| `rebrew resource compare/extract` | Byte-compare two PE `.rsrc` sections (`compare` exits 1 on drift) or dump the raw bytes. |

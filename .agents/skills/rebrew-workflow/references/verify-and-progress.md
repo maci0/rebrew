@@ -18,6 +18,8 @@ rebrew lint --summary
 rebrew lint --quiet                     # errors only
 rebrew orphans                          # metadata blocks with no source marker
 rebrew orphans --prune --dry-run        # preview prune (EXACT/RELOC/PROVEN held back)
+rebrew verify --prune-orphans --dry-run # preview the same prune inside a verify pass
+rebrew verify --prune-orphans           # deletes orphan blocks; --dry-run / --no-promote only counts
 rebrew types                            # struct layouts vs decompiler evidence
 rebrew types apply-type <file> --param N --type T
 rebrew verify --data --built build/bench

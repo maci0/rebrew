@@ -2,7 +2,8 @@
 
 One-function-per-file is the default. Split when a file mixes CFLAGS, merge
 when functions share a translation unit (file statics or file-scope globals).
-Every writer here accepts `--dry-run`: preview first.
+Every writer here accepts `--dry-run` except `layout-map` and `graph`, which
+only read: preview the mutating ones first.
 
 ## Split / merge / rename
 
