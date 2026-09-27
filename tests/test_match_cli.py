@@ -818,6 +818,65 @@ class TestLlmSeedMisconfiguration:
         assert "unpinned alias" in out
         assert seen.get("extra_seeds") is None  # the GA ran, seeded from source only
 
+    def test_config_value_cannot_inject_console_markup(
+        self, tmp_path: Path, monkeypatch, capsys
+    ) -> None:
+        """A tagged budget value reports as text instead of unwinding the run.
+
+        llm_config interpolates the offending value into its message, and
+        rebrew.cli.console is a Rich Console that reads [...] as markup: a
+        closing tag with nothing open raises MarkupError, which would abort a
+        GA the surrounding code promises to degrade instead.
+        """
+        import rebrew.match_run as match_mod
+
+        seen: dict = {}
+
+        class FakeGA:
+            def __init__(self, *a, **k):
+                seen["extra_seeds"] = k.get("extra_seeds")
+
+            def run(self):
+                return ("src", 50.0)
+
+            def close(self):
+                pass
+
+            _pairs_count = 0
+            elapsed_sec = 1.0
+            stagnant_gens = 0
+            rng_seed = 0
+
+        monkeypatch.setattr(match_mod, "BinaryMatchingGA", FakeGA)
+        monkeypatch.setenv("REBREW_LLM_ENDPOINT", "https://llm.example/v1")
+        monkeypatch.setenv("REBREW_LLM_MAX_REQUESTS", "[/]not-a-number")
+
+        p = self._params(tmp_path)
+        p.cfg.llm_endpoint = ""
+        p.cfg.llm_api_key = ""
+        p.cfg.llm_model = ""
+        with pytest.raises(typer.Exit):
+            match_mod.run_single_ga(
+                p,
+                out_dir=str(tmp_path / "out"),
+                pop_size=4,
+                generations=1,
+                jobs=1,
+                compare_obj=False,
+                lib=None,
+                ldflags=None,
+                seed=None,
+                json_output=False,
+                extra_seed=None,
+                no_seed=False,
+                llm_seed=True,
+            )
+        captured = capsys.readouterr()
+        out = captured.out + captured.err
+        assert "misconfigured" in out
+        assert "not-a-number" in out  # the tag is shown, not interpreted
+        assert seen.get("extra_seeds") is None
+
     def test_dry_run_skips_the_ga(self, tmp_path: Path, monkeypatch) -> None:
         import rebrew.match_run as match_mod
 

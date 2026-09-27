@@ -35,12 +35,12 @@ from rebrew.llm_seed import (
     _parse_response,
     _request_timeout,
     _resolve_model,
-    _sanitize_log_value,
     _sanitize_source,
     build_prompt,
     extract_seeds,
     llm_config,
     request_seeds,
+    sanitize_log_value,
     seed_usage_total,
     valid_c_source,
 )
@@ -474,10 +474,10 @@ class TestSanitizeSource:
 
 class TestSanitizeLogValue:
     def test_collapses_control_characters(self) -> None:
-        assert _sanitize_log_value("a\nb\r\tc") == "a b c"
+        assert sanitize_log_value("a\nb\r\tc") == "a b c"
 
     def test_caps_length(self) -> None:
-        out = _sanitize_log_value("x" * 400)
+        out = sanitize_log_value("x" * 400)
         assert len(out) == 257
         assert out.endswith("…")
 

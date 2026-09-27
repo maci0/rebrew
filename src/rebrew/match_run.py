@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from datetime import datetime
 
 import typer
+from rich.markup import escape
 
 from rebrew.annotation import parse_c_file_multi
 from rebrew.binary_loader import capstone_mode_for_arch, extract_raw_bytes
@@ -129,6 +130,7 @@ def run_single_ga(
             build_prompt,
             llm_config,
             request_seeds,
+            sanitize_log_value,
             seed_usage_total,
         )
 
@@ -138,7 +140,11 @@ def run_single_ga(
             # llm_config validates endpoint/model/budget and raises on a bad
             # one.  Report it as the config error it is, rather than letting it
             # unwind as a traceback out of a GA run that is already hours in.
-            console.print(f"[red]error:[/red] LLM seeding misconfigured: {exc}")
+            # The message quotes the offending endpoint / model id / budget
+            # verbatim, so it is sanitized before it reaches the console (which
+            # also reads [...] as Rich markup) exactly as it is before logging.
+            detail = sanitize_log_value(exc)
+            console.print(f"[red]error:[/red] LLM seeding misconfigured: {escape(detail)}")
             console.print("[yellow]warning:[/yellow] running without LLM seeds")
             # Nothing to bill and nothing to preview, so --dry-run stops here
             # for the same reason an absent endpoint does.

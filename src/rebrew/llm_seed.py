@@ -143,8 +143,17 @@ _CTRL_CHAR_RE = re.compile(r"[\x00-\x1f\x7f-\x9f]+")
 _TRUST_ENV_VAR = "REBREW_LLM_ALLOW_PROJECT_ENDPOINT"
 
 
-def _sanitize_log_value(value: Any, *, max_len: int = 256) -> str:
-    """Collapse control characters and cap length for safe log interpolation."""
+def sanitize_log_value(value: Any, *, max_len: int = 256) -> str:
+    """Collapse control characters and cap length for safe log/console interpolation.
+
+    Every untrusted string this module emits goes through here: provider
+    fields, the text a config error quotes back (``llm_config`` interpolates
+    the offending endpoint, model id, and budget value), and anything a parse
+    error echoes.  Callers that print such a value (``rebrew match
+    --seed-llm``) must use this rather than ``str(exc)``, because a Rich
+    console also parses ``[...]`` as markup and a terminal interprets the
+    escape sequences a control character starts.
+    """
     text = str(value)
     text = _CTRL_CHAR_RE.sub(" ", text)
     if len(text) > max_len:
@@ -559,7 +568,7 @@ def valid_c_source(
     except Exception as exc:  # garbage must never break seeding
         # The parse error can quote the snippet being checked, which is model
         # output: sanitize before it lands in a log.
-        logging.getLogger(__name__).debug("seed parse failed: %s", _sanitize_log_value(exc))
+        logging.getLogger(__name__).debug("seed parse failed: %s", sanitize_log_value(exc))
         return False
     if result is None:
         return False
@@ -616,7 +625,7 @@ def _chat_choice_message(data: Any) -> dict[str, Any] | None:
         # partial completion rather than feed a clipped function to the GA.
         level = logging.WARNING if finish_reason == "length" else logging.INFO
         logging.log(
-            level, "LLM choice dropped due to finish_reason=%s", _sanitize_log_value(finish_reason)
+            level, "LLM choice dropped due to finish_reason=%s", sanitize_log_value(finish_reason)
         )
         return None
     msg = first.get("message") or first.get("delta")
@@ -628,11 +637,11 @@ def _parse_response(data: Any) -> str:
     if isinstance(data, dict) and "error" in data:
         err = data["error"]
         err_msg = err.get("message") if isinstance(err, dict) else str(err)
-        logging.warning("LLM provider returned error envelope: %s", _sanitize_log_value(err_msg))
+        logging.warning("LLM provider returned error envelope: %s", sanitize_log_value(err_msg))
     msg = _chat_choice_message(data)
     if msg is not None:
         if msg.get("refusal"):
-            logging.info("LLM seed model refused request: %s", _sanitize_log_value(msg["refusal"]))
+            logging.info("LLM seed model refused request: %s", sanitize_log_value(msg["refusal"]))
             return ""
         content = msg.get("content")
         if isinstance(content, str):
@@ -674,21 +683,21 @@ def _log_usage(data: Any, model: str, *, duration_s: float | None = None) -> See
     )
     _record_usage(record)
     if usage:
-        reported = _sanitize_log_value(data.get("model") or model)
+        reported = sanitize_log_value(data.get("model") or model)
         logging.info(
             "LLM seed usage: model=%s prompt=%s prompt_tokens=%s completion_tokens=%s "
             "total_tokens=%s latency=%.2fs",
             reported,
             _PROMPT_VERSION,
-            _sanitize_log_value(usage.get("prompt_tokens")),
-            _sanitize_log_value(usage.get("completion_tokens")),
-            _sanitize_log_value(usage.get("total_tokens")),
+            sanitize_log_value(usage.get("prompt_tokens")),
+            sanitize_log_value(usage.get("completion_tokens")),
+            sanitize_log_value(usage.get("total_tokens")),
             duration_s,
         )
     else:
         logging.info(
             "LLM seed usage: model=%s prompt=%s tokens unreported latency=%.2fs",
-            _sanitize_log_value(data.get("model") or model) if isinstance(data, dict) else model,
+            sanitize_log_value(data.get("model") or model) if isinstance(data, dict) else model,
             _PROMPT_VERSION,
             duration_s,
         )
@@ -745,8 +754,8 @@ def _warn_on_substituted_model(served: Any, requested: str) -> None:
     logging.warning(
         "LLM provider served model %s, but %s was requested (pinned model "
         "substituted: seeding cost and results may differ)",
-        _sanitize_log_value(served),
-        _sanitize_log_value(requested),
+        sanitize_log_value(served),
+        sanitize_log_value(requested),
     )
 
 
@@ -889,7 +898,7 @@ def request_seeds(
         # so it is sanitized like any other provider-controlled string.
         logging.warning(
             "LLM seeding misconfigured: %s — GA continues without seeds",
-            _sanitize_log_value(exc),
+            sanitize_log_value(exc),
         )
         return []
     if conf is None:
@@ -932,7 +941,7 @@ def request_seeds(
         # The message can embed provider-controlled text (a JSON decode error
         # quotes the body), so it gets the same log sanitizing as response
         # fields: a hostile endpoint must not forge log lines.
-        detail = _sanitize_log_value(exc)
+        detail = sanitize_log_value(exc)
         if status in _NO_RETRY_HTTP:
             logging.warning(
                 "LLM seeding HTTP %s (rate-limit/overload); not retrying — "
