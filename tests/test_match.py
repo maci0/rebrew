@@ -661,6 +661,7 @@ class TestRunAllBatch:
             solutions_out=None,
             collect_pairs_path=None,
             name_to_va=None,
+            clock=None,
         ):
             return True, "MATCHED", 0.0, 3, 1234
 
@@ -700,6 +701,7 @@ class TestRunAllBatch:
             solutions_out=None,
             collect_pairs_path=None,
             name_to_va=None,
+            clock=None,
         ):
             if "bad" in stub.symbol:
                 raise RuntimeError("boom")
@@ -717,7 +719,7 @@ class TestRunAllBatch:
         monkeypatch.setattr("rebrew.match_run.find_all_stubs", lambda *a, **k: stubs)
         monkeypatch.setattr(
             "rebrew.match_run._run_one_stub_ga",
-            lambda stub, cfg, gens, pop, jobs, timeout, seeds, cflags_override=None, rng_seed=None, resume_from=None, mutation_weights=None, solutions_out=None, collect_pairs_path=None, name_to_va=None: (
+            lambda stub, cfg, gens, pop, jobs, timeout, seeds, cflags_override=None, rng_seed=None, resume_from=None, mutation_weights=None, solutions_out=None, collect_pairs_path=None, name_to_va=None, clock=None: (
                 True,
                 "MATCHED",
                 0.0,
@@ -1819,6 +1821,33 @@ class TestFlagSweepDeadline:
         assert (
             "run_single_flag_sweep(params, tier, jobs, json_output, timeout_min=timeout_min)" in src
         )
+
+    def test_clock_reaches_every_budgeted_stage(self) -> None:
+        """The time source must reach the whole chain, not stop at the library.
+
+        A replayed run is only reproducible if the injected clock that stamps
+        a budget is the same one the budget is spent against; a driver that
+        cannot pass one forces every budget onto the wall clock, where a slow
+        machine stops the sweep (or the GA) at a different generation.
+        """
+        import inspect
+
+        from rebrew import match_run
+        from rebrew.match_ga import BinaryMatchingGA
+        from rebrew.match_sweep import run_flag_sweep, run_single_flag_sweep
+        from rebrew.matcher.compiler import flag_sweep
+
+        for fn in (
+            BinaryMatchingGA.run,
+            flag_sweep,
+            run_flag_sweep,
+            run_single_flag_sweep,
+            match_run.run_single_ga,
+            match_run.run_all,
+            match_run._run_one_stub_ga,
+            match_run._run_batch_flag_sweep,
+        ):
+            assert "clock" in inspect.signature(fn).parameters, fn.__qualname__
 
 
 class TestReseedClamping:

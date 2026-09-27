@@ -634,7 +634,7 @@ class TestKunaSeed:
             def __init__(self, *a, **k):
                 seen["extra_seeds"] = k.get("extra_seeds")
 
-            def run(self):
+            def run(self, clock=None):
                 return ("src", 50.0)
 
             def close(self):
@@ -777,7 +777,7 @@ class TestLlmSeedMisconfiguration:
             def __init__(self, *a, **k):
                 seen["extra_seeds"] = k.get("extra_seeds")
 
-            def run(self):
+            def run(self, clock=None):
                 return ("src", 50.0)
 
             def close(self):
@@ -836,7 +836,7 @@ class TestLlmSeedMisconfiguration:
             def __init__(self, *a, **k):
                 seen["extra_seeds"] = k.get("extra_seeds")
 
-            def run(self):
+            def run(self, clock=None):
                 return ("src", 50.0)
 
             def close(self):

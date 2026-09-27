@@ -9,6 +9,8 @@ from __future__ import annotations
 import logging
 import math
 import shlex
+import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -345,6 +347,8 @@ def run_single_flag_sweep(
     jobs: int,
     json_output: bool,
     timeout_min: int = 0,
+    *,
+    clock: Callable[[], float] | None = None,
 ) -> None:
     """Run compiler flag sweep on one function and report results.
 
@@ -352,10 +356,14 @@ def run_single_flag_sweep(
     are fed to the pool, so in-flight compiles drain and 0 (no bound) runs the
     whole tier.  A thorough tier is 258k combos, so the caller's own deadline
     is the only guard when 0 is passed.
-    """
-    import time as _time
 
-    deadline = _time.monotonic() + timeout_min * 60 if timeout_min else None
+    *clock* is the time source both the deadline and the sweep's own budget
+    checks are read from (the default is the wall clock).  Injecting it makes
+    the sweep replayable: the same virtual clock yields the same combo count
+    on a fast and a slow machine alike.
+    """
+    now = clock if clock is not None else time.monotonic
+    deadline = now() + timeout_min * 60 if timeout_min else None
     try:
         results = flag_sweep(
             p.seed_src,
@@ -374,6 +382,7 @@ def run_single_flag_sweep(
             profile=getattr(p.cfg, "compiler_profile", ""),
             cfg=p.cfg,
             deadline=deadline,
+            clock=clock,
         )
     except ValueError as exc:
         error_exit(str(exc), json_mode=json_output)
@@ -456,10 +465,18 @@ def run_flag_sweep(
     tier: str = "targeted",
     jobs: int = 4,
     deadline: float | None = None,
+    *,
+    clock: Callable[[], float] | None = None,
 ) -> tuple[float, str, list[tuple[float, str]]]:
     """Run a compiler flag sweep on a single StubInfo in-process.
 
     Returns ``(best_score, best_flags, all_results)``.
+
+    *deadline* is a *clock* timestamp and *clock* is the only time source the
+    sweep reads it from, so a replayed run bounds the sweep by virtual time
+    instead of by however long the compiles happen to take.  A deadline
+    stamped from a different clock than the one passed here would be compared
+    against unrelated readings and cut the sweep short (or never).
     """
 
     filepath = stub.filepath
@@ -515,6 +532,7 @@ def run_flag_sweep(
             profile=str(toolchain_name or getattr(cfg, "compiler_profile", "") or ""),
             cfg=cfg,
             deadline=deadline,
+            clock=clock,
         )
     except ValueError as exc:
         # The flag sweep is MSVC-only — a posix project must not silently
