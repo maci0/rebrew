@@ -219,6 +219,30 @@ class TestBuildDbRoundTrip:
         assert "data_testbin.json is older than" in err
         assert "--regen" in err
 
+    def test_warns_when_snapshot_is_newer_by_nanoseconds(
+        self, project_root: Path, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Sub-tick staleness still warns: a float st_mtime ties at ~128 ns.
+
+        A float ``st_mtime`` resolves to ~238 ns at current epoch values,
+        so a verify cache written 100 ns after the snapshot compares equal
+        and the warning is skipped.  The base is a multiple of the float
+        ulp so the tie is exact rather than dependent on the clock.
+        """
+        import os
+
+        _write_cache(project_root, "testbin", {})
+        snapshot = project_root / "db" / "data_testbin.json"
+        cache = project_root / ".rebrew" / "verify_cache.json"
+        base_ns = 1_700_000_000_000_000_000
+        os.utime(snapshot, ns=(base_ns, base_ns))
+        os.utime(cache, ns=(base_ns + 100, base_ns + 100))
+
+        build_db(project_root)
+
+        err = capsys.readouterr().err
+        assert "data_testbin.json is older than" in err
+
     def test_configured_db_dir_is_used(self, tmp_path: Path) -> None:
         configured_db = tmp_path / "coverage"
         configured_db.mkdir()
