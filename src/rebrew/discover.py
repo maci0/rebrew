@@ -1,4 +1,4 @@
-"""rebrew discover-functions — robust function enumeration for a target binary.
+"""rebrew discover-functions — function enumeration for a target binary.
 
 Function discovery is the weak link in onboarding: rizin's ``aaa`` mis-merges
 functions on some toolchains (the MinGW GCC family) and ``aap`` misses

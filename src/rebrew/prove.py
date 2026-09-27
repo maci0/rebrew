@@ -749,7 +749,7 @@ def prove_equivalence(
     STUB_BASE = 0xDEAD0000
     RETURN_SENTINEL = 0xBAADF00D  # Concrete return address pushed on stack
     iat_stub_map_orig: dict[int, int] = {}  # IAT_addr -> stub_addr
-    iat_api_names: dict[int, str] = {}  # stub_addr -> API name (for smart hooks)
+    iat_api_names: dict[int, str] = {}  # stub_addr -> API name
     if binary_path is not None:
         try:
             import lief

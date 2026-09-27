@@ -1,7 +1,7 @@
 """catalog/registry.py - Function registry building and size resolution.
 
 Merges discovery inventory and Ghidra function lists into a unified registry with
-smart size resolution (jump table detection, padding absorption, etc.).
+size resolution (jump table detection, padding absorption, etc.).
 """
 
 import logging
@@ -267,7 +267,7 @@ def build_function_registry(
         if "exports" not in entry["detected_by"]:
             entry["detected_by"].append("exports")
 
-    # --- Load .text section data for smart size resolution ---
+    # --- Load .text section data ---
     text_data: bytes | None = None
     text_va = 0
     text_size_val = 0
@@ -295,7 +295,7 @@ def build_function_registry(
         except (OSError, KeyError, ValueError):
             logger.debug(".text section load failed for %s", bin_path, exc_info=True)
 
-    # --- Resolve canonical size: smart resolution ---
+    # --- Resolve canonical size ---
     for va, entry in registry.items():
         sizes = entry["size_by_tool"]
         canonical, reason = _resolve_canonical_size(
