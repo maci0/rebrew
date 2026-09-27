@@ -75,6 +75,8 @@ class McpApplyAborted(RebrewError, RuntimeError):
     application would duplicate the ops that already landed.
     """
 
+    _STRUCTURED_FIELDS = (*RebrewError._STRUCTURED_FIELDS, "applied", "errors")
+
     def __init__(self, msg: str, *, applied: int, errors: int) -> None:
         super().__init__(msg)
         self.applied = applied

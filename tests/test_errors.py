@@ -177,3 +177,74 @@ class TestHierarchyCoverage:
         )
         for name in err_mod.__all__:
             assert getattr(err_mod, name) is not None, name
+
+
+class TestSerializationRoundTrip:
+    """``to_dict`` / ``from_dict`` is the documented way to persist a failure.
+
+    It is the promise the README makes, so every public error class has to
+    survive it — including the ones whose layout or constructor would defeat a
+    naive rebuild.
+    """
+
+    def test_every_public_error_class_round_trips(self) -> None:
+        import rebrew.errors as err_mod
+
+        for name in err_mod._LAZY_ERRORS:
+            cls = getattr(err_mod, name)
+            original = cls("boom", **_REQUIRED_KEYWORDS.get(name, {}))
+            rebuilt = RebrewError.from_dict(original.to_dict())
+
+            assert type(rebuilt) is cls, f"{name} came back as {type(rebuilt).__name__}"
+            assert str(rebuilt) == str(original)
+            assert rebuilt.retryable == original.retryable
+
+    def test_structured_fields_survive(self) -> None:
+        original = RecompileError("unreachable", kind="network", retryable=True)
+        rebuilt = RebrewError.from_dict(original.to_dict())
+
+        assert isinstance(rebuilt, RecompileError)
+        assert (rebuilt.kind, rebuilt.retryable) == ("network", True)
+        assert rebuilt.to_dict() == original.to_dict()
+
+    def test_a_config_not_found_payload_rebuilds_its_own_class(self) -> None:
+        """``ConfigNotFoundError`` mixes the ``ValueError`` and ``OSError``
+        hierarchies, so the MRO's first ``__new__`` cannot allocate it."""
+        from rebrew.config import ConfigNotFoundError
+
+        original = ConfigNotFoundError("no rebrew-project.toml above /tmp")
+        rebuilt = RebrewError.from_dict(original.to_dict())
+
+        assert type(rebuilt) is ConfigNotFoundError
+        assert isinstance(rebuilt, FileNotFoundError)
+        assert str(rebuilt) == str(original)
+
+    def test_an_aborted_apply_keeps_its_counts(self) -> None:
+        original = McpApplyAborted("half applied", applied=3, errors=1)
+        rebuilt = RebrewError.from_dict(original.to_dict())
+
+        assert isinstance(rebuilt, McpApplyAborted)
+        assert (rebuilt.applied, rebuilt.errors) == (3, 1)
+
+    def test_a_contradictory_result_keeps_both_offending_fields(self) -> None:
+        from rebrew.compile import CompareResultError
+
+        original = CompareResultError("matched without a byte match", matched=True, status="EXACT")
+        rebuilt = RebrewError.from_dict(original.to_dict())
+
+        assert isinstance(rebuilt, CompareResultError)
+        assert (rebuilt.matched, rebuilt.status) == (True, "EXACT")
+
+    def test_an_unknown_type_keeps_the_fields_it_can(self) -> None:
+        rebuilt = RebrewError.from_dict(
+            {"type": "SomeFutureError", "message": "new", "retryable": True, "kind": "network"}
+        )
+
+        assert type(rebuilt) is RebrewError
+        assert (str(rebuilt), rebuilt.retryable, rebuilt.kind) == ("new", True, "network")
+
+
+#: Constructor keywords for the error classes that require more than a message.
+_REQUIRED_KEYWORDS: dict[str, dict[str, int]] = {
+    "McpApplyAborted": {"applied": 0, "errors": 0},
+}
