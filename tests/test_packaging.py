@@ -889,6 +889,8 @@ class TestSdistManifest:
             assert f"prune {tree}" in text, tree
         assert "recursive-exclude src/rebrew AGENTS.md" in text
         assert "global-exclude .coverage" in text
+        for doc in ("CHANGELOG.md", "SECURITY.md"):
+            assert f"include {doc}" in text, doc
 
     def test_built_sdist_omits_egg_info_residue(self, tmp_path: Path) -> None:
         """setuptools egg-info bulk must not ship; SOURCES.txt alone is OK.
@@ -949,6 +951,8 @@ class TestSdistManifest:
         assert any(n.endswith("src/rebrew/PRINCIPLES.md") for n in names)
         assert any(n.endswith("src/rebrew/AGENTS.md.template") for n in names)
         assert any(n.endswith("/NOTICE") for n in names)
+        assert any(n.endswith("/CHANGELOG.md") for n in names)
+        assert any(n.endswith("/SECURITY.md") for n in names)
         # Normalization must ensure all files have mode 0644 (no spurious executable bits).
         from tools.normalize_sdist import normalize
 

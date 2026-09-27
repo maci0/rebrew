@@ -26,6 +26,12 @@ prune .venv
 prune venv
 prune rebrew.egg-info
 prune src/rebrew.egg-info
+# Top-level docs setuptools already ships (README.md) or the metadata points at
+# (Project-URL: Changelog / Security).  A source install reaches neither URL
+# offline, so the sdist carries them.  LICENSE and NOTICE come in through
+# [project] license-files.
+include CHANGELOG.md
+include SECURITY.md
 global-exclude *.py[cod]
 global-exclude __pycache__
 global-exclude .coverage
