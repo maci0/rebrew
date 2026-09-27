@@ -48,7 +48,6 @@ Writes use ``tomlkit`` for round-trip-safe serialisation and
 from __future__ import annotations
 
 import contextlib
-import logging
 import threading
 import unicodedata
 from collections.abc import Iterator
@@ -71,8 +70,6 @@ from rebrew.utils import (
 
 if TYPE_CHECKING:
     from rebrew.annotation import Annotation
-
-logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # In-memory cache for load_data_metadata() — mirrors metadata.py's cache for

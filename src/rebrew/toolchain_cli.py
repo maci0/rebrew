@@ -15,7 +15,7 @@ import subprocess
 import time
 from dataclasses import replace
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import typer
 from rich.table import Table
@@ -28,6 +28,9 @@ from rebrew.toolchain import (
     pull_toolchain,
 )
 from rebrew.utils import SOURCE_CHECKOUT, atomic_write_text, container_runtime
+
+if TYPE_CHECKING:
+    from re import Match
 
 #: Cap on each archive-extraction subprocess in `rebrew toolchain vendor`
 #: (matches the curl download timeout).  Without it a stuck filesystem or
@@ -1465,6 +1468,16 @@ def check_updates_cmd(
         )
 
 
+def _splice_block(path: Path, text: str, block: Match[str], body: str) -> None:
+    """Write *text* with *body* substituted for the matched block's group 1."""
+    spliced = (
+        text[: block.start()]
+        + text[block.start() : block.end()].replace(block.group(1), body)
+        + text[block.end() :]
+    )
+    atomic_write_text(path, spliced, encoding="utf-8")
+
+
 def _rewrite_source_pin(name: str, sha256: str, commit: str) -> None:
     """Rewrite the SOURCES entry for *name* in toolchain_data.py (sha256 + commit).
 
@@ -1493,12 +1506,7 @@ def _rewrite_source_pin(name: str, sha256: str, commit: str) -> None:
             body,
             count=1,
         )
-    text = (
-        text[: block.start()]
-        + text[block.start() : block.end()].replace(block.group(1), body)
-        + text[block.end() :]
-    )
-    atomic_write_text(path, text, encoding="utf-8")
+    _splice_block(path, text, block, body)
 
 
 def _rewrite_golden(name: str, golden: str) -> None:
@@ -1516,12 +1524,7 @@ def _rewrite_golden(name: str, golden: str) -> None:
     if m is None:
         raise ToolchainError(f"no golden hex found for {name!r}")
     body = body[: m.start()] + '\n        "' + golden + '",' + body[m.end() :]
-    text = (
-        text[: block.start()]
-        + text[block.start() : block.end()].replace(block.group(1), body)
-        + text[block.end() :]
-    )
-    atomic_write_text(path, text, encoding="utf-8")
+    _splice_block(path, text, block, body)
 
 
 def _rewrite_dockerfile_sha(name: str, sha256: str) -> None:

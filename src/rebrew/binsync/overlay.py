@@ -144,14 +144,7 @@ def _conflict(dst_va: int, src_va: int, field: str, local: str, remote: str) -> 
 def _proposal(
     dst_va: int, src_va: int, field: str, local: str, remote: str, action: str
 ) -> dict[str, str]:
-    return {
-        "va": _hex(dst_va),
-        "src_va": _hex(src_va),
-        "field": field,
-        "local": local,
-        "remote": remote,
-        "action": action,
-    }
+    return {**_conflict(dst_va, src_va, field, local, remote), "action": action}
 
 
 def match_globals_by_content(
