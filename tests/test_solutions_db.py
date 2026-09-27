@@ -88,6 +88,24 @@ class TestCollect:
         assert by_va["0x1000"]["score"] == 0.0  # best (lowest) score won
         assert by_va["0x1000"]["matched"] is True
 
+    def test_collect_best_covers_the_whole_log(self, tmp_path: Path) -> None:
+        # The best run for a function is its OLDEST record here; a window over
+        # the newest N records would drop it once the log outgrows that window.
+        log_dir = tmp_path / ".rebrew"
+        log_dir.mkdir(exist_ok=True)
+        lines = [
+            '{"ts": "t0", "target": "SERVER", "va": "0x1000", "symbol": "_f",'
+            ' "matched": true, "score": 0.5}'
+        ]
+        lines += [
+            f'{{"ts": "t{i}", "target": "SERVER", "va": "0x{0x2000 + i:04x}",'
+            f' "symbol": "_g{i}", "matched": false, "score": 9.0}}'
+            for i in range(50)
+        ]
+        (log_dir / "ga_runs.jsonl").write_text("\n".join(lines), encoding="utf-8")
+        by_va = {b["va"]: b for b in _collect_best(_cfg(tmp_path))}
+        assert by_va["0x1000"]["score"] == 0.5
+
 
 class TestSolutionsCli:
     @pytest.mark.parametrize(

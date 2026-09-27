@@ -10,6 +10,7 @@ from rebrew.matcher.solutions import (
     SolutionEntry,
     _normalize_cflags,
     find_similar,
+    iter_ga_runs,
     load_ga_runs,
     load_solutions,
     load_solutions_file,
@@ -429,6 +430,25 @@ class TestGaRunHistory:
         runs = load_ga_runs(project_root)
         assert len(runs) == 1
         assert runs[0]["symbol"] == "ok"
+
+    def test_iter_ga_runs_streams_whole_log_oldest_first(self, project_root: Path) -> None:
+        # The unbounded view an aggregate folds over: load_ga_runs is the
+        # newest-N tail, iter_ga_runs the full history in file order.
+        for i in range(5):
+            record_ga_run(project_root, target="S", va=0x1000 + i, symbol=f"_f{i}", matched=True)
+        record_ga_run(project_root, target="OTHER", va=0x9000, symbol="_z", matched=True)
+        assert [r["symbol"] for r in iter_ga_runs(project_root)] == [
+            "_f0",
+            "_f1",
+            "_f2",
+            "_f3",
+            "_f4",
+            "_z",
+        ]
+        assert [r["symbol"] for r in iter_ga_runs(project_root, target="OTHER")] == ["_z"]
+
+    def test_iter_ga_runs_missing_file_is_empty(self, project_root: Path) -> None:
+        assert list(iter_ga_runs(project_root)) == []
 
 
 class TestLoadSolutionsFile:
