@@ -13,7 +13,15 @@ from typing import Any
 
 import pytest
 
-from rebrew.build_db import FUNCTION_ROWS_SQL, build_db
+from rebrew.build_db import (
+    _HISTORY_COLUMNS_SQL,
+    _VERIFY_RESULTS_COLUMNS_SQL,
+    FUNCTION_ROWS_SQL,
+    _restore_persistent_rows,
+    _unlink_db,
+    build_db,
+)
+from rebrew.workspace import SCHEMA_TARGET
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -1807,11 +1815,15 @@ class TestBuildDbTargetFiltering:
 # ---------------------------------------------------------------------------
 
 
-def _write_stale_db(db_path: "Path", stale_version: str = "0") -> None:
-    """Write a minimal DB with an outdated db_version stamp."""
-    import sqlite3 as _sqlite3
+def _write_stale_db(db_path: Path, stale_version: str = "0") -> None:
+    """Write a minimal DB with an outdated db_version stamp.
 
-    conn = _sqlite3.connect(db_path)
+    The stamp goes under ``SCHEMA_TARGET``, the row the version gate reads
+    first.  An older spelling only lands in the per-target fallback, so a
+    real database already carrying a current ``__schema__`` stamp kept
+    reporting the current version and the mismatch path never ran.
+    """
+    conn = sqlite3.connect(db_path)
     c = conn.cursor()
     c.execute("""
         CREATE TABLE IF NOT EXISTS metadata (
@@ -1823,7 +1835,7 @@ def _write_stale_db(db_path: "Path", stale_version: str = "0") -> None:
     """)
     c.execute(
         "INSERT OR REPLACE INTO metadata VALUES (?, ?, ?)",
-        ("_schema", "db_version", json.dumps(stale_version)),
+        (SCHEMA_TARGET, "db_version", json.dumps(stale_version)),
     )
     conn.commit()
     conn.close()
@@ -1896,9 +1908,13 @@ class TestBuildDbForceFlag:
         _write_stale_db(db_path, stale_version="0")
         conn = sqlite3.connect(db_path)
         conn.execute("DELETE FROM verify_results")
+        # A fully populated row: a restore that re-inserts only (target, va)
+        # silently drops the row, since the omitted NOT NULL verified_at makes
+        # INSERT OR IGNORE skip it rather than fail.
         conn.execute(
-            "INSERT INTO verify_results (target, va, verified_at)"
-            " VALUES ('testbin', 4096, '2026-01-01T00:00:00')"
+            "INSERT INTO verify_results (target, va, verified_at, byte_delta, diff_lines,"
+            " similarity, reg_delta, effective_match)"
+            " VALUES ('testbin', 4096, '2026-01-01T00:00:00', 3, 7, 0.9, 2, 1)"
         )
         conn.commit()
         conn.close()
@@ -1910,11 +1926,13 @@ class TestBuildDbForceFlag:
             "SELECT target, va, old_status, new_status FROM history"
         ).fetchall()
         verify = conn.execute(
-            "SELECT target, va, verified_at FROM verify_results"
+            "SELECT target, va, verified_at, byte_delta, diff_lines, similarity,"
+            " reg_delta, effective_match FROM verify_results"
         ).fetchall()
         conn.close()
+        expected_verify = [("testbin", 4096, "2026-01-01T00:00:00", 3, 7, 0.9, 2, 1)]
         assert history == [("testbin", 4096, "STUB", "EXACT")]
-        assert verify == [("testbin", 4096, "2026-01-01T00:00:00")]
+        assert verify == expected_verify
 
         # A second --force run over the already-restored DB adds no duplicate.
         _write_stale_db(db_path, stale_version="0")
@@ -1922,11 +1940,12 @@ class TestBuildDbForceFlag:
         conn = sqlite3.connect(db_path)
         history = conn.execute("SELECT target, va, old_status, new_status FROM history").fetchall()
         verify = conn.execute(
-            "SELECT target, va, verified_at FROM verify_results"
+            "SELECT target, va, verified_at, byte_delta, diff_lines, similarity,"
+            " reg_delta, effective_match FROM verify_results"
         ).fetchall()
         conn.close()
         assert history == [("testbin", 4096, "STUB", "EXACT")]
-        assert verify == [("testbin", 4096, "2026-01-01T00:00:00")]
+        assert verify == expected_verify
 
 
 class TestBuildDbCorruptInput:
@@ -2089,3 +2108,126 @@ class TestCellStateVocabulary:
             conn.close()
         assert "idx_history_target_va" not in indexes
         assert "idx_history_target_id" in indexes
+
+
+# ---------------------------------------------------------------------------
+# Persistent-row salvage across a --force database replacement
+# ---------------------------------------------------------------------------
+
+
+class TestPersistentRowSalvage:
+    """_unlink_db / _restore_persistent_rows must round-trip the tables that
+    have no other source: history and verify_results."""
+
+    @staticmethod
+    def _schema(conn: sqlite3.Connection) -> None:
+        c = conn.cursor()
+        c.execute(f"CREATE TABLE verify_results ({_VERIFY_RESULTS_COLUMNS_SQL})")
+        c.execute(f"CREATE TABLE history ({_HISTORY_COLUMNS_SQL})")
+
+    def test_round_trips_every_column(self, tmp_path: Path) -> None:
+        db_path = tmp_path / "coverage.db"
+        conn = sqlite3.connect(db_path)
+        try:
+            self._schema(conn)
+            conn.execute(
+                "INSERT INTO verify_results VALUES"
+                " ('alpha', 4096, '2026-01-01T00:00:00+00:00', 3, 7, 0.9, 2, 1)"
+            )
+            conn.execute(
+                "INSERT INTO history (target, va, old_status, new_status, changed_at,"
+                " updated_by) VALUES ('alpha', 4096, 'STUB', 'EXACT',"
+                " '2026-01-01T00:00:00+00:00', 'test')"
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        saved = _unlink_db(db_path)
+        assert not db_path.exists()
+
+        conn = sqlite3.connect(db_path)
+        try:
+            self._schema(conn)
+            cursor = conn.cursor()
+            _restore_persistent_rows(cursor, saved)
+            conn.commit()
+            verify = conn.execute("SELECT * FROM verify_results").fetchall()
+            history = conn.execute(
+                "SELECT target, va, old_status, new_status, changed_at, updated_by FROM history"
+            ).fetchall()
+        finally:
+            conn.close()
+        assert verify == [("alpha", 4096, "2026-01-01T00:00:00+00:00", 3, 7, 0.9, 2, 1)]
+        assert history == [
+            ("alpha", 4096, "STUB", "EXACT", "2026-01-01T00:00:00+00:00", "test")
+        ]
+
+    def test_restore_is_idempotent_for_null_statuses(self, tmp_path: Path) -> None:
+        """A transition recorded with a NULL old_status must not be duplicated
+        on the next --force: the dedupe compares with IS, so NULL matches NULL."""
+        db_path = tmp_path / "coverage.db"
+        conn = sqlite3.connect(db_path)
+        try:
+            self._schema(conn)
+            conn.execute(
+                "INSERT INTO history (target, va, old_status, new_status, changed_at)"
+                " VALUES ('alpha', 4096, NULL, 'EXACT', '2026-01-01T00:00:00+00:00')"
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        saved = _unlink_db(db_path)
+        for _ in range(2):
+            conn = sqlite3.connect(db_path)
+            try:
+                self._schema(conn)
+                cursor = conn.cursor()
+                _restore_persistent_rows(cursor, saved)
+                conn.commit()
+            finally:
+                conn.close()
+            saved = _unlink_db(db_path)
+
+        conn = sqlite3.connect(db_path)
+        try:
+            self._schema(conn)
+            cursor = conn.cursor()
+            _restore_persistent_rows(cursor, saved)
+            conn.commit()
+            count = conn.execute("SELECT COUNT(*) FROM history").fetchone()[0]
+        finally:
+            conn.close()
+        assert count == 1
+
+    def test_legacy_table_missing_a_column_still_salvages_keys(self, tmp_path: Path) -> None:
+        """A pre-effective_match table projects the columns it has and pads the
+        rest, so the rows that can be restored still are."""
+        db_path = tmp_path / "coverage.db"
+        conn = sqlite3.connect(db_path)
+        try:
+            conn.execute("""
+                CREATE TABLE verify_results (
+                    target TEXT NOT NULL,
+                    va INTEGER NOT NULL,
+                    verified_at TEXT NOT NULL,
+                    byte_delta INTEGER,
+                    diff_lines INTEGER,
+                    similarity REAL,
+                    reg_delta INTEGER,
+                    PRIMARY KEY (target, va)
+                )
+            """)
+            conn.execute(
+                "INSERT INTO verify_results VALUES"
+                " ('alpha', 4096, '2026-01-01T00:00:00+00:00', 3, 7, 0.9, 2)"
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        saved = _unlink_db(db_path)
+        assert saved["verify_results"] == [
+            ("alpha", 4096, "2026-01-01T00:00:00+00:00", 3, 7, 0.9, 2, None)
+        ]

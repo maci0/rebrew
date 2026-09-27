@@ -106,7 +106,7 @@ from rebrew.build_db import FUNCTION_ROWS_SQL, resolve_db_dir
 from rebrew.cli import console, error_exit, json_print, status_mark_groups
 from rebrew.metadata import canonical_status
 from rebrew.utils import floor_pct
-from rebrew.workspace import coverage_db_lock, open_sqlite_ro
+from rebrew.workspace import VA_MAX, coverage_db_lock, open_sqlite_ro
 
 log = logging.getLogger(__name__)
 
@@ -115,8 +115,6 @@ _LOG_CONTROL_CHARS[ord("\\")] = "\\\\"
 
 _DEFAULT_LIMIT = 100
 _MAX_LIMIT = 5000
-#: SQLite INTEGER max; a larger bound parameter raises OverflowError.
-_MAX_OFFSET = 2**63 - 1
 _FUNCTION_COLS = ("va", "name", "symbol", "size", "status", "module", "files")
 _GLOBAL_COLS = ("va", "name", "decl", "size", "module")
 _HISTORY_COLS = ("va", "name", "old_status", "new_status", "changed_at")
@@ -1474,7 +1472,7 @@ def _offset_param(params: dict[str, list[str]], name: str, default: int = 0) -> 
     Zero is valid.  Values are **not** capped at ``_MAX_LIMIT`` — that bound
     is for page size only; clamping skip would make rows past the cap
     unreachable via ``limit``+``offset`` pagination.  They are clamped to
-    ``_MAX_OFFSET`` so an oversized skip is an empty page, not a 500.
+    ``VA_MAX`` so an oversized skip is an empty page, not a 500.
     """
     values = params.get(name)
     raw = values[0] if values else None
@@ -1486,7 +1484,7 @@ def _offset_param(params: dict[str, list[str]], name: str, default: int = 0) -> 
         return default
     if value < 0:
         return default
-    return min(value, _MAX_OFFSET)
+    return min(value, VA_MAX)
 
 
 def _opt_query(params: dict[str, list[str]], name: str) -> str | None:
@@ -1555,7 +1553,7 @@ def _va_query(term: str) -> int | None:
     if any(c not in "0123456789abcdefABCDEF" for c in text):
         return None
     value = int(text, 16)
-    if value > _MAX_OFFSET:
+    if value > VA_MAX:
         return None
     return value
 

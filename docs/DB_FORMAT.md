@@ -199,7 +199,7 @@ whenever the schema changes.
 | `"10"` | `cells.state` known set is derived from `KNOWN_STATUSES` (lowercased) ∪ gap/data states, so `extract_error` / `invalid_va` (and any future annotation STATUS) stay CHECK-valid instead of coercing to `unknown`. Migration is `--force` (DROP+rebuild). |
 | `"9"` | `cells.state` CHECK-constrained to the known cell-state set; insert path coerces unknowns to `unknown`. `idx_metadata_key` on `metadata(key, target)` for key-first lookups (targets list, legacy `db_version`). Migration is `--force` (DROP+rebuild), same as prior schema bumps. |
 | `"8"` | `functions.status` CHECK-constrained to `KNOWN_STATUSES` ∪ `{UNKNOWN}`; insert path canonicalizes (case / `NEAR_MATCH` alias) and coerces unknowns to `UNKNOWN`. Migration is `--force` (DROP+rebuild), same as prior schema bumps. |
-| `"7"` | `section_cell_stats` is a **table** rather than a view; new `section_cells_json` table (per-section cell JSON, zstd-compressed) so dashboards stop re-aggregating `cells` on every request. Migration is `--force` (DROP+rebuild), the existing convention: `history` and `verify_results` are not dropped by a rebuild, but `--force` unlinks the file, so `verify_results` is re-imported from `db/verify_results.json` / `.rebrew/verify_cache.json` and `history` is not recoverable. |
+| `"7"` | `section_cell_stats` is a **table** rather than a view; new `section_cells_json` table (per-section cell JSON, zstd-compressed) so dashboards stop re-aggregating `cells` on every request. Migration is `--force` (DROP+rebuild), the existing convention: `history` and `verify_results` are not dropped by a rebuild, and `--force` unlinks the file, so both are read out before the delete and restored by the rebuild (all columns, for `verify_results`); `verify_results` is also re-imported from `db/verify_results.json` / `.rebrew/verify_cache.json`. |
 | `"6"` | `functions` gained `updated_by`/`updated_at` (STATUS-write provenance); `globals` gained `status` (data verdicts); `history` gained `updated_by`. |
 | `"5"` | `verify_results` gained `reg_delta` and `effective_match` (the effective-match signal — register-only delta; see the table below). |
 | `"4"` | Cell rows normalized and range-checked on insert (`start >= 0`, `end >= start`, `span > 0`); `cells` gained a `FOREIGN KEY (target, section_name)` to `sections` with `ON DELETE CASCADE`; `section_cell_stats` gained `other_count`; `verify_results` no longer dropped on full rebuild. |
@@ -231,7 +231,9 @@ only, and `db/verify_results.json` is gone).
 > recreates the table in place so range guards apply without `--force`.
 > Negative deltas clamp to 0, non-finite deltas become NULL, and a NULL
 > `va` is dropped. Clamped `(target, va)` keys that collide keep the
-> latest row.
+> latest row.  `--force` unlinks the file rather than dropping the table, so
+> every column of every row is read out beforehand and re-inserted inside the
+> rebuild's transaction.
 
 ### `history` Table
 Tracks function status changes over time.
@@ -253,7 +255,11 @@ Tracks function status changes over time.
 > regenerate often do not accumulate rows forever.  A rebuild
 > that finds a pre-CHECK DDL recreates the table in place (preserving `id`,
 > clamping negative VAs and unknown statuses) so the guards apply without
-> `--force`.
+> `--force`.  `--force` unlinks the file rather than dropping the table, so
+> every row is read out beforehand and re-inserted inside the rebuild's
+> transaction, skipping a transition already recorded (two rows that both
+> carry a NULL `old_status`/`new_status` are the same transition, so the
+> dedupe compares with `IS`).
 
 ### `section_cell_stats` Table
 Aggregated matching metrics per section: total/exact/stub cell counts, so a
