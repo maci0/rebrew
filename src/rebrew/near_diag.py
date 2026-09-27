@@ -508,7 +508,11 @@ def analyze(
     counts, first_mismatch = align_and_classify(target_insns, compiled_insns, reloc_set)
     raw_total = sum(counts.values())
     label, suggestion = _verdict(counts, raw_total)
-    total = raw_total or 1
+    # ``raw_total`` is the reported byte count and stays 0 when nothing
+    # disassembles.  The percent denominator is a separate value so the
+    # divide guard never becomes a reported figure: sharing one variable made
+    # a zero-instruction pair report ``bytes: 1``.
+    denom = raw_total or 1
     dominant = label.split(" (")[0].lower() if label != "MATCH" else "match"
     if dominant == "effective":
         # The EFFECTIVE verdict IS register allocation — reuse the register
@@ -538,9 +542,9 @@ def analyze(
         "va": f"0x{va:08x}",
         "target_insns": len(target_insns),
         "compiled_insns": len(compiled_insns),
-        "bytes": total,
+        "bytes": raw_total,
         "categories": {
-            k: {"bytes": v, "percent": round(v / total * 100, 1)} for k, v in counts.items()
+            k: {"bytes": v, "percent": round(v / denom * 100, 1)} for k, v in counts.items()
         },
         "verdict": label,
         "suggestion": suggestion,

@@ -296,9 +296,12 @@ class TestAnalyzeDegenerate:
 
     def test_both_empty(self) -> None:
         result = nd.analyze(b"", b"", None, 0x1000)
-        # total is floored at 1 to protect the percent division.
-        assert result["bytes"] == 1
+        # Nothing disassembles, so no bytes were classified.  The percent
+        # denominator is floored at 1 for the division, but the reported
+        # byte count is the real one — 0, not the guard.
+        assert result["bytes"] == 0
         assert result["verdict"] == "MATCH"
+        assert all(c["bytes"] == 0 for c in result["categories"].values())
 
     def test_undecodable_bytes(self) -> None:
         # 0xFF 0xFF 0xFF... may not disassemble cleanly; must not crash.

@@ -892,6 +892,23 @@ class TestParseLibraryHeader:
         assert results[0].va == 0x10050000
         assert results[0].symbol == "_deflate"
 
+    def test_size_kv_accepts_hex_and_decimal(self, tmp_path: Path) -> None:
+        # E008 blesses the hex spelling of SIZE and the FUNCTION-marker parser
+        # takes base 0; a decimal-only parse here turned `0x1a4` into size 0,
+        # i.e. a MISSING_SIZE for a function whose extent is known.
+        hfile = tmp_path / "library_msvc.h"
+        hfile.write_text(
+            "// LIBRARY: SERVER 0x1001A18A\n"
+            "// _fflush\n"
+            "// SIZE: 0x1a4\n"
+            "\n"
+            "// LIBRARY: SERVER 0x1001A1BB\n"
+            "// __fclose_lk\n"
+            "// SIZE: 64\n"
+        )
+        results = parse_library_header(hfile)
+        assert [r.size for r in results] == [0x1A4, 64]
+
     def test_every_library_module_is_returned(self, tmp_path: Path) -> None:
         # LIBRARY modules are library names (MSVCRT, ZLIB, ...), not target
         # markers — parse_library_header must return every entry even when a
