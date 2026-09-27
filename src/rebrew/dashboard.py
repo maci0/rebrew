@@ -236,14 +236,9 @@ function esc(s) {
 }
 function formatWhen(value) {
   if (!value) return "";
-  // Rebrew stores UTC instants (ISO-8601).  Date.parse reads a zone-less
-  // date-time as local wall time whether the separator is "T", "t", or a
-  // space, which shifts the display by the host offset.  On a spring-forward
-  // night the missing hour is mapped onto the next one (America/New_York
-  // 2026-03-08 02:30 becomes 03:30 EDT).  On a fall-back night only the first
-  // of the two occurrences can be named.  A trailing Z pins the reading to UTC.
-  // Strings that already carry an offset (including "Z") are left alone so a
-  // non-UTC offset is not discarded.
+  // Rebrew stores UTC instants.  A zone-less date-time reads as local wall time
+  // under Date.parse (any of "T"/"t"/space), so pin it with Z; a string that
+  // already carries an offset is left alone.
   let raw = String(value).trim();
   if (/^\\d{4}-\\d{2}-\\d{2}[Tt ]\\d{2}:\\d{2}(:\\d{2}(\\.\\d+)?)?$/.test(raw)) {
     raw += "Z";
@@ -253,9 +248,7 @@ function formatWhen(value) {
   try {
     // One shared formatter: toLocaleString(options) builds a new
     // Intl.DateTimeFormat per call (~117 ms vs 3 ms for 5000 history rows).
-    // dateStyle/timeStyle cannot be combined with timeZoneName.  Without the
-    // zone abbreviation the fall-back hour prints twice: America/New_York
-    // 2026-11-01 05:30Z and 06:30Z are both "Nov 1, 2026, 1:30 AM".
+    // timeZoneName is required: without it a fall-back hour prints twice.
     whenFormat ??= new Intl.DateTimeFormat(undefined, {
       year: "numeric", month: "short", day: "numeric",
       hour: "numeric", minute: "2-digit",
@@ -312,9 +305,8 @@ function syncError() {
   else if (currentView === "history") $("retry-view").textContent = "Retry history";
   else $("retry-view").textContent = "Retry";
 }
-// A control that hides or disables itself on activation drops keyboard focus
-// to <body> (WCAG 2.4.3). Move it to the first usable id in *ids*; each id
-// must name a focusable element. No-op when focus is still somewhere.
+// A control that hides or disables itself on activation drops keyboard focus to
+// <body> (WCAG 2.4.3). Move it to the first usable id. No-op when focus is held.
 function restoreFocus(ids) {
   const active = document.activeElement;
   if (active && active !== document.body) return;
@@ -360,6 +352,13 @@ function updateFilterActions() {
   $("filter-actions").hidden = !canFilter;
   $("clear-filters").disabled = !filtersActive();
   $("clear-filters").textContent = currentView === "globals" ? "Clear search" : "Clear filters";
+  // Orientation cue: with a target per browser tab, the title is the only place
+  // that says which target and view are on screen.
+  const t = $("target").value;
+  if (t) {
+    document.title = t + " - " + currentView[0].toUpperCase() + currentView.slice(1)
+      + " - Rebrew coverage";
+  }
   writeHash();
 }
 function writeHash() {
@@ -456,6 +455,13 @@ function setListPageMessage(opts) {
     more.hidden = true;
   }
 }
+// Drop a list's rows, count hint, and Show more bar before a fresh (non-append)
+// load: the busy veil is translucent, so stale rows read as the new page's data.
+function resetList(tableId, hintId, moreWrapId) {
+  $(tableId).querySelector("tbody").innerHTML = "";
+  $(hintId).hidden = true;
+  if (moreWrapId) $(moreWrapId).hidden = true;
+}
 function resetPaging() {
   pageLimit = 100;
   loadedCount = 0;
@@ -536,7 +542,7 @@ async function loadFunctions(options) {
     setLoadError("functions", "");
     $("results").hidden = false;
     $("empty-state").hidden = true;
-    if (!grow) $("show-more-wrap").hidden = true;
+    if (!grow) resetList("rows", "results-hint", "show-more-wrap");
     // Busy state via aria-busy only — avoid polite-live "Loading…" chatter on
     // every debounced search keystroke (WCAG 4.1.3).
     const data = await whileBusy("results", () => get("/api/functions?" + params, signal));
@@ -757,6 +763,7 @@ async function loadSections() {
   viewController = new AbortController();
   const { signal } = viewController;
   $("sections-empty").hidden = true;
+  resetList("sections-rows", "sections-hint");
   $("sections-results").hidden = false;
   try {
     setLoadError("view", "");
@@ -788,8 +795,8 @@ async function loadGlobals(options) {
   if ($("gq").value.trim()) params.set("q", $("gq").value.trim());
   updateFilterActions();
   $("globals-empty").hidden = true;
-  $("globals-hint").hidden = true;
-  if (!grow) $("globals-show-more-wrap").hidden = true;
+  if (!grow) resetList("globals-rows", "globals-hint", "globals-show-more-wrap");
+  else $("globals-hint").hidden = true;
   $("globals-results").hidden = false;
   try {
     setLoadError("view", "");
@@ -830,8 +837,8 @@ async function loadHistory(options) {
     offset: String(offset),
   });
   $("history-empty").hidden = true;
-  $("history-hint").hidden = true;
-  if (!grow) $("history-show-more-wrap").hidden = true;
+  if (!grow) resetList("history-rows", "history-hint", "history-show-more-wrap");
+  else $("history-hint").hidden = true;
   $("history-results").hidden = false;
   try {
     setLoadError("view", "");

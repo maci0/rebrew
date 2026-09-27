@@ -613,6 +613,22 @@ class TestFocusManagement:
         assert result.returncode == 0, result.stdout + result.stderr
 
 
+class TestListReset:
+    def test_fresh_load_drops_stale_rows_and_title_names_the_target(self) -> None:
+        node = shutil.which("node")
+        if node is None:
+            pytest.skip("Node.js is required for dashboard interaction tests")
+        result = subprocess.run(
+            [node, str(Path(__file__).with_name("dashboard_list_reset.mjs"))],
+            input=_APP_JS,
+            capture_output=True,
+            text=True,
+            timeout=15,
+            check=False,
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+
+
 class TestLoadErrors:
     def test_error_messages_carry_the_server_reason(self) -> None:
         node = shutil.which("node")
