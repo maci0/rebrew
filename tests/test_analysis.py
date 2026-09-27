@@ -20,6 +20,7 @@ from rebrew.analysis import (
     data_references,
     disasm_insns,
     extract_bytes,
+    instruction_text,
     is_inside,
     iter_instructions,
     iter_strings,
@@ -146,6 +147,14 @@ class TestStringRefs:
 
 
 class TestInsnAndBytes:
+    def test_instruction_text_joins_mnemonic_and_operands(self) -> None:
+        insn = Insn(va=0x1000, size=1, mnemonic="ret", op_str="", raw=b"\xc3")
+        assert instruction_text(insn) == "ret"
+
+    def test_instruction_text_keeps_operands(self) -> None:
+        insn = Insn(va=0x1000, size=5, mnemonic="call", op_str="0x1234", raw=b"")
+        assert instruction_text(insn) == "call 0x1234"
+
     def test_iter_instructions(self, tmp_path: Path) -> None:
         path, syms = make_xref_probe(tmp_path)
         info = load_binary(path)

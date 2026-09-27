@@ -87,6 +87,11 @@ class Insn:
     raw: bytes
 
 
+def instruction_text(insn: Insn) -> str:
+    """One decoded instruction as ``"mnemonic operands"`` text."""
+    return f"{insn.mnemonic} {insn.op_str}".strip()
+
+
 @dataclass
 class StringEntry:
     """A printable string run in a data section."""

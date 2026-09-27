@@ -21,7 +21,13 @@ from typing import Any
 import typer
 from rich.table import Table
 
-from rebrew.analysis import Xref, iter_instruction_stream, iter_instructions, scan_references
+from rebrew.analysis import (
+    Xref,
+    instruction_text,
+    iter_instruction_stream,
+    iter_instructions,
+    scan_references,
+)
 from rebrew.binary_loader import BinaryInfo, load_binary
 from rebrew.cli import (
     EXIT_ERROR,
@@ -89,7 +95,7 @@ def _insn_text_by_va(info: BinaryInfo, wanted: set[int]) -> dict[int, str]:
     out: dict[int, str] = {}
     for insn in iter_instruction_stream(info, text.va, text.size):
         if insn.va in wanted:
-            out[insn.va] = f"{insn.mnemonic} {insn.op_str}".strip()
+            out[insn.va] = instruction_text(insn)
             if len(out) == len(wanted):
                 break
         elif insn.va > last:

@@ -35,6 +35,7 @@ from rebrew.analysis import (  # re-exported: nd.Insn is analysis.Insn
     DEFAULT_CS_MODE,
     Insn,
     disasm_insns,
+    instruction_text,
     normalized_operands,
     resolve_capstone,
 )
@@ -221,9 +222,6 @@ def align_and_classify(
     }
     first_mismatch: dict[str, Any] | None = None
 
-    def _fmt(insn: Insn) -> str:
-        return f"{insn.mnemonic} {insn.op_str}".strip()
-
     def _note(offset: int, category: str, target_text: str, compiled_text: str) -> None:
         nonlocal first_mismatch
         if first_mismatch is None:
@@ -246,15 +244,15 @@ def align_and_classify(
                     cat = classify_pair(t, c)
                     byte_counts[cat] += t.size
                     if cat != "match":
-                        _note(t.va, cat, _fmt(t), _fmt(c))
+                        _note(t.va, cat, instruction_text(t), instruction_text(c))
         elif tgt_span or comp_span:
             # Insertion/deletion: the longer side's extra bytes are structural.
             if len(tgt_span) > len(comp_span):
                 extra = tgt_span
-                _note(extra[0].va, "structural", _fmt(extra[0]), "")
+                _note(extra[0].va, "structural", instruction_text(extra[0]), "")
             else:
                 extra = comp_span
-                _note(extra[0].va, "structural", "", _fmt(extra[0]))
+                _note(extra[0].va, "structural", "", instruction_text(extra[0]))
             byte_counts["structural"] += sum(i.size for i in extra)
 
     return byte_counts, first_mismatch
