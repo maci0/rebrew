@@ -40,7 +40,8 @@ can actually fill them.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from collections.abc import Mapping
+from typing import TYPE_CHECKING, Any
 
 # Same names ``__getattr__`` loads at runtime.  Present here so a type
 # checker sees ``from rebrew.errors import ConfigError`` as that class.
@@ -92,6 +93,65 @@ class RebrewError(Exception):
     #: ``False`` rather than inviting a retry loop that cannot terminate.
     retryable: bool = False
 
+    #: Structured attributes a subclass may set, serialized by
+    #: :meth:`to_dict`.  Every one is optional: an error that cannot fill a
+    #: field simply omits it from the payload.
+    _STRUCTURED_FIELDS = ("kind", "name", "status_code", "group")
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize the error's structured fields into a JSON-safe dict.
+
+        The point is that a consumer can persist a failure and still branch
+        on it afterwards.  ``type`` names the class, ``message`` is ``str(exc)``,
+        ``retryable`` is the decision the caller needs, and whichever of
+        :attr:`_STRUCTURED_FIELDS` the instance carries come along (a
+        ``RecompileError`` brings ``kind`` and ``status_code``).
+
+        :meth:`from_dict` reads the payload back, so the round trip preserves
+        ``kind`` / ``retryable`` / ``status_code`` without a consumer
+        re-implementing this mapping.
+        """
+        payload: dict[str, Any] = {
+            "type": type(self).__name__,
+            "message": str(self),
+            "retryable": bool(self.retryable),
+        }
+        for field_name in self._STRUCTURED_FIELDS:
+            value = getattr(self, field_name, None)
+            if value is not None:
+                payload[field_name] = value
+        return payload
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> RebrewError:
+        """Rebuild the error :meth:`to_dict` wrote, keyed by its ``type``.
+
+        The subclass is looked up in this module's export table, so a
+        round-tripped ``RecompileError`` is a ``RecompileError`` again and
+        ``isinstance`` keeps working on a result read back from JSON.  A
+        ``type`` this build does not know (a newer rebrew wrote it, or the
+        payload is foreign) yields a base :class:`RebrewError` carrying the
+        same fields rather than raising: the message and the structured data
+        survive, only the specific class does not.
+
+        Instances are built with ``__new__`` + ``Exception.__init__`` and
+        their attributes assigned, because subclasses take differing
+        constructor keywords and an unknown future subclass must not make a
+        stored error unreadable.  Called on a subclass rather than on
+        :class:`RebrewError`, it builds that class whatever ``type`` says.
+        """
+        type_name = data.get("type")
+        rebuilt = _rebuilt_error_class(type_name)
+        target: type[RebrewError] = rebuilt if rebuilt is not None else RebrewError
+        if cls is not RebrewError:
+            target = cls
+        exc = target.__new__(target)
+        Exception.__init__(exc, str(data.get("message", "")))
+        for key, value in data.items():
+            if key not in ("type", "message"):
+                setattr(exc, str(key), value)
+        return exc
+
 
 #: Every public error class in the package, keyed by the name a consumer
 #: imports from ``rebrew.errors``.  A new ``RebrewError`` subclass must be added
@@ -139,6 +199,23 @@ _LAZY_ERROR_KINDS: dict[str, tuple[str, str]] = {
     "RecompileErrorKind": ("rebrew.recompile_client", "RecompileErrorKind"),
     "ToolchainErrorKind": ("rebrew.toolchain", "ToolchainErrorKind"),
 }
+
+
+def _rebuilt_error_class(type_name: object) -> type[RebrewError] | None:
+    """Resolve a serialized ``type`` back to its class, or ``None`` if unknown.
+
+    Lazy, like :data:`_LAZY_ERRORS` itself: reading a stored error must not
+    import every error-defining module in the package.
+    """
+    if not isinstance(type_name, str):
+        return None
+    location = _LAZY_ERRORS.get(type_name)
+    if location is None:
+        return None
+    import importlib
+
+    klass = getattr(importlib.import_module(location[0]), location[1])
+    return klass if isinstance(klass, type) and issubclass(klass, RebrewError) else None
 
 
 def __getattr__(name: str) -> object:

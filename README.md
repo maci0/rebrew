@@ -190,6 +190,12 @@ if result.status == "COMPILE_ERROR" and result.error is not None:
         ...  # the service rejected the request; rebrewing the C will not help
 ```
 
+Persisting that result keeps the decision: `CompareResult.to_dict()` writes
+`error` through `RebrewError.to_dict()`, and `CompareResult.from_dict()`
+reads it back as the same exception class, so `result.error.retryable` and
+`result.error.kind` still work on a result loaded from JSON. `RebrewError`
+gains the same `to_dict()` / `from_dict()` pair for any other error you store.
+
 Every rebrew error type inherits `RebrewError` alongside its original
 `RuntimeError`/`ValueError` base, so a new error type in a later release lands
 in that handler instead of escaping it.
@@ -224,6 +230,8 @@ result.ok / result.obj_bytes / result.log / result.compiler_version
 # closes it after. `retries=N` re-attempts a retryable RecompileError with
 # exponential backoff; `RecompileError.kind` is "network" / "http" /
 # "validation" / "protocol" and `status_code` is set for the "http" ones.
+# `result.to_dict()` / `RecompileResult.from_dict()` store the verdict (not
+# the object bytes) the way `CompareResult` does.
 ```
 
 The ReVa MCP client (`rebrew.ghidra.client`, the transport behind

@@ -59,7 +59,7 @@ import subprocess
 import threading
 import uuid
 from collections import Counter
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, Self, cast, get_args
@@ -266,7 +266,11 @@ class CompareResult:
 
         The two byte payloads (``obj_bytes``, ``full_obj_bytes``) are not
         serialized — they are raw bytes, not JSON values — so
-        :meth:`from_dict` cannot restore them.  Every other field round-trips.
+        :meth:`from_dict` cannot restore them.  Every other field round-trips,
+        ``error`` included: it is written as
+        :meth:`rebrew.errors.RebrewError.to_dict` produces, so a persisted
+        failure still carries the ``kind`` / ``retryable`` / ``status_code``
+        the retry decision needs once it is read back.
         """
         return {
             "matched": self.matched,
@@ -283,6 +287,7 @@ class CompareResult:
             "reg_delta": self.reg_delta,
             "effective_match": self.effective_match,
             "context_hash": self.context_hash,
+            "error": self.error.to_dict() if self.error is not None else None,
         }
 
     @classmethod
@@ -294,6 +299,13 @@ class CompareResult:
         ``full_obj_bytes=None``.  Report and dashboard on it; do not make a
         ``--fix-sizes``-style decision from it, which needs the untruncated
         bytes.  Unknown keys are ignored.
+
+        A serialized ``error`` is rebuilt as the exception type its
+        ``type`` names (:meth:`rebrew.errors.RebrewError.from_dict`), so
+        ``result.error.retryable`` works on a result read back from JSON.  An
+        ``error`` that is neither ``None`` nor such a mapping is a payload this
+        cannot build a result from, and raises
+        :class:`CompareResultError` like the other unbuildable payloads.
 
         A payload this cannot build a result from (a required field absent, or
         a ``status`` outside :data:`CompareStatus`) raises
@@ -315,6 +327,18 @@ class CompareResult:
                 f"expected one of {sorted(_COMPARE_STATUS_VALUES)}",
                 matched=bool(kwargs.get("matched", False)),
                 status="INTERNAL_ERROR",
+            )
+        raw_error = kwargs.get("error")
+        if raw_error is None:
+            kwargs["error"] = None
+        elif isinstance(raw_error, Mapping):
+            kwargs["error"] = RebrewError.from_dict(raw_error)
+        else:
+            raise CompareResultError(
+                f"CompareResult.from_dict got error {raw_error!r}, "
+                "expected None or a serialized error mapping",
+                matched=bool(kwargs.get("matched", False)),
+                status=cast(CompareStatus, status),
             )
         try:
             return cls(**kwargs)
