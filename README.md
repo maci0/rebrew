@@ -149,7 +149,7 @@ from rebrew.sources import iter_sources
 from rebrew.toolchain import ToolchainError, get_toolchain
 
 cfg = load_config()  # walks up for rebrew-project.toml
-for path in iter_sources(cfg.reversed_dir, cfg):
+for path in iter_sources(cfg):  # a bare path works too: iter_sources("src/game")
     print(path)
 
 try:
