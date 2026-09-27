@@ -477,6 +477,14 @@
   drops any stale copy (so a scoped `--target` rebuild stops paying for it
   too), and a test pins both the absence and the fact that the search still
   plans on an index.
+- **The package job's wheel smoke install ran its own copy of the recipe.**
+  `ci.yml` inlined the four commands that `make smoke-wheel` also owns, and
+  the Makefile carried a comment asking for the two to be kept in step. The
+  job now runs the target, like the build above it, so the contributor path
+  and the CI path cannot drift. The test job likewise ran
+  `make gen-fixtures-check` and `make idempotency-check` on both Python
+  matrix entries: neither reads the interpreter, so the 3.14 entry now skips
+  them, as it already skipped the coverage-floor rerun.
 
 ### Added
 - **`rebrew.errors` re-exports the `kind` aliases.** `ToolchainErrorKind`,

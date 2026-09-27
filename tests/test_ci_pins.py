@@ -454,15 +454,23 @@ class TestCiPins:
         syncs locked deps with ``--no-install-project`` then overlays the
         wheel with ``--no-deps``.  The build itself must go through
         ``make build`` so buildinfo / locale knobs cannot drift from the
-        Makefile.
+        Makefile, and the smoke install through ``make smoke-wheel`` for the
+        same reason.
         """
         text = CI_YML.read_text(encoding="utf-8")
         package_job = text.split("\n  package:\n", 1)[1].split("\n  cli-contract:\n", 1)[0]
         assert "make build" in package_job
         assert "setuptools=80.10.2" not in package_job
-        assert "uv sync --frozen --no-dev --no-default-groups --no-install-project" in package_job
-        assert "uv pip install --python .venv-pkg --no-deps" in package_job
-        assert 'uv pip install --python .venv-pkg "${wheels[0]}"' not in package_job
+        assert "make smoke-wheel" in package_job
+        # The recipe lives in the Makefile only: the two copies drifted
+        # before, so an inline `uv venv` / `uv sync` is a regression.
+        assert "uv venv .venv-pkg" not in package_job
+        assert ".venv-pkg/bin/python" not in package_job
+        recipe = (
+            MAKEFILE.read_text(encoding="utf-8").split("\nsmoke-wheel:", 1)[1].split("\n#", 1)[0]
+        )
+        assert "uv sync --frozen --no-dev --no-default-groups --no-install-project" in recipe
+        assert "uv pip install --python .venv-pkg --no-deps" in recipe
         assert "dist/rebrew.buildinfo" in package_job
         # Repro check rebuilds through `make build` at another path (no
         # re-inlined recipe) and must not hide a failing build behind `tail`.
@@ -476,6 +484,23 @@ class TestCiPins:
             r"\s+git archive HEAD \| tar -x -C \.\./rebrew-repro",
             package_job,
         )
+
+    def test_version_independent_gates_run_on_one_matrix_entry(self) -> None:
+        """Fixture freshness and the idempotency sweep read the tree, not the
+        interpreter, so running them on both matrix entries doubles their cost
+        for a result that cannot differ.  Same posture as the coverage floor.
+        """
+        test_job = (
+            CI_YML.read_text(encoding="utf-8")
+            .split("\n  test:\n", 1)[1]
+            .split("\n  pre-commit:\n", 1)[0]
+        )
+        steps = test_job.split("\n      - name: ")[1:]
+        assert steps, "no steps in the test job"
+        pinned = (ROOT / ".python-version").read_text(encoding="utf-8").strip()
+        for target in ("make gen-fixtures-check", "make idempotency-check"):
+            step = next(block for block in steps if target in block)
+            assert f"if: matrix.python-version == '{pinned}'" in step, step
 
     def test_repro_tree_is_removed_on_every_exit_path(self) -> None:
         """A failed reproducibility check must not leave the second tree behind.
@@ -613,7 +638,7 @@ class TestCiPins:
         # make sbom owns the SBOM build; generate_sbom.py validates its own
         # output, so the job needs no second inline parse to gate the document.
         assert "make sbom" in package_job
-        assert ".venv-pkg/bin/python tools/smoke_wheel_install.py" in package_job
+        assert "make smoke-wheel" in package_job
         assert (ROOT / "tools" / "smoke_wheel_install.py").is_file()
 
     def test_readme_development_uv_runs_are_frozen(self) -> None:
