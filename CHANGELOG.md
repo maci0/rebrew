@@ -145,7 +145,20 @@
 - **The README quickstart passes the config once.** `iter_sources` accepts a
   `ProjectConfig` directly, so the snippet reads `iter_sources(cfg)` instead of
   passing `cfg.reversed_dir` and `cfg` for the same object.
-- **`make format-check` passes again.** Four test modules had drifted from
+- **The SBOM names every copyleft dependency, and a test keeps it that way.**
+  `tools/generate_sbom.py` reads license data from nowhere but its own
+  hand-maintained table, and `tests/test_packaging.py` asserted the three
+  known entries individually, so it could not notice a fourth. certifi
+  2026.7.22 (`License: MPL-2.0`) and hypothesis 6.168.0
+  (`License-Expression: MPL-2.0`) are in every resolve and were missing from
+  both the table and `NOTICE`, so `dist/rebrew.cdx.json` described a
+  dependency tree holding two reciprocal-license packages as though it were
+  all permissive. Both are declared now, `NOTICE` records the grant, and
+  `copyleft_names_in_environment()` resolves the installed metadata so a
+  future lock bump that adds a copyleft package fails the suite instead of
+  shipping an SBOM that under-reports it.
+
+### Fixed- **`make format-check` passes again.** Four test modules had drifted from
   the committed formatting (`tests/test_annotation.py`,
   `tests/test_link_tools.py`, `tests/test_match.py`, `tests/test_solutions.py`),
   so the CI lint job's blocking `ruff format --check` step failed on a clean

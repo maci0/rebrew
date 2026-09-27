@@ -265,10 +265,14 @@ examples:
 
 ```python
 import json
+
 d = json.load(open("docs/codegen/corpus.json"))
 # every version's strlen bytes
-[r["version"] + " " + r["bytes"] for r in d["records"]
- if r["function"] == "_str_len_lib" and r["flags"].startswith("/O2")]
+[
+    r["version"] + " " + r["bytes"]
+    for r in d["records"]
+    if r["function"] == "_str_len_lib" and r["flags"].startswith("/O2")
+]
 ```
 
 The generator (`gen_codegen_corpus.py`), schema validator
