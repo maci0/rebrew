@@ -3,9 +3,9 @@
 Generates a self-contained (no external JS/CSS/CDN) static site into an
 output directory with four pages:
 
-- ``index.html``   — summary cards + function table (name, VA, status,
-  size, cflags), sorted by VA.  Large tables split across ``index-pN.html``
-  so the first paint stays within a few hundred rows.
+- ``index.html``   — summary cards + function table (name, VA, file, status,
+  size, cflags, blocker), sorted by VA.  Large tables split across
+  ``index-pN.html`` so the first paint stays within a few hundred rows.
 - ``strings.html`` — printable strings extracted from the binary's data
   sections (via :mod:`rebrew.analysis`) with per-string reference counts;
   likewise paginated when the list is long. A multi-page function or
@@ -177,6 +177,7 @@ caption { caption-side: top; text-align: left; padding: 0.5rem 0.75rem;
 tr:last-child td { border-bottom: none; }
 td.mono, code { font-family: var(--rb-mono); }
 td.blocker { max-width: 28rem; overflow-wrap: anywhere; }
+td.file { max-width: 18rem; overflow-wrap: anywhere; }
 td details { max-width: 40rem; overflow-wrap: anywhere; }
 td summary { cursor: pointer; padding: 0.25rem 0; }
 __STATUS_TEXT_CSS__
@@ -422,7 +423,7 @@ def _display_name(ann: Annotation, src: Path) -> str:
 
 
 def _collect_functions(cfg: ProjectConfig) -> list[dict[str, Any]]:
-    """Return per-function rows (name, va, status, size, cflags, blocker) sorted by VA.
+    """Return per-function rows (name, va, file, status, size, cflags, blocker) sorted by VA.
 
     Mirrors the aggregation done by :func:`rebrew.status.collect_status` so
     the table stays consistent with the summary cards: same annotation source,
@@ -544,6 +545,7 @@ def _function_rows_html(functions: list[dict[str, Any]]) -> str:
         "<tr>"
         f"<td class='mono'>{html.escape(fn['name'])}</td>"
         f"<td class='mono'>0x{fn['va']:08x}</td>"
+        f"<td class='file'>{html.escape(fn['file'])}</td>"
         f"<td class='st status-{html.escape(fn['status'])}'>{html.escape(fn['status'])}</td>"
         f"<td class='mono'>{fn['size']}</td>"
         f"<td class='mono'>{html.escape(fn['cflags'])}</td>"
@@ -621,7 +623,7 @@ def _render_index(
         chunk = functions[start : start + _TABLE_PAGE_SIZE]
         table = _data_table(
             "Reversed functions",
-            ["Name", "VA", "Status", "Size", "CFLAGS", "Blocker"],
+            ["Name", "VA", "File", "Status", "Size", "CFLAGS", "Blocker"],
             _function_rows_html(chunk),
         )
         span = _page_va_span([int(fn["va"]) for fn in chunk])

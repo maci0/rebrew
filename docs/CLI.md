@@ -2377,7 +2377,8 @@ command line) — feeds toolchain detection and per-function CFLAGS discovery.
 
 Generate a static self-contained HTML documentation site (`index.html`,
 `strings.html`, `imports.html`, `graph.html`). The function index table
-includes a `Blocker` column carrying near-diag/diff blocker guidance.
+includes a `File` column naming the source each function came from and a
+`Blocker` column carrying near-diag/diff blocker guidance.
 Function, string, import, and import-stub tables split across `*-pN.html`
 once they pass 250 rows, so the first page stays a few hundred rows.
 A function-index or strings page past the first names the address span
