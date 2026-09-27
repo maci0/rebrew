@@ -2573,7 +2573,9 @@ requests included; branch on `code` (`missing_target`, `unknown_target`,
 `corrupt_function_stats`, `database_error`, `internal_error`,
 `bad_request`, `uri_too_long`, `header_fields_too_large`,
 `http_version_not_supported`, and `request_error` for any other status raised
-before routing) and show `error` to the reader. List endpoints
+before routing) and show `error` to the reader. Every response, error
+included, carries `X-Request-Id: r<N>`, the same id the access and error log
+lines carry, so a reported failure is one grep away. List endpoints
 also carry `paged`: `true` on `/api/functions`, `/api/globals`, and
 `/api/history` (where `limit` is the page size), `false` on `/api/sections`,
 `/api/targets`, and `/api/bootstrap` (where `limit` is the row count).

@@ -1195,6 +1195,40 @@ class TestHandle:
         assert payload["total"] == payload["count"]
         assert payload["count"] >= 1
 
+    @pytest.mark.parametrize(
+        ("path", "rows_key"),
+        [
+            ("/api/functions", "functions"),
+            ("/api/sections", "sections"),
+            ("/api/globals", "globals"),
+            ("/api/history", "history"),
+        ],
+    )
+    def test_list_rows_are_arrays_named_by_cols(
+        self, dashboard: Dashboard, path: str, rows_key: str
+    ) -> None:
+        """Every list route ships positional rows, and ``cols`` names each cell.
+
+        The one row shape a client can rely on: a SELECT that grows a column
+        without growing ``cols`` would silently shift every cell after it.
+        """
+        status, _, body = dashboard.handle("GET", path, {"target": ["server_dll"]})
+        assert status == 200
+        payload = json.loads(body)
+        cols = payload["cols"]
+        assert len(set(cols)) == len(cols)
+        for row in payload[rows_key]:
+            assert isinstance(row, list)
+            assert len(row) == len(cols)
+
+    def test_bootstrap_rows_match_their_own_routes(self, dashboard: Dashboard) -> None:
+        """``/api/bootstrap`` embeds the same payloads the dedicated routes serve."""
+        _, _, body = dashboard.handle("GET", "/api/bootstrap", {})
+        boot = json.loads(body)
+        _, _, funcs = dashboard.handle("GET", "/api/functions", {"target": ["server_dll"]})
+        assert boot["functions"] == json.loads(funcs)
+        assert boot["summary"]["target"] == boot["target"] == "server_dll"
+
     def test_post_rejected(self, dashboard: Dashboard) -> None:
         status, content_type, body = dashboard.handle("POST", "/api/targets", {})
         assert status == 405
@@ -1213,6 +1247,36 @@ class TestHandle:
         assert status == 405
         assert "application/json" in content_type
         assert "method not allowed" in json.loads(body)["error"]
+
+    def test_every_response_carries_the_log_request_id(self, dashboard: Dashboard) -> None:
+        """``X-Request-Id`` is the id the access and error log lines carry.
+
+        A caller holding a 500 hands the operator this one token instead of a
+        timestamp and a path it has to guess at.
+        """
+        from io import BytesIO
+        from unittest.mock import Mock
+
+        from rebrew.dashboard import _Handler, allowed_hosts_for
+
+        ids: set[str] = set()
+        for method, path in (("GET", "/api/targets"), ("POST", "/api/targets")):
+            handler = _Handler.__new__(_Handler)
+            handler.rfile = BytesIO(
+                f"{method} {path} HTTP/1.1\r\nHost: 127.0.0.1:8000\r\n\r\n".encode()
+            )
+            handler.wfile = BytesIO()
+            handler.allowed_hosts = allowed_hosts_for("127.0.0.1", 8000)
+            handler.dashboard = dashboard
+            handler.log_message = Mock()
+            handler.handle()
+            headers = handler.wfile.getvalue().split(b"\r\n\r\n", 1)[0]
+            found = [line for line in headers.split(b"\r\n") if line.startswith(b"X-Request-Id:")]
+            assert len(found) == 1
+            ids.add(found[0].split(b":", 1)[1].strip().decode())
+        # One id per request, never the pre-request placeholder.
+        assert len(ids) == 2
+        assert all(value.startswith("r") and value[1:].isdigit() for value in ids)
 
     def test_head_allowed_for_reads(self, dashboard: Dashboard) -> None:
         status, content_type, body = dashboard.handle("HEAD", "/api/targets", {})
@@ -1523,6 +1587,34 @@ class TestHttpMethods:
             "error": "Invalid HTTP version (9.9)",
             "code": "http_version_not_supported",
         }
+
+    def test_parse_error_body_scrubs_bidi_formatting(self) -> None:
+        """A pre-routing error body is scrubbed like every routed one.
+
+        http.server quotes the request line in the 400 message, so a crafted
+        RLO would otherwise ride back to the client as formatting text.
+        """
+        from io import BytesIO
+        from unittest.mock import Mock
+
+        from rebrew.dashboard import _Handler, allowed_hosts_for
+
+        rlo = "\u202e"  # RIGHT-TO-LEFT OVERRIDE
+        handler = _Handler.__new__(_Handler)
+        # Two words: the request-line arity check, not the version check.
+        handler.rfile = BytesIO(f"GET /{rlo} HTTP\r\n\r\n".encode())
+        handler.wfile = BytesIO()
+        handler.allowed_hosts = allowed_hosts_for("127.0.0.1", 8000)
+        handler.dashboard = Dashboard(Path("/nonexistent/coverage.db"))
+        handler.log_message = Mock()
+        handler.handle()
+
+        headers, body = handler.wfile.getvalue().split(b"\r\n\r\n", 1)
+        assert headers.startswith(b"HTTP/1.1 400 ")
+        error = json.loads(body)
+        assert error["code"] == "bad_request"
+        assert rlo not in error["error"]
+        assert rlo.encode() not in body
 
 
 class TestEncodingNegotiation:
