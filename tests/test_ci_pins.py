@@ -43,6 +43,36 @@ def _makefile_prereqs(target: str) -> set[str]:
     return set(match.group("deps").split())
 
 
+# Prereqs that transitively reach ensure-uv.  setup/build/sbom check the uv
+# version as well, so they route through warn-uv-version instead.
+_UV_PREFLIGHTS = {"ensure-uv", "warn-uv-version", "ensure-resembl"}
+
+
+def _makefile_uv_targets() -> set[str]:
+    """Targets whose recipe actually executes ``uv``, read from the Makefile.
+
+    Derived from the recipes rather than a hand-listed set of names: the
+    hand-listed version went stale, and `release-check` and `sdist-check` ran
+    uv with no preflight at all, so a host without uv read their failure as a
+    bug in the target instead of a missing toolchain.
+    """
+    # `help` prints "uv sync" and "uv $(UV_VERSION)" inside quoted prose and
+    # never runs either; nothing else in the file has uv inside a string.
+    skipped = {"help"}
+    text = MAKEFILE.read_text(encoding="utf-8")
+    found: set[str] = set()
+    for match in re.finditer(
+        r"(?m)^(?P<name>[A-Za-z][A-Za-z0-9_.-]*):(?P<deps>[^\n]*)\n(?P<recipe>(?:[ \t].*\n|\n)*)",
+        text,
+    ):
+        name = match.group("name")
+        if name in skipped or ".PHONY" in match.group("deps"):
+            continue
+        if re.search(r"(?m)(?:^[ \t]*|[;&|(`]\s*|\$\(\s*)uv\s", match.group("recipe")):
+            found.add(name)
+    return found
+
+
 def _workflow_env(path: Path) -> dict[str, str]:
     text = path.read_text(encoding="utf-8")
     # Only the top-level workflow ``env:`` block (before ``jobs:``).
@@ -569,7 +599,7 @@ class TestCiPins:
         the buildinfo file builds only when dist/ is empty.
         """
         text = MAKEFILE.read_text(encoding="utf-8")
-        assert _makefile_prereqs("sdist-check") == {"dist/rebrew.buildinfo"}
+        assert _makefile_prereqs("sdist-check") == {"dist/rebrew.buildinfo", "ensure-uv"}
         assert "dist/rebrew.buildinfo:" in text, (
             "dist/rebrew.buildinfo needs a rule that runs `make build` when dist/ is empty"
         )
@@ -881,28 +911,17 @@ class TestCiPins:
             .startswith("#!/usr/bin/env bash")
         )
 
-    @pytest.mark.parametrize(
-        "target",
-        [
-            "test",
-            "test-one",
-            "coverage",
-            "lint",
-            "format",
-            "format-check",
-            "check",
-            "cli-contract",
-            "mypy",
-            "audit",
-            "gen-fixtures",
-            "gen-fixtures-check",
-            "cycles-check",
-            "idempotency-check",
-        ],
-    )
+    @pytest.mark.parametrize("target", sorted(_makefile_uv_targets()))
     def test_uv_targets_preflight_uv(self, target: str) -> None:
         """A missing uv must be a named error, not a bare ``uv: not found`` from the recipe."""
-        assert "ensure-uv" in _makefile_prereqs(target), f"make {target} runs uv without ensure-uv"
+        assert _UV_PREFLIGHTS & _makefile_prereqs(target), (
+            f"make {target} runs uv without a preflight"
+        )
+
+    def test_uv_target_discovery_finds_every_recipe_caller(self) -> None:
+        """The derived set must not silently go empty and pass the gate above."""
+        discovered = _makefile_uv_targets()
+        assert {"test", "test-one", "mypy", "build", "release-check", "sdist-check"} <= discovered
 
     def test_mypy_preflights_the_prove_extra(self) -> None:
         """Without the extra every angr reference is Any: 39 phantom mypy errors, no cause."""

@@ -1876,7 +1876,9 @@ class TestEncodingNegotiation:
             assert len(cold) < len(mid), f"{accept}: max effort {len(cold)} >= {len(mid)}"
             assert effort < max_effort
             # Both decompress back to the served body.
-            decode = gzip.decompress if accept == "gzip" else zstandard.ZstdDecompressor().decompress
+            decode = (
+                gzip.decompress if accept == "gzip" else zstandard.ZstdDecompressor().decompress
+            )
             assert decode(mid) == decode(cold) == body
 
 
