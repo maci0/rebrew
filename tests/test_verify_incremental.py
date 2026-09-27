@@ -503,6 +503,30 @@ class TestPatchVerifyCacheEntries:
         assert entry["match_percent"] == 100.0
         assert entry["delta"] == 0
 
+    def test_patch_keeps_cached_percent_when_none_supplied(self, tmp_path: Path) -> None:
+        """A promotion with no byte counts must not zero the earned percent.
+
+        ``delta`` already falls back to the cached value when the caller
+        reports no byte counts; ``match_percent`` used to fall back to 0.0 and
+        overwrite the last real measurement, so todo's ROI ranking read a
+        perfect match as a 0% one until the next full verify.
+        """
+        from rebrew.verify_cache import patch_verify_cache_entries
+
+        cfg = _make_cfg(tmp_path)
+        cache_path = self._make_cache(tmp_path, cfg, status="NEAR_MATCHING")
+        data = json.loads(cache_path.read_text(encoding="utf-8"))
+        data["entries"]["0x00001000"]["match_percent"] = 92.0
+        data["entries"]["0x00001000"]["delta"] = 8
+        cache_path.write_text(json.dumps(data), encoding="utf-8")
+
+        patch_verify_cache_entries(cfg, [{"va": 0x1000, "status": "PROVEN"}])
+
+        entry = json.loads(cache_path.read_text(encoding="utf-8"))["entries"]["0x00001000"]
+        assert entry["status"] == "PROVEN"
+        assert entry["match_percent"] == 92.0
+        assert entry["delta"] == 8
+
     @pytest.mark.parametrize("payload", [b"\xff\xfe not utf-8", b"[1, 2]"])
     def test_patch_ignores_unreadable_cache(self, tmp_path: Path, payload: bytes) -> None:
         """A non-UTF-8 or non-object cache degrades to "nothing to patch"."""

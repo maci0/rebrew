@@ -154,7 +154,8 @@ from rebrew.cli import console, error_exit, json_print
 from rebrew.metadata import canonical_status
 from rebrew.status_style import status_mark_groups
 from rebrew.utils import floor_pct, strip_bidi_format
-from rebrew.workspace import KNOWN_STATUSES, VA_MAX, coverage_db_lock, open_sqlite_ro
+from rebrew.workspace import VA_MAX, coverage_db_lock, open_sqlite_ro
+from rebrew.workspace.status import COVERAGE_DB_STATUSES
 
 log = logging.getLogger(__name__)
 
@@ -2142,14 +2143,17 @@ class Dashboard:
                 return self._error(404, "unknown_target", f"unknown target {target!r}")
             if parsed.path == "/api/functions":
                 status = _opt_query(query, "status")
-                if status is not None and canonical_status(status) not in KNOWN_STATUSES:
+                if status is not None and canonical_status(status) not in COVERAGE_DB_STATUSES:
                     # An unknown status is a client mistake, not an empty
                     # page: matching nothing reads as "this target has no
-                    # STTUB functions", which is a wrong answer.
+                    # STTUB functions", which is a wrong answer.  The
+                    # accepted set is the one the DB column can hold, so
+                    # every status the summary renders links to its own
+                    # filtered list.
                     return self._error(
                         400,
                         "invalid_status",
-                        f"unknown status {status!r} (expected one of {sorted(KNOWN_STATUSES)})",
+                        f"unknown status {status!r} (expected one of {sorted(COVERAGE_DB_STATUSES)})",
                     )
                 return self._json(
                     200,

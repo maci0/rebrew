@@ -483,12 +483,14 @@ components:
       description: |
         A match status, matched case-insensitively and trimmed.  The legacy
         spelling `NEAR_MATCH` is accepted as an alias of `NEAR_MATCHING`, so
-        the accepted set is the enum below plus that one value.  A value
+        the accepted set is the enum below plus that one value.  `UNKNOWN` is
+        the coverage DB default for a function with no STATUS, and is accepted
+        because the summary renders it as a filterable card.  A value
         outside it is 400 `invalid_status` rather than an empty page, which
         would read as "this target has no functions in that status".
       schema:
         type: string
-        enum: [EXACT, RELOC, PROVEN, NEAR_MATCHING, STUB, SKIP, INVALID_VA, MISSING_FILE, MISSING_SIZE, SIZE_MISMATCH, COMPILE_ERROR, EXTRACT_ERROR]
+        enum: [EXACT, RELOC, PROVEN, NEAR_MATCHING, STUB, SKIP, UNKNOWN, INVALID_VA, MISSING_FILE, MISSING_SIZE, SIZE_MISMATCH, COMPILE_ERROR, EXTRACT_ERROR]
     Module:
       name: module
       in: query

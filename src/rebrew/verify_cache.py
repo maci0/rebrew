@@ -392,7 +392,8 @@ def patch_verify_cache_entries(cfg: ProjectConfig, patches: list[dict[str, Any]]
     *patches*: list of dicts with ``va`` (int), ``status``, optional byte
     counts ``match_count`` and ``total``, optional ``delta`` (int|None),
     optional ``match_percent`` (float).  Without ``total``, a missing
-    ``delta`` keeps the cached one.  When ``match_percent`` is supplied it is stored as-is —
+    ``delta`` keeps the cached one, and a missing ``match_percent`` keeps the
+    cached percent rather than overwriting it with 0.  When ``match_percent`` is supplied it is stored as-is —
     recomputing ``match_count / total`` disagrees with
     :func:`rebrew.compile.classify_compare_result` whenever lengths differ
     (SIZE_MISMATCH / truncated compare), and status/todo would then rank ROI
@@ -432,6 +433,7 @@ def patch_verify_cache_entries(cfg: ProjectConfig, patches: list[dict[str, Any]]
             if not isinstance(entry, dict):
                 continue  # No cached entry to patch
             total = p.get("total", 0)
+            match_pct: float | None
             if p.get("match_percent") is not None:
                 raw_pct = float(p["match_percent"])
                 # Reject NaN/inf so a corrupt patch cannot poison status/todo
@@ -439,8 +441,13 @@ def patch_verify_cache_entries(cfg: ProjectConfig, patches: list[dict[str, Any]]
                 # Unrounded, like a full verify's rows: rounding lifted 59.96 to
                 # 60.0, across the NEAR_MATCHING threshold todo ranks by.
                 match_pct = raw_pct if math.isfinite(raw_pct) else 0.0
+            elif total > 0:
+                match_pct = 100.0 * p["match_count"] / total
             else:
-                match_pct = 100.0 * p["match_count"] / total if total > 0 else 0.0
+                # No byte counts and no percent: keep what the last real
+                # measurement recorded rather than overwriting it with 0.0.
+                cached_percent = entry.get("match_percent")
+                match_pct = float(cached_percent) if cached_percent is not None else None
             passed = p["status"] in MATCHED_STATUSES
             if p.get("delta") is not None:
                 delta = p["delta"]
@@ -473,7 +480,8 @@ def patch_verify_cache_entries(cfg: ProjectConfig, patches: list[dict[str, Any]]
             ):
                 continue  # Already in sync
             entry["status"] = p["status"]
-            entry["match_percent"] = match_pct
+            if match_pct is not None:
+                entry["match_percent"] = match_pct
             entry["passed"] = passed
             entry["delta"] = delta
             if "context_hash" in p:

@@ -8,7 +8,7 @@
 |--------|------|
 | `config.py` | `find_root`, `read_config`, `targets_table`, `db_path`, `WorkspaceNotFound` |
 | `db.py` | Read-only `coverage.db` access (`open_sqlite_ro`, `coverage_db_lock`, section-cell codec) |
-| `status.py` | `KNOWN_STATUSES`, `EARNED_STATUSES`, `MATCHED_STATUSES` |
+| `status.py` | `KNOWN_STATUSES`, `EARNED_STATUSES`, `MATCHED_STATUSES`, `COVERAGE_DB_STATUSES` |
 | `va.py` | `VA_MAX`, `parse_va_candidates` |
 
 Externals (the only packages this one may import): `errors`, `utils`. `errors` is the module-scope import (`WorkspaceNotFound` takes `RebrewError`); `utils` is deferred inside `db.coverage_db_lock` so importing a submodule never pulls tomlkit/rich (`tests/test_workspace_public_api.py::test_submodules_import_without_rebrew_stack`).

@@ -43,7 +43,7 @@ from rebrew.workspace import (
     encode_section_cells,
     open_sqlite_ro,
 )
-from rebrew.workspace.status import KNOWN_STATUSES, MATCHED_STATUSES
+from rebrew.workspace.status import COVERAGE_DB_STATUSES, KNOWN_STATUSES, MATCHED_STATUSES
 
 _CURRENT_DB_VERSION = "10"
 
@@ -60,7 +60,7 @@ FUNCTION_ROWS_SQL: str = f"markerType IN ({', '.join(repr(m) for m in sorted(FUN
 #: Statuses allowed in ``functions.status``.  ``KNOWN_STATUSES`` plus
 #: ``UNKNOWN`` (the DEFAULT when a catalog row omits STATUS).  Kept in one
 #: place so the CREATE TABLE CHECK and the insert-time sanitizer cannot drift.
-_FUNCTION_DB_STATUSES: frozenset[str] = frozenset({*KNOWN_STATUSES, "UNKNOWN"})
+_FUNCTION_DB_STATUSES: frozenset[str] = COVERAGE_DB_STATUSES
 _FUNCTION_STATUS_CHECK_SQL: str = ", ".join(repr(s) for s in sorted(_FUNCTION_DB_STATUSES))
 
 #: One status transition is ``(target, va, old_status, new_status, changed_at,
