@@ -405,7 +405,7 @@ def load_verify_details(
         status = entry_data.get("status", "")
         if not status:
             continue
-        from rebrew.utils import canonical_va_key
+        from rebrew.metadata_doc import canonical_va_key
 
         va = canonical_va_key(va_str)
         if not isinstance(va, int):

@@ -30,7 +30,7 @@ Key format
 Identical to ``rebrew-functions.toml``: ``"MODULE.0xVA"`` (qualified key).
 This makes the metadata unambiguous across multi-target projects.  Reads key
 on the parsed ``(module, va)``, so an entry spelled with different hex
-padding than :func:`rebrew.utils.qualified_key` produces is still found and
+padding than :func:`rebrew.metadata_doc.qualified_key` produces is still found and
 updated in place, never shadowed by an appended twin.
 
 Owned fields per entry::
@@ -57,16 +57,15 @@ from typing import TYPE_CHECKING, Any
 import tomlkit
 
 from rebrew.metadata import as_metadata_int, resolve_metadata_dir
-from rebrew.utils import (
+from rebrew.metadata_doc import (
     MetadataDocCache,
-    atomic_write_locked,
     build_metadata_key_index,
     load_metadata_doc,
-    load_toml_for_write,
     metadata_write_lock,
     pop_metadata_doc_cache,
     resolve_metadata_key,
 )
+from rebrew.utils import atomic_write_locked, load_toml_for_write
 
 if TYPE_CHECKING:
     from rebrew.annotation import Annotation

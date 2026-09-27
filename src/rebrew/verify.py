@@ -62,10 +62,10 @@ from rebrew.compile_overrides import resolve_compile_overrides_cached
 from rebrew.config import ProjectConfig, inventory_path_for, module_marker
 from rebrew.match_semantics import EFFECTIVE_MATCH_NOTE, is_effective_match
 from rebrew.metadata import should_promote_status
+from rebrew.metadata_doc import canonical_va_key
 from rebrew.status_style import STATUS_COLORS
 from rebrew.utils import (
     atomic_write_text,
-    canonical_va_key,
     floor_pct,
     preset_module_key,
     read_json_text,

@@ -25,7 +25,7 @@ file — the full key is unambiguous even if two targets happen to have a
 function at the same VA.  The format mirrors the ``// FUNCTION: SERVER
 0x01006364`` marker.
 
-Tools write :func:`rebrew.utils.qualified_key`'s zero-padded spelling.  Reads
+Tools write :func:`rebrew.metadata_doc.qualified_key`'s zero-padded spelling.  Reads
 key on the parsed ``(module, va)``, so a file carrying another hex padding
 (``SERVER.0x1000`` beside ``SERVER.0x00001000``) resolves to one entry, and
 writes update the spelling the file already uses instead of appending a twin.
@@ -83,8 +83,9 @@ Writes use ``tomlkit`` for round-trip-safe serialisation and
 
 Thread safety
 -------------
-Writes to the metadata file are serialised by ``metadata_write_lock`` in
-:mod:`rebrew.utils` (a per-filename re-entrant lock plus a ``flock`` sidecar,
+Writes to the metadata file are serialised by
+:func:`rebrew.metadata_doc.metadata_write_lock` (a per-filename re-entrant
+lock plus a ``flock`` sidecar,
 so a second *process* — ``rebrew verify --watch`` against ``rebrew test`` —
 waits too) because ``rebrew verify --jobs > 1`` and the GA batch promote
 STATUS from worker threads.  Each write is atomic (rename), but
@@ -111,19 +112,21 @@ import tomlkit
 
 from rebrew.config import METADATA_FILENAME
 from rebrew.errors import RebrewError
-from rebrew.utils import (
+from rebrew.metadata_doc import (
     MetadataDocCache,
-    atomic_write_locked,
     build_metadata_doc,
     build_metadata_key_index,
     clear_metadata_doc_cache,
     load_metadata_doc,
-    load_toml_for_write,
-    load_tomllib,
     metadata_write_lock,
     pop_metadata_doc_cache,
-    read_toml_text,
     resolve_metadata_key,
+)
+from rebrew.utils import (
+    atomic_write_locked,
+    load_toml_for_write,
+    load_tomllib,
+    read_toml_text,
 )
 from rebrew.workspace.status import KNOWN_STATUSES as KNOWN_STATUSES
 from rebrew.workspace.status import MATCHED_STATUSES as MATCHED_STATUSES
@@ -618,7 +621,7 @@ MARKER_IDENTITY_FIELDS: tuple[str, ...] = ("file", "symbol", "name", "marker_typ
 
 #: Every key a hand-written ``rebrew-functions.toml`` entry may carry, upper
 #: case.  The reader reports anything else as unread rather than dropping it
-#: (see :func:`rebrew.utils.parse_metadata_doc`): a typo'd ``CFLAGSS`` would
+#: (see :func:`rebrew.metadata_doc.parse_metadata_doc`): a typo'd ``CFLAGSS`` would
 #: otherwise compile the function with flags nobody declared.
 _KNOWN_METADATA_FIELDS: frozenset[str] = METADATA_FIELDS | {
     f.upper() for f in MARKER_IDENTITY_FIELDS

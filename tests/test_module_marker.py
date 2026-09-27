@@ -13,7 +13,7 @@ from types import SimpleNamespace
 import pytest
 
 from rebrew.config import module_marker
-from rebrew.utils import parse_metadata_key, qualified_key
+from rebrew.metadata_doc import parse_metadata_key, qualified_key
 
 
 class TestModuleMarker:

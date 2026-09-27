@@ -38,7 +38,7 @@ from rebrew.metadata import (
     set_fields,
     update_source_status,
 )
-from rebrew.utils import metadata_write_lock
+from rebrew.metadata_doc import metadata_write_lock
 from rebrew.workspace.status import KNOWN_STATUSES, MATCHED_STATUSES
 
 # Field names (lower-case TOML keys) with a single canonical Python type.

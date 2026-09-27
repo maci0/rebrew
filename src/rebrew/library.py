@@ -29,11 +29,8 @@ from rebrew.metadata import (
     find_library_override,
     parse_library_metadata,
 )
-from rebrew.utils import (
-    atomic_write_text,
-    load_toml_for_write,
-    metadata_write_lock,
-)
+from rebrew.metadata_doc import metadata_write_lock
+from rebrew.utils import atomic_write_text, load_toml_for_write
 from rebrew.workspace.config import walk_up_to_root
 
 app = typer.Typer(

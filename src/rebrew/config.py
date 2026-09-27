@@ -781,8 +781,8 @@ def module_marker(cfg: Any) -> str:
     derivation :func:`load_config` applies), else ``""``.
 
     Callers that write to the metadata store must reject an empty result:
-    :func:`rebrew.utils.qualified_key` renders a module-less entry as a bare
-    ``0xVA`` key, which :func:`rebrew.utils.parse_metadata_key` does not
+    :func:`rebrew.metadata_doc.qualified_key` renders a module-less entry as a bare
+    ``0xVA`` key, which :func:`rebrew.metadata_doc.parse_metadata_key` does not
     accept, so the write is silently unreadable.  Fabricating a placeholder
     module instead (``"SERVER"``, ``"GAME"``) is worse: it writes real data
     under another project's module name.

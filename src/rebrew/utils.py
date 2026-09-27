@@ -8,20 +8,16 @@ it belongs to rather than starting a sixth.
 
 - **Text and identifiers**: ``strip_bidi_format``, ``strip_body``,
   ``strip_comment_blocks``, ``strip_generated_timestamp``, ``filename_component``,
-  ``is_safe_c_ident``, ``fold_ident``, ``parse_int_literal``,
-  ``parse_c_integer_literal``, ``source_newline``, ``safe_shlex_split``
+  ``is_safe_c_ident``, ``fold_ident``, ``ascii_slug``, ``preset_module_key``,
+  ``parse_int_literal``, ``parse_c_integer_literal``, ``source_newline``,
+  ``safe_shlex_split``
 - **Source and config reading**: ``read_source_text`` / ``read_compile_source``
   (with the LRU memo and its ``clear_source_text_memo`` reset),
   ``detect_source_encoding``, ``read_toml_text``, ``load_tomllib``,
   ``load_toml_for_write``, ``read_json_text``
 - **Atomic and locked writes**: ``atomic_write_text`` / ``atomic_write_bytes``,
   ``atomic_write_locked``, ``file_lock`` / ``file_handle_lock``,
-  ``metadata_write_lock``, ``preserve_corrupt``
-- **Metadata document access**: ``load_metadata_doc``, ``parse_metadata_doc``,
-  ``build_metadata_doc``, the metadata key algebra
-  (``qualified_key``, ``canonical_va_key``, ``parse_metadata_key``,
-  ``build_metadata_key_index``, ``resolve_metadata_key``, ``preset_module_key``)
-  and the doc cache (``pop_metadata_doc_cache``, ``clear_metadata_doc_cache``)
+  ``preserve_corrupt``
 - **Subprocesses**: ``run_process_group`` (process-tree teardown, timeout,
   captured pipes), ``watch_files``
 - **Host environment**: ``container_runtime`` / ``DEFAULT_CONTAINER_RUNTIME`` /
@@ -36,14 +32,16 @@ it belongs to rather than starting a sixth.
 ``utils`` is not a place for domain logic.  A helper that knows about a
 toolchain, a metadata field, or a rebrew-project layout belongs in the
 module that owns that concept (``toolchain``, ``metadata``, ``workspace``,
-``config``), not here.
+``config``), not here.  The metadata TOML key algebra, document parse/build
+and write lock moved out to :mod:`rebrew.metadata_doc`; ``preset_module_key``
+stays here because it is identifier text normalization that outlives any one
+store.
 """
 
 import bisect
 import codecs
 import concurrent.futures
 import contextlib
-import copy
 import hashlib
 import logging
 import math
@@ -645,6 +643,47 @@ def atomic_write_locked(filepath: Path | str, text: str, encoding: str = "utf-8"
         os.chmod(filepath, 0o444)  # chmod after touching — direct edits now fail
 
 
+def fold_ident(value: str) -> str:
+    """Case-insensitive identity of a user-supplied name: NFC, then casefold.
+
+    ``str.lower`` and ``str.upper`` disagree on sharp s
+    (``"straße".lower()`` is ``"straße"``, ``"STRASSE".lower()`` is
+    ``"strasse"``, and both ``.upper()`` to ``"STRASSE"``). Neither
+    unifies NFC ``é`` with NFD ``e\\u0301``. Module markers and symbol
+    names use this fold so those spellings compare as one name.
+    """
+    return unicodedata.normalize("NFC", value).casefold()
+
+
+def ascii_slug(value: str) -> str:
+    """*value* reduced to the ASCII a C identifier, path, or target name can hold.
+
+    ``casefold`` first, then NFKD, then drop what is not ASCII.  The order
+    matters: casefold expands sharp s (``"straße"`` -> ``"strasse"``) and
+    NFKD splits the accents off ``é`` so the base letter survives
+    (``"Café"`` -> ``"cafe"``, not ``"caf"``).  Dropping non-ASCII without
+    decomposing first silently deletes letters, so ``"Über"`` would collapse
+    to ``"ber"`` and ``"日本語"`` to ``""``.
+
+    Returns ``""`` when nothing ASCII is left (CJK, emoji, or a name written
+    entirely in a script with no Latin decomposition); callers decide the
+    fallback rather than receiving a name that is neither the input nor a
+    prefix of it.
+    """
+    decomposed = unicodedata.normalize("NFKD", value.casefold())
+    return decomposed.encode("ascii", "ignore").decode("ascii")
+
+
+def preset_module_key(name: str) -> str:
+    """Key spelling for ``cflags_presets`` and origin lists.
+
+    NFC, then ``upper``, which is what ``rebrew cfg`` writes
+    (``SERVER``, ``STRASSE``). Lookups must use this function:
+    :func:`fold_ident` would miss a stored ``SERVER`` key.
+    """
+    return unicodedata.normalize("NFC", name).upper()
+
+
 def strip_body(prototype: str) -> str:
     """Return the function signature without the body (everything before ``{``).
 
@@ -736,19 +775,6 @@ def load_toml_for_write(path: Path, description: str) -> TOMLDocument:
         return tomlkit.document()
 
 
-#: Per-file thread locks for :func:`metadata_write_lock` (one lock per
-#: metadata filename so the function and data stores don't contend).
-#: Reentrant: a caller may hold the lock across a compound operation whose
-#: helpers take it again (the GA batch splices a stub and promotes its STATUS
-#: through ``update_source_status`` inside the same critical section).
-_METADATA_WRITE_LOCKS: dict[str, threading.RLock] = {}
-_METADATA_WRITE_LOCKS_LOCK = threading.Lock()
-
-#: Per-thread reentrancy depth per resolved metadata path, so a nested acquisition
-#: skips the ``flock`` (a second fd would deadlock against the first).
-_METADATA_WRITE_DEPTH = threading.local()
-
-
 @contextlib.contextmanager
 def file_handle_lock(lock_fh: IO[str], *, shared: bool = False) -> Iterator[None]:
     """Hold an advisory ``flock`` on an open file handle.
@@ -800,437 +826,6 @@ def file_lock(lock_path: Path, *, shared: bool = False) -> Iterator[None]:
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     with lock_path.open("a", encoding="utf-8") as lock_fh, file_handle_lock(lock_fh, shared=shared):
         yield
-
-
-@contextlib.contextmanager
-def metadata_write_lock(directory: Path, filename: str) -> Iterator[None]:
-    """Thread + cross-process lock around a metadata read-modify-write.
-
-    Shared by ``metadata.py`` (``rebrew-functions.toml``) and
-    ``data_metadata.py`` (``rebrew-data.toml``).  The thread lock serializes
-    in-process writers (``rebrew verify --jobs``, GA batch promotion); an
-    advisory ``flock`` on a ``.lock`` sidecar serializes *concurrent
-    processes* (e.g. ``rebrew verify --watch`` in one terminal while
-    ``rebrew test`` promotes in another — without it, interleaved
-    read-modify-writes silently drop one process's STATUS promotion).
-
-    Reentrant within one thread: a nested acquisition on the same filename
-    yields without re-``flock``ing (the flock is held until the outermost
-    exit), so a compound critical section can call helpers that lock again.
-    """
-    path = (directory / filename).resolve()
-    # Reject directory-traversal filenames (e.g. "../../etc/passwd") — the
-    # lock file is derived from this path and would otherwise escape the
-    # project root.
-    if Path(filename).name != filename or "/" in filename or "\\" in filename:
-        raise ValueError(f"invalid metadata filename: {filename!r}")
-    # Create the target directory before opening the ``.lock`` sidecar: the
-    # first-ever write into a fresh metadata root would otherwise crash with
-    # FileNotFoundError inside the lock acquisition (the data write itself
-    # only runs later, inside atomic_write_text's own mkdir).  exist_ok
-    # keeps concurrent creators safe.
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with _METADATA_WRITE_LOCKS_LOCK:
-        if filename not in _METADATA_WRITE_LOCKS:
-            _METADATA_WRITE_LOCKS[filename] = threading.RLock()
-        lock = _METADATA_WRITE_LOCKS[filename]
-    depth: dict[str, int] | None = getattr(_METADATA_WRITE_DEPTH, "depth", None)
-    if depth is None:
-        depth = {}
-        _METADATA_WRITE_DEPTH.depth = depth
-    # Depth is per resolved path, not per filename: a nested lock on the
-    # same-named file in another root must still take that root's flock.
-    key = str(path)
-    with lock:
-        if depth.get(key, 0):
-            # Reentrant: this thread already holds the lock and the flock.
-            # Re-opening the sidecar and flocking a second fd would block
-            # against the first, so only track the depth here.
-            depth[key] += 1
-            try:
-                yield
-            finally:
-                depth[key] -= 1
-            return
-        depth[key] = 1
-        try:
-            with file_lock(path.with_suffix(path.suffix + ".lock")):
-                yield
-        finally:
-            depth.pop(key, None)
-
-
-#: Serializes in-memory metadata-doc cache mutations (``rebrew-functions.toml``
-#: / ``rebrew-data.toml``).  ``rebrew verify -j N`` fills the cache from
-#: workers while ``rebrew test`` / match / GA writers pop after STATUS
-#: promotion — unguarded clear/pop vs fill races the shared dict.
-_METADATA_DOC_CACHE_LOCK = threading.Lock()
-#: Cap entries so a long-lived process that walks many project roots (or a
-#: large pytest session with unique tmp_path TOMLs) cannot retain every
-#: parsed table until exit.  Eviction is FIFO on insertion order.
-_METADATA_DOC_CACHE_MAX = 64
-
-#: ``(st_mtime_ns, st_size, st_ino)`` of a metadata TOML.  mtime alone misses
-#: another process's rewrite inside one timestamp tick (coarse filesystems,
-#: ``cp -p``); the atomic-rename writers always produce a new inode.
-MetadataDocFingerprint = tuple[int, int, int]
-MetadataDocCache = dict[Path, tuple[MetadataDocFingerprint, dict[tuple[str, int], dict[str, Any]]]]
-
-
-def pop_metadata_doc_cache(
-    cache: MetadataDocCache,
-    path: Path,
-) -> None:
-    """Drop one entry from a metadata-doc cache under the shared lock."""
-    with _METADATA_DOC_CACHE_LOCK:
-        cache.pop(path, None)
-
-
-def clear_metadata_doc_cache(
-    cache: MetadataDocCache,
-) -> None:
-    """Clear a metadata-doc cache under the shared lock."""
-    with _METADATA_DOC_CACHE_LOCK:
-        cache.clear()
-
-
-def load_metadata_doc(
-    path: Path,
-    cache: MetadataDocCache,
-    description: str,
-    *,
-    deepcopy: bool = True,
-    known_fields: frozenset[str] | None = None,
-) -> dict[tuple[str, int], dict[str, Any]]:
-    """Parse a qualified-key metadata TOML (``rebrew-functions.toml`` /
-    ``rebrew-data.toml``) into ``{(module, va): fields}``.
-
-    Shared by ``metadata.load_metadata`` and ``data_metadata.load_data_metadata``,
-    which previously each hand-rolled the load→parse→mtime-cache pattern
-    (with an inconsistent parser choice: tomlkit vs tomllib).  Reads use
-    tomllib (strict, ~10x faster than tomlkit); round-trip preservation is
-    only needed for WRITES, which still use tomlkit.
-
-    *path* is resolved for stable cache keys.  *cache* is the caller's
-    stat-fingerprinted in-memory cache (invalidated by write helpers).  Returns an
-    empty dict when the file is missing or unparseable.  Pass *known_fields*
-    (the store's closed field set, upper case) to have a hand-edited key that
-    no reader understands reported instead of dropped.
-
-    When *deepcopy* is True (default), each caller receives an isolated
-    copy so mutating overlays cannot corrupt the cache.  Read-only
-    overlays (annotation finalize, skip checks) pass ``deepcopy=False``
-    to avoid cloning the whole table once per source file.
-    """
-    path = path.resolve()
-    if not path.exists():
-        pop_metadata_doc_cache(cache, path)
-        return {}
-
-    # Stat before reading: a rewrite racing the parse leaves newer content
-    # under an older fingerprint, which the next stat replaces.
-    try:
-        st = path.stat()
-    except OSError:
-        pop_metadata_doc_cache(cache, path)
-        return {}
-    current_fp: MetadataDocFingerprint = (st.st_mtime_ns, st.st_size, st.st_ino)
-    with _METADATA_DOC_CACHE_LOCK:
-        cached = cache.get(path)
-        if cached is not None and cached[0] == current_fp:
-            # Deep copy: callers mutate the entries they get (merge overlays,
-            # status promotion), and an aliased dict would corrupt the cache.
-            return copy.deepcopy(cached[1]) if deepcopy else cached[1]
-
-    try:
-        doc = load_tomllib(path)
-    except Exception as exc:  # parser raises various types
-        logger.warning("Failed to parse %s %s: %s", description, path, exc)
-        return {}
-
-    result = parse_metadata_doc(doc, known_fields=known_fields, source=str(path))
-    with _METADATA_DOC_CACHE_LOCK:
-        # Re-check: a writer may have invalidated (or another reader filled)
-        # while we parsed — prefer a fresher entry if one landed.
-        cached = cache.get(path)
-        if cached is not None and cached[0] == current_fp:
-            return copy.deepcopy(cached[1]) if deepcopy else cached[1]
-        if len(cache) >= _METADATA_DOC_CACHE_MAX and path not in cache:
-            oldest = next(iter(cache))
-            cache.pop(oldest, None)
-        cache[path] = (current_fp, result)
-    # Deep copy for the same reason as the cache-hit path above.
-    return copy.deepcopy(result) if deepcopy else result
-
-
-def fold_ident(value: str) -> str:
-    """Case-insensitive identity of a user-supplied name: NFC, then casefold.
-
-    ``str.lower`` and ``str.upper`` disagree on sharp s
-    (``"straße".lower()`` is ``"straße"``, ``"STRASSE".lower()`` is
-    ``"strasse"``, and both ``.upper()`` to ``"STRASSE"``). Neither
-    unifies NFC ``é`` with NFD ``e\\u0301``. Module markers and symbol
-    names use this fold so those spellings compare as one name.
-    """
-    return unicodedata.normalize("NFC", value).casefold()
-
-
-def ascii_slug(value: str) -> str:
-    """*value* reduced to the ASCII a C identifier, path, or target name can hold.
-
-    ``casefold`` first, then NFKD, then drop what is not ASCII.  The order
-    matters: casefold expands sharp s (``"straße"`` -> ``"strasse"``) and
-    NFKD splits the accents off ``é`` so the base letter survives
-    (``"Café"`` -> ``"cafe"``, not ``"caf"``).  Dropping non-ASCII without
-    decomposing first silently deletes letters, so ``"Über"`` would collapse
-    to ``"ber"`` and ``"日本語"`` to ``""``.
-
-    Returns ``""`` when nothing ASCII is left (CJK, emoji, or a name written
-    entirely in a script with no Latin decomposition); callers decide the
-    fallback rather than receiving a name that is neither the input nor a
-    prefix of it.
-    """
-    decomposed = unicodedata.normalize("NFKD", value.casefold())
-    return decomposed.encode("ascii", "ignore").decode("ascii")
-
-
-def preset_module_key(name: str) -> str:
-    """Key spelling for ``cflags_presets`` and origin lists.
-
-    NFC, then ``upper``, which is what ``rebrew cfg`` writes
-    (``SERVER``, ``STRASSE``). Lookups must use this function:
-    :func:`fold_ident` would miss a stored ``SERVER`` key.
-    """
-    return unicodedata.normalize("NFC", name).upper()
-
-
-def qualified_key(module: str | None, va: int) -> str:
-    """Return the canonical TOML key for *(module, va)*.
-
-    Used by both ``metadata.py`` and ``data_metadata.py`` for consistent
-    key encoding in ``rebrew-functions.toml`` / ``rebrew-data.toml``.
-
-    Examples::
-
-        >>> qualified_key("SERVER", 0x01006364)
-        'SERVER.0x01006364'
-        >>> qualified_key(None, 0x01006364)
-        '0x01006364'
-
-    """
-    va_hex = f"0x{va:08x}"
-    if module:
-        return f"{unicodedata.normalize('NFC', module)}.{va_hex}"
-    return va_hex
-
-
-def parse_metadata_key(key: str) -> tuple[str, int] | None:
-    """Parse a metadata TOML key into ``(module, va_int)``.
-
-    Only accepts the qualified ``MODULE.0xVA`` form.  Returns ``None`` for
-    unrecognised keys.
-
-    Examples::
-
-        >>> parse_metadata_key("SERVER.0x01006364")
-        ('SERVER', 16802660)
-        >>> parse_metadata_key("not_a_key") is None
-        True
-
-    """
-    if ".0x" in key:
-        dot = key.index(".0x")
-        module = unicodedata.normalize("NFC", key[:dot])
-        hex_part = key[dot + 1 :]  # includes leading 0x
-        try:
-            return module, int(hex_part, 16)
-        except ValueError:
-            return None
-    return None
-
-
-def build_metadata_key_index(doc: dict[str, Any]) -> dict[tuple[str, int], str]:
-    """Map ``(module, va)`` → existing key spelling for *doc*.
-
-    Built once per batch write so :func:`resolve_metadata_key` is O(1) per
-    update instead of O(n) (intake / verify STATUS sync grow as O(n²) without
-    this when every new entry misses the canonical spelling and rescans).
-    Prefers the canonical spelling when both forms are present.
-    """
-    index: dict[tuple[str, int], str] = {}
-    for existing in doc:
-        parsed = parse_metadata_key(str(existing))
-        if parsed is None:
-            continue
-        key = str(existing)
-        if parsed not in index or key == qualified_key(*parsed):
-            index[parsed] = key
-    return index
-
-
-def resolve_metadata_key(
-    doc: dict[str, Any],
-    module: str,
-    va: int,
-    *,
-    index: dict[tuple[str, int], str] | None = None,
-) -> str:
-    """Return the key naming *(module, va)* in the raw *doc*.
-
-    :func:`parse_metadata_key` reads the VA with ``int(hex, 16)``, so a store
-    may spell one entry ``SERVER.0x24000`` and another ``SERVER.0x00024000``
-    while the loader sees a single ``("SERVER", 0x24000)``.  A writer that
-    only tests :func:`qualified_key` then appends a second table instead of
-    updating the first, and the fields split across the two.
-
-    Prefers the canonical spelling, falls back to whatever spelling the store
-    already uses, and returns the canonical key when the entry is absent so
-    callers can create it.  Shared by ``metadata.py`` and ``data_metadata.py``.
-
-    Pass *index* (from :func:`build_metadata_key_index`) on batch writers so
-    each resolve stays O(1); without it, a missing canonical key falls back
-    to a linear scan (fine for single-entry writers).
-    """
-    if module:
-        module = unicodedata.normalize("NFC", module)
-    canonical = qualified_key(module, va)
-    if canonical in doc:
-        return canonical
-    want = (module, va)
-    if index is not None:
-        existing = index.get(want)
-        if existing is not None and existing in doc:
-            return existing
-        return canonical
-    # Common alternate: unpadded hex (SERVER.0x24000 vs SERVER.0x00024000).
-    if module:
-        alt = f"{module}.0x{va:x}"
-        if alt in doc:
-            return alt
-    for existing in doc:
-        if parse_metadata_key(str(existing)) == want:
-            return str(existing)
-    return canonical
-
-
-#: Entry keys reported per file in the unknown-key warning.  A file with
-#: hundreds of typo'd keys is one mistake, not hundreds of lines of output.
-_UNKNOWN_KEY_REPORT_MAX = 5
-
-
-def parse_metadata_doc(
-    doc: dict[str, Any],
-    *,
-    known_fields: frozenset[str] | None = None,
-    source: str = "",
-) -> dict[tuple[str, int], dict[str, Any]]:
-    """Convert a parsed metadata TOML document into ``{(module, va): fields}``.
-
-    Accepts either a tomlkit ``TOMLDocument`` (writes) or a plain ``dict``
-    from ``tomllib`` (fast reads).  Entries whose key is not a qualified
-    ``MODULE.0xVA`` form, or whose value is not a table, are skipped.  Shared
-    by ``metadata.py`` and ``data_metadata.py``.
-
-    Two keys that parse to the same ``(module, va)``, e.g. ``0x24000`` and
-    ``0x00024000``, are merged field by field (the later key wins a contested
-    field) and logged.  Whole-table replacement would silently drop the
-    earlier entry's fields, which is how a duplicated key turned a populated
-    entry into a status-only stub.
-
-    *known_fields* is the closed field set of the store, compared
-    case-insensitively.  A hand-edited key outside it (``CFLAGSS``,
-    ``TOOLCHIAN``) is dropped by every reader, so the function silently
-    compiles with the wrong flags; the store's writers reject such a key
-    already, and this makes a hand edit just as loud.  One warning per parse,
-    naming *source* and the offending keys.
-    """
-    result: dict[tuple[str, int], dict[str, Any]] = {}
-    first_key: dict[tuple[str, int], str] = {}
-    unknown: dict[str, list[str]] = {}
-    for key, value in doc.items():
-        parsed = parse_metadata_key(key)
-        if parsed is None or not isinstance(value, dict):
-            continue
-        if known_fields is not None:
-            bad = sorted(
-                str(f) for f in value if isinstance(f, str) and f.upper() not in known_fields
-            )
-            if bad:
-                unknown.setdefault(qualified_key(parsed[0], parsed[1]), []).extend(bad)
-        previous = result.get(parsed)
-        if previous is not None:
-            logger.warning(
-                "Duplicate metadata keys %r and %r both resolve to %s 0x%x; "
-                "merging their fields (later key wins). Collapse them to the "
-                "canonical key %r to stop the split.",
-                first_key[parsed],
-                key,
-                parsed[0],
-                parsed[1],
-                qualified_key(parsed[0], parsed[1]),
-            )
-            previous.update(copy.deepcopy(value))
-            continue
-        result[parsed] = copy.deepcopy(value)
-        first_key[parsed] = key
-    if unknown:
-        shown = sorted(unknown.items())[:_UNKNOWN_KEY_REPORT_MAX]
-        detail = ", ".join(f"{entry}: {sorted(set(keys))}" for entry, keys in shown)
-        extra = f" (+{len(unknown) - len(shown)} more entries)" if len(unknown) > len(shown) else ""
-        logger.warning(
-            "%sunknown metadata field(s) ignored: %s%s — fix the key or rebrew never reads it",
-            f"{source}: " if source else "",
-            detail,
-            extra,
-        )
-    return result
-
-
-def canonical_va_key(va: Any) -> Any:
-    """Normalize a bare-VA key to its canonical form.
-
-    Hex strings (``0x1000`` vs ``0x00001000``) map to the same int so key
-    spelling drift can't silently break lookups.  Non-hex values pass
-    through unchanged (still unique).  The single parser for bare-VA keys
-    in JSON files (verify cache, verify reports); TOML ``MODULE.0xVA`` keys
-    go through :func:`parse_metadata_key` instead.
-    """
-    if isinstance(va, int):
-        return va
-    if isinstance(va, str):
-        s = va.strip()
-        if s[:2].lower() == "0x":
-            try:
-                return int(s, 16)
-            except ValueError:
-                return s
-    return str(va)
-
-
-def build_metadata_doc(
-    data: dict[tuple[str, int], dict[str, Any]],
-    canonical_order: Sequence[str],
-) -> TOMLDocument:
-    """Render ``{(module, va): fields}`` into a TOML document.
-
-    Entries are sorted by ``(module, va)`` for stable diffs, and fields are
-    emitted in *canonical_order* first, then any remaining fields in insertion
-    order.  Empty entries are dropped.
-    """
-    doc = tomlkit.document()
-    for module, va_int in sorted(data):
-        entry = data[(module, va_int)]
-        if not entry:
-            continue
-        tbl = tomlkit.table()
-        for field in canonical_order:
-            if field in entry:
-                tbl[field] = entry[field]
-        for field, val in entry.items():
-            if field not in canonical_order:
-                tbl[field] = val
-        doc[qualified_key(module, va_int)] = tbl
-    return doc
 
 
 def safe_shlex_split(command: str) -> list[str]:

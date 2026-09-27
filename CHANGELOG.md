@@ -183,6 +183,19 @@
   loader) and filters `Annotation.status` itself. The other two helpers
   (`parse_stub_info`, `parse_matching_info`, `parse_matching_all`) are
   unchanged.
+- **The metadata document layer left `utils.py`.** The qualified-key algebra
+  (`qualified_key`, `parse_metadata_key`, `build_metadata_key_index`,
+  `resolve_metadata_key`, `canonical_va_key`), the document parse/build
+  (`parse_metadata_doc`, `load_metadata_doc`, `build_metadata_doc`) and
+  `metadata_write_lock` sat in `rebrew/utils.py`, a module whose own header
+  says it holds no domain logic, and 400 lines of metadata-TOML knowledge
+  were the one exception. They now live in `rebrew/metadata_doc.py`, a leaf
+  that imports `rebrew.utils` and nothing else, so both stores
+  (`metadata.py`, `data_metadata.py`), `library.py` and `match_run.py`
+  import them from the module that owns the concept. `preset_module_key`
+  stays in `utils`: it is identifier normalization that outlives any one
+  store. No behavior changed; the tests for the moved functions moved with
+  them into `tests/test_metadata_doc.py`.
 - **The ruff ratchet takes its next batch.** `TRY400`, `PLC0206`, `PERF402`,
   `PERF403`, `FURB136`, `FURB171`, `PLR1711`, `PLR1714` and `PLR5501` join
   the `select` list in `pyproject.toml`, after their 19 findings were fixed

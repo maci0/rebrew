@@ -49,12 +49,12 @@ from rebrew.match_sweep import (
 )
 from rebrew.matcher import GACheckpoint, SolutionEntry, load_ga_runs
 from rebrew.matcher.core import EXACT_SCORE_THRESHOLD
+from rebrew.metadata_doc import metadata_write_lock
 from rebrew.utils import (
     atomic_write_text,
     filename_component,
     floor_pct,
     interruptible_pool,
-    metadata_write_lock,
     read_compile_source,
 )
 

@@ -316,7 +316,7 @@ _VERIFY_CACHE_LOCK = threading.Lock()
 def _verify_cache_write_lock(cache_path: Path) -> Iterator[None]:
     """Thread + cross-process lock around a verify-cache read-modify-write.
 
-    Same discipline as utils.py's ``metadata_write_lock``: the thread
+    Same discipline as ``rebrew.metadata_doc.metadata_write_lock``: the thread
     lock serializes in-process writers; an advisory ``flock`` on a sidecar
     ``.lock`` file serializes concurrent processes (e.g. ``rebrew verify
     --watch`` saving while ``rebrew test`` patches a promotion — without

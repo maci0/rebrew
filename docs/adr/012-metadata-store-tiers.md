@@ -65,7 +65,7 @@ Adopt an explicit **four-tier model** and document it as the contract
 Single-source rules enforced by code where cheap:
 
 - One parser per file format, in shared modules (`catalog/loaders.py`,
-  `rebrew/utils.py`).
+  `rebrew/metadata_doc.py`).
 - All TOML stores load through one shared `load_metadata_doc` (tomllib,
   mtime-cached) and serialize writes through one shared
   `metadata_write_lock` (thread + flock). `rebrew-libraries.toml` is not

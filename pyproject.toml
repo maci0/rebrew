@@ -445,6 +445,7 @@ files = [
     "tests/test_lint_deep.py",
     "tests/test_lint_cflags.py",
     "tests/test_main.py",
+    "tests/test_metadata_doc.py",
     "tests/test_markers_toml_source.py",
     "tests/test_match_fix_blocker.py",
     "tests/test_match_parsing.py",

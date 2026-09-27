@@ -46,7 +46,7 @@ _GA_RUNS_APPEND_LOCK = threading.Lock()
 def _ga_runs_append_lock(path: Path) -> Iterator[None]:
     """Thread + cross-process lock around one JSONL append.
 
-    Same discipline as :func:`rebrew.utils.metadata_write_lock`: the thread
+    Same discipline as :func:`rebrew.metadata_doc.metadata_write_lock`: the thread
     lock covers in-process workers; an advisory ``flock`` on a ``.lock``
     sidecar covers concurrent processes.
     """

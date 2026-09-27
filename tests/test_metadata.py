@@ -24,8 +24,8 @@ from rebrew.metadata import (
     update_source_status,
     update_statuses_batch,
 )
-from rebrew.utils import parse_metadata_key as _parse_key
-from rebrew.utils import qualified_key as _qualified_key
+from rebrew.metadata_doc import parse_metadata_key as _parse_key
+from rebrew.metadata_doc import qualified_key as _qualified_key
 
 # ---------------------------------------------------------------------------
 # Helpers
