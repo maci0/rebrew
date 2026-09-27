@@ -109,9 +109,7 @@ def _scan_pair_keys(path: Path) -> set[str]:
             except ValueError:
                 continue
             keys.add(
-                _pair_fingerprint(
-                    src, obj, str(rec.get("cflags", "")), str(rec.get("symbol", ""))
-                )
+                _pair_fingerprint(src, obj, str(rec.get("cflags", "")), str(rec.get("symbol", "")))
             )
     return keys
 

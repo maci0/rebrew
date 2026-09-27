@@ -10,7 +10,8 @@ across the supported Python versions (3.13–3.14; the 3.13 entry runs it as
 check (`tools/gen_fixtures.py --check`) and an idempotency sweep over the
 offline `--json` CLI surface — a pre-commit hook-parity job (`make check` with
 the ruff and mypy hooks skipped, since the lint job runs them; it installs
-shellcheck first, so the shell hook is enforced there), a package job
+shellcheck first through `tools/ci_apt_install.sh`, so the shell hook is
+enforced there), a package job
 that builds the sdist/wheel via `make build` (SOURCE_DATE_EPOCH, umask 022, C/UTC,
 `PYTHONHASHSEED=0`; `tools/normalize_sdist.py` rewrites sdist tar metadata and
 wheel entry modes), checks both artifacts hash the same when
@@ -76,6 +77,11 @@ and `resembl-sha` with the commit that tag resolves to: the clone fails when
 the tag points anywhere else.  `make setup` checks the same commit
 (`RESEMBL_SHA` in the Makefile) so a local checkout on another commit fails
 before `uv sync`, with the checkout command, instead of diverging from CI.
+Both host packages the jobs install come from one helper,
+`tools/ci_apt_install.sh` (nasm for the asm round-trip tests, shellcheck for
+the pre-commit gate): apt mirrors flake under load, so it retries update and
+install with a backoff, skips packages already on `PATH`, and fails the step
+naming the package after the last attempt.
 The package job skips the sibling clone (`clone-resembl: "false"`): its
 lockfile sync uses
 `--no-default-groups --no-install-project` (no path dep needed) before the

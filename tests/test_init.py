@@ -1411,7 +1411,9 @@ class TestRefreshAgentsPrunesStaleSkills:
         )
         return root
 
-    def _render(self, root: Path, skills: dict[str, bytes], monkeypatch: pytest.MonkeyPatch) -> None:
+    def _render(
+        self, root: Path, skills: dict[str, bytes], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         from rebrew import init as init_mod
 
         monkeypatch.setattr(init_mod, "_agent_skill_files", lambda _target: dict(skills))
@@ -1423,7 +1425,10 @@ class TestRefreshAgentsPrunesStaleSkills:
         root = self._project(tmp_path)
         self._render(
             root,
-            {"old-skill/SKILL.md": b"---\nname: old-skill\n---\n# old\n", "keep/SKILL.md": b"# k\n"},
+            {
+                "old-skill/SKILL.md": b"---\nname: old-skill\n---\n# old\n",
+                "keep/SKILL.md": b"# k\n",
+            },
             monkeypatch,
         )
         assert (root / ".agents/skills/old-skill/SKILL.md").is_file()
@@ -1434,7 +1439,9 @@ class TestRefreshAgentsPrunesStaleSkills:
         assert not (root / ".agents/skills/old-skill").exists()
         assert (root / ".agents/skills/keep/SKILL.md").is_file()
 
-    def test_second_refresh_is_a_no_op(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_second_refresh_is_a_no_op(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         import typer
 
         root = self._project(tmp_path)
@@ -1457,12 +1464,16 @@ class TestRefreshAgentsPrunesStaleSkills:
         from rebrew import init as init_mod
 
         root = self._project(tmp_path)
-        self._render(root, {"old-skill/SKILL.md": b"# old\n", "keep/SKILL.md": b"# k\n"}, monkeypatch)
+        self._render(
+            root, {"old-skill/SKILL.md": b"# old\n", "keep/SKILL.md": b"# k\n"}, monkeypatch
+        )
         edited = root / ".agents/skills/old-skill/SKILL.md"
         edited.write_text("# old, hand-edited\n", encoding="utf-8")
 
         with pytest.raises(typer.Exit) as exc:
-            init_mod._refresh_agents(root, root / "rebrew-project.toml", json_output=False, check=True)
+            init_mod._refresh_agents(
+                root, root / "rebrew-project.toml", json_output=False, check=True
+            )
         assert exc.value.exit_code == 1
 
         self._render(root, {"keep/SKILL.md": b"# k\n"}, monkeypatch)

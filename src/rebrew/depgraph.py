@@ -464,7 +464,9 @@ def _mermaid_class_defs() -> list[str]:
     fills: dict[str, str] = {}
     for status, cls in (*_MERMAID_CLASS.items(), *_MERMAID_SHARED_CLASS.items()):
         fills.setdefault(cls, STATUS_HEX[status])
-    return [f"    classDef {cls} fill:{fill},stroke:#1a1a1a,color:#fff" for cls, fill in fills.items()]
+    return [
+        f"    classDef {cls} fill:{fill},stroke:#1a1a1a,color:#fff" for cls, fill in fills.items()
+    ]
 
 
 def _status_style(status: str) -> str:

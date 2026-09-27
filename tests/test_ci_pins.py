@@ -639,6 +639,98 @@ class TestCiPins:
         )
 
 
+class TestCiAptInstall:
+    """One retrying helper for every apt step (nasm, shellcheck).
+
+    Both packages come from apt mirrors that flake under load; an inlined
+    retry loop per job is how one of them ends up without a retry.
+    """
+
+    HELPER = ROOT / "tools" / "ci_apt_install.sh"
+
+    def test_helper_retries_and_reports_the_package(self) -> None:
+        assert self.HELPER.is_file()
+        text = self.HELPER.read_text(encoding="utf-8")
+        assert "MAX_ATTEMPTS=3" in text
+        assert "RETRY_BASE_DELAY_SECONDS=5" in text
+        assert 'retry "apt-get update" run_root apt-get update -qq' in text
+        assert "DEBIAN_FRONTEND=noninteractive" in text
+        assert "--no-install-recommends" in text
+        # Success is proven by the binary, not by apt's exit code alone.
+        assert "is still not on PATH" in text
+
+    def test_every_apt_step_uses_the_helper(self) -> None:
+        ci = CI_YML.read_text(encoding="utf-8")
+        assert "apt-get install" not in ci, "call tools/ci_apt_install.sh instead"
+        assert ci.count("bash tools/ci_apt_install.sh") == 2, ci
+        for pkg in ("nasm", "shellcheck"):
+            assert f"bash tools/ci_apt_install.sh {pkg}" in ci, pkg
+
+    def test_install_is_skipped_when_the_binary_exists(self, tmp_path: Path) -> None:
+        """A runner image that already ships the package needs no apt round trip."""
+        bindir = tmp_path / "bin"
+        bindir.mkdir()
+        fake = bindir / "apt-get"
+        fake.write_text(
+            "#!/usr/bin/env python3\nimport sys\n"
+            "print('apt-get ran: ' + ' '.join(sys.argv[1:]), file=sys.stderr)\n"
+            "raise SystemExit(1)\n",
+            encoding="utf-8",
+        )
+        fake.chmod(0o755)
+        stub = bindir / "shellcheck"
+        stub.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        stub.chmod(0o755)
+        env = {**os.environ, "PATH": f"{bindir}{os.pathsep}{os.environ.get('PATH', '')}"}
+        result = subprocess.run(
+            ["bash", str(self.HELPER), "shellcheck"],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert "already on PATH: shellcheck" in result.stdout
+        assert "apt-get ran" not in result.stderr
+
+    def test_persistent_apt_failure_fails_the_step(self, tmp_path: Path) -> None:
+        """Every attempt failing must exit non-zero instead of looping on success."""
+        bindir = tmp_path / "bin"
+        bindir.mkdir()
+        calls = tmp_path / "calls"
+        fake = bindir / "apt-get"
+        fake.write_text(
+            "#!/usr/bin/env python3\nimport os, sys\n"
+            "from pathlib import Path\n"
+            f"Path({str(calls)!r}).open('a').write(' '.join(sys.argv[1:]) + '\\n')\n"
+            "raise SystemExit(100)\n",
+            encoding="utf-8",
+        )
+        fake.chmod(0o755)
+        # The helper retries with a backoff sleep and elevates through sudo;
+        # stub both so the test asserts the retry contract, not the wall clock.
+        passthrough = bindir / "sudo"
+        passthrough.write_text('#!/bin/sh\nexec "$@"\n', encoding="utf-8")
+        passthrough.chmod(0o755)
+        nap = bindir / "sleep"
+        nap.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        nap.chmod(0o755)
+        env = {**os.environ, "PATH": f"{bindir}{os.pathsep}{os.environ.get('PATH', '')}"}
+        result = subprocess.run(
+            ["bash", str(self.HELPER), "definitely-not-installed"],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=60,
+            check=False,
+        )
+        assert result.returncode == 1
+        assert "apt-get update failed after 3 attempts" in result.stderr
+        # install must not run when update never succeeded
+        assert "install" not in calls.read_text(encoding="utf-8")
+
+
 class TestToolchainSync:
     @pytest.mark.parametrize(
         ("status", "drifted", "expected"),
