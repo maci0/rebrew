@@ -458,7 +458,7 @@ used in ~24k GitHub repos, a staple of MSVC decompilation):
 | `mut_add_auto_inline_pragma` | wraps the function in `#pragma auto_inline(off)` … `#pragma auto_inline(on)` | `auto_inline(off)` stops MSVC from auto-inlining functions **defined after the pragma** into their callers.  In the usual single-function compile the target has no callers, so it only bites when the TU defines helper stubs the function calls (the classic DllMain shape: entry point + `sub_XXXX` shims) — without it MSVC inlines the helpers into the target, with it the calls stay `call` instructions.  The closing `("on")` restores auto-inlining for any following code. |
 | `mut_remove_auto_inline_pragma` | strips an existing `#pragma auto_inline(...)` wrapper | Reverts the above; the two form an add/remove pair. |
 
-**Why pragma mutations stay with the body**: `_split_preamble_body` keeps
+**Why pragma mutations stay with the body**: `split_preamble_body` keeps
 function-level pragmas (`optimize`/`intrinsic`/`function`/`check_stack`/
 `auto_inline`) attached to the function body rather than the file preamble,
 so add/remove mutations see the full wrapper — a removed pragma can never

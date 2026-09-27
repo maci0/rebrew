@@ -57,6 +57,12 @@ if TYPE_CHECKING:
         StructuralSimilarity as StructuralSimilarity,
     )
     from .mutations.runtime import (
+        MUTATION_ATTEMPTS as MUTATION_ATTEMPTS,
+    )
+    from .mutations.runtime import (
+        get_target_range as get_target_range,
+    )
+    from .mutations.runtime import (
         set_target_range as set_target_range,
     )
     from .mutator import (
@@ -82,6 +88,9 @@ if TYPE_CHECKING:
     )
     from .mutator import (
         refresh_mutations as refresh_mutations,
+    )
+    from .mutator import (
+        split_preamble_body as split_preamble_body,
     )
     from .parsers import (
         extract_function_from_binary as extract_function_from_binary,
@@ -153,6 +162,8 @@ _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
     "Score": (".core", "Score"),
     "StructuralSimilarity": (".core", "StructuralSimilarity"),
     "set_target_range": (".mutations.runtime", "set_target_range"),
+    "get_target_range": (".mutations.runtime", "get_target_range"),
+    "MUTATION_ATTEMPTS": (".mutations.runtime", "MUTATION_ATTEMPTS"),
     "extract_function_from_binary": (".parsers", "extract_function_from_binary"),
     "list_obj_symbols": (".parsers", "list_obj_symbols"),
     "parse_obj_relocs_full": (".parsers", "parse_obj_relocs_full"),
@@ -181,6 +192,7 @@ _LAZY_EXPORTS: dict[str, tuple[str, str]] = {
     "mutate_chain": (".mutator", "mutate_chain"),
     "quick_validate": (".mutator", "quick_validate"),
     "refresh_mutations": (".mutator", "refresh_mutations"),
+    "split_preamble_body": (".mutator", "split_preamble_body"),
 }
 
 __all__ = [
@@ -225,7 +237,10 @@ __all__ = [
     "save_solutions",
     "score_candidate",
     "code_similarity",
+    "get_target_range",
+    "MUTATION_ATTEMPTS",
     "set_target_range",
+    "split_preamble_body",
     "structural_similarity",
 ]
 

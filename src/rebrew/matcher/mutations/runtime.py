@@ -39,7 +39,7 @@ def _capture(match_or_captures: Any, name: str) -> Any:
 
 
 # Max attempts to find a valid mutation before giving up and returning source unchanged.
-_MUTATION_ATTEMPTS = 10
+MUTATION_ATTEMPTS = 10
 
 # Pre-compiled regex for ret_false label removal (used in GA hot path).
 # ``\r?`` so CRLF sources strip the label line the same as LF (bare ``\n``
@@ -47,7 +47,7 @@ _MUTATION_ATTEMPTS = 10
 _RE_RET_FALSE_LABEL_NL = re.compile(r"^[ \t]*ret_false:[ \t]*\r?\n", flags=re.MULTILINE)
 _RE_RET_FALSE_LABEL = re.compile(r"^[ \t]*ret_false:[ \t]*", flags=re.MULTILINE)
 
-# Function-level pragma line, kept with the function body by _split_preamble_body.
+# Function-level pragma line, kept with the function body by split_preamble_body.
 _RE_FUNC_PRAGMA = re.compile(
     r"^[ \t]*#pragma[ \t]+(?:optimize|intrinsic|function|check_stack|auto_inline)\b",
     re.MULTILINE,
@@ -138,6 +138,17 @@ def set_target_range(start: int | None, end: int | None) -> None:
     text they parse.
     """
     _target_range.range = (start, end) if start is not None and end is not None else None
+
+
+def get_target_range() -> tuple[int, int] | None:
+    """The byte range ``set_target_range`` last applied on this thread, or None.
+
+    ``mutate_code`` narrows the range to body coordinates and must put the
+    caller's range back afterwards; a mutation that does not pass through
+    ``mutate_code`` (crossover) would otherwise inherit the narrowed window.
+    """
+    rng: tuple[int, int] | None = getattr(_target_range, "range", None)
+    return rng
 
 
 def _cursor(query: ts.Query | _LazyQuery) -> ts.QueryCursor:

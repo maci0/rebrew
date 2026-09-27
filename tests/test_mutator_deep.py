@@ -4,7 +4,6 @@ import random
 
 from rebrew.matcher.mutator import (
     ALL_MUTATIONS,
-    _split_preamble_body,
     crossover,
     mut_add_redundant_parens,
     mut_change_array_index_order,
@@ -27,6 +26,7 @@ from rebrew.matcher.mutator import (
     mut_while_to_dowhile,
     mutate_code,
     quick_validate,
+    split_preamble_body,
 )
 
 FULL_SOURCE = """\
@@ -362,13 +362,13 @@ class TestCrossoverDeep:
 class TestSplitPreambleBodyDeep:
     def test_multiple_functions(self) -> None:
         src = "#include <stdio.h>\nvoid f() {\n  return;\n}\nint g() {\n  return 0;\n}"
-        pre, body = _split_preamble_body(src)
+        pre, body = split_preamble_body(src)
         assert "#include" in pre
         assert "f()" in body
 
     def test_no_function(self) -> None:
         src = "#include <stdio.h>\n#define X 1\n"
-        pre, body = _split_preamble_body(src)
+        pre, body = split_preamble_body(src)
         assert "#include" in pre
         assert body == ""
 

@@ -10,6 +10,8 @@ Pins the docs to the code so drift is caught in CI:
   their index, lifecycle status, and cross-links intact;
 - every package whose ``AGENTS.md`` declares an ``Externals`` allowlist imports
   only the packages on it;
+- no module imports another module's ``_name`` (the underscore rule, which
+  the ``Externals`` allowlists above do not cover);
 - every ``make <target>`` the ``AGENTS.md`` files name is a Makefile target, and
   the same for the docs that spell out the human contributor path;
 - every repo path, ``rebrew <command>``, and make target a rule file cites
@@ -379,6 +381,60 @@ def test_package_imports_stay_inside_their_allowlist() -> None:
     assert not violations, (
         "import outside the package's declared Externals allowlist "
         "(add the dependency to its AGENTS.md, or drop the import):\n  " + "\n  ".join(violations)
+    )
+
+
+#: The one family the underscore rule exempts, so its modules may reach into
+#: each other's privates.  The root rule scopes that exemption to the family
+#: itself: the module above it does not inherit it.
+_PRIVATE_IMPORT_EXEMPT = "rebrew.matcher.mutations"
+
+
+def test_no_module_imports_another_modules_private_name() -> None:
+    """No module reaches into a sibling's ``_name``; the exemption is narrow.
+
+    An underscore marks a name its own module may change or drop, so a caller
+    built on it couples to an implementation detail with no public interface
+    to migrate through.  ``rebrew/matcher/mutator.py`` held three such edges
+    into ``mutations/``; the accessors those three needed are public now.
+
+    Walked across the whole package rather than per package, so a new
+    subpackage is covered the day it lands.
+    """
+    violations: list[str] = []
+    scanned = 0
+    for path in sorted(PACKAGE_ROOT.rglob("*.py")):
+        if "__pycache__" in path.parts:
+            continue
+        module = "rebrew." + ".".join(path.relative_to(PACKAGE_ROOT).with_suffix("").parts)
+        if module == "rebrew.__init__":
+            continue
+        scanned += 1
+        if module.startswith(_PRIVATE_IMPORT_EXEMPT):
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.ImportFrom)
+                and node.module
+                and node.module.startswith("rebrew")
+            ):
+                for alias in node.names:
+                    if alias.name.startswith("_") and not alias.name.startswith("__"):
+                        violations.append(
+                            f"{path.relative_to(ROOT)}:{node.lineno} -> {node.module}.{alias.name}"
+                        )
+            elif isinstance(node, ast.Import):
+                for alias in node.names:
+                    tail = alias.name.rsplit(".", 1)[-1]
+                    if alias.name.startswith("rebrew.") and tail.startswith("_"):
+                        violations.append(f"{path.relative_to(ROOT)}:{node.lineno} -> {alias.name}")
+
+    assert scanned > 100, f"scanned only {scanned} modules — the walk is broken"
+    assert not violations, (
+        "module-private name imported across a module boundary "
+        "(promote it to a public name and list it in the owning module's __all__):\n  "
+        + "\n  ".join(violations)
     )
 
 

@@ -6,7 +6,6 @@ import pytest
 
 from rebrew.matcher.mutator import (
     MutationLog,
-    _split_preamble_body,
     compute_population_diversity,
     crossover,
     mut_accum_to_early_return,
@@ -110,6 +109,7 @@ from rebrew.matcher.mutator import (
     mutate_chain,
     mutate_code,
     quick_validate,
+    split_preamble_body,
 )
 
 _RNG_SEED = 42
@@ -263,7 +263,7 @@ class TestPragmaMutations:
         src = (
             f"#include <windows.h>\n#pragma auto_inline(off)\n{self.SRC}\n#pragma auto_inline(on)\n"
         )
-        p, b = _split_preamble_body(src)
+        p, b = split_preamble_body(src)
         assert "#include" in p
         assert "#pragma auto_inline" in b
 
@@ -271,7 +271,7 @@ class TestPragmaMutations:
         """Function-level pragmas must survive the preamble/body split in the
         BODY (so mutations can see and remove them), not the preamble."""
         src = f'#include <windows.h>\n#pragma optimize("", off)\n{self.SRC}\n#pragma optimize("", on)\n'
-        p, b = _split_preamble_body(src)
+        p, b = split_preamble_body(src)
         assert "#include" in p
         assert "#pragma optimize" in b
 
@@ -280,7 +280,7 @@ class TestPragmaMutations:
         for seed in range(400):
             out, name = mutate_code(src, random.Random(seed), track_mutation=True)
             if "pragma" in out:
-                p, b = _split_preamble_body(out)
+                p, b = split_preamble_body(out)
                 assert "#include" in p, name
                 assert "pragma" in b, name
                 assert quick_validate(out), name
@@ -365,7 +365,7 @@ class TestMutationLog:
         """A mutation that leaves the source unchanged adds nothing to the log."""
         log = MutationLog()
         # A source with no preamble/body matches nothing to mutate: the
-        # operator set always returns it unchanged after _MUTATION_ATTEMPTS.
+        # operator set always returns it unchanged after MUTATION_ATTEMPTS.
         log.apply("", random.Random(1))
         assert log.depth == 0
         assert log.undo() is None
@@ -429,9 +429,9 @@ class TestTargetRangeBodyCoordinates:
         fn_end = len(src)
         set_target_range(fn_start, fn_end)
         try:
-            from rebrew.matcher.mutator import _split_preamble_body as _split
+            from rebrew.matcher.mutator import split_preamble_body
 
-            preamble, body = _split(src)
+            preamble, body = split_preamble_body(src)
             body_offset = len(preamble) + 1 if preamble else 0
             expected = (
                 max(0, fn_start - body_offset),
@@ -476,7 +476,7 @@ class TestTargetRangeBodyCoordinates:
         import random
 
         from rebrew.matcher.mutations.runtime import set_target_range
-        from rebrew.matcher.mutator import _split_preamble_body, mutate_code
+        from rebrew.matcher.mutator import mutate_code, split_preamble_body
 
         src = (
             "int target_fn(int a);\n"
@@ -491,7 +491,7 @@ class TestTargetRangeBodyCoordinates:
             "    return result;\n"
             "}\n"
         )
-        preamble, body = _split_preamble_body(src)
+        preamble, body = split_preamble_body(src)
         assert "int target_fn(int a);" in preamble
         body_offset = len(preamble) + 1
         fn_start = src.index("int target_fn(int a) {")
@@ -511,13 +511,13 @@ class TestTargetRangeBodyCoordinates:
 
 class TestSplitPreambleBody:
     def test_splits_correctly(self) -> None:
-        pre, body = _split_preamble_body(SAMPLE_SOURCE)
+        pre, body = split_preamble_body(SAMPLE_SOURCE)
         assert "#include" in pre
         assert "extern" in pre
         assert "my_func" in body
 
     def test_empty_source(self) -> None:
-        pre, body = _split_preamble_body("")
+        pre, body = split_preamble_body("")
         assert pre == ""
         assert body == ""
 
@@ -525,20 +525,20 @@ class TestSplitPreambleBody:
         """A ;-terminated prototype is a declaration, not the body start:
         includes below it must stay in the preamble."""
         src = "int f(int x);\n#include <a.h>\ntypedef int T;\nint f(int x) { return x; }\n"
-        pre, body = _split_preamble_body(src)
+        pre, body = split_preamble_body(src)
         assert "int f(int x);" in pre
         assert "#include <a.h>" in pre
         assert "typedef int T;" in pre
         assert "int f(int x) { return x; }" in body
 
     def test_prototype_only_never_starts_body(self) -> None:
-        pre, body = _split_preamble_body("int f(int x);\n")
+        pre, body = split_preamble_body("int f(int x);\n")
         assert "int f(int x);" in pre
         assert body == ""
 
     def test_one_line_definition_still_starts_body(self) -> None:
         """A one-line definition carries a ; too — the brace marks it."""
-        pre, body = _split_preamble_body("int f(int x) { return x; }\n")
+        pre, body = split_preamble_body("int f(int x) { return x; }\n")
         assert pre == ""
         assert "int f(int x)" in body
 

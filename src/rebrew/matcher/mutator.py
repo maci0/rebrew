@@ -39,7 +39,6 @@ from rebrew.matcher.mutations.advanced import (
     mut_widen_local_type,
 )
 from rebrew.matcher.mutations.basic import (
-    _split_preamble_body,
     compute_population_diversity,
     crossover,
     mut_accum_to_early_return,
@@ -108,6 +107,7 @@ from rebrew.matcher.mutations.basic import (
     mut_while_to_for,
     mut_xor_zero_toggle,
     quick_validate,
+    split_preamble_body,
 )
 from rebrew.matcher.mutations.enhancements import (
     mut_commute_add_general,
@@ -134,8 +134,8 @@ from rebrew.matcher.mutations.pragmas import (
     mut_toggle_check_stack_pragma,
 )
 from rebrew.matcher.mutations.runtime import (
-    _MUTATION_ATTEMPTS,
-    _target_range,
+    MUTATION_ATTEMPTS,
+    get_target_range,
     set_target_range,
 )
 from rebrew.matcher.mutations.structural import (
@@ -402,12 +402,16 @@ def refresh_mutations() -> list[Callable[..., str | None]]:
 # extend() adds operator names without a starred expression (PLE0604).
 __all__ = [
     "ALL_MUTATIONS",
+    "MUTATION_ATTEMPTS",
     "MutationLog",
     "compute_population_diversity",
     "crossover",
+    "get_target_range",
     "mutate_chain",
     "mutate_code",
     "quick_validate",
+    "set_target_range",
+    "split_preamble_body",
 ]
 __all__ += [m.__name__ for m in _BUILTIN_MUTATIONS]
 
@@ -458,14 +462,14 @@ def mutate_code(
 ) -> str | tuple[str, str]:
     """Apply a random mutation to the source code.
 
-    Attempts up to ``_MUTATION_ATTEMPTS`` mutations to find a syntactically
+    Attempts up to ``MUTATION_ATTEMPTS`` mutations to find a syntactically
     valid change.  Returns original source unchanged if all attempts fail.
 
     When *mutation_weights* is provided, it maps mutation function names
     (e.g. ``"mut_swap_if_else"``) to relative weights.  Mutations not
     listed default to weight 1.0.
     """
-    preamble, body = _split_preamble_body(source)
+    preamble, body = split_preamble_body(source)
 
     # The GA's target range is full-source byte offsets (the preamble is
     # measured in bytes too, not characters), but mutations query
@@ -475,7 +479,7 @@ def mutate_code(
     # leaving a narrowed range set would silently scope later mutations of
     # other sources (e.g. crossover, which never passes through here).
     body_offset = len(encode_source(preamble)) + 1 if preamble else 0
-    saved_range = getattr(_target_range, "range", None)
+    saved_range = get_target_range()
     if saved_range is not None:
         set_target_range(
             max(0, saved_range[0] - body_offset),
@@ -489,7 +493,7 @@ def mutate_code(
             if mutation_weights:
                 weights = _mutation_weight_list(tuple(sorted(mutation_weights.items())))
 
-        for _ in range(_MUTATION_ATTEMPTS):
+        for _ in range(MUTATION_ATTEMPTS):
             if weights:
                 mut_func = rng.choices(population, weights=weights, k=1)[0]
             else:
@@ -521,7 +525,10 @@ def mutate_code(
                         return new_source, mut_func.__name__
                     return new_source
     finally:
-        _target_range.range = saved_range
+        if saved_range is None:
+            set_target_range(None, None)
+        else:
+            set_target_range(*saved_range)
 
     if track_mutation:
         return source, "none"

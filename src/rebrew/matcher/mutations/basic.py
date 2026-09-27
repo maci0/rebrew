@@ -1289,7 +1289,7 @@ _TYPE_KEYWORDS_RE = (
 _RE_VALIDATE_DOUBLE_TYPE = re.compile(r"\b(" + _TYPE_KEYWORDS_RE + r")\s+\1\b")
 
 
-def _split_preamble_body(source: str) -> tuple[str, str]:
+def split_preamble_body(source: str) -> tuple[str, str]:
     """Split source into preamble (includes, typedefs, externs) and function body."""
     lines = source.splitlines()
     preamble: list[str] = []
@@ -1453,8 +1453,8 @@ def crossover(parent1: str, parent2: str, rng: random.Random) -> str:
     Returns *parent1* when no cut yields a third source, and *parent2* when
     the chosen cut happens to reproduce it.
     """
-    p1_pre, p1_body = _split_preamble_body(parent1)
-    _, p2_body = _split_preamble_body(parent2)
+    p1_pre, p1_body = split_preamble_body(parent1)
+    _, p2_body = split_preamble_body(parent2)
     lines1 = p1_body.splitlines()
     lines2 = p2_body.splitlines()
     blocks = difflib.SequenceMatcher(None, lines1, lines2, autojunk=False).get_matching_blocks()
