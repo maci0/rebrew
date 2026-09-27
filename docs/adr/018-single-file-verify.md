@@ -23,6 +23,14 @@ per-entry comparison.
   verified nor reported — the gate answers "did *this file* regress".
 - The baseline stays whole-project (`verify_baseline.json` unchanged);
   comparison filters to the scoped entries. No per-file baseline files.
+  **Unresolved conflict:** the comparison filter is implemented, the
+  "unchanged" half is not. `save_baseline` writes the run's report
+  wholesale, so a scoped `rebrew verify <file.c>` leaves a baseline holding
+  that file's rows only and the next whole-project `--compare` reads every
+  other function as new (a `new` row is not a regression, so the gate still
+  passes). Either merge the scoped rows into the existing document or stop
+  a scoped run from advancing the baseline; the decision above says the
+  document must stay whole-project.
 - Exit codes unchanged: 0 clean, 1 regression/mismatch, 2 error.
 
 ## Consequences

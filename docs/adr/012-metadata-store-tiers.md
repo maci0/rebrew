@@ -68,7 +68,11 @@ Single-source rules enforced by code where cheap:
   `rebrew/utils.py`).
 - All TOML stores load through one shared `load_metadata_doc` (tomllib,
   mtime-cached) and serialize writes through one shared
-  `metadata_write_lock` (thread + flock).
+  `metadata_write_lock` (thread + flock). Not yet true of
+  `rebrew-libraries.toml`: `parse_library_metadata` keeps its own
+  `tomllib.loads` call and its own mtime/size/inode cache, and
+  `rebrew/library.py` writes it with `tomlkit` + `atomic_write_text`
+  without the lock.
 - Writes to canonical stores go through the gated APIs only; STATUS
   strictly via `update_source_status` / `update_statuses_batch` (one
   promotion gate; `rebrew verify` and `rebrew test --all` batch the writes).
