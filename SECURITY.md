@@ -58,9 +58,11 @@ plugin cache backends or remove the open upstream diskcache advisory.
 - No claim of authentication or authorization on `rebrew dashboard` (default
   bind is loopback; binding to non-loopback addresses exposes a read-only
   HTTP API without credentials). The only gate on those routes is the Host
-  allow-list; there is no rate limit and no connection cap, and
-  `GET /api/health` reports the absolute `coverage.db` path and the
-  configured target count to any client that clears it.
+  allow-list; there is no rate limit, and the 64-connection cap
+  (`_MAX_ACTIVE_CONNECTIONS` in `src/rebrew/dashboard.py`) is an availability
+  bound an allow-listed client can fill. `GET /api/health` reports the
+  absolute `coverage.db` path and the configured target count to any client
+  that clears it.
 - No claim that docker toolchain or cmake-bridge execution is a hardened
   sandbox against a hostile project tree or malicious image. Local container
   runs use `--network=none` (no egress) and `no-new-privileges`; that does
@@ -154,8 +156,11 @@ plugin cache backends or remove the open upstream diskcache advisory.
   `http` leg the URL check still allows, therefore plants bytes that persist
   across runs, carry no provenance marker, are never expired, and are handed
   to LIEF's COFF parser (or host `objconv` on an OMF profile) on every replay.
-  The response body has no size cap; the 500 MiB cache `size_limit`
-  (`_DEFAULT_SIZE_LIMIT` in `src/rebrew/compile_cache.py`) is the only bound.
+  The response body has no size cap; the cache `size_limit` is the only
+  bound, and that too is project-supplied: the 500 MiB default
+  (`_DEFAULT_SIZE_LIMIT` in `src/rebrew/compile_cache.py`) is replaced by
+  `[cache] size_limit_mib` from `rebrew-project.toml` with no upper clamp
+  (`cache_size_limit` in `src/rebrew/config.py`).
   Changing the endpoint or toolchain starts from a cache miss, and
   `rebrew cache clear` drops the entries a same-endpoint change leaves in
   place.

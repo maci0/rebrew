@@ -391,6 +391,30 @@
   said so comes later.
 
 ### Fixed
+- **`SECURITY.md` denied a dashboard control the code ships.** The policy
+  said the coverage dashboard has "no rate limit and no connection cap"
+  while `docs/THREAT_MODEL.md` cited the same 64-connection cap;
+  `_MAX_ACTIVE_CONNECTIONS` in `src/rebrew/dashboard.py` is enforced in
+  `process_request`. The policy now states the cap and what it does not
+  buy (an allow-listed client can still fill every slot, and there is no
+  authentication behind it).
+- **`docs/THREAT_MODEL.md` cited a mitigation the code does not have, and
+  named three that live elsewhere.** The file-to-parsers section claimed
+  `winepath` is bounded by `_WINEPATH_TIMEOUT_S`; no such constant exists
+  and rebrew never shells out to `winepath` (`WINEPATH` is only an env var
+  it sets, in `msvc_env.py`). That bullet now names the subprocess timeouts
+  that do exist. Three references pointed at names that are not in the
+  module cited: `_key_safe_endpoint` (the function is `is_key_safe_endpoint`
+  in `config.py`, called from `llm_config`), `_MAX_BINARY_SIZE` in
+  `binary_loader.py` (it is `MAX_BINARY_SIZE` in `binary_model.py`, enforced
+  in `binary_loader.py`), and `instruction_clones.py` as a `filename_component`
+  caller (it does not call it).
+- **The only disk bound on a recompile response is project-supplied.** Both
+  documents named the 500 MiB compile-cache `size_limit` as the sole bound on
+  what a hostile recompile endpoint can plant, but
+  `[cache] size_limit_mib` in `rebrew-project.toml` replaces that default
+  with no upper clamp (`cache_size_limit` in `config.py`), so a cloned
+  project can raise the bound.
 - **The SBOM asserted two license grants no artifact declares.** The
   expression/name form was picked by a regex over the recorded string, so any
   single bare token read as an SPDX identifier. `resembl` states the trove
