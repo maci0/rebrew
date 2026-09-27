@@ -1521,7 +1521,10 @@ def _save_report(
     # committed either).  A regressed run must not overwrite the last good
     # baseline, or the gate would self-heal on the next invocation:
     # --compare advances it only on a passing gate, plain verify always.
-    if not dry_run and not (diff_mode and gate_failed):
+    # A scope-filtered run never writes it: diff_reports keys by VA, so a
+    # per-directory baseline reports every other function as `removed` and
+    # makes the next full run report the whole corpus as `new`.
+    if not dry_run and not (diff_mode and gate_failed) and not batch.excluded_keys:
         from rebrew.verify_cache import save_baseline
 
         try:
@@ -1796,6 +1799,7 @@ def scope_entries(
     size_divergences, missing_sizes = size_audits
     library_excluded = 0
     excluded_keys: set[str] = set()
+    all_keys = {f"0x{e.va:08x}" for e in unique_entries}
     # --nolib (reccmp equivalent): drop LIBRARY-marked functions entirely —
     # from the work list, the cached results already counted, and the size
     # audit — so the gate reflects game code only.  Excluded functions are
@@ -1803,7 +1807,6 @@ def scope_entries(
     if nolib:
         lib_vas = _library_vas(cfg, unique_entries) & {e.va for e in unique_entries}
         if lib_vas:
-            excluded_keys = {f"0x{v:08x}" for v in lib_vas}
             unique_entries = [e for e in unique_entries if e.va not in lib_vas]
             library_excluded = len(lib_vas)
     if batch_dir:
@@ -1855,6 +1858,11 @@ def scope_entries(
         )
     if library_excluded or batch_dir or origin_filter or batch_file:
         keep = {f"0x{e.va:08x}" for e in unique_entries}
+        # Every scope flag narrows the run, so every dropped entry must be
+        # preserved in the cache file: --nolib, --dir, --origin and the
+        # positional FILE all erase the rows they exclude otherwise, and the
+        # next unscoped run recompiles the whole corpus.
+        excluded_keys = all_keys - keep
         results = [r for r in results if r.get("va") in keep]
         # Key on va, like the result/size filters beside it: a list scan with
         # dataclass equality is O(failures x entries) field-by-field.

@@ -400,6 +400,7 @@ def run_single_flag_sweep(
         env=p.msvc_env,
         cache=p.cc,
         timeout=p.cfg.compile_timeout,
+        extra_include_dirs=[str(p.seed_c.parent.resolve())],
         posix_style=getattr(p.cfg, "posix_style", False),
         profile=getattr(p.cfg, "compiler_profile", ""),
         cfg=p.cfg,

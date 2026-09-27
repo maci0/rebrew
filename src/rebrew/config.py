@@ -1303,6 +1303,10 @@ def _env_knob_parsers() -> tuple[tuple[str, Callable[[str], None]], ...]:
         (TOOLCHAINS_DIR_ENV, partial(check_env_dir, TOOLCHAINS_DIR_ENV)),
         ("REBREW_WINEPREFIX", check_env_wineprefix),
         ("REBREW_WINE_HEADLESS", _wine_headless),
+        (
+            "REBREW_LLM_ALLOW_PROJECT_ENDPOINT",
+            partial(parse_env_bool, "REBREW_LLM_ALLOW_PROJECT_ENDPOINT", default=False),
+        ),
     )
 
 
@@ -2131,7 +2135,13 @@ def load_config(
 
     def _opt_str(key: str) -> str | None:
         v = link_raw.get(key)
-        return v if isinstance(v, str) else None
+        if v is None or isinstance(v, str):
+            return v
+        # A version read unquoted (linker_version = 6.0) is a TOML float, not
+        # the string --fix-headers matches on.  Warn rather than drop it: a
+        # silent drop looks like a parity mismatch the user cannot explain.
+        _config_warn(f"Expected string for link.{key}, got {v!r}; ignoring")
+        return None
 
     tsaware_raw = link_raw.get("tsaware")
     if tsaware_raw is None:

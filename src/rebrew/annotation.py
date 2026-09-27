@@ -772,6 +772,10 @@ def update_size_annotation(
         return False
 
     module = module_for_va(filepath, va)
+    if not module:
+        # A migrated .c is pure C (ADR-023) and carries no marker line, so
+        # module_for_va finds nothing.  Nothing to key the write on.
+        return False
     _dir = metadata_dir if metadata_dir is not None else filepath.parent
     entry = get_entry(_dir, va, module=module)
     try:

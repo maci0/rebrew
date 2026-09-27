@@ -1593,7 +1593,7 @@ def compile_to_obj(
     all_flags = _effective_compile_flags(cfg, spec, cflags, src_parent)
 
     # --- Compile cache lookup ---
-    cc = cache
+    cc = cache if use_cache else None
     if cc is None and use_cache:
         try:
             cc = get_compile_cache(cfg.root, getattr(cfg, "cache_backend", DEFAULT_CACHE_BACKEND))
