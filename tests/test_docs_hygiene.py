@@ -9,7 +9,8 @@ Pins the docs to the code so drift is caught in CI:
 - the decision and requirement sets (``docs/adr/``, ``docs/prd/``) keep
   their index, lifecycle status, and cross-links intact;
 - every package whose ``AGENTS.md`` declares an ``Externals`` allowlist imports
-  only the packages on it.
+  only the packages on it;
+- every ``make <target>`` the ``AGENTS.md`` files name is a Makefile target.
 """
 
 from __future__ import annotations
@@ -26,6 +27,12 @@ PACKAGE_ROOT = ROOT / "src" / "rebrew"
 
 #: ``Externals (the only ... one may import): `a`, `b.sub`, and `c`.``
 _EXTERNALS_RE = re.compile(r"^Externals \(the only [^\n]*?\): (.+)$", re.M)
+
+#: Rule files loaded into an agent session on every visit.
+RULE_FILES = (ROOT / "AGENTS.md", *sorted(PACKAGE_ROOT.glob("*/AGENTS.md")))
+
+#: Words that follow "make" in prose without naming a target.
+_PROSE_AFTER_MAKE = frozenset({"a", "an", "each", "it", "sure", "that", "the", "this"})
 
 
 def test_every_lint_code_documented() -> None:
@@ -348,4 +355,31 @@ def test_package_imports_stay_inside_their_allowlist() -> None:
         "import outside the package's declared Externals allowlist "
         "(add the dependency to its AGENTS.md, or drop the import):\n  "
         + "\n  ".join(violations)
+    )
+
+
+def test_rule_files_name_real_make_targets() -> None:
+    """Every ``make <target>`` an ``AGENTS.md`` names is defined in the Makefile.
+
+    The rule files are loaded into every session, so a target that was renamed
+    or dropped sends the next agent to a command that fails before any work
+    starts. ``T=`` and ``FLAGS=`` arguments are not part of the target name.
+    """
+    makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
+    defined = set(re.findall(r"^([a-zA-Z][a-zA-Z0-9_.-]*):", makefile, re.MULTILINE))
+    unknown: list[str] = []
+    named = 0
+    for doc in RULE_FILES:
+        where = doc.relative_to(ROOT)
+        for target in re.findall(r"make ([a-z][a-z0-9-]*)", doc.read_text(encoding="utf-8")):
+            if target in _PROSE_AFTER_MAKE:
+                continue
+            named += 1
+            if target not in defined:
+                unknown.append(f"{where}: make {target}")
+
+    assert named, f"no make target found in {len(RULE_FILES)} rule files; the regex is stale"
+    assert not unknown, (
+        "rule file names a make target the Makefile does not define "
+        "(rename the target or the reference):\n  " + "\n  ".join(unknown)
     )
