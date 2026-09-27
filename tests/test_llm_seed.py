@@ -18,18 +18,27 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
+from rebrew.config import (
+    DEFAULT_LLM_TIMEOUT,
+    MAX_LLM_TIMEOUT,
+    ConfigError,
+)
 from rebrew.llm_seed import (
     _DEFAULT_MODEL,
     _MAX_HTTP_BODY_BYTES,
     _MAX_SOURCE_CHARS,
+    _PROMPT_VERSION,
+    SeedUsage,
     _load_response_json,
     _log_usage,
     _parse_response,
+    _request_timeout,
     _resolve_model,
     _sanitize_log_value,
     _sanitize_source,
     build_prompt,
     extract_seeds,
+    last_seed_usage,
     llm_config,
     request_seeds,
     valid_c_source,
@@ -40,7 +49,9 @@ from rebrew.llm_seed import (
 def _reset_llm_request_budget(monkeypatch: pytest.MonkeyPatch) -> None:
     """Each test gets a fresh process budget (production counter is process-wide)."""
     monkeypatch.setattr("rebrew.llm_seed._request_count", 0)
+    monkeypatch.setattr("rebrew.llm_seed._last_usage", None)
     monkeypatch.delenv("REBREW_LLM_MAX_REQUESTS", raising=False)
+    monkeypatch.delenv("REBREW_LLM_TIMEOUT", raising=False)
 
 
 def _cfg(endpoint: str = "", api_key: str = "", model: str = "") -> SimpleNamespace:
@@ -472,6 +483,7 @@ class _FakeClient:
         self.body = body
         self.headers = headers or {}
         self.last_payload: dict | None = None
+        self.last_timeout: float | None = None
 
     @contextmanager
     def stream(
@@ -483,6 +495,7 @@ class _FakeClient:
         timeout: int | None = None,
     ) -> Iterator[_FakeResponse]:
         self.last_payload = json
+        self.last_timeout = timeout
         yield _FakeResponse(self.payload, body=self.body, headers=self.headers)
 
 
@@ -888,6 +901,135 @@ class TestStreamingResponse:
             assert request_seeds(_cfg("https://llm/v1"), snippet, client=client) == [snippet]
 
 
+class TestSeedUsage:
+    """A billed request records its model, prompt version, tokens, and latency.
+
+    The INFO log line is invisible without ``-v``, so this record is what the
+    ``match --seed-llm`` summary prints; without it a paid endpoint spends
+    silently.
+    """
+
+    def test_usage_recorded_after_a_billed_request(self) -> None:
+        client = _FakeClient(
+            {
+                "choices": [{"message": {"content": "```c\nint f(void) { return 0; }\n```"}}],
+                "model": "gpt-4o-mini-2024-07-18",
+                "usage": {"prompt_tokens": 11, "completion_tokens": 22, "total_tokens": 33},
+            }
+        )
+        request_seeds(_cfg("https://llm/v1"), "int f(void){return 0;}", client=client)
+        usage = last_seed_usage()
+        assert usage is not None
+        assert usage.model == _DEFAULT_MODEL
+        assert usage.prompt_version == _PROMPT_VERSION
+        assert (usage.prompt_tokens, usage.completion_tokens, usage.total_tokens) == (11, 22, 33)
+        assert usage.duration_s >= 0.0
+
+    def test_recorded_even_when_no_seed_survives_the_c_gate(self) -> None:
+        client = _FakeClient(
+            {
+                "choices": [{"message": {"content": "no code here"}}],
+                "usage": {"prompt_tokens": 5, "completion_tokens": 7, "total_tokens": 12},
+            }
+        )
+        assert request_seeds(_cfg("https://llm/v1"), "int f(void){return 0;}", client=client) == []
+        usage = last_seed_usage()
+        assert usage is not None and usage.total_tokens == 12
+
+    def test_recorded_when_provider_omits_usage(self) -> None:
+        client = _FakeClient({"choices": [{"message": {"content": "nothing"}}]})
+        request_seeds(_cfg("https://llm/v1"), "int f(void){return 0;}", client=client)
+        usage = last_seed_usage()
+        assert usage is not None
+        assert (usage.prompt_tokens, usage.completion_tokens, usage.total_tokens) == (
+            None,
+            None,
+            None,
+        )
+        assert "token usage unreported" in usage.describe()
+
+    def test_mangled_usage_fields_do_not_reach_the_record(self) -> None:
+        client = _FakeClient(
+            {
+                "choices": [{"message": {"content": "nothing"}}],
+                "usage": {"prompt_tokens": "12", "total_tokens": True},
+            }
+        )
+        request_seeds(_cfg("https://llm/v1"), "int f(void){return 0;}", client=client)
+        usage = last_seed_usage()
+        assert usage is not None
+        assert usage.prompt_tokens is None
+        assert usage.total_tokens is None
+
+    def test_no_request_leaves_no_record(self) -> None:
+        assert last_seed_usage() is None
+        assert request_seeds(_cfg(), "int f(void){return 0;}", client=_FakeClient({})) == []
+        assert last_seed_usage() is None
+
+    def test_record_is_cleared_when_a_later_call_bills_nothing(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        client = _FakeClient(
+            {
+                "choices": [{"message": {"content": "nothing"}}],
+                "usage": {"total_tokens": 99},
+            }
+        )
+        request_seeds(_cfg("https://llm/v1"), "int f(void){return 0;}", client=client)
+        assert last_seed_usage() is not None
+        # A --watch run over many functions must not report the previous
+        # function's cost for a call that never happened.
+        monkeypatch.delenv("REBREW_LLM_ENDPOINT", raising=False)
+        monkeypatch.delenv("REBREW_LLM_API_KEY", raising=False)
+        assert request_seeds(_cfg(), "int f(void){return 0;}", client=client) == []
+        assert last_seed_usage() is None
+
+    def test_describe_names_model_prompt_version_and_cost(self) -> None:
+        usage = SeedUsage(
+            model="gpt-4o-mini-2024-07-18",
+            prompt_version=_PROMPT_VERSION,
+            prompt_tokens=11,
+            completion_tokens=22,
+            total_tokens=33,
+            duration_s=1.25,
+        )
+        text = usage.describe()
+        assert "gpt-4o-mini-2024-07-18" in text
+        assert _PROMPT_VERSION in text
+        assert "33 tokens" in text
+        assert "1.2s" in text
+
+
+class TestRequestTimeout:
+    """A timed-out request is billed and its seeds are lost, so the budget moves."""
+
+    def test_default_budget(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("REBREW_LLM_TIMEOUT", raising=False)
+        assert _request_timeout() == float(DEFAULT_LLM_TIMEOUT)
+
+    def test_env_override_reaches_the_http_call(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("REBREW_LLM_TIMEOUT", "600")
+        assert _request_timeout() == 600.0
+        client = _FakeClient(
+            {"choices": [{"message": {"content": "```c\nint f(void) { return 0; }\n```"}}]}
+        )
+        request_seeds(_cfg("https://llm/v1"), "int f(void){return 0;}", client=client)
+        assert client.last_timeout == 600.0
+
+    @pytest.mark.parametrize("raw", ["abc", "0", "-1", "4"])
+    def test_invalid_budget_raises_instead_of_using_a_default(
+        self, raw: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A default too short for a local model silently loses every billed request."""
+        monkeypatch.setenv("REBREW_LLM_TIMEOUT", raw)
+        with pytest.raises(ConfigError):
+            _request_timeout()
+
+    def test_above_the_maximum_clamps(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("REBREW_LLM_TIMEOUT", "99999")
+        assert _request_timeout() == float(MAX_LLM_TIMEOUT)
+
+
 class TestResolveModel:
     def test_default_model(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("REBREW_LLM_MODEL", raising=False)
@@ -1008,6 +1150,84 @@ class TestMatchGlue:
             llm_seed=True,
         )
         assert "int f(void) { return 42; }" in captured["extra_seeds"]
+
+    def test_llm_seeded_run_reports_the_billed_cost(
+        self, tmp_path: Path, monkeypatch, capsys
+    ) -> None:
+        """The run summary shows what the request cost, not just how many seeds landed."""
+        from types import SimpleNamespace as NS
+
+        from rebrew import match_run as match_mod
+        from rebrew.llm_seed import SeedUsage
+
+        class _FakeGA:
+            rng_seed = 0
+
+            def __init__(self, *a, **k):  # type: ignore[no-untyped-def]
+                return None
+
+            def run(self) -> tuple[str, float]:
+                return "int f(void){return 0;}", 0.0
+
+            def close(self) -> None:
+                return None
+
+        monkeypatch.setattr(match_mod, "BinaryMatchingGA", _FakeGA)
+        monkeypatch.setattr(
+            "rebrew.llm_seed.request_seeds",
+            lambda cfg, source: ["int f(void) { return 42; }"],
+        )
+        monkeypatch.setattr(
+            "rebrew.llm_seed.last_seed_usage",
+            lambda: SeedUsage(
+                model="gpt-4o-mini-2024-07-18",
+                prompt_version=_PROMPT_VERSION,
+                prompt_tokens=11,
+                completion_tokens=22,
+                total_tokens=33,
+                duration_s=1.25,
+            ),
+        )
+        p = NS(
+            cfg=NS(
+                root=tmp_path,
+                compile_timeout=30,
+                posix_style=False,
+                llm_endpoint="https://llm/v1",
+                llm_api_key="k",
+            ),
+            seed_src="int f(void){return 0;}",
+            seed_c=tmp_path / "f.c",
+            target_bytes=b"\xc3",
+            cl="cl",
+            inc=[],
+            cflags="/O2",
+            symbol="_f",
+            msvc_env={},
+            cc=None,
+            timeout=30,
+            va_int=0x1000,
+            target_size=5,
+        )
+        match_mod.run_single_ga(
+            p,
+            str(tmp_path / "out"),
+            1,
+            4,
+            1,
+            False,
+            None,
+            None,
+            1,
+            False,
+            None,
+            False,
+            llm_seed=True,
+        )
+        err = capsys.readouterr().err
+        assert "LLM cost:" in err
+        assert "33 tokens" in err
+        assert _PROMPT_VERSION in err
 
     def test_llm_seed_without_endpoint_warns_not_crashes(
         self, tmp_path: Path, monkeypatch, capsys

@@ -114,6 +114,12 @@ DEFAULT_LINT_MAX_LINE_LENGTH = 200
 #: highest value honored before clamping.
 DEFAULT_LLM_MAX_REQUESTS = 32
 MAX_LLM_MAX_REQUESTS = 10_000
+#: ``REBREW_LLM_TIMEOUT`` per-request HTTP budget, in seconds.  The default
+#: suits a hosted chat API; a local model on CPU needs the upper end, and a
+#: value below :data:`MIN_LLM_TIMEOUT` cannot cover one request.
+DEFAULT_LLM_TIMEOUT = 90
+MIN_LLM_TIMEOUT = 5
+MAX_LLM_TIMEOUT = 1_800
 # ---------------------------------------------------------------------------
 # Architecture presets
 # ---------------------------------------------------------------------------
@@ -1113,6 +1119,39 @@ def llm_max_requests(raw: str) -> int:
     return parsed
 
 
+def llm_timeout(raw: str) -> int:
+    """Parse the ``REBREW_LLM_TIMEOUT`` per-request HTTP budget, in seconds.
+
+    Empty / unset keeps :data:`DEFAULT_LLM_TIMEOUT`.  A hosted chat API
+    answers a capped completion in seconds, a local model on CPU takes
+    minutes for the same payload, and the ceiling is what decides whether a
+    billed request returns seeds or times out empty, so it is the one
+    timeout a caller must be able to move.  A non-integer or out-of-range
+    value raises ``ConfigError`` rather than silently falling back to a
+    default that may be too short for the configured endpoint; values above
+    :data:`MAX_LLM_TIMEOUT` clamp with a warning.  Single source for
+    ``load_config`` (fail fast at startup) and ``rebrew.llm_seed``.
+    """
+    value = raw.strip()
+    if not value:
+        return DEFAULT_LLM_TIMEOUT
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise ConfigError(f"REBREW_LLM_TIMEOUT={value!r} is not an int") from exc
+    if parsed < MIN_LLM_TIMEOUT:
+        raise ConfigError(
+            f"REBREW_LLM_TIMEOUT={value!r} is below {MIN_LLM_TIMEOUT}s; "
+            "one LLM request cannot complete in less"
+        )
+    if parsed > MAX_LLM_TIMEOUT:
+        _config_warn(
+            f"REBREW_LLM_TIMEOUT={value!r} exceeds {MAX_LLM_TIMEOUT}; clamping to {MAX_LLM_TIMEOUT}"
+        )
+        return MAX_LLM_TIMEOUT
+    return parsed
+
+
 def _as_bool(value: Any, default: bool, field_name: str) -> bool:
     """Return a bool config value, warning and using *default* on bad types.
 
@@ -1959,6 +1998,8 @@ def load_config(
 
     if "REBREW_LLM_MAX_REQUESTS" in os.environ:
         llm_max_requests(os.environ["REBREW_LLM_MAX_REQUESTS"])
+    if "REBREW_LLM_TIMEOUT" in os.environ:
+        llm_timeout(os.environ["REBREW_LLM_TIMEOUT"])
 
     # --- [cache] section: compile-cache backend selection ---
     # The store is a pluggable component (rebrew.cache_backends entry-point

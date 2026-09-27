@@ -342,6 +342,11 @@ by the CLI layer and win for that invocation.
   endpoint. `0` disables further calls for the process. A set-but-non-integer
   or negative value is a `ValueError` (not silently reset to the default).
   Values above `10000` clamp to `10000` with a warning.
+- `REBREW_LLM_TIMEOUT` — per-request HTTP budget for one LLM seeding call,
+  in seconds (default `90`). A timed-out request is still billed and its
+  seeds are lost, so raise it for a local model that needs minutes for a
+  capped completion. Below `5` is a `ConfigError`; above `1800` clamps to
+  `1800` with a warning.
 - `REBREW_RECOMPILE_URL` — base URL of the recompile compile service
   (e.g. `http://localhost:8000`). Same effect as `[compiler] recompile_url`;
   when the variable is present it wins (empty forces local docker for the
@@ -450,7 +455,8 @@ non-empty values must use `http(s)`, have a hostname, and use a numeric port in
 characters are rejected. Surrounding whitespace is trimmed; empty values remain
 unset. TOML values are validated at load; environment values are validated when
 resolved, before any HTTP request. `REBREW_LLM_MAX_REQUESTS`, when set, must be
-a non-negative integer (validated when LLM config is resolved).
+a non-negative integer, and `REBREW_LLM_TIMEOUT` an integer no lower than 5
+(both validated when LLM config is resolved).
 
 `cflags` are user-facing defaults (e.g. `/O2 /Gd`). `base_cflags` are always-on
 flags prepended by the compile helpers (default `/nologo /c /MT`) and must not be

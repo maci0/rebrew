@@ -117,7 +117,12 @@ def run_single_ga(
     # alternative C implementations of the current source.  Off by default;
     # degrades to a warning when no endpoint is configured.
     if llm_seed and not no_seed:
-        from rebrew.llm_seed import build_prompt, llm_config, request_seeds
+        from rebrew.llm_seed import (
+            build_prompt,
+            last_seed_usage,
+            llm_config,
+            request_seeds,
+        )
 
         if llm_config(p.cfg) is None:
             console.print(
@@ -148,6 +153,12 @@ def run_single_ga(
                     "implementation(s) added to the initial population"
                 )
                 loaded_seeds.extend(llm_snippets)
+            # The request was billed whether or not any seed survived the C
+            # gate, and the usage log line is INFO-only, so report the cost
+            # here too: without it a paid endpoint spends silently.
+            usage = last_seed_usage()
+            if usage is not None:
+                console.print(f"[dim]LLM cost:[/dim] {usage.describe()}")
 
     # Optional Kuna-assisted seeding: decompile the target function with the
     # Kuna decompiler (agent-first Ghidra port), fix it up so it compiles
