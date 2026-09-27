@@ -11,6 +11,7 @@ Usage::
 """
 
 import json
+import struct
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -739,31 +740,78 @@ def data_byte_coverage(
     return _covered_bytes(clipped), total
 
 
+def _pe_data_directory(path: Path, index: int) -> tuple[int, int]:
+    """``(rva, size)`` of PE32 data directory *index*, or ``(0, 0)``."""
+    try:
+        data = path.read_bytes()
+        e_lfanew = struct.unpack_from("<I", data, 0x3C)[0]
+        if struct.unpack_from("<H", data, e_lfanew + 24)[0] != 0x10B:
+            return 0, 0
+        image_base = struct.unpack_from("<I", data, e_lfanew + 24 + 28)[0]
+        rva, size = struct.unpack_from("<II", data, e_lfanew + 24 + 96 + index * 8)
+    except (OSError, struct.error):
+        return 0, 0
+    if rva == 0 or size == 0:
+        return 0, 0
+    return image_base + rva, size
+
+
+def _cut_range(ranges: list[tuple[int, int]], lo: int, hi: int) -> list[tuple[int, int]]:
+    """Drop ``[lo, hi)`` from every range."""
+    if hi <= lo:
+        return ranges
+    out: list[tuple[int, int]] = []
+    for start, end in ranges:
+        if hi <= start or lo >= end:
+            out.append((start, end))
+            continue
+        if start < lo:
+            out.append((start, min(end, lo)))
+        if hi < end:
+            out.append((max(start, hi), end))
+    return [(a, b) for a, b in out if b > a]
+
+
 def _initialized_data_ranges(cfg: ProjectConfig) -> list[tuple[int, int]]:
-    """File-backed ``.data`` and ``.rdata`` ranges.
+    """File-backed ``.data`` and ``.rdata`` the link is responsible for.
 
     Virtual size past the raw size is the BSS tail: those bytes are not in
     the file, and ``verify --data`` does not compare them. Raw size past the
     virtual size is file alignment. The overlap is the bytes a verified
     symbol can cover.
+
+    The IAT and the import directory through the end of ``.rdata`` are not
+    in that overlap. ``postlink`` copies both from the reference, so a raw
+    link that differs there has not lost game data.
     """
     path = getattr(cfg, "target_binary", None)
     if path is None or not Path(path).is_file():
         return []
+    path = Path(path)
     try:
         from rebrew.binary_loader import load_binary
 
-        info = load_binary(Path(path))
+        info = load_binary(path)
     except (OSError, KeyError, ValueError):
         return []
     ranges: list[tuple[int, int]] = []
+    rdata_end = 0
     for name in (".data", ".rdata"):
         sec = info.sections.get(name)
         if sec is None:
             continue
         extent = min(int(sec.size), int(sec.raw_size))
-        if extent > 0:
-            ranges.append((int(sec.va), int(sec.va) + extent))
+        if extent <= 0:
+            continue
+        start = int(sec.va)
+        ranges.append((start, start + extent))
+        if name == ".rdata":
+            rdata_end = start + extent
+    iat_va, iat_size = _pe_data_directory(path, 12)
+    imp_va, _imp_size = _pe_data_directory(path, 1)
+    ranges = _cut_range(ranges, iat_va, iat_va + iat_size)
+    if rdata_end:
+        ranges = _cut_range(ranges, imp_va, rdata_end)
     return ranges
 
 

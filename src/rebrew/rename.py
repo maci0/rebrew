@@ -465,7 +465,7 @@ def _rename_metadata_only(
     rename.  The metadata collision guard from the marker path applies.
     """
     from rebrew.data_metadata import set_data_field
-    from rebrew.sources import iter_sources
+    from rebrew.sources import iter_sources_and_headers
     from rebrew.utils import atomic_write_text, read_source_text
 
     entries = scan_reversed_dir(cfg.reversed_dir, cfg=cfg)
@@ -496,7 +496,7 @@ def _rename_metadata_only(
 
     pattern = _name_pattern(old_name)
     files: list[Path] = []
-    for src in iter_sources(cfg.reversed_dir, cfg):
+    for src in iter_sources_and_headers(cfg.reversed_dir, cfg):
         try:
             text, _ = read_source_text(src)
         except (OSError, UnicodeDecodeError):

@@ -1782,7 +1782,7 @@ class TestDataDrift:
         assert _collect_start_data(cfg) == []
 
     def test_bss_label_skipped(self, tmp_path: Path) -> None:
-        """A .bss symbol has no file bytes, so --data can never clear it."""
+        """A .bss symbol is not start-data work; the lane leaves it out."""
         from rebrew.data_metadata import set_data_field
         from rebrew.todo import _collect_start_data
 

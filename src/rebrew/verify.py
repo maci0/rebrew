@@ -928,7 +928,11 @@ def main(
 
     data_report: dict[str, Any] | None = None
     if data:
-        from rebrew.data_verify import section_symbol_bytes, verify_data_bytes
+        from rebrew.data_verify import (
+            omit_uncovered_zero_fill,
+            section_symbol_bytes,
+            verify_data_bytes,
+        )
 
         built_path = built or (cfg.root / "build" / cfg.target_name)
         if not built_path.exists():
@@ -939,12 +943,17 @@ def main(
         metadata_path = cfg.metadata_dir / "rebrew-data.toml"
         if not metadata_path.exists():
             error_exit(f"data metadata not found: {metadata_path}", json_mode=json_output)
+        ref_zero_fill: set[int] = set()
         ref_bytes, ref_sizes = section_symbol_bytes(
-            metadata_path=metadata_path, binary_path=cfg.target_binary, cfg=cfg
+            metadata_path=metadata_path,
+            binary_path=cfg.target_binary,
+            cfg=cfg,
+            zero_fill=ref_zero_fill,
         )
         built_bytes, built_sizes = section_symbol_bytes(
             metadata_path=metadata_path, binary_path=built_path, cfg=cfg
         )
+        omit_uncovered_zero_fill(ref_bytes, ref_sizes, built_sizes, ref_zero_fill)
         data_report = verify_data_bytes(
             metadata_path=metadata_path,
             expected=ref_bytes,

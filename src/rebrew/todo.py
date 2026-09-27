@@ -1022,22 +1022,20 @@ def _collect_start_data(cfg: ProjectConfig) -> list[TodoItem]:
     this costs one more filter pass, not another load.  Command verifies
     just the symbol's section scope.
 
-    Import-table and BSS-resident entries are skipped, because
-    ``rebrew verify --data`` cannot clear either kind, so leaving them in turns
-    the lane into a list of permanent false positives.
+    Import-table and BSS-resident entries are skipped. They are not C to
+    edit. ``verify --data`` reads an import slot from ``.rdata`` and compares
+    a zero-fill span as zeros when the built image covers it. A raw link's
+    import-name RVAs may differ, and that drift is not a source edit.
 
     * Import slots (``__imp__`` / ``section = ".idata"``) are supplied by the
-      linker from the import directory.  One project carried 84 of them -- every
-      IAT dword -- and the image has no .idata section at all; the IAT sits at
+      linker from the import directory.  One project carried 84 of them, every
+      IAT dword, and the image has no .idata section at all; the IAT sits at
       the head of .rdata.
-    * BSS slots have no file bytes.  ``section_symbol_bytes`` skips any symbol
-      whose extent runs past its section's ``raw_size`` (the zero-fill tail), so
-      those VAs never reach ``verify_data_bytes``, never appear in its
-      ``matched`` set, and are never written back as VERIFIED.  Symbols declared
+    * BSS slots have no file bytes. The loader zero-fills them, and so does
+      the built image where its virtual size covers the span. Symbols declared
       ``.bss`` are the obvious case; so are symbols declared ``.data`` that sit
-      beyond that section's raw extent, which is the same thing spelled
-      differently.  They are correct by construction -- both images zero-fill
-      them -- so there is nothing to verify.
+      beyond that section's raw extent. A span past the built virtual size
+      stays UNCHECKED.
 
     Measured on the project that motivated this: of 207 UNCHECKED entries, all
     207 were un-clearable, and independent byte comparison found every one of

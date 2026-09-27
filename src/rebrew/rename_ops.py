@@ -13,7 +13,7 @@ from pathlib import Path
 
 from rebrew.annotation import parse_c_file_multi
 from rebrew.config import ProjectConfig
-from rebrew.sources import iter_sources
+from rebrew.sources import iter_sources_and_headers
 from rebrew.utils import atomic_write_text, is_safe_c_ident, read_source_text
 
 logger = logging.getLogger(__name__)
@@ -70,7 +70,9 @@ def collect_matching_files(
 ) -> list[Path]:
     """Source files whose content matches *pattern* (rename candidates)."""
     matched: list[Path] = []
-    candidates = [filepath] + [s for s in iter_sources(cfg.reversed_dir, cfg) if s != filepath]
+    candidates = [filepath] + [
+        s for s in iter_sources_and_headers(cfg.reversed_dir, cfg) if s != filepath
+    ]
     for src in candidates:
         try:
             text, _ = read_source_text(src)
@@ -192,7 +194,7 @@ def rename_function_everywhere(
         raise
 
     # Find and update externs across all files
-    for src_file in iter_sources(cfg.reversed_dir, cfg):
+    for src_file in iter_sources_and_headers(cfg.reversed_dir, cfg):
         if src_file == filepath:
             continue
 

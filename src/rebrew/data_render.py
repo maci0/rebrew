@@ -176,6 +176,12 @@ def section_summary(scan: ScanResult, sections: dict[str, dict[str, Any]]) -> li
 
     per_section: dict[str, dict[str, Any]] = {}
     for entry in scan.globals.values():
+        # A declaration with no address is not in a section. Counting it as
+        # "unknown" invented a fourth section for link stand-ins whose bytes
+        # already belong to a named global. A VA that misses every section
+        # still lands in unknown.
+        if not entry.va and not entry.section:
+            continue
         sec_name = entry.section or "unknown"
         s = per_section.setdefault(
             sec_name, {"name": sec_name, "globals": 0, "annotated": 0, "annotated_bytes": 0}

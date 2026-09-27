@@ -20,7 +20,7 @@ def _src(tmp_path: Path, name: str, content: str) -> Path:
 
 
 def _patch_sources(monkeypatch: pytest.MonkeyPatch, files: list[Path]) -> None:
-    monkeypatch.setattr("rebrew.rename_ops.iter_sources", lambda _d, _c: files)
+    monkeypatch.setattr("rebrew.rename_ops.iter_sources_and_headers", lambda _d, _c: files)
 
 
 class TestRenameFunctionEverywhere:
@@ -454,6 +454,24 @@ class TestRenameData:
         assert get_data_entry(tmp_path, 0x2000, "SERVER").get("name") == "g_new"
         text = (tmp_path / "src" / "use.c").read_text(encoding="utf-8")
         assert "g_new" in text and "g_old" not in text
+
+    def test_rename_data_updates_header(self, tmp_path: Path, monkeypatch) -> None:
+        """A header extern is a declaration of the same global and is renamed."""
+        import typer as _typer
+        from typer.testing import CliRunner
+
+        from rebrew.rename import main as _rename_main
+
+        app = _typer.Typer()
+        app.command()(_rename_main)
+
+        self._project(tmp_path)
+        (tmp_path / "src" / "g.h").write_text("extern int g_old;\n", encoding="utf-8")
+        monkeypatch.setattr("rebrew.rename.require_config", lambda **kw: self._cfg(tmp_path))
+        res = CliRunner().invoke(app, ["g_old", "g_new", "--data"])
+        assert res.exit_code == 0, res.output
+        header = (tmp_path / "src" / "g.h").read_text(encoding="utf-8")
+        assert header == "extern int g_new;\n"
 
     def test_rename_data_dry_run(self, tmp_path: Path, monkeypatch) -> None:
         import typer as _typer

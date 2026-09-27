@@ -198,10 +198,46 @@ def iter_sources(
     return base
 
 
+def iter_headers(
+    directory: Path | str | ProjectConfig,
+    cfg: ProjectConfig | None = None,
+) -> list[Path]:
+    """Project ``*.h`` files under *directory*, including the shared root.
+
+    Headers are not translation units, so :func:`iter_sources` stays on the
+    configured source extension and a ``.h`` is never compiled or counted as
+    a function file. Data declarations live here too: the data scan and
+    rename walk this list beside the sources.
+    """
+    dir_path, cfg = _resolve_dir_and_cfg(directory, cfg)
+    files = files_with_ext(dir_path, {".h"})
+    shared = _should_include_shared(dir_path, cfg)
+    if shared is not None:
+        files = sorted(set(files) | set(files_with_ext(shared, {".h"})))
+    return files
+
+
+def iter_sources_and_headers(
+    directory: Path | str | ProjectConfig,
+    cfg: ProjectConfig | None = None,
+) -> list[Path]:
+    """Sources first, then headers that are not already in that list.
+
+    Sources come first so a ``.c`` definition is recorded before a header
+    redeclaration of the same name. A header the source-extension list
+    already includes is not yielded twice.
+    """
+    sources = list(iter_sources(directory, cfg))
+    seen = {path.resolve() for path in sources}
+    return sources + [path for path in iter_headers(directory, cfg) if path.resolve() not in seen]
+
+
 __all__ = [
     "files_with_ext",
+    "iter_headers",
     "iter_library_headers",
     "iter_sources",
+    "iter_sources_and_headers",
     "source_exts",
     "source_glob",
     "target_marker",
