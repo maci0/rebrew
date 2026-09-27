@@ -21,7 +21,8 @@ preprocessor directives, pragma operators, or inline asm (including forms that
 appear only after trigraph replacement or backslash-newline splicing), and
 size caps.  Request cost is bounded by source
 truncation, ``max_tokens``, ``n=1``, an HTTP body ceiling before JSON parse,
-a stop at the requested seed count (so a response stuffed with fenced blocks
+a cap on how many fenced blocks one response may put through the C gate plus a
+stop at the requested seed count (so a response stuffed with fenced blocks
 cannot buy one tree-sitter parse each), and a process-wide request budget
 (``REBREW_LLM_MAX_REQUESTS``, default 32;
 ``0`` disables further calls; a set-but-invalid value raises ``ValueError``)
@@ -98,8 +99,22 @@ _MAX_CACHED_PROMPTS = 64
 _TOKENS_PER_SEED = 512
 #: Hard ceiling on a single completion, whatever the seed count asks for.
 _MAX_COMPLETION_TOKENS = 4_096
+#: Floor for the completion cap, so a request for a single seed still has room
+#: for one whole function definition.
+_MIN_COMPLETION_TOKENS = 256
+#: Sampling temperature for a seed request.  Deliberately not 0: a GA needs
+#: *different* implementations of one function, and a deterministic model
+#: answers the same request with the same form every time.
+_SEED_TEMPERATURE = 0.8
 _MIN_COUNT = 1
 _MAX_COUNT = 8
+#: Candidates a single response may put through the C gate.  Each one costs a
+#: tree-sitter parse, and the stop at :data:`_MAX_COUNT` seeds only fires once a
+#: block *passes*, so a response packed with tiny rejected fences would
+#: otherwise buy a parse apiece (thousands of them, in a body the response cap
+#: admits).  Twice the largest ask leaves headroom for the blocks that fail the
+#: name/prototype gate without letting the count be the only bound.
+_MAX_SEED_ATTEMPTS = _MAX_COUNT * 2
 _DEFAULT_COUNT = 3
 _DEFAULT_MODEL = "gpt-4o-mini-2024-07-18"  # dated snapshot; bare alias floats
 # Bump when the prompt text changes, so a GA run can be traced back to the
@@ -944,11 +959,11 @@ def _request(
     # Cap completion size so the ask and the cap agree: a cap under
     # count * _TOKENS_PER_SEED returns a clipped answer, which the completion
     # gate then discards in full.
-    max_tokens = min(_MAX_COMPLETION_TOKENS, max(256, count * _TOKENS_PER_SEED))
+    max_tokens = min(_MAX_COMPLETION_TOKENS, max(_MIN_COMPLETION_TOKENS, count * _TOKENS_PER_SEED))
     payload = {
         "model": model,
         "messages": chat_messages(source, count),
-        "temperature": 0.8,
+        "temperature": _SEED_TEMPERATURE,
         "max_tokens": max_tokens,
         # Pin n=1: extra completions multiply spend for no GA benefit.
         "n": 1,
@@ -969,10 +984,10 @@ def _request(
     seen: set[str] = set()
     seeds: list[str] = []
     blocks = extract_seeds(text)
-    for s in blocks:
-        # Only count seeds are ever returned, so stop once they are found: a
-        # response packed with hundreds of tiny fenced blocks would otherwise
-        # cost one tree-sitter parse each to be discarded.
+    checked = blocks[:_MAX_SEED_ATTEMPTS]
+    for s in checked:
+        # Only count seeds are ever returned, so stop once they are found
+        # rather than parsing the rest of a body that already has enough.
         if len(seeds) >= count:
             break
         key = " ".join(s.split())
@@ -982,13 +997,16 @@ def _request(
         seeds.append(s)
     if not seeds:
         # --seed-llm was asked for: say why nothing arrived instead of
-        # silently running the GA as if seeding had never been requested.
+        # silently running the GA as if seeding had never been requested.  The
+        # checked count is reported beside the total because the attempt cap
+        # can leave blocks unread, and "none of them" would overclaim.
         logging.warning(
-            "LLM seeding: response had %d fenced block(s), none a valid %s "
+            "LLM seeding: response had %d fenced block(s), %d checked, none a valid %s "
             "(empty, refused, truncated, or name/prototype/C gate failed); "
             "GA continues without seeds",
             len(blocks),
-            expect_name,
+            len(checked),
+            sanitize_log_value(expect_name),
         )
     return seeds
 
