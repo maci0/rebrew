@@ -38,6 +38,23 @@ RUNTIME_ENTRIES: tuple[tuple[str, str], ...] = (
     ("workspace/py.typed", "file"),
 )
 
+# Every directory under ``agent-skills/`` is one skill, and a skill is exactly
+# its ``SKILL.md``: ``rebrew skills list`` and ``rebrew init`` skip a directory
+# without one, so a partial ship has to fail here and not on the user's box.
+SKILL_MANIFEST = "SKILL.md"
+
+
+def missing_skill_manifests(package: Path) -> list[str]:
+    """Paths of installed skill directories that carry no ``SKILL.md``."""
+    root = package / "agent-skills"
+    if not root.is_dir():
+        return []
+    return [
+        str(skill / SKILL_MANIFEST)
+        for skill in sorted(root.iterdir())
+        if skill.is_dir() and not (skill / SKILL_MANIFEST).is_file()
+    ]
+
 
 def check() -> list[str]:
     """Return one message per missing runtime file; empty means the wheel is complete."""
@@ -57,6 +74,7 @@ def check() -> list[str]:
         present = path.is_dir() if kind == "dir" else path.is_file()
         if not present:
             missing.append(f"missing {kind} {path}")
+    missing.extend(f"missing file {path}" for path in missing_skill_manifests(package))
     return missing
 
 
