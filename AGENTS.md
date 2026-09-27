@@ -8,7 +8,7 @@ Install editable (`uv pip install -e .`) inside a workspace containing binaries,
 
 ## Compiler Profiles
 
-Names are `"<image-family>-<version>"` (lowercase, version dots kept), e.g. `msvc-6.0`, `gcc-14.2.0`, `mingw-16.2.0`. Append a target suffix only when one family+version spans more than one target (`watcom-2.0-win32` / `watcom-2.0-win16`). See ADR 017; old names are gone, not aliased. Default profile: `msvc-6.0`.
+Names are `"<image-family>-<version>"` (lowercase, version dots kept), e.g. `msvc-6.0`, `gcc-14.2.0`, `mingw-16.2.0`. Append a target suffix only when one family+version spans more than one target (`watcom-2.0-win32` / `watcom-2.0-win16` / `msvc-6.0-win9x`). Service-pack and variant markers keep their words (`msvc-6.0-sp1`, `msvc-7.0-rtm`, `msvc-6.0-sp5-pp`). See ADR 017; old names are gone, not aliased. Default profile: `msvc-6.0`.
 
 **Docker-only for every shipped toolchain** (`msvc-*`, `borland-*`, `watcom-*`, `delphi-1.0`, `ido-*`, `gcc-*`, `clang-*`, `mingw-*`): the image wraps wine / DOSBox / a native Linux compiler. No host wine/wibo/dosbox fallback. Missing image → hard error; run `rebrew toolchain build <name>` or `rebrew toolchain pull <name>`. Inventory and image tags: `rebrew toolchain list` (pins/smoke: `docs/TOOLCHAIN.md`).
 
@@ -60,9 +60,9 @@ Dockerfiles / wrappers / 16-bit media: sibling **rebrew-toolchains** (not vendor
 
 ## CLI Conventions
 
-Single-command tools: `@app.callback(invoke_without_command=True)` + `main_entry()` in `[project.scripts]`.
+Single-command tools: `@app.callback(invoke_without_command=True)` + a `main_entry()` in `[project.scripts]`. The five targets that are not single commands name their own attribute: the umbrella (`rebrew = "rebrew.main:main"`), `objdiff_build_entry`, and `tc_main` for the three `rebrew-cmake-*` bridges.
 
-- **Shared helpers** come from `rebrew.cli`: `TargetOption`, `require_config()`, `error_exit(..., json_mode=json_output)`, `json_print`, `parse_va`, `EXIT_*`. `load_config` is not re-exported there; import it from `rebrew.config`, and only for optional loads.
+- **Shared helpers** come from `rebrew.cli`: `TargetOption`, `require_config()`, `error_exit(..., json_mode=json_output)`, `json_print`, `parse_va`, `EXIT_*`. `load_config` is in no `__all__` there even though the module imports it; import it from `rebrew.config`, and only for optional loads.
 - **Param order**: `--json` before `--target`, both last. The batch tools (`verify`/`test`/`lint`/`status`/`todo`) put `--all-targets` after `--target`, since it is mutually exclusive with it.
 - **Help strings are exact**: `--json` → `"Output results as JSON"`; `--dry-run` → `"Preview changes without writing"`.
 - **Output** goes through `Console(stderr=True)`; raw `print()` only for piped data.

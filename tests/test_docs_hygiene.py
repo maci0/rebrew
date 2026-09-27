@@ -382,3 +382,77 @@ def test_rule_files_name_real_make_targets() -> None:
         "rule file names a make target the Makefile does not define "
         "(rename the target or the reference):\n  " + "\n  ".join(unknown)
     )
+
+
+#: Repo-relative file references a rule file may cite. Only trees this repo
+#: owns are checked: ``rebrew-project.toml`` and friends are files of a user's
+#: workspace, not of this package.
+_PATH_PREFIXES = ("docs/", "tests/", "tools/", "src/")
+
+
+def test_rule_files_cite_real_repo_paths() -> None:
+    """Every repo-relative file a rule file cites exists.
+
+    A moved or renamed doc is cited by every future session and resolves to
+    nothing. Globs and placeholders (``tests/test_mutator*.py``,
+    ``docs/adr/NNN-short-title.md``) name a pattern, not a file, and are
+    exempt.
+    """
+    missing: list[str] = []
+    cited = 0
+    for doc in RULE_FILES:
+        where = doc.relative_to(ROOT)
+        text = doc.read_text(encoding="utf-8")
+        for ref in re.findall(r"`([\w./-]+\.(?:md|py|toml|json|cmake))`", text):
+            placeholder = any(c in ref for c in "*{}") or re.search(r"[A-Z]{2,}", ref)
+            if not ref.startswith(_PATH_PREFIXES) or placeholder:
+                continue
+            cited += 1
+            if not (ROOT / ref).exists():
+                missing.append(f"{where}: {ref}")
+
+    assert cited, "no repo path found in the rule files; the regex is stale"
+    assert not missing, "rule file cites a path that does not exist:\n  " + "\n  ".join(missing)
+
+
+def test_rule_files_name_real_cli_commands() -> None:
+    """Every ``rebrew <command>`` a rule file names is registered.
+
+    Rule files are where an agent learns the CLI, so a command renamed or
+    dropped here sends it to a failing invocation. A second word is checked
+    against that command's subcommands.
+    """
+    from rebrew.main import app
+
+    groups = {
+        g.name: g.typer_instance for g in app.registered_groups if g.name and g.typer_instance
+    }
+    top = {c.name for c in app.registered_commands if c.name} | set(groups)
+    unknown: list[str] = []
+    named = 0
+    for doc in RULE_FILES:
+        where = doc.relative_to(ROOT)
+        text = doc.read_text(encoding="utf-8")
+        for cmd, sub in re.findall(r"`rebrew ([a-z][a-z0-9-]*)(?: ([a-z][a-z0-9-]*))?", text):
+            named += 1
+            if cmd not in top:
+                unknown.append(f"{where}: rebrew {cmd}")
+            elif sub:
+                group = groups[cmd]
+                subs = {c.name for c in group.registered_commands if c.name}
+                subs |= {g.name for g in group.registered_groups if g.name}
+                # A callback-declared subcommand reports no name; its function
+                # name is the command word.
+                subs |= {
+                    c.callback.__name__.replace("_", "-")
+                    for c in group.registered_commands
+                    if c.callback is not None
+                }
+                if sub not in subs:
+                    unknown.append(f"{where}: rebrew {cmd} {sub}")
+
+    assert named, f"no rebrew command found in {len(RULE_FILES)} rule files; the regex is stale"
+    assert not unknown, (
+        "rule file names a command the CLI does not register "
+        "(rename the command or the reference):\n  " + "\n  ".join(unknown)
+    )

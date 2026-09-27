@@ -19,12 +19,19 @@ precede the options in the signature.
 
 from __future__ import annotations
 
+import ast
 import importlib
 import inspect
+import re
+from pathlib import Path
+from typing import Any
 
 from typer.models import OptionInfo
 
 from rebrew.builtins import BUILTIN_COMPONENTS
+
+ROOT = Path(__file__).resolve().parent.parent
+PACKAGE_ROOT = ROOT / "src" / "rebrew"
 
 CANONICAL_MAIN_ENTRY_DOC = "Run the Typer CLI application."
 JSON_HELP = "Output results as JSON"
@@ -252,3 +259,51 @@ class TestGroupWithoutSubcommand:
             if result.exit_code != 2 or result.stdout:
                 bad.append((comp.name, result.exit_code, result.stdout[:80]))
         assert not bad, f"bare group must exit 2 with empty stdout: {bad}"
+
+
+class TestScriptDispatch:
+    """Every ``[project.scripts]`` target dispatches through the exit contract.
+
+    ``run_standalone`` / ``run_cli`` turn SIGPIPE and Ctrl-C into 141/130 and
+    a usage error into 2.  A bare ``app()`` skips all three, so the entry
+    attribute's body is checked rather than its name: most targets name
+    ``main_entry``, but the umbrella and the CMake bridges do not.
+    """
+
+    @staticmethod
+    def _targets() -> list[tuple[str, Any]]:
+        toml = (ROOT / "pyproject.toml").read_text(encoding="utf-8")
+        out = []
+        for script, module, attr in re.findall(r'^([\w-]+) = "([\w.]+):(\w+)"$', toml, re.M):
+            out.append((script, getattr(importlib.import_module(module), attr)))
+        return out
+
+    def test_every_script_dispatches_through_the_exit_contract(self) -> None:
+        targets = self._targets()
+        assert targets, "no [project.scripts] entries found — the regex is stale"
+        bad = []
+        for script, fn in targets:
+            body = inspect.getsource(fn)
+            if "run_standalone(" not in body and "run_cli(" not in body:
+                bad.append(f"{script}: {fn.__name__} does not call run_standalone/run_cli")
+        assert not bad, (
+            "script entry point bypasses the 141/130/2 exit contract:\n  " + "\n  ".join(bad)
+        )
+
+    def test_load_config_is_not_imported_from_cli(self) -> None:
+        """``load_config`` is private to ``rebrew.config`` (AGENTS.md, CLI conventions).
+
+        ``rebrew.cli`` imports it to serve ``require_config()``, which leaves
+        the name importable from the wrong module; nothing should take it.
+        """
+        offenders = []
+        for path in sorted(PACKAGE_ROOT.rglob("*.py")):
+            if "__pycache__" in path.parts:
+                continue
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.ImportFrom) and node.module == "rebrew.cli":
+                    names = [a.name for a in node.names if a.name == "load_config"]
+                    if names:
+                        offenders.append(f"{path.relative_to(ROOT)}")
+        assert not offenders, f"import load_config from rebrew.config, not rebrew.cli: {offenders}"
