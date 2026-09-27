@@ -1,6 +1,22 @@
 ## [Unreleased]
 
+### Fixed
+- **`pe_image.parse_pe` no longer emits a nameless import.** A lookup-table slot
+  whose hint/name RVA resolves outside the image was appended with neither a
+  name nor an ordinal, so `gen-layout` wrote an import record that names no API
+  and shifts the IAT order it attaches VAs to by position. The slot is skipped,
+  which is what `layout_meta.extract_layout` already does on the same walk.
+
 ### Changed
+- **The PE walker and the float-constant scanner have property-based fuzz
+  tests.** `pe_image.parse_pe` (34 hand-rolled `struct.unpack` reads over a
+  user-supplied image) and `float_const.find_float_consts` had none.
+  `tests/test_property_pe_image.py` mutates the committed PE fixture in the
+  headers, section table, and import/export directories and holds the parse to
+  its self-consistency invariants; `tests/test_property_float_const.py` scans
+  adversarial code buffers, splicing real float references into the noise so
+  the yield path is reached, and pins region containment, per-opcode width, and
+  the short-read skip.
 - **The idempotency write sweep covers five more mutating commands.**
   `tools/check_idempotency.py` only ran `migrate-markers`,
   `document-unmatched` and `gen-link-stubs` twice, so the other mutating

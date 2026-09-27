@@ -199,9 +199,13 @@ def parse_pe(
                 if nm & 0x80000000:
                     imports.append(PeImport(dll, None, nm & 0xFFFF))
                 else:
-                    # hint/name: 2-byte hint + NUL-terminated name
+                    # hint/name: 2-byte hint + NUL-terminated name.  A slot
+                    # whose RVA resolves outside the image names nothing, so
+                    # it is skipped (as layout_meta.extract_layout does)
+                    # rather than appended with neither name nor ordinal.
                     no = rva_to_off(nm)
-                    imports.append(PeImport(dll, cstr(no + 2 if no is not None else None), None))
+                    if no is not None:
+                        imports.append(PeImport(dll, cstr(no + 2), None))
 
     # ---- PE normalization params ----
     reloc_rva = struct.unpack_from("<I", data, opt + 96 + 5 * 8)[0]
