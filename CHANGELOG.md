@@ -278,6 +278,42 @@
   guard `total = raw_total or 1` was also the reported `bytes` field, so a
   pair where neither side decoded read `bytes: 1`. The count and the
   percentage denominator are now separate values.
+- **Untrusted text no longer reaches the terminal as markup.** Import names,
+  DLL names, symbol names, and decompiler output come from a target binary, a
+  project file, or a remote service, and were interpolated into Rich output
+  unescaped: a `[bold]` in an import name restyled the table, and a raw ESC
+  drove the terminal (OSC title and clipboard writes, screen clears). The new
+  `rebrew.cli.untrusted_text` escapes Rich markup and renders every C0/C1
+  control other than tab and newline as `\xNN`; `error_exit` and the commands
+  that print untrusted strings (imports, annotations, BinSync overlay, data
+  annotations, FLIRT, decompme, decompiler output, GA, security and crypto
+  scans, solutions DB, doctor) route through it.
+- **A planted symlink no longer redirects an atomic write.**
+  `atomic_write_text` and `atomic_write_bytes` created the temp file with a
+  plain write, which follows a symlink of the same name, so a name planted in
+  a target directory could land the write on the link's target. Both now open
+  the temp file with `O_EXCL` and fsync the writer's own descriptor (a
+  re-opened read handle does not flush its pages on Linux). A DOSBox sandbox
+  whose base directory holds a quote or newline is refused with a `DosboxError`
+  rather than written into the line-oriented conf, and the COFF relocation
+  reader skips a record whose offset runs past the compiled bytes.
+- **A symbol name cannot escape its directory.** Annotation symbols are
+  reverse-engineering text, and joining one into a path as-is let a `../../..`
+  name write outside the run directory (or a leading `-` read as an option).
+  The new `rebrew.utils.filename_component` reduces a name to one component:
+  everything outside `[A-Za-z0-9._@-]` becomes `_`, leading dots and dashes
+  are stripped, the result is capped at 200 characters, and a name that
+  sanitizes to nothing falls back to `sym_<digest>`. `qual-sweep`, `match-ga`,
+  `match-run`, `instruction-clones`, and the `identify-library` header writer
+  use it; `merge-sweep` skips a stored source path that resolves outside the
+  project root.
+- **A `file` value in the metadata TOML cannot become a compiler option.**
+  A source name is a path from the annotation's `file` field, so one starting
+  with `-` or `@` reached the toolchain argv as an option or a CL response
+  file; the batch compile now prefixes it with `./`. `precompile_batch` skips
+  a `file` that is absolute or contains a `..` segment instead of staging it
+  outside the workdir and outside the container mount, and the NE segment
+  table's raw `length` is clamped so a window cannot read before the section.
 - **`rebrew init --refresh-agents` converges instead of accumulating stale
   skills.** The render wrote every packaged skill but never removed one the
   package no longer ships, and `--check` only looked at the packaged set, so an
@@ -292,6 +328,29 @@
   (nothing else in the DB is their source). The rows of those two tables are
   now read out before the delete and restored in the rebuild's transaction,
   skipping rows already present, so a second `--force` run adds no duplicate.
+- **`rebrew match --seed-llm` reports what the run cost, and the per-request
+  timeout is configurable.** A seeded GA run billed every completion against
+  an operator who could not see the count, the token volume, or the latency;
+  each billed request now records model, prompt version, token counts, and
+  latency in a `SeedUsage` that the run prints. The ceiling that decides
+  whether a billed request returns seeds or times out empty is
+  `REBREW_LLM_TIMEOUT` (seconds, default 90, floor 5, clamp 1800; a
+  non-integer or a value under the floor raises a `ConfigError` rather than
+  falling back to a default too short for the configured endpoint). A hosted
+  chat API answers a capped completion in seconds, a local model on CPU takes
+  minutes for the same payload.
+- **A GA replay artifact no longer depends on which thread finished first.**
+  The per-function best-run records were appended as workers completed, so two
+  runs over the same inputs could order the archive differently and a later
+  replay read a different file. Records are keyed and sorted by their
+  deterministic key before the artifact is written.
+- **Every status in the vocabulary has a mark in the report, the dashboard,
+  and the call graph.** A machine verdict (`COMPILE_ERROR`, `MISSING_SIZE`,
+  `INTERNAL_ERROR`, and the rest) with no entry in the shared palette rendered
+  as unstyled body ink while the terminal painted it red. `status_mark_groups`
+  in `rebrew.cli` is now the single source: the report stylesheet, the
+  dashboard shell, and the forced-colors override all iterate it, and a status
+  added to `KNOWN_STATUS` without a mark fails the test that compares the two.
 
 ### Changed
 - **The two non-`test_` modules under `tests/` are type-checked.**
@@ -318,6 +377,25 @@
 - **`instruction_clones.normalize_operands` passes a `SimpleNamespace`**
   instead of a private one-method class that held a single `op_str`; the
   stripper it feeds is already typed on the `_OperandCarrier` protocol.
+- **Breaking:** **A `[targets]` key that is not a plain file name now fails the
+  config load.** A target name becomes a path component (`src/<target>`,
+  `bin/<target>`, `db/data_<target>.json`, `layout/<target>/`) and a TOML table
+  key, so a name carrying `/`, `\`, a `..` segment, a control character, or
+  surrounding whitespace placed files outside the project on the next command.
+  The loader now rejects it with a `ConfigError` naming the key, and `rebrew
+  init`, `rebrew intake`, and `rebrew cfg` apply the same rule to a name given
+  on the command line. Real targets are module stems (`SERVER.DLL`,
+  `client_exe`); a project that names a target with a separator has to rename
+  it and update the paths that referenced the old name.
+- **Breaking:** **A toolchain name, family, or image tag from a plugin or an
+  overlay directory is rejected when it is not a plain name.** All three become
+  directories: the wine prefix under `XDG_CACHE_HOME`, the generated
+  `toolchain-<name>-docker.cmake`, and the docker build context inside the
+  toolchains repo, so a separator or a dot segment built from outside that
+  repo. `_assemble_toolchain_registry` now raises `RegistryError` for a bad
+  toolchain name and `rebrew toolchain` errors on a bad family or image tag.
+  This affects only third-party toolchain plugins, and a plugin that keeps
+  packaged names is unaffected.
 
 ## [2.13.1] - 2026-09-27
 ### Fixed
