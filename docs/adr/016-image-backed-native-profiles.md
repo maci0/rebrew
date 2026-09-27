@@ -44,6 +44,7 @@ Every shipped compiler profile is image-backed:
 | `mingw-16.2.0` | `rebrew/mingw:16.2.0-win32` | MinGW-w64 GCC 16.2.0 (PE/x86_32) |
 | `mingw-14.2.0` | `rebrew/mingw:14.2.0-win32` | MinGW-w64 GCC 14.2.0 (PE/x86_32) |
 | `watcom-2.0-win16` | `rebrew/watcom:2.0-win16` | Open Watcom 2.0 `wcc` (16-bit OMF) |
+| `watcom-2.0-win32` | `rebrew/watcom:2.0-win32` | Open Watcom 2.0 `wcc386` (32-bit OMF) |
 
 - At acceptance the unversioned names kept the newest version (`gcc` →
   14.2.0, `clang` → 18.1.8, `gcc-pe` → 16.2.0), so the default `gcc-pe`
@@ -70,7 +71,7 @@ Every shipped compiler profile is image-backed:
 - A compile needs no host gcc/clang/mingw.  The compiler version is pinned by
   the image tag, which is what byte-exact matching needs; a host toolchain
   upgrade can no longer change match results.
-- All seven images are in the `rebrew toolchain smoke` gate (verified
+- All eight images are in the `rebrew toolchain smoke` gate (verified
   byte-reproducible objects across runs).
 - `rebrew toolchain vendor` extracts the pinned source into the checkout
   (the mingw `.7z` archives via the new `7z-strip1` layout); the images

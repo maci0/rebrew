@@ -23,7 +23,10 @@ PRDs are organised by feature area:
 | 06 | [Data Section Analysis](06-data-section-analysis.md) | `data` (conflicts, dispatch, bss, gen-header) |
 | 07 | [Ghidra Sync](07-ghidra-sync.md)                 | `sync` (BinSync state-dir field sync + ReVa MCP structural ops) |
 | 08 | [Agent Skills](08-agent-skills.md)               | The six `agent-skills/*/SKILL.md` workflows |
-| 09 | [Full BinSync Integration](09-binsync-full.md) *(umbrella + declib I/O ship; divergent git merge remains)* | Bidirectional sync with declib, git-backed state, locals/enums/typedefs |
+| 09 | [Full BinSync Integration](09-binsync-full.md) | Bidirectional sync with declib, git-backed state, locals/enums/typedefs |
+
+Each PRD carries its own `- **Status**:` line; PRD 09 is the only one not
+`Shipped` (the umbrella and declib I/O ship, divergent git merge remains).
 
 For source-side gaps discovered while validating these PRDs see
 [`00-source-gap-report.md`](00-source-gap-report.md) — last audited
