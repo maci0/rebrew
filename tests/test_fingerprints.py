@@ -14,6 +14,7 @@ from typer.testing import CliRunner
 
 import rebrew.main
 from rebrew.fingerprints import (
+    FingerprintError,
     _rich_header_parts_from_dos_stub,
     export_hash,
     export_hash_from_pairs,
@@ -381,3 +382,61 @@ class TestFingerprintsCli:
         assert result.exit_code == 2
         payload = json.loads(result.stdout)
         assert "error" in payload
+
+
+def _corrupt_pe() -> bytes:
+    """An MZ header whose ``e_lfanew`` points at a real PE signature over garbage."""
+    blob = bytearray(b"MZ" + b"\0" * 0x3A)
+    blob[0x3C:0x40] = (0x40).to_bytes(4, "little")
+    return bytes(blob) + b"PE\0\0" + bytes(range(256)) * 2
+
+
+def _dos_only_exe() -> bytes:
+    """A DOS ``MZ`` executable: no PE header at all, so the empty answers stand."""
+    blob = bytearray(b"MZ" + b"\0" * 0x3A)
+    blob[0x3C:0x40] = (0x200).to_bytes(4, "little")
+    return bytes(blob) + b"this is a DOS stub, not a PE image"
+
+
+class TestUnparseablePE:
+    """A PE the backend rejects must not read as "no imports, no sections"."""
+
+    @pytest.fixture
+    def corrupt(self, tmp_path: Path) -> Path:
+        path = tmp_path / "truncated.exe"
+        path.write_bytes(_corrupt_pe())
+        return path
+
+    @pytest.fixture
+    def dos_only(self, tmp_path: Path) -> Path:
+        path = tmp_path / "dos.exe"
+        path.write_bytes(_dos_only_exe())
+        return path
+
+    def test_imphash_raises(self, corrupt: Path) -> None:
+        with pytest.raises(FingerprintError, match="truncated.exe"):
+            imphash(corrupt)
+
+    def test_export_hash_raises(self, corrupt: Path) -> None:
+        with pytest.raises(FingerprintError, match="truncated.exe"):
+            export_hash(corrupt)
+
+    def test_section_entropies_raises(self, corrupt: Path) -> None:
+        with pytest.raises(FingerprintError, match="truncated.exe"):
+            section_entropies(corrupt)
+
+    def test_bundle_raises(self, corrupt: Path) -> None:
+        with pytest.raises(FingerprintError):
+            fingerprint_bundle(corrupt)
+
+    def test_cli_exits_error_with_cause(self, corrupt: Path) -> None:
+        result = runner.invoke(rebrew.main.app, ["fingerprints", str(corrupt), "--json"])
+        assert result.exit_code == 2
+        payload = json.loads(result.stdout)
+        assert "truncated.exe" in payload["error"]
+        assert "PE header" in payload["error"]
+
+    def test_dos_only_exe_still_returns_empty(self, dos_only: Path) -> None:
+        assert imphash(dos_only) is None
+        assert export_hash(dos_only) is None
+        assert section_entropies(dos_only) == []

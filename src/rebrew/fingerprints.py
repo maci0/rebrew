@@ -33,6 +33,7 @@ import typer
 from rich.table import Table
 
 from rebrew.cli import EXIT_ERROR, TargetOption, console, error_exit, json_print, resolve_binary_arg
+from rebrew.errors import RebrewError
 
 #: Stream chunk for :func:`file_hashes`: the file is read in these slices
 #: so a large binary never lands in memory as one object.
@@ -49,8 +50,49 @@ _RICH_PADDING = 12
 _DANS = int.from_bytes(b"DanS", "little")
 
 
+class FingerprintError(RebrewError, RuntimeError):
+    """A binary carries a PE header that no backend could parse.
+
+    Distinct from "this file is not a PE" (a legitimate ``None`` / ``[]``
+    answer): a truncated or corrupt PE used to report an empty import list
+    and no sections, which reads as a real property of the binary.
+    """
+
+
+#: Bytes at offset 0 of every PE image, and the ``PE\\0\\0`` signature the
+#: ``e_lfanew`` field points at.
+_MZ_MAGIC = b"MZ"
+_PE_SIGNATURE = b"PE\0\0"
+
+#: Bytes read from the head of a file to look for the two magics above.
+_MAGIC_PROBE_BYTES = 0x40
+
+
+def _pe_signature_present(path: Path) -> bool:
+    """True when *path*'s DOS header points at a ``PE\\0\\0`` signature.
+
+    A DOS-only executable also starts with ``MZ`` but has no PE header, so
+    the ``e_lfanew`` field at offset 0x3C is followed and its target checked
+    before the file counts as an unparseable PE.
+    """
+    try:
+        with path.open("rb") as f:
+            head = f.read(_MAGIC_PROBE_BYTES)
+    except OSError:
+        return False
+    if len(head) < 0x40 or head[:2] != _MZ_MAGIC:
+        return False
+    lfanew = int.from_bytes(head[0x3C:0x40], "little")
+    try:
+        with path.open("rb") as f:
+            f.seek(lfanew)
+            return f.read(4) == _PE_SIGNATURE
+    except OSError:
+        return False
+
+
 def _parse_pe(path: Path) -> Any | None:
-    """Parse *path* as a PE via LIEF, or ``None`` on any failure."""
+    """Parse *path* as a PE via LIEF, or ``None`` when it is not a PE."""
     if not path.exists():
         return None
     import lief
@@ -61,6 +103,22 @@ def _parse_pe(path: Path) -> Any | None:
         pe = lief.PE.parse(str(path))
     except Exception:
         return None
+    return pe
+
+
+def _parse_pe_or_raise(path: Path) -> Any:
+    """:func:`_parse_pe`, but a PE LIEF cannot parse raises.
+
+    A plain ``None`` for every failure made a truncated or corrupt PE
+    indistinguishable from an import-less one, so the caller saw "no
+    imports, no sections" instead of a parse error.
+    """
+    pe = _parse_pe(path)
+    if pe is None and _pe_signature_present(path):
+        raise FingerprintError(
+            f"cannot parse {path} as a PE: the PE header is present but the "
+            "format backend rejected the image (truncated or corrupt file?)"
+        )
     return pe
 
 
@@ -129,10 +187,11 @@ def imphash(path: str | Path) -> str | None:
     Parses the import table directly (LIEF) instead of
     :func:`rebrew.import_table.parse_imports`, which drops ordinal imports:
     every entry keeps its declaration order and ordinals become
-    ``dll.ord<N>``.  Returns ``None`` for a missing, non-PE, unparseable,
-    or import-less binary.
+    ``dll.ord<N>``.  Returns ``None`` for a missing, non-PE, or import-less
+    binary.  Raises :class:`FingerprintError` for a PE that cannot be
+    parsed, rather than reporting it as import-less.
     """
-    pe = _parse_pe(Path(path))
+    pe = _parse_pe_or_raise(Path(path))
     if pe is None:
         return None
     pairs: list[tuple[str, str]] = []
@@ -166,14 +225,15 @@ def export_hash_from_pairs(pairs: Iterable[tuple[int, str]]) -> str:
 def export_hash(path: str | Path) -> str | None:
     """SHA-256 over the PE export table of *path*, or ``None``.
 
-    ``None`` means the export table cannot be read (a missing file, a non-PE,
-    a PE LIEF fails to parse, or an export directory LIEF reports but cannot
-    expose); a readable PE without exports hashes the empty string.  An
-    ordinal-only export keeps its ordinal and an empty name; a forwarded
-    export keeps its record too, since the entry identifies the export
-    regardless of the address resolving in another module.
+    ``None`` means the file is missing, is not a PE, or carries an export
+    directory LIEF reports but cannot expose; a readable PE without exports
+    hashes the empty string.  An ordinal-only export keeps its ordinal and an
+    empty name; a forwarded export keeps its record too, since the entry
+    identifies the export regardless of the address resolving in another
+    module.  Raises :class:`FingerprintError` for a PE that cannot be
+    parsed.
     """
-    pe = _parse_pe(Path(path))
+    pe = _parse_pe_or_raise(Path(path))
     if pe is None:
         return None
     try:
@@ -295,7 +355,9 @@ def section_entropies(path: str | Path) -> list[dict[str, object]]:
 
     Entropy is Shannon entropy over the section's raw file bytes, rounded to
     4 decimals.  Sections appear in file order.  Returns ``[]`` when the
-    binary cannot be parsed.
+    file is missing or carries no parseable format; raises
+    :class:`FingerprintError` for a PE the backend rejects, which is not
+    the same answer as "this PE has no sections".
     """
     p = Path(path)
     if not p.exists():
@@ -305,7 +367,12 @@ def section_entropies(path: str | Path) -> list[dict[str, object]]:
     try:
         info = load_binary(p)
         raw = info.data
-    except Exception:
+    except Exception as exc:
+        if _pe_signature_present(p):
+            raise FingerprintError(
+                f"cannot parse {p} as a PE: the PE header is present but the "
+                f"format backend rejected the image ({exc})"
+            ) from exc
         return []
     out: list[dict[str, object]] = []
     for name, section in info.sections.items():
@@ -377,8 +444,9 @@ def fingerprint_bundle(path: str | Path) -> dict[str, object]:
     ``imphash``, ``export_hash``, ``rich_header_hash``, and
     ``section_entropies``.  The ``tlsh`` / ``ssdeep`` keys appear only when
     their backend is importable.  A field that cannot be derived (unknown
-    format, no imports, no exports, no Rich header) is ``None``; only a
-    missing path raises, as ``FileNotFoundError``.
+    format, no imports, no exports, no Rich header) is ``None``.  A missing
+    path raises :class:`FileNotFoundError`; a PE that no backend can parse
+    raises :class:`FingerprintError` instead of reporting empty fields.
     """
     p = Path(path)
     if not p.exists():
@@ -436,6 +504,8 @@ def main(
 
     try:
         bundle = fingerprint_bundle(binary)
+    except FingerprintError as exc:
+        error_exit(str(exc), json_mode=json_output, code=EXIT_ERROR)
     except OSError as exc:
         error_exit(f"cannot fingerprint {binary}: {exc}", json_mode=json_output, code=EXIT_ERROR)
 
