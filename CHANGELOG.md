@@ -1,5 +1,6 @@
 ## [Unreleased]
 
+## [2.13.1] - 2026-09-27
 ### Fixed
 - **A /O2 program linked to an /O1 LIBCMT is not a mixed compile.** The
   optimization fingerprint counts wrapper sites in the whole image, so
