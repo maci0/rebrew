@@ -11,7 +11,22 @@ from typing import Any
 
 import capstone
 
+from rebrew.errors import RebrewError
+
 from .core import Score, StructuralSimilarity
+
+
+class SimilarityUnavailable(RebrewError, RuntimeError):
+    """The optional ``resembl`` scoring core is not installed.
+
+    ``code_similarity`` is the only scoring entry point that needs it, so a
+    consumer that never asks for a structural score never hits this.  It
+    carries the shared :class:`~rebrew.errors.RebrewError` base so an
+    embedding program's documented ``except RebrewError`` handler catches a
+    missing extra like any other rebrew failure, instead of the bare
+    ``RuntimeError`` this replaced.
+    """
+
 
 # Default architecture (x86-32).  Functions accept optional arch/mode
 # parameters so callers can override without circular config imports.
@@ -875,8 +890,8 @@ def print_diff_summary(
 
     Lets callers that need both shapes (e.g. ``rebrew diff`` prints the table
     and embeds the dict in ``--json``) disassemble once instead of calling
-    ``diff_functions`` twice.  The ``invalid`` count is not in the payload
-    (it folds into ``structural``), so it prints from the stored split.
+    ``diff_functions`` twice.  Every count comes from the payload, so a
+    hand-built summary prints ``0`` for the keys it omits.
     """
     s = summary["summary"]
     mismatch_count = s.get("structural", 0)
@@ -1041,8 +1056,10 @@ def code_similarity(
     this function returns a plain float and is ``try/except``-wrapped by
     callers for best-effort use (import of ``resembl`` is optional).
 
-    Raises ``RuntimeError`` when the optional ``resembl`` dependency is not
-    installed (guarded import, mirroring ``prove.py``'s optional ``angr``).
+    Raises :class:`SimilarityUnavailable` when the optional ``resembl``
+    dependency is not installed (guarded import, mirroring ``prove.py``'s
+    optional ``angr``).  That type is a ``RebrewError``, so one
+    ``except RebrewError`` covers a missing extra like any other failure.
     """
     if target_bytes == candidate_bytes:
         return 100.0
@@ -1059,7 +1076,7 @@ def code_similarity(
             score_hybrid,
         )
     except ImportError as exc:
-        raise RuntimeError(
+        raise SimilarityUnavailable(
             "code_similarity requires the optional 'resembl' dependency "
             "(uv sync --group similarity; needs ../resembl checked out)"
         ) from exc

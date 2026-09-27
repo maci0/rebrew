@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import ast
 import importlib
 import importlib.util
 import re
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -97,6 +99,7 @@ class TestErrorsLazyExports:
 
         expected = {
             "CatalogScanError",
+            "CompareResultError",
             "ComponentError",
             "ConfigError",
             "ConfigKeyError",
@@ -116,6 +119,7 @@ class TestErrorsLazyExports:
             "OrphanInventoryError",
             "RecompileError",
             "RegistryError",
+            "SimilarityUnavailable",
             "Tc16Error",
             "ToolchainError",
             "UnresolvedSymbolError",
@@ -527,9 +531,13 @@ class TestGhidraClientInjection:
 
         fake = FakeMcpClient()
         cmd = {"tool": "create-function", "args": {"address": "0x1000"}}
-        success, errors = apply_commands_via_mcp([cmd], client=fake)  # type: ignore[arg-type]
+        result = apply_commands_via_mcp([cmd], client=fake)  # type: ignore[arg-type]
+        # Both counts are ints: a named record keeps a transposition visible,
+        # and the 2-tuple form above still destructures.
+        success, errors = result
         assert success == 1
         assert errors == 0
+        assert (result.success, result.errors) == (1, 0)
         assert len(fake.calls) >= 2  # init + command
 
 
@@ -583,3 +591,100 @@ class TestDocumentedLibrarySurface:
                 if importlib.util.find_spec(name) is None:
                     missing.append(f"{label}: {name}")
         assert missing == [], "documented modules do not exist: " + ", ".join(missing)
+
+
+class TestPublicFailuresAreRecoverable:
+    """Every public failure a consumer can hit is a ``RebrewError``.
+
+    The README tells an embedding program that one ``except RebrewError``
+    clause covers whatever rebrew raises.  A bare ``RuntimeError`` /
+    ``ValueError`` from a public entry point escapes that handler, so both
+    are pinned here.
+    """
+
+    def test_contradictory_compare_result_raises_a_rebrew_error(self) -> None:
+        from rebrew.compile import CompareResultError
+        from rebrew.errors import CompareResultError as ExportedError
+
+        assert ExportedError is CompareResultError
+        assert issubclass(CompareResultError, RebrewError)
+        assert issubclass(CompareResultError, ValueError)
+
+        with pytest.raises(CompareResultError) as excinfo:
+            CompareResult(
+                matched=True,
+                status="STUB",
+                match_percent=12.0,
+                delta=40,
+                obj_bytes=None,
+                reloc_offsets=None,
+            )
+        # Branch on the fields, not on the message text.
+        assert (excinfo.value.matched, excinfo.value.status) == (True, "STUB")
+
+    def test_one_except_clause_catches_a_contradictory_result(self) -> None:
+        try:
+            CompareResult(
+                matched=False,
+                status="EXACT",
+                match_percent=0.0,
+                delta=0,
+                obj_bytes=None,
+                reloc_offsets=None,
+            )
+        except RebrewError:
+            return
+        pytest.fail("contradictory CompareResult escaped the RebrewError handler")
+
+    def test_missing_resembl_raises_a_rebrew_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A missing optional extra is a rebrew failure, not a bare RuntimeError.
+
+        ``None`` in ``sys.modules`` makes the guarded import raise
+        ``ImportError``, which is the branch the real uninstalled install
+        takes; the test therefore runs whether or not ``resembl`` is present.
+        """
+        from rebrew.errors import SimilarityUnavailable
+        from rebrew.matcher.scoring import code_similarity
+
+        assert issubclass(SimilarityUnavailable, RebrewError)
+        monkeypatch.setitem(sys.modules, "rapidfuzz", None)
+        monkeypatch.setitem(sys.modules, "resembl.scoring", None)
+        with pytest.raises(SimilarityUnavailable):
+            code_similarity(b"\x90\x90", b"\x90\x90\x90")
+
+
+class TestMatcherLazyExportsStayTyped:
+    """``rebrew.matcher``'s lazy names must be typed for consumers.
+
+    Without the ``if TYPE_CHECKING`` mirror, a consumer type-checking
+    ``from rebrew.matcher import build_candidate`` gets ``Any`` back from
+    ``__getattr__`` in a py.typed package.
+    """
+
+    def _type_checking_imports(self) -> set[str]:
+        import rebrew.matcher as matcher_mod
+
+        source = Path(matcher_mod.__file__).read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        names: set[str] = set()
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.If) or not isinstance(node.test, ast.Name):
+                continue
+            if node.test.id != "TYPE_CHECKING":
+                continue
+            for stmt in node.body:
+                if isinstance(stmt, ast.ImportFrom):
+                    for alias in stmt.names:
+                        names.add(alias.asname or alias.name)
+        return names
+
+    def test_every_lazy_export_has_a_type_checking_re_export(self) -> None:
+        import rebrew.matcher as matcher_mod
+
+        assert self._type_checking_imports() == set(matcher_mod._LAZY_EXPORTS)
+
+    def test_lazy_export_resolves_to_the_typed_attribute(self) -> None:
+        import rebrew.matcher as matcher_mod
+        from rebrew.matcher.compiler import build_candidate
+
+        assert matcher_mod.build_candidate is build_candidate

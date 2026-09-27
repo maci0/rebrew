@@ -11,7 +11,7 @@ import json
 import logging
 import re
 import time
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, NamedTuple
 
 if TYPE_CHECKING:
     import httpx
@@ -54,6 +54,19 @@ class McpError(RebrewError, RuntimeError):
         self.kind = kind
         self.status_code = status_code
         self.retryable = retryable
+
+
+class McpApplyResult(NamedTuple):
+    """Per-op outcome counts from :func:`apply_commands_via_mcp`.
+
+    A named pair rather than a bare ``tuple[int, int]``: both fields are
+    ``int``, so positional destructuring cannot catch a transposition.  It is
+    still a 2-tuple, so existing ``success, errors = apply(...)`` code keeps
+    working unchanged.
+    """
+
+    success: int
+    errors: int
 
 
 class McpApplyAborted(RebrewError, RuntimeError):
@@ -636,10 +649,11 @@ def apply_commands_via_mcp(
     *,
     client: httpx.Client | None = None,
     timeout: float = MCP_REQUEST_TIMEOUT_S,
-) -> tuple[int, int]:
+) -> McpApplyResult:
     """Apply sync commands to Ghidra via ReVa MCP Streamable HTTP.
 
-    Returns (success_count, error_count).
+    Returns :class:`McpApplyResult` with ``success`` and ``errors`` counts
+    (a 2-tuple, so ``success, errors = ...`` still works).
 
     *client*, when given, must be an ``httpx.Client`` (or compatible stand-in).
     The caller owns its lifetime; the function does not close it.
@@ -845,7 +859,7 @@ def apply_commands_via_mcp(
                 break
 
     console.print()  # newline after progress
-    return success, errors
+    return McpApplyResult(success, errors)
 
 
 __all__ = [
@@ -853,6 +867,7 @@ __all__ = [
     "MCP_HEADERS",
     "MCP_REQUEST_TIMEOUT_S",
     "McpApplyAborted",
+    "McpApplyResult",
     "McpError",
     "McpErrorKind",
     "apply_commands_via_mcp",

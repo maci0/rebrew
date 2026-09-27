@@ -12,6 +12,9 @@ from rebrew.ghidra.client import (
     McpApplyAborted as McpApplyAborted,
 )
 from rebrew.ghidra.client import (
+    McpApplyResult as McpApplyResult,
+)
+from rebrew.ghidra.client import (
     McpError as McpError,
 )
 from rebrew.ghidra.client import (
@@ -29,6 +32,7 @@ from rebrew.ghidra.commands import (
 
 __all__ = [
     "McpApplyAborted",
+    "McpApplyResult",
     "McpError",
     "McpErrorKind",
     "apply_commands_via_mcp",

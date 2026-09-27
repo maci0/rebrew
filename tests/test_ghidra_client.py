@@ -19,6 +19,7 @@ def test_ghidra_client_public_all() -> None:
         "MCP_HEADERS",
         "MCP_REQUEST_TIMEOUT_S",
         "McpApplyAborted",
+        "McpApplyResult",
         "McpError",
         "McpErrorKind",
         "apply_commands_via_mcp",
@@ -44,6 +45,7 @@ def test_ghidra_package_exports_mcp_errors() -> None:
     assert "McpError" in ghidra.__all__
     assert "McpApplyAborted" in ghidra.__all__
     assert "McpErrorKind" in ghidra.__all__
+    assert "McpApplyResult" in ghidra.__all__
     assert ghidra.McpError is not None
     assert issubclass(ghidra.McpError, RuntimeError)
     # Kind alias must be importable alongside the exception for typed branching.
