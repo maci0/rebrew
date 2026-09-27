@@ -125,7 +125,9 @@ class TestContextPinnedCompileCache:
         ctx_b = self._ctx(tmp_path / "b.c", "typedef long myint;\n")
 
         fake = _FakeCompiler("f.obj")
-        monkeypatch.setattr("rebrew.compile.TOOLCHAINS", {"fake-1.0": _spec()})
+        monkeypatch.setattr(
+            "rebrew.compile.toolchain_registry", SimpleNamespace(TOOLCHAINS={"fake-1.0": _spec()})
+        )
         monkeypatch.setattr("rebrew.compile.run_toolchain", fake)
 
         def _compile(ctx: CompileContext | None, workdir_name: str) -> tuple[str | None, str]:

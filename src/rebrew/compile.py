@@ -65,6 +65,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, Self, cast, get_args
 
+#: ``toolchain.TOOLCHAINS`` is republished by ``refresh_toolchain_registry``
+#: and must be read through the module at call time; a module-level
+#: ``from rebrew.toolchain import TOOLCHAINS`` would pin one generation for
+#: the life of this module.  The local per-function override is named
+#: ``toolchain`` throughout, so the module is bound under a name that cannot
+#: be shadowed by it.
+from rebrew import toolchain as toolchain_registry
 from rebrew.binary_loader import load_binary
 from rebrew.binary_model import BinaryInfo, SectionInfo
 from rebrew.coff_reloc import build_iat_region, smart_reloc_compare
@@ -86,7 +93,6 @@ from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
 from rebrew.metadata import canonical_status
 from rebrew.msvc_env import msvc_env_from_config, resolve_runner_path
 from rebrew.toolchain import (
-    TOOLCHAINS,
     ToolchainError,
     ToolchainSpec,
     cached_image_digest,
@@ -1566,10 +1572,10 @@ def compile_to_obj(
     # standardized runner - there is no host wine path.
     tc_spec = None
     if toolchain:
-        tc_spec = TOOLCHAINS.get(toolchain)
+        tc_spec = toolchain_registry.TOOLCHAINS.get(toolchain)
         if tc_spec is None:
             return None, (
-                f"per-function toolchain {toolchain!r} is unknown (known: {sorted(TOOLCHAINS)})"
+                f"per-function toolchain {toolchain!r} is unknown (known: {sorted(toolchain_registry.TOOLCHAINS)})"
             )
         if tc_spec.image is None and tc_spec.runtime != "native":
             return None, (
@@ -1577,7 +1583,11 @@ def compile_to_obj(
                 "all compiles run through their docker images; "
                 f"run `rebrew toolchain build {toolchain}` first"
             )
-    spec = tc_spec if tc_spec is not None else (TOOLCHAINS.get(profile) if profile else None)
+    spec = (
+        tc_spec
+        if tc_spec is not None
+        else (toolchain_registry.TOOLCHAINS.get(profile) if profile else None)
+    )
 
     use_timeout = cfg.compile_timeout
 
@@ -1906,7 +1916,7 @@ def precompile_batch(
         return {}
     try:
         spec_profile = getattr(cfg, "compiler_profile", "")
-        base_spec = TOOLCHAINS.get(spec_profile) if spec_profile else None
+        base_spec = toolchain_registry.TOOLCHAINS.get(spec_profile) if spec_profile else None
     except Exception:
         # Batch is an optimization; degrade to the per-function path, but
         # log the broken profile lookup.
@@ -1938,7 +1948,7 @@ def precompile_batch(
             # Per-function toolchain override with an exotic style can't
             # join the batch — leave it for the individual path.
             if toolchain:
-                override = TOOLCHAINS.get(toolchain)
+                override = toolchain_registry.TOOLCHAINS.get(toolchain)
                 if override is None or override.effective_arg_style not in ("posix", "msvc"):
                     continue
             if context is not None:
@@ -1946,7 +1956,7 @@ def precompile_batch(
             if cache is not None:
                 # Skip cache hits — the individual path serves them without
                 # compiling.  Key inputs mirror compile_to_obj exactly.
-                spec = TOOLCHAINS.get(toolchain) if toolchain else base_spec
+                spec = toolchain_registry.TOOLCHAINS.get(toolchain) if toolchain else base_spec
                 try:
                     text = _text_by_path.get(cfile)
                     if text is None:
@@ -1979,7 +1989,7 @@ def precompile_batch(
         group_out: dict[int, str] = {}
         workdir: Path | None = None
         try:
-            spec = TOOLCHAINS.get(toolchain) if toolchain else base_spec
+            spec = toolchain_registry.TOOLCHAINS.get(toolchain) if toolchain else base_spec
             if spec is None:
                 return group_out
             workdir = writable_temp_dir("rebrew_batch_")
@@ -2602,7 +2612,9 @@ def _linked_spec(cfg: ProjectConfig, toolchain: str | None) -> tuple[ToolchainSp
     """
     profile = getattr(cfg, "compiler_profile", "")
     spec = (
-        TOOLCHAINS.get(toolchain) if toolchain else (TOOLCHAINS.get(profile) if profile else None)
+        toolchain_registry.TOOLCHAINS.get(toolchain)
+        if toolchain
+        else (toolchain_registry.TOOLCHAINS.get(profile) if profile else None)
     )
     if spec is None:
         return None, f"no toolchain spec for profile {profile!r}"

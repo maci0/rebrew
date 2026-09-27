@@ -414,6 +414,27 @@
   `WorkspaceNotFound`) when the file is there and is not readable UTF-8
   TOML, which is what `rebrew.config.load_config` has always done with the
   same file.
+- **`rebrew.compile` pinned one toolchain generation for the life of the
+  process.** `toolchain.TOOLCHAINS` is republished as a whole by
+  `refresh_toolchain_registry`, and its own docstring says a reader must go
+  through the module rather than a module-level `from ... import`.
+  `compile.py` did the import anyway, so every compile resolved against the
+  snapshot as of the first import and a toolchain installed or overlaid later
+  stayed invisible to it. It now reads `toolchain_registry.TOOLCHAINS` at
+  call time (bound under a name the per-function `toolchain` local cannot
+  shadow). Two tests that patched `rebrew.compile.TOOLCHAINS` were also
+  mutating or replacing the published registry instead of the reader's
+  binding; one of them, `test_native_profile_rejected`, had been failing
+  outright since the snapshot became a read-only proxy.
+- **A held `ETag` turned a rejected `/api/functions` query into a stale
+  304.** `Dashboard.has_representation` decided the 304 short-circuit from
+  the `target` alone, so `GET /api/functions?target=…&status=STTUB` with a
+  matching `If-None-Match` (or `*`) answered 304 while the same request
+  without the header answered 400 `invalid_status`. The client would render
+  a cached body as the current result for a filter the server had just
+  refused, and the rejection was never reported. It now replays the status
+  vocabulary check the route performs, so a revalidation only stands in for
+  a GET that would have answered 200.
 - **`SECURITY.md` denied a dashboard control the code ships.** The policy
   said the coverage dashboard has "no rate limit and no connection cap"
   while `docs/THREAT_MODEL.md` cited the same 64-connection cap;

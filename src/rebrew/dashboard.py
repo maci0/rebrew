@@ -82,7 +82,8 @@ probe can watch the error rate while the server is up.
 An inline ``data:,`` icon stops the per-load ``/favicon.ico`` 404.
 A matching ``If-None-Match`` on a routed path is answered 304 only when a GET
 would answer 200 (target-scoped ones need a known ``target``; ``/api/summary``
-a readable ``function_stats``), without running the route's query.
+a readable ``function_stats``; ``/api/functions`` a ``status`` inside the
+vocabulary), without running the route's query.
 The static HTML shell, ``/app.js``, and ``/boot-guard.js`` are zstd- and
 gzip-precompressed at import time (gzip ``mtime=0``, so a restart serves the
 same bytes) so entry assets skip per-request compression CPU.  Their combined
@@ -2084,7 +2085,13 @@ class Dashboard:
         return row is not None
 
     def has_representation(self, path: str, query: dict[str, list[str]]) -> bool:
-        """True when a GET of routed *path* would answer 200 (so 304 may stand in)."""
+        """True when a GET of routed *path* would answer 200 (so 304 may stand in).
+
+        Every precondition the route itself rejects on has to be replayed
+        here, or a revalidation answers 304 for a request the same GET
+        answers 400/404/500 with: the client would read a stale body as the
+        current one instead of being told its query was wrong.
+        """
         if path not in _TARGET_ROUTES:
             return True
         target = _opt_query(query, "target") or ""
@@ -2614,9 +2621,10 @@ class _Handler(BaseHTTPRequestHandler):
         # body as fresh until the next rebuild.  An old ETag on a new body
         # only costs one extra refetch.  A matching If-None-Match on a routed
         # GET/HEAD answers 304 without running the query.  A target-scoped
-        # route without ``?target=`` or with an unknown target has no
-        # representation to revalidate (``If-None-Match: *`` and the DB-wide
-        # ETag included), so it falls through to its 400/404.
+        # route without ``?target=``, with an unknown target, or with a
+        # ``status`` outside the vocabulary has no representation to
+        # revalidate (``If-None-Match: *`` and the DB-wide ETag included), so
+        # it falls through to its 400/404.
         etag = self.dashboard.response_etag(self.path)
         parsed = urlparse(self.path)
         # keep_blank_values: a present ``module=`` filters blank modules.

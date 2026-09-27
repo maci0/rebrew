@@ -958,6 +958,12 @@ components:
         The client's `If-None-Match` matched this representation, so the
         route never ran.  The body is empty; revalidate the same URL to get
         one.  Never sent by `/api/health`, which carries no validator.
+
+        Only sent when the same request would answer 200: a target-scoped
+        route needs a known `target`, `/api/summary` a readable
+        `function_stats`, and `/api/functions` a `status` inside the
+        vocabulary.  A request that would be rejected keeps its 400 or 404
+        instead, so a held validator never hides a rejected query.
       headers:
         ETag: { $ref: "#/components/headers/ETag" }
         Cache-Control: { $ref: "#/components/headers/CacheControl" }

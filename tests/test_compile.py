@@ -1242,18 +1242,24 @@ class TestLinkedSpec:
         assert err == ""
 
     def test_native_profile_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from rebrew import compile as compile_mod
         from rebrew.compile import _linked_spec
-        from rebrew.toolchain import TOOLCHAINS
         from rebrew.toolchain_spec import ToolchainSpec
 
-        # An image-less plugin spec has no image to run LINK.EXE in.
-        # TOOLCHAINS is a read-only mapping, so extend a copy and swap the
-        # module-level binding compile.py reads.
-        registry = {
-            **TOOLCHAINS,
-            "hostcc": ToolchainSpec(name="hostcc", image=None, binary="hostcc"),
-        }
-        monkeypatch.setattr("rebrew.compile.TOOLCHAINS", registry)
+        # An image-less plugin spec has no image to run LINK.EXE in.  The
+        # registry is published as a read-only proxy and is republished whole
+        # by ``refresh_toolchain_registry``, so the reader's own binding is
+        # what a test swaps, not the published map.
+        monkeypatch.setattr(
+            compile_mod,
+            "toolchain_registry",
+            SimpleNamespace(
+                TOOLCHAINS={
+                    **compile_mod.toolchain_registry.TOOLCHAINS,
+                    "hostcc": ToolchainSpec(name="hostcc", image=None, binary="hostcc"),
+                }
+            ),
+        )
         spec, err = _linked_spec(SimpleNamespace(compiler_profile="hostcc"), None)
         assert spec is None
         assert "host-native" in err
@@ -1465,14 +1471,16 @@ class TestPrecompileBatchCleanup:
 
         monkeypatch.setattr("rebrew.compile.compile_batch_objs", _fake_batch)
         monkeypatch.setattr(
-            "rebrew.compile.TOOLCHAINS",
-            {
-                "mingw-16.2.0": SimpleNamespace(
-                    name="mingw-16.2.0",
-                    image="rebrew/mingw:16.2.0-win32",
-                    effective_arg_style="posix",
-                )
-            },
+            "rebrew.compile.toolchain_registry",
+            SimpleNamespace(
+                TOOLCHAINS={
+                    "mingw-16.2.0": SimpleNamespace(
+                        name="mingw-16.2.0",
+                        image="rebrew/mingw:16.2.0-win32",
+                        effective_arg_style="posix",
+                    )
+                }
+            ),
         )
         monkeypatch.setattr(
             "rebrew.compile_overrides.resolve_compile_overrides",

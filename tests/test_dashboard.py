@@ -991,6 +991,40 @@ class TestHandle:
             )
             assert status == 200, known
 
+    def test_revalidation_matches_the_get_it_stands_in_for(self, dashboard: Dashboard) -> None:
+        """A 304 may only stand in for a GET that would have answered 200.
+
+        Every precondition a route rejects on has to be replayed by
+        ``has_representation``, or a held validator turns a rejected query
+        into a stale body the client renders as current.
+        """
+        cases = [
+            ({"target": ["server_dll"]}, True),
+            ({"target": ["server_dll"], "status": ["STUB"]}, True),
+            ({"target": ["server_dll"], "status": [" stub "]}, True),
+            # A blank status does not filter, so it filters nothing and 200s.
+            ({"target": ["server_dll"], "status": [""]}, True),
+            ({"target": ["server_dll"], "status": ["STTUB"]}, False),
+            ({"target": ["nope"]}, False),
+            ({"target": [""]}, False),
+            ({}, False),
+        ]
+        for query, expected in cases:
+            assert dashboard.has_representation("/api/functions", query) is expected, query
+        # The other target-scoped routes take no status, so a known target is
+        # the whole precondition.
+        for path in ("/api/sections", "/api/globals", "/api/history"):
+            assert dashboard.has_representation(path, {"target": ["server_dll"]}) is True
+            assert dashboard.has_representation(path, {"target": ["nope"]}) is False
+        # The GET the 304 stands in for really is the status a client sees.
+        status, _, _ = dashboard.handle("GET", "/api/functions", {"target": ["server_dll"]})
+        assert status == 200
+        status, _, body = dashboard.handle(
+            "GET", "/api/functions", {"target": ["server_dll"], "status": ["STTUB"]}
+        )
+        assert status == 400
+        assert json.loads(body)["code"] == "invalid_status"
+
     def test_list_envelopes_declare_paging(self, dashboard: Dashboard) -> None:
         """``paged`` says whether ``limit`` is a page size or the row count."""
         for path, paged in (
@@ -2316,6 +2350,24 @@ class TestHostValidation:
             handler.headers = {"Host": "127.0.0.1:8000", "If-None-Match": "*"}
             handler._respond("GET")
             assert [v for k, v in sent if k == "status"] == [400]
+
+        # A status outside the vocabulary keeps its 400 too: the 304 may only
+        # stand in for a GET that would have answered 200.
+        for inm in ("*", etag):
+            sent.clear()
+            handler.path = "/api/functions?target=server_dll&status=STTUB"
+            handler.headers = {"Host": "127.0.0.1:8000", "If-None-Match": inm}
+            handler._respond("GET")
+            assert [v for k, v in sent if k == "status"] == [400]
+
+        # The same route with a real status still revalidates to 304.  ("*"
+        # rather than the earlier etag: that tag covers path+query, so a
+        # different filter is a different representation with its own.)
+        sent.clear()
+        handler.path = "/api/functions?target=server_dll&status=STUB"
+        handler.headers = {"Host": "127.0.0.1:8000", "If-None-Match": "*"}
+        handler._respond("GET")
+        assert [v for k, v in sent if k == "status"] == [304]
 
         # An unknown target has no representation: its 404 beats "*" and a
         # replayed DB-wide ETag.
