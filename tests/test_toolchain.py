@@ -89,8 +89,10 @@ class TestRegistry:
             # process re-discovers plugin toolchains through it.
             "refresh_toolchain_registry",
             "require_toolchains_repo",
+            "resolve_msvc_toolchain",
             "run_toolchain",
             "swap_toolchain_image",
+            "toolchain_link_candidates",
         ]
         for name in tc.__all__:
             assert getattr(tc, name, None) is not None, name
