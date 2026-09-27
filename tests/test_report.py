@@ -114,6 +114,20 @@ class TestReportCli:
         strings_html = (site / "strings.html").read_text(encoding="utf-8")
         assert "<h2>Strings</h2>" in strings_html
 
+    def test_index_shows_source_file(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The function table names the source file each function came from."""
+        _write_project(tmp_path, pe_bytes=make_pe(b"\x90" * 32))
+        monkeypatch.chdir(tmp_path)
+        site = tmp_path / "site"
+        result = runner.invoke(app, ["--output", str(site)])
+        assert result.exit_code == 0, result.output
+        index = (site / "index.html").read_text(encoding="utf-8")
+        assert ">File</th>" in index
+        assert "<td class='file'>func_a.c</td>" in index
+        assert "<td class='file'>func_b.c</td>" in index
+        # A long path wraps instead of forcing the page to scroll sideways.
+        assert "td.file { max-width: 18rem; overflow-wrap: anywhere; }" in index
+
     def test_index_shows_blockers(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """The function table's Blocker column surfaces near-diag blockers."""
         _write_project(tmp_path, pe_bytes=make_pe(b"\x90" * 32))
