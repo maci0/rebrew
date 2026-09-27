@@ -2,6 +2,7 @@
 
 import json
 import logging
+import time
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -1499,6 +1500,46 @@ class TestRunVerification:
         assert len(results) == 7
         assert len(deferred) == 7
         assert {r["va"] for r in results} == {f"0x{0x1000 + i:08x}" for i in range(7)}
+
+    def test_outcome_lists_are_independent_of_completion_order(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A parallel run returns its lists in a fixed order.
+
+        The pool drains in completion order and ``done`` is a set, so an
+        unsorted walk would hand the STATUS batch a per-run ordering — and
+        it creates missing metadata entries in that order, so two runs over
+        the same corpus write rebrew-functions.toml differently.
+        """
+        from rebrew.verify import run_verification
+
+        self._patch(
+            monkeypatch,
+            {
+                0x1000: {"matched": False, "status": "STUB", "delta": 5, "message": "a"},
+                0x2000: {"matched": False, "status": "STUB", "delta": 5, "message": "b"},
+                0x3000: {"matched": False, "status": "STUB", "delta": 5, "message": "c"},
+            },
+        )
+        from rebrew.verify import verify_entry as real_verify
+
+        # Reverse-duration so the first entry finishes last.
+        def _slow_verify(e, *a, **k):
+            time.sleep(0.06 * (3 - (e.va - 0x1000) // 0x1000))
+            return real_verify(e, *a, **k)
+
+        monkeypatch.setattr("rebrew.verify.verify_entry", _slow_verify)
+        passed, failed, fail_details, results, deferred = run_verification(
+            [_ann(0x1000), _ann(0x2000), _ann(0x3000)],
+            _cfg(tmp_path),
+            jobs=3,
+            total=3,
+            cached_count=0,
+            json_output=True,
+        )
+        assert (passed, failed) == (0, 3)
+        assert [d[0].va for d in deferred] == [0x1000, 0x2000, 0x3000]
+        assert [d[0].va for d in fail_details] == [0x1000, 0x2000, 0x3000]
 
     def test_failures_recorded(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         from rebrew.verify import run_verification

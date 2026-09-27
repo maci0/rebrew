@@ -354,8 +354,11 @@ class BinaryMatchingGA:
         # The seed actually driving ``self.rng``: an unseeded run draws one so
         # it can be replayed with ``--seed``.  ``args_hash`` keeps the caller's
         # value, so an unseeded run still resumes its own checkpoint.
+        # Drawn from a private Random: the module-level generator is shared
+        # with the rest of the process, so a parallel batch (or any other
+        # module drawing from it) would decide which stub got which seed.
         self.rng_seed: int = (
-            rng_seed if rng_seed is not None else random.getrandbits(_DRAWN_SEED_BITS)
+            rng_seed if rng_seed is not None else random.Random().getrandbits(_DRAWN_SEED_BITS)
         )
         self.compare_obj = compare_obj
         self.lib_dir = lib_dir

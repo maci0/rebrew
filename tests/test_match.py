@@ -660,6 +660,7 @@ class TestRunAllBatch:
             mutation_weights=None,
             solutions_out=None,
             collect_pairs_path=None,
+            name_to_va=None,
         ):
             return True, "MATCHED", 0.0, 3, 1234
 
@@ -698,6 +699,7 @@ class TestRunAllBatch:
             mutation_weights=None,
             solutions_out=None,
             collect_pairs_path=None,
+            name_to_va=None,
         ):
             if "bad" in stub.symbol:
                 raise RuntimeError("boom")
@@ -715,7 +717,7 @@ class TestRunAllBatch:
         monkeypatch.setattr("rebrew.match_run.find_all_stubs", lambda *a, **k: stubs)
         monkeypatch.setattr(
             "rebrew.match_run._run_one_stub_ga",
-            lambda stub, cfg, gens, pop, jobs, timeout, seeds, cflags_override=None, rng_seed=None, resume_from=None, mutation_weights=None, solutions_out=None, collect_pairs_path=None: (
+            lambda stub, cfg, gens, pop, jobs, timeout, seeds, cflags_override=None, rng_seed=None, resume_from=None, mutation_weights=None, solutions_out=None, collect_pairs_path=None, name_to_va=None: (
                 True,
                 "MATCHED",
                 0.0,
@@ -725,6 +727,31 @@ class TestRunAllBatch:
         )
         matched, failed = self._run(self._cfg(tmp_path), jobs=2, json_output=True)
         assert (matched, failed) == (3, 0)
+
+    def test_parallel_run_log_is_written_in_stub_order(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+
+        stubs = [self._stub(f"f{i}.c", f"0x1000{i:04x}") for i in range(1, 4)]
+        monkeypatch.setattr("rebrew.match_run.find_all_stubs", lambda *a, **k: stubs)
+
+        def _fake_ga(stub, cfg, gens, pop, jobs, timeout, seeds, **_kw):
+            # Reverse-duration so completion order is the opposite of stub
+            # order; the run log must not follow it.
+            time.sleep(0.05 * (3 - int(stub.symbol[1])))
+            return True, "MATCHED", 0.0, 3, 7
+
+        recorded: list[str] = []
+        monkeypatch.setattr("rebrew.match_run._run_one_stub_ga", _fake_ga)
+        monkeypatch.setattr(
+            "rebrew.matcher.record_ga_run",
+            lambda root, **kw: recorded.append(kw["symbol"]),
+        )
+        matched, failed = self._run(self._cfg(tmp_path), jobs=3, json_output=True)
+        assert (matched, failed) == (3, 0)
+        # ga_runs.jsonl is the replay record: the same --seed must produce the
+        # same file, so lines follow stub order, not thread completion order.
+        assert recorded == ["f1.c", "f2.c", "f3.c"]
 
 
 class TestUpdateStubToMatched:
