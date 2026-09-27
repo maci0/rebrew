@@ -378,6 +378,36 @@ class TestCiPins:
         )
         assert "set -eu" in text
 
+    def test_sdist_check_does_not_rebuild_over_the_sbom(self) -> None:
+        """`sdist-check` must not re-run `build` and wipe dist/.
+
+        `build` is phony and opens by deleting dist/*.whl, dist/*.tar.gz,
+        dist/*.buildinfo and dist/*.cdx.json.  The CI package job runs
+        `make sdist-check` as its own invocation after `make sbom`, so a
+        `sdist-check: build` prerequisite rebuilt the tree and dropped the
+        SBOM and buildinfo the upload step requires (`if-no-files-found:
+        error` then fails, or an upload without them ships).  Depending on
+        the buildinfo file builds only when dist/ is empty.
+        """
+        text = MAKEFILE.read_text(encoding="utf-8")
+        assert _makefile_prereqs("sdist-check") == {"dist/rebrew.buildinfo"}
+        assert "dist/rebrew.buildinfo:" in text, (
+            "dist/rebrew.buildinfo needs a rule that runs `make build` when dist/ is empty"
+        )
+        # `build` must still clean dist/ itself; that is what makes the file
+        # rule above the right trigger.
+        build = text.split("\nbuild: warn-uv-version\n", 1)[1].split("\n# CycloneDX", 1)[0]
+        assert "dist/*.cdx.json" in build
+
+    def test_pr_check_orders_sbom_before_sdist_check(self) -> None:
+        """`pr-check` runs the targets itself, so the order is its own doing."""
+        text = MAKEFILE.read_text(encoding="utf-8")
+        match = re.search(r"(?m)^pr-check:(?P<deps>[^\n]*)$", text)
+        assert match is not None
+        deps = match.group("deps").split()
+        assert deps.index("sbom") < deps.index("sdist-check")
+        assert deps.index("build") < deps.index("sbom")
+
     def test_package_smoke_honors_lockfile(self) -> None:
         """Wheel smoke-install must not resolve runtime deps from live PyPI.
 

@@ -51,6 +51,23 @@
   rewrite works on the TOML content about to be written
   (`_rewrite_compiler_paths` takes and returns text), so the guard really is
   the last thing init does.
+- **`make sdist-check` no longer deletes the release artifacts.** The target
+  took the phony `build` as a prerequisite, and `build` opens by removing
+  `dist/*.whl`, `dist/*.tar.gz`, `dist/*.buildinfo` and `dist/*.cdx.json`.
+  Within one `make pr-check` run make skips the second `build`, but the CI
+  package job invokes `make sdist-check` on its own, so it rebuilt from
+  scratch and dropped the SBOM and buildinfo the upload step requires. It now
+  depends on `dist/rebrew.buildinfo` and builds only when `dist/` is empty.
+- **`make gen-skills` is deterministic and fails on drift.** The target was a
+  `cp -r` plus `sed -i` pipeline: it needed GNU sed, depended on `find`'s
+  traversal order, and nothing checked that the copy or the substitution
+  actually succeeded. `tools/render_skills.py` now walks the packaged tree in
+  sorted order, substitutes only in text assets, and `--check` (wired into
+  `make gen-skills-check`) names every file that drifted.
+- **`SOURCE_DATE_EPOCH` no longer re-runs git for every reference.** The
+  fallback chain left the variable recursively expanded, so each use in the
+  build recipes shelled out again; it is now a simple variable with the
+  non-git-tree case collapsing to 0 in one step.
 - **`make format-check` passes on a clean checkout again.**
   `src/rebrew/import_table.py`, `tests/test_check_idempotency.py`, and
   `tools/check_idempotency.py` were checked in unformatted, so the blocking
