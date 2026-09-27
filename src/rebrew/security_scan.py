@@ -18,6 +18,7 @@ Usage:
 
 from __future__ import annotations
 
+import logging
 import threading
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -40,6 +41,8 @@ from rebrew.cli import (
 )
 from rebrew.sources import iter_sources
 from rebrew.utils import rel_display_path
+
+log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Rule model
@@ -373,7 +376,10 @@ def scan_paths(paths: Sequence[Path]) -> list[dict[str, Any]]:
             # Detected encoding: a CP1252 callee name / comment must not be
             # U+FFFD-replaced before the pattern match runs.
             text, _ = read_source_text(path)
-        except OSError:
+        except OSError as exc:
+            # An unscanned file contributes no findings, so a report that
+            # omits it reads as clean.  Name the file so the gap is visible.
+            log.warning("not scanned (unreadable): %s: %s", path, exc)
             continue
         findings.extend(scan_source(text, file=str(path)))
     findings.sort(key=lambda finding: (finding["file"], finding["line"], finding["rule"]))

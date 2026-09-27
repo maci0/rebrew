@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 import shutil
 import subprocess
+import time
 from dataclasses import replace
 from pathlib import Path
 from typing import Any
@@ -32,6 +33,16 @@ from rebrew.utils import SOURCE_CHECKOUT, atomic_write_text, container_runtime
 #: (matches the curl download timeout).  Without it a stuck filesystem or
 #: an unzip prompting for an encrypted-archive password hangs forever.
 _EXTRACT_TIMEOUT_S = 1800
+
+#: Redirect hops a pinned download may follow before giving up.  Bounded
+#: because every hop re-validates the host, and an unbounded chain would
+#: otherwise loop.
+_DOWNLOAD_REDIRECT_LIMIT = 10
+
+#: Transport attempts per redirect target, and the base delay (seconds) for
+#: the exponential backoff between them (``base * 2**attempt``).
+_DOWNLOAD_ATTEMPTS = 3
+_DOWNLOAD_RETRY_BACKOFF_S = 0.5
 
 #: Tracked repo metadata kept when a vendored host tree is cleared or
 #: refreshed.  Docker build inputs, wrapper scripts, the pinned media and the
@@ -387,18 +398,32 @@ def _safe_extract_zip(archive: Path, dest: Path) -> None:
             zf.extract(info, dest)
 
 
-def _download_pinned_url(url: str, dest: Path, *, timeout: float = 1800) -> None:
+def _download_pinned_url(
+    url: str,
+    dest: Path,
+    *,
+    timeout: float = 1800,
+    attempts: int = _DOWNLOAD_ATTEMPTS,
+    backoff: float = _DOWNLOAD_RETRY_BACKOFF_S,
+) -> None:
     """Download *url* to *dest*, following redirects only while hosts stay trusted.
 
     Replaces ``curl -sL`` so a poisoned ``Location`` cannot SSRF the workstation
     (metadata endpoints, intranet) before the sha256 pin check runs.
+
+    A transport failure is retried (a multi-hundred-MB media fetch over a
+    flaky link is the common case, and the caller's sha256 check makes a
+    re-fetch safe).  Each attempt truncates *dest*, so a failed or abandoned
+    attempt unlinks the partial file rather than leaving a short archive that
+    reads as a complete download.
     """
     from urllib.parse import urljoin
 
     import httpx
 
     current = _trusted_toolchain_download_url(url)
-    for _ in range(10):
+    last: httpx.HTTPError | None = None
+    for attempt in range(_DOWNLOAD_REDIRECT_LIMIT):
         try:
             with httpx.stream("GET", current, timeout=timeout, follow_redirects=False) as resp:
                 if resp.status_code in {301, 302, 303, 307, 308}:
@@ -415,7 +440,18 @@ def _download_pinned_url(url: str, dest: Path, *, timeout: float = 1800) -> None
                         fh.write(chunk)
                 return
         except httpx.HTTPError as exc:
-            raise ToolchainError(f"toolchain download failed from {current!r}: {exc}") from exc
+            last = exc
+            if attempt + 1 >= attempts:
+                break
+            time.sleep(backoff * 2**attempt)
+            continue
+        # A redirect used this iteration without returning; a transport
+        # failure restarts it at the redirect target, so a redirect chain
+        # longer than the limit still terminates.
+        continue
+    dest.unlink(missing_ok=True)
+    if last is not None:
+        raise ToolchainError(f"toolchain download failed from {current!r}: {last}") from last
     raise ToolchainError(f"toolchain download exceeded redirect limit from {url!r}")
 
 

@@ -315,7 +315,7 @@ class TestToolchainImageStep:
                 calls.append(cmd)
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-        monkeypatch.setattr("rebrew.init.subprocess.run", _fake_run)
+        monkeypatch.setattr("rebrew.utils.run_process_group", _fake_run)
         result = CliRunner().invoke(app, _FLAGGED, input="y\n")
         assert result.exit_code == 0, result.output + result.stderr
         assert calls == [["/fake/rebrew", "toolchain", "build", "msvc-6.0"]]
@@ -334,7 +334,7 @@ class TestToolchainImageStep:
         def _fake_run(cmd: list[str], **kwargs: Any) -> Any:
             return SimpleNamespace(returncode=1, stdout="", stderr="")
 
-        monkeypatch.setattr("rebrew.init.subprocess.run", _fake_run)
+        monkeypatch.setattr("rebrew.utils.run_process_group", _fake_run)
         result = CliRunner().invoke(app, _FLAGGED, input="y\n")
         assert result.exit_code == 0, result.output + result.stderr
         assert "build failed" in result.stderr
@@ -359,7 +359,7 @@ class TestToolchainImageStep:
                 calls.append(cmd)
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
-        monkeypatch.setattr("rebrew.init.subprocess.run", _fake_run)
+        monkeypatch.setattr("rebrew.utils.run_process_group", _fake_run)
         flags = [*_FLAGGED]
         flags[flags.index("msvc-6.0")] = "mingw-16.2.0"
         result = CliRunner().invoke(app, flags, input="y\n")
