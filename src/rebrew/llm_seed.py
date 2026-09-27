@@ -32,7 +32,10 @@ provider-controlled value (error text, usage fields, model ids) is
 control-character-sanitized before it is logged.  Each billed request records
 its model, prompt version, token counts, and latency in a :class:`SeedUsage`
 that ``rebrew match --seed-llm`` prints in the run summary, because the
-INFO log line carrying the same numbers is invisible without ``-v``.
+INFO log line carrying the same numbers is invisible without ``-v``.  A
+request that left the process and then failed (timeout, 5xx after
+generation) is recorded too, with unreported tokens, so an endpoint that
+charges for work whose answer never arrived is not read as a free run.
 ``--seed-llm --dry-run`` previews the prompt without calling the endpoint.
 """
 
@@ -558,26 +561,19 @@ def _log_usage(data: Any, model: str, *, duration_s: float | None = None) -> See
     returned.  Non-integer provider fields become None rather than being
     formatted into the record.
     """
-    global _last_usage
     if duration_s is None:
         return None
     raw = data.get("usage") if isinstance(data, dict) else None
     usage: dict[str, Any] = raw if isinstance(raw, dict) else {}
-
-    def _count(field: str) -> int | None:
-        value = usage.get(field)
-        return value if isinstance(value, int) and not isinstance(value, bool) else None
-
     record = SeedUsage(
         model=model,
         prompt_version=_PROMPT_VERSION,
-        prompt_tokens=_count("prompt_tokens"),
-        completion_tokens=_count("completion_tokens"),
-        total_tokens=_count("total_tokens"),
+        prompt_tokens=_count(usage, "prompt_tokens"),
+        completion_tokens=_count(usage, "completion_tokens"),
+        total_tokens=_count(usage, "total_tokens"),
         duration_s=duration_s,
     )
-    with _request_lock:
-        _last_usage = record
+    _record_usage(record)
     if usage:
         reported = _sanitize_log_value(data.get("model") or model)
         logging.info(
@@ -598,6 +594,40 @@ def _log_usage(data: Any, model: str, *, duration_s: float | None = None) -> See
             duration_s,
         )
     return record
+
+
+def _count(usage: dict[str, Any], field: str) -> int | None:
+    """One provider token count, or None when it is absent or not an int."""
+    value = usage.get(field)
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def _record_usage(record: SeedUsage) -> None:
+    """Make *record* the cost the run summary reports."""
+    global _last_usage
+    with _request_lock:
+        _last_usage = record
+
+
+def _record_attempt(model: str, duration_s: float) -> None:
+    """Record a request that was sent but answered with no usage object.
+
+    A timeout, a 5xx after generation, or a dropped connection is billed and
+    yields no ``usage`` to read, so the success path never records it and a
+    paid endpoint looks free.  The elapsed time is the only cost evidence
+    there is; the token counts stay None, which ``describe()`` renders as
+    "token usage unreported" rather than as a zero.
+    """
+    _record_usage(
+        SeedUsage(
+            model=model,
+            prompt_version=_PROMPT_VERSION,
+            prompt_tokens=None,
+            completion_tokens=None,
+            total_tokens=None,
+            duration_s=duration_s,
+        )
+    )
 
 
 def _warn_on_substituted_model(served: Any, requested: str) -> None:
@@ -745,12 +775,26 @@ def request_seeds(
     response carries no valid C.
     Never raises (the GA must run unchanged when the LLM is unavailable).
     Never retries on 429/503/529 — a retry storm would multiply spend.
-    Resets :func:`last_seed_usage` so a run that bills nothing reports no cost.
+    Resets :func:`last_seed_usage` so a run that bills nothing reports no cost;
+    a request that was sent and then failed still records one, with unreported
+    token counts, because the provider may have billed it.
     """
     global _last_usage
     with _request_lock:
         _last_usage = None
-    conf = llm_config(cfg)
+    try:
+        conf = llm_config(cfg)
+    except ValueError as exc:
+        # A bad endpoint, unpinned model, or unparsable budget is a
+        # configuration error, not an outage.  Naming it loudly and seeding
+        # nothing beats aborting a GA that has already burned hours of Wine
+        # compiles over a config line.  The text quotes the offending value,
+        # so it is sanitized like any other provider-controlled string.
+        logging.warning(
+            "LLM seeding misconfigured: %s — GA continues without seeds",
+            _sanitize_log_value(exc),
+        )
+        return []
     if conf is None:
         return []
     count = max(1, min(int(count), 8))
@@ -771,6 +815,7 @@ def request_seeds(
             _max_requests(),
         )
         return []
+    _started = time.monotonic()
     try:
         if client is not None:
             return _request(client, conf, source, count, expect, model=model)
@@ -779,6 +824,10 @@ def request_seeds(
         with httpx.Client(timeout=_request_timeout()) as http:
             return _request(http, conf, source, count, expect, model=model)
     except Exception as exc:  # LLM availability must never break the GA
+        # The request left this process, so the provider may already have
+        # billed it; without a record the run reports no cost for a call that
+        # spent money.
+        _record_attempt(model, time.monotonic() - _started)
         # --seed-llm was explicitly requested; a silent empty result hides a
         # misconfigured endpoint/key.  Warn so the user knows seeds were asked
         # for but never arrived (still return [] — the GA must run unchanged).

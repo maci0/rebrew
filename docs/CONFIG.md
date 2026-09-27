@@ -461,7 +461,9 @@ characters are rejected. Surrounding whitespace is trimmed; empty values remain
 unset. TOML values are validated at load; environment values are validated when
 resolved, before any HTTP request. `REBREW_LLM_MAX_REQUESTS`, when set, must be
 a non-negative integer, and `REBREW_LLM_TIMEOUT` an integer no lower than 5
-(both validated when LLM config is resolved).
+(both validated when LLM config is resolved). A value that fails validation is
+reported by `rebrew match --seed-llm` and the run continues without LLM seeds;
+it does not abort the GA.
 
 `cflags` are user-facing defaults (e.g. `/O2 /Gd`). `base_cflags` are always-on
 flags prepended by the compile helpers (default `/nologo /c /MT`) and must not be

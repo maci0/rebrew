@@ -4,6 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import typer
 from typer.testing import CliRunner
 
 
@@ -734,3 +735,120 @@ class TestKunaSeed:
             dry_run=True,
         )
         assert constructed == []  # the GA must not run under --dry-run
+
+
+class TestLlmSeedMisconfiguration:
+    """An invalid [llm] setting must not unwind out of a GA run.
+
+    llm_config raises ConfigError (a ValueError) on a bad endpoint, an
+    unpinned model alias, or an unparsable budget.  Letting that escape
+    kills a run that may already be hours into Wine compiles.
+    """
+
+    @staticmethod
+    def _params(tmp_path: Path) -> SimpleNamespace:
+        return SimpleNamespace(
+            cfg=SimpleNamespace(
+                target_binary=tmp_path / "x.exe",
+                root=tmp_path,
+                compile_timeout=60,
+                posix_style=False,
+                compiler_profile="mingw-16.2.0",
+            ),
+            seed_src="int f(void) { return 0; }\n",
+            seed_c=tmp_path / "f.c",
+            target_bytes=b"\x90" * 8,
+            cl="cl",
+            inc="",
+            cflags="/O2",
+            symbol="_f",
+            va_int=0x401000,
+            msvc_env=None,
+            cc=None,
+            target_size=8,
+        )
+
+    def test_ga_runs_without_llm_seeds(self, tmp_path: Path, monkeypatch, capsys) -> None:
+        import rebrew.match_run as match_mod
+
+        seen: dict = {}
+
+        class FakeGA:
+            def __init__(self, *a, **k):
+                seen["extra_seeds"] = k.get("extra_seeds")
+
+            def run(self):
+                return ("src", 50.0)
+
+            def close(self):
+                pass
+
+            _pairs_count = 0
+            elapsed_sec = 1.0
+            stagnant_gens = 0
+            rng_seed = 0
+
+        monkeypatch.setattr(match_mod, "BinaryMatchingGA", FakeGA)
+        monkeypatch.setenv("REBREW_LLM_ENDPOINT", "https://llm.example/v1")
+        monkeypatch.setenv("REBREW_LLM_MODEL", "latest")
+
+        p = self._params(tmp_path)
+        p.cfg.llm_endpoint = ""
+        p.cfg.llm_api_key = ""
+        p.cfg.llm_model = ""
+        with pytest.raises(typer.Exit):
+            match_mod.run_single_ga(
+                p,
+                out_dir=str(tmp_path / "out"),
+                pop_size=4,
+                generations=1,
+                jobs=1,
+                compare_obj=False,
+                lib=None,
+                ldflags=None,
+                seed=None,
+                json_output=False,
+                extra_seed=None,
+                no_seed=False,
+                llm_seed=True,
+            )
+        captured = capsys.readouterr()
+        out = captured.out + captured.err
+        assert "misconfigured" in out
+        assert "unpinned alias" in out
+        assert seen.get("extra_seeds") is None  # the GA ran, seeded from source only
+
+    def test_dry_run_skips_the_ga(self, tmp_path: Path, monkeypatch) -> None:
+        import rebrew.match_run as match_mod
+
+        constructed: list = []
+
+        class FakeGA:
+            def __init__(self, *a, **k):
+                constructed.append(a)
+
+        monkeypatch.setattr(match_mod, "BinaryMatchingGA", FakeGA)
+        monkeypatch.setenv("REBREW_LLM_ENDPOINT", "https://llm.example/v1")
+        monkeypatch.setenv("REBREW_LLM_MAX_REQUESTS", "many")
+
+        p = self._params(tmp_path)
+        p.cfg.llm_endpoint = ""
+        p.cfg.llm_api_key = ""
+        p.cfg.llm_model = ""
+        match_mod.run_single_ga(
+            p,
+            out_dir=str(tmp_path / "out"),
+            pop_size=4,
+            generations=1,
+            jobs=1,
+            compare_obj=False,
+            lib=None,
+            ldflags=None,
+            seed=None,
+            json_output=False,
+            extra_seed=None,
+            no_seed=False,
+            llm_seed=True,
+            dry_run=True,
+        )
+        assert constructed == []  # nothing to bill, nothing to preview

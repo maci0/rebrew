@@ -115,7 +115,8 @@ def run_single_ga(
 
     # Optional LLM-assisted seeding: ask the configured endpoint for
     # alternative C implementations of the current source.  Off by default;
-    # degrades to a warning when no endpoint is configured.
+    # degrades to a warning when no endpoint is configured, and to an error
+    # line when the LLM config itself is invalid.
     if llm_seed and not no_seed:
         from rebrew.llm_seed import (
             build_prompt,
@@ -124,22 +125,34 @@ def run_single_ga(
             request_seeds,
         )
 
-        if llm_config(p.cfg) is None:
-            console.print(
-                "[yellow]warning:[/yellow] --seed-llm set but no LLM endpoint configured "
-                "(set \\[llm] endpoint or REBREW_LLM_ENDPOINT) — running without LLM seeds"
-            )
-            # --dry-run promised "preview, no GA" — without an endpoint there
-            # is nothing to preview and the GA must NOT run (falling through
-            # would burn hours of Wine compiles despite --dry-run).
+        try:
+            conf = llm_config(p.cfg)
+        except ValueError as exc:
+            # llm_config validates endpoint/model/budget and raises on a bad
+            # one.  Report it as the config error it is, rather than letting it
+            # unwind as a traceback out of a GA run that is already hours in.
+            console.print(f"[red]error:[/red] LLM seeding misconfigured: {exc}")
+            console.print("[yellow]warning:[/yellow] running without LLM seeds")
+            # Nothing to bill and nothing to preview, so --dry-run stops here
+            # for the same reason an absent endpoint does.
             if dry_run:
-                console.print(
-                    "\n[bold]Dry run:[/bold] --seed-llm with no LLM endpoint — "
-                    "nothing to preview; skipping the GA run."
-                )
                 return
         else:
-            if dry_run:
+            if conf is None:
+                console.print(
+                    "[yellow]warning:[/yellow] --seed-llm set but no LLM endpoint configured "
+                    "(set \\[llm] endpoint or REBREW_LLM_ENDPOINT) — running without LLM seeds"
+                )
+                # --dry-run promised "preview, no GA" — without an endpoint there
+                # is nothing to preview and the GA must NOT run (falling through
+                # would burn hours of Wine compiles despite --dry-run).
+                if dry_run:
+                    console.print(
+                        "\n[bold]Dry run:[/bold] --seed-llm with no LLM endpoint — "
+                        "nothing to preview; skipping the GA run."
+                    )
+                    return
+            elif dry_run:
                 # Prompt preview only — never bill the endpoint or run the GA.
                 console.print("\n[bold]LLM seed prompt (dry-run):[/bold]\n")
                 # Verbatim: C subscripts like b[i] would otherwise parse as markup.
