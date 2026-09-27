@@ -669,6 +669,14 @@ class TestInitAgentSkills:
         template = _AGENTS_MD_TEMPLATE.read_text(encoding="utf-8")
         assert "## Agent Skills" in template
 
+    def test_agents_md_lists_every_packaged_skill(self) -> None:
+        from rebrew.init import _AGENT_SKILLS_SRC, _AGENTS_MD_TEMPLATE
+
+        template = _AGENTS_MD_TEMPLATE.read_text(encoding="utf-8")
+        table = template.split("## Agent Skills", 1)[1]
+        for skill in sorted(d.name for d in _AGENT_SKILLS_SRC.iterdir() if d.is_dir()):
+            assert f"`{skill}`" in table, f"{skill} ships but the AGENTS.md table omits it"
+
     def test_agent_skills_source_exists(self) -> None:
         from rebrew.init import _AGENT_SKILLS_SRC
 

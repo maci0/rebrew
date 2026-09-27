@@ -144,6 +144,7 @@ Detailed workflow instructions are in `.agents/skills/`:
 
 | Skill | Use When |
 |-------|----------|
+| `rebrew-init` | Scaffolding a new project directory |
 | `rebrew-intake` | Onboarding a new binary, initial triage |
 | `rebrew-workflow` | End-to-end function reversing workflow |
 | `rebrew-matching` | GA engine, diff analysis, symbolic proving |
