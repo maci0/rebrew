@@ -74,9 +74,9 @@ def reloc_byte_order(reloc_table: str) -> str:
     return "<" if _RELOC_BYTE_ORDER.get(reloc_table, "little") == "little" else ">"
 
 
-def _reloc_fmt(reloc_table: str, size: int) -> str:
-    """Format string for a *size*-byte relocation slot in *reloc_table*."""
-    return f"{reloc_byte_order(reloc_table)}{'I' if size == 4 else 'Q'}"
+def _reloc_fmt(reloc_table: str) -> str:
+    """Format string for a 4-byte relocation addend slot in *reloc_table*."""
+    return f"{reloc_byte_order(reloc_table)}I"
 
 
 @dataclass(frozen=True)
@@ -354,7 +354,7 @@ def apply_coff_relocations(
     """
     buf = bytearray(text)
     table = _RELOC_TABLES.get(reloc_table, _RELOC_TABLES["coff-i386"])
-    fmt = _reloc_fmt(reloc_table, 4)
+    fmt = _reloc_fmt(reloc_table)
     for r in relocs:
         kind = table.get(r.type)
         if kind == "none":
@@ -417,7 +417,7 @@ def _validate_dir32(
 ) -> bool:
     """Return True if the DIR32 slot is valid (or uncatalogued)."""
     target_va = _resolve_exact_then_stripped(name_to_va, symbol)
-    fmt = _reloc_fmt(reloc_table, 4)
+    fmt = _reloc_fmt(reloc_table)
     try:
         addend = struct.unpack_from(fmt, obj_bytes, offset)[0]
         actual = struct.unpack_from(fmt, target_bytes, offset)[0]
@@ -454,7 +454,7 @@ def _validate_rel32(
     target_va = _resolve_exact_then_stripped(name_to_va, symbol)
     if target_va is None:
         return True  # uncatalogued — mask only
-    fmt = _reloc_fmt(reloc_table, 4)
+    fmt = _reloc_fmt(reloc_table)
     try:
         addend = struct.unpack_from(fmt, obj_bytes, offset)[0]
         actual = struct.unpack_from(fmt, target_bytes, offset)[0]
