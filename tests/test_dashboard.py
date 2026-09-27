@@ -1834,6 +1834,51 @@ class TestEncodingNegotiation:
             f"entry assets {wire} B over {_ENTRY_WIRE_BUDGET_BYTES} B budget"
         )
 
+    def test_bootstrap_json_compresses_at_max_effort(self) -> None:
+        """The preloaded cold-start body pays max effort, later routes do not.
+
+        ``/api/bootstrap`` shares the initial congestion window with the shell
+        and ``/app.js`` and is a 304 on every load after the first, so it takes
+        the same levels the import-time static blobs use.  The filter and paging
+        routes are rebuilt on every interaction and stay at mid effort.
+        """
+        import zstandard
+
+        from rebrew.dashboard import (
+            _GZIP_LEVEL,
+            _GZIP_PRECOMPRESS_LEVEL,
+            _ZSTD_LEVEL,
+            _ZSTD_PRECOMPRESS_LEVEL,
+            _maybe_compress,
+        )
+
+        # A 100-function first page, the shape the cold start actually sends.
+        body = json.dumps(
+            {
+                "targets": ["t"],
+                "functions": [
+                    [f"0x{0x401000 + i * 8:08x}", f"Sub_render_state_{i:05d}", i * 3, "EXACT"]
+                    for i in range(100)
+                ],
+            },
+            separators=(",", ":"),
+        ).encode()
+        assert len(body) > 256
+
+        for accept, effort, max_effort in (
+            ("gzip", _GZIP_LEVEL, _GZIP_PRECOMPRESS_LEVEL),
+            ("zstd", _ZSTD_LEVEL, _ZSTD_PRECOMPRESS_LEVEL),
+        ):
+            mid, encoding = _maybe_compress(body, accept)
+            cold, cold_encoding = _maybe_compress(body, accept, cold_start=True)
+            assert encoding == cold_encoding == accept
+            # Max effort has to actually pay, or the CPU is pure waste.
+            assert len(cold) < len(mid), f"{accept}: max effort {len(cold)} >= {len(mid)}"
+            assert effort < max_effort
+            # Both decompress back to the served body.
+            decode = gzip.decompress if accept == "gzip" else zstandard.ZstdDecompressor().decompress
+            assert decode(mid) == decode(cold) == body
+
 
 class TestServerTiming:
     """``Server-Timing`` reports route cost on API responses, not entry assets.

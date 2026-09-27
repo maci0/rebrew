@@ -85,7 +85,10 @@ same bytes) so entry assets skip per-request compression CPU.  Their combined
 wire size stays inside the RFC 6928 initial congestion window minus a
 per-response header reserve, so a cold connection paints without an extra
 round trip; a test pins that budget, and a change that does not fit pays for
-itself in the client's own comment prose rather than in the budget.  The shell
+itself in the client's own comment prose rather than in the budget.  Remaining
+JSON compresses per request at mid effort, except ``/api/bootstrap``: the cold
+start needs it to paint, a client sends it once per load and 304s after that,
+so it takes the same max effort the static blobs do.  The shell
 ``<head>`` preloads ``/api/bootstrap`` (``as=fetch`` + ``crossorigin`` +
 ``fetchpriority=high``) and ``/app.js`` (``as=script``); the deferred client
 fetches with the default ``same-origin`` credentials, the mode ``crossorigin``
@@ -256,6 +259,13 @@ _ZSTD_LEVEL = 5
 # Static HTML shell: max effort once at import; served precompressed thereafter.
 _GZIP_PRECOMPRESS_LEVEL = 9
 _ZSTD_PRECOMPRESS_LEVEL = 19
+# JSON the cold start cannot paint without, compressed at the same max effort.
+# The entry assets are precompressed because they are fixed for the process;
+# this body is rebuilt per request, but a client sends it about once per load
+# and revalidates every one after that (ETag -> 304, no body).  Mid effort
+# there spends 12.6% of the preloaded bootstrap body for ~1.1 ms of CPU, and
+# that body shares the initial congestion window with the shell and /app.js.
+_BOOTSTRAP_PATH = "/api/bootstrap"
 #: RFC 6928 initial send window: 10 segments of 1460 B.  The entry assets have
 #: to fit it on a cold connection or first paint waits an extra round trip.
 _INITCWND_BYTES = 10 * 1460
@@ -2338,14 +2348,33 @@ def _compress(body: bytes, encoding: _WireEncoding) -> bytes:
     return gzip.compress(body, compresslevel=_GZIP_LEVEL)
 
 
-def _maybe_compress(body: bytes, accept_encoding: str) -> tuple[bytes, _WireEncoding | None]:
-    """Return ``(body, encoding)``; compress only when it shrinks the wire bytes."""
+def _compress_cold_start(body: bytes, encoding: _WireEncoding) -> bytes:
+    """Compress the cold-start JSON body at max effort for *encoding*.
+
+    Same levels the import-time static blobs use: this body goes out once per
+    load and is a 304 on every load after, so the extra effort is paid about
+    once and buys bytes inside the initial congestion window.
+    """
+    if encoding == "zstd":
+        return zstandard.ZstdCompressor(level=_ZSTD_PRECOMPRESS_LEVEL).compress(body)
+    return gzip.compress(body, compresslevel=_GZIP_PRECOMPRESS_LEVEL, mtime=0)
+
+
+def _maybe_compress(
+    body: bytes, accept_encoding: str, *, cold_start: bool = False
+) -> tuple[bytes, _WireEncoding | None]:
+    """Return ``(body, encoding)``; compress only when it shrinks the wire bytes.
+
+    *cold_start* picks the max-effort levels for the preloaded bootstrap body;
+    see ``_BOOTSTRAP_PATH``.
+    """
     if len(body) < _MIN_COMPRESS_BYTES:
         return body, None
     encoding = _negotiate_encoding(accept_encoding)
     if encoding is None:
         return body, None
-    compressed = _compress(body, encoding)
+    compress = _compress_cold_start if cold_start else _compress
+    compressed = compress(body, encoding)
     if len(compressed) >= len(body):
         return body, None
     return compressed, encoding
@@ -2590,7 +2619,9 @@ class _Handler(BaseHTTPRequestHandler):
                     raw=_BOOT_GUARD_JS_BYTES,
                 )
             else:
-                body_bytes, encoding = _maybe_compress(body_bytes, accept)
+                body_bytes, encoding = _maybe_compress(
+                    body_bytes, accept, cold_start=parsed.path == _BOOTSTRAP_PATH
+                )
 
         self.send_response(status)
         self.send_header("Content-Type", content_type)
