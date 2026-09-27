@@ -104,9 +104,10 @@ verification, and `rebrew_globals.h` generation.
 - Generates `bss_padding.c` with `char gap_<VA>[N];` arrays (plus
   `// DATA:` markers) for each detected gap, headed by an auto-generated
   comment.
-- Writes SIZE/SECTION/NOTE metadata back to `rebrew-data.toml` (the data
-  metadata file at `cfg.metadata_dir`, distinct from the per-directory
-  `rebrew-functions.toml` which tracks function status).
+- Writes `size` / `section` / `note` metadata back to `rebrew-data.toml`
+  (the data metadata file at `cfg.metadata_dir`, distinct from the
+  `rebrew-functions.toml` that sits in the same directory and tracks
+  function status).
 - Idempotent on re-run: previously generated declarations are merged with
   newly detected gaps instead of being deleted.
 
@@ -114,8 +115,8 @@ verification, and `rebrew_globals.h` generation.
 
 - Builds `rebrew_globals.h` from `// GLOBAL:` / `// DATA:` annotations,
   grouped by section.
-- Emits typed `extern` declarations (falling back to
-  `unsigned char <name>[]` when no type is known).
+- Emits typed `extern` declarations. A global with no known type is left
+  out of the header entirely rather than given a guessed `char` type.
 - Writes to `{reversed_dir}/rebrew_globals.h` by default;
   `--gen-header-out` redirects it. Refuses to overwrite an existing file
   unless `--force` is passed; regeneration is idempotent (the write is
@@ -215,15 +216,18 @@ rebrew data [OPTIONS]
   -t, --target TEXT
 ```
 
-(Modes can compose for `--summary` / `--conflicts` plus `--json`; modes
-like `--bss --fix-bss` and `--gen-header` are write modes, previewable
-with `--dry-run`.)
+(Read-only modes compose with `--json`. The write modes are mutually
+exclusive: `--gen-header` is handled first and returns, then the
+`.data` placement family (`--fill-data` / `--own` / `--fix-ownership` /
+`--converge`), then `--bss` / `--fix-bss` — so a single invocation runs
+one write mode, with `--gen-header` taking precedence. Write modes are
+previewable with `--dry-run`.)
 
 ## Success Metrics
 
-- After running `rebrew data --bss --fix-bss --gen-header`, no
-  relocation-diff (`~~`) lines remain in `rebrew diff` runs that are
-  attributable to missing/mistyped globals.
+- After running `rebrew data --fix-bss` and then `rebrew data
+  --gen-header`, no relocation-diff (`~~`) lines remain in `rebrew diff`
+  runs that are attributable to missing/mistyped globals.
 - `rebrew data --conflicts` returns an empty list on a clean project.
 - `rebrew_globals.h` is deterministic across runs (no spurious
   reordering).
@@ -244,7 +248,8 @@ with `--dry-run`.)
 - `--gen-header` refuses to overwrite an existing `rebrew_globals.h`
   unless `--force` is passed (FIXED: was a silent overwrite); hand-edited
   files are otherwise preserved.
-- Section detection comes from LIEF and covers single PE/ELF/NE (16-bit)
-  targets; fat / Mach-O binaries are not yet covered.
+- Section detection comes from LIEF and covers PE, ELF, NE (16-bit),
+  Mach-O and fat binaries; for a fat binary the first slice is used, so
+  selecting a slice by architecture is not supported.
 - `rebrew data` does not handle data-flow analysis (e.g. which functions
   read which globals). That's left to Ghidra.

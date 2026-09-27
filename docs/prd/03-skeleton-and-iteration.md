@@ -330,7 +330,6 @@ rebrew todo
   -n, --count N (default 20)
   -c, --category TEXT
   -s, --stats
-      --data
       --json
   -t, --target TEXT
       --all-targets

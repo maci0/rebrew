@@ -55,8 +55,10 @@ prover that promotes NEAR_MATCHING → PROVEN.
   drawn from the `matcher/mutator.py` library.
 - The flag sweep is bounded to flag presets defined in `flag_data.py`;
   it does not invent flags (non-MSVC axes exist: watcom opt/codegen/pack).
-- `rebrew prove` runs only when the function is already NEAR_MATCHING or
-  SIZE_MISMATCH; it does not rewrite source to make it provable.
+- `rebrew prove` runs only on an already-admitted lane: NEAR_MATCHING or
+  SIZE_MISMATCH (from the metadata STATUS, or from a cached verify verdict when
+  the metadata lags), a blocker-documented STUB, or a `GA_CEILING`-documented
+  function under `--ceiling`; it does not rewrite source to make it provable.
 - No GUI; CLI only.
 
 ## Functional Requirements
@@ -75,8 +77,10 @@ prover that promotes NEAR_MATCHING → PROVEN.
   already-solved functions); ignored when `--no-seeds` is also passed.
 - `--no-seeds` disables cross-function seeding and takes precedence over
   `--seed-file`.
-- Writes `output/ga_runs/` (default) with best candidate, score log, and
-  cflags solution if a match is achieved.
+- Writes `output/ga_runs/` (default) with the best candidate (`best.c`) and
+  per-symbol resume checkpoints (`checkpoints/<symbol>.json`).
+- On a win, appends the cflags solution and the run/score record to
+  `<project_root>/.rebrew/ga_runs.jsonl`.
 - `--ignore-lint` allows running on files with annotation lint errors.
 
 ### `rebrew match --flag-sweep-only`
@@ -100,8 +104,14 @@ prover that promotes NEAR_MATCHING → PROVEN.
 
 ### `rebrew prove`
 
-- Validates STATUS is NEAR_MATCHING or SIZE_MISMATCH (RELOC/EXACT already
-  match byte-for-byte; promoting those to PROVEN is rejected).
+- Admits three lanes and rejects everything else: metadata STATUS of
+  NEAR_MATCHING or SIZE_MISMATCH; a STUB carrying a `blocker` /
+  `blocker_delta` (a blocker-documented STUB); or, under `--ceiling`, a
+  `GA_CEILING`-documented function (the register- or encoding-only set the GA
+  gave up on). When the metadata STATUS differs, a cached verify verdict of
+  NEAR_MATCHING/SIZE_MISMATCH is overlaid, so a lagging STATUS is not refused.
+  RELOC/EXACT already match byte-for-byte; promoting those to PROVEN is
+  rejected.
 - Extracts target bytes from the DLL and compiles the C source.
 - Refuses promotion when post-compile bytes already match (that is RELOC).
 - Loads both blobs into angr; uses claripy/Z3 to prove EAX equivalence
@@ -109,8 +119,10 @@ prover that promotes NEAR_MATCHING → PROVEN.
 - `--timeout N` (default 60 s) and `--loop-bound N` (default 10) govern
   the search.
 - `--start-offset` / `--end-offset` prove a sub-range of the function.
-- `--all` proves all NEAR_MATCHING/SIZE_MISMATCH functions;
-  `--max-delta N` limits the batch to those with recorded byte delta ≤ N.
+- `--all` proves all NEAR_MATCHING/SIZE_MISMATCH functions; `--ceiling` narrows
+  the batch to the `GA_CEILING`-documented set; `--max-delta N` skips only
+  candidates that HAVE a recorded byte delta above N, so undelta'd candidates
+  stay in the batch.
 - `--dry-run` leaves metadata untouched even on success.
 - On success, promotes STATUS → PROVEN in `rebrew-functions.toml`
   (per ADR-024, PROVEN records semantic equivalence, is not a byte match,
@@ -249,7 +261,8 @@ rebrew prove [SOURCE]
   (e.g. changing data structures) require a human edit before re-seeding.
 - `rebrew prove` now checks `EAX` by default and `EDX:EAX` when
   `--check-edx` is passed or when the `PROTOTYPE` annotation declares a
-  64-bit return type (`long long`, `__int64`, `int64_t`, `uint64_t`).
+  64-bit return type (`long long`, `__int64`, `int64_t`, `uint64_t`,
+  `long double`).
   EDX checking is auto-enabled from the prototype (E9 v1, partially addressed).
   Memory side-effect checking is now opt-in per VA via `--watch-va` (compares
   4 bytes at each listed VA across state pairs); general tracking of writes to

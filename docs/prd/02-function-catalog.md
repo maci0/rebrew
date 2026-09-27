@@ -70,13 +70,16 @@ information lives in `rebrew-functions.toml`, served by `status`/`todo`/dashboar
 
 - Scans `reversed_dir` for `.c` files containing reccmp-style markers.
 - Loads optional `function_structure.json` (discovery inventory / Ghidra
-  export — the former `functions.txt` list is gone).
+  export).
 - Builds a unified registry merging:
   - Local annotations
   - Ghidra functions
   - Bare discovery entries (size-only, no name)
-- Resolves canonical sizes (Ghidra/Catalog wins over annotation; warns on
-  conflict).
+- Resolves canonical sizes (catalog wins over the annotation). Ghidra's size
+  wins by default, but the function list wins when the extra bytes are tail
+  padding, a jump table, out-of-line code, or a terminator-less code tail.
+  `--summary` reports only the aggregate count of size disagreements
+  (`Size disagree: N`), never per-function names.
 - Outputs in any combination of modes:
   - Default (no flags): scan + validate, write data JSON and
     CSV, and print the summary table.
@@ -89,8 +92,9 @@ information lives in `rebrew-functions.toml`, served by `status`/`todo`/dashboar
     refuses `--json`).
   - `--export-ghidra-labels` writes `ghidra_data_labels.json` from detected
     jump tables / dispatch tables.
-  - `--fix-sizes` rewrites `SIZE` in `rebrew-functions.toml` when the catalog's
-    canonical size differs; `--force` skips its confirmation prompt (and is
+  - `--fix-sizes` rewrites `SIZE` in `rebrew-functions.toml` only when the
+    catalog's canonical size is larger than the recorded `SIZE` (it never
+    shrinks `SIZE`); `--force` skips its confirmation prompt (and is
     required to combine it with `--json`).
 - `--json` produces machine-readable output.
 
@@ -183,8 +187,10 @@ Output `.bin` files land in the configured `bin_dir`.
 
 ### Story 3 — Resolving a Ghidra/annotation size disagreement
 
-1. `rebrew catalog --summary` prints a warning that `_my_func` has
-   annotation size 42 but Ghidra reports 47.
+1. `rebrew catalog --summary` counts `_my_func` in `Size disagree: N`, so the
+   user knows some function has annotation size 42 where Ghidra reports 47
+   (the summary names no functions; the user isolates the VA from the catalog
+   JSON).
 2. User runs `rebrew catalog --fix-sizes` to write the canonical 47 to
    `rebrew-functions.toml`.
 3. Next `rebrew verify` no longer fails the size check.
@@ -272,9 +278,10 @@ rebrew build-db
   Ghidra export). The former `functions.txt` format is gone.
 - `--export-ghidra` writes no cache: it prints interactive Ghidra MCP export
   instructions for `function_structure.json` / `ghidra_data_labels.json` and
-  exits (refuses `--json`). `rebrew catalog --data-json` writes a
-  provenance-stamped `function_structure.json` compatibility export from the
-  function list when no real export exists; fetch live data via
+  exits (refuses `--json`). `rebrew catalog --data-json` writes no inventory
+  file at all, only `db/data_<target>.json`; no command in rebrew produces a
+  stamped `function_structure.json` today, so the ingester's `_generated_by`
+  filter only skips one written elsewhere. Fetch live data via
   `rebrew sync`.
 - `build-db` writes to `db/coverage.db` deterministically but never migrates
   an older schema _(fixed)_: on a version mismatch it errors and points at

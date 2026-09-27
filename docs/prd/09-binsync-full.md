@@ -44,7 +44,7 @@ reports divergences read-only (exit 1 on any, for CI). Gaps that remain
   (stack vars), and `COMMENTS` via declib artifacts (see CHANGELOG /
   [BINSYNC_INTEGRATION.md](../BINSYNC_INTEGRATION.md)).
 - **Hand-rolled TOML — resolved.** State I/O goes through declib
-  (`rebrew[binsync]` → `declib>=4.5`); the earlier `libbs` name in this PRD
+  (`rebrew[binsync]` → `declib>=4.5.0,<5`); the earlier `libbs` name in this PRD
   refers to that same upstream artifact layer.
 
 PRD 09's remaining open loop is divergent git merge as the default
@@ -68,7 +68,7 @@ substrate (ff-only pull + local commit / optional `--git-push` ship today).
 - Annotation surface for stack vars / local vars (see "Annotation Surface" below). (Shipped: `LOCALS` metadata ↔ `Function.stack_vars`.)
 - Conflict detection on pull: when both rebrew and BinSync have meaningful (non-generic) names for the same VA, report and let the user pick via `--accept-binsync` / `--accept-local` (same pattern as `rebrew sync`). (Shipped on umbrella `pull` and flat `binsync-import`.)
 - Per-instruction comments — both directions. (Shipped: `COMMENTS` metadata + `// ANALYSIS @ 0xADDR:` source markers.)
-- Declib as an optional dependency (under `[project.optional-dependencies].binsync`, `declib>=4.5`) so users who don't need this feature aren't forced to install it. (Shipped; this PRD originally named the layer `libbs`.)
+- Declib as an optional dependency (under `[project.optional-dependencies].binsync`, `declib>=4.5.0,<5`) so users who don't need this feature aren't forced to install it. (Shipped; this PRD originally named the layer `libbs`.)
 
 ## Non-Goals
 
@@ -114,9 +114,9 @@ typedef, function header, stack frame). No more hand-rolled TOML for these.
 Rebrew's `[rebrew:note]` synthetic comment stays: it is orthogonal, and
 BinSync clients ignore it (the write-only `[rebrew] STATUS=… CFLAGS=…`
 comment was removed; see `rebrew/binsync/export.py`). *(This PRD originally
-named the layer `libbs`; the shipped dependency is `declib>=4.5`.)*
+named the layer `libbs`; the shipped dependency is `declib>=4.5.0,<5`.)*
 
-`push` adds an auto-commit step after writing: `git -C <state-dir> add -A && git commit -m "rebrew binsync-export: <target> @ <utc>"` (the message the shipped `binsync-export --git` already writes). With `--git-push`, also `git push`. With `--no-git`, skip git entirely (current `binsync-export` behaviour).
+`push` adds an auto-commit step after writing: `git -C <state-dir> add -A && git commit -m "rebrew binsync-export: <target> @ <utc>"` (the message the shipped `binsync-export --git` already writes). With `--git-push`, also `git push`. With `--no-git`, skip git entirely. `--no-git` is an umbrella `push` / `pull` flag only: the flat `binsync-export` has the opposite default, no commit unless you pass its opt-in `--git`.
 
 ### F3 — `pull` reads via declib, applies to rebrew metadata
 
@@ -140,10 +140,13 @@ Shipped: `[locals]` in `rebrew-functions.toml` (offset-keyed
 ["SERVER.0x10008880"]
 status = "EXACT"
 [SERVER.0x10008880.locals]
-ebp_minus_4  = { name = "ret_val",   type = "int" }
-ebp_minus_8  = { name = "tmp",       type = "char *" }
-esp_plus_0   = { name = "arg_count", type = "size_t" }
+"-4" = { name = "ret_val",   type = "int" }
+"-8" = { name = "tmp",       type = "char *" }
+"8"  = { name = "arg_count", type = "size_t" }
 ```
+
+Keys are the stringified stack offsets from BinSync's `Function.stack_vars`
+(`"-4"`, `"8"`), not register-relative names.
 
 Informational at v1 — rebrew doesn't lint local-var names against the C
 source or use them for matching. Optional future: validate against
@@ -161,8 +164,7 @@ headers and sources; `binsync push`/`export` emit `enums.toml` /
 Pull surfaces conflicts in the same shape as `rebrew sync --pull`:
 
 ```
-CONFLICT: SERVER.0x10008880 — local "BitReverse" vs BinSync "ReverseBits"
-CONFLICT: SERVER.0x10010000 (struct NPSTATE.field_0) — local "id" int vs BinSync "type_id" uint32_t
+  CONFLICT 0x10008880: local='BitReverse' vs binsync='ReverseBits'
 ```
 
 Resolution flags:
@@ -181,7 +183,7 @@ Shipped in `pyproject.toml`:
 
 ```toml
 [project.optional-dependencies]
-binsync = ["declib>=4.5.0"]
+binsync = ["declib>=4.5.0,<5"]
 ```
 
 Every BinSync state command (flat and umbrella) goes through
@@ -202,7 +204,7 @@ rebrew binsync-import <state-dir>                # apply names/prototypes/global
 rebrew binsync-import <state-dir> --accept-binsync   # accept BinSync on all conflicts
 rebrew binsync-import <state-dir> --accept-local     # keep local, record provenance
 rebrew binsync-import <state-dir> --module SERVER    # one module only
-rebrew binsync-import <state-dir> --create-missing   # STUB files for catalog-known functions
+rebrew binsync-import <state-dir> --create-missing   # STUB files for BinSync functions with no local annotation
 rebrew binsync-diff <state-dir>                  # read-only divergence report (exit 1 on divergence)
 ```
 
@@ -216,7 +218,7 @@ rebrew binsync init <state-dir>                  # git init + skeleton
 rebrew binsync summary <state-dir>               # dry-run preview
 rebrew binsync push <state-dir>                  # write + git commit
 rebrew binsync push <state-dir> --git-push       # write + commit + push
-rebrew binsync push <state-dir> --no-git         # write only (binsync-export behaviour)
+rebrew binsync push <state-dir> --no-git         # write only (no commit; flat binsync-export never commits without --git)
 rebrew binsync pull <state-dir>                  # git pull + apply
 rebrew binsync pull <state-dir> --accept-binsync # accept all conflicts
 rebrew binsync pull <state-dir> --accept-local   # keep local on all conflicts
@@ -227,7 +229,7 @@ rebrew binsync overlay <state-dir>               # overlay a related target's Bi
 ```
 
 Common flags across all: `--target NAME`, `--json`; `--dry-run` everywhere except the read-only `summary` and `diff`.
-The existing `binsync-export` stays as a peer of `binsync push --no-git`.
+The existing `binsync-export` stays a peer of the umbrella: `binsync push --no-git` is the write-only path, and `binsync-export` itself never commits unless given `--git`. Every `state-dir` is a local directory; no command clones or fetches a remote URL (see Story 2).
 
 ## User Stories
 
@@ -247,14 +249,22 @@ rebrew binsync pull ./binsync_state              # pulls "loop_counter" into reb
 Two reversers share a binary. One uses rebrew, one uses Binary Ninja. They share a `binsync-state` git repo with push access for both.
 
 ```bash
-# Reverser A (rebrew):
-rebrew binsync pull git@team:binsync-state.git    # fetch latest team work
+# Reverser A (rebrew), after cloning the team repo:
+rebrew binsync pull ./binsync-state               # fast-forward the clone + apply
 # ... reverses some functions in rebrew ...
-rebrew binsync push git@team:binsync-state.git --git-push   # push back
+rebrew binsync push ./binsync-state --git-push    # commit and push to origin
 
 # Reverser B (Binary Ninja):
 # (BinSync plugin pulls + pushes the same git repo)
 ```
+
+Every `state-dir` above is a local checkout. No BinSync command clones or
+fetches a remote URL: `pull` / `diff` / `import` abort with "State directory
+not found" when the path is not an existing directory, and `push` would create
+a local directory with that name. Clone the team repo yourself (or share a
+checked-out artifact); `--git-push` pushes the branches of the local clone it
+is given. Merging divergent upstream history is the open item listed in
+"Known Limitations / Open Questions" below.
 
 ### Story 3 — Migrating an IDA project to rebrew
 
@@ -273,7 +283,7 @@ rebrew status                                          # rebrew now knows what I
 A nightly CI run cross-checks local rebrew state against the shared BinSync repo.
 
 ```bash
-rebrew binsync diff git@team:binsync-state.git --json > diff.json
+rebrew binsync diff ./binsync-state --json > diff.json
 # CI parses diff.json; fails if any CONFLICT entries exist; opens a ticket.
 ```
 
@@ -289,7 +299,7 @@ rebrew binsync diff git@team:binsync-state.git --json > diff.json
 ## Known Limitations / Open Questions
 
 - **Patch tracking is out of scope.** If rebrew ever grows a patch annotation type, revisit.
-- **declib version pinning.** v1 pins `declib>=4.5` (the `binsync` extra).
+- **declib version pinning.** v1 pins `declib>=4.5.0,<5` (the `binsync` extra); the upper bound excludes an unreviewed major.
   When declib evolves, rebrew may need migration code on `pull` for old
   state dirs. *(This PRD originally named the pin `libbs>=2.0`.)*
 - **Per-instruction comments.** Source markers are
@@ -313,9 +323,6 @@ rebrew binsync diff git@team:binsync-state.git --json > diff.json
 | **P4** — Locals | `[locals]` ↔ `Function.stack_vars` | ~1.5 days | Shipped |
 | **P5** — Conflict + comments | Accept-flags; per-instruction comments round-trip | ~1 day | Shipped |
 | **P6** — Polish | `binsync init`, `--module`, JSON, docs | ~1 day | Shipped |
-
-Open beyond this table: divergent git merge as the default substrate
-(ff-only + local commit / `--git-push` ship today).
 
 Total v1 scope was ~7 days of focused work; each phase shipped
 independently.

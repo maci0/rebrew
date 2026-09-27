@@ -144,14 +144,14 @@ are scored the same way as PE ones.  Verified end-to-end against the
 skifree16 NE target: 75 combos compile through the DOSBox image and
 produce structural-similarity reports.
 
-### Watcom / Borland (no CLI sweep)
+### Watcom / Borland (CLI sweep)
 
 `flag_data.py` also carries Open Watcom (`-os/-ot/-ol/-ox` optimization,
 `-3..-6` codegen, `-zp` packing, `-mf`/`-fpc` toggles) and Borland
-Turbo C++ 3.1 / bcc32 (`-O1/-O2/-Od`, `-K`, `-Z`) grids, but these are
-**not reachable from the CLI**: `flag_sweep` refuses posix-style profiles
-(their `-`-style flags would be passed as files to an MSVC invocation),
-and the toolchain sweep enumerates only MSVC images.  The axes remain in
-`flag_data.py` for the `generate_flag_combinations(profile=...)` API and
-tests; sweeping a non-MSVC toolchain is done by running the GA without
-`--flag-sweep-only`.
+Turbo C++ 3.1 / bcc32 (`-O1/-O2/-Od`, `-K`, `-Z`) grids, and these are
+reachable from the CLI: `WATCOM_SWEEP_TIERS` and `BORLAND_SWEEP_TIERS` are
+registered per profile in `matcher/compiler.py` (as are
+`GCC_SWEEP_TIERS` for the GCC/MinGW/Clang profiles and `MSVC152_SWEEP_TIERS`
+for `msvc-1.52`).  `flag_sweep` refuses a posix-style profile only when that
+profile has no entry in the tier map; a packaged posix profile that declares
+no flag sets still fails loudly rather than sweeping the GCC fallback.

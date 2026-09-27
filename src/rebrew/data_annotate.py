@@ -120,7 +120,8 @@ def annotate_globals(
 def _emit_extern_decl(row: dict[str, Any]) -> str | None:
     """Format an `extern` declaration honoring an explicit `type` when given.
 
-    Uses `unsigned char <name>[]` as the fallback when no type is specified.
+    Returns `None` when no type is specified: an untyped global is left out
+    of the header rather than guessed at.
     A metadata type carries its pointer/array-ness in the string, but the
     declarator still has to be assembled around the *name*: `struct T[18] x`
     and `void (*)(int) x` are not C, while `struct T x[18]` and

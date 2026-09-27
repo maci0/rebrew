@@ -766,6 +766,12 @@ def main(
     if cu_map:
         from rebrew.cu_map import main as _cu_map_main
 
+        if output is not None:
+            error_exit(
+                "--output is not supported with --cu-map (the compilation-unit "
+                "report prints to stdout; redirect it instead)",
+                json_mode=json_output,
+            )
         _cu_map_main(json_output=json_output, target=target)
         return
 

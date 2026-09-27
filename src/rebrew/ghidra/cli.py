@@ -285,6 +285,10 @@ def main(
     if not dry_run:
         program_path = _probe_program_path(endpoint, program_path, json_output)
 
+    # Both structural ops may be requested in one run; the ops are collected
+    # so a dry run previews them together instead of printing twice.
+    structural_ops: list[dict[str, Any]] = []
+
     if create_functions:
         from rebrew.catalog import build_function_registry, cached_function_list
 
@@ -292,12 +296,9 @@ def main(
         registry = build_function_registry(
             funcs, cfg, inventory_path_for(cfg.reversed_dir, cfg), cfg.target_binary
         )
-        ops = build_new_function_commands(registry, program_path, iat_thunks=set(cfg.iat_thunks))
-        if dry_run:
-            _preview_ops(ops, json_output)
-            return
-        _mcp_apply(ops, endpoint, program_path, json_output, cfg)
-        return
+        structural_ops += build_new_function_commands(
+            registry, program_path, iat_thunks=set(cfg.iat_thunks)
+        )
 
     if bookmarks:
         from rebrew.catalog import scan_reversed_dir
@@ -306,12 +307,13 @@ def main(
             e if isinstance(e, dict) else e.to_dict()
             for e in scan_reversed_dir(cfg.reversed_dir, cfg=cfg)
         ]
-        ops = build_bookmark_commands(entries, program_path)
+        structural_ops += build_bookmark_commands(entries, program_path)
+
+    if structural_ops:
         if dry_run:
-            _preview_ops(ops, json_output)
-            return
-        _mcp_apply(ops, endpoint, program_path, json_output, cfg)
-        return
+            _preview_ops(structural_ops, json_output)
+        else:
+            _mcp_apply(structural_ops, endpoint, program_path, json_output, cfg)
 
     if pull_data:
         pull_data_cmd(cfg, endpoint, program_path, dry_run)

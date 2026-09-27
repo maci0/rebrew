@@ -37,8 +37,7 @@ PRD 05 collects these into `verify`, `status`, `graph`, and `cache`.
 - **CI bot** running `rebrew verify --compare` against the local
   `.rebrew/verify_baseline.json` baseline to fail on regressions.
   (>2026-09: was `db/verify_results.json`; the baseline is now a local
-  gitignored `.rebrew/` file with target/compiler/binary identity guards —
-  first run warns + skips the diff.)
+  gitignored `.rebrew/` file.)
 - **Team lead** generating `rebrew graph --format mermaid` for design
   reviews.
 
@@ -56,11 +55,11 @@ PRD 05 collects these into `verify`, `status`, `graph`, and `cache`.
 
 ## Non-Goals
 
-- `verify` does not promote STATUS unconditionally — it calls
-  `update_source_status`, which records the earned byte verdict (STATUS is
-  earned: byte comparison updates status; PROVEN is not protected per
-  ADR-024; SKIP stays parked; STUB is protected against placeholder
-  size-mismatch demotions).
+- `verify` does not promote STATUS unconditionally — it writes through
+  `update_statuses_batch` (gated by `should_promote_status`), which records
+  the earned byte verdict (STATUS is earned: byte comparison updates status;
+  PROVEN is not protected per ADR-024; SKIP stays parked; STUB is protected
+  against placeholder size-mismatch demotions).
 - `graph` does not run dataflow analysis; direct call edges come from
   identifiers found in reversed source files, optionally augmented with
   binary-derived edges (`--include-dispatch`, `--from-binary`).
@@ -125,7 +124,9 @@ PRD 05 collects these into `verify`, `status`, `graph`, and `cache`.
   origin/status of each node.
 - `--format mermaid` (default) | `dot` | `summary`.
 - `--focus FN [--depth N]` extracts a neighbourhood.
-- `--cu-map` overlays compilation-unit boundary inference.
+- `--cu-map` replaces the graph with a compilation-unit report printed to
+  stdout; no graph is built, and `-o/--output` with `--cu-map` is a hard
+  error (redirect stdout instead).
 - `--include-dispatch` adds a virtual `dispatch_0x<VA>` node per dispatch
   table detected in the binary, connected to its function-pointer targets
   (dashed edges in mermaid/dot).
@@ -168,8 +169,8 @@ PRD 05 collects these into `verify`, `status`, `graph`, and `cache`.
 
 1. CI runs `rebrew verify --compare --json` against the local
    `.rebrew/verify_baseline.json` baseline (>2026-09: was the committed
-   `db/verify_results.json`; the baseline is now local gitignored run state
-   with identity guards — first run warns + skips).
+   `db/verify_results.json`; the baseline is now local gitignored run
+   state).
 2. If any function regressed (EXACT → NEAR_MATCHING, etc.) the job fails.
 3. The author runs the same command locally to inspect the regression and
    pinpoint the offending file.
@@ -289,10 +290,13 @@ rebrew round-trip [OPTIONS]
 ## Open Questions / Known Limitations
 
 - `verify` does not detect *header* changes; users must add `--full` after
-  editing any shared header. (FIXED: the verify cache key now hashes every
-  reachable header via `headers_hash` + `_external_includes_hash` in
-  `verify_hash.py`, so editing a shared header re-verifies exactly the entries
-  whose sources reach it; `--full` remains available for a hard reset.)
+  editing any shared header. (FIXED: the verify cache now fingerprints every
+  reachable header per entry, through `VerifyCacheEntry.headers_fp` in
+  `verify_cache.py`, computed by `verify_hash.entry_headers_fp` delegating to
+  `compile_cache.header_dependency_hash`; the cache-wide `headers_hash` is
+  informational only, so editing a shared header re-verifies exactly the
+  entries whose sources reach it; `--full` remains available for a hard
+  reset.)
 - `verify --compare` baseline lives in a single local gitignored file
   (`.rebrew/verify_baseline.json`, with target/compiler/binary identity
   guards — first run warns + skips); branching workflows may need

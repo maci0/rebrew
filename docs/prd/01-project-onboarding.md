@@ -56,8 +56,9 @@ commands that round-trip TOML.
     docker-only for every shipped profile per ADR-008 and ADR-016; native
     binaries run only for image-less plugin toolchains).
   - Include and lib paths exist (docker-backed profiles get them from the image).
-  - The function list (`function_structure.json` / Ghidra JSON) is parseable and
-    FUNCTION/STUB annotations are not stale.
+  - The function list (`function_structure.json` / Ghidra JSON) is parseable.
+    FUNCTION/STUB annotation staleness is not checked here; `rebrew lint` rule
+    W028 owns it.
   - `reversed_dir` exists, plus metadata TOMLs, FLIRT signatures, and Ghidra
     sync setup.
 - A scriptable `rebrew cfg` subcommand suite that reads and writes TOML safely
@@ -130,8 +131,10 @@ commands that round-trip TOML.
   known arch/format, toolchain alignment (detected family vs profile), CRT
   linkage + optimization fingerprint (MSVC), docker image presence for
   shipped profiles (the image IS the compiler), runner, include/lib paths,
-  function list presence + annotation staleness, source files, bin dir,
-  metadata TOMLs, FLIRT signatures, Ghidra sync setup, and optional prove tools.
+  function list presence, source files, bin dir, metadata TOMLs, FLIRT
+  signatures, Ghidra sync setup, and optional prove tools. Per-function checks
+  (markers, VAs, metadata fields, cflags redundancy, stale annotations as
+  lint rule W028) are `rebrew lint`, not doctor.
 - Exits non-zero on any failure (CI gate).
 - `--json` mode emits the full check list with per-check `status` + `message`.
 - `--install-wibo` downloads the legacy host runner into `tools/wibo`; for
@@ -228,7 +231,7 @@ rebrew doctor [OPTIONS]
 
 rebrew cfg list-targets [--json]
 rebrew cfg show [KEY] [--target TARGET] [--json]
-rebrew cfg effective [KEY] [--target TARGET] [--json]
+rebrew cfg effective [--target TARGET] [--json]
 rebrew cfg raw [--format json|toml]
 rebrew cfg path
 rebrew cfg add-target NAME --binary FILE [--arch ARCH] [--format FORMAT] [--modules LIST] [--source-ext EXT] [--copy/--no-copy] [--force]

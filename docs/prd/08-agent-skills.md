@@ -37,8 +37,10 @@ recipes for each phase of a project.
   matching, data-analysis, ghidra sync, day-to-day workflow).
 - Each skill explicitly states when **not** to use it, pointing at the
   sibling skill instead.
-- All command examples in skills use `--json` so the agent receives
-  structured output it can parse without ambiguity.
+- Machine-readable commands are documented with `--json` so the agent
+  receives structured output it can parse without ambiguity. (Convention,
+  not machine-checked: `tools/validate_skill_commands.py` skips `--json`,
+  so a batch command example without it is not flagged.)
 
 ## Non-Goals
 
@@ -92,14 +94,18 @@ Trigger keywords: `intake`, `onboard`, `onboard binary`, `new binary`,
 
 Scope:
 
-- Prerequisites and project bootstrap (assumes scaffold exists; for a
-  bare directory, route to `rebrew-init` first).
+- `rebrew intake <binary>`: the one-shot onboarding command (init +
+  enumerate + STUB document). It runs `rebrew init` in-process when no
+  `rebrew-project.toml` exists, so it also covers the bare-directory case.
+  It does not run FLIRT, catalog, or `build-db`; the skill's procedure
+  continues from there. `rebrew-init` remains the path for teaching
+  `rebrew init`, profile selection, and target naming.
 - Multi-target file layout.
-- Ordered intake procedure: doctor → catalog → FLIRT → CRT → triage.
+- Ordered intake procedure: doctor → FLIRT (`cfg detect-crt --write`,
+  `rebrew flirt`) → `crt-match` → catalog → `build-db` → triage.
 - Outputs and post-intake hand-off to other skills.
 
-Excludes: empty-directory scaffolding (`rebrew-init`), day-to-day work,
-deep matching, individual function reversing.
+Excludes: day-to-day work, deep matching, individual function reversing.
 
 ### `rebrew-matching` (deep byte matching)
 
@@ -239,23 +245,32 @@ rebrew skills show <name> --json  # name/description/path + raw content
   fetch.
 - A regression test asserts that example commands in each SKILL.md use real
   flags: `tools/validate_skill_commands.py` checks every `rebrew <subcommand>
-  --flag` in the SKILL.md bash blocks against live `--help` output (pre-commit
-  hook + suite tests), and `tests/test_skills_sync.py` pins the rendered
-  `.agents/skills/` copy to `src/rebrew/agent-skills/`.
+  --flag` in the SKILL.md bash blocks and inline code spans (plus
+  `references/*.md`) against live `--help` output, skipping
+  `--help`/`--json`/`--target`/`--version` (`_SKIP_FLAGS`). It runs only
+  under the suite (`tests/test_skill_commands_validate.py`); the
+  `validate-skill-commands` pre-commit hook is registered with
+  `stages: [manual]`, so it is not part of `pre-commit run --all-files`.
+  `tests/test_skills_sync.py` pins the rendered `.agents/skills/` copy to
+  `src/rebrew/agent-skills/`.
 
 ## Open Questions / Known Limitations
 
 - Flag drift is auto-checked: `tools/validate_skill_commands.py` parses every
-  `rebrew <subcommand>` line in the SKILL.md bash blocks and verifies each
-  `--flag` against live `--help` (pre-commit + suite tests). (Resolved — flags
-  can no longer silently drift; frontmatter descriptions / trigger keywords are
-  still not validated against the CLI surface.)
+  `rebrew <subcommand>` line in the SKILL.md bash blocks, inline code spans,
+  and `references/*.md`, then verifies each `--flag` against live `--help`.
+  It runs in the suite; the pre-commit hook is `stages: [manual]` and nothing
+  in CI or the Makefile invokes it. (Partly resolved — `--json`, `--target`,
+  `--version`, and `--help` are skipped, so those four can still drift; so can
+  frontmatter descriptions / trigger keywords, which are not validated against
+  the CLI surface at all.)
 - The `rebrew-ghidra-sync` skill and all CLI tools share a single canonical
   default endpoint of `http://localhost:8080/mcp/message`. (Resolved — was
   a dual-default between 8089 and 8080; see gap report for history.)
 - `rebrew-init` ships bare-directory scaffolding for `rebrew init`
-  (ADR-020). Intake keeps in-project scope; init owns the empty-directory
-  case.
+  (ADR-020). `rebrew intake` invokes the same init app in-process when no
+  project exists, so a bare directory is covered by either skill; `rebrew-init`
+  is the one that teaches `rebrew init` itself.
 - `rebrew skills list` / `rebrew skills show` provide built-in discovery
   (`--json` for machine-readable output). (Resolved — was missing; agents no
   longer need to scan the directory.)
