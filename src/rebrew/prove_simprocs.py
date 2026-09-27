@@ -8,6 +8,7 @@ comparing only a prefix.  Imported lazily by prove.py because angr is optional.
 
 from __future__ import annotations
 
+import logging
 import threading
 from typing import Any, override
 
@@ -16,6 +17,8 @@ _SIMPROCS_LOCK = threading.Lock()
 
 
 _MEMCPY_MAX_LEN = 1024
+
+log = logging.getLogger(__name__)
 
 
 def _copy_length_or_none(solver: Any, n: Any) -> int | None:
@@ -42,7 +45,10 @@ def _copy_length_or_none(solver: Any, n: Any) -> int | None:
         return length
     try:
         hi = int(solver.max(n))
-    except Exception:
+    except Exception as exc:
+        # A solver blow-up must not read as the modelled "unbounded" case:
+        # both fail closed, but only one of them is a proof-time bug.
+        log.warning("solver cannot bound the copy length: %s", exc, exc_info=True)
         return None
     if hi > _MEMCPY_MAX_LEN and solver.satisfiable(
         extra_constraints=(claripy.UGT(n, _MEMCPY_MAX_LEN),)

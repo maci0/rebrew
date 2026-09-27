@@ -941,7 +941,8 @@ def _definition_files(cfg: ProjectConfig) -> list[Path]:
     reversed_dir = Path(cfg.reversed_dir)
     try:
         header_files = list(reversed_dir.rglob("*.h"))
-    except OSError:
+    except OSError as exc:
+        log.warning("cannot scan headers under %s: %s", reversed_dir, exc)
         header_files = []
     shared_dir = getattr(cfg, "shared_dir", None)
     if shared_dir is not None:
@@ -950,13 +951,15 @@ def _definition_files(cfg: ProjectConfig) -> list[Path]:
             if shared.resolve() != reversed_dir.resolve() and shared.is_dir():
                 seen = {p.resolve() for p in header_files}
                 header_files.extend(p for p in shared.rglob("*.h") if p.resolve() not in seen)
-        except OSError:
-            pass
+        except OSError as exc:
+            # Dropping the shared headers re-imports their types as duplicates.
+            log.warning("cannot scan shared headers under %s: %s", shared_dir, exc)
     try:
         from rebrew.sources import iter_sources
 
         source_files = list(iter_sources(reversed_dir, cfg))
-    except OSError:
+    except OSError as exc:
+        log.warning("cannot enumerate sources under %s: %s", reversed_dir, exc)
         source_files = []
     return header_files + source_files
 

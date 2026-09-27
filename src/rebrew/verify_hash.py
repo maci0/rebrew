@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import functools
 import hashlib
+import logging
 import threading
 from collections import OrderedDict
 from dataclasses import dataclass
@@ -18,6 +19,8 @@ from typing import Any
 from rebrew.config import ProjectConfig
 
 DEFAULT_TOOLCHAIN = "(default)"
+
+log = logging.getLogger(__name__)
 
 #: Guard for :data:`_HEADERS_HASH_CACHE`.  Eviction is clear-then-store on a
 #: shared dict; concurrent ``headers_hash`` callers (parallel saves / tests /
@@ -406,8 +409,15 @@ def entry_headers_fp(
                 shared_str = str(Path(shared).resolve())
                 if shared_str not in include_dirs:
                     include_dirs.append(shared_str)
-        except (OSError, ValueError):
-            pass
+        except (OSError, ValueError) as exc:
+            # Dropping shared_dir here hashes the source over a different
+            # include path than the compile used, so the mismatch is silent.
+            log.warning(
+                "shared_dir %s could not be resolved against %s (%s); hashing without it",
+                shared,
+                source_dir,
+                exc,
+            )
 
     force_include = any(f.startswith(FORCE_INCLUDE_PREFIXES) for f in flags)
     if force_include:

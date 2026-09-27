@@ -1097,7 +1097,8 @@ def detect_source_language(binary_path: Path) -> tuple[str, str]:
 
     try:
         parsed = lief.parse(str(binary_path))
-    except (OSError, ValueError, RuntimeError):
+    except (OSError, ValueError, RuntimeError) as exc:
+        log.debug("LIEF cannot parse %s for the language guess: %s", binary_path, exc)
         return ("C", ".c")
 
     if parsed is None:
@@ -1111,8 +1112,8 @@ def detect_source_language(binary_path: Path) -> tuple[str, str]:
             name = _decode_lief_name(sec.name).rstrip("\x00")
             if name:
                 section_names.append(name)
-    except (AttributeError, TypeError):
-        pass
+    except (AttributeError, TypeError) as exc:
+        log.debug("section table of %s truncated while guessing language: %s", binary_path, exc)
 
     for name in section_names:
         if name in (".gopclntab", ".gosymtab"):
@@ -1126,15 +1127,15 @@ def detect_source_language(binary_path: Path) -> tuple[str, str]:
             for sym in parsed.symbols:
                 if sym.name:
                     symbols.append(_decode_lief_name(sym.name))
-    except (AttributeError, TypeError):
-        pass
+    except (AttributeError, TypeError) as exc:
+        log.debug("symbol table of %s unreadable while guessing language: %s", binary_path, exc)
     try:
         if hasattr(parsed, "exported_functions"):
             for func in parsed.exported_functions:
                 if hasattr(func, "name") and func.name:
                     symbols.append(_decode_lief_name(func.name))
-    except (AttributeError, TypeError):
-        pass
+    except (AttributeError, TypeError) as exc:
+        log.debug("export table of %s unreadable while guessing language: %s", binary_path, exc)
 
     go_count = 0
     rust_count = 0

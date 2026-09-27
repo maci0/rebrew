@@ -22,6 +22,7 @@ Usage::
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -43,6 +44,8 @@ app = typer.Typer(
     help="Dump reference-side layout measurements (sections, gaps, IAT, exports).",
     rich_markup_mode="rich",
 )
+
+log = logging.getLogger(__name__)
 
 #: JSON manifest type.
 Manifest = dict[str, Any]
@@ -73,7 +76,10 @@ def _lief_pe(path: Path) -> lief.PE.Binary | None:
 
     try:
         parsed = lief.parse(str(path))
-    except Exception:
+    except Exception as exc:
+        # None means "no relocations" downstream, so a parse failure would
+        # report a wrong layout rather than a failed one.
+        log.warning("LIEF cannot parse %s: %s", path, exc)
         return None
     if isinstance(parsed, lief.PE.Binary):
         return parsed

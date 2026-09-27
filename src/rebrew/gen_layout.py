@@ -46,6 +46,7 @@ Usage::
 
 from __future__ import annotations
 
+import logging
 import re
 import struct
 import subprocess
@@ -64,6 +65,8 @@ from rebrew.utils import atomic_write_text, container_runtime
 app = typer.Typer(
     help="Generate linker-script scaffolding (def, layout manifest, IAT seed, data restore)."
 )
+
+log = logging.getLogger(__name__)
 
 #: Ordinal imports can't be /included by name from the binary alone; the
 #: small stable ordinal tables let the generator still emit usable seeds.
@@ -229,8 +232,12 @@ def _import_lib_symbols_from_image(dll_stem: str) -> set[str]:
         from rebrew.toolchain import kill_container
 
         kill_container(name)
+        log.warning("container %s timed out listing symbols; library assumed empty", name)
         return set()
-    except OSError:
+    except OSError as exc:
+        # An empty set means "this LIB exports nothing", which would seed an
+        # import-ordinal table with every import undecorated.
+        log.warning("cannot run container %s to list symbols: %s", name, exc)
         return set()
     except BaseException:
         # Ctrl+C kills the docker CLI but leaves the container running.

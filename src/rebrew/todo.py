@@ -12,7 +12,6 @@ Usage::
     rebrew todo --json              Machine-readable output
 """
 
-import contextlib
 import json
 import logging
 from collections.abc import Callable
@@ -659,6 +658,31 @@ def load_verify_entries(cfg: ProjectConfig) -> dict[str, "VerifyCacheEntry"]:
     return normalized
 
 
+def _load_target_binary(cfg: ProjectConfig) -> Any | None:
+    """Parse the target binary for unmatchable detection, or ``None``.
+
+    A parse failure is not the same answer as "no binary": the callers below
+    pass the result to ``detect_unmatchable``, which treats ``None`` as "no
+    unmatchable evidence" and would recommend library and thunk stubs as new
+    work.  Report the failure and continue, so the operator knows the lanes
+    below are running unfiltered.
+    """
+    bin_path = getattr(cfg, "target_binary", None)
+    if not bin_path or not Path(bin_path).exists():
+        return None
+    from rebrew.binary_loader import load_binary
+
+    try:
+        return load_binary(Path(bin_path))
+    except (OSError, ValueError, RuntimeError) as exc:
+        log.warning("cannot parse %s: %s", bin_path, exc, exc_info=True)
+        console.print(
+            f"[yellow]WARNING: cannot parse {bin_path} ({exc}); "
+            "unmatchable detection is disabled[/yellow]"
+        )
+        return None
+
+
 def _inferred_module(name: str) -> str:
     """Library module for a bare function name, or "" when unclassified.
 
@@ -747,13 +771,7 @@ def _collect_new_functions(
         return match_bytes(_lib_index, data)
 
     # Load binary for unmatchable detection
-    binary_info = None
-    bin_path = cfg.target_binary
-    if bin_path.exists():
-        with contextlib.suppress(OSError, ValueError, RuntimeError):
-            from rebrew.binary_loader import load_binary
-
-            binary_info = load_binary(bin_path)
+    binary_info = _load_target_binary(cfg)
 
     items: list[TodoItem] = []
     for func in ghidra_funcs:
@@ -845,13 +863,7 @@ def _collect_library_candidates(
     # identify, and a sub-10B row is not actionable.
     ignored: set[str] = set(getattr(cfg, "ignored_symbols", None) or [])
     iat_set: set[int] = set(getattr(cfg, "iat_thunks", None) or [])
-    binary_info = None
-    bin_path = getattr(cfg, "target_binary", None)
-    if bin_path and bin_path.exists():
-        with contextlib.suppress(OSError, ValueError, RuntimeError):
-            from rebrew.binary_loader import load_binary
-
-            binary_info = load_binary(bin_path)
+    binary_info = _load_target_binary(cfg)
     items: list[TodoItem] = []
     for func in ghidra_funcs:
         va = func.va
@@ -861,9 +873,18 @@ def _collect_library_candidates(
         name = func.name or f"FUN_{va:08x}"
         if name in ignored or size < 10:
             continue
-        with contextlib.suppress(TypeError, ValueError, AttributeError):
-            if detect_unmatchable(va, size, binary_info, iat_set, ignored, name):
-                continue
+        # A probe failure must not read as "matchable work": the function is
+        # then recommended as a candidate, which is exactly the wrong answer
+        # for a thunk or library stub the probe could not classify.
+        try:
+            unmatchable = detect_unmatchable(va, size, binary_info, iat_set, ignored, name)
+        except (TypeError, ValueError, AttributeError) as exc:
+            log.warning(
+                "unmatchable probe failed for %s (0x%08x): %s", name, va, exc, exc_info=True
+            )
+            continue
+        if unmatchable:
+            continue
         # FunctionEntry carries no module (only va/size/name/tool_name), so the
         # old `hasattr(func, "module")` was always False and this lane never
         # emitted.  The module is inferred from the name; an unclassifiable name
