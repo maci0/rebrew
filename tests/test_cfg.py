@@ -1598,3 +1598,42 @@ class TestAddTargetSharedScaffold:
         )
         assert result.exit_code == 0
         assert not (tmp_path / "src" / "shared").exists()
+
+
+class TestCLIEffective:
+    def test_json_reports_env_overrides_by_name_only(self, tmp_path: Path, monkeypatch) -> None:
+        """The key comes from the environment; the endpoint keeps the TOML value."""
+        _make_project(
+            tmp_path,
+            '[project]\ndefault_target = "server.dll"\n\n'
+            + SAMPLE_TOML
+            + '\n[llm]\nendpoint = "https://toml.example/v1"\napi_key = "t0ml"\n',
+        )
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setenv("REBREW_LLM_ENDPOINT", "https://env.example/v1")
+        monkeypatch.setenv("REBREW_LLM_API_KEY", "s3cret")
+        result = runner.invoke(cfg_app, ["effective", "--json"])
+        assert result.exit_code == 0
+        payload = json.loads(result.stdout)
+        assert payload["config"]["llm_endpoint"] == "https://toml.example/v1"
+        assert payload["config"]["llm_api_key"] == "***"
+        assert "s3cret" not in result.stdout
+        assert "REBREW_LLM_API_KEY" in payload["env_overrides"]
+        assert "REBREW_LLM_MODEL" not in payload["env_overrides"]
+
+    def test_toml_value_used_without_env(self, tmp_path: Path, monkeypatch) -> None:
+        monkeypatch.delenv("REBREW_LLM_ENDPOINT", raising=False)
+        monkeypatch.delenv("REBREW_LLM_API_KEY", raising=False)
+        _make_project(
+            tmp_path,
+            '[project]\ndefault_target = "server.dll"\n\n'
+            + SAMPLE_TOML
+            + '\n[llm]\nendpoint = "https://toml.example/v1"\napi_key = "t0ml"\n',
+        )
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(cfg_app, ["effective", "--json"])
+        assert result.exit_code == 0
+        payload = json.loads(result.stdout)
+        assert payload["config"]["llm_endpoint"] == "https://toml.example/v1"
+        assert payload["config"]["llm_api_key"] == "***"
+        assert payload["env_overrides"] == []
