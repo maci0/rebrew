@@ -43,7 +43,7 @@ from rebrew.cli import (
     option_default,
     parse_va,
     require_config,
-    resolve_source_arg,
+    require_source_arg,
 )
 from rebrew.coff_reloc import (
     CatalogScanError,
@@ -437,10 +437,10 @@ def main(
         error_exit(f"--context {context}: {exc}", json_mode=json_output)
 
     # Accept a hex VA or symbol name in addition to a .c path, like
-    # `rebrew diff`/`rebrew prove` (resolve_source_arg returns the argument
-    # unchanged when nothing matches, so the original error path is kept).
+    # `rebrew diff`/`rebrew prove`.  An unresolvable argument exits here with
+    # one wording instead of the downstream "Could not derive symbol".
     if source is not None:
-        source = str(resolve_source_arg(cfg, source))
+        source = str(require_source_arg(cfg, source, json_mode=json_output))
 
     if watch and all_sources:
         # Flag-combination usage error — exit 2, not "needs code work" (1).
@@ -1344,7 +1344,7 @@ def run_test(
         typer.Exit: A tooling failure that the CLI reports through
             ``error_exit`` (compile error, unextractable target bytes).
     """
-    resolved = str(resolve_source_arg(cfg, str(source)))
+    resolved = str(require_source_arg(cfg, str(source), json_mode=json_output))
     no_promote, status_skip_reason = _status_skip_for_source(cfg, resolved, no_promote)
     lint_annos, name_to_va = _lint_preamble(cfg, resolved, size=None, json_output=json_output)
     return _run_test_impl(

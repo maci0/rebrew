@@ -57,7 +57,7 @@ from rebrew.cli import (
     json_print,
     parse_va,
     require_config,
-    resolve_source_arg,
+    require_source_arg,
 )
 from rebrew.coff_reloc import build_iat_region, build_name_to_va, smart_reloc_compare
 from rebrew.compile import compile_to_obj
@@ -1259,10 +1259,7 @@ def main(
     if source is None:
         error_exit("Either provide a source file or use --all", json_mode=json_output)
     was_va_arg = source.strip().lower().startswith("0x")
-    source_path = resolve_source_arg(cfg, source)
-
-    if not source_path.exists():
-        error_exit(f"Source file not found: {source_path}", json_mode=json_output)
+    source_path = require_source_arg(cfg, source, json_mode=json_output)
 
     if watch:
         from rebrew.utils import watch_files

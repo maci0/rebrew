@@ -151,7 +151,7 @@ def resolve_build_params(
         # Run the existence check unconditionally — with an explicit --symbol
         # the old guard below was skipped and read_compile_source raised a raw
         # FileNotFoundError traceback.
-        error_exit(f"Source not found: {seed_c}", json_mode=json_output)
+        error_exit(f"Source file not found: {seed_c}", json_mode=json_output)
     annos = parse_c_file_multi(
         seed_c_path, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir
     )
@@ -267,7 +267,7 @@ def resolve_build_params(
         symbol = anno.symbol
     if not symbol:
         if not Path(seed_c).exists():
-            error_exit(f"Source not found: {seed_c}", json_mode=json_output)
+            error_exit(f"Source file not found: {seed_c}", json_mode=json_output)
         error_exit(
             "--symbol required (could not derive from C function definition)", json_mode=json_output
         )

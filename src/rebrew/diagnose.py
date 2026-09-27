@@ -34,7 +34,7 @@ from rebrew.cli import (
     error_exit,
     json_print,
     require_config,
-    resolve_source_arg,
+    require_source_arg,
 )
 from rebrew.config import ProjectConfig
 from rebrew.sources import iter_sources
@@ -212,9 +212,7 @@ def main(
         if not sources:
             error_exit(f"no source files found under {p}", json_mode=json_output)
     else:
-        resolved = resolve_source_arg(cfg, source_arg)
-        if not resolved.exists():
-            error_exit(f"no such source: {source_arg}", json_mode=json_output)
+        resolved = require_source_arg(cfg, source_arg, json_mode=json_output)
         sources = [resolved]
     results = [diagnose_source(cfg, src) for src in sources]
     if json_output:

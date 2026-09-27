@@ -479,7 +479,9 @@ def main(
     sources: list[str] | None = typer.Argument(None, help="Input source files (or directories)"),
     output: str = typer.Option(..., "--output", "-o", help="Output merged source file"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
-    force: bool = typer.Option(False, "--force", help="Overwrite output if it exists"),
+    force: bool = typer.Option(
+        False, "--force", help="Overwrite output if it exists; also skips the --delete confirmation"
+    ),
     delete: bool = typer.Option(
         False, "--delete", help="Delete input files after successful merge"
     ),

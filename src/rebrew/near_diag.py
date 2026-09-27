@@ -964,13 +964,13 @@ def main(
             json_mode=json_output,
         )
 
-    from rebrew.cli import resolve_source_arg
+    from rebrew.cli import require_source_arg
 
     # Accept a hex VA or symbol name in addition to a .c path, like
     # `rebrew diff`/`rebrew prove`/`rebrew test` — a VA resolves to its
     # source file via the catalog.
     raw_source = source  # keep the original positional (may itself be a VA)
-    source = str(resolve_source_arg(cfg, source))
+    source = str(require_source_arg(cfg, source, json_mode=json_output))
     source_path = Path(source).resolve()
 
     annos = parse_c_file_multi(
