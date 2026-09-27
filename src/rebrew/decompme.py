@@ -47,7 +47,7 @@ from rebrew.cli import (
 )
 from rebrew.config import validate_http_url
 from rebrew.errors import RebrewError
-from rebrew.utils import read_source_text
+from rebrew.utils import RETRYABLE_HTTP_STATUS, read_source_text
 
 app = typer.Typer(
     help="Upload a function to decomp.me as a collaborative scratch.",
@@ -256,7 +256,7 @@ def upload_scratch(
                 f"{(resp.text or '')[:500]}",
                 kind="http",
                 status_code=resp.status_code,
-                retryable=resp.status_code in {408, 425, 429, 500, 502, 503, 504},
+                retryable=resp.status_code in RETRYABLE_HTTP_STATUS,
             )
         try:
             data = resp.json()

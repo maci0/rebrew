@@ -825,6 +825,372 @@ def build_db(
         )
 
 
+def _create_schema(c: sqlite3.Cursor, target: str | None) -> None:
+    """Drop and recreate the coverage schema, migrating what an older build left.
+
+    Runs inside the caller's open write transaction and reads nothing but the
+    existing ``sqlite_master`` DDL.  *target* None means a full rebuild, which
+    drops the data tables too; a scoped rebuild keeps them and recreates only
+    the derived tables and indexes.
+    """
+    # The stats table is derived from cells — recreate it every run
+    # (scoped rebuilds keep the tables but must refresh the stats too).
+    # It was a VIEW before it was materialized, and SQLite refuses
+    # DROP VIEW on a table (and DROP TABLE on a view), so drop by the type
+    # actually present: that type check IS the migration path for
+    # databases built before the change.
+    existing_stats = c.execute(
+        "SELECT type FROM sqlite_master WHERE name = ?", (SECTION_CELL_STATS_TABLE,)
+    ).fetchone()
+    if existing_stats is not None:
+        stats_kind = "VIEW" if existing_stats[0] == "view" else "TABLE"
+        c.execute(f"DROP {stats_kind} {SECTION_CELL_STATS_TABLE}")
+    # Derived cache: drop before sections so a sections FK cannot block
+    # DROP TABLE sections on full rebuild.  Recreated with CREATE below.
+    c.execute(f"DROP TABLE IF EXISTS {SECTION_CELLS_TABLE}")
+    # Full rebuild (no --target): recreate the whole schema.
+    # Scoped rebuild (--target): keep the schema and other targets'
+    # rows; only this target's rows are deleted below.
+    if not target:
+        c.execute("DROP TABLE IF EXISTS cells")
+        c.execute("DROP TABLE IF EXISTS functions")
+        c.execute("DROP TABLE IF EXISTS globals")
+        c.execute("DROP TABLE IF EXISTS sections")
+        c.execute("DROP TABLE IF EXISTS metadata")
+        # verify_results is NOT dropped here: it is a persistent history
+        # table (DB_FORMAT.md documents "never dropped on rebuild"), and
+        # dropping it wiped every target's verification rows except the
+        # last-verified target's (re-imported below from
+        # verify_results.json).  The per-target INSERT OR REPLACE + prune
+        # below keeps it current without the drop.
+        # v3-era index superseded by idx_history_target_id — history is
+        # never dropped (accumulates by design), so remove the dead index
+        # explicitly or it survives every rebuild.
+        c.execute("DROP INDEX IF EXISTS idx_history_target_va")
+
+    c.execute(f"""
+        CREATE TABLE IF NOT EXISTS functions (
+            target TEXT NOT NULL,
+            va INTEGER NOT NULL CHECK (va >= 0),
+            name TEXT NOT NULL DEFAULT '',
+            vaStart TEXT NOT NULL DEFAULT '',
+            size INTEGER CHECK (size IS NULL OR size >= 0),
+            fileOffset INTEGER CHECK (fileOffset IS NULL OR fileOffset >= 0),
+            status TEXT NOT NULL DEFAULT 'UNKNOWN'
+                CHECK (status IN ({_FUNCTION_STATUS_CHECK_SQL})),
+            module TEXT NOT NULL DEFAULT '',
+            cflags TEXT,
+            symbol TEXT,
+            markerType TEXT NOT NULL DEFAULT 'FUNCTION'
+                CHECK (markerType IN ({_MARKER_CHECK_SQL})),
+            ghidra_name TEXT,
+            list_name TEXT,
+            is_thunk INTEGER NOT NULL DEFAULT 0 CHECK (is_thunk IN (0, 1)),
+            is_export INTEGER NOT NULL DEFAULT 0 CHECK (is_export IN (0, 1)),
+            sha256 TEXT,
+            files TEXT NOT NULL DEFAULT '[]',
+            detected_by TEXT NOT NULL DEFAULT '[]',
+            size_by_tool TEXT NOT NULL DEFAULT '{{}}',
+            textOffset INTEGER CHECK (textOffset IS NULL OR textOffset >= 0),
+            blocker TEXT,
+            blockerDelta INTEGER CHECK (blockerDelta IS NULL OR blockerDelta >= 0),
+            size_reason TEXT,
+            similarity REAL CHECK (similarity IS NULL OR (similarity >= 0.0 AND similarity <= 1.0)),
+            updated_by TEXT NOT NULL DEFAULT '',
+            updated_at TEXT NOT NULL DEFAULT '',
+            PRIMARY KEY (target, va)
+        )
+    """)
+
+    c.execute(f"""
+        CREATE TABLE IF NOT EXISTS globals (
+            target TEXT NOT NULL,
+            va INTEGER NOT NULL CHECK (va >= 0),
+            name TEXT NOT NULL DEFAULT '',
+            decl TEXT NOT NULL DEFAULT '',
+            files TEXT NOT NULL DEFAULT '[]',
+            module TEXT NOT NULL DEFAULT '',
+            size INTEGER NOT NULL DEFAULT 4 CHECK (size >= 0),
+            status TEXT NOT NULL DEFAULT ''
+                CHECK (status IN ({_GLOBAL_STATUS_CHECK_SQL})),
+            PRIMARY KEY (target, va)
+        )
+    """)
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS sections (
+            target TEXT NOT NULL,
+            name TEXT NOT NULL,
+            va INTEGER CHECK (va IS NULL OR va >= 0),
+            size INTEGER CHECK (size IS NULL OR size >= 0),
+            fileOffset INTEGER CHECK (fileOffset IS NULL OR fileOffset >= 0),
+            unitBytes INTEGER CHECK (unitBytes IS NULL OR unitBytes > 0),
+            columns INTEGER CHECK (columns IS NULL OR columns > 0),
+            PRIMARY KEY (target, name)
+        )
+    """)
+
+    c.execute(f"""
+        CREATE TABLE IF NOT EXISTS cells (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            target TEXT NOT NULL,
+            section_name TEXT NOT NULL,
+            start INTEGER NOT NULL CHECK (start >= 0),
+            end INTEGER NOT NULL CHECK (end >= start),
+            span INTEGER NOT NULL DEFAULT 1 CHECK (span > 0),
+            state TEXT NOT NULL
+                CHECK (state IN ({_CELL_STATE_CHECK_SQL})),
+            functions TEXT NOT NULL DEFAULT '[]',
+            label TEXT,
+            parent_function TEXT,
+            UNIQUE (target, section_name, start),
+            FOREIGN KEY (target, section_name)
+                REFERENCES sections(target, name)
+                ON DELETE CASCADE
+        )
+    """)
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS metadata (
+            target TEXT NOT NULL,
+            key TEXT NOT NULL,
+            value TEXT,
+            PRIMARY KEY (target, key)
+        )
+    """)
+    # PK is (target, key); dashboards and version probes also filter by
+    # key alone (``WHERE key = 'function_stats'`` / ``key = 'db_version'``),
+    # which cannot use that leftmost-target index.
+    c.execute("CREATE INDEX IF NOT EXISTS idx_metadata_key ON metadata(key, target)")
+
+    # Per-section cell JSON, pre-aggregated and zstd-compressed.  Serving a
+    # dashboard grid otherwise re-runs json_group_array over every cell on
+    # each cold request: measured 10.7 ms of SQLite per 39k-cell section
+    # versus 0.3 ms to read this row, for 188 KB stored across the whole
+    # table.  WITHOUT ROWID because it is accessed only by its primary key,
+    # so the implicit rowid (and its index) would be dead weight.
+    #
+    # It is a derived cache: `cells` remains the source of truth and is the
+    # only thing other queries read, so a reader without this table still
+    # works (see rebrew.workspace.SECTION_CELLS_AGG_SQL).  DROP ran above
+    # (before sections) so a prior FK cannot block full-rebuild drops;
+    # CREATE here (not IF NOT EXISTS) so the sections FK always applies.
+    c.execute(f"""
+        CREATE TABLE {SECTION_CELLS_TABLE} (
+            target TEXT NOT NULL,
+            section_name TEXT NOT NULL,
+            {SECTION_CELLS_COLUMN} BLOB NOT NULL,
+            PRIMARY KEY (target, section_name),
+            FOREIGN KEY (target, section_name)
+                REFERENCES sections(target, name)
+                ON DELETE CASCADE
+        ) WITHOUT ROWID
+    """)
+
+    c.execute("CREATE INDEX IF NOT EXISTS idx_functions_name ON functions(target, name)")
+    # The dashboard filters by status or module and pages ORDER BY va; the
+    # trailing va lets the index serve the sort, so the planner seeks the
+    # filter instead of walking idx_functions_list over the whole target.
+    # Scoped rebuilds keep the table: drop the (target, status|module)
+    # copies older builds created.
+    c.execute("DROP INDEX IF EXISTS idx_functions_status")
+    c.execute("DROP INDEX IF EXISTS idx_functions_module")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_functions_status_va ON functions(target, status, va)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_functions_module_va ON functions(target, module, va)")
+    # Dashboard + _function_stats list only FUNCTION_ROWS_SQL rows and
+    # ORDER BY va: a partial (target, va) index matches that filter+sort
+    # without scanning data rows that the UI never lists.  It also serves
+    # the COUNT(*), so a (target, markerType) index would only cost writes:
+    # drop the copy older builds created (scoped rebuilds keep the table).
+    # idx_functions_list is dropped and recreated every run so a scoped
+    # rebuild cannot keep an older build's predicate, which no current
+    # query matches.
+    c.execute("DROP INDEX IF EXISTS idx_functions_marker")
+    c.execute("DROP INDEX IF EXISTS idx_functions_list")
+    c.execute(f"CREATE INDEX idx_functions_list ON functions(target, va) WHERE {FUNCTION_ROWS_SQL}")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_globals_name ON globals(target, name)")
+    # The dashboard filters globals by module and pages ORDER BY va; the
+    # trailing va lets the index serve the sort, so the planner seeks the
+    # filter instead of scanning all globals for the target.
+    c.execute("DROP INDEX IF EXISTS idx_globals_module")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_globals_module_va ON globals(target, module, va)")
+    # idx_cells_section is deliberately NOT created: the
+    # UNIQUE (target, section_name, start) constraint already serves the
+    # same leftmost prefix (target, section_name) for the view's
+    # GROUP BY and any WHERE target=? AND section_name=? query — a second
+    # index would be paid for on every cell insert and never be the only
+    # usable one.  Drop any pre-existing copy from older
+    # builds explicitly or it survives every rebuild.
+    c.execute("DROP INDEX IF EXISTS idx_cells_section")
+
+    c.execute(f"CREATE TABLE IF NOT EXISTS history ({_HISTORY_COLUMNS_SQL})")
+    # history is never dropped on rebuild, so CREATE IF NOT EXISTS leaves a
+    # pre-CHECK table alone.  Recreate in place (preserving rows, clamping
+    # outliers) when the stored DDL lacks the range/status guards.
+    hist_sql_row = c.execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'history'"
+    ).fetchone()
+    hist_sql = hist_sql_row[0] if hist_sql_row else ""
+    if hist_sql and "old_status IS NULL OR old_status IN" not in hist_sql:
+        c.execute("ALTER TABLE history RENAME TO _history_migrate")
+        c.execute(f"CREATE TABLE history ({_HISTORY_COLUMNS_SQL})")
+        # Preserve id so ORDER BY id DESC / retention stay stable across
+        # the recreate.  Statuses outside the functions vocabulary become
+        # UNKNOWN (same coercion the functions insert path uses).
+        c.execute(
+            f"""
+            INSERT INTO history (
+                id, target, va, old_status, new_status, changed_at, updated_by
+            )
+            SELECT
+                id,
+                target,
+                CASE
+                    WHEN typeof(va) = 'integer' AND va >= 0 THEN va
+                    ELSE 0
+                END,
+                CASE
+                    WHEN old_status IS NULL THEN NULL
+                    WHEN old_status IN ({_FUNCTION_STATUS_CHECK_SQL}) THEN old_status
+                    ELSE 'UNKNOWN'
+                END,
+                CASE
+                    WHEN new_status IS NULL THEN NULL
+                    WHEN new_status IN ({_FUNCTION_STATUS_CHECK_SQL}) THEN new_status
+                    ELSE 'UNKNOWN'
+                END,
+                CASE
+                    WHEN changed_at IS NULL OR changed_at = ''
+                        THEN '1970-01-01T00:00:00+00:00'
+                    ELSE changed_at
+                END,
+                COALESCE(updated_by, '')
+            FROM _history_migrate
+            """
+        )
+        c.execute("DROP TABLE _history_migrate")
+    # history rows are appended on every rebuild; the dashboard pages them
+    # with WHERE target = ? ORDER BY id DESC LIMIT ?, so (target, id) is
+    # the serving index (a plain (target, va) index would not serve the
+    # ORDER BY id).  Growth is bounded by a per-target retention cap —
+    # only the newest _HISTORY_RETENTION rows per target are kept, so a
+    # long-lived project that regenerates often does not accumulate rows
+    # forever.
+    c.execute("CREATE INDEX IF NOT EXISTS idx_history_target_id ON history(target, id)")
+
+    c.execute(f"CREATE TABLE IF NOT EXISTS verify_results ({_VERIFY_RESULTS_COLUMNS_SQL})")
+    # verify_results is never dropped on rebuild, so CREATE IF NOT EXISTS
+    # leaves a pre-CHECK table alone.  Recreate in place when the stored
+    # DDL lacks the range guards.  Negatives clamp to 0, non-finite
+    # deltas become NULL, and a NULL va is dropped.  Clamped keys that
+    # collide on (target, va) keep the latest row so the PRIMARY KEY
+    # cannot abort the rebuild.
+    vr_sql_row = c.execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'verify_results'"
+    ).fetchone()
+    vr_sql = vr_sql_row[0] if vr_sql_row else ""
+    if vr_sql and ("effective_match IN (0, 1)" not in vr_sql or "verified_at != ''" not in vr_sql):
+        c.execute("ALTER TABLE verify_results RENAME TO _verify_results_migrate")
+        c.execute(f"CREATE TABLE verify_results ({_VERIFY_RESULTS_COLUMNS_SQL})")
+        byte_sql = _nonneg_metric_sql("byte_delta")
+        diff_sql = _nonneg_metric_sql("diff_lines")
+        reg_sql = _nonneg_metric_sql("reg_delta")
+        c.execute(
+            f"""
+            INSERT INTO verify_results (
+                target, va, verified_at, byte_delta, diff_lines,
+                similarity, reg_delta, effective_match
+            )
+            SELECT
+                target, va, verified_at, byte_delta, diff_lines,
+                similarity, reg_delta, effective_match
+            FROM (
+                SELECT
+                    target, va, verified_at, byte_delta, diff_lines,
+                    similarity, reg_delta, effective_match,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY target, va ORDER BY src_rowid DESC
+                    ) AS rn
+                FROM (
+                    SELECT
+                        rowid AS src_rowid,
+                        target,
+                        CASE
+                            WHEN va IS NULL THEN NULL
+                            WHEN va < 0 THEN 0
+                            ELSE va
+                        END AS va,
+                        CASE
+                            WHEN verified_at IS NULL OR verified_at = ''
+                                THEN '1970-01-01T00:00:00+00:00'
+                            ELSE verified_at
+                        END AS verified_at,
+                        {byte_sql} AS byte_delta,
+                        {diff_sql} AS diff_lines,
+                        CASE
+                            WHEN similarity IS NULL THEN NULL
+                            WHEN typeof(similarity) NOT IN ('integer', 'real') THEN NULL
+                            -- Keep finite in-range unit-interval values.
+                            -- ``x = x`` rejects NaN; percents from verify
+                            -- (``(1, 100]``) are scaled down — a plain
+                            -- ``> 1 → 1.0`` clamp used to store every
+                            -- real Sim% as a perfect match.
+                            WHEN similarity = similarity
+                                 AND similarity >= 0.0 AND similarity <= 1.0
+                                THEN similarity
+                            WHEN similarity = similarity
+                                 AND similarity > 1.0 AND similarity <= 100.0
+                                THEN similarity / 100.0
+                            WHEN similarity = similarity
+                                 AND similarity < 0.0 AND abs(similarity) < 1e300
+                                THEN 0.0
+                            ELSE NULL
+                        END AS similarity,
+                        {reg_sql} AS reg_delta,
+                        CASE
+                            WHEN effective_match IS NULL THEN NULL
+                            WHEN typeof(effective_match) != 'integer' THEN NULL
+                            WHEN effective_match IN (0, 1) THEN effective_match
+                            ELSE NULL
+                        END AS effective_match
+                    FROM _verify_results_migrate
+                )
+                WHERE va IS NOT NULL
+            )
+            WHERE rn = 1
+            """
+        )
+        c.execute("DROP TABLE _verify_results_migrate")
+
+    # Per-section aggregate stats (used by both UIs).  Explicit CREATE with
+    # PRIMARY KEY (target, section_name) — CREATE TABLE AS SELECT left the
+    # table without a key, so duplicate rows were possible and
+    # ``WHERE target = ?`` had no index.  Declared empty here and filled
+    # from _SECTION_CELL_STATS_SELECT after the cells are inserted.
+    c.execute(f"""
+        CREATE TABLE {SECTION_CELL_STATS_TABLE} (
+            target TEXT NOT NULL,
+            section_name TEXT NOT NULL,
+            total_cells INTEGER NOT NULL DEFAULT 0 CHECK (total_cells >= 0),
+            exact_count INTEGER NOT NULL DEFAULT 0 CHECK (exact_count >= 0),
+            reloc_count INTEGER NOT NULL DEFAULT 0 CHECK (reloc_count >= 0),
+            near_match_count INTEGER NOT NULL DEFAULT 0 CHECK (near_match_count >= 0),
+            stub_count INTEGER NOT NULL DEFAULT 0 CHECK (stub_count >= 0),
+            padding_count INTEGER NOT NULL DEFAULT 0 CHECK (padding_count >= 0),
+            data_count INTEGER NOT NULL DEFAULT 0 CHECK (data_count >= 0),
+            thunk_count INTEGER NOT NULL DEFAULT 0 CHECK (thunk_count >= 0),
+            none_count INTEGER NOT NULL DEFAULT 0 CHECK (none_count >= 0),
+            proven_count INTEGER NOT NULL DEFAULT 0 CHECK (proven_count >= 0),
+            size_mismatch_count INTEGER NOT NULL DEFAULT 0 CHECK (size_mismatch_count >= 0),
+            other_count INTEGER NOT NULL DEFAULT 0 CHECK (other_count >= 0),
+            PRIMARY KEY (target, section_name),
+            FOREIGN KEY (target, section_name)
+                REFERENCES sections(target, name)
+                ON DELETE CASCADE
+        )
+    """)
+
+
 def _build_coverage_db(
     root_dir: Path,
     db_path: Path,
@@ -873,370 +1239,7 @@ def _build_coverage_db(
             for row in c.fetchall():
                 old_statuses[(row[0], row[1])] = row[2]
 
-        # The stats table is derived from cells — recreate it every run
-        # (scoped rebuilds keep the tables but must refresh the stats too).
-        # It was a VIEW before it was materialized, and SQLite refuses
-        # DROP VIEW on a table (and DROP TABLE on a view), so drop by the type
-        # actually present: that type check IS the migration path for
-        # databases built before the change.
-        existing_stats = c.execute(
-            "SELECT type FROM sqlite_master WHERE name = ?", (SECTION_CELL_STATS_TABLE,)
-        ).fetchone()
-        if existing_stats is not None:
-            stats_kind = "VIEW" if existing_stats[0] == "view" else "TABLE"
-            c.execute(f"DROP {stats_kind} {SECTION_CELL_STATS_TABLE}")
-        # Derived cache: drop before sections so a sections FK cannot block
-        # DROP TABLE sections on full rebuild.  Recreated with CREATE below.
-        c.execute(f"DROP TABLE IF EXISTS {SECTION_CELLS_TABLE}")
-        # Full rebuild (no --target): recreate the whole schema.
-        # Scoped rebuild (--target): keep the schema and other targets'
-        # rows; only this target's rows are deleted below.
-        if not target:
-            c.execute("DROP TABLE IF EXISTS cells")
-            c.execute("DROP TABLE IF EXISTS functions")
-            c.execute("DROP TABLE IF EXISTS globals")
-            c.execute("DROP TABLE IF EXISTS sections")
-            c.execute("DROP TABLE IF EXISTS metadata")
-            # verify_results is NOT dropped here: it is a persistent history
-            # table (DB_FORMAT.md documents "never dropped on rebuild"), and
-            # dropping it wiped every target's verification rows except the
-            # last-verified target's (re-imported below from
-            # verify_results.json).  The per-target INSERT OR REPLACE + prune
-            # below keeps it current without the drop.
-            # v3-era index superseded by idx_history_target_id — history is
-            # never dropped (accumulates by design), so remove the dead index
-            # explicitly or it survives every rebuild.
-            c.execute("DROP INDEX IF EXISTS idx_history_target_va")
-
-        c.execute(f"""
-            CREATE TABLE IF NOT EXISTS functions (
-                target TEXT NOT NULL,
-                va INTEGER NOT NULL CHECK (va >= 0),
-                name TEXT NOT NULL DEFAULT '',
-                vaStart TEXT NOT NULL DEFAULT '',
-                size INTEGER CHECK (size IS NULL OR size >= 0),
-                fileOffset INTEGER CHECK (fileOffset IS NULL OR fileOffset >= 0),
-                status TEXT NOT NULL DEFAULT 'UNKNOWN'
-                    CHECK (status IN ({_FUNCTION_STATUS_CHECK_SQL})),
-                module TEXT NOT NULL DEFAULT '',
-                cflags TEXT,
-                symbol TEXT,
-                markerType TEXT NOT NULL DEFAULT 'FUNCTION'
-                    CHECK (markerType IN ({_MARKER_CHECK_SQL})),
-                ghidra_name TEXT,
-                list_name TEXT,
-                is_thunk INTEGER NOT NULL DEFAULT 0 CHECK (is_thunk IN (0, 1)),
-                is_export INTEGER NOT NULL DEFAULT 0 CHECK (is_export IN (0, 1)),
-                sha256 TEXT,
-                files TEXT NOT NULL DEFAULT '[]',
-                detected_by TEXT NOT NULL DEFAULT '[]',
-                size_by_tool TEXT NOT NULL DEFAULT '{{}}',
-                textOffset INTEGER CHECK (textOffset IS NULL OR textOffset >= 0),
-                blocker TEXT,
-                blockerDelta INTEGER CHECK (blockerDelta IS NULL OR blockerDelta >= 0),
-                size_reason TEXT,
-                similarity REAL CHECK (similarity IS NULL OR (similarity >= 0.0 AND similarity <= 1.0)),
-                updated_by TEXT NOT NULL DEFAULT '',
-                updated_at TEXT NOT NULL DEFAULT '',
-                PRIMARY KEY (target, va)
-            )
-        """)
-
-        c.execute(f"""
-            CREATE TABLE IF NOT EXISTS globals (
-                target TEXT NOT NULL,
-                va INTEGER NOT NULL CHECK (va >= 0),
-                name TEXT NOT NULL DEFAULT '',
-                decl TEXT NOT NULL DEFAULT '',
-                files TEXT NOT NULL DEFAULT '[]',
-                module TEXT NOT NULL DEFAULT '',
-                size INTEGER NOT NULL DEFAULT 4 CHECK (size >= 0),
-                status TEXT NOT NULL DEFAULT ''
-                    CHECK (status IN ({_GLOBAL_STATUS_CHECK_SQL})),
-                PRIMARY KEY (target, va)
-            )
-        """)
-
-        c.execute("""
-            CREATE TABLE IF NOT EXISTS sections (
-                target TEXT NOT NULL,
-                name TEXT NOT NULL,
-                va INTEGER CHECK (va IS NULL OR va >= 0),
-                size INTEGER CHECK (size IS NULL OR size >= 0),
-                fileOffset INTEGER CHECK (fileOffset IS NULL OR fileOffset >= 0),
-                unitBytes INTEGER CHECK (unitBytes IS NULL OR unitBytes > 0),
-                columns INTEGER CHECK (columns IS NULL OR columns > 0),
-                PRIMARY KEY (target, name)
-            )
-        """)
-
-        c.execute(f"""
-            CREATE TABLE IF NOT EXISTS cells (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                target TEXT NOT NULL,
-                section_name TEXT NOT NULL,
-                start INTEGER NOT NULL CHECK (start >= 0),
-                end INTEGER NOT NULL CHECK (end >= start),
-                span INTEGER NOT NULL DEFAULT 1 CHECK (span > 0),
-                state TEXT NOT NULL
-                    CHECK (state IN ({_CELL_STATE_CHECK_SQL})),
-                functions TEXT NOT NULL DEFAULT '[]',
-                label TEXT,
-                parent_function TEXT,
-                UNIQUE (target, section_name, start),
-                FOREIGN KEY (target, section_name)
-                    REFERENCES sections(target, name)
-                    ON DELETE CASCADE
-            )
-        """)
-
-        c.execute("""
-            CREATE TABLE IF NOT EXISTS metadata (
-                target TEXT NOT NULL,
-                key TEXT NOT NULL,
-                value TEXT,
-                PRIMARY KEY (target, key)
-            )
-        """)
-        # PK is (target, key); dashboards and version probes also filter by
-        # key alone (``WHERE key = 'function_stats'`` / ``key = 'db_version'``),
-        # which cannot use that leftmost-target index.
-        c.execute("CREATE INDEX IF NOT EXISTS idx_metadata_key ON metadata(key, target)")
-
-        # Per-section cell JSON, pre-aggregated and zstd-compressed.  Serving a
-        # dashboard grid otherwise re-runs json_group_array over every cell on
-        # each cold request: measured 10.7 ms of SQLite per 39k-cell section
-        # versus 0.3 ms to read this row, for 188 KB stored across the whole
-        # table.  WITHOUT ROWID because it is accessed only by its primary key,
-        # so the implicit rowid (and its index) would be dead weight.
-        #
-        # It is a derived cache: `cells` remains the source of truth and is the
-        # only thing other queries read, so a reader without this table still
-        # works (see rebrew.workspace.SECTION_CELLS_AGG_SQL).  DROP ran above
-        # (before sections) so a prior FK cannot block full-rebuild drops;
-        # CREATE here (not IF NOT EXISTS) so the sections FK always applies.
-        c.execute(f"""
-            CREATE TABLE {SECTION_CELLS_TABLE} (
-                target TEXT NOT NULL,
-                section_name TEXT NOT NULL,
-                {SECTION_CELLS_COLUMN} BLOB NOT NULL,
-                PRIMARY KEY (target, section_name),
-                FOREIGN KEY (target, section_name)
-                    REFERENCES sections(target, name)
-                    ON DELETE CASCADE
-            ) WITHOUT ROWID
-        """)
-
-        c.execute("CREATE INDEX IF NOT EXISTS idx_functions_name ON functions(target, name)")
-        # The dashboard filters by status or module and pages ORDER BY va; the
-        # trailing va lets the index serve the sort, so the planner seeks the
-        # filter instead of walking idx_functions_list over the whole target.
-        # Scoped rebuilds keep the table: drop the (target, status|module)
-        # copies older builds created.
-        c.execute("DROP INDEX IF EXISTS idx_functions_status")
-        c.execute("DROP INDEX IF EXISTS idx_functions_module")
-        c.execute(
-            "CREATE INDEX IF NOT EXISTS idx_functions_status_va ON functions(target, status, va)"
-        )
-        c.execute(
-            "CREATE INDEX IF NOT EXISTS idx_functions_module_va ON functions(target, module, va)"
-        )
-        # Dashboard + _function_stats list only FUNCTION_ROWS_SQL rows and
-        # ORDER BY va: a partial (target, va) index matches that filter+sort
-        # without scanning data rows that the UI never lists.  It also serves
-        # the COUNT(*), so a (target, markerType) index would only cost writes:
-        # drop the copy older builds created (scoped rebuilds keep the table).
-        # idx_functions_list is dropped and recreated every run so a scoped
-        # rebuild cannot keep an older build's predicate, which no current
-        # query matches.
-        c.execute("DROP INDEX IF EXISTS idx_functions_marker")
-        c.execute("DROP INDEX IF EXISTS idx_functions_list")
-        c.execute(
-            f"CREATE INDEX idx_functions_list ON functions(target, va) WHERE {FUNCTION_ROWS_SQL}"
-        )
-        c.execute("CREATE INDEX IF NOT EXISTS idx_globals_name ON globals(target, name)")
-        # The dashboard filters globals by module and pages ORDER BY va; the
-        # trailing va lets the index serve the sort, so the planner seeks the
-        # filter instead of scanning all globals for the target.
-        c.execute("DROP INDEX IF EXISTS idx_globals_module")
-        c.execute("CREATE INDEX IF NOT EXISTS idx_globals_module_va ON globals(target, module, va)")
-        # idx_cells_section is deliberately NOT created: the
-        # UNIQUE (target, section_name, start) constraint already serves the
-        # same leftmost prefix (target, section_name) for the view's
-        # GROUP BY and any WHERE target=? AND section_name=? query — a second
-        # index would be paid for on every cell insert and never be the only
-        # usable one.  Drop any pre-existing copy from older
-        # builds explicitly or it survives every rebuild.
-        c.execute("DROP INDEX IF EXISTS idx_cells_section")
-
-        c.execute(f"CREATE TABLE IF NOT EXISTS history ({_HISTORY_COLUMNS_SQL})")
-        # history is never dropped on rebuild, so CREATE IF NOT EXISTS leaves a
-        # pre-CHECK table alone.  Recreate in place (preserving rows, clamping
-        # outliers) when the stored DDL lacks the range/status guards.
-        hist_sql_row = c.execute(
-            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'history'"
-        ).fetchone()
-        hist_sql = hist_sql_row[0] if hist_sql_row else ""
-        if hist_sql and "old_status IS NULL OR old_status IN" not in hist_sql:
-            c.execute("ALTER TABLE history RENAME TO _history_migrate")
-            c.execute(f"CREATE TABLE history ({_HISTORY_COLUMNS_SQL})")
-            # Preserve id so ORDER BY id DESC / retention stay stable across
-            # the recreate.  Statuses outside the functions vocabulary become
-            # UNKNOWN (same coercion the functions insert path uses).
-            c.execute(
-                f"""
-                INSERT INTO history (
-                    id, target, va, old_status, new_status, changed_at, updated_by
-                )
-                SELECT
-                    id,
-                    target,
-                    CASE
-                        WHEN typeof(va) = 'integer' AND va >= 0 THEN va
-                        ELSE 0
-                    END,
-                    CASE
-                        WHEN old_status IS NULL THEN NULL
-                        WHEN old_status IN ({_FUNCTION_STATUS_CHECK_SQL}) THEN old_status
-                        ELSE 'UNKNOWN'
-                    END,
-                    CASE
-                        WHEN new_status IS NULL THEN NULL
-                        WHEN new_status IN ({_FUNCTION_STATUS_CHECK_SQL}) THEN new_status
-                        ELSE 'UNKNOWN'
-                    END,
-                    CASE
-                        WHEN changed_at IS NULL OR changed_at = ''
-                            THEN '1970-01-01T00:00:00+00:00'
-                        ELSE changed_at
-                    END,
-                    COALESCE(updated_by, '')
-                FROM _history_migrate
-                """
-            )
-            c.execute("DROP TABLE _history_migrate")
-        # history rows are appended on every rebuild; the dashboard pages them
-        # with WHERE target = ? ORDER BY id DESC LIMIT ?, so (target, id) is
-        # the serving index (a plain (target, va) index would not serve the
-        # ORDER BY id).  Growth is bounded by a per-target retention cap —
-        # only the newest _HISTORY_RETENTION rows per target are kept, so a
-        # long-lived project that regenerates often does not accumulate rows
-        # forever.
-        c.execute("CREATE INDEX IF NOT EXISTS idx_history_target_id ON history(target, id)")
-
-        c.execute(f"CREATE TABLE IF NOT EXISTS verify_results ({_VERIFY_RESULTS_COLUMNS_SQL})")
-        # verify_results is never dropped on rebuild, so CREATE IF NOT EXISTS
-        # leaves a pre-CHECK table alone.  Recreate in place when the stored
-        # DDL lacks the range guards.  Negatives clamp to 0, non-finite
-        # deltas become NULL, and a NULL va is dropped.  Clamped keys that
-        # collide on (target, va) keep the latest row so the PRIMARY KEY
-        # cannot abort the rebuild.
-        vr_sql_row = c.execute(
-            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'verify_results'"
-        ).fetchone()
-        vr_sql = vr_sql_row[0] if vr_sql_row else ""
-        if vr_sql and (
-            "effective_match IN (0, 1)" not in vr_sql or "verified_at != ''" not in vr_sql
-        ):
-            c.execute("ALTER TABLE verify_results RENAME TO _verify_results_migrate")
-            c.execute(f"CREATE TABLE verify_results ({_VERIFY_RESULTS_COLUMNS_SQL})")
-            byte_sql = _nonneg_metric_sql("byte_delta")
-            diff_sql = _nonneg_metric_sql("diff_lines")
-            reg_sql = _nonneg_metric_sql("reg_delta")
-            c.execute(
-                f"""
-                INSERT INTO verify_results (
-                    target, va, verified_at, byte_delta, diff_lines,
-                    similarity, reg_delta, effective_match
-                )
-                SELECT
-                    target, va, verified_at, byte_delta, diff_lines,
-                    similarity, reg_delta, effective_match
-                FROM (
-                    SELECT
-                        target, va, verified_at, byte_delta, diff_lines,
-                        similarity, reg_delta, effective_match,
-                        ROW_NUMBER() OVER (
-                            PARTITION BY target, va ORDER BY src_rowid DESC
-                        ) AS rn
-                    FROM (
-                        SELECT
-                            rowid AS src_rowid,
-                            target,
-                            CASE
-                                WHEN va IS NULL THEN NULL
-                                WHEN va < 0 THEN 0
-                                ELSE va
-                            END AS va,
-                            CASE
-                                WHEN verified_at IS NULL OR verified_at = ''
-                                    THEN '1970-01-01T00:00:00+00:00'
-                                ELSE verified_at
-                            END AS verified_at,
-                            {byte_sql} AS byte_delta,
-                            {diff_sql} AS diff_lines,
-                            CASE
-                                WHEN similarity IS NULL THEN NULL
-                                WHEN typeof(similarity) NOT IN ('integer', 'real') THEN NULL
-                                -- Keep finite in-range unit-interval values.
-                                -- ``x = x`` rejects NaN; percents from verify
-                                -- (``(1, 100]``) are scaled down — a plain
-                                -- ``> 1 → 1.0`` clamp used to store every
-                                -- real Sim% as a perfect match.
-                                WHEN similarity = similarity
-                                     AND similarity >= 0.0 AND similarity <= 1.0
-                                    THEN similarity
-                                WHEN similarity = similarity
-                                     AND similarity > 1.0 AND similarity <= 100.0
-                                    THEN similarity / 100.0
-                                WHEN similarity = similarity
-                                     AND similarity < 0.0 AND abs(similarity) < 1e300
-                                    THEN 0.0
-                                ELSE NULL
-                            END AS similarity,
-                            {reg_sql} AS reg_delta,
-                            CASE
-                                WHEN effective_match IS NULL THEN NULL
-                                WHEN typeof(effective_match) != 'integer' THEN NULL
-                                WHEN effective_match IN (0, 1) THEN effective_match
-                                ELSE NULL
-                            END AS effective_match
-                        FROM _verify_results_migrate
-                    )
-                    WHERE va IS NOT NULL
-                )
-                WHERE rn = 1
-                """
-            )
-            c.execute("DROP TABLE _verify_results_migrate")
-
-        # Per-section aggregate stats (used by both UIs).  Explicit CREATE with
-        # PRIMARY KEY (target, section_name) — CREATE TABLE AS SELECT left the
-        # table without a key, so duplicate rows were possible and
-        # ``WHERE target = ?`` had no index.  Declared empty here and filled
-        # from _SECTION_CELL_STATS_SELECT after the cells are inserted.
-        c.execute(f"""
-            CREATE TABLE {SECTION_CELL_STATS_TABLE} (
-                target TEXT NOT NULL,
-                section_name TEXT NOT NULL,
-                total_cells INTEGER NOT NULL DEFAULT 0 CHECK (total_cells >= 0),
-                exact_count INTEGER NOT NULL DEFAULT 0 CHECK (exact_count >= 0),
-                reloc_count INTEGER NOT NULL DEFAULT 0 CHECK (reloc_count >= 0),
-                near_match_count INTEGER NOT NULL DEFAULT 0 CHECK (near_match_count >= 0),
-                stub_count INTEGER NOT NULL DEFAULT 0 CHECK (stub_count >= 0),
-                padding_count INTEGER NOT NULL DEFAULT 0 CHECK (padding_count >= 0),
-                data_count INTEGER NOT NULL DEFAULT 0 CHECK (data_count >= 0),
-                thunk_count INTEGER NOT NULL DEFAULT 0 CHECK (thunk_count >= 0),
-                none_count INTEGER NOT NULL DEFAULT 0 CHECK (none_count >= 0),
-                proven_count INTEGER NOT NULL DEFAULT 0 CHECK (proven_count >= 0),
-                size_mismatch_count INTEGER NOT NULL DEFAULT 0 CHECK (size_mismatch_count >= 0),
-                other_count INTEGER NOT NULL DEFAULT 0 CHECK (other_count >= 0),
-                PRIMARY KEY (target, section_name),
-                FOREIGN KEY (target, section_name)
-                    REFERENCES sections(target, name)
-                    ON DELETE CASCADE
-            )
-        """)
+        _create_schema(c, target)
 
         # Scoped rebuild: delete only this target's rows (sections first so
         # the cells FK CASCADE clears cell rows too).  Runs after all tables
