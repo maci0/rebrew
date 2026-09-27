@@ -17,7 +17,12 @@ import pytest
 from hypothesis import assume, given, settings
 from hypothesis import strategies as st
 
-from rebrew.residue import ResidueError, _sections, residue_report
+from rebrew.residue import (
+    ResidueError,
+    _sections,
+    layout_map_gate_note,
+    residue_report,
+)
 
 
 def _pe_image(sections: list[tuple[str, int, int, int, int]], total: int = 0x400) -> bytes:
@@ -130,3 +135,25 @@ def test_sections_clips_extent_past_eof() -> None:
     image = _pe_image([(".text", 0x1000, 0x100, 0x4000, 0x200)], total=0x400)
     sections = _sections(image)
     assert sections[".text"][3] == 0x400 - 0x200
+
+
+def test_layout_map_gate_reports_unmeasured_for_an_empty_map() -> None:
+    """No layout-map entries means alignment was never measured.
+
+    Dividing by the empty denominator used to print "coverage 0.00% below
+    gate; output is intermediate, not runnable" — a fabricated measurement
+    that contradicts ``postlink.check_text_alignment``, which returns
+    silently on the same input.
+    """
+    note = layout_map_gate_note((0, 0, 0, 0))
+    assert note is not None
+    assert "not measured" in note
+    assert "%" not in note
+
+
+def test_layout_map_gate_flags_a_real_shortfall_and_passes_a_full_map() -> None:
+    """A populated map keeps the percentage gate: 50% warns, 100% is silent."""
+    below = layout_map_gate_note((5, 10, 0, 0))
+    assert below is not None
+    assert "50.00% below gate" in below
+    assert layout_map_gate_note((10, 10, 5, 5)) is None

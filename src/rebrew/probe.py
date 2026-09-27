@@ -40,6 +40,19 @@ app = typer.Typer(
 )
 
 
+def matched_reloc_count(ref_raw: bytes, cand: bytes, relocs: set[int], size: int) -> int:
+    """Bytes where either side's relocation suffices (the historical count).
+
+    Bounded by the overlap of *size*, *cand* and *ref_raw*: an annotation
+    whose SIZE runs past the target section's raw bytes (into the BSS tail)
+    or past EOF yields a short *ref_raw*, and indexing it at the candidate's
+    offsets raised ``IndexError`` instead of reporting the overlap that does
+    exist.
+    """
+    limit = min(size, len(cand), len(ref_raw))
+    return sum(1 for i in range(limit) if (i in relocs or ref_raw[i] == cand[i]))
+
+
 @app.callback(invoke_without_command=True)
 def main(
     source: str = typer.Argument(..., help="C source file (or VA/symbol) for the function"),
@@ -101,7 +114,7 @@ def main(
     # Generous (matched-reloc): either side's reloc suffices — historical.
     _, strict_count, _, valid, _ = smart_reloc_compare(cb, ref_raw[: len(cb)], coff_relocs, None)
     obj_rels = set(valid)
-    generous = sum(1 for i in range(n) if i < len(cb) and (i in obj_rels or ref_raw[i] == cb[i]))
+    generous = matched_reloc_count(ref_raw, cb, obj_rels, n)
 
     ref_insns = disasm_insns(ref_raw, va_int, cfg.capstone_arch, cfg.capstone_mode)
     obj_insns = disasm_insns(cb, va_int, cfg.capstone_arch, cfg.capstone_mode)
