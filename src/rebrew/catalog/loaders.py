@@ -161,6 +161,9 @@ _function_list_cache_lock = threading.Lock()
 # VA frozenset derived from the same inventory — avoids rebuilding
 # ``{f["va"] for f in funcs}`` on every EXTRACT_ERROR in verify.
 _function_vas_cache: dict[str, tuple[str, frozenset[int]]] = {}
+# Same derivation, ordered: callers that bisect for the next function VA
+# (skeleton generation, gap tracing) run once per function over a batch.
+_sorted_vas_cache: dict[str, tuple[str, tuple[int, ...]]] = {}
 
 
 def _inventory_fingerprint(path: str) -> str:
@@ -217,10 +220,15 @@ def cached_function_list(cfg: ProjectConfig) -> list[dict[str, Any]]:
             oldest = next(iter(_function_list_cache))
             _function_list_cache.pop(oldest, None)
             _function_vas_cache.pop(oldest, None)
+            _sorted_vas_cache.pop(oldest, None)
         _function_list_cache[path] = (fp, funcs)
         _function_vas_cache[path] = (
             fp,
             frozenset(va for f in funcs if isinstance((va := f.get("va")), int)),
+        )
+        _sorted_vas_cache[path] = (
+            fp,
+            tuple(sorted(va for f in funcs if isinstance((va := f.get("va")), int))),
         )
     return [dict(f) for f in funcs]
 
@@ -248,6 +256,25 @@ def cached_function_vas(cfg: ProjectConfig) -> frozenset[int]:
     # fingerprint, and a re-read keyed on the stale one returned an empty set.
     funcs = cached_function_list(cfg)
     return frozenset(va for f in funcs if isinstance((va := f.get("va")), int))
+
+
+def cached_sorted_function_vas(cfg: ProjectConfig) -> tuple[int, ...]:
+    """Function VAs from the discovery inventory, ascending, once per path.
+
+    Shares invalidation with :func:`cached_function_list`.  Callers that ask
+    "which function starts after this VA" read this instead of re-sorting
+    :func:`cached_function_list`, which copies every entry per call.
+    """
+    reversed_dir = getattr(cfg, "reversed_dir", "")
+    path = str(inventory_path_for(reversed_dir, cfg)) if reversed_dir else ""
+    fp = _inventory_fingerprint(path)
+    cache_key = path if path else ""
+    with _function_list_cache_lock:
+        cached = _sorted_vas_cache.get(cache_key)
+        if cached is not None and cached[0] == fp:
+            return cached[1]
+    funcs = cached_function_list(cfg)
+    return tuple(sorted(va for f in funcs if isinstance((va := f.get("va")), int)))
 
 
 def parse_rizin_afl(text: str) -> list[tuple[int, int, str]]:

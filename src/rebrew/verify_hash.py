@@ -55,7 +55,7 @@ def entry_fingerprint(cfg: ProjectConfig, entry: Any) -> EntryFingerprint | None
     Returns None when the entry has no source path or the file cannot be
     read — the caller treats that as a cache miss, never a hit.
     """
-    from rebrew.compile_overrides import resolve_compile_overrides
+    from rebrew.compile_overrides import resolve_compile_overrides_cached
 
     relative_path = getattr(entry, "filepath", "") or ""
     if not relative_path:
@@ -71,7 +71,7 @@ def entry_fingerprint(cfg: ProjectConfig, entry: Any) -> EntryFingerprint | None
         )
     except OSError:
         return None
-    toolchain, cflags = resolve_compile_overrides(
+    toolchain, cflags = resolve_compile_overrides_cached(
         cfg,
         filepath.parent,
         getattr(entry, "toolchain", ""),

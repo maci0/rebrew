@@ -71,6 +71,8 @@ def scan_files(src_dir: Path, shared_dir: Path | None = None) -> list[Path]:
 
 _OBJ_RE = re.compile(r'"([^"]+\.obj)"|(?:^|\s)(\S+\.obj)(?=\s|$)')
 _DEF_LINE_RE = re.compile(r"^[ \t]*[\w\s\*]+\s+(\w+)(?:\[\d+\])?\s*=")
+#: Global name out of a generated definition line, e.g. ``"int g_table[4] = "``.
+_ADDED_NAME_RE = re.compile(r"\s(\w+)(?:\[|\s*=)")
 
 
 @functools.lru_cache(maxsize=256)
@@ -1214,19 +1216,28 @@ def fix_ownership(
     n_edit = 0
     for tu, names in removals.items():
         text, encoding = read_source_text(tu)
+        # Collect spans and splice once, back to front: rewriting per name
+        # copied the whole translation unit on every iteration, so a header
+        # with N moved globals cost O(N * len(text)).  Later lookups see the
+        # same text either way, since an extern line only names the global it
+        # replaces, which no other name's pattern matches.
+        spans: list[tuple[int, int, str]] = []
         for name in names:
             r = _find_definition(text, name)
             if r:
                 s, e, typ, sz = r
-                text = text[:s] + f"extern {typ} {name}{sz};" + text[e:]
+                spans.append((s, e, f"extern {typ} {name}{sz};"))
                 n_edit += 1
+        for s, e, repl in sorted(spans, reverse=True):
+            text = text[:s] + repl + text[e:]
         if not dry_run:
             atomic_write_text(tu, text, encoding=encoding)
     for tu, lines in additions.items():
         text, encoding = read_source_text(tu)
         text = text.rstrip("\n") + "\n"
+        appended: list[str] = []
         for line in lines:
-            name_m = re.search(r"\s(\w+)(?:\[|\s*=)", line)
+            name_m = _ADDED_NAME_RE.search(line)
             if not name_m:
                 continue
             name = name_m.group(1)
@@ -1237,8 +1248,14 @@ def fix_ownership(
                 continue
             if di:
                 line = _merged_definition_line(di[0], di[1], name, line)
-            text += line + "\n"
+            appended.append(line)
             n_edit += 1
+        # Appended definitions are complete one-liners holding a name no
+        # other addition references, so scanning the un-appended prefix
+        # answers every later lookup the same way.  Joining once also drops
+        # the per-line copy of the whole unit.
+        if appended:
+            text = text + "\n".join(appended) + "\n"
         if not dry_run:
             atomic_write_text(tu, text, encoding=encoding)
     return {"edits": n_edit, "moved": sum(len(v) for v in removals.values())}
