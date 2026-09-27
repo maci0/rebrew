@@ -29,13 +29,16 @@ from typing import Any
 from rebrew.errors import RebrewError
 from rebrew.metadata import (
     METADATA_FIELDS,
+    METADATA_FILENAME,
     as_metadata_int,
     canonical_status,
     get_entry,
     remove_field,
+    resolve_metadata_dir,
     set_fields,
     update_source_status,
 )
+from rebrew.utils import metadata_write_lock
 from rebrew.workspace.status import KNOWN_STATUSES
 
 # Field names (lower-case TOML keys) with a single canonical Python type.
@@ -206,8 +209,11 @@ class MetadataEntry:
           for those verdicts; PROVEN, NEAR_MATCHING, STUB and error verdicts
           keep them.
         * Every other key must be a metadata-owned field; ``size`` /
-          ``blocker_delta`` are coerced to ``int``.  Writes are batched into
-          a single read-modify-write (except STATUS, which has its own).
+          ``blocker_delta`` are coerced to ``int``.  The non-STATUS fields go
+          out as one read-modify-write, STATUS as its own — both inside one
+          ``metadata_write_lock`` critical section (reentrant within a thread),
+          so a STATUS promotion that clears blockers and the field write that
+          replaces them cannot be observed half-applied by another writer.
         """
         unknown = [k for k in fields if k.upper() not in METADATA_FIELDS]
         if unknown:
@@ -219,23 +225,27 @@ class MetadataEntry:
         coerced = {k.lower(): _coerce(k.lower(), v) for k, v in fields.items()}
 
         status = coerced.pop("status", None)
+        canon: str | None = None
         if status is not None:
             canon = canonical_status(str(status))
             if canon not in KNOWN_STATUSES:
                 raise MetadataValidationError(
                     f"unknown STATUS {status!r} (expected one of {sorted(KNOWN_STATUSES)})"
                 )
-            update_source_status(
-                directory,
-                canon,
-                self.module,
-                self.va,
-                force=force,
-                # EXACT/RELOC only; PROVEN is not a byte match.
-                clear_blockers=canon in ("EXACT", "RELOC"),
-            )
-        if coerced:
-            set_fields(directory, self.va, coerced, module=self.module)
+        dir_path = resolve_metadata_dir(directory)
+        with metadata_write_lock(dir_path, METADATA_FILENAME):
+            if canon is not None:
+                update_source_status(
+                    directory,
+                    canon,
+                    self.module,
+                    self.va,
+                    force=force,
+                    # EXACT/RELOC only; PROVEN is not a byte match.
+                    clear_blockers=canon in ("EXACT", "RELOC"),
+                )
+            if coerced:
+                set_fields(directory, self.va, coerced, module=self.module)
 
     def remove(self, directory: Path, key: str) -> bool:
         """Remove one metadata-owned *key*; returns True if anything changed."""

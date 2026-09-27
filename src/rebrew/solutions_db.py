@@ -53,9 +53,19 @@ def _collect_best(cfg: Any) -> list[dict[str, Any]]:
     """Best-known GA outcome per function (latest score wins on ties)."""
     from rebrew.matcher import load_ga_runs
 
-    best: dict[tuple[str, str], dict[str, Any]] = {}
+    best: dict[tuple[str, str, str], dict[str, Any]] = {}
     for rec in load_ga_runs(cfg.root, limit=100000):
-        key = (str(rec.get("target", "")), str(rec.get("va", "")))
+        # Key on (target, va, symbol), not (target, va): the log holds two
+        # record shapes — a run outcome with a real VA, and a solution
+        # fingerprint written by ``save_solution`` with va="" (the function is
+        # identified by its symbol there).  Keying on VA alone collapsed every
+        # solved function of a target onto ("TARGET", ""), so the table showed
+        # one arbitrary fingerprint per target and dropped the rest.
+        key = (
+            str(rec.get("target", "")),
+            str(rec.get("va", "")),
+            str(rec.get("symbol", "")),
+        )
         cur = best.get(key)
         score = rec.get("score")
         if cur is None or (
