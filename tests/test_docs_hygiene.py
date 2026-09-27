@@ -353,8 +353,7 @@ def test_package_imports_stay_inside_their_allowlist() -> None:
     assert gated, "no package declares an Externals allowlist — the regex may be stale"
     assert not violations, (
         "import outside the package's declared Externals allowlist "
-        "(add the dependency to its AGENTS.md, or drop the import):\n  "
-        + "\n  ".join(violations)
+        "(add the dependency to its AGENTS.md, or drop the import):\n  " + "\n  ".join(violations)
     )
 
 

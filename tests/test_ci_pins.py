@@ -493,6 +493,11 @@ class TestCiPins:
         build_inputs = text.split("BUILD_INPUTS :=", 1)[1].split("\n\n", 1)[0]
         assert "tools/normalize_sdist.py" in build_inputs
         assert ".python-version" in build_inputs
+        # The sdist ships the top-level docs and license files, and the wheel
+        # ships the license files under dist-info, so editing one changes the
+        # artifacts.  None lives under src/, so the find() above cannot see it.
+        for doc in ("README.md", "CHANGELOG.md", "SECURITY.md", "LICENSE", "NOTICE"):
+            assert doc in build_inputs, f"{doc} ships but is not a build input"
 
     def test_buildinfo_rule_rebuilds_on_a_source_add_or_delete(self) -> None:
         """`BUILD_INPUTS` alone cannot see a file appearing or disappearing.
@@ -532,6 +537,25 @@ class TestCiPins:
         """
         text = MAKEFILE.read_text(encoding="utf-8")
         assert ".NOTPARALLEL:" in text
+
+    def test_shipped_wheel_is_built_from_the_source_tree(self) -> None:
+        """`make sdist-check` must compare two independently built wheels.
+
+        Bare `uv build` builds the wheel *from the sdist it just wrote*, so
+        the shipped wheel and the sdist-check wheel shared an input.  A
+        MANIFEST.in prune that dropped a runtime file then removed it from
+        both, and the gate meant to catch exactly that stayed green on a
+        wheel missing `agent-skills/`.  Two `uv build` calls, one per format,
+        each from the source tree, restore the independence.
+        """
+        text = MAKEFILE.read_text(encoding="utf-8")
+        build = text.split("\nbuild: warn-uv-version\n", 1)[1].split("\n# CycloneDX", 1)[0]
+        invocations = re.findall(r"(?m)^\t+uv build (?P<flags>.*)$", build)
+        assert len(invocations) == 2, build
+        assert any("--sdist" in flags for flags in invocations), invocations
+        assert any("--wheel" in flags for flags in invocations), invocations
+        # Neither call may name an sdist as its input.
+        assert not any(".tar.gz" in flags for flags in invocations), invocations
 
     def test_sdist_check_does_not_rebuild_over_the_sbom(self) -> None:
         """`sdist-check` must not re-run `build` and wipe dist/.
@@ -691,7 +715,7 @@ class TestCiPins:
         # Clean before building too: setuptools packs leftover build/lib files
         # into the wheel.
         assert text.index("rm -rf build rebrew.egg-info") < text.index(
-            "uv build --build-constraints"
+            "uv build --sdist --out-dir dist --build-constraints"
         )
         # setuptools pin must be read from pyproject.toml, not hardcoded —
         # otherwise bumping build-system.requires leaves a lying buildinfo.

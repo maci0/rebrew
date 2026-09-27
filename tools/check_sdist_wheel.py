@@ -19,12 +19,14 @@ Usage::
 
 Build the second wheel *from the sdist* (see the ``sdist-check`` Makefile
 target) so the comparison covers the manifest, the prune rules, and the
-post-build rewrite.  Only the archive member names are compared: the two wheels
-differ in recorded timestamps, not in content.
+post-build rewrite.  Both member names and member bytes are compared: the two
+wheels differ in recorded timestamps, not in content, so a member whose payload
+drifted between the checkout and the sdist is a real difference and must fail.
 """
 
 from __future__ import annotations
 
+import hashlib
 import sys
 import zipfile
 from pathlib import Path
@@ -36,10 +38,23 @@ _IGNORED_DIR_SUFFIX = "/"
 
 def wheel_members(path: Path) -> set[str]:
     """Names of the payload files in *path*, ignoring directory entries."""
+    return set(wheel_digests(path))
+
+
+def wheel_digests(path: Path) -> dict[str, str]:
+    """sha256 of every payload file in *path*, keyed by member name.
+
+    Directory entries carry no payload and appear or vanish with the build
+    path, so they are excluded here as well as from :func:`wheel_members`.
+    """
     if not path.is_file():
         raise FileNotFoundError(f"no such wheel: {path}")
     with zipfile.ZipFile(path) as zf:
-        return {n for n in zf.namelist() if not n.endswith(_IGNORED_DIR_SUFFIX)}
+        return {
+            info.filename: hashlib.sha256(zf.read(info.filename)).hexdigest()
+            for info in zf.infolist()
+            if not info.filename.endswith(_IGNORED_DIR_SUFFIX)
+        }
 
 
 def diff_members(shipped: set[str], from_sdist: set[str]) -> list[str]:
@@ -51,6 +66,16 @@ def diff_members(shipped: set[str], from_sdist: set[str]) -> list[str]:
     ]
 
 
+def diff_contents(shipped: dict[str, str], from_sdist: dict[str, str]) -> list[str]:
+    """Report members present in both wheels whose bytes differ."""
+    return [
+        f"content differs: {name} (shipped sha256 {shipped[name][:12]}, "
+        f"sdist-built sha256 {from_sdist[name][:12]})"
+        for name in sorted(shipped.keys() & from_sdist.keys())
+        if shipped[name] != from_sdist[name]
+    ]
+
+
 def main(argv: list[str]) -> int:
     if len(argv) != 3:
         print(
@@ -59,9 +84,9 @@ def main(argv: list[str]) -> int:
         )
         return 2
     shipped_path, sdist_path = Path(argv[1]), Path(argv[2])
-    shipped = wheel_members(shipped_path)
-    from_sdist = wheel_members(sdist_path)
-    problems = diff_members(shipped, from_sdist)
+    shipped = wheel_digests(shipped_path)
+    from_sdist = wheel_digests(sdist_path)
+    problems = diff_members(set(shipped), set(from_sdist)) + diff_contents(shipped, from_sdist)
     if problems:
         print(
             f"the sdist does not reproduce the wheel ({len(shipped)} files in "
@@ -76,7 +101,7 @@ def main(argv: list[str]) -> int:
             file=sys.stderr,
         )
         return 1
-    print(f"sdist reproduces the wheel: {len(shipped)} files")
+    print(f"sdist reproduces the wheel: {len(shipped)} files, byte-identical")
     return 0
 
 
