@@ -146,3 +146,16 @@ plugin cache backends or remove the open upstream diskcache advisory.
   the key's provenance, so a key committed in the project TOML still travels
   to that project's own endpoint, and `[compiler] recompile_url` is not gated
   at all.
+- No claim that a recompile endpoint only receives the source. The object it
+  returns is written to the compile workdir and published into the local
+  compile cache (`publish_obj_cache` in `src/rebrew/compile.py`), keyed on
+  source, flags, and `recompile:<url>/<spec.name>`, and later runs are served
+  those bytes instead of compiling. A hostile endpoint, or a MITM on the plain
+  `http` leg the URL check still allows, therefore plants bytes that persist
+  across runs, carry no provenance marker, are never expired, and are handed
+  to LIEF's COFF parser (or host `objconv` on an OMF profile) on every replay.
+  The response body has no size cap; the 500 MiB cache `size_limit`
+  (`_DEFAULT_SIZE_LIMIT` in `src/rebrew/compile_cache.py`) is the only bound.
+  Changing the endpoint or toolchain starts from a cache miss, and
+  `rebrew cache clear` drops the entries a same-endpoint change leaves in
+  place.

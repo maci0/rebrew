@@ -331,6 +331,17 @@
   said so comes later.
 
 ### Fixed
+- **The threat model records where a recompile endpoint's bytes land.** The
+  remote backend's returned object is now published into the local compile
+  cache (`publish_obj_cache` in `compile.py`) so verify stops re-POSTing, which
+  made a remote service a writer of durable local state: bytes it returns are
+  replayed by every later run for the same source, flags, and endpoint, carry
+  no provenance marker, never expire, have no response size cap, and are handed
+  to LIEF's COFF parser, or host `objconv` on an OMF profile, on the way to a
+  verdict. `docs/THREAT_MODEL.md` covers it as a boundary threat, a
+  mitigations row, an unmitigated item, and an abuse case, and `SECURITY.md`
+  says plainly that a recompile endpoint does more than receive the source.
+  Documentation only; the store's behavior is unchanged.
 - **`logging.error` inside an `except` now keeps the traceback.** Three
   handlers logged the failure without `exc_info` and then returned or
   re-raised, so a rename that broke the tree or a BinSync import that left
