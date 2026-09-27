@@ -210,6 +210,8 @@ rebrew sync --push --state-dir <dir>      # export annotations to the BinSync st
 `--push` exports to the state dir; `--pull --state-dir <dir>` imports it back
 (conflicts via `--accept-binsync` / `--accept-local`). MCP structural ops
 (`--create-functions`, `--bookmarks`, `--pull-data`) still need ReVa.
+Conflicts, the git-backed `rebrew binsync` group, and pull semantics are in
+`rebrew-ghidra-sync`.
 
 ### 10. Coverage Dashboard (optional — ask first)
 

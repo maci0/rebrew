@@ -80,6 +80,8 @@ rebrew sync --push --state-dir D --watch               # re-export on every sour
 
 Notes:
 - `--push`/`--pull` require `--state-dir`; they are mutually exclusive.
+- `--watch` re-pushes on every source change and never exits on its own; start
+  it only when the user wants a live loop.
 - A collaborator's tool must chmod the 0444 state TOMLs writable first (§5).
 - **`--pull --create-functions` is the chain**: functions imported from the
   state dir are created in Ghidra via MCP, so "add a function to the state →

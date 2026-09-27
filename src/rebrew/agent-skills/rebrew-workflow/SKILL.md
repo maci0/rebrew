@@ -30,11 +30,15 @@ graph TD
 
 # Rebrew Workflow
 
-All commands run from a directory containing `rebrew-project.toml`. Use `--json` for structured output.
-For annotation syntax details, see `references/annotation-format.md`.
+All commands run from a directory containing `rebrew-project.toml`; every one of them
+exits non-zero with a config error when it is missing. Use `--json` for structured
+output. For annotation syntax details, see `references/annotation-format.md`.
 
 ## When NOT to use this skill
 
+- No `rebrew-project.toml` yet (bare directory, or a binary not yet onboarded) →
+  use `rebrew-intake` (`rebrew intake <binary>`), or `rebrew-init` to teach the
+  scaffold and profile choice
 - New binary onboarding (FLIRT scan, catalog, triage) → use `rebrew-intake`
 - Deep byte-level matching / GA / flag sweep / prove → use `rebrew-matching`
 - Global variables, `.bss` gaps, dispatch tables → use `rebrew-data-analysis`
@@ -142,6 +146,10 @@ and fallback size come from it — same rule as diff/match/prove). Pass
 **`--dry-run` never writes.** `test` single-file: compile + preview STATUS;
 `--all --dry-run`: list only. `match --dry-run` is batch-only (`--all`).
 `prove`/`verify --dry-run` preview STATUS/cache writes.
+
+`--watch` (`test`, `verify`, `diff`, `prove`, `match`, `sync`) re-runs on every
+save and never exits on its own. Start it only when the user wants to iterate
+against a live loop, and stop it when they are done.
 
 `rebrew test` syncs STATUS (`--no-promote` skips): EXACT/RELOC updates and
 clears BLOCKER unless the `.c` still has `__asm`, `_asm`, or `__emit` (kept;
