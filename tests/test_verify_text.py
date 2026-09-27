@@ -81,7 +81,7 @@ def _patch_text(
     actual: dict[str, int] | None = None,
 ) -> None:
     monkeypatch.setattr(
-        "rebrew.verify._expected_text_functions",
+        "rebrew.verify.expected_text_functions",
         lambda cfg: dict(expected if expected is not None else {"f": 0x1000}),
     )
     monkeypatch.setattr(

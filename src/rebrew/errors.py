@@ -54,6 +54,7 @@ if TYPE_CHECKING:
     from rebrew.decompme import DecompmeErrorKind as DecompmeErrorKind
     from rebrew.delphi16 import Delphi16Error as Delphi16Error
     from rebrew.dosbox import DosboxError as DosboxError
+    from rebrew.fingerprints import FingerprintError as FingerprintError
     from rebrew.ghidra.client import McpApplyAborted as McpApplyAborted
     from rebrew.ghidra.client import McpError as McpError
     from rebrew.ghidra.client import McpErrorKind as McpErrorKind
@@ -103,6 +104,7 @@ _LAZY_ERRORS: dict[str, tuple[str, str]] = {
     "DecompmeError": ("rebrew.decompme", "DecompmeError"),
     "Delphi16Error": ("rebrew.delphi16", "Delphi16Error"),
     "DosboxError": ("rebrew.dosbox", "DosboxError"),
+    "FingerprintError": ("rebrew.fingerprints", "FingerprintError"),
     "LibraryOverrideError": ("rebrew.metadata", "LibraryOverrideError"),
     "McpApplyAborted": ("rebrew.ghidra.client", "McpApplyAborted"),
     "McpError": ("rebrew.ghidra.client", "McpError"),

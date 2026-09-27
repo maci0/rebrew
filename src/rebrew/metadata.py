@@ -560,6 +560,10 @@ def set_fields_batch(metadata_dir: Path | str | Any, updates: list[dict[str, Any
     lock per entry, while keeping per-field idempotency.
     Rejects ``status`` (use :func:`update_statuses_batch`, which enforces
     promotion rules).  Returns the number of entries whose fields changed.
+
+    Raises :class:`ValueError` for an update missing ``module`` or ``va``.
+    A malformed update used to be skipped, so the rest of the batch landed
+    while the caller still believed every row had been written.
     """
     if not updates:
         return 0
@@ -573,10 +577,10 @@ def set_fields_batch(metadata_dir: Path | str | Any, updates: list[dict[str, Any
         for u in updates:
             module = u.get("module") or ""
             if not module:
-                continue
+                raise ValueError(f"field update missing 'module': {u!r}")
             va = u.get("va")
             if va is None:
-                continue
+                raise ValueError(f"field update for {module!r} missing 'va': {u!r}")
             va_int = int(va)
             toml_key, entry = _ensure_entry_table(doc_dict, module, va_int, key_index)
             changed = False
@@ -1018,6 +1022,12 @@ def update_statuses_batch(metadata_dir: Path | str | Any, updates: list[dict[str
     manual/repair writes.
     Same-status updates still fall through when they will clear blockers
     (the stale-blocker cleanup path).
+
+    Raises :class:`ValueError` for an update missing ``module`` / ``va`` /
+    ``new_status`` or naming a STATUS outside the vocabulary.  A malformed
+    update used to be skipped, which wrote every other entry in the batch
+    and left the caller believing the whole batch landed; raising before
+    the single write keeps the batch all-or-nothing.
     """
     if not updates:
         return 0
@@ -1033,18 +1043,21 @@ def update_statuses_batch(metadata_dir: Path | str | Any, updates: list[dict[str
         for u in updates:
             module = u.get("module") or ""
             if not module:
-                continue
+                raise ValueError(f"STATUS update missing 'module': {u!r}")
             va = u.get("va")
             if va is None:
-                continue
+                raise ValueError(f"STATUS update for {module!r} missing 'va': {u!r}")
             if u.get("new_status") is None:
-                continue
+                raise ValueError(f"STATUS update for {module!r} missing 'new_status': {u!r}")
             try:
-                new_status = canonical_status(str(u.get("new_status")))
-            except (TypeError, ValueError, AttributeError):
-                continue
+                new_status = canonical_status(str(u["new_status"]))
+            except (TypeError, ValueError, AttributeError) as exc:
+                raise ValueError(
+                    f"STATUS update for {module!r} has an invalid 'new_status' "
+                    f"{u['new_status']!r}: {exc}"
+                ) from exc
             if not new_status:
-                continue
+                raise ValueError(f"STATUS update for {module!r} resolved to an empty STATUS: {u!r}")
             # Same gate as MetadataEntry.apply: refuse to persist a STATUS the
             # vocabulary does not know.  Without this, verify/test/lint could
             # write a typo that problems()/lint E004 then rejects.

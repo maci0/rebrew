@@ -466,19 +466,21 @@ class TestUpdateField:
         with pytest.raises(ValueError, match="non-empty module"):
             update_source_status(tmp_path, "EXACT", "", 0x1000)
 
-    def test_batch_skips_malformed_rows(self, tmp_path: Path) -> None:
-        changed = update_statuses_batch(
-            tmp_path,
-            [
-                {"module": "T", "va": 0x1000, "new_status": "STUB"},
-                {"module": "T", "new_status": "STUB"},
-                {"module": "", "va": 0x2000, "new_status": "STUB"},
-                {"module": "T", "va": 0x3000},
-            ],
-        )
-        assert changed == 1
-        assert get_entry(tmp_path, 0x1000, "T").get("status") == "STUB"
-        assert get_entry(tmp_path, 0x2000, "T") == {}
+    def test_batch_rejects_malformed_rows(self, tmp_path: Path) -> None:
+        # A malformed row must not be dropped in silence while the rest of the
+        # batch lands — the batch is all-or-nothing, so the caller sees a
+        # failure and none of the rows are written.
+        for bad in (
+            {"module": "T", "new_status": "STUB"},
+            {"module": "", "va": 0x2000, "new_status": "STUB"},
+            {"module": "T", "va": 0x3000},
+        ):
+            with pytest.raises(ValueError):
+                update_statuses_batch(
+                    tmp_path,
+                    [{"module": "T", "va": 0x1000, "new_status": "STUB"}, bad],
+                )
+            assert get_entry(tmp_path, 0x1000, "T") == {}
 
     def test_mutate_recovers_corrupt_via_preserve_path(self, tmp_path: Path) -> None:
         from rebrew.metadata import METADATA_FILENAME, remove_field
@@ -1210,3 +1212,20 @@ class TestSetFieldsValidation:
                 tmp_path,
                 [{"module": "SERVER", "va": 0x1000, "fields": {"STATUS": "EXACT"}}],
             )
+
+    @pytest.mark.parametrize(
+        "bad",
+        [
+            {"va": 0x1000, "fields": {"note": "x"}},
+            {"module": "SERVER", "fields": {"note": "x"}},
+        ],
+    )
+    def test_set_fields_batch_rejects_malformed_rows(self, tmp_path: Path, bad: dict) -> None:
+        from rebrew.metadata import set_fields_batch
+
+        with pytest.raises(ValueError):
+            set_fields_batch(
+                tmp_path,
+                [{"module": "SERVER", "va": 0x2000, "fields": {"note": "x"}}, bad],
+            )
+        assert get_entry(tmp_path, 0x2000, "SERVER") == {}

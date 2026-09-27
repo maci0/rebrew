@@ -1410,7 +1410,9 @@ the empty string when the image has no exports), the `rich_header_hash`
 (per-section Shannon entropy over the raw bytes), and `tlsh` / `ssdeep`
 when their optional backend is installed.  A field that cannot be derived
 is `null` (`export_hash` is `null` when the export table cannot be read);
-a missing binary exits `EXIT_ERROR` (2).
+a missing binary exits `EXIT_ERROR` (2), as does a PE whose header is
+present but which no format backend can parse (`FingerprintError`): that is
+a truncated or corrupt file, not a binary with no imports.
 
 Use it to tell two builds of the same target apart, to confirm a binary was
 rebuilt identically, and to spot a changed import set (imphash), a changed

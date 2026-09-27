@@ -22,6 +22,28 @@
   matching thousands of patterns cost O(k^2) at that offset. Membership now
   runs against a set and collection stops as soon as the cap is exceeded, which
   is the same result the post-hoc check discarded.
+- **A PE the format backend rejects read as a binary with no imports and no
+  sections.** `imphash`, `export_hash`, `section_entropies`, and
+  `fingerprint_bundle` returned `None` / `[]` for every parse failure, so a
+  truncated or corrupt image produced the same bundle as a legitimately
+  import-less one and `rebrew fingerprints` printed `-` for fields it had
+  never computed. A file whose DOS header points at a `PE\0\0` signature and
+  that no backend can parse now raises the new `FingerprintError` (re-exported
+  from `rebrew.errors`) naming the path; a DOS-only `MZ` executable still
+  returns the empty answers.
+- **A malformed metadata row was dropped in silence while the rest of the
+  batch landed.** `update_statuses_batch` skipped an update with no `module`,
+  no `va`, no `new_status`, or a `new_status` it could not canonicalize, then
+  returned the count of the rows that did land, so a caller could not tell a
+  partial write from a complete one. `set_fields_batch` skipped the same way on
+  `module` / `va`. Both now raise `ValueError` naming the offending row and
+  field; because each batch performs a single write at the end, the raise
+  leaves the store untouched instead of half-updated.
+- **`tests/test_verify_text.py` patched a name that no longer exists.**
+  `_patch_text` monkeypatched `rebrew.verify._expected_text_functions`, which
+  was never defined, so all five `--text` gate tests errored out instead of
+  exercising the gate. They now patch the `expected_text_functions` name
+  `verify` actually imports.
 - **MCP list pagination had no memory bound and could stop after one page.**
   `_paginate_mcp_list` recognized a page's metadata row only by `totalCount`
   and read a missing one as `0`, which both discarded the row and made
