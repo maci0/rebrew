@@ -8,8 +8,11 @@ GitHub Actions (`.github/workflows/ci.yml`) runs lint, the full unit test suite
 across the supported Python versions (3.13–3.14; the 3.13 entry runs it as
 `make coverage`, failing below `COV_FLOOR`) — plus, on that same 3.13 entry,
 a fixture-freshness
-check (`tools/gen_fixtures.py --check`) and an idempotency sweep over the
-offline `--json` CLI surface, both version-independent, so the 3.14 entry
+check (`tools/gen_fixtures.py --check`) and an idempotency sweep
+(`tools/check_idempotency.py --fixture-dir`, which runs the offline `--json`
+CLI surface twice for output determinism and each mutating command twice
+against its own scratch project, requiring the first run to actually change
+it), both version-independent, so the 3.14 entry
 skips them — a pre-commit hook-parity job (`make check` with
 the ruff and mypy hooks skipped, since the lint job runs them; it installs
 shellcheck first through `tools/ci_apt_install.sh`, so the shell hook is

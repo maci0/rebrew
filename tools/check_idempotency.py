@@ -22,6 +22,9 @@ can be appended as arguments::
 
 The write sweep needs a scratch project (it mutates one), so it runs only when
 ``--fixture-dir`` is given; each command gets its own freshly assembled copy.
+A command earns a PASS only by actually mutating on its first run: exiting 0
+twice with an unchanged tree is how a mutating command looks once it has
+stopped mutating, and the comparisons alone cannot tell that from safety.
 
 The ``verify`` report's ``timestamp`` field is by-design wall-clock metadata
 and is normalized away before comparison.
@@ -45,6 +48,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from rebrew.config import FUNCTION_STRUCTURE_JSON
 from rebrew.utils import run_process_group
 
 _PROJECT_TOML = """\
@@ -58,7 +62,6 @@ binary = "original/mini_pe.exe"
 format = "pe"
 arch = "x86_32"
 reversed_dir = "src/SERVER"
-function_list = "src/SERVER/functions.txt"
 bin_dir = "bin/SERVER"
 source_ext = ".c"
 marker = "SERVER"
@@ -79,8 +82,15 @@ def write_fixture_project(project_dir: Path) -> Path:
     """Assemble the minimal fixture project at *project_dir*; return it.
 
     Copies the checked-in fixture PE (tests/fixtures/mini_pe.exe) and writes
-    a rebrew-project.toml plus one STUB source — enough for every offline
-    ``--json`` command to run against real files.
+    a rebrew-project.toml, a function inventory, and one STUB source — enough
+    for every offline ``--json`` command to run against real files.
+
+    The inventory is what makes the write sweep mean anything.  A command
+    whose work is derived from the function list (``document-unmatched``,
+    ``skeleton``) found nothing to do against a project without one, exited
+    0, and passed every re-run comparison while proving nothing; see
+    :func:`check_write_idempotency`, which now rejects that outcome.  One
+    function is left uncovered on purpose so those commands have work.
     """
     if project_dir.exists():
         for p in project_dir.rglob("*"):
@@ -95,8 +105,14 @@ def write_fixture_project(project_dir: Path) -> Path:
     fixture = Path(__file__).resolve().parent.parent / "tests" / "fixtures" / "mini_pe.exe"
     shutil.copy(fixture, project_dir / "original" / "mini_pe.exe")
     (project_dir / "rebrew-project.toml").write_text(_PROJECT_TOML, encoding="utf-8")
-    (project_dir / "src" / "SERVER" / "functions.txt").write_text(
-        "0x00401000 11 _func1\n0x00401010 10 _func2\n", encoding="utf-8"
+    (project_dir / "src" / "SERVER" / FUNCTION_STRUCTURE_JSON).write_text(
+        json.dumps(
+            [
+                {"va": "0x00401000", "size": 11, "name": "_func1", "tool_name": "_func1"},
+                {"va": "0x00401010", "size": 10, "name": "_func2", "tool_name": "_func2"},
+            ]
+        ),
+        encoding="utf-8",
     )
     (project_dir / "src" / "SERVER" / "fcn.c").write_text(
         "// FUNCTION: SERVER 0x00401000\nint __cdecl _func1(void) { return 0; }\n",
@@ -234,8 +250,13 @@ def check_write_idempotency(cmd: str, project_dir: Path) -> tuple[bool, str]:
 
     A command that fails identically on every run proves nothing (a missing
     reference binary, a bad flag) yet passes every comparison below, so a
-    first run that did not succeed is a failure in its own right.
+    first run that did not succeed is a failure in its own right.  Neither
+    does a command that succeeds without doing anything: "ran twice, same
+    result" is trivially true of a no-op, and a no-op is how a mutating
+    command silently rots — a guard that starts refusing, a renamed flag, an
+    inventory key that no longer resolves.  Run 1 must therefore mutate.
     """
+    before = tree_digest(project_dir)
     code1, _ = _run(cmd, project_dir)
     after_first = tree_digest(project_dir)
     code2, _ = _run(cmd, project_dir)
@@ -249,6 +270,12 @@ def check_write_idempotency(cmd: str, project_dir: Path) -> tuple[bool, str]:
         return (
             False,
             f"exit code mismatch: first run exited {code1}, second run exited {code2}",
+        )
+    if before == after_first:
+        return (
+            False,
+            "first run left the project unchanged, so the second run's "
+            "identical result proves nothing",
         )
     if after_first != after_second:
         return (
@@ -297,11 +324,13 @@ WRITE_COMMANDS = [
     "document-unmatched",
     # Regenerates the link_stubs.c BSS placeholder TU from rebrew-data.toml.
     "gen-link-stubs",
-    # Writes one skeleton .c + metadata row per uncovered function.  Absent:
-    # the fixture's lone source file carries no rebrew-functions.toml row, so
-    # ``catalog`` reports zero functions and ``skeleton`` has nothing to write
-    # (it exited 2 on every run, which the comparisons could not tell from a
-    # pass).  Give the fixture a metadata row to cover it.
+    # Writes one skeleton .c + metadata row for the inventory's uncovered VA.
+    # Addressed explicitly: the single-VA form must refuse a second run rather
+    # than cover the same function twice (``--force`` and ``--append`` are the
+    # opt-in overrides).  ``--batch N`` is absent by design — it is a work
+    # queue, so each run is meant to advance to the next N functions and
+    # "unchanged after a re-run" is the wrong question to ask of it.
+    "skeleton 0x00401010",
     # Regenerates db/data_<target>.json and the reccmp CSV from the sources.
     "catalog",
     # Rewrites the splat-style symbol_addrs file from the annotations.

@@ -146,6 +146,24 @@ class TestWriteIdempotency:
         assert not ok
         assert "exit code mismatch" in reason
 
+    def test_no_op_command_fails(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A command that writes nothing proves nothing, so it must not pass.
+
+        Exiting 0 twice and leaving the tree identical is what a mutating
+        command looks like once it stops mutating — a guard that starts
+        refusing, a renamed flag, an inventory key that no longer resolves.
+        The tree compare alone cannot see that, so run 1 is required to
+        change something.
+        """
+        from tools.check_idempotency import check_write_idempotency
+
+        project = tmp_path / "proj"
+        project.mkdir()
+        self._install_rebrew(tmp_path, monkeypatch, 'echo "nothing to do"')
+        ok, reason = check_write_idempotency("document-unmatched", project)
+        assert not ok
+        assert "unchanged" in reason
+
 
 class TestFixtureProject:
     def test_write_fixture_project_assembles_project(self, tmp_path: Path) -> None:
@@ -156,6 +174,29 @@ class TestFixtureProject:
         assert (project / "original" / "mini_pe.exe").is_file()
         assert (project / "src" / "SERVER" / "fcn.c").is_file()
         assert "mini_pe.exe" in (project / "rebrew-project.toml").read_text(encoding="utf-8")
+
+    def test_fixture_ships_a_function_inventory(self, tmp_path: Path) -> None:
+        """The write sweep's commands need functions to work on.
+
+        Without an inventory, ``document-unmatched`` and ``skeleton`` have
+        nothing to do, exit 0, and pass every re-run comparison while
+        proving nothing about re-execution safety.
+        """
+        import json
+
+        from rebrew.catalog import cached_function_list
+        from rebrew.config import load_config
+        from tools.check_idempotency import write_fixture_project
+
+        project = write_fixture_project(tmp_path / "proj")
+        inventory = project / "src" / "SERVER" / "function_structure.json"
+        assert inventory.is_file()
+        assert len(json.loads(inventory.read_text(encoding="utf-8"))) == 2
+
+        cfg = load_config(project)
+        # The fixture's lone source covers _func1; _func2 is left uncovered on
+        # purpose so the inventory-driven write commands have real work.
+        assert {f["name"] for f in cached_function_list(cfg)} == {"_func1", "_func2"}
 
     def test_fixture_dir_without_value_errors(self, capsys) -> None:
         from tools.check_idempotency import main
