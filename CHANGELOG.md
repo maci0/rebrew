@@ -1,19 +1,4 @@
 ## [Unreleased]
-### Fixed
-- **`rebrew init --refresh-agents` converges instead of accumulating stale
-  skills.** The render wrote every packaged skill but never removed one the
-  package no longer ships, and `--check` only looked at the packaged set, so an
-  upgrade left a deleted `SKILL.md` on disk and reported no drift. Each render
-  now records the files it wrote (path plus digest) in
-  `.agents/skills/.rebrew-scaffold.json`; a later refresh prunes a file that
-  dropped out of the set, and `--check` reports it as `stale`. A stale file
-  edited since it was written is reported as `stale-modified` and kept.
-- **`rebrew build-db --force` keeps the history it cannot rebuild.** The force
-  path unlinked the database file, which discarded `history` and
-  `verify_results` even though the rest of the build treats both as persistent
-  (nothing else in the DB is their source). The rows of those two tables are
-  now read out before the delete and restored in the rebuild's transaction,
-  skipping rows already present, so a second `--force` run adds no duplicate.
 ### Added
 - **Shell is linted too.** `tools/ci_clone_resembl.sh` is the one shell
   script both workflows run, and nothing looked at it: the gate was ruff,
@@ -293,6 +278,20 @@
   guard `total = raw_total or 1` was also the reported `bytes` field, so a
   pair where neither side decoded read `bytes: 1`. The count and the
   percentage denominator are now separate values.
+- **`rebrew init --refresh-agents` converges instead of accumulating stale
+  skills.** The render wrote every packaged skill but never removed one the
+  package no longer ships, and `--check` only looked at the packaged set, so an
+  upgrade left a deleted `SKILL.md` on disk and reported no drift. Each render
+  now records the files it wrote (path plus digest) in
+  `.agents/skills/.rebrew-scaffold.json`; a later refresh prunes a file that
+  dropped out of the set, and `--check` reports it as `stale`. A stale file
+  edited since it was written is reported as `stale-modified` and kept.
+- **`rebrew build-db --force` keeps the history it cannot rebuild.** The force
+  path unlinked the database file, which discarded `history` and
+  `verify_results` even though the rest of the build treats both as persistent
+  (nothing else in the DB is their source). The rows of those two tables are
+  now read out before the delete and restored in the rebuild's transaction,
+  skipping rows already present, so a second `--force` run adds no duplicate.
 
 ### Changed
 - **The two non-`test_` modules under `tests/` are type-checked.**

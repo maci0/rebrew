@@ -543,7 +543,14 @@ class TestDocumentedLibrarySurface:
     """
 
     _IMPORT_RE = re.compile(r"(?m)^[ \t]*from[ \t]+(rebrew[\w.]*)[ \t]+import[ \t]+([^\n#]+)")
-    _MODULE_RE = re.compile(r"`(rebrew(?:\.[a-z_][a-z_0-9]*)+)`")
+    #: Parenthesized form (``from rebrew.x import (a, b)``), which the
+    #: single-line pattern above cannot read the names out of.
+    _PAREN_IMPORT_RE = re.compile(
+        r"(?ms)^[ \t]*from[ \t]+(rebrew[\w.]*)[ \t]+import[ \t]+\(([^)]*)\)"
+    )
+    #: Zero dotted segments too, so a bare ``rebrew`` in the package
+    #: docstring is checked like every ``rebrew.x`` beside it.
+    _MODULE_RE = re.compile(r"`(rebrew(?:\.[a-z_][a-z_0-9]*)*)`")
 
     def _doc_paths(self) -> list[Path]:
         return [ROOT / "README.md", *sorted((ROOT / "docs").glob("*.md"))]
@@ -552,11 +559,11 @@ class TestDocumentedLibrarySurface:
         missing: list[str] = []
         checked = 0
         for path in self._doc_paths():
-            for mod_name, raw in self._IMPORT_RE.findall(path.read_text(encoding="utf-8")):
-                if "(" in raw:  # parenthesized multi-line import; names not on this line
-                    continue
+            text = path.read_text(encoding="utf-8")
+            pairs = list(self._IMPORT_RE.findall(text)) + list(self._PAREN_IMPORT_RE.findall(text))
+            for mod_name, raw in pairs:
                 mod = importlib.import_module(mod_name)
-                for name in raw.split(","):
+                for name in raw.replace("(", "").replace(")", "").split(","):
                     name = name.partition(" as ")[0].strip()
                     if not name.isidentifier():
                         continue
@@ -567,7 +574,7 @@ class TestDocumentedLibrarySurface:
         assert missing == [], "documented imports do not exist: " + ", ".join(missing)
 
     def test_documented_modules_exist(self) -> None:
-        """Every ``rebrew.x.y`` the README and package docstring name is importable."""
+        """Every ``rebrew.x`` the README and package docstring name is importable."""
         sources = {"README.md": (ROOT / "README.md").read_text(encoding="utf-8")}
         sources["rebrew/__init__.py"] = rebrew.__doc__ or ""
         missing: list[str] = []
