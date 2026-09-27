@@ -33,15 +33,28 @@ non-object, or a byte count that is not a non-negative integer: text, a
 float, a boolean, a list, or a negative), so clients are not told the target
 is missing.  Non-GET/HEAD
 methods (including ones http.server does not know) return 405 with
-``Allow: GET, HEAD``.  Every error body is ``{"error": "<message>"}``,
-including malformed requests (400/414/431/505) rejected before routing.
+``Allow: GET, HEAD``.  Every error body is
+``{"error": "<message>", "code": "<machine-readable code>"}``; branch on
+``code`` (``missing_target``, ``unknown_target``, ``invalid_status``,
+``not_found``, ``method_not_allowed``, ``host_not_allowed``,
+``corrupt_function_stats``, ``database_error``, ``internal_error``, and
+``bad_request`` / ``uri_too_long`` / ``header_fields_too_large`` /
+``http_version_not_supported`` for malformed requests rejected before
+routing) and show ``error`` to the reader.
+A ``status`` filter outside the STATUS vocabulary is 400
+``invalid_status`` rather than an empty page, which would read as "this
+target has no functions in that status".
 A request that carries a body is answered with ``Connection: close`` (no
 route reads one).  Requests whose ``Host`` header
 does not match the bound host (or a loopback alias) are rejected with 403, so
 a web page the analyst visits cannot reach the server via DNS rebinding.
 List endpoints expose ``count`` (rows in this page), ``total`` (matching rows),
-and the applied ``limit`` / ``offset`` (offset is 0 when the endpoint has no page;
-``/api/sections``, ``/api/targets``, and ``/api/bootstrap`` always report offset 0).
+and the applied ``limit`` / ``offset``, plus ``paged`` so a client never has to
+infer whether ``limit`` is a page size or a row count: it is ``true`` on
+``/api/functions``, ``/api/globals``, and ``/api/history``, and ``false`` on
+``/api/sections``, ``/api/targets``, and the top level of ``/api/bootstrap``,
+which have no page (``offset`` is 0 and ``limit`` is the row count there).
+A client that pages on ``limit`` steps by ``count``, not by ``limit``.
 A missing, malformed, or non-positive ``limit`` uses 100 and larger values clamp
 to 5000; a missing, malformed, or negative ``offset`` uses 0 and values past
 SQLite's int64 range clamp to it.  Clients read the applied values back.
@@ -107,7 +120,7 @@ from rebrew.cli import console, error_exit, json_print
 from rebrew.metadata import canonical_status
 from rebrew.status_style import status_mark_groups
 from rebrew.utils import floor_pct
-from rebrew.workspace import VA_MAX, coverage_db_lock, open_sqlite_ro
+from rebrew.workspace import KNOWN_STATUSES, VA_MAX, coverage_db_lock, open_sqlite_ro
 
 log = logging.getLogger(__name__)
 
@@ -133,6 +146,14 @@ _TARGET_ROUTES = frozenset(
 _ROUTES = (
     frozenset({"/", "/app.js", "/boot-guard.js", "/api/bootstrap", "/api/targets"}) | _TARGET_ROUTES
 )
+#: ``code`` for the errors http.server raises before routing (400/414/431/505);
+#: any other parse error falls back to ``request_error``.
+_HTTP_ERROR_CODES: dict[int, str] = {
+    HTTPStatus.BAD_REQUEST: "bad_request",
+    HTTPStatus.REQUEST_URI_TOO_LONG: "uri_too_long",
+    HTTPStatus.REQUEST_HEADER_FIELDS_TOO_LARGE: "header_fields_too_large",
+    HTTPStatus.HTTP_VERSION_NOT_SUPPORTED: "http_version_not_supported",
+}
 # Seconds a keep-alive connection may sit idle before its handler thread exits.
 _KEEPALIVE_IDLE_TIMEOUT_S = 30.0
 # Below this size framing usually costs more than it saves on a LAN.
@@ -204,7 +225,7 @@ async function get(path, signal) {
     throw new Error("the dashboard server did not respond; check that rebrew dashboard is still running");
   }
   if (!r.ok) {
-    // Error bodies are {"error": "<message>"}; show that reason to the user.
+    // Error bodies are {"error": "<message>", "code": "<code>"}; show the reason.
     let detail = "";
     try {
       detail = (await r.json()).error || "";
@@ -1628,6 +1649,7 @@ class Dashboard:
                 "total": len(targets),
                 "limit": len(targets),
                 "offset": 0,
+                "paged": False,
                 "target": None,
                 "summary": None,
                 "functions": None,
@@ -1750,6 +1772,7 @@ class Dashboard:
             "total": total,
             "limit": limit,
             "offset": offset,
+            "paged": True,
             "cols": list(_FUNCTION_COLS),
             "functions": [
                 [
@@ -1805,6 +1828,7 @@ class Dashboard:
             "total": len(sections),
             "limit": len(sections),
             "offset": 0,
+            "paged": False,
             "sections": sections,
         }
 
@@ -1847,6 +1871,7 @@ class Dashboard:
             "total": total,
             "limit": limit,
             "offset": offset,
+            "paged": True,
             "cols": list(_GLOBAL_COLS),
             "globals": [
                 [
@@ -1884,6 +1909,7 @@ class Dashboard:
             "total": total,
             "limit": limit,
             "offset": offset,
+            "paged": True,
             "cols": list(_HISTORY_COLS),
             "history": [
                 [
@@ -1935,7 +1961,9 @@ class Dashboard:
     def handle(self, method: str, path: str, query: dict[str, list[str]]) -> tuple[int, str, str]:
         """Route a request.  Returns (status, content-type, body)."""
         if method not in ("GET", "HEAD"):
-            return self._json(405, {"error": "method not allowed (read-only; GET, HEAD only)"})
+            return self._error(
+                405, "method_not_allowed", "method not allowed (read-only; GET, HEAD only)"
+            )
         parsed = urlparse(path)
         if parsed.path == "/":
             return 200, "text/html; charset=utf-8", _INDEX_HTML
@@ -1955,6 +1983,7 @@ class Dashboard:
                     "total": len(targets),
                     "limit": len(targets),
                     "offset": 0,
+                    "paged": False,
                 },
             )
 
@@ -1962,7 +1991,9 @@ class Dashboard:
         if parsed.path in _TARGET_ROUTES:
             target = _opt_query(query, "target") or ""
             if not target:
-                return self._json(400, {"error": "missing required query parameter 'target'"})
+                return self._error(
+                    400, "missing_target", "missing required query parameter 'target'"
+                )
             with self._conn():
                 if parsed.path == "/api/summary":
                     # Single stats-row read: missing → 404, corrupt → 500 (not
@@ -1970,18 +2001,30 @@ class Dashboard:
                     # on the happy path while keeping status codes accurate.
                     kind, result = self._summary_lookup(target)
                     if kind == "missing":
-                        return self._json(404, {"error": f"unknown target {target!r}"})
+                        return self._error(404, "unknown_target", f"unknown target {target!r}")
                     if kind == "corrupt" or result is None:
-                        return self._json(500, {"error": "corrupt function_stats metadata"})
+                        return self._error(
+                            500, "corrupt_function_stats", "corrupt function_stats metadata"
+                        )
                     return self._json(200, result)
                 if not self.target_known(target):
-                    return self._json(404, {"error": f"unknown target {target!r}"})
+                    return self._error(404, "unknown_target", f"unknown target {target!r}")
                 if parsed.path == "/api/functions":
+                    status = _opt_query(query, "status")
+                    if status is not None and canonical_status(status) not in KNOWN_STATUSES:
+                        # An unknown status is a client mistake, not an empty
+                        # page: matching nothing reads as "this target has no
+                        # STTUB functions", which is a wrong answer.
+                        return self._error(
+                            400,
+                            "invalid_status",
+                            f"unknown status {status!r} (expected one of {sorted(KNOWN_STATUSES)})",
+                        )
                     return self._json(
                         200,
                         self.functions(
                             target,
-                            status=_opt_query(query, "status"),
+                            status=status,
                             module=_module_query(query),
                             q=_opt_query(query, "q"),
                             limit=_int_param(query, "limit", _DEFAULT_LIMIT),
@@ -2009,7 +2052,7 @@ class Dashboard:
                         offset=_offset_param(query, "offset", 0),
                     ),
                 )
-        return self._json(404, {"error": f"no such endpoint {parsed.path!r}"})
+        return self._error(404, "not_found", f"no such endpoint {parsed.path!r}")
 
     @staticmethod
     def _json(status: int, payload: dict[str, Any]) -> tuple[int, str, str]:
@@ -2018,6 +2061,15 @@ class Dashboard:
             "application/json; charset=utf-8",
             json.dumps(payload, separators=(",", ":")),
         )
+
+    @staticmethod
+    def _error(status: int, code: str, message: str) -> tuple[int, str, str]:
+        """JSON error envelope: a stable ``code`` plus the human ``error`` text.
+
+        ``code`` is what a client branches on; ``error`` stays prose for the
+        dashboard's own error line and for anyone reading the response.
+        """
+        return Dashboard._json(status, {"error": message, "code": code})
 
 
 def _load_list(raw: str | None) -> list[str]:
@@ -2253,8 +2305,8 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _respond(self, method: str) -> None:
         if not _host_allowed(self.headers.get("Host", ""), self.allowed_hosts):
-            status, content_type, body = self.dashboard._json(
-                403, {"error": "request Host not allowed (wrong or missing Host header)"}
+            status, content_type, body = self.dashboard._error(
+                403, "host_not_allowed", "request Host not allowed (wrong or missing Host header)"
             )
             body_bytes = body.encode("utf-8")
             self.send_response(403)
@@ -2302,7 +2354,9 @@ class _Handler(BaseHTTPRequestHandler):
             )
             _log_failed_request("dashboard query failed", self.path, exc)
             logged_error = True
-            status, content_type, body = self.dashboard._json(500, {"error": "database error"})
+            status, content_type, body = self.dashboard._error(
+                500, "database_error", "database error"
+            )
         except Exception as exc:  # last-resort handler guard
             # Any other unexpected error (a bug in a route, an OSError on a
             # sidecar read) gets the same treatment: without this the thread
@@ -2315,8 +2369,8 @@ class _Handler(BaseHTTPRequestHandler):
             )
             _log_failed_request("dashboard handler failed", self.path, exc)
             logged_error = True
-            status, content_type, body = self.dashboard._json(
-                500, {"error": "internal server error"}
+            status, content_type, body = self.dashboard._error(
+                500, "internal_error", "internal server error"
             )
         if status >= 500 and not logged_error:
             # A route that answers 500 on its own (corrupt function_stats) is
@@ -2458,7 +2512,13 @@ class _Handler(BaseHTTPRequestHandler):
             return
         self.log_error("code %d, message %s", code, message)
         status = HTTPStatus(code)
-        body = json.dumps({"error": message or status.phrase}, separators=(",", ":")).encode()
+        body = json.dumps(
+            {
+                "error": message or status.phrase,
+                "code": _HTTP_ERROR_CODES.get(code, "request_error"),
+            },
+            separators=(",", ":"),
+        ).encode()
         self.send_response(code, message)
         self.send_header("Connection", "close")
         self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -2519,8 +2579,10 @@ app = typer.Typer(
         "  /api/history?target= · · Status-change history (limit/offset)\n\n"
         "[dim]Read-only: DB opened mode=ro. Target-scoped routes need ?target= "
         "(400 if missing, 404 if unknown; /api/summary → 500 if function_stats "
-        "is corrupt, including a non-integer byte count). A present empty "
-        "module= matches a blank module. Non-GET/HEAD → 405.[/dim]"
+        "is corrupt, including a non-integer byte count; an unknown status= is "
+        "400, not an empty page). A present empty "
+        "module= matches a blank module. Non-GET/HEAD → 405. Error bodies are "
+        '{"error": "<message>", "code": "<code>"}; branch on code.[/dim]'
     ),
 )
 

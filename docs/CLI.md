@@ -2546,7 +2546,9 @@ Endpoints: `/`, `/app.js`, `/boot-guard.js`, `/api/bootstrap`, `/api/targets`,
 compact row arrays under `cols`), `/api/sections?target=`,
 `/api/globals?target=` (module/q/limit/offset; compact arrays under `cols`),
 `/api/history?target=` (limit/offset; compact arrays under `cols`).
-Missing `target` → 400; unknown target → 404. Corrupt `function_stats` on
+Missing `target` → 400; unknown target → 404; a `status` filter outside the
+STATUS vocabulary → 400 (an empty page would read as "no functions in that
+status"). Corrupt `function_stats` on
 `/api/summary` → 500 (not 404), including a byte count that is not a
 non-negative integer. A present empty `module=` on `/api/functions` and
 `/api/globals` matches a blank module; omitting `module` does not filter.
@@ -2555,7 +2557,15 @@ on globals. Four or more hex digits, with an optional `0x` prefix, also
 match that virtual address (`0x401000` and `00401000` are the same address).
 `by_module_counts` uses those same stored strings (`""` when unset). Any
 other method → 405 with `Allow: GET, HEAD`.
-Every error body is `{"error": "<message>"}`, malformed requests included.
+Every error body is `{"error": "<message>", "code": "<code>"}`, malformed
+requests included; branch on `code` (`missing_target`, `unknown_target`,
+`invalid_status`, `not_found`, `method_not_allowed`, `host_not_allowed`,
+`corrupt_function_stats`, `database_error`, `internal_error`,
+`bad_request`, `uri_too_long`, `header_fields_too_large`,
+`http_version_not_supported`) and show `error` to the reader. List endpoints
+also carry `paged`: `true` on `/api/functions`, `/api/globals`, and
+`/api/history` (where `limit` is the page size), `false` on `/api/sections`,
+`/api/targets`, and `/api/bootstrap` (where `limit` is the row count).
 A request that carries a body gets its response with `Connection: close`.
 The page keeps the selected target, view, and filters in the URL hash
 (`#target=…&view=globals&status=EXACT&q=…`), so a reload after
