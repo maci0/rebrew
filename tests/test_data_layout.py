@@ -720,7 +720,7 @@ def test_link_objects_missing_raises(tmp_path: Path) -> None:
 
 
 class TestObjSectionSymbols:
-    def test_rdata_bucket(self, tmp_path: Path, monkeypatch) -> None:
+    def test_rdata_bucket(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         from rebrew.data_layout import obj_section_symbols
 
         def fake_run(obj: Path, flag: str) -> str:
@@ -740,7 +740,7 @@ class TestObjSectionSymbols:
         assert buckets[".bss"] == {"g_bss"}
         assert buckets[".rdata"] == {"g_const"}
 
-    def test_legacy_wrapper_unchanged(self, tmp_path: Path, monkeypatch) -> None:
+    def test_legacy_wrapper_unchanged(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         from rebrew.data_layout import obj_data_symbols
 
         def fake_run(obj: Path, flag: str) -> str:
@@ -757,7 +757,7 @@ class TestObjdumpHexSpellings:
     """objdump emits uppercase and variable-width hex; the parsers must take
     every spelling (8-digit lowercase is just one)."""
 
-    def test_section_sizes_uppercase(self, tmp_path: Path, monkeypatch) -> None:
+    def test_section_sizes_uppercase(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         from rebrew.data_layout import _obj_section_sizes
 
         def fake_run(obj: Path, flag: str) -> str:
@@ -768,7 +768,7 @@ class TestObjdumpHexSpellings:
         _secname, sizes = _obj_section_sizes(tmp_path / "f.obj")
         assert sizes == {".data": 0x1A, ".rdata": 0xDEADBEEF, ".bss": 0x4}
 
-    def test_symbols_uppercase_and_short(self, tmp_path: Path, monkeypatch) -> None:
+    def test_symbols_uppercase_and_short(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         from rebrew.data_layout import obj_section_symbols
 
         def fake_run(obj: Path, flag: str) -> str:
@@ -788,7 +788,7 @@ class TestObjdumpHexSpellings:
 
 
 class TestAuditLayoutSection:
-    def test_rdata_audit(self, tmp_path: Path, monkeypatch) -> None:
+    def test_rdata_audit(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         from rebrew.data_layout import audit_layout
 
         meta = tmp_path / "rebrew-data.toml"

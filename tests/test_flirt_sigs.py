@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from rebrew.flirt import _flirt_sigs_repo, _sig_files
 
 
@@ -24,7 +26,7 @@ def test_sig_files_dedup_project_wins(tmp_path: Path) -> None:
     assert len(names) == 3
 
 
-def test_flirt_sigs_repo_env(monkeypatch) -> None:
+def test_flirt_sigs_repo_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("REBREW_FLIRT_SIGS_DIR", "/tmp/sigs")
     assert _flirt_sigs_repo() == Path("/tmp/sigs")
     monkeypatch.delenv("REBREW_FLIRT_SIGS_DIR")
