@@ -113,13 +113,50 @@ _override_memo: OrderedDict[tuple[Any, ...], tuple[str | None, str]] = OrderedDi
 _override_memo_lock = threading.Lock()
 
 
+def _override_memo_key(
+    cfg: Any, source_dir: Path, toolchain: str, cflags: str, module: str
+) -> tuple[Any, ...]:
+    """Cache key carrying every input ``resolve_compile_overrides`` reads.
+
+    The resolution falls back per-function metadata → nearest
+    ``rebrew-libraries.toml`` → per-module preset → project defaults, so the
+    key must span all four levels:
+
+    * the target and the project-default flags (``cflags``,
+      ``cflags_explicit``, ``posix_style``, ``compiler_profile``, the module
+      preset) — ``verify --all-targets`` builds one config per target in a
+      single process, and without them a shared source resolves against the
+      FIRST target's flags for every later target.
+    * the stat fingerprint of the nearest library file — a ``rebrew library
+      set`` write (or a hand edit during ``verify --watch``) otherwise leaves
+      the pre-write toolchain/CFLAGS in force for the process lifetime.
+    """
+    from rebrew.metadata import library_override_fingerprint
+    from rebrew.utils import preset_module_key
+
+    return (
+        str(getattr(cfg, "root", "")),
+        str(getattr(cfg, "target_name", "")),
+        str(source_dir),
+        toolchain,
+        cflags,
+        module,
+        str(getattr(cfg, "compiler_profile", "")),
+        str(getattr(cfg, "cflags", "")),
+        bool(getattr(cfg, "cflags_explicit", False)),
+        bool(getattr(cfg, "posix_style", False)),
+        str(getattr(cfg, "cflags_presets", {}).get(preset_module_key(module), "")),
+        library_override_fingerprint(source_dir, getattr(cfg, "root", None)),
+    )
+
+
 def _resolved_overrides(
     cfg: Any, source_dir: Path, toolchain: str, cflags: str, module: str
 ) -> tuple[str | None, str]:
     """``resolve_compile_overrides`` behind a bounded memo."""
     from rebrew.compile_overrides import resolve_compile_overrides
 
-    key = (str(getattr(cfg, "root", "")), str(source_dir), toolchain, cflags, module)
+    key = _override_memo_key(cfg, source_dir, toolchain, cflags, module)
     with _override_memo_lock:
         hit = _override_memo.get(key)
         if hit is not None:

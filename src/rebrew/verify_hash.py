@@ -7,7 +7,6 @@ invalidates cached results when result-affecting code changes.
 
 from __future__ import annotations
 
-import functools
 import hashlib
 import logging
 import threading
@@ -76,7 +75,7 @@ def entry_fingerprint(cfg: ProjectConfig, entry: Any) -> EntryFingerprint | None
         getattr(entry, "cflags", ""),
         getattr(entry, "module", ""),
     )
-    defines = ",".join(sorted(getattr(cfg, "defines", None) or [])) or "(none)"
+    defines = "\x00".join(sorted(getattr(cfg, "defines", None) or [])) or "(none)"
     return EntryFingerprint(
         toolchain=toolchain or DEFAULT_TOOLCHAIN,
         cflags=cflags,
@@ -107,7 +106,33 @@ def cflags_equivalent(stored: str, current: str) -> bool:
     return canonicalize_cflags(shlex.split(stored)) == canonicalize_cflags(shlex.split(current))
 
 
-@functools.lru_cache(maxsize=1)
+def _package_source_fingerprint() -> tuple[tuple[str, int, int], ...]:
+    """``(path, mtime_ns, size)`` for every ``.py`` file in the rebrew package.
+
+    Not memoized, for the reason :func:`_headers_stat_fingerprint` is not: a
+    long-lived process (``verify --watch``, the dashboard) must see an edit to
+    the comparison logic, which is the whole point of the hash.
+    """
+    import rebrew
+
+    pkg_root = Path(rebrew.__file__).resolve().parent
+    entries: list[tuple[str, int, int]] = []
+    for path in pkg_root.rglob("*.py"):
+        try:
+            st = path.stat()
+        except OSError:
+            continue
+        entries.append((str(path), st.st_mtime_ns, st.st_size))
+    return tuple(sorted(entries))
+
+
+#: Memo for :func:`_compare_logic_hash`, guarded by the package-source stat
+#: fingerprint.  Lock-guarded: ``verify -j N`` computes cache identity from
+#: worker threads.
+_COMPARE_LOGIC_MEMO_LOCK = threading.Lock()
+_COMPARE_LOGIC_MEMO: tuple[tuple[tuple[str, int, int], ...], str] | None = None
+
+
 def _compare_logic_hash() -> str:
     """Hash of the rebrew modules whose logic changes verification RESULTS.
 
@@ -116,8 +141,14 @@ def _compare_logic_hash() -> str:
     by an earlier build of the same version.  Hashing the source of the
     comparison pipeline means any code change invalidates cached results —
     stale EXTRACT_ERROR or wrong RELOC/NEAR_MATCHING entries can never be
-    served as truth after a fix.  Computed once per process (source files are
-    stable for the lifetime of one rebrew invocation).
+    served as truth after a fix.
+
+    Memoized on the package source's stat fingerprint rather than for the
+    process lifetime: a process that outlives an edit to the comparison logic
+    (an editable install being worked on under ``verify --watch``, or a
+    dashboard with the cache open) would otherwise keep accepting verdicts the
+    current code would not reach.  An edit preserving both mtime_ns and size is
+    missed until the next process, as for every other stat-keyed memo here.
 
     The hash covers the WHOLE ``rebrew`` package source rather than a
     hand-maintained module list: result-affecting code lives across
@@ -125,25 +156,28 @@ def _compare_logic_hash() -> str:
     ``compile_overrides.resolve_cflags`` (flags), ``binary_loader`` (IAT masking) and
     others, and a manual list inevitably drifts — a missed module then ships
     a fix without invalidating caches written by the pre-fix build.
-
-    The ``lru_cache`` lives on THIS function (not a nested helper): the old
-    version decorated an inner ``_hash()`` re-created on every call, so the
-    full-package source hash was recomputed on every verify run despite the
-    "once per process" claim.
     """
-    import rebrew
+    global _COMPARE_LOGIC_MEMO
+
+    fingerprint = _package_source_fingerprint()
+    with _COMPARE_LOGIC_MEMO_LOCK:
+        memo = _COMPARE_LOGIC_MEMO
+        if memo is not None and memo[0] == fingerprint:
+            return memo[1]
 
     h = hashlib.sha256()
-    pkg_root = Path(rebrew.__file__).resolve().parent
     # Deterministic order; only .py source (skip vendored binaries,
     # __pycache__, .so/.pyd extensions).
-    for path in sorted(pkg_root.rglob("*.py")):
+    for path_str, _mtime_ns, _size in fingerprint:
         try:
-            h.update(path.read_bytes())
+            h.update(Path(path_str).read_bytes())
         except OSError:
             continue
         h.update(b"\x00")
-    return h.hexdigest()
+    digest = h.hexdigest()
+    with _COMPARE_LOGIC_MEMO_LOCK:
+        _COMPARE_LOGIC_MEMO = (fingerprint, digest)
+    return digest
 
 
 def compiler_config_hash(cfg: ProjectConfig) -> str:
@@ -169,7 +203,10 @@ def compiler_config_hash(cfg: ProjectConfig) -> str:
         # so a config-level cflags/preset edit invalidates the affected
         # entries without nuking the whole cache.
     ]
-    return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()
+    # NUL-joined, not "|": a compiler_command or include path containing the
+    # separator would otherwise shift the field boundary and leave the hash
+    # unchanged across a real compiler change.
+    return hashlib.sha256("\x00".join(parts).encode("utf-8")).hexdigest()
 
 
 def _external_includes_hash(cfg: ProjectConfig) -> str:
@@ -223,7 +260,15 @@ def headers_hash(cfg: ProjectConfig) -> str:
         return ""
 
     ext_digest = _external_includes_hash(cfg)
-    stat_fp = _headers_stat_fingerprint(src_dir) + (ext_digest,)
+    # The fingerprint holds paths RELATIVE to src_dir, so two project roots
+    # with equal-size, equal-mtime header trees hash to the same tuple: the
+    # resolved source directory is part of the key or the second root is
+    # served the first root's digest.
+    stat_fp: tuple[tuple[str, int, int] | str, ...] = (
+        str(src_dir.resolve()),
+        *_headers_stat_fingerprint(src_dir),
+        ext_digest,
+    )
     with _HEADERS_HASH_CACHE_LOCK:
         cached = _HEADERS_HASH_CACHE.get(stat_fp)
         if cached is not None:
