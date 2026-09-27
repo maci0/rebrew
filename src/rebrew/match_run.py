@@ -57,6 +57,10 @@ log = logging.getLogger(__name__)
 #: Serializes in-process appends to solutions_out across parallel batch workers.
 _SOLUTIONS_COLLECT_LOCK = threading.Lock()
 
+#: Guards the one-shot construction of the shared reloc-validation catalog, so
+#: a parallel batch builds it once instead of once per racing worker.
+_BATCH_CATALOG_LOCK = threading.Lock()
+
 
 class _GaRunRecord(NamedTuple):
     """One ``ga_runs.jsonl`` line, built by a batch worker and appended by the
@@ -1191,14 +1195,18 @@ def run_all(
         # The reloc-validation catalog is the same for every stub, and building
         # it re-walks and re-parses the whole reversed tree (tree-sitter per
         # source).  Build it once per batch, on the first stub that reaches the
-        # GA, instead of once per stub.
-        if not batch_catalog:
-            try:
-                from rebrew.coff_reloc import build_name_to_va
+        # GA, instead of once per stub.  The lock spans the emptiness test and
+        # the append: under ``-j N`` every worker reaches this before the first
+        # one finishes its tree walk, so an unguarded test would let all of
+        # them build the catalog.
+        with _BATCH_CATALOG_LOCK:
+            if not batch_catalog:
+                try:
+                    from rebrew.coff_reloc import build_name_to_va
 
-                batch_catalog.append(build_name_to_va(cfg))
-            except Exception as exc:
-                log.warning("reloc-validation catalog unavailable: %s", exc)
+                    batch_catalog.append(build_name_to_va(cfg))
+                except Exception as exc:
+                    log.warning("reloc-validation catalog unavailable: %s", exc)
         try:
             matched, output_summary, best_score, generations_run, used_seed = _run_one_stub_ga(
                 stub,

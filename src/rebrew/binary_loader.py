@@ -29,6 +29,9 @@ if TYPE_CHECKING:
 
     from rebrew.ne_loader import NeHeader, NeImportModule, NeSegment
 
+#: Makes the one-shot LIEF log-level change in ``__getattr__`` single-threaded.
+_LIEF_LOGGING_LOCK = threading.Lock()
+
 
 def __getattr__(name: str) -> Any:
     """Lazily import LIEF on first attribute use.
@@ -38,13 +41,21 @@ def __getattr__(name: str) -> Any:
     cached project).  Annotations are strings (``from __future__`` is
     absent here — the names below are only evaluated by type checkers),
     so deferring costs nothing at runtime.
+
+    ``logging.disable()`` flips a LIEF process-global, so it runs once
+    under a lock: a parallel batch would otherwise let a worker's first
+    attribute access reconfigure the library while a sibling is inside
+    ``lief.parse``.
     """
     if name == "lief":
         import lief as _lief
 
-        globals()["lief"] = _lief
-        with contextlib.suppress(Exception):
-            _lief.logging.disable()
+        with _LIEF_LOGGING_LOCK:
+            already = "lief" in globals()
+            globals()["lief"] = _lief
+            if not already:
+                with contextlib.suppress(Exception):
+                    _lief.logging.disable()
         return _lief
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 

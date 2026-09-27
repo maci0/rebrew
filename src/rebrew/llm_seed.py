@@ -37,9 +37,10 @@ request that left the process and then failed (timeout, 5xx after
 generation) is recorded too, with unreported tokens, so an endpoint that
 charges for work whose answer never arrived is not read as a free run.
 ``--seed-llm --dry-run`` previews the prompt without calling the endpoint.
-Each billed request adds to a process-wide :class:`SeedUsage` total that
-``rebrew match --seed-llm`` prints, so a ``--watch`` run reports every call it
-made rather than the last one.
+Each billed request adds to a running :class:`SeedUsage` total for the thread
+that made it, which ``rebrew match --seed-llm`` prints, so a ``--watch`` run
+reports every call it made rather than the last one, and a parallel batch
+worker does not report a sibling stub's spend.
 """
 
 from __future__ import annotations
@@ -122,11 +123,13 @@ _ALLOWED_TOP_LEVEL = frozenset({"function_definition", "comment"})
 
 _request_count = 0
 _request_lock = threading.Lock()
-# Cost of every billed request this process made, surfaced to the run summary:
-# the INFO log line that records it is invisible without ``-v``, so a paid
-# endpoint would otherwise bill silently.  A ``--watch`` run bills once per
-# edit, so the total is what the operator budgets against, not the last call.
-_usage_total: SeedUsage | None = None
+# Running cost of the billed requests this thread made, surfaced to the run
+# summary: the INFO log line that records it is invisible without ``-v``, so a
+# paid endpoint would otherwise bill silently.  A ``--watch`` run bills once
+# per edit, so the total is what the operator budgets against, not the last
+# call.  Per thread: a parallel batch seeds one stub per worker, and a
+# process-global slot let one stub report another's spend as its own.
+_usage_tls = threading.local()
 # Control characters (including newlines) in provider JSON fields let a
 # malicious or compromised endpoint forge log entries.  Replace them before
 # any ``logging.*`` call that interpolates untrusted response values.
@@ -216,16 +219,22 @@ def _sum_known(left: int | None, right: int | None) -> int:
 
 
 def seed_usage_total() -> SeedUsage | None:
-    """Every billed LLM request this process made, or None when none was made.
+    """Every billed LLM request this thread made, or None when it made none.
 
     Deliberately *not* cleared by :func:`request_seeds`: a later call that
     bills nothing does not erase what earlier calls spent, and a ``--watch``
     run that billed on three edits reports all three.  ``None`` therefore
-    means no request ever left the process (no endpoint, budget exhausted,
-    unparseable source), not "this function was free".
+    means no request ever left the process on this thread (no endpoint, budget
+    exhausted, unparseable source), not "this function was free".  The slot is
+    thread-local, so a parallel batch worker never reports a sibling stub's
+    spend as its own.
     """
-    with _request_lock:
-        return _usage_total
+    return getattr(_usage_tls, "value", None)
+
+
+def reset_last_seed_usage() -> None:
+    """Drop this thread's running cost total, so the next one starts from None."""
+    _usage_tls.value = None
 
 
 _SYSTEM_PROMPT = """\
@@ -656,10 +665,9 @@ def _count(usage: dict[str, Any], field: str) -> int | None:
 
 
 def _record_usage(record: SeedUsage) -> None:
-    """Add *record* to the process cost total the run summary reports."""
-    global _usage_total
-    with _request_lock:
-        _usage_total = record if _usage_total is None else merge_usage(_usage_total, record)
+    """Add *record* to the cost total this thread's run summary reports."""
+    total: SeedUsage | None = getattr(_usage_tls, "value", None)
+    _usage_tls.value = record if total is None else merge_usage(total, record)
 
 
 def _record_attempt(model: str, duration_s: float) -> None:

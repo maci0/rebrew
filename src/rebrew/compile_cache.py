@@ -69,6 +69,9 @@ CACHE_SCHEMA_VERSION = 6
 
 # Warn once per process: a corrupt/contended store degrades every get/put,
 # and one line per lookup would flood a GA batch's log without adding info.
+# A GA batch has every worker hitting the same store, so the latch is a
+# check-then-act and needs the lock to admit exactly one of them.
+_degraded_lock = threading.Lock()
 _degraded_logged = False
 
 
@@ -80,15 +83,17 @@ def _warn_cache_failure(op: str, exc: Exception) -> None:
     wondering why every compile suddenly pays full subprocess cost.
     """
     global _degraded_logged
-    if not _degraded_logged:
+    with _degraded_lock:
+        if _degraded_logged:
+            return
         _degraded_logged = True
-        logger.warning(
-            "Compile cache %s failed (%s: %s) — continuing with degraded/no cache; "
-            "delete .rebrew/compile_cache/ to reset a corrupted store",
-            op,
-            type(exc).__name__,
-            exc,
-        )
+    logger.warning(
+        "Compile cache %s failed (%s: %s) — continuing with degraded/no cache; "
+        "delete .rebrew/compile_cache/ to reset a corrupted store",
+        op,
+        type(exc).__name__,
+        exc,
+    )
 
 
 # Extensions treated as headers when fingerprinting an include directory.

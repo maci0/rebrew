@@ -18,6 +18,7 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
+import rebrew.llm_seed
 from rebrew.config import (
     DEFAULT_LLM_TIMEOUT,
     MAX_LLM_TIMEOUT,
@@ -49,7 +50,7 @@ from rebrew.llm_seed import (
 def _reset_llm_request_budget(monkeypatch: pytest.MonkeyPatch) -> None:
     """Each test gets a fresh process budget (production counter is process-wide)."""
     monkeypatch.setattr("rebrew.llm_seed._request_count", 0)
-    monkeypatch.setattr("rebrew.llm_seed._usage_total", None)
+    rebrew.llm_seed.reset_last_seed_usage()
     monkeypatch.delenv("REBREW_LLM_MAX_REQUESTS", raising=False)
     monkeypatch.delenv("REBREW_LLM_TIMEOUT", raising=False)
 
