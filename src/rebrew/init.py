@@ -204,7 +204,7 @@ def _agent_skill_files(target_name: str) -> dict[str, bytes]:
         for src in _iter_skill_tree_files(_AGENT_SKILLS_SRC):
             files[src.relative_to(_AGENT_SKILLS_SRC).as_posix()] = src.read_bytes()
 
-    from rebrew.skills import _parse_frontmatter, _safe_skill_name, _user_skills_dir
+    from rebrew.skills import _parse_frontmatter, _read_skill_md, _safe_skill_name, _user_skills_dir
 
     user_skills = _user_skills_dir()
     if user_skills is not None and user_skills.is_dir():
@@ -219,7 +219,7 @@ def _agent_skill_files(target_name: str) -> dict[str, bytes]:
             # Merge by canonical skill name (frontmatter name or dir name) —
             # the same key `rebrew skills list` uses, so a user skill named
             # "rebrew-workflow" overrides the packaged one in place.
-            fm = _parse_frontmatter(skill_md.read_text(encoding="utf-8"))
+            fm = _parse_frontmatter(_read_skill_md(skill_md))
             name = _safe_skill_name(fm.get("name") or skill_dir.name)
             if not name:
                 continue

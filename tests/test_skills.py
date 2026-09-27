@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import unicodedata
 
 from typer.testing import CliRunner
 
@@ -269,3 +270,51 @@ class TestSafeSkillName:
         assert _safe_skill_name("rebrew_workflow") == "rebrew_workflow"
         # Only a dot-ONLY component escapes; a leading dot stays inside the dir.
         assert _safe_skill_name(".evil") == ".evil"
+
+
+class TestSkillNameNormalization:
+    """A skill name is its identity: one spelling, compared NFC on both sides."""
+
+    def _skill(self, tmp_path, dir_name: str, body: str) -> None:
+        d = tmp_path / dir_name
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "SKILL.md").write_bytes(body.encode("utf-8"))
+
+    def test_frontmatter_values_normalized_to_nfc(self) -> None:
+        nfd = "re\u0065\u0301sum\u00e9"  # NFD "reésumé"
+        fm = _parse_frontmatter(f"---\nname: {nfd}\n---\nbody\n")
+        assert fm["name"] == unicodedata.normalize("NFC", nfd)
+
+    def test_find_skill_matches_nfd_argument_against_nfc_name(self, tmp_path, monkeypatch) -> None:
+        from rebrew.skills import REBREW_SKILLS_DIR_ENV
+
+        self._skill(tmp_path, "cafe-skill", "---\nname: caf\u00e9-skill\n---\nbody\n")
+        monkeypatch.setenv(REBREW_SKILLS_DIR_ENV, str(tmp_path))
+        # NFD spelling on the command line, NFC in the file: same skill.
+        assert _find_skill("cafe\u0301-skill") is not None
+        assert _find_skill("caf\u00e9-skill") is not None
+
+    def test_find_skill_matches_nfd_directory_name(self, tmp_path, monkeypatch) -> None:
+        from rebrew.skills import REBREW_SKILLS_DIR_ENV
+
+        self._skill(tmp_path, "cafe\u0301-skill", "---\nname: other\n---\nbody\n")
+        monkeypatch.setenv(REBREW_SKILLS_DIR_ENV, str(tmp_path))
+        assert _find_skill("caf\u00e9-skill") is not None
+
+    def test_bom_prefixed_skill_md_still_parses(self, tmp_path, monkeypatch) -> None:
+        from rebrew.skills import REBREW_SKILLS_DIR_ENV
+
+        self._skill(
+            tmp_path,
+            "bom-skill",
+            "\ufeff---\nname: bom-skill\ndescription: Saved by Notepad.\n---\nbody\n",
+        )
+        monkeypatch.setenv(REBREW_SKILLS_DIR_ENV, str(tmp_path))
+        assert "bom-skill" in {s["name"] for s in _list_skills()}
+
+    def test_safe_skill_name_folds_nfc_and_nfd_alike(self) -> None:
+        from rebrew.skills import _safe_skill_name
+
+        # Without NFC first, the NFD spelling kept "e" and turned the
+        # combining acute into a separator: "cafe-skill" vs "caf-skill".
+        assert _safe_skill_name("caf\u00e9-skill") == _safe_skill_name("cafe\u0301-skill")

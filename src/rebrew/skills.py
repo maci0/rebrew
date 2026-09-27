@@ -20,6 +20,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import unicodedata
 from pathlib import Path
 from typing import Any
 
@@ -51,13 +52,27 @@ _FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 _missing_dir_warned = False
 
 
+def _read_skill_md(path: Path) -> str:
+    """Read a SKILL.md as NFC text, tolerating a leading UTF-8 BOM.
+
+    ``utf-8-sig`` because Windows editors save community skills with
+    ``EF BB BF``; plain ``utf-8`` leaves U+FEFF as the first character, the
+    frontmatter regex never matches, and the skill reads as having no name.
+    NFC because a skill name is its identity: a macOS checkout hands back NFD
+    directory and frontmatter spellings of the same name, which then fail
+    every equality comparison against the other side.
+    """
+    return unicodedata.normalize("NFC", path.read_text(encoding="utf-8-sig"))
+
+
 def _parse_frontmatter(text: str) -> dict[str, str]:
     """Extract YAML-style frontmatter from a SKILL.md string.
 
     Handles flat ``key: value`` fields and folded/literal block strings.
-    Block strings are stripped of trailing whitespace for display.
+    Block strings are stripped of trailing whitespace for display.  Values
+    are normalized to NFC so every consumer compares one spelling.
     """
-    m = _FRONTMATTER_RE.match(text)
+    m = _FRONTMATTER_RE.match(unicodedata.normalize("NFC", text))
     if not m:
         return {}
     result: dict[str, str] = {}
@@ -92,7 +107,7 @@ def _safe_skill_name(name: str) -> str:
     or its parent, so it is refused; a leading dot followed by other characters
     (``.evil``) is a valid in-directory component and is kept.
     """
-    safe = re.sub(r"[^A-Za-z0-9._-]+", "-", name).strip("-")
+    safe = re.sub(r"[^A-Za-z0-9._-]+", "-", unicodedata.normalize("NFC", name)).strip("-")
     if not safe or safe.strip(".") == "":
         return ""
     return safe
@@ -107,9 +122,9 @@ def _scan_skills_dir(skills_dir: Path, origin: str = "packaged") -> list[dict[st
         skill_md = skill_dir / "SKILL.md"
         if not skill_md.is_file():
             continue
-        text = skill_md.read_text(encoding="utf-8")
+        text = _read_skill_md(skill_md)
         fm = _parse_frontmatter(text)
-        name = fm.get("name") or skill_dir.name
+        name = fm.get("name") or unicodedata.normalize("NFC", skill_dir.name)
         description = fm.get("description", "")
         first_line = description.split(".")[0].strip() if description else ""
         skills.append(
@@ -164,17 +179,18 @@ def _find_skill(name: str) -> Path | None:
 
     User skills are searched first so they override packaged ones."""
     roots = [r for r in (_user_skills_dir(), _SKILLS_DIR) if r is not None]
+    want = unicodedata.normalize("NFC", name)
     for root in roots:
         for skill_dir in sorted(root.iterdir()) if root.is_dir() else []:
             skill_md = skill_dir / "SKILL.md"
             if not skill_md.is_file():
                 continue
             # Match by directory name or frontmatter name
-            if skill_dir.name == name:
+            if unicodedata.normalize("NFC", skill_dir.name) == want:
                 return skill_md
-            text = skill_md.read_text(encoding="utf-8")
+            text = _read_skill_md(skill_md)
             fm = _parse_frontmatter(text)
-            if fm.get("name") == name:
+            if fm.get("name") == want:
                 return skill_md
     return None
 
@@ -242,7 +258,7 @@ def show_skill(
             json_mode=json_output,
         )
 
-    text = skill_path.read_text(encoding="utf-8")
+    text = _read_skill_md(skill_path)
 
     if json_output:
         fm = _parse_frontmatter(text)
