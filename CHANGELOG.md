@@ -622,6 +622,18 @@
   `label_va + size`, so a negative size from a half-written export shrank the
   gap backwards. Both are property-tested over arbitrary JSON
   (`tests/test_property_catalog_loaders.py`).
+- **2.14.0's release notes render the way they were written.** The section
+  opened its fix group with `` ### Fixed- **`make format-check` passes
+  again.** Four test modules had drifted from``, so the `make format-check`
+  fix and the four entries that followed it rendered as one multi-line H3: a
+  reader of the 2.14.0 notes had no `Fixed` group to find them under. The
+  heading and its bullet are split again, which moves no note and claims
+  nothing the tagged section did not already carry.
+  `test_unreleased_uses_each_changelog_group_once` caught this shape only
+  under `[Unreleased]`, where it cannot happen at a release cut because that
+  block has just been emptied, so
+  `test_no_section_glues_a_group_heading_to_its_bullet` now reads every
+  section in the file.
 
 ### Changed
 - **Breaking:** **The parsed-binary types and the project-layout constants
@@ -866,7 +878,9 @@
   future lock bump that adds a copyleft package fails the suite instead of
   shipping an SBOM that under-reports it.
 
-### Fixed- **`make format-check` passes again.** Four test modules had drifted from
+### Fixed
+
+- **`make format-check` passes again.** Four test modules had drifted from
   the committed formatting (`tests/test_annotation.py`,
   `tests/test_link_tools.py`, `tests/test_match.py`, `tests/test_solutions.py`),
   so the CI lint job's blocking `ruff format --check` step failed on a clean

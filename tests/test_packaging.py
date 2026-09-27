@@ -25,12 +25,31 @@ PKG = ROOT / "src" / "rebrew"
 
 _BREAKING_PREFIX = "- **Breaking:** "
 
+CHANGELOG_GROUPS = ("Added", "Changed", "Removed", "Fixed", "Performance")
+
+_GLUED_HEADING = re.compile(r"^### (" + "|".join(CHANGELOG_GROUPS) + r")- (.*)$")
+
 
 def _norm_changelog_line(line: str) -> str:
     """Ignore a Breaking label so a prefixed line still matches the tagged notes."""
     if line.startswith(_BREAKING_PREFIX):
         return "- " + line[len(_BREAKING_PREFIX) :]
     return line
+
+
+def _expand_glued_heading(line: str) -> list[str]:
+    """Split ``### Fixed- **entry.** rest`` into the heading and the bullet.
+
+    A heading glued to its first bullet is a formatting slip, not a claim:
+    reflowing it into ``### Fixed`` plus ``- **entry.** rest`` says nothing
+    the tagged notes did not already say, so the frozen-section check has to
+    match the reflowed form.  Only a tag written before
+    ``test_no_section_glues_a_group_heading_to_its_bullet`` can carry one.
+    """
+    match = _GLUED_HEADING.match(line)
+    if match is None:
+        return [line]
+    return [f"### {match.group(1)}", f"- {match.group(2)}"]
 
 
 def _changelog_section(body: str, version: str) -> str | None:
@@ -130,9 +149,25 @@ class TestPackagingMetadata:
         text = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
         unreleased = text.split("## [Unreleased]", 1)[1].split("\n## [", 1)[0]
         heads = re.findall(r"^### (.*)$", unreleased, flags=re.M)
-        bad = [h for h in heads if h not in ("Added", "Changed", "Removed", "Fixed")]
+        bad = [h for h in heads if h not in CHANGELOG_GROUPS]
         bad += [f"repeated {h}" for h in set(heads) if heads.count(h) > 1]
         assert bad == [], bad
+
+    def test_no_section_glues_a_group_heading_to_its_bullet(self) -> None:
+        """A group heading is a heading in every section, not just Unreleased.
+
+        ``## [2.14.0]`` shipped ``### Fixed- **`make format-check` passes
+        again.** Four test modules had drifted from``, so the entry and the
+        four fixes that follow it rendered as one multi-line H3: the release
+        notes a consumer reads for that tag had no ``Fixed`` group they could
+        find, and every bullet under the glued heading looked like part of
+        its title.  The Unreleased group check missed it because it only read
+        the staged block, and a section only grows wrong at the release cut,
+        where that block has just been emptied.
+        """
+        text = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+        bad = [h for h in re.findall(r"^### (.*)$", text, flags=re.M) if h not in CHANGELOG_GROUPS]
+        assert bad == [], f"changelog heading glued to its bullet: {bad}"
 
     def test_unreleased_repeats_no_entry(self) -> None:
         """``[Unreleased]`` lists every change exactly once.
@@ -192,7 +227,12 @@ class TestPackagingMetadata:
             tagged = _changelog_section(show.stdout, version)
             current = _changelog_section(text, version)
             assert tagged is not None and current is not None
-            tag_lines = [_norm_changelog_line(line) for line in tagged.splitlines() if line.strip()]
+            tag_lines = [
+                expanded
+                for line in tagged.splitlines()
+                if line.strip()
+                for expanded in _expand_glued_heading(_norm_changelog_line(line))
+            ]
             cur_lines = [
                 _norm_changelog_line(line) for line in current.splitlines() if line.strip()
             ]
