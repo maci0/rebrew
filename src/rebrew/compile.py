@@ -1110,6 +1110,17 @@ def _native_toolchain_id(spec: "ToolchainSpec") -> str:
     return native_binary_id(name, resolved)
 
 
+def _native_cache_hit(name: str, key: tuple[str, int, int, int]) -> str | None:
+    """The memoized id for *name* if its entry still matches *key*; else None.
+
+    Caller holds :data:`_NATIVE_BINARY_CACHE_LOCK`.
+    """
+    cached = _native_binary_cache.get(name)
+    if cached is not None and cached[:4] == key:
+        return cached[4]
+    return None
+
+
 def native_binary_id(name: str, resolved: Path | None) -> str:
     """``native:<name>@<content digest>`` for the executable at *resolved*.
 
@@ -1122,43 +1133,29 @@ def native_binary_id(name: str, resolved: Path | None) -> str:
     try:
         resolved_path = str(Path(resolved).resolve())
         st = Path(resolved_path).stat()
-        mtime_ns = st.st_mtime_ns
-        fsize = st.st_size
-        ino = st.st_ino
     except OSError:
         return f"native:{name}"
 
+    key = (resolved_path, st.st_mtime_ns, st.st_size, st.st_ino)
     with _NATIVE_BINARY_CACHE_LOCK:
-        cached = _native_binary_cache.get(name)
-        if (
-            cached is not None
-            and cached[0] == resolved_path
-            and cached[1] == mtime_ns
-            and cached[2] == fsize
-            and cached[3] == ino
-        ):
-            return cached[4]
+        hit = _native_cache_hit(name, key)
+    if hit is not None:
+        return hit
 
     digest = _native_binary_digest(Path(resolved_path))
     toolchain_id = f"native:{name}@{digest}" if digest is not None else f"native:{name}"
     with _NATIVE_BINARY_CACHE_LOCK:
         # Re-check: another worker may have filled it while we hashed.
-        cached = _native_binary_cache.get(name)
-        if (
-            cached is not None
-            and cached[0] == resolved_path
-            and cached[1] == mtime_ns
-            and cached[2] == fsize
-            and cached[3] == ino
-        ):
-            return cached[4]
+        hit = _native_cache_hit(name, key)
+        if hit is not None:
+            return hit
         if (
             len(_native_binary_cache) >= _NATIVE_BINARY_CACHE_MAX
             and name not in _native_binary_cache
         ):
             oldest = next(iter(_native_binary_cache))
             _native_binary_cache.pop(oldest, None)
-        _native_binary_cache[name] = (resolved_path, mtime_ns, fsize, ino, toolchain_id)
+        _native_binary_cache[name] = (*key, toolchain_id)
     return toolchain_id
 
 

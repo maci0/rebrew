@@ -530,11 +530,15 @@ def build_dossier(
 # ---------------------------------------------------------------------------
 
 
-def _function_dossier(cfg: Any, info: Any, va: int) -> dict[str, Any]:
-    """Per-function recon dossier via rebrew describe's builder."""
-    from rebrew.describe import build_dossier
-
-    return build_dossier(cfg, info, va)
+#: Sections of the per-function dossier, as ``(markdown label, key)``.
+#: The terminal and Markdown renderers walk the same list.
+_DRILL_SECTIONS: tuple[tuple[str, str], ...] = (
+    ("Callers", "callers"),
+    ("Callees", "callees"),
+    ("Strings", "strings"),
+    ("Globals", "globals"),
+    ("Imports", "imports"),
+)
 
 
 def _render_function_terminal(fn: dict[str, Any]) -> None:
@@ -550,13 +554,7 @@ def _render_function_terminal(fn: dict[str, Any]) -> None:
     if fn.get("note"):
         console.print(f"  [dim]note: {fn['note']}[/dim]")
 
-    for label, key in (
-        ("Callers", "callers"),
-        ("Callees", "callees"),
-        ("Strings", "strings"),
-        ("Globals", "globals"),
-        ("Imports", "imports"),
-    ):
+    for label, key in _DRILL_SECTIONS:
         rows = fn.get(key) or []
         console.print(f"[bold]{label}:[/bold]")
         if not rows:
@@ -685,13 +683,7 @@ def _render_markdown(dossier: dict[str, Any], fn: dict[str, Any] | None) -> str:
             out.append(f"- blocker: {fn['blocker']}")
         if fn.get("note"):
             out.append(f"- note: {fn['note']}")
-        for label, key in (
-            ("Callers", "callers"),
-            ("Callees", "callees"),
-            ("Strings", "strings"),
-            ("Globals", "globals"),
-            ("Imports", "imports"),
-        ):
+        for label, key in _DRILL_SECTIONS:
             rows = fn.get(key) or []
             out += ["", f"### {label}", ""]
             if not rows:
@@ -766,10 +758,11 @@ def main(
         if function_va is not None:
             from rebrew.binary_loader import load_binary
             from rebrew.cli import parse_va
+            from rebrew.describe import build_dossier as build_function_dossier
 
             va = parse_va(function_va, json_mode=json_output)
             info = load_binary(binary)
-            fn_dossier = _function_dossier(cfg, info, va)
+            fn_dossier = build_function_dossier(cfg, info, va)
     except (OSError, KeyError, ValueError) as e:
         from rebrew.cli import error_exit
 

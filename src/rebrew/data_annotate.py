@@ -154,14 +154,21 @@ def _emit_extern_decl(row: dict[str, Any]) -> str | None:
     return f"extern {type_str} {name};"
 
 
-def set_data_types(
-    cfg: ProjectConfig, specs: list[str], *, dry_run: bool = False
+def _set_global_field(
+    cfg: ProjectConfig,
+    specs: list[str],
+    *,
+    option: str,
+    placeholder: str,
+    field: str,
+    allowed: tuple[str, ...] | None = None,
+    dry_run: bool = False,
 ) -> list[dict[str, str]]:
-    """Set declared global types in rebrew-data.toml from ``0xVA=TYPE`` specs.
+    """Write one metadata field per ``0xVA=VALUE`` spec and return the rows.
 
-    The declared type decides which of two conflicting declarations the
-    compiler sees, and `--gen-header` reads it from the metadata, so a wrong
-    one has to be correctable through the tool rather than by editing the TOML.
+    *option* and *placeholder* only shape the two ValueError messages, so
+    ``--set-type`` still reports ``0xVA=TYPE`` and ``--set-section`` reports
+    ``0xVA=SECTION``; *allowed*, when given, rejects a value outside it.
     """
     from rebrew.data_metadata import set_data_fields_batch
     from rebrew.sources import target_marker
@@ -172,16 +179,32 @@ def set_data_types(
     rows: list[dict[str, str]] = []
     updates: list[dict[str, Any]] = []
     for spec in specs:
-        va_s, sep, type_s = spec.partition("=")
-        type_s = type_s.strip()
+        va_s, sep, value = spec.partition("=")
+        value = value.strip()
         if not sep:
-            raise ValueError(f"--set-type wants 0xVA=TYPE, got {spec!r}")
+            raise ValueError(f"{option} wants 0xVA={placeholder}, got {spec!r}")
+        if allowed is not None and value not in allowed:
+            raise ValueError(f"{option} wants one of {', '.join(allowed)}, got {value!r}")
         va = int(va_s, 16)
-        rows.append({"va": f"0x{va:x}", "type": type_s, "module": module})
-        updates.append({"module": module, "va": va, "fields": {"type": type_s}})
+        rows.append({"va": f"0x{va:x}", field: value, "module": module})
+        updates.append({"module": module, "va": va, "fields": {field: value}})
     if not dry_run:
         set_data_fields_batch(cfg.metadata_dir, updates)
     return rows
+
+
+def set_data_types(
+    cfg: ProjectConfig, specs: list[str], *, dry_run: bool = False
+) -> list[dict[str, str]]:
+    """Set declared global types in rebrew-data.toml from ``0xVA=TYPE`` specs.
+
+    The declared type decides which of two conflicting declarations the
+    compiler sees, and `--gen-header` reads it from the metadata, so a wrong
+    one has to be correctable through the tool rather than by editing the TOML.
+    """
+    return _set_global_field(
+        cfg, specs, option="--set-type", placeholder="TYPE", field="type", dry_run=dry_run
+    )
 
 
 _DATA_SECTIONS = (".data", ".rdata", ".bss")
@@ -196,29 +219,15 @@ def set_data_sections(
     the type setter never wrote one, so a global that exists only through an
     annotation could not carry the marker without a warning.
     """
-    from rebrew.data_metadata import set_data_fields_batch
-    from rebrew.sources import target_marker
-
-    module = target_marker(cfg) or ""
-    if not module:
-        raise ValueError("no target marker configured to address the data metadata")
-    rows: list[dict[str, str]] = []
-    updates: list[dict[str, Any]] = []
-    for spec in specs:
-        va_s, sep, section_s = spec.partition("=")
-        section_s = section_s.strip()
-        if not sep:
-            raise ValueError(f"--set-section wants 0xVA=SECTION, got {spec!r}")
-        if section_s not in _DATA_SECTIONS:
-            raise ValueError(
-                "--set-section wants one of " + ", ".join(_DATA_SECTIONS) + f", got {section_s!r}"
-            )
-        va = int(va_s, 16)
-        rows.append({"va": f"0x{va:x}", "section": section_s, "module": module})
-        updates.append({"module": module, "va": va, "fields": {"section": section_s}})
-    if not dry_run:
-        set_data_fields_batch(cfg.metadata_dir, updates)
-    return rows
+    return _set_global_field(
+        cfg,
+        specs,
+        option="--set-section",
+        placeholder="SECTION",
+        field="section",
+        allowed=_DATA_SECTIONS,
+        dry_run=dry_run,
+    )
 
 
 _VA_COMMENT_RE = re.compile(r"/\*\s*(0x[0-9a-fA-F]+)")
