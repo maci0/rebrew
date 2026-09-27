@@ -1029,6 +1029,18 @@
 - **`llm_seed._key_safe_endpoint()`.** A private one-line wrapper around
   `config.is_key_safe_endpoint` with a single caller in the same module.
 
+### Changed
+- **`coverage.db` drops its two `(target, name)` indexes.** `idx_functions_name`
+  and `idx_globals_name` were written once per function and global on every
+  build and read by no query: the only name predicate the dashboard builds is a
+  leading-wildcard `name LIKE '%q%'` (plus, for functions, `symbol LIKE …` and
+  `va = ?`), and a b-tree cannot serve a leading wildcard, so every plan picked
+  `idx_functions_list` or the `(target, va)` primary key instead. `EXPLAIN
+  QUERY PLAN` over both tables' real query shapes confirmed it. Each build now
+  drops any stale copy (so a scoped `--target` rebuild stops paying for it
+  too), and a test pins both the absence and the fact that the search still
+  plans on an index.
+
 ## [2.13.1] - 2026-09-27
 
 ### Fixed

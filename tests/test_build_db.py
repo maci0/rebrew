@@ -652,6 +652,72 @@ binary = "test.exe"
         assert c.fetchone() is None  # not created, and any stale copy dropped
         conn.close()
 
+    def test_name_indexes_absent_and_search_still_indexed(self, project_root: Path) -> None:
+        """No (target, name) index exists, and the dashboard's name search
+        still plans on an index without one.
+
+        The only name predicate either table gets is a leading-wildcard
+        ``name LIKE '%q%'``, which a b-tree cannot serve; the ``va`` term of
+        the same OR is served by the (target, va) primary key.  Both indexes
+        were therefore written on every rebuild and read by no query.  The
+        plan assertions pin that removing them did not degrade the search
+        into a table scan.
+        """
+        build_db(project_root)
+        db_path = project_root / "db" / "coverage.db"
+        conn = sqlite3.connect(db_path)
+        try:
+            c = conn.cursor()
+            for index in ("idx_functions_name", "idx_globals_name"):
+                c.execute(
+                    "SELECT name FROM sqlite_master WHERE type='index' AND name = ?", (index,)
+                )
+                assert c.fetchone() is None
+
+            searches = {
+                "functions": (
+                    f"SELECT va FROM functions WHERE target = ? AND "
+                    f"(name LIKE ? ESCAPE '\\' OR symbol LIKE ? ESCAPE '\\' OR va = ?) "
+                    f"AND {FUNCTION_ROWS_SQL} ORDER BY va LIMIT 50",
+                    ("testbin", "%q%", "%q%", 0x1000),
+                ),
+                "globals": (
+                    "SELECT va, name FROM globals WHERE target = ? AND "
+                    "(name LIKE ? ESCAPE '\\' OR va = ?) ORDER BY va LIMIT 50",
+                    ("testbin", "%q%", 0x1000),
+                ),
+            }
+            for table, (sql, params) in searches.items():
+                plan = [row[3] for row in c.execute(f"EXPLAIN QUERY PLAN {sql}", params)]
+                assert plan, f"no plan for the {table} search"
+                assert not any(row.startswith("SCAN") for row in plan), plan
+                assert any("USING INDEX" in row for row in plan), plan
+        finally:
+            conn.close()
+
+    def test_stale_name_indexes_dropped_on_scoped_rebuild(self, project_root: Path) -> None:
+        """A scoped --target rebuild keeps the functions/globals tables, so the
+        (target, name) indexes an older build left behind must be dropped
+        explicitly or they keep costing a write per row forever."""
+        build_db(project_root)
+        db_path = project_root / "db" / "coverage.db"
+        conn = sqlite3.connect(db_path)
+        conn.execute("CREATE INDEX idx_functions_name ON functions(target, name)")
+        conn.execute("CREATE INDEX idx_globals_name ON globals(target, name)")
+        conn.commit()
+        conn.close()
+
+        build_db(project_root, target="testbin")
+        conn = sqlite3.connect(db_path)
+        try:
+            names = {
+                r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='index'")
+            }
+            assert "idx_functions_name" not in names
+            assert "idx_globals_name" not in names
+        finally:
+            conn.close()
+
     def test_stale_marker_index_dropped_on_scoped_rebuild(self, project_root: Path) -> None:
         """idx_functions_list serves every markerType filter; a scoped rebuild
         keeps the functions table, so an older DB's marker index must be dropped

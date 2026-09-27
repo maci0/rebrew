@@ -78,7 +78,6 @@ Stores details regarding decompiled and original functions.
 
 **Primary Key**: `(target, va)`
 **Indexes**:
-- `idx_functions_name` on `(target, name)`
 - `idx_functions_status_va` on `(target, status, va)`: serves the dashboard's status-filtered page (`ORDER BY va`) without a sort
 - `idx_functions_module_va` on `(target, module, va)`: same for the module filter
 - `idx_functions_list` on `(target, va) WHERE markerType IN ('FUNCTION', 'LIBRARY', 'STUB')` — serves the dashboard / `_function_stats` list path (`WHERE target = ? AND markerType IN (…) ORDER BY va`); dropped and recreated on every build
@@ -90,7 +89,7 @@ Tracks global variables mapped during the decompilation effort.
 |---|---|---|
 | `target` | `TEXT` | The binary target. Part of the primary key. |
 | `va` | `INTEGER` | The Virtual Address. Part of the primary key. |
-| `name` | `TEXT` | Variable name. Indexed. |
+| `name` | `TEXT` | Variable name. |
 | `decl` | `TEXT` | Variable C/C++ declaration syntax. |
 | `files` | `TEXT` | JSON array of associated source files. |
 | `module` | `TEXT` | Origin module (from `// GLOBAL: MODULE 0xVA` annotation). |
@@ -99,8 +98,9 @@ Tracks global variables mapped during the decompilation effort.
 
 **Primary Key**: `(target, va)`
 **Indexes**:
-- `idx_globals_name` on `(target, name)`
 - `idx_globals_module_va` on `(target, module, va)`: serves the dashboard's module-filtered globals page (`ORDER BY va`) without a sort
+
+Neither table carries a `(target, name)` index: the only name predicate the dashboard builds is a leading-wildcard search (`name LIKE '%q%'`), which a b-tree cannot serve, so such an index was written on every rebuild and never read.
 
 ### `sections` Table
 Defines binary sections (e.g., `.text`, `.data`, `.rdata`, `.bss`).

@@ -1125,7 +1125,18 @@ def _create_schema(c: sqlite3.Cursor, target: str | None) -> None:
         ) WITHOUT ROWID
     """)
 
-    c.execute("CREATE INDEX IF NOT EXISTS idx_functions_name ON functions(target, name)")
+    # idx_functions_name / idx_globals_name (both on (target, name)) are
+    # deliberately NOT created: the only name predicate either table gets is
+    # the dashboard's search box, which builds a LEADING-wildcard
+    # ``name LIKE '%q%'`` (or, for functions, ``name LIKE … OR symbol LIKE …
+    # OR va = ?``).  A b-tree cannot serve a leading wildcard, and the ``va``
+    # term is served by the (target, va) primary key, so no plan in this repo
+    # ever chose either index — they were pure per-row write cost on every
+    # rebuild.  An exact-name filter is a different query shape; give it an
+    # index when one exists.  DROP the stale copies explicitly or they survive
+    # every rebuild, which is what scoped --target rebuilds would otherwise
+    # keep paying for.
+    c.execute("DROP INDEX IF EXISTS idx_functions_name")
     # The dashboard filters by status or module and pages ORDER BY va; the
     # trailing va lets the index serve the sort, so the planner seeks the
     # filter instead of walking idx_functions_list over the whole target.
@@ -1146,7 +1157,7 @@ def _create_schema(c: sqlite3.Cursor, target: str | None) -> None:
     c.execute("DROP INDEX IF EXISTS idx_functions_marker")
     c.execute("DROP INDEX IF EXISTS idx_functions_list")
     c.execute(f"CREATE INDEX idx_functions_list ON functions(target, va) WHERE {FUNCTION_ROWS_SQL}")
-    c.execute("CREATE INDEX IF NOT EXISTS idx_globals_name ON globals(target, name)")
+    c.execute("DROP INDEX IF EXISTS idx_globals_name")
     # The dashboard filters globals by module and pages ORDER BY va; the
     # trailing va lets the index serve the sort, so the planner seeks the
     # filter instead of scanning all globals for the target.
