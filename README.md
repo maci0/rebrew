@@ -194,6 +194,37 @@ Every rebrew error type inherits `RebrewError` alongside its original
 `RuntimeError`/`ValueError` base, so a new error type in a later release lands
 in that handler instead of escaping it.
 
+The clients that talk to a service take the HTTP client as an argument, so
+your tests never need a live one. `HttpClient` (from `rebrew.recompile_client`
+or `rebrew.decompme`) is the two-method shape rebrew calls: `.post` and
+`.get`. A stand-in that takes `**kwargs` satisfies both, so one fake covers
+every rebrew client:
+
+```python
+from rebrew.recompile_client import compile_source
+
+class FakeService:
+    def post(self, url, **kwargs):
+        return _Response(200, {"status": "ok", "artifact_url": "/api/v1/artifacts/1.obj"})
+
+    def get(self, url, **kwargs):
+        return _Response(200, b"\x90" * 8)
+
+result = compile_source(
+    "http://localhost:8080",       # base URL
+    "msvc-6.0",                    # compiler
+    "int f(void) { return 0; }",   # source
+    ["/O2"],                       # flags: a str is split on whitespace
+    client=FakeService(),
+)
+result.ok / result.obj_bytes / result.log / result.compiler_version
+
+# No client means rebrew builds an httpx.Client(timeout=...) for the call and
+# closes it after. `retries=N` re-attempts a retryable RecompileError with
+# exponential backoff; `RecompileError.kind` is "network" / "http" /
+# "validation" / "protocol" and `status_code` is set for the "http" ones.
+```
+
 The CLI commands, flags, and the `rebrew-project.toml` schema are frozen for
 the 2.x line. The Python import surface and the dashboard `/api/*` JSON are
 not: a removal, move, or signature change there ships in a minor release with
