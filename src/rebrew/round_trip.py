@@ -42,7 +42,6 @@ from rebrew.binary_loader import BinaryInfo, SectionInfo, load_binary, va_to_fil
 from rebrew.cli import (
     EXIT_MISMATCH,
     EXIT_OK,
-    STATUS_COLORS,
     TargetOption,
     console,
     error_exit,
@@ -64,6 +63,7 @@ from rebrew.sources import (
     iter_sources,
     target_marker,
 )
+from rebrew.status_style import STATUS_COLORS
 from rebrew.utils import atomic_write_bytes, floor_pct, safe_shlex_split
 
 app = typer.Typer(

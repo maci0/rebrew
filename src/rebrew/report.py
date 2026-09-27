@@ -49,12 +49,10 @@ from rebrew.analysis import StringEntry, Xref, iter_strings, string_refs
 from rebrew.annotation import Annotation, iter_annotations, min_valid_va_for, parse_library_header
 from rebrew.binary_loader import load_binary
 from rebrew.cli import (
-    DISPLAY_STATUSES,
     TargetOption,
     console,
     json_print,
     require_config,
-    status_mark_groups,
 )
 from rebrew.config import ProjectConfig
 from rebrew.depgraph import NodeInfo, build_graph, render_mermaid
@@ -65,6 +63,7 @@ from rebrew.sources import (
     target_marker,
 )
 from rebrew.status import StatusReport, collect_status
+from rebrew.status_style import DISPLAY_STATUSES, status_mark_groups
 from rebrew.utils import (
     atomic_write_bytes,
     atomic_write_text,
@@ -133,7 +132,7 @@ def _status_forced_selectors() -> str:
 
 
 # Chrome is the shared token set (rebrew.theme, resolved below) and the status
-# marks are cli.STATUS_HEX, the same ones the coverage dashboard renders.
+# marks are status_style.STATUS_HEX, the same ones the coverage dashboard renders.
 _CSS = """
 body { font-family: var(--rb-sans);
        margin: 0; background: var(--rb-sunken); color: var(--rb-ink); }

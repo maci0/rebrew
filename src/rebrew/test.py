@@ -32,10 +32,8 @@ from rebrew.annotation import (
 )
 from rebrew.binary_loader import PADDING_BYTES, extract_raw_bytes
 from rebrew.cli import (
-    DISPLAY_STATUSES,
     EXIT_ERROR,
     EXIT_MISMATCH,
-    STATUS_COLORS,
     AllTargetsOption,
     TargetOption,
     all_targets_run,
@@ -78,6 +76,7 @@ from rebrew.present import bar_plain
 from rebrew.sources import (
     target_marker,
 )
+from rebrew.status_style import DISPLAY_STATUSES, STATUS_COLORS
 
 # At this match ratio, NEAR_MATCHING output is shown in bold yellow instead of
 # plain yellow — visually distinguishing "almost there" from "far off".

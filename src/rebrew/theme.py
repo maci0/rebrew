@@ -3,7 +3,7 @@
 Plain tool chrome: a system font stack, one link/focus blue, grey borders,
 one 6px radius. Deliberately not a component-library palette, and small on
 purpose: these surfaces are read for addresses and bytes, so nothing here
-competes with the data. Status marks are ``cli.STATUS_HEX``, the same values
+competes with the data. Status marks are ``status_style.STATUS_HEX``, the same values
 the call graph uses, and are not repeated here.
 
 Both stylesheets write ``var(--rb-<name>)`` and pass the result through

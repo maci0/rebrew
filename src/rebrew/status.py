@@ -22,8 +22,6 @@ from rich.table import Table
 from rich.text import Text
 
 from rebrew.cli import (
-    DISPLAY_STATUSES,
-    STATUS_COLORS,
     AllTargetsOption,
     TargetOption,
     all_targets_run,
@@ -37,6 +35,7 @@ from rebrew.present import BAR_WIDTH as _BAR_WIDTH
 from rebrew.present import filled_cells as _filled
 from rebrew.present import ratio_bar as _bar
 from rebrew.sources import iter_sources
+from rebrew.status_style import DISPLAY_STATUSES, STATUS_COLORS
 from rebrew.utils import clip_span, floor_pct
 from rebrew.workspace.status import MATCHED_STATUSES
 
@@ -44,7 +43,7 @@ from rebrew.workspace.status import MATCHED_STATUSES
 # Data model
 # ---------------------------------------------------------------------------
 
-# Same display order as cli.DISPLAY_STATUSES (byte-matched, PROVEN, then
+# Same display order as ``status_style.DISPLAY_STATUSES`` (byte-matched, PROVEN, then
 # NEAR/STUB).
 _STATUS_ORDER = list(DISPLAY_STATUSES)
 

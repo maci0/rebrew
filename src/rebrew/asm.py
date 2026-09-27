@@ -47,7 +47,6 @@ from rich.markup import escape
 from rebrew.annotation import parse_c_file_multi
 from rebrew.catalog import load_function_structure
 from rebrew.cli import (
-    DISPLAY_STATUSES,
     EXIT_ERROR,
     TargetOption,
     console,
@@ -61,6 +60,7 @@ from rebrew.sources import (
     iter_sources,
     target_marker,
 )
+from rebrew.status_style import DISPLAY_STATUSES
 from rebrew.utils import atomic_write_text, parse_int_literal
 
 logger = logging.getLogger(__name__)

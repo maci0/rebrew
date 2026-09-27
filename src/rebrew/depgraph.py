@@ -22,8 +22,6 @@ import typer
 
 from rebrew.annotation import parse_c_file_multi
 from rebrew.cli import (
-    DISPLAY_STATUSES,
-    STATUS_HEX,
     TargetOption,
     console,
     error_exit,
@@ -35,6 +33,7 @@ from rebrew.sources import (
     iter_sources,
     target_marker,
 )
+from rebrew.status_style import DISPLAY_STATUSES, STATUS_HEX
 from rebrew.utils import atomic_write_text
 
 # Pre-compiled regex for graph node ID sanitization.

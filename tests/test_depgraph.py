@@ -399,7 +399,7 @@ class TestRenderers:
 
     def test_dot_matching_reloc_color(self) -> None:
         """NEAR_MATCHING uses the report amber, with white type (AA on that fill)."""
-        from rebrew.cli import STATUS_HEX
+        from rebrew.status_style import STATUS_HEX
 
         nodes: dict[str, NodeInfo] = {"FuncM": {"status": "NEAR_MATCHING", "va": 1, "file": "m.c"}}
         result = render_dot(nodes, [])
@@ -420,7 +420,7 @@ class TestRenderers:
 
     def test_dot_dispatch_node_color(self) -> None:
         """Dispatch nodes use the report header ink, not a purple chart default."""
-        from rebrew.cli import STATUS_HEX
+        from rebrew.status_style import STATUS_HEX
 
         nodes: dict[str, NodeInfo] = {
             "dispatch_0x20000000": {"status": "DISPATCH", "va": 0x20000000, "file": ""},
@@ -431,7 +431,7 @@ class TestRenderers:
 
     def test_status_fills_match_report_marks(self) -> None:
         """Graph fills are the report marks. STUB is slate, not an error red."""
-        from rebrew.cli import STATUS_HEX
+        from rebrew.status_style import STATUS_HEX
 
         nodes: dict[str, NodeInfo] = {
             "FuncA": {"status": "EXACT", "va": 1, "file": "a.c"},
@@ -453,7 +453,7 @@ class TestRenderers:
         DOT fills from STATUS_HEX directly; Mermaid needs a classDef of its
         own or it silently falls back to the UNKNOWN fill.
         """
-        from rebrew.cli import STATUS_HEX
+        from rebrew.status_style import STATUS_HEX
 
         nodes: dict[str, NodeInfo] = {
             "Broken": {"status": "COMPILE_ERROR", "va": 1, "file": "b.c"},

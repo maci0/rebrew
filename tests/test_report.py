@@ -679,13 +679,13 @@ class TestChromeTokens:
         The token set is the only place chrome values are chosen, so a
         literal in either surface is a surface that has drifted from it.
         Status marks are the one exception: they come from
-        ``cli.STATUS_HEX``, which the CLI and both surfaces share.
+        ``status_style.STATUS_HEX``, which the CLI and both surfaces share.
         """
         import re
 
-        from rebrew.cli import STATUS_HEX
         from rebrew.dashboard import _INDEX_HTML
         from rebrew.report import _CSS
+        from rebrew.status_style import STATUS_HEX
         from rebrew.theme import TOKENS
 
         allowed = set(TOKENS.values()) | set(STATUS_HEX.values())
