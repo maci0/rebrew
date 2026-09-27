@@ -858,8 +858,7 @@ def _load_catalogs(cfg: ProjectConfig) -> tuple[dict[int, str], dict[str, int]]:
     # Scan source files plus any sibling headers (e.g. library_msvc.h) for
     # LIBRARY/FUNCTION annotations.  Headers carry CRT and Win32 symbol VAs.
     sources = list(iter_sources(cfg.reversed_dir, cfg))
-    for h in cfg.reversed_dir.rglob("*.h"):
-        sources.append(h)
+    sources.extend(cfg.reversed_dir.rglob("*.h"))
     for _path, anns in iter_annotations(
         sources,
         target=marker,

@@ -234,8 +234,8 @@ def apply_binsync_func_name(cfg: Any, local: Any, bs_name: str, local_filepath: 
             rename_file=True,
             dry_run=False,
         )
-    except RenameError as exc:
-        log.error("binsync rename of %s left stale call sites: %s", local_filepath, exc)
+    except RenameError:
+        log.exception("binsync rename of %s left stale call sites", local_filepath)
         return False
     return True
 

@@ -1192,7 +1192,7 @@ def run_all(
     # Parallel stubs: one worker per stub, intra-GA compiles serialized so
     # total concurrency stays at ~jobs (MSVC under wine is not cheap).
     # The cooperative deadline (no SIGALRM) keeps this thread-safe.
-    intra_jobs = 1 if jobs > 1 else jobs
+    intra_jobs = min(jobs, 1)
 
     # Collect solution entries across all stubs and flush ONCE at the end —
     # _save_solution per matched stub re-read and rewrote the whole

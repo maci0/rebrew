@@ -116,11 +116,11 @@ def targets_table(config: dict[str, Any]) -> dict[str, dict[str, Any]]:
     targets = config.get("targets")
     if not isinstance(targets, dict):
         return {}
-    entries: dict[str, dict[str, Any]] = {}
-    for name, entry in targets.items():
-        if isinstance(name, str) and isinstance(entry, dict):
-            entries[name] = entry
-    return entries
+    return {
+        name: entry
+        for name, entry in targets.items()
+        if isinstance(name, str) and isinstance(entry, dict)
+    }
 
 
 def default_target(config: dict[str, Any]) -> str | None:

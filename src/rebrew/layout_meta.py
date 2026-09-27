@@ -605,12 +605,12 @@ def load_package(pkg_dir: Path) -> LayoutMetadata:
         for i in lay["imports"]
     ]
 
-    ops: dict[int, int] = {}
-    for o, v in _parse_sparse((pkg / "operands.txt").read_text(encoding="utf-8")):
-        ops[o] = v
-    calls: dict[int, tuple[int, int, int]] = {}
-    for o, r, pre, suf in _parse_sparse((pkg / "calls.txt").read_text(encoding="utf-8")):
-        calls[o] = (r, pre, suf)
+    operand_rows = _parse_sparse((pkg / "operands.txt").read_text(encoding="utf-8"))
+    ops: dict[int, int] = {row[0]: row[1] for row in operand_rows}
+    calls: dict[int, tuple[int, int, int]] = {
+        o: (r, pre, suf)
+        for o, r, pre, suf in _parse_sparse((pkg / "calls.txt").read_text(encoding="utf-8"))
+    }
 
     stamp = tuple(lay["export_stamp"])
     return LayoutMetadata(

@@ -700,6 +700,6 @@ def string_refs(
     for xref in all_refs if all_refs is not None else scan_references(info):
         if xref.to_va in targets:
             refs.setdefault(xref.to_va, []).append(xref)
-    for key in refs:
-        refs[key].sort(key=lambda x: x.from_va)
+    for xrefs_at_va in refs.values():
+        xrefs_at_va.sort(key=lambda x: x.from_va)
     return refs

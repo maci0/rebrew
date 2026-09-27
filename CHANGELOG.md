@@ -156,7 +156,25 @@
   counted). The request id and request line are stamped per handler thread and
   reset each request. No `/api/*` JSON changed.
 
+### Changed
+- **The ruff ratchet takes its next batch.** `TRY400`, `PLC0206`, `PERF402`,
+  `PERF403`, `FURB136`, `FURB171`, `PLR1711`, `PLR1714` and `PLR5501` join
+  the `select` list in `pyproject.toml`, after their 19 findings were fixed
+  across `analysis.py`, `binsync/importer.py`, `coff_reloc.py`,
+  `compile_cache.py`, `describe.py`, `discover.py`, `layout_meta.py`,
+  `lint.py`, `match_batch.py`, `match_run.py`, `rename_ops.py`,
+  `round_trip.py`, `workspace/config.py`, `tools/generate_sbom.py` and two
+  test modules. The loop bodies behind `PLC0206` read their dict value
+  through the key, and three `for` loops that only filled a dict became
+  comprehensions.
+
 ### Fixed
+- **`logging.error` inside an `except` now keeps the traceback.** Three
+  handlers logged the failure without `exc_info` and then returned or
+  re-raised, so a rename that broke the tree or a BinSync import that left
+  stale call sites reported a message and nothing about the failure that
+  produced it. `binsync/importer.py` and both `rename_ops.py` sites call
+  `logger.exception`, which carries the traceback.
 - **A non-UTF-8 filename no longer aborts the verify and compile caches.**
   A POSIX filename is a byte string, so a header named `caf\xe9.h` is legal
   and reaches Python as a lone surrogate (U+DCE9). Three hash sites still

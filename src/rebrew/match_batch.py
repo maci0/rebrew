@@ -126,7 +126,7 @@ def _parse_annotations(
 
         # Pass STUB and PROVEN directly.
         # NEAR_MATCHING functions need delta checks:
-        if parsed_status in ("NEAR_MATCHING",):
+        if parsed_status == "NEAR_MATCHING":
             d = ann.blocker_delta or NO_DELTA
             if max_delta is not None and d > max_delta:
                 continue

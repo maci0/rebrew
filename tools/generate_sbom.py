@@ -207,7 +207,7 @@ def _parse_lock(text: str) -> list[dict[str, Any]]:
             source_extra = ""
             hashes = []
             return
-        if name in {"rebrew"}:
+        if name == "rebrew":
             # The editable self-package is the SBOM metadata.component, not a
             # listed dependency.
             name = version = None

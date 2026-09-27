@@ -258,6 +258,11 @@ extend-exclude = [".hypothesis", ".scratch"]
 # (thousands of findings), N802/N806/N814 (Win32 API names), PYI034/
 # PYI036, D203/D206/D213/D300 (formatter or D211/D212 conflicts), and
 # D415 (41 findings: docstring summary lines ending without punctuation).
+# TRY400 (logging.error inside an except, which drops the traceback), PLC0206
+# (dict key looked up instead of the value the loop ignores), PERF402/403,
+# FURB136/FURB171, PLR1711/PLR1714/PLR5501 and the rest of this batch joined
+# after their 19 findings were fixed.  Note PERF403, C416 and C402 disagree on
+# `{k: v for k, v in it}`: index the parsed rows instead (layout_meta).
 select = [
     "E", "F", "W", "I", "UP", "B", "SIM", "C4", "DTZ", "RSE", "EXE", "Q",
     "NPY", "ICN", "G", "PGH", "YTT", "ASYNC", "FA", "SLOT", "PLE",
@@ -265,10 +270,10 @@ select = [
     "PLW0120", "PLW0127", "PLW0128", "PLW0129", "PLW0131", "PLW0133", "PLW0177",
     "PLW0211", "PLW0245", "PLW0406", "PLW0602", "PLW0604", "PLW0642", "PLW0711",
     "PLW1501", "PLW1507", "PLW1508", "PLW1509", "PLW1641", "PLW2101", "PLW3301",
-    "PLC0105", "PLC0131", "PLC0132", "PLC0205", "PLC0207", "PLC0208", "PLC1802",
-    "PLC2401", "PLC2403", "PLC3002",
-    "PLR0124", "PLR0133", "PLR0206", "PLR1704", "PLR1708", "PLR1716", "PLR1722",
-    "PLR1730", "PLR1733", "PLR1736", "PLR2044",
+    "PLC0105", "PLC0131", "PLC0132", "PLC0205", "PLC0206", "PLC0207", "PLC0208",
+    "PLC1802", "PLC2401", "PLC2403", "PLC3002",
+    "PLR0124", "PLR0133", "PLR0206", "PLR1704", "PLR1708", "PLR1711", "PLR1714",
+    "PLR1716", "PLR1722", "PLR1730", "PLR1733", "PLR1736", "PLR2044", "PLR5501",
     "RUF006", "RUF007", "RUF008", "RUF009", "RUF013", "RUF015", "RUF016", "RUF017",
     "RUF018", "RUF019", "RUF020", "RUF024", "RUF026", "RUF028", "RUF030",
     "RUF100",
@@ -282,11 +287,12 @@ select = [
     "S501", "S502", "S503", "S504", "S505", "S506", "S507", "S508", "S509",
     "S601", "S602", "S604", "S605", "S606", "S609", "S610", "S611", "S612",
     "S701", "S702", "S704",
-    "TRY002", "TRY201", "TRY203", "TRY401",
-    "FURB105", "FURB116", "FURB122", "FURB129", "FURB132", "FURB157", "FURB161",
-    "FURB162", "FURB163", "FURB164", "FURB166", "FURB168", "FURB169", "FURB177",
-    "FURB181", "FURB187", "FURB192",
-    "PERF101", "PERF102", "PERF203", "RET501", "RET502", "RET503", "RET505", "RET506",
+    "TRY002", "TRY201", "TRY203", "TRY400", "TRY401",
+    "FURB105", "FURB116", "FURB122", "FURB129", "FURB132", "FURB136", "FURB157",
+    "FURB161", "FURB162", "FURB163", "FURB164", "FURB166", "FURB168", "FURB169",
+    "FURB171", "FURB177", "FURB181", "FURB187", "FURB192",
+    "PERF101", "PERF102", "PERF203", "PERF402", "PERF403",
+    "RET501", "RET502", "RET503", "RET505", "RET506",
     "RET507", "RET508",
     "PIE790", "PIE794", "PIE796", "PIE800", "PIE804", "PIE808",
     "A001", "A003", "A004", "A005", "A006",

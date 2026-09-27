@@ -944,8 +944,7 @@ def canonicalize_cflags(cflags: list[str]) -> list[str]:
     group_last: dict[str, str] = {}
 
     def _flush() -> None:
-        for gid, flag in segment:
-            group_last[gid] = flag  # last occurrence wins
+        group_last.update(dict(segment))  # last occurrence wins
         for _gid, flag in sorted(group_last.items()):
             out.append(flag)
         segment.clear()

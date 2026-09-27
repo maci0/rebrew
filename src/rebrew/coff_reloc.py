@@ -289,9 +289,13 @@ def build_name_to_va(
         # Function catalog: exported symbols + annotated function names.  The
         # REL32 callee validation needs them — a data-only map misses every
         # call target, masking wrong-function calls as valid RELOC.
-        for va, name in (getattr(cfg, "dll_exports", None) or {}).items():
-            if isinstance(name, str) and name and isinstance(va, int):
-                name_to_va[name] = va
+        name_to_va.update(
+            {
+                name: va
+                for va, name in (getattr(cfg, "dll_exports", None) or {}).items()
+                if isinstance(name, str) and name and isinstance(va, int)
+            }
+        )
         if annotations is not None:
             for ann in annotations:
                 # LIBRARY rows are identifications, not authoritative call
@@ -643,25 +647,23 @@ def smart_reloc_compare(
         else:
             # List[int] branch: plain offset list (no symbol resolution)
             valid_relocs.extend(r for r in coff_relocs if isinstance(r, int) and r + 4 <= min_len)
-    else:
-        # Zero-reloc objects: candidate slots are 4-byte-ALIGNED zero dwords
-        # in the object that differ from the target.  Skip the byte-by-byte
-        # scan entirely when no zero dword exists — common for leaf functions.
-        # Unaligned zero dwords are coincidental data, not linker-filled reloc
-        # slots — only offsets divisible by _RELOC_ALIGNMENT are masked.
-        if min_len >= _RELOC_ALIGNMENT and b"\x00" * _RELOC_ALIGNMENT in obj_bytes[:min_len]:
-            i = 0
-            while i <= min_len - _RELOC_ALIGNMENT:
-                if (
-                    i % _RELOC_ALIGNMENT == 0
-                    and obj_bytes[i : i + _RELOC_ALIGNMENT] == b"\x00" * _RELOC_ALIGNMENT
-                    and obj_bytes[i : i + _RELOC_ALIGNMENT]
-                    != target_bytes[i : i + _RELOC_ALIGNMENT]
-                ):
-                    valid_relocs.append(i)
-                    i += _RELOC_ALIGNMENT
-                else:
-                    i += 1
+    # Zero-reloc objects: candidate slots are 4-byte-ALIGNED zero dwords
+    # in the object that differ from the target.  Skip the byte-by-byte
+    # scan entirely when no zero dword exists — common for leaf functions.
+    # Unaligned zero dwords are coincidental data, not linker-filled reloc
+    # slots — only offsets divisible by _RELOC_ALIGNMENT are masked.
+    elif min_len >= _RELOC_ALIGNMENT and b"\x00" * _RELOC_ALIGNMENT in obj_bytes[:min_len]:
+        i = 0
+        while i <= min_len - _RELOC_ALIGNMENT:
+            if (
+                i % _RELOC_ALIGNMENT == 0
+                and obj_bytes[i : i + _RELOC_ALIGNMENT] == b"\x00" * _RELOC_ALIGNMENT
+                and obj_bytes[i : i + _RELOC_ALIGNMENT] != target_bytes[i : i + _RELOC_ALIGNMENT]
+            ):
+                valid_relocs.append(i)
+                i += _RELOC_ALIGNMENT
+            else:
+                i += 1
 
     # Vectorized comparison: build a boolean relocation mask and use NumPy
     # for the byte-level match instead of a Python-level per-byte loop.

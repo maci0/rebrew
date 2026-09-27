@@ -406,9 +406,7 @@ class TestDefinesCompile:
             profile="hostcc",
             cfg=SimpleNamespace(defines=[], root=tmp_path),
         )
-        assert "-I" not in captured["cmd"] or not any(
-            f == "-I" or f == "/I" for f in captured["cmd"]
-        )
+        assert "-I" not in captured["cmd"] or not any(f in {"-I", "/I"} for f in captured["cmd"])
 
     def test_flag_sweep_refused_for_posix(self) -> None:
         """The flag sweep needs a registered flag database for the profile —

@@ -295,8 +295,8 @@ def _compute_strings(
         for xref in all_refs:
             if xref.to_va in targets:
                 refs.setdefault(xref.to_va, []).append(xref)
-        for key in refs:
-            refs[key].sort(key=lambda x: x.from_va)
+        for xrefs_at_va in refs.values():
+            xrefs_at_va.sort(key=lambda x: x.from_va)
     else:
         refs = string_refs(info, strings)
     out: list[dict[str, Any]] = []

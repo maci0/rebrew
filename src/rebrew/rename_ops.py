@@ -205,13 +205,13 @@ def rename_function_everywhere(
         if new_content != content:
             atomic_write_text(filepath, new_content, encoding=encoding)
             updated_files += 1
-    except (OSError, UnicodeEncodeError) as exc:
+    except (OSError, UnicodeEncodeError):
         # The primary file is the definition — renaming references elsewhere
         # while the definition keeps the old name breaks every call site.
         # Abort the whole rename rather than half-applying it.  A source with
         # an undefined byte in its encoding (e.g. CP1252 0x81 read back as
         # U+FFFD) raises UnicodeEncodeError, not OSError, on write.
-        logger.error("Failed to update primary file %s: %s", filepath, exc)
+        logger.exception("Failed to update primary file %s", filepath)
         raise
 
     # Find and update externs across all files
@@ -239,8 +239,8 @@ def rename_function_everywhere(
     if rename_target is not None:
         try:
             filepath.rename(rename_target)
-        except OSError as exc:
-            logger.error("Failed to rename %s -> %s: %s", filepath, rename_target, exc)
+        except OSError:
+            logger.exception("Failed to rename %s -> %s", filepath, rename_target)
             raise
 
     # The definition now carries the new name, so a call site left on the old

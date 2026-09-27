@@ -502,12 +502,7 @@ def _multibyte_nop_len(raw: bytes | bytearray, i: int) -> int:
     base = _MULTIBYTE_NOP_LEN.get((pair[0], pair[1] if isinstance(pair[1], int) else -1))
     if base is None:
         return 0
-    if pair in (
-        (
-            0x66,
-            0x90,
-        ),
-    ):
+    if pair == (0x66, 0x90):
         return base
     # A ModRM byte must exist after the two-byte prefix.
     if i + 2 >= n:
@@ -827,9 +822,9 @@ def discover_functions(binary: Path, *, min_size: int = 8) -> Discovery:
     # Add capstone sweep candidates not already present.
     sweep = _run_providers(["capstone sweep"], binary, d)["capstone sweep"]
     sweep_names = {va: name for va, _, name in sweep}
-    for va in sweep_names:
+    for va, name in sweep_names.items():
         if va not in merged:
-            merged[va] = (0, sweep_names[va])
+            merged[va] = (0, name)
     d.sources["capstone sweep"] = len(sweep_names)
 
     # An unwind record is the compiler's own statement of a function's extent:

@@ -906,8 +906,8 @@ def _check_W019_inline_metadata(
     reads the ``.c``, so an inline value that disagrees with the metadata is
     not a stale copy to delete but two different compiles wearing one name.
     """
-    for key in found_keys:
-        if key == "SOURCE" and found_keys[key].strip().lower() == "naked":
+    for key, value in found_keys.items():
+        if key == "SOURCE" and value.strip().lower() == "naked":
             # The file-borne naked-reconstruction marker written by
             # `rebrew asm --inline-c`: like the // CFLAGS:
             # /DREBREW_ALLOW_NAKED naked-guard convention, it must travel
@@ -921,7 +921,7 @@ def _check_W019_inline_metadata(
             # deprecation warning below.  Report the disagreement instead —
             # `rebrew test`/`verify` compile with the metadata CFLAGS while a
             # build that reads the .c compiles with this one.
-            inline_cflags = found_keys[key].strip()
+            inline_cflags = value.strip()
             if metadata_cflags and codegen_cflags_key(inline_cflags) != codegen_cflags_key(
                 metadata_cflags
             ):
@@ -935,7 +935,7 @@ def _check_W019_inline_metadata(
                 )
                 continue
         if key == "SIZE":
-            inline_size = found_keys[key].strip()
+            inline_size = value.strip()
             agrees = True
             if metadata_size:
                 # Compare numerically when both parse: E008 blesses hex
@@ -949,7 +949,7 @@ def _check_W019_inline_metadata(
                 result.warning(
                     result.marker_line,
                     "W019",
-                    f"Inline '// SIZE: {found_keys[key].strip()}' disagrees with "
+                    f"Inline '// SIZE: {value.strip()}' disagrees with "
                     f"metadata SIZE {metadata_size} — the compile contract is "
                     "ambiguous; align them",
                 )
@@ -966,7 +966,7 @@ def _check_W019_inline_metadata(
             # scalar, so --fix must not try — `update_field` rejects the string
             # and the traceback escaped the CLI.
             if module and va_int is not None and not is_table_field(key):
-                result._inline_fixes.append((module, va_int, key, found_keys[key], marker))
+                result._inline_fixes.append((module, va_int, key, value, marker))
 
 
 def _check_E023_naked_asm(
