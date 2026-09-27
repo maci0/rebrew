@@ -1178,9 +1178,6 @@ def fix_ownership(
 # data --converge: fixed-point .data placement via leading _dlead_ pads
 # ---------------------------------------------------------------------------
 
-_DLEAD_RE = re.compile(r"^[ \t]*unsigned char (_dlead_\w+)\[(\d+)\]", re.MULTILINE)
-
-
 def _find_dlead_pad(text: str) -> tuple[int, int, str, int, str] | None:
     """Find an existing ``_dlead_`` pad definition/declaration in *text*.
 
