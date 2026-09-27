@@ -144,6 +144,22 @@
   reset each request. No `/api/*` JSON changed.
 
 ### Fixed
+- **`RebrewError.from_dict` rebuilds every public error class.** It allocates
+  through `target.__new__(target)`, which reaches `ValueError.__new__` for a
+  class that mixes exception bases and therefore refuses the `OSError` layout:
+  `ConfigNotFoundError` is both a `ConfigError` (a `ValueError`) and a
+  `FileNotFoundError`, so a persisted one raised
+  `TypeError: ValueError.__new__(ConfigNotFoundError) is not safe` instead of
+  coming back. The allocation now falls back to `OSError.__new__`, the
+  allocator that owns that layout, and a round trip over every name in
+  `rebrew.errors.__all__` is a test.
+- **`to_dict` keeps the fields the error exists to carry.** `McpApplyAborted`
+  and `CompareResultError` document a payload beyond the message (the
+  `(applied, errors)` counts that decide whether a re-apply is safe; the
+  `matched` / `status` pair that contradicts each other), and both were
+  dropped by `to_dict`, so a stored failure arrived with neither and the
+  caller had to parse the message. Both classes extend `_STRUCTURED_FIELDS`
+  with their own fields.
 - **The dashboard OpenAPI spec matches what the server actually does.**
   Three contracts a client generates from `docs/dashboard-api.yaml` were
   wrong or missing:

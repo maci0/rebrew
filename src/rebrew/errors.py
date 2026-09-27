@@ -80,6 +80,26 @@ if TYPE_CHECKING:
     from rebrew.workspace.config import WorkspaceNotFound as WorkspaceNotFound
 
 
+def _blank_error(target: type[RebrewError], message: str) -> RebrewError:
+    """Allocate *target* without running any ``__init__`` in its MRO.
+
+    ``target.__new__(target)`` is the direct route and works for every class
+    whose first ``__new__`` in the MRO matches its own layout.  A class that
+    mixes exception bases breaks that route: ``ConfigNotFoundError`` is both
+    a ``ConfigError`` (hence ``ValueError``) and a ``FileNotFoundError``, so
+    the lookup reaches ``ValueError.__new__`` — a ``BaseException`` allocator
+    — which refuses the extended ``OSError`` layout outright.  ``OSError.__new__``
+    is the allocator that owns that layout and accepts any exception subclass,
+    so it is the fallback.
+    """
+    try:
+        exc: RebrewError = target.__new__(target)
+    except TypeError:
+        exc = OSError.__new__(target)
+    BaseException.__init__(exc, message)
+    return exc
+
+
 class RebrewError(Exception):
     """Base of every error rebrew raises across its public modules.
 
@@ -96,7 +116,7 @@ class RebrewError(Exception):
     #: Structured attributes a subclass may set, serialized by
     #: :meth:`to_dict`.  Every one is optional: an error that cannot fill a
     #: field simply omits it from the payload.
-    _STRUCTURED_FIELDS = ("kind", "name", "status_code", "group")
+    _STRUCTURED_FIELDS: tuple[str, ...] = ("kind", "name", "status_code", "group")
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize the error's structured fields into a JSON-safe dict.
@@ -134,8 +154,8 @@ class RebrewError(Exception):
         same fields rather than raising: the message and the structured data
         survive, only the specific class does not.
 
-        Instances are built with ``__new__`` + ``Exception.__init__`` and
-        their attributes assigned, because subclasses take differing
+        Instances are built with :func:`_blank_error` + ``BaseException.__init__``
+        and their attributes assigned, because subclasses take differing
         constructor keywords and an unknown future subclass must not make a
         stored error unreadable.  Called on a subclass rather than on
         :class:`RebrewError`, it builds that class whatever ``type`` says.
@@ -145,8 +165,7 @@ class RebrewError(Exception):
         target: type[RebrewError] = rebuilt if rebuilt is not None else RebrewError
         if cls is not RebrewError:
             target = cls
-        exc = target.__new__(target)
-        Exception.__init__(exc, str(data.get("message", "")))
+        exc = _blank_error(target, str(data.get("message", "")))
         for key, value in data.items():
             if key not in ("type", "message"):
                 setattr(exc, str(key), value)
