@@ -244,6 +244,13 @@ cli-contract: ensure-uv
 	printf '%s\n' "$$help" | grep 'NEAR_MATCHING' >/dev/null; \
 	echo 'cli-contract OK'
 
+# Clean build artifacts, distribution packages, and local tool/test caches.
+# .sdist-check is the scratch tree sdist-check builds the comparison wheel in;
+# a failed run leaves it behind, so clean it like .venv-pkg.
+clean:
+	rm -rf dist build rebrew.egg-info src/rebrew.egg-info .sdist-check .coverage htmlcov .coverage.* .pytest_cache .ruff_cache .mypy_cache .scratch/rebrew-idem .venv-pkg .hypothesis
+	find src tests tools -type d -name __pycache__ -prune -exec rm -rf {} +
+
 # Build sdist + wheel under a pinned umask/locale/timezone. umask 022 fixes
 # modes of files the build creates; setuptools still copies checkout modes
 # for package files, so normalize_sdist.py rewrites both archives afterwards.
@@ -259,11 +266,6 @@ cli-contract: ensure-uv
 # setuptools version must equal the pyproject.toml [build-system] pin.
 # setuptools= is parsed from pyproject.toml [build-system] (never hardcoded —
 # a stale pin next to requires = ["setuptools==…"] would lie in the manifest).
-# Clean build artifacts, distribution packages, and local tool/test caches.
-clean:
-	rm -rf dist build rebrew.egg-info src/rebrew.egg-info .coverage htmlcov .coverage.* .pytest_cache .ruff_cache .mypy_cache .scratch/rebrew-idem .venv-pkg .hypothesis
-	find src tests tools -type d -name __pycache__ -prune -exec rm -rf {} +
-
 build: warn-uv-version
 	@mkdir -p dist
 	@rm -f dist/*.whl dist/*.tar.gz dist/*.buildinfo dist/*.cdx.json
