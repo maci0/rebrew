@@ -1774,6 +1774,7 @@ the append-only run history (same file).  Read-only.
 | `set-compiler TARGET PROFILE [--dry-run]` | Write a compiler profile (`msvc-6.0`, `msvc-7.0`, `clang-18.1.8`, `gcc-14.2.0`) onto a target |
 | `detect-crt [--write] [--dry-run]` | Scan `toolchain/` for known MSVC CRT source dirs |
 | `raw` | Dump `rebrew-project.toml` as JSON (`--format toml` for TOML) |
+| `effective [--json] [--target T]` | Print the values in force after env and default resolution; secrets redacted, env var names (not values) listed under `env_overrides` |
 | `path` | Print the path to `rebrew-project.toml` |
 
 ### `rebrew skills`

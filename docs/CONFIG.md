@@ -509,6 +509,7 @@ resolves through the `server.dll` key.
 | `show [KEY]` | Print config or a dot-separated key | `rebrew cfg show compiler.cflags` |
 | `set KEY VALUE` | Set a scalar config key (refuses non-empty secret keys such as `llm.api_key` — use `REBREW_LLM_API_KEY`; URL fields are validated) | `rebrew cfg set compiler.cflags "/O1"` |
 | `raw` | Dump entire config as JSON (default) or TOML (`--format toml`) | `rebrew cfg raw` |
+| `effective` | Print the values in force after env and default resolution (secrets redacted, env vars named only) | `rebrew cfg effective --json` |
 | `path` | Print absolute path to `rebrew-project.toml` | `rebrew cfg path` |
 | `add-target NAME` | Add a target section + create dirs | `rebrew cfg add-target client.exe -b original/client.exe` |
 | `remove-target NAME` | Remove a target section | `rebrew cfg remove-target old_target` |
@@ -536,7 +537,18 @@ rebrew cfg detect-crt --write                   # write into rebrew-project.toml
 rebrew cfg raw                                  # JSON output
 rebrew cfg raw --format toml                    # TOML output
 rebrew cfg path                                 # print path to config file
+
+# See which value actually won, not what the file says
+rebrew cfg effective                            # resolved values, api_key redacted
+rebrew cfg effective --json                     # + names of env vars that overrode TOML
 ```
+
+`cfg show` / `cfg raw` echo `rebrew-project.toml`. `cfg effective` resolves it
+the way a command does, so an env override, a default, and a rejected value are
+told apart. `llm_api_key` prints as `***`; the `env_overrides` list holds
+variable names only, never their values. Presence there is not precedence: a
+set `[llm] endpoint` / `model` still wins over the matching env var, while
+`REBREW_LLM_API_KEY` and `REBREW_RECOMPILE_URL` win over TOML.
 
 ## Compiler profiles from `rebrew init`
 

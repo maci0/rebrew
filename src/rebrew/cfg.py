@@ -405,6 +405,52 @@ def show(
         print(str(_display_config_value(key, current)))
 
 
+#: Env vars that override a TOML value; listed by name only, never by value.
+_ENV_OVERRIDE_VARS = (
+    "REBREW_RECOMPILE_URL",
+    "REBREW_LLM_ENDPOINT",
+    "REBREW_LLM_API_KEY",
+    "REBREW_LLM_MODEL",
+    "REBREW_LLM_MAX_REQUESTS",
+)
+
+
+@app.command("effective")
+def effective(
+    json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
+    target: str | None = TargetOption,
+) -> None:
+    """Show the config values in force after env and default resolution.
+
+    `cfg show` echoes the TOML file; this resolves it, so an env override,
+    a default, and a typo-rejected value are told apart.  Credentials are
+    redacted, and `env_overrides` names the REBREW_* variables present in the
+    environment, never their values: `[llm]` endpoint and model still lose to
+    a set TOML field, so presence alone does not mean the value was used.
+    """
+    import os
+
+    from rebrew.cli import require_config
+
+    cfg = require_config(target=target, json_mode=json_output)
+    resolved: dict[str, Any] = cfg.as_dict()
+    payload: dict[str, Any] = {
+        "config": resolved,
+        "env_overrides": [name for name in _ENV_OVERRIDE_VARS if name in os.environ],
+    }
+    if json_output:
+        json_print(payload)
+        return
+    console.print(f"[bold]config[/bold] ({cfg.target_name or 'no target'})")
+    for name, value in resolved.items():
+        console.print(f"  {name} = {value}")
+    if payload["env_overrides"]:
+        console.print(
+            "[bold]env vars present[/bold] (name only, values stay in the environment): "
+            + ", ".join(payload["env_overrides"])
+        )
+
+
 @app.command("raw")
 def raw(
     fmt: str = typer.Option("json", "--format", "-f", help="Output format: json, toml"),
