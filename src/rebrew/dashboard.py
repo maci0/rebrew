@@ -86,6 +86,8 @@ import hashlib
 import json
 import logging
 import sqlite3
+import time
+import traceback
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -2214,6 +2216,22 @@ def _escape_log_text(text: str) -> str:
     return text.translate(_LOG_CONTROL_CHARS)
 
 
+def _log_failed_request(reason: str, path: str, exc: BaseException) -> None:
+    """One ERROR line per failed request: reason, path, and a scrubbed traceback.
+
+    The traceback used to ride along on a ``log.debug(..., exc_info=True)``,
+    which Python drops without a DEBUG-configured handler: a handler bug
+    reached the client as a bare 500 and the operator got nothing but
+    ``repr(exc)``.  It is formatted here rather than passed as ``exc_info``
+    because an exception raised on a request carries remote-controlled text
+    (a route's query value, a DB row) into its frames, and that must be
+    escaped before it reaches a terminal, exactly as ``log_message`` escapes
+    the request line.
+    """
+    frames = "".join(traceback.format_exception(exc)).rstrip()
+    log.error("%s for %s\n%s", reason, _escape_log_text(path), _escape_log_text(frames))
+
+
 class _Handler(BaseHTTPRequestHandler):
     dashboard: Dashboard
     #: Host headers this server must answer; everything else gets 403.
@@ -2231,6 +2249,8 @@ class _Handler(BaseHTTPRequestHandler):
     # holds the body's first segment until the header block is acknowledged:
     # a delayed-ACK round trip on the critical path to first byte.
     disable_nagle_algorithm = True
+    #: Access-log clock for the request in flight (see handle_one_request).
+    _request_started: float
 
     def _respond(self, method: str) -> None:
         if not _host_allowed(self.headers.get("Host", ""), self.allowed_hosts):
@@ -2260,6 +2280,7 @@ class _Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         # keep_blank_values: a present ``module=`` filters blank modules.
         query = parse_qs(parsed.query, keep_blank_values=True)
+        logged_error = False
         try:
             # The target probe queries SQLite, so it shares the 500 guard below.
             if (
@@ -2280,6 +2301,8 @@ class _Handler(BaseHTTPRequestHandler):
                 f"[red]dashboard query failed:[/red] "
                 f"{escape(_escape_log_text(self.path))}: {escape(_escape_log_text(str(exc)))}"
             )
+            _log_failed_request("dashboard query failed", self.path, exc)
+            logged_error = True
             status, content_type, body = self.dashboard._json(500, {"error": "database error"})
         except Exception as exc:  # last-resort handler guard
             # Any other unexpected error (a bug in a route, an OSError on a
@@ -2291,10 +2314,16 @@ class _Handler(BaseHTTPRequestHandler):
                 f"[red]dashboard handler failed:[/red] "
                 f"{escape(_escape_log_text(self.path))}: {escape(_escape_log_text(repr(exc)))}"
             )
-            log.debug("dashboard handler error for %s", _escape_log_text(self.path), exc_info=True)
+            _log_failed_request("dashboard handler failed", self.path, exc)
+            logged_error = True
             status, content_type, body = self.dashboard._json(
                 500, {"error": "internal server error"}
             )
+        if status >= 500 and not logged_error:
+            # A route that answers 500 on its own (corrupt function_stats) is
+            # a server-side failure with no exception to attach: the request
+            # line names the path and the caller's own log explains the row.
+            log.error("dashboard %s %s returned %d", method, _escape_log_text(self.path), status)
         if status == HTTPStatus.NOT_MODIFIED:
             self._send_not_modified(etag, _success_cache_control(parsed.path, query))
             return
@@ -2444,8 +2473,30 @@ class _Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt: str, *args: Any) -> None:  # quiet default logging
         # markup=False: the logged request line is remote-controlled text; a
         # path like "/[bold]x" must not be interpreted as Rich markup (log
-        # tampering / terminal escape injection).
-        console.print(_escape_log_text(f"  {self.address_string()} {fmt % args}"), markup=False)
+        # tampering / terminal escape injection).  soft_wrap: a long request
+        # line must stay one log entry instead of wrapping into several.
+        console.print(
+            _escape_log_text(f"  {self.address_string()} {fmt % args}"),
+            markup=False,
+            soft_wrap=True,
+        )
+
+    @override
+    def handle_one_request(self) -> None:  # (http.server API)
+        # Access-log clock: stamped per request so log_request can report how
+        # long the handler took.  A keep-alive connection runs many requests
+        # through one handler instance, so this cannot be set once at init.
+        self._request_started = time.perf_counter()
+        super().handle_one_request()
+
+    @override
+    def log_request(
+        self, code: int | str = "-", size: int | str = "-"
+    ) -> None:  # (http.server API)
+        """Request line, status, and handler time: the server-side latency."""
+        started = getattr(self, "_request_started", None)
+        elapsed_ms = 0.0 if started is None else (time.perf_counter() - started) * 1000.0
+        self.log_message('"%s" %s %s %.1fms', self.requestline, str(code), str(size), elapsed_ms)
 
 
 app = typer.Typer(
