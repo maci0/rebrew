@@ -169,16 +169,31 @@ class TestFixupCli:
         assert "wrote" in data
 
     def test_legacy_encoding_is_decoded_not_replaced(self, tmp_path: Path) -> None:
-        """A non-UTF-8 source must not degrade to U+FFFD in the fixed output."""
+        """A non-UTF-8 source must round-trip in its own encoding.
+
+        0xA9 is not valid UTF-8, so ``read_source_text`` detects CP1252.  The
+        output must keep that encoding: re-encoding as UTF-8 turns one byte
+        into two and changes the string literals the byte-match loop
+        measures, and a blind ``errors="replace"`` read would leave U+FFFD.
+        """
         p = tmp_path / "out.c"
-        # 0xA9 is not valid UTF-8; a blind errors="replace" read turns it into
-        # U+FFFD and the fixed file inherits the replacement character.
         p.write_bytes("// \xa9 comment\nundefined4 x;\n".encode("latin-1"))
         result = CliRunner().invoke(app, [str(p)])
         assert result.exit_code == 0
-        fixed = (tmp_path / "out.c.fixed.c").read_text(encoding="utf-8")
+        fixed_bytes = (tmp_path / "out.c.fixed.c").read_bytes()
+        assert b"\xa9" in fixed_bytes
+        fixed = fixed_bytes.decode("cp1252")
         assert "\ufffd" not in fixed
         assert "int x;" in fixed
+
+    def test_json_path_keeps_source_encoding(self, tmp_path: Path) -> None:
+        """The --json write path honors the detected encoding too."""
+        p = tmp_path / "out.c"
+        p.write_bytes('const char *s = "Caf\xe9";\nundefined4 x;\n'.encode("latin-1"))
+        result = CliRunner().invoke(app, ["--json", str(p)])
+        assert result.exit_code == 0
+        wrote = Path(json.loads(result.output)["wrote"])
+        assert wrote.read_bytes() == b'const char *s = "Caf\xe9";\nint x;\n'
 
     def test_compile_check_passed(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """--compile-check compiles the fixed source; success writes and

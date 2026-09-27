@@ -16,6 +16,7 @@ from __future__ import annotations
 import os
 import re
 import tomllib
+import unicodedata
 from pathlib import Path
 from typing import Any
 
@@ -132,10 +133,17 @@ def default_target(config: dict[str, Any]) -> str | None:
 
 
 def target_marker(name: str, entry: dict[str, Any]) -> str:
-    """Annotation marker for *name*: its ``marker``, else the name sanitized."""
+    """Annotation marker for *name*: its ``marker``, else the name sanitized.
+
+    An explicit marker is normalized to NFC, matching
+    :func:`rebrew.config.module_marker`: the marker is the ``MODULE`` half of
+    every ``MODULE.0xVA`` metadata key, so an NFD-spelled config value would
+    miss the NFC-spelled entry a reader derives from the source.  The derived
+    branch keeps only ASCII, so it needs no normalization.
+    """
     marker = entry.get("marker")
     if isinstance(marker, str) and marker.strip():
-        return marker
+        return unicodedata.normalize("NFC", marker)
     return _MARKER_KEEP.sub("", name).upper()
 
 

@@ -152,6 +152,10 @@ def test_default_target_with_non_string_setting() -> None:
 
 def test_target_marker_explicit() -> None:
     assert target_marker("SERVER", {"marker": "SRV"}) == "SRV"
+    # NFD in the config, NFC in the source: the marker is half of every
+    # MODULE.0xVA metadata key, so both spellings must resolve to one.
+    nfd = "CAFE\u0301"
+    assert target_marker("SERVER", {"marker": nfd}) == "CAF\u00c9"
 
 
 def test_target_marker_derived() -> None:

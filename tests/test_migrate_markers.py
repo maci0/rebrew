@@ -90,6 +90,23 @@ class TestMigrateMarkersEndToEnd:
 
         assert load_metadata(tmp_path) == {}
 
+    def test_legacy_encoding_survives_the_strip(self, tmp_path: Path) -> None:
+        """Stripping markers must not transcode the rest of the file.
+
+        The marker lines are ASCII but the body beside them is CP1252; writing
+        the stripped text back as UTF-8 would rewrite every high byte in a
+        source whose bytes are the match target.
+        """
+        src = tmp_path / "src"
+        src.mkdir()
+        body = 'const char *s = "Caf\xe9";\n'
+        (src / "f.c").write_bytes(("// FUNCTION: S 0x1000\n// SIZE: 4\n" + body).encode("latin-1"))
+        cfg = SimpleNamespace(reversed_dir=src, metadata_dir=tmp_path, marker="S", source_ext=".c")
+        from rebrew.migrate_markers import _migrate_file
+
+        assert _migrate_file(cfg, src / "f.c", "S", dry_run=False) is not None
+        assert (src / "f.c").read_bytes() == body.encode("latin-1")
+
     def test_concurrent_status_promotion_survives(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
