@@ -62,6 +62,14 @@ FUNCTION_ROWS_SQL: str = f"markerType IN ({', '.join(repr(m) for m in sorted(FUN
 _FUNCTION_DB_STATUSES: frozenset[str] = frozenset({*KNOWN_STATUSES, "UNKNOWN"})
 _FUNCTION_STATUS_CHECK_SQL: str = ", ".join(repr(s) for s in sorted(_FUNCTION_DB_STATUSES))
 
+#: One status transition is ``(target, va, old_status, new_status, changed_at,
+#: updated_by)`` — the same tuple the ``--force`` restore dedupes on, now
+#: enforced by the table rather than by that probe alone.  SQLite treats NULLs
+#: as distinct in a UNIQUE index, so this covers every non-NULL transition; the
+#: restore probe still handles the NULL-status ones (see
+#: :func:`_restore_persistent_rows`).
+_HISTORY_UNIQUE_SQL = "UNIQUE (target, va, old_status, new_status, changed_at, updated_by)"
+
 #: Column DDL for the persistent tables (never dropped on rebuild).  Shared by
 #: CREATE IF NOT EXISTS and the in-place migration so the two cannot drift.
 _HISTORY_COLUMNS_SQL = f"""
@@ -73,8 +81,29 @@ _HISTORY_COLUMNS_SQL = f"""
     new_status TEXT
         CHECK (new_status IS NULL OR new_status IN ({_FUNCTION_STATUS_CHECK_SQL})),
     changed_at TEXT NOT NULL CHECK (changed_at != ''),
-    updated_by TEXT NOT NULL DEFAULT ''
+    updated_by TEXT NOT NULL DEFAULT '',
+    {_HISTORY_UNIQUE_SQL}
 """
+
+#: The clamping the in-place ``history`` migration applies to a pre-CHECK
+#: table's rows.  Named once because the migration writes them as both the
+#: projected VALUES and the ``PARTITION BY`` keys: deduping on the *raw* rows
+#: would let two records that clamp to the same transition both survive and
+#: abort the recreate on the new UNIQUE.
+_HISTORY_VA_SQL = "CASE WHEN typeof(va) = 'integer' AND va >= 0 THEN va ELSE 0 END"
+_HISTORY_OLD_STATUS_SQL = (
+    f"CASE WHEN old_status IS NULL THEN NULL "
+    f"WHEN old_status IN ({_FUNCTION_STATUS_CHECK_SQL}) THEN old_status ELSE 'UNKNOWN' END"
+)
+_HISTORY_NEW_STATUS_SQL = (
+    f"CASE WHEN new_status IS NULL THEN NULL "
+    f"WHEN new_status IN ({_FUNCTION_STATUS_CHECK_SQL}) THEN new_status ELSE 'UNKNOWN' END"
+)
+_HISTORY_CHANGED_AT_SQL = (
+    "CASE WHEN changed_at IS NULL OR changed_at = '' "
+    "THEN '1970-01-01T00:00:00+00:00' ELSE changed_at END"
+)
+_HISTORY_UPDATED_BY_SQL = "COALESCE(updated_by, '')"
 _VERIFY_RESULTS_COLUMNS_SQL = """
     target TEXT NOT NULL,
     va INTEGER NOT NULL CHECK (va >= 0),
@@ -580,6 +609,12 @@ def _restore_persistent_rows(c: sqlite3.Cursor, saved: dict[str, list[tuple[Any,
     both carry a NULL old/new status count as the same transition.  That
     doubles the statement's placeholders (the six inserted values are also the
     six compared), so each row is bound twice.
+
+    ``history`` now carries a ``UNIQUE`` over exactly those six columns, so a
+    plain INSERT is enough for every transition whose statuses are non-NULL.
+    SQLite treats NULLs as DISTINCT inside a UNIQUE index, though, so a
+    NULL-status transition would insert a second time without the probe — the
+    probe is what covers them, and the UNIQUE index is what serves it.
     """
     rows = saved.get("verify_results")
     if rows:
@@ -1175,17 +1210,27 @@ def _create_schema(c: sqlite3.Cursor, target: str | None) -> None:
     c.execute(f"CREATE TABLE IF NOT EXISTS history ({_HISTORY_COLUMNS_SQL})")
     # history is never dropped on rebuild, so CREATE IF NOT EXISTS leaves a
     # pre-CHECK table alone.  Recreate in place (preserving rows, clamping
-    # outliers) when the stored DDL lacks the range/status guards.
+    # outliers) when the stored DDL lacks the range/status guards or the
+    # transition UNIQUE.
     hist_sql_row = c.execute(
         "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'history'"
     ).fetchone()
     hist_sql = hist_sql_row[0] if hist_sql_row else ""
-    if hist_sql and "old_status IS NULL OR old_status IN" not in hist_sql:
+    if hist_sql and (
+        "old_status IS NULL OR old_status IN" not in hist_sql or _HISTORY_UNIQUE_SQL not in hist_sql
+    ):
         c.execute("ALTER TABLE history RENAME TO _history_migrate")
         c.execute(f"CREATE TABLE history ({_HISTORY_COLUMNS_SQL})")
         # Preserve id so ORDER BY id DESC / retention stay stable across
         # the recreate.  Statuses outside the functions vocabulary become
         # UNKNOWN (same coercion the functions insert path uses).
+        #
+        # Keep only the newest row of each transition: a pre-UNIQUE table may
+        # already hold repeats (they were possible before this constraint),
+        # and the clamp can even fuse two distinct raw rows into one
+        # transition, which would abort the recreate outright.  The partition
+        # is over the CLAMPED values, so it dedupes the rows the new table
+        # would actually reject.
         c.execute(
             f"""
             INSERT INTO history (
@@ -1194,27 +1239,33 @@ def _create_schema(c: sqlite3.Cursor, target: str | None) -> None:
             SELECT
                 id,
                 target,
-                CASE
-                    WHEN typeof(va) = 'integer' AND va >= 0 THEN va
-                    ELSE 0
-                END,
-                CASE
-                    WHEN old_status IS NULL THEN NULL
-                    WHEN old_status IN ({_FUNCTION_STATUS_CHECK_SQL}) THEN old_status
-                    ELSE 'UNKNOWN'
-                END,
-                CASE
-                    WHEN new_status IS NULL THEN NULL
-                    WHEN new_status IN ({_FUNCTION_STATUS_CHECK_SQL}) THEN new_status
-                    ELSE 'UNKNOWN'
-                END,
-                CASE
-                    WHEN changed_at IS NULL OR changed_at = ''
-                        THEN '1970-01-01T00:00:00+00:00'
-                    ELSE changed_at
-                END,
-                COALESCE(updated_by, '')
-            FROM _history_migrate
+                va,
+                old_status,
+                new_status,
+                changed_at,
+                updated_by
+            FROM (
+                SELECT
+                    id,
+                    target,
+                    {_HISTORY_VA_SQL} AS va,
+                    {_HISTORY_OLD_STATUS_SQL} AS old_status,
+                    {_HISTORY_NEW_STATUS_SQL} AS new_status,
+                    {_HISTORY_CHANGED_AT_SQL} AS changed_at,
+                    {_HISTORY_UPDATED_BY_SQL} AS updated_by,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY
+                            target,
+                            {_HISTORY_VA_SQL},
+                            {_HISTORY_OLD_STATUS_SQL},
+                            {_HISTORY_NEW_STATUS_SQL},
+                            {_HISTORY_CHANGED_AT_SQL},
+                            {_HISTORY_UPDATED_BY_SQL}
+                        ORDER BY id DESC
+                    ) AS rn
+                FROM _history_migrate
+            )
+            WHERE rn = 1
             """
         )
         c.execute("DROP TABLE _history_migrate")
@@ -1231,16 +1282,16 @@ def _create_schema(c: sqlite3.Cursor, target: str | None) -> None:
     # saved row.  idx_history_target_id only pins `target`, so each probe
     # scanned that target's whole partition: with the _HISTORY_RETENTION cap
     # reached that is quadratic (10k x 10k per target) on the one path that
-    # is already rewriting the file.  (target, va, changed_at) is selective —
-    # a VA is re-verified once per rebuild, so changed_at distinguishes the
-    # transition — and leaves only the three equality-remaining columns as a
-    # filter.  Kept out of the version stamp: an index is created on every
-    # build and _missing_required_objects checks tables and columns, so a
-    # database written before this line picks it up on its next rebuild.
-    c.execute(
-        "CREATE INDEX IF NOT EXISTS idx_history_restore "
-        "ON history(target, va, changed_at, old_status, new_status, updated_by)"
-    )
+    # is already rewriting the file.
+    #
+    # The probe is served by the table's own UNIQUE b-tree, which indexes
+    # those six columns, so idx_history_restore is dropped rather than
+    # recreated: a second index on the same columns is pure write cost on a
+    # table that grows on every rebuild.  The ordering within it is the
+    # constraint's (target, va, old_status, new_status, changed_at,
+    # updated_by) — every probe column is an equality term, so the column
+    # order costs the lookup nothing.
+    c.execute("DROP INDEX IF EXISTS idx_history_restore")
 
     c.execute(f"CREATE TABLE IF NOT EXISTS verify_results ({_VERIFY_RESULTS_COLUMNS_SQL})")
     # verify_results is never dropped on rebuild, so CREATE IF NOT EXISTS

@@ -2225,6 +2225,10 @@ class TestCellStateVocabulary:
         row.  Without a matching index each probe scanned the target's whole
         history partition, making the restore quadratic on a database that
         has reached the retention cap.
+
+        The transition UNIQUE supplies that b-tree, so the plan names the
+        autoindex rather than a hand-created one; what matters is that the
+        probe SEEKS and covers every column.
         """
         db_dir = tmp_path / "db"
         db_dir.mkdir()
@@ -2241,9 +2245,98 @@ class TestCellStateVocabulary:
                 "AND h.updated_by IS ''"
             ).fetchall()
             detail = " ".join(row[3] for row in plan)
-            assert "idx_history_restore" in detail
             # A scan of the table means the index was not used.
             assert "SCAN h" not in detail
+            assert "SEARCH h USING COVERING INDEX" in detail
+        finally:
+            conn.close()
+
+    def test_history_rejects_a_duplicate_transition(self, tmp_path: Path) -> None:
+        """One status change is one row, enforced by the table.
+
+        The --force restore used to be the only thing standing between a
+        repeated rebuild and a duplicated transition; the invariant now
+        lives in the schema, so any other writer is covered too.
+        """
+        db_dir = tmp_path / "db"
+        db_dir.mkdir()
+        (db_dir / "data_alpha.json").write_text(json.dumps(SAMPLE_DATA), encoding="utf-8")
+        build_db(tmp_path, target="alpha")
+
+        conn = sqlite3.connect(db_dir / "coverage.db")
+        try:
+            row = ("alpha", 4096, "STUB", "EXACT", "2026-01-01T00:00:00+00:00", "test")
+            c = conn.cursor()
+            c.execute(
+                "INSERT INTO history (target, va, old_status, new_status, changed_at,"
+                " updated_by) VALUES (?, ?, ?, ?, ?, ?)",
+                row,
+            )
+            with pytest.raises(sqlite3.IntegrityError):
+                c.execute(
+                    "INSERT INTO history (target, va, old_status, new_status, changed_at,"
+                    " updated_by) VALUES (?, ?, ?, ?, ?, ?)",
+                    row,
+                )
+            # A different transition on the same VA is still a distinct fact.
+            c.execute(
+                "INSERT INTO history (target, va, old_status, new_status, changed_at,"
+                " updated_by) VALUES (?, ?, ?, ?, ?, ?)",
+                (*row[:2], "EXACT", "RELOC", *row[4:]),
+            )
+        finally:
+            conn.close()
+
+    def test_history_migrates_to_the_transition_unique(self, project_root: Path) -> None:
+        """A history table built without the UNIQUE is recreated in place.
+
+        Repeats are collapsed to the newest row of each transition, because a
+        table that already holds one cannot take the constraint — and the
+        status clamp can fuse two distinct raw rows into a single transition,
+        so the dedupe partitions on the clamped values, not the stored ones.
+        """
+        build_db(project_root)
+        conn = sqlite3.connect(project_root / "db" / "coverage.db")
+        c = conn.cursor()
+        c.execute("DROP TABLE history")
+        c.execute("""
+            CREATE TABLE history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                target TEXT NOT NULL,
+                va INTEGER NOT NULL,
+                old_status TEXT,
+                new_status TEXT,
+                changed_at TEXT NOT NULL,
+                updated_by TEXT NOT NULL DEFAULT ''
+            )
+            """)
+        # Rows 1 and 2 are the same transition once BOGUS clamps to UNKNOWN
+        # and '' clamps to the epoch; row 3 is a second, distinct transition.
+        c.executemany(
+            "INSERT INTO history (id, target, va, old_status, new_status, changed_at,"
+            " updated_by) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            [
+                (1, "testbin", 5, "BOGUS", "EXACT", "", "test"),
+                (2, "testbin", 5, "UNKNOWN", "EXACT", "1970-01-01T00:00:00+00:00", "test"),
+                (3, "testbin", 6, "BOGUS", "EXACT", "", "test"),
+            ],
+        )
+        conn.commit()
+        conn.close()
+
+        build_db(project_root)
+        conn = sqlite3.connect(project_root / "db" / "coverage.db")
+        try:
+            c = conn.cursor()
+            ddl = c.execute(
+                "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'history'"
+            ).fetchone()[0]
+            assert "UNIQUE (target, va, old_status, new_status, changed_at, updated_by)" in ddl
+            # The newest row of the fused transition survives; the other
+            # transition is untouched.
+            assert c.execute(
+                "SELECT id, va FROM history WHERE target = 'testbin' ORDER BY id"
+            ).fetchall() == [(2, 5), (3, 6)]
         finally:
             conn.close()
 
