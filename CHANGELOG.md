@@ -648,6 +648,11 @@
   section in the file.
 
 ### Changed
+- **Four more test modules are type-checked.** `tests/test_binsync_state.py`,
+  `tests/test_lint_cflags.py`, `tests/test_probe.py` and
+  `tests/test_public_surface.py` pass `mypy --strict` today, so they join the
+  checked list in `[tool.mypy] files`. The rest of `tests/` is still
+  unchecked; the list grows as modules come clean.
 - **Breaking:** **The parsed-binary types and the project-layout constants
   moved down a layer.** `BinaryInfo` and `SectionInfo` lived in
   `rebrew.binary_loader`, the dispatcher that selects a format loader, so
