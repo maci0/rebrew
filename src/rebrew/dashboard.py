@@ -92,6 +92,7 @@ import typer
 import zstandard
 from rich.markup import escape
 
+from rebrew import theme
 from rebrew.build_db import FUNCTION_ROWS_SQL, resolve_db_dir
 from rebrew.cli import STATUS_HEX, console, error_exit, json_print
 from rebrew.metadata import canonical_status
@@ -1103,67 +1104,79 @@ _INDEX_HTML = """<!doctype html>
 <link rel="preload" href="__APP_JS_URL__" as="script">
 <link rel="icon" href="data:,">
 <style>
-  body { font-family: system-ui, sans-serif; margin: 1.5rem; background: #fff; color: #1a1a1a; }
+  body { font-family: var(--rb-sans); margin: 1.5rem;
+    background: var(--rb-surface); color: var(--rb-ink); }
   .skip-link { position: absolute; left: -9999px; top: 0; z-index: 100;
-    padding: .5rem 1rem; background: #fff; color: #005fcc; text-decoration: underline; }
+    padding: .5rem 1rem; background: var(--rb-surface); color: var(--rb-accent);
+    text-decoration: underline; }
   .skip-link:focus { left: 1rem; top: 1rem; }
   .filters { display: flex; flex-wrap: wrap; gap: .5rem 1rem; align-items: end;
     margin-bottom: .5rem; }
-  .filters > div { display: flex; flex-direction: column; gap: .25rem; font-size: .9rem; }
+  .filters > div { display: flex; flex-direction: column; gap: .25rem; font-size: var(--rb-size-note); }
   select, input { min-height: 2.75rem; padding: .3rem .5rem; min-width: 10rem;
-    font: inherit; border: 1px solid #767676; border-radius: 6px; background: #fff; color: inherit; }
-  :focus-visible { outline: 3px solid #005fcc; outline-offset: 2px; }
-  h1 { margin-bottom: .25rem; }
+    font: inherit; border: 1px solid var(--rb-line); border-radius: var(--rb-radius);
+    background: var(--rb-surface); color: inherit; }
+  :focus-visible { outline: 3px solid var(--rb-accent); outline-offset: 2px; }
+  h1 { font-size: var(--rb-size-title); margin-bottom: .25rem; }
   .cards { display: flex; gap: 1rem; flex-wrap: wrap; margin: 1rem 0; }
-  .card { border: 1px solid #767676; border-radius: 6px; padding: .6rem 1rem; min-width: 110px;
-    background: #fff; }
+  .card { border: 1px solid var(--rb-line); border-radius: var(--rb-radius);
+    padding: .6rem 1rem; min-width: 110px; background: var(--rb-surface); }
   button.card { font: inherit; color: inherit; text-align: left; cursor: pointer; }
-  button.card:hover { border-color: #444; background: #f9f9f9; }
-  button.card:active { background: #f0f0f0; }
-  button.card.active { border-color: #005fcc; border-width: 2px; box-shadow: 0 0 0 2px rgba(0,95,204,.25); }
+  button.card:hover { border-color: var(--rb-line-hi); background: var(--rb-hover); }
+  button.card:active { background: var(--rb-pressed); }
+  button.card.active { border-color: var(--rb-accent); border-width: 2px;
+    box-shadow: 0 0 0 2px var(--rb-ring); }
   /* Weight marks the selected card and tab without relying on border colour (WCAG 1.4.1). */
   button.card.active .label, .views button.active { font-weight: 700; }
-  .card .value { font-size: 1.4rem; font-weight: 700; display: block; }
-  .card .label { color: #333; }
+  .card .value { font-size: var(--rb-size-value); font-weight: 700; display: block; }
+  .card .label { color: var(--rb-muted); font-size: var(--rb-size-caption); }
 __STATUS_CSS__
   .table-scroll { overflow-x: auto; position: relative; min-height: 6rem; -webkit-overflow-scrolling: touch; }
   .table-scroll[aria-busy="true"]::after {
     content: "Loading…"; position: absolute; inset: 0; display: flex; align-items: center;
-    justify-content: center; background: rgba(255,255,255,.7); font-size: .95rem; color: #333;
+    justify-content: center; background: var(--rb-veil); font-size: .95rem;
+    color: var(--rb-muted);
   }
   .visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
     overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
-  table { border-collapse: collapse; width: 100%; margin-top: 1rem; font-size: .85rem; background: #fff; }
-  th, td { border: 1px solid #767676; padding: .3rem .5rem; text-align: left; }
-  th { background: #f5f5f5; white-space: nowrap; }
-  tbody tr:hover { background: #f9f9f9; }
-  td.va, code { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; }
-  #dashboard-error { color: #9a3412; background: #fff7ed; border: 1px solid #9a3412;
-    border-radius: 6px; padding: .6rem .8rem; margin: .75rem 0; }
-  #empty-state, #no-targets { color: #4a4a4a; margin: 1rem 0; }
+  table { border-collapse: collapse; width: 100%; margin-top: 1rem;
+    font-size: var(--rb-size-cell); background: var(--rb-surface); }
+  th, td { border: 1px solid var(--rb-line); padding: .3rem .5rem; text-align: left; }
+  th { background: var(--rb-sunken); white-space: nowrap; font-weight: 600; }
+  tbody tr:hover { background: var(--rb-hover); }
+  td.va, code { font-family: var(--rb-mono); }
+  #dashboard-error { color: var(--rb-note-ink); background: var(--rb-note-bg);
+    border: 1px solid var(--rb-note-ink); border-radius: var(--rb-radius);
+    padding: .6rem .8rem; margin: .75rem 0; }
+  #empty-state, #no-targets { color: var(--rb-faint); margin: 1rem 0; }
   #results-hint, #globals-hint, #history-hint, #sections-hint {
-    color: #4a4a4a; font-size: .9rem; margin: .25rem 0 .5rem; }
+    color: var(--rb-faint); font-size: var(--rb-size-note); margin: .25rem 0 .5rem; }
   #filter-actions, #show-more-wrap, #globals-show-more-wrap, #history-show-more-wrap,
   #retry-bar { margin: .35rem 0 .75rem; }
   #clear-filters, #show-more, #show-more-globals, #show-more-history,
   #retry-functions, #retry-summary, #retry-view {
-    min-height: 2.75rem; padding: .3rem .75rem; border: 1px solid #767676; border-radius: 6px;
-    background: #fff; color: inherit; font: inherit; cursor: pointer; }
+    min-height: 2.75rem; padding: .3rem .75rem; border: 1px solid var(--rb-line);
+    border-radius: var(--rb-radius); background: var(--rb-surface);
+    color: inherit; font: inherit; cursor: pointer; }
   :is(#clear-filters, #show-more, #show-more-globals, #show-more-history,
-  #retry-functions, #retry-summary, #retry-view):hover:not(:disabled) { border-color: #444; background: #f9f9f9; }
+  #retry-functions, #retry-summary, #retry-view):hover:not(:disabled) {
+    border-color: var(--rb-line-hi); background: var(--rb-hover); }
   :is(#clear-filters, #show-more, #show-more-globals, #show-more-history,
-  #retry-functions, #retry-summary, #retry-view):active:not(:disabled) { background: #f0f0f0; }
+  #retry-functions, #retry-summary, #retry-view):active:not(:disabled) {
+    background: var(--rb-pressed); }
   button:disabled { opacity: .55; cursor: not-allowed; }
   .views { display: flex; flex-wrap: wrap; gap: .35rem; margin: .75rem 0 .25rem; }
   .views button { min-height: 2.75rem; padding: .3rem .85rem; font: inherit; cursor: pointer;
-    border: 1px solid #767676; border-radius: 6px; background: #fff; color: inherit; }
-  .views button:hover { border-color: #444; background: #f9f9f9; }
-  .views button:active { background: #f0f0f0; }
-  .views button.active { border-color: #005fcc; border-width: 2px; box-shadow: 0 0 0 2px rgba(0,95,204,.25); }
+    border: 1px solid var(--rb-line); border-radius: var(--rb-radius);
+    background: var(--rb-surface); color: inherit; }
+  .views button:hover { border-color: var(--rb-line-hi); background: var(--rb-hover); }
+  .views button:active { background: var(--rb-pressed); }
+  .views button.active { border-color: var(--rb-accent); border-width: 2px;
+    box-shadow: 0 0 0 2px var(--rb-ring); }
   .view-panel[hidden] { display: none; }
-  .link-button { background: none; border: none; padding: 0; color: #005fcc;
+  .link-button { background: none; border: none; padding: 0; color: var(--rb-accent);
     text-decoration: underline; font: inherit; cursor: pointer; }
-  .link-button:hover { color: #003e85; }
+  .link-button:hover { color: var(--rb-accent-hi); }
   @media (max-width: 40rem) {
     body { margin: 1rem; }
     select, input { min-width: 0; width: 100%; }
@@ -1342,6 +1355,8 @@ def _dashboard_status_forced() -> str:
 _INDEX_HTML = _INDEX_HTML.replace("__STATUS_CSS__", _dashboard_status_css()).replace(
     "__STATUS_FORCED__", _dashboard_status_forced()
 )
+# Token references resolve to their theme values, so the shell is one file.
+_INDEX_HTML = theme.inline(_INDEX_HTML)
 _INDEX_HTML = _INDEX_HTML.replace("__APP_JS_URL__", f"/app.js?v={_APP_JS_VERSION}")
 _INDEX_HTML_BYTES = _INDEX_HTML.encode("utf-8")
 _INDEX_ETAG = '"' + hashlib.sha256(_INDEX_HTML_BYTES).hexdigest()[:16] + '"'

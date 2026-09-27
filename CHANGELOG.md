@@ -9,6 +9,13 @@
   hand-written `link_stubs.c` keeps its own tail, and two `.data` addresses
   sharing one name now emit a single stub instead of a TU that does not
   compile.
+### Changed
+- **The report pages and the coverage dashboard share one chrome token
+  set.** Colors, radii, font stacks, and type sizes live in `rebrew.theme`;
+  each stylesheet resolves them at build time, so the palette and the scale
+  change in one file and the two surfaces cannot drift. The dashboard gains
+  the same heading scale the report uses (page title, card value, table
+  text, captions) instead of the browser default sizes.
 
 ## [2.13.1] - 2026-09-27
 ### Fixed
