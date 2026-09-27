@@ -188,15 +188,12 @@ Splitting/merging source files and reading the call graph:
 
 ```bash
 rebrew doctor
-rebrew verify --summary                 # or --json / --compare / --full
+rebrew verify --compare                 # CI regression gate vs .rebrew/verify_baseline.json
 rebrew lint --json                      # --fix migrates leftover inline metadata
-rebrew orphans --prune --dry-run
-rebrew types --json
-rebrew types apply-type <file> --param N --type T
 ```
 
-Full flag set + coverage DB + decomp.me: `references/verify-and-progress.md`.
-`verify --compare` is the CI regression gate.
+Full flag set, `orphans`/`types`/`text-audit`, coverage DB, and decomp.me:
+`references/verify-and-progress.md`.
 
 ## 7. Final Validation: Round-Trip
 
