@@ -60,7 +60,13 @@ Dockerfiles / wrappers / 16-bit media: sibling **rebrew-toolchains** (not vendor
 
 ## CLI Conventions
 
-Single-command tools: `@app.callback(invoke_without_command=True)` + `main_entry()` in `[project.scripts]`; from `rebrew.cli`: `TargetOption`, `require_config()`, `error_exit(..., json_mode=json_output)`, `json_print`, `parse_va`, `EXIT_*` (use `rebrew.config.load_config` only for optional loads; not re-exported from `cli`). Param order: `--json` before `--target`, both last; the batch tools (`verify`/`test`/`lint`/`status`/`todo`) put `--all-targets` after `--target`, since it is mutually exclusive with it. Help strings exact: `--json` → `"Output results as JSON"`; `--dry-run` → `"Preview changes without writing"`. Output via `Console(stderr=True)`; raw `print()` only for piped data. `main_entry` docstring always `"""Run the Typer CLI application."""`; its body is `run_standalone(main)` (single-command) or `run_cli(app)` (group), never a bare `app()` (that loses the 141/130/2 exit contract).
+Single-command tools: `@app.callback(invoke_without_command=True)` + `main_entry()` in `[project.scripts]`.
+
+- **Shared helpers** come from `rebrew.cli`: `TargetOption`, `require_config()`, `error_exit(..., json_mode=json_output)`, `json_print`, `parse_va`, `EXIT_*`. `load_config` is not re-exported there; import it from `rebrew.config`, and only for optional loads.
+- **Param order**: `--json` before `--target`, both last. The batch tools (`verify`/`test`/`lint`/`status`/`todo`) put `--all-targets` after `--target`, since it is mutually exclusive with it.
+- **Help strings are exact**: `--json` → `"Output results as JSON"`; `--dry-run` → `"Preview changes without writing"`.
+- **Output** goes through `Console(stderr=True)`; raw `print()` only for piped data.
+- **`main_entry`** carries the docstring `"""Run the Typer CLI application."""` and a body of `run_standalone(main)` (single-command) or `run_cli(app)` (group), never a bare `app()`, which loses the 141/130/2 exit contract.
 
 Multi-command groups: `is_group=True` in `builtins.py`. A group app's help is a landing page with no per-command examples to fall back on, so every group `typer.Typer(...)` carries an `epilog` with an `Examples:` section.
 
