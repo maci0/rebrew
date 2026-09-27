@@ -15,8 +15,8 @@ first-class proof target, with PPC/ARM as the follow-on set.
 > and `doctor.py` lists all nine arches. The table describes the pre-work
 > state; treat unchecked rows as claims to re-verify against code, not as
 > current fact. Remaining open items: `ToolchainSpec.arch` field + gcc-mips
-> spec, `asm.py` x86 hardcodes, ELF-MIPS/PPC reloc extraction in
-> `matcher/parsers.py`.
+> spec, `asm.py` x86 hardcodes, and ISA-dispatched heuristic reloc masking
+> in `matcher/scoring.py` (`_zero_reloc_fields` is still x86-32 only).
 
 ## Current state (grounded audit)
 
@@ -37,23 +37,27 @@ first-class proof target, with PPC/ARM as the follow-on set.
 
 | Surface | Where | What's hardcoded |
 |---|---|---|
-| Arch presets | `config.py::_ARCH_PRESETS` | x86_16/32/64, arm32/arm64; **no MIPS/PPC/SuperH** |
-| Arch detection | `binary_loader._ELF/_PE/_MACHO_MACHINE_TO_ARCH` | x86/arm only; ELF EM_MIPS=8, EM_PPC=20, EM_SH=42 missing |
-| Function extent walker | `binary_loader.function_extent_from_disasm` | `CS_ARCH_X86` + `ret/jmp/int3` terminators |
-| Reloc masking | `coff_reloc.py::smart_reloc_compare` | COFF `IMAGE_REL_I386_DIR32/REL32` constants |
-| Object reloc parsing | `matcher/parsers.py` | verify ELF-MIPS/PPC reloc extraction (COFF-centric) |
+| Arch presets | `config.py::_ARCH_PRESETS` | done: `mips32/64`, `ppc32/64`, `sh2` ship alongside `x86_16/32/64`, `arm32/64` |
+| Arch detection | `binary_loader._arch_maps` | done: LIEF-enum-keyed PE/ELF/Mach-O maps cover MIPS/PPC/SH |
+| Function extent walker | `binary_loader.function_extent_from_disasm` | done: per-arch terminator/jump table incl. MIPS delay slots |
+| Reloc masking | `coff_reloc.py::smart_reloc_compare` | `coff-i386` plus `elf-mips`/`elf-ppc` type tables; `R_MIPS_26`/`HI16`/`LO16` and `R_PPC_REL24` still unmaskable |
+| Object reloc parsing | `matcher/parsers.py` | done: `_parse_elf_symbol_bytes` is machine-agnostic (section-local reloc filter) |
 | Function discovery | `discover.py::_capstone_sweep` | `e8 rel32` call targets, `CC/90` padding, `ret` ends |
 | Stack frames | `stack_cmp.py` | esp/ebp frame analysis (x86-32) |
 | Jump tables | `catalog/registry.py::is_jump_table` | `0x90/0xCC` prefix + `8BFF` check (x86) |
 | Flags | `flag_data.py` | GCC family exists; no MIPS/PPC axes (`-mabi`, `-march`) |
 | Toolchain specs | `toolchain.py::ToolchainSpec` | `bits` field only; add `arch` for alignment/detection |
 | Import/PE lane | `round_trip`, `gen_layout`, `postlink`, `link_sweep`, `imports.py`, `pe_headers.py` | PE-specific — N/A for ELF targets (gate or ELF equivalents later) |
-| Known arches | `doctor.py::_KNOWN_ARCHES` | extend alongside presets |
+| Known arches | `doctor.py::_KNOWN_ARCHES` | done: all nine presets |
 
 ## Phase 0 — Arch plumbing foundation
 
 Small, behavior-neutral; unblocks every later phase. Exit: full suite green,
 **zero change to x86 behavior**.
+
+> The tracked checklist for this phase is §6, "Phase 0 — Foundation: decouple
+> the x86 assumption"; the list below is the design rationale behind it, kept
+> because it names the per-arch tables each item has to produce.
 
 1. `config.py`: add `mips32` (CS_ARCH_MIPS + CS_MODE_MIPS32, ptr 4, padding
    `[0x00]`), `mips64`, `ppc32` (CS_ARCH_PPC + CS_MODE_32), `ppc64`, `sh2`
@@ -331,6 +335,10 @@ This is why console matching communities ended up recreating Rebrew's loop with 
 
 Grouped by the four seams that need work.  Ordered by dependency (1 → 4).
 
+> Pre-work inventory.  For what has since landed, read the "Arch-specific
+> surfaces" table under "Current state (grounded audit)" and the §6 Phase 0
+> checklist; those carry the current state, this section carries the detail.
+
 ### 5.1 Architecture Presets & Disassembly (`config.py`, `scoring.py`, `asm.py`)
 
 | Gap | Current | Needed |
@@ -425,11 +433,11 @@ Each phase is shippable independently and ordered by (decreasing payoff) / (incr
 > Makes every later phase a *plugin*, not a rewrite. Follows ADR-001/005/006
 > seams so nothing in Phase 1+ re-invents them.
 
-- [ ] **0.1 Arch preset registry** (`config.py` `_ARCH_PRESETS`, ADR-001/ CONFIG.md pattern): add console arches as above, with correct `capstone_arch/mode`, `pointer_size=4`, `padding_bytes=[0x00]`, empty prefix. `capstone` 5.x already exposes `CS_ARCH_MIPS/PPC/SH/ARM` — no new dep. Keep unknown-arch warn+fallback (CONFIG.md invariant).
-- [ ] **0.2 ISA-dispatched reloc heuristics** (`matcher/scoring.py`, ADR-005 analogue): extract `_zero_reloc_fields_x86_32` → `_zero_reloc_fields(isa)` dispatch; add MIPS/PPC/SH stubs that at minimum zero `jal`/`bl`/`bsr` targets (prove with tiny obj fixtures). Improve over time — typed relocs already bypass this, so scope is "fallback only".
+- [x] **0.1 Arch preset registry** (`config.py` `_ARCH_PRESETS`, ADR-001/ CONFIG.md pattern): add console arches as above, with correct `capstone_arch/mode`, `pointer_size=4`, `padding_bytes=[0x00]`, empty prefix. `capstone` 5.x already exposes `CS_ARCH_MIPS/PPC/SH/ARM` — no new dep. Keep unknown-arch warn+fallback (CONFIG.md invariant). *Landed: `mips32`, `mips64`, `ppc32`, `ppc64`, `sh2` are in `_ARCH_PRESETS`.*
+- [ ] **0.2 ISA-dispatched reloc heuristics** (`matcher/scoring.py`, ADR-005 analogue): extract `_zero_reloc_fields_x86_32` → `_zero_reloc_fields(isa)` dispatch; add MIPS/PPC/SH stubs that at minimum zero `jal`/`bl`/`bsr` targets (prove with tiny obj fixtures). Improve over time — typed relocs already bypass this, so scope is "fallback only". *Still open: `_zero_reloc_fields` in `scoring.py` reads x86 opcodes and `X86_OP_MEM` directly.*
 - [ ] **0.3 Mutator tagging**: add `arch` tag, mark x86-only mutations, filter in GA when `cfg.arch` != x86.
 - [ ] **0.4 `format` registry + `supported_formats`** (`config.py:697`, `binary_loader.py`, ADR-001 `is_ne` pattern): expand `_KNOWN_FORMATS` and `load_binary`'s `fmt` param to include `psexe/n64rom/dol/rel/xbe/prx/saturnbin`; add string `is_*` helpers alongside `is_ne`. **Do not** inline container parsers — each format gets a native loader module (`rebrew/psexe_loader.py`, `n64rom_loader.py`, `dol_loader.py`, `gdrom_loader.py`) that synthesizes `BinaryInfo`/`SectionInfo` with stable synthetic VAs (ADR-001), imported by `binary_loader.py` like `ne_loader` (ARCHITECTURE.md seam).
-- [ ] **0.5 Toolchain spec stubs** (`rebrew/toolchain.py`, ADR-006): reserve `ToolchainSpec` entries + `<family>/<version>-<arch>/Dockerfile` placeholders in the rebrew-toolchains checkout for `ido53/71`, `cw_gc`, `sh-elf-gcc`, `psyq` (proxy), `ee-gcc` so every later phase is "fill the Dockerfile + flag axes" rather than new runner glue. Host fallback (`vendored → PATH`) keeps GCC cross toolchains working without docker.
+- [ ] **0.5 Toolchain spec stubs** (`rebrew/toolchain.py`, ADR-006): reserve `ToolchainSpec` entries + `<family>/<version>-<arch>/Dockerfile` placeholders in the rebrew-toolchains checkout for `ido53/71`, `cw_gc`, `sh-elf-gcc`, `psyq` (proxy), `ee-gcc` so every later phase is "fill the Dockerfile + flag axes" rather than new runner glue. *Partly landed: `ido-5.3` and `ido-7.1` ship (ADR-017 names); `cw_gc`, `sh-elf-gcc`, `psyq`, `ee-gcc` do not exist yet.* The host-fallback clause this item assumed is **withdrawn** — [ADR-008](adr/008-docker-only-execution.md) makes execution docker-only, so a cross toolchain needs an image, not a PATH binary.
 - [ ] **0.6 Documentation + fixtures-per-format policy** (`docs/CONFIG.md`, `docs/TOOLCHAIN.md`, `AGENTS.md`, `docs/OMF_NOTES.md` template): update arch/profile tables; record the "one tiny hex fixture + one NOTES.md per container" rule (OMF_NOTES.md pattern, see §5.5.2) so reviewers expect `docs/{PSEXE,N64ROM,DOL,REL,GDROM}_NOTES.md` on promotion. Unit-test the registry + capstone mode construction (no binary fixture needed yet).
 
 **Deliverable:** `rebrew cfg add-target` + `rebrew asm --target` work for console arches; disassembly is correct, comparison falls back to explicit relocs; every later container/toolchain has a home per ADR-001/006.
