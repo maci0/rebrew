@@ -1625,7 +1625,12 @@ def compile_batch_objs(
     src_names = [s for s in src_names if stem_counts[Path(s).stem.lower()] == 1]
     if not src_names:
         return {}, ""
-    args = all_flags + (["-c", *src_names] if style == "posix" else ["/c", *src_names])
+    # A source name is a path from the annotation's ``file`` field, so it can
+    # start with ``@`` (a CL response file) or ``-`` (a compiler option).
+    # ``./`` keeps the same file while staying a filename, matching the
+    # single-file path.  The dict keys keep the bare name.
+    argv_srcs = [f"./{s}" if s.startswith(("@", "-")) else s for s in src_names]
+    args = all_flags + (["-c", *argv_srcs] if style == "posix" else ["/c", *argv_srcs])
     try:
         tr = run_toolchain(spec, args, workdir=workdir, timeout=timeout, mounts=mounts)
     except ToolchainError as exc:
@@ -1830,6 +1835,11 @@ def precompile_batch(
                 # but track EVERY entry (path → entries) so each gets the
                 # built object fanned out below.
                 rel = source.relative_to(cfg.reversed_dir)
+                if rel.is_absolute() or ".." in rel.parts:
+                    # ``file`` comes from the metadata TOML: a value escaping
+                    # the reversed dir would stage outside the workdir (and
+                    # outside the container mount) instead of compiling.
+                    continue
                 target = workdir / rel
                 rel_s = rel.as_posix()
                 if rel_s in staged:

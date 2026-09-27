@@ -32,7 +32,13 @@ import typer
 
 from rebrew.cli import TargetOption, console, error_exit, json_print
 from rebrew.pe_headers import find_section
-from rebrew.utils import atomic_write_text, load_tomllib, read_source_text, run_process_group
+from rebrew.utils import (
+    atomic_write_text,
+    load_tomllib,
+    read_source_text,
+    run_process_group,
+    safe_shlex_split,
+)
 from rebrew.workspace import walk_up_to_root
 
 app = typer.Typer(
@@ -223,7 +229,7 @@ def main(
             obj = target_dir / stub.relative_to(root).with_suffix(".obj")
             try:
                 run_process_group(
-                    [compile_cmd, "/nologo", "/c", *cflags.split(), f"/Fo{obj}", str(stub)],
+                    [compile_cmd, "/nologo", "/c", *safe_shlex_split(cflags), f"/Fo{obj}", str(stub)],
                     cwd=root,
                     capture_output=True,
                     timeout=300,

@@ -1124,6 +1124,15 @@ def build_cmd(
     repo = require_toolchains_repo()
     tag, verarch = spec.image.rsplit(":", 1)
     image = spec.image  # narrowed local — mypy does not narrow into the closure
+    # ``family`` and the image tag come from the toolchain registry, which a
+    # plugin or an overlay dir can define.  Both become directories in the
+    # toolchains repo, and the directory that holds a Dockerfile becomes the
+    # docker build context, so a separator or a dot segment would build from
+    # outside the repo.
+    for component, label in ((spec.family, "family"), (verarch, "image tag")):
+        if not component or "/" in component or "\\" in component or component.startswith("."):
+            msg = f"toolchain {name!r} {label} {component!r} is not a plain directory name"
+            error_exit(msg, json_mode=json_output)
     build_dir = repo / spec.family / verarch
     if not (build_dir / "Dockerfile").exists():
         msg = f"no Dockerfile at {build_dir}"

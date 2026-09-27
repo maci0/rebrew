@@ -300,6 +300,10 @@ def apply_coff_relocations(
         target_va = resolve_va(r.symbol) or resolve_va(sym)
         if target_va is None:
             raise UnresolvedSymbolError(r.symbol)
+        if r.offset < 0 or r.offset + 4 > len(buf):
+            # The record offset is bounded by the compiled bytes, not by the
+            # function body handed in (which may be rstrip()ed shorter).
+            continue
         addend = struct.unpack_from("<I", buf, r.offset)[0]
         if kind == "abs32":
             value = (target_va + addend) & 0xFFFFFFFF

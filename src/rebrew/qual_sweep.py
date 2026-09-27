@@ -39,7 +39,7 @@ from rebrew.cli import (
 from rebrew.climb import _function_span as climb_function_span
 from rebrew.compile import compile_and_compare
 from rebrew.compile_overrides import resolve_compile_overrides
-from rebrew.utils import atomic_write_text, read_source_text
+from rebrew.utils import atomic_write_text, filename_component, read_source_text
 
 app = typer.Typer(
     help="Sweep declaration qualifiers over one function, keeping winners.",
@@ -131,6 +131,10 @@ def main(
     path, sel, va_int = select_annotation(cfg, source, va, json_mode=json_output)
     sym = symbol or sel.symbol
     size = sel.size
+    # The symbol is annotation text, not a vetted identifier: it names a
+    # candidate file below and is a mkdtemp prefix, so it cannot go into a path
+    # unsanitized.
+    sym_file = filename_component(sym or "")
     if va_int is None or not sym or not size:
         error_exit(
             "Need symbol, VA and SIZE (from the annotation or --va/--symbol)", json_mode=json_output
@@ -207,7 +211,7 @@ def main(
             alt = units[:]
             alt[k] = new
             # Compile a copy: parallel candidates must not share one path.
-            tmp = _tmpdir / f"{sym}_{k}_{lab}.c"
+            tmp = _tmpdir / f"{sym_file}_{k}_{lab}.c"
             tmp.write_text("".join(head) + "".join(alt) + "".join(tail), encoding=encoding)
             return (k, lab, new), score_fn(cfg, tmp, va_int, size, sym, toolchain, cflags)
 
@@ -215,7 +219,7 @@ def main(
         # target sharing this root) would otherwise overwrite a candidate
         # between its write and its compile, scoring the wrong source.
         with (
-            tempfile.TemporaryDirectory(dir=sweep_root, prefix=f"{sym}-") as rnd_dir,
+            tempfile.TemporaryDirectory(dir=sweep_root, prefix=f"{sym_file}-") as rnd_dir,
             cf.ThreadPoolExecutor(max_workers=jobs) as ex,
         ):
             results = list(ex.map(lambda c: submit(c, Path(rnd_dir)), cands))

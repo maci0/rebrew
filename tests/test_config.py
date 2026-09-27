@@ -20,6 +20,7 @@ from rebrew.config import (
     inventory_path_for,
     llm_max_requests,
     load_config,
+    validate_target_name,
 )
 from rebrew.errors import RebrewError
 
@@ -2080,3 +2081,35 @@ binary = "game.exe"
         assert "lint_brace_style" in d
         assert "lint_indent_style" in d
         assert "lint_max_line_length" in d
+
+
+class TestTargetNameValidation:
+    """A target name becomes a path component (src/<target>, db/data_<target>.json)."""
+
+    def test_plain_names_accepted(self) -> None:
+        for name in ("main", "SERVER.DLL", "client_exe", "game-1"):
+            assert validate_target_name(name) == name
+
+    @pytest.mark.parametrize("bad", ["../x", "a/b", "a\\b", ".", "..", "", " x", "x\n"])
+    def test_rejected(self, bad: str) -> None:
+        with pytest.raises(ConfigError):
+            validate_target_name(bad)
+
+    def test_load_config_rejects_traversing_target_key(self, tmp_path: Path) -> None:
+        toml = """\
+[project]
+default_target = "server_dll"
+
+[targets.server_dll]
+binary = "original/Server/server.dll"
+format = "pe"
+arch = "x86_32"
+reversed_dir = "src/server_dll"
+bin_dir = "bin/server_dll"
+
+[targets."../../etc"]
+binary = "original/evil.dll"
+"""
+        root = _make_project(tmp_path, toml)
+        with pytest.raises(ConfigError, match="path separator|plain file name"):
+            load_config(root)
