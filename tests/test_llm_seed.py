@@ -38,9 +38,9 @@ from rebrew.llm_seed import (
     _sanitize_source,
     build_prompt,
     extract_seeds,
-    last_seed_usage,
     llm_config,
     request_seeds,
+    seed_usage_total,
     valid_c_source,
 )
 
@@ -49,7 +49,7 @@ from rebrew.llm_seed import (
 def _reset_llm_request_budget(monkeypatch: pytest.MonkeyPatch) -> None:
     """Each test gets a fresh process budget (production counter is process-wide)."""
     monkeypatch.setattr("rebrew.llm_seed._request_count", 0)
-    monkeypatch.setattr("rebrew.llm_seed._last_usage", None)
+    monkeypatch.setattr("rebrew.llm_seed._usage_total", None)
     monkeypatch.delenv("REBREW_LLM_MAX_REQUESTS", raising=False)
     monkeypatch.delenv("REBREW_LLM_TIMEOUT", raising=False)
 
@@ -918,7 +918,7 @@ class TestSeedUsage:
             }
         )
         request_seeds(_cfg("https://llm/v1"), "int f(void){return 0;}", client=client)
-        usage = last_seed_usage()
+        usage = seed_usage_total()
         assert usage is not None
         assert usage.model == _DEFAULT_MODEL
         assert usage.prompt_version == _PROMPT_VERSION
@@ -933,13 +933,13 @@ class TestSeedUsage:
             }
         )
         assert request_seeds(_cfg("https://llm/v1"), "int f(void){return 0;}", client=client) == []
-        usage = last_seed_usage()
+        usage = seed_usage_total()
         assert usage is not None and usage.total_tokens == 12
 
     def test_recorded_when_provider_omits_usage(self) -> None:
         client = _FakeClient({"choices": [{"message": {"content": "nothing"}}]})
         request_seeds(_cfg("https://llm/v1"), "int f(void){return 0;}", client=client)
-        usage = last_seed_usage()
+        usage = seed_usage_total()
         assert usage is not None
         assert (usage.prompt_tokens, usage.completion_tokens, usage.total_tokens) == (
             None,
@@ -956,19 +956,25 @@ class TestSeedUsage:
             }
         )
         request_seeds(_cfg("https://llm/v1"), "int f(void){return 0;}", client=client)
-        usage = last_seed_usage()
+        usage = seed_usage_total()
         assert usage is not None
         assert usage.prompt_tokens is None
         assert usage.total_tokens is None
 
     def test_no_request_leaves_no_record(self) -> None:
-        assert last_seed_usage() is None
+        assert seed_usage_total() is None
         assert request_seeds(_cfg(), "int f(void){return 0;}", client=_FakeClient({})) == []
-        assert last_seed_usage() is None
+        assert seed_usage_total() is None
 
-    def test_record_is_cleared_when_a_later_call_bills_nothing(
+    def test_a_call_that_bills_nothing_keeps_the_earlier_cost(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """A --watch run spends on some edits and not others; the total must show both.
+
+        Reporting only the last request (or clearing the record) made a run
+        that billed several times read as one, and a run that billed once then
+        found no endpoint read as free.
+        """
         client = _FakeClient(
             {
                 "choices": [{"message": {"content": "nothing"}}],
@@ -976,13 +982,78 @@ class TestSeedUsage:
             }
         )
         request_seeds(_cfg("https://llm/v1"), "int f(void){return 0;}", client=client)
-        assert last_seed_usage() is not None
-        # A --watch run over many functions must not report the previous
-        # function's cost for a call that never happened.
+        assert seed_usage_total() is not None
         monkeypatch.delenv("REBREW_LLM_ENDPOINT", raising=False)
         monkeypatch.delenv("REBREW_LLM_API_KEY", raising=False)
         assert request_seeds(_cfg(), "int f(void){return 0;}", client=client) == []
-        assert last_seed_usage() is None
+        usage = seed_usage_total()
+        assert usage is not None
+        assert (usage.requests, usage.total_tokens) == (1, 99)
+
+    def test_every_billed_request_is_summed_not_just_the_last(self) -> None:
+        """Two --watch edits bill twice; the summary must report both."""
+        client = _FakeClient(
+            {
+                "choices": [{"message": {"content": "nothing"}}],
+                "usage": {"prompt_tokens": 5, "completion_tokens": 7, "total_tokens": 12},
+            }
+        )
+        for _ in range(2):
+            request_seeds(_cfg("https://llm/v1"), "int f(void){return 0;}", client=client)
+        usage = seed_usage_total()
+        assert usage is not None
+        assert (usage.requests, usage.prompt_tokens, usage.completion_tokens) == (2, 10, 14)
+        assert usage.total_tokens == 24
+        assert usage.unreported == 0
+        text = usage.describe()
+        assert "2 requests" in text
+        assert "24 tokens" in text
+
+    def test_a_reported_failure_counts_toward_the_total_as_unreported(self) -> None:
+        """A billed request with no usage must not vanish from the total."""
+        request_seeds(_cfg("https://llm/v1"), "int f(void){return 0;}", client=_FakeClient({}))
+        usage = seed_usage_total()
+        assert usage is not None
+        assert usage.unreported == 1
+        assert usage.requests == 1
+        # Unreported, not zero: a zero would read as a measured free request.
+        assert "token usage unreported" in usage.describe()
+
+    def test_a_partial_total_says_so(self) -> None:
+        """Summing known counts without flagging the gap would understate spend."""
+        ok = _FakeClient(
+            {
+                "choices": [{"message": {"content": "nothing"}}],
+                "usage": {"prompt_tokens": 5, "completion_tokens": 7, "total_tokens": 12},
+            }
+        )
+        request_seeds(_cfg("https://llm/v1"), "int f(void){return 0;}", client=ok)
+        request_seeds(
+            _cfg("https://llm/v1"), "int f(void){return 0;}", client=_EchoingClient("boom")
+        )
+        usage = seed_usage_total()
+        assert usage is not None
+        assert (usage.requests, usage.total_tokens, usage.unreported) == (2, 12, 1)
+        assert "1 request(s) unreported" in usage.describe()
+
+    def test_mixed_models_are_reported_as_mixed(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        client = _FakeClient(
+            {
+                "choices": [{"message": {"content": "nothing"}}],
+                "usage": {"total_tokens": 4},
+            }
+        )
+        request_seeds(
+            _cfg("https://llm/v1", model="gpt-4o-mini-2024-07-18"),
+            "int f(void){return 0;}",
+            client=client,
+        )
+        monkeypatch.setenv("REBREW_LLM_MODEL", "gpt-4o-2024-08-06")
+        request_seeds(_cfg("https://llm/v1"), "int f(void){return 0;}", client=client)
+        usage = seed_usage_total()
+        assert usage is not None
+        assert usage.model == "mixed models"
+        assert usage.total_tokens == 8
 
     def test_describe_names_model_prompt_version_and_cost(self) -> None:
         usage = SeedUsage(
@@ -1012,7 +1083,7 @@ class TestSeedUsage:
             assert (
                 request_seeds(_cfg("https://llm/v1"), "int f(void){return 0;}", client=client) == []
             )
-        usage = last_seed_usage()
+        usage = seed_usage_total()
         assert usage is not None
         assert usage.model == _DEFAULT_MODEL
         assert (usage.prompt_tokens, usage.completion_tokens, usage.total_tokens) == (
@@ -1050,7 +1121,7 @@ class TestMisconfigurationDoesNotRaise:
         )
         assert request_seeds(_cfg(), "int f(void){return 0;}", client=client) == []
         assert client.last_payload is None
-        assert last_seed_usage() is None
+        assert seed_usage_total() is None
 
 
 class TestRequestTimeout:
@@ -1231,7 +1302,7 @@ class TestMatchGlue:
             lambda cfg, source: ["int f(void) { return 42; }"],
         )
         monkeypatch.setattr(
-            "rebrew.llm_seed.last_seed_usage",
+            "rebrew.llm_seed.seed_usage_total",
             lambda: SeedUsage(
                 model="gpt-4o-mini-2024-07-18",
                 prompt_version=_PROMPT_VERSION,
