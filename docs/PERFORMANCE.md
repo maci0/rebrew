@@ -165,10 +165,24 @@ favicon 404) to two (shell 304, bootstrap). Gates: `test_handler_caches_only_has
 
 First page default is 100 rows (Show more still 500). On 2000 synthetic
 functions, `/api/functions` CPU / 100: 500 rows 0.059 s / 32 KB → 100 rows
-0.026 s / 6 KB. Bootstrap follows the same first-page limit.
+0.026 s / 6 KB. The bootstrap pages at its own smaller first page
+(`_BOOTSTRAP_FUNCTION_LIMIT`, 40): it is preloaded onto the same cold
+connection as the shell and `/app.js`, which already spend most of the entry
+window before any data is counted. 40 rows measure 711 zstd / 776 gzip against
+1083 / 1305 for the full 100-row page, and 60 fewer rows of `innerHTML` before
+the page is interactive. Show more continues from `loadedCount` against the
+payload's real `total`, so nothing stops being reachable. The preloaded body
+has its own ceiling (`_BOOTSTRAP_WIRE_BUDGET_BYTES`, 1024) because no part of
+the cold flight is left to absorb a growing first page. Gates:
+`test_bootstrap_stays_inside_its_wire_budget`,
+`test_bootstrap_paginates_past_its_first_page`.
 
-Remaining: 100-row HTML join. Table virtualization and cross-request pooling
-were not measured.
+Remaining: 100-row HTML join. Table virtualization, splitting the non-Functions
+views out of `/app.js`, and cross-request pooling were not measured. The
+initial-window budget does not yet count the preloaded bootstrap among the
+entry assets: measured, the three static assets alone leave the window before
+any data, so folding that fourth response in needs the static shell to shrink
+first.
 
 Dashboard shell gzip is 3433 bytes, `/app.js` gzip is 9078 bytes, and
 `/boot-guard.js` gzip is 158 (same

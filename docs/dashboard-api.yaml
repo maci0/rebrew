@@ -188,7 +188,11 @@ paths:
         paint use the dedicated endpoints.  Degrades instead of failing:
         `summary` and `functions` are `null` when the first target's
         `function_stats` is unreadable, so one broken target does not cost
-        the target list.
+        the target list.  This body is preloaded onto the same cold connection
+        as the shell and `/app.js`, so its `functions` page is sized for first
+        paint (`_BOOTSTRAP_FUNCTION_LIMIT`, 40) rather than at the interactive
+        default.  `total` is the target's real row count, so a client pages on
+        from `count` with `/api/functions`.
       responses:
         "200":
           description: The target list and the first target's data.

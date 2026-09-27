@@ -20,6 +20,8 @@ from rebrew.dashboard import (
     _APP_JS_VERSION,
     _BOOT_GUARD_JS,
     _BOOT_GUARD_JS_VERSION,
+    _BOOTSTRAP_FUNCTION_LIMIT,
+    _DEFAULT_LIMIT,
     Dashboard,
     _DashboardServer,
     _files_display,
@@ -825,7 +827,10 @@ class TestHandle:
         assert payload["summary"]["target"] == "server_dll"
         assert payload["functions"] is not None
         assert payload["functions"]["count"] >= 1
-        assert payload["functions"]["limit"] == 100
+        assert payload["functions"]["limit"] == _BOOTSTRAP_FUNCTION_LIMIT
+        # A first-paint page, not the interactive one: this body shares the cold
+        # connection with the shell and /app.js.  Paging continues from it.
+        assert _BOOTSTRAP_FUNCTION_LIMIT < _DEFAULT_LIMIT
         # Compact JSON: no space after colon/comma in the wire body.
         assert body == json.dumps(payload, separators=(",", ":"))
 
@@ -1261,10 +1266,23 @@ class TestHandle:
             assert len(row) == len(cols)
 
     def test_bootstrap_rows_match_their_own_routes(self, dashboard: Dashboard) -> None:
-        """``/api/bootstrap`` embeds the same payloads the dedicated routes serve."""
+        """``/api/bootstrap`` embeds the same payloads the dedicated routes serve.
+
+        The cold start pages the functions list at
+        ``_BOOTSTRAP_FUNCTION_LIMIT`` rather than the interactive default, so
+        the comparison asks the route for that same page: the embedded rows
+        must be the rows the route serves, not a differently sized page.
+        """
         _, _, body = dashboard.handle("GET", "/api/bootstrap", {})
         boot = json.loads(body)
-        _, _, funcs = dashboard.handle("GET", "/api/functions", {"target": ["server_dll"]})
+        _, _, funcs = dashboard.handle(
+            "GET",
+            "/api/functions",
+            {
+                "target": ["server_dll"],
+                "limit": [str(_BOOTSTRAP_FUNCTION_LIMIT)],
+            },
+        )
         assert boot["functions"] == json.loads(funcs)
         assert boot["summary"]["target"] == boot["target"] == "server_dll"
 
@@ -1884,6 +1902,59 @@ class TestEncodingNegotiation:
                 gzip.decompress if accept == "gzip" else zstandard.ZstdDecompressor().decompress
             )
             assert decode(mid) == decode(cold) == body
+
+    @pytest.mark.parametrize("accept", ["gzip", "zstd"])
+    def test_bootstrap_stays_inside_its_wire_budget(
+        self, dashboard: Dashboard, accept: str
+    ) -> None:
+        """The preloaded cold-start body stays inside its own ceiling.
+
+        ``/api/bootstrap`` rides the same cold connection as the shell and
+        ``/app.js``, which already spend most of the entry window before any
+        data is counted.  Nothing else in the cold flight is left to absorb a
+        growing first page, so it is bounded on its own: carrying the full
+        interactive page here measured 1083 B (zstd) and is over the ceiling.
+        """
+        from rebrew.dashboard import _BOOTSTRAP_WIRE_BUDGET_BYTES, _maybe_compress
+
+        payload = dashboard.bootstrap()
+        # A real target's first page, at the width the cold start sends.
+        payload["functions"]["functions"] = [
+            [
+                f"0x{0x401000 + i * 0x40:08x}",
+                f"Some::Sub_{chr(65 + i % 26)}_{i}",
+                "?Some@@YAXH@Z",
+                24 + i % 300,
+                ("STUB", "NEAR_MATCHING", "EXACT", "RELOC", "PROVEN")[i % 5],
+                "dllmain.c",
+                "src/dllmain.c",
+            ]
+            for i in range(_BOOTSTRAP_FUNCTION_LIMIT)
+        ]
+        payload["functions"]["count"] = _BOOTSTRAP_FUNCTION_LIMIT
+        payload["functions"]["total"] = 9000
+        body = json.dumps(payload, separators=(",", ":")).encode()
+
+        wire, encoding = _maybe_compress(body, accept, cold_start=True)
+        assert encoding == accept
+        assert len(wire) <= _BOOTSTRAP_WIRE_BUDGET_BYTES, (
+            f"bootstrap {len(wire)} B over {_BOOTSTRAP_WIRE_BUDGET_BYTES} B budget"
+        )
+
+    def test_bootstrap_paginates_past_its_first_page(self, dashboard: Dashboard) -> None:
+        """A short first page still reports the real total, so Show more works.
+
+        ``Dashboard.functions`` skips its COUNT only when the page comes back
+        genuinely short.  ``offset == 0`` at a page size below the row count
+        has to take that branch, or the client reads a full page as the whole
+        list and never offers Show more.
+        """
+        payload = dashboard.bootstrap()
+        assert payload["functions"]["limit"] == _BOOTSTRAP_FUNCTION_LIMIT
+
+        page = dashboard.functions(payload["target"], limit=_BOOTSTRAP_FUNCTION_LIMIT)
+        assert page["count"] == len(page["functions"])
+        assert page["total"] >= page["count"]
 
 
 class TestServerTiming:

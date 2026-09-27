@@ -197,6 +197,14 @@ _LOG_LEVEL_FORMAT = "%(levelname)-8s"
 
 _DEFAULT_LIMIT = 100
 _MAX_LIMIT = 5000
+#: Rows the preloaded cold-start payload carries.  The shell paints its first
+#: frame from ``/`` alone, but the first *useful* frame needs this body too, and
+#: it shares the initial congestion window with the shell and ``/app.js``.  A
+#: first page is not a page: Show more continues from ``loadedCount`` against the
+#: payload's real ``total``, so sizing this for paint rather than for browsing
+#: costs no reach.  A full default page costs 377 B more on the wire (706 -> 1083
+#: zstd at 40 rows) and 60 more rows of innerHTML before the page is interactive.
+_BOOTSTRAP_FUNCTION_LIMIT = 40
 _FUNCTION_COLS = ("va", "name", "symbol", "size", "status", "module", "files")
 _GLOBAL_COLS = ("va", "name", "decl", "size", "module")
 _HISTORY_COLS = ("va", "name", "old_status", "new_status", "changed_at")
@@ -267,12 +275,21 @@ _ZSTD_PRECOMPRESS_LEVEL = 19
 # there spends 12.6% of the preloaded bootstrap body for ~1.1 ms of CPU, and
 # that body shares the initial congestion window with the shell and /app.js.
 _BOOTSTRAP_PATH = "/api/bootstrap"
+#: Ceiling on the compressed cold-start body, over both negotiated encodings.
+#: The preloaded bootstrap rides the same cold connection as the shell and
+#: ``/app.js``, so it is bounded on its own: the shell and the client already
+#: spend most of ``_ENTRY_WIRE_BUDGET_BYTES`` before any data is counted, which
+#: leaves this payload no room to grow into.  A first page of
+#: ``_BOOTSTRAP_FUNCTION_LIMIT`` rows measures 711 B (zstd) / 776 B (gzip);
+#: the full interactive page measured 1083 / 1305 and is over this ceiling.
+_BOOTSTRAP_WIRE_BUDGET_BYTES = 1024
 #: RFC 6928 initial send window: 10 segments of 1460 B.  The entry assets have
 #: to fit it on a cold connection or first paint waits an extra round trip.
 _INITCWND_BYTES = 10 * 1460
 #: Header bytes held back from that window for the entry responses.  Each
-#: carries ~620 B, dominated by the shared security-header set; 640 B per
-#: response leaves room for a longer CSP or Cache-Control value.
+#: carries ~530 B as served, dominated by the shared security-header set; 640 B
+#: per response leaves room for a longer CSP or Cache-Control value.  Three
+#: static entry responses take part: the shell, ``/app.js`` and the boot guard.
 _ENTRY_HEADER_RESERVE_BYTES = 3 * 640
 _ENTRY_WIRE_BUDGET_BYTES = _INITCWND_BYTES - _ENTRY_HEADER_RESERVE_BYTES
 _WireEncoding = Literal["zstd", "gzip"]
@@ -1782,7 +1799,7 @@ class Dashboard:
             payload["target"] = target
             payload["summary"] = self.summary(target)
             if payload["summary"] is not None:
-                payload["functions"] = self.functions(target, limit=_DEFAULT_LIMIT)
+                payload["functions"] = self.functions(target, limit=_BOOTSTRAP_FUNCTION_LIMIT)
             return payload
 
     def _summary_lookup(
