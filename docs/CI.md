@@ -25,8 +25,9 @@ generator validates the document it emits, so a lock that parsed short, or a
 component whose grant nobody recorded, fails the build instead of shipping a
 BOM that reads to a scanner as a clean bill of health), writes
 `dist/rebrew.buildinfo`
-(uv/python/`.python-version`/setuptools parsed from `pyproject.toml` + epoch
-knobs, source commit and dirty flag), and installs the
+(project name and `__version__`, uv/python/`.python-version`/setuptools parsed
+from `pyproject.toml` + epoch knobs, the sha256 of `build-constraints.txt`, and
+the source commit and dirty flag), and installs the
 wheel into a clean venv for a smoke import — runtime deps come from
 `uv sync --frozen --no-install-project`, then the wheel is overlaid with
 `--no-deps` so the smoke cannot drift past `uv.lock`. The smoke assertions

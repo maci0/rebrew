@@ -276,7 +276,8 @@ clean:
 # drop build/ + egg-info first: setuptools packs every file left in build/lib
 # into the wheel, so residue from an aborted or bare `uv build` would ship.
 # After the build, remove setuptools' in-tree egg-info / build/ residue and
-# record a buildinfo manifest (toolchain, SOURCE_DATE_EPOCH, source commit) next to the
+# record a buildinfo manifest (project version, toolchain, SOURCE_DATE_EPOCH,
+# the sha256 of build-constraints.txt, source commit) next to the
 # artifacts so a rebuild can be attempted with the same environment knobs.
 # Toolchain lines record versions, never host paths (the manifest ships).
 # The build backend is hash-verified against build-constraints.txt, whose
@@ -299,7 +300,18 @@ build: warn-uv-version
 	@rm -rf build rebrew.egg-info src/rebrew.egg-info
 	@set -eu; \
 	st=$$(sed -n 's/^requires = \["setuptools==\([0-9.][0-9.]*\)"\]/\1/p' pyproject.toml | head -n 1); \
+	ver=$$(sed -n 's/^__version__ = "\([^"]*\)".*/\1/p' src/rebrew/__init__.py | head -n 1); \
+	[ -n "$$ver" ] || { echo "ERROR: no __version__ in src/rebrew/__init__.py"; exit 1; }; \
+	if command -v sha256sum >/dev/null 2>&1; then \
+	  bsum=$$(sha256sum build-constraints.txt | cut -d' ' -f1); \
+	elif command -v shasum >/dev/null 2>&1; then \
+	  bsum=$$(shasum -a 256 build-constraints.txt | cut -d' ' -f1); \
+	else \
+	  echo "ERROR: no sha256sum or shasum on PATH (cannot record the build-backend pin)"; exit 1; \
+	fi; \
 	{ \
+	  echo "name=rebrew"; \
+	  echo "version=$$ver"; \
 	  echo "SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH)"; \
 	  echo "umask=022"; \
 	  echo "TZ=UTC"; \
@@ -309,6 +321,7 @@ build: warn-uv-version
 	  echo "python=$$("$$(uv python find)" --version)"; \
 	  echo "python-version=$$(cat .python-version)"; \
 	  echo "setuptools=$$st"; \
+	  echo "build-constraints-sha256=$$bsum"; \
 	  echo "source-commit=$$(git rev-parse HEAD 2>/dev/null || echo n/a)"; \
 	  echo "source-dirty=$$(if ! git rev-parse --git-dir >/dev/null 2>&1; then echo n/a; elif [ -n "$$(git status --porcelain)" ]; then echo yes; else echo no; fi)"; \
 	} > dist/rebrew.buildinfo

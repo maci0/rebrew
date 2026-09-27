@@ -1,9 +1,13 @@
-# Line-ending policy: normalize text to LF in the index (the tree is LF;
-# contributors on CRLF checkouts get conversion on commit, not churn).
-* text=auto
+# Line-ending policy: normalize text to LF in the index *and* on checkout.
+# Without eol=lf, text=auto leaves the working tree to core.autocrlf, so a
+# CRLF checkout feeds CRLF bytes into the sdist and the wheel and the artifacts
+# no longer match the byte-for-byte second build CI proves (that step varies
+# path, umask, TZ and locale, not line endings). The project ships POSIX/Linux
+# only, so forcing LF costs nothing and pins the bytes.
+* text=auto eol=lf
 
-# Shell and Make recipes must stay LF: a CRLF checkout breaks `#!/usr/bin/env`
-# shebangs and Make's recipe parser on the Linux host this project targets.
+# Shell and Make recipes named as well: a CRLF checkout breaks `#!/usr/bin/env`
+# shebangs and Make's recipe parser.
 *.sh text eol=lf
 Makefile text eol=lf
 
