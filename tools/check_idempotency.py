@@ -333,6 +333,9 @@ WRITE_COMMANDS = [
     "skeleton 0x00401010",
     # Regenerates db/data_<target>.json and the reccmp CSV from the sources.
     "catalog",
+    # The --data-json variant: one entry point, a second output file, so it
+    # gets its own fixture rather than sharing ``catalog``'s.
+    "catalog --data-json",
     # Rewrites the splat-style symbol_addrs file from the annotations.
     "symbol-addrs",
     # Renders the CMake toolchain file driving the docker bridge scripts.
@@ -341,6 +344,17 @@ WRITE_COMMANDS = [
     "fix src/SERVER/fcn.c",
     # Emits the universal decompilation context file into the source tree.
     "context",
+    # Writes BLOCKER text, then BLOCKER + BLOCKER_DELTA: the two writers
+    # differ in that the second is numeric, so a re-run that appended rather
+    # than replaced would show up as text and as a digit run.
+    "blocker set 0x00401000 probe",
+    "blocker set 0x00401000 probe --delta 3",
+    # Per-library override store: a plain field write, and a preset merge that
+    # fills fields the command did not pass.  Both go through the in-place
+    # tomlkit edit under the metadata write lock, so neither may append a
+    # duplicate key or leave a second header on a re-run.
+    "library set . --toolchain msvc-6.0 --cflags /O2",
+    "library set . --preset msvcrt-static",
     # ``inline-strings`` is deliberately absent: it reads the layout package
     # that ``gen-layout`` writes, and that needs a reference binary the
     # read-only fixture does not ship.  It exited 2 on every run, which the
