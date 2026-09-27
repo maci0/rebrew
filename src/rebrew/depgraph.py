@@ -34,10 +34,13 @@ from rebrew.sources import (
     target_marker,
 )
 from rebrew.status_style import DISPLAY_STATUSES, STATUS_HEX
-from rebrew.utils import atomic_write_text
+from rebrew.utils import atomic_write_text, fold_ident
 
 # Pre-compiled regex for graph node ID sanitization.
 _NODE_ID_RE = re.compile(r"[^a-zA-Z0-9_]")
+
+# Placeholder node names the graph synthesises for unnamed call targets.
+_PLACEHOLDER_NAME_RE = re.compile(r"fn_0x[0-9a-f]+_")
 
 # Standard library / compiler intrinsics filtered out of the call graph to
 # reduce visual noise — they show up in nearly every reversed function and
@@ -366,17 +369,22 @@ def _focus_graph(
     # Find focus node: exact name (key or symbol label), then (for
     # hex-looking input) VA match, then partial name — a `fn_0x..._*`
     # placeholder must not shadow the real function at the VA.
-    focus_lower = focus.strip().lower()
+    #
+    # fold_ident (NFC + casefold), not str.lower, matching every other
+    # symbol-name lookup (cli.select_annotation, match_sweep, naming): a
+    # symbol stored NFD ("café") and typed NFC must resolve, and
+    # "STRASSE" must match "straße".
+    focus_folded = fold_ident(focus.strip())
     focus_name = None
     for name, info in nodes.items():
-        candidates = {name.lower(), (info.get("symbol", "") or "").lower()}
-        if focus_lower in candidates:
+        candidates = {fold_ident(name), fold_ident(info.get("symbol", "") or "")}
+        if focus_folded in candidates:
             focus_name = name
             break
     va_int: int | None = None
-    if not focus_name and focus_lower.startswith("0x"):
+    if not focus_name and focus_folded.startswith("0x"):
         with contextlib.suppress(ValueError):
-            va_int = int(focus_lower, 16)
+            va_int = int(focus_folded, 16)
         if va_int is not None:
             for name, info in nodes.items():
                 if info["va"] == va_int:
@@ -388,9 +396,9 @@ def _focus_graph(
         # `fn_0x..._*` placeholder names (their hex is a fragment, not the
         # function the user asked about).
         for name, info in nodes.items():
-            haystacks = (name.lower(), (info.get("symbol", "") or "").lower())
-            if any(focus_lower in h for h in haystacks):
-                if va_int is not None and re.match(r"fn_0x[0-9a-f]+_", name.lower()):
+            haystacks = (fold_ident(name), fold_ident(info.get("symbol", "") or ""))
+            if any(focus_folded in h for h in haystacks):
+                if va_int is not None and _PLACEHOLDER_NAME_RE.match(fold_ident(name)):
                     continue
                 focus_name = name
                 break
