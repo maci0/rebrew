@@ -6,7 +6,7 @@ description: >-
   first skeletons). Triggers on 'intake', 'onboard', 'onboard binary',
   'new binary', 'new target', 'import binary', 'binary recon', 'analyze',
   'fingerprints', 'FLIRT scan', 'first triage', 'catalog', 'build-db',
-  'detect-crt', or 'gen-layout'. Prefer this over rebrew-init when the user
+  'detect-crt', 'gen-layout', 'dashboard', 'coverage dashboard'. Prefer this over rebrew-init when the user
   hands you a binary to onboard; use rebrew-init only when teaching
   `rebrew init` / profile / target naming. Not for day-to-day flirt/todo/test,
   or a later catalog/build-db refresh, on an already-onboarded target (rebrew-workflow).

@@ -172,7 +172,9 @@ qualifier variants. Batch flag/GA details: `references/flag-sweep.md`.
 - Common CFLAGS: `/O2 /Gd` (GAME); a library subtree takes its flags from a
   preset (§8), not from per-function CFLAGS.
 - While iterating on a single function, `--watch` (on `diff`, `prove`, or `match`) re-runs on every
-  file save — faster than re-typing the command.
+  file save — faster than re-typing the command. It never exits on its own: start it only when the
+  user wants a live loop, and stop it when they are done. `match --watch` is single-function only
+  (it cannot be combined with `--all`).
 - Do not start long GA (`-g` large / `--all`) without user confirmation.
 
 ## 6. Symbolic Equivalence Proving
@@ -208,6 +210,7 @@ rebrew library set src/<target>/crt --cflags "/O1 /Gd"      # explicit flags win
 rebrew library set src/<target>/crt --dry-run               # preview the write
 rebrew library show src/<target>/crt                       # effective override (walk-up from here)
 rebrew library list                                        # every rebrew-libraries.toml under the root
+rebrew library rm src/<target>/crt --dry-run            # preview the removal
 rebrew library rm src/<target>/crt                         # drop the override (back to project defaults)
 ```
 

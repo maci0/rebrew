@@ -9,8 +9,9 @@ description: >-
   'skeleton', 'test function', 'verify', 'lint', 'next function', 'workflow',
   'todo', 'diff', 'asm', 'status', 'coverage', 'progress', 'blocker',
   'rebrew test', 'rebrew verify', 'rebrew skeleton', 'rebrew todo',
-  'naked reconstruction', 'SOURCE: naked'. Hand off near-miss GA/prove to
-  rebrew-matching; new binaries to rebrew-intake; globals/BSS to
+  'naked reconstruction', 'SOURCE: naked', 'rebrew doctor', 'doctor fails',
+  'health check', 'round-trip', 'round trip', 'splice'. Hand off near-miss
+  GA/prove to rebrew-matching; new binaries to rebrew-intake; globals/BSS to
   rebrew-data-analysis; Ghidra to rebrew-ghidra-sync.
 license: MIT
 ---
