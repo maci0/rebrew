@@ -161,6 +161,50 @@ class TestSourceHash:
         text_b, _ = read_source_text(path)
         assert text_b != text_a
 
+    def test_retained_bodies_stay_within_the_byte_budget(self, tmp_path: Path) -> None:
+        """The source memo is bounded in bytes, not in entries.
+
+        An edit re-keys the memo, so a ``verify --watch`` session adds one
+        body per save; without a byte bound the retained total would grow
+        with the length of the session.
+        """
+        from rebrew import verify_hash
+
+        verify_hash.clear_source_memo()
+        monkey_max = 4096
+        original_max = verify_hash._SOURCE_MEMO_MAX_BYTES
+        verify_hash._SOURCE_MEMO_MAX_BYTES = monkey_max
+        try:
+            for i in range(40):
+                path = tmp_path / f"f{i}.c"
+                path.write_text("x" * 512, encoding="utf-8")
+                source_hash(path)
+            retained_bytes = verify_hash._SOURCE_MEMO_BYTES
+            retained_entries = len(verify_hash._SOURCE_MEMO)
+            assert retained_bytes <= monkey_max
+            assert retained_entries < 40
+        finally:
+            verify_hash._SOURCE_MEMO_MAX_BYTES = original_max
+            verify_hash.clear_source_memo()
+
+    def test_oversized_source_is_still_hashed_and_stays_readable(self, tmp_path: Path) -> None:
+        """A body larger than the budget is evicted, not refused or half-held."""
+        from rebrew import verify_hash
+
+        verify_hash.clear_source_memo()
+        original_max = verify_hash._SOURCE_MEMO_MAX_BYTES
+        verify_hash._SOURCE_MEMO_MAX_BYTES = 16
+        try:
+            path = tmp_path / "big.c"
+            path.write_text("y" * 4096, encoding="utf-8")
+            expected = hashlib.sha256(path.read_bytes()).hexdigest()
+            assert source_hash(path) == expected
+            assert source_hash(path) == expected
+            assert len(verify_hash._SOURCE_MEMO) == 1
+        finally:
+            verify_hash._SOURCE_MEMO_MAX_BYTES = original_max
+            verify_hash.clear_source_memo()
+
 
 class TestBinaryId:
     def test_same_size_rename_over_same_mtime_changes_id(self, tmp_path: Path) -> None:
