@@ -14,7 +14,10 @@ from rebrew.flags import Checkbox, FlagSet  # noqa: E402
 class LanguageFlagSet:
     """Stand-in matching the decomp.me LanguageFlagSet shape."""
 
-    def __init__(self, id: str, flags: dict) -> None:
+    # `id` is the real attribute name on declib's flag set, and the format
+    # assertions below pin its repr: a renamed parameter would stop this
+    # stand-in from standing in.
+    def __init__(self, id: str, flags: dict) -> None:  # noqa: A002
         self.id = id
         self.flags = flags
 

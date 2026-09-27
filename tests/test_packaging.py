@@ -980,7 +980,7 @@ class TestSdistManifest:
         # setuptools force-writes an empty egg_info stub into the sdist after
         # MANIFEST processing (same class as SOURCES.txt) — accept only that
         # harmless form, never a real setuptools config.
-        setup_cfgs = [n for n in names if n.endswith("/setup.cfg") or n.endswith("setup.cfg")]
+        setup_cfgs = [n for n in names if n.endswith(("/setup.cfg", "setup.cfg"))]
         if setup_cfgs:
             assert len(setup_cfgs) == 1, setup_cfgs
             with tarfile.open(sdists[0]) as tf:

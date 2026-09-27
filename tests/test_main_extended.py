@@ -15,7 +15,7 @@ class TestVerbosity:
         levels: list[int] = []
         kwargs_seen: list[dict[str, object]] = []
 
-        def _basicConfig(format="", level=0, **kw):
+        def _basicConfig(fmt="", level=0, **kw):
             levels.append(level)
             kwargs_seen.append(kw)
 

@@ -393,6 +393,21 @@
 - **`update_annotation_key("STATUS", ...)` reports whether it wrote.**
   The branch returned True unconditionally, so a same-value write or one
   the promotion gate refused claimed a write it never made.
+- **Two type errors the strict mypy gate was reporting on a clean tree.**
+  `tests/test_errors.py` read `rebuilt.kind` off a base `RebrewError`, whose
+  documented contract is that `kind` stays on the subclass that can fill it,
+  and `tests/test_ast_engine.py` ran `in` over `root_node.text`, which the
+  tree-sitter stubs type as `bytes | None`. Both were reachable failures, not
+  false positives: the first is an attribute the type is documented not to
+  have, the second an operand not guaranteed to be bytes.
+- **Four lint rules the tree already passed.** `S112` (a `continue` that
+  swallows the exception), `PTH118` (`os.path.join` over `Path`), `PIE810`
+  (two `startswith` calls over one tuple) and `A002` (a parameter shadowing a
+  builtin) were selectable but off, so a new instance of any of them merged
+  unseen. Ten findings were fixed; the two that could not be renamed (declib's
+  `id` attribute name in the flag-set stand-in, and `link_order`'s
+  `os.path.join`, whose `normpath` is what collapses `..` out of the sort
+  key) carry a scoped `noqa` with the reason.
 - **The threat model records where a recompile endpoint's bytes land.** The
   remote backend's returned object is now published into the local compile
   cache (`publish_obj_cache` in `compile.py`) so verify stops re-POSTing, which

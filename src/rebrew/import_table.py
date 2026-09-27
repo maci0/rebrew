@@ -211,7 +211,7 @@ def _elf_version_libraries(elf: Any) -> dict[str, str]:
         library = str(getattr(requirement, "name", "") or "")
         try:
             version_names = [str(aux.name or "") for aux in requirement.get_auxiliary_symbols()]
-        except Exception:  # a malformed version table must not cost the whole import list
+        except Exception:  # noqa: S112  # a malformed version table must not cost the import list
             continue
         for version_name in version_names:
             if version_name:

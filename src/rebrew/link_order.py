@@ -251,7 +251,9 @@ def _abs_key(root: Path, token: str) -> str:
     cleaned = token.strip('"').replace("\\", "/")
     while cleaned.startswith("./"):
         cleaned = cleaned[2:]
-    return os.path.normpath(os.path.join(str(root), cleaned))
+    # normpath is load-bearing: it collapses `..` and `.` out of the key, which
+    # the Path operator keeps, so the two sort orders would not agree.
+    return os.path.normpath(os.path.join(str(root), cleaned))  # noqa: PTH118
 
 
 def _rel(root: Path, path: Path) -> str:

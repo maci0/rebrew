@@ -22,6 +22,7 @@ Also importable for tests::
 import ast
 import os
 from collections import defaultdict
+from pathlib import Path
 
 
 def _module_level_imports(stmts: list[ast.stmt]) -> list[ast.Import | ast.ImportFrom]:
@@ -45,10 +46,10 @@ def _module_level_imports(stmts: list[ast.stmt]) -> list[ast.Import | ast.Import
     return found
 
 
-def _get_imports(filepath: str, package_prefix: str) -> list[str]:
+def _get_imports(filepath: str | Path, package_prefix: str) -> list[str]:
     with open(filepath, "rb") as f:
         try:
-            tree = ast.parse(f.read(), filename=filepath)
+            tree = ast.parse(f.read(), filename=str(filepath))
         except Exception:
             return []
     imports: list[str] = []
@@ -82,7 +83,7 @@ def detect_cycles(root: str) -> list[list[str]]:
         for file in sorted(files):
             if not file.endswith(".py"):
                 continue
-            path = os.path.join(dirpath, file)
+            path = Path(dirpath) / file
             rel = os.path.relpath(path, package_root)
             mod_name = rel[:-3].replace(os.sep, ".")
             if file == "__init__.py":

@@ -264,7 +264,13 @@ class TestSerializationRoundTrip:
         )
 
         assert type(rebuilt) is RebrewError
-        assert (str(rebuilt), rebuilt.retryable, rebuilt.kind) == ("new", True, "network")
+        # ``kind`` is a domain field: it stays on the subclass that can fill
+        # it, so on a base instance from_dict set it on the instance only.
+        assert (str(rebuilt), rebuilt.retryable, vars(rebuilt)["kind"]) == (
+            "new",
+            True,
+            "network",
+        )
 
 
 #: Constructor keywords for the error classes that require more than a message.

@@ -9,8 +9,8 @@ from rebrew.c_parser import (
 
 
 class Node:
-    def __init__(self, type: str, children=None, start: int = 0, end: int = 0) -> None:
-        self.type = type
+    def __init__(self, node_type: str, children=None, start: int = 0, end: int = 0) -> None:
+        self.type = node_type
         self.children = children or []
         self.start_byte = start
         self.end_byte = end

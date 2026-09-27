@@ -957,20 +957,22 @@ def swap_toolchain_image(tag: str, op: Callable[[], None]) -> str:
     return current
 
 
-def _match_binary(dir: Path, binary: str) -> Path | None:
-    """Case-insensitive match of *binary* in *dir*, tolerating a ``.exe``
+def _match_binary(directory: Path, binary: str) -> Path | None:
+    """Case-insensitive match of *binary* in *directory*, tolerating a ``.exe``
     suffix (vendored Windows trees store ``CL.EXE`` / ``cl.exe`` while specs
     name the binary ``cl``)."""
     norm_bin = unicodedata.normalize("NFC", binary).casefold()
     want = {norm_bin, norm_bin + ".exe"}
     try:
-        for entry in dir.iterdir():
+        for entry in directory.iterdir():
             if entry.is_file() and unicodedata.normalize("NFC", entry.name).casefold() in want:
                 return entry
     except OSError as exc:
         # An unreadable tree is not "no compiler here": the caller falls
         # through to a PATH lookup and reports a missing toolchain.
-        logging.getLogger(__name__).warning("cannot scan vendored toolchain dir %s: %s", dir, exc)
+        logging.getLogger(__name__).warning(
+            "cannot scan vendored toolchain dir %s: %s", directory, exc
+        )
     return None
 
 

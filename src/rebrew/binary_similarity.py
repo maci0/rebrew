@@ -238,7 +238,7 @@ def _load_side(
             continue
         try:
             code = extract_raw_bytes(binary, va, size)
-        except Exception:  # one bad function must not kill the report
+        except Exception:  # noqa: S112  # one bad function must not kill the report
             continue
         if not code:
             continue

@@ -195,7 +195,7 @@ class TestCiPins:
         for path in (CI_YML, SYNC_YML, UV_ENV_ACTION):
             for m in _USES_RE.finditer(path.read_text(encoding="utf-8")):
                 uses = m.group("uses")
-                if uses.startswith("./") or uses.startswith("docker://"):
+                if uses.startswith(("./", "docker://")):
                     continue
                 _, _, ref = uses.partition("@")
                 # Allow an optional trailing comment already stripped by the regex.
