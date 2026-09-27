@@ -51,7 +51,21 @@ _COLLECT_PAIRS_LOCK = threading.Lock()
 #: batch pays the corpus parse once per process instead of once per stub.
 #: One entry per path: a collect run appends continuously, so keeping every
 #: stat generation of the same corpus would grow with the stub count.
+#: Bounded across paths — each entry holds every fingerprint of a corpus that
+#: grows by one per stub, so a batch over many projects (or a long-lived
+#: process) would otherwise retain all of them until exit.  Eviction is FIFO
+#: on insertion order, matching the other per-path memos in the tree.
 _PAIR_KEYS_MEMO: dict[str, tuple[int, int, frozenset[str]]] = {}
+_PAIR_KEYS_MEMO_MAX = 8
+_PAIR_KEYS_MEMO_LOCK = threading.Lock()
+
+
+def _memo_pair_keys(key: str, entry: tuple[int, int, frozenset[str]]) -> None:
+    """Store one corpus-key memo, evicting the oldest path when full."""
+    with _PAIR_KEYS_MEMO_LOCK:
+        if key not in _PAIR_KEYS_MEMO and len(_PAIR_KEYS_MEMO) >= _PAIR_KEYS_MEMO_MAX:
+            del _PAIR_KEYS_MEMO[next(iter(_PAIR_KEYS_MEMO))]
+        _PAIR_KEYS_MEMO[key] = entry
 
 
 def _pair_fingerprint(src: str, obj_bytes: bytes, cflags: str, symbol: str) -> str:
@@ -791,11 +805,12 @@ class BinaryMatchingGA:
             st = path.stat()
         except OSError:
             return set()
-        memo = _PAIR_KEYS_MEMO.get(str(path))
+        with _PAIR_KEYS_MEMO_LOCK:
+            memo = _PAIR_KEYS_MEMO.get(str(path))
         if memo is not None and memo[0] == st.st_mtime_ns and memo[1] == st.st_size:
             return set(memo[2])
         keys = _scan_pair_keys(path)
-        _PAIR_KEYS_MEMO[str(path)] = (st.st_mtime_ns, st.st_size, frozenset(keys))
+        _memo_pair_keys(str(path), (st.st_mtime_ns, st.st_size, frozenset(keys)))
         return keys
 
     def _write_pair(self, src: str, obj_bytes: bytes, score: float) -> None:
@@ -839,10 +854,13 @@ class BinaryMatchingGA:
                 st = self.collect_pairs_path.stat()
             except OSError:
                 return
-            _PAIR_KEYS_MEMO[str(self.collect_pairs_path)] = (
-                st.st_mtime_ns,
-                st.st_size,
-                frozenset(self._pair_keys),
+            _memo_pair_keys(
+                str(self.collect_pairs_path),
+                (
+                    st.st_mtime_ns,
+                    st.st_size,
+                    frozenset(self._pair_keys),
+                ),
             )
 
     def run(self, deadline: float | None = None) -> tuple[str | None, float]:

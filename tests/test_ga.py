@@ -2447,3 +2447,61 @@ class TestToolchainRoutedBuildCandidate:
         )
         assert called == ["compile_to_obj"]  # docker runner delegation
         assert res.ok is False  # fake compile failed — routing is what matters
+
+
+# -------------------------------------------------------------------------
+# collect-pairs corpus memo (match_ga._PAIR_KEYS_MEMO)
+# -------------------------------------------------------------------------
+
+
+class TestPairKeysMemo:
+    """The parsed-corpus memo is bounded across paths, and still served."""
+
+    def _engine(self, path: Path) -> Any:
+        from rebrew.match_ga import BinaryMatchingGA
+
+        engine = BinaryMatchingGA.__new__(BinaryMatchingGA)
+        engine.collect_pairs_path = path
+        return engine
+
+    def _corpus(self, path: Path, key: str) -> None:
+        path.write_text(
+            json.dumps(
+                {
+                    "source": "int f(void){return 0;}",
+                    "compiled_bytes": "90",
+                    "target_bytes": "90",
+                    "score": 1.0,
+                    "cflags": "/O2",
+                    "symbol": key,
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+    def test_memo_serves_parsed_keys(self, tmp_path: Path, monkeypatch: Any) -> None:
+        from rebrew import match_ga
+
+        path = tmp_path / "pairs.jsonl"
+        self._corpus(path, "f")
+        match_ga._PAIR_KEYS_MEMO.clear()
+        first = self._engine(path)._load_pair_keys()
+        assert first
+        assert len(match_ga._PAIR_KEYS_MEMO) == 1
+
+        def _boom(_p: Path) -> set[str]:
+            raise AssertionError("memo hit re-scanned the corpus")
+
+        monkeypatch.setattr(match_ga, "_scan_pair_keys", _boom)
+        assert self._engine(path)._load_pair_keys() == first
+
+    def test_memo_is_bounded_across_paths(self, tmp_path: Path) -> None:
+        from rebrew import match_ga
+
+        match_ga._PAIR_KEYS_MEMO.clear()
+        for i in range(match_ga._PAIR_KEYS_MEMO_MAX + 3):
+            path = tmp_path / f"pairs{i}.jsonl"
+            self._corpus(path, f"f{i}")
+            self._engine(path)._load_pair_keys()
+        assert len(match_ga._PAIR_KEYS_MEMO) <= match_ga._PAIR_KEYS_MEMO_MAX
