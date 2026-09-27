@@ -144,6 +144,23 @@
   reset each request. No `/api/*` JSON changed.
 
 ### Fixed
+- **A transient GitHub API failure no longer reddens the nightly drift gate.**
+  `rebrew toolchain check-updates` calls `_live_commit_sha` once per codeload
+  source, and any exception there became a `check failed` row, which is one of
+  the states `.github/workflows/toolchain-sync.yml` fails on. One 502 or reset
+  connection read as a pin that had moved. The lookup now retries a transport
+  failure or a retryable status on the same backoff the pinned-media download
+  uses, and reports a 404-class answer on the first attempt, so a wrong
+  repository still says so without waiting out a retry budget.
+- **The drift gate's status allowlist can no longer drift from the command.**
+  The `jq` verdict spelled out the two `static (...)` rows in the workflow
+  while `toolchain_cli` spelled them out again at the assignment sites, so a
+  reworded status made every source read as neither current nor static and the
+  nightly failed with a bare exit code. The rows are now the
+  `STATUS_CURRENT` / `STATUS_STATIC_ASSET` / `STATUS_STATIC_TARBALL` constants
+  in `rebrew.toolchain_cli`, the workflow lists them once and uses that list
+  for both the verdict and a diagnostic naming the offending sources, and
+  `tests/test_ci_pins.py` fails when the two sides part.
 - **`RebrewError.from_dict` rebuilds every public error class.** It allocates
   through `target.__new__(target)`, which reaches `ValueError.__new__` for a
   class that mixes exception bases and therefore refuses the `OSError` layout:

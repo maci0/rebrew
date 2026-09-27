@@ -1680,6 +1680,113 @@ class TestTrustedToolchainDownload:
         assert dest.read_bytes() == b"payload"
 
 
+class TestLiveCommitShaRetry:
+    """`check-updates` calls `_live_commit_sha` once per codeload source, and
+    the nightly drift gate fails the job on a `check failed` row. A single
+    502 or reset connection must not read as a pin that moved."""
+
+    @staticmethod
+    def _resp(status: int, sha: str = "a" * 40) -> object:
+        import httpx
+
+        class _Resp:
+            def __init__(self) -> None:
+                self.status_code = status
+                self.request = httpx.Request("GET", "https://api.github.com/")
+
+            def raise_for_status(self) -> None:
+                if self.status_code >= 400:
+                    raise httpx.HTTPStatusError(
+                        "boom",
+                        request=self.request,
+                        response=self,  # type: ignore[arg-type]
+                    )
+
+            def json(self) -> dict[str, str]:
+                return {"sha": sha}
+
+            def close(self) -> None:
+                return None
+
+        return _Resp()
+
+    def test_retryable_status_is_retried(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import httpx
+
+        from rebrew.toolchain_cli import _live_commit_sha
+
+        calls = 0
+
+        def _get(*args: object, **kwargs: object) -> object:
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                return self._resp(502)
+            return self._resp(200)
+
+        monkeypatch.setattr(httpx, "get", _get)
+        monkeypatch.setattr("rebrew.toolchain_cli.time.sleep", lambda _s: None)
+        assert _live_commit_sha("o", "r", "master") == "a" * 40
+        assert calls == 2
+
+    def test_transport_failure_is_retried(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import httpx
+
+        from rebrew.toolchain_cli import _live_commit_sha
+
+        calls = 0
+
+        def _get(*args: object, **kwargs: object) -> object:
+            nonlocal calls
+            calls += 1
+            if calls < 3:
+                raise httpx.ConnectError("connection reset")
+            return self._resp(200, sha="b" * 40)
+
+        monkeypatch.setattr(httpx, "get", _get)
+        monkeypatch.setattr("rebrew.toolchain_cli.time.sleep", lambda _s: None)
+        assert _live_commit_sha("o", "r", "master") == "b" * 40
+        assert calls == 3
+
+    def test_missing_repo_is_not_retried(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A 404 is an answer, not a blip: retrying only delays the report."""
+        import httpx
+
+        from rebrew.toolchain_cli import _live_commit_sha
+
+        calls = 0
+
+        def _get(*args: object, **kwargs: object) -> object:
+            nonlocal calls
+            calls += 1
+            return self._resp(404)
+
+        monkeypatch.setattr(httpx, "get", _get)
+        monkeypatch.setattr("rebrew.toolchain_cli.time.sleep", lambda _s: None)
+        with pytest.raises(httpx.HTTPStatusError):
+            _live_commit_sha("o", "r", "master")
+        assert calls == 1
+
+    def test_budget_is_spent_then_reported(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Every attempt failing still raises, so the row reads `check failed`."""
+        import httpx
+
+        from rebrew.toolchain_cli import _HTTP_ATTEMPTS, _live_commit_sha
+
+        calls = 0
+
+        def _get(*args: object, **kwargs: object) -> object:
+            nonlocal calls
+            calls += 1
+            raise httpx.ReadTimeout("timed out")
+
+        monkeypatch.setattr(httpx, "get", _get)
+        monkeypatch.setattr("rebrew.toolchain_cli.time.sleep", lambda _s: None)
+        with pytest.raises(httpx.ReadTimeout):
+            _live_commit_sha("o", "r", "master")
+        assert calls == _HTTP_ATTEMPTS
+
+
 class TestVendorRetryAfterPartialFailure:
     """A crashed/failed ``vendor`` must leave the tree retryable — empty or
     binary-less ``source/`` is wiped so the next run is not blocked by

@@ -157,7 +157,15 @@ fails on drift, failed checks, unpinned sources, or an empty source inventory.
 `GH_TOKEN` is mapped onto the resembl-clone and `check-updates` steps only
 (authenticated git + GitHub API rate limits). The result gate uses `jq`,
 installed up front through the same `tools/ci_apt_install.sh` helper nasm and
-shellcheck come from, rather than assumed from the runner image.
+shellcheck come from, rather than assumed from the runner image. Its allowlist
+of passing statuses is the `STATUS_CURRENT` / `STATUS_STATIC_ASSET` /
+`STATUS_STATIC_TARBALL` constants in `rebrew.toolchain_cli`, listed once as
+`$ok` and used by both the verdict and the diagnostic, so a wording change in
+the command fails `tests/test_ci_pins.py` instead of reddening the nightly; a
+failing verdict names the sources it is about. One GitHub API blip is not
+drift either: `_live_commit_sha` retries a transport failure or a retryable
+status on the same backoff the pinned-media download uses, and only a 404-class
+answer is reported on the first attempt.
 
 ## Project / workspace CI
 

@@ -1201,6 +1201,43 @@ class TestToolchainSync:
         assert "jq --version" in step, step
         assert "jq -e" in drift, drift
 
+    def test_drift_gate_allowlist_matches_the_reported_statuses(self) -> None:
+        """The gate must accept exactly the statuses ``check-updates`` emits.
+
+        A wording change in ``rebrew.toolchain_cli`` used to leave the
+        ``jq`` allowlist naming an old spelling: every source then reads as
+        neither current nor static and the nightly fails with a bare exit
+        code. The two lists now live in the source as ``STATUS_*`` constants
+        and the gate reads them from a single ``$ok`` value, so only the
+        wording can drift, and this test fails when it does.
+        """
+        from rebrew.toolchain_cli import (
+            STATUS_CURRENT,
+            STATUS_STATIC_ASSET,
+            STATUS_STATIC_TARBALL,
+        )
+
+        sync = SYNC_YML.read_text(encoding="utf-8")
+        m = re.search(r"(?m)^          ok='(?P<list>\[[^']*\])'$", sync)
+        assert m, "no ok= allowlist in the drift step"
+        assert json.loads(m.group("list")) == [
+            STATUS_CURRENT,
+            STATUS_STATIC_ASSET,
+            STATUS_STATIC_TARBALL,
+        ]
+        # The diagnostic must read the same list, not restate the spellings.
+        drift = sync.rsplit("name: Check toolchain source drift\n", 1)[1]
+        assert drift.count('--argjson ok "$ok"') == 2, drift
+        assert '"static (' not in drift.split("ok='", 1)[1].split("'", 1)[1], drift
+
+    def test_drift_gate_names_the_failing_sources(self) -> None:
+        """A red nightly must say which source failed, not just exit 1."""
+        drift = SYNC_YML.read_text(encoding="utf-8").rsplit(
+            "name: Check toolchain source drift\n", 1
+        )[1]
+        assert "sources that are neither current nor static:" in drift
+        assert "select(.value as $s | $ok | index($s) | not)" in drift
+
     @pytest.mark.parametrize(
         ("status", "drifted", "expected"),
         [
@@ -1243,3 +1280,12 @@ uv() {
         assert result.stderr.count("source check invoked") == 1
         if status is not None:
             assert status in result.stdout
+        # A failing verdict names the source it is about, so a red nightly
+        # says which pin to look at instead of only what the exit code was.
+        from rebrew.toolchain_cli import STATUS_CURRENT, STATUS_STATIC_ASSET, STATUS_STATIC_TARBALL
+
+        passing = {STATUS_CURRENT, STATUS_STATIC_ASSET, STATUS_STATIC_TARBALL}
+        if expected == 1 and status is not None and status not in passing:
+            assert f"  compiler: {status}" in result.stderr, result.stderr
+        else:
+            assert "neither current nor static" not in result.stderr, result.stderr

@@ -27,10 +27,24 @@ from rebrew.toolchain import (
     list_toolchains,
     pull_toolchain,
 )
-from rebrew.utils import SOURCE_CHECKOUT, atomic_write_text, container_runtime
+from rebrew.utils import (
+    RETRYABLE_HTTP_STATUS,
+    SOURCE_CHECKOUT,
+    atomic_write_text,
+    container_runtime,
+)
 
 if TYPE_CHECKING:
     from re import Match
+
+#: ``check-updates`` row values. The two ``static`` spellings mark a source
+#: that cannot drift (an immutable release asset, a tarball pinned inside the
+#: rebrew-toolchains checkout); the nightly gate in
+#: ``.github/workflows/toolchain-sync.yml`` allowlists these exact strings, so
+#: ``tests/test_ci_pins.py`` fails when the two sides drift apart.
+STATUS_CURRENT = "current"
+STATUS_STATIC_ASSET = "static (immutable release asset)"
+STATUS_STATIC_TARBALL = "static (pinned tarball in rebrew-toolchains)"
 
 #: Cap on each archive-extraction subprocess in `rebrew toolchain vendor`
 #: (matches the curl download timeout).  Without it a stuck filesystem or
@@ -42,10 +56,13 @@ _EXTRACT_TIMEOUT_S = 1800
 #: otherwise loop.
 _DOWNLOAD_REDIRECT_LIMIT = 10
 
-#: Transport attempts per redirect target, and the base delay (seconds) for
-#: the exponential backoff between them (``base * 2**attempt``).
-_DOWNLOAD_ATTEMPTS = 3
-_DOWNLOAD_RETRY_BACKOFF_S = 0.5
+#: Transport attempts for one GitHub request, and the base delay (seconds) of
+#: the exponential backoff between them (``base * 2**attempt``).  Shared by the
+#: pinned-media download (budget: per redirect target) and the upstream commit
+#: lookup: both are single requests whose one transient failure is a mirror
+#: blip, not a source that moved.
+_HTTP_ATTEMPTS = 3
+_HTTP_RETRY_BACKOFF_S = 0.5
 
 #: Tracked repo metadata kept when a vendored host tree is cleared or
 #: refreshed.  Docker build inputs, wrapper scripts, the pinned media and the
@@ -417,8 +434,8 @@ def _download_pinned_url(
     dest: Path,
     *,
     timeout: float = 1800,
-    attempts: int = _DOWNLOAD_ATTEMPTS,
-    backoff: float = _DOWNLOAD_RETRY_BACKOFF_S,
+    attempts: int = _HTTP_ATTEMPTS,
+    backoff: float = _HTTP_RETRY_BACKOFF_S,
 ) -> None:
     """Download *url* to *dest*, following redirects only while hosts stay trusted.
 
@@ -1380,7 +1397,14 @@ def _github_auth_headers() -> dict[str, str]:
 
 def _live_commit_sha(owner: str, repo: str, branch: str) -> str:
     """Current default-branch commit sha for a GitHub repo (GitHub API —
-    cheap: no tarball download)."""
+    cheap: no tarball download).
+
+    A transport failure or a retryable status is retried on the module's
+    shared backoff: check-updates loops this once per source, and one 502
+    from the API otherwise turns the nightly drift gate red without the pin
+    having moved. A non-retryable status (404, 403) is raised on the first
+    attempt, so a wrong repository still reports itself.
+    """
     import httpx
 
     url = f"https://api.github.com/repos/{owner}/{repo}/commits/{branch}"
@@ -1389,12 +1413,27 @@ def _live_commit_sha(owner: str, repo: str, branch: str) -> str:
     # Close every exit path: check-updates loops this once per source, and an
     # unclosed response pins the connection until GC (same discipline as
     # wibo / decompme one-shot GETs).
-    resp = httpx.get(url, headers=_github_auth_headers(), timeout=20, follow_redirects=False)
-    try:
-        resp.raise_for_status()
-        return str(resp.json()["sha"])
-    finally:
-        resp.close()
+    for attempt in range(_HTTP_ATTEMPTS):
+        try:
+            resp = httpx.get(
+                url, headers=_github_auth_headers(), timeout=20, follow_redirects=False
+            )
+            try:
+                resp.raise_for_status()
+                return str(resp.json()["sha"])
+            finally:
+                resp.close()
+        except httpx.HTTPStatusError as exc:
+            if (
+                exc.response.status_code not in RETRYABLE_HTTP_STATUS
+                or attempt + 1 == _HTTP_ATTEMPTS
+            ):
+                raise
+        except httpx.HTTPError:
+            if attempt + 1 == _HTTP_ATTEMPTS:
+                raise
+        time.sleep(_HTTP_RETRY_BACKOFF_S * 2**attempt)
+    raise ToolchainError(f"unreachable: no attempt made for {url!r}")
 
 
 @app.command("check-updates")
@@ -1420,7 +1459,7 @@ def check_updates_cmd(
     drifted: list[str] = []
     for name, src in sorted(SOURCES.items()):
         if src.in_repo:
-            rows[name] = "static (pinned tarball in rebrew-toolchains)"
+            rows[name] = STATUS_STATIC_TARBALL
             continue
         url = src.url or ""
         m = re.match(_CODELOAD_RE, url)
@@ -1438,7 +1477,7 @@ def check_updates_cmd(
                 rows[name] = f"unpinned (live {live[:12]})"
                 continue
             if live == src.commit:
-                rows[name] = "current"
+                rows[name] = STATUS_CURRENT
             else:
                 rows[name] = f"DRIFTED {src.commit[:12]} -> {live[:12]}"
                 drifted.append(name)
@@ -1450,7 +1489,7 @@ def check_updates_cmd(
                     _download_pinned_url(url, path, timeout=60)
                     actual = hashlib.sha256(path.read_bytes()).hexdigest()
                 if actual == src.sha256:
-                    rows[name] = "current"
+                    rows[name] = STATUS_CURRENT
                 else:
                     rows[name] = f"DRIFTED sha256 {src.sha256[:12]} -> {actual[:12]}"
                     drifted.append(name)
@@ -1458,14 +1497,14 @@ def check_updates_cmd(
                 logging.getLogger(__name__).warning("cannot check %s (%s): %s", name, url, exc)
                 rows[name] = f"check failed ({exc.__class__.__name__})"
             continue
-        rows[name] = "static (immutable release asset)"
+        rows[name] = STATUS_STATIC_ASSET
     if json_output:
         json_print({"toolchains": rows, "drifted": drifted})
         return
     for name, status in rows.items():
         color = (
             "green"
-            if status == "current"
+            if status == STATUS_CURRENT
             else ("red" if status.startswith("DRIFTED") else "yellow")
         )
         console.print(f"  [{color}]{name:14s}[/] {status}")

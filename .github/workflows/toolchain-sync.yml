@@ -62,12 +62,26 @@ jobs:
           set -euo pipefail
           result=$(uv run --frozen rebrew toolchain check-updates --json)
           jq . <<< "$result"
-          jq -e '
+          # The statuses a source may report and still pass. Keep in step
+          # with rebrew.toolchain_cli's STATUS_* constants:
+          # tests/test_ci_pins.py fails when the two drift apart, and the
+          # failing branch below names the entries that do not match.
+          ok='["current",
+                "static (immutable release asset)",
+                "static (pinned tarball in rebrew-toolchains)"]'
+          if ! jq -e --argjson ok "$ok" '
             .drifted == [] and
             (.toolchains | length > 0) and
-            all(.toolchains[];
-              . == "current" or
-              . == "static (immutable release asset)" or
-              . == "static (pinned tarball in rebrew-toolchains)"
-            )
-          ' <<< "$result"
+            all(.toolchains[]; . as $s | $ok | index($s))
+          ' <<< "$result"; then
+            offenders=$(jq -r --argjson ok "$ok" '
+              .toolchains | to_entries[]
+              | select(.value as $s | $ok | index($s) | not)
+              | "  \(.key): \(.value)"
+            ' <<< "$result")
+            if [[ -n "$offenders" ]]; then
+              echo "sources that are neither current nor static:" >&2
+              echo "$offenders" >&2
+            fi
+            exit 1
+          fi
