@@ -453,7 +453,18 @@ def main(
     selected = anns[0]
     if va:
         want = parse_va(va, json_mode=json_output)
-        selected = next((a for a in anns if a.va == want), selected)
+        match = next((a for a in anns if a.va == want), None)
+        if match is None and not symbol:
+            # A VA the file does not annotate must not fall back to the first
+            # annotation: that compiles one function's symbol and diffs it
+            # against another function's bytes, the same rule test/prove/
+            # near-diag follow (see match_sweep.resolve_build_params).
+            error_exit(
+                f"No annotation for VA {va} in {source} — the resolved "
+                "file covers different functions (pass --symbol to override)",
+                json_mode=json_output,
+            )
+        selected = match or selected
 
     sym = symbol or selected.symbol
     size_val = size or selected.size
