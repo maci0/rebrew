@@ -40,7 +40,8 @@ from rebrew.analysis import (
     string_refs,
 )
 from rebrew.annotation import Annotation, parse_c_file_multi
-from rebrew.binary_loader import BinaryInfo, load_binary
+from rebrew.binary_loader import load_binary
+from rebrew.binary_model import BinaryInfo
 from rebrew.catalog import cached_function_list
 from rebrew.cli import (
     TargetOption,

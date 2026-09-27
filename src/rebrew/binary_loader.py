@@ -4,6 +4,10 @@ Provides a format-agnostic interface for reading PE, ELF, Mach-O, NE, and MZ
 binaries.  PE/ELF/Mach-O parse through LIEF; NE goes to ``rebrew.ne_loader``
 and MZ to :func:`_load_mz`, which parses the DOS header itself.
 
+The parsed result is a :class:`rebrew.binary_model.BinaryInfo`, whose type
+lives in its own module so this dispatcher can depend on the format loaders
+without the reverse.
+
 Usage::
 
     from rebrew.binary_loader import load_binary, extract_bytes_at_va
@@ -20,16 +24,15 @@ import contextlib
 import functools
 import logging
 import threading
-from dataclasses import dataclass, field, replace
+from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, overload
 
+from rebrew.binary_model import MAX_BINARY_SIZE, BinaryInfo, SectionInfo
 from rebrew.utils import detect_source_encoding
 
 if TYPE_CHECKING:
     import lief
-
-    from rebrew.ne_loader import NeHeader, NeImportModule, NeSegment
 
 #: Makes the one-shot LIEF log-level change in ``__getattr__`` single-threaded.
 _LIEF_LOGGING_LOCK = threading.Lock()
@@ -110,8 +113,6 @@ def refresh_loaders() -> list[tuple[str, Any]]:
     return _PLUGIN_LOADERS
 
 
-_MAX_BINARY_SIZE = 512 * 1024 * 1024  # 512 MB safety limit
-
 #: Real-mode linear addresses are 20 bits: ``segment*16 + offset`` wraps at
 #: 1 MiB, so a CS of ``0xFFF0`` (COM-to-EXE conversions: ``FFF0:0100``)
 #: means 16 paragraphs *below* the image start, not ~1 MiB above it.
@@ -120,12 +121,6 @@ REAL_MODE_ADDRESS_MASK = 0xFFFFF
 #: ELF program-header ``PF_X`` (executable) flag, matching LIEF's
 #: ``Segment.FLAGS.X``.
 _ELF_SEGMENT_FLAG_EXEC = 1
-
-# Guards the lazy ``BinaryInfo.data`` fill.  One global lock rather than a
-# per-instance one: the instance cache holds at most _LOAD_BINARY_CACHE_MAX
-# entries and in practice a run touches one target binary, so contention is
-# a non-issue.  Make it per-instance if that ever stops being true.
-_data_load_lock = threading.Lock()
 
 # x86 padding opcodes inserted by MSVC linker for alignment (INT3 and NOP).
 # Shared across catalog, matcher, and binary loader for consistent trimming.
@@ -148,98 +143,6 @@ def decode_binary_name(raw: str | bytes) -> str:
     if not isinstance(raw, bytes):
         return str(raw)
     return raw.decode(detect_source_encoding(raw))
-
-
-# ---------------------------------------------------------------------------
-# Data types
-# ---------------------------------------------------------------------------
-
-
-@dataclass
-class SectionInfo:
-    """Metadata for a single section in a binary."""
-
-    name: str
-    va: int  # virtual address (absolute)
-    size: int  # virtual size (mapped)
-    file_offset: int  # offset in the file on disk
-    raw_size: int  # size on disk (may differ from virtual size)
-    # SHF_EXECINSTR.  Only the ELF loader populates this; PE/Mach-O loaders
-    # leave it False, and the FLIRT scanner then falls back to `.text`.
-    is_code: bool = False
-
-
-@dataclass
-class BinaryInfo:
-    """Format-agnostic representation of a parsed binary."""
-
-    path: Path
-    format: str  # "pe", "elf", "macho"
-    arch: str = ""  # "x86_32", "mips32", "ppc32", ... (multi-arch P0)
-    endian: str = ""  # "little" / "big" / "" = unknown (multi-arch P0)
-    # Bytes per target pointer (4 or 8), 0 when the format's loader did not
-    # fill it in.  Only the ELF loader populates this — it reads the ident
-    # EI_CLASS byte, the one place a word size is stated outright instead of
-    # having to be inferred from the arch name.
-    pointer_size: int = 0
-
-    image_base: int = 0
-
-    # .text section shortcuts (most-used for rebrew)
-    text_va: int = 0
-    text_size: int = 0
-    text_raw_offset: int = 0
-
-    sections: dict[str, SectionInfo] = field(default_factory=dict)
-
-    # NE tables, filled by the NE loader; unset for every other format.
-    ne_header: NeHeader | None = None
-    ne_segments: list[NeSegment] = field(default_factory=list)
-    ne_imports: list[NeImportModule] = field(default_factory=list)
-
-    # Lazy-loaded; shared across workers via ``_load_binary_cache``.
-    _data: bytes | None = field(default=None, repr=False)
-
-    # Filled by ``load_binary`` for cache invalidation.  Inode is required:
-    # a same-size rename-over (``atomic_write_bytes``, ``cp -p`` + ``mv``)
-    # in one mtime tick changes the inode and not the size, and mtime+size
-    # alone would keep serving the previous image's section map and bytes.
-    _cache_mtime_ns: int = field(default=0, repr=False)
-    _cache_fsize: int = field(default=0, repr=False)
-    _cache_ino: int = field(default=0, repr=False)
-
-    @property
-    def data(self) -> bytes:
-        """Raw file bytes, loaded lazily.
-
-        Uses a single ``read_bytes()`` call so that the size check is
-        performed on the bytes we actually read, not a separate ``stat()``
-        that could race with a file replacement between the two syscalls.
-
-        ``BinaryInfo`` instances are shared across worker threads via
-        ``_load_binary_cache``, so the lazy fill is guarded: without the
-        lock every worker of ``rebrew verify -j N`` that touches a cold
-        instance reads the whole target binary itself, spiking peak memory
-        to N copies of the file for no benefit.
-        """
-        if self._data is None:
-            with _data_load_lock:
-                # Re-check: another thread may have filled it while we waited.
-                if self._data is None:
-                    # Check the size on disk first: read_bytes() would already
-                    # have allocated the whole file the cap exists to bound.
-                    size = self.path.stat().st_size
-                    if size > _MAX_BINARY_SIZE:
-                        raise ValueError(
-                            f"Binary file too large ({size / 1024 / 1024:.0f} MB): {self.path}"
-                        )
-                    raw = self.path.read_bytes()
-                    if len(raw) > _MAX_BINARY_SIZE:
-                        raise ValueError(
-                            f"Binary file too large ({len(raw) / 1024 / 1024:.0f} MB): {self.path}"
-                        )
-                    self._data = raw
-        return self._data
 
 
 # ---------------------------------------------------------------------------
@@ -767,7 +670,7 @@ def extract_bytes_at_va(
     """
     if size <= 0:
         return b"" if size == 0 else None
-    if size > _MAX_BINARY_SIZE:
+    if size > MAX_BINARY_SIZE:
         raise ValueError(f"Requested size too large: {size}")
     for section in info.sections.values():
         if section.va <= va < section.va + section_extent(section):

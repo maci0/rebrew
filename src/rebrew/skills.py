@@ -29,6 +29,7 @@ from rich.console import Console
 from rich.table import Table
 
 from rebrew.cli import console, error_exit, json_print
+from rebrew.config import REBREW_SKILLS_DIR_ENV
 
 logger = logging.getLogger(__name__)
 
@@ -40,10 +41,6 @@ _stdout_console = Console()
 # ---------------------------------------------------------------------------
 
 _SKILLS_DIR = Path(__file__).parent / "agent-skills"
-
-#: Env var naming a directory of user/community skills (one SKILL.md dir per
-#: skill).  Unset → packaged skills only.
-REBREW_SKILLS_DIR_ENV = "REBREW_SKILLS_DIR"
 
 _FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 

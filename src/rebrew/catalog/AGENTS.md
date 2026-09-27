@@ -14,7 +14,7 @@ Merges function sources (discovery inventory, Ghidra JSON, binary exports) into 
 | `pipeline.py` | `build_catalog_data` (scan/registry/grid dict; no disk writes) |
 | `cli.py` | `run_catalog` + Typer entry |
 
-Externals (the only packages this one may import): `annotation`, `cli`, `config`, `data_metadata`, `present`, `sections`, `sources`, `status`, `utils`, `workspace`, and `binary_loader` (lazy, inside functions). PE section helpers live in `rebrew.sections`; `preset_module_key` / `atomic_write_text` in `rebrew.utils`.
+Externals (the only packages this one may import): `annotation`, `cli`, `config`, `data_metadata`, `present`, `sections`, `sources`, `status`, `utils`, `workspace`, `binary_loader` (lazy, inside functions), and `binary_model` (`BinaryInfo`). PE section helpers live in `rebrew.sections`; `preset_module_key` / `atomic_write_text` in `rebrew.utils`.
 
 ## Data flow
 

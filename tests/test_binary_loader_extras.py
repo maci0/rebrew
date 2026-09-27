@@ -282,9 +282,11 @@ class TestElfWordSize:
 
 class TestBinaryInfoData:
     def test_oversized_file_raises(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        from rebrew import binary_model
+
         f = tmp_path / "big.bin"
         f.write_bytes(b"\x00" * 16)
-        info = bl.BinaryInfo(
+        info = binary_model.BinaryInfo(
             path=f,
             format="raw",
             image_base=0,
@@ -293,7 +295,7 @@ class TestBinaryInfoData:
             text_raw_offset=0,
             sections={},
         )
-        monkeypatch.setattr(bl, "_MAX_BINARY_SIZE", 4)  # 16-byte file exceeds 4
+        monkeypatch.setattr(binary_model, "MAX_BINARY_SIZE", 4)  # 16-byte file exceeds 4
         with pytest.raises(ValueError, match="too large"):
             _ = info.data
 

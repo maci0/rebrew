@@ -65,7 +65,8 @@ if TYPE_CHECKING:
 
 import typer
 
-from rebrew.binary_loader import BinaryInfo, SectionInfo, decode_binary_name, load_binary
+from rebrew.binary_loader import decode_binary_name, load_binary
+from rebrew.binary_model import BinaryInfo, SectionInfo
 from rebrew.cli import EXIT_ERROR, console, error_exit, json_print
 from rebrew.layout_meta import ImportMeta, LayoutMetadata, extract_layout, load_package
 from rebrew.pe_headers import find_section, pe_layout, pe_lfanew, sections_at

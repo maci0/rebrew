@@ -220,7 +220,7 @@ class TestSectionsFromInfo:
 
     @staticmethod
     def _info(**sections: object) -> Any:
-        from rebrew.binary_loader import BinaryInfo, SectionInfo
+        from rebrew.binary_model import BinaryInfo, SectionInfo
 
         info = BinaryInfo(path=Path("/fake/x.dll"), format="pe")
         for name, (va, size, raw, off) in sections.items():

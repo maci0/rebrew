@@ -234,7 +234,7 @@ class TestRipRelativeOperands:
 
 class TestExtractBytesRawSizeClamp:
     def _info(self, tmp_path: Path):
-        from rebrew.binary_loader import BinaryInfo, SectionInfo
+        from rebrew.binary_model import BinaryInfo, SectionInfo
 
         # `.data` claims 0x2000 mapped bytes but only 0x10 file bytes.
         payload = b"A" * 0x10 + b"B" * 0x40
@@ -267,7 +267,7 @@ class TestExtractBytesRawSizeClamp:
         resolves it); the read must still stop at raw_size, not run into the
         next section's bytes."""
         from rebrew.analysis import extract_bytes
-        from rebrew.binary_loader import SectionInfo
+        from rebrew.binary_model import SectionInfo
 
         info = self._info(tmp_path)
         info.sections[".data"] = SectionInfo(

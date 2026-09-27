@@ -1002,7 +1002,7 @@ class TestLinkedShell:
         assert extract_linked_slice(dll, 0x1000, 99, 3) == b""
 
     def test_section_for_va(self) -> None:
-        from rebrew.binary_loader import BinaryInfo, SectionInfo
+        from rebrew.binary_model import BinaryInfo, SectionInfo
         from rebrew.compile import _section_for_va
 
         info = BinaryInfo(

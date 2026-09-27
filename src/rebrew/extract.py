@@ -18,7 +18,8 @@ import typer
 from rich.table import Table
 
 from rebrew.asm import disasm_bytes
-from rebrew.binary_loader import BinaryInfo, extract_bytes_at_va, load_binary
+from rebrew.binary_loader import extract_bytes_at_va, load_binary
+from rebrew.binary_model import BinaryInfo
 from rebrew.catalog import cached_function_list, scan_reversed_dir
 from rebrew.cli import (
     EXIT_ERROR,

@@ -247,7 +247,8 @@ class TestLoadNeBinary:
         assert extract_bytes_at_va(info, 0x10000, 1) == b""
 
     def test_binary_info_shape(self, tmp_path: Path) -> None:
-        from rebrew.binary_loader import BinaryInfo, load_binary
+        from rebrew.binary_loader import load_binary
+        from rebrew.binary_model import BinaryInfo
 
         raw = _build_ne(segments=[(_CODE, 0x01), (_DATA, 0x00)], modules=["KERNEL"])
         p = tmp_path / "app.ne"
@@ -442,7 +443,7 @@ def test_enumerate_ne_functions_invariants(body: bytes) -> None:
     segment yields a prolog candidate at nearly every offset), so this
     checks the output contract rather than just the absence of a crash.
     """
-    from rebrew.binary_loader import BinaryInfo
+    from rebrew.binary_model import BinaryInfo
     from rebrew.ne_loader import NeSegment, enumerate_ne_functions
 
     segment = body + b"\x55\x8b\xec\xc3"  # ensure at least one real prolog+ret
@@ -475,7 +476,7 @@ def test_enumerate_ne_functions_sweep_is_bounded(fill: bytes) -> None:
     so each candidate decodes the rest of the segment.  The decode budget
     caps that; without it a 64 KiB segment takes hours.
     """
-    from rebrew.binary_loader import BinaryInfo
+    from rebrew.binary_model import BinaryInfo
     from rebrew.ne_loader import NeSegment, enumerate_ne_functions
 
     segment = fill * 4096

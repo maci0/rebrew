@@ -109,6 +109,7 @@ from typing import TYPE_CHECKING, Any
 
 import tomlkit
 
+from rebrew.config import METADATA_FILENAME
 from rebrew.errors import RebrewError
 from rebrew.utils import (
     MetadataDocCache,
@@ -153,8 +154,6 @@ def clear_metadata_cache() -> None:
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-
-METADATA_FILENAME = "rebrew-functions.toml"
 
 # Canonical TOML key order when writing an entry; unlisted fields follow, in
 # insertion order.  Mirrors ``data_metadata._CANONICAL_ORDER``.

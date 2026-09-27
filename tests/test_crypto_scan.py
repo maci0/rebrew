@@ -12,7 +12,7 @@ import pytest
 from typer.testing import CliRunner
 
 import rebrew.main
-from rebrew.binary_loader import BinaryInfo, SectionInfo
+from rebrew.binary_model import BinaryInfo, SectionInfo
 from rebrew.crypto_scan import (
     _AES_INV_SBOX,
     _AES_SBOX,

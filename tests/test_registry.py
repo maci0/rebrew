@@ -1110,7 +1110,7 @@ class TestMsvcVersionRegistry:
 
 class TestBinaryLoaderRegistry:
     def _patch(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        from rebrew.binary_loader import BinaryInfo
+        from rebrew.binary_model import BinaryInfo
 
         def _load(path: Path, fmt: str) -> BinaryInfo | None:
             if path.name == "junk.bin":

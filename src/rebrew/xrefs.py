@@ -28,7 +28,8 @@ from rebrew.analysis import (
     iter_instructions,
     scan_references,
 )
-from rebrew.binary_loader import BinaryInfo, load_binary
+from rebrew.binary_loader import load_binary
+from rebrew.binary_model import BinaryInfo
 from rebrew.cli import (
     EXIT_ERROR,
     TargetOption,

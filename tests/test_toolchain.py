@@ -74,7 +74,6 @@ class TestRegistry:
 
         assert tc.__all__ == [
             "RunResult",
-            "TOOLCHAIN_OVERLAY_ENV",
             "TOOLCHAINS",
             "ToolchainError",
             "ToolchainErrorKind",
