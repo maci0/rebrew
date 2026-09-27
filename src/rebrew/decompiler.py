@@ -306,7 +306,13 @@ def _re_cached_project(binary: Path, tool: str, root: Path) -> str | None:
             return published
         finally:
             with _RE_PROJECT_DIRS_LOCK:
-                _RE_PROJECT_INFLIGHT.pop(key, None)
+                # By identity, not by key: a forced clear (:func:`_clear_re_projects`,
+                # the atexit sweep) can drop our claim while ``aaa`` is still
+                # running, and the next caller then registers a *new* event for
+                # this key.  Popping by key there would retire that successor's
+                # claim, so every later caller would start its own analysis.
+                if _RE_PROJECT_INFLIGHT.get(key) is event:
+                    del _RE_PROJECT_INFLIGHT[key]
             event.set()
 
 
@@ -1003,6 +1009,14 @@ def _merge_entry_point_backends() -> tuple[dict[str, Callable[..., str | None]],
 
 
 _BACKEND_MAP, _AUTO_PROBE_BACKENDS = _merge_entry_point_backends()
+#: Guards the *pair*.  ``refresh_backends`` binds two globals, and a reader
+#: that lands between the two stores sees a new auto-probe list beside the old
+#: map, so an auto probe raised ``KeyError`` on a backend it had just been told
+#: to try.  Both the publish and the read take this lock, so a reader always
+#: sees one generation.  It also keeps a refresh from interleaving with another
+#: refresh: two concurrent rebinds could otherwise publish the probe list of
+#: one discovery beside the map of the other.
+_BACKEND_REFRESH_LOCK = threading.Lock()
 
 
 def refresh_backends() -> dict[str, Callable[..., str | None]]:
@@ -1012,8 +1026,10 @@ def refresh_backends() -> dict[str, Callable[..., str | None]]:
     startup without a restart."""
     global _BACKEND_MAP, _AUTO_PROBE_BACKENDS
 
-    _BACKEND_MAP, _AUTO_PROBE_BACKENDS = _merge_entry_point_backends()
-    return _BACKEND_MAP
+    merged, auto_probe = _merge_entry_point_backends()
+    with _BACKEND_REFRESH_LOCK:
+        _BACKEND_MAP, _AUTO_PROBE_BACKENDS = merged, auto_probe
+        return _BACKEND_MAP
 
 
 def fetch_decompilation(
@@ -1044,8 +1060,13 @@ def fetch_decompilation(
 
     """
     if backend == "auto":
-        for name in _AUTO_PROBE_BACKENDS:
-            fn = _BACKEND_MAP[name]
+        # One lock, one read each: the probe list and the map must come from
+        # the same discovery, or a name can be missing from the map.
+        with _BACKEND_REFRESH_LOCK:
+            backends = _BACKEND_MAP
+            auto_probe = _AUTO_PROBE_BACKENDS
+        for name in auto_probe:
+            fn = backends[name]
             try:
                 result = fn(
                     binary_path, va, root=root, endpoint=endpoint, program_path=program_path

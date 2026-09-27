@@ -2973,6 +2973,7 @@ class _DashboardServer(ThreadingHTTPServer):
         """
         with self._active_lock:
             admitted = self._active < self._max_active_connections
+            active = self._active
             if admitted:
                 self._active += 1
         if not admitted:
@@ -2980,7 +2981,7 @@ class _DashboardServer(ThreadingHTTPServer):
                 "%s refusing connection from %s: %d already in flight (cap %d)",
                 _request_context()[0],
                 _escape_log_text(str(client_address)),
-                self._active,
+                active,
                 self._max_active_connections,
             )
             self.shutdown_request(request)

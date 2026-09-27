@@ -3,6 +3,7 @@
 import importlib.util
 import subprocess
 import threading
+import time
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -1503,3 +1504,94 @@ class TestProjectSweepAtexit:
         assert dc._RE_PROJECT_DIRS == {}
         assert not proj.exists()
         fn(*args)  # inverse is idempotent
+
+
+class TestConcurrentRegistryRefresh:
+    def test_auto_probe_synchronizes_with_a_refresh_in_flight(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An auto probe must not read a half-published backend refresh.
+
+        ``refresh_backends`` rebinds the backend map and the auto-probe list
+        together.  A reader landing between the two stores saw the new probe
+        list beside the old map and raised ``KeyError`` on a backend it had just
+        been told to try, so the reader takes the publishing lock and reads one
+        consistent generation.
+        """
+        import rebrew.decompiler as dc
+
+        with ThreadPoolExecutor(max_workers=1) as reader:
+            with dc._BACKEND_REFRESH_LOCK:
+                probed = reader.submit(fetch_decompilation, "auto", Path("/f"), 0x1000, Path("/f"))
+                time.sleep(0.05)
+                assert not probed.done(), "auto probe read a half-published refresh"
+            # The lock is released before the pool joins: the reader thread
+            # needs it to finish.
+            assert probed.result(timeout=10)[1] == "auto"
+
+    def test_concurrent_refresh_never_torn_for_auto_probe(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Refreshing while other threads auto-probe must never raise."""
+        import rebrew.decompiler as dc
+
+        monkeypatch.setattr(dc, "_BACKEND_MAP", {"r2ghidra": lambda *a, **kw: "int x;"})
+        monkeypatch.setattr(dc, "_AUTO_PROBE_BACKENDS", ("r2ghidra", "plugin_only"))
+
+        def churning_merge() -> tuple[dict[str, Any], tuple[str, ...]]:
+            return (
+                {"r2ghidra": lambda *a, **kw: "int x;", "plugin_only": None},
+                ("r2ghidra", "plugin_only"),
+            )
+
+        monkeypatch.setattr(dc, "_merge_entry_point_backends", churning_merge)
+
+        def work(i: int) -> str:
+            if i % 3 == 0:
+                dc.refresh_backends()
+            code, name = fetch_decompilation("auto", Path("/f"), 0x1000, Path("/f"))
+            # A torn pair raises KeyError on the probe name instead of
+            # returning, so reaching this line is the assertion.
+            assert code == "int x;" and name == "r2ghidra"
+            return name
+
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            assert set(pool.map(work, range(200))) == {"r2ghidra"}
+
+
+class TestSingleflightClaimOwnership:
+    def test_finishing_leader_keeps_a_successors_claim(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A leader must retire only its own singleflight claim.
+
+        The atexit sweep (and the test hook) can drop every claim while an
+        analysis is still running, after which the next caller registers a new
+        event for the same key.  Popping by key then retired that successor's
+        claim, so the singleflight was gone and every later caller started its
+        own multi-minute analysis.
+        """
+        import rebrew.decompiler as dc
+
+        dc._clear_re_projects()
+        proj = tmp_path / "proj"
+        proj.mkdir()
+        binary = tmp_path / "game.bin"
+        binary.write_bytes(b"MZ")
+        successor = threading.Event()
+
+        def init_then_get_succeeded(b: Path, tool: str, root: Path) -> str:
+            # The sweep lands mid-analysis; the next caller claims the key.
+            dc._clear_re_projects()
+            with dc._RE_PROJECT_DIRS_LOCK:
+                dc._RE_PROJECT_INFLIGHT[(str(binary), tool)] = successor
+            return str(proj)
+
+        monkeypatch.setattr(dc, "_re_init_project", init_then_get_succeeded)
+        try:
+            assert dc._re_cached_project(binary, "rz", tmp_path) == str(proj)
+            assert dc._RE_PROJECT_INFLIGHT.get((str(binary), "rz")) is successor, (
+                "the leader retired the claim of a caller that is not itself"
+            )
+        finally:
+            dc._clear_re_projects()
