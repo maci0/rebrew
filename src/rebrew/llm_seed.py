@@ -9,7 +9,9 @@ Strictly optional and off by default: with no endpoint configured the flag
 degrades to a warning and the GA runs unchanged.  The endpoint is taken from
 ``[llm] endpoint``/``api_key``/``model`` in ``rebrew-project.toml`` or the
 ``REBREW_LLM_ENDPOINT`` / ``REBREW_LLM_API_KEY`` / ``REBREW_LLM_MODEL``
-environment variables.
+environment variables.  The per-request HTTP budget is
+``REBREW_LLM_TIMEOUT`` (default 90s), because a local model can need minutes
+for a capped completion and a timed-out request is billed anyway.
 
 Untrusted boundaries: the seed source is project C (may contain adversarial
 fence breakouts if copied from elsewhere); the model response is never executed
@@ -27,7 +29,10 @@ response whose reported ``model`` differs from the pinned id warns (a
 substituted model means different cost and different seeds),
 ``finish_reason=length`` warns that the token cap cut the answer, and every
 provider-controlled value (error text, usage fields, model ids) is
-control-character-sanitized before it is logged.
+control-character-sanitized before it is logged.  Each billed request records
+its model, prompt version, token counts, and latency in a :class:`SeedUsage`
+that ``rebrew match --seed-llm`` prints in the run summary, because the
+INFO log line carrying the same numbers is invisible without ``-v``.
 ``--seed-llm --dry-run`` previews the prompt without calling the endpoint.
 """
 
@@ -39,11 +44,13 @@ import os
 import re
 import threading
 import time
+from dataclasses import dataclass
 from typing import Any
 
 from rebrew.config import (
     is_key_safe_endpoint,
     llm_max_requests,
+    llm_timeout,
     validate_http_url,
     validate_llm_model,
 )
@@ -56,9 +63,9 @@ _MAX_HTTP_BODY_BYTES = 256_000  # reject before json.loads blows memory/budget
 _DEFAULT_MAX_TOKENS = 2_048
 _DEFAULT_COUNT = 3
 _DEFAULT_MODEL = "gpt-4o-mini-2024-07-18"  # dated snapshot; bare alias floats
-_UNPINNED_MODELS = frozenset({"latest", "auto", "default"})
-# Model ids flow into the provider JSON; reject shells/newlines/path traversal.
-_MODEL_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$")
+# Bump when the prompt text changes, so a GA run can be traced back to the
+# exact wording that produced its seeds (see SeedUsage.prompt_version).
+_PROMPT_VERSION = "llm-seed-v1"
 # Provider overload / rate-limit statuses: never retry (retry storms = spend).
 _NO_RETRY_HTTP = frozenset({429, 503, 529})
 # Seeds must be self-contained; any preprocessor line (#include, #define,
@@ -109,6 +116,10 @@ _ALLOWED_TOP_LEVEL = frozenset({"function_definition", "comment"})
 
 _request_count = 0
 _request_lock = threading.Lock()
+# Cost of the most recent billed request, surfaced to the run summary: the
+# INFO log line that records it is invisible without ``-v``, so a paid
+# endpoint would otherwise bill silently.
+_last_usage: SeedUsage | None = None
 # Control characters (including newlines) in provider JSON fields let a
 # malicious or compromised endpoint forge log entries.  Replace them before
 # any ``logging.*`` call that interpolates untrusted response values.
@@ -122,6 +133,45 @@ def _sanitize_log_value(value: Any, *, max_len: int = 256) -> str:
     if len(text) > max_len:
         text = text[:max_len] + "…"
     return text
+
+
+@dataclass(frozen=True)
+class SeedUsage:
+    """What one billed LLM request cost, and which prompt wording produced it.
+
+    ``model`` is the pinned id that was *requested* (already charset-validated
+    by :func:`rebrew.config.validate_llm_model`), never the provider-reported
+    one, so ``describe()`` is safe to print unescaped.  Token counts are
+    ``None`` when the provider omitted or mangled its ``usage`` object; the
+    request was billed either way.
+    """
+
+    model: str
+    prompt_version: str
+    prompt_tokens: int | None
+    completion_tokens: int | None
+    total_tokens: int | None
+    duration_s: float
+
+    def describe(self) -> str:
+        """One-line cost summary for the ``match --seed-llm`` run output."""
+        tokens = (
+            f"{self.total_tokens} tokens (prompt {self.prompt_tokens}, "
+            f"completion {self.completion_tokens})"
+            if self.total_tokens is not None
+            else "token usage unreported"
+        )
+        return f"{self.model}, prompt {self.prompt_version}, {tokens}, {self.duration_s:.1f}s"
+
+
+def last_seed_usage() -> SeedUsage | None:
+    """Cost of the most recent billed request, or None when none was made.
+
+    Cleared at the start of every :func:`request_seeds` call, so a run that
+    made no request (no endpoint, budget exhausted, unparseable source)
+    reports None rather than a previous function's cost.
+    """
+    return _last_usage
 
 
 _SYSTEM_PROMPT = """\
@@ -207,9 +257,11 @@ def llm_config(cfg: Any) -> dict[str, str] | None:
             "LLM endpoint must use https when an API key is set "
             "(plain http is allowed only for loopback hosts)"
         )
-    # Validate the process ceiling and model id while resolving config so a
-    # bad REBREW_LLM_MAX_REQUESTS or model fails before the first HTTP call.
+    # Validate the process ceiling, request budget, and model id while
+    # resolving config so a bad REBREW_LLM_MAX_REQUESTS, REBREW_LLM_TIMEOUT,
+    # or model fails before the first HTTP call.
     _max_requests()
+    _request_timeout()
     _resolve_model(cfg)
     return {"endpoint": endpoint, "api_key": api_key}
 
@@ -222,6 +274,16 @@ def _key_safe_endpoint(endpoint: str) -> bool:
 def _max_requests() -> int:
     """Process-wide LLM call ceiling (env override, clamped at 10_000)."""
     return llm_max_requests(os.environ.get("REBREW_LLM_MAX_REQUESTS", ""))
+
+
+def _request_timeout() -> float:
+    """Per-request HTTP budget in seconds (env override, see ``llm_timeout``).
+
+    A timed-out request is billed and its seeds are lost, so the ceiling is
+    a cost control as much as a reliability one: it must be raisable for a
+    local model that needs minutes for a capped completion.
+    """
+    return float(llm_timeout(os.environ.get("REBREW_LLM_TIMEOUT", "")))
 
 
 def _consume_request_slot() -> bool:
@@ -487,23 +549,55 @@ def _parse_response(data: Any) -> str:
     return ""
 
 
-def _log_usage(data: Any, model: str, *, duration_s: float | None = None) -> None:
-    """Record token counts and latency when the provider returns a usage object."""
-    if not isinstance(data, dict):
-        return
-    usage = data.get("usage")
-    if not isinstance(usage, dict):
-        return
-    reported = _sanitize_log_value(data.get("model") or model)
-    latency_str = f" latency={duration_s:.2f}s" if duration_s is not None else ""
-    logging.info(
-        "LLM seed usage: model=%s prompt_tokens=%s completion_tokens=%s total_tokens=%s%s",
-        reported,
-        _sanitize_log_value(usage.get("prompt_tokens")),
-        _sanitize_log_value(usage.get("completion_tokens")),
-        _sanitize_log_value(usage.get("total_tokens")),
-        latency_str,
+def _log_usage(data: Any, model: str, *, duration_s: float | None = None) -> SeedUsage | None:
+    """Log token counts and latency, and record them for the run summary.
+
+    A request is billed whether or not the provider returns a ``usage``
+    object, so *duration_s* (given only for a completed HTTP call) is what
+    makes the record: without it there is no cost worth reporting and None is
+    returned.  Non-integer provider fields become None rather than being
+    formatted into the record.
+    """
+    global _last_usage
+    if duration_s is None:
+        return None
+    raw = data.get("usage") if isinstance(data, dict) else None
+    usage: dict[str, Any] = raw if isinstance(raw, dict) else {}
+
+    def _count(field: str) -> int | None:
+        value = usage.get(field)
+        return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+    record = SeedUsage(
+        model=model,
+        prompt_version=_PROMPT_VERSION,
+        prompt_tokens=_count("prompt_tokens"),
+        completion_tokens=_count("completion_tokens"),
+        total_tokens=_count("total_tokens"),
+        duration_s=duration_s,
     )
+    with _request_lock:
+        _last_usage = record
+    if usage:
+        reported = _sanitize_log_value(data.get("model") or model)
+        logging.info(
+            "LLM seed usage: model=%s prompt=%s prompt_tokens=%s completion_tokens=%s "
+            "total_tokens=%s latency=%.2fs",
+            reported,
+            _PROMPT_VERSION,
+            _sanitize_log_value(usage.get("prompt_tokens")),
+            _sanitize_log_value(usage.get("completion_tokens")),
+            _sanitize_log_value(usage.get("total_tokens")),
+            duration_s,
+        )
+    else:
+        logging.info(
+            "LLM seed usage: model=%s prompt=%s tokens unreported latency=%.2fs",
+            _sanitize_log_value(data.get("model") or model) if isinstance(data, dict) else model,
+            _PROMPT_VERSION,
+            duration_s,
+        )
+    return record
 
 
 def _warn_on_substituted_model(served: Any, requested: str) -> None:
@@ -604,7 +698,9 @@ def _request(
         "stream": False,
     }
     t0 = time.monotonic()
-    with client.stream("POST", conf["endpoint"], json=payload, headers=headers, timeout=90) as resp:
+    with client.stream(
+        "POST", conf["endpoint"], json=payload, headers=headers, timeout=_request_timeout()
+    ) as resp:
         resp.raise_for_status()
         data = _load_response_json(resp)
     duration_s = time.monotonic() - t0
@@ -649,7 +745,11 @@ def request_seeds(
     response carries no valid C.
     Never raises (the GA must run unchanged when the LLM is unavailable).
     Never retries on 429/503/529 — a retry storm would multiply spend.
+    Resets :func:`last_seed_usage` so a run that bills nothing reports no cost.
     """
+    global _last_usage
+    with _request_lock:
+        _last_usage = None
     conf = llm_config(cfg)
     if conf is None:
         return []
@@ -676,7 +776,7 @@ def request_seeds(
             return _request(client, conf, source, count, expect, model=model)
         import httpx
 
-        with httpx.Client(timeout=90) as http:
+        with httpx.Client(timeout=_request_timeout()) as http:
             return _request(http, conf, source, count, expect, model=model)
     except Exception as exc:  # LLM availability must never break the GA
         # --seed-llm was explicitly requested; a silent empty result hides a
