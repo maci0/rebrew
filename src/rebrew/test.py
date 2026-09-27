@@ -1037,8 +1037,12 @@ def _run_test_impl(
                             "pass `--size`, or backfill with `rebrew catalog --fix-sizes`)"
                         )
                         break
-            except (ValueError, OSError, KeyError, TypeError):
-                pass
+            except (ValueError, OSError, KeyError, TypeError) as exc:
+                # The hint is the only part of the error that names the known
+                # size; losing it turns a backfillable gap into a bare "no size".
+                logging.getLogger(__name__).debug(
+                    "inventory size hint lookup for VA %s failed: %s", va_str, exc
+                )
         error_exit(
             "Specify either target_bin or (VA and SIZE) via args or source metadata" + hint,
             json_mode=json_output,

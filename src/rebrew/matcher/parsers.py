@@ -10,6 +10,7 @@ converted to COFF with objconv first.
 """
 
 import bisect
+import logging
 import struct
 import warnings
 from collections.abc import Iterable
@@ -20,6 +21,8 @@ from rebrew.binary_loader import PADDING_BYTES as _PADDING_BYTES
 from rebrew.coff_reloc import CoffRelocRecord
 
 _PADDING_STRIP = bytes(_PADDING_BYTES)
+
+log = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -95,7 +98,8 @@ def parse_obj_symbol_and_relocs(
     try:
         with open(obj_path, "rb") as handle:
             magic = handle.read(4)
-    except OSError:
+    except OSError as exc:
+        log.debug("cannot read object %s: %s", obj_path, exc)
         return None, None, []
     if _detect_obj_format_data(magic) == "omf":
         from rebrew.omf16 import is_omf16, parse_obj_omf16
@@ -119,7 +123,8 @@ def parse_obj_symbol_and_relocs(
             coff_path = Path(td) / "conv.coff"
             try:
                 _omf_to_coff(obj_path, coff_path)
-            except (ValueError, OSError):
+            except (ValueError, OSError) as exc:
+                log.warning("objconv failed for OMF object %s: %s", obj_path, exc)
                 return None, None, []
             return _parse_coff(obj_path, coff_path, symbol)
 
@@ -142,7 +147,8 @@ def _parse_coff(
     parse_path = coff_path if coff_path is not None else obj_path
     try:
         coff = lief.COFF.parse(str(parse_path))
-    except Exception:
+    except Exception as exc:
+        log.debug("LIEF COFF parse failed for %s: %s", parse_path, exc)
         return None, None, []
     if coff is None:
         return None, None, []

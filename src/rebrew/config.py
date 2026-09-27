@@ -24,6 +24,7 @@ To load a specific target::
 """
 
 import ipaddress
+import logging
 import math
 import os
 import re
@@ -763,8 +764,17 @@ def inventory_path_for(reversed_dir: Path | str, cfg: Any = None) -> Path:
                 p = config_path(override)
                 root = getattr(cfg, "root", None)
                 return p if p.is_absolute() else (Path(root) / p if root else p)
-        except (OSError, ValueError, TypeError):
-            pass
+        except (OSError, ValueError, TypeError) as exc:
+            # Falling through reads a different project's inventory; that is
+            # silent data corruption, so name the failed comparison.
+            logging.getLogger(__name__).warning(
+                "inventory_file %r could not be resolved against reversed_dir %s (%s); "
+                "using %s instead",
+                override,
+                rd,
+                exc,
+                rd / FUNCTION_STRUCTURE_JSON,
+            )
     return rd / FUNCTION_STRUCTURE_JSON
 
 

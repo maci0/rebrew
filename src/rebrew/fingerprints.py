@@ -22,6 +22,7 @@ from __future__ import annotations
 import hashlib
 import importlib
 import importlib.util
+import logging
 import math
 import struct
 import zlib
@@ -34,6 +35,8 @@ from rich.table import Table
 
 from rebrew.cli import EXIT_ERROR, TargetOption, console, error_exit, json_print, resolve_binary_arg
 from rebrew.errors import RebrewError
+
+log = logging.getLogger(__name__)
 
 #: Stream chunk for :func:`file_hashes`: the file is read in these slices
 #: so a large binary never lands in memory as one object.
@@ -101,7 +104,8 @@ def _parse_pe(path: Path) -> Any | None:
         if not lief.is_pe(str(path)):
             return None
         pe = lief.PE.parse(str(path))
-    except Exception:
+    except Exception as exc:
+        log.debug("LIEF rejected %s: %s", path, exc)
         return None
     return pe
 
@@ -431,7 +435,10 @@ def _backend_hash(backend: Any, data: bytes) -> str | None:
     """
     try:
         return cast(str, backend.hash(data))
-    except Exception:
+    except Exception as exc:
+        # None is recorded as "this backend declined"; a crash looks identical
+        # without this line.
+        log.warning("fuzzy-hash backend failed on %d bytes: %s", len(data), exc)
         return None
 
 

@@ -1318,11 +1318,19 @@ def _image_smoke_hash(tool: str, workdir: Path) -> str | None:
     os.utime(src_path, (_SDE, _SDE))
     try:
         _run_smoke_container(spec.image, f"rebrew-smoke-hash-{tool}", workdir, flags)
-    except subprocess.TimeoutExpired:
+    except subprocess.TimeoutExpired as exc:
+        # The caller reports "smoke compile failed"; say which failure it was,
+        # since a hung docker and a broken image need different fixes.
+        logging.getLogger(__name__).warning(
+            "smoke compile for %s timed out after %ss: %s", tool, exc.timeout, exc.cmd
+        )
         return None
-    except OSError:
+    except OSError as exc:
         # A hung daemon or missing docker degrades to "no object" — the
         # caller reports the golden mismatch instead of crashing mid-update.
+        logging.getLogger(__name__).warning(
+            "smoke compile for %s could not run %s: %s", tool, spec.image, exc
+        )
         return None
     obj = workdir / out_name
     if not obj.exists():
@@ -1398,6 +1406,9 @@ def check_updates_cmd(
             try:
                 live = _live_commit_sha(owner, repo, branch)
             except Exception as exc:
+                logging.getLogger(__name__).warning(
+                    "cannot check %s (%s/%s@%s): %s", name, owner, repo, branch, exc
+                )
                 rows[name] = f"check failed ({exc.__class__.__name__})"
                 continue
             if not src.commit:
@@ -1421,6 +1432,7 @@ def check_updates_cmd(
                     rows[name] = f"DRIFTED sha256 {src.sha256[:12]} -> {actual[:12]}"
                     drifted.append(name)
             except Exception as exc:
+                logging.getLogger(__name__).warning("cannot check %s (%s): %s", name, url, exc)
                 rows[name] = f"check failed ({exc.__class__.__name__})"
             continue
         rows[name] = "static (immutable release asset)"

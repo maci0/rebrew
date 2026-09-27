@@ -17,6 +17,7 @@ Inspired by reccmp's decomplint tool.
 
 import bisect
 import contextlib
+import logging
 import re
 from collections import Counter
 from dataclasses import dataclass, field
@@ -77,6 +78,8 @@ from rebrew.utils import (
     rel_display_path,
 )
 from rebrew.workspace.status import EARNED_STATUSES, KNOWN_STATUSES, MATCHED_STATUSES
+
+log = logging.getLogger(__name__)
 
 # Marker header line in either comment style.  annotation.NEW_FUNC_CAPTURE_RE
 # accepts `//` and `/*` (the C89-strict form intake emits for borland-2.0/msvc-1.52), so
@@ -1754,8 +1757,10 @@ def lint_file(
                         )
                         found_keys[_found_key] = store_val
                     _metadata_sourced_keys.add(_found_key)
-            except (ValueError, KeyError):
-                pass
+            except (ValueError, KeyError) as exc:
+                # A malformed inline block drops the key from the drift
+                # comparison, so a disagreeing SIZE would go unreported.
+                log.debug("unreadable inline metadata at %s: %s", result.marker_line, exc)
 
         ctx = f"[{mod} {va_str}] " if mod and va_str else ""
 

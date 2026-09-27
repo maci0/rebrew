@@ -706,8 +706,10 @@ def _match_binary(dir: Path, binary: str) -> Path | None:
         for entry in dir.iterdir():
             if entry.is_file() and unicodedata.normalize("NFC", entry.name).casefold() in want:
                 return entry
-    except OSError:
-        pass
+    except OSError as exc:
+        # An unreadable tree is not "no compiler here": the caller falls
+        # through to a PATH lookup and reports a missing toolchain.
+        logging.getLogger(__name__).warning("cannot scan vendored toolchain dir %s: %s", dir, exc)
     return None
 
 
@@ -752,8 +754,12 @@ def vendored_binary(spec: ToolchainSpec) -> Path | None:
                         hit = _match_binary(entry, spec.binary)
                         if hit is not None:
                             return hit
-        except OSError:
-            pass
+        except OSError as exc:
+            # Same as _match_binary: an unreadable tree would otherwise read
+            # as "this profile is host-path only".
+            logging.getLogger(__name__).warning(
+                "cannot scan vendored toolchain dir %s: %s", host, exc
+            )
     return None
 
 
