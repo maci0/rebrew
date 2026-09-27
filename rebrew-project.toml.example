@@ -119,6 +119,16 @@ source_ext = ".c"
 # dll_exports = { 0x00401000 = "GameMain" }
 # r2_bogus_vas = [0x00412340]
 
+# Module names this target is built from (written by `rebrew cfg add-module`).
+# Informational for editors and the UI; it does not filter annotations.
+# origins = ["GAME", "ZLIB"]
+
+# Position-alignment package (image base, section geometry, exports, imports)
+# written by `rebrew gen-layout --layout-config`. The layout tooling reads it
+# directly; do not hand-edit.
+# [targets.game.layout]
+# image_base = 0x00400000
+
 # Optional per-target compiler override (falls back to global [compiler]).
 # [targets.game.compiler]
 # cflags = "/O2 /Gd"
@@ -176,6 +186,9 @@ GAME = "/O2 /Gd"
 # stack_reserve = 0x100000
 # stack_commit = 0x1000
 # timestamp = 0x38a1b2c3
+# Informational only: VC6's /ALIGN cannot raise FileAlignment and no patch
+# path applies this value, so setting it warns and changes nothing.
+# file_align = 0x1000
 
 # -----------------------------------------------------------------------------
 # LLM Seeding Settings (rebrew match --seed-llm)
@@ -195,3 +208,7 @@ GAME = "/O2 /Gd"
 # Cache storage backend (registered in rebrew.cache_backends).
 # Default: "diskcache"
 backend = "diskcache"
+
+# Size ceiling for the on-disk compile cache, in MiB (1024-based); the
+# least-recently-used entries are evicted past it. 0 keeps the built-in 500.
+# size_limit_mib = 512

@@ -483,6 +483,16 @@ class ProjectConfig:
     llm_endpoint: str = ""
     llm_api_key: str = field(default="", repr=False)
     llm_model: str = ""
+    llm_max_requests: int = DEFAULT_LLM_MAX_REQUESTS
+    """``REBREW_LLM_MAX_REQUESTS`` after clamping, the process call budget.
+
+    Env-only (no ``[llm]`` counterpart).  Resolved here so ``rebrew cfg
+    effective`` reports the ceiling in force: it decides whether seeding runs
+    at all and how much it can bill, and the two knobs that say so are
+    otherwise invisible outside a debug log.
+    """
+    llm_timeout: int = DEFAULT_LLM_TIMEOUT
+    """``REBREW_LLM_TIMEOUT`` after clamping, the per-request budget in seconds."""
     cache_backend: str = "diskcache"  # compile-cache store ([cache] backend)
     cache_size_limit_mib: int = 0  # compile-cache cap in MiB; 0 = built-in default
 
@@ -670,6 +680,8 @@ class ProjectConfig:
             if redact_secrets
             else self.llm_api_key,
             "llm_model": self.llm_model,
+            "llm_max_requests": self.llm_max_requests,
+            "llm_timeout": self.llm_timeout,
             "cache_backend": self.cache_backend,
             "all_targets": list(self.all_targets),
             "ghidra_program_path": self.ghidra_program_path,
@@ -2319,10 +2331,12 @@ def load_config(
                 "(plain http is allowed only for loopback hosts)"
             )
 
-    if "REBREW_LLM_MAX_REQUESTS" in os.environ:
-        llm_max_requests(os.environ["REBREW_LLM_MAX_REQUESTS"])
-    if "REBREW_LLM_TIMEOUT" in os.environ:
-        llm_timeout(os.environ["REBREW_LLM_TIMEOUT"])
+    # Parsed here, not only validated: these two are the LLM budget, and
+    # `rebrew cfg effective` has to report what is in force. A bad value still
+    # raises ConfigError, so a typo fails at startup rather than at the first
+    # billed request.
+    cfg.llm_max_requests = llm_max_requests(os.environ.get("REBREW_LLM_MAX_REQUESTS", ""))
+    cfg.llm_timeout = llm_timeout(os.environ.get("REBREW_LLM_TIMEOUT", ""))
 
     # --- [cache] section: compile-cache backend selection ---
     # The store is a pluggable component (rebrew.cache_backends entry-point

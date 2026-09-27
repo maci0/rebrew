@@ -173,6 +173,26 @@
   reset each request. No `/api/*` JSON changed.
 
 ### Changed
+- **`rebrew cfg effective` reports the LLM budget it resolved.**
+  `REBREW_LLM_MAX_REQUESTS` and `REBREW_LLM_TIMEOUT` decide whether seeding
+  runs and what it can bill, and both are env-only, so nothing outside a debug
+  log showed the values in force: `env_overrides` lists names deliberately
+  and `env_errors` only names a value the code would reject. `load_config`
+  already parsed both, so it now keeps the parsed result on `ProjectConfig`
+  (`llm_max_requests`, `llm_timeout`, clamped with the same warning) and
+  `as_dict()` carries them, and the doc line claiming a mistyped budget is
+  reported by `match --seed-llm` while the run continues is corrected:
+  `load_config` raises `ConfigError` for both, for every command that reads a
+  project config.
+- **`rebrew-project.toml.example` documents the keys it had dropped.** The
+  template called itself complete, and `load_config` only warns on a key it
+  does not know, so three accepted keys were documented nowhere
+  (`[cache] size_limit_mib`, `[link] file_align`, and the machine-written
+  `[targets.X] layout` / `origins`). All four are now in the template, and
+  `tests/test_project_toml_example.py` gates both directions against the
+  loader's key sets, in the shape `test_env_docs` already uses for
+  `REBREW_*` names: a key the template sets that the loader drops, and a key
+  the loader accepts that the template never names.
 - **The LLM cost line now reports what the spend bought.** `rebrew match
   --seed-llm` printed tokens, latency, and the model pin, which says how much
   a run cost but nothing about whether it earned its keep: an endpoint that

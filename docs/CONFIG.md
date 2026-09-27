@@ -356,7 +356,8 @@ by the CLI layer and win for that invocation.
   (default `32`). Stops `--watch` / batch seeding from burning a paid
   endpoint. `0` disables further calls for the process. A set-but-non-integer
   or negative value is a `ValueError` (not silently reset to the default).
-  Values above `10000` clamp to `10000` with a warning. A prompt this
+  Values above `10000` clamp to `10000` with a warning. The resolved ceiling
+  is reported as `llm_max_requests` by `rebrew cfg effective`. A prompt this
   process already sent is answered from an in-process cache instead of the
   endpoint, so a `--watch` rerun that leaves the function under match
   unchanged costs no request slot and no tokens; only non-empty answers are
@@ -370,7 +371,8 @@ by the CLI layer and win for that invocation.
   in seconds (default `90`). A timed-out request is still billed and its
   seeds are lost, so raise it for a local model that needs minutes for a
   capped completion. Below `5` is a `ConfigError`; above `1800` clamps to
-  `1800` with a warning.
+  `1800` with a warning. The resolved budget is reported as `llm_timeout` by
+  `rebrew cfg effective`.
 - `REBREW_RECOMPILE_URL` — base URL of the recompile compile service
   (e.g. `http://localhost:8000`). Same effect as `[compiler] recompile_url`;
   when the variable is present it wins (empty forces local docker for the
@@ -512,8 +514,12 @@ non-empty values must use `http(s)`, have a hostname, and use a numeric port in
 characters are rejected. Surrounding whitespace is trimmed; empty values remain
 unset. TOML values are validated at load; environment values are validated when
 resolved, before any HTTP request. `REBREW_LLM_MAX_REQUESTS`, when set, must be
-a non-negative integer, and `REBREW_LLM_TIMEOUT` an integer no lower than 5
-(both validated when LLM config is resolved). A value that fails validation is
+a non-negative integer, and `REBREW_LLM_TIMEOUT` an integer no lower than 5.
+Both are parsed by `load_config`, so a mistyped value is a `ConfigError` for
+every command that reads a project config, not a silent reset to the default;
+`rebrew cfg effective` reports the two resolved values as `llm_max_requests` and
+`llm_timeout`. The remaining LLM settings (endpoint URL, key/host pairing, model
+id) are resolved later, at seeding time: a value that fails there is
 reported by `rebrew match --seed-llm` and the run continues without LLM seeds;
 it does not abort the GA.
 
@@ -614,6 +620,9 @@ told apart. `llm_api_key` prints as `***`; the `env_overrides` list holds
 variable names only, never their values. Presence there is not precedence: a
 set `[llm] endpoint` / `model` still wins over the matching env var, while
 `REBREW_LLM_API_KEY` and `REBREW_RECOMPILE_URL` win over TOML.
+`llm_max_requests` and `llm_timeout` are the resolved, clamped
+`REBREW_LLM_MAX_REQUESTS` / `REBREW_LLM_TIMEOUT`, so the budget a run works
+under is visible in the same dump.
 
 `env_errors` covers the knobs no command reads until the moment of use
 (`REBREW_CONTAINER_RUNTIME`, `REBREW_FLIRT_SIGS_DIR`,

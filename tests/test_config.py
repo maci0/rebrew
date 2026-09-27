@@ -9,6 +9,7 @@ from rebrew.compile_cache import DEFAULT_CACHE_SIZE_LIMIT_MIB
 from rebrew.config import (
     ARCH_PRESETS,
     DEFAULT_LLM_MAX_REQUESTS,
+    DEFAULT_LLM_TIMEOUT,
     MAX_LLM_MAX_REQUESTS,
     ConfigError,
     ConfigKeyError,
@@ -2043,6 +2044,38 @@ profile = "msvc-6.0"
         assert llm_max_requests("0") == 0
         with pytest.warns(ConfigWarning, match="clamping to 10000"):
             assert llm_max_requests("99999") == MAX_LLM_MAX_REQUESTS
+
+    def test_llm_budget_knobs_resolve_into_the_config(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`rebrew cfg effective` reports the LLM ceiling and request budget.
+
+        They are the knobs that decide whether seeding runs and what it can
+        bill, and they are env-only, so nothing else showed their value.
+        """
+        root = _make_project(tmp_path, self.BASE_TOML)
+        monkeypatch.delenv("REBREW_LLM_MAX_REQUESTS", raising=False)
+        monkeypatch.delenv("REBREW_LLM_TIMEOUT", raising=False)
+        resolved = load_config(root).as_dict()
+        assert resolved["llm_max_requests"] == DEFAULT_LLM_MAX_REQUESTS
+        assert resolved["llm_timeout"] == DEFAULT_LLM_TIMEOUT
+
+        monkeypatch.setenv("REBREW_LLM_MAX_REQUESTS", "7")
+        monkeypatch.setenv("REBREW_LLM_TIMEOUT", "600")
+        resolved = load_config(root).as_dict()
+        assert resolved["llm_max_requests"] == 7
+        assert resolved["llm_timeout"] == 600
+
+    def test_llm_budget_clamps_into_the_config(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        root = _make_project(tmp_path, self.BASE_TOML)
+        monkeypatch.setenv("REBREW_LLM_MAX_REQUESTS", "99999")
+        monkeypatch.setenv("REBREW_LLM_TIMEOUT", "99999")
+        with pytest.warns(ConfigWarning):
+            resolved = load_config(root).as_dict()
+        assert resolved["llm_max_requests"] == MAX_LLM_MAX_REQUESTS
+        assert resolved["llm_timeout"] == 1800
 
     def test_project_config_repr_redacts_api_key(self, tmp_path: Path) -> None:
         root = _make_project(tmp_path, self.BASE_TOML)
