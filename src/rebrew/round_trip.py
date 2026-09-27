@@ -668,7 +668,7 @@ def _run_round_trip(
         original_fields = read_pe_header_fields(original)
         if original_fields is not None:
             configured = getattr(cfg, "link", None)
-            configured_fields = configured.to_patch_fields() if configured else {}
+            configured_fields = configured.to_patch_fields(original_fields) if configured else {}
             patch: dict[str, int] = {}
             for label in PATCHABLE:
                 if label in configured_fields:

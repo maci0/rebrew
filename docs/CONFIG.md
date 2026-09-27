@@ -266,7 +266,7 @@ against the original binary. Unknown keys warn.
 [link]
 stack_reserve = 0x100000
 stack_commit = 0x1000
-tsaware = false              # sets 0x8000 in DllCharacteristics
+tsaware = false              # sets or clears 0x8000 in DllCharacteristics
 linker_version = "6.0"
 os_version = "4.0"
 subsystem_version = "4.0"

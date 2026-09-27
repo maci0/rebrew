@@ -237,8 +237,18 @@ def parse_rizin_afl(text: str) -> list[tuple[int, int, str]]:
             va = int(p[0], 16)
         except ValueError:
             continue
-        if len(p) >= 4 and p[2].isdecimal():
-            size, name = int(p[2]), p[3]
+        # The 4-column layout is ``va offset size name``, so p[2] is the size
+        # and p[3] the name.  Test for a parseable number rather than a decimal
+        # one so a 0x-prefixed size still selects this branch; falling through
+        # would read the offset as the size and the size as the name.
+        four_col_size: int | None = None
+        if len(p) >= 4:
+            try:
+                four_col_size = int(p[2], 0)
+            except ValueError:
+                four_col_size = None
+        if four_col_size is not None:
+            size, name = four_col_size, p[3]
         elif len(p) >= 3:
             try:
                 # Rizin versions differ on size radix (decimal vs 0x-prefixed

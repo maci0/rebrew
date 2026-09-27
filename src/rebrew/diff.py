@@ -184,6 +184,7 @@ def _write_blocker(
     obj_bytes: bytes,
     dry_run: bool,
     json_output: bool,
+    obj_size: int | None = None,
 ) -> dict[str, Any]:
     """Write or clear BLOCKER metadata per the diff verdict.
 
@@ -191,10 +192,17 @@ def _write_blocker(
     payload, mirroring ``near-diag``'s ``blocker_written`` contract) and the
     terminal path (which prints the same outcome).  Returns the outcome dict
     regardless of mode so the caller can report it.
+
+    ``obj_bytes`` is the target-length-clipped buffer the diff is rendered
+    from, so its length difference against the target is always zero.  Pass
+    ``obj_size`` (the pre-clipping object length) for the delta; it defaults to
+    ``len(obj_bytes)`` for callers that never clipped.
     """
     from rebrew.annotation import parse_c_file_multi
     from rebrew.metadata import remove_field, update_field
 
+    if obj_size is None:
+        obj_size = len(obj_bytes)
     seed_path = Path(p.seed_c)
     # A marker-less (ADR 023) source has its annotations only in
     # rebrew-functions.toml; without metadata_dir the module is empty and the
@@ -212,7 +220,7 @@ def _write_blocker(
     if blockers:
         blocker_text = ", ".join(blockers)
         delta = sum(1 for a, b in zip(p.target_bytes, obj_bytes, strict=False) if a != b) + abs(
-            len(p.target_bytes) - len(obj_bytes)
+            len(p.target_bytes) - obj_size
         )
         outcome["text"] = blocker_text
         outcome["delta"] = delta
@@ -276,6 +284,7 @@ def run_diff(
     if not (res.ok and res.obj_bytes):
         error_exit(f"Build failed: {res.error_msg}", json_mode=json_output, code=EXIT_ERROR)
 
+    full_obj_size = len(res.obj_bytes)
     obj_bytes = res.obj_bytes
     if len(obj_bytes) > len(p.target_bytes):
         obj_bytes = obj_bytes[: len(p.target_bytes)]
@@ -355,7 +364,7 @@ def run_diff(
                 # (near-diag's blocker_written contract — a script driving
                 # --fix-blocker --json must learn whether the blocker landed).
                 summary["blocker"] = _write_blocker(
-                    p, blockers, obj_bytes, dry_run, json_output=True
+                    p, blockers, obj_bytes, dry_run, json_output=True, obj_size=full_obj_size
                 )
             json_print(summary)
         elif csv_output:
@@ -408,7 +417,9 @@ def run_diff(
             # JSON mode already wrote the blocker above (the payload reports
             # the outcome); this terminal-only write would redo the metadata
             # I/O and print status chatter against the JSON contract.
-            _write_blocker(p, blockers, obj_bytes, dry_run, json_output=False)
+            _write_blocker(
+                p, blockers, obj_bytes, dry_run, json_output=False, obj_size=full_obj_size
+            )
 
         summary_obj = summary.get("summary", {})
         structural_obj = summary_obj.get("structural", 0) if isinstance(summary_obj, dict) else 0

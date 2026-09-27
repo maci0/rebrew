@@ -1444,10 +1444,17 @@ def _detect_toolchain_core(
                 info.family = "msvc"
                 info.confidence = "medium"
                 info.version_hint = "16-bit MSVC-style NE (no Borland segment markers)"
-            info.detected_by = "ne"
-            # NE executables are 16-bit x86 — only 16-bit-capable profiles
-            # (msvc-1.52, watcom) can ever byte-match them.
-            info.arch = "x86_16"
+            if info.family != "unknown":
+                # Only claim the detection when the NE evidence itself named
+                # the family — a stronger backend (die/PDB) that ran first
+                # keeps its detected_by.
+                info.detected_by = "ne"
+        # An NE executable is ALWAYS 16-bit x86 — the arch applies even when a
+        # stronger backend (die/PDB) already named the family, mirroring the MZ
+        # branch below.  Only 16-bit-capable profiles (msvc-1.52, watcom) can
+        # ever byte-match it, so skipping this leaves a 32-bit profile free to
+        # pass profile_matches_detection on a 16-bit target.
+        info.arch = "x86_16"
         return info
 
     # --- 16-bit DOS MZ targets: string evidence identifies the family ---

@@ -601,12 +601,15 @@ def _find_in_dirs(name: Path, dirs: list[Path]) -> Path | None:
                 return candidate
         except OSError:
             continue
-    for d in dirs:
         try:
             if not d.is_dir():
                 continue
             # Only try case-insensitive fallback for single-component names;
-            # sub-path includes need exact directory structure.
+            # sub-path includes need exact directory structure.  The fallback
+            # runs inside the same directory iteration as the exact match:
+            # include search order is first-directory-wins, so a later
+            # directory's exact hit must not outrank an earlier one's
+            # case-folded hit (wine resolves case-insensitively per -I dir).
             if len(name.parts) != 1:
                 continue
             norm_name = unicodedata.normalize("NFC", name.name).casefold()

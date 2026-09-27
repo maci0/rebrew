@@ -1476,7 +1476,8 @@ def crossover(parent1: str, parent2: str, rng: random.Random) -> str:
     of a run of identical lines, per ``difflib``).  Cutting both at the same
     line index instead drops or repeats lines whenever a mutation changed
     the line count: a lost ``return``, or a damaged sibling function.
-    Returns *parent1* when no cut yields a third source.
+    Returns *parent1* when no cut yields a third source, and *parent2* when
+    the chosen cut happens to reproduce it.
     """
     p1_pre, p1_body = _split_preamble_body(parent1)
     _, p2_body = _split_preamble_body(parent2)

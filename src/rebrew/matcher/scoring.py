@@ -1068,9 +1068,12 @@ def code_similarity(
     text_a = _nasm_text(target_bytes, md)
     text_b = _nasm_text(candidate_bytes, md)
     if not text_a or not text_b:
-        # One side has no instructions (empty/undecodable) — nothing to
-        # compare structurally beyond the byte-equality fast path above.
-        return 0.0 if text_a or text_b else 100.0
+        # One side has no instructions (empty/undecodable), so there is nothing
+        # to compare structurally.  The byte-equality fast path above already
+        # returned for two identical buffers, so reaching here with both sides
+        # empty means the bytes differ: 100.0 would be a perfect score for two
+        # unrelated buffers.
+        return 0.0
     ma = minhash_from_tokens(code_tokenize(text_a))
     mb = minhash_from_tokens(code_tokenize(text_b))
     jaccard = minhash_jaccard(minhash_pack(ma), minhash_pack(mb))
