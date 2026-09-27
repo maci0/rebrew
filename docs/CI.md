@@ -24,7 +24,14 @@ knobs, source commit and dirty flag), and installs the
 wheel into a clean venv for a smoke import — runtime deps come from
 `uv sync --frozen --no-install-project`, then the wheel is overlaid with
 `--no-deps` so the smoke cannot drift past `uv.lock` — and a `cli-contract`
-job that greps the high-value `--help` surfaces. The lint job also runs
+job that greps the high-value `--help` surfaces. The package job also runs
+`make sdist-check`: it builds a wheel *from* the shipped sdist through the
+same hash-pinned build constraints and diffs the archive member lists
+(`tools/check_sdist_wheel.py`). The wheel is smoke-installed, but the sdist is
+the artifact a source install compiles, its file list comes from
+`MANIFEST.in` rather than package-data, and `tools/normalize_sdist.py` rewrites
+its tar metadata after the build, so a prune rule that dropped a runtime file
+would otherwise ship a working wheel and a broken source install. The lint job also runs
 `make audit` (`uv audit --locked`; diskcache's unfixed pickle advisory is
 `--ignore-until-fixed` until upstream ships a fix). Every job installs uv
 through the local composite action `.github/actions/uv-env`, which holds the

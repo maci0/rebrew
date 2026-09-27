@@ -1,6 +1,7 @@
 .PHONY: help setup clean test test-one lint format format-check check build sbom all pr-check \
 	gen-fixtures gen-fixtures-check gen-skills gen-skills-check cycles-check idempotency-check mypy audit \
 	cli-contract release-check coverage ensure-uv ensure-resembl ensure-nasm warn-nasm ensure-extras \
+	sdist-check \
 	clone-resembl warn-uv-version
 
 # Force POSIX sh for recipes (ignore a caller-exported SHELL=bash).  Recipes
@@ -71,8 +72,9 @@ help:
 		'  make cli-contract       # high-value --help greps (CI cli-contract job)' \
 		'  make build              # reproducible sdist+wheel + dist/rebrew.buildinfo' \
 		'  make sbom               # CycloneDX 1.5 JSON from uv.lock (offline)' \
+		'  make sdist-check        # build a wheel from the sdist and diff it against dist/*.whl' \
 		'  make all                # local mirror of CI lint+test(+coverage floor)+cli-contract gates' \
-		'  make pr-check           # full local CI verification (all + check + build + sbom)' \
+		'  make pr-check           # full local CI verification (all + check + build + sbom + sdist-check)' \
 		'  make gen-fixtures       # regenerate tests/fixtures/ from tools/gen_fixtures.py' \
 		'  make gen-fixtures-check # tools/gen_fixtures.py --check' \
 		'  make gen-skills         # regenerate .agents/skills/ from src/rebrew/agent-skills/' \
@@ -300,6 +302,25 @@ sbom: warn-uv-version
 	@mkdir -p dist
 	uv run --no-project --offline python tools/generate_sbom.py -o dist/rebrew.cdx.json
 
+# Prove the sdist carries every runtime file the wheel ships.  The wheel is
+# smoke-installed; nothing else exercises the sdist, and its file list comes
+# from MANIFEST.in plus the post-build rewrite in normalize_sdist.py rather
+# than from package-data.  Build a wheel *from* the sdist through the same
+# hash-pinned build constraints `make build` uses, then diff the two member
+# lists.  Runs after `build`; the intermediate wheel lands in .sdist-check/.
+sdist-check: build
+	@set -eu; \
+	for f in dist/*.tar.gz; do set -- "$$@" "$$f"; done; \
+	[ $$# -eq 1 ] || { echo "ERROR: expected exactly one sdist in dist/ (run make build)"; exit 1; }; \
+	sdist=$$1; \
+	for f in dist/*.whl; do set -- "$$f"; done; \
+	rm -rf .sdist-check; mkdir .sdist-check; \
+	umask 022 && SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) TZ=UTC LC_ALL=C PYTHONHASHSEED=0 \
+	  uv build --wheel --out-dir .sdist-check --build-constraints build-constraints.txt \
+	  --require-hashes "$$sdist"; \
+	uv run --no-project --offline python tools/check_sdist_wheel.py "$$1" .sdist-check/*.whl; \
+	rm -rf .sdist-check
+
 # Run all non-mutating verification gates (mirrors CI lint + test +
 # cli-contract jobs: ruff, mypy, uv audit, pytest under the COV_FLOOR gate
 # (CI's 3.13 test entry runs `make coverage`, not `make test`), fixture
@@ -310,7 +331,7 @@ all: format-check lint mypy audit coverage gen-fixtures-check cycles-check idemp
 
 # Full local verification: single runnable step mirroring every CI gate
 # (all non-mutating gates + pre-commit hook parity + reproducible build + SBOM).
-pr-check: all check build sbom
+pr-check: all check build sbom sdist-check
 
 # Regenerate checked-in binary fixtures (run after editing tools/gen_fixtures.py).
 gen-fixtures: ensure-uv
