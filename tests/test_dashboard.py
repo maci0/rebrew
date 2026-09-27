@@ -3419,6 +3419,40 @@ class TestOpenApiSpec:
             row = body[key]["items"]
             assert row["minItems"] == row["maxItems"] == len(cols)
 
+    def test_served_rows_hold_no_null_in_a_column_the_schema_forbids(
+        self, dashboard: Dashboard
+    ) -> None:
+        """A column declared plain ``string``/``integer`` is never sent as null.
+
+        The reverse of the null-check contract: a row that answers ``null``
+        where the schema allows only a scalar fails a generated client's
+        validator, and a schema that admits ``null`` for a ``NOT NULL`` column
+        makes one null-check every reader has to write for nothing.
+        """
+        schemas = _spec()["components"]["schemas"]
+        # A freshly built database has no transitions, so the history check
+        # would pass on an empty list; give it a row before reading it back.
+        with sqlite3.connect(dashboard.db_path) as conn:
+            conn.execute(
+                "INSERT INTO history (target, va, old_status, new_status, changed_at) "
+                "VALUES ('server_dll', 0x10001000, 'STUB', 'EXACT', '2026-01-01T00:00:00Z')"
+            )
+            conn.commit()
+        for schema_name, key, payload in (
+            ("Functions", "functions", dashboard.functions("server_dll")),
+            ("Sections", "sections", dashboard.sections("server_dll")),
+            ("Globals", "globals", dashboard.globals("server_dll")),
+            ("History", "history", dashboard.history("server_dll")),
+        ):
+            cols = schemas[schema_name]["allOf"][1]["properties"]["cols"]["const"]
+            declared = schemas[schema_name]["allOf"][1]["properties"][key]["items"]["prefixItems"]
+            assert payload[key], schema_name
+            for row in payload[key]:
+                for col, cell, schema in zip(cols, row, declared, strict=True):
+                    if isinstance(schema.get("type"), list):
+                        continue  # declared nullable
+                    assert cell is not None, (schema_name, col, row)
+
     def test_bootstrap_and_targets_envelopes_match(self, dashboard: Dashboard) -> None:
         schemas = _spec()["components"]["schemas"]
         _, _, body = dashboard.handle("GET", "/api/bootstrap", {})
@@ -3475,6 +3509,37 @@ class TestOpenApiSpec:
                     responses[name]["content"]["application/json"]["schema"]["$ref"]
                     == "#/components/schemas/Error"
                 ), (path, method, name)
+
+    def test_documented_4xx_name_every_code_the_route_answers(
+        self, dashboard: Dashboard
+    ) -> None:
+        """A status the server answers two ways must document both codes.
+
+        ``/api/functions`` answers 400 for a missing ``target`` and for a
+        ``status`` outside the vocabulary, and every route answers 404 both
+        for an unknown target and (on an unserved path) with ``not_found``.
+        A generated client reads the published description, not the handler,
+        so a code missing from it is a branch with no documented meaning.
+        """
+        spec = _spec()
+        responses = spec["components"]["responses"]
+
+        def documented(path: str, status: int) -> str:
+            ref = spec["paths"][path]["get"]["responses"][str(status)]["$ref"]
+            return str(responses[ref.rsplit("/", 1)[-1]]["description"])
+
+        for path, query, status, code in (
+            ("/api/functions", {}, 400, "missing_target"),
+            ("/api/functions", {"target": ["server_dll"], "status": ["NOPE"]}, 400, "invalid_status"),
+            ("/api/globals", {}, 400, "missing_target"),
+            ("/api/globals", {"target": ["nope"]}, 404, "unknown_target"),
+        ):
+            answered, _, body = dashboard.handle("GET", path, query)
+            assert answered == status, path
+            assert json.loads(body)["code"] == code, path
+            assert code in documented(path, status), (path, code)
+        for path in ("/api/summary", "/api/functions", "/api/sections", "/api/globals"):
+            assert "not_found" in documented(path, 404), path
 
     def test_va_pattern_accepts_a_64_bit_address(self, dashboard: Dashboard) -> None:
         """A `va` past 32 bits serializes to more than eight hex digits.

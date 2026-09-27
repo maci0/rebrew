@@ -6,7 +6,9 @@ info:
   description: |
     Every route is read-only: the SQLite database is opened `mode=ro` and
     non-`GET`/`HEAD` methods answer 405 with `Allow: GET, HEAD`.  A path the
-    server does not serve answers 404 whatever the method.
+    server does not serve answers 404 `not_found` whatever the method, so a
+    404 body carries `not_found` on any path and `unknown_target` on the
+    target-scoped ones; branch on `code`.
 
     The server has no authentication.  It binds `127.0.0.1:8000` by default
     and rejects a `Host` header that is not the bound host or a loopback
@@ -577,7 +579,8 @@ components:
         the coverage DB default for a function with no STATUS, and is accepted
         because the summary renders it as a filterable card.  A value
         outside it is 400 `invalid_status` rather than an empty page, which
-        would read as "this target has no functions in that status".
+        would read as "this target has no functions in that status".  A blank
+        value (`status=`) does not filter, like omitting it.
       schema:
         type: string
         enum: [EXACT, RELOC, PROVEN, NEAR_MATCHING, STUB, SKIP, UNKNOWN, INVALID_VA, MISSING_FILE, MISSING_SIZE, SIZE_MISMATCH, COMPILE_ERROR, EXTRACT_ERROR]
@@ -845,7 +848,7 @@ components:
                   - { $ref: "#/components/schemas/Va" }
                   - { type: string }
                   - { type: string, description: Declaration text, or "". }
-                  - { type: [integer, "null"], minimum: 0 }
+                  - { type: integer, minimum: 0, description: Size in bytes; the column is NOT NULL. }
                   - { type: string, description: Module, or "" when unset. }
                 minItems: 5
                 maxItems: 5
@@ -869,7 +872,13 @@ components:
                   - { type: string, description: Current function name, or "" if the row is gone. }
                   - { type: string, description: Previous status, or "" for a VA's first transition. }
                   - { type: string }
-                  - { type: [string, "null"], format: date-time, description: UTC instant of the change. }
+                  - type: string
+                    format: date-time
+                    minLength: 1
+                    description: |
+                      UTC instant of the change, as an RFC 3339 timestamp.  The
+                      column is NOT NULL and may not be empty, so a client
+                      never has to null-check this column.
                 minItems: 5
                 maxItems: 5
 
@@ -906,19 +915,29 @@ components:
           schema: { type: string }
 
     MissingTarget:
-      description: '`target` is missing or blank (`missing_target`).'
+      description: |
+        `target` is missing or blank (`missing_target`).  `/api/functions`
+        answers this status for a missing `target` as well as for a bad
+        `status`, so branch on `code` rather than on the route.
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
 
     InvalidRequest:
-      description: 'A query parameter is outside its vocabulary (`invalid_status`).'
+      description: |
+        `/api/functions` rejects a query parameter outside its vocabulary
+        (`invalid_status`).  The same status also covers a missing or blank
+        `target` (`missing_target`), so branch on `code`: `invalid_status`
+        names the offending value, `missing_target` names the absent one.
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
 
     UnknownTarget:
-      description: 'No target by that name has stats (`unknown_target`).'
+      description: |
+        No target by that name has stats (`unknown_target`).  A path the
+        server does not serve answers this same status with `not_found`
+        whatever the method, since there is no resource to list methods for.
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
