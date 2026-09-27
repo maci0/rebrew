@@ -203,6 +203,7 @@ every rebrew client:
 ```python
 from rebrew.recompile_client import compile_source
 
+
 class FakeService:
     def post(self, url, **kwargs):
         return _Response(200, {"status": "ok", "artifact_url": "/api/v1/artifacts/1.obj"})
@@ -210,11 +211,12 @@ class FakeService:
     def get(self, url, **kwargs):
         return _Response(200, b"\x90" * 8)
 
+
 result = compile_source(
-    "http://localhost:8080",       # base URL
-    "msvc-6.0",                    # compiler
-    "int f(void) { return 0; }",   # source
-    ["/O2"],                       # flags: a str is split on whitespace
+    "http://localhost:8080",  # base URL
+    "msvc-6.0",  # compiler
+    "int f(void) { return 0; }",  # source
+    ["/O2"],  # flags: a str is split on whitespace
     client=FakeService(),
 )
 result.ok / result.obj_bytes / result.log / result.compiler_version

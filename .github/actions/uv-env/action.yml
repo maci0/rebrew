@@ -63,4 +63,9 @@ runs:
       with:
         version: ${{ inputs.uv-version }}
         enable-cache: true
+        # Also cache the managed CPython itself (cache-python, off by default).
+        # The interpreter is pinned to an exact patch, so the cached install is
+        # byte-identical to the download it replaces, and every job in both
+        # workflows stops re-fetching it from the mirror on a cold cache.
+        cache-python: true
         python-version: ${{ inputs.python-version }}

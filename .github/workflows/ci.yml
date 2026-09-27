@@ -5,6 +5,11 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # Manual re-run. The apt and codeload helpers retry three times, so a mirror
+  # that stays down past that still fails the job; re-running a failed job
+  # cannot pick up a fixed mirror, a new runner image, or a moved resembl tag.
+  # This is the same pipeline on the same refs, not a second set of gates.
+  workflow_dispatch: {}
 
 # The Actions cache (setup-uv enable-cache) authenticates with the runner's
 # own token, not GITHUB_TOKEN, so no `actions` grant is needed to save it.

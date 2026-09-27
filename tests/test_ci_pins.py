@@ -182,6 +182,37 @@ class TestCiPins:
             assert "runs-on: ubuntu-latest" not in text, path.name
             assert "runs-on: ubuntu-24.04" in text, path.name
 
+    def test_both_workflows_can_be_re_run_by_hand(self) -> None:
+        """A mirror or runner that stays down past three retries needs a re-run path.
+
+        The retriers in tools/ci_apt_install.sh and tools/ci_clone_resembl.sh
+        cap at three attempts, so the remaining recovery is re-running the
+        pipeline; re-running a failed job alone cannot pick up a fixed mirror or
+        a new runner image.
+        """
+        import yaml
+
+        for path in (CI_YML, SYNC_YML):
+            triggers = yaml.safe_load(path.read_text(encoding="utf-8"))[True]
+            assert "workflow_dispatch" in triggers, path.name
+
+    def test_managed_python_is_cached(self) -> None:
+        """setup-uv leaves cache-python off, so each job re-downloads CPython.
+
+        The interpreter is pinned to an exact patch, so caching the managed
+        install costs one cache entry and saves a mirror download per job.
+        """
+        import yaml
+
+        action = yaml.safe_load(UV_ENV_ACTION.read_text(encoding="utf-8"))
+        setup_uv = next(
+            step
+            for step in action["runs"]["steps"]
+            if str(step.get("uses", "")).startswith("astral-sh/setup-uv@")
+        )
+        assert setup_uv["with"]["cache-python"] is True
+        assert setup_uv["with"]["enable-cache"] is True
+
     def test_token_permissions_read_only(self) -> None:
         """GITHUB_TOKEN stays contents:read; the Actions cache uses the runner token."""
         for path in (CI_YML, SYNC_YML):
