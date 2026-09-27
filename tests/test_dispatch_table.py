@@ -156,6 +156,66 @@ class TestFindDispatchTables:
         tables = find_dispatch_tables(b"\x00" * 100, {}, {})
         assert tables == []
 
+    def test_image_endianness_decodes_pointer_table(self) -> None:
+        """A big-endian table is found as big-endian, and a little-endian
+        table on a BE-defaulting arch as little-endian.
+
+        The image header's byte order wins over the arch default; without it a
+        big-endian MIPS dispatch table reads as noise and is never reported.
+        """
+        from types import SimpleNamespace
+
+        text_va = 0x10001000
+        text_size = 0x10000
+        data_va = 0x10020000
+        data_offset = 0x1000
+        ptrs = [text_va + 0x100, text_va + 0x200, text_va + 0x300]
+        binary = bytearray(data_offset + len(ptrs) * 4 + 256)
+        for i, ptr in enumerate(ptrs):
+            struct.pack_into(">I", binary, data_offset + i * 4, ptr)
+        sections = {
+            ".text": {"va": text_va, "size": text_size, "file_offset": 0, "raw_size": 0x1000},
+            ".data": {
+                "va": data_va,
+                "size": len(ptrs) * 4 + 256,
+                "file_offset": data_offset,
+                "raw_size": len(ptrs) * 4 + 256,
+            },
+        }
+        info = SimpleNamespace(
+            format="elf", arch="mips32", endian="big", pointer_size=4, ne_segments=()
+        )
+        tables = find_dispatch_tables(bytes(binary), sections, {}, min_entries=3, info=info)
+        assert len(tables) == 1
+        assert {e.target_va for e in tables[0].entries} == set(ptrs)
+
+    def test_arch_default_applies_when_header_is_silent(self) -> None:
+        """An unknown byte order falls back to the arch, not always to
+        little-endian: a big-endian MIPS table is still found."""
+        from types import SimpleNamespace
+
+        text_va = 0x10001000
+        data_va = 0x10020000
+        data_offset = 0x1000
+        ptrs = [text_va + 0x100, text_va + 0x200, text_va + 0x300]
+        binary = bytearray(data_offset + len(ptrs) * 4 + 256)
+        for i, ptr in enumerate(ptrs):
+            struct.pack_into(">I", binary, data_offset + i * 4, ptr)
+        sections = {
+            ".text": {"va": text_va, "size": 0x10000, "file_offset": 0, "raw_size": 0x1000},
+            ".data": {
+                "va": data_va,
+                "size": len(ptrs) * 4 + 256,
+                "file_offset": data_offset,
+                "raw_size": len(ptrs) * 4 + 256,
+            },
+        }
+        info = SimpleNamespace(
+            format="elf", arch="mips32", endian="", pointer_size=4, ne_segments=()
+        )
+        tables = find_dispatch_tables(bytes(binary), sections, {}, min_entries=3, info=info)
+        assert len(tables) == 1
+
     def test_min_entries_filter(self) -> None:
         text_va = 0x10001000
         text_size = 0x10000

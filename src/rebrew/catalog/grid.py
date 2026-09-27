@@ -322,7 +322,14 @@ def generate_data_json(
     text_raw_offset = 0
     text_data: bytes | None = None
     _bin_data: bytes | None = None  # Full binary bytes for batch function extraction
+    # Target identity for the jump-table probe below.  The image header's own
+    # byte order wins over the arch default, so a little-endian MIPS build is
+    # not probed as big-endian.
+    jump_arch = "x86_32"
+    jump_endian = ""
     if _bin_info is not None:
+        jump_arch = _bin_info.arch or jump_arch
+        jump_endian = _bin_info.endian
         image_base = _bin_info.image_base
         text_raw_offset = _bin_info.text_raw_offset
         _bin_data = _bin_info.data  # Cache full binary for O(1) function byte extraction
@@ -565,7 +572,7 @@ def generate_data_json(
                         label_va, dl_info = dl_result
                         if dl_info.state == "data":
                             is_switch_data = True
-                    elif is_jump_table(gap_bytes, sec_va, sec_size):
+                    elif is_jump_table(gap_bytes, sec_va, sec_size, jump_arch, jump_endian):
                         is_switch_data = True
 
                     if is_switch_data:
@@ -656,7 +663,7 @@ def generate_data_json(
                             thunk_size = registry[sec_va + off].get("canonical_size", 0)
                             if thunk_size > 0:
                                 gap_end = min(sec_size, off + thunk_size, next_off)
-                    elif is_jump_table(gap_bytes, sec_va, sec_size):
+                    elif is_jump_table(gap_bytes, sec_va, sec_size, jump_arch, jump_endian):
                         gap_state = "data"
 
                 # Auto-detect parent function (gap starts where a function ends)

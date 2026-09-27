@@ -136,3 +136,39 @@ class TestIsJumpTable:
         data = b"".join(struct.pack(">I", 0x1000 + i * 4) for i in range(4))
         assert is_jump_table(data, 0x1000, 0x1000, arch="mips32") is True
         assert is_jump_table(data, 0x1000, 0x1000, arch="x86_32") is False
+
+    def test_image_endian_overrides_arch_default(self) -> None:
+        """A little-endian MIPS build (PlayStation) reads little-endian.
+
+        The arch default says big-endian; the image header says otherwise and
+        wins, the way it does for the instruction stream.
+        """
+        data = b"".join(struct.pack("<I", 0x1000 + i * 4) for i in range(4))
+        assert is_jump_table(data, 0x1000, 0x1000, arch="mips32", endian="little") is True
+        # The same bytes under the arch default are not a table.
+        assert is_jump_table(data, 0x1000, 0x1000, arch="mips32") is False
+
+    def test_big_endian_image_header_on_little_endian_arch(self) -> None:
+        """A BE image of a normally-LE arch reads big-endian, not reversed."""
+        data = b"".join(struct.pack(">I", 0x1000 + i * 4) for i in range(4))
+        assert is_jump_table(data, 0x1000, 0x1000, arch="x86_32", endian="big") is True
+        assert is_jump_table(data, 0x1000, 0x1000, arch="x86_32") is False
+
+    def test_canonical_size_uses_image_endianness(self) -> None:
+        """``_resolve_canonical_size`` passes the target's byte order through.
+
+        Ghidra saw 32 bytes, the list saw 40, and the 8 extra are a LE
+        pointer pair — a jump table on a little-endian MIPS build.
+        """
+        extra = b"".join(struct.pack("<I", 0x1000 + i * 4) for i in range(2))
+        data = b"\x90" * 32 + extra
+        sizes = {"ghidra": 32, "list": 40}
+        assert _resolve_canonical_size(sizes, 0x1000, data, 0x1000, 0x1000, "mips32", "little") == (
+            40,
+            "list (includes jump table)",
+        )
+        # Without the header the arch default rejects the same bytes.
+        assert _resolve_canonical_size(sizes, 0x1000, data, 0x1000, 0x1000, "mips32") != (
+            40,
+            "list (includes jump table)",
+        )

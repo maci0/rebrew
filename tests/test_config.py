@@ -16,6 +16,7 @@ from rebrew.config import (
     ProjectConfig,
     _detect_binary_layout,
     _resolve,
+    arch_byte_order,
     find_root,
     inventory_path_for,
     llm_max_requests,
@@ -111,6 +112,23 @@ class TestArchPresets:
 
     def test_arm_padding_bytes(self) -> None:
         assert ARCH_PRESETS["arm32"]["padding_bytes"] == [0x00]
+
+
+class TestArchByteOrder:
+    def test_default_follows_arch(self) -> None:
+        assert arch_byte_order("mips32") == ">"
+        assert arch_byte_order("ppc64") == ">"
+        assert arch_byte_order("x86_32") == "<"
+        assert arch_byte_order("arm64") == "<"
+
+    def test_image_endian_wins_over_arch_default(self) -> None:
+        """A little-endian MIPS build (PlayStation) reads little-endian."""
+        assert arch_byte_order("mips32", "little") == "<"
+        assert arch_byte_order("x86_32", "big") == ">"
+
+    def test_unknown_endian_falls_back_to_arch(self) -> None:
+        assert arch_byte_order("mips32", "") == ">"
+        assert arch_byte_order("x86_32", "") == "<"
 
 
 # ---------------------------------------------------------------------------

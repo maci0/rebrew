@@ -82,6 +82,8 @@ class TestBuildFunctionRegistry:
         info = SimpleNamespace(
             image_base=0x1000,
             text_raw_offset=0,
+            arch="x86_32",
+            endian="little",
             data=b"\x90" * 0x200,
             sections={".text": SimpleNamespace(va=0x1000, size=0x200, file_offset=0)},
         )

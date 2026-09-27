@@ -16,7 +16,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from rebrew.config import ProjectConfig, arch_pointer_size, inventory_path_for
+from rebrew.config import (
+    ProjectConfig,
+    arch_byte_order,
+    arch_pointer_size,
+    inventory_path_for,
+)
 from rebrew.data_metadata import module_visible_to_target
 from rebrew.utils import read_source_text
 
@@ -612,7 +617,9 @@ def find_dispatch_tables(
         max_stride: Maximum byte distance between consecutive pointer-sized slots to still
             be considered part of the same table.  Defaults to ``ptr_size`` (contiguous).
         info: Optional BinaryInfo; enables NE-aware section selection, sets the
-            pointer width, and decodes pointers in its byte order (``endian == "big"``).
+            pointer width, and decodes pointers in the image's byte order
+            (``info.endian``), falling back to *arch*'s default when the
+            header does not say.
 
     """
     if ptr_size is None:
@@ -638,7 +645,10 @@ def find_dispatch_tables(
             (name, sec) for name, sec in sections.items() if name in (".data", ".rdata")
         ]
 
-    byte_order = ">" if getattr(info, "endian", "") == "big" else "<"
+    # The image header's own byte order wins; an unknown one falls back to the
+    # arch default, so a big-endian target is not read little-endian.
+    image_endian = getattr(info, "endian", "") or "" if info is not None else ""
+    byte_order = arch_byte_order(str(getattr(info, "arch", "") or ""), image_endian)
     fmt = byte_order + _PTR_FMT.get(ptr_size, "Q")
     tables: list[DispatchTable] = []
 
