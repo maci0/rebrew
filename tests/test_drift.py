@@ -178,16 +178,16 @@ class TestDriftCommand:
 
         from typer.testing import CliRunner
 
-        from rebrew import drift_cmd
+        from rebrew import drift_cli
 
         src = tmp_path / "f.c"
         src.write_text("// FUNCTION: GAME 0x10001000\nint f(void) { return 1; }\n")
         cfg = SimpleNamespace(metadata_dir=tmp_path, marker="GAME", target_name="GAME")
-        monkeypatch.setattr(drift_cmd, "require_config", lambda **_kw: cfg)
-        monkeypatch.setattr(drift_cmd, "target_marker", lambda _cfg: "GAME")
+        monkeypatch.setattr(drift_cli, "require_config", lambda **_kw: cfg)
+        monkeypatch.setattr(drift_cli, "target_marker", lambda _cfg: "GAME")
 
         result = CliRunner().invoke(
-            drift_cmd.app, ["--va", "0x10002000", "--size", "16", "--json", str(src)]
+            drift_cli.app, ["--va", "0x10002000", "--size", "16", "--json", str(src)]
         )
 
         assert result.exit_code != 0

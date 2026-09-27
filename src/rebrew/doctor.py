@@ -1574,7 +1574,7 @@ def check_binsync_state(cfg: ProjectConfig) -> CheckResult:
     # collaborator) is not relaying — Ghidra will never see the export.
     last: datetime | None = None
     try:
-        from rebrew.binsync.init import git_argv
+        from rebrew.binsync.git import git_argv
 
         proc = subprocess.run(
             git_argv(state_path, "log", "-1", "--format=%ct"),

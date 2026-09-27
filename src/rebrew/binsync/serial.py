@@ -27,7 +27,7 @@ from typing import Any
 
 import tomlkit
 
-from rebrew.binsync.init import git_argv
+from rebrew.binsync.git import git_argv
 
 log = logging.getLogger(__name__)
 

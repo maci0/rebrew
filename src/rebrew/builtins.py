@@ -342,7 +342,7 @@ BUILTIN_COMPONENTS: tuple[CliComponent, ...] = (
     ),
     CliComponent(
         name="verify-exports",
-        module="rebrew.exports",
+        module="rebrew.verify_exports",
         help="Verify the recompiled binary's export table matches the original target.",
         panel=Panel.MATCHING,
         is_group=False,
@@ -363,7 +363,7 @@ BUILTIN_COMPONENTS: tuple[CliComponent, ...] = (
     ),
     CliComponent(
         name="drift",
-        module="rebrew.drift_cmd",
+        module="rebrew.drift_cli",
         help="Localise where compiled bytes drift from the reference, from branch targets.",
         panel=Panel.ANALYSIS,
         is_group=False,
