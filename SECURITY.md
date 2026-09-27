@@ -53,7 +53,10 @@ plugin cache backends or remove the open upstream diskcache advisory.
 
 - No claim of authentication or authorization on `rebrew dashboard` (default
   bind is loopback; binding to non-loopback addresses exposes a read-only
-  HTTP API without credentials).
+  HTTP API without credentials). The only gate on those routes is the Host
+  allow-list; there is no rate limit and no connection cap, and
+  `GET /api/health` reports the absolute `coverage.db` path and the
+  configured target count to any client that clears it.
 - No claim that docker toolchain or cmake-bridge execution is a hardened
   sandbox against a hostile project tree or malicious image. Local container
   runs use `--network=none` (no egress) and `no-new-privileges`; that does
