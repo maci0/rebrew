@@ -1592,6 +1592,40 @@ class TestSkipRecent:
         much_later = run_time + timedelta(days=365)
         assert _filter_recently_run(stubs, cfg, hours=2, json_output=True, now=much_later) == stubs
 
+    def test_zone_less_window_end_reads_as_utc(self, tmp_path: Path) -> None:
+        """A naive *now* is UTC, like a naive record ``ts``; mixing the two
+        raises ``TypeError`` on the aware/naive comparison instead of
+        filtering."""
+        from datetime import datetime
+
+        from rebrew.match_batch import StubInfo
+        from rebrew.match_run import _filter_recently_run
+
+        cfg = SimpleNamespace(root=tmp_path, target_name="SERVER")
+        stubs = [
+            StubInfo(
+                filepath=tmp_path / "s.c",
+                va="0x10001000",
+                size=64,
+                symbol="_s",
+                cflags="/O2",
+                status="STUB",
+                module="SERVER",
+            )
+        ]
+        runs = tmp_path / ".rebrew"
+        runs.mkdir(parents=True)
+        (runs / "ga_runs.jsonl").write_text(
+            '{"ts": "2026-01-01T12:00:00+00:00", "target": "SERVER", '
+            '"va": "0x10001000", "symbol": "_s", "matched": false}\n',
+            encoding="utf-8",
+        )
+        # A zone-less value is the input under test, not an oversight.
+        naive_now = datetime(2026, 1, 1, 12, 30, 0)  # noqa: DTZ001
+        assert _filter_recently_run(stubs, cfg, hours=2, json_output=True, now=naive_now) == []
+        stale_now = datetime(2026, 1, 2, 12, 30, 0)  # noqa: DTZ001
+        assert _filter_recently_run(stubs, cfg, hours=2, json_output=True, now=stale_now) == stubs
+
     def test_no_records_keeps_all(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         from rebrew.match_batch import StubInfo
         from rebrew.match_run import _filter_recently_run
