@@ -6,9 +6,9 @@ description: >-
   rebrew-intake. Triggers on 'new project', 'bootstrap', 'scaffold',
   'bare directory', 'create project', 'initialize project', 'init project',
   'project setup', 'start project', 'set up rebrew', 'rebrew init',
-  'guess-compiler', or 'refresh-agents'. If the user hands you a binary to
-  onboard in one shot, use rebrew-intake (`rebrew intake`) instead. Not for
-  day-to-day reversing (rebrew-workflow).
+  'guess-compiler', 'import-splat', or 'refresh-agents'. If the user hands you a
+  binary to onboard in one shot, use rebrew-intake (`rebrew intake`) instead. Not
+  for day-to-day reversing (rebrew-workflow).
 license: MIT
 ---
 
@@ -46,6 +46,10 @@ rebrew init --target <name> --binary <filename> --guess-compiler --no-wizard
 ```
 
 Target naming: bare binary stem, no extension (`server.dll` → `server`, `game.exe` → `game`; lowercased, non-alnum → `_`). Same default as `rebrew intake`. Override with `--target` only when MODULE markers already use a different form (e.g. legacy `server.dll`). Paths are `layout/<target>/`, `src/<target>/`.
+
+Starting from a splat YAML instead of a bare binary:
+`rebrew import-splat <config>` plans names, layout, and annotations, and writes
+nothing until `--write` (`--force` replaces conflicting annotations).
 
 ## Profile selection
 
