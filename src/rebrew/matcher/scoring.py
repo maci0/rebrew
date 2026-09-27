@@ -80,9 +80,11 @@ _CONTINUITY_PER_INSN = 0.5  # bonus per instruction in longest matching run
 _CONTINUITY_MIN_RUN = 4  # a run must be LONGER than this to earn the bonus
 
 # Magnitude thresholds for "this constant looks like a relocatable address".
-# A PE image is based at 0x400000 and the 16-bit variants above it, so an
-# immediate or displacement past these bounds is an address, not a small
-# number the two sides merely spell differently.
+# Image bases and absolute VAs sit well above these bounds, so an immediate
+# or displacement past them is an address, not a small number the two sides
+# merely spell differently.  The imm32 bound is deliberately far above any
+# image base: at 0x10000000 the operand is unambiguously a VA, and a lower
+# bound would misclassify ordinary large constants.
 _PUSH_IMM_MIN = 0x10000000  # push imm32 / mov reg,imm32
 _DISP_ABS_MIN = 0x10000  # |disp32| on a memory operand
 
@@ -857,7 +859,9 @@ def diff_functions(
 
     print(f"\nTarget ({len(target_bytes)}B) vs Candidate ({len(candidate_bytes)}B)")
     if mismatches_only:
-        print(f"Showing {mismatch_count} structural differences only (** lines)")
+        # `structural` also counts XX (invalid-reloc overlap) rows, which this
+        # filter skips, so name the marker class rather than print the count.
+        print("Showing ** lines only (structural mismatches, excluding XX)")
     print("-" * 80)
     print(
         f"{'Target bytes':20} {'Target disassembly':30} | MS | "
@@ -906,7 +910,9 @@ def print_diff_summary(
         f"\nTarget ({summary.get('target_size', '?')}B) vs Candidate ({summary.get('candidate_size', '?')}B)"
     )
     if mismatches_only:
-        print(f"Showing {mismatch_count} structural differences only (** lines)")
+        # `structural` also counts XX (invalid-reloc overlap) rows, which this
+        # filter skips, so name the marker class rather than print the count.
+        print("Showing ** lines only (structural mismatches, excluding XX)")
     print("-" * 80)
     print(
         f"{'Target bytes':20} {'Target disassembly':30} | MS | "

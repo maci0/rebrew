@@ -90,7 +90,7 @@ def _maybe_headless_wine(
 # heuristics fail to determine the actual size.  1000 bytes is a conservative
 # upper bound that covers most MSVC6 game functions without reading too far
 # past the function boundary — excess bytes are trimmed later by
-# trim_trailing_padding() in catalog/sections.py.
+# trim_trailing_padding() in sections.py.
 _DEFAULT_SYMBOL_SIZE = 1000
 
 # Warn when flag sweep produces more than this many combinations

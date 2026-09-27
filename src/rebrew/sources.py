@@ -25,8 +25,8 @@ def source_exts(cfg: ProjectConfig | None) -> list[str]:
     """Return the configured source extensions as a list, e.g. ``[".c", ".cpp"]``.
 
     ``cfg.source_ext`` may hold a single extension or a comma-separated
-    list (``".c,.cpp"``); falls back to ``[".c"]`` when the attribute is
-    missing or empty.
+    list (``".c,.cpp"``); falls back to ``[".c"]`` when ``cfg`` is ``None`` or
+    the value is empty.
     """
     raw = getattr(cfg, "source_ext", None) if cfg is not None else None
     if not raw:
@@ -39,7 +39,7 @@ def source_glob(cfg: ProjectConfig | None) -> str:
 
     Uses ``cfg.source_ext`` (e.g. ``".c"``, ``".cpp"``, ``".c,.cpp"``) to
     build a pattern like ``"*.c"``, ``"*.cpp"`` or ``"*.{c,cpp}"``.  Falls
-    back to ``"*.c"`` if the attribute is missing.  The brace form is a
+    back to ``"*.c"`` if ``cfg`` is ``None`` or ``source_ext`` is empty.  The brace form is a
     display/validation convenience — :func:`iter_sources` expands multi-
     extension configs by filtering suffixes rather than relying on brace
     support in ``pathlib``.

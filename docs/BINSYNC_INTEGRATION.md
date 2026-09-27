@@ -515,9 +515,10 @@ graph TD
 
 ### Known issues
 
-- **Per-instruction comments do not round-trip** — function-level notes sync
-  via `[comments]`; per-instruction comments have no BinSync surface in the
-  current format and are not synced.
+- **Per-instruction comments outside a function range** — an in-range comment
+  round-trips through the `// ANALYSIS @ 0xADDR: text` source marker; one with
+  no anchorable function stays in the metadata `comments` store (see
+  [Limitations](#limitations-remaining)).
 
 ---
 

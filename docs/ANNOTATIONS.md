@@ -821,7 +821,7 @@ add key-value annotation lines **after** the symbol line:
 reccmp's parser reads the marker + symbol, calls `_function_done()`, and resets to
 search state. The KV lines are invisible to reccmp but captured by rebrew.
 
-Supported KV keys: `STATUS`, `SIZE`, `CFLAGS`, `SOURCE`, `BLOCKER`, `NOTE`.
+Supported KV keys: `STATUS`, `SIZE`, `CFLAGS`, `TOOLCHAIN`, `SOURCE`, `BLOCKER`, `NOTE`.
 
 Entries without explicit `STATUS` default to `EXACT`. Entries without `SIZE` default to 0
 (resolved from the function registry at catalog time).

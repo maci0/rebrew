@@ -253,8 +253,8 @@ _SOURCE_SHA_LOCK = threading.Lock()
 def _source_sha(path: Path) -> str:
     """SHA-256 of *path*, or "" when it cannot be read.
 
-    Keyed on the file's inode metadata, so an edit that keeps size and
-    restores mtime still re-hashes; a missing or unreadable file returns "",
+    Keyed on the file's inode metadata, so an in-place edit that changes size
+    or mtime re-hashes; a missing or unreadable file returns "",
     which :func:`_is_stale` treats as "unverifiable, keep".
     """
     try:

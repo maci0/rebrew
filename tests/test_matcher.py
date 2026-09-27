@@ -341,7 +341,7 @@ class TestDiffFunctionsEdges:
 
         diff_functions(b"\x55\xc3", b"\x90\xc3", mismatches_only=True)
         out = capsys.readouterr().out
-        assert "structural differences only" in out
+        assert "** lines only" in out
 
 
 class TestDockerPathForwardsExtraIncludes:

@@ -288,11 +288,10 @@ def _omf_to_coff(obj_path: str | Path, out_path: str | Path) -> None:
         errors="replace",
         timeout=60,
     )
-    # The caller pre-creates the output tempfile, so mere existence is not
-    # proof of conversion: a failed objconv run (error aborts before Write)
-    # leaves an empty file that LIEF would silently parse as None.  Require
-    # a non-empty output AND a clean exit — a real COFF object is always at
-    # least the 20-byte file header.
+    # Mere existence of the output is not proof of conversion: a failed
+    # objconv run can leave a zero-length file that LIEF would silently
+    # parse as None.  Require a non-empty output AND a clean exit — a real
+    # COFF object is always at least the 20-byte file header.
     out = Path(out_path)
     if r.returncode != 0 or not out.exists() or out.stat().st_size == 0:
         raise ValueError(f"objconv failed to convert OMF {obj_path}: {r.stderr[-300:]}")

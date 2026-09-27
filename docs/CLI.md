@@ -8,7 +8,11 @@ read defaults (binary path, reversed_dir, compiler settings) from the project co
 The ones that do not (`postlink`, `cmake-toolchain`, `build-check`, `order-sources`,
 `gen-link-stubs`, `gen-stubs`, `pdb-info`, `discover-functions`, `unpack-lzexe`,
 `gen-flirt-pat`, `dashboard`, plus the `library`, `resource`, and `skills` groups)
-take their input paths directly.  `rebrew init` and `rebrew intake` also take a
+take their input paths directly.  Within the `cfg` group, `list-targets`, `raw`,
+`path`, `set`, and `remove-target` have no `--target` either: the first three act
+on the file, `set` addresses a key by dotted path, and `remove-target` /
+`set-compiler` name the target as a positional argument.
+`rebrew init` and `rebrew intake` also take a
 `-t/--target`, but it names the target being created rather than selecting one
 from the config.
 
@@ -1184,16 +1188,20 @@ never ships a `.LIB`.
 
 ### `rebrew extract`
 
-| Flag / Arg | Description |
-|------------|-------------|
-| `COMMAND` | `list`, `show`, or `batch N` (positional argument) |
-| `--binary PATH` | Path to DLL/EXE (default: from config) |
-| `--size N` | With `show`, override the catalog-recorded size |
-| `--start N` | With `batch`, start offset into the sorted candidate list |
-| `--min-size N` | Minimum function size to extract (default 8) |
-| `--max-size N` | Maximum function size to extract (default 50000) |
-| `--dry-run` | With `batch`, preview which `.bin` files would be written |
-| `--json` | Output results as JSON |
+A group: `list`, `show VA`, and `batch N` are subcommands, not a positional on
+`extract` itself.
+
+| Subcommand | Flag / Arg | Description |
+|------------|------------|-------------|
+| `extract list` | `--binary PATH` | Path to DLL/EXE (default: from config) |
+| `extract show VA` | `--size N` | Override the catalog-recorded size |
+| `extract batch N` | `N` | Functions to extract (default 20) |
+| `extract batch N` | `--start N` | Start offset into the sorted candidate list |
+| `extract batch N` | `--dry-run` | Preview which `.bin` files would be written |
+| all | `--min-size N` | Minimum function size to extract (default 8) |
+| all | `--max-size N` | Maximum function size to extract (default 50000) |
+| all | `--json` | Output results as JSON |
+| all | `--target NAME` | Select a configured target |
 
 ### `rebrew split`
 
@@ -1604,7 +1612,7 @@ to function-only verify/diff.
 
 ### `rebrew status`
 
-`rebrew status [--json] [--target NAME]`
+`rebrew status [--json] [--target NAME | --all-targets]`
 
 At-a-glance reversing progress.  The terminal prints one progress percentage.
 When `.text` size is known, that percentage is `byte_coverage_pct` (share of
@@ -1856,6 +1864,8 @@ host binary).  See [TOOLCHAIN.md](TOOLCHAIN.md) for the full model.
 | `build NAME` | Build a toolchain's docker image from its `<family>/<ver>-<arch>/Dockerfile` in the rebrew-toolchains checkout (builds the shared `rebrew/base` dependency first) |
 | `vendor NAME` | Assemble the host tree from the pinned source — a 16-bit media tarball (msvc-1.52/15/10, delphi, borland-3.1, borland-2.0) next to its Dockerfile in the rebrew-toolchains checkout, or a sha256-verified download (borland 5.5, watcom, msvc-6.0, msvc-4.0/4.2/5.0 via the archaic-msvc / itsmattkc codeload snapshots).  MSVC 6.0 is wrapped into the classic `VC98/` layout; the tree lands in `<family>/<ver>-<arch>/source` under that checkout.  Refuses to clobber an existing tree; fails loudly if the compiler binary is missing |
 | `smoke [NAME]` | Compile the fixed smoke source in each image and verify the object sha256 against the golden bytes — the byte-reproducibility gate (46 profiles: the MSVC 1.0–11.0 line, borland-2.0/3.1/5.5, watcom-2.0 on win32 and win16, delphi-1.0, ido-5.3/7.1, gcc 12.3/14.2, clang 16.0/18.1, mingw 14.2/16.2 — all image-only; MSVC's COFF and Turbo C's COMENT build-time stamps are masked).  `--print-goldens` recomputes the masked hashes WITHOUT comparing, so bumping a pinned source is a mechanical two-step (run twice, verify stable, paste into `_SMOKE_GOLDEN`) |
+| `check-updates` | Report upstream drift in every pinned toolchain source (GitHub-codeload pins compared via the GitHub API against the live default-branch sha; the moving Open Watcom release re-downloaded and re-hashed; immutable release assets and the 16-bit media tarballs need no check) |
+| `update NAME` | Re-pin a toolchain source to current upstream and rebuild — dry-run by default reports old → new pin, `--apply` rewrites the pin, re-vendors, rebuilds the image, and re-goldens the smoke bytes |
 
 ### `rebrew binsync-export`
 
@@ -2911,5 +2921,5 @@ These semantics are intentionally distinct — a function can be
 `NEAR_MATCHING` without a structural diff (pure relocation noise), and
 `rebrew diff` is focused on interactive investigation rather than CI status
 promotion.  For CI, run both tools with `--json` and branch on `.status` (for
-`rebrew test`) or `.structural_diffs` (for `rebrew diff`) rather than relying on
+`rebrew test`) or `.summary.structural` (for `rebrew diff`) rather than relying on
 the exit code alone.

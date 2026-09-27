@@ -1,22 +1,27 @@
 # Function Status Reference
 
-All function statuses are stored in the `rebrew-functions.toml` metadata, keyed by hex VA.
-An unmigrated `.c` file keeps the `// FUNCTION: MODULE 0xVA` marker line (plus co-read
-`// SIZE:` / `// CFLAGS:` when present for reccmp); after `rebrew migrate-markers`
-(ADR 023) the file is pure C and its identity lives in the TOML entry's `file` field.
+All function statuses are stored in the `rebrew-functions.toml` metadata, keyed by
+`MODULE.0xVA`; a key without a module is rejected by the writer. An unmigrated `.c`
+file keeps the `// FUNCTION: MODULE 0xVA` marker line (plus co-read `// SIZE:` /
+`// CFLAGS:` when present for reccmp); after `rebrew migrate-markers` (ADR 023) the
+file is pure C and its identity lives in the TOML entry's `file` field.
 
 ## Status Overview
 
+`UNDOCUMENTED` is not a STATUS value: it is the state of a catalog function that has
+no `.c` file yet, so no metadata entry exists to carry one. `coverage.db` stores that
+row's `functions.status` as the schema default `UNKNOWN`.
+
 ```
 UNDOCUMENTED  →  STUB  →  NEAR_MATCHING  →  RELOC  →  EXACT
-                                  ↓
-                               PROVEN (from NEAR_MATCHING via rebrew prove)
-                               SKIP   (parallel track — intentionally unmatchable)
+   (UNKNOWN)                 ↓
+                          PROVEN (from NEAR_MATCHING via rebrew prove)
+                          SKIP   (parallel track — intentionally unmatchable)
 ```
 
 | Status | Byte match | Set by | Counts in coverage |
 |--------|-----------|--------|-------------------|
-| `UNDOCUMENTED` | — | Automatic (no .c file) | ❌ No |
+| *(undocumented)* | — | Automatic (no `.c` file); `coverage.db` records `UNKNOWN` | ❌ No |
 | `STUB` | <60% | `rebrew test` (demotion) | ❌ No |
 | `NEAR_MATCHING` | ≥60% | `rebrew test` | ⚠️ Partial |
 | `RELOC` | 100% (masked) | `rebrew test` | ✅ Yes |
@@ -30,18 +35,19 @@ for outcomes that are not match statuses; they never count as matched.
 
 ---
 
-## UNDOCUMENTED
+## Undocumented
 
-Function exists in `function_structure.json` but no `.c` file has been created yet.
-This is the implicit starting state — rebrew tracks it from the function list, not the
-metadata. Tools like `rebrew todo` surface these as action items.
+Function exists in the catalog but no `.c` file has been created yet. This is the
+implicit starting state, tracked from the function list rather than the metadata:
+there is no entry, so there is no STATUS to hold. Writing `UNDOCUMENTED` as a
+STATUS is rejected by `metadata.update_source_status` and by `rebrew lint` (E004);
+`coverage.db` carries the row as `UNKNOWN`. Tools like `rebrew todo` and
+`rebrew document-unmatched` surface these as action items.
 
 ```bash
-rebrew todo --json          # find next UNDOCUMENTED function to start
+rebrew todo --json          # find next undocumented function to start
 rebrew skeleton 0x10008880  # generate .c skeleton → transitions to STUB
 ```
-
-No metadata entry exists yet. Coverage dashboard shows these as "untouched".
 
 ---
 

@@ -2126,7 +2126,7 @@ def test_data_markers_are_exempt_from_the_size_check() -> None:
     difference, passed the same file.  Two tools disagreeing about the same
     annotation is the bug.
     """
-    for marker in ("DATA", "GLOBAL"):
+    for marker in ("DATA", "GLOBAL", "VTABLE", "STRING"):
         ann = Annotation(va=0x10027104, size=0, marker_type=marker, name="g_msg")
         errors, _ = ann.validate()
         assert not any("Invalid SIZE" in e for e in errors), (marker, errors)

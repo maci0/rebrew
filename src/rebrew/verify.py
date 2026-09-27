@@ -2299,7 +2299,7 @@ def run_verification(
                 # Bounded submission: submitting every entry up front (verify
                 # batches can be thousands of functions) builds one Future + one
                 # queued task per entry — the exact pattern flag_sweep was
-                # deliberately changed away from (compiler.py:541).  Submit
+                # deliberately changed away from (matcher/compiler.py, flag_sweep).  Submit
                 # effective_jobs at a time and refill as each completes, so
                 # memory stays proportional to the worker count, not the corpus.
                 futures: dict[concurrent.futures.Future[Any], Annotation] = {}
