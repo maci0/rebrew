@@ -7,11 +7,14 @@ Pins the docs to the code so drift is caught in CI:
 - every component in the packaged CLI manifest has a dedicated section in
   ``docs/CLI.md`` and is covered by a bundled agent skill;
 - the decision and requirement sets (``docs/adr/``, ``docs/prd/``) keep
-  their index, lifecycle status, and cross-links intact.
+  their index, lifecycle status, and cross-links intact;
+- every package whose ``AGENTS.md`` declares an ``Externals`` allowlist imports
+  only the packages on it.
 """
 
 from __future__ import annotations
 
+import ast
 import re
 from pathlib import Path
 
@@ -19,6 +22,10 @@ from rebrew.builtins import BUILTIN_COMPONENTS
 from rebrew.plugin import Panel
 
 ROOT = Path(__file__).resolve().parent.parent
+PACKAGE_ROOT = ROOT / "src" / "rebrew"
+
+#: ``Externals (the only ... one may import): `a`, `b.sub`, and `c`.``
+_EXTERNALS_RE = re.compile(r"^Externals \(the only [^\n]*?\): (.+)$", re.M)
 
 
 def test_every_lint_code_documented() -> None:
@@ -271,3 +278,74 @@ def test_every_prd_is_listed_and_carries_status() -> None:
         if line not in p.read_text(encoding="utf-8")
     ]
     assert not bad, "PRD header problems:\n  " + "\n  ".join(bad)
+
+
+def _external_allowlist(pkg: Path) -> set[str] | None:
+    """The ``rebrew.*`` modules a package's ``AGENTS.md`` permits, or None.
+
+    An entry may name a whole package (``utils``) or a single submodule
+    (``binsync.export``); a submodule entry grants that module and nothing
+    beneath its siblings. Every backticked name on the line counts as allowed,
+    so trailing prose keeps its backticks off.
+    """
+    doc = pkg / "AGENTS.md"
+    if not doc.is_file():
+        return None
+    match = _EXTERNALS_RE.search(doc.read_text(encoding="utf-8"))
+    if match is None:
+        return None
+    return set(re.findall(r"`([a-z_][a-z_0-9]*(?:\.[a-z_][a-z_0-9]*)?)`", match.group(1)))
+
+
+def _imported_modules(pkg: Path) -> set[str]:
+    """Every ``rebrew.*`` module imported under ``pkg``, at any call depth.
+
+    A deferred import is still a dependency: ``catalog`` may pull in
+    ``binary_loader`` inside a function, and the allowlist says so.
+    """
+    found: set[str] = set()
+    for path in sorted(pkg.rglob("*.py")):
+        if "__pycache__" in path.parts:
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom):
+                if node.module == "rebrew":
+                    # `from rebrew import compile` names rebrew.compile.
+                    found.update(f"rebrew.{a.name}" for a in node.names)
+                elif node.module and node.module.startswith("rebrew."):
+                    found.add(node.module)
+            elif isinstance(node, ast.Import):
+                found.update(a.name for a in node.names if a.name.startswith("rebrew."))
+    return found
+
+
+def test_package_imports_stay_inside_their_allowlist() -> None:
+    """Each package imports only what its ``AGENTS.md`` ``Externals`` line lists.
+
+    The allowlist is the dependency direction between the subpackages: a leaf
+    like ``workspace`` may reach for ``errors`` and ``utils`` and nothing else,
+    which is what keeps a lower layer from importing an application one. Left
+    unenforced the line is documentation in name only, and the first convenient
+    import widens it silently.
+    """
+    violations: list[str] = []
+    gated: list[str] = []
+    for pkg in sorted(p for p in PACKAGE_ROOT.iterdir() if (p / "__init__.py").is_file()):
+        allowlist = _external_allowlist(pkg)
+        if allowlist is None:
+            continue
+        gated.append(pkg.name)
+        for module in sorted(_imported_modules(pkg)):
+            target = module.removeprefix("rebrew.")
+            if target == pkg.name or target.startswith(f"{pkg.name}."):
+                continue
+            if not any(target == a or target.startswith(f"{a}.") for a in allowlist):
+                violations.append(f"{pkg.name}: {target}")
+
+    assert gated, "no package declares an Externals allowlist — the regex may be stale"
+    assert not violations, (
+        "import outside the package's declared Externals allowlist "
+        "(add the dependency to its AGENTS.md, or drop the import):\n  "
+        + "\n  ".join(violations)
+    )

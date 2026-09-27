@@ -13,7 +13,7 @@ import re
 import tree_sitter as ts
 
 from rebrew.matcher.ast_engine import (
-    _C_LANGUAGE,
+    C_LANGUAGE,
     decode_source,
     encode_source,
     parse_c_ast,
@@ -38,7 +38,7 @@ from rebrew.matcher.mutations.runtime import (
 # --- Queries for Phase 5 mutations ---
 
 _QUERY_COMMUTE_BIT_OR = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (binary_expression
         left: (_) @left
@@ -48,7 +48,7 @@ _QUERY_COMMUTE_BIT_OR = _LazyQuery(
 )
 
 _QUERY_COMMUTE_BIT_AND = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (binary_expression
         left: (_) @left
@@ -58,7 +58,7 @@ _QUERY_COMMUTE_BIT_AND = _LazyQuery(
 )
 
 _QUERY_COMMUTE_BIT_XOR = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (binary_expression
         left: (_) @left
@@ -68,7 +68,7 @@ _QUERY_COMMUTE_BIT_XOR = _LazyQuery(
 )
 
 _QUERY_COMMUTE_ADD_GENERAL = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (binary_expression
         left: (_) @left
@@ -78,7 +78,7 @@ _QUERY_COMMUTE_ADD_GENERAL = _LazyQuery(
 )
 
 _QUERY_COMMUTE_MUL_GENERAL = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (binary_expression
         left: (_) @left
@@ -88,7 +88,7 @@ _QUERY_COMMUTE_MUL_GENERAL = _LazyQuery(
 )
 
 _QUERY_BITAND_ZERO = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (expression_statement
         (assignment_expression
@@ -138,7 +138,7 @@ def mut_commute_mul_general(s: str, rng: random.Random) -> str | None:
 # --- Enhancement 2: C89 Block-Scoped Register Injection ---
 
 _QUERY_LOOP_BODY_BLOCK = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     [
         (while_statement body: (compound_statement) @body) @stmt
@@ -328,7 +328,7 @@ def mut_zero_to_bitand(s: str, rng: random.Random) -> str | None:
 # --- Queries for Phase 6 ---
 
 _QUERY_IF_ELSE_FULL = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (if_statement
         condition: (parenthesized_expression
@@ -345,7 +345,7 @@ _QUERY_IF_ELSE_FULL = _LazyQuery(
 )
 
 _QUERY_NESTED_CALL_ARG = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (call_expression
         function: (_) @outer_fn
@@ -360,7 +360,7 @@ _QUERY_NESTED_CALL_ARG = _LazyQuery(
 )
 
 _QUERY_COMPLEX_ARG = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (call_expression
         function: (_) @fn
@@ -371,9 +371,9 @@ _QUERY_COMPLEX_ARG = _LazyQuery(
 """,
 )
 
-_QUERY_DUMMY_STACK_VARS = _LazyQuery(_C_LANGUAGE, _QUERY_BODY)
-_QUERY_INJECT_DUMMY_REGISTERS = _LazyQuery(_C_LANGUAGE, _QUERY_BODY)
-_QUERY_HOIST_REPEATED_DEREF = _LazyQuery(_C_LANGUAGE, _QUERY_BODY)
+_QUERY_DUMMY_STACK_VARS = _LazyQuery(C_LANGUAGE, _QUERY_BODY)
+_QUERY_INJECT_DUMMY_REGISTERS = _LazyQuery(C_LANGUAGE, _QUERY_BODY)
+_QUERY_HOIST_REPEATED_DEREF = _LazyQuery(C_LANGUAGE, _QUERY_BODY)
 _DEREF_PTR_ADDR_RE = re.compile(rb"\*\s*\(\s*[^)]*\*\s*\)\s*0x[0-9a-fA-F]+")
 _HEX_ADDR_TAIL_RE = re.compile(rb"0x[0-9a-fA-F]+$")
 

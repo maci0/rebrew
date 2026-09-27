@@ -963,10 +963,10 @@ def _collect_data_drift(cfg: ProjectConfig) -> list[TodoItem]:
     (.data/.rdata vs .text), so no dedup against function items is needed.
     """
     from rebrew.data_metadata import load_data_metadata, module_visible_to_target
-    from rebrew.status import _postlink_copied_ranges, _span_is_copied
+    from rebrew.status import postlink_copied_ranges, span_is_copied
 
     items: list[TodoItem] = []
-    copied = _postlink_copied_ranges(cfg)
+    copied = postlink_copied_ranges(cfg)
     for (module, va), fields in load_data_metadata(cfg.metadata_dir).items():
         if not module_visible_to_target(module, cfg):
             continue
@@ -977,7 +977,7 @@ def _collect_data_drift(cfg: ProjectConfig) -> list[TodoItem]:
             size = int(fields.get("size") or 0)
         except (TypeError, ValueError):
             size = 0
-        if _span_is_copied(va, size, copied):
+        if span_is_copied(va, size, copied):
             continue
         items.append(
             TodoItem(

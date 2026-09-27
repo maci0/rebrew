@@ -10,7 +10,7 @@ from collections import OrderedDict
 import tree_sitter as ts
 import tree_sitter_c as tsc
 
-_C_LANGUAGE = ts.Language(tsc.language())
+C_LANGUAGE = ts.Language(tsc.language())
 
 # tree-sitter documents TSParser as per-thread state; batch GA runs N worker
 # threads through mutate_code/quick_validate concurrently, and the GIL is
@@ -23,7 +23,7 @@ _tls = threading.local()
 def _get_parser() -> ts.Parser:
     parser = getattr(_tls, "parser", None)
     if parser is None:
-        parser = ts.Parser(_C_LANGUAGE)
+        parser = ts.Parser(C_LANGUAGE)
         _tls.parser = parser
     return parser
 

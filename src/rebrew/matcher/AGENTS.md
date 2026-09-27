@@ -17,6 +17,8 @@ GA engine for binary-matching decompilation. Compiles C through the docker-backe
 
 Flag axes (`rebrew.flags` / `rebrew.flag_data`) live at the package root so compile-cache canonicalization and the GA sweep share one definition without the cache layer importing the matcher package.
 
+Externals (the only packages this one may import): `binary_loader`, `coff_reloc`, `compile`, `compile_cache`, `config`, `errors`, `flag_data`, `flags`, `omf16`, `registry`, `toolchain`, `toolchain_spec`, `utils`. The GA drives the toolchain, so the compile and toolchain entries are the intended inward edge; the reverse is not, which is why the flag axes sit outside. Keep further prose on this line free of backticks: the gate reads every backticked name as allowed.
+
 ## Data flow (GA path)
 
 `build_candidate_obj_only` → miss in same-run memo and shared compile cache → docker compile → `parse_obj_symbol_bytes` → `score_candidate` (reloc zero + register mask + numpy/capstone) → `mutate_code` → loop in `match_ga.py`.
