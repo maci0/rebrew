@@ -415,6 +415,11 @@ max_line_length = 200
 
 The config loader fail-fasts on missing/invalid structure:
 - No `[targets]`, missing `default_target`, unknown target name, or missing/empty `binary`.
+- A `[targets]` key that is not a plain file name: empty, `.`, `..`, carrying
+  `/`, `\`, a control character, or padded with whitespace. The key becomes
+  `src/<target>/`, `bin/<target>/`, `db/data_<target>.json`, and
+  `layout/<target>/`, so a separator in it would place files outside the
+  project.
 - Non-string or empty `project.default_target`.
 - Explicitly empty required path fields (`reversed_dir`, `bin_dir`,
   `db_dir`, `output_dir`) or an empty `compiler.command` on a native (non-image)
