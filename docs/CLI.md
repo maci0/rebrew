@@ -121,7 +121,7 @@ exit is 120, and click's is 1; `run_cli` overrides both.
 | `rebrew binary-similarity` | `binary_similarity.py` | Whole-binary structural similarity vs another binary — per-function best matches aggregated into a byte-weighted score (versions/DLL+EXE) |
 | `rebrew near-diag` | `near_diag.py` | Classify why a `NEAR_MATCHING` function does not byte-match — categories: register / equivalent / reloc / structural, plus the `EFFECTIVE` verdict, reccmp-adapted equivalences (mirrored conditional jumps) and unique-byte pinning of the alignment when the entire delta is register allocation (reccmp's 100% effective-match case); JSON carries a `frame` stack-comparison field; `--fix-blocker` auto-writes BLOCKER |
 | `rebrew gap-trace` | `gap_trace.py` | Trace length-gap drift between object and reference instruction streams — running our-minus-reference offset per equal block, exposing LENGTH hypotheses (short COMDAT, early jump table) that flat scores hide; window defaults to the real body (next VA); `--json` |
-| `rebrew drift` | `drift_cmd.py` | Localise where compiled bytes drift from the reference, from branch targets; `--json` |
+| `rebrew drift` | `drift_cli.py` | Localise where compiled bytes drift from the reference, from branch targets; `--json` |
 | `rebrew climb` | `climb.py` | Deterministic single-statement hill-climb for one function (`--passes`, `--dry-run`, `--json`) |
 | `rebrew probe` | `probe.py` | Measure one function against the reference without writing metadata; `--json` |
 | `rebrew qual-sweep` | `qual_sweep.py` | Sweep declaration qualifiers over one function, keeping winners (`--rounds`, `--jobs`, `--dry-run`, `--json`) |
@@ -129,7 +129,7 @@ exit is 120, and click's is 1; `run_cli` overrides both.
 | `rebrew diagnose` | `diagnose.py` | Explain why a function compiles with its toolchain+flags: prints the resolution chain (per-function metadata → nearest `rebrew-libraries.toml` → project defaults) and validates the declarations (unknown toolchains, preset contradictions, function-vs-library family drift); `--json` |
 | `rebrew recommend` | `recommend.py` | Deterministic project advice: TU layout, hygiene, next steps (`-c`, `--apply`, `--json`) |
 | `rebrew stack-cmp` | `stack_cmp.py` | Compare a compiled function's stack frame against the target (reccmp `stackcmp` without a PDB): frame size, ebp-vs-esp (/Oy), `ret N` popping, `[ebp±N]` slot layout — flag-focused hints for per-function CFLAGS tuning |
-| `rebrew verify-exports` | `exports.py` | Verify the recompiled binary's export table matches the original target (reccmp `verexp` equivalent; compares export names, exits 1 on missing/added) |
+| `rebrew verify-exports` | `verify_exports.py` | Verify the recompiled binary's export table matches the original target (reccmp `verexp` equivalent; compares export names, exits 1 on missing/added) |
 | `rebrew round-trip` | `round_trip.py` | Splice matched functions back into the target PE and verify byte equality |
 | `rebrew skills` | `skills.py` | Discover and display agent skills (`list`, `show`); community skills merge via `REBREW_SKILLS_DIR` (drop directories by hand — no install/remove commands) |
 | `rebrew blocker` | `blocker.py` | Manage `BLOCKER` / `BLOCKER_DELTA` in `rebrew-functions.toml` (`set`/`clear`/`show` by file, VA, or symbol; `--delta`, `--va`, `--dry-run`, `--json`) — ad-hoc BLOCKER for STUBs `diff --fix-blocker` cannot classify; every write via `rebrew.metadata` (locked + atomic, never hand-edited) |

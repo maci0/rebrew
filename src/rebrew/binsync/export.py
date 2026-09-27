@@ -35,7 +35,7 @@ import typer
 
 from rebrew.annotation import span_contains_factory
 from rebrew.binsync import serial
-from rebrew.binsync.init import git_argv
+from rebrew.binsync.git import git_argv
 from rebrew.c_parser import type_from_declaration
 from rebrew.catalog import scan_reversed_dir
 from rebrew.cli import TargetOption, console, error_exit, json_print, require_config, run_standalone

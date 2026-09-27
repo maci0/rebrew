@@ -1,4 +1,4 @@
-"""exports.py — Export-table comparison (original target vs recompiled build).
+"""verify_exports.py — Export-table comparison (original target vs recompiled build).
 
 reccmp ``verexp`` equivalent: verifies that the recompiled binary exports the
 same API surface as the original.  Compares export *names* only — addresses

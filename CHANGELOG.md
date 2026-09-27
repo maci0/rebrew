@@ -379,6 +379,17 @@
   `version` (read from `src/rebrew/__init__.py`, the single source of truth) and
   the sha256 of `build-constraints.txt`, so a rebuild knows both the version
   being reproduced and the backend pins that produced it.
+- **The BinSync git helpers moved out of the `binsync-init` command.**
+  `git_argv` / `run_git` / `one_line` lived in `binsync/init.py`, a Typer
+  command, and `binsync/serial.py` imported them from there, so a library
+  module reached up into a command. They are now `binsync/git.py`, below
+  every caller.
+- **Two command modules took the names their siblings already use.**
+  `drift_cmd.py` is `drift_cli.py` (alongside `toolchain_cli.py`,
+  `types_cli.py`, `lzexe_cli.py`), and `exports.py`, which implements
+  `rebrew verify-exports`, is `verify_exports.py` (alongside `verify_cache.py`,
+  `verify_hash.py`, `verify_placement.py`). The standalone script for the
+  `rebrew cache` group is `rebrew-cache`, not `rebrew-cache-cli`.
 - **`/api/sections` rows ship as arrays under `cols`.** It was the one list
   route still sending a keyed object per row, so every section repeated 14
   field names ahead of its numbers: a 2000-section payload was 346 KB where it

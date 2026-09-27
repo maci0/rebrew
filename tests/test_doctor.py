@@ -953,7 +953,7 @@ class TestCheckBinsyncState:
     ) -> None:
         from unittest.mock import patch
 
-        from rebrew.binsync.init import git_argv
+        from rebrew.binsync.git import git_argv
 
         state = tmp_path / "state"
         state.mkdir()

@@ -25,7 +25,7 @@ from pathlib import Path
 import typer
 
 from rebrew.binsync import diff, export, importer, init, overlay
-from rebrew.binsync.init import one_line, run_git
+from rebrew.binsync.git import one_line, run_git
 from rebrew.cli import TargetOption, console, error_exit, json_print, require_config
 from rebrew.config import ProjectConfig
 
