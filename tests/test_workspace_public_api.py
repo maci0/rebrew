@@ -38,6 +38,7 @@ def test_workspace_public_api_snapshot() -> None:
         "SECTION_CELLS_COLUMN",
         "SECTION_CELLS_TABLE",
         "VA_MAX",
+        "WorkspaceConfigError",
         "WorkspaceNotFound",
         "coverage_db_lock",
         "db_dir",

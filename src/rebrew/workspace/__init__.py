@@ -3,7 +3,8 @@
 Stdlib-only apart from three things: the ``section_cells_json`` codec
 (``encode``/``decode_section_cells``, which defer their ``zstandard`` import to
 the call), ``rebrew.errors``, a leaf module that imports nothing and gives
-:class:`WorkspaceNotFound` the shared ``RebrewError`` base, and
+:class:`WorkspaceNotFound` and :class:`WorkspaceConfigError` the shared
+``RebrewError`` base, and
 ``rebrew.utils.file_handle_lock``, imported inside ``db.coverage_db_lock``
 because ``rebrew.utils`` pulls tomlkit and rich.  Resolving a
 workspace and reading a coverage.db never pulls in the rebrew toolchain (no
@@ -17,6 +18,7 @@ from rebrew.workspace.config import (
     DB_FILENAME,
     DEFAULT_DB_DIR,
     DEFAULT_REVERSED_ROOT,
+    WorkspaceConfigError,
     WorkspaceNotFound,
     db_dir,
     db_path,
@@ -65,6 +67,7 @@ __all__ = [
     "SECTION_CELLS_COLUMN",
     "SECTION_CELLS_TABLE",
     "VA_MAX",
+    "WorkspaceConfigError",
     "WorkspaceNotFound",
     "db_dir",
     "db_path",

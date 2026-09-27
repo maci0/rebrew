@@ -8,6 +8,7 @@ import pytest
 
 from rebrew.workspace.config import (
     CONFIG_NAME,
+    WorkspaceConfigError,
     WorkspaceNotFound,
     db_dir,
     db_path,
@@ -106,17 +107,31 @@ def test_read_config_missing_file(tmp_path: Path) -> None:
 
 def test_read_config_invalid_toml(tmp_path: Path) -> None:
     write_config(tmp_path, "[project\nname = ")
-    assert read_config(tmp_path) == {}
+    with pytest.raises(WorkspaceConfigError, match="not valid TOML"):
+        read_config(tmp_path)
 
 
 def test_read_config_invalid_utf8(tmp_path: Path) -> None:
     (tmp_path / CONFIG_NAME).write_bytes(b"[project]\nname = \xff\xfe\n")
-    assert read_config(tmp_path) == {}
+    with pytest.raises(WorkspaceConfigError, match="cannot read"):
+        read_config(tmp_path)
 
 
 def test_read_config_directory_named_like_config(tmp_path: Path) -> None:
     (tmp_path / CONFIG_NAME).mkdir()
-    assert read_config(tmp_path) == {}
+    with pytest.raises(WorkspaceConfigError, match="cannot read"):
+        read_config(tmp_path)
+
+
+def test_db_path_fails_loud_on_a_broken_config(tmp_path: Path) -> None:
+    """A broken config must not resolve to a default database path.
+
+    Falling back to ``<root>/db`` here reads as a workspace whose coverage is
+    zero, when the project actually stores its database somewhere else.
+    """
+    write_config(tmp_path, "[project\ndb_dir = ")
+    with pytest.raises(WorkspaceConfigError):
+        db_path(tmp_path)
 
 
 def test_project_table_defaults(tmp_path: Path) -> None:
@@ -199,9 +214,15 @@ def test_db_dir_empty_override_falls_back(tmp_path: Path) -> None:
     assert db_dir(tmp_path) == (tmp_path / "db").resolve()
 
 
-def test_db_dir_invalid_config_falls_back(tmp_path: Path) -> None:
+def test_db_dir_invalid_config_fails_loud(tmp_path: Path) -> None:
+    """A broken config must not resolve to a default database path.
+
+    Falling back to ``<root>/db`` here reads as a workspace whose coverage is
+    zero, when the project actually stores its database somewhere else.
+    """
     write_config(tmp_path, "not toml =")
-    assert db_dir(tmp_path) == (tmp_path / "db").resolve()
+    with pytest.raises(WorkspaceConfigError):
+        db_dir(tmp_path)
 
 
 def test_db_path(tmp_path: Path) -> None:

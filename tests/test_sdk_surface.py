@@ -134,7 +134,8 @@ class TestErrorsLazyExports:
             "Tc16Error",
             "ToolchainError",
             "UnresolvedSymbolError",
-            "WorkspaceNotFound",
+            "WorkspaceConfigError",
+        "WorkspaceNotFound",
         }
         assert set(err_mod._LAZY_ERRORS.keys()) == expected
 
@@ -185,7 +186,8 @@ class TestErrorsLazyExports:
             "ToolchainError",
             "ToolchainErrorKind",
             "UnresolvedSymbolError",
-            "WorkspaceNotFound",
+            "WorkspaceConfigError",
+        "WorkspaceNotFound",
         ]
 
     def test_error_kind_aliases_import_from_rebrew_errors(self) -> None:

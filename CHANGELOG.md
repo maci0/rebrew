@@ -404,6 +404,16 @@
   said so comes later.
 
 ### Fixed
+- **A malformed `rebrew-project.toml` no longer reads as an empty
+  workspace.** `rebrew.workspace.config.read_config` returned `{}` for a
+  missing *and* for an unparseable file, so a syntax error made `db_dir`
+  resolve to `<root>/db` and the coverage database open as an empty one: a
+  broken project config looked like a project with zero coverage. It now
+  returns `{}` only when there is no config, and raises the new
+  `WorkspaceConfigError` (re-exported from `rebrew.errors` beside
+  `WorkspaceNotFound`) when the file is there and is not readable UTF-8
+  TOML, which is what `rebrew.config.load_config` has always done with the
+  same file.
 - **`SECURITY.md` denied a dashboard control the code ships.** The policy
   said the coverage dashboard has "no rate limit and no connection cap"
   while `docs/THREAT_MODEL.md` cited the same 64-connection cap;

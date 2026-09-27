@@ -5,10 +5,13 @@ carried separately: recovery's ``_paths._db_path``, reportal's
 ``cli._resolve_rebrew_db`` / ``auto_llm_worker.target_config`` and rebrew's
 ``config.walk_up_to_root`` / ``find_root``.
 
-Reading the config is deliberately tolerant: :func:`read_config` returns ``{}``
-for a missing, unreadable or invalid file so path resolution can fall back to
-its defaults.  :func:`find_root` is the one hard failure, for callers that
-cannot proceed without a workspace.
+Reading the config tolerates its *absence*: :func:`read_config` returns ``{}``
+when there is no ``rebrew-project.toml`` so path resolution can fall back to
+its defaults.  A file that is there and cannot be parsed raises
+:class:`WorkspaceConfigError` instead, because the defaults it would fall back
+to (``db/``, the first target, ``src/<name>``) point somewhere else entirely
+and the result reads as a healthy empty workspace.  :func:`find_root` is the
+other hard failure, for callers that cannot proceed without a workspace.
 """
 
 from __future__ import annotations
@@ -54,6 +57,15 @@ class WorkspaceNotFound(RebrewError, FileNotFoundError):
     """No directory containing ``rebrew-project.toml`` was found."""
 
 
+class WorkspaceConfigError(RebrewError):
+    """``rebrew-project.toml`` exists but cannot be read as TOML.
+
+    Distinct from :class:`WorkspaceNotFound`: the workspace is there, so
+    there is nothing to search for, and every path this module resolves is
+    about to be a guess.
+    """
+
+
 def walk_up_to_root(start: Path | str) -> Path | None:
     """Walk up from *start* (inclusive) looking for ``rebrew-project.toml``.
 
@@ -96,13 +108,24 @@ def find_root(start: Path | str | None = None) -> Path:
 def read_config(root: Path | str) -> dict[str, Any]:
     """Parse ``<root>/rebrew-project.toml``.
 
-    Returns ``{}`` when the file is missing, unreadable, not UTF-8 or not
-    valid TOML.  Never raises.
+    Returns ``{}`` when there is no config file, so a caller that only wants
+    a default path does not have to know whether the workspace has one.
+    Raises :class:`WorkspaceConfigError` when the file is present but is not
+    readable UTF-8 TOML (bad syntax, wrong encoding, a directory or an
+    unreadable path under that name): every value this module reads from it
+    would then come from a default that names a different workspace.
     """
+    path = Path(root) / CONFIG_NAME
     try:
-        return tomllib.loads((Path(root) / CONFIG_NAME).read_text(encoding="utf-8-sig"))
-    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError):
+        text = path.read_text(encoding="utf-8-sig")
+    except FileNotFoundError:
         return {}
+    except (OSError, UnicodeDecodeError) as exc:
+        raise WorkspaceConfigError(f"cannot read {path}: {exc}") from exc
+    try:
+        return tomllib.loads(text)
+    except tomllib.TOMLDecodeError as exc:
+        raise WorkspaceConfigError(f"{path} is not valid TOML: {exc}") from exc
 
 
 def project_table(config: dict[str, Any]) -> dict[str, Any]:
