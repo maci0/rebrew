@@ -66,7 +66,7 @@ def write_analysis_markers(path: Path, comments: dict[int, str]) -> bool:
         OSError: *path* cannot be read or written.  A failed read is not a
             no-op — callers must not treat it as "nothing to merge".
     """
-    from rebrew.utils import atomic_write_text, read_source_text
+    from rebrew.utils import atomic_write_text, read_source_text, split_source_lines
 
     if not comments:
         return False
@@ -75,7 +75,9 @@ def write_analysis_markers(path: Path, comments: dict[int, str]) -> bool:
     merged = parse_analysis_markers(text)
     merged.update(comments)
 
-    kept = [line for line in text.splitlines() if not _ANALYSIS_MARKER_RE.match(line.strip())]
+    kept = [
+        line for line in split_source_lines(text) if not _ANALYSIS_MARKER_RE.match(line.strip())
+    ]
     while kept and not kept[-1].strip():
         kept.pop()
     block = "\n".join(

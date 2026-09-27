@@ -37,9 +37,11 @@ from rebrew.data_metadata import iter_data_symbols
 from rebrew.sources import files_with_ext
 from rebrew.utils import (
     atomic_write_text,
+    join_source_lines,
     load_tomllib,
     parse_c_integer_literal,
     read_source_text,
+    split_source_lines,
 )
 from rebrew.workspace.config import config_path
 
@@ -403,10 +405,12 @@ def _replace_matching_line(
     path: Path,
     encoding: str,
     dry_run: bool,
+    original: str,
 ) -> bool:
     """Replace the first line matching *pattern* with indented *def_line*.
 
     Returns True when a match was found (whether or not the text changed).
+    *original* is the pre-edit text, kept for its trailing-newline state.
     """
     for i, ln in enumerate(lines):
         m = pattern.match(ln)
@@ -415,7 +419,7 @@ def _replace_matching_line(
             if new_ln != ln:
                 lines[i] = new_ln
                 if not dry_run:
-                    atomic_write_text(path, "\n".join(lines) + "\n", encoding=encoding)
+                    atomic_write_text(path, join_source_lines(original, lines), encoding=encoding)
             return True
     return False
 
@@ -454,13 +458,13 @@ def insert_definition(
     # comments/strings (e.g. Japanese game TUs). Same convention as
     # annotation / climb / rename write-backs.
     text, encoding = read_source_text(f)
-    lines = text.splitlines()
+    lines = split_source_lines(text)
     extern_re = _name_line_re(name, is_array=is_array, extern=True)
     def_line = f"{ctype} {name}[{size}]" if is_array else f"{ctype} {name}"
     if init_text:
         def_line += f" = {init_text}"
     def_line += ";"
-    if _replace_matching_line(lines, extern_re, def_line, f, encoding, dry_run):
+    if _replace_matching_line(lines, extern_re, def_line, f, encoding, dry_run, text):
         return True
 
     # Idempotent re-run: an existing definition (with initializer) must be
@@ -474,8 +478,6 @@ def insert_definition(
         if text[start:end] == replacement:
             return True
         new_text = text[:start] + replacement + text[end:]
-        if not new_text.endswith("\n"):
-            new_text += "\n"
         if not dry_run:
             atomic_write_text(f, new_text, encoding=encoding)
         return True
@@ -483,12 +485,12 @@ def insert_definition(
     # No-init pads / tentative defs (``unsigned char _dpad_N[K];``) are not
     # matched by ``_find_definition`` (it requires ``=``) — replace those too.
     existing_re = _name_line_re(name, is_array=is_array, extern=False)
-    if _replace_matching_line(lines, existing_re, def_line, f, encoding, dry_run):
+    if _replace_matching_line(lines, existing_re, def_line, f, encoding, dry_run, text):
         return True
 
     lines.append(def_line)
     if not dry_run:
-        atomic_write_text(f, "\n".join(lines) + "\n", encoding=encoding)
+        atomic_write_text(f, join_source_lines(text, lines), encoding=encoding)
     return True
 
 

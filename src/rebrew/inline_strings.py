@@ -34,7 +34,12 @@ import typer
 
 from rebrew.cli import TargetOption, console, json_print, require_config
 from rebrew.data_layout import data_raw_from_binary, layout_geometry
-from rebrew.utils import atomic_write_text, read_source_text
+from rebrew.utils import (
+    atomic_write_text,
+    join_source_lines,
+    read_source_text,
+    split_source_lines,
+)
 
 app = typer.Typer(
     help="Inline string-literal globals (s_<hint>_<ADDR>) from the reference binary.",
@@ -211,7 +216,9 @@ def define_remaining_strings(
     def real_use_lines(text: str) -> list[str]:
         """Lines that count as token uses (no comments, no extern declarations)."""
         return [
-            ln for ln in text.splitlines() if not ln.strip().startswith(("//", "*", "/*", "extern"))
+            ln
+            for ln in split_source_lines(text)
+            if not ln.strip().startswith(("//", "*", "/*", "extern"))
         ]
 
     owner: dict[str, Path] = {}
@@ -235,7 +242,7 @@ def define_remaining_strings(
     extern_re = re.compile(r"^(\s*)extern\s+(?:char|unsigned char)\s+")
     done = 0
     for f, text in texts.items():
-        lines = text.splitlines()
+        lines = split_source_lines(text)
         changed = False
         for i, ln in enumerate(lines):
             m = extern_re.match(ln)
@@ -253,7 +260,7 @@ def define_remaining_strings(
             changed = True
             done += 1
         if changed and not dry_run:
-            atomic_write_text(f, "\n".join(lines) + "\n", encoding=encodings[f])
+            atomic_write_text(f, join_source_lines(text, lines), encoding=encodings[f])
     return done
 
 

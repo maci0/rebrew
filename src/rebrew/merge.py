@@ -549,7 +549,7 @@ def main(
         # Recorded AFTER the target/annotation filter: a file that contributes
         # nothing must not dictate the output encoding (it caused a false
         # "conflicting source encodings" abort and spurious encode failures).
-        if enc != "utf-8":
+        if enc not in ("utf-8", "utf-8-sig"):
             out_encoding = enc
             legacy_encodings.add(enc)
 
