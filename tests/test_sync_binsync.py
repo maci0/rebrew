@@ -100,7 +100,7 @@ class TestTypeImport:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, error_type: type[OSError]
     ) -> None:
         import rebrew.utils as utils
-        from rebrew.binsync.importer import _import_type_definitions
+        from rebrew.binsync.importer import import_type_definitions
 
         cfg = _cfg(tmp_path)
         header = cfg.reversed_dir / "binsync_types.h"
@@ -116,7 +116,7 @@ class TestTypeImport:
 
         monkeypatch.setattr(utils, "read_source_text", _read)
         with pytest.raises(error_type) as caught:
-            _import_type_definitions(
+            import_type_definitions(
                 cfg,
                 {"NewType": {"type": "int", "definition": "typedef int NewType;"}},
                 dry_run=False,
@@ -127,13 +127,13 @@ class TestTypeImport:
 
     @pytest.mark.parametrize("existing", ["", "typedef int ExistingType;\n"])
     def test_import_creates_or_extends_header(self, tmp_path: Path, existing: str) -> None:
-        from rebrew.binsync.importer import _import_type_definitions
+        from rebrew.binsync.importer import import_type_definitions
 
         cfg = _cfg(tmp_path)
         header = cfg.reversed_dir / "binsync_types.h"
         if existing:
             header.write_text(existing, encoding="utf-8")
-        applied = _import_type_definitions(
+        applied = import_type_definitions(
             cfg,
             {"NewType": {"type": "int", "definition": "typedef int NewType;"}},
             dry_run=False,

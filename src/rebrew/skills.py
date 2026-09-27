@@ -52,7 +52,7 @@ _FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 _missing_dir_warned = False
 
 
-def _read_skill_md(path: Path) -> str:
+def read_skill_md(path: Path) -> str:
     """Read a SKILL.md as NFC text, tolerating a leading UTF-8 BOM.
 
     ``utf-8-sig`` because Windows editors save community skills with
@@ -65,7 +65,7 @@ def _read_skill_md(path: Path) -> str:
     return unicodedata.normalize("NFC", path.read_text(encoding="utf-8-sig"))
 
 
-def _parse_frontmatter(text: str) -> dict[str, str]:
+def parse_frontmatter(text: str) -> dict[str, str]:
     """Extract YAML-style frontmatter from a SKILL.md string.
 
     Handles flat ``key: value`` fields and folded/literal block strings.
@@ -97,7 +97,7 @@ def _parse_frontmatter(text: str) -> dict[str, str]:
     return {key: value.rstrip() for key, value in result.items()}
 
 
-def _safe_skill_name(name: str) -> str:
+def safe_skill_name(name: str) -> str:
     """A skill name usable as a directory component, or ``""`` when unusable.
 
     Frontmatter ``name`` is attacker-influenced (community skills); a value
@@ -122,8 +122,8 @@ def _scan_skills_dir(skills_dir: Path, origin: str = "packaged") -> list[dict[st
         skill_md = skill_dir / "SKILL.md"
         if not skill_md.is_file():
             continue
-        text = _read_skill_md(skill_md)
-        fm = _parse_frontmatter(text)
+        text = read_skill_md(skill_md)
+        fm = parse_frontmatter(text)
         name = fm.get("name") or unicodedata.normalize("NFC", skill_dir.name)
         description = fm.get("description", "")
         first_line = description.split(".")[0].strip() if description else ""
@@ -139,7 +139,7 @@ def _scan_skills_dir(skills_dir: Path, origin: str = "packaged") -> list[dict[st
     return skills
 
 
-def _user_skills_dir() -> Path | None:
+def user_skills_dir() -> Path | None:
     """The user/community skills dir from ``REBREW_SKILLS_DIR``, or None.
 
     Warns once when the configured directory does not exist — a typo'd env
@@ -166,7 +166,7 @@ def _list_skills() -> list[dict[str, Any]]:
     Packaged skills first; a user skill (``REBREW_SKILLS_DIR``) with the
     same name overrides the packaged one."""
     skills: dict[str, dict[str, Any]] = {}
-    for root, origin in ((_SKILLS_DIR, "packaged"), (_user_skills_dir(), "user")):
+    for root, origin in ((_SKILLS_DIR, "packaged"), (user_skills_dir(), "user")):
         if root is None:
             continue
         for entry in _scan_skills_dir(root, origin):
@@ -178,7 +178,7 @@ def _find_skill(name: str) -> Path | None:
     """Return the SKILL.md path for the given skill name (by frontmatter name or dir name).
 
     User skills are searched first so they override packaged ones."""
-    roots = [r for r in (_user_skills_dir(), _SKILLS_DIR) if r is not None]
+    roots = [r for r in (user_skills_dir(), _SKILLS_DIR) if r is not None]
     want = unicodedata.normalize("NFC", name)
     for root in roots:
         for skill_dir in sorted(root.iterdir()) if root.is_dir() else []:
@@ -188,8 +188,8 @@ def _find_skill(name: str) -> Path | None:
             # Match by directory name or frontmatter name
             if unicodedata.normalize("NFC", skill_dir.name) == want:
                 return skill_md
-            text = _read_skill_md(skill_md)
-            fm = _parse_frontmatter(text)
+            text = read_skill_md(skill_md)
+            fm = parse_frontmatter(text)
             if fm.get("name") == want:
                 return skill_md
     return None
@@ -258,11 +258,11 @@ def show_skill(
             json_mode=json_output,
         )
 
-    text = _read_skill_md(skill_path)
+    text = read_skill_md(skill_path)
 
     if json_output:
-        fm = _parse_frontmatter(text)
-        user_dir = _user_skills_dir()
+        fm = parse_frontmatter(text)
+        user_dir = user_skills_dir()
         origin = (
             "user" if (user_dir is not None and skill_path.is_relative_to(user_dir)) else "packaged"
         )

@@ -75,7 +75,7 @@ from rebrew.compile_cache import (
 from rebrew.compile_context import CONTEXT_UNIT_NAME, CompileContext
 from rebrew.config import DEFAULT_COMPILE_TIMEOUT, ConfigError, ProjectConfig, validate_http_url
 from rebrew.errors import RebrewError
-from rebrew.headless import _XVFB_RUN_SERVER_ARGS, ensure_xvfb
+from rebrew.headless import XVFB_RUN_SERVER_ARGS, ensure_xvfb
 from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
 from rebrew.metadata import canonical_status
 from rebrew.msvc_env import msvc_env_from_config, resolve_runner_path
@@ -685,7 +685,7 @@ def maybe_headless_wine(
         env["DISPLAY"] = display
         return cmd, env
     if shutil.which("xvfb-run") is not None:
-        return ["xvfb-run", "-a", "-s", _XVFB_RUN_SERVER_ARGS, *cmd], env
+        return ["xvfb-run", "-a", "-s", XVFB_RUN_SERVER_ARGS, *cmd], env
     return cmd, env
 
 
@@ -1376,7 +1376,7 @@ def _cache_key_for(
     )
 
 
-def _publish_obj_cache(
+def publish_obj_cache(
     cache: CacheBackend,
     key: str,
     obj_bytes: bytes,
@@ -1653,7 +1653,7 @@ def compile_to_obj(
             return None, err
         if cc is not None and cache_key is not None:
             with contextlib.suppress(OSError):
-                _publish_obj_cache(
+                publish_obj_cache(
                     cc,
                     cache_key,
                     obj_file.read_bytes(),
@@ -2072,7 +2072,7 @@ def precompile_batch(
                         # Re-key the staged bytes (not a fresh read of a
                         # source rewritten since staging).  Publish only
                         # when that key still matches the pre-compile one.
-                        _publish_obj_cache(
+                        publish_obj_cache(
                             cache,
                             pre_key,
                             obj_bytes,
@@ -2736,6 +2736,7 @@ __all__ = [
     "maybe_headless_wine",
     "native_binary_id",
     "precompile_batch",
+    "publish_obj_cache",
     "recompile_url",
     "resolve_cl_command",
     "resolve_compiler_env",

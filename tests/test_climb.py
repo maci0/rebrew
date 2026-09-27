@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 
 import rebrew.climb
-from rebrew.climb import _climb, _function_span, _statements, _swap, _within_size_budget
+from rebrew.climb import _climb, _statements, _swap, _within_size_budget, function_span
 
 REPO_SRC = str(Path(rebrew.climb.__file__).resolve().parents[1])
 
@@ -42,19 +42,19 @@ def _lines() -> list[str]:
 class TestFunctionSpan:
     def test_span_covers_body_to_closing_brace(self) -> None:
         lines = _lines()
-        lo, hi = _function_span(lines, "_demo")
+        lo, hi = function_span(lines, "_demo")
         assert lines[lo].startswith("int demo(int arg)")
         assert lines[hi].strip() == "}"
 
     def test_symbol_without_leading_underscore(self) -> None:
-        lo, _ = _function_span(_lines(), "demo")
+        lo, _ = function_span(_lines(), "demo")
         assert "demo" in _lines()[lo]
 
     def test_stdcall_decoration_is_stripped(self) -> None:
         # `_demo@4` is the decorated name of `demo`; the source never writes
         # the "@4", so the lookup must strip it as well as the leading `_`.
         lines = _lines()
-        lo, hi = _function_span(lines, "_demo@4")
+        lo, hi = function_span(lines, "_demo@4")
         assert lines[lo].startswith("int demo(int arg)")
         assert lines[hi].strip() == "}"
 
@@ -72,7 +72,7 @@ class TestFunctionSpan:
             "\treturn arg;\n"
             "}\n"
         ).splitlines(keepends=True)
-        lo, hi = _function_span(lines, "demo")
+        lo, hi = function_span(lines, "demo")
         assert lines[lo].startswith("int demo(int arg)") and not lines[lo].rstrip().endswith(";")
         assert lines[hi].strip() == "}"
 
@@ -80,21 +80,21 @@ class TestFunctionSpan:
 class TestStatements:
     def test_multiline_block_is_one_statement(self) -> None:
         lines = _lines()
-        chunks = _statements(lines, *_function_span(lines, "demo"))
+        chunks = _statements(lines, *function_span(lines, "demo"))
         texts = ["".join(lines[a : b + 1]).strip() for a, b in chunks]
         assert "int a;" in texts[0]
         assert any(t.startswith("if (a > 3)") and t.endswith("}") for t in texts), texts
 
     def test_declaration_and_assignment_are_separate(self) -> None:
         lines = _lines()
-        chunks = _statements(lines, *_function_span(lines, "demo"))
+        chunks = _statements(lines, *function_span(lines, "demo"))
         texts = ["".join(lines[a : b + 1]).strip() for a, b in chunks]
         assert texts[0] == "int a;"
         assert texts[1] == "a = arg;"
 
     def test_nested_braces_do_not_split(self) -> None:
         lines = _lines()
-        chunks = _statements(lines, *_function_span(lines, "demo"))
+        chunks = _statements(lines, *function_span(lines, "demo"))
         joined = ["".join(lines[a : b + 1]) for a, b in chunks]
         assert sum(1 for text in joined if text.lstrip().startswith("if (a > 3)")) == 1
 
@@ -172,7 +172,7 @@ class TestScoreAligned:
 class TestSwap:
     def test_swaps_two_statement_ranges(self) -> None:
         lines = _lines()
-        chunks = _statements(lines, *_function_span(lines, "demo"))
+        chunks = _statements(lines, *function_span(lines, "demo"))
         swapped = _swap(lines, chunks[0], chunks[1])
         texts = ["".join(swapped[a : b + 1]).strip() for a, b in chunks]
         assert texts[0] == "a = arg;"
@@ -204,7 +204,7 @@ class TestSizeBudget:
 class TestClimb:
     def test_finds_the_swap_the_scorer_prefers(self) -> None:
         lines = _lines()
-        chunks = _statements(lines, *_function_span(lines, "demo"))
+        chunks = _statements(lines, *function_span(lines, "demo"))
         want = _swap(lines, chunks[0], chunks[1])
 
         def score(candidate: list[str]) -> float:
@@ -217,7 +217,7 @@ class TestClimb:
 
     def test_leaves_the_source_alone_when_nothing_improves(self) -> None:
         lines = _lines()
-        chunks = _statements(lines, *_function_span(lines, "demo"))
+        chunks = _statements(lines, *function_span(lines, "demo"))
 
         def score(_: list[str]) -> float:
             return 42.0
@@ -229,7 +229,7 @@ class TestClimb:
 
     def test_stops_after_one_sweep_without_improvement(self) -> None:
         lines = _lines()
-        chunks = _statements(lines, *_function_span(lines, "demo"))
+        chunks = _statements(lines, *function_span(lines, "demo"))
         calls = 0
 
         def score(_: list[str]) -> float:
@@ -243,7 +243,7 @@ class TestClimb:
 
     def test_on_move_reports_each_accepted_move(self) -> None:
         lines = _lines()
-        chunks = _statements(lines, *_function_span(lines, "demo"))
+        chunks = _statements(lines, *function_span(lines, "demo"))
         want = _swap(lines, chunks[0], chunks[1])
         seen: list[dict[str, int | float]] = []
 
@@ -256,7 +256,7 @@ class TestClimb:
 
     def test_no_progress_callback_when_nothing_is_kept(self) -> None:
         lines = _lines()
-        chunks = _statements(lines, *_function_span(lines, "demo"))
+        chunks = _statements(lines, *function_span(lines, "demo"))
         seen: list[dict[str, int | float]] = []
 
         def score(_: list[str]) -> float:
@@ -273,7 +273,7 @@ class TestCommentAndLiteralSafety:
         lines = (
             'int demo(int arg)\n{\n\tconst char *url = "http://example/x";\n\treturn arg;\n}\n'
         ).splitlines(keepends=True)
-        lo, hi = _function_span(lines, "demo")
+        lo, hi = function_span(lines, "demo")
         chunks = _statements(lines, lo, hi)
         texts = ["".join(lines[a : b + 1]).strip() for a, b in chunks]
         assert texts[0] == 'const char *url = "http://example/x";'
@@ -282,7 +282,7 @@ class TestCommentAndLiteralSafety:
 
     def test_braces_inside_string_do_not_change_depth(self) -> None:
         lines = ('int demo(void)\n{\n\tputs("{");\n\treturn 0;\n}\n').splitlines(keepends=True)
-        lo, hi = _function_span(lines, "demo")
+        lo, hi = function_span(lines, "demo")
         chunks = _statements(lines, lo, hi)
         assert lines[hi].strip() == "}"
         texts = ["".join(lines[a : b + 1]).strip() for a, b in chunks]
@@ -301,7 +301,7 @@ class TestCommentAndLiteralSafety:
             "\treturn 0;\n"
             "}\n"
         ).splitlines(keepends=True)
-        lo, hi = _function_span(lines, "demo")
+        lo, hi = function_span(lines, "demo")
         assert lo == 5 and lines[lo].startswith("int demo(void)")
         assert lines[hi].strip() == "}"
         assert len(_statements(lines, lo, hi)) == 1

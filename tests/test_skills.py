@@ -7,7 +7,7 @@ import unicodedata
 
 from typer.testing import CliRunner
 
-from rebrew.skills import _find_skill, _list_skills, _parse_frontmatter
+from rebrew.skills import _find_skill, _list_skills, parse_frontmatter
 from rebrew.skills import app as skills_app
 
 runner = CliRunner()
@@ -20,7 +20,7 @@ runner = CliRunner()
 class TestParseFrontmatter:
     def test_basic_frontmatter(self) -> None:
         text = "---\nname: my-skill\ndescription: A test skill.\nlicense: MIT\n---\n# Body\n"
-        fm = _parse_frontmatter(text)
+        fm = parse_frontmatter(text)
         assert fm["name"] == "my-skill"
         assert fm["description"] == "A test skill."
         assert fm["license"] == "MIT"
@@ -31,7 +31,7 @@ class TestParseFrontmatter:
             "  Use for matching: test and verify.\n"
             "  Hand off to rebrew-matching.\nlicense: MIT\n---\n"
         )
-        assert _parse_frontmatter(text) == {
+        assert parse_frontmatter(text) == {
             "name": "my-skill",
             "description": "Use for matching: test and verify. Hand off to rebrew-matching.",
             "license": "MIT",
@@ -39,16 +39,16 @@ class TestParseFrontmatter:
 
     def test_literal_description(self) -> None:
         text = "---\nname: my-skill\ndescription: |-\n  First line.\n  Second line.\n---\n"
-        assert _parse_frontmatter(text)["description"] == "First line.\nSecond line."
+        assert parse_frontmatter(text)["description"] == "First line.\nSecond line."
 
     def test_no_frontmatter(self) -> None:
         text = "# Just a markdown file\nNo frontmatter here.\n"
-        fm = _parse_frontmatter(text)
+        fm = parse_frontmatter(text)
         assert fm == {}
 
     def test_description_with_colon(self) -> None:
         text = "---\nname: foo\ndescription: Does X: and Y.\n---\n"
-        fm = _parse_frontmatter(text)
+        fm = parse_frontmatter(text)
         assert fm["description"] == "Does X: and Y."
 
 
@@ -253,23 +253,23 @@ class TestSafeSkillName:
         """`..` survives the character fold and resolved to the PARENT of the
         skills dir, so an untrusted frontmatter name could copy a repo's files
         outside it."""
-        from rebrew.skills import _safe_skill_name
+        from rebrew.skills import safe_skill_name
 
-        assert _safe_skill_name("..") == ""
-        assert _safe_skill_name(".") == ""
-        assert _safe_skill_name("...") == ""
+        assert safe_skill_name("..") == ""
+        assert safe_skill_name(".") == ""
+        assert safe_skill_name("...") == ""
         # Separators fold to '-', so a traversal spelling becomes one harmless
         # component (no path separator survives).
-        assert _safe_skill_name("../../evil") == "..-..-evil"
+        assert safe_skill_name("../../evil") == "..-..-evil"
 
     def test_non_dot_names_pass(self) -> None:
-        from rebrew.skills import _safe_skill_name
+        from rebrew.skills import safe_skill_name
 
-        assert _safe_skill_name("my-skill") == "my-skill"
-        assert _safe_skill_name("a..b") == "a..b"
-        assert _safe_skill_name("rebrew_workflow") == "rebrew_workflow"
+        assert safe_skill_name("my-skill") == "my-skill"
+        assert safe_skill_name("a..b") == "a..b"
+        assert safe_skill_name("rebrew_workflow") == "rebrew_workflow"
         # Only a dot-ONLY component escapes; a leading dot stays inside the dir.
-        assert _safe_skill_name(".evil") == ".evil"
+        assert safe_skill_name(".evil") == ".evil"
 
 
 class TestSkillNameNormalization:
@@ -282,7 +282,7 @@ class TestSkillNameNormalization:
 
     def test_frontmatter_values_normalized_to_nfc(self) -> None:
         nfd = "re\u0065\u0301sum\u00e9"  # NFD "reésumé"
-        fm = _parse_frontmatter(f"---\nname: {nfd}\n---\nbody\n")
+        fm = parse_frontmatter(f"---\nname: {nfd}\n---\nbody\n")
         assert fm["name"] == unicodedata.normalize("NFC", nfd)
 
     def test_find_skill_matches_nfd_argument_against_nfc_name(self, tmp_path, monkeypatch) -> None:
@@ -313,8 +313,8 @@ class TestSkillNameNormalization:
         assert "bom-skill" in {s["name"] for s in _list_skills()}
 
     def test_safe_skill_name_folds_nfc_and_nfd_alike(self) -> None:
-        from rebrew.skills import _safe_skill_name
+        from rebrew.skills import safe_skill_name
 
         # Without NFC first, the NFD spelling kept "e" and turned the
         # combining acute into a separator: "cafe-skill" vs "caf-skill".
-        assert _safe_skill_name("caf\u00e9-skill") == _safe_skill_name("cafe\u0301-skill")
+        assert safe_skill_name("caf\u00e9-skill") == safe_skill_name("cafe\u0301-skill")

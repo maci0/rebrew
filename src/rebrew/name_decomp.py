@@ -247,30 +247,30 @@ def _pointer_vars(text: str) -> set[str]:
     is integer math, not a member access.
     """
     from rebrew.struct_recover import (
-        _ARRAY_DEREF_RE,
-        _ARRAY_IDX_RE,
-        _CAST_DEREF_RE,
-        _CAST_RE,
-        _DECL_RE,
-        _FIELD_ACCESS_RE,
+        ARRAY_DEREF_RE,
+        ARRAY_IDX_RE,
+        CAST_DEREF_RE,
+        CAST_RE,
+        DECL_RE,
+        FIELD_ACCESS_RE,
     )
 
     out: set[str] = set()
-    for m in _DECL_RE.finditer(text):
+    for m in DECL_RE.finditer(text):
         out.add(m.group("var"))
-    for m in _CAST_RE.finditer(text):
+    for m in CAST_RE.finditer(text):
         out.add(m.group("var"))
     for m in _CAST_PTR_RE.finditer(text):
         out.add(m.group("var"))
-    for m in _CAST_DEREF_RE.finditer(text):
+    for m in CAST_DEREF_RE.finditer(text):
         var = m.group("var1") or m.group("var2")
         if var is not None:
             out.add(var)
-    for m in _ARRAY_DEREF_RE.finditer(text):
+    for m in ARRAY_DEREF_RE.finditer(text):
         out.add(m.group("var"))
-    for m in _ARRAY_IDX_RE.finditer(text):
+    for m in ARRAY_IDX_RE.finditer(text):
         out.add(m.group("var"))
-    for m in _FIELD_ACCESS_RE.finditer(text):
+    for m in FIELD_ACCESS_RE.finditer(text):
         var = m.group("var")
         if var is not None:
             out.add(var)

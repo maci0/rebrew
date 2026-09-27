@@ -110,7 +110,7 @@ def _code_lines(lines: list[str]) -> list[str]:
     return out
 
 
-def _function_span(lines: list[str], symbol: str) -> tuple[int, int]:
+def function_span(lines: list[str], symbol: str) -> tuple[int, int]:
     """Return the line indices of the definition of *symbol* and its closing brace.
 
     Raises:
@@ -400,7 +400,7 @@ def _climb(
             if score > best:
                 best = score
                 lines = candidate
-                chunks = _statements(lines, *_function_span(lines, symbol))
+                chunks = _statements(lines, *function_span(lines, symbol))
                 improved += 1
                 move: dict[str, int | float] = {"pass": sweep, "index": k, "after": best}
                 moves.append(move)
@@ -476,7 +476,7 @@ def main(
     original, encoding = read_source_text(path)
     lines = original.splitlines(keepends=True)
     try:
-        lo, hi = _function_span(lines, sym)
+        lo, hi = function_span(lines, sym)
     except ValueError as exc:
         error_exit(str(exc), json_mode=json_output)
     chunks = _statements(lines, lo, hi)

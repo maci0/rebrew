@@ -369,15 +369,15 @@ def _warn_explicit_toolchain(binary: Path, profile: str, notes: list[str]) -> No
     except Exception:
         log.debug("toolchain detection failed for %s", binary, exc_info=True)
         return
-    from rebrew.init import _warn_profile_family_mismatch, _warn_profile_mismatch
+    from rebrew.init import warn_profile_family_mismatch, warn_profile_mismatch
 
     if is_ne(binary):
-        _warn_profile_mismatch(profile, "ne", "x86_16")
+        warn_profile_mismatch(profile, "ne", "x86_16")
     elif is_mz(binary):
-        _warn_profile_mismatch(profile, "mz", "x86_16")
+        warn_profile_mismatch(profile, "mz", "x86_16")
     elif tc.arch:
-        _warn_profile_mismatch(profile, "pe", tc.arch)
-    _warn_profile_family_mismatch(profile, tc)
+        warn_profile_mismatch(profile, "pe", tc.arch)
+    warn_profile_family_mismatch(profile, tc)
     notes.append(
         f"explicit --toolchain {profile} — alignment with the detected "
         f"{tc.family or 'unknown'} toolchain checked (see warnings above)"

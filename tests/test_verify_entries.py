@@ -31,7 +31,7 @@ def _patch(monkeypatch: pytest.MonkeyPatch, entries: list[Annotation]) -> None:
     monkeypatch.setattr(verify_mod, "cached_function_list", lambda _cfg: [])
     monkeypatch.setattr(verify_mod, "build_function_registry", lambda *a, **k: {})
     monkeypatch.setattr(verify_mod, "count_detection_sources", lambda r: (0, 0, 0, 0))
-    monkeypatch.setattr(verify_mod, "_load_verify_cache", lambda *a, **k: None)
+    monkeypatch.setattr(verify_mod, "load_verify_cache", lambda *a, **k: None)
     monkeypatch.setattr(
         "rebrew.coff_reloc.build_name_to_va",
         lambda cfg, annotations=None: {e.name: e.va for e in entries if e.name},
@@ -152,13 +152,13 @@ class TestPrepareEntriesCache:
             cflags = resolve_cflags(_cfg(Path("/tmp")), None, "")
         if not source_hash:
             p = Path(cfg_reversed_dir()) / filepath
-            source_hash = verify_hash_mod._source_hash(p) if p.exists() else "no-file"
+            source_hash = verify_hash_mod.source_hash(p) if p.exists() else "no-file"
         # Mirror the new writer: the entry stores the reached-header
         # dependency fingerprint, so a hit requires the freshly-computed
         # value to match (a header the source reaches must invalidate it).
         p = Path(cfg_reversed_dir()) / filepath
         headers_fp = (
-            verify_hash_mod._entry_headers_fp(_cfg(Path(cfg_reversed_dir())), p, cflags)
+            verify_hash_mod.entry_headers_fp(_cfg(Path(cfg_reversed_dir())), p, cflags)
             if p.exists()
             else ""
         )
@@ -170,7 +170,7 @@ class TestPrepareEntriesCache:
         _tc, _cf2 = resolve_compile_overrides(
             _cfg(Path(cfg_reversed_dir())), Path(cfg_reversed_dir()), "", "", ""
         )
-        toolchain = _tc or verify_mod._DEFAULT_TOOLCHAIN
+        toolchain = _tc or verify_mod.DEFAULT_TOOLCHAIN
         return {
             "source_hash": source_hash,
             "filepath": filepath,
@@ -200,7 +200,7 @@ class TestPrepareEntriesCache:
         }
         monkeypatch.setattr(
             verify_mod,
-            "_load_verify_cache",
+            "load_verify_cache",
             lambda *a, **k: verify_cache_mod.VerifyCache(
                 version=2, compiler_hash="", headers_hash="", target="", entries=cache
             ),
@@ -240,7 +240,7 @@ class TestPrepareEntriesCache:
         }
         monkeypatch.setattr(
             verify_mod,
-            "_load_verify_cache",
+            "load_verify_cache",
             lambda *a, **k: verify_cache_mod.VerifyCache(
                 version=2, compiler_hash="", headers_hash="", target="", entries=cache
             ),
@@ -292,7 +292,7 @@ class TestPrepareEntriesCache:
         }
         monkeypatch.setattr(
             verify_mod,
-            "_load_verify_cache",
+            "load_verify_cache",
             lambda *a, **k: verify_cache_mod.VerifyCache(
                 version=2, compiler_hash="", headers_hash="", target="", entries=cache
             ),
@@ -316,7 +316,7 @@ class TestPrepareEntriesCache:
         cache["0x00001000"].status = "PROVEN"
         monkeypatch.setattr(
             verify_mod,
-            "_load_verify_cache",
+            "load_verify_cache",
             lambda *a, **k: verify_cache_mod.VerifyCache(
                 version=2, compiler_hash="", headers_hash="", target="", entries=cache
             ),
@@ -339,7 +339,7 @@ class TestPrepareEntriesCache:
         }
         monkeypatch.setattr(
             verify_mod,
-            "_load_verify_cache",
+            "load_verify_cache",
             lambda *a, **k: verify_cache_mod.VerifyCache(
                 version=2, compiler_hash="", headers_hash="", target="", entries=cache
             ),
@@ -367,7 +367,7 @@ class TestPrepareEntriesCache:
         }
         monkeypatch.setattr(
             verify_mod,
-            "_load_verify_cache",
+            "load_verify_cache",
             lambda *a, **k: verify_cache_mod.VerifyCache(
                 version=2, compiler_hash="", headers_hash="", target="", entries=cache
             ),
@@ -393,7 +393,7 @@ class TestPrepareEntriesCache:
         }
         monkeypatch.setattr(
             verify_mod,
-            "_load_verify_cache",
+            "load_verify_cache",
             lambda *a, **k: verify_cache_mod.VerifyCache(
                 version=2, compiler_hash="", headers_hash="", target="", entries=cache
             ),
@@ -433,7 +433,7 @@ class TestPrepareEntriesCache:
         cache["0x00001000"].toolchain = "watcom-2.0-win32"  # cached under a library override
         monkeypatch.setattr(
             verify_mod,
-            "_load_verify_cache",
+            "load_verify_cache",
             lambda *a, **k: verify_cache_mod.VerifyCache(
                 version=2, compiler_hash="", headers_hash="", target="", entries=cache
             ),
@@ -454,7 +454,7 @@ class TestPrepareEntriesCache:
         }
         monkeypatch.setattr(
             verify_mod,
-            "_load_verify_cache",
+            "load_verify_cache",
             lambda *a, **k: verify_cache_mod.VerifyCache(
                 version=2, compiler_hash="", headers_hash="", target="", entries=cache
             ),
@@ -482,7 +482,7 @@ class TestPrepareEntriesCache:
         }
         monkeypatch.setattr(
             verify_mod,
-            "_load_verify_cache",
+            "load_verify_cache",
             lambda *a, **k: verify_cache_mod.VerifyCache(
                 version=2, compiler_hash="", headers_hash="", target="", entries=cache
             ),
@@ -508,7 +508,7 @@ class TestPrepareEntriesCache:
         cache["0x00001000"].defines = "V1"  # cached under an older version switch
         monkeypatch.setattr(
             verify_mod,
-            "_load_verify_cache",
+            "load_verify_cache",
             lambda *a, **k: verify_cache_mod.VerifyCache(
                 version=2, compiler_hash="", headers_hash="", target="", entries=cache
             ),
@@ -530,7 +530,7 @@ class TestPrepareEntriesCache:
         cache["0x00001000"].defines = "(none)"
         monkeypatch.setattr(
             verify_mod,
-            "_load_verify_cache",
+            "load_verify_cache",
             lambda *a, **k: verify_cache_mod.VerifyCache(
                 version=2, compiler_hash="", headers_hash="", target="", entries=cache
             ),
@@ -550,7 +550,7 @@ class TestPrepareEntriesCache:
         }
         monkeypatch.setattr(
             verify_mod,
-            "_load_verify_cache",
+            "load_verify_cache",
             lambda *a, **k: verify_cache_mod.VerifyCache(
                 version=2, compiler_hash="", headers_hash="", target="", entries=cache
             ),
@@ -575,7 +575,7 @@ class TestPrepareEntriesCache:
         }
         monkeypatch.setattr(
             verify_mod,
-            "_load_verify_cache",
+            "load_verify_cache",
             lambda *a, **k: verify_cache_mod.VerifyCache(
                 version=2, compiler_hash="", headers_hash="", target="", entries=cache
             ),
@@ -600,7 +600,7 @@ class TestPrepareEntriesCache:
         }
         monkeypatch.setattr(
             verify_mod,
-            "_load_verify_cache",
+            "load_verify_cache",
             lambda *a, **k: verify_cache_mod.VerifyCache(
                 version=2, compiler_hash="", headers_hash="", target="", entries=cache
             ),
@@ -735,23 +735,23 @@ class TestBinaryIdCacheGuard:
         cache_path = tmp_path / "verify_cache.json"
         cache = verify_cache_mod.VerifyCache(
             version=2,
-            compiler_hash=verify_hash_mod._compiler_config_hash(cfg),
-            headers_hash=verify_hash_mod._headers_hash(cfg),
+            compiler_hash=verify_hash_mod.compiler_config_hash(cfg),
+            headers_hash=verify_hash_mod.headers_hash(cfg),
             target="T",
-            binary_id=verify_cache_mod._binary_id(cfg),
+            binary_id=verify_cache_mod.binary_id(cfg),
             entries={},
         )
         cache_path.write_text(_json.dumps(cache.to_dict()))
-        assert verify_cache_mod._load_verify_cache(cache_path, cfg) is not None
+        assert verify_cache_mod.load_verify_cache(cache_path, cfg) is not None
 
         # Same target name, different binary bytes → cache must be rejected.
         bin_path.write_bytes(b"MZ2")
-        assert verify_cache_mod._load_verify_cache(cache_path, cfg) is None
+        assert verify_cache_mod.load_verify_cache(cache_path, cfg) is None
 
         # Legacy caches (no binary_id) stay accepted.
         cache.binary_id = ""
         cache_path.write_text(_json.dumps(cache.to_dict()))
-        assert verify_cache_mod._load_verify_cache(cache_path, cfg) is not None
+        assert verify_cache_mod.load_verify_cache(cache_path, cfg) is not None
 
 
 def test_verify_entry_survives_a_raising_logger(
@@ -814,7 +814,7 @@ def test_scope_entries_batch_file_filters_to_file(tmp_path: Path) -> None:
     from types import SimpleNamespace
 
     from rebrew.annotation import Annotation
-    from rebrew.verify import _scope_entries
+    from rebrew.verify import scope_entries
 
     rev = tmp_path / "src"
     rev.mkdir()
@@ -826,7 +826,7 @@ def test_scope_entries_batch_file_filters_to_file(tmp_path: Path) -> None:
 
     cfg = SimpleNamespace(reversed_dir=rev, root=tmp_path)
     entries = [_ann("a.c", 0x1000), _ann("b.c", 0x2000)]
-    scoped, total, *_rest = _scope_entries(
+    scoped, total, *_rest = scope_entries(
         entries, (0, 0, [], [], 0), ([], []), batch_file="a.c", cfg=cfg
     )
     assert total == 1
@@ -840,13 +840,13 @@ def test_scope_entries_batch_file_empty_errors(tmp_path: Path) -> None:
     import typer
 
     from rebrew.annotation import Annotation
-    from rebrew.verify import _scope_entries
+    from rebrew.verify import scope_entries
 
     rev = tmp_path / "src"
     rev.mkdir()
     cfg = SimpleNamespace(reversed_dir=rev, root=tmp_path)
     with pytest.raises(typer.Exit):
-        _scope_entries(
+        scope_entries(
             [Annotation(va=0x1000, name="f", filepath="a.c", module="T")],
             (0, 0, [], [], 0),
             ([], []),
@@ -894,7 +894,7 @@ def test_scope_entries_nolib_drops_header_attributed_functions(tmp_path: Path) -
     """--nolib uses `rebrew status`'s library rule: a compiled FUNCTION whose VA
     a library_*.h header of this target attributes is library code; another
     target's header attributes nothing here."""
-    from rebrew.verify import _scope_entries
+    from rebrew.verify import scope_entries
 
     rev = tmp_path / "src"
     rev.mkdir()
@@ -908,7 +908,7 @@ def test_scope_entries_nolib_drops_header_attributed_functions(tmp_path: Path) -
         Annotation(va=0x1000, name="game", filepath="a.c", module="T", marker_type="FUNCTION"),
         Annotation(va=0x2000, name="crt", filepath="b.c", module="T", marker_type="FUNCTION"),
     ]
-    scoped, total, *_rest, library_excluded, _keys = _scope_entries(
+    scoped, total, *_rest, library_excluded, _keys = scope_entries(
         entries, (0, 0, [], [], 0), ([], []), nolib=True, cfg=cfg
     )
     assert [e.va for e in scoped] == [0x1000]

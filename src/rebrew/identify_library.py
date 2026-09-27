@@ -159,7 +159,7 @@ _SIG_FILE_MODULES = {
 }
 
 
-def _infer_module(name: str, default: str) -> str:
+def infer_module(name: str, default: str) -> str:
     """Best-effort module for a bare API name (FLIRT/import backends)."""
     bare = name.lstrip("_")
     if bare.startswith(_CRT_PREFIXES):
@@ -200,7 +200,7 @@ def _crt_candidates(cfg: Any) -> list[LibCandidate]:
     out: list[LibCandidate] = []
     # Same SOURCE spelling as `rebrew crt-match --fix-source` (file:line for a
     # parsed definition) — the two tools write the same key for the same match.
-    from rebrew.crt_match import _source_ref
+    from rebrew.crt_match import source_ref
 
     for m in matches:
         out.append(
@@ -210,7 +210,7 @@ def _crt_candidates(cfg: Any) -> list[LibCandidate]:
                 module=m.source.module.upper(),
                 kind="crt",
                 confidence=m.confidence,
-                source_ref=_source_ref(m.source),
+                source_ref=source_ref(m.source),
                 source_line=m.source.line,
             )
         )
@@ -277,7 +277,7 @@ def _flirt_candidates(cfg: Any, default_module: str) -> list[LibCandidate]:
                 LibCandidate(
                     va=m["va"],
                     name=m["name"],
-                    module=_infer_module(m["name"], file_module),
+                    module=infer_module(m["name"], file_module),
                     kind="flirt",
                     confidence=0.5,
                 )
@@ -312,7 +312,7 @@ def _import_candidates(cfg: Any, default_module: str) -> list[LibCandidate]:
 
     out: list[LibCandidate] = []
     for va, name in stubs.items():
-        module = dll_by_name.get(str(name)) or _infer_module(str(name), default_module)
+        module = dll_by_name.get(str(name)) or infer_module(str(name), default_module)
         out.append(
             LibCandidate(
                 va=va,

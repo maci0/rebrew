@@ -65,13 +65,13 @@ from rebrew.status_style import STATUS_COLORS
 from rebrew.utils import atomic_write_text, canonical_va_key, floor_pct, preset_module_key
 from rebrew.verify_cache import (
     VerifyCacheEntry,
-    _load_verify_cache,
-    _save_verify_cache,
+    load_verify_cache,
+    save_verify_cache,
 )
 
 #: Re-exported for tests/consumers (canonical home: verify_hash).
-from rebrew.verify_hash import _DEFAULT_TOOLCHAIN as _DEFAULT_TOOLCHAIN
-from rebrew.verify_hash import _expected_text_functions
+from rebrew.verify_hash import DEFAULT_TOOLCHAIN as DEFAULT_TOOLCHAIN
+from rebrew.verify_hash import expected_text_functions
 from rebrew.workspace.status import EARNED_STATUSES
 
 log = logging.getLogger(__name__)
@@ -771,12 +771,12 @@ def main(
 
     if getattr(cfg, "target_binary", None) and is_ne(cfg.target_binary):
         from rebrew.toolchain import TOOLCHAINS
-        from rebrew.toolchain_detect import _bitness16_profiles
+        from rebrew.toolchain_detect import bitness16_profiles
 
         profile = getattr(cfg, "compiler_profile", "") or "msvc-6.0"
         spec = TOOLCHAINS.get(profile)
         object_profiles = tuple(
-            name for name in _bitness16_profiles() if TOOLCHAINS[name].obj_ext in {".obj", ".o"}
+            name for name in bitness16_profiles() if TOOLCHAINS[name].obj_ext in {".obj", ".o"}
         )
         emits_object = spec is not None and spec.bits == 16 and spec.obj_ext in {".obj", ".o"}
         if not emits_object:
@@ -1036,7 +1036,7 @@ def main(
                 f"{built_path} not found — build the project first (or pass --built <path>)",
                 json_mode=json_output,
             )
-        expected = _expected_text_functions(cfg)
+        expected = expected_text_functions(cfg)
         try:
             actual = collect_actual_vas(cfg.root, built_path)
         except (RuntimeError, OSError, ValueError) as exc:
@@ -1212,7 +1212,7 @@ def run_batch(
         missing_sizes,
         library_excluded,
         excluded_keys,
-    ) = _scope_entries(
+    ) = scope_entries(
         unique_entries,
         (passed, failed, fail_details, results, cached_count),
         (size_divergences, missing_sizes),
@@ -1493,7 +1493,7 @@ def _save_report(
     if not dry_run and not (diff_mode and gate_failed):
         cache_path = cfg.root / ".rebrew" / "verify_cache.json"
         try:
-            _save_verify_cache(
+            save_verify_cache(
                 cache_path,
                 cfg,
                 results,
@@ -1756,7 +1756,7 @@ def patch_cache_from_results(cfg: Any, v_results: list[dict[str, Any]]) -> None:
     patch_verify_cache_entries(cfg, patches)
 
 
-def _scope_entries(
+def scope_entries(
     unique_entries: list[Annotation],
     cached: tuple[int, int, list[tuple[Annotation, str]], list[dict[str, Any]], int],
     size_audits: tuple[list[dict[str, Any]], list[dict[str, Any]]],
@@ -2052,7 +2052,7 @@ def prepare_entries(
     results: list[dict[str, Any]] = []
 
     cache_path = cfg.root / ".rebrew" / "verify_cache.json"
-    verify_cache_obj = None if full else _load_verify_cache(cache_path, cfg)
+    verify_cache_obj = None if full else load_verify_cache(cache_path, cfg)
     entries_cache: dict[str, VerifyCacheEntry] = (
         verify_cache_obj.entries if verify_cache_obj else {}
     )

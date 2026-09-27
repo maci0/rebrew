@@ -21,7 +21,7 @@ def collect_evidence(files: list[Path]) -> dict[str, dict[int, int]]:
     ``struct_recover.parse_decomp_for_structs``; named-type evidence only
     (anonymous temporaries cannot validate a declaration).
     """
-    from rebrew.struct_recover import _majority_width, parse_decomp_for_structs
+    from rebrew.struct_recover import majority_width, parse_decomp_for_structs
 
     merged: dict[str, dict[int, dict[int, int]]] = {}
     for path in files:
@@ -41,7 +41,7 @@ def collect_evidence(files: list[Path]) -> dict[str, dict[int, int]]:
                 for width, count in widths.items():
                     slot[width] = slot.get(width, 0) + count
     return {
-        name: {off: _majority_width(widths) for off, widths in slots.items()}
+        name: {off: majority_width(widths) for off, widths in slots.items()}
         for name, slots in merged.items()
     }
 

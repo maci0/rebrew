@@ -118,7 +118,7 @@ class TUCluster:
 # ---------------------------------------------------------------------------
 
 
-def _classify_gap(
+def classify_gap(
     data: bytes,
     text_va: int,
     text_size: int,
@@ -206,7 +206,7 @@ def _contiguity_score(gap_classes: list[str]) -> tuple[float, list[str]]:
 # ---------------------------------------------------------------------------
 
 
-def _scan_call_targets(
+def scan_call_targets(
     info: BinaryInfo,
     registry: dict[int, RegistryEntry],
     cfg: ProjectConfig | None,
@@ -573,7 +573,7 @@ def cluster_functions(
             if not gap_data:
                 gc = "unknown"
             else:
-                gc = _classify_gap(gap_data, text_va, text_size, padding_bytes)
+                gc = classify_gap(gap_data, text_va, text_size, padding_bytes)
 
         if gc == "large_nonpadding" and curr_va in bonds:
             # Single-reference data says this function's objects and its
@@ -592,7 +592,7 @@ def cluster_functions(
             gap_classes_raw[-1].append(gc)
 
     # --- Pass 2: call-graph refinement ---
-    call_map = _scan_call_targets(info, registry, cfg)
+    call_map = scan_call_targets(info, registry, cfg)
     caller_map = _invert_call_map(call_map) if call_map else {}
 
     # Build final clusters

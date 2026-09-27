@@ -267,7 +267,7 @@ def _convention_stub(
     if arch not in ("x86_32", "x86_16"):
         return None, None
     try:
-        from rebrew.asm import _next_function_va, calling_convention, disassembled_extent_window
+        from rebrew.asm import calling_convention, disassembled_extent_window, next_function_va
 
         # The shared extent-based window (asm.disassembled_extent_window)
         # keeps the epilogue's `ret` visible so inference works; we
@@ -279,7 +279,7 @@ def _convention_stub(
         # ``next_va`` trims a window that bled into the following function —
         # without it the neighbour's ``ret N`` was read as this function's
         # epilogue and the stub got the wrong convention/arg count.
-        conv = calling_convention(insns, next_va=_next_function_va(cfg, va))
+        conv = calling_convention(insns, next_va=next_function_va(cfg, va))
     except Exception:  # best-effort stub shape
         logger.debug("stub-shape probe failed at 0x%08x", va, exc_info=True)
         return None, None

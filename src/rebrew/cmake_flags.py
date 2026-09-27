@@ -42,7 +42,7 @@ from rebrew.cli import (
 )
 from rebrew.compile_overrides import resolve_compile_overrides
 from rebrew.config import ProjectConfig
-from rebrew.lint_cflags import _codegen_cflags_key
+from rebrew.lint_cflags import codegen_cflags_key
 from rebrew.sources import iter_sources
 from rebrew.utils import atomic_write_text, preset_module_key
 from rebrew.workspace.config import config_path
@@ -113,7 +113,7 @@ def collect(cfg: ProjectConfig, marker: str) -> tuple[dict[Path, str], list[str]
                     f"only, never the linked bytes."
                 )
             seen.append((entry.symbol or f"0x{entry.va:08x}", flags))
-        distinct = {_codegen_cflags_key(f) for _, f in seen}
+        distinct = {codegen_cflags_key(f) for _, f in seen}
         if len(distinct) > 1:
             detail = "; ".join(f"{n} = '{f}'" for n, f in seen)
             problems.append(f"{src.relative_to(cfg.root)}: {detail}")

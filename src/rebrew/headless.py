@@ -35,7 +35,7 @@ from pathlib import Path
 #: "-screen 0 1280x1024x24" string makes it fail to start (the geometry
 #: becomes an unexpected positional).  Join with spaces for ``xvfb-run -s``.
 _XVFB_SCREEN = ("-screen", "0", "1280x1024x24")
-_XVFB_RUN_SERVER_ARGS = " ".join(_XVFB_SCREEN)
+XVFB_RUN_SERVER_ARGS = " ".join(_XVFB_SCREEN)
 
 #: Env var recording the display our Xvfb (or a reused one) lives on.
 _XVFB_DISPLAY_ENV = "REBREW_XVFB_DISPLAY"

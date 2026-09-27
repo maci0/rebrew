@@ -80,9 +80,9 @@ def find_float_instructions_in_buffer(buf: bytes, base_addr: int = 0) -> Iterato
         return
     from capstone.x86 import X86_OP_MEM, X86_REG_INVALID
 
-    from rebrew.analysis import _capstone
+    from rebrew.analysis import capstone_for
 
-    for insn in _capstone().disasm(buf, base_addr):
+    for insn in capstone_for().disasm(buf, base_addr):
         raw = insn.bytes
         if len(raw) < 2:
             continue

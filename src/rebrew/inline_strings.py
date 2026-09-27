@@ -296,30 +296,30 @@ def main(
     # Shared sources carry string tokens too; an explicit --source-dir scans
     # only that directory.
     if source_dir is None:
-        from rebrew.data_layout import _scan_files
+        from rebrew.data_layout import scan_files
 
-        scan_files = _scan_files(src_dir, getattr(cfg, "shared_dir", None))
+        targets = scan_files(src_dir, getattr(cfg, "shared_dir", None))
     else:
-        scan_files = sorted(src_dir.rglob("*.c"))
+        targets = sorted(src_dir.rglob("*.c"))
     if files:
         wanted = {p.name for p in files}
-        scan_files = [f for f in scan_files if f.name in wanted]
-    if not scan_files:
+        targets = [f for f in targets if f.name in wanted]
+    if not targets:
         from rebrew.cli import error_exit
 
         error_exit(f"no .c sources found under {src_dir}", json_mode=json_output)
 
     cache: dict[int, bytes | None] = {}
     total = 0
-    for f in scan_files:
+    for f in targets:
         total += inline_string_uses(f, orig, data_base, token_re, cache, dry_run)
 
     defined = 0
     if not inline_only:
-        defined = define_remaining_strings(scan_files, orig, data_base, token_re, dry_run)
+        defined = define_remaining_strings(targets, orig, data_base, token_re, dry_run)
 
     if json_output:
-        json_print({"inlined": total, "defined": defined, "files": len(scan_files)})
+        json_print({"inlined": total, "defined": defined, "files": len(targets)})
     else:
         console.print(
             f"[green]inline-strings:[/green] {total} use-site(s) inlined, "

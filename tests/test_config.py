@@ -6,7 +6,7 @@ import pytest
 
 # Import from the rebrew package
 from rebrew.config import (
-    _ARCH_PRESETS,
+    ARCH_PRESETS,
     DEFAULT_LLM_MAX_REQUESTS,
     MAX_LLM_MAX_REQUESTS,
     ConfigError,
@@ -89,34 +89,34 @@ class TestFindRoot:
 
 class TestArchPresets:
     def test_x86_32_exists(self) -> None:
-        assert "x86_32" in _ARCH_PRESETS
+        assert "x86_32" in ARCH_PRESETS
 
     def test_x86_64_exists(self) -> None:
-        assert "x86_64" in _ARCH_PRESETS
+        assert "x86_64" in ARCH_PRESETS
 
     def test_arm32_exists(self) -> None:
-        assert "arm32" in _ARCH_PRESETS
+        assert "arm32" in ARCH_PRESETS
 
     def test_arm64_exists(self) -> None:
-        assert "arm64" in _ARCH_PRESETS
+        assert "arm64" in ARCH_PRESETS
 
     def test_x86_32_pointer_size(self) -> None:
-        assert _ARCH_PRESETS["x86_32"]["pointer_size"] == 4
+        assert ARCH_PRESETS["x86_32"]["pointer_size"] == 4
 
     def test_x86_64_pointer_size(self) -> None:
-        assert _ARCH_PRESETS["x86_64"]["pointer_size"] == 8
+        assert ARCH_PRESETS["x86_64"]["pointer_size"] == 8
 
     def test_x86_padding_bytes(self) -> None:
-        assert _ARCH_PRESETS["x86_32"]["padding_bytes"] == [0xCC, 0x90]
+        assert ARCH_PRESETS["x86_32"]["padding_bytes"] == [0xCC, 0x90]
 
     def test_arm_padding_bytes(self) -> None:
-        assert _ARCH_PRESETS["arm32"]["padding_bytes"] == [0x00]
+        assert ARCH_PRESETS["arm32"]["padding_bytes"] == [0x00]
 
     def test_x86_32_symbol_prefix(self) -> None:
-        assert _ARCH_PRESETS["x86_32"]["symbol_prefix"] == "_"
+        assert ARCH_PRESETS["x86_32"]["symbol_prefix"] == "_"
 
     def test_x86_64_no_prefix(self) -> None:
-        assert _ARCH_PRESETS["x86_64"]["symbol_prefix"] == ""
+        assert ARCH_PRESETS["x86_64"]["symbol_prefix"] == ""
 
 
 # ---------------------------------------------------------------------------

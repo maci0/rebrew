@@ -14,7 +14,7 @@ from rebrew.config import ProjectConfig
 from rebrew.utils import atomic_write_text, console, preset_module_key
 
 
-def _cflags_key(cflags: str) -> frozenset[str]:
+def cflags_key(cflags: str) -> frozenset[str]:
     """Normalize a CFLAGS string for redundancy comparison (W029).
 
     Flag ORDER carries no meaning for MSVC (/O2 /Gd == /Gd /O2), so compare
@@ -24,7 +24,7 @@ def _cflags_key(cflags: str) -> frozenset[str]:
     return frozenset(cflags.split())
 
 
-def _codegen_cflags_key(cflags: str) -> frozenset[str]:
+def codegen_cflags_key(cflags: str) -> frozenset[str]:
     """The flags that decide emitted code — order-insensitive, no defines.
 
     ``/D`` is a compilation input, not an optimization decision, and this
@@ -33,10 +33,10 @@ def _codegen_cflags_key(cflags: str) -> frozenset[str]:
     compiles neither).  A define alone therefore cannot make a translation unit
     ambiguous; a different ``/O``/``/G`` set can.
     """
-    return frozenset(t for t in _cflags_key(cflags) if not t.startswith(("/D", "-D")))
+    return frozenset(t for t in cflags_key(cflags) if not t.startswith(("/D", "-D")))
 
 
-def _inline_equals_store(found_key: str, inline_value: str, store_value: str) -> bool:
+def inline_equals_store(found_key: str, inline_value: str, store_value: str) -> bool:
     """Whether an inline annotation duplicates its metadata-store value.
 
     CFLAGS compares order-insensitively (``/O2 /Gd`` == ``/Gd /O2``); every
@@ -44,7 +44,7 @@ def _inline_equals_store(found_key: str, inline_value: str, store_value: str) ->
     alone — deleting it would destroy information a human may rely on.
     """
     if found_key == "CFLAGS":
-        return _cflags_key(inline_value.strip()) == _cflags_key(store_value.strip())
+        return cflags_key(inline_value.strip()) == cflags_key(store_value.strip())
     return inline_value.strip() == store_value.strip()
 
 
@@ -86,7 +86,7 @@ def check_redundant_cflags(
     Returns ``(preset_redundant, function_redundant)`` as structured hits so
     ``--fix`` can drop them without parsing warning text.  Pure metadata +
     config logic — no .c file I/O.  Order-invariant flag comparison via
-    ``_cflags_key``.
+    ``cflags_key``.
 
     The level ladder is: per-function cflags (rebrew-functions.toml) →
     module preset (``compiler.cflags_presets.<MODULE>``) → project
@@ -98,12 +98,12 @@ def check_redundant_cflags(
     from rebrew.metadata import load_metadata as _load_meta
 
     project_cflags = str(getattr(cfg, "cflags", "") or "")
-    project_key = _cflags_key(project_cflags)
+    project_key = cflags_key(project_cflags)
     presets: dict[str, str] = getattr(cfg, "cflags_presets", {}) or {}
 
     preset_redundant: list[RedundantPreset] = []
     for mod, preset_cflags in sorted(presets.items()):
-        if project_key and _cflags_key(str(preset_cflags)) == project_key:
+        if project_key and cflags_key(str(preset_cflags)) == project_key:
             preset_redundant.append(
                 RedundantPreset(
                     module=str(mod),
@@ -121,14 +121,14 @@ def check_redundant_cflags(
         if not fn_cflags:
             continue
         inherited = resolve_cflags(cfg, None, module)
-        if _cflags_key(fn_cflags) == _cflags_key(inherited):
+        if cflags_key(fn_cflags) == cflags_key(inherited):
             fn_redundant.append(
                 RedundantFunctionCflags(module=module, va=va, cflags=fn_cflags, inherited=inherited)
             )
     return preset_redundant, fn_redundant
 
 
-def _drop_redundant_presets(
+def drop_redundant_presets(
     cfg: ProjectConfig,
     hits: list[RedundantPreset],
     *,
@@ -181,12 +181,12 @@ def _drop_redundant_presets(
 
     dropped = 0
     for hit in hits:
-        expected = _cflags_key(hit.cflags)
+        expected = cflags_key(hit.cflags)
         mod = preset_module_key(hit.module)
         t_presets, t_key = _find(target_compiler, mod)
         g_presets, g_key = _find(global_compiler, mod)
-        t_val = _cflags_key(str(t_presets[t_key])) if t_key is not None else None
-        g_val = _cflags_key(str(g_presets[g_key])) if g_key is not None else None
+        t_val = cflags_key(str(t_presets[t_key])) if t_key is not None else None
+        g_val = cflags_key(str(g_presets[g_key])) if g_key is not None else None
         remaining = None
         if t_val is not None and t_val != expected:
             remaining = t_val

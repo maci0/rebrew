@@ -824,7 +824,7 @@ class TestConventionStub:
             lambda p, va, with_kind=True: (20, "jmp"),  # padded window bleeds on
         )
         monkeypatch.setattr("rebrew.binary_loader.extract_raw_bytes", lambda p, va, n: code[:n])
-        monkeypatch.setattr("rebrew.asm._next_function_va", lambda cfg, va: 0x1010)
+        monkeypatch.setattr("rebrew.asm.next_function_va", lambda cfg, va: 0x1010)
         sig, note = _convention_stub(self._cfg(tmp_path), 0x1000, "f")
         assert sig is None  # cdecl — not the neighbour's __stdcall
         assert note is None

@@ -36,7 +36,7 @@ from rebrew.catalog.loaders import cached_function_list
 from rebrew.catalog.registry import RegistryEntry, build_function_registry
 from rebrew.cli import TargetOption, console, error_exit, json_print, require_config
 from rebrew.config import ProjectConfig, inventory_path_for
-from rebrew.cu_map import _classify_gap
+from rebrew.cu_map import classify_gap
 from rebrew.utils import atomic_write_text
 
 app = typer.Typer(
@@ -164,7 +164,7 @@ def _gap_rows(
             cls = (
                 "large_nonpadding"
                 if data is None
-                else _classify_gap(data, info.text_va, info.text_size)
+                else classify_gap(data, info.text_va, info.text_size)
             )
         hist[cls] += 1
         rows.append({"start": start, "end": next_va, "length": length, "class": cls})

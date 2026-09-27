@@ -133,7 +133,7 @@ class _ArchPreset(TypedDict):
     symbol_prefix: str
 
 
-_ARCH_PRESETS: dict[str, _ArchPreset] = {
+ARCH_PRESETS: dict[str, _ArchPreset] = {
     "x86_16": {
         "capstone_arch": "CS_ARCH_X86",
         "capstone_mode": "CS_MODE_16",
@@ -461,7 +461,7 @@ class ProjectConfig:
         """Return capstone CS_ARCH_* constant."""
         import capstone
 
-        preset = _ARCH_PRESETS.get(self.arch)
+        preset = ARCH_PRESETS.get(self.arch)
         name = preset.get("capstone_arch", "CS_ARCH_X86") if preset else "CS_ARCH_X86"
         return int(getattr(capstone, name))
 
@@ -479,7 +479,7 @@ class ProjectConfig:
 
         from rebrew.binary_loader import endian_mode_bits, sniff_image_endian
 
-        preset = _ARCH_PRESETS.get(self.arch)
+        preset = ARCH_PRESETS.get(self.arch)
         name = preset.get("capstone_mode", "CS_MODE_32") if preset else "CS_MODE_32"
         mode = int(getattr(capstone, name))
         endian = ""
@@ -584,13 +584,13 @@ class ProjectConfig:
 
     def validate(self) -> None:
         """Validate configuration settings, raising :class:`ConfigError` on invalid values."""
-        if self.arch and self.arch not in _ARCH_PRESETS:
+        if self.arch and self.arch not in ARCH_PRESETS:
             raise ConfigError(
-                f"unknown arch {self.arch!r} (known: {', '.join(sorted(_ARCH_PRESETS))})"
+                f"unknown arch {self.arch!r} (known: {', '.join(sorted(ARCH_PRESETS))})"
             )
-        if self.binary_format and self.binary_format not in _KNOWN_FORMATS:
+        if self.binary_format and self.binary_format not in KNOWN_FORMATS:
             raise ConfigError(
-                f"unknown format {self.binary_format!r} (known: {', '.join(sorted(_KNOWN_FORMATS))})"
+                f"unknown format {self.binary_format!r} (known: {', '.join(sorted(KNOWN_FORMATS))})"
             )
         if self.ghidra_backend and self.ghidra_backend not in ("reva", "cli"):
             raise ConfigError(f"unknown ghidra_backend {self.ghidra_backend!r} (known: reva, cli)")
@@ -1439,7 +1439,7 @@ _KNOWN_LINK_KEYS = {
     "timestamp",
 }
 
-_KNOWN_TARGET_KEYS = {
+KNOWN_TARGET_KEYS = {
     "binary",
     "arch",
     "format",
@@ -1491,7 +1491,7 @@ _KNOWN_COMPILER_KEYS = {
     "cflags_presets",  # written by `rebrew cfg set-cflags` without --target (per-origin compiler flag overrides)
 }
 
-_KNOWN_PROJECT_KEYS = {
+KNOWN_PROJECT_KEYS = {
     "name",
     "jobs",
     "db_dir",
@@ -1512,7 +1512,7 @@ _KNOWN_LINT_NAMING = frozenset({"none", "snake_case", "camelCase"})
 _KNOWN_LINT_BRACE = frozenset({"none", "same_line", "new_line"})
 _KNOWN_LINT_INDENT = frozenset({"none", "spaces", "tabs"})
 
-_KNOWN_FORMATS = {"pe", "elf", "macho", "ne", "mz"}
+KNOWN_FORMATS = {"pe", "elf", "macho", "ne", "mz"}
 
 
 def _lint_enum(value: Any, allowed: frozenset[str], field_name: str, default: str = "none") -> str:
@@ -1596,7 +1596,7 @@ def load_config(
         )
     for sec_name, known_keys in (
         ("compiler", _KNOWN_COMPILER_KEYS),
-        ("project", _KNOWN_PROJECT_KEYS),
+        ("project", KNOWN_PROJECT_KEYS),
         ("link", _KNOWN_LINK_KEYS),
     ):
         sec = global_compiler_raw if sec_name == "compiler" else project_raw
@@ -1609,7 +1609,7 @@ def load_config(
             )
     for tgt_name, tgt_data in targets_dict.items():
         if isinstance(tgt_data, dict):
-            unknown_tgt = set(tgt_data) - _KNOWN_TARGET_KEYS
+            unknown_tgt = set(tgt_data) - KNOWN_TARGET_KEYS
             if unknown_tgt:
                 _config_warn(
                     f"rebrew-project.toml [targets.{tgt_name}]: unrecognized keys: {unknown_tgt}",
@@ -1668,17 +1668,17 @@ def load_config(
     # A typo'd format or arch fails here: substituting pe / x86_32 would run
     # the wrong layout detection, disassembler, and pointer size on the binary.
     fmt_val = tgt.get("format", "pe")
-    if not isinstance(fmt_val, str) or fmt_val not in _KNOWN_FORMATS:
+    if not isinstance(fmt_val, str) or fmt_val not in KNOWN_FORMATS:
         raise ConfigError(
             f"rebrew-project.toml [targets.{target}]: unknown format {fmt_val!r} "
-            f"(known: {', '.join(sorted(_KNOWN_FORMATS))})"
+            f"(known: {', '.join(sorted(KNOWN_FORMATS))})"
         )
 
     arch_name = tgt.get("arch", "x86_32")
-    if not isinstance(arch_name, str) or arch_name not in _ARCH_PRESETS:
+    if not isinstance(arch_name, str) or arch_name not in ARCH_PRESETS:
         raise ConfigError(
             f"rebrew-project.toml [targets.{target}]: unknown arch {arch_name!r} "
-            f"(known: {', '.join(sorted(_ARCH_PRESETS))})"
+            f"(known: {', '.join(sorted(ARCH_PRESETS))})"
         )
 
     # A typo'd profile fails too: substituting msvc-6.0 would compile with the
@@ -1695,7 +1695,7 @@ def load_config(
             f"(known: {', '.join(sorted(TOOLCHAINS))})"
         )
 
-    arch_preset = _ARCH_PRESETS[arch_name]
+    arch_preset = ARCH_PRESETS[arch_name]
     bin_rel = tgt.get("binary")
     if bin_rel is None:
         raise ConfigKeyError(f"Target '{target}' in rebrew-project.toml is missing 'binary' path")
@@ -2055,6 +2055,7 @@ __all__ = [
     "DEFAULT_COMPILE_TIMEOUT",
     "DEFAULT_LINT_MAX_LINE_LENGTH",
     "FUNCTION_STRUCTURE_JSON",
+    "KNOWN_TARGET_KEYS",
     "LinkConfig",
     "ProjectConfig",
     "detect_crt_sources",

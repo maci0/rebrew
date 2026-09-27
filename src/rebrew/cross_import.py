@@ -109,7 +109,7 @@ def cross_match(
     return out
 
 
-def _signature_for(cfg: ProjectConfig, code: bytes, va: int) -> dict[str, Any] | None:
+def signature_for(cfg: ProjectConfig, code: bytes, va: int) -> dict[str, Any] | None:
     """Structural signature for *code*, honouring the config's arch/mode."""
     return disasm_signature(
         code,
@@ -124,7 +124,7 @@ def _signature_for(cfg: ProjectConfig, code: bytes, va: int) -> dict[str, Any] |
 # ---------------------------------------------------------------------------
 
 
-def _annotations_by_va(cfg: ProjectConfig) -> dict[int, tuple[str, str]]:
+def annotations_by_va(cfg: ProjectConfig) -> dict[int, tuple[str, str]]:
     """``va -> (status, filepath)`` from the target's sources + metadata.
 
     Status comes from the metadata overlay (``rebrew-functions.toml`` via
@@ -144,7 +144,7 @@ def _annotations_by_va(cfg: ProjectConfig) -> dict[int, tuple[str, str]]:
     return out
 
 
-def _registry(cfg: ProjectConfig) -> dict[int, RegistryEntry]:
+def registry(cfg: ProjectConfig) -> dict[int, RegistryEntry]:
     """The target's function catalog (VA -> entry with ``canonical_size``)."""
     from rebrew.catalog import build_function_registry, cached_function_list
 
@@ -154,7 +154,7 @@ def _registry(cfg: ProjectConfig) -> dict[int, RegistryEntry]:
     )
 
 
-def _target_bytes_by_va(cfg: ProjectConfig, vas: dict[int, int]) -> dict[int, bytes]:
+def target_bytes_by_va(cfg: ProjectConfig, vas: dict[int, int]) -> dict[int, bytes]:
     """``va -> target-binary bytes`` for the given ``va -> size`` map.
 
     Raises ``OSError`` / ``ValueError`` when the binary itself is missing or
@@ -173,7 +173,7 @@ def _target_bytes_by_va(cfg: ProjectConfig, vas: dict[int, int]) -> dict[int, by
     return out
 
 
-def _disasm_sizes(cfg: ProjectConfig, vas: list[int]) -> tuple[dict[int, int], list[int]]:
+def disasm_sizes(cfg: ProjectConfig, vas: list[int]) -> tuple[dict[int, int], list[int]]:
     """Disassembly-derived sizes for sizeless registry entries.
 
     Returns ``(sizes, refused)``: VAs whose extent the disassembler derives
@@ -204,14 +204,14 @@ def _disasm_sizes(cfg: ProjectConfig, vas: list[int]) -> tuple[dict[int, int], l
 
 def sizeless_dest_vas(cfg: ProjectConfig) -> tuple[dict[int, int], list[int]]:
     """Sizeless registry entries (``canonical_size`` 0/missing), split into
-    disassembly-sized matches and refusals (see :func:`_disasm_sizes`).
+    disassembly-sized matches and refusals (see :func:`disasm_sizes`).
 
     Public so the CLI can attach the ``sizeless, use --va`` guidance rows
     for the refusals.
     """
-    registry = _registry(cfg)
-    sizeless = [va for va, reg in registry.items() if not int(reg.get("canonical_size") or 0)]
-    return _disasm_sizes(cfg, sizeless)
+    entries = registry(cfg)
+    sizeless = [va for va, reg in entries.items() if not int(reg.get("canonical_size") or 0)]
+    return disasm_sizes(cfg, sizeless)
 
 
 def matched_source_bytes(cfg_src: ProjectConfig) -> dict[int, bytes]:
@@ -224,23 +224,23 @@ def matched_source_bytes(cfg_src: ProjectConfig) -> dict[int, bytes]:
     only); ones the disassembler cannot size are skipped with the
     ``sizeless, use --va`` guidance on the result rows.
     """
-    statuses = _annotations_by_va(cfg_src)
-    registry = _registry(cfg_src)
+    statuses = annotations_by_va(cfg_src)
+    entries = registry(cfg_src)
     vas = {
         va: int(reg["canonical_size"])
-        for va, reg in registry.items()
+        for va, reg in entries.items()
         if reg.get("canonical_size") and statuses.get(va, ("", ""))[0] in MATCHED_STATUSES
     }
     sizeless = [
         va
-        for va, reg in registry.items()
+        for va, reg in entries.items()
         if not int(reg.get("canonical_size") or 0)
         and statuses.get(va, ("", ""))[0] in MATCHED_STATUSES
     ]
     if sizeless:
-        disasm_sizes, _refused = _disasm_sizes(cfg_src, sizeless)
-        vas.update(disasm_sizes)
-    return _target_bytes_by_va(cfg_src, vas)
+        sizes, _refused = disasm_sizes(cfg_src, sizeless)
+        vas.update(sizes)
+    return target_bytes_by_va(cfg_src, vas)
 
 
 def import_size(dst_size: int, src_code: bytes | None) -> int:
@@ -394,13 +394,13 @@ def unmatched_dest_bytes(cfg_dst: ProjectConfig, only_va: int | None = None) -> 
     extent (ret-ended only); ones the disassembler cannot size stay out of
     the match and surface as ``sizeless, use --va`` rows from
     :func:`sizeless_dest_vas`."""
-    statuses = _annotations_by_va(cfg_dst)
-    registry = _registry(cfg_dst)
+    statuses = annotations_by_va(cfg_dst)
+    entries = registry(cfg_dst)
     library_vas = _library_vas(cfg_dst)
     bands = list(getattr(cfg_dst, "external_ranges", None) or [])
     vas = {
         va: int(reg["canonical_size"])
-        for va, reg in registry.items()
+        for va, reg in entries.items()
         if reg.get("canonical_size")
         and statuses.get(va, ("", ""))[0] not in MATCHED_STATUSES
         and va not in library_vas
@@ -417,14 +417,14 @@ def unmatched_dest_bytes(cfg_dst: ProjectConfig, only_va: int | None = None) -> 
         elif only_va in library_vas or _in_external_range(only_va, bands):
             vas = {}
         else:
-            disasm_sizes, _refused = _disasm_sizes(cfg_dst, [only_va])
-            vas = disasm_sizes
+            sizes, _refused = disasm_sizes(cfg_dst, [only_va])
+            vas = sizes
     else:
         _disasm_sizes_out, _ = sizeless_dest_vas(cfg_dst)
         for va, size in _disasm_sizes_out.items():
             if statuses.get(va, ("", ""))[0] not in MATCHED_STATUSES:
                 vas[va] = size
-    return _target_bytes_by_va(cfg_dst, vas)
+    return target_bytes_by_va(cfg_dst, vas)
 
 
 # ---------------------------------------------------------------------------
@@ -1338,19 +1338,19 @@ def main(
     dest_sigs = {
         va: sig
         for va, code in dest_bytes.items()
-        if (sig := _signature_for(cfg, code, va)) is not None
+        if (sig := signature_for(cfg, code, va)) is not None
     }
     src_sigs = {
         va: sig
         for va, code in src_bytes.items()
-        if (sig := _signature_for(cfg_src, code, va)) is not None
+        if (sig := signature_for(cfg_src, code, va)) is not None
     }
     matches = cross_match(dest_sigs, src_sigs, min_score=min_score, min_gap=min_gap)
 
     # Destination VA -> (status, filepath) for choosing the write target and
     # the destination canonical sizes for the rewritten marker.
-    statuses = _annotations_by_va(cfg)
-    registry = _registry(cfg)
+    statuses = annotations_by_va(cfg)
+    entries = registry(cfg)
 
     from rebrew.compile_cache import DEFAULT_CACHE_BACKEND, get_compile_cache
 
@@ -1375,7 +1375,7 @@ def main(
 
     results: list[dict[str, Any]] = []
     matched_vas = set(matches)
-    statuses_src = _annotations_by_va(cfg_src)
+    statuses_src = annotations_by_va(cfg_src)
     # Sizeless refusals: the registry has no size and the disassembler
     # cannot derive one — surface the guidance instead of silently
     # dropping the function from every match.
@@ -1422,7 +1422,7 @@ def main(
         src_va, score = matches[dst_va]
         src_status, src_file = statuses_src.get(src_va, ("", ""))
         dst_status, dst_file = statuses.get(dst_va, ("", ""))
-        dst_size = int(registry[dst_va].get("canonical_size") or 0) if dst_va in registry else 0
+        dst_size = int(entries[dst_va].get("canonical_size") or 0) if dst_va in entries else 0
         disasm_size: int | None = None
         if dst_va in disasm_sized:
             dst_size = len(dest_bytes[dst_va])

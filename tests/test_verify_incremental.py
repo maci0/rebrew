@@ -15,12 +15,12 @@ from rebrew.annotation import Annotation
 from rebrew.compile import CompareResult
 from rebrew.config import ProjectConfig
 from rebrew.verify import app
-from rebrew.verify_cache import _load_verify_cache, _save_verify_cache
+from rebrew.verify_cache import load_verify_cache, save_verify_cache
 from rebrew.verify_hash import (
-    _compiler_config_hash,
-    _entry_headers_fp,
-    _headers_hash,
-    _source_hash,
+    compiler_config_hash,
+    entry_headers_fp,
+    headers_hash,
+    source_hash,
 )
 
 runner = CliRunner()
@@ -78,7 +78,7 @@ class TestCompilerConfigHash:
         cfg_b = _make_cfg(tmp_path)
         cfg_b.base_cflags = "/O1"
 
-        assert _compiler_config_hash(cfg_a) != _compiler_config_hash(cfg_b)
+        assert compiler_config_hash(cfg_a) != compiler_config_hash(cfg_b)
 
     def test_includes_compare_logic_hash(self, tmp_path: Path) -> None:
         """The hash must embed a content hash of the comparison/extraction
@@ -94,7 +94,7 @@ class TestCompilerConfigHash:
         assert len(h1) == 64
         # The compiler hash embeds it.
         assert (
-            _compiler_config_hash(cfg)
+            compiler_config_hash(cfg)
             != hashlib.sha256(
                 "|".join(
                     [
@@ -112,10 +112,10 @@ class TestSourceHash:
     def test_hash_changes_with_file_content(self, tmp_path: Path) -> None:
         path = tmp_path / "func.c"
         path.write_text("int foo(void) { return 1; }\n", encoding="utf-8")
-        hash_a = _source_hash(path)
+        hash_a = source_hash(path)
 
         path.write_text("int foo(void) { return 2; }\n", encoding="utf-8")
-        hash_b = _source_hash(path)
+        hash_b = source_hash(path)
 
         assert hash_a != hash_b
 
@@ -131,11 +131,11 @@ class TestSourceHash:
 
         path = tmp_path / "func.c"
         path.write_text("int a;\n", encoding="utf-8")
-        hash_a = _source_hash(path)
+        hash_a = source_hash(path)
         st = path.stat()
         path.write_text("int abcdefgh;\n", encoding="utf-8")
         os.utime(path, ns=(st.st_atime_ns, st.st_mtime_ns))
-        hash_b = _source_hash(path)
+        hash_b = source_hash(path)
         assert hash_a != hash_b
         assert path.stat().st_mtime_ns == st.st_mtime_ns
 
@@ -148,7 +148,7 @@ class TestSourceHash:
 
         path = tmp_path / "func.c"
         path.write_text("int foo(void) { return 1; }\n", encoding="utf-8")
-        hash_a = _source_hash(path)
+        hash_a = source_hash(path)
         text_a, _ = read_source_text(path)
         st = path.stat()
         tmp = tmp_path / "func.c.tmp"
@@ -157,7 +157,7 @@ class TestSourceHash:
         os.replace(tmp, path)
         st_b = path.stat()
         assert (st_b.st_mtime_ns, st_b.st_size) == (st.st_mtime_ns, st.st_size)
-        assert _source_hash(path) != hash_a
+        assert source_hash(path) != hash_a
         text_b, _ = read_source_text(path)
         assert text_b != text_a
 
@@ -169,12 +169,12 @@ class TestBinaryId:
         mtime+size alone keeps serving verdicts earned against the previous
         image after ``atomic_write_bytes`` or ``cp -p`` + ``mv``.
         """
-        from rebrew.verify_cache import _binary_id
+        from rebrew.verify_cache import binary_id
 
         cfg = _make_cfg(tmp_path)
         path = Path(cfg.target_binary)
         path.write_bytes(b"MZAA")
-        id_a = _binary_id(cfg)
+        id_a = binary_id(cfg)
         st = path.stat()
         swapped = tmp_path / "target.new"
         swapped.write_bytes(b"MZBB")
@@ -183,8 +183,8 @@ class TestBinaryId:
         assert path.stat().st_mtime_ns == st.st_mtime_ns
         assert path.stat().st_size == st.st_size
         assert path.stat().st_ino != st.st_ino
-        assert _binary_id(cfg) != id_a
-        assert _binary_id(cfg) != ""
+        assert binary_id(cfg) != id_a
+        assert binary_id(cfg) != ""
 
 
 class TestLoadVerifyCache:
@@ -194,14 +194,14 @@ class TestLoadVerifyCache:
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         data = {
             "version": 2,
-            "compiler_hash": _compiler_config_hash(cfg),
-            "headers_hash": _headers_hash(cfg),
+            "compiler_hash": compiler_config_hash(cfg),
+            "headers_hash": headers_hash(cfg),
             "target": cfg.target_name,
             "entries": {},
         }
         cache_path.write_text(json.dumps(data), encoding="utf-8")
 
-        loaded = _load_verify_cache(cache_path, cfg)
+        loaded = load_verify_cache(cache_path, cfg)
         assert loaded is not None
         assert loaded.version == 2
 
@@ -211,7 +211,7 @@ class TestLoadVerifyCache:
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         cache_path.write_text("{", encoding="utf-8")
 
-        assert _load_verify_cache(cache_path, cfg) is None
+        assert load_verify_cache(cache_path, cfg) is None
 
     def test_reject_wrong_version(self, tmp_path: Path) -> None:
         cfg = _make_cfg(tmp_path)
@@ -219,13 +219,13 @@ class TestLoadVerifyCache:
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         data = {
             "version": 99,
-            "compiler_hash": _compiler_config_hash(cfg),
+            "compiler_hash": compiler_config_hash(cfg),
             "target": cfg.target_name,
             "entries": {},
         }
         cache_path.write_text(json.dumps(data), encoding="utf-8")
 
-        assert _load_verify_cache(cache_path, cfg) is None
+        assert load_verify_cache(cache_path, cfg) is None
 
     def test_reject_wrong_target(self, tmp_path: Path) -> None:
         cfg = _make_cfg(tmp_path)
@@ -233,13 +233,13 @@ class TestLoadVerifyCache:
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         data = {
             "version": 2,
-            "compiler_hash": _compiler_config_hash(cfg),
+            "compiler_hash": compiler_config_hash(cfg),
             "target": "OTHER",
             "entries": {},
         }
         cache_path.write_text(json.dumps(data), encoding="utf-8")
 
-        assert _load_verify_cache(cache_path, cfg) is None
+        assert load_verify_cache(cache_path, cfg) is None
 
     def test_reject_wrong_compiler_hash(self, tmp_path: Path) -> None:
         cfg = _make_cfg(tmp_path)
@@ -253,7 +253,7 @@ class TestLoadVerifyCache:
         }
         cache_path.write_text(json.dumps(data), encoding="utf-8")
 
-        assert _load_verify_cache(cache_path, cfg) is None
+        assert load_verify_cache(cache_path, cfg) is None
 
 
 class TestVerifyCacheMatchesCfg:
@@ -269,8 +269,8 @@ class TestVerifyCacheMatchesCfg:
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         data = {
             "version": 2,
-            "compiler_hash": _compiler_config_hash(cfg),
-            "headers_hash": _headers_hash(cfg),
+            "compiler_hash": compiler_config_hash(cfg),
+            "headers_hash": headers_hash(cfg),
             "target": cfg.target_name,
             "entries": {},
         }
@@ -285,8 +285,8 @@ class TestVerifyCacheMatchesCfg:
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         data = {
             "version": 2,
-            "compiler_hash": _compiler_config_hash(cfg),
-            "headers_hash": _headers_hash(cfg),
+            "compiler_hash": compiler_config_hash(cfg),
+            "headers_hash": headers_hash(cfg),
             "target": "OTHER",
             "entries": {},
         }
@@ -302,7 +302,7 @@ class TestVerifyCacheMatchesCfg:
         data = {
             "version": 2,
             "compiler_hash": "deadbeef",
-            "headers_hash": _headers_hash(cfg),
+            "headers_hash": headers_hash(cfg),
             "target": cfg.target_name,
             "entries": {},
         }
@@ -317,8 +317,8 @@ class TestVerifyCacheMatchesCfg:
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         data = {
             "version": 2,
-            "compiler_hash": _compiler_config_hash(cfg),
-            "headers_hash": _headers_hash(cfg),
+            "compiler_hash": compiler_config_hash(cfg),
+            "headers_hash": headers_hash(cfg),
             "target": cfg.target_name,
             "binary_id": "outdated_binary_digest",
             "entries": {},
@@ -334,8 +334,8 @@ class TestVerifyCacheMatchesCfg:
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         data = {
             "version": 99,
-            "compiler_hash": _compiler_config_hash(cfg),
-            "headers_hash": _headers_hash(cfg),
+            "compiler_hash": compiler_config_hash(cfg),
+            "headers_hash": headers_hash(cfg),
             "target": cfg.target_name,
             "entries": {},
         }
@@ -360,8 +360,8 @@ class TestPatchVerifyCacheEntries:
         cache_path.parent.mkdir(parents=True, exist_ok=True)
         data = {
             "version": 2,
-            "compiler_hash": _compiler_config_hash(cfg),
-            "headers_hash": _headers_hash(cfg),
+            "compiler_hash": compiler_config_hash(cfg),
+            "headers_hash": headers_hash(cfg),
             "target": cfg.target_name,
             "entries": {
                 "0x00001000": {
@@ -659,7 +659,7 @@ class TestPatchVerifyCacheEntries:
         monkeypatch.setattr(cache_mod, "_verify_cache_write_lock", gated_lock)
         with ThreadPoolExecutor(max_workers=1) as pool:
             saved = pool.submit(
-                _save_verify_cache,
+                save_verify_cache,
                 cache_path,
                 cfg,
                 results,
@@ -675,7 +675,7 @@ class TestPatchVerifyCacheEntries:
                 resume.set()
             saved.result(timeout=5)
 
-        loaded = _load_verify_cache(cache_path, cfg)
+        loaded = load_verify_cache(cache_path, cfg)
         assert loaded is not None
         preserved = loaded.entries["0x00001000"]
         assert preserved.status == "RELOC"
@@ -693,7 +693,7 @@ class TestPatchVerifyCacheEntries:
         cache_path.write_text(prior, encoding="utf-8")
 
         entries, results = _func_b_row(cfg)
-        _save_verify_cache(
+        save_verify_cache(
             cache_path,
             cfg,
             results,
@@ -712,7 +712,7 @@ class TestPatchVerifyCacheEntries:
         prior = json.dumps(
             {
                 "version": 2,
-                "compiler_hash": _compiler_config_hash(cfg),
+                "compiler_hash": compiler_config_hash(cfg),
                 "target": cfg.target_name,
                 "entries": None,
             }
@@ -720,7 +720,7 @@ class TestPatchVerifyCacheEntries:
         cache_path.write_text(prior, encoding="utf-8")
 
         entries, results = _func_b_row(cfg)
-        _save_verify_cache(
+        save_verify_cache(
             cache_path,
             cfg,
             results,
@@ -760,8 +760,8 @@ class TestPatchVerifyCacheEntries:
         ]
         cache_path = tmp_path / ".rebrew" / "verify_cache.json"
 
-        _save_verify_cache(cache_path, cfg, results, entries)
-        loaded = _load_verify_cache(cache_path, cfg)
+        save_verify_cache(cache_path, cfg, results, entries)
+        loaded = load_verify_cache(cache_path, cfg)
 
         assert loaded is not None
         cache_entries = loaded.entries
@@ -772,7 +772,7 @@ class TestPatchVerifyCacheEntries:
     def test_save_persists_reg_delta_and_effective_match(self, tmp_path: Path) -> None:
         """The prove queue reads effective_match back from the cache.
 
-        ``_save_verify_cache`` enumerated the result fields by hand and dropped
+        ``save_verify_cache`` enumerated the result fields by hand and dropped
         reg_delta/effective_match, so ``rebrew status`` always reported 0
         effective matches and never queued a provable candidate.
         """
@@ -810,8 +810,8 @@ class TestPatchVerifyCacheEntries:
         ]
         cache_path = tmp_path / ".rebrew" / "verify_cache.json"
 
-        _save_verify_cache(cache_path, cfg, results, entries)
-        loaded = _load_verify_cache(cache_path, cfg)
+        save_verify_cache(cache_path, cfg, results, entries)
+        loaded = load_verify_cache(cache_path, cfg)
 
         assert loaded is not None
         entry = loaded.entries["0x10001000"]
@@ -994,10 +994,10 @@ class TestHeadersHash:
         cfg = _make_cfg(tmp_path)
         # reversed_dir exists but has no .h files — the hash is still a
         # stable digest (it also covers the external -I include dirs).
-        result = _headers_hash(cfg)
+        result = headers_hash(cfg)
         assert isinstance(result, str)
         assert len(result) == 64
-        assert _headers_hash(cfg) == result  # deterministic
+        assert headers_hash(cfg) == result  # deterministic
 
     def test_headers_hash_memo_is_thread_safe(self, tmp_path: Path) -> None:
         """Concurrent fills must not race the clear-then-store eviction."""
@@ -1014,7 +1014,7 @@ class TestHeadersHash:
 
         def _worker() -> None:
             try:
-                local = [_headers_hash(cfg) for _ in range(32)]
+                local = [headers_hash(cfg) for _ in range(32)]
                 with digests_lock:
                     digests.extend(local)
             except BaseException as exc:
@@ -1046,19 +1046,19 @@ class TestHeadersHash:
         (inc / "zlib.h").write_text("typedef int uInt;\n", encoding="utf-8")
         cfg.compiler_includes = inc
         include_fingerprint.cache_clear()
-        hash_v1 = _headers_hash(cfg)
+        hash_v1 = headers_hash(cfg)
         (inc / "zlib.h").write_text("typedef long uInt;\n", encoding="utf-8")
         include_fingerprint.cache_clear()
-        hash_v2 = _headers_hash(cfg)
+        hash_v2 = headers_hash(cfg)
         assert hash_v1 != hash_v2
 
     def test_changes_when_header_added(self, tmp_path: Path) -> None:
         cfg = _make_cfg(tmp_path)
-        hash_before = _headers_hash(cfg)
+        hash_before = headers_hash(cfg)
 
         header = cfg.reversed_dir / "types.h"
         header.write_text("typedef int BOOL;\n", encoding="utf-8")
-        hash_after = _headers_hash(cfg)
+        hash_after = headers_hash(cfg)
 
         assert hash_before != hash_after
 
@@ -1066,18 +1066,18 @@ class TestHeadersHash:
         cfg = _make_cfg(tmp_path)
         header = cfg.reversed_dir / "types.h"
         header.write_text("typedef int BOOL;\n", encoding="utf-8")
-        hash_v1 = _headers_hash(cfg)
+        hash_v1 = headers_hash(cfg)
 
         header.write_text("typedef int BOOL;\ntypedef unsigned int UINT;\n", encoding="utf-8")
-        hash_v2 = _headers_hash(cfg)
+        hash_v2 = headers_hash(cfg)
 
         assert hash_v1 != hash_v2
 
     def test_stable_across_calls(self, tmp_path: Path) -> None:
         cfg = _make_cfg(tmp_path)
         (cfg.reversed_dir / "types.h").write_text("typedef int BOOL;\n", encoding="utf-8")
-        h1 = _headers_hash(cfg)
-        h2 = _headers_hash(cfg)
+        h1 = headers_hash(cfg)
+        h2 = headers_hash(cfg)
         assert h1 == h2
         assert isinstance(h1, str) and len(h1) == 64
 
@@ -1086,10 +1086,10 @@ class TestHeadersHash:
         sub = cfg.reversed_dir / "include"
         sub.mkdir()
         (sub / "structs.h").write_text("struct Foo { int x; };\n", encoding="utf-8")
-        hash_with = _headers_hash(cfg)
+        hash_with = headers_hash(cfg)
 
         (sub / "structs.h").write_text("struct Foo { int x; int y; };\n", encoding="utf-8")
-        hash_changed = _headers_hash(cfg)
+        hash_changed = headers_hash(cfg)
 
         assert hash_with != hash_changed
 
@@ -1106,14 +1106,14 @@ class TestHeadersHashCacheInvalidation:
         # Write a cache with an intentionally wrong headers_hash
         data = {
             "version": 2,
-            "compiler_hash": _compiler_config_hash(cfg),
+            "compiler_hash": compiler_config_hash(cfg),
             "headers_hash": "deadbeef",
             "target": cfg.target_name,
             "entries": {},
         }
         cache_path.write_text(json.dumps(data), encoding="utf-8")
 
-        loaded = _load_verify_cache(cache_path, cfg)
+        loaded = load_verify_cache(cache_path, cfg)
         assert loaded is not None
         assert loaded.target == cfg.target_name
         assert loaded.entries == {}
@@ -1127,18 +1127,18 @@ class TestHeadersHashCacheInvalidation:
         # Write a cache with the correct headers_hash (no headers present)
         data = {
             "version": 2,
-            "compiler_hash": _compiler_config_hash(cfg),
-            "headers_hash": _headers_hash(cfg),
+            "compiler_hash": compiler_config_hash(cfg),
+            "headers_hash": headers_hash(cfg),
             "target": cfg.target_name,
             "entries": {},
         }
         cache_path.write_text(json.dumps(data), encoding="utf-8")
 
-        loaded = _load_verify_cache(cache_path, cfg)
+        loaded = load_verify_cache(cache_path, cfg)
         assert loaded is not None
         assert loaded.target == cfg.target_name
         assert loaded.entries == {}
-        assert loaded.headers_hash == _headers_hash(cfg)
+        assert loaded.headers_hash == headers_hash(cfg)
 
     def test_save_persists_headers_hash(self, tmp_path: Path) -> None:
         cfg = _make_cfg(tmp_path)
@@ -1171,10 +1171,10 @@ class TestHeadersHashCacheInvalidation:
                 symbol="",
             )
         ]
-        _save_verify_cache(cache_path, cfg, results, entries)
+        save_verify_cache(cache_path, cfg, results, entries)
 
         raw = json.loads(cache_path.read_text(encoding="utf-8"))
-        assert raw["headers_hash"] == _headers_hash(cfg)
+        assert raw["headers_hash"] == headers_hash(cfg)
         assert raw["headers_hash"] != ""
 
 
@@ -1187,9 +1187,9 @@ class TestEntryHeadersFp:
         header = cfg.reversed_dir / "types.h"
         header.write_text("typedef int BOOL;\n", encoding="utf-8")
 
-        fp1 = _entry_headers_fp(cfg, src, "")
+        fp1 = entry_headers_fp(cfg, src, "")
         header.write_text("typedef long BOOL;\n", encoding="utf-8")
-        fp2 = _entry_headers_fp(cfg, src, "")
+        fp2 = entry_headers_fp(cfg, src, "")
         assert fp1 != fp2
 
     def test_unreached_header_edit_keeps_fp(self, tmp_path: Path) -> None:
@@ -1200,9 +1200,9 @@ class TestEntryHeadersFp:
         header = cfg.reversed_dir / "types.h"
         header.write_text("typedef int BOOL;\n", encoding="utf-8")
 
-        fp1 = _entry_headers_fp(cfg, src, "")
+        fp1 = entry_headers_fp(cfg, src, "")
         header.write_text("typedef long BOOL;\n", encoding="utf-8")
-        fp2 = _entry_headers_fp(cfg, src, "")
+        fp2 = entry_headers_fp(cfg, src, "")
         assert fp1 == fp2
         assert fp1 != ""
 
@@ -1214,9 +1214,9 @@ class TestEntryHeadersFp:
         header = cfg.reversed_dir / "types.h"
         header.write_text("typedef int BOOL;\n", encoding="utf-8")
 
-        fp1 = _entry_headers_fp(cfg, src, "/FItypes.h")
+        fp1 = entry_headers_fp(cfg, src, "/FItypes.h")
         header.write_text("typedef long BOOL;\n", encoding="utf-8")
-        fp2 = _entry_headers_fp(cfg, src, "/FItypes.h")
+        fp2 = entry_headers_fp(cfg, src, "/FItypes.h")
         assert fp1 != fp2
 
     def test_save_persists_entry_headers_fp(self, tmp_path: Path) -> None:
@@ -1251,14 +1251,14 @@ class TestEntryHeadersFp:
                 symbol="",
             )
         ]
-        _save_verify_cache(cache_path, cfg, results, entries)
+        save_verify_cache(cache_path, cfg, results, entries)
 
         raw = json.loads(cache_path.read_text(encoding="utf-8"))
         saved = raw["entries"]["0x10001000"]["headers_fp"]
         from rebrew.compile_overrides import resolve_compile_overrides
 
         _tc, _cf = resolve_compile_overrides(cfg, cfg.reversed_dir, "", "", "")
-        assert saved == _entry_headers_fp(cfg, src, _cf)
+        assert saved == entry_headers_fp(cfg, src, _cf)
         assert saved != ""
 
 

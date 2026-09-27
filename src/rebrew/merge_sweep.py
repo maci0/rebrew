@@ -292,9 +292,9 @@ def _function_call_map(
     cfg: ProjectConfig | None,
 ) -> dict[int, set[int]]:
     """Caller VA to callee-VA set, restricted to functions in *registry*."""
-    from rebrew.cu_map import _scan_call_targets
+    from rebrew.cu_map import scan_call_targets
 
-    return _scan_call_targets(info, registry, cfg)
+    return scan_call_targets(info, registry, cfg)
 
 
 def _function_strings(info: Any) -> dict[int, set[int]]:
@@ -321,7 +321,7 @@ def _gap_classes(
 ) -> dict[tuple[int, int], str]:
     """Gap class for each consecutive VA pair, via cu_map's classifier."""
     from rebrew.binary_loader import extract_bytes_at_va
-    from rebrew.cu_map import _classify_gap
+    from rebrew.cu_map import classify_gap
 
     padding = tuple(cfg.padding_bytes) if cfg else (0xCC, 0x90)
     text_va = info.text_va
@@ -340,7 +340,7 @@ def _gap_classes(
         if gap_data is None:
             out[(prev_va, curr_va)] = "unknown"
         else:
-            out[(prev_va, curr_va)] = _classify_gap(gap_data, text_va, text_size, padding)
+            out[(prev_va, curr_va)] = classify_gap(gap_data, text_va, text_size, padding)
     return out
 
 
@@ -386,7 +386,7 @@ class _PartitionScorer:
     def _cluster_text(self, cluster: list[int]) -> str | None:
         """Merged TU text for *cluster*, or None when no source covers it."""
         from rebrew.annotation import split_annotation_sections
-        from rebrew.merge import _block_metadata, _merge_preambles
+        from rebrew.merge import block_metadata, merge_preambles
         from rebrew.utils import read_compile_source
 
         preambles: list[str] = []
@@ -417,7 +417,7 @@ class _PartitionScorer:
                 preamble, file_blocks = split_annotation_sections(text)
                 preambles.append(preamble)
                 for block in file_blocks:
-                    meta = _block_metadata(block)
+                    meta = block_metadata(block)
                     if meta is None:
                         continue
                     if marker and preset_module_key(str(meta["module"])) != preset_module_key(
@@ -431,7 +431,7 @@ class _PartitionScorer:
         picked = sorted({va: block for va, block in blocks if va in wanted}.items())
         if not picked:
             return None
-        return _merge_preambles(preambles) + "\n\n".join(b for _, b in picked) + "\n"
+        return merge_preambles(preambles) + "\n\n".join(b for _, b in picked) + "\n"
 
     def _real_source_dir(self, va: int) -> Path:
         """Directory holding *va*'s real source file (override resolution root)."""

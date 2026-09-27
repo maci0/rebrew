@@ -58,7 +58,7 @@ import typer
 from rebrew.cli import TargetOption, console, error_exit, json_print, require_config
 from rebrew.layout_meta import LayoutMetadata, extract_layout, write_package
 from rebrew.pe_headers import pe_layout
-from rebrew.pe_image import _Import, derive_link_options, parse_pe
+from rebrew.pe_image import PeImport, derive_link_options, parse_pe
 from rebrew.utils import atomic_write_text, container_runtime
 
 app = typer.Typer(
@@ -251,7 +251,7 @@ def _imp_suffix(name: str, lib_symbols: set[str], ordinal_map: dict[str, int]) -
     return None
 
 
-def _resolve_imports(imports: list[_Import], lib_symbols: set[str]) -> list[dict[str, Any]]:
+def _resolve_imports(imports: list[PeImport], lib_symbols: set[str]) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for imp in imports:
         name = imp.name

@@ -450,7 +450,7 @@ def _match_to_dict(match: CrtMatch) -> dict[str, Any]:
     }
 
 
-def _source_ref(entry: CrtSourceEntry) -> str:
+def source_ref(entry: CrtSourceEntry) -> str:
     if entry.is_asm or entry.line <= 0:
         return entry.file
     return f"{entry.file}:{entry.line}"
@@ -500,7 +500,7 @@ def _render_match_table(matches: list[CrtMatch]) -> None:
     table.add_column("Reason")
 
     for match in matches:
-        src = _source_ref(match.source)
+        src = source_ref(match.source)
         table.add_row(
             f"0x{match.va:08x}",
             match.binary_name,
@@ -649,14 +649,14 @@ def main(
                 from rebrew.metadata import get_entry
 
                 current = get_entry(cfg.metadata_dir, match.va, ann.module).get("source", "")
-                if current != _source_ref(match.source):
+                if current != source_ref(match.source):
                     updates += 1
                 continue
             if update_annotation_key(
                 source_path,
                 match.va,
                 "SOURCE",
-                _source_ref(match.source),
+                source_ref(match.source),
                 metadata_dir=cfg.metadata_dir,
             ):
                 updates += 1

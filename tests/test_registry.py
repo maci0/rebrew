@@ -94,10 +94,10 @@ _REGISTRY_SNAPSHOTS: tuple[tuple[str, str], ...] = (
     ("rebrew.registry", "_entry_points_snapshot"),
     ("rebrew.toolchain", "TOOLCHAINS"),
     ("rebrew.toolchain", "TOOLCHAIN_ORIGINS"),
-    ("rebrew.toolchain_detect", "_LINKER_ERA_PROFILES_ALL"),
+    ("rebrew.toolchain_detect", "LINKER_ERA_PROFILES_ALL"),
     ("rebrew.toolchain_detect", "_PLUGIN_DETECTORS"),
-    ("rebrew.toolchain_detect", "_PROFILE_COMPAT_ALL"),
-    ("rebrew.toolchain_detect", "_RICH_BUILD_PROFILES_ALL"),
+    ("rebrew.toolchain_detect", "PROFILE_COMPAT_ALL"),
+    ("rebrew.toolchain_detect", "RICH_BUILD_PROFILES_ALL"),
 )
 
 
@@ -877,7 +877,7 @@ class TestToolchainDetectorRegistry:
         compat = td._merged_profile_compat()
         assert "mytc" in compat["msvc"]
         assert compat["delphi"] == {"mytc"}  # un-matchable family opened
-        monkeypatch.setattr(td, "_PROFILE_COMPAT_ALL", compat)
+        monkeypatch.setattr(td, "PROFILE_COMPAT_ALL", compat)
         info = td.ToolchainInfo(
             family="msvc", arch="x86_32", msvc_version="6.0", suggested_profiles=None
         )
@@ -1015,12 +1015,12 @@ class TestSixteenBitAlignment:
         monkeypatch.setenv("REBREW_TOOLCHAIN_OVERLAY_DIR", str(overlay))
         monkeypatch.setattr(toolchain, "TOOLCHAINS", toolchain.build_toolchain_registry())
 
-        assert "mytc16" in td._bitness16_profiles()
-        assert "borland-3.1" in td._bitness16_profiles()  # packaged bits=16 intact
+        assert "mytc16" in td.bitness16_profiles()
+        assert "borland-3.1" in td.bitness16_profiles()  # packaged bits=16 intact
 
-        compat = dict(td._PROFILE_COMPAT_ALL)
+        compat = dict(td.PROFILE_COMPAT_ALL)
         compat.setdefault("acme-c", set()).add("mytc16")
-        monkeypatch.setattr(td, "_PROFILE_COMPAT_ALL", compat)
+        monkeypatch.setattr(td, "PROFILE_COMPAT_ALL", compat)
 
         info16 = td.ToolchainInfo(family="acme-c", arch="x86_16")
         aligned, _ = td.profile_matches_detection("mytc16", info16)
@@ -1097,10 +1097,10 @@ class TestMsvcVersionRegistry:
 
         self._patch(monkeypatch)
         rich, _ = td._merged_msvc_version_tables()
-        monkeypatch.setattr(td, "_RICH_BUILD_PROFILES_ALL", rich)
-        compat = dict(td._PROFILE_COMPAT_ALL)
+        monkeypatch.setattr(td, "RICH_BUILD_PROFILES_ALL", rich)
+        compat = dict(td.PROFILE_COMPAT_ALL)
         compat["msvc"] = set(compat["msvc"]) | {"mytc"}  # family alignment
-        monkeypatch.setattr(td, "_PROFILE_COMPAT_ALL", compat)
+        monkeypatch.setattr(td, "PROFILE_COMPAT_ALL", compat)
         info = td.ToolchainInfo(
             family="msvc", msvc_version="6.0", suggested_profiles=list(rich[8168])
         )
@@ -1678,12 +1678,12 @@ class TestSkillNameSanitization:
     """A skill's frontmatter name must never escape the skills directory."""
 
     def test_safe_name_helper(self) -> None:
-        from rebrew.skills import _safe_skill_name
+        from rebrew.skills import safe_skill_name
 
-        assert _safe_skill_name("../../evil") == "..-..-evil"
-        assert _safe_skill_name("/abs/path") == "abs-path"
-        assert _safe_skill_name("rebrew-workflow") == "rebrew-workflow"
-        assert _safe_skill_name("!!!") == ""
+        assert safe_skill_name("../../evil") == "..-..-evil"
+        assert safe_skill_name("/abs/path") == "abs-path"
+        assert safe_skill_name("rebrew-workflow") == "rebrew-workflow"
+        assert safe_skill_name("!!!") == ""
 
 
 class TestFlagDataSyncPreservation:

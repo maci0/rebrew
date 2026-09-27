@@ -16,10 +16,10 @@ from typing import Any
 
 from rebrew.config import ProjectConfig
 
-_DEFAULT_TOOLCHAIN = "(default)"
+DEFAULT_TOOLCHAIN = "(default)"
 
 #: Guard for :data:`_HEADERS_HASH_CACHE`.  Eviction is clear-then-store on a
-#: shared dict; concurrent ``_headers_hash`` callers (parallel saves / tests /
+#: shared dict; concurrent ``headers_hash`` callers (parallel saves / tests /
 #: a ThreadingHTTPServer next to verify) must not race the compound mutation.
 _HEADERS_HASH_CACHE_LOCK = threading.Lock()
 
@@ -72,11 +72,11 @@ def entry_fingerprint(cfg: ProjectConfig, entry: Any) -> EntryFingerprint | None
     )
     defines = ",".join(sorted(getattr(cfg, "defines", None) or [])) or "(none)"
     return EntryFingerprint(
-        toolchain=toolchain or _DEFAULT_TOOLCHAIN,
+        toolchain=toolchain or DEFAULT_TOOLCHAIN,
         cflags=cflags,
         defines=defines,
         size=getattr(entry, "size", 0) or 0,
-        headers_fp=_entry_headers_fp(cfg, filepath, cflags, source_bytes=source_bytes),
+        headers_fp=entry_headers_fp(cfg, filepath, cflags, source_bytes=source_bytes),
         source_hash=hashlib.sha256(source_bytes).hexdigest(),
         mtime_ns=st.st_mtime_ns,
     )
@@ -140,7 +140,7 @@ def _compare_logic_hash() -> str:
     return h.hexdigest()
 
 
-def _compiler_config_hash(cfg: ProjectConfig) -> str:
+def compiler_config_hash(cfg: ProjectConfig) -> str:
     # Do NOT inline target binary mtime/size here — compiler config is an
     # input to the cache predicate, not a per-call probe of the binary.  The
     # binary identity is guarded separately via VerifyCache.binary_id and
@@ -170,7 +170,7 @@ def _external_includes_hash(cfg: ProjectConfig) -> str:
     """Digest of headers in the config-level ``-I`` include dirs.
 
     These live OUTSIDE ``reversed_dir`` (e.g. ``-Ireferences/zlib-1.1.3``),
-    so the reversed-dir walk in :func:`_headers_hash` misses them — but an
+    so the reversed-dir walk in :func:`headers_hash` misses them — but an
     edit to such a header changes every translation unit that includes it,
     and cached verify entries are served without recompiling.  Reuses the
     compile cache's ``include_fingerprint`` (name+size+mtime stat walk,
@@ -194,7 +194,7 @@ def _external_includes_hash(cfg: ProjectConfig) -> str:
     return h.hexdigest()
 
 
-def _headers_hash(cfg: ProjectConfig) -> str:
+def headers_hash(cfg: ProjectConfig) -> str:
     """SHA256 of every header file reachable from the project's source tree.
 
     If a shared header changes, every translation unit that includes it must be
@@ -250,14 +250,14 @@ def _headers_hash(cfg: ProjectConfig) -> str:
 
 # Stat fingerprint of the header tree: (path, mtime_ns, size) per header,
 # plus the external-includes digest as the final element.
-# Key for the memoized _headers_hash — avoids re-reading every .h when the
+# Key for the memoized headers_hash — avoids re-reading every .h when the
 # tree is unchanged across the two calls per verify run.
 # Guarded by :data:`_HEADERS_HASH_CACHE_LOCK` (clear-then-store eviction).
 _HEADERS_HASH_CACHE: dict[tuple[tuple[str, int, int] | str, ...], str] = {}
 _HEADERS_HASH_CACHE_MAX = 8  # one entry per distinct header-tree state
 
 
-def _expected_text_functions(cfg: ProjectConfig) -> dict[str, int]:
+def expected_text_functions(cfg: ProjectConfig) -> dict[str, int]:
     """``{symbol: marker VA}`` for every annotated function.
 
     Shared by verify and ``text-audit`` so both classify the same binary.
@@ -283,7 +283,7 @@ def _headers_stat_fingerprint(src_dir: Path) -> tuple[tuple[str, int, int], ...]
 
     Not memoized: headers can change within a process lifetime (``verify
     --watch`` re-runs in-process; tests mutate headers between calls), and a
-    stale fingerprint would serve a stale ``_headers_hash``.
+    stale fingerprint would serve a stale ``headers_hash``.
     """
     entries: list[tuple[str, int, int]] = []
     for hfile in src_dir.rglob("*.h"):
@@ -310,7 +310,7 @@ def _source_bytes(path_str: str, _mtime_ns: int, _size: int, _ino: int) -> bytes
     return Path(path_str).read_bytes()
 
 
-def _source_hash(filepath: Path) -> str:
+def source_hash(filepath: Path) -> str:
     # Callers already catch OSError.  A failed stat almost always means
     # read_bytes would fail too — do not pretend a fallback hash exists.
     st = filepath.stat()
@@ -319,7 +319,7 @@ def _source_hash(filepath: Path) -> str:
     ).hexdigest()
 
 
-def _entry_headers_fp(
+def entry_headers_fp(
     cfg: ProjectConfig,
     filepath: Path,
     cflags_str: str,
@@ -344,8 +344,8 @@ def _entry_headers_fp(
 
     from rebrew.compile import extract_include_dirs, resolve_include_flags
     from rebrew.compile_cache import (
-        _FORCE_INCLUDE_PREFIXES,
-        _dir_fingerprint_hash,
+        FORCE_INCLUDE_PREFIXES,
+        dir_fingerprint_hash,
         header_dependency_hash,
     )
 
@@ -364,9 +364,9 @@ def _entry_headers_fp(
         except (OSError, ValueError):
             pass
 
-    force_include = any(f.startswith(_FORCE_INCLUDE_PREFIXES) for f in flags)
+    force_include = any(f.startswith(FORCE_INCLUDE_PREFIXES) for f in flags)
     if force_include:
-        return _dir_fingerprint_hash(str(source_dir), include_dirs)
+        return dir_fingerprint_hash(str(source_dir), include_dirs)
 
     try:
         if source_bytes is None:

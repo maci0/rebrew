@@ -88,7 +88,7 @@ def _files_matching(directory: Path | str, predicate: Callable[[Path], bool]) ->
 def _library_headers_under(directory: Path | str) -> list[Path]:
     """``library_*.h`` files under *directory*, skipping :data:`_EXCLUDE_DIRS`.
 
-    The exclusion set matches :func:`_files_with_ext` — without it the header
+    The exclusion set matches :func:`files_with_ext` — without it the header
     scan descended into ``build/``, ``.venv/``, and a copied dependency tree,
     counting their headers as the project's own library markers.
     """
@@ -151,7 +151,7 @@ def iter_library_headers(
     return files
 
 
-def _files_with_ext(directory: Path | str, wanted: set[str]) -> list[Path]:
+def files_with_ext(directory: Path | str, wanted: set[str]) -> list[Path]:
     """Sorted files under *directory* whose lower-cased suffix is in *wanted*.
 
     Shared by the target's own scan and the shared-sources scan so both halves
@@ -189,16 +189,17 @@ def iter_sources(
     dir_path, cfg = _resolve_dir_and_cfg(directory, cfg)
     exts = source_exts(cfg) or [".c"]
     wanted = {ext.lower() for ext in exts}
-    base = _files_with_ext(dir_path, wanted)
+    base = files_with_ext(dir_path, wanted)
 
     shared = _should_include_shared(dir_path, cfg)
     if shared is not None:
-        shared_files = _files_with_ext(shared, wanted)
+        shared_files = files_with_ext(shared, wanted)
         return sorted(set(base) | set(shared_files))
     return base
 
 
 __all__ = [
+    "files_with_ext",
     "iter_library_headers",
     "iter_sources",
     "source_exts",

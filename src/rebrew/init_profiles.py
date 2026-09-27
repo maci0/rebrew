@@ -725,16 +725,16 @@ def profile_families() -> dict[str, frozenset[str]]:
     Any ``TOOLCHAINS`` name missing from :data:`PROFILE_FAMILIES` (a plugin
     toolchain, or a future packaged profile) joins with the detection
     families its name is compatible with (inverted
-    ``_PROFILE_COMPAT_ALL``) plus its own spec family — an uncovered profile
+    ``PROFILE_COMPAT_ALL``) plus its own spec family — an uncovered profile
     otherwise skips the alignment warning entirely, silently onboarding the
     wrong compiler.
     """
     from rebrew.toolchain import TOOLCHAINS
-    from rebrew.toolchain_detect import _PROFILE_COMPAT_ALL
+    from rebrew.toolchain_detect import PROFILE_COMPAT_ALL
 
     merged = dict(PROFILE_FAMILIES)
     compat_of: dict[str, set[str]] = {}
-    for family, profiles in _PROFILE_COMPAT_ALL.items():
+    for family, profiles in PROFILE_COMPAT_ALL.items():
         if not profiles:
             continue
         for p in profiles:

@@ -60,7 +60,7 @@ from rebrew.coff_reloc import build_iat_region, build_name_to_va, smart_reloc_co
 from rebrew.compile import compile_to_obj
 from rebrew.config import ProjectConfig
 from rebrew.matcher.parsers import parse_obj_relocs_full, parse_obj_symbol_bytes
-from rebrew.prove_simprocs import _get_win32_simprocs
+from rebrew.prove_simprocs import get_win32_simprocs
 from rebrew.sources import (
     iter_sources,
     target_marker,
@@ -1018,7 +1018,7 @@ def prove_equivalence(
     # Hook all stub addresses on both blobs.  Prefer specific Win32
     # SimProcedures (constrained return values) over generic ReturnUnconstrained
     # to reduce path explosion from API calls.
-    win32_procs = _get_win32_simprocs()
+    win32_procs = get_win32_simprocs()
     for stub_addr in stub_hooks:
         api_name = iat_api_names.get(stub_addr, "")
         if api_name and api_name in win32_procs:

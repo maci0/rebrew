@@ -50,7 +50,7 @@ class _Section:
 
 
 @dataclass
-class _Import:
+class PeImport:
     dll: str
     name: str | None  # None = ordinal-only
     ordinal: int | None
@@ -58,7 +58,7 @@ class _Import:
 
 def parse_pe(
     data: bytes,
-) -> tuple[list[_Section], list[dict[str, Any]], list[_Import], dict[str, Any]]:
+) -> tuple[list[_Section], list[dict[str, Any]], list[PeImport], dict[str, Any]]:
     """Return (sections, exports, imports, pe_params) from a PE image."""
     if len(data) < 0x40:
         raise ValueError("file too small to be a PE")
@@ -169,7 +169,7 @@ def parse_pe(
 
     # ---- imports (IAT order, per DLL descriptor) ----
     imp_rva, imp_sz = struct.unpack_from("<II", data, opt + 104)
-    imports: list[_Import] = []
+    imports: list[PeImport] = []
     io = rva_to_off(imp_rva)
     if io is not None:
         for i in range(_MAX_IMPORT_SLOTS):
@@ -197,11 +197,11 @@ def parse_pe(
                 if nm == 0:
                     break
                 if nm & 0x80000000:
-                    imports.append(_Import(dll, None, nm & 0xFFFF))
+                    imports.append(PeImport(dll, None, nm & 0xFFFF))
                 else:
                     # hint/name: 2-byte hint + NUL-terminated name
                     no = rva_to_off(nm)
-                    imports.append(_Import(dll, cstr(no + 2 if no is not None else None), None))
+                    imports.append(PeImport(dll, cstr(no + 2 if no is not None else None), None))
 
     # ---- PE normalization params ----
     reloc_rva = struct.unpack_from("<I", data, opt + 96 + 5 * 8)[0]

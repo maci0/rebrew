@@ -560,7 +560,7 @@ class TestVerifyCli:
             return (previous, None) if previous is not None else (None, None)
 
         monkeypatch.setattr("rebrew.verify_cache.load_baseline", _prev)
-        monkeypatch.setattr("rebrew.verify._save_verify_cache", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.verify.save_verify_cache", lambda *a, **k: None)
         monkeypatch.setattr("rebrew.verify._apply_or_preview_status", lambda *a, **k: None)
 
     def test_json_report(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -713,7 +713,7 @@ class TestVerifyCli:
             "rebrew.verify_cache.load_baseline",
             lambda out_file, diff_mode, json_output: (None, None),
         )
-        monkeypatch.setattr("rebrew.verify._save_verify_cache", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.verify.save_verify_cache", lambda *a, **k: None)
         monkeypatch.setattr("rebrew.verify._apply_or_preview_status", lambda *a, **k: None)
 
         result = CliRunner().invoke(app, ["--json", "--nolib"])
@@ -770,7 +770,7 @@ class TestVerifyCli:
         ) -> None:
             captured["preserve_keys"] = preserve_keys
 
-        monkeypatch.setattr("rebrew.verify._save_verify_cache", _fake_save)
+        monkeypatch.setattr("rebrew.verify.save_verify_cache", _fake_save)
         monkeypatch.setattr("rebrew.verify._apply_or_preview_status", lambda *a, **k: None)
 
         result = CliRunner().invoke(app, ["--json", "--nolib"])
@@ -809,7 +809,7 @@ class TestVerifyCli:
             "rebrew.verify_cache.load_baseline",
             lambda out_file, diff_mode, json_output: (None, None),
         )
-        monkeypatch.setattr("rebrew.verify._save_verify_cache", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.verify.save_verify_cache", lambda *a, **k: None)
         monkeypatch.setattr("rebrew.verify._apply_or_preview_status", lambda *a, **k: None)
 
         result = CliRunner().invoke(app, ["--json", "--nolib"])
@@ -1156,7 +1156,7 @@ class TestLoadBaseline:
 
 class TestSaveVerifyCacheBranches:
     def test_entries_without_filepath_skipped(self, tmp_path: Path) -> None:
-        from rebrew.verify_cache import _save_verify_cache
+        from rebrew.verify_cache import save_verify_cache
 
         cfg = _cfg(tmp_path)
         results = [
@@ -1170,14 +1170,14 @@ class TestSaveVerifyCacheBranches:
         ]
         # Entry with empty filepath → no file info → result not cached.
         empty_fp = Annotation(va=0x1000, name="x", filepath="")
-        _save_verify_cache(tmp_path / ".rebrew" / "verify_cache.json", cfg, results, [empty_fp])
+        save_verify_cache(tmp_path / ".rebrew" / "verify_cache.json", cfg, results, [empty_fp])
         cache_path = tmp_path / ".rebrew" / "verify_cache.json"
         assert cache_path.exists()
         data = json.loads(cache_path.read_text(encoding="utf-8"))
         assert data["entries"] == {}
 
     def test_result_without_file_info_skipped(self, tmp_path: Path) -> None:
-        from rebrew.verify_cache import _save_verify_cache
+        from rebrew.verify_cache import save_verify_cache
 
         cfg = _cfg(tmp_path)
         (cfg.reversed_dir / "f.c").write_text("int x;\n", encoding="utf-8")
@@ -1190,12 +1190,12 @@ class TestSaveVerifyCacheBranches:
                 "delta": 0,
             }
         ]
-        _save_verify_cache(tmp_path / ".rebrew" / "verify_cache.json", cfg, results, [_ann(0x1000)])
+        save_verify_cache(tmp_path / ".rebrew" / "verify_cache.json", cfg, results, [_ann(0x1000)])
         data = json.loads((tmp_path / ".rebrew" / "verify_cache.json").read_text(encoding="utf-8"))
         assert data["entries"] == {}
 
     def test_roundtrip_cache_entry(self, tmp_path: Path) -> None:
-        from rebrew.verify_cache import _save_verify_cache
+        from rebrew.verify_cache import save_verify_cache
 
         cfg = _cfg(tmp_path)
         f = cfg.reversed_dir / "f.c"
@@ -1210,7 +1210,7 @@ class TestSaveVerifyCacheBranches:
                 "match_percent": 100.0,
             }
         ]
-        _save_verify_cache(tmp_path / ".rebrew" / "verify_cache.json", cfg, results, [_ann(0x1000)])
+        save_verify_cache(tmp_path / ".rebrew" / "verify_cache.json", cfg, results, [_ann(0x1000)])
         data = json.loads((tmp_path / ".rebrew" / "verify_cache.json").read_text(encoding="utf-8"))
         entry = data["entries"]["0x00001000"]
         assert entry["status"] == "EXACT"
@@ -1359,7 +1359,7 @@ class TestVerifyWatch:
         )
         monkeypatch.setattr("rebrew.verify.run_verification", lambda *a, **k: (0, 0, [], [], []))
         monkeypatch.setattr("rebrew.verify_cache.load_baseline", lambda _cfg: (None, None))
-        monkeypatch.setattr("rebrew.verify._save_verify_cache", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.verify.save_verify_cache", lambda *a, **k: None)
         monkeypatch.setattr("rebrew.verify._apply_or_preview_status", lambda *a, **k: None)
         monkeypatch.setattr("rebrew.verify._print_results", lambda *a, **k: None)
         result = CliRunner().invoke(app, ["--watch"])
@@ -1410,7 +1410,7 @@ class TestProvenIsNotAPass:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, byte_status: str
     ) -> None:
         from rebrew.metadata import get_entry
-        from rebrew.verify_cache import _load_verify_cache
+        from rebrew.verify_cache import load_verify_cache
 
         result, cfg = self._run(tmp_path, monkeypatch, byte_status, ["--json"])
         assert result.exit_code == 1
@@ -1425,7 +1425,7 @@ class TestProvenIsNotAPass:
         entry = get_entry(tmp_path, 0x1000, "SERVER")
         assert entry.get("status") == byte_status
         assert entry.get("blocker") == "reg alloc"
-        loaded = _load_verify_cache(cfg.root / ".rebrew" / "verify_cache.json", cfg)
+        loaded = load_verify_cache(cfg.root / ".rebrew" / "verify_cache.json", cfg)
         assert loaded is not None
         assert loaded.entries["0x00001000"].status == byte_status
 
@@ -1824,7 +1824,7 @@ class TestCompareBaseline:
             "summary": {"total": 1, "passed": 1, "failed": 0},
         }
         monkeypatch.setattr("rebrew.verify_cache.load_baseline", lambda _cfg: (previous, None))
-        # NOTE: _save_verify_cache is intentionally NOT mocked — a failed
+        # NOTE: save_verify_cache is intentionally NOT mocked — a failed
         # gate run must not write the compile cache either (F9: a CI failure
         # records no new state).
         monkeypatch.setattr("rebrew.verify._apply_or_preview_status", lambda *a, **k: None)
@@ -1872,7 +1872,7 @@ class TestCompareBaseline:
             "summary": {"total": 0, "passed": 0, "failed": 0},
         }
         monkeypatch.setattr("rebrew.verify_cache.load_baseline", lambda _cfg: (previous, None))
-        monkeypatch.setattr("rebrew.verify._save_verify_cache", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.verify.save_verify_cache", lambda *a, **k: None)
         monkeypatch.setattr("rebrew.verify._apply_or_preview_status", lambda *a, **k: None)
         monkeypatch.setattr("rebrew.verify._print_results", lambda *a, **k: None)
 
@@ -1951,7 +1951,7 @@ class TestFixSizes:
             return real_apply(cfg_arg, divergences, dry_run)
 
         monkeypatch.setattr(verify_mod, "_apply_size_fixes", _capture)
-        monkeypatch.setattr(verify_mod, "_save_verify_cache", lambda *a, **k: None)
+        monkeypatch.setattr(verify_mod, "save_verify_cache", lambda *a, **k: None)
         monkeypatch.setattr("rebrew.verify_cache.save_baseline", lambda *a, **k: None)
 
         batch = BatchResult(

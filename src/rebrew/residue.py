@@ -121,7 +121,7 @@ def residue_report(
 
 def _nonmatching_from_cache(cfg: Any, image_base: int, text_rva: int) -> list[tuple[int, int, str]]:
     """(text-relative offset, size, name) for every non-byte-matched function."""
-    from rebrew.verify_cache import CACHE_VERSION, _binary_id, load_verify_cache_raw
+    from rebrew.verify_cache import CACHE_VERSION, binary_id, load_verify_cache_raw
 
     raw = load_verify_cache_raw(cfg)
     if not isinstance(raw, dict) or raw.get("version") != CACHE_VERSION:
@@ -129,7 +129,7 @@ def _nonmatching_from_cache(cfg: Any, image_base: int, text_rva: int) -> list[tu
     if raw.get("target") != getattr(cfg, "target_name", ""):
         return []
     raw_bin = raw.get("binary_id")
-    if raw_bin and raw_bin != _binary_id(cfg):
+    if raw_bin and raw_bin != binary_id(cfg):
         return []
 
     entries = raw.get("entries") or raw.get("functions")
@@ -181,8 +181,8 @@ def main(
         FIXER_ORDER,
         FIXERS,
         MIN_LAYOUT_MAP_COVERAGE,
-        _binary_info_from_bytes,
-        _map_coverage,
+        binary_info_from_bytes,
+        map_coverage,
     )
 
     layout_dir = Path(cfg.root) / "layout" / cfg.target_name
@@ -201,7 +201,7 @@ def main(
         )
     info_b = load_binary(built_path)
     try:
-        cover = _map_coverage(bytes(info_b.data), meta, info_b) if meta else (1, 1, 1, 1)
+        cover = map_coverage(bytes(info_b.data), meta, info_b) if meta else (1, 1, 1, 1)
     except KeyError as exc:
         console.print(f"WARNING: layout-map coverage unavailable (missing section {exc})")
     else:
@@ -217,7 +217,7 @@ def main(
         for name in FIXER_ORDER:
             before = bytes(patched)
             with contextlib.suppress(ValueError):
-                info_b = _binary_info_from_bytes(bytes(patched), built_path)
+                info_b = binary_info_from_bytes(bytes(patched), built_path)
             report = FIXERS[name](patched, meta, info_b)
             console.print(f"{name:11s} changed={before != bytes(patched)} {report.stats}")
 

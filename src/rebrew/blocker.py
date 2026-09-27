@@ -47,7 +47,7 @@ app = typer.Typer(
 )
 
 
-def _resolve_function(
+def resolve_function(
     cfg: Any,
     function: str,
     va_override: str | None,
@@ -179,7 +179,7 @@ def blocker_set(
         # would render as "−5B diff — try flag sweep".
         if delta_int < 0:
             error_exit(f"Invalid --delta value: {delta!r} (must be >= 0)", json_mode=json_output)
-    module, va_int = _resolve_function(cfg, function, va, json_output)
+    module, va_int = resolve_function(cfg, function, va, json_output)
 
     payload: dict[str, Any] = {
         "module": module,
@@ -232,7 +232,7 @@ def blocker_clear(
 ) -> None:
     """Clear BLOCKER and BLOCKER_DELTA for a function."""
     cfg = require_config(target=target_name, json_mode=json_output)
-    module, va_int = _resolve_function(cfg, function, va, json_output)
+    module, va_int = resolve_function(cfg, function, va, json_output)
 
     if dry_run:
         payload: dict[str, Any] = {
@@ -276,7 +276,7 @@ def blocker_show(
 ) -> None:
     """Show BLOCKER metadata for a function."""
     cfg = require_config(target=target_name, json_mode=json_output)
-    module, va_int = _resolve_function(cfg, function, va, json_output)
+    module, va_int = resolve_function(cfg, function, va, json_output)
 
     from rebrew.metadata import get_entry
 

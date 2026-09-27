@@ -113,7 +113,7 @@ def _pe(raw: bytes) -> lief.PE.Binary:
     return binary
 
 
-def _binary_info_from_bytes(raw: bytes, path: Path) -> BinaryInfo:
+def binary_info_from_bytes(raw: bytes, path: Path) -> BinaryInfo:
     """A :class:`BinaryInfo` parsed from already-patched bytes.
 
     ``load_binary`` reads geometry from the on-disk file, which lags the
@@ -681,7 +681,7 @@ FIXER_ORDER: tuple[str, ...] = ("imports", "data", "pe-metadata")
 MIN_LAYOUT_MAP_COVERAGE = 0.9
 
 
-def _map_coverage(
+def map_coverage(
     built: bytes, meta: LayoutMetadata, info_b: BinaryInfo
 ) -> tuple[int, int, int, int]:
     """Return ``(operands_ok, operands_total, calls_ok, calls_total)``.
@@ -742,7 +742,7 @@ def check_text_alignment(built: bytes, meta: LayoutMetadata, info_b: BinaryInfo)
     that looks converged (section table, imports, header fields all copied from
     the reference) while most of its code sits at the wrong offsets.
     """
-    op_ok, op_total, call_ok, call_total = _map_coverage(built, meta, info_b)
+    op_ok, op_total, call_ok, call_total = map_coverage(built, meta, info_b)
     total = op_total + call_total
     if total == 0:
         return
@@ -809,7 +809,7 @@ def run_fixers(
         # fixer sees the current layout; fall back to the stale view only
         # when the intermediate bytes are momentarily unparsable.
         with contextlib.suppress(ValueError):
-            info_b = _binary_info_from_bytes(bytes(built), built_path)
+            info_b = binary_info_from_bytes(bytes(built), built_path)
         report = FIXERS[name](built, meta, info_b)
         report.changed = before != bytes(built)  # byte-diff is authoritative
         reports.append(report)

@@ -804,7 +804,7 @@ class TestOptLevel:
             o1_wrapper_sites=[4, 5, 6, 7],
         )
         monkeypatch.setattr(td, "detect_toolchain", lambda *a, **k: info)
-        monkeypatch.setattr("rebrew.toolchain_cli._external_ranges", lambda cfg: [], raising=False)
+        monkeypatch.setattr("rebrew.toolchain_cli.external_ranges", lambda cfg: [], raising=False)
         monkeypatch.setattr(doctor_mod, "_library_site_counts", lambda cfg, found: (1, 4))
         cfg = self._cfg(tmp_path, cflags="/O2 /Gd")
         res = self.check(cfg)
