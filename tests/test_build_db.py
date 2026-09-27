@@ -1640,6 +1640,89 @@ class TestBuildDbTargetFiltering:
 
         assert targets == ["alpha", "beta"]
 
+    def test_scoped_rebuild_records_history_for_that_target(self, tmp_path: Path) -> None:
+        """A scoped --target rebuild snapshots only its own target's statuses
+        (the whole-table read it replaced pulled every sibling target's rows in
+        for a diff that only ever looks up this target)."""
+        db_dir = tmp_path / "db"
+        db_dir.mkdir()
+        for name in ("alpha", "beta"):
+            data = {
+                "sections": {},
+                "globals": {},
+                "summary": {},
+                "functions": {
+                    f"func_{name}": {
+                        "name": f"func_{name}",
+                        "vaStart": "0x10001000",
+                        "size": 64,
+                        "status": "EXACT",
+                    }
+                },
+                "paths": {},
+            }
+            (db_dir / f"data_{name}.json").write_text(json.dumps(data), encoding="utf-8")
+        build_db(tmp_path)
+
+        for name in ("alpha", "beta"):
+            path = db_dir / f"data_{name}.json"
+            data = json.loads(path.read_text(encoding="utf-8"))
+            data["functions"][f"func_{name}"]["status"] = "RELOC"
+            path.write_text(json.dumps(data), encoding="utf-8")
+
+        build_db(tmp_path, target="alpha")
+
+        conn = sqlite3.connect(db_dir / "coverage.db")
+        rows = conn.execute(
+            "SELECT target, old_status, new_status FROM history ORDER BY id"
+        ).fetchall()
+        conn.close()
+        assert ("alpha", "EXACT", "RELOC") in rows
+        # The sibling target was not rebuilt, so it has no change to record.
+        assert not any(row[0] == "beta" for row in rows)
+
+    def test_duplicate_regen_target_built_once(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A target repeated in all_targets is built once: the second pass
+        aborted the whole rebuild on the (target, key) / (target, name)
+        primary keys."""
+        from copy import deepcopy
+        from types import SimpleNamespace
+
+        db_dir = tmp_path / "db"
+        db_dir.mkdir()
+        (db_dir / "data_alpha.json").write_text(json.dumps(SAMPLE_DATA), encoding="utf-8")
+
+        monkeypatch.setattr(
+            "rebrew.build_db.load_config",
+            lambda *args, **kwargs: SimpleNamespace(
+                all_targets=["alpha", "beta", "alpha"], target_name="alpha"
+            ),
+        )
+        monkeypatch.setattr(
+            "rebrew.catalog.pipeline.build_catalog_data",
+            lambda cfg: {"data": deepcopy(SAMPLE_DATA)},
+        )
+
+        build_db(tmp_path, regen=True, json_output=True)
+
+        conn = sqlite3.connect(db_dir / "coverage.db")
+        rows = conn.execute("SELECT target, COUNT(*) FROM functions GROUP BY target").fetchall()
+        meta = conn.execute("SELECT key, COUNT(*) FROM metadata GROUP BY key").fetchall()
+        conn.close()
+        assert rows == [
+            ("alpha", len(SAMPLE_DATA["functions"])),
+            ("beta", len(SAMPLE_DATA["functions"])),
+        ]
+        # One row per target, plus the reserved __schema__ stamp for db_version.
+        assert dict(meta) == {
+            "function_stats": 2,
+            "summary": 2,
+            "paths": 2,
+            "db_version": 3,
+        }
+
     def test_nonexistent_target_raises(self, tmp_path: Path) -> None:
         """Filtering by a non-existent target should raise Exit (no JSON found)."""
         from typer import Exit as TyperExit
