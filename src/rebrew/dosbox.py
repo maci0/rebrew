@@ -133,6 +133,14 @@ def make_sandbox_dir(prefix: str) -> Path:
         sandbox = writable_temp_dir(prefix)
     except OSError as exc:
         raise DosboxError(str(exc)) from exc
+    # The path is spliced into the DOSBox conf as ``mount c "<sandbox>"``, and
+    # the conf is a line-oriented command file: a quote or newline in the base
+    # directory (it comes from TMPDIR / XDG_CACHE_HOME) would end the mount
+    # argument and add conf commands.  Refuse rather than sanitize, matching
+    # the project-dir refusal in decompiler.py.
+    if any(ch in str(sandbox) for ch in '"\r\n'):
+        shutil.rmtree(sandbox, ignore_errors=True)
+        raise DosboxError(f"temp base directory {str(sandbox)!r} has unsafe characters for a DOSBox conf")
     with _SANDBOX_LOCK:
         # Re-check: another worker may have published the same key while
         # we created a dir — keep theirs and drop the orphan.

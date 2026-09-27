@@ -1068,6 +1068,27 @@ _MODEL_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$")
 _UNPINNED_MODELS = frozenset({"latest", "auto", "default"})
 
 
+def validate_target_name(name: str, label: str = "target name") -> str:
+    """Return *name* when it is usable as a single directory/file name.
+
+    A target name becomes a path component (``src/<target>``, ``bin/<target>``,
+    ``db/data_<target>.json``, ``layout/<target>/``) and a TOML table key, so a
+    name carrying a separator, a ``..`` segment, or a control character would
+    place files outside the project on the next command.  Real targets are
+    module stems (``SERVER.DLL``, ``client_exe``), so anything else is a typo
+    and fails loud here instead of escaping a directory later.
+    """
+    if not name or not name.strip():
+        raise ConfigError(f"{label} must not be empty")
+    if name != name.strip() or name in (".", ".."):
+        raise ConfigError(f"{label} {name!r} is not a plain file name")
+    if "/" in name or "\\" in name or "\x00" in name:
+        raise ConfigError(f"{label} {name!r} must not contain a path separator")
+    if any(ord(ch) < 0x20 for ch in name):
+        raise ConfigError(f"{label} {name!r} must not contain control characters")
+    return name
+
+
 def is_key_safe_endpoint(endpoint: str) -> bool:
     """True when a bearer key may be sent to *endpoint*: https, or http to loopback."""
     parsed = urlparse(endpoint)
@@ -1615,6 +1636,8 @@ def load_config(
     all_target_names = [k for k in targets_dict if isinstance(k, str)]
     if not all_target_names:
         raise ConfigKeyError("rebrew-project.toml [targets] section has no valid target names")
+    for tgt_key in all_target_names:
+        validate_target_name(tgt_key, f"rebrew-project.toml [targets] key {tgt_key!r}")
 
     global_compiler = global_compiler_raw
 

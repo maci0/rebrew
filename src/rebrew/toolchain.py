@@ -292,6 +292,20 @@ def _assemble_toolchain_registry() -> tuple[dict[str, ToolchainSpec], dict[str, 
     _merge_entry_point_toolchains(registry, origins)
     _merge_toolchain_overlay(registry, origins)
     _fill_image_entrypoints(registry)
+    for name in registry:
+        # A name becomes path components downstream: the wine prefix under
+        # XDG_CACHE_HOME, the generated `toolchain-<name>-docker.cmake`, and
+        # (with the family derived from it) the docker build context inside
+        # the toolchains repo.  A separator or a dot segment from a plugin or
+        # an overlay file would place those outside the tree.
+        if not name or "/" in name or "\\" in name or "\x00" in name or name.startswith("."):
+            raise RegistryError(
+                f"bad toolchain {name!r} from {origins.get(name, 'packaged')}: "
+                "a toolchain name must be a plain file name",
+                group="toolchains",
+                name=name,
+                origin=origins.get(name, "packaged"),
+            )
     return registry, origins
 
 

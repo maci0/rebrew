@@ -37,6 +37,7 @@ from typer.testing import CliRunner
 
 from rebrew.annotation import iter_annotations
 from rebrew.cli import EXIT_OK, console, error_exit, json_print
+from rebrew.config import ConfigError, validate_target_name
 from rebrew.skeleton import C89_STRICT_PROFILES
 from rebrew.sources import iter_sources
 from rebrew.utils import SOURCE_CHECKOUT, atomic_write_text
@@ -402,6 +403,11 @@ def main(
         error_exit(msg, json_mode=json_output)
 
     target_name = target or bin_path.stem
+    # The name becomes src/<target>/ and a [targets.<name>] key.
+    try:
+        validate_target_name(target_name)
+    except ConfigError as exc:
+        error_exit(str(exc), json_mode=json_output)
     marker = re.sub(r"[^A-Za-z0-9_]", "", target_name).upper()
 
     if toolchain is None:

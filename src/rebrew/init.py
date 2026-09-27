@@ -21,6 +21,7 @@ import typer
 from rich.prompt import Confirm, Prompt
 
 from rebrew.cli import EXIT_MISMATCH, EXIT_OK, error_exit, json_print, option_default
+from rebrew.config import ConfigError, validate_target_name
 from rebrew.init_profiles import (
     DEFAULT_REBREW_TOML,
     DELPHI16_CONSTRAINTS,
@@ -1030,6 +1031,13 @@ def main(
             ctx, cwd, target_name, binary_name, compiler_profile, install_completions
         )
         wizard_ran = True
+
+    # The target name becomes src/<target>/, bin/<target>/ and a [targets.<name>]
+    # key, so a separator or a dot segment would scaffold outside the project.
+    try:
+        validate_target_name(target_name)
+    except ConfigError as exc:
+        error_exit(str(exc), json_mode=json_output)
 
     # --guess-compiler: auto-select the profile from the target binary
     # (must already be in place under original/).  Runs before the profile

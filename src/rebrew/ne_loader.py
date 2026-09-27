@@ -111,7 +111,10 @@ def probe_is_code(data: bytes, file_offset: int, length: int, index: int = 0) ->
     content = file_offset
     if index and has_borland_marker(data, file_offset, index):
         content = file_offset + 2  # Borland [index\x00] marker
-    window = data[content : content + min(length - (content - file_offset), 512)]
+    # ``length`` is the raw u16 from the segment table and a Borland marker
+    # already advanced ``content`` by 2, so the window can come out negative
+    # and read before the start.  Clamp at zero: an empty window is a miss.
+    window = data[content : content + max(min(length - (content - file_offset), 512), 0)]
     if len(window) < 4:
         return False
 

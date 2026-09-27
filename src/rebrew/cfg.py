@@ -36,7 +36,9 @@ from rebrew.cli import EXIT_ERROR, TargetOption, console, error_exit, json_print
 from rebrew.config import (
     _KNOWN_PROJECT_KEYS,
     _KNOWN_TARGET_KEYS,
+    ConfigError,
     validate_http_url,
+    validate_target_name,
 )
 from rebrew.config import find_root as _config_find_root
 from rebrew.utils import atomic_write_text, parse_int_literal, preset_module_key
@@ -525,6 +527,12 @@ def add_target(
     """
     root = _find_root(json_mode=json_output)
     doc, toml_path = load_toml(root, json_mode=json_output)
+
+    # The name becomes src/<name>/ and bin/<name>/ and a durable TOML key.
+    try:
+        validate_target_name(name)
+    except ConfigError as exc:
+        error_exit(str(exc), json_mode=json_output)
 
     # Ensure [targets] exists
     targets = doc.get("targets")

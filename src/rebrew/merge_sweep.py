@@ -399,6 +399,13 @@ class _PartitionScorer:
                 continue
             path = Path(ann.filepath)
             if not path.is_absolute():
+                # The stored path is a display form: shared sources sit
+                # outside the reversed dir, so it can be ``../``-prefixed.
+                # Re-root one that escapes the whole project and there is
+                # nothing legitimate left to read.
+                root = Path(self._cfg.root).resolve()
+                if not (root / self._cfg.reversed_dir / path).resolve().is_relative_to(root):
+                    continue
                 path = self._cfg.reversed_dir / path
             key = str(path)
             if key not in seen_files:
