@@ -11,6 +11,7 @@ Endpoints
 ``GET /app.js``                → deferred dashboard client (preloaded + ``defer``)
 ``GET /boot-guard.js``        → deferred guard that reports a client that never booted
 ``GET /api/bootstrap``         → targets + first target's summary/functions (one RTT)
+``GET /api/health``            → liveness probe (no database read)
 ``GET /api/targets``           → list of targets (includes count/total)
 ``GET /api/summary?target=``   → function stats + coverage % (target required)
 ``GET /api/functions?target=`` → function rows as arrays under ``cols`` (filters: status, module, q, limit, offset)

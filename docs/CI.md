@@ -172,8 +172,8 @@ rebrew round-trip --strict-catalog --json
 
 ### JSON contracts
 
-Reports include `schema_version: 2` (plus a `provenance` field) for:
+Reports carry a `schema_version` for:
 
-- `rebrew verify --json`
-- `rebrew round-trip --json`
-- `rebrew prove --json` / `rebrew prove --all --json`
+- `rebrew verify --json` → `2`, plus a `provenance` field
+- `rebrew round-trip --json` → `1`
+- `rebrew prove --json` / `rebrew prove --all --json` → `1`

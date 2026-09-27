@@ -67,9 +67,12 @@ Merge semantics
 annotation it returns (``apply_metadata_entry``, one TOML load per file
 rather than per function).  ``merge_into_annotation(ann, directory)`` is the
 single-annotation form, for a caller that already holds one ``Annotation``
-and knows its ``cfg.metadata_dir``.  Metadata always wins for the fields it
-owns.  The legacy ``analysis`` field is mapped to ``note`` when the
-annotation has no explicit note.
+and knows its ``cfg.metadata_dir``.  Metadata wins for the fields it owns,
+except where a stored value is malformed: an unparsable ``size``,
+``blocker_delta``, ``globals``, ``locals``, ``comments``, or
+``prove_constraints`` is dropped and the annotation's own value survives.
+The legacy ``analysis`` field is mapped to ``note`` when the annotation has
+no explicit note.
 
 Atomicity
 ---------
@@ -78,10 +81,12 @@ Writes use ``tomlkit`` for round-trip-safe serialisation and
 
 Thread safety
 -------------
-Writes to the metadata file are serialised by a module-level lock because
-``rebrew verify --jobs > 1`` and the GA batch promote STATUS from worker
-threads.  Each write is atomic (rename), but read-modify-write cycles from
-different threads would otherwise race.
+Writes to the metadata file are serialised by ``metadata_write_lock`` in
+:mod:`rebrew.utils` (a per-filename re-entrant lock plus a ``flock`` sidecar,
+so a second *process* — ``rebrew verify --watch`` against ``rebrew test`` —
+waits too) because ``rebrew verify --jobs > 1`` and the GA batch promote
+STATUS from worker threads.  Each write is atomic (rename), but
+read-modify-write cycles from different writers would otherwise race.
 """
 
 from __future__ import annotations
@@ -1003,7 +1008,9 @@ def update_statuses_batch(metadata_dir: Path | str | Any, updates: list[dict[str
 
     *updates*: list of dicts with keys ``module``, ``va``, ``new_status``
     and optional ``clear_blockers`` (default True), ``force`` (default
-    False).  Returns the number of statuses actually changed.
+    False), ``updated_by`` (provenance tag; when set, also records
+    ``updated_at``).  Returns the number of entries written, which counts a
+    same-status write that only stripped a stale blocker.
 
     Each changed status passes through :func:`should_promote_status` —
     the single canonical promotion policy (SKIP never silently unparked, a
@@ -1200,9 +1207,8 @@ def apply_metadata_entry(ann: Annotation, entry: dict[str, Any]) -> None:
 # ---------------------------------------------------------------------------
 #
 # The typed entry layer is ``metadata_model.MetadataEntry`` (used by
-# annotation.py); the earlier ``FunctionMetadata``/``load_entry``/``save_entry``/
-# ``field_kind`` facade was deleted — it had drifted from the live model
-# (case-sensitive vs upper() status checks) and only its tests referenced it.
+# annotation.py); it is the only entry model, so status checks go through it
+# rather than through a second facade here.
 # ``KNOWN_STATUSES`` / ``MATCHED_STATUSES`` are owned by
 # :mod:`rebrew.workspace.status` (stdlib-light vocabulary).  Import the
 # vocabulary from there (or ``rebrew.workspace``); this module re-exports

@@ -512,6 +512,27 @@ class TestFindDispatchTables:
         assert len(tables) == 1
         assert [e.target_va for e in tables[0].entries] == ptrs
 
+    def test_64_bit_target_pointers_stride_at_eight(self) -> None:
+        """A 64-bit table read at 4-byte slots would see half its entries off-pointer."""
+        ptrs = self._ptrs_in_text(3)
+        binary, sections = _make_dispatch_binary(
+            self._TEXT_VA, self._TEXT_SIZE, self._DATA_VA, ptrs, ptr_fmt="<Q"
+        )
+        info = SimpleNamespace(format="pe", arch="x86_64", endian="little", pointer_size=8)
+        tables = find_dispatch_tables(binary, sections, {}, info=info)
+        assert len(tables) == 1
+        assert [e.target_va for e in tables[0].entries] == ptrs
+
+    def test_explicit_ptr_size_overrides_the_target(self) -> None:
+        ptrs = self._ptrs_in_text(3)
+        binary, sections = _make_dispatch_binary(
+            self._TEXT_VA, self._TEXT_SIZE, self._DATA_VA, ptrs, ptr_fmt=">I"
+        )
+        info = SimpleNamespace(format="elf", arch="powerpc64", endian="big", pointer_size=8)
+        tables = find_dispatch_tables(binary, sections, {}, ptr_size=4, info=info)
+        assert len(tables) == 1
+        assert [e.target_va for e in tables[0].entries] == ptrs
+
     def test_default_rejects_table_of_two(self) -> None:
         """A run of 2 entries is below the default min_entries=3 threshold."""
         ptrs = self._ptrs_in_text(2)

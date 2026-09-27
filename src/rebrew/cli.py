@@ -221,10 +221,11 @@ def error_exit(msg: str, *, json_mode: bool = False, code: int = EXIT_ERROR) -> 
     callers can distinguish mismatch (1) from infrastructure errors (2) without
     relying solely on the process exit status.
 
-    *msg* is rendered literally (Rich markup escaped, terminal control
-    characters other than tab/newline shown as ``\\xNN``): error text often
-    embeds file contents, paths, and remote responses that must not be
-    interpreted as markup or escape sequences.
+    On the Rich branch *msg* is rendered literally (markup escaped, terminal
+    control characters other than tab/newline shown as ``\\xNN``): error text
+    often embeds file contents, paths, and remote responses that must not be
+    interpreted as markup or escape sequences.  The JSON branch carries *msg*
+    verbatim, because the value is JSON-escaped and a consumer parses it.
     """
     if json_mode or _json_requested():
         print(json.dumps({"error": msg, "code": code}, indent=2))

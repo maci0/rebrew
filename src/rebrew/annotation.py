@@ -693,15 +693,15 @@ def _module_for_va_in_text(text: str, va: int) -> str:
 def update_size_annotation(
     filepath: Path, new_size: int, target_va: int | None = None, metadata_dir: Path | None = None
 ) -> bool:
-    """Update the SIZE for a function — always writes to the metadata.
+    """Update the SIZE for a function — only when it grows.
 
-    Writes *new_size* to the ``rebrew-functions.toml`` metadata at *metadata_dir*
-    (only increasing, never shrinking).
+    Writes *new_size* to the ``rebrew-functions.toml`` metadata at *metadata_dir*,
+    and only when it is larger than the recorded SIZE (never shrinking).  Returns
+    ``True`` when the metadata was written, ``False`` for a missing module, a
+    failed write, or a *new_size* that does not grow.
 
     *target_va* is required for multi-function files; for single-function files
     it can be omitted and will be inferred from the marker line.
-
-    Returns True if any change was made, False otherwise.
 
     Args:
         filepath: Path to the .c source file.
@@ -1487,7 +1487,9 @@ def span_contains_factory(spans: list[tuple[int, int]]) -> Callable[[int], bool]
     bare start-VA membership check is not enough — anything strictly inside
     an already-annotated function must be recognized as covered, including
     the tail of an outer span past a shorter annotation nested inside it.
-    The returned predicate is O(log n) per probe; *spans* must be sortable.
+    The returned predicate is O(log n) per probe.  Empty and inverted spans
+    (``end <= start``) are dropped, and the rest are sorted internally, so
+    *spans* may arrive in any order.
     """
     ordered = sorted((start, end) for start, end in spans if end > start)
     starts = [start for start, _end in ordered]
