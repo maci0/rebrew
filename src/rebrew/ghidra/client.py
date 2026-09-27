@@ -18,7 +18,7 @@ from rich.console import Console
 
 from rebrew.errors import RebrewError
 from rebrew.ghidra.models import JsonRpcResponse, McpToolResult
-from rebrew.utils import close_response
+from rebrew.utils import RETRYABLE_HTTP_STATUS, close_response
 
 # Local console: rebrew.ghidra must stay importable without rebrew.cli
 # (library layering test).
@@ -133,9 +133,6 @@ class McpHttpClient(Protocol):
         timeout: float | None = None,
     ) -> McpResponse: ...
 
-
-#: Transient HTTP statuses that are safe to retry after a backoff.
-_RETRYABLE_HTTP = frozenset({408, 425, 429, 500, 502, 503, 504})
 
 MCP_HEADERS = {
     "Content-Type": "application/json",
@@ -411,7 +408,7 @@ def init_mcp_session(client: McpHttpClient, endpoint: str) -> str:
             f"Failed to initialize MCP session: HTTP {code}",
             kind="http",
             status_code=code,
-            retryable=code in _RETRYABLE_HTTP if code is not None else False,
+            retryable=code in RETRYABLE_HTTP_STATUS if code is not None else False,
         ) from exc
     finally:
         close_response(resp)
@@ -753,7 +750,7 @@ def apply_commands_via_mcp(
                 f"Failed to initialize MCP session: HTTP {code}",
                 kind="http",
                 status_code=code,
-                retryable=code in _RETRYABLE_HTTP,
+                retryable=code in RETRYABLE_HTTP_STATUS,
             ) from exc
         except httpx.HTTPError as exc:
             raise McpError(

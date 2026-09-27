@@ -268,6 +268,48 @@ def _collect_with_dedup(
     return results
 
 
+def _find_by_status(
+    reversed_dir: Path,
+    status_filter: set[str],
+    sort_key: Callable[[StubInfo], Any],
+    ignored: set[str] | None = None,
+    cfg: ProjectConfig | None = None,
+    warn_duplicates: bool = True,
+    min_size: int = 0,
+    max_delta: int | None = None,
+) -> list[StubInfo]:
+    """Collect every source in *reversed_dir* whose status is in *status_filter*."""
+    md = cfg.metadata_dir if cfg is not None else None
+    min_va = min_valid_va_for(cfg)
+
+    def parse(cfile: Path) -> list[StubInfo]:
+        return _parse_annotations(
+            cfile,
+            status_filter=status_filter,
+            max_delta=max_delta,
+            ignored=ignored,
+            metadata_dir=md,
+            min_va=min_va,
+            min_size=min_size,
+        )
+
+    return _collect_with_dedup(
+        reversed_dir,
+        cfg,
+        parse,
+        sort_key=sort_key,
+        warn_duplicates=warn_duplicates,
+    )
+
+
+def _by_size(x: StubInfo) -> int:
+    return x.size
+
+
+def _by_delta_then_size(x: StubInfo) -> tuple[int, int]:
+    return (x.delta, x.size)
+
+
 def find_all_stubs(
     reversed_dir: Path,
     ignored: set[str] | None = None,
@@ -276,16 +318,14 @@ def find_all_stubs(
     min_size: int = 0,
 ) -> list[StubInfo]:
     """Find all STUB files in reversed/ and return sorted by size."""
-    md = cfg.metadata_dir if cfg is not None else None
-    min_va = min_valid_va_for(cfg)
-    return _collect_with_dedup(
+    return _find_by_status(
         reversed_dir,
-        cfg,
-        lambda cfile: parse_stub_info(
-            cfile, ignored=ignored, metadata_dir=md, min_va=min_va, min_size=min_size
-        ),
-        sort_key=lambda x: x.size,
+        {"STUB"},
+        _by_size,
+        ignored=ignored,
+        cfg=cfg,
         warn_duplicates=warn_duplicates,
+        min_size=min_size,
     )
 
 
@@ -298,21 +338,15 @@ def find_near_miss(
     min_size: int = 0,
 ) -> list[StubInfo]:
     """Find NEAR_MATCHING functions with small byte deltas, sorted by delta ascending."""
-    md = cfg.metadata_dir if cfg is not None else None
-    min_va = min_valid_va_for(cfg)
-    return _collect_with_dedup(
+    return _find_by_status(
         reversed_dir,
-        cfg,
-        lambda cfile: parse_matching_info(
-            cfile,
-            ignored=ignored,
-            max_delta=max_delta,
-            metadata_dir=md,
-            min_va=min_va,
-            min_size=min_size,
-        ),
-        sort_key=lambda x: (x.delta, x.size),
+        {"NEAR_MATCHING"},
+        _by_delta_then_size,
+        ignored=ignored,
+        cfg=cfg,
         warn_duplicates=warn_duplicates,
+        min_size=min_size,
+        max_delta=max_delta,
     )
 
 
@@ -324,16 +358,14 @@ def find_all_matching(
     min_size: int = 0,
 ) -> list[StubInfo]:
     """Find all NEAR_MATCHING functions, sorted by byte delta then size."""
-    md = cfg.metadata_dir if cfg is not None else None
-    min_va = min_valid_va_for(cfg)
-    return _collect_with_dedup(
+    return _find_by_status(
         reversed_dir,
-        cfg,
-        lambda cfile: parse_matching_all(
-            cfile, ignored=ignored, metadata_dir=md, min_va=min_va, min_size=min_size
-        ),
-        sort_key=lambda x: (x.delta, x.size),
+        {"NEAR_MATCHING"},
+        _by_delta_then_size,
+        ignored=ignored,
+        cfg=cfg,
         warn_duplicates=warn_duplicates,
+        min_size=min_size,
     )
 
 
@@ -348,16 +380,14 @@ def find_size_mismatch(
     content), sorted by size.  Batch GA previously could not target these —
     ``--all`` matches STUBs, ``--improve``/``--near-miss`` NEAR_MATCHING —
     leaving SIZE_MISMATCH functions unreachable by any batch mode."""
-    md = cfg.metadata_dir if cfg is not None else None
-    min_va = min_valid_va_for(cfg)
-    return _collect_with_dedup(
+    return _find_by_status(
         reversed_dir,
-        cfg,
-        lambda cfile: parse_size_mismatch_all(
-            cfile, ignored=ignored, metadata_dir=md, min_va=min_va, min_size=min_size
-        ),
-        sort_key=lambda x: x.size,
+        {"SIZE_MISMATCH"},
+        _by_size,
+        ignored=ignored,
+        cfg=cfg,
         warn_duplicates=warn_duplicates,
+        min_size=min_size,
     )
 
 
