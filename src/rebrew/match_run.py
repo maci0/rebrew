@@ -876,10 +876,17 @@ def _filter_recently_run(
     stubs (see ``--skip-recent``).  *now* is the window's end: passing it
     makes the kept set a function of the run log alone, so a batch replayed
     from a seed skips the stubs it skipped the first time.
+
+    A zone-less *now* is read as UTC, the same rule the record loop below
+    applies to a zone-less ``ts``; comparing the two without that rule raises
+    ``TypeError`` instead of filtering.
     """
     from datetime import UTC, datetime, timedelta
 
-    cutoff = (now if now is not None else datetime.now(UTC)) - timedelta(hours=hours)
+    end = now if now is not None else datetime.now(UTC)
+    if end.tzinfo is None:
+        end = end.replace(tzinfo=UTC)
+    cutoff = end - timedelta(hours=hours)
     records = load_ga_runs(cfg.root, target=getattr(cfg, "target_name", ""), limit=100000)
     recent_vas: set[str] = set()
     for rec in records:
