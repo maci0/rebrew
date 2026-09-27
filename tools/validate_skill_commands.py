@@ -150,6 +150,19 @@ def _rebrew_help_command() -> list[str]:
     return ["uv", "run", "--frozen", "rebrew"]
 
 
+#: Wall-clock bound for one ``rebrew <subcommand> --help`` probe.  The first
+#: probe on a cold tree pays bytecode compilation for the whole rebrew import
+#: graph, and with :data:`_HELP_WORKERS` probes running at once that easily
+#: exceeds 30s — the validator then reports stale-looking "subcommand not
+#: found" failures for commands that are present and correct.  Measured: ~3s
+#: warm, ~20s+ cold under contention.
+_HELP_TIMEOUT_SECONDS = 180
+
+#: Concurrent `--help` subprocesses.  Each probe is an independent spawn, so
+#: this trades wall clock against the cold-start cost above.
+_HELP_WORKERS = 8
+
+
 def _run_help(subcommand: str) -> tuple[bool, str]:
     """Run ``rebrew <subcommand> --help`` and return (ok, output).
 
@@ -167,7 +180,7 @@ def _run_help(subcommand: str) -> tuple[bool, str]:
             text=True,
             encoding="utf-8",
             errors="replace",
-            timeout=30,
+            timeout=_HELP_TIMEOUT_SECONDS,
             cwd=_REPO_ROOT,
             env=env,
         )
@@ -177,6 +190,21 @@ def _run_help(subcommand: str) -> tuple[bool, str]:
         return False, "<timeout>"
     except FileNotFoundError:
         return False, "<uv not found>"
+
+
+def _probe_failure_message(skill_name: str, subcommand: str, output: str) -> str:
+    """Return the error line for a ``--help`` probe that did not succeed.
+
+    A probe that timed out or never spawned is not evidence the skill is
+    stale; saying which it was stops the reader hunting for a renamed
+    subcommand that was there all along.
+    """
+    if output.startswith("<"):
+        return (
+            f"{skill_name}: rebrew {subcommand} — probe {output.strip('<>')}, "
+            f"not a skill defect (raise _HELP_TIMEOUT_SECONDS if it is a timeout)"
+        )
+    return f"{skill_name}: rebrew {subcommand} — subcommand not found"
 
 
 def validate(*, quiet: bool = False) -> bool:
@@ -210,7 +238,7 @@ def validate(*, quiet: bool = False) -> bool:
                 combos.append((skill_name, subcommand, tuple(sorted(flags))))
 
     unique_subs = sorted({c[1] for c in combos})
-    with ThreadPoolExecutor(max_workers=8) as pool:
+    with ThreadPoolExecutor(max_workers=_HELP_WORKERS) as pool:
         help_cache: dict[str, tuple[bool, str]] = dict(
             zip(unique_subs, pool.map(_run_help, unique_subs), strict=True)
         )
@@ -222,7 +250,7 @@ def validate(*, quiet: bool = False) -> bool:
         ok, output = help_cache[subcommand]
 
         if not ok:
-            err = f"{skill_name}: rebrew {subcommand} — subcommand not found / timeout"
+            err = _probe_failure_message(skill_name, subcommand, output)
             errors.append(err)
             if not quiet:
                 print(f"FAIL  {err}")
