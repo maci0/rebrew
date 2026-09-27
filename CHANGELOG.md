@@ -1,4 +1,14 @@
 ## [Unreleased]
+### Fixed
+- **`gen-link-stubs` no longer throws away a calibrated BSS tail.**
+  `calibrate-bss` tunes `g_bss_tail[<size>]` in the generated TU and leaves
+  it there; regenerating the TU reset it to the `0x400000` placeholder, so
+  the common re-run (after adding a data symbol) silently reverted a
+  `.data` VirtualSize the user had already converged. The size is read back
+  before rewriting and reported as `tail` / `tail_preserved` in `--json`. A
+  hand-written `link_stubs.c` keeps its own tail, and two `.data` addresses
+  sharing one name now emit a single stub instead of a TU that does not
+  compile.
 
 ## [2.13.1] - 2026-09-27
 ### Fixed
