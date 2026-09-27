@@ -50,11 +50,11 @@ from rebrew.annotation import Annotation, iter_annotations, min_valid_va_for, pa
 from rebrew.binary_loader import load_binary
 from rebrew.cli import (
     DISPLAY_STATUSES,
-    STATUS_HEX,
     TargetOption,
     console,
     json_print,
     require_config,
+    status_mark_groups,
 )
 from rebrew.config import ProjectConfig
 from rebrew.depgraph import NodeInfo, build_graph, render_mermaid
@@ -110,25 +110,26 @@ _OWNED_REPORT_FILE = re.compile(
 def _status_text_css() -> str:
     """Status text rules from ``STATUS_HEX``. DISPATCH is a graph fill only.
 
-    UNKNOWN stays at regular weight; the match statuses are semibold.
+    One rule per mark, not per status (the six machine verdicts share the
+    error red).  UNKNOWN stays at regular weight; the match statuses are
+    semibold.
     """
     lines: list[str] = []
-    for name, color in STATUS_HEX.items():
-        if name == "DISPATCH":
-            continue
-        if name == "UNKNOWN":
-            lines.append(f".status-{name} {{ color: {color}; }}")
-        else:
-            lines.append(f".status-{name} {{ color: {color}; font-weight: 600; }}")
+    for statuses, color in status_mark_groups():
+        selectors = ", ".join(f".status-{name}" for name in statuses)
+        weight = "" if statuses == ("UNKNOWN",) else " font-weight: 600;"
+        lines.append(f"{selectors} {{ color: {color};{weight} }}")
     return "\n".join(lines)
 
 
 def _status_forced_selectors() -> str:
-    """Forced-colors selectors for the status text rules, wrapped to two lines."""
-    names = [name for name in STATUS_HEX if name != "DISPATCH"]
-    head = ", ".join(f".status-{name}" for name in names[:4])
-    tail = ", ".join(f".status-{name}" for name in names[4:])
-    return f"  {head},\n  {tail}"
+    """Forced-colors selector for the status text rules.
+
+    Every status mark carries the shared ``st`` class, so one selector
+    covers the whole vocabulary — a per-status list would have to be
+    re-spelled whenever the mark table grows.
+    """
+    return "  .st"
 
 
 # Chrome is the shared token set (rebrew.theme, resolved below) and the status
@@ -544,7 +545,7 @@ def _function_rows_html(functions: list[dict[str, Any]]) -> str:
         "<tr>"
         f"<td class='mono'>{html.escape(fn['name'])}</td>"
         f"<td class='mono'>0x{fn['va']:08x}</td>"
-        f"<td class='status-{html.escape(fn['status'])}'>{html.escape(fn['status'])}</td>"
+        f"<td class='st status-{html.escape(fn['status'])}'>{html.escape(fn['status'])}</td>"
         f"<td class='mono'>{fn['size']}</td>"
         f"<td class='mono'>{html.escape(fn['cflags'])}</td>"
         f"<td class='blocker'>{html.escape(fn['blocker'])}</td>"

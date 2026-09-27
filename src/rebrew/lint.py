@@ -75,7 +75,7 @@ from rebrew.utils import (
     read_source_text,
     rel_display_path,
 )
-from rebrew.workspace.status import KNOWN_STATUSES, MATCHED_STATUSES
+from rebrew.workspace.status import EARNED_STATUSES, KNOWN_STATUSES, MATCHED_STATUSES
 
 # Marker header line in either comment style.  annotation.NEW_FUNC_CAPTURE_RE
 # accepts `//` and `/*` (the C89-strict form intake emits for borland-2.0/msvc-1.52), so
@@ -767,7 +767,7 @@ def _check_E017_contradictory(result: LintResult, status: str, marker: str) -> N
         result.error(
             result.marker_line, "E017", f"Contradictory: status is {status} but marker is STUB"
         )
-    elif marker == "STUB" and (status in MATCHED_STATUSES or status == "PROVEN"):
+    elif marker == "STUB" and status in EARNED_STATUSES:
         # A byte-matched or proven function marked STUB (stale marker from
         # stub generation, metadata later promoted).  The STUB marker hides a
         # developed function from status/todo and misleads reversers.

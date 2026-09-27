@@ -435,10 +435,34 @@ _MERMAID_CLASS: dict[str, str] = {
     "DISPATCH": "dispatch",
 }
 
+# Statuses that carry no mermaid class of their own and share one fill, keyed
+# by the STATUS whose ``STATUS_HEX`` value fills them.  A machine verdict on a
+# call-graph node is still a verdict: DOT paints it (STATUS_HEX lookup), so
+# Mermaid must not fall back to UNKNOWN gray.  Listed in the emitted classDefs
+# after _MERMAID_CLASS, deduped by class name.
+_MERMAID_SHARED_CLASS: dict[str, str] = {
+    "SIZE_MISMATCH": "unmatched",
+    "SKIP": "parked",
+    "COMPILE_ERROR": "tooling_error",
+    "EXTRACT_ERROR": "tooling_error",
+    "MISSING_FILE": "annotation_error",
+    "MISSING_SIZE": "annotation_error",
+    "INVALID_VA": "annotation_error",
+    "INTERNAL_ERROR": "tooling_error",
+}
+
+
+def _mermaid_class_defs() -> list[str]:
+    """Return one ``classDef`` line per class, shared classes emitted once."""
+    fills: dict[str, str] = {}
+    for status, cls in (*_MERMAID_CLASS.items(), *_MERMAID_SHARED_CLASS.items()):
+        fills.setdefault(cls, STATUS_HEX[status])
+    return [f"    classDef {cls} fill:{fill},stroke:#1a1a1a,color:#fff" for cls, fill in fills.items()]
+
 
 def _status_style(status: str) -> str:
     """Return a mermaid node style class for the given status."""
-    return _MERMAID_CLASS.get(status, "unknown")
+    return _MERMAID_CLASS.get(status) or _MERMAID_SHARED_CLASS.get(status, "unknown")
 
 
 def render_mermaid(
@@ -455,8 +479,7 @@ def render_mermaid(
     lines = ["graph LR"]
 
     # STATUS_HEX fills. White type meets WCAG AA on each; stroke is header ink.
-    for status, cls in _MERMAID_CLASS.items():
-        lines.append(f"    classDef {cls} fill:{STATUS_HEX[status]},stroke:#1a1a1a,color:#fff")
+    lines.extend(_mermaid_class_defs())
     lines.append("")
 
     # Deduplicate edges

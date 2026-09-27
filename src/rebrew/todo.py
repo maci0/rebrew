@@ -52,7 +52,7 @@ from rebrew.naming import (
 from rebrew.present import ratio_bar
 from rebrew.status import effective_status
 from rebrew.utils import floor_pct
-from rebrew.workspace.status import MATCHED_STATUSES
+from rebrew.workspace.status import EARNED_STATUSES, MATCHED_STATUSES
 
 # ---------------------------------------------------------------------------
 # Category constants
@@ -558,7 +558,7 @@ def _collect_prover_candidates(
     for va, info in existing.items():
         ann_status = info.get("status", "STUB")
         # Byte-matched needs no proof; PROVEN already has one.
-        if ann_status in MATCHED_STATUSES or ann_status == "PROVEN":
+        if ann_status in EARNED_STATUSES:
             continue
         va_key = f"0x{va:08x}"
         cached = verify_entries.get(va_key)

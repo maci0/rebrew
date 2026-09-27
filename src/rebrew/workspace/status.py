@@ -38,3 +38,10 @@ KNOWN_STATUSES: frozenset[str] = frozenset(
 # masking), in canonical display order.  PROVEN is semantic equivalence
 # with differing bytes and is deliberately absent.
 MATCHED_STATUSES: tuple[str, ...] = ("EXACT", "RELOC")
+
+# Statuses that record work a reverser would lose: a byte match, or a PROVEN
+# result (no byte match, but only a new prove run restores it).  Callers that
+# protect earned work — orphan pruning, size-fix partitions, lint E017, the
+# proof queue — read this instead of re-spelling ``("EXACT", "RELOC",
+# "PROVEN")`` at each site.
+EARNED_STATUSES: tuple[str, ...] = (*MATCHED_STATUSES, "PROVEN")

@@ -447,6 +447,27 @@ class TestRenderers:
             assert stale not in mermaid
             assert stale not in dot
 
+    def test_machine_verdict_nodes_get_their_own_mark(self) -> None:
+        """A COMPILE_ERROR node is a verdict in both renderers, not UNKNOWN gray.
+
+        DOT fills from STATUS_HEX directly; Mermaid needs a classDef of its
+        own or it silently falls back to the UNKNOWN fill.
+        """
+        from rebrew.cli import STATUS_HEX
+
+        nodes: dict[str, NodeInfo] = {
+            "Broken": {"status": "COMPILE_ERROR", "va": 1, "file": "b.c"},
+            "Unknown": {"status": "UNKNOWN", "va": 0, "file": ""},
+        }
+        mermaid = render_mermaid(nodes, [])
+        assert "classDef tooling_error" in mermaid
+        assert ":::tooling_error" in mermaid
+        assert f"fill:{STATUS_HEX['COMPILE_ERROR']}" in mermaid
+        # One classDef per class name, however many statuses share it.
+        class_defs = [ln for ln in mermaid.splitlines() if ln.strip().startswith("classDef")]
+        assert len(class_defs) == len({ln.split()[1] for ln in class_defs})
+        assert STATUS_HEX["COMPILE_ERROR"] in render_dot(nodes, [])
+
     def test_summary_output(self) -> None:
         nodes, edges = self._sample()
         result = render_summary(nodes, edges)

@@ -101,7 +101,7 @@ from rich.markup import escape
 
 from rebrew import theme
 from rebrew.build_db import FUNCTION_ROWS_SQL, resolve_db_dir
-from rebrew.cli import STATUS_HEX, console, error_exit, json_print
+from rebrew.cli import console, error_exit, json_print, status_mark_groups
 from rebrew.metadata import canonical_status
 from rebrew.utils import floor_pct
 from rebrew.workspace import coverage_db_lock, open_sqlite_ro
@@ -479,7 +479,7 @@ function resetHistoryPaging() {
   retryHistoryAppend = false;
 }
 function statusMark(s) {
-  return /^[A-Z][A-Z0-9_]*$/.test(s || "") ? "status-" + s : "";
+  return /^[A-Z][A-Z0-9_]*$/.test(s || "") ? "st status-" + s : "";
 }
 function statusText(s) {
   const text = esc(s || "");
@@ -1171,7 +1171,7 @@ _INDEX_HTML = """<!doctype html>
   /* Weight marks the selected card and tab without relying on border colour (WCAG 1.4.1). */
   button.card.active .label, .views button.active { font-weight: 700; }
   .card .value { font-size: var(--rb-size-value); font-weight: 700; display: block; }
-  .card .label { color: var(--rb-muted); font-size: var(--rb-size-caption); }
+  .label { color: var(--rb-muted); font-size: var(--rb-size-caption); }
 __STATUS_CSS__
   .table-scroll { overflow-x: auto; position: relative; min-height: 6rem; -webkit-overflow-scrolling: touch; }
   .table-scroll[aria-busy="true"]::after {
@@ -1385,22 +1385,28 @@ _ENTRY_PATHS = ("/", _APP_JS_URL, _BOOT_GUARD_JS_URL)
 
 
 def _dashboard_status_css() -> str:
-    """Status text rules from ``STATUS_HEX``. DISPATCH is a graph fill only."""
+    """Status text rules from ``STATUS_HEX``. DISPATCH is a graph fill only.
+
+    One rule per mark, not per status: the shell ships inside a fixed
+    cold-load byte budget, and the six machine verdicts share the error red.
+    """
     lines: list[str] = []
-    for name, color in STATUS_HEX.items():
-        if name == "DISPATCH":
-            continue
-        weight = "" if name == "UNKNOWN" else " font-weight: 600;"
-        # .card .label is equally specific and comes first; the second
-        # selector wins for summary cards. The first colors table cells.
-        lines.append(f"  .status-{name}, .card .status-{name} {{ color: {color};{weight} }}")
+    for statuses, color in status_mark_groups():
+        weight = "" if statuses == ("UNKNOWN",) else " font-weight: 600;"
+        # .label is equally specific and comes first, so this rule colors
+        # the summary cards and the table cells alike.
+        selectors = ", ".join(f".status-{name}" for name in statuses)
+        lines.append(f"  {selectors} {{ color: {color};{weight} }}")
     return "\n".join(lines)
 
 
 def _dashboard_status_forced() -> str:
-    """One forced-colors rule so status marks follow the system palette."""
-    names = ", ".join(f".status-{name}" for name in STATUS_HEX if name != "DISPATCH")
-    return f"    {names} {{ color: CanvasText; font-weight: 700; }}"
+    """One forced-colors rule so status marks follow the system palette.
+
+    Every mark carries the shared ``st`` class, so this stays one selector
+    however many statuses the mark table holds.
+    """
+    return "    .st { color: CanvasText; font-weight: 700; }"
 
 
 # The shell links the content-hashed URL, so only that URL is cached immutable.
