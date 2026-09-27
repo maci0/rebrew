@@ -62,8 +62,10 @@ bumped version cannot leave a stale BOM. An SBOM generated before it is deleted
 again, and the upload's `if-no-files-found: error` still passes on the wheel,
 sdist and buildinfo patterns, so the artifact would ship with no BOM.
 `make sdist-check` no longer contributes to that (it depends on
-`dist/rebrew.buildinfo`, which builds only when `dist/` is empty or an input is
-newer than it, rather than on the phony `build`). The step asserts
+`dist/rebrew.buildinfo`, which builds only when `dist/` is empty or a build
+input is newer than the artifacts, rather than on the phony `build`; the input
+list carries the `src/` directories as well as the files, so adding or
+deleting a module also rebuilds). The step asserts
 `test -s dist/rebrew.cdx.json`; `tests/test_ci_pins.py` pins the order.
 The lint job also runs
 `make audit` (`uv audit --locked`; diskcache's unfixed pickle advisory is

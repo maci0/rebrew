@@ -293,7 +293,15 @@ class TestCiPins:
         helper = ROOT / "tools" / "ci_clone_resembl.sh"
         assert helper.is_file()
         text = helper.read_text(encoding="utf-8")
-        assert "for attempt in 1 2 3" in text
+        # The retry policy is named, not a bare `1 2 3` / `* 5` in the loop:
+        # ci_apt_install.sh states the same two values and both docstrings
+        # point at the other, so a change to one has to be visible in the other.
+        assert "for ((attempt = 1; attempt <= MAX_ATTEMPTS; attempt++))" in text
+        assert "sleep $((attempt * RETRY_BASE_DELAY_SECONDS))" in text
+        apt = (ROOT / "tools" / "ci_apt_install.sh").read_text(encoding="utf-8")
+        for name in ("MAX_ATTEMPTS", "RETRY_BASE_DELAY_SECONDS"):
+            value = re.search(rf"(?m)^{name}=(\d+)$", text).group(1)
+            assert re.search(rf"(?m)^{name}=(\d+)$", apt).group(1) == value, name
         assert "GIT_TERMINAL_PROMPT=0" in text
         assert "basename is not 'resembl'" in text
         # Token must live in a mode-0600 gitconfig, not on git argv (ps leak).
@@ -477,7 +485,7 @@ class TestCiPins:
         assert "BUILD_INPUTS :=" in text
         assert "-not -path '*/__pycache__/*'" in text
         assert "-not -path '*.egg-info/*'" in text
-        assert "dist/rebrew.buildinfo: $(BUILD_INPUTS)" in text
+        assert "dist/rebrew.buildinfo: $(BUILD_INPUTS) $(BUILD_INPUT_DIRS)" in text
         # The normalizer rewrites both archives after the build, so it decides
         # the shipped bytes; it lives under tools/, not src/, so a rewrite of
         # it was invisible to the find() above and left dist/ describing the
@@ -485,6 +493,30 @@ class TestCiPins:
         build_inputs = text.split("BUILD_INPUTS :=", 1)[1].split("\n\n", 1)[0]
         assert "tools/normalize_sdist.py" in build_inputs
         assert ".python-version" in build_inputs
+
+    def test_buildinfo_rule_rebuilds_on_a_source_add_or_delete(self) -> None:
+        """`BUILD_INPUTS` alone cannot see a file appearing or disappearing.
+
+        `find src -type f` lists only what exists when make expands it, and
+        make rebuilds a target when a prerequisite is *newer*, not when one
+        goes away.  Adding a module or deleting one therefore left every
+        listed prerequisite untouched, the buildinfo file looked current, and
+        `make sdist-check` / `make smoke-wheel` verified the previous tree's
+        artifacts.  The directories are prerequisites for that reason: a
+        directory's mtime moves exactly when an entry inside it is created,
+        removed, or renamed, and it settles again as soon as it does, so a
+        test run does not put the rule into a rebuild loop.
+        """
+        text = MAKEFILE.read_text(encoding="utf-8")
+        assert "BUILD_INPUT_DIRS :=" in text
+        dirs = text.split("BUILD_INPUT_DIRS :=", 1)[1].split("\n\n", 1)[0]
+        assert "find src -type d" in dirs
+        # Same residue exclusions: a test run rewrites __pycache__ on every
+        # pass and `uv build` creates and removes egg-info, so a narrower
+        # filter here rebuilds dist/ constantly without changing a shipped
+        # byte.
+        assert "-not -path '*/__pycache__*'" in dirs
+        assert "-not -path '*.egg-info*'" in dirs
 
     def test_makefile_is_sequential(self) -> None:
         """Targets that share dist/ must not run concurrently under `make -j`.
