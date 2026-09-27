@@ -1,5 +1,20 @@
 ## [Unreleased]
+### Changed
+- **Five more test modules join the strict mypy gate.** `test_elf_fixture`,
+  `test_env_docs`, `test_flirt_sigs`, `test_resource`, and `test_startup_blas`
+  type-check clean under `--strict`, so they move into `[tool.mypy] files`
+  alongside the three that were already listed. `test_check_sdist_wheel` is
+  clean too but stays out: `tests` is on `mypy_path`, so its stem collides
+  with `tools/check_sdist_wheel.py` and mypy aborts the run at the duplicate
+  module name instead of checking anything after it.
+
 ### Fixed
+- **`make format-check` passes on a clean checkout again.**
+  `src/rebrew/import_table.py`, `tests/test_check_idempotency.py`, and
+  `tools/check_idempotency.py` were checked in unformatted, so the blocking
+  `Ruff format check` CI step and `make pr-check` failed on `main` while the
+  pre-commit `ruff-format` hook quietly rewrote them into the working tree
+  instead of failing.
 - **Bidi and zero-width controls no longer reach a display surface.** A symbol
   name, module, blocker, or status arriving from a target binary, BinSync
   state, or an import table could carry U+202A-U+202E, U+2066-U+2069, the

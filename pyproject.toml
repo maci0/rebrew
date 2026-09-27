@@ -374,10 +374,13 @@ enable_error_code = [
 # tests/ modules below are the ones that came clean first: the two non-test_
 # helper modules (the pytest plugin every run loads through `addopts`, and
 # the COFF builders the fixture generator imports, both of which a typing
-# regression would reach only at runtime) plus the three leaf test modules
-# typed so far.  The rest of tests/ is still unchecked (hundreds of strict
-# errors); add a module here as it comes clean rather than relaxing the gate
-# for the tree.
+# regression would reach only at runtime) plus the leaf test modules typed so
+# far.  The rest of tests/ is still unchecked (hundreds of strict errors); add
+# a module here as it comes clean rather than relaxing the gate for the tree.
+# tests/test_check_sdist_wheel.py is clean but cannot be listed: `tests` is on
+# mypy_path, so its stem collides with tools/check_sdist_wheel.py and mypy
+# aborts with "Source file found twice under different module names", which
+# stops it from checking anything after the collision.
 files = [
     "src/rebrew",
     "tools",
@@ -386,6 +389,11 @@ files = [
     "tests/test_span_contains.py",
     "tests/test_core.py",
     "tests/test_catalog_models.py",
+    "tests/test_elf_fixture.py",
+    "tests/test_env_docs.py",
+    "tests/test_flirt_sigs.py",
+    "tests/test_resource.py",
+    "tests/test_startup_blas.py",
 ]
 exclude = ["venv", ".venv"]
 # tools/gen_fixtures.py imports the COFF builders from tests/bin_util.py at
