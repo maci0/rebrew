@@ -18,6 +18,7 @@ source (``dlls/winedump/ne.c``) — field offsets below follow that layout.
 
 from __future__ import annotations
 
+import logging
 import struct
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -25,6 +26,8 @@ from typing import override
 
 from rebrew.binary_loader import BinaryInfo, SectionInfo
 from rebrew.errors import RebrewError
+
+logger = logging.getLogger(__name__)
 
 NE_MAGIC = b"NE"
 
@@ -82,6 +85,14 @@ class NeSegment:
 #: Delphi 1.0 prologs are ``enter`` (0xC8) or ``push bp`` (0x55); the
 #: startup segment begins with a chain of far calls (0x9A).
 _CODE_ANCHORS = frozenset({0x55, 0xC8, 0x9A, 0xE8, 0xEB, 0xE9})
+
+#: Bytes of x86-16 a single code segment may feed to the disassembler during
+#: the linear sweep.  Each prolog candidate is decoded from its own offset to
+#: the segment end, so a segment of data (or of ``push bp`` bytes) with no
+#: ``ret`` in it costs candidates x segment length; without this budget a
+#: 64 KiB segment takes hours.  Real code hits its epilog in a few dozen
+#: bytes, so the budget is never reached by a genuine function set.
+SWEEP_DECODE_BUDGET = 1 << 20
 
 
 def _looks_like_name_string(data: bytes, off: int) -> bool:
@@ -257,9 +268,20 @@ def enumerate_ne_functions(info: BinaryInfo) -> list[NeFunction]:
         if not candidates:
             continue
         # Disassemble from each candidate; the function ends at the first
-        # ret/retf that terminates a balanced run (bounded to segment end).
+        # ret/retf that terminates a balanced run (bounded to segment end
+        # and to the segment's decode budget).
+        budget = SWEEP_DECODE_BUDGET
         for start in sorted(candidates):
-            body = raw[start:]
+            if budget <= 0:
+                logger.warning(
+                    "NE segment %d: decode budget exhausted after offset 0x%x, "
+                    "later functions in this segment are not listed",
+                    seg.index,
+                    start,
+                )
+                break
+            body = raw[start : start + budget]
+            budget -= len(body)
             va = seg.base_va + start
             size = 0
             insn_count = 0
