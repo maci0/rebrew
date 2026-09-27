@@ -21,6 +21,8 @@ import functools
 import json
 import logging
 import math
+import threading
+from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -99,6 +101,37 @@ def _failed_result(status: "CompareStatus", message: str = "") -> "CompareResult
         message=message or status,
         match_count=0,
     )
+
+
+#: Bounded memo for :func:`rebrew.compile_overrides.resolve_compile_overrides`,
+#: which walks ``rebrew-libraries.toml`` parents (a stat per level) on every
+#: call.  ``verify_entry`` runs once per function, so a large project pays
+#: the same walk thousands of times.  Keyed by the resolution's full input
+#: set, including the source directory, since a nearer toml can win.
+_OVERRIDE_MEMO_MAX = 512
+_override_memo: OrderedDict[tuple[Any, ...], tuple[str | None, str]] = OrderedDict()
+_override_memo_lock = threading.Lock()
+
+
+def _resolved_overrides(
+    cfg: Any, source_dir: Path, toolchain: str, cflags: str, module: str
+) -> tuple[str | None, str]:
+    """``resolve_compile_overrides`` behind a bounded memo."""
+    from rebrew.compile_overrides import resolve_compile_overrides
+
+    key = (str(getattr(cfg, "root", "")), str(source_dir), toolchain, cflags, module)
+    with _override_memo_lock:
+        hit = _override_memo.get(key)
+        if hit is not None:
+            _override_memo.move_to_end(key)
+            return hit
+    resolved = resolve_compile_overrides(cfg, source_dir, toolchain, cflags, module)
+    with _override_memo_lock:
+        _override_memo[key] = resolved
+        _override_memo.move_to_end(key)
+        while len(_override_memo) > _OVERRIDE_MEMO_MAX:
+            _override_memo.popitem(last=False)
+    return resolved
 
 
 @functools.lru_cache(maxsize=256)
@@ -203,13 +236,11 @@ def verify_entry(
     if entry.size <= 0:
         return _failed_result("MISSING_SIZE", "MISSING_SIZE: No SIZE annotation")
 
-    from rebrew.compile_overrides import resolve_compile_overrides
-
     # Shared fallback chain (per-function metadata → per-library
     # rebrew-libraries.toml → preset → compiler.cflags) so verify compiles
     # every function of a library with the same toolchain + flags as
     # match/diff/test.
-    toolchain, cflags = resolve_compile_overrides(
+    toolchain, cflags = _resolved_overrides(
         cfg,
         cfile.parent,
         getattr(entry, "toolchain", ""),

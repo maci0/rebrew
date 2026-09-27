@@ -60,6 +60,8 @@ _RUN_TIMEOUT = 300
 _DOCKER_MEMO_LOCK = threading.Lock()
 
 _docker_available_cache: bool | None = None
+#: Positive-only memo for the ``PATH`` lookup of the container runtime.
+_runtime_on_path_cache: bool = False
 
 #: How a :class:`ToolchainError` arose — callers branch on this instead of
 #: matching message substrings.
@@ -456,6 +458,25 @@ def invalidate_toolchain_digest(image: str | None = None) -> None:
             _toolchain_digest_cache.clear()
         else:
             _toolchain_digest_cache.pop(image, None)
+
+
+def runtime_on_path() -> bool:
+    """True when the configured container runtime resolves on ``PATH``.
+
+    ``shutil.which`` walks every ``PATH`` entry, and the answer is invariant
+    for the process; only a positive result is memoized so a runtime
+    installed mid-process is still picked up.
+    """
+    global _runtime_on_path_cache
+    name = container_runtime()
+    with _DOCKER_MEMO_LOCK:
+        if _runtime_on_path_cache is True:
+            return True
+    ok = shutil.which(name) is not None
+    if ok:
+        with _DOCKER_MEMO_LOCK:
+            _runtime_on_path_cache = True
+    return ok
 
 
 def _drop_image_presence(tag: str) -> None:

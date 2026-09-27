@@ -115,6 +115,35 @@ SOURCE_CHECKOUT: Path | None = _CHECKOUT if (_CHECKOUT / "pyproject.toml").is_fi
 _SOURCE_TEXT_MEMO: OrderedDict[tuple[str, int, int, int], tuple[str, str]] = OrderedDict()
 _SOURCE_TEXT_MEMO_MAX = 512
 _SOURCE_TEXT_MEMO_LOCK = threading.Lock()
+# resolved path -> its live memo keys, so a write invalidates in O(1)
+# instead of scanning the whole LRU.
+_SOURCE_TEXT_MEMO_BY_PATH: dict[str, set[tuple[str, int, int, int]]] = {}
+
+
+def _memo_drop(memo_key: tuple[str, int, int, int]) -> None:
+    """Remove one entry from the source text memo and its path index."""
+    _SOURCE_TEXT_MEMO.pop(memo_key, None)
+    keys = _SOURCE_TEXT_MEMO_BY_PATH.get(memo_key[0])
+    if keys is not None:
+        keys.discard(memo_key)
+        if not keys:
+            del _SOURCE_TEXT_MEMO_BY_PATH[memo_key[0]]
+
+
+def _memo_store(memo_key: tuple[str, int, int, int], value: tuple[str, str]) -> None:
+    """Insert an entry, evicting the LRU tail until there is room."""
+    if memo_key in _SOURCE_TEXT_MEMO:
+        _SOURCE_TEXT_MEMO.move_to_end(memo_key)
+        return
+    while len(_SOURCE_TEXT_MEMO) >= _SOURCE_TEXT_MEMO_MAX:
+        oldest, _value = _SOURCE_TEXT_MEMO.popitem(last=False)
+        keys = _SOURCE_TEXT_MEMO_BY_PATH.get(oldest[0])
+        if keys is not None:
+            keys.discard(oldest)
+            if not keys:
+                del _SOURCE_TEXT_MEMO_BY_PATH[oldest[0]]
+    _SOURCE_TEXT_MEMO[memo_key] = value
+    _SOURCE_TEXT_MEMO_BY_PATH.setdefault(memo_key[0], set()).add(memo_key)
 
 
 _CONTAINER_RUNTIME_RE = re.compile(r"^[a-zA-Z0-9_\-\./]+$")
@@ -535,10 +564,15 @@ def read_source_text(filepath: Path) -> tuple[str, str]:
     encoding = detect_source_encoding(data)
     text = data.decode(encoding, errors="replace")
     with _SOURCE_TEXT_MEMO_LOCK:
-        if memo_key not in _SOURCE_TEXT_MEMO and len(_SOURCE_TEXT_MEMO) >= _SOURCE_TEXT_MEMO_MAX:
-            _SOURCE_TEXT_MEMO.popitem(last=False)
-        _SOURCE_TEXT_MEMO[memo_key] = (text, encoding)
+        _memo_store(memo_key, (text, encoding))
     return text, encoding
+
+
+def clear_source_text_memo() -> None:
+    """Drop every cached source body and its path index."""
+    with _SOURCE_TEXT_MEMO_LOCK:
+        _SOURCE_TEXT_MEMO.clear()
+        _SOURCE_TEXT_MEMO_BY_PATH.clear()
 
 
 def read_toml_text(path: Path) -> str:
@@ -699,9 +733,8 @@ def atomic_write_text(
         resolved = ""
     if resolved:
         with _SOURCE_TEXT_MEMO_LOCK:
-            stale = [k for k in _SOURCE_TEXT_MEMO if k[0] == resolved]
-            for k in stale:
-                _SOURCE_TEXT_MEMO.pop(k, None)
+            for memo_key in tuple(_SOURCE_TEXT_MEMO_BY_PATH.get(resolved, ())):
+                _memo_drop(memo_key)
 
 
 def atomic_write_bytes(filepath: Path, data: bytes) -> None:

@@ -415,8 +415,6 @@ def _block_defines(lines: list[str] | None, marker_line: int) -> bool:
         stripped = raw.strip()
         if not stripped or stripped.startswith(("//", "/*", "*")):
             continue
-        if re.match(r"(?://|/\*)\s*(?:FUNCTION|LIBRARY|STUB|GLOBAL|DATA)", stripped):
-            return False
         if stripped.startswith("extern"):
             return False
         return "=" in stripped
@@ -1458,6 +1456,26 @@ def _check_style_rules(result: LintResult, cfg: ProjectConfig | None) -> None:
 
 
 _SUPPORT_MARKER_RE = re.compile(r"//\s*SUPPORT:\s*(\S+)(?:\s+(.*))?")
+_STRUCT_BRACE_RE = re.compile(r"\bstruct\s+\w+\s*\{")
+
+#: TOML field name -> uppercase ``found_keys`` name.
+_METADATA_TO_FOUND: dict[str, str] = {
+    "status": "STATUS",
+    "size": "SIZE",
+    "cflags": "CFLAGS",
+    "toolchain": "TOOLCHAIN",
+    "blocker": "BLOCKER",
+    "blocker_delta": "BLOCKER_DELTA",
+    "ghidra": "GHIDRA",
+    "analysis": "ANALYSIS",
+    "note": "NOTE",
+    "skip": "SKIP",
+    "globals": "GLOBALS",
+    "locals": "LOCALS",
+    "comments": "COMMENTS",
+    "section": "SECTION",
+    "source": "SOURCE",
+}
 
 
 def support_declaration(lines: list[str]) -> tuple[int, str, str] | None:
@@ -1503,7 +1521,7 @@ def _check_body_rules(result: LintResult, lines: list[str], has_new: bool) -> No
         # 400-file batch before this (second-hottest lint rule).
         if (
             "struct" in stripped
-            and ("typedef struct" in stripped or re.search(r"\bstruct\s+\w+\s*\{", stripped))
+            and ("typedef struct" in stripped or _STRUCT_BRACE_RE.search(stripped))
             and not stripped.startswith("//")
             and not stripped.startswith("/*")
             and not stripped.startswith("*")
@@ -1623,25 +1641,6 @@ def lint_file(
         if preloaded_data_metadata is not None
         else load_data_metadata(_metadata_dir)
     )
-
-    # TOML field name -> uppercase found_keys name mapping
-    _METADATA_TO_FOUND: dict[str, str] = {
-        "status": "STATUS",
-        "size": "SIZE",
-        "cflags": "CFLAGS",
-        "toolchain": "TOOLCHAIN",
-        "blocker": "BLOCKER",
-        "blocker_delta": "BLOCKER_DELTA",
-        "ghidra": "GHIDRA",
-        "analysis": "ANALYSIS",
-        "note": "NOTE",
-        "skip": "SKIP",
-        "globals": "GLOBALS",
-        "locals": "LOCALS",
-        "comments": "COMMENTS",
-        "section": "SECTION",
-        "source": "SOURCE",
-    }
 
     # Statuses claimed by this file's annotations (for W020 escalation: a
     # non-STUB claim on an asm-dump body is a metadata error).

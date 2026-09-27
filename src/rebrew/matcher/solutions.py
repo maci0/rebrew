@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import contextlib
 import dataclasses
+import functools
 import hashlib
 import json
 import logging
@@ -232,6 +233,10 @@ def load_solutions_file(path: Path) -> list[SolutionEntry]:
 #: stub with the same preloaded entry list, so without this the same handful
 #: of sources would be re-hashed once per stub.
 _SOURCE_SHA_CACHE_MAX = 128
+
+#: Bounded cache for :func:`_normalize_cflags`; one entry per distinct
+#: cflags string in the solution DB plus the caller's own.
+_NORMALIZED_CFLAGS_CACHE = 256
 _SOURCE_SHA_CACHE: OrderedDict[tuple[str, int, int, int], str] = OrderedDict()
 _SOURCE_SHA_LOCK = threading.Lock()
 
@@ -396,8 +401,13 @@ def find_similar(
     return fresh
 
 
+@functools.lru_cache(maxsize=_NORMALIZED_CFLAGS_CACHE)
 def _normalize_cflags(cflags: str) -> str:
-    """Normalize cflags for comparison: strip /nologo /c /fo* /fe*, sort remainder case-insensitively."""
+    """Normalize cflags for comparison: strip /nologo /c /fo* /fe*, sort remainder case-insensitively.
+
+    Cached: the result depends only on the string, and ranking a batch of
+    solutions normalizes every entry on every call.
+    """
     parts = cflags.split()
     # Remove build-noise flags that don't affect codegen (case-insensitive)
     skip = {"/nologo", "/c"}

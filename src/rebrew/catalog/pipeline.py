@@ -7,7 +7,6 @@ Typer entry module.
 
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from rich.console import Console
@@ -42,11 +41,7 @@ def build_catalog_data(cfg: Any, *, with_data: bool = True) -> dict[str, Any]:
     entries = scan_reversed_dir(reversed_dir, cfg=cfg)
 
     # Load the discovery inventory
-    jobs = getattr(cfg, "default_jobs", 4) or 4
-
-    with ThreadPoolExecutor(max_workers=jobs) as pool:
-        future_funcs = pool.submit(cached_function_list, cfg)
-        funcs = future_funcs.result()
+    funcs = cached_function_list(cfg)
 
     # The .text size drives the coverage percentage.  A missing binary used
     # to fall back to a fabricated 0x24000 (92160B) section — coverage was
