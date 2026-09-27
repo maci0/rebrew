@@ -40,6 +40,7 @@ from rebrew.utils import (
     SOURCE_CHECKOUT,
     atomic_write_text,
     container_runtime,
+    run_process_group,
 )
 
 if TYPE_CHECKING:
@@ -1302,17 +1303,20 @@ def _docker_build(tag: str, context: Path, *, stream: bool) -> tuple[int, str]:
     *stream* lets it reach the terminal live.  ``--json`` turns streaming off:
     docker writes that log to stdout, which would land in the middle of the
     JSON document, so it is captured and only its tail survives a failure.
+
+    Group-killed, like every other docker spawn in the tree: a plain
+    ``subprocess.run`` timeout or a Ctrl+C SIGKILLs only the docker CLI and
+    leaves the build it started holding a build slot under the daemon, so the
+    next ``rebrew toolchain build`` of the same image races it.
     """
     argv = [container_runtime(), "build", "-t", tag, str(context)]
     if stream:
-        proc = subprocess.run(argv, timeout=_DOCKER_BUILD_TIMEOUT_S)
-        return proc.returncode, ""
-    r = subprocess.run(
+        r = run_process_group(argv, timeout=_DOCKER_BUILD_TIMEOUT_S)
+        return r.returncode, ""
+    r = run_process_group(
         argv,
         capture_output=True,
         text=True,
-        encoding="utf-8",
-        errors="replace",
         timeout=_DOCKER_BUILD_TIMEOUT_S,
     )
     return r.returncode, (r.stdout + r.stderr)[-_BUILD_LOG_TAIL:].strip()

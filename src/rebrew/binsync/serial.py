@@ -21,13 +21,12 @@ from __future__ import annotations
 
 import logging
 import re
-import subprocess
 from pathlib import Path
 from typing import Any
 
 import tomlkit
 
-from rebrew.binsync.git import git_argv
+from rebrew.binsync.git import run_git
 
 log = logging.getLogger(__name__)
 
@@ -220,17 +219,6 @@ def write_metadata(state_dir: Path, *, user: str, version: str = REBREW_STATE_VE
 
 def state_user(state_dir: Path) -> str:
     """``git config user.name`` for *state_dir*, else ``"rebrew"``."""
-    try:
-        result = subprocess.run(
-            git_argv(state_dir, "config", "user.name"),
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=10,
-        )
-    except (OSError, subprocess.SubprocessError):
-        log.debug("git user.name lookup failed", exc_info=True)
-        return "rebrew"
+    result = run_git(state_dir, "config", "user.name", timeout=10)
     name = result.stdout.strip()
     return name if result.returncode == 0 and name else "rebrew"

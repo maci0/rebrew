@@ -2,10 +2,11 @@
 
 The BinSync envelope commands (``init``, ``export``, ``cli``) and the state
 serializer (:mod:`rebrew.binsync.serial`) all drive git the same way, and all
-of them must: every invocation goes through :func:`git_argv`, which neutralizes
-the repo-local settings that execute a program.  Those helpers live here, below
-the command modules, so :mod:`rebrew.binsync.serial` can reach them without
-importing a Typer command.
+of them must: every invocation goes through :func:`run_git`, which runs the
+argv from :func:`git_argv` (neutralizing the repo-local settings that execute a
+program) in its own process group and kills the group on timeout.  Those
+helpers live here, below the command modules, so :mod:`rebrew.binsync.serial`
+can reach them without importing a Typer command.
 """
 
 from __future__ import annotations
@@ -13,6 +14,8 @@ from __future__ import annotations
 import logging
 import subprocess
 from pathlib import Path
+
+from rebrew.utils import run_process_group
 
 log = logging.getLogger(__name__)
 
@@ -51,17 +54,23 @@ def git_argv(directory: Path, *args: str) -> list[str]:
     return cmd
 
 
-def run_git(directory: Path, *args: str) -> subprocess.CompletedProcess[str]:
-    """Run ``git -C directory <args>`` without raising on a non-zero exit."""
+def run_git(
+    directory: Path, *args: str, timeout: float = _GIT_TIMEOUT
+) -> subprocess.CompletedProcess[str]:
+    """Run ``git -C directory <args>`` without raising on a non-zero exit.
+
+    Group-killed: a ``push``/``pull`` over ssh spawns an ``ssh`` child, and a
+    plain ``subprocess.run`` timeout SIGKILLs only ``git`` itself, so the ssh
+    transport (and the remote session it holds) outlives the call.  A failure
+    to spawn, run, or finish comes back as a nonzero ``CompletedProcess``.
+    """
     argv = git_argv(directory, *args)
     try:
-        return subprocess.run(
+        return run_process_group(
             argv,
             capture_output=True,
             text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=_GIT_TIMEOUT,
+            timeout=timeout,
         )
     except FileNotFoundError:
         return subprocess.CompletedProcess(argv, 127, "", "git not found")

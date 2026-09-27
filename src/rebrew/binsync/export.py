@@ -25,7 +25,6 @@ from __future__ import annotations
 import datetime
 import logging
 import re
-import subprocess
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
@@ -35,7 +34,7 @@ import typer
 
 from rebrew.annotation import span_contains_factory
 from rebrew.binsync import serial
-from rebrew.binsync.git import git_argv
+from rebrew.binsync.git import run_git
 from rebrew.c_parser import type_from_declaration
 from rebrew.catalog import scan_reversed_dir
 from rebrew.cli import TargetOption, console, error_exit, json_print, require_config, run_standalone
@@ -718,76 +717,43 @@ def _git_commit_state_dir(state_dir: Path, target: str) -> str | None:
             f"[yellow]warning:[/yellow] {state_dir} is not a git repository — skipping git commit"
         )
         return None
-    try:
-        subprocess.run(["git", "--version"], capture_output=True, check=False, timeout=5)
-    except (OSError, subprocess.SubprocessError):
+    probe = run_git(state_dir, "--version", timeout=5)
+    if probe.returncode == 127:
         console.print("[yellow]warning:[/yellow] git not found — skipping commit")
         return None
 
-    try:
-        result = subprocess.run(
-            git_argv(state_dir, "add", "-A"),
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=15,
-        )
-        if result.returncode != 0:
-            console.print(f"[yellow]warning:[/yellow] git add failed: {result.stderr.strip()}")
-            return None
+    result = run_git(state_dir, "add", "-A", timeout=15)
+    if result.returncode != 0:
+        console.print(f"[yellow]warning:[/yellow] git add failed: {result.stderr.strip()}")
+        return None
 
-        status = subprocess.run(
-            git_argv(state_dir, "status", "--porcelain"),
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=10,
-        )
-        if status.returncode == 0 and not status.stdout.strip():
+    status = run_git(state_dir, "status", "--porcelain", timeout=10)
+    if status.returncode == 0 and not status.stdout.strip():
+        console.print("[dim]No changes to commit.[/dim]")
+        return None
+
+    utc = datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds")
+    msg = f"rebrew binsync-export: {target} @ {utc}"
+    commit = run_git(state_dir, "commit", "-m", msg, timeout=15)
+    if commit.returncode != 0:
+        # Empty commit (nothing changed) is not an error
+        if (
+            "nothing to commit" in commit.stdout.lower()
+            or "nothing to commit" in commit.stderr.lower()
+        ):
             console.print("[dim]No changes to commit.[/dim]")
             return None
-
-        utc = datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds")
-        msg = f"rebrew binsync-export: {target} @ {utc}"
-        commit = subprocess.run(
-            git_argv(state_dir, "commit", "-m", msg),
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=15,
-        )
-        if commit.returncode != 0:
-            # Empty commit (nothing changed) is not an error
-            if (
-                "nothing to commit" in commit.stdout.lower()
-                or "nothing to commit" in commit.stderr.lower()
-            ):
-                console.print("[dim]No changes to commit.[/dim]")
-                return None
-            console.print(f"[yellow]warning:[/yellow] git commit failed: {commit.stderr.strip()}")
-            return None
-
-        # Try to get the new hash
-        rev = subprocess.run(
-            git_argv(state_dir, "rev-parse", "HEAD"),
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=10,
-        )
-        commit_hash = rev.stdout.strip() if rev.returncode == 0 else None
-        if commit_hash:
-            console.print(f"[green]Committed[/green] {commit_hash[:8]} — {msg}")
-        else:
-            console.print(f"[green]Committed[/green] — {msg}")
-        return commit_hash
-    except (OSError, subprocess.SubprocessError) as exc:
-        console.print(f"[yellow]warning:[/yellow] git commit failed: {exc}")
+        console.print(f"[yellow]warning:[/yellow] git commit failed: {commit.stderr.strip()}")
         return None
+
+    # Try to get the new hash
+    rev = run_git(state_dir, "rev-parse", "HEAD", timeout=10)
+    commit_hash = rev.stdout.strip() if rev.returncode == 0 else None
+    if commit_hash:
+        console.print(f"[green]Committed[/green] {commit_hash[:8]} — {msg}")
+    else:
+        console.print(f"[green]Committed[/green] — {msg}")
+    return commit_hash
 
 
 # ---------------------------------------------------------------------------

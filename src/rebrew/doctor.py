@@ -1513,8 +1513,6 @@ def check_binsync_state(cfg: ProjectConfig) -> CheckResult:
     non-git dir (the plugin workflow expects a git-versioned state), or a
     stale dir (nothing committed recently — the plugin is not relaying).
     """
-    import subprocess
-
     state = getattr(cfg, "binsync_state_dir", "") or ""
     if not state:
         return CheckResult(
@@ -1584,19 +1582,12 @@ def check_binsync_state(cfg: ProjectConfig) -> CheckResult:
     # collaborator) is not relaying — Ghidra will never see the export.
     last: datetime | None = None
     try:
-        from rebrew.binsync.git import git_argv
+        from rebrew.binsync.git import run_git
 
-        proc = subprocess.run(
-            git_argv(state_path, "log", "-1", "--format=%ct"),
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=10,
-        )
+        proc = run_git(state_path, "log", "-1", "--format=%ct", timeout=10)
         if proc.returncode == 0 and proc.stdout.strip():
             last = datetime.fromtimestamp(int(proc.stdout.strip()), tz=UTC)
-    except (ValueError, OverflowError, OSError, subprocess.TimeoutExpired):
+    except (ValueError, OverflowError):
         last = None
     if last is not None:
         # Absolute elapsed time between UTC instants: DST on the host cannot

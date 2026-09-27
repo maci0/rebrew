@@ -8,8 +8,10 @@ BinSync's Client resolves.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
+import time
 from pathlib import Path
 from typing import Any
 
@@ -202,3 +204,49 @@ class TestGitExecOverrides:
         commit = run_git(state, "commit", "-q", "-m", "m")
         assert commit.returncode == 0, commit.stderr
         assert not marker.exists()
+
+
+class TestRunGitProcessGroup:
+    """run_git kills the whole process group: an ``ssh`` transport spawned by
+    a push/pull would otherwise outlive the timed-out call."""
+
+    def test_group_killed_on_timeout(self, tmp_path: Path, monkeypatch) -> None:
+        import rebrew.binsync.git as git_mod
+
+        seen: dict[str, object] = {}
+
+        def _run(argv, **kwargs):  # type: ignore[no-untyped-def]
+            seen["argv"] = argv
+            seen["kwargs"] = kwargs
+            raise subprocess.TimeoutExpired(cmd=argv, timeout=kwargs["timeout"])
+
+        monkeypatch.setattr(git_mod, "run_process_group", _run)
+        result = run_git(tmp_path, "push", "origin", "binsync/user")
+        assert seen["argv"] == git_argv(tmp_path, "push", "origin", "binsync/user")
+        assert seen["kwargs"]["timeout"] == 30
+        # A timeout comes back as a nonzero result, never an exception.
+        assert result.returncode != 0
+
+    def test_real_timeout_does_not_leave_the_child(self, tmp_path: Path, monkeypatch) -> None:
+        """The end-to-end shape: a git that forks a long-lived grandchild has
+        both gone by the time run_git returns."""
+        pid_file = tmp_path / "grandchild.pid"
+        fake = tmp_path / "bin"
+        fake.mkdir()
+        script = fake / "git"
+        script.write_text(
+            "#!/bin/sh\nsleep 30 &\necho $! > " + str(pid_file) + "\nwait\n",
+            encoding="utf-8",
+        )
+        script.chmod(0o755)
+        monkeypatch.setenv("PATH", f"{fake}{os.pathsep}{os.environ['PATH']}")
+
+        state = tmp_path / "state"
+        state.mkdir()
+        result = run_git(state, "--version", timeout=2)
+        assert result.returncode != 0
+        grandchild = int(pid_file.read_text(encoding="utf-8").strip())
+        with pytest.raises(OSError):
+            for _ in range(50):
+                os.kill(grandchild, 0)
+                time.sleep(0.1)

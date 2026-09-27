@@ -1941,3 +1941,49 @@ class TestDockerAvailableCache:
         # Positive hit is memoized — no third inspect.
         assert tc.docker_available() is True
         assert calls["n"] == 2
+
+
+class TestDockerBuildProcessGroup:
+    """`rebrew toolchain build` runs `docker build` in its own process group:
+    a plain `subprocess.run` timeout or Ctrl+C SIGKILLs only the docker CLI and
+    leaves the daemon-side build holding a build slot."""
+
+    def test_build_uses_run_process_group(self, tmp_path: Path, monkeypatch) -> None:
+        import rebrew.toolchain_cli as cli
+
+        calls: list[dict[str, Any]] = []
+
+        def _run(argv, **kwargs):  # type: ignore[no-untyped-def]
+            calls.append({"argv": argv, "kwargs": kwargs})
+            return _FakeProc(0, "log line", "err line")
+
+        monkeypatch.setattr(cli, "run_process_group", _run)
+        monkeypatch.setattr(cli, "container_runtime", lambda: "docker")
+        rc, log = cli._docker_build("rebrew/msvc-6.0:6.0", tmp_path, stream=False)
+        assert rc == 0
+        assert log == "log lineerr line"
+        assert calls[0]["argv"] == [
+            "docker",
+            "build",
+            "-t",
+            "rebrew/msvc-6.0:6.0",
+            str(tmp_path),
+        ]
+        assert calls[0]["kwargs"]["timeout"] == cli._DOCKER_BUILD_TIMEOUT_S
+
+    def test_streaming_build_passes_no_timeout_kwarg_conflict(
+        self, tmp_path: Path, monkeypatch
+    ) -> None:
+        import rebrew.toolchain_cli as cli
+
+        calls: list[dict[str, Any]] = []
+
+        def _run(argv, **kwargs):  # type: ignore[no-untyped-def]
+            calls.append({"argv": argv, "kwargs": kwargs})
+            return _FakeProc(1, "", "")
+
+        monkeypatch.setattr(cli, "run_process_group", _run)
+        monkeypatch.setattr(cli, "container_runtime", lambda: "docker")
+        rc, log = cli._docker_build("rebrew/base:latest", tmp_path, stream=True)
+        assert (rc, log) == (1, "")
+        assert "capture_output" not in calls[0]["kwargs"]

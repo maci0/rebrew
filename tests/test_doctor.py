@@ -961,19 +961,13 @@ class TestCheckBinsyncState:
         with (
             patch.object(Path, "exists", lambda p: p == state / ".git" or exists(p)),
             patch(
-                "subprocess.run",
-                return_value=SimpleNamespace(returncode=0, stdout=timestamp),
+                "rebrew.binsync.git.run_process_group",
+                return_value=SimpleNamespace(returncode=0, stdout=timestamp, stderr=""),
             ) as run,
         ):
             result = self._check(tmp_path, binsync_state_dir=str(state))
-        run.assert_called_once_with(
-            git_argv(state, "log", "-1", "--format=%ct"),
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=10,
-        )
+        assert run.call_args.args[0] == git_argv(state, "log", "-1", "--format=%ct")
+        assert run.call_args.kwargs["timeout"] == 10
         assert result.status == status
         assert message in result.message
 
