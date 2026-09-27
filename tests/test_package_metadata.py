@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import ast
 import importlib
+import re
 import sys
 import tomllib
 from importlib.metadata import distribution
@@ -94,6 +95,21 @@ def _top_level_imports() -> set[str]:
     return found
 
 
+def _requirement_name(spec: str) -> str:
+    """The distribution name of one requirement specifier, lowercased."""
+    return re.split(r"[\s\[<>=!~@;]", spec, maxsplit=1)[0].strip().lower()
+
+
+def _unpinned(specs: list[str]) -> list[str]:
+    """Requirements a resolver can move without the manifest changing.
+
+    A version specifier is a floor; a direct reference (``name @ url``) pins
+    the artifact but says nothing about *which* revision of a moving VCS it
+    is, so those are returned too and checked separately.
+    """
+    return [s for s in specs if not any(op in s for op in ("==", ">=", "~=", "<", ">", "!="))]
+
+
 class TestDeclaredDependencies:
     def test_every_third_party_import_is_declared(self) -> None:
         """An import with no Requires-Dist line installs cleanly and fails at
@@ -124,6 +140,50 @@ class TestDeclaredDependencies:
             if not any(op in spec for op in ("==", ">=", "~=", "<", ">", "!="))
         ]
         assert not floored, f"unversioned runtime requirements: {floored}"
+
+    @pytest.mark.parametrize("extra", sorted(_pyproject()["project"]["optional-dependencies"]))
+    def test_extra_floors_are_present(self, extra: str) -> None:
+        """The extras ship in the wheel METADATA, so a bare name there resolves
+        without the floor the runtime list carries.  A package pulled by an
+        extra lands in the user's env under the same advisories."""
+        assert not _unpinned(_pyproject()["project"]["optional-dependencies"][extra]), (
+            f"unversioned requirements in the {extra} extra: "
+            f"{_unpinned(_pyproject()['project']['optional-dependencies'][extra])}"
+        )
+
+    @pytest.mark.parametrize("group", sorted(_pyproject()["dependency-groups"]))
+    def test_group_floors_are_present(self, group: str) -> None:
+        """A dev group is resolved by `uv sync` on every contributor machine
+        and in CI, so a bare name there is an unpinned advisory path too.
+
+        Two requirements are legitimately bare: a `[tool.uv.sources]` entry
+        pins the artifact itself, by path (the sibling ``resembl`` checkout)
+        or by a commit-pinned direct reference (``m2c``).  A name that
+        carries neither a version specifier nor a source is unpinned.
+        """
+        sources = _pyproject().get("tool", {}).get("uv", {}).get("sources", {})
+        assert isinstance(sources, dict)
+        unpinned = [
+            spec
+            for spec in _unpinned(_pyproject()["dependency-groups"][group])
+            if " @ " not in spec and _requirement_name(spec) not in sources
+        ]
+        assert not unpinned, f"unversioned requirements in the {group} group: {unpinned}"
+
+    def test_vcs_requirements_are_commit_pinned(self) -> None:
+        """A git requirement is the one dependency a lock can silently re-point
+        at a new commit: the URL survives, the content does not.  Every
+        ``name @ git+…`` therefore ends in a full commit, never a branch, tag,
+        or short SHA (uv resolves those on every sync)."""
+        specs: list[str] = []
+        for group in _pyproject()["dependency-groups"].values():
+            specs.extend(group)
+        for extra in _pyproject()["project"]["optional-dependencies"].values():
+            specs.extend(extra)
+        floating = [
+            spec for spec in specs if " @ git+" in spec and not re.search(r"@[0-9a-f]{40}$", spec)
+        ]
+        assert not floating, f"git requirements not pinned to a commit: {floating}"
 
 
 class TestDeclaredScripts:
