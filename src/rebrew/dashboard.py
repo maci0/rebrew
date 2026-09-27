@@ -514,14 +514,14 @@ function setModuleOptions(byModule) {
 function setListPageMessage(opts) {
   const { count, total, noun, nounOne, hintId, moreWrapId, moreBtnId, tip, tipCapped } = opts;
   const hint = $(hintId);
-  const more = $(moreWrapId);
+  const more = moreWrapId ? $(moreWrapId) : null;  // null: sections is unpaged
   if (!total) {
     // Nothing on screen, so say whether rows were wanted at all: "No
     // functions match" is a claim about the filters, not about the target.
     $("results-status").textContent = "No " + noun + (filtersActive() ? " match" : " yet");
     hint.hidden = true;
     hint.textContent = "";
-    more.hidden = true;
+    if (more) more.hidden = true;
     return;
   }
   if (count < total) {
@@ -540,7 +540,7 @@ function setListPageMessage(opts) {
     $("results-status").textContent = count + " " + (count === 1 ? nounOne : noun) + " shown";
     hint.textContent = "Showing " + (count === 1 ? ("1 " + nounOne) : (count + " " + noun));
     hint.hidden = false;
-    more.hidden = true;
+    if (more) more.hidden = true;
   }
 }
 // Drop a list's rows, count hint, and Show more bar before a fresh (non-append)
@@ -646,7 +646,7 @@ async function loadFunctions(options) {
     $("results").hidden = loadedCount === 0;
     $("empty-state").hidden = true;
     $("show-more-wrap").hidden = true;
-    $("results-hint").hidden = true;
+    if (!grow) $("results-hint").hidden = true;
     if (grow && loadedCount > 0) {
       setLoadError("functions", "Could not load more functions" + reason(error) + ". The rows already shown are unchanged; use Retry functions to fetch the next page again.");
     } else {
@@ -762,19 +762,17 @@ function renderSections(data) {
   body.innerHTML = rows.map(sectionRowHtml).join("");
   $("sections-empty").hidden = rows.length !== 0;
   $("sections-results").hidden = rows.length === 0;
-  const hint = $("sections-hint");
-  if (hint) {
-    if (rows.length > 0) {
-      hint.textContent = "Showing " + rows.length + " " + (rows.length === 1 ? "section" : "sections");
-      hint.hidden = false;
-    } else {
-      hint.textContent = "";
-      hint.hidden = true;
-    }
-  }
-  $("results-status").textContent = rows.length
-    ? rows.length + " section" + (rows.length === 1 ? "" : "s")
-    : "No sections";
+  // Unpaged, so the shared message counts the rows as the whole list.
+  setListPageMessage({
+    count: rows.length,
+    total: rows.length,
+    noun: "sections",
+    nounOne: "section",
+    hintId: "sections-hint",
+    moreWrapId: null,
+    tip: "",
+    tipCapped: "",
+  });
 }
 const globalRowHtml = (r) => {
   return "<tr><td class=va>" + esc(r[0] ?? "") + "</td><td>" + esc(r[1] || "")
@@ -883,7 +881,6 @@ async function loadGlobals(options) {
   updateFilterActions();
   $("globals-empty").hidden = true;
   if (!grow) resetList("globals-rows", "globals-hint", "globals-show-more-wrap");
-  else $("globals-hint").hidden = true;
   $("globals-results").hidden = false;
   try {
     setLoadError("view", "");
@@ -901,8 +898,8 @@ async function loadGlobals(options) {
     }
     $("globals-results").hidden = loadedGlobalsCount === 0;
     $("globals-empty").hidden = true;
-    $("globals-hint").hidden = true;
     $("globals-show-more-wrap").hidden = true;
+    if (!grow) $("globals-hint").hidden = true;
     if (grow && loadedGlobalsCount > 0) {
       setLoadError("view", "Could not load more globals" + reason(error) + ". The rows already shown are unchanged; use Retry globals to fetch the next page again.");
     } else {
@@ -925,7 +922,6 @@ async function loadHistory(options) {
   });
   $("history-empty").hidden = true;
   if (!grow) resetList("history-rows", "history-hint", "history-show-more-wrap");
-  else $("history-hint").hidden = true;
   $("history-results").hidden = false;
   try {
     setLoadError("view", "");
@@ -943,8 +939,8 @@ async function loadHistory(options) {
     }
     $("history-results").hidden = loadedHistoryCount === 0;
     $("history-empty").hidden = true;
-    $("history-hint").hidden = true;
     $("history-show-more-wrap").hidden = true;
+    if (!grow) $("history-hint").hidden = true;
     if (grow && loadedHistoryCount > 0) {
       setLoadError("view", "Could not load more history" + reason(error) + ". The rows already shown are unchanged; use Retry history to fetch the next page again.");
     } else {
