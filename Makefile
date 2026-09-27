@@ -63,7 +63,7 @@ help:
 		'  make test               # full pytest suite (needs nasm on PATH)' \
 		'  make test-one T=<node>  # one file/nodeid, e.g. T=tests/test_foo.py::TestBar (nasm optional)' \
 		'  make coverage           # full suite under slipcover with the COV_FLOOR fail-under gate' \
-		'  make lint               # ruff check src/ tests/ tools/' \
+		'  make lint               # ruff check .' \
 		'  make format             # ruff format (writes)' \
 		'  make format-check       # ruff format --check' \
 		'  make mypy               # mypy (matches CI lint job)' \
@@ -222,11 +222,17 @@ coverage: ensure-nasm ensure-uv
 	NO_COLOR=1 TERM=dumb _TYPER_FORCE_DISABLE_TERMINAL=1 \
 		uv run --frozen python -m slipcover --fail-under $(COV_FLOOR) -m pytest tests/ -q --tb=short
 
-# Run linting
+# Run linting.  The path is `.` (ruff's default, the same scope the
+# pre-commit `ruff-check` hook resolves filenames against) rather than an
+# explicit src/ tests/ tools/ list: a new top-level Python script would
+# otherwise be invisible to the CI gate while the local hook still flagged it.
+# Gitignored scratch trees are excluded in [tool.ruff] extend-exclude.
 lint: ensure-uv
-	uv run --frozen ruff check src/ tests/ tools/
+	uv run --frozen ruff check .
 
-# Run formatting
+# Run formatting.  Scoped to the Python trees: `ruff format .` also rewrites
+# Python snippets inside docs/*.md, which the pre-commit ruff-format hook
+# (types: [python]) never sees, so the local hook and CI would disagree.
 format: ensure-uv
 	uv run --frozen ruff format src/ tests/ tools/
 

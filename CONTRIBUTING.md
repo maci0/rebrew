@@ -66,7 +66,7 @@ make clean                    # remove build/dist artifacts and caches
 make test-one T=tests/test_annotation.py  # single file / nodeid (fast edit-test loop; defaults to test_annotation.py)
 make test                     # full suite (a few minutes; needs nasm)
 make coverage                 # full suite under slipcover; fails below COV_FLOOR (CI test job, 3.13)
-make lint                     # ruff check src/ tests/ tools/
+make lint                     # ruff check .
 make format                   # ruff format (writes)
 make format-check             # ruff format --check
 make mypy                     # mypy type check (matches CI lint job)

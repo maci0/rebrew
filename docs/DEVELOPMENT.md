@@ -105,12 +105,11 @@ make setup                              # frozen lock + pre-commit/pre-push hook
                                         # make test, needs nasm; SKIP=pytest git push to skip)
 make test-one T=tests/test_annotation.py  # single file / pytest nodeid
 make test                               # full suite (ANSI-safe; same as CI)
-uv run --frozen ruff check src/ tests/ tools/    # lint
+uv run --frozen ruff check .                # lint (same scope as the pre-commit hook)
 uv run --frozen ruff format --check src/ tests/ tools/
 uv run --frozen mypy                             # type check (0 issues expected; strict,
-                                        # covers src/rebrew + tools + the two non-test_
-                                        # tests/ helpers + the leaf test modules that have
-                                        # come clean; the rest of tests/ is not yet clean)
+                                        # covers src/rebrew + tools + every tests/ module
+                                        # that has come clean; the rest is not yet clean)
 uv run --frozen pre-commit run --all-files       # 14 of 16 hooks — pytest (pre-push) and
                                         # validate-skill-commands (manual) are stage-gated
 make all                                # local mirror of CI lint + test + cli-contract
