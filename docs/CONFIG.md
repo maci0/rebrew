@@ -553,7 +553,7 @@ rebrew cfg path                                 # print path to config file
 
 # See which value actually won, not what the file says
 rebrew cfg effective                            # resolved values, api_key redacted
-rebrew cfg effective --json                     # + names of env vars that overrode TOML
+rebrew cfg effective --json                     # + names of REBREW_* env vars present
 ```
 
 `cfg show` / `cfg raw` echo `rebrew-project.toml`. `cfg effective` resolves it
