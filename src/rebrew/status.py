@@ -576,7 +576,9 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
             annotated = 0
         inventory = size_by_va.get(va, 0)
         size = (inventory or annotated) if va in library_vas else (annotated or inventory)
-        return clip_span(starts, va, size)
+        # A negative SIZE is truthy, so it would win the selection above and
+        # then move matched_bytes the wrong way.
+        return clip_span(starts, va, max(size, 0))
 
     matched_bytes = 0
     unmatched_bytes = 0

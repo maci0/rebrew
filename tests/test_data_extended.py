@@ -664,9 +664,10 @@ class TestSectionSummary:
         enrich_with_sections(scan, sections)
         rows = section_summary(scan, sections)
         data_row = next(r for r in rows if r["name"] == ".data")
-        # char[24] → 24 annotated bytes; section size 0x100 → 9.375 → 9.4%.
+        # char[24] → 24 annotated bytes; section size 0x100 → 9.375 → 9.3%
+        # (coverage floors, like every other progress figure).
         assert data_row["annotated_bytes"] == 24
-        assert data_row["coverage_pct"] == 9.4
+        assert data_row["coverage_pct"] == 9.3
 
     def test_unaddressed_declaration_is_not_a_section(self, tmp_path: Path) -> None:
         """A link stand-in with no VA does not open an unknown section.
@@ -798,9 +799,9 @@ class TestRenderDispatchAndBss:
         buf = StringIO()
         render_summary(_console(buf), scan, sections)  # type: ignore[arg-type]
         out = buf.getvalue()
-        # One annotated int (4B) of a 256B .data section
+        # One annotated int (4B) of a 256B .data section → 1.5625, floored.
         assert "4B / 256B" in out
-        assert "1.6%" in out
+        assert "1.5%" in out
         assert "unknown" not in out
 
 

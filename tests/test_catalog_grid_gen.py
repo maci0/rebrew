@@ -7,6 +7,7 @@ from typing import Any
 
 from rebrew.annotation import Annotation
 from rebrew.catalog.grid import generate_data_json
+from rebrew.utils import floor_pct
 
 TEXT_VA = 0x1000
 TEXT_SIZE = 0x3000
@@ -330,7 +331,7 @@ class TestGenerateDataJsonGrid:
         # Function cells: fn_a 0x60 + fn_b 0x30 + fn_c 0x20 + fn_d 0x20 +
         # fn_o 0x40 + fn_e 0x20 = 0x130.
         assert s["coveredBytes"] == s["paddingBytes"] + s["dataBytes"] + s["thunkBytes"] + 0x130
-        assert s["coveragePercent"] == round(s["coveredBytes"] / TEXT_SIZE * 100.0, 2)
+        assert s["coveragePercent"] == floor_pct(s["coveredBytes"], TEXT_SIZE, 2)
         assert s["textSize"] == TEXT_SIZE
 
         # SHA-256 of each function body was computed from the blob.

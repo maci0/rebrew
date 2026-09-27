@@ -170,6 +170,27 @@ class TestBssVerification:
         assert len(report.gaps) == 0
         assert report.coverage_bytes == 12  # 3 ints
 
+    def test_bss_overlapping_globals_count_once(self) -> None:
+        """A struct and its first member, or an alias, cover their bytes once."""
+        scan = ScanResult(
+            globals={
+                "g_a": GlobalEntry(
+                    name="g_a",
+                    va=0x10030000,
+                    type_str="int[4]",
+                    declared_in=["a.c"],
+                    annotated=True,
+                ),
+                "g_b": GlobalEntry(
+                    name="g_b", va=0x10030004, type_str="int", declared_in=["b.c"], annotated=True
+                ),
+            }
+        )
+        sections = {".bss": {"va": 0x10030000, "size": 0x100}}
+        report = verify_bss_layout(scan, sections)
+        assert report.coverage_bytes == 16  # not 20
+        assert report.coverage_pct == 6.2  # 16 of 256, floored
+
     def test_bss_with_gap(self) -> None:
         """Should detect gap between non-contiguous globals."""
         scan = ScanResult(

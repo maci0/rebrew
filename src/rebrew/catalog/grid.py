@@ -25,6 +25,7 @@ from rebrew.sections import (
     sections_from_info,
     trim_trailing_padding,
 )
+from rebrew.utils import floor_pct, merged_span_bytes
 from rebrew.workspace.status import MATCHED_STATUSES
 
 log = logging.getLogger(__name__)
@@ -103,27 +104,7 @@ def covered_bytes(
         ranges.append((va, va + canonical))
     if not ranges:
         return 0
-    if section is not None:
-        section_va, section_size = section
-        limit = section_va + section_size
-        clipped = [
-            (max(start, section_va), min(end, limit))
-            for start, end in ranges
-            if min(end, limit) > max(start, section_va)
-        ]
-        if not clipped:
-            return 0
-        ranges = clipped
-    ranges.sort()
-    total = 0
-    current_start, current_end = ranges[0]
-    for start, end in ranges[1:]:
-        if start <= current_end:
-            current_end = max(current_end, end)
-        else:
-            total += current_end - current_start
-            current_start, current_end = start, end
-    return total + (current_end - current_start)
+    return merged_span_bytes(ranges, section)
 
 
 def _build_section_index(
@@ -743,7 +724,9 @@ def generate_data_json(
 
     # Coverage = all accounted-for bytes (functions + padding + data + thunks)
     adjusted_covered = func_cell_bytes + padding_bytes + data_bytes + thunk_bytes
-    adjusted_pct = (adjusted_covered / text_size * 100.0) if text_size else 0.0
+    # Floored, like every other coverage figure: to nearest, one unaccounted
+    # byte in a 150 KB .text reads 100.0% while the CLI beside it says 99.99.
+    adjusted_pct = floor_pct(adjusted_covered, text_size, 2)
 
     original_dll_path = ""
     if bin_path and root_dir:
