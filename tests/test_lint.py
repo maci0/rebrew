@@ -1,5 +1,6 @@
 """Tests for the rebrew annotation linter."""
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -336,6 +337,39 @@ class TestNoConfig:
         # The inline keys must remain untouched.
         assert "// STATUS:" in f.read_text()
         assert "// SIZE:" in f.read_text()
+
+    def test_bare_lint_without_config_exits_2(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """No project and no file list is a usage error, not an empty pass.
+
+        The fallback used to rglob the whole cwd, so `rebrew lint` outside a
+        project linted vendored trees and reported 0 files (exit 0) when there
+        were none."""
+        from typer.testing import CliRunner
+
+        from rebrew.lint import app
+
+        monkeypatch.chdir(tmp_path)  # no rebrew-project.toml here
+        result = CliRunner().invoke(app, [])
+        assert result.exit_code == 2
+        assert "rebrew-project.toml" in result.output
+        assert "rebrew lint path/to/file.c" in result.output
+
+    def test_bare_lint_without_config_json_envelope(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """--json keeps the {"error", "code"} contract on this path too."""
+        from typer.testing import CliRunner
+
+        from rebrew.lint import app
+
+        monkeypatch.chdir(tmp_path)
+        result = CliRunner().invoke(app, ["--json"])
+        assert result.exit_code == 2
+        payload = json.loads(result.output)
+        assert payload["code"] == 2
+        assert "rebrew-project.toml" in payload["error"]
 
 
 class TestVAHexCase:
