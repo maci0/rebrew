@@ -35,7 +35,9 @@ component whose grant nobody recorded, fails the build instead of shipping a
 BOM that reads to a scanner as a clean bill of health), writes
 `dist/rebrew.buildinfo`
 (project name and `__version__`, uv/python/`.python-version`/setuptools parsed
-from `pyproject.toml` + epoch knobs, the sha256 of `build-constraints.txt`, and
+from `pyproject.toml` + epoch knobs, the sha256 of `build-constraints.txt` and
+of `uv.lock` (the input the SBOM inventories and the smoke install resolves),
+the sha256 of the two artifacts the manifest ships beside, and
 the source commit and dirty flag), and installs the
 wheel into a clean venv for a smoke import through `make smoke-wheel` — the
 Makefile owns that recipe, the same way it owns the build, so the CI and

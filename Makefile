@@ -367,8 +367,17 @@ clean:
 # into the wheel, so residue from an aborted or bare `uv build` would ship.
 # After the build, remove setuptools' in-tree egg-info / build/ residue and
 # record a buildinfo manifest (project version, toolchain, SOURCE_DATE_EPOCH,
-# the sha256 of build-constraints.txt, source commit) next to the
-# artifacts so a rebuild can be attempted with the same environment knobs.
+# the sha256 of build-constraints.txt and of uv.lock, the sha256 of both
+# artifacts, the source commit and the dirty flag) next to the artifacts so a
+# rebuild can be attempted with the same environment knobs.
+# uv.lock is recorded because the rest of the shipped set is derived from it
+# (`make sbom` inventories it, `make smoke-wheel` installs from it), and the
+# two artifact hashes because the manifest travels beside the files it
+# describes: without them nothing binds the provenance to those exact bytes.
+# They are computed after normalize_sdist.py, which is what produces them.
+# An uncommitted change warns rather than fails: the artifacts are still
+# valid, but they do not correspond to source-commit, and `make build-repro`
+# compares against HEAD, so the next gate would fail on this tree.
 # The recipe below refuses to record a version dist/ does not actually carry:
 # a stale build cache would otherwise ship rebrew-<old>-*.whl beside a
 # manifest naming the new one, and every dist/ consumer finds files by name.
@@ -407,11 +416,21 @@ build: warn-uv-version
 	[ -f "$$1" ] || { echo "ERROR: no dist/rebrew-$$ver-*.whl in dist/ (found: $$(ls -1 dist))"; exit 1; }; \
 	[ -f "dist/rebrew-$$ver.tar.gz" ] || { echo "ERROR: no dist/rebrew-$$ver.tar.gz in dist/ (found: $$(ls -1 dist))"; exit 1; }; \
 	if command -v sha256sum >/dev/null 2>&1; then \
-	  bsum=$$(sha256sum build-constraints.txt | cut -d' ' -f1); \
+	  sha() { sha256sum "$$1" | cut -d' ' -f1; }; \
 	elif command -v shasum >/dev/null 2>&1; then \
-	  bsum=$$(shasum -a 256 build-constraints.txt | cut -d' ' -f1); \
+	  sha() { shasum -a 256 "$$1" | cut -d' ' -f1; }; \
 	else \
-	  echo "ERROR: no sha256sum or shasum on PATH (cannot record the build-backend pin)"; exit 1; \
+	  echo "ERROR: no sha256sum or shasum on PATH (cannot record the build provenance)"; exit 1; \
+	fi; \
+	bsum=$$(sha build-constraints.txt); \
+	lksum=$$(sha uv.lock); \
+	wheelsum=$$(sha "$$1"); \
+	sdistsum=$$(sha "dist/rebrew-$$ver.tar.gz"); \
+	dirty=$$(if git rev-parse --git-dir >/dev/null 2>&1; then \
+	  if [ -n "$$(git status --porcelain)" ]; then echo yes; else echo no; fi; \
+	  else echo n/a; fi); \
+	if [ "$$dirty" = yes ]; then \
+	  echo "WARNING: uncommitted changes; dist/ does not match source-commit=$$(git rev-parse HEAD) and 'make build-repro' rebuilds from HEAD." >&2; \
 	fi; \
 	{ \
 	  echo "name=rebrew"; \
@@ -426,8 +445,11 @@ build: warn-uv-version
 	  echo "python-version=$$(cat .python-version)"; \
 	  echo "setuptools=$$st"; \
 	  echo "build-constraints-sha256=$$bsum"; \
+	  echo "uv-lock-sha256=$$lksum"; \
+	  echo "wheel-sha256=$$wheelsum"; \
+	  echo "sdist-sha256=$$sdistsum"; \
 	  echo "source-commit=$$(git rev-parse HEAD 2>/dev/null || echo n/a)"; \
-	  echo "source-dirty=$$(if ! git rev-parse --git-dir >/dev/null 2>&1; then echo n/a; elif [ -n "$$(git status --porcelain)" ]; then echo yes; else echo no; fi)"; \
+	  echo "source-dirty=$$dirty"; \
 	} > dist/rebrew.buildinfo
 
 # Prove the wheel and the sdist are byte-reproducible from a second source

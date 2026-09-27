@@ -836,6 +836,18 @@
   taking `**kwargs` satisfies both. The quickstart now carries the fake, the
   fields on `RecompileError`, and the `retries=` / `timeout=` knobs.
 
+- **`dist/rebrew.buildinfo` names the artifacts it ships beside, and the lock
+  they were cut with.** The manifest recorded the build-backend pin, the
+  environment knobs, and the commit, but neither `uv.lock` (the input
+  `make sbom` inventories and `make smoke-wheel` installs from) nor the sha256
+  of the wheel and sdist, so nothing bound the provenance to those exact
+  bytes. `uv-lock-sha256=`, `wheel-sha256=` and `sdist-sha256=` are recorded
+  after `tools/normalize_sdist.py` rewrites both archives, and the package job
+  asserts the lines on the artifact it uploads. `make build` also warns when
+  the tree has uncommitted changes: the artifacts are valid but match no
+  commit, and `make build-repro` rebuilds `HEAD`, so the gate that would have
+  said so comes later.
+
 ## [2.14.0] - 2026-09-27
 
 ### Added

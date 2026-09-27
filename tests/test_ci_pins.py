@@ -828,6 +828,55 @@ class TestCiPins:
         assert "source-commit=" in text
         assert "source-dirty=" in text
 
+    def test_buildinfo_records_the_artifacts_and_the_lock_it_ships_with(self) -> None:
+        """The manifest must name the bytes beside it, not only the knobs.
+
+        ``dist/rebrew.buildinfo`` travels with the wheel, the sdist and the
+        SBOM.  It recorded the build-backend pin but neither ``uv.lock`` (the
+        input the SBOM inventories and the smoke install resolves) nor the
+        sha256 of the two archives, so a consumer holding the artifacts could
+        not tell whether the provenance described them, and a rebuild attempt
+        had no lock to reproduce the dependency set from.
+        """
+        text = MAKEFILE.read_text(encoding="utf-8")
+        for key in ("uv-lock-sha256=", "wheel-sha256=", "sdist-sha256="):
+            assert f'echo "{key}' in text, key
+        assert "lksum=$$(sha uv.lock)" in text
+        # The hashes must be taken after normalize_sdist.py rewrites both
+        # archives, or the manifest describes bytes that never shipped.
+        normalize = text.index("tools/normalize_sdist.py dist/*.tar.gz dist/*.whl")
+        assert normalize < text.index("wheelsum=$$(sha")
+        assert normalize < text.index("sdistsum=$$(sha")
+        # CI's package job asserts the same lines on the artifact it uploads.
+        package_job = CI_YML.read_text(encoding="utf-8")
+        for key in ("wheel-sha256=", "sdist-sha256=", "uv-lock-sha256="):
+            assert f"grep -q '^{key}' dist/rebrew.buildinfo" in package_job, key
+
+    def test_build_warns_on_an_uncommitted_tree(self) -> None:
+        """Artifacts from a dirty tree match no commit, and build-repro says so.
+
+        ``source-dirty=`` recorded the fact and nothing read it, so a build
+        from uncommitted edits produced a dist/ whose provenance named a commit
+        it was not built from, and the failure surfaced later as an unrelated
+        reproducibility mismatch.
+        """
+        build = MAKEFILE.read_text(encoding="utf-8")
+        build = build.split("\nbuild: warn-uv-version\n", 1)[1].split("\n# Prove the wheel", 1)[0]
+        lines = build.splitlines()
+        warn = next(line for line in lines if "uncommitted changes" in line)
+        guard = next(line for line in lines if line.strip().startswith("dirty="))
+        # A `git archive` copy has no .git, so the guard must resolve to n/a
+        # rather than warn (or fail) on every `make build-repro` rebuild.
+        assert "git rev-parse --git-dir" in guard
+        assert "git status --porcelain" in lines[lines.index(guard) + 1]
+        assert "echo n/a" in lines[lines.index(guard) + 2]
+        assert lines.index(guard) < lines.index(warn)
+        assert 'if [ "$$dirty" = yes ]' in lines[lines.index(warn) - 1]
+        assert "build-repro" in warn
+        # One `git status` call feeds both the warning and the manifest line.
+        assert 'echo "source-dirty=$$dirty"' in build
+        assert build.count("git status --porcelain") == 1
+
     def test_buildinfo_setuptools_matches_pyproject_pin(self) -> None:
         """Static contract: Makefile sed pattern matches the exact pyproject pin."""
         import tomllib

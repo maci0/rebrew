@@ -217,6 +217,11 @@ jobs:
           test -f dist/rebrew.buildinfo
           grep -q "^SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH}$" dist/rebrew.buildinfo
           grep -q '^setuptools=' dist/rebrew.buildinfo
+          # The manifest must name the bytes it ships beside, or nothing binds
+          # the provenance to those artifacts.
+          grep -q '^wheel-sha256=' dist/rebrew.buildinfo
+          grep -q '^sdist-sha256=' dist/rebrew.buildinfo
+          grep -q '^uv-lock-sha256=' dist/rebrew.buildinfo
           ls -la dist/
       - name: Verify wheel and sdist reproducibility (second build, other path)
         # Rebuild the same commit with `make build` from a `git archive` copy
