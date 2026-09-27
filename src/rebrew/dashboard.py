@@ -90,6 +90,10 @@ that guard is a same-origin asset rather than an ``onerror`` attribute.  JSON
 uses compact separators; function/global/history/section rows are arrays under
 ``cols``.  The handler speaks HTTP/1.1 so browsers reuse one TCP connection for
 the shell, ``/app.js``, bootstrap payload, and later filter fetches.
+Every non-entry 200 carries ``Server-Timing: route;dur=<ms>`` so the browser's
+Network panel separates query time from transfer time; the three entry assets
+omit it, since their cold flight is budgeted against the initial congestion
+window and the value is a constant there.
 
 The query layer (``Dashboard``) is separated from the HTTP plumbing so tests
 exercise it without opening a socket.
@@ -2432,6 +2436,7 @@ class _Handler(BaseHTTPRequestHandler):
         # keep_blank_values: a present ``module=`` filters blank modules.
         query = parse_qs(parsed.query, keep_blank_values=True)
         logged_error = False
+        route_started = time.perf_counter()
         try:
             # The target probe queries SQLite, so it shares the 500 guard below.
             if (
@@ -2489,12 +2494,14 @@ class _Handler(BaseHTTPRequestHandler):
 
         body_bytes = body.encode("utf-8")
         encoding: _WireEncoding | None = None
+        entry_asset = False
         if status == 200:
             # Shell HTML and the static clients are immutable for a given
             # process: serve the import-time zstd/gzip blobs instead of
             # recompressing every request.
             accept = self.headers.get("Accept-Encoding", "")
             if body is _INDEX_HTML:
+                entry_asset = True
                 body_bytes, encoding = _precompressed_static(
                     accept,
                     zstd_blob=_INDEX_HTML_ZSTD,
@@ -2502,6 +2509,7 @@ class _Handler(BaseHTTPRequestHandler):
                     raw=_INDEX_HTML_BYTES,
                 )
             elif body is _APP_JS:
+                entry_asset = True
                 body_bytes, encoding = _precompressed_static(
                     accept,
                     zstd_blob=_APP_JS_ZSTD,
@@ -2509,6 +2517,7 @@ class _Handler(BaseHTTPRequestHandler):
                     raw=_APP_JS_BYTES,
                 )
             elif body is _BOOT_GUARD_JS:
+                entry_asset = True
                 body_bytes, encoding = _precompressed_static(
                     accept,
                     zstd_blob=_BOOT_GUARD_JS_ZSTD,
@@ -2532,6 +2541,13 @@ class _Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Encoding", encoding)
         if status == 200:
             self.send_header("Vary", "Accept-Encoding")
+            if not entry_asset:
+                # Route cost, so the Network panel separates the query from
+                # the transfer.  The entry assets are excluded: their cold
+                # flight is budgeted against the initial congestion window
+                # and a constant reads the same in every request.
+                route_ms = (time.perf_counter() - route_started) * 1000.0
+                self.send_header("Server-Timing", f"route;dur={route_ms:.1f}")
         self._write_security_headers(
             cache_control=(
                 _success_cache_control(parsed.path, query) if status == 200 else "no-store"
