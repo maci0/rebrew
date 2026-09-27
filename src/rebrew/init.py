@@ -6,6 +6,8 @@ Usage:
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import re
 import shutil
@@ -72,6 +74,11 @@ _AGENTS_MD_TEMPLATE = Path(__file__).parent / "AGENTS.md.template"
 
 _AGENT_SKILLS_SRC = Path(__file__).parent / "agent-skills"
 _PRINCIPLES_SRC = Path(__file__).parent / "PRINCIPLES.md"
+
+# Records which files rebrew rendered into a project's .agents/skills, and the
+# digest of the bytes it wrote, so a later refresh can drop a file the packaged
+# tree no longer ships instead of leaving a stale skill on disk forever.
+_SCAFFOLD_MANIFEST = ".agents/skills/.rebrew-scaffold.json"
 
 
 def _warn_profile_family_mismatch(profile: str, tc: ToolchainInfo) -> None:
@@ -237,6 +244,82 @@ def _agent_skill_files(target_name: str) -> dict[str, bytes]:
     }
 
 
+def _file_digest(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def _load_scaffold_manifest(cwd: Path) -> dict[str, str]:
+    """Rendered-path -> digest of the bytes rebrew wrote, from the last render.
+
+    An unreadable or foreign manifest yields no entries, which leaves every
+    file on disk untouched rather than guessing what rebrew owns.
+    """
+    try:
+        data = json.loads((cwd / _SCAFFOLD_MANIFEST).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    files = data.get("files") if isinstance(data, dict) else None
+    if not isinstance(files, dict):
+        return {}
+    return {str(rel): str(digest) for rel, digest in files.items()}
+
+
+def _write_scaffold_manifest(cwd: Path, rendered: dict[str, bytes]) -> None:
+    """Record *rendered* (path relative to the project root -> bytes) as
+    rebrew-owned so the next refresh can prune what it no longer ships."""
+    payload = {
+        "version": 1,
+        "files": {rel: _file_digest(data) for rel, data in sorted(rendered.items())},
+    }
+    atomic_write_text(
+        cwd / _SCAFFOLD_MANIFEST, json.dumps(payload, indent=2, sort_keys=True) + "\n"
+    )
+
+
+def _stale_scaffold_files(
+    cwd: Path, expected: dict[str, bytes], manifest: dict[str, str]
+) -> list[tuple[str, str]]:
+    """Files a previous render left behind that this one no longer produces.
+
+    Only paths rebrew itself wrote are considered, and a file whose bytes
+    changed since (hand-edited) is reported, never deleted.
+    """
+    stale: list[tuple[str, str]] = []
+    for rel, digest in sorted(manifest.items()):
+        if rel in expected:
+            continue
+        # The manifest is an on-disk file in the project: an entry must stay
+        # inside it, or a tampered one could aim a delete outside.
+        rel_path = Path(rel)
+        if rel_path.is_absolute() or ".." in rel_path.parts:
+            continue
+        path = cwd / rel
+        if not path.is_file():
+            continue
+        reason = "stale" if _file_digest(path.read_bytes()) == digest else "stale-modified"
+        stale.append((rel, reason))
+    return stale
+
+
+def _prune_stale_scaffold(cwd: Path, stale: list[tuple[str, str]]) -> list[str]:
+    """Delete untouched stale scaffold files; keep (and return) edited ones."""
+    kept: list[str] = []
+    for rel, reason in stale:
+        if reason != "stale":
+            kept.append(rel)
+            continue
+        path = cwd / rel
+        path.unlink()
+        parent = path.parent
+        # Reap emptied skill directories, but keep .agents/ itself.
+        while parent != cwd and parent.name != ".agents" and parent.is_dir():
+            if any(parent.iterdir()):
+                break
+            parent.rmdir()
+            parent = parent.parent
+    return kept
+
+
 def _copy_agent_skills(dest: Path, target_name: str) -> None:
     """Write the packaged agent-skills into *dest*/.agents/skills (see
     :func:`_agent_skill_files`)."""
@@ -248,6 +331,7 @@ def _copy_agent_skills(dest: Path, target_name: str) -> None:
     dest_skills = dest / ".agents" / "skills"
     dest_root = dest_skills.resolve()
     written = 0
+    rendered: dict[str, bytes] = {}
     for rel, data in files.items():
         # User/community overlays (REBREW_SKILLS_DIR) feed this map: refuse
         # absolute paths and ``..`` components so a hostile skill tree cannot
@@ -262,7 +346,13 @@ def _copy_agent_skills(dest: Path, target_name: str) -> None:
             continue
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_bytes(data)
+        rendered[rel_path.as_posix()] = data
         written += 1
+
+    if rendered:
+        _write_scaffold_manifest(
+            dest, {f".agents/skills/{rel}": data for rel, data in rendered.items()}
+        )
 
     if written:
         console.print("[green]Created .agents/skills/[/] (AI workflow instructions)")
@@ -685,9 +775,12 @@ def _refresh_agents(cwd: Path, toml_path: Path, *, json_output: bool, check: boo
 
     Covers AGENTS.md, PRINCIPLES.md and .agents/skills/ from the packaged
     sources and the project's own profile, so a renamed toolchain, a template
-    change or a skill edit reaches projects already on disk.  Reads only the
-    config; never rewrites it.  With *check*, report drift and exit non-zero
-    instead of writing anything.
+    change or a skill edit reaches projects already on disk.  A skill file the
+    packaged tree no longer ships is pruned, so repeated refreshes converge on
+    the packaged set instead of accumulating stale skills; a file edited since
+    the last render is reported and kept.  Reads only the config; never
+    rewrites it.  With *check*, report drift and exit non-zero instead of
+    writing anything.
     """
     import tomllib
 
@@ -724,12 +817,16 @@ def _refresh_agents(cwd: Path, toml_path: Path, *, json_output: bool, check: boo
     for rel, data_bytes in _agent_skill_files(target_name).items():
         expected[f".agents/skills/{rel}"] = data_bytes
 
+    manifest = _load_scaffold_manifest(cwd)
+    stale = _stale_scaffold_files(cwd, expected, manifest)
+
     if check:
-        drift = [
+        drift: list[dict[str, str]] = [
             {"path": rel, "reason": "missing" if not (cwd / rel).is_file() else "differs"}
             for rel, want in expected.items()
             if not (cwd / rel).is_file() or (cwd / rel).read_bytes() != want
         ]
+        drift += [{"path": rel, "reason": reason} for rel, reason in stale]
         if json_output:
             json_print({"drift": drift, "count": len(drift)})
         elif drift:
@@ -748,10 +845,20 @@ def _refresh_agents(cwd: Path, toml_path: Path, *, json_output: bool, check: boo
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(data_bytes)
         written += 1
+    kept = _prune_stale_scaffold(cwd, stale)
+    for rel in kept:
+        console.print(
+            f"[yellow]warning:[/yellow] {rel} is no longer packaged and was edited; kept as is."
+        )
+    rendered = {rel: data for rel, data in expected.items() if rel.startswith(".agents/skills/")}
+    if rendered or manifest:
+        _write_scaffold_manifest(cwd, rendered)
     console.print(
         f"[green]Refreshed {written} scaffold file(s)[/] "
         f"(AGENTS.md, PRINCIPLES.md, .agents/skills/) for profile {compiler_profile}"
     )
+    if len(stale) - len(kept):
+        console.print(f"[green]Removed {len(stale) - len(kept)} stale skill file(s).[/]")
 
 
 def _render_agents_md(
