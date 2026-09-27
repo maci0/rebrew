@@ -77,7 +77,7 @@ GAME = "{cflags}"
 
 # Per-directory overrides — rebrew-libraries.toml at a library root can
 # declare toolchain + flags for a whole subtree; per-function TOOLCHAIN/CFLAGS
-# metadata wins.  See docs/TOOLCHAIN.md.
+# metadata wins.  See the rebrew repo's docs/TOOLCHAIN.md.
 # [compiler.profiles."clang-18.1.8"]
 # command = "clang"
 # includes = "/usr/include"

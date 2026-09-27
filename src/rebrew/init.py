@@ -1322,7 +1322,9 @@ def main(
         console.print(f"1. Copy your original binary to original/{binary_name}")
         console.print("2. Verify your compiler paths in rebrew-project.toml")
         console.print("3. Run 'rebrew todo' to get started!")
-        console.print("4. First time with rebrew? See docs/ONBOARDING.md for the walkthrough")
+        console.print(
+            "4. First time with rebrew? See the rebrew repo's docs/ONBOARDING.md for the walkthrough"
+        )
         if wizard_ran:
             console.print("5. Run 'rebrew doctor' to check project health and toolchain setup")
             console.print("6. Run 'rebrew intake original/<binary>' to onboard the binary")

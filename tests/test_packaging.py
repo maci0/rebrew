@@ -7,11 +7,13 @@ pins the metadata honesty rules that keep that artifact PyPI-safe.
 
 from __future__ import annotations
 
+import ast
 import os
 import re
 import subprocess
 import sys
 import tomllib
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -668,6 +670,52 @@ class TestPackagedDataFiles:
             if p.read_text(encoding="utf-8").startswith("#!")
         ]
         assert shebang_files == [], f"library modules have shebangs: {shebang_files}"
+
+
+class TestUserFacingDocPointers:
+    """``docs/`` is pruned from the sdist and never enters the wheel.
+
+    A message saying "see docs/TOOLCHAIN.md" names a file the installed
+    package does not carry, and a scaffolded project has no ``docs/`` either.
+    The packaged agent skills already qualify their pointers as "rebrew
+    repo ``docs/…``"; gate the same wording on every string a user can read.
+    """
+
+    _POINTER = re.compile(r"docs/[A-Za-z0-9_.-]+\.md")
+
+    @staticmethod
+    def _user_facing_strings(path: Path) -> Iterator[tuple[int, str]]:
+        """``(lineno, text)`` for every string literal that is not a docstring.
+
+        Comments never reach the AST and a docstring is always the child of a
+        bare ``Expr`` statement, so both contributor-facing forms drop out.
+        """
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        docstrings = {
+            id(child)
+            for parent in ast.walk(tree)
+            if isinstance(parent, ast.Expr)
+            for child in ast.iter_child_nodes(parent)
+        }
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Constant)
+                and isinstance(node.value, str)
+                and id(node) not in docstrings
+            ):
+                yield node.lineno, node.value
+
+    def test_console_doc_pointers_name_the_repo(self) -> None:
+        unqualified = [
+            f"{path.relative_to(ROOT)}:{lineno}"
+            for path in sorted(PKG.rglob("*.py"))
+            for lineno, text in self._user_facing_strings(path)
+            if self._POINTER.search(text) and "rebrew repo" not in text
+        ]
+        assert unqualified == [], (
+            "user-facing text points at a docs/ file the install does not ship; "
+            f'qualify it as "the rebrew repo\'s docs/…": {unqualified}'
+        )
 
 
 class TestSdistManifest:
