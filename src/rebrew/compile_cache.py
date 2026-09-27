@@ -58,7 +58,7 @@ import unicodedata
 from collections.abc import Callable, Iterator, Sequence
 from functools import lru_cache
 from pathlib import Path
-from typing import Protocol
+from typing import Any, Protocol
 
 import diskcache
 
@@ -103,8 +103,10 @@ _HEADER_SUFFIXES = frozenset({".h", ".hpp", ".hxx", ".inl", ".hh"})
 #: (1024-based), so the display unit is MiB, not the decimal MB.
 _BYTES_PER_MIB = 1024 * 1024
 
-# Default size limit: 500 MiB with LRU eviction when the limit is reached.
-_DEFAULT_SIZE_LIMIT = 500 * _BYTES_PER_MIB
+#: Default size limit: 500 MiB with LRU eviction when the limit is reached.
+#: Overridden per project by ``[cache] size_limit_mib`` in rebrew-project.toml.
+DEFAULT_CACHE_SIZE_LIMIT_MIB = 500
+_DEFAULT_SIZE_LIMIT = DEFAULT_CACHE_SIZE_LIMIT_MIB * _BYTES_PER_MIB
 
 
 class NoPickleDisk(diskcache.Disk):  # type: ignore[misc]
@@ -1132,7 +1134,7 @@ def compile_cache_key(
 # Module-level cache registry (avoids re-opening SQLite on every call)
 # ---------------------------------------------------------------------------
 
-_caches: dict[tuple[str, str], CacheBackend] = {}
+_caches: dict[tuple[str, str, int], CacheBackend] = {}
 _caches_lock = threading.Lock()
 #: Cap open backends so a long-lived process that touches many project roots
 #: does not retain every diskcache SQLite handle until atexit.
@@ -1142,16 +1144,27 @@ _CACHES_MAX = 8
 _CACHES_ATEXIT_REGISTERED = False
 
 
-def get_compile_cache(project_root: Path, backend: str = DEFAULT_CACHE_BACKEND) -> CacheBackend:
+def get_compile_cache(
+    project_root: Path,
+    backend: str = DEFAULT_CACHE_BACKEND,
+    size_limit: int = _DEFAULT_SIZE_LIMIT,
+) -> CacheBackend:
     """Return a shared cache instance for a project root and backend.
 
     The diskcache backend stores at ``{project_root}/.rebrew/compile_cache/``.
-    Multiple calls with the same ``(root, backend)`` return the same instance.
+    Multiple calls with the same ``(root, backend, size_limit)`` return the
+    same instance.
 
     Args:
         project_root: The project root (cache namespace).
         backend: Name of a registered cache backend (``[cache] backend`` in
             rebrew-project.toml; default ``diskcache``).
+        size_limit: On-disk cap in bytes; entries are LRU-evicted past it.
+            Comes from ``[cache] size_limit_mib`` (see
+            :attr:`rebrew.config.ProjectConfig.cache_size_limit`).  Part of
+            the instance key because the cap is fixed when the store opens —
+            a second caller asking for a different one gets its own handle
+            rather than silently sharing the first cap.
 
     Raises:
         ValueError: When *backend* is not a registered backend.
@@ -1163,7 +1176,7 @@ def get_compile_cache(project_root: Path, backend: str = DEFAULT_CACHE_BACKEND) 
             f"set [cache] backend in rebrew-project.toml"
         )
     cache_dir = str((project_root / ".rebrew" / "compile_cache").resolve())
-    key = (backend, cache_dir)
+    key = (backend, cache_dir, size_limit)
     with _caches_lock:
         existing = _caches.get(key)
         if existing is not None:
@@ -1179,12 +1192,26 @@ def get_compile_cache(project_root: Path, backend: str = DEFAULT_CACHE_BACKEND) 
             old = _caches.pop(oldest_key)
             with contextlib.suppress(Exception):
                 old.close()
-        _caches[key] = factory(Path(cache_dir), _DEFAULT_SIZE_LIMIT)
+        _caches[key] = factory(Path(cache_dir), size_limit)
         global _CACHES_ATEXIT_REGISTERED
         if not _CACHES_ATEXIT_REGISTERED:
             atexit.register(close_all_caches)
             _CACHES_ATEXIT_REGISTERED = True
         return _caches[key]
+
+
+def get_project_cache(cfg: Any) -> CacheBackend:
+    """The compile cache for a project config: its root, backend, and cap.
+
+    One entry point so no caller re-derives the ``[cache]`` settings with its
+    own ``getattr`` defaults — a site that read the root but not the cap
+    would be handed a different store than the one the project configured.
+    """
+    return get_compile_cache(
+        cfg.root,
+        getattr(cfg, "cache_backend", DEFAULT_CACHE_BACKEND),
+        getattr(cfg, "cache_size_limit", _DEFAULT_SIZE_LIMIT),
+    )
 
 
 def close_all_caches() -> None:

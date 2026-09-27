@@ -123,9 +123,7 @@ class TestResolveCompilerEnv:
         )
         (tmp_path / "inc").mkdir()
         monkeypatch.setattr("rebrew.compile.msvc_env_from_config", lambda cfg: {"X": "1"})
-        monkeypatch.setattr(
-            "rebrew.compile.get_compile_cache", lambda root, backend="diskcache": None
-        )
+        monkeypatch.setattr("rebrew.compile.get_project_cache", lambda *a, **k: None)
         cl_cmd, inc_dir, env, cc = resolve_compiler_env(cfg)
         assert str(cl) in cl_cmd  # existing relative path root-prefixed
         assert "wine" in cl_cmd
@@ -145,9 +143,7 @@ class TestResolveCompilerEnv:
         )
         monkeypatch.setattr("rebrew.compile.resolve_cl_command", lambda cfg: ["cl"])
         monkeypatch.setattr("rebrew.compile.msvc_env_from_config", lambda cfg: {})
-        monkeypatch.setattr(
-            "rebrew.compile.get_compile_cache", lambda root, backend="diskcache": None
-        )
+        monkeypatch.setattr("rebrew.compile.get_project_cache", lambda *a, **k: None)
         cl_cmd, inc_dir, env, cc = resolve_compiler_env(cfg)
         assert cl_cmd == "cl"  # empty command falls back to resolve_cl_command
         assert inc_dir == "missing_inc"  # non-existent include stays as-is
@@ -553,9 +549,7 @@ class TestCompilerCmdRoundTrip:
             "rebrew.compile.resolve_cl_command", lambda cfg: ["/opt/My Tools/gcc", "-c"]
         )
         monkeypatch.setattr("rebrew.compile.msvc_env_from_config", lambda cfg: {})
-        monkeypatch.setattr(
-            "rebrew.compile.get_compile_cache", lambda root, backend="diskcache": None
-        )
+        monkeypatch.setattr("rebrew.compile.get_project_cache", lambda *a, **k: None)
         cl_cmd, _inc, _env, _cc = resolve_compiler_env(cfg)
         assert safe_shlex_split(cl_cmd) == ["/opt/My Tools/gcc", "-c"]
 

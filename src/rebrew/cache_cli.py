@@ -10,7 +10,11 @@ from rebrew.cli import (
     json_print,
     require_config,
 )
-from rebrew.compile_cache import DEFAULT_CACHE_BACKEND, get_compile_cache
+from rebrew.compile_cache import (
+    DEFAULT_CACHE_BACKEND,
+    DEFAULT_CACHE_SIZE_LIMIT_MIB,
+    get_compile_cache,
+)
 
 app = typer.Typer(
     help="Manage the compile result cache (.rebrew/compile_cache/).",
@@ -45,7 +49,11 @@ def stats(
             console.print("No compile cache found (not yet created).")
         return
 
-    cache = get_compile_cache(cfg.root, backend)
+    cache = get_compile_cache(
+        cfg.root,
+        backend,
+        getattr(cfg, "cache_size_limit", DEFAULT_CACHE_SIZE_LIMIT_MIB * 1024 * 1024),
+    )
     try:
         info = cache.stats()
         if json_output:
@@ -93,7 +101,11 @@ def clear(
             json_mode=True,
         )
 
-    cache = get_compile_cache(cfg.root, backend)
+    cache = get_compile_cache(
+        cfg.root,
+        backend,
+        getattr(cfg, "cache_size_limit", DEFAULT_CACHE_SIZE_LIMIT_MIB * 1024 * 1024),
+    )
     try:
         count = cache.count
         if not force and not json_output:

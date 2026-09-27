@@ -10,10 +10,12 @@ import pytest
 
 from rebrew.compile_cache import (
     CACHE_SCHEMA_VERSION,
+    DEFAULT_CACHE_BACKEND,
     CompileCache,
     close_all_caches,
     compile_cache_key,
     get_compile_cache,
+    get_project_cache,
     header_dependency_hash,
     include_fingerprint,
 )
@@ -830,6 +832,31 @@ class TestGetCompileCache:
         c1 = get_compile_cache(tmp_path)
         c2 = get_compile_cache(tmp_path)
         assert c1 is c2
+        close_all_caches()
+
+    def test_size_limit_is_part_of_the_instance_identity(self, tmp_path: Path) -> None:
+        """Two caps in one process must not share one store.
+
+        The cap is fixed when the store opens, so handing a second caller the
+        first caller's handle would silently apply the wrong eviction
+        threshold.
+        """
+        close_all_caches()
+        c1 = get_compile_cache(tmp_path, size_limit=1 * 1024 * 1024)
+        c2 = get_compile_cache(tmp_path, size_limit=2 * 1024 * 1024)
+        assert c1 is not c2
+        assert c1 is get_compile_cache(tmp_path, size_limit=1 * 1024 * 1024)
+        close_all_caches()
+
+    def test_project_cache_uses_configured_backend_and_cap(self, tmp_path: Path) -> None:
+        close_all_caches()
+        cfg = SimpleNamespace(
+            root=tmp_path,
+            cache_backend=DEFAULT_CACHE_BACKEND,
+            cache_size_limit=3 * 1024 * 1024,
+        )
+        cache = get_project_cache(cfg)
+        assert cache is get_compile_cache(tmp_path, DEFAULT_CACHE_BACKEND, 3 * 1024 * 1024)
         close_all_caches()
 
     def test_different_roots_different_instances(self, tmp_path: Path) -> None:

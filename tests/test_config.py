@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 # Import from the rebrew package
+from rebrew.compile_cache import DEFAULT_CACHE_SIZE_LIMIT_MIB
 from rebrew.config import (
     ARCH_PRESETS,
     DEFAULT_LLM_MAX_REQUESTS,
@@ -1129,6 +1130,51 @@ backend = "disk-cache"
 """
         root = _make_project(tmp_path, toml)
         with pytest.raises(ValueError, match=r"\[cache\]\.backend = 'disk-cache'"):
+            load_config(root)
+
+    def test_cache_size_limit_mib_parsed(self, tmp_path: Path) -> None:
+        toml = """\
+[project]
+default_target = "main"
+
+[targets.main]
+binary = "test.exe"
+
+[cache]
+backend = "diskcache"
+size_limit_mib = 64
+"""
+        root = _make_project(tmp_path, toml)
+        cfg = load_config(root)
+        assert cfg.cache_size_limit_mib == 64
+        assert cfg.cache_size_limit == 64 * 1024 * 1024
+
+    def test_cache_size_limit_defaults_to_packaged_cap(self, tmp_path: Path) -> None:
+        toml = """\
+[project]
+default_target = "main"
+
+[targets.main]
+binary = "test.exe"
+"""
+        root = _make_project(tmp_path, toml)
+        cfg = load_config(root)
+        assert cfg.cache_size_limit_mib == 0
+        assert cfg.cache_size_limit == DEFAULT_CACHE_SIZE_LIMIT_MIB * 1024 * 1024
+
+    def test_negative_cache_size_limit_raises(self, tmp_path: Path) -> None:
+        toml = """\
+[project]
+default_target = "main"
+
+[targets.main]
+binary = "test.exe"
+
+[cache]
+size_limit_mib = -1
+"""
+        root = _make_project(tmp_path, toml)
+        with pytest.raises(ValueError, match=r"\[cache\]\.size_limit_mib must be >= 0"):
             load_config(root)
 
     def test_empty_cache_backend_raises(self, tmp_path: Path) -> None:

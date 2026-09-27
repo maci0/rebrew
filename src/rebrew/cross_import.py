@@ -1352,14 +1352,12 @@ def main(
     statuses = annotations_by_va(cfg)
     entries = registry(cfg)
 
-    from rebrew.compile_cache import DEFAULT_CACHE_BACKEND, get_compile_cache
+    from rebrew.compile_cache import get_project_cache
 
     cache = None
     if not dry_run:
         try:
-            cache = get_compile_cache(
-                cfg.root, getattr(cfg, "cache_backend", DEFAULT_CACHE_BACKEND)
-            )
+            cache = get_project_cache(cfg)
         except OSError:
             cache = None
     # Verification masks a typed relocation only when it can resolve the symbol,

@@ -484,6 +484,22 @@ class ProjectConfig:
     llm_api_key: str = field(default="", repr=False)
     llm_model: str = ""
     cache_backend: str = "diskcache"  # compile-cache store ([cache] backend)
+    cache_size_limit_mib: int = 0  # compile-cache cap in MiB; 0 = built-in default
+
+    @property
+    def cache_size_limit(self) -> int:
+        """Compile-cache size cap in bytes.
+
+        ``[cache] size_limit_mib`` is the only knob: the packaged default
+        (500 MiB) is a poor fit on a small disk, and a cap the project cannot
+        move turns a disk-space problem into a ``rebrew cache clear``.
+        ``0`` means "unset", which resolves to the backend's own default.
+        """
+        from rebrew.compile_cache import DEFAULT_CACHE_SIZE_LIMIT_MIB
+
+        if self.cache_size_limit_mib <= 0:
+            return DEFAULT_CACHE_SIZE_LIMIT_MIB * 1024 * 1024
+        return self.cache_size_limit_mib * 1024 * 1024
 
     @property
     def posix_style(self) -> bool:
@@ -1703,7 +1719,7 @@ def find_root(start: Path | str | None = None) -> Path:
 
 _KNOWN_TOP_KEYS = {"targets", "compiler", "project", "link", "llm", "cache"}
 
-_KNOWN_CACHE_KEYS = {"backend"}
+_KNOWN_CACHE_KEYS = {"backend", "size_limit_mib"}
 
 _KNOWN_LLM_KEYS = {"endpoint", "api_key", "model"}
 
@@ -2332,6 +2348,12 @@ def load_config(
             f"registered backend (known: {', '.join(known_backends)})"
         )
     cfg.cache_backend = backend
+
+    if "size_limit_mib" in cache_raw:
+        size_mib = _safe_int(cache_raw.get("size_limit_mib"), 0, "cache.size_limit_mib")
+        if size_mib < 0:
+            raise ConfigError("rebrew-project.toml [cache].size_limit_mib must be >= 0")
+        cfg.cache_size_limit_mib = size_mib
 
     cfg.validate()
     return cfg

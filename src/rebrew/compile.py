@@ -69,10 +69,9 @@ from rebrew.binary_loader import load_binary
 from rebrew.binary_model import BinaryInfo, SectionInfo
 from rebrew.coff_reloc import build_iat_region, smart_reloc_compare
 from rebrew.compile_cache import (
-    DEFAULT_CACHE_BACKEND,
     CacheBackend,
     compile_cache_key,
-    get_compile_cache,
+    get_project_cache,
 )
 from rebrew.compile_context import CONTEXT_UNIT_NAME, CompileContext
 from rebrew.config import (
@@ -861,7 +860,7 @@ def resolve_compiler_env(
 
     cc: CacheBackend | None = None
     with contextlib.suppress(OSError):
-        cc = get_compile_cache(cfg.root, getattr(cfg, "cache_backend", DEFAULT_CACHE_BACKEND))
+        cc = get_project_cache(cfg)
 
     return cl_cmd, inc_dir, env, cc
 
@@ -1592,7 +1591,7 @@ def compile_to_obj(
     cc = cache if use_cache else None
     if cc is None and use_cache:
         try:
-            cc = get_compile_cache(cfg.root, getattr(cfg, "cache_backend", DEFAULT_CACHE_BACKEND))
+            cc = get_project_cache(cfg)
         except OSError:
             cc = None
 

@@ -39,7 +39,9 @@ class TestStats:
         _patch_cfg(monkeypatch, tmp_path)
         stats_called: list[bool] = []
 
-        def fake_cache(_root: Path, backend: str = "diskcache") -> SimpleNamespace:
+        def fake_cache(
+            _root: Path, backend: str = "diskcache", size_limit: int = 0
+        ) -> SimpleNamespace:
             return SimpleNamespace(
                 stats=lambda: (
                     stats_called.append(True)
@@ -84,7 +86,9 @@ class TestClear:
         _patch_cfg(monkeypatch, tmp_path)
         cleared: list[str] = []
 
-        def fake_cache(_root: Path, backend: str = "diskcache") -> SimpleNamespace:
+        def fake_cache(
+            _root: Path, backend: str = "diskcache", size_limit: int = 0
+        ) -> SimpleNamespace:
             return SimpleNamespace(
                 count=4,
                 clear=lambda: cleared.append("clear"),
@@ -103,7 +107,9 @@ class TestClear:
         _patch_cfg(monkeypatch, tmp_path)
         cleared: list[str] = []
 
-        def fake_cache(_root: Path, backend: str = "diskcache") -> SimpleNamespace:
+        def fake_cache(
+            _root: Path, backend: str = "diskcache", size_limit: int = 0
+        ) -> SimpleNamespace:
             return SimpleNamespace(
                 count=2,
                 clear=lambda: cleared.append("clear"),
@@ -126,7 +132,9 @@ class TestClear:
         _patch_cfg(monkeypatch, tmp_path)
         cleared: list[str] = []
 
-        def fake_cache(_root: Path, backend: str = "diskcache") -> SimpleNamespace:
+        def fake_cache(
+            _root: Path, backend: str = "diskcache", size_limit: int = 0
+        ) -> SimpleNamespace:
             return SimpleNamespace(
                 count=2,
                 clear=lambda: cleared.append("clear"),

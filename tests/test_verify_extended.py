@@ -1467,9 +1467,7 @@ class TestRunVerification:
             )
 
         monkeypatch.setattr("rebrew.verify.verify_entry", _verify)
-        monkeypatch.setattr(
-            "rebrew.compile_cache.get_compile_cache", lambda root, backend="diskcache": None
-        )
+        monkeypatch.setattr("rebrew.compile_cache.get_compile_cache", lambda *a, **k: None)
         monkeypatch.setattr("rebrew.coff_reloc.build_name_to_va", lambda cfg: {})
 
     def test_all_passed(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1586,9 +1584,7 @@ class TestRunVerification:
             raise RuntimeError("crash")
 
         monkeypatch.setattr("rebrew.verify.verify_entry", _boom)
-        monkeypatch.setattr(
-            "rebrew.compile_cache.get_compile_cache", lambda root, backend="diskcache": None
-        )
+        monkeypatch.setattr("rebrew.compile_cache.get_compile_cache", lambda *a, **k: None)
         monkeypatch.setattr("rebrew.coff_reloc.build_name_to_va", lambda cfg: {})
         passed, failed, fail_details, results, deferred = run_verification(
             [_ann(0x1000)], _cfg(tmp_path), jobs=1, total=1, cached_count=0, json_output=True

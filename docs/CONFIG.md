@@ -293,7 +293,14 @@ as the per-project namespace even for remote/shared stores).
 ```toml
 [cache]
 backend = "diskcache"   # or any registered rebrew.cache_backends member
+size_limit_mib = 500    # on-disk cap; entries are LRU-evicted past it (0 = 500 MiB)
 ```
+
+`size_limit_mib` is per-project because the packaged 500 MiB default is wrong
+for a project on a small disk, and a cap the project cannot move turns a
+disk-space problem into a `rebrew cache clear`.  It is part of the cache
+instance identity, so two different caps in one process get separate handles
+rather than silently sharing the first one.
 
 The **keying** is deliberately NOT pluggable: what makes a cache hit valid
 (source/flags/toolchain/include digests) is shared semantics every backend
@@ -465,7 +472,8 @@ The config loader fail-fasts on missing/invalid structure:
   profile (these otherwise resolve to the project root or fail only when a compiler
   subprocess is launched). `includes`/`libs` may be empty — that means "no extra
   dir" (e.g. `mingw-16.2.0` ships its own headers).
-- Empty or unregistered `[cache].backend` (must name a `rebrew.cache_backends` member).
+- Empty or unregistered `[cache].backend` (must name a `rebrew.cache_backends` member), or a
+  negative `[cache].size_limit_mib`.
 - `format` not one of `pe`, `elf`, `macho`, `ne`, `mz`, or `arch` not a known
   preset (a silent `pe` / `x86_32` substitute would disassemble the binary wrongly).
 - `[compiler] profile` not a registered toolchain (a silent `msvc-6.0` substitute

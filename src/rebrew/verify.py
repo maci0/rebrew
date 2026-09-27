@@ -2235,11 +2235,9 @@ def run_verification(
     effective_jobs = max(1, min(jobs, fresh_count)) if fresh_count else 1
 
     try:
-        from rebrew.compile_cache import DEFAULT_CACHE_BACKEND, get_compile_cache
+        from rebrew.compile_cache import get_project_cache
 
-        compile_cache = get_compile_cache(
-            cfg.root, getattr(cfg, "cache_backend", DEFAULT_CACHE_BACKEND)
-        )
+        compile_cache = get_project_cache(cfg)
     except (ImportError, OSError):
         compile_cache = None
 

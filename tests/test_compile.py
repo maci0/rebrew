@@ -173,7 +173,7 @@ class TestCompileToObj:
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
         monkeypatch.setattr("rebrew.compile.run_toolchain", _fake_run)
-        monkeypatch.setattr("rebrew.compile.get_compile_cache", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.compile.get_project_cache", lambda *a, **k: None)
 
         cfg: Any = SimpleNamespace(
             root=tmp_path,
@@ -217,7 +217,7 @@ class TestCompileToObj:
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
         monkeypatch.setattr("rebrew.compile.run_toolchain", _fake_run)
-        monkeypatch.setattr("rebrew.compile.get_compile_cache", lambda *a, **k: _FakeCache())
+        monkeypatch.setattr("rebrew.compile.get_project_cache", lambda *a, **k: _FakeCache())
 
         cfg: Any = SimpleNamespace(
             root=tmp_path,
@@ -480,7 +480,7 @@ class TestCompileToObjPosix:
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
         monkeypatch.setattr("rebrew.compile.run_toolchain", _fake_run)
-        monkeypatch.setattr("rebrew.compile.get_compile_cache", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.compile.get_project_cache", lambda *a, **k: None)
 
         cfg: Any = SimpleNamespace(
             root=tmp_path,
@@ -527,7 +527,7 @@ class TestCompileToObjPosix:
             return SimpleNamespace(returncode=0, stdout="", stderr="")
 
         monkeypatch.setattr("rebrew.compile.run_toolchain", _fake_run)
-        monkeypatch.setattr("rebrew.compile.get_compile_cache", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.compile.get_project_cache", lambda *a, **k: None)
 
         cfg: Any = SimpleNamespace(
             root=tmp_path,
@@ -604,7 +604,7 @@ class TestCompileToObjToolchainProfiles:
 
         monkeypatch.setattr("rebrew.compile.run_toolchain", _fake_run)
         monkeypatch.setattr("rebrew.compile.compile_cache_key", lambda **k: "k")
-        monkeypatch.setattr("rebrew.compile.get_compile_cache", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.compile.get_project_cache", lambda *a, **k: None)
 
         src = tmp_path / "t.c"
         src.write_text("int add(int a, int b) { return a + b; }\n", encoding="utf-8")
@@ -635,7 +635,7 @@ class TestCompileToObjToolchainProfiles:
 
         monkeypatch.setattr("rebrew.compile.run_toolchain", _fake_run)
         monkeypatch.setattr("rebrew.compile.compile_cache_key", lambda **k: "k")
-        monkeypatch.setattr("rebrew.compile.get_compile_cache", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.compile.get_project_cache", lambda *a, **k: None)
 
         src = tmp_path / "t.c"
         src.write_text("int add(int a, int b) { return a + b; }\n", encoding="utf-8")
@@ -658,7 +658,7 @@ class TestCompileToObjToolchainProfiles:
             return RunResult(1, "", "Error! E1139", backend="host")
 
         monkeypatch.setattr("rebrew.compile.run_toolchain", _fake_run)
-        monkeypatch.setattr("rebrew.compile.get_compile_cache", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.compile.get_project_cache", lambda *a, **k: None)
 
         src = tmp_path / "t.c"
         src.write_text("int add(int a, int b) { return a + b; }\n", encoding="utf-8")
@@ -699,7 +699,7 @@ class TestCompileToObjMsvc152Image:
             return RunResult(0, "", "", backend="docker")
 
         monkeypatch.setattr("rebrew.compile.run_toolchain", _fake_run)
-        monkeypatch.setattr("rebrew.compile.get_compile_cache", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.compile.get_project_cache", lambda *a, **k: None)
 
         src = tmp_path / "t.c"
         src.write_text("int add(int a, int b) { return a + b; }\n", encoding="utf-8")
@@ -726,7 +726,7 @@ class TestCompileToObjMsvc152Image:
             return RunResult(0, "", "", backend="docker")
 
         monkeypatch.setattr("rebrew.compile.run_toolchain", _fake_run)
-        monkeypatch.setattr("rebrew.compile.get_compile_cache", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.compile.get_project_cache", lambda *a, **k: None)
 
         src = tmp_path / "t.c"
         src.write_text("int f(void) { return 1; }\n", encoding="utf-8")
@@ -746,7 +746,7 @@ class TestCompileToObjMsvc152Image:
 
         monkeypatch.setattr("rebrew.toolchain.image_present", lambda tag: False)
         monkeypatch.setattr("rebrew.toolchain.docker_available", lambda: True)
-        monkeypatch.setattr("rebrew.compile.get_compile_cache", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.compile.get_project_cache", lambda *a, **k: None)
 
         src = tmp_path / "t.c"
         src.write_text("int add(int a, int b) { return a + b; }\n", encoding="utf-8")
@@ -966,7 +966,7 @@ class TestCompileToObjBorlandc55:
 
         monkeypatch.setattr("rebrew.compile.run_toolchain", _fake_run)
         monkeypatch.setattr("rebrew.compile.compile_cache_key", lambda **k: "k")
-        monkeypatch.setattr("rebrew.compile.get_compile_cache", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.compile.get_project_cache", lambda *a, **k: None)
 
         src = tmp_path / "t.c"
         src.write_text("int add(int a, int b) { return a + b; }\n", encoding="utf-8")
@@ -995,7 +995,7 @@ class TestPerFunctionOverrideArgShape:
             return RunResult(0, "", "", backend="docker")
 
         monkeypatch.setattr("rebrew.compile.run_toolchain", _fake_run)
-        monkeypatch.setattr("rebrew.compile.get_compile_cache", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.compile.get_project_cache", lambda *a, **k: None)
 
         cfg: Any = SimpleNamespace(
             root=tmp_path,
@@ -1026,7 +1026,7 @@ class TestCompileEdgeCases:
     def test_obj_name_with_separator_rejected(self, tmp_path: Path, monkeypatch) -> None:
         from rebrew.compile import compile_to_obj
 
-        monkeypatch.setattr("rebrew.compile.get_compile_cache", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.compile.get_project_cache", lambda *a, **k: None)
         cfg: Any = SimpleNamespace(
             root=tmp_path,
             compiler_profile="msvc-6.0",
@@ -1056,7 +1056,7 @@ class TestCompileEdgeCases:
             return RunResult(0, "", "", backend="docker")  # no object written
 
         monkeypatch.setattr("rebrew.compile.run_toolchain", _fake_run)
-        monkeypatch.setattr("rebrew.compile.get_compile_cache", lambda *a, **k: None)
+        monkeypatch.setattr("rebrew.compile.get_project_cache", lambda *a, **k: None)
         cfg: Any = SimpleNamespace(
             root=tmp_path,
             compiler_profile="msvc-6.0",

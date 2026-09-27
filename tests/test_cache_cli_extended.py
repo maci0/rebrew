@@ -51,7 +51,7 @@ def _patch_cache(
 
     monkeypatch.setattr(
         "rebrew.cache_cli.get_compile_cache",
-        lambda root, backend="diskcache": _FakeCache(root),
+        lambda root, backend="diskcache", size_limit=0: _FakeCache(root),
     )
 
 
@@ -123,7 +123,9 @@ class TestCacheCli:
             assert seed.count == 3
         monkeypatch.setattr(
             "rebrew.cache_cli.get_compile_cache",
-            lambda root, backend="diskcache": CompileCache(root / ".rebrew" / "compile_cache"),
+            lambda root, backend="diskcache", size_limit=0: CompileCache(
+                root / ".rebrew" / "compile_cache"
+            ),
         )
         result = CliRunner().invoke(app, ["clear", "--force", "--json"])
         assert result.exit_code == 0
@@ -146,7 +148,9 @@ class TestCacheCli:
         monkeypatch.setattr("rebrew.cache_cli.require_config", lambda **kw: cfg)
         monkeypatch.setattr(
             "rebrew.cache_cli.get_compile_cache",
-            lambda root, backend="diskcache": CompileCache(root / ".rebrew" / "compile_cache"),
+            lambda root, backend="diskcache", size_limit=0: CompileCache(
+                root / ".rebrew" / "compile_cache"
+            ),
         )
         with closing(CompileCache(cache_dir)) as seed:
             seed.put("k1", b"\x01")
