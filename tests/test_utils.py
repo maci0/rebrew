@@ -13,9 +13,11 @@ from typing import Any
 import pytest
 
 from rebrew.utils import (
+    atomic_write_bytes,
     atomic_write_text,
     container_runtime,
     detect_source_encoding,
+    filename_component,
     floor_pct,
     load_tomllib,
     read_compile_source,
@@ -61,26 +63,44 @@ def test_atomic_write_text_success(tmp_path: Path) -> None:
     assert list(tmp_path.iterdir()) == [f]
 
 
-def test_atomic_write_text_preserves_lf(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_atomic_write_text_preserves_lf(tmp_path: Path) -> None:
     """Writes must not translate ``\\n`` to ``os.linesep`` (Windows default)."""
-    recorded: dict[str, object] = {}
-    original = Path.write_text
-
-    def _spy(
-        self: Path,
-        data: str,
-        encoding: str | None = None,
-        errors: str | None = None,
-        newline: str | None = None,
-    ) -> int:
-        recorded["newline"] = newline
-        return original(self, data, encoding=encoding, errors=errors, newline=newline)
-
-    monkeypatch.setattr(Path, "write_text", _spy)
     f = tmp_path / "lf.txt"
     atomic_write_text(f, "a\nb\n")
-    assert recorded["newline"] == ""
     assert f.read_bytes() == b"a\nb\n"
+    assert list(tmp_path.iterdir()) == [f]
+
+
+def test_atomic_write_text_ignores_planted_symlink(tmp_path: Path) -> None:
+    """A symlink planted at the target is replaced, not written through."""
+    outside = tmp_path / "outside.txt"
+    outside.write_text("untouched")
+    link = tmp_path / "link.txt"
+    link.symlink_to(outside)
+    atomic_write_text(link, "payload")
+    assert outside.read_text() == "untouched"
+    assert not link.is_symlink()
+    assert link.read_text() == "payload"
+
+
+def test_atomic_write_bytes_ignores_planted_symlink(tmp_path: Path) -> None:
+    outside = tmp_path / "outside.bin"
+    outside.write_bytes(b"untouched")
+    link = tmp_path / "link.bin"
+    link.symlink_to(outside)
+    atomic_write_bytes(link, b"payload")
+    assert outside.read_bytes() == b"untouched"
+    assert link.read_bytes() == b"payload"
+
+
+def test_filename_component_is_one_safe_component() -> None:
+    assert filename_component("sub/dir/evil") == "sub_dir_evil"
+    assert filename_component("/etc/passwd") == "_etc_passwd"
+    assert filename_component("..").startswith("sym_")
+    assert "/" not in filename_component("../../x")
+    assert filename_component("sym") == "sym"
+    assert filename_component("").startswith("sym_")
+    assert len(filename_component("a" * 500)) <= 200
 
 
 def test_atomic_write_text_overwrite(tmp_path: Path) -> None:

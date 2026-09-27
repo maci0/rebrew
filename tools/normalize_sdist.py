@@ -29,6 +29,7 @@ import io
 import os
 import stat
 import tarfile
+import tempfile
 import time
 import zipfile
 from pathlib import Path
@@ -81,7 +82,11 @@ def normalize_wheel(path: Path, epoch: int) -> None:
         entries = [(info.filename, src.read(info.filename)) for info in src.infolist()]
     entries.sort(key=lambda item: item[0])
     date_time = _zip_date(epoch)
-    tmp = path.with_name(path.name + ".norm")
+    # mkstemp: a predictable "<name>.norm" would be followed when it already
+    # exists as a symlink, truncating whatever it points at.
+    fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".norm")
+    os.close(fd)
+    tmp = Path(tmp_name)
     try:
         with zipfile.ZipFile(
             tmp,

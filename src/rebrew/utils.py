@@ -3,6 +3,7 @@
 import bisect
 import contextlib
 import copy
+import hashlib
 import logging
 import math
 import os
@@ -41,6 +42,12 @@ console = Console(stderr=True)
 #: Unicode rules and accepts ``café`` or ``名前``, which MSVC6-era compilers
 #: reject.  Names from linker output, BinSync, or the CLI are external text.
 _C_IDENT_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*\Z")
+
+#: Path components are one filesystem entry: no separators, no drive letters,
+#: no leading dot or dash.  200 chars leaves room under the usual 255-byte
+#: NAME_MAX once a suffix such as ``.best.c`` is appended.
+_FILENAME_COMPONENT_RE = re.compile(r"[^A-Za-z0-9._@-]+")
+_FILENAME_COMPONENT_MAX_CHARS = 200
 
 
 def clip_span(starts: list[int], va: int, size: int) -> int:
@@ -555,6 +562,24 @@ def strip_generated_timestamp(text: str) -> str:
     return "\n".join(line for line in text.splitlines() if "Generated:" not in line)
 
 
+def filename_component(name: str) -> str:
+    """*name* reduced to one safe path component.
+
+    Annotation symbols come from project metadata and reverse-engineering
+    comments, so they are untrusted: joining one into a path as-is lets a
+    ``../../..`` or absolute name escape the run directory (or a leading ``-``
+    read as an option).  Everything outside ``[A-Za-z0-9._@-]`` becomes ``_``,
+    leading dots and dashes are stripped, and a name that sanitizes to nothing
+    falls back to a stable digest of the original.
+    """
+    cleaned = _FILENAME_COMPONENT_RE.sub("_", name).lstrip(".-")
+    cleaned = cleaned[:_FILENAME_COMPONENT_MAX_CHARS].rstrip("._-")
+    if not cleaned:
+        digest = hashlib.sha256(name.encode("utf-8", "surrogateescape")).hexdigest()[:16]
+        return f"sym_{digest}"
+    return cleaned
+
+
 def atomic_write_text(
     filepath: Path,
     text: str,
@@ -603,7 +628,15 @@ def atomic_write_text(
         # newline="" keeps the caller's line endings byte-exact.  Path.write_text
         # defaults to newline=None, which on Windows translates ``\n`` to
         # ``\r\n`` and would CRLF-corrupt every LF source/metadata rewrite.
-        tmp_path.write_text(text, encoding=encoding, errors=errors, newline="")
+        # O_EXCL: a name planted in the target directory as a symlink must not
+        # be followed, or the write lands on the link's target.
+        fd = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+        with os.fdopen(fd, "w", encoding=encoding, errors=errors, newline="") as fh:
+            fh.write(text)
+            fh.flush()
+            # fsync the writable descriptor: a re-opened O_RDONLY handle does
+            # not flush the writer's pages on Linux.
+            os.fsync(fh.fileno())
     # Drop any stale path+mtime entries so a same-ns rewrite cannot serve
     # pre-write content to a later reader in this process.
     try:
@@ -638,7 +671,13 @@ def atomic_write_bytes(filepath: Path, data: bytes) -> None:
         except OSError:
             pass
     with _atomic_replace(filepath) as tmp_path:
-        tmp_path.write_bytes(data)
+        # O_EXCL: a name planted in the target directory as a symlink must not
+        # be followed, or the write lands on the link's target.
+        fd = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(data)
+            fh.flush()
+            os.fsync(fh.fileno())
 
 
 def atomic_write_locked(filepath: Path | str, text: str, encoding: str = "utf-8") -> None:

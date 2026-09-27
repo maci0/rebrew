@@ -44,7 +44,13 @@ from rebrew.match_sweep import (
 )
 from rebrew.matcher import GACheckpoint, SolutionEntry, load_ga_runs
 from rebrew.matcher.core import EXACT_SCORE_THRESHOLD
-from rebrew.utils import atomic_write_text, floor_pct, metadata_write_lock, read_compile_source
+from rebrew.utils import (
+    atomic_write_text,
+    filename_component,
+    floor_pct,
+    metadata_write_lock,
+    read_compile_source,
+)
 
 log = logging.getLogger(__name__)
 
@@ -438,7 +444,7 @@ def _run_one_stub_ga(
             # every stub of one .c file shares *out_dir*, so under
             # ``match --all -j N`` a sibling GA may have overwritten
             # ``best.c`` with its champion (this stub's body still unmatched).
-            best_c = out_dir / f"{stub.symbol}.best.c"
+            best_c = out_dir / f"{filename_component(stub.symbol)}.best.c"
             atomic_write_text(best_c, best_src, encoding="utf-8", errors="surrogateescape")
             # Persist the RAW user-facing flags (swept override or the stub's
             # own metadata) — never the base-prefixed compile string.  The
@@ -1033,8 +1039,12 @@ def run_all(
                     entries=seed_solutions,
                 )
                 for sol in similar:
-                    sol_path = cfg.root / sol.source_file
-                    if sol_path.exists():
+                    # --seed-solutions-file may name a run from another
+                    # project, so its recorded source_file is foreign text:
+                    # only a path that stays inside this project's root may
+                    # be seeded from.
+                    sol_path = (cfg.root / sol.source_file).resolve()
+                    if sol_path.is_relative_to(cfg.root.resolve()) and sol_path.exists():
                         extra_ga_paths.append(str(sol_path))
                         if not json_output:
                             console.print(

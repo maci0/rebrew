@@ -931,7 +931,7 @@ def check_source_files(cfg: ProjectConfig) -> CheckResult:
             name="Source files",
             status=_WARN,
             message=f"Directory not found: {reversed_dir}",
-            fix=f"Create the directory: mkdir -p {reversed_dir}",
+            fix=f"Create the directory: mkdir -p {shlex.quote(str(reversed_dir))}",
         )
 
     from rebrew.sources import iter_sources
@@ -969,7 +969,8 @@ def check_metadata_files(cfg: ProjectConfig) -> CheckResult:
             name="Metadata TOML",
             status=_WARN,
             message=f"Missing in {metadata_dir}: {', '.join(missing)}",
-            fix=f"Create with: touch {' '.join(str(metadata_dir / f) for f in missing)}",
+            fix="Create with: touch "
+            + " ".join(shlex.quote(str(metadata_dir / f)) for f in missing),
         )
     return CheckResult(
         name="Metadata TOML",
@@ -1026,7 +1027,7 @@ def check_shared_sources(cfg: ProjectConfig) -> CheckResult:
             name="Shared sources",
             status=_WARN,
             message=f"{len(targets)} targets sharing one codebase but {shared} is missing",
-            fix=f"Create with: mkdir -p {shared} — then `rebrew cross-import "
+            fix=f"Create with: mkdir -p {shlex.quote(str(shared))} — then `rebrew cross-import "
             "--from <src> --shared` stacks one marker per target on one file.",
         )
     return CheckResult(

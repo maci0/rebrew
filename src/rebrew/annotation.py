@@ -1567,6 +1567,14 @@ def update_annotation_key(
         warnings.warn(f"Cannot read {filepath} for annotation update: {e}", stacklevel=2)
         return False
 
+    # The value is spliced into a single annotation line.  Annotation values
+    # can arrive from a received BinSync state or a Ghidra sync, so a newline
+    # would land the remainder as top-level code in a file the toolchain
+    # compiles and links.
+    if "\n" in new_value or "\r" in new_value:
+        warnings.warn(f"Refusing multi-line annotation value for {key!r}", stacklevel=2)
+        return False
+
     target_module = _module_for_va_in_text(text, va)
     if not target_module:
         return False

@@ -195,6 +195,13 @@ class BinaryInfo:
             with _data_load_lock:
                 # Re-check: another thread may have filled it while we waited.
                 if self._data is None:
+                    # Check the size on disk first: read_bytes() would already
+                    # have allocated the whole file the cap exists to bound.
+                    size = self.path.stat().st_size
+                    if size > _MAX_BINARY_SIZE:
+                        raise ValueError(
+                            f"Binary file too large ({size / 1024 / 1024:.0f} MB): {self.path}"
+                        )
                     raw = self.path.read_bytes()
                     if len(raw) > _MAX_BINARY_SIZE:
                         raise ValueError(

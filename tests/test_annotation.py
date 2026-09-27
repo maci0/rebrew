@@ -2108,3 +2108,29 @@ class TestIterAnnotations:
         src = tmp_path / "a.c"
         src.write_text("x", encoding="utf-8")
         assert annotation_mod.iter_annotations([src], target="SERVER") == []
+
+
+def test_update_annotation_key_rejects_multiline_value(tmp_path: Path) -> None:
+    """An annotation value is spliced into one line; a newline would land as code.
+
+    The value can arrive from a received BinSync state or a Ghidra sync, and
+    the .c file is compiled and linked.
+    """
+    from rebrew.annotation import update_annotation_key
+
+    content = (
+        "// LIBRARY: SERVER\n"
+        "// FUNCTION: 0x10001000\n"
+        "// SIZE: 42\n"
+        "int func_a(void) {}\n"
+    )
+    f = tmp_path / "proto.c"
+    f.write_text(content, encoding="utf-8")
+
+    with pytest.warns(UserWarning, match="multi-line"):
+        changed = update_annotation_key(
+            f, 0x10001000, "PROTOTYPE", "int f(void)\nvoid pwn(void) {}\n//"
+        )
+
+    assert changed is False
+    assert f.read_text(encoding="utf-8") == content

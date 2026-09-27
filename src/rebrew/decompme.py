@@ -44,6 +44,7 @@ from rebrew.cli import (
     json_print,
     parse_va,
     require_config,
+    untrusted_text,
 )
 from rebrew.config import validate_http_url
 from rebrew.errors import RebrewError
@@ -516,8 +517,8 @@ def main(
         console.print("[bold]decomp.me scratch (dry-run, no upload):[/bold]")
         console.print(f"  compiler:    {compiler}")
         console.print(f"  platform:    {platform}")
-        console.print(f"  flags:       {flags_str or '(none)'}")
-        console.print(f"  function:    {symbol} @ 0x{ann_va:08x} ({size_val}B)")
+        console.print(f"  flags:       {untrusted_text(flags_str) or '(none)'}")
+        console.print(f"  function:    {untrusted_text(symbol)} @ 0x{ann_va:08x} ({size_val}B)")
         console.print(f"  context:     {len(context_text)} bytes")
         console.print(f"  target_obj:  {len(payload['files']['target_obj'][1])} bytes (COFF)")
         return

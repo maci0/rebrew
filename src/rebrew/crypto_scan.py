@@ -29,7 +29,15 @@ from typing import Any, Literal
 import typer
 from rich.table import Table
 
-from rebrew.cli import EXIT_ERROR, TargetOption, console, error_exit, json_print, require_config
+from rebrew.cli import (
+    EXIT_ERROR,
+    TargetOption,
+    console,
+    error_exit,
+    json_print,
+    require_config,
+    untrusted_text,
+)
 
 # ---------------------------------------------------------------------------
 # Constant tables (fixed algorithm constants, embedded as literals)
@@ -428,9 +436,11 @@ def main(
 
     findings = result["findings"]
     if not findings:
-        console.print(f"[yellow]No crypto indicators found in {binary}.[/]")
+        console.print(f"[yellow]No crypto indicators found in {untrusted_text(binary)}.[/]")
         return
-    console.print(f"[bold]{result['count']}[/] crypto indicator(s) in [bold]{binary}[/]:")
+    console.print(
+        f"[bold]{result['count']}[/] crypto indicator(s) in [bold]{untrusted_text(binary)}[/]:"
+    )
     table = Table()
     table.add_column("Confidence", style="bold")
     table.add_column("Kind")
@@ -442,8 +452,8 @@ def main(
         table.add_row(
             f"[{color}]{confidence}[/]",
             str(finding["kind"]),
-            str(finding["name"]),
-            _detail_text(finding),
+            untrusted_text(finding["name"]),
+            untrusted_text(_detail_text(finding)),
         )
     console.print(table)
 

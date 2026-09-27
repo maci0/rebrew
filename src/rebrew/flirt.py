@@ -19,6 +19,7 @@ import typer
 
 from rebrew.binary_loader import load_binary
 from rebrew.cli import TargetOption, console, error_exit, json_print, parse_va, require_config
+from rebrew.utils import atomic_write_bytes
 
 _MAX_FUNC_SCAN = 4096
 _MIN_MATCH_WINDOW = 32
@@ -98,7 +99,9 @@ def _init_project_sigs(cfg: Any, json_output: bool, matched_only: bool = False) 
         target = dest / src.name
         if target.exists():
             continue
-        target.write_bytes(src.read_bytes())
+        # atomic_write_bytes replaces a dangling symlink planted at *target*
+        # instead of writing through it.
+        atomic_write_bytes(target, src.read_bytes())
         copied += 1
     total = len(_sig_files([dest]))
     if json_output:

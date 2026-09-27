@@ -30,6 +30,9 @@ _DECL_LINE_RE = re.compile(
 _EXISTING_MARKER_RE = re.compile(r"^\s*(?://|/\*)\s*(?:DATA|GLOBAL):")
 _ARRAY_TYPE_RE = re.compile(r"\s*(\[[^\]]*\])$")
 _FUNCPTR_TYPE_RE = re.compile(r"^(.*?)\(\s*([^()]*?)\s*\*\s*\)(.*)$")
+#: A C type spelled out in metadata: word chars, whitespace, and the
+#: declarator punctuation only.
+_SAFE_TYPE_RE = re.compile(r"\A[A-Za-z0-9_ \t*(),[\]]+\Z")
 _VAR_DECL_RE = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)\s*(\[[^\]]*\])?\s*$")
 
 
@@ -126,6 +129,12 @@ def _emit_extern_decl(row: dict[str, Any]) -> str | None:
         # No declared type: the global stays with the TU that declares it.
         # `char` would be a guess, and a wrong guess is a compile error the
         # moment the header is included next to the real declaration.
+        return None
+    # The type arrives from metadata, which can be synced from a BinSync
+    # state written elsewhere.  Only declarator characters may reach a
+    # compiled header: a `;`, `{`, `}` or `#` would end the declaration and
+    # start top-level code.
+    if not _SAFE_TYPE_RE.match(type_str):
         return None
     array = _ARRAY_TYPE_RE.search(type_str)
     if array:
@@ -414,7 +423,9 @@ def gen_globals_header(
             if row["size"]:
                 note_parts.append(f"{row['size']} bytes")
             if row["note"]:
-                note_parts.append(row["note"])
+                # A note is free text: ``*/`` would close the trailing comment
+                # early and put the rest of the line into the header body.
+                note_parts.append(row["note"].replace("*/", "* /"))
             decl = _emit_extern_decl(row)
             if decl is not None:
                 header_lines.append(f"{decl} /* {', '.join(note_parts)} */")
