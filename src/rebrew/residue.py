@@ -22,7 +22,6 @@ project config — no hardcoded ``build/split_poc.dll`` or ``0x10000000``.
 from __future__ import annotations
 
 import contextlib
-import struct
 from pathlib import Path
 from typing import Any
 
@@ -35,7 +34,14 @@ from rebrew.cli import (
     json_print,
     require_config,
 )
+from rebrew.errors import RebrewError
+from rebrew.pe_headers import pe_layout
 from rebrew.utils import atomic_write_text
+
+
+class ResidueError(RebrewError, ValueError):
+    """Raised when an input image is not a PE that residue can measure."""
+
 
 app = typer.Typer(
     help="Measure linked byte-identity residue after postlink fixers.",
@@ -44,27 +50,43 @@ app = typer.Typer(
 
 
 def _sections(raw: bytes) -> dict[str, tuple[int, int, int, int]]:
-    """name -> (va, vsize, raw_ptr, raw_size)."""
-    pe = struct.unpack_from("<I", raw, 0x3C)[0]
-    nsec = struct.unpack_from("<H", raw, pe + 6)[0]
-    opt = struct.unpack_from("<H", raw, pe + 20)[0]
-    out = {}
-    for i in range(nsec):
-        off = pe + 24 + opt + i * 40
-        # latin1 matches pe_headers.parse_pe: PE section names are 8 raw bytes
-        # (often padded, rarely UTF-8). Bare .decode() is UTF-8-strict and
-        # raises UnicodeDecodeError on any high byte (e.g. b".xyz\xff").
-        name = raw[off : off + 8].rstrip(b"\0").decode("latin1")
-        vs, va, rs, rp = struct.unpack_from("<IIII", raw, off + 8)
-        out[name] = (va, vs, rp, rs)
+    """name -> (va, vsize, raw_ptr, raw_size), extents clipped to *raw*.
+
+    Geometry comes from :func:`rebrew.pe_headers.pe_layout`, which bounds every
+    read against the buffer; a section whose raw extent runs past the end of
+    the image keeps the part that is present, so the caller's byte comparison
+    stays in bounds.  A section with no bytes in the file (BSS) is dropped.
+    """
+    layout = pe_layout(raw)
+    if layout is None:
+        raise ResidueError(f"not a PE image: no MZ/PE header in {len(raw)} bytes")
+    out: dict[str, tuple[int, int, int, int]] = {}
+    for section in layout.sections:
+        end = min(section.pointer_to_raw_data + section.size_of_raw_data, len(raw))
+        if end <= section.pointer_to_raw_data:
+            continue
+        out[section.name] = (
+            section.virtual_address,
+            section.virtual_size,
+            section.pointer_to_raw_data,
+            end - section.pointer_to_raw_data,
+        )
     return out
 
 
 def residue_report(
     built: bytes, reference: bytes, bad: list[tuple[int, int, str]], image_base: int
 ) -> dict[str, Any]:
-    """Section diffs plus per-function attribution of remaining .text bytes."""
+    """Section diffs plus per-function attribution of remaining .text bytes.
+
+    Both images must carry a ``.text`` section; a missing one means there is
+    nothing to attribute, so this raises :class:`ResidueError` rather than
+    reporting a zero residue for an image that was never compared.
+    """
     sr, sp = _sections(reference), _sections(built)
+    for label, table in (("reference", sr), ("built", sp)):
+        if ".text" not in table:
+            raise ResidueError(f"{label} image has no .text section")
     sections: dict[str, dict[str, Any]] = {}
     for name in sorted(set(sr) | set(sp)):
         if name not in sr or name not in sp:
@@ -78,7 +100,7 @@ def residue_report(
 
     t_rva, t_vs, t_ptr, _ = sr[".text"]
     p_rva, p_vs, p_ptr, _ = sp[".text"]
-    n = min(t_vs, p_vs)
+    n = max(0, min(t_vs, p_vs, len(reference) - t_ptr, len(built) - p_ptr))
     diffs = [i for i in range(n) if reference[t_ptr + i] != built[p_ptr + i]]
 
     # Attribute trailing tables to their owner: extend each extent to the
@@ -223,9 +245,14 @@ def main(
 
     reference = Path(cfg.target_binary).read_bytes()
     image_base = getattr(cfg, "image_base", 0)
-    sr = _sections(reference)
-    bad = _nonmatching_from_cache(cfg, image_base, sr[".text"][0])
-    summary = residue_report(bytes(patched), reference, bad, image_base)
+    try:
+        sr = _sections(reference)
+        if ".text" not in sr:
+            raise ResidueError("reference image has no .text section")
+        bad = _nonmatching_from_cache(cfg, image_base, sr[".text"][0])
+        summary = residue_report(bytes(patched), reference, bad, image_base)
+    except ResidueError as exc:
+        error_exit(str(exc), json_mode=json_output)
 
     if new_baseline:
         atomic_write_text(Path(new_baseline), json.dumps(summary, indent=2), encoding="utf-8")

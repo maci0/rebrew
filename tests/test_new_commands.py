@@ -137,7 +137,9 @@ class TestResidueHelpers:
 
         def _pe_with_text() -> bytes:
             raw = bytearray(0x400)
+            raw[0:2] = b"MZ"
             raw[0x3C:0x40] = struct.pack("<I", 0x80)
+            raw[0x80:0x84] = b"PE\x00\x00"
             raw[0x80 + 6 : 0x80 + 8] = struct.pack("<H", 1)
             raw[0x80 + 20 : 0x80 + 22] = struct.pack("<H", 0xE0)
             off = 0x80 + 24 + 0xE0
@@ -161,7 +163,9 @@ class TestResidueHelpers:
         from rebrew.residue import _sections
 
         raw = bytearray(0x400)
+        raw[0:2] = b"MZ"
         raw[0x3C:0x40] = struct.pack("<I", 0x80)
+        raw[0x80:0x84] = b"PE\x00\x00"
         raw[0x80 + 6 : 0x80 + 8] = struct.pack("<H", 1)
         raw[0x80 + 20 : 0x80 + 22] = struct.pack("<H", 0xE0)
         off = 0x80 + 24 + 0xE0
