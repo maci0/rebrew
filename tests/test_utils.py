@@ -944,6 +944,117 @@ class TestWritableTempDir:
         monkeypatch.setattr(utils, "SOURCE_CHECKOUT", None)
         assert utils.find_install_tool("tools/diec") is None
 
+    def test_skips_tmpfs_candidate_when_real_disk_required(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """DOSBox cannot drive a tmpfs mount, so a tmpfs XDG_CACHE_HOME is
+        skipped rather than preferred: the probe, not the candidate order,
+        enforces the constraint."""
+        import tempfile
+
+        import rebrew.utils as utils
+
+        ram = tmp_path / "ram-cache"
+        real = tmp_path / "disk-cache"
+        monkeypatch.setenv("XDG_CACHE_HOME", str(ram))
+        monkeypatch.setattr(utils, "SOURCE_CHECKOUT", None)
+        monkeypatch.setattr(utils, "on_ram_filesystem", lambda p: p.is_relative_to(ram))
+        monkeypatch.setattr(tempfile, "gettempdir", lambda: str(real))
+        d = utils.writable_temp_dir("rebrew_test_", require_real_disk=True)
+        try:
+            assert d.parent == real
+            assert not list(ram.glob("rebrew_test_*"))
+        finally:
+            import shutil
+
+            shutil.rmtree(d, ignore_errors=True)
+
+    def test_all_tmpfs_candidates_fail_loud(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """No real-disk candidate is an error naming the constraint, not a
+        tmpfs dir handed back to fail later inside DOSBox."""
+        import rebrew.utils as utils
+
+        monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "ram"))
+        monkeypatch.setattr(utils, "SOURCE_CHECKOUT", None)
+        monkeypatch.setattr(utils, "on_ram_filesystem", lambda p: True)
+        with pytest.raises(OSError, match="real disk"):
+            utils.writable_temp_dir("rebrew_test_", require_real_disk=True)
+
+    def test_tmpfs_tolerated_without_the_requirement(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The plain workdir callers (docker mounts, host compilers) are fine
+        on tmpfs, so the default must not reject it."""
+        import rebrew.utils as utils
+
+        monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+        monkeypatch.setattr(utils, "on_ram_filesystem", lambda p: True)
+        d = utils.writable_temp_dir("rebrew_test_")
+        try:
+            assert d.is_dir()
+        finally:
+            import shutil
+
+            shutil.rmtree(d, ignore_errors=True)
+
+
+class TestOnRamFilesystem:
+    """The tmpfs probe reads /proc/self/mountinfo and picks the longest
+    matching mount point."""
+
+    def test_matches_a_mountinfo_line(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import rebrew.utils as utils
+
+        table = tmp_path / "mountinfo"
+        table.write_text(
+            "36 25 0:32 / / rw,relatime - ext4 /dev/sda1 rw\n"
+            "99 25 0:99 / /run/user/1000 rw,nosuid - tmpfs tmpfs rw,size=163840k\n"
+        )
+        monkeypatch.setattr(utils, "_MOUNTINFO", table)
+        assert utils.on_ram_filesystem(Path("/run/user/1000/sandbox")) is True
+        assert utils.on_ram_filesystem(Path("/var/tmp/sandbox")) is False
+
+    def test_nested_mount_wins_over_parent(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A tmpfs bind mount under a real-disk parent must be reported as
+        tmpfs: the longest mount point is the one that applies."""
+        import rebrew.utils as utils
+
+        table = tmp_path / "mountinfo"
+        table.write_text(
+            "36 25 0:32 / / rw,relatime - ext4 /dev/sda1 rw\n"
+            "99 25 0:99 / /home/u/.cache/ram rw,nosuid - tmpfs tmpfs rw,size=163840k\n"
+        )
+        monkeypatch.setattr(utils, "_MOUNTINFO", table)
+        assert utils.on_ram_filesystem(Path("/home/u/.cache/ram/rebrew")) is True
+        assert utils.on_ram_filesystem(Path("/home/u/.cache/disk/rebrew")) is False
+
+    def test_octal_escaped_mount_point(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The kernel escapes space/tab/newline/backslash in a mount point."""
+        import rebrew.utils as utils
+
+        table = tmp_path / "mountinfo"
+        table.write_text("99 25 0:99 / /mnt/my\\040ram rw,nosuid - tmpfs tmpfs rw\n")
+        monkeypatch.setattr(utils, "_MOUNTINFO", table)
+        assert utils.on_ram_filesystem(Path("/mnt/my ram/x")) is True
+
+    def test_missing_mountinfo_assumes_real_disk(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A namespace without /proc cannot be probed; refusing every dir
+        there would break the common case."""
+        import rebrew.utils as utils
+
+        monkeypatch.setattr(utils, "_MOUNTINFO", tmp_path / "absent")
+        assert utils.on_ram_filesystem(tmp_path) is False
+
 
 class TestRemoveTempDir:
     def test_removes_dir(self, tmp_path: Path) -> None:

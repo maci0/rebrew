@@ -1518,7 +1518,54 @@ def xdg_cache_home() -> Path:
     return xdg if xdg.is_absolute() else Path.home() / ".cache"
 
 
-def writable_temp_dir(prefix: str) -> Path:
+#: ``/proc/self/mountinfo`` (not ``/proc/mounts``): it lists every mount in
+#: this process's mount namespace with its own mount point, so a bind-mounted
+#: subdirectory is reported as such.  ``/proc/mounts`` collapses a bind mount
+#: into the parent filesystem's entry and would answer "real disk" for a
+#: tmpfs bind mount.
+_MOUNTINFO = Path("/proc/self/mountinfo")
+
+#: RAM-backed filesystems DOSBox 0.74-3 cannot drive (see :mod:`rebrew.dosbox`).
+#: ``ramfs`` is tmpfs's non-size-limited twin and breaks it the same way.
+_RAM_FS_TYPES = frozenset({"tmpfs", "ramfs"})
+
+
+def on_ram_filesystem(path: Path) -> bool:
+    """True when *path* resolves onto a RAM-backed filesystem.
+
+    Answers "no" when ``/proc`` is unavailable (a namespace without it cannot
+    be probed, and refusing every dir there would break the common case), and
+    matches the *longest* mount point that prefixes *path* so a nested mount
+    wins over its parent.
+    """
+    try:
+        lines = _MOUNTINFO.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return False
+    try:
+        target = path.resolve()
+    except OSError:
+        return False
+    best: tuple[int, str] | None = None
+    for line in lines:
+        fields = line.split(" ")
+        # "<id> <parent> <maj:min> <root> <mount point> ... - <fstype> ..."
+        try:
+            sep = fields.index("-")
+            mount_point = fields[4]
+            fstype = fields[sep + 1]
+        except (IndexError, ValueError):
+            continue
+        # The kernel octal-escapes space, tab, newline and backslash.
+        mount_point = re.sub(r"\\(\d{3})", lambda m: chr(int(m.group(1), 8)), mount_point)
+        if target != Path(mount_point) and not target.is_relative_to(mount_point):
+            continue
+        if best is None or len(mount_point) > best[0]:
+            best = (len(mount_point), fstype)
+    return best is not None and best[1] in _RAM_FS_TYPES
+
+
+def writable_temp_dir(prefix: str, *, require_real_disk: bool = False) -> Path:
     """Create a writable temp dir on a real-disk, container-visible location.
 
     Compile sandboxes must live on a real disk: DOSBox breaks on tmpfs
@@ -1534,6 +1581,13 @@ def writable_temp_dir(prefix: str) -> Path:
     left behind by a hard-killed run stays out of ``~`` and is trivially
     sweepable.
 
+    *require_real_disk* additionally rejects a candidate sitting on tmpfs or
+    ramfs, for the callers that mount the dir into DOSBox (see
+    :mod:`rebrew.dosbox`) — preference order alone does not enforce it, since
+    ``XDG_CACHE_HOME`` and the system temp dir are both commonly tmpfs.  The
+    error names the constraint instead of handing back a dir DOSBox cannot
+    drive, which fails much later and much less legibly.
+
     Raises :class:`OSError` when no candidate is writable."""
     import tempfile
 
@@ -1542,12 +1596,26 @@ def writable_temp_dir(prefix: str) -> Path:
         candidates.append(SOURCE_CHECKOUT / ".cache")
     with contextlib.suppress(Exception):
         candidates.append(Path(tempfile.gettempdir()))
+    ram_only: list[Path] = []
     for base in candidates:
         try:
             base.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            continue
+        if require_real_disk and on_ram_filesystem(base):
+            ram_only.append(base)
+            continue
+        try:
             return Path(tempfile.mkdtemp(prefix=prefix, dir=base))
         except OSError:
             continue
+    if ram_only:
+        raise OSError(
+            f"no candidate for temp dir {prefix!r} is on a real disk; "
+            f"{', '.join(str(b) for b in ram_only)} "
+            f"{'is' if len(ram_only) == 1 else 'are'} tmpfs or ramfs, which DOSBox cannot mount. "
+            "Point XDG_CACHE_HOME at a real-disk directory."
+        )
     raise OSError(f"no writable directory for temp dir {prefix!r}")
 
 
