@@ -217,11 +217,11 @@ jobs:
         # Offline inventory for consumers/scanners.  `make sbom` owns the
         # command line (`uv run --no-project --offline`): no prior
         # `uv sync` needed, and it still uses the setup-uv Python pin (not the
-        # runner's unpinned /usr/bin/python3).
-        run: |
-          set -euo pipefail
-          make sbom
-          uv run --no-project --offline python -c "import json,sys; d=json.load(open('dist/rebrew.cdx.json')); assert d['bomFormat']=='CycloneDX'; assert len(d['components'])>10; print(len(d['components']), 'components')"
+        # runner's unpinned /usr/bin/python3).  generate_sbom.py validates
+        # the document it emits (format header, spec version, non-empty
+        # inventory) and exits 1 otherwise, so a lock that parsed short fails
+        # the job here instead of shipping a BOM that reads as clean.
+        run: make sbom
       - name: Verify wheel and sdist reproducibility (second build, other path)
         # Rebuild the same commit with `make build` from a `git archive` copy
         # at a different path under a different TZ/locale. Extract that copy
@@ -259,9 +259,8 @@ jobs:
           uv venv .venv-pkg
           UV_PROJECT_ENVIRONMENT=.venv-pkg uv sync --frozen --no-dev --no-default-groups --no-install-project
           uv pip install --python .venv-pkg --no-deps "${wheels[0]}"
-          .venv-pkg/bin/python -c "from importlib.metadata import version; import rebrew; print(version('rebrew'))"
+          .venv-pkg/bin/python tools/smoke_wheel_install.py
           .venv-pkg/bin/rebrew --help >/dev/null
-          .venv-pkg/bin/python -c "from pathlib import Path; import rebrew; p=Path(rebrew.__file__).parent; assert (p/'agent-skills').is_dir(), p; assert (p/'AGENTS.md.template').is_file(); assert (p/'PRINCIPLES.md').is_file()"
       - name: Verify the sdist ships what the wheel ships
         # The wheel above is smoke-installed; the sdist only gets hashed, and
         # its file list comes from MANIFEST.in plus normalize_sdist.py's

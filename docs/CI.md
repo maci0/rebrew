@@ -18,13 +18,24 @@ another path under another TZ and locale, emits a CycloneDX 1.5 SBOM
 (`dist/rebrew.cdx.json` from `uv.lock` via `tools/generate_sbom.py`, with the
 MIT license on the rebrew component, a `pkg:github/maci0/rebrew` purl at the
 `v` tag for `__version__`, project URLs as external references, and the
-optional copyleft expressions from `NOTICE`), writes `dist/rebrew.buildinfo`
+optional copyleft expressions from `NOTICE`; the generator validates the
+document it emits, so a lock that parsed short fails the build instead of
+shipping a BOM that reads to a scanner as a clean bill of health), writes
+`dist/rebrew.buildinfo`
 (uv/python/`.python-version`/setuptools parsed from `pyproject.toml` + epoch
 knobs, source commit and dirty flag), and installs the
 wheel into a clean venv for a smoke import — runtime deps come from
 `uv sync --frozen --no-install-project`, then the wheel is overlaid with
-`--no-deps` so the smoke cannot drift past `uv.lock` — and a `cli-contract`
-job that greps the high-value `--help` surfaces. The package job also runs
+`--no-deps` so the smoke cannot drift past `uv.lock`. The smoke assertions
+live in `tools/smoke_wheel_install.py`, run with that venv's interpreter so
+the import resolves to the wheel's site-packages rather than `src/`: it
+reports the installed version and path and exits non-zero naming any of
+`agent-skills/`, `AGENTS.md.template`, or `PRINCIPLES.md` the wheel failed to
+ship. A `cli-contract`
+job that greps the high-value `--help` surfaces. No pipeline step inlines
+Python in a `run:` block: each check is a `tools/` script or a Makefile
+target, so a failure names a file and a line instead of an anonymous exit
+code. The package job also runs
 `make sdist-check`: it builds a wheel *from* the shipped sdist through the
 same hash-pinned build constraints and diffs the archive member lists
 (`tools/check_sdist_wheel.py`). The wheel is smoke-installed, but the sdist is
