@@ -91,16 +91,29 @@ class TestErrorsLazyExports:
         import rebrew.errors as err_mod
 
         expected = {
+            "CatalogScanError",
+            "ComponentError",
             "ConfigError",
-            "ConfigNotFoundError",
             "ConfigKeyError",
+            "ConfigNotFoundError",
             "DecompmeError",
+            "Delphi16Error",
+            "DosboxError",
+            "LibraryOverrideError",
             "McpApplyAborted",
             "McpError",
             "MetadataValidationError",
+            "Msvc16Error",
+            "NeParseError",
+            "NoDecompilationError",
+            "NotLzexeError",
+            "Omf16Error",
+            "OrphanInventoryError",
             "RecompileError",
             "RegistryError",
+            "Tc16Error",
             "ToolchainError",
+            "UnresolvedSymbolError",
             "WorkspaceNotFound",
         }
         assert set(err_mod._LAZY_ERRORS.keys()) == expected

@@ -166,9 +166,11 @@ except ToolchainError as exc:
 
 Remote compile transport, registry plugins, workspace helpers, and the GA
 matcher follow the same pattern (`rebrew.recompile_client`, `rebrew.registry`,
-`rebrew.plugin`, `rebrew.workspace`, `rebrew.matcher`). Catch the specific type
-(`ConfigError`, `RecompileError`, `McpError`, `ToolchainError`, `RegistryError`, ...) when the
-recovery differs per failure, and `RebrewError` when it does not:
+`rebrew.plugin`, `rebrew.workspace`, `rebrew.matcher`). Every error class is
+importable from `rebrew.errors`, whichever submodule defines it. Catch the
+specific type (`ConfigError`, `RecompileError`, `McpError`, `ToolchainError`,
+`RegistryError`, ...) when the recovery differs per failure, and `RebrewError`
+when it does not:
 
 ```python
 try:

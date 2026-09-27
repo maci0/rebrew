@@ -195,9 +195,10 @@ def compile_source(
     local-docker fallback.
 
     *client*, when given, must be an ``httpx.Client`` (or compatible stand-in
-    with ``.post`` / ``.get``).  The caller owns its lifetime; the function
-    does not close it.  When omitted, one short-lived client covers both the
-    compile POST and the artifact GET.
+    with ``.post`` / ``.get``).  The caller owns its lifetime and its timeout
+    settings; *timeout* is passed only to the client this function builds
+    itself and is ignored for an injected *client*.  When omitted, one
+    short-lived client covers both the compile POST and the artifact GET.
 
     *retries* re-attempts after a :class:`RecompileError` with
     ``retryable=True``.  Non-retryable errors (validation, 4xx other than
