@@ -175,6 +175,32 @@ def _nonmatching_from_cache(cfg: Any, image_base: int, text_rva: int) -> list[tu
     return out
 
 
+def layout_map_gate_note(cover: tuple[int, int, int, int]) -> str | None:
+    """Warning text for a ``map_coverage`` result, or None when it passes.
+
+    *cover* is ``(operands_ok, operands_total, calls_ok, calls_total)``.  A
+    total of zero means the layout package carries no ``.text`` map entries,
+    so alignment was never measured: that is reported as unmeasured, not as
+    the 0.00% coverage a ratio over an empty denominator used to produce.
+    """
+    from rebrew.postlink import MIN_LAYOUT_MAP_COVERAGE
+
+    op_ok, op_tot, call_ok, call_tot = cover
+    map_total = op_tot + call_tot
+    if map_total == 0:
+        return (
+            "WARNING: layout package has no .text layout-map entries; "
+            "position alignment was not measured"
+        )
+    frac = (op_ok + call_ok) / map_total
+    if frac >= MIN_LAYOUT_MAP_COVERAGE:
+        return None
+    return (
+        f"WARNING: layout-map coverage {100 * frac:.2f}% below gate; "
+        "fixers rewrite by fixed offset — output is intermediate, not runnable."
+    )
+
+
 @app.callback(invoke_without_command=True)
 def main(
     built: str = typer.Argument(None, help="Built image to measure (default: build/<target>)"),
@@ -202,7 +228,6 @@ def main(
     from rebrew.postlink import (
         FIXER_ORDER,
         FIXERS,
-        MIN_LAYOUT_MAP_COVERAGE,
         binary_info_from_bytes,
         map_coverage,
     )
@@ -227,13 +252,9 @@ def main(
     except KeyError as exc:
         console.print(f"WARNING: layout-map coverage unavailable (missing section {exc})")
     else:
-        op_ok, op_tot, call_ok, call_tot = cover
-        frac = (op_ok + call_ok) / max(1, op_tot + call_tot)
-        if frac < MIN_LAYOUT_MAP_COVERAGE:
-            console.print(
-                f"WARNING: layout-map coverage {100 * frac:.2f}% below gate; "
-                "fixers rewrite by fixed offset — output is intermediate, not runnable."
-            )
+        note = layout_map_gate_note(cover)
+        if note:
+            console.print(note)
     patched = bytearray(info_b.data)
     if meta is not None:
         for name in FIXER_ORDER:
