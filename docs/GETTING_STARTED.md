@@ -60,8 +60,9 @@ mkdir ~/dedemo && cd ~/dedemo
 cp /path/to/your-game.exe ./game.exe
 ```
 
-(`rebrew intake` copies it into `original/` itself. Pointing it at a file
-already inside `original/` errors out — a common first-run stumble.)
+(`rebrew intake` copies it into `original/` itself. Re-running `intake` on
+the copy it already made is a no-op, so a re-discovered binary is safe to
+pass again.)
 
 ### 2. Onboard it
 

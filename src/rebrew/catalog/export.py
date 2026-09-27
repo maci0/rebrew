@@ -39,8 +39,10 @@ def generate_reccmp_csv(
     Format per https://github.com/isledecomp/reccmp/blob/master/docs/csv.md:
       address|name|symbol|type|size
 
-    Includes ALL known functions (matched + unmatched), so the CSV serves as
-    a complete function catalog for the binary.  Comments and blank lines are
+    Includes ALL known code functions (matched + unmatched), so the CSV
+    serves as a complete function catalog for the binary.  GLOBAL/DATA
+    markers are annotations rather than C definitions and are skipped: the
+    reccmp reader would take them as functions.  Comments and blank lines are
     allowed by the reccmp spec.  Every row carries a decimal size field —
     unknown sizes emit ``0``, never an empty field.
     """

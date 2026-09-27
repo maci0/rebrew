@@ -16,11 +16,35 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from rebrew.config import ProjectConfig, inventory_path_for
+from rebrew.config import ProjectConfig, arch_pointer_size, inventory_path_for
 from rebrew.data_metadata import module_visible_to_target
 from rebrew.utils import read_source_text
 
 log = logging.getLogger(__name__)
+
+#: struct code per pointer width, for the dispatch-table scan.
+_PTR_FMT = {2: "H", 4: "I", 8: "Q"}
+
+#: Width assumed for a pointer-sized table slot when the loader says nothing.
+_DEFAULT_PTR_SIZE = 4
+
+
+def _target_pointer_size(info: Any) -> int:
+    """Pointer width for a target's data sections, from *info* when it carries one.
+
+    An NE far pointer is always 4 bytes (segment:offset), whatever the
+    segment model's nominal word size, so NE falls back to 4 rather than to
+    the arch preset.
+    """
+    if info is None:
+        return _DEFAULT_PTR_SIZE
+    if getattr(info, "format", "") == "ne":
+        return 4
+    size = int(getattr(info, "pointer_size", 0) or 0)
+    if size in _PTR_FMT:
+        return size
+    arch = str(getattr(info, "arch", "") or "")
+    return arch_pointer_size(arch) if arch else _DEFAULT_PTR_SIZE
 
 # ---------------------------------------------------------------------------
 # Regexes
@@ -555,7 +579,7 @@ def find_dispatch_tables(
     binary_data: bytes,
     sections: dict[str, dict[str, Any]],
     known_functions: dict[int, dict[str, str]],
-    ptr_size: int = 4,
+    ptr_size: int | None = None,
     min_entries: int = 3,
     max_stride: int | None = None,
     info: Any = None,
@@ -564,6 +588,9 @@ def find_dispatch_tables(
 
     Scans data sections for contiguous pointer-sized entries that all point
     into code sections.  Groups consecutive entries into tables.
+
+    Entries are read at the target's own pointer width, so a 64-bit table is
+    not mis-strided at 4 bytes.
 
     For 16-bit NE binaries (*info* provided, ``format == "ne"``), the code
     sections are the code segments (probe-classified) and the data sections
@@ -577,14 +604,18 @@ def find_dispatch_tables(
         binary_data: Raw binary file bytes.
         sections: Section dict from binary_loader ({name: {va, size, file_offset, raw_size}}).
         known_functions: Map of VA -> {"name": str, "status": str} for reversed funcs.
-        ptr_size: Pointer size in bytes (4 for 32-bit PE and 16-bit far pointers).
+        ptr_size: Pointer size in bytes.  ``None`` (default) takes it from
+            *info* (its ``pointer_size``, else ``arch_pointer_size(info.arch)``)
+            and falls back to 4 when *info* says nothing.
         min_entries: Minimum entries to qualify as a dispatch table.
         max_stride: Maximum byte distance between consecutive pointer-sized slots to still
             be considered part of the same table.  Defaults to ``ptr_size`` (contiguous).
-        info: Optional BinaryInfo; enables NE-aware section selection and
-            decodes pointers in its byte order (``endian == "big"``).
+        info: Optional BinaryInfo; enables NE-aware section selection, sets the
+            pointer width, and decodes pointers in its byte order (``endian == "big"``).
 
     """
+    if ptr_size is None:
+        ptr_size = _target_pointer_size(info)
     stride = max_stride if max_stride is not None else ptr_size
 
     if info is not None and info.format == "ne":
@@ -607,7 +638,7 @@ def find_dispatch_tables(
         ]
 
     byte_order = ">" if getattr(info, "endian", "") == "big" else "<"
-    fmt = byte_order + ("I" if ptr_size == 4 else "Q")
+    fmt = byte_order + _PTR_FMT.get(ptr_size, "Q")
     tables: list[DispatchTable] = []
 
     for sec_name, sec in data_sections:

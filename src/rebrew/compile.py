@@ -158,7 +158,8 @@ class CompareResult:
         delta: Absolute byte difference (mismatch count + size delta).
         obj_bytes: Compiled bytes extracted from the ``.obj`` file, or ``None``
             on compile/extract failure.
-        reloc_offsets: Relocation start offsets (4-byte spans each),
+        reloc_offsets: Relocation start offsets (each entry starts a span
+            of the target's pointer width, ``arch_pointer_size`` bytes),
             or ``None`` on failure.
         inv_reloc_offsets: Invalid/mismatched relocation offsets found during
             comparison (empty list by default).

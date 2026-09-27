@@ -3,8 +3,11 @@
 All 101 CLI commands are registered under the unified `rebrew` entry point in `main.py`
 (100 packaged `CliComponent` entries in `builtins.py` plus `import-splat` from
 `main.py` `_EXTRA_COMPONENTS`).
-Every tool supports `--target / -t` to select a target from `rebrew-project.toml` and
-reads defaults (binary path, reversed_dir, compiler settings) from the project config.
+Most tools support `--target / -t` to select a target from `rebrew-project.toml` and
+read defaults (binary path, reversed_dir, compiler settings) from the project config.
+The ones that do not (`postlink`, `cmake-toolchain`, `build-check`, `order-sources`,
+`gen-link-stubs`, `gen-stubs`, `pdb-info`, `discover-functions`, `unpack-lzexe`,
+`gen-flirt-pat`, `dashboard`) take their input paths directly.
 
 Run any tool with `--help` to see usage examples and context
 (typer `rich_markup_mode="rich"` with epilog text).
@@ -499,7 +502,7 @@ carry a `mutations` array in `--json` (the GA operators to try next) and a
 |------|-------------|
 | `VA` | Function VA in hex (positional) |
 | `--decomp` | Embed inline decompilation |
-| `--decomp-backend BACKEND` | Decompiler backend: `r2ghidra`, `r2dec`, `ghidra`, `auto` |
+| `--decomp-backend BACKEND` | Decompiler backend: `kuna` (default), `r2ghidra`, `r2dec`, `ghidra`, `m2c`, `auto` |
 | `--xrefs` | Fetch cross-references and caller decompilation from Ghidra via ReVa MCP |
 | `--endpoint URL` | ReVa MCP endpoint URL (for `--xrefs` and `--decomp-backend ghidra`) |
 | `--append FILE` | Append to existing multi-function file |

@@ -375,7 +375,8 @@ def update_cflags_annotation(
     stub's identity — scanning the first marker writes CFLAGS under the
     wrong key while STATUS promotion targets the correct VA.
 
-    Returns True if the metadata was updated, False on failure.
+    Returns True if the metadata was updated, False if the marker could not
+    be read or the CFLAGS were already current (a successful no-op).
     """
     from rebrew.metadata import get_entry, update_field
 
