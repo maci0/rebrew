@@ -6,9 +6,11 @@ Suggested gates for reverse-engineering workspaces that use rebrew.
 
 GitHub Actions (`.github/workflows/ci.yml`) runs lint, the full unit test suite
 across the supported Python versions (3.13–3.14; the 3.13 entry runs it as
-`make coverage`, failing below `COV_FLOOR`) — including a fixture-freshness
+`make coverage`, failing below `COV_FLOOR`) — plus, on that same 3.13 entry,
+a fixture-freshness
 check (`tools/gen_fixtures.py --check`) and an idempotency sweep over the
-offline `--json` CLI surface — a pre-commit hook-parity job (`make check` with
+offline `--json` CLI surface, both version-independent, so the 3.14 entry
+skips them — a pre-commit hook-parity job (`make check` with
 the ruff and mypy hooks skipped, since the lint job runs them; it installs
 shellcheck first through `tools/ci_apt_install.sh`, so the shell hook is
 enforced there), a package job
@@ -30,8 +32,11 @@ BOM that reads to a scanner as a clean bill of health), writes
 (project name and `__version__`, uv/python/`.python-version`/setuptools parsed
 from `pyproject.toml` + epoch knobs, the sha256 of `build-constraints.txt`, and
 the source commit and dirty flag), and installs the
-wheel into a clean venv for a smoke import — runtime deps come from
-`uv sync --frozen --no-install-project`, then the wheel is overlaid with
+wheel into a clean venv for a smoke import through `make smoke-wheel` — the
+Makefile owns that recipe, the same way it owns the build, so the CI and
+contributor paths cannot drift. Runtime deps come from
+`uv sync --frozen --no-dev --no-default-groups --no-install-project`, then the
+wheel is overlaid with
 `--no-deps` so the smoke cannot drift past `uv.lock`. The smoke assertions
 live in `tools/smoke_wheel_install.py`, run with that venv's interpreter so
 the import resolves to the wheel's site-packages rather than `src/`: it
@@ -98,7 +103,8 @@ install with a backoff, skips packages already on `PATH`, and fails the step
 naming the package after the last attempt.
 The package job skips the sibling clone (`clone-resembl: "false"`): its
 lockfile sync uses
-`--no-default-groups --no-install-project` (no path dep needed) before the
+`--no-dev --no-default-groups --no-install-project` (no path dep needed)
+before the
 `--no-deps` wheel overlay. After the smoke import it uploads the verified
 `dist/` wheel, sdist, `rebrew.buildinfo`, and CycloneDX SBOM as a workflow
 artifact (`rebrew-dist-<sha>`, 14-day retention). The test job checks out with `fetch-depth: 0` and `fetch-tags: true`.

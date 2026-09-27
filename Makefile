@@ -391,7 +391,7 @@ sdist-check: dist/rebrew.buildinfo
 # Runtime deps come from the lock with --no-default-groups
 # --no-install-project (no ../resembl needed); the wheel is then overlaid with
 # --no-deps so a live PyPI resolve cannot drift past the audited lock.
-# The CI package job runs the same four commands inline; keep the two in step.
+# The CI package job runs this target; do not re-inline the recipe here.
 # `make clean` removes .venv-pkg.
 smoke-wheel: dist/rebrew.buildinfo ensure-uv
 	@set -eu; \

@@ -81,9 +81,7 @@ def resolve_function(
         # The floor is per-target: 16-bit targets address code from segment 0,
         # so VA 0 names a real function there.
         if va_int < min_valid_va_for(cfg):
-            error_exit(
-                f"VA must be at least 0x{min_valid_va_for(cfg):x}", json_mode=json_mode
-            )
+            error_exit(f"VA must be at least 0x{min_valid_va_for(cfg):x}", json_mode=json_mode)
         return module, va_int
 
     resolved = str(resolve_source_arg(cfg, raw))
@@ -134,9 +132,7 @@ def resolve_function(
         # requested target (covers stub files whose annotation VA differs).
 
     if va_int is not None and va_int < min_valid_va_for(cfg):
-        error_exit(
-            f"VA must be at least 0x{min_valid_va_for(cfg):x}", json_mode=json_mode
-        )
+        error_exit(f"VA must be at least 0x{min_valid_va_for(cfg):x}", json_mode=json_mode)
 
     if va_from_flag and va_int is not None:
         # Use the explicit VA as target; keep module from matched ann if any,
