@@ -34,13 +34,14 @@ Usage:
 
 from __future__ import annotations
 
+import functools
 import os
 import re
 import shlex
 import subprocess
 import sys
 import typing
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from pathlib import Path
 
 import typer
@@ -235,6 +236,31 @@ def _is_file_scope_decl(line: str) -> bool:
     return not line.startswith(_SKIP_DECL_PREFIXES)
 
 
+@functools.lru_cache(maxsize=1024)
+def _stripped_source(path_str: str, mtime_ns: int, size: int, ino: int, text: str) -> str:
+    """``strip_comment_blocks`` of a source, memoized on its stat identity.
+
+    :func:`collect_extern_info` and :func:`collect_called_symbols` both walk
+    the whole source tree, and stripping the comment blocks rewrites every
+    line of every file, so the second walk re-did the first one's work.  The
+    stat identity and the text are both in the key, so an edit re-strips.
+    """
+    return strip_comment_blocks(text)
+
+
+def _stripped_sources(src_dir: Path) -> Iterator[tuple[Path, str]]:
+    """Yield each source in *src_dir* once, with its comment blocks removed."""
+    for src_file in sorted(src_dir.rglob("*.c")):
+        text = read_source_text(src_file)[0]
+        try:
+            st = src_file.stat()
+        except OSError:
+            stripped = strip_comment_blocks(text)
+        else:
+            stripped = _stripped_source(str(src_file), st.st_mtime_ns, st.st_size, st.st_ino, text)
+        yield src_file, stripped
+
+
 def collect_extern_info(src_dir: Path) -> dict[str, dict[str, typing.Any]]:
     """``symbol_name -> info`` from the file-scope declarations in *src_dir*'s sources.
 
@@ -248,8 +274,7 @@ def collect_extern_info(src_dir: Path) -> dict[str, dict[str, typing.Any]]:
     """
     externs: dict[str, dict[str, typing.Any]] = {}
     deferred: dict[str, dict[str, typing.Any]] = {}
-    for src_file in sorted(src_dir.rglob("*.c")):
-        text = strip_comment_blocks(read_source_text(src_file)[0])
+    for _src_file, text in _stripped_sources(src_dir):
         depth = 0
         for raw in text.splitlines():
             line = raw.strip()
@@ -301,8 +326,7 @@ def collect_called_symbols(src_dir: Path) -> set[str]:
     """
     called: set[str] = set()
     call_re = re.compile(r"\b([A-Za-z_]\w*)\s*\(")
-    for src_file in sorted(src_dir.rglob("*.c")):
-        text = strip_comment_blocks(read_source_text(src_file)[0])
+    for _src_file, text in _stripped_sources(src_dir):
         for m in call_re.finditer(text):
             name = m.group(1)
             if name not in _NON_CALL_KEYWORDS:

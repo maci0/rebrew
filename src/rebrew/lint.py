@@ -1545,6 +1545,36 @@ def _check_body_rules(result: LintResult, lines: list[str], has_new: bool) -> No
         )
 
 
+#: W022 exemption set per loaded data-metadata document, and the document
+#: itself pinned so a freed entry's ``id`` is never reused as a live key.
+_DATA_SECTION_NAMES: dict[int, frozenset[str]] = {}
+_DATA_SECTION_NAMES_OWNER: dict[int, dict[tuple[str, int], dict[str, Any]]] = {}
+_DATA_SECTION_NAMES_MAX = 4
+
+
+def _data_section_names_for(entries: dict[tuple[str, int], dict[str, Any]]) -> frozenset[str]:
+    """The ``.data``-section global names in *entries*, memoized per document.
+
+    ``lint_file`` runs once per source file over a document that the batch
+    driver already preloaded once, so rebuilding this set per file re-walked
+    every ``rebrew-data.toml`` entry for every file in the tree.
+    """
+    key = id(entries)
+    if _DATA_SECTION_NAMES_OWNER.get(key) is entries:
+        return _DATA_SECTION_NAMES[key]
+    names = frozenset(
+        str(entry["name"])
+        for entry in entries.values()
+        if entry.get("section") == ".data" and entry.get("name")
+    )
+    if len(_DATA_SECTION_NAMES) >= _DATA_SECTION_NAMES_MAX:
+        _DATA_SECTION_NAMES.clear()
+        _DATA_SECTION_NAMES_OWNER.clear()
+    _DATA_SECTION_NAMES[key] = names
+    _DATA_SECTION_NAMES_OWNER[key] = entries
+    return names
+
+
 def lint_file(
     filepath: Path,
     cfg: ProjectConfig | None = None,
@@ -1867,11 +1897,7 @@ def lint_file(
     result.context_prefix = ""
     # Names of globals annotated section=".data" in rebrew-data.toml — W022
     # exemption (the original binary stored the zero-init data in .data).
-    _data_section_names = frozenset(
-        str(entry["name"])
-        for entry in _data_metadata_entries.values()
-        if entry.get("section") == ".data" and entry.get("name")
-    )
+    _data_section_names = _data_section_names_for(_data_metadata_entries)
     code_lines = _strip_all(lines)  # one strip pass shared by E023/W020/W022
     _check_E023_naked_asm(result, lines, code_lines, _file_statuses, " ".join(_file_cflags))
     _check_W020_asm_dump(result, code_lines, _file_statuses, _file_has_blocker)
@@ -2043,9 +2069,10 @@ def main(
         _bin_path = cfg.target_binary
         _loaded = False
         _ranges: list[tuple[int, int, str]] = []
+        _starts: list[int] = []
 
         def section_for_va(va: int) -> str:
-            nonlocal _loaded, _ranges
+            nonlocal _loaded, _ranges, _starts
             if not _loaded:
                 _loaded = True  # an unusable binary must not retry per VA
                 try:
@@ -2056,9 +2083,11 @@ def main(
                         ((s.va, s.va + s.size, s.name) for s in _info.sections.values()),
                         key=lambda t: t[0],
                     )
+                    _starts = [r[0] for r in _ranges]
                 except Exception:
                     _ranges = []
-            idx = bisect.bisect_right([r[0] for r in _ranges], va) - 1
+                    _starts = []
+            idx = bisect.bisect_right(_starts, va) - 1
             # A shorter section nested in a longer one must not hide the outer tail.
             while idx >= 0:
                 start, end, name = _ranges[idx]
