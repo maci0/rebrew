@@ -1,6 +1,22 @@
 ## [Unreleased]
 
 ### Added
+- **A moved public helper cannot reach a release unflagged.** The import
+  surface is unfrozen by policy, so a removal, move, or signature change there
+  ships in a minor with a `**Breaking:**` entry naming the old and new import
+  path, but nothing in the tree checked that the entry existed: the two helpers
+  that moved from `rebrew.utils` to `rebrew.toolchain` in this block are only
+  documented because someone remembered.
+  `tools/public_surface.py` reads the surface out of the AST (public
+  functions, classes, their public methods, literal constants, and intra-package
+  re-exports) and scores the current tree against the last tag
+  (`--diff v2.14.0` prints it).  A signature that only gains defaulted
+  parameters is a feature, the way a Typer callback grows a flag; a dropped,
+  reordered, renamed, or newly required parameter, a changed default, and a
+  narrowed return type are breaks.  `tests/test_public_surface.py` fails the
+  build when the delta holds a removed or reshaped name and `[Unreleased]`
+  carries no `**Breaking:**` entry naming it, so a move that is not documented
+  is a red test rather than a line in an upgrade guide that is missing.
 - **A dashboard handler fault names the request it happened on.** A fault
   escaping a handler went through `socketserver.BaseServer.handle_error`, which
   prints a bare traceback: no timestamp, no level, and no way to match the
@@ -13,6 +29,23 @@
   reset each request. No `/api/*` JSON changed.
 
 ### Changed
+- **Breaking:** **A dashboard request for a path the server does not serve
+  answers 404, not 405.** `Dashboard.handle` checked the method before the
+  path, so a `POST` to an endpoint that does not exist came back `405` with
+  `Allow: GET, HEAD`, advertising a resource the server has no route for. The
+  method check now runs only for a served path: anything outside the route set
+  is `404` with code `not_found` on every method, which is what the same path
+  already answered to a `GET`. A client branching on `code` sees
+  `method_not_allowed` become `not_found`, and a probe that read 405 as "wrong
+  method, retry as GET" no longer does.
+- **Breaking:** **A `/api/history` row's `old_status` / `new_status` are `""`,
+  never `null`.** A VA's first recorded transition has no previous status, and
+  the row went out as a JSON `null` in the middle of otherwise-string `cols` —
+  a client that null-checked `/api/functions` and read the history rows
+  positionally got a `TypeError` or a silent blank on one route and not the
+  next. Both columns are now `""`, like every other text column on the
+  functions, globals, and sections routes. The column positions and the
+  `cols` array shape are unchanged.
 - **Breaking:** **`resolve_msvc_toolchain` and `toolchain_link_candidates`
   moved from `rebrew.utils` to `rebrew.toolchain`.** Both names were public
   module-level functions of `rebrew.utils`; `rebrew init` and
@@ -99,6 +132,17 @@
   `src/`, so the `find src` in `BUILD_INPUTS` missed them: a change to the
   normalizer left `sdist-check` and `smoke-wheel` verifying archives built by
   the previous version of it. Both are now build inputs.
+- **A DOSBox sandbox is never placed on RAM.** The sandbox dir is chosen from
+  `XDG_CACHE_HOME`, the workspace `.cache`, and `TMPDIR`, and two of those three
+  are commonly tmpfs on a Linux host, which DOSBox 0.74-3 cannot drive: the
+  failure surfaced as a compile error inside the emulator rather than a
+  sandbox that could not be created. `writable_temp_dir` takes
+  `require_real_disk=True` for the sandbox and rejects a tmpfs or ramfs mount
+  outright, reading `/proc/self/mountinfo` (which reports a bind-mounted
+  subdirectory as its own mount) and matching the longest mount point that
+  prefixes the candidate. A host without `/proc` keeps the previous behavior:
+  a dir that cannot be probed is used, because refusing every candidate there
+  would break every run.
 - **A headless X display is authenticated, and an unauthenticated one is no
   longer adopted.** rebrew reuses an Xvfb left running by an earlier invocation
   (or one named by `REBREW_XVFB_DISPLAY`), which was reachable by any process
@@ -108,6 +152,20 @@
   process holds a cookie for it, and an unauthenticated one is skipped for a
   private server. `REBREW_XVFB_DISPLAY` must now name a display rebrew holds a
   cookie for (see `docs/CONFIG.md`).
+- **The dashboard's log lines carry one clock.** `%(asctime)s` defaults to
+  localtime, so the error stream's stamp could sit an hour away from the
+  access stream's for half the year and repeat itself on a fall-back night,
+  and neither lined up with the UTC stamps the rest of rebrew writes. Both
+  streams are now stamped with `time.gmtime` and labeled `UTC`, so one grep
+  orders the whole server output and against any other rebrew log. Only the
+  stamp changed; the level column, the field order, and the `X-Request-Id`
+  the two streams share are unchanged.
+- **`rebrew match --skip-recent` no longer raises on a zone-less window end.**
+  The window end was compared against the run log's timestamps with a bare
+  `now - timedelta(...)`; a caller (or a test) passing a naive `now` got a
+  `TypeError: can't subtract offset-naive and offset-aware datetimes` instead
+  of a filter. A zone-less end is now read as UTC, the same rule the record
+  loop already applied to each record's `ts`.
 - **Every dashboard response carries `X-Request-Id`.** The `r<N>` id in the
   access and error log lines was not returned to the client, so a report of
   "the dashboard threw" could not be tied to the request that caused it. The

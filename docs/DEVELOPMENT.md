@@ -75,6 +75,13 @@ see [`AGENTS.md`](../AGENTS.md); for the CLI surface see [`CLI.md`](CLI.md).
   ...)` fails because the attribute doesn't exist on `rebrew.verify`.
 - `tools/detect_cycles.py` enforces no module-level import cycles (pre-commit
   hook).  `if TYPE_CHECKING:` guards are skipped by the detector.
+- `tools/public_surface.py` reads the public import surface out of the AST
+  (no import of the package, so no optional extra is needed) and diffs it
+  against a ref: `uv run python tools/public_surface.py --diff v2.14.0` prints
+  what a consumer's `from rebrew.x import y` loses.  A removed or reshaped name
+  there needs a `**Breaking:**` entry naming it; see "Versioning and releases"
+  in [`CONTRIBUTING.md`](../CONTRIBUTING.md) and
+  `tests/test_public_surface.py`.
 
 ## Toolchain-dependent tests
 

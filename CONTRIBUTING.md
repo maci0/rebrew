@@ -113,7 +113,11 @@ the `rebrew dashboard` `/api/*` JSON are not frozen: a removal, move, or
 signature change there ships in a minor with a `**Breaking:**` entry naming
 the old and new import path or shape (as with the helper removals in 2.1.0
 and 2.2.0).  There is no deprecation window; pin the minor version if you
-import rebrew as a library.
+import rebrew as a library.  `tools/public_surface.py` reads that surface out
+of the AST (`--diff <tag>` prints the delta) and
+`tests/test_public_surface.py::TestSurfaceGate` fails the build when the delta
+against the last tag removes or reshapes a public name and `[Unreleased]` has
+no `**Breaking:**` entry naming it.
 
 - **One version, one place.**  `__version__` in `src/rebrew/__init__.py` is the
   source of truth; `pyproject.toml` reads it via `[tool.setuptools.dynamic]`.
