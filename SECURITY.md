@@ -112,9 +112,13 @@ plugin cache backends or remove the open upstream diskcache advisory.
   (`src/rebrew/rename.py`) and its destination name
   (`rebrew/rename_ops.py`), `rebrew merge-sweep` re-roots a stored path under
   the project, and `rebrew match`'s batch compile skips a `file` outside the
-  reversed dir; `rebrew verify` (`cfg.reversed_dir / entry.filepath` in
-  `verify.py` `verify_entry`, plus the cache `stat()` and the deferred STATUS
-  pass) and `rebrew test`'s blocker clear do not. An entry in a cloned
+  reversed dir; the verify cache's patch refresh resolves a stored `filepath`
+  inside `reversed_dir` before hashing it (`verify_cache.py`
+  `patch_verify_cache_entries`); `rebrew verify` (`cfg.reversed_dir /
+  entry.filepath` in `verify.py` `verify_entry`, plus that module's
+  cache-validity `stat()` and deferred STATUS pass), the batch cache-key probe
+  that reads the source at that path (`compile.py` `precompile_batch`), and
+  `rebrew test`'s blocker clear do not. An entry in a cloned
   `rebrew-functions.toml` naming an absolute or `../` path therefore makes
   `rebrew verify` read that path with the analyst's privileges. Fix direction
   and full call-site list: [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) §4
