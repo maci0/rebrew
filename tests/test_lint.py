@@ -1226,8 +1226,8 @@ class TestW021W022:
         result = lint_file(f)
         assert not any(c == "W022" for _, c, _ in result.warnings)
 
-    def test_zero_init_bss_section_name_still_warns(self, tmp_path: Path) -> None:
-        """section='.bss' metadata does NOT exempt a zero-init global."""
+    def test_zero_init_bss_section_name_no_warning(self, tmp_path: Path) -> None:
+        """A recorded .bss symbol may keep = 0; that pin holds raw .data pointers."""
         from rebrew.lint import lint_file
 
         data_toml = tmp_path / "rebrew-data.toml"
@@ -1237,7 +1237,7 @@ class TestW021W022:
         content = "// FUNCTION: SERVER 0x1000\nint g_buf[4] = {0};\nvoid f(void) {}\n"
         f = _write_c(tmp_path, "b.c", content)
         result = lint_file(f)
-        assert any(c == "W022" for _, c, _ in result.warnings)
+        assert not any(c == "W022" for _, c, _ in result.warnings)
 
     def test_zero_init_different_name_still_warns(self, tmp_path: Path) -> None:
         """A .data exemption for another symbol does not suppress this global."""

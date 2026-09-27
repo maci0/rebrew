@@ -1326,10 +1326,11 @@ def _check_W022_zero_init_bss(
     the global uninitialized for .bss.
 
     Exception: a global whose name appears in ``rebrew-data.toml`` with
-    ``section = ".data"`` (passed via *data_section_names*) stored zero-init
-    data in the original's ``.data`` as well — dropping the initializer
-    would shrink the rebuilt section and break byte identity, so the warning
-    is suppressed for it.
+    ``section = ".data"`` or ``section = ".bss"`` (passed via
+    *data_section_names*). A recorded ``.data`` zero-init is in the original
+    image. A recorded ``.bss`` ``= 0`` is a placement pin: dropping it moves
+    the symbol and rewrites absolute pointers stored in raw ``.data``.
+    Untracked ``= 0`` still warns.
     """
     depth = 0
     for i, cleaned in enumerate(code_lines, start=1):
@@ -1574,7 +1575,7 @@ def _data_section_names_for(entries: dict[tuple[str, int], dict[str, Any]]) -> f
     names = frozenset(
         str(entry["name"])
         for entry in entries.values()
-        if entry.get("section") == ".data" and entry.get("name")
+        if entry.get("section") in (".data", ".bss") and entry.get("name")
     )
     if len(_DATA_SECTION_NAMES) >= _DATA_SECTION_NAMES_MAX:
         _DATA_SECTION_NAMES.clear()
