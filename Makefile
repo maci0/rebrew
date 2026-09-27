@@ -326,8 +326,10 @@ audit:
 
 # Release preflight (release-review): verify the version/changelog/tag contract
 # from CONTRIBUTING.md without mutating anything.  Passes only when a release
-# is actually being prepared: __version__ bumped past the last tag, a matching
-# [Unreleased]-style section present, and a clean tree to tag.
+# is actually being prepared: __version__ bumped past the last tag, a dated
+# [<version>] section that has at least one entry, an empty [Unreleased]
+# block (notes split across the two headings ship half undocumented), and a
+# clean tree to tag.
 # Manual gate by design (CONTRIBUTING.md): wiring it into CI would fail every
 # push except the release commit, since __version__ stays equal to the last
 # tag during normal development. Run `make release-check` before tagging.
@@ -345,5 +347,16 @@ release-check:
 	fi; \
 	if ! grep -Eq "^## \[$$V\] - [0-9]{4}-[0-9]{2}-[0-9]{2}$$" CHANGELOG.md; then \
 	  echo "ERROR: CHANGELOG.md has no dated [$$V] - YYYY-MM-DD section (date the [Unreleased] block)"; exit 1; \
+	fi; \
+	# Notes split across the two headings ship half the release undocumented. \
+	# The [Unreleased] block ends at the next "## " heading, so anything but \
+	# blank lines under it belongs in the [$$V] section below. \
+	UNREL=$$(awk '/^## \[Unreleased\]$$/{f=1; next} f && /^## /{exit} f && NF{print}' CHANGELOG.md); \
+	if [ -n "$$UNREL" ]; then \
+	  echo "ERROR: CHANGELOG.md [Unreleased] still has entries; move them into [$$V]"; exit 1; \
+	fi; \
+	COUNT=$$(awk -v v="$$V" '$$0 ~ "^## \\[" v "\\] - " {f=1; next} f && /^## /{exit} f && /^- /{c++} END{print c+0}' CHANGELOG.md); \
+	if [ "$$COUNT" -eq 0 ]; then \
+	  echo "ERROR: CHANGELOG.md [$$V] section has no entries"; exit 1; \
 	fi; \
 	echo "release preflight OK: version $$V (last tag $$LAST)"

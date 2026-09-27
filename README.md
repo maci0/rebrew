@@ -183,6 +183,13 @@ Every rebrew error type inherits `RebrewError` alongside its original
 `RuntimeError`/`ValueError` base, so a new error type in a later release lands
 in that handler instead of escaping it.
 
+The CLI commands, flags, and the `rebrew-project.toml` schema are frozen for
+the 2.x line. The Python import surface and the dashboard `/api/*` JSON are
+not: a removal, move, or signature change there ships in a minor release with
+a `**Breaking:**` entry in the changelog, and there is no deprecation window,
+so pin the minor version if you import rebrew as a library. See
+[CONTRIBUTING.md](https://github.com/maci0/rebrew/blob/main/CONTRIBUTING.md#versioning-and-releases).
+
 ## Usage & Workflow
 
 All CLI tools must be run **from within a project directory** that contains a `rebrew-project.toml` config file.
