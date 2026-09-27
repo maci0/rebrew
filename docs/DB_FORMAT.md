@@ -51,7 +51,7 @@ Stores details regarding decompiled and original functions.
 |---|---|---|
 | `target` | `TEXT` | The binary target (e.g., `server_dll`). Part of the primary key. |
 | `va` | `INTEGER` | The Virtual Address of the function. Part of the primary key. |
-| `name` | `TEXT` | The name of the function. Indexed. |
+| `name` | `TEXT` | The name of the function. |
 | `vaStart` | `TEXT` | Hex string representation of the starting virtual address. |
 | `size` | `INTEGER` | Byte size of the function (canonical resolution; see `size_reason`). |
 | `fileOffset` | `INTEGER` | Physical file offset of the function in the binary. |
@@ -248,26 +248,35 @@ Tracks function status changes over time.
 | `changed_at` | `TEXT` | ISO 8601 timestamp of the change. CHECK non-empty. |
 | `updated_by` | `TEXT` | Provenance tag of the write that caused the change. |
 
+**Unique**: `(target, va, old_status, new_status, changed_at, updated_by)` —
+one status change is one row, enforced by the table rather than by the
+`--force` restore's dedupe alone.  These are the six columns that dedupe
+probes, and the constraint's own b-tree is what serves the probe, so there is
+no separate index over them.
+
 **Indexes**:
 - `idx_history_target_id` on `(target, id)`: serves the dashboard page
   (`WHERE target = ? ORDER BY id DESC`) and the per-target retention delete
-  without a sort.
-- `idx_history_restore` on `(target, va, changed_at, old_status, new_status,
-  updated_by)`: serves the `--force` restore dedupe, which probes one full
-  transition per saved row.  Both are created on every build.
+  without a sort.  Created on every build.
 
 > [!NOTE]
 > This table is persistent — never dropped on rebuild, but retention-capped:
 > only the newest 10,000 rows of each rebuilt target survive
 > (`_HISTORY_RETENTION` in `build_db`), so long-lived projects that
 > regenerate often do not accumulate rows forever.  A rebuild
-> that finds a pre-CHECK DDL recreates the table in place (preserving `id`,
-> clamping negative VAs and unknown statuses) so the guards apply without
-> `--force`.  `--force` unlinks the file rather than dropping the table, so
-> every row is read out beforehand and re-inserted inside the rebuild's
-> transaction, skipping a transition already recorded (two rows that both
-> carry a NULL `old_status`/`new_status` are the same transition, so the
-> dedupe compares with `IS`).
+> that finds a pre-CHECK or pre-UNIQUE DDL recreates the table in place
+> (preserving `id`, clamping negative VAs and unknown statuses) so the guards
+> apply without `--force`; repeats are collapsed to the newest `id` of each
+> transition, and the dedupe partitions on the *clamped* values because the
+> clamp can fuse two stored rows into one transition.  `--force` unlinks the
+> file rather than dropping the table, so every row is read out beforehand and
+> re-inserted inside the rebuild's transaction, skipping a transition already
+> recorded.
+>
+> The UNIQUE does not replace that dedupe: SQLite treats NULLs as DISTINCT
+> inside a UNIQUE index, so two rows that both carry a NULL
+> `old_status`/`new_status` are not the same transition to the constraint.  The
+> restore's `IS` comparison is what makes them one.
 
 ### `section_cell_stats` Table
 Aggregated matching metrics per section: total/exact/stub cell counts, so a
