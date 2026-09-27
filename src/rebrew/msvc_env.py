@@ -41,6 +41,11 @@ def msvc_env_from_config(cfg: "ProjectConfig") -> dict[str, str]:
     Approximates ``VCVARS32.BAT`` for invoking CL.EXE under Wine.
     """
     env = {**os.environ}
+    # The runner must come from the project config.  An ambient value (a
+    # shell export, direnv, a CI job) is prepended to every compile argv by
+    # the matcher, so it would silently run a different program than the one
+    # the project configures.
+    env.pop("REBREW_COMPILER_RUNNER", None)
     parts = safe_shlex_split(cfg.compiler_command)
     runner = cfg.compiler_runner
     if not runner and parts and parts[0] in {"wine", "wibo"}:

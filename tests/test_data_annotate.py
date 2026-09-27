@@ -156,3 +156,45 @@ def test_gen_header_skips_non_c_identifiers(tmp_path) -> None:
     gen_globals_header(cfg, src)
     text = (src / "rebrew_globals.h").read_text(encoding="utf-8")
     assert "@" not in text, "a decorated symbol must never reach the compiled header"
+
+
+def test_gen_header_drops_type_that_ends_the_declaration(tmp_path) -> None:
+    """A metadata type reaching the header must stay inside the declaration.
+
+    A global record can arrive from a BinSync state written elsewhere, and the
+    generated header is compiled: a `;` or `{` in the type would end the
+    extern and start top-level code.
+    """
+    from types import SimpleNamespace
+
+    from rebrew.data_annotate import gen_globals_header
+    from rebrew.data_metadata import set_data_field
+
+    src = tmp_path / "src" / "SERVER"
+    src.mkdir(parents=True)
+    cfg = SimpleNamespace(
+        root=tmp_path,
+        target_name="SERVER",
+        target_binary=tmp_path / "fake.dll",
+        reversed_dir=src,
+        metadata_dir=tmp_path,
+        marker="SERVER",
+        source_ext=".c",
+    )
+    (src / "globals.c").write_text(
+        "// DATA: SERVER 0x2000\n// AUTO-GENERATED, no declaration follows\n",
+        encoding="utf-8",
+    )
+    set_data_field(cfg.metadata_dir, 0x2000, "name", "g_table", "SERVER")
+    set_data_field(cfg.metadata_dir, 0x2000, "type", "int; void pwn(void){", "SERVER")
+    set_data_field(cfg.metadata_dir, 0x2000, "note", "break */ out", "SERVER")
+
+    gen_globals_header(cfg, src)
+    text = (src / "rebrew_globals.h").read_text(encoding="utf-8")
+    assert "pwn" not in text, "a hostile type must not reach the compiled header"
+
+    # A note is free text: */ would close the trailing comment early.
+    set_data_field(cfg.metadata_dir, 0x2000, "type", "int", "SERVER")
+    gen_globals_header(cfg, src, force=True)
+    text = (src / "rebrew_globals.h").read_text(encoding="utf-8")
+    assert "break * / out" in text

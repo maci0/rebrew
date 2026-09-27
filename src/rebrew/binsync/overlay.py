@@ -43,6 +43,7 @@ from rebrew.binsync.importer import (
     _import_type_definitions,
     _strip_cdecl_prefix,
     is_meaningful,
+    is_safe_prototype,
     normalize_prototype,
     normalize_stack_vars,
     resolve_state_dir,
@@ -433,6 +434,12 @@ def overlay_state(
 
         if "prototype" in fields:
             bs_proto = (remote.get("prototype") or "").strip()
+            if bs_proto and not is_safe_prototype(bs_proto):
+                # A BinSync state dir is a received artifact: a prototype is
+                # spliced into the .c as a line, so a newline in it would land
+                # as top-level code in a file the toolchain compiles.
+                log.warning("ignoring unsafe BinSync prototype: %r", bs_proto)
+                bs_proto = ""
             raw_local = getattr(local, "prototype", "") or ""
             local_proto = strip_body(raw_local) if raw_local else ""
             if bs_proto and normalize_prototype(bs_proto) != normalize_prototype(local_proto):

@@ -73,7 +73,7 @@ def write_fixture_project(project_dir: Path) -> Path:
         for p in project_dir.rglob("*"):
             if not p.is_symlink() and p.is_file():
                 with contextlib.suppress(OSError):
-                    p.chmod(0o666)
+                    p.chmod(0o600)
         shutil.rmtree(project_dir, ignore_errors=True)
     project_dir.mkdir(parents=True, exist_ok=True)
     (project_dir / "original").mkdir(exist_ok=True)

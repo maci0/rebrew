@@ -13,7 +13,7 @@ from typing import Any
 import typer
 from rich.table import Table
 
-from rebrew.cli import TargetOption, console, json_print, require_config
+from rebrew.cli import TargetOption, console, json_print, require_config, untrusted_text
 
 app = typer.Typer(
     help="Query the GA solutions database (winning fingerprints + run history).",
@@ -128,9 +128,9 @@ def main(
         table.add_column("When")
         for r in rows:
             table.add_row(
-                r.get("target", ""),
+                untrusted_text(r.get("target", "")),
                 str(r.get("va", "")),
-                str(r.get("symbol", "")),
+                untrusted_text(r.get("symbol", "")),
                 "yes" if r.get("matched") else "no",
                 f"{r.get('score', '')}" if r.get("score") is not None else "-",
                 str(r.get("ts", "")),
@@ -144,10 +144,10 @@ def main(
         table.add_column("Solved")
         for r in rows:
             table.add_row(
-                r["target"] or "-",
-                r["symbol"],
+                untrusted_text(r["target"] or "-"),
+                untrusted_text(r["symbol"]),
                 str(r["size"]),
-                r["cflags"],
+                untrusted_text(r["cflags"]),
                 f"{r['score']:.2f}" if r["score"] else "-",
                 r["solved_at"],
             )

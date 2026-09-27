@@ -29,7 +29,15 @@ import typer
 from rich.table import Table
 
 from rebrew.c_parser import find_function_name_in_node, get_ts_parser, node_text, parse_c_source
-from rebrew.cli import EXIT_ERROR, TargetOption, console, error_exit, json_print, require_config
+from rebrew.cli import (
+    EXIT_ERROR,
+    TargetOption,
+    console,
+    error_exit,
+    json_print,
+    require_config,
+    untrusted_text,
+)
 from rebrew.sources import iter_sources
 from rebrew.utils import rel_display_path
 
@@ -478,7 +486,7 @@ def main(
 
     findings = result["findings"]
     if not findings:
-        console.print(f"[yellow]No security findings in {directory}.[/]")
+        console.print(f"[yellow]No security findings in {untrusted_text(directory)}.[/]")
         return
     by_severity = result["by_severity"]
     console.print(
@@ -502,9 +510,9 @@ def main(
             f"[{_SEVERITY_COLORS[severity]}]{severity}[/]",
             str(finding["rule"]),
             str(finding["cwe"]),
-            f"{file_display}:{finding['line']}",
+            untrusted_text(f"{file_display}:{finding['line']}"),
             str(finding["function"]),
-            str(finding["snippet"]),
+            untrusted_text(finding["snippet"]),
         )
     console.print(table)
 

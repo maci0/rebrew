@@ -239,6 +239,18 @@ _TERMINAL_CONTROL_CHARS = {
 }
 
 
+def untrusted_text(value: object) -> str:
+    """*value* as literal terminal text.
+
+    Rich markup is escaped and C0/C1 controls other than tab/newline are
+    rendered as ``\\xNN``.  Use for any string derived from a target binary, a
+    project file, or a remote service: ``[bold]`` in an import name would
+    otherwise restyle the table and a raw ESC would drive the terminal (OSC
+    title/clipboard writes, screen clears).
+    """
+    return escape(str(value).translate(_TERMINAL_CONTROL_CHARS))
+
+
 def error_exit(msg: str, *, json_mode: bool = False, code: int = EXIT_ERROR) -> NoReturn:
     """Print *msg* as an error and ``raise typer.Exit(code)``.
 
@@ -256,7 +268,7 @@ def error_exit(msg: str, *, json_mode: bool = False, code: int = EXIT_ERROR) -> 
     else:
         # soft_wrap keeps embedded commands/paths contiguous — without it
         # Rich folds mid-token (e.g. `rebrew catalog …` → `rebrew\ncatalog`).
-        safe = escape(msg.translate(_TERMINAL_CONTROL_CHARS))
+        safe = untrusted_text(msg)
         console.print(f"[red bold]error:[/red bold] {safe}", soft_wrap=True)
     raise typer.Exit(code=code)
 

@@ -31,7 +31,7 @@ from rebrew.matcher.mutator import (
     quick_validate,
 )
 from rebrew.matcher.scoring import score_candidate
-from rebrew.utils import atomic_write_text, file_lock
+from rebrew.utils import atomic_write_text, file_lock, filename_component
 
 if TYPE_CHECKING:
     from rebrew.match_sweep import BuildParams
@@ -996,7 +996,7 @@ class BinaryMatchingGA:
             ckpt_dir = self.out_dir / "checkpoints"
             ckpt_dir.mkdir(parents=True, exist_ok=True)
             atomic_write_text(
-                ckpt_dir / f"{self.symbol}.json",
+                ckpt_dir / f"{filename_component(self.symbol)}.json",
                 json.dumps(checkpoint.to_dict(), indent=1),
                 encoding="utf-8",
             )
@@ -1097,7 +1097,7 @@ def read_ga_checkpoint(out_dir: Path, symbol: str) -> GACheckpoint | None:
     JSON) is reported at WARNING: resume would silently restart from
     scratch, discarding all prior generations for this stub.
     """
-    ckpt = Path(out_dir) / "checkpoints" / f"{symbol}.json"
+    ckpt = Path(out_dir) / "checkpoints" / f"{filename_component(symbol)}.json"
     if not ckpt.is_file():
         return None
     try:

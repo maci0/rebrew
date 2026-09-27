@@ -475,6 +475,11 @@ def patch_verify_cache_entries(cfg: ProjectConfig, patches: list[dict[str, Any]]
             if not fpath:
                 continue
             fspath = cfg.reversed_dir / fpath
+            # The cache is a project file, but its ``filepath`` entries are
+            # text: an absolute or ``..`` path would make the refresh hash an
+            # arbitrary file outside reversed_dir.
+            if not fspath.resolve().is_relative_to(cfg.reversed_dir.resolve()):
+                continue
             try:
                 st = fspath.stat()
             except OSError:

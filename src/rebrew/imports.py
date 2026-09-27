@@ -16,7 +16,15 @@ from typing import Any
 
 import typer
 
-from rebrew.cli import EXIT_ERROR, TargetOption, console, error_exit, json_print, require_config
+from rebrew.cli import (
+    EXIT_ERROR,
+    TargetOption,
+    console,
+    error_exit,
+    json_print,
+    require_config,
+    untrusted_text,
+)
 from rebrew.config import module_marker
 from rebrew.import_table import find_import_stubs, parse_imports
 from rebrew.utils import read_source_text
@@ -171,15 +179,20 @@ def main(
     console.print(f"[bold]{len(imports)}[/] imported APIs from [bold]{binary}[/]:")
     for rec in sorted(imports, key=lambda r: r["iat_va"]):
         if rec["name"]:
-            console.print(f"  0x{rec['iat_va']:08x}  {rec['name']:30s}  {rec['dll']}")
+            console.print(
+                f"  0x{rec['iat_va']:08x}  {untrusted_text(rec['name']):30s}  "
+                f"{untrusted_text(rec['dll'])}"
+            )
         else:
             # Module-level record: a 16-bit NE without a classic import table,
             # or an ELF library no versioned symbol was attributed to.
-            console.print(f"  [dim]0x00000000  {rec['dll']:30s} (module reference)[/dim]")
+            console.print(
+                f"  [dim]0x00000000  {untrusted_text(rec['dll']):30s} (module reference)[/dim]"
+            )
     if stubs:
         console.print(f"\n[bold]{len(stubs)}[/] import stubs found in .text:")
         for va, name in sorted(stubs.items()):
-            console.print(f"  0x{va:08x}  jmp [{name}]")
+            console.print(f"  0x{va:08x}  jmp [{untrusted_text(name)}]")
 
 
 def main_entry() -> None:
