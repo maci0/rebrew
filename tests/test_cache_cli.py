@@ -55,22 +55,24 @@ class TestStats:
         (tmp_path / ".rebrew" / "compile_cache").mkdir(parents=True)
         _patch_cfg(monkeypatch, tmp_path)
         stats_called: list[bool] = []
+        stats_payload: dict[str, object] = {
+            "entries": 3,
+            "volume_mib": 1.5,
+            "size_limit_mib": 100,
+            "session_hits": 2,
+            "session_misses": 1,
+            "session_hit_rate_pct": 66.7,
+        }
+
+        def fake_stats() -> dict[str, object]:
+            stats_called.append(True)
+            return stats_payload
 
         def fake_cache(
             _root: Path, backend: str = "diskcache", size_limit: int = 0
         ) -> SimpleNamespace:
             return SimpleNamespace(
-                stats=lambda: (
-                    stats_called.append(True)
-                    or {
-                        "entries": 3,
-                        "volume_mib": 1.5,
-                        "size_limit_mib": 100,
-                        "session_hits": 2,
-                        "session_misses": 1,
-                        "session_hit_rate_pct": 66.7,
-                    }
-                ),
+                stats=fake_stats,
                 close=lambda: None,
             )
 

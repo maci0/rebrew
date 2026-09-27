@@ -160,7 +160,9 @@ def test_inline_update_remove_symmetry_property(tmp_path: Path) -> None:
         st.text(alphabet=st.characters(min_codepoint=0x20, max_codepoint=0x7E), max_size=40),
     )
     @settings(max_examples=120, deadline=None)
-    def _check(key: str, value: str) -> None:
+    def _check(  # type: ignore[misc]  # hypothesis's @settings/@given erase the signature
+        key: str, value: str
+    ) -> None:
         f = tmp_path / f"prop_{key}.c"
         f.write_text(
             "// FUNCTION: MAIN 0x1000\nvoid start() {}\n",

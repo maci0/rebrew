@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from rebrew.coff_reloc import build_name_to_va
 from rebrew.config import load_config
 
@@ -59,7 +61,9 @@ def test_library_rows_stay_out_of_the_catalog(tmp_path: Path) -> None:
     assert "fclose" not in m
 
 
-def test_function_catalog_scan_is_marker_scoped(tmp_path: Path, monkeypatch) -> None:
+def test_function_catalog_scan_is_marker_scoped(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Only the active target's markers may feed the name→VA map.
 
     A shared file carries one ``// FUNCTION:`` marker per target and the same

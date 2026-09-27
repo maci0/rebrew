@@ -154,7 +154,9 @@ class TestVaFirstPositional:
         assert _looks_like_va("deadbeef") is True  # long hex reads as an address
         assert _looks_like_va("main") is False  # symbol name, not a VA
 
-    def test_va_first_with_project_binary(self, tmp_path: Path, monkeypatch) -> None:
+    def test_va_first_with_project_binary(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         from types import SimpleNamespace as NS
 
         from typer.testing import CliRunner

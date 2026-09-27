@@ -6,11 +6,12 @@ order can fail at load time.
 
 import importlib.util
 from pathlib import Path
+from types import ModuleType
 
 _ROOT = Path(__file__).resolve().parent.parent
 
 
-def _load_detect_cycles() -> object:
+def _load_detect_cycles() -> ModuleType:
     spec = importlib.util.spec_from_file_location(
         "detect_cycles", _ROOT / "tools" / "detect_cycles.py"
     )

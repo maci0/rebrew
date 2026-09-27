@@ -5,11 +5,11 @@ import struct
 import pytest
 
 from rebrew.coff_reloc import (
+    CoffRelocRecord,
     UnresolvedSymbolError,
     apply_coff_relocations,
     build_symbol_resolver,
 )
-from rebrew.matcher.parsers import CoffRelocRecord
 
 
 def _resolve(sym: str) -> int | None:

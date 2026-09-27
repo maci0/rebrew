@@ -53,8 +53,8 @@ from rebrew.cli import (
     json_print,
     require_config,
 )
-from rebrew.config import ProjectConfig
 from rebrew.compression import precompress
+from rebrew.config import ProjectConfig
 from rebrew.depgraph import NodeInfo, build_graph, render_mermaid
 from rebrew.import_table import find_import_stubs, parse_imports
 from rebrew.sources import (

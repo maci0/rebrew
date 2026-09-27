@@ -427,11 +427,14 @@ files = [
     "tools",
     "tests/pytest_ansi_env.py",
     "tests/bin_util.py",
+    "tests/test_annotation_roundtrip.py",
+    "tests/test_apply_relocations.py",
     "tests/test_asm.py",
     "tests/test_ast_engine.py",
     "tests/test_batch.py",
     "tests/test_binsync_export.py",
     "tests/test_binsync_state.py",
+    "tests/test_cache_cli.py",
     "tests/test_calibrate_bss.py",
     "tests/test_catalog_models.py",
     "tests/test_catalog.py",
@@ -439,6 +442,7 @@ files = [
     "tests/test_catalog_resilience.py",
     "tests/test_cfg_ged.py",
     "tests/test_cli_visual.py",
+    "tests/test_coff_reloc.py",
     "tests/test_compile_classify.py",
     "tests/test_context.py",
     "tests/test_core.py",
@@ -455,6 +459,7 @@ files = [
     "tests/test_extract.py",
     "tests/test_fixup.py",
     "tests/test_flirt_sigs.py",
+    "tests/test_import_cycles.py",
     "tests/test_inline_strings.py",
     "tests/test_link_order.py",
     "tests/test_link_tools.py",
@@ -501,6 +506,7 @@ files = [
     "tests/test_workspace_db.py",
     "tests/test_workspace_public_api.py",
     "tests/test_workspace_va.py",
+    "tests/test_xrefs.py",
 ]
 exclude = ["venv", ".venv"]
 # tools/gen_fixtures.py imports the COFF builders from tests/bin_util.py at
