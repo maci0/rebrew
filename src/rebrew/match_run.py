@@ -10,6 +10,7 @@ import logging
 import math
 import threading
 import time
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NamedTuple
@@ -103,8 +104,14 @@ def run_single_ga(
     dry_run: bool = False,
     mutation_weights: dict[str, float] | None = None,
     link: str | None = None,
+    clock: Callable[[], float] | None = None,
 ) -> None:
-    """Run the full GA matching engine for a single source file."""
+    """Run the full GA matching engine for a single source file.
+
+    *clock* is the time source the GA loop reads (the default is the wall
+    clock), so an injected virtual clock makes ``elapsed_sec`` and the
+    generation count a function of the seed alone.
+    """
     out_dir_path = Path(out_dir)
     if not out_dir_path.is_absolute():
         # Resolve relative to the project root, not the CWD — running
@@ -249,7 +256,7 @@ def run_single_ga(
     if not json_output:
         console.print(f"[dim]GA seed:[/dim] {ga.rng_seed} (replay with --seed {ga.rng_seed})")
     try:
-        best_src, best_score = ga.run()
+        best_src, best_score = ga.run(clock=clock)
         # GA exhausted without a match: if the champion's residual delta is
         # register-only (effective match), document the ceiling (needs the
         # warm build cache, so run before ga.close()).
@@ -399,6 +406,7 @@ def _run_one_stub_ga(
     solutions_out: list[SolutionEntry] | None = None,
     collect_pairs_path: Path | None = None,
     name_to_va: dict[str, int] | None = None,
+    clock: Callable[[], float] | None = None,
 ) -> tuple[bool, str, float, int, int | None]:
     """Run one GA pass for a single stub in-process.
 
@@ -413,6 +421,11 @@ def _run_one_stub_ga(
     validated :class:`GACheckpoint` (batch ``--resume``).  *solutions_out*
     collects SolutionEntry for the batch driver's single end-of-batch flush
     (see ``_save_solution``); when None the entry is written immediately.
+
+    *clock* is the time source the timeout budget is stamped from and the GA
+    loop reads it back from.  It defaults to the wall clock; injecting one
+    (virtual time) makes the generation count a function of the seed rather
+    than of how fast the compiles ran, so a replay reproduces the run exactly.
     """
     filepath = stub.filepath
     try:
@@ -495,9 +508,9 @@ def _run_one_stub_ga(
     # (run_single_flag_sweep).  The budget is exactly the flag, matching
     # run_single_flag_sweep and run_all: a flat slack minute made --timeout-min
     # 1 run for twice its wall time on this path only.
-    deadline = time.monotonic() + timeout_min * 60 if timeout_min > 0 else None
+    deadline = (clock or time.monotonic)() + timeout_min * 60 if timeout_min > 0 else None
     try:
-        best_src, best_score = ga.run(deadline=deadline)
+        best_src, best_score = ga.run(deadline=deadline, clock=clock)
         matched = best_score < EXACT_SCORE_THRESHOLD
         output_summary = f"best_score={best_score:.2f}"
 
@@ -915,11 +928,17 @@ def run_all(
     resume: bool = False,
     mutation_weights: dict[str, float] | None = None,
     collect_pairs: str | None = None,
+    clock: Callable[[], float] | None = None,
 ) -> tuple[int, int]:
     """Batch driver: run GA or flag sweep across all discovered functions.
 
     Returns ``(matched_count, failed_count)``; ``(0, 0)`` on the dry-run
     and flag-sweep early paths.
+
+    *clock* is the time source every stub's budget is stamped from and read
+    back from (the default is the wall clock), so a batch replayed under one
+    seed runs the same generations for the same stubs however fast the
+    machine compiles them.
     """
     reversed_dir = cfg.reversed_dir
     ignored = set(cfg.ignored_symbols or [])
@@ -1036,6 +1055,7 @@ def run_all(
             mode_label,
             name_to_va=name_to_va,
             timeout_min=timeout_min,
+            clock=clock,
         )
         return matched, failed
 
@@ -1237,6 +1257,7 @@ def run_all(
                 solutions_out=solutions_out,
                 collect_pairs_path=Path(collect_pairs) if collect_pairs else None,
                 name_to_va=batch_catalog[0] if batch_catalog else None,
+                clock=clock,
             )
         except Exception as exc:  # one bad stub must not abort the batch
             log.debug("GA run failed for %s", stub.symbol, exc_info=True)
@@ -1351,11 +1372,16 @@ def _run_batch_flag_sweep(
     mode_label: str,
     name_to_va: dict[str, int] | None = None,
     timeout_min: int = 0,
+    clock: Callable[[], float] | None = None,
 ) -> tuple[int, int]:
     """Execute batch flag sweep across all discovered NEAR_MATCHING functions.
 
     Returns ``(exact_count, not_exact_count)`` so ``--all-targets``
     aggregation reports real numbers instead of a hardcoded ``(0, 0)``.
+
+    *clock* is the time source the per-stub sweep budget is stamped from and
+    read back from (the default is the wall clock), so a replayed batch
+    sweeps the same number of combinations whatever the machine's speed.
     """
     from rebrew.matcher import SolutionEntry, save_solutions
     from rebrew.metadata import update_source_status
@@ -1386,10 +1412,13 @@ def _run_batch_flag_sweep(
 
         # --timeout-min bounds the sweep itself, not just the GA that may follow
         # it: a thorough tier is 258k combos and ran unbounded before this.
-        sweep_deadline = time.monotonic() + timeout_min * 60 if timeout_min else None
-        # `deadline` is passed only when set, so a monkeypatched/legacy
-        # run_flag_sweep without the parameter still works.
-        _sweep_kw = {"deadline": sweep_deadline} if sweep_deadline else {}
+        sweep_deadline = (clock or time.monotonic)() + timeout_min * 60 if timeout_min else None
+        # `deadline` and `clock` are passed only when set, so a
+        # monkeypatched/legacy run_flag_sweep without the parameters still
+        # works.
+        _sweep_kw: dict[str, Any] = {"deadline": sweep_deadline} if sweep_deadline else {}
+        if clock is not None:
+            _sweep_kw["clock"] = clock
         best_score, best_flags, all_results = run_flag_sweep(
             stub, cfg, tier=tier, jobs=jobs, **_sweep_kw
         )

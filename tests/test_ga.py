@@ -1250,6 +1250,86 @@ class TestFlagSweepIncludeDirs:
         run_single_flag_sweep(p, "quick", 1, False)
         assert seen.get("extra_include_dirs") == [str((tmp_path / "src").resolve())]
 
+    def test_single_sweep_budget_reads_the_injected_clock(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`--timeout-min` is spent from *clock*, and the sweep reads the same one.
+
+        The deadline is stamped here and compared inside ``flag_sweep``, so a
+        budget taken from the wall clock while the sweep reads another time
+        source compares unrelated readings and cuts the sweep short (or never
+        ends it).  One clock for both makes a replay sweep the same number of
+        combinations on any machine.
+        """
+        from rebrew.match_sweep import run_single_flag_sweep
+
+        seen: dict = {}
+
+        def _fake_flag_sweep(*a: Any, **k: Any) -> list[tuple[float, str]]:
+            seen["deadline"] = k.get("deadline")
+            seen["clock"] = k.get("clock")
+            return [(0.0, "/O2")]
+
+        monkeypatch.setattr("rebrew.match_sweep.flag_sweep", _fake_flag_sweep)
+        monkeypatch.setattr(
+            "rebrew.match_sweep.build_candidate_obj_only",
+            lambda *a, **k: SimpleNamespace(ok=True, obj_bytes=b"\xc3", reloc_offsets=None),
+        )
+        p = SimpleNamespace(
+            seed_src="int f(void){return 0;}",
+            target_bytes=b"\xc3",
+            cl="cl",
+            inc="",
+            cflags="/O2",
+            symbol="_f",
+            seed_c=tmp_path / "src" / "fn.c",
+            msvc_env={},
+            cc=None,
+            cfg=SimpleNamespace(compile_timeout=60),
+        )
+
+        def clock() -> float:
+            return 1000.0
+
+        run_single_flag_sweep(p, "quick", 1, False, timeout_min=2, clock=clock)
+
+        assert seen["deadline"] == 1120.0
+        assert seen["clock"] is clock
+
+    def test_single_sweep_without_a_budget_passes_no_deadline(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """timeout_min=0 stays unbounded, and the default clock stays the wall clock."""
+        from rebrew.match_sweep import run_single_flag_sweep
+
+        seen: dict = {}
+
+        def _fake_flag_sweep(*a: Any, **k: Any) -> list[tuple[float, str]]:
+            seen.update(k)
+            return [(0.0, "/O2")]
+
+        monkeypatch.setattr("rebrew.match_sweep.flag_sweep", _fake_flag_sweep)
+        monkeypatch.setattr(
+            "rebrew.match_sweep.build_candidate_obj_only",
+            lambda *a, **k: SimpleNamespace(ok=True, obj_bytes=b"\xc3", reloc_offsets=None),
+        )
+        p = SimpleNamespace(
+            seed_src="int f(void){return 0;}",
+            target_bytes=b"\xc3",
+            cl="cl",
+            inc="",
+            cflags="/O2",
+            symbol="_f",
+            seed_c=tmp_path / "src" / "fn.c",
+            msvc_env={},
+            cc=None,
+            cfg=SimpleNamespace(compile_timeout=60),
+        )
+        run_single_flag_sweep(p, "quick", 1, False)
+
+        assert seen.get("deadline") is None
+        assert seen.get("clock") is None
+
 
 class TestSweepThenGa:
     """--flag-sweep-then-ga: flag-sweep each stub, then GA with the best flags."""
@@ -2033,7 +2113,7 @@ class TestPerFunctionToolchain:
             def __init__(self, *a: Any, **k: Any) -> None:
                 captured.update(k)
 
-            def run(self, deadline: Any = None) -> tuple[None, float]:
+            def run(self, deadline: Any = None, clock: Any = None) -> tuple[None, float]:
                 return None, 5.0
 
             def close(self) -> None:
@@ -2076,7 +2156,7 @@ def _fake_ga(champion: str) -> type:
         def __init__(self, *a: Any, **k: Any) -> None:
             pass
 
-        def run(self, deadline: Any = None) -> tuple[str, float]:
+        def run(self, deadline: Any = None, clock: Any = None) -> tuple[str, float]:
             return champion, 0.0
 
         def close(self) -> None:
@@ -2202,7 +2282,7 @@ class TestRunOneStubGaPersistsFlags:
         fake_ga = _fake_ga("int s(void) { return 1; }")
         inner_run = fake_ga.run
 
-        def _run(self: Any, deadline: Any = None) -> tuple[str, float]:
+        def _run(self: Any, deadline: Any = None, clock: Any = None) -> tuple[str, float]:
             seen.append(deadline)
             return inner_run(self, deadline)
 
