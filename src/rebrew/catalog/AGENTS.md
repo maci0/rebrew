@@ -32,5 +32,5 @@ Reversed `.c` + `library_*.h` → `scan_reversed_dir` → annotations; discovery
 - **Lazy binary parse**: `generate_data_json` parses once (`_bin_info`) per run; other tools call `load_binary()` themselves.
 - **Multi-function files**: multiple `// FUNCTION:` blocks per `.c` are all listed.
 - **Library headers**: `parse_library_header` returns every `// LIBRARY: <module> <VA>` row (module is the marker text, not the filename) — do not add a filter there. `scan_reversed_dir` then keeps a row only when its module is empty or this target's marker (`preset_module_key(module_marker(cfg))`): a shared header has no path affinity, and another target's rows must not enter this registry. Inline KV is a legacy read; do not add volatile metadata to source files.
-- **Ghidra labels**: only `thunk_*` → "thunk"; everything else → "data".
+- **Ghidra labels**: only `thunk_*` → "thunk"; everything else → "data". `GhidraDataLabel.from_dict` coerces a non-string `label`/`state` to its default, since export JSON is untrusted and `_classify_ghidra_label` calls `.lower()` on the label.
 - **Inventory cache**: `loaders.py` has a bounded, path-keyed process cache invalidated by stat fingerprint (mtime/size/inode). Preserve its lock around lookup, eviction, and replacement.
