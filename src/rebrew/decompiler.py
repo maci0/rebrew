@@ -104,6 +104,14 @@ _RE_ANALYSIS_WAIT_S = _RE_ANALYSIS_TIMEOUT_S + 30
 _RE_PROJECT_DIRS: dict[tuple[str, str], str] = {}
 _RE_PROJECT_DIRS_MAX = 8
 _RE_PROJECT_DIRS_LOCK = threading.Lock()
+#: Live borrows per project dir: one per caller that got a dir back from
+#: :func:`_re_cached_project` and has not finished running ``r2 -p <dir>`` on
+#: it yet.  A dir being queried is not a dir that may be deleted, so eviction
+#: skips borrowed dirs and a retired one waits for its last borrower.
+_RE_PROJECT_BORROWS: dict[str, int] = {}
+#: Dirs unlinked from :data:`_RE_PROJECT_DIRS` whose last borrower has not
+#: released them yet; :func:`_re_release_project` deletes them.
+_RE_PROJECT_RETIRED: set[str] = set()
 #: Per-key singleflight for the ``aaa`` run.  Entries are removed in a
 #: ``finally``, so a failed analysis does not wedge the key for the process.
 _RE_PROJECT_INFLIGHT: dict[tuple[str, str], threading.Event] = {}
@@ -207,7 +215,9 @@ def _re_init_project(binary: Path, tool: str, root: Path) -> str | None:
     return proj_dir
 
 
-def _re_cached_digest_ok(proj_dir: str, tool: str, binary: Path | None = None) -> bool:
+def _re_cached_digest_ok(
+    proj_dir: str, tool: str, tool_digest: str, binary: Path | None, bin_fp: str
+) -> bool:
     """True when a cached project's recorded tool digest and target binary are still current.
 
     The marker (``rebrew_tool.sha256``) records the tool name, a hash of the
@@ -215,6 +225,10 @@ def _re_cached_digest_ok(proj_dir: str, tool: str, binary: Path | None = None) -
     ever reading it back meant a tool upgrade or binary rebuild kept serving
     the old ``aaa`` results.  A missing or single-line marker (an older format)
     is treated as stale.
+
+    ``tool_digest`` and ``bin_fp`` are computed by the caller, outside
+    :data:`_RE_PROJECT_DIRS_LOCK`: hashing the tool binary is a multi-MB read,
+    and the lock is process-wide.
     """
     try:
         lines = Path(proj_dir, "rebrew_tool.sha256").read_text(encoding="utf-8").splitlines()
@@ -222,9 +236,49 @@ def _re_cached_digest_ok(proj_dir: str, tool: str, binary: Path | None = None) -
         return False
     if len(lines) < 2 or lines[0] != tool:
         return False
-    if lines[1] != _re_analysis_key(tool):
+    if lines[1] != tool_digest:
         return False
-    return not (len(lines) >= 3 and binary is not None and lines[2] != _binary_fingerprint(binary))
+    return not (len(lines) >= 3 and binary is not None and lines[2] != bin_fp)
+
+
+def _re_borrow_locked(proj_dir: str) -> None:
+    """Record that a caller holds *proj_dir* while it queries it (lock held)."""
+    _RE_PROJECT_BORROWS[proj_dir] = _RE_PROJECT_BORROWS.get(proj_dir, 0) + 1
+
+
+def _re_discard_locked(proj_dir: str) -> str | None:
+    """Return *proj_dir* for rmtree, or ``None`` when a borrower still holds it.
+
+    A dir no longer reachable from :data:`_RE_PROJECT_DIRS` is tracked in
+    :data:`_RE_PROJECT_RETIRED` until its last :func:`_re_release_project`, so
+    a concurrent ``r2 -p`` never reads a database that is being deleted.
+    """
+    if _RE_PROJECT_BORROWS.get(proj_dir, 0) > 0:
+        _RE_PROJECT_RETIRED.add(proj_dir)
+        return None
+    return proj_dir
+
+
+def _re_release_project(proj_dir: str) -> None:
+    """Drop the borrow taken on *proj_dir*, deleting it if it was retired."""
+    with _RE_PROJECT_DIRS_LOCK:
+        held = _RE_PROJECT_BORROWS.get(proj_dir, 0) - 1
+        if held > 0:
+            _RE_PROJECT_BORROWS[proj_dir] = held
+            return
+        _RE_PROJECT_BORROWS.pop(proj_dir, None)
+        retired = proj_dir in _RE_PROJECT_RETIRED
+        _RE_PROJECT_RETIRED.discard(proj_dir)
+    if retired:
+        shutil.rmtree(proj_dir, ignore_errors=True)
+
+
+def _re_evictable_key_locked() -> tuple[str, str] | None:
+    """The oldest cached key whose dir nobody is querying, else ``None``."""
+    for key, proj_dir in _RE_PROJECT_DIRS.items():
+        if _RE_PROJECT_BORROWS.get(proj_dir, 0) == 0:
+            return key
+    return None
 
 
 def _re_cached_project(binary: Path, tool: str, root: Path) -> str | None:
@@ -236,26 +290,35 @@ def _re_cached_project(binary: Path, tool: str, root: Path) -> str | None:
     name-decomp both fan out over worker threads — ran its own full analysis
     and built its own full rizin database, N times the CPU and disk for one
     answer.
+
+    The returned dir is borrowed for the caller's ``r2 -p`` run and must be
+    handed back with :func:`_re_release_project`; eviction and the stale-drop
+    paths skip a borrowed dir so a peer cannot delete the database out from
+    under a live query.
     """
     key = _re_project_key(binary, tool)
+    tool_digest = _re_analysis_key(tool)
+    bin_fp = _binary_fingerprint(binary)
     while True:
         stale: str | None = None
         with _RE_PROJECT_DIRS_LOCK:
             cached = _RE_PROJECT_DIRS.get(key)
             if cached is not None:
-                if _re_cached_digest_ok(cached, tool, binary):
+                if _re_cached_digest_ok(cached, tool, tool_digest, binary, bin_fp):
+                    _re_borrow_locked(cached)
                     return cached
                 # A tool upgrade invalidates the analysis; remove the old project dir
                 # (a full rizin database) instead of orphaning it — only the entries
                 # still in the map get cleaned at exit.
                 del _RE_PROJECT_DIRS[key]
-                stale = cached
+                stale = _re_discard_locked(cached)
             leader = key not in _RE_PROJECT_INFLIGHT
             event = _RE_PROJECT_INFLIGHT.setdefault(key, threading.Event())
 
-        # Unlinked from the map, so no other caller can still reach it — and
-        # removed without the lock: a rizin database is thousands of files, and
-        # every other binary's decompile serializes on that lock.
+        # Unlinked from the map, so no new caller can reach it — and removed
+        # without the lock: a rizin database is thousands of files, and every
+        # other binary's decompile serializes on that lock.  A dir a peer is
+        # still querying is left for its own release.
         if stale is not None:
             shutil.rmtree(stale, ignore_errors=True)
 
@@ -276,33 +339,42 @@ def _re_cached_project(binary: Path, tool: str, root: Path) -> str | None:
             proj_dir = _re_init_project(binary, tool, root)
             if proj_dir is None:
                 return None
-            superseded: list[str] = []
+            superseded: list[str | None] = []
             with _RE_PROJECT_DIRS_LOCK:
                 existing = _RE_PROJECT_DIRS.get(key)
-                if existing is not None and _re_cached_digest_ok(existing, tool, binary):
-                    superseded.append(proj_dir)
+                if existing is not None and _re_cached_digest_ok(
+                    existing, tool, tool_digest, binary, bin_fp
+                ):
+                    superseded.append(_re_discard_locked(proj_dir))
                     published = existing
                 else:
                     if existing is not None:
-                        superseded.append(existing)
+                        superseded.append(_re_discard_locked(existing))
                     # Evict oldest insertion when at capacity so batch decomp of many
                     # binaries does not retain every analysis DB until process exit.
+                    # A dir a peer is querying is skipped; if every cached dir is in
+                    # use the cap is exceeded, which costs disk but not a live run.
                     while (
                         key not in _RE_PROJECT_DIRS
                         and len(_RE_PROJECT_DIRS) >= _RE_PROJECT_DIRS_MAX
                     ):
-                        superseded.append(_RE_PROJECT_DIRS.pop(next(iter(_RE_PROJECT_DIRS))))
+                        victim = _re_evictable_key_locked()
+                        if victim is None:
+                            break
+                        superseded.append(_re_discard_locked(_RE_PROJECT_DIRS.pop(victim)))
                     _RE_PROJECT_DIRS[key] = proj_dir
                     global _RE_PROJECT_ATEXIT_REGISTERED
                     if not _RE_PROJECT_ATEXIT_REGISTERED:
                         atexit.register(_clear_re_projects)
                         _RE_PROJECT_ATEXIT_REGISTERED = True
                     published = proj_dir
+                _re_borrow_locked(published)
             # Same reason as the stale drop above: the removals are already
             # unlinked from the map, and rmtree-ing a database under the lock
             # stalls every other binary's decompile for its duration.
             for path in superseded:
-                shutil.rmtree(path, ignore_errors=True)
+                if path is not None:
+                    shutil.rmtree(path, ignore_errors=True)
             return published
         finally:
             with _RE_PROJECT_DIRS_LOCK:
@@ -316,15 +388,26 @@ def _re_cached_project(binary: Path, tool: str, root: Path) -> str | None:
             event.set()
 
 
-def _re_drop_project(binary: Path, tool: str) -> None:
-    """Forget the cached project dir (analysis failed — retry fresh next call)."""
+def _re_drop_project(binary: Path, tool: str, proj_dir: str | None = None) -> None:
+    """Forget the cached project dir (analysis failed — retry fresh next call).
+
+    *proj_dir* is the dir the failing query actually ran on.  When the key now
+    holds a different dir, a peer re-analyzed the binary while this query was
+    in flight: that fresh project is good, and dropping it would throw away a
+    multi-minute analysis, so this call leaves it alone.
+    """
     with _RE_PROJECT_DIRS_LOCK:
-        proj_dir = _RE_PROJECT_DIRS.pop(_re_project_key(binary, tool), None)
-    if proj_dir is not None:
+        key = _re_project_key(binary, tool)
+        current = _RE_PROJECT_DIRS.get(key)
+        if current is None or (proj_dir is not None and current != proj_dir):
+            return
+        del _RE_PROJECT_DIRS[key]
+        dropped = _re_discard_locked(current)
+    if dropped is not None:
         # The dir was created by mkdtemp and is not tracked anywhere else once
         # popped, so it must be removed here or it leaks for the process
         # lifetime (every decompile of a failing project would add one).
-        shutil.rmtree(proj_dir, ignore_errors=True)
+        shutil.rmtree(dropped, ignore_errors=True)
 
 
 def _clear_re_projects() -> None:
@@ -332,10 +415,11 @@ def _clear_re_projects() -> None:
 
     Wakes any caller waiting on an in-flight singleflight so a forced clear
     (or an atexit sweep) cannot leave a waiter blocked for the full analysis
-    timeout on a project that no longer exists.
+    timeout on a project that no longer exists.  A dir a caller is still
+    querying survives until that caller releases it.
     """
     with _RE_PROJECT_DIRS_LOCK:
-        dirs = list(_RE_PROJECT_DIRS.values())
+        dirs = [_re_discard_locked(d) for d in _RE_PROJECT_DIRS.values()]
         _RE_PROJECT_DIRS.clear()
         events = list(_RE_PROJECT_INFLIGHT.values())
         # Drop the claims too: a waiter that woke onto a still-registered key
@@ -344,7 +428,8 @@ def _clear_re_projects() -> None:
     for event in events:
         event.set()
     for proj_dir in dirs:
-        shutil.rmtree(proj_dir, ignore_errors=True)
+        if proj_dir is not None:
+            shutil.rmtree(proj_dir, ignore_errors=True)
 
 
 def _run_re(binary: Path, va: int, cmd: str, root: Path) -> str | None:
@@ -385,7 +470,9 @@ def _run_re(binary: Path, va: int, cmd: str, root: Path) -> str | None:
         if result.returncode != 0:
             # The cached project may be stale (tool upgrade, truncated export);
             # drop it so the next call re-analyzes instead of failing forever.
-            _re_drop_project(binary, tool)
+            _re_drop_project(binary, tool, proj_dir)
+    finally:
+        _re_release_project(proj_dir)
     return None
 
 

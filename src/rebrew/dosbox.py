@@ -10,6 +10,7 @@ stage their toolchain there before invoking :func:`run_dosbox`.
 from __future__ import annotations
 
 import atexit
+import itertools
 import os
 import shutil
 import subprocess
@@ -59,14 +60,39 @@ _SANDBOXES: list[Path] = []
 #: tree per call until atexit, while parallel workers (verify -j N / GA) each
 #: get an isolated tree — sharing one sandbox across threads raced on
 #: ``.OBJ``/``.EXE`` names and silently mixed compile outputs.
-#: Keyed by ``(prefix, thread_ident)`` so dead worker threads (a new
-#: ThreadPoolExecutor each ``verify --watch`` pass) can be reaped instead of
-#: leaving one orphaned dir per retired thread id until process exit.
+#: The per-thread half of the key is a token from :data:`_SANDBOX_TOKENS`, not
+#: ``threading.get_ident()``: CPython recycles an ident once its thread dies, so
+#: a new worker inheriting a retired id also inherited its staged tree — the
+#: exact cross-run output mixing the per-thread key exists to prevent.  Tokens
+#: are never reused, so dead workers (a new ThreadPoolExecutor each
+#: ``verify --watch`` pass) are reaped instead of leaving one orphaned dir per
+#: retired thread until process exit.
 #: Guarded by :data:`_SANDBOX_LOCK`: unlocked check-then-create orphaned dirs
 #: and raced list/dict mutations.
 _SANDBOX_BY_PREFIX: dict[tuple[str, int], Path] = {}
+_SANDBOX_TOKENS = threading.local()
+_SANDBOX_TOKEN_SEQ = itertools.count(1)
+#: sandbox token -> the thread that owns it, for the liveness check in
+#: :func:`_reap_dead_thread_sandboxes_locked`.  Guarded by
+#: :data:`_SANDBOX_LOCK`.
+_SANDBOX_OWNER: dict[int, threading.Thread] = {}
 _SANDBOX_ATEXIT_REGISTERED = False
 _SANDBOX_LOCK = threading.Lock()
+
+
+def _sandbox_token() -> int:
+    """The calling thread's sandbox key, minted once and never reused.
+
+    Re-registered when the reaper has forgotten it, so a live thread that
+    outlives a reap still owns its sandbox.
+    """
+    token = getattr(_SANDBOX_TOKENS, "token", None)
+    with _SANDBOX_LOCK:
+        if token is None or token not in _SANDBOX_OWNER:
+            token = next(_SANDBOX_TOKEN_SEQ)
+            _SANDBOX_TOKENS.token = token
+            _SANDBOX_OWNER[token] = threading.current_thread()
+    return token
 
 
 def _untrack_sandbox(path: Path) -> None:
@@ -93,12 +119,13 @@ def _reap_dead_thread_sandboxes_locked() -> list[Path]:
     filesystem deletes run outside so a slow ``rmtree`` does not stall other
     workers' sandbox lookups.
     """
-    live = {t.ident for t in threading.enumerate() if t.ident is not None}
     doomed: list[Path] = []
     for key, path in list(_SANDBOX_BY_PREFIX.items()):
-        if key[1] in live:
+        owner = _SANDBOX_OWNER.get(key[1])
+        if owner is not None and owner.is_alive():
             continue
         _SANDBOX_BY_PREFIX.pop(key, None)
+        _SANDBOX_OWNER.pop(key[1], None)
         _untrack_sandbox(path)
         doomed.append(path)
     return doomed
@@ -130,7 +157,7 @@ def make_sandbox_dir(prefix: str) -> Path:
     from rebrew.utils import writable_temp_dir
 
     # Per-thread key: sequential reuse on one worker, isolation across -j N.
-    cache_key = (prefix, threading.get_ident())
+    cache_key = (prefix, _sandbox_token())
     doomed: list[Path] = []
     existing_hit: Path | None = None
     with _SANDBOX_LOCK:
@@ -197,6 +224,7 @@ def _cleanup_sandboxes() -> None:
         dirs = list(_SANDBOXES)
         _SANDBOXES.clear()
         _SANDBOX_BY_PREFIX.clear()
+        _SANDBOX_OWNER.clear()
     for path in dirs:
         shutil.rmtree(path, ignore_errors=True)
 

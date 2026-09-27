@@ -149,6 +149,38 @@ class TestSandboxLifecycle:
         assert dosbox._SANDBOXES == []
         assert dosbox._SANDBOX_BY_PREFIX == {}
 
+    def test_a_new_thread_never_inherits_a_dead_one_sandbox(self, monkeypatch) -> None:
+        """The per-thread key is a minted token, not ``threading.get_ident()``.
+
+        CPython hands a dead thread's ident to the next thread that starts, so
+        an ident-keyed sandbox let a fresh worker inherit a retired worker's
+        staged ``.OBJ``/``.EXE`` tree — the cross-run output mixing the
+        per-thread key exists to prevent.
+        """
+        import threading
+
+        import rebrew.dosbox as dosbox
+
+        monkeypatch.setattr(dosbox, "_SANDBOX_ATEXIT_REGISTERED", True)
+        monkeypatch.setattr(dosbox, "_SANDBOXES", [])
+        monkeypatch.setattr(dosbox, "_SANDBOX_BY_PREFIX", {})
+        seen: list[tuple[int, Path]] = []
+
+        def _worker() -> None:
+            seen.append((dosbox._sandbox_token(), make_sandbox_dir("rebrew-test-token-")))
+
+        for _ in range(2):
+            t = threading.Thread(target=_worker)
+            t.start()
+            t.join(timeout=30)
+        assert seen[0][0] != seen[1][0], "a token was reused across threads"
+        assert seen[0][1] != seen[1][1], "a new thread reused a dead thread's sandbox"
+        from rebrew.dosbox import release_sandbox
+
+        for _token, path in seen:
+            release_sandbox(path)
+        assert dosbox._SANDBOXES == []
+
     def test_sandbox_gone_after_process_exit(self) -> None:
         """End-to-end: a child process creating a default sandbox leaves no
         directory behind once it exits."""

@@ -435,6 +435,27 @@
   `r<N>` correlation id, so the printed copy was the one an operator could not
   pivot from. The console print is gone; the stamped ERROR line with the
   scrubbed traceback is the whole report.
+- **A cached rizin project dir is no longer deleted under a live query.** The
+  LRU cap and the stale-analysis drop both `rmtree`'d a project dir while
+  another thread was still running `r2 -p` on it, so a batch decomp of the
+  ninth binary could make a peer's query read a half-deleted database; the
+  resulting failure then dropped the dir a peer had just published, throwing
+  away a multi-minute `aaa`. Each dir now carries a borrow count: eviction
+  skips borrowed dirs (exceeding the cap beats killing a live run), a retired
+  dir waits for its last borrower, and a failed query only drops the project
+  it actually ran on. The tool digest is also computed outside the
+  process-wide lock, which no longer wraps a multi-MB hash of the tool binary.
+- **A DOSBox sandbox is keyed by a minted thread token, not a thread id.**
+  `threading.get_ident()` values are recycled once a thread dies, so a fresh
+  worker that inherited a retired worker's ident also inherited its staged
+  `.OBJ`/`.EXE` tree — the cross-run output mixing the per-thread sandbox
+  exists to prevent. Tokens are never reused, and liveness comes from the
+  owning `Thread` object rather than a scan of `threading.enumerate()`.
+- **The compile-cache registry reads the store handle under the store lock.**
+  `get_compile_cache` probed `getattr(existing, "_cache", 1)` outside
+  `CompileCache._store_lock`, the one place that read the handle without the
+  lock `close()` takes. The probe is now `CompileCache.is_open()`, part of
+  the `CacheBackend` contract, so a plugin backend answers it too.
 - **`--verbose` and `--quiet` work after the subcommand, not only before it.**
   The umbrella advertises both, but click parses a group's own options only
   ahead of the subcommand name, so `rebrew diff -v` and the flat

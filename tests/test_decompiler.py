@@ -1376,6 +1376,69 @@ class TestReSessionReuse:
             dc._clear_re_projects()
         assert len([c for c in calls if "Ps" in c[3]]) == 3
 
+    def test_eviction_leaves_a_borrowed_project_dir_alone(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A project dir being queried is not a dir eviction may delete.
+
+        Batch decomp runs ``r2 -p <dir>`` on one thread while another
+        binary's analysis lands and hits the LRU cap; rmtree-ing the first
+        dir mid-query made rizin read a half-deleted database and fail, and
+        the resulting failure drop the dir a peer had just published.
+        """
+        import rebrew.decompiler as dc
+
+        monkeypatch.setattr(dc, "_RE_PROJECT_DIRS_MAX", 2)
+        calls, first_binary = self._setup(tmp_path, monkeypatch)
+        try:
+            assert dc._run_re(first_binary, 0x1000, "pdg", tmp_path) == "int f(void) {}"
+            in_use = next(iter(dc._RE_PROJECT_DIRS.values()))
+            # Stand in for a query still running on that dir.
+            dc._re_borrow_locked(in_use)
+            for i in range(3):
+                other = tmp_path / f"other{i}.bin"
+                other.write_bytes(b"MZ")
+                assert dc._run_re(other, 0x1000, "pdg", tmp_path) == "int f(void) {}"
+            assert Path(in_use).is_dir(), "borrowed project dir was deleted under a live query"
+            # Skipped by every eviction, so it is still the cached project.
+            assert dc._RE_PROJECT_DIRS[dc._re_project_key(first_binary, "rz")] == in_use
+            dc._re_release_project(in_use)
+        finally:
+            dc._clear_re_projects()
+        assert not Path(in_use).exists()
+
+    def test_failed_query_keeps_a_peers_fresh_project(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A stale-query failure must not drop the project a peer re-analyzed."""
+        import rebrew.decompiler as dc
+
+        calls, binary = self._setup(tmp_path, monkeypatch)
+        try:
+            assert dc._run_re(binary, 0x1000, "pdg", tmp_path) == "int f(void) {}"
+            stale = next(iter(dc._RE_PROJECT_DIRS.values()))
+            fresh = tmp_path / "fresh"
+            fresh.mkdir()
+            (fresh / "rebrew_tool.sha256").write_text("rz\n\n", encoding="utf-8")
+
+            def peer_reanalyzes(cmd: list[str], **kwargs: object) -> object:
+                # A peer evicts the stale project and publishes a re-analyzed
+                # one for the same key while this query still runs on the old.
+                with dc._RE_PROJECT_DIRS_LOCK:
+                    key = dc._re_project_key(binary, "rz")
+                    dropped = dc._re_discard_locked(dc._RE_PROJECT_DIRS.pop(key))
+                    dc._RE_PROJECT_DIRS[key] = str(fresh)
+                if dropped is not None:
+                    dc.shutil.rmtree(dropped, ignore_errors=True)
+                return SimpleNamespace(returncode=1, stdout="")
+
+            monkeypatch.setattr("rebrew.decompiler.run_process_group", peer_reanalyzes)
+            assert dc._run_re(binary, 0x2000, "pdg", tmp_path) is None
+            assert dc._RE_PROJECT_DIRS[dc._re_project_key(binary, "rz")] == str(fresh)
+        finally:
+            dc._clear_re_projects()
+        assert not Path(stale).exists(), "orphaned project dir leaked"
+
     def test_concurrent_callers_share_one_analysis(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -1495,6 +1558,7 @@ class TestProjectSweepAtexit:
 
         assert dc._re_cached_project(binary, "rz", tmp_path) == str(proj)
         assert len(registered) == 1, "one atexit hook for every project dir"
+        dc._re_release_project(str(proj))
         # A second creation miss must not arm the hook again.
         monkeypatch.setattr(dc, "_RE_PROJECT_DIRS", {})
         dc._re_cached_project(binary, "rz", tmp_path)
@@ -1502,6 +1566,9 @@ class TestProjectSweepAtexit:
         fn, args = registered[0]
         fn(*args)
         assert dc._RE_PROJECT_DIRS == {}
+        # A dir a caller is still querying outlives the sweep, and goes on release.
+        assert proj.exists()
+        dc._re_release_project(str(proj))
         assert not proj.exists()
         fn(*args)  # inverse is idempotent
 

@@ -272,6 +272,16 @@ class CompileCache:
         except Exception as exc:
             _warn_cache_failure("clear", exc)
 
+    def is_open(self) -> bool:
+        """True while the store is still usable.
+
+        Read under the store lock, because ``close()`` nulls the handle from
+        another thread: the registry uses this to drop a dead backend instead
+        of handing it to the next compile.
+        """
+        with self._store_lock:
+            return self._cache is not None
+
     def close(self) -> None:
         """Close the underlying diskcache store.
 
@@ -328,6 +338,11 @@ class CompileCache:
 #: lives in the shared key functions below and is deliberately NOT part of
 #: the contract: a different caching mechanism may store the bytes wherever
 #: it likes, but it must not reinterpret what the keys mean.
+#:
+#: ``is_open`` reports whether the store is still usable after ``close``; the
+#: registry consults it under its own lock to drop a dead backend rather than
+#: hand it to the next compile.  A plugin backend must answer it without
+#: blocking, since the registry lock is process-wide.
 class CacheBackend(Protocol):
     """Store interface for compile-cache backends."""
 
@@ -343,6 +358,7 @@ class CacheBackend(Protocol):
     def count(self) -> int: ...
 
     def clear(self) -> None: ...
+    def is_open(self) -> bool: ...
     def close(self) -> None: ...
     def stats(self) -> dict[str, int | float]: ...
 
@@ -1191,7 +1207,7 @@ def get_compile_cache(
     with _caches_lock:
         existing = _caches.get(key)
         if existing is not None:
-            if getattr(existing, "_cache", 1) is None:
+            if not existing.is_open():
                 del _caches[key]
             else:
                 # Refresh insertion order so repeated use is not FIFO-evicted.

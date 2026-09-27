@@ -1363,8 +1363,16 @@ class TestRegistryDerivedProfiles:
         )
         monkeypatch.setenv("REBREW_TOOLCHAIN_OVERLAY_DIR", str(overlay))
         monkeypatch.setattr(toolchain_mod, "TOOLCHAINS", toolchain_mod.build_toolchain_registry())
-        assert "mytc" in profile_defaults()
-        assert "mytc" in profile_families()
+        try:
+            assert "mytc" in profile_defaults()
+            assert "mytc" in profile_families()
+        finally:
+            # build_toolchain_registry() publishes both TOOLCHAINS and
+            # TOOLCHAIN_ORIGINS, and only TOOLCHAINS is monkeypatched back.
+            # Republish from the overlay-free environment so the overlay
+            # profile does not leak into every later test in the session.
+            monkeypatch.undo()
+            toolchain_mod.refresh_toolchain_registry()
 
 
 # ---------------------------------------------------------------------------
