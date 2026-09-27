@@ -2506,7 +2506,7 @@ triaging large binaries. GET/HEAD only; bind defaults to `127.0.0.1`.
 `--json` prints `{"url", "db"}` and exits without serving (script-friendly
 bind probe).
 
-Endpoints: `/`, `/app.js`, `/api/bootstrap`, `/api/targets`,
+Endpoints: `/`, `/app.js`, `/boot-guard.js`, `/api/bootstrap`, `/api/targets`,
 `/api/summary?target=`, `/api/functions?target=` (status/module/q/limit/offset;
 compact row arrays under `cols`), `/api/sections?target=`,
 `/api/globals?target=` (module/q/limit/offset; compact arrays under `cols`),

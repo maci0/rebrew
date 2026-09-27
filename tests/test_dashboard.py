@@ -1,5 +1,6 @@
 """Tests for rebrew dashboard — read-only web dashboard over coverage.db."""
 
+import gzip
 import json
 import os
 import shutil
@@ -10,7 +11,15 @@ import pytest
 from typer.testing import CliRunner
 
 from rebrew.build_db import build_db
-from rebrew.dashboard import _APP_JS, _APP_JS_VERSION, Dashboard, _files_display
+from rebrew.dashboard import (
+    _APP_JS,
+    _APP_JS_URL,
+    _APP_JS_VERSION,
+    _BOOT_GUARD_JS,
+    _BOOT_GUARD_JS_VERSION,
+    Dashboard,
+    _files_display,
+)
 
 
 def _write_data(db_dir: Path, target: str = "server_dll") -> Path:
@@ -763,6 +772,32 @@ class TestHandle:
         assert body is _APP_JS
         assert 'get("/api/bootstrap")' in body
 
+    def test_boot_guard_js_route(self, dashboard: Dashboard) -> None:
+        status, content_type, body = dashboard.handle("GET", "/boot-guard.js", {})
+        assert status == 200
+        assert "javascript" in content_type
+        assert body is _BOOT_GUARD_JS
+
+    def test_boot_guard_follows_the_client_and_keeps_its_message(
+        self, dashboard: Dashboard
+    ) -> None:
+        """The shell must order the guard after the client, or it fires every load."""
+        from rebrew.dashboard import _BOOT_GUARD_JS_URL
+
+        _, _, html = dashboard.handle("GET", "/", {})
+        _, _, guard = dashboard.handle("GET", "/boot-guard.js", {})
+        assert f'<script src="{_APP_JS_URL}" defer></script>' in html
+        assert f'<script src="{_BOOT_GUARD_JS_URL}" defer></script>' in html
+        assert html.index(_APP_JS_URL) < html.index(_BOOT_GUARD_JS_URL)
+        # Without this the guard would report a failure on a healthy load.
+        assert "__rebrewBooted = true" in _APP_JS
+        assert "!globalThis.__rebrewBooted" in guard
+        # A stuck client leaves the user a message, not a permanent spinner.
+        assert 'getElementById("boot-status")' in guard
+        assert "Reload to retry" in guard
+        # Same-origin asset, not an inline handler the CSP would block.
+        assert "onerror" not in html
+
     def test_api_bootstrap(self, dashboard: Dashboard) -> None:
         """Cold start packs targets + first target summary/functions in one response."""
         status, content_type, body = dashboard.handle("GET", "/api/bootstrap", {})
@@ -1343,6 +1378,7 @@ class TestHttpMethods:
         [
             "/",
             "/app.js",
+            "/boot-guard.js",
             "/api/bootstrap",
             "/api/targets",
             "/api/summary",
@@ -1483,7 +1519,7 @@ class TestEncodingNegotiation:
             ("zstd;q=invalid", None),
         ],
     )
-    @pytest.mark.parametrize("path", ["/", "/app.js", "/api/bootstrap"])
+    @pytest.mark.parametrize("path", ["/", "/app.js", "/boot-guard.js", "/api/bootstrap"])
     def test_response_encoding(
         self, dashboard: Dashboard, accept: str, encoding: str | None, path: str
     ) -> None:
@@ -1556,24 +1592,53 @@ class TestEncodingNegotiation:
         assert zstandard.ZstdDecompressor().decompress(body) == _INDEX_HTML_BYTES
         assert len(body) < len(_INDEX_HTML_BYTES)
 
-    @pytest.mark.parametrize("accept", ["gzip", "zstd"])
-    def test_entry_assets_fit_initial_congestion_window(
-        self, dashboard: Dashboard, accept: str
+    def test_boot_guard_is_precompressed_not_compressed_per_request(
+        self, dashboard: Dashboard
     ) -> None:
-        """Shell + /app.js wire bytes stay inside a 10-segment initcwnd (RFC 6928).
-
-        Past it, first paint costs an extra round trip on a cold connection.
-        The budget reserves ~2 KB of the 14600-byte window for both responses'
-        headers.
-        """
+        """The guard is a static asset, so it ships the import-time blob."""
         from io import BytesIO
         from unittest.mock import Mock
 
         from rebrew.dashboard import _Handler, allowed_hosts_for
 
-        budget_bytes = 12 * 1024
+        handler = _Handler.__new__(_Handler)
+        handler.headers = {"Host": "127.0.0.1:8000", "Accept-Encoding": "gzip"}
+        handler.path = "/boot-guard.js"
+        handler.allowed_hosts = allowed_hosts_for("127.0.0.1", 8000)
+        handler.dashboard = dashboard
+        handler.send_response = Mock()
+        handler.send_header = Mock()
+        handler.end_headers = Mock()
+        handler.wfile = BytesIO()
+        handler._respond("GET")
+        headers = dict(call.args for call in handler.send_header.call_args_list)
+        body = handler.wfile.getvalue()
+        assert headers["Content-Encoding"] == "gzip"
+        assert gzip.decompress(body) == _BOOT_GUARD_JS.encode()
+        assert len(body) < len(_BOOT_GUARD_JS.encode())
+
+    @pytest.mark.parametrize("accept", ["gzip", "zstd"])
+    def test_entry_assets_fit_initial_congestion_window(
+        self, dashboard: Dashboard, accept: str
+    ) -> None:
+        """Cold-load wire bytes stay inside a 10-segment initcwnd (RFC 6928).
+
+        Past it, first paint costs an extra round trip on a cold connection.
+        The budget is the window minus a per-response header reserve, so every
+        added entry asset pays for its own headers.
+        """
+        from io import BytesIO
+        from unittest.mock import Mock
+
+        from rebrew.dashboard import (
+            _ENTRY_PATHS,
+            _ENTRY_WIRE_BUDGET_BYTES,
+            _Handler,
+            allowed_hosts_for,
+        )
+
         wire = 0
-        for path in ("/", f"/app.js?v={_APP_JS_VERSION}"):
+        for path in _ENTRY_PATHS:
             handler = _Handler.__new__(_Handler)
             handler.headers = {"Host": "127.0.0.1:8000", "Accept-Encoding": accept}
             handler.path = path
@@ -1587,7 +1652,9 @@ class TestEncodingNegotiation:
             headers = dict(call.args for call in handler.send_header.call_args_list)
             assert headers["Content-Encoding"] == accept
             wire += len(handler.wfile.getvalue())
-        assert wire <= budget_bytes, f"entry assets {wire} B over {budget_bytes} B budget"
+        assert wire <= _ENTRY_WIRE_BUDGET_BYTES, (
+            f"entry assets {wire} B over {_ENTRY_WIRE_BUDGET_BYTES} B budget"
+        )
 
 
 class TestHostValidation:
@@ -1732,13 +1799,16 @@ class TestHostValidation:
             (f"/app.js?v={_APP_JS_VERSION}", "private, max-age=31536000, immutable"),
             ("/app.js?v=stale", "private, no-cache"),
             ("/app.js", "private, no-cache"),
+            (f"/boot-guard.js?v={_BOOT_GUARD_JS_VERSION}", "private, max-age=31536000, immutable"),
+            ("/boot-guard.js?v=stale", "private, no-cache"),
+            ("/boot-guard.js", "private, no-cache"),
             ("/", "private, no-cache"),
         ],
     )
-    def test_handler_caches_only_hashed_app_js_immutable(
+    def test_handler_caches_only_hashed_client_urls_immutable(
         self, dashboard: Dashboard, path: str, cache_control: str
     ) -> None:
-        """The shell's hashed /app.js URL skips revalidation; other URLs revalidate."""
+        """The shell's hashed client URLs skip revalidation; other URLs revalidate."""
         from rebrew.dashboard import _Handler, allowed_hosts_for
 
         handler = _Handler.__new__(_Handler)

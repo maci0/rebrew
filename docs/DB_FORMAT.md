@@ -407,7 +407,7 @@ The `recoverage` server exposes the following endpoints. All data endpoints retu
 > `/api/sections?target=`, `/api/globals?target=` with `module`/`q`/`limit`/`offset`
 > (`q` matches the global name or a hex address),
 > `/api/history?target=` with `limit`/`offset`, plus `/api/bootstrap`,
-> `/app.js`, and `/api/targets`). Function, global, and history list rows are
+> `/app.js`, `/boot-guard.js`, and `/api/targets`). Function, global, and history list rows are
 > compact arrays under `cols`. Missing `target` → 400; unknown target → 404;
 > corrupt `function_stats` on `/api/summary` → 500. It does **not** implement
 > the path-style recoverage endpoints above, `/api/regen`, or `/api/health`.

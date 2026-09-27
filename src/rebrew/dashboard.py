@@ -9,6 +9,7 @@ Endpoints
 ---------
 ``GET /``                      → HTML shell (functions, sections, globals, history)
 ``GET /app.js``                → deferred dashboard client (preloaded + ``defer``)
+``GET /boot-guard.js``        → deferred guard that reports a client that never booted
 ``GET /api/bootstrap``         → targets + first target's summary/functions (one RTT)
 ``GET /api/targets``           → list of targets (includes count/total)
 ``GET /api/summary?target=``   → function stats + coverage % (target required)
@@ -53,17 +54,23 @@ An inline ``data:,`` icon stops the per-load ``/favicon.ico`` 404.
 A matching ``If-None-Match`` on a routed path is answered 304 only when a GET
 would answer 200 (target-scoped ones need a known ``target``; ``/api/summary``
 a readable ``function_stats``), without running the route's query.
-The static HTML shell and ``/app.js`` client are zstd- and gzip-precompressed at
-import time (gzip ``mtime=0``, so a restart serves the same bytes) so entry
-assets skip per-request compression CPU.  Their combined
-wire size stays under 12 KB (gzip or zstd) so a cold connection paints from the
-initial congestion window; a test pins that budget.  The shell
+The static HTML shell, ``/app.js``, and ``/boot-guard.js`` are zstd- and
+gzip-precompressed at import time (gzip ``mtime=0``, so a restart serves the
+same bytes) so entry assets skip per-request compression CPU.  Their combined
+wire size stays inside the RFC 6928 initial congestion window minus a
+per-response header reserve, so a cold connection paints without an extra
+round trip; a test pins that budget.  The shell
 ``<head>`` preloads ``/api/bootstrap`` (``as=fetch`` + ``crossorigin`` +
 ``fetchpriority=high``) and ``/app.js`` (``as=script``); the deferred client
 fetches with the default ``same-origin`` credentials, the mode ``crossorigin``
 (anonymous) preloads with, so the cold-start payload reuses that preload.  Keeping JS out of the document lets the browser paint the loading
 chrome before the script finishes downloading.
-JSON uses compact separators; function/global/history rows are arrays under
+``/boot-guard.js`` is deferred after the client and reports a client that never
+reached its first statement, so an aborted transfer or a parse error leaves a
+message and a reload prompt instead of a permanent "Loading coverage…".  The
+shell carries no inline script (the CSP allows ``script-src 'self'`` only), so
+that guard is a same-origin asset rather than an ``onerror`` attribute.  JSON
+uses compact separators; function/global/history rows are arrays under
 ``cols``.  The handler speaks HTTP/1.1 so browsers reuse one TCP connection for
 the shell, ``/app.js``, bootstrap payload, and later filter fetches.
 
@@ -122,7 +129,9 @@ _TARGET_ROUTES = frozenset(
     }
 )
 #: Paths ``Dashboard.handle`` serves; only these may short-circuit to 304.
-_ROUTES = frozenset({"/", "/app.js", "/api/bootstrap", "/api/targets"}) | _TARGET_ROUTES
+_ROUTES = (
+    frozenset({"/", "/app.js", "/boot-guard.js", "/api/bootstrap", "/api/targets"}) | _TARGET_ROUTES
+)
 # Seconds a keep-alive connection may sit idle before its handler thread exits.
 _KEEPALIVE_IDLE_TIMEOUT_S = 30.0
 # Below this size framing usually costs more than it saves on a LAN.
@@ -133,6 +142,14 @@ _ZSTD_LEVEL = 5
 # Static HTML shell: max effort once at import; served precompressed thereafter.
 _GZIP_PRECOMPRESS_LEVEL = 9
 _ZSTD_PRECOMPRESS_LEVEL = 19
+#: RFC 6928 initial send window: 10 segments of 1460 B.  The entry assets have
+#: to fit it on a cold connection or first paint waits an extra round trip.
+_INITCWND_BYTES = 10 * 1460
+#: Header bytes held back from that window for the entry responses.  Each
+#: carries ~620 B, dominated by the shared security-header set; 640 B per
+#: response leaves room for a longer CSP or Cache-Control value.
+_ENTRY_HEADER_RESERVE_BYTES = 3 * 640
+_ENTRY_WIRE_BUDGET_BYTES = _INITCWND_BYTES - _ENTRY_HEADER_RESERVE_BYTES
 _WireEncoding = Literal["zstd", "gzip"]
 # Preference when several encodings share the same positive q-value.
 _ENCODING_PREFERENCE: tuple[_WireEncoding, ...] = ("zstd", "gzip")
@@ -1091,7 +1108,22 @@ function start() {
     $("retry-summary").focus();
   });
 }
+// Set before start() so the deferred boot guard sees a client that ran.  It
+// must be synchronous: /boot-guard.js executes immediately after this file.
+globalThis.__rebrewBooted = true;
 start();
+"""
+
+# Runs after /app.js in deferred order.  If the client never reached its
+# top-level statement (transfer aborted, 5xx from a proxy, a syntax error),
+# the shell would otherwise sit on "Loading coverage..." forever with no
+# control that does anything.  The shell is fully static, so the failed state
+# can only be detected from script.
+_BOOT_GUARD_JS = """
+if (!globalThis.__rebrewBooted) {
+  const s = document.getElementById("boot-status");
+  if (s) s.textContent = "The dashboard client failed to load. Reload to retry.";
+}
 """
 
 _INDEX_HTML = """<!doctype html>
@@ -1323,6 +1355,7 @@ __STATUS_FORCED__
 </div>
 </main>
 <script src="__APP_JS_URL__" defer></script>
+<script src="__BOOT_GUARD_JS_URL__" defer></script>
 </body>
 </html>
 """
@@ -1330,6 +1363,15 @@ __STATUS_FORCED__
 _APP_JS_BYTES = _APP_JS.encode("utf-8")
 _APP_JS_VERSION = hashlib.sha256(_APP_JS_BYTES).hexdigest()[:16]
 _APP_JS_ETAG = f'"{_APP_JS_VERSION}"'
+_BOOT_GUARD_JS_BYTES = _BOOT_GUARD_JS.encode("utf-8")
+_BOOT_GUARD_JS_VERSION = hashlib.sha256(_BOOT_GUARD_JS_BYTES).hexdigest()[:16]
+_BOOT_GUARD_JS_ETAG = f'"{_BOOT_GUARD_JS_VERSION}"'
+#: Content-hashed so the shell can cache each client immutable.
+_APP_JS_URL = f"/app.js?v={_APP_JS_VERSION}"
+_BOOT_GUARD_JS_URL = f"/boot-guard.js?v={_BOOT_GUARD_JS_VERSION}"
+#: Every request a cold load makes for the document and its clients, in
+#: document order.  Their wire bytes share one initial congestion window.
+_ENTRY_PATHS = ("/", _APP_JS_URL, _BOOT_GUARD_JS_URL)
 
 
 def _dashboard_status_css() -> str:
@@ -1357,7 +1399,9 @@ _INDEX_HTML = _INDEX_HTML.replace("__STATUS_CSS__", _dashboard_status_css()).rep
 )
 # Token references resolve to their theme values, so the shell is one file.
 _INDEX_HTML = theme.inline(_INDEX_HTML)
-_INDEX_HTML = _INDEX_HTML.replace("__APP_JS_URL__", f"/app.js?v={_APP_JS_VERSION}")
+_INDEX_HTML = _INDEX_HTML.replace("__APP_JS_URL__", _APP_JS_URL).replace(
+    "__BOOT_GUARD_JS_URL__", _BOOT_GUARD_JS_URL
+)
 _INDEX_HTML_BYTES = _INDEX_HTML.encode("utf-8")
 _INDEX_ETAG = '"' + hashlib.sha256(_INDEX_HTML_BYTES).hexdigest()[:16] + '"'
 _CACHE_REVALIDATE = "private, no-cache"
@@ -1382,6 +1426,8 @@ _INDEX_HTML_ZSTD = _precompress(_INDEX_HTML_BYTES, "zstd")
 _INDEX_HTML_GZIP = _precompress(_INDEX_HTML_BYTES, "gzip")
 _APP_JS_ZSTD = _precompress(_APP_JS_BYTES, "zstd")
 _APP_JS_GZIP = _precompress(_APP_JS_BYTES, "gzip")
+_BOOT_GUARD_JS_ZSTD = _precompress(_BOOT_GUARD_JS_BYTES, "zstd")
+_BOOT_GUARD_JS_GZIP = _precompress(_BOOT_GUARD_JS_BYTES, "gzip")
 
 
 def _int_param(params: dict[str, list[str]], name: str, default: int) -> int:
@@ -1861,6 +1907,8 @@ class Dashboard:
             return _INDEX_ETAG
         if parsed.path == "/app.js":
             return _APP_JS_ETAG
+        if parsed.path == "/boot-guard.js":
+            return _BOOT_GUARD_JS_ETAG
         try:
             st = self.db_path.stat()
         except OSError:
@@ -1876,6 +1924,8 @@ class Dashboard:
             return 200, "text/html; charset=utf-8", _INDEX_HTML
         if parsed.path == "/app.js":
             return 200, "application/javascript; charset=utf-8", _APP_JS
+        if parsed.path == "/boot-guard.js":
+            return 200, "application/javascript; charset=utf-8", _BOOT_GUARD_JS
         if parsed.path == "/api/bootstrap":
             return self._json(200, self.bootstrap())
         if parsed.path == "/api/targets":
@@ -2136,8 +2186,10 @@ def _if_none_match(header: str, etag: str) -> bool:
 
 
 def _success_cache_control(path: str, query: dict[str, list[str]]) -> str:
-    """Immutable for the current content-hashed ``/app.js``; revalidate everything else."""
+    """Immutable for the current content-hashed asset URLs; revalidate everything else."""
     if path == "/app.js" and _opt_query(query, "v") == _APP_JS_VERSION:
+        return _CACHE_IMMUTABLE
+    if path == "/boot-guard.js" and _opt_query(query, "v") == _BOOT_GUARD_JS_VERSION:
         return _CACHE_IMMUTABLE
     return _CACHE_REVALIDATE
 
@@ -2230,9 +2282,9 @@ class _Handler(BaseHTTPRequestHandler):
         body_bytes = body.encode("utf-8")
         encoding: _WireEncoding | None = None
         if status == 200:
-            # Shell HTML and /app.js are immutable for a given process: serve
-            # the import-time zstd/gzip blobs instead of recompressing every
-            # request.
+            # Shell HTML and the static clients are immutable for a given
+            # process: serve the import-time zstd/gzip blobs instead of
+            # recompressing every request.
             accept = self.headers.get("Accept-Encoding", "")
             if body is _INDEX_HTML:
                 body_bytes, encoding = _precompressed_static(
@@ -2247,6 +2299,13 @@ class _Handler(BaseHTTPRequestHandler):
                     zstd_blob=_APP_JS_ZSTD,
                     gzip_blob=_APP_JS_GZIP,
                     raw=_APP_JS_BYTES,
+                )
+            elif body is _BOOT_GUARD_JS:
+                body_bytes, encoding = _precompressed_static(
+                    accept,
+                    zstd_blob=_BOOT_GUARD_JS_ZSTD,
+                    gzip_blob=_BOOT_GUARD_JS_GZIP,
+                    raw=_BOOT_GUARD_JS_BYTES,
                 )
             else:
                 body_bytes, encoding = _maybe_compress(body_bytes, accept)
