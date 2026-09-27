@@ -383,7 +383,7 @@ int other(void) { return 2; }
         set_target_range(0, len(b"int a(void) { return 1; } "))  # only function a
         try:
             q = _LazyQuery(
-                ast_engine._C_LANGUAGE,
+                ast_engine.C_LANGUAGE,
                 "(function_definition declarator: (function_declarator declarator: (identifier) @name)) @fn",
             )
             tree = ast_engine.parse_c_ast(src)
@@ -409,7 +409,7 @@ int other(void) { return 2; }
         from rebrew.matcher import ast_engine
         from rebrew.matcher.mutations.queries import _LazyQuery
 
-        q = _LazyQuery(ast_engine._C_LANGUAGE, "(identifier) @id")
+        q = _LazyQuery(ast_engine.C_LANGUAGE, "(identifier) @id")
         results: list[object] = []
         errors: list[BaseException] = []
         barrier = threading.Barrier(16)

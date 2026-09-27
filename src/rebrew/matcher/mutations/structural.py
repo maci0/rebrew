@@ -11,7 +11,7 @@ import random
 import tree_sitter as ts
 
 from rebrew.matcher.ast_engine import (
-    _C_LANGUAGE,
+    C_LANGUAGE,
     decode_source,
     encode_source,
     parse_c_ast,
@@ -378,7 +378,7 @@ def mut_cast_to_bitmask(s: str, rng: random.Random) -> str | None:
 
 # --- Category 5: Register Pressure Fuzzing ---
 
-_QUERY_ALL_DECLARATIONS = _LazyQuery(_C_LANGUAGE, "(declaration) @decl")
+_QUERY_ALL_DECLARATIONS = _LazyQuery(C_LANGUAGE, "(declaration) @decl")
 
 
 def mut_swap_register_keywords(s: str, rng: random.Random) -> str | None:
@@ -554,7 +554,7 @@ def mut_reorder_register_vars(s: str, rng: random.Random) -> str | None:
 # ---------------------------------------------------------------------------
 
 _QUERY_SWITCH_STMT = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (switch_statement
         condition: (parenthesized_expression) @cond

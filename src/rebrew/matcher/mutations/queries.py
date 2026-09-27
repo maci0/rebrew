@@ -12,7 +12,7 @@ from typing import Any
 
 import tree_sitter as ts
 
-from rebrew.matcher.ast_engine import _C_LANGUAGE
+from rebrew.matcher.ast_engine import C_LANGUAGE
 
 
 class _LazyQuery:
@@ -59,7 +59,7 @@ class _LazyQuery:
 
 
 _QUERY_EQ_ZERO = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (binary_expression
         left: (identifier) @left
@@ -70,7 +70,7 @@ _QUERY_EQ_ZERO = _LazyQuery(
 )
 
 _QUERY_FLIP_LT_GE = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (binary_expression
         left: (identifier) @left
@@ -80,14 +80,14 @@ _QUERY_FLIP_LT_GE = _LazyQuery(
 )
 
 _QUERY_IDENTIFIER = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (identifier) @expr
 """,
 )
 
 _QUERY_SWAP_EQ = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (binary_expression
         left: (identifier) @left
@@ -97,7 +97,7 @@ _QUERY_SWAP_EQ = _LazyQuery(
 )
 
 _QUERY_SWAP_NE = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (binary_expression
         left: (identifier) @left
@@ -107,7 +107,7 @@ _QUERY_SWAP_NE = _LazyQuery(
 )
 
 _QUERY_REASSOCIATE = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (binary_expression
         left: (parenthesized_expression (binary_expression left: (_) @a "+" right: (_) @b))
@@ -117,7 +117,7 @@ _QUERY_REASSOCIATE = _LazyQuery(
 )
 
 _QUERY_SWAP_OR = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (binary_expression
         left: (_) @left
@@ -127,7 +127,7 @@ _QUERY_SWAP_OR = _LazyQuery(
 )
 
 _QUERY_SWAP_AND = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (binary_expression
         left: (_) @left
@@ -137,7 +137,7 @@ _QUERY_SWAP_AND = _LazyQuery(
 )
 
 _QUERY_DOUBLE_NOT = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (unary_expression
         operator: "!"
@@ -148,7 +148,7 @@ _QUERY_DOUBLE_NOT = _LazyQuery(
 )
 
 _QUERY_GOTO_RET_FALSE = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (goto_statement
         (statement_identifier) @lbl
@@ -157,7 +157,7 @@ _QUERY_GOTO_RET_FALSE = _LazyQuery(
 )
 
 _QUERY_IF_ELSE = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (if_statement
         condition: (parenthesized_expression) @cond
@@ -167,7 +167,7 @@ _QUERY_IF_ELSE = _LazyQuery(
 )
 
 _QUERY_RHS_IDENT = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     [
         (assignment_expression right: (identifier) @expr)
@@ -179,7 +179,7 @@ _QUERY_RHS_IDENT = _LazyQuery(
 )
 
 _QUERY_REMOVE_CAST = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (cast_expression
         type: (type_descriptor) @type
@@ -189,7 +189,7 @@ _QUERY_REMOVE_CAST = _LazyQuery(
 )
 
 _QUERY_DECLARATION = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (declaration) @expr
 """,
@@ -202,7 +202,7 @@ _QUERY_DECLARATION = _LazyQuery(
 _RE_C_ZERO_LITERAL = r"^0[xX]?0*[uUlL]*$"
 
 _QUERY_IF_FALSE_BITAND = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     f"""
     [
       (if_statement
@@ -217,7 +217,7 @@ _QUERY_IF_FALSE_BITAND = _LazyQuery(
 )
 
 _QUERY_ELSE_IF = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (if_statement
         condition: (parenthesized_expression) @cond1
@@ -234,7 +234,7 @@ _QUERY_ELSE_IF = _LazyQuery(
 )
 
 _QUERY_BITAND = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (expression_statement
         (assignment_expression left: (identifier) @var operator: "&=" right: (_) @expr)
@@ -243,7 +243,7 @@ _QUERY_BITAND = _LazyQuery(
 )
 
 _QUERY_CALL_ASSIGN = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (expression_statement
         (assignment_expression left: (identifier) @var right: (call_expression) @call)
@@ -252,7 +252,7 @@ _QUERY_CALL_ASSIGN = _LazyQuery(
 )
 
 _QUERY_TEMP_VAR = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (compound_statement
         (expression_statement (assignment_expression left: (identifier) @tmp right: (_) @stmt)) @stmt1
@@ -263,7 +263,7 @@ _QUERY_TEMP_VAR = _LazyQuery(
 )
 
 _QUERY_ADJACENT_DECL = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (compound_statement
         (declaration) @d1
@@ -274,7 +274,7 @@ _QUERY_ADJACENT_DECL = _LazyQuery(
 )
 
 _QUERY_SPLIT_DECL = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (declaration
         type: (_) @type
@@ -287,7 +287,7 @@ _QUERY_SPLIT_DECL = _LazyQuery(
 )
 
 _QUERY_MERGE_DECL = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (compound_statement
         (declaration type: (_) @type declarator: (identifier) @decl) @d1
@@ -298,7 +298,7 @@ _QUERY_MERGE_DECL = _LazyQuery(
 )
 
 _QUERY_WHILE = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (while_statement
         condition: (parenthesized_expression) @cond
@@ -308,7 +308,7 @@ _QUERY_WHILE = _LazyQuery(
 )
 
 _QUERY_DO_WHILE = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (do_statement
         body: (compound_statement) @body
@@ -318,7 +318,7 @@ _QUERY_DO_WHILE = _LazyQuery(
 )
 
 _QUERY_EARLY_RETURN = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (if_statement
         condition: (parenthesized_expression (unary_expression operator: "!" argument: (_) @expr))
@@ -331,7 +331,7 @@ _QUERY_EARLY_RETURN = _LazyQuery(
 )
 
 _QUERY_ACCUM = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (expression_statement
         (assignment_expression left: (identifier) @var operator: "&=" right: (_) @expr (#match? @var "^(ret|retcode|result)$"))
@@ -340,14 +340,14 @@ _QUERY_ACCUM = _LazyQuery(
 )
 
 _QUERY_INT_PARAM = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (parameter_declaration type: (primitive_type) @type declarator: (identifier) @var (#eq? @type "int")) @expr
 """,
 )
 
 _QUERY_CONST_ADD_FOLD = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (compound_statement
         (expression_statement (assignment_expression left: (identifier) @v1 operator: "=" right: (binary_expression left: (identifier) @v2 operator: "+" right: (number_literal) @n1 (#eq? @v1 @v2)))) @stmt1
@@ -357,19 +357,19 @@ _QUERY_CONST_ADD_FOLD = _LazyQuery(
 """,
 )
 
-_QUERY_NUMBER_LITERAL = _LazyQuery(_C_LANGUAGE, "(number_literal) @lit")
+_QUERY_NUMBER_LITERAL = _LazyQuery(C_LANGUAGE, "(number_literal) @lit")
 
 #: A pointer-cast dereference (``*(T*)p``): the per-access qualifier site.
 #: MSVC6 keys the memory-operand fold and the store ordering off the qualifier
 #: on the access, so a cast-qualified lvalue is a lever of its own, separate
 #: from the declaration-level ``volatile`` of `mut_toggle_volatile`.
 _QUERY_VOLATILE_ACCESS = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     "(pointer_expression argument: (cast_expression (type_descriptor) @ty)) @expr",
 )
 
 _QUERY_CONST_ADD_UNFOLD = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (expression_statement
         (assignment_expression left: (identifier) @v1 operator: "=" right: (binary_expression left: (identifier) @v2 operator: "+" right: (number_literal) @n (#eq? @v1 @v2)))
@@ -378,35 +378,35 @@ _QUERY_CONST_ADD_UNFOLD = _LazyQuery(
 )
 
 _QUERY_ARRAY_INDEX = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (subscript_expression argument: (_) @arr index: (_) @idx) @expr
 """,
 )
 
 _QUERY_PTR_ARROW = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (field_expression argument: (_) @ptr "->" field: (field_identifier) @field) @expr
 """,
 )
 
 _QUERY_RETURN_TYPE = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (function_definition type: (primitive_type) @expr declarator: (_))
 """,
 )
 
 _QUERY_PTR_PARAM = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (parameter_declaration type: (primitive_type) @type declarator: (pointer_declarator declarator: (identifier) @var)) @stmt
 """,
 )
 
 _QUERY_NESTED_IF_P3 = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (if_statement
         condition: (parenthesized_expression) @cond1
@@ -419,7 +419,7 @@ _QUERY_NESTED_IF_P3 = _LazyQuery(
 
 
 _QUERY_COMBINE_PTR_ARITH = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (compound_statement
         (expression_statement (assignment_expression left: (identifier) @v1 right: (binary_expression left: (identifier) @v2 operator: "+" right: (number_literal) @n1))) @stmt1
@@ -432,7 +432,7 @@ _QUERY_COMBINE_PTR_ARITH = _LazyQuery(
 )
 
 _QUERY_SPLIT_PTR_ARITH = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (expression_statement (assignment_expression left: (identifier) @v1 right: (binary_expression left: (identifier) @v2 operator: "+" right: (number_literal) @n1))) @stmt
     (#eq? @v1 @v2)
@@ -440,21 +440,21 @@ _QUERY_SPLIT_PTR_ARITH = _LazyQuery(
 )
 
 _QUERY_PARAM_ORDER = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (function_definition declarator: (function_declarator parameters: (parameter_list) @expr))
 """,
 )
 
 _QUERY_CALL_CONV = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (function_definition (ms_call_modifier) @expr)
 """,
 )
 
 _QUERY_NO_CALL_CONV = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (function_definition type: (_) @expr declarator: (function_declarator declarator: (identifier)))
 """,
@@ -465,7 +465,7 @@ _QUERY_NO_CALL_CONV = _LazyQuery(
 # (the insertion branch of ``mut_toggle_calling_convention`` produced garbage).
 
 _QUERY_SIZED_CHAR_TYPE = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (sized_type_specifier
         type: (primitive_type) @base
@@ -474,7 +474,7 @@ _QUERY_SIZED_CHAR_TYPE = _LazyQuery(
 )
 
 _QUERY_BARE_CHAR_TYPE = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (primitive_type) @expr
     (#eq? @expr "char")
@@ -482,7 +482,7 @@ _QUERY_BARE_CHAR_TYPE = _LazyQuery(
 )
 
 _QUERY_CMP_BOUNDARY = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (binary_expression left: (_) @left operator: [">" ">=" "<" "<="] @op right: (number_literal) @num) @expr
 """,
@@ -493,7 +493,7 @@ _QUERY_CMP_BOUNDARY = _LazyQuery(
 # and the label's tail to ``return 0;``, so a non-zero ``0x…`` literal matched
 # by the old unanchored ``^0`` silently changed the returned value.
 _QUERY_RETURN_FALSE = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     f"""
     (return_statement
         (number_literal) @val
@@ -507,7 +507,7 @@ _QUERY_RETURN_FALSE = _LazyQuery(
 # ---------------------------------------------------------------------------
 
 _QUERY_FOR_LOOP = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (for_statement
         initializer: (_)? @init
@@ -519,7 +519,7 @@ _QUERY_FOR_LOOP = _LazyQuery(
 )
 
 _QUERY_IF_ASSIGN_ELSE = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (if_statement
         condition: (parenthesized_expression) @cond
@@ -536,7 +536,7 @@ _QUERY_IF_ASSIGN_ELSE = _LazyQuery(
 )
 
 _QUERY_TERNARY = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (expression_statement
         (assignment_expression
@@ -552,7 +552,7 @@ _QUERY_TERNARY = _LazyQuery(
 )
 
 _QUERY_ADJACENT_EXPR_STMTS = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (compound_statement
         (expression_statement) @s1
@@ -563,7 +563,7 @@ _QUERY_ADJACENT_EXPR_STMTS = _LazyQuery(
 )
 
 _QUERY_COMPOUND_ASSIGN = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (expression_statement
         (assignment_expression
@@ -576,7 +576,7 @@ _QUERY_COMPOUND_ASSIGN = _LazyQuery(
 )
 
 _QUERY_EXPANDED_COMPOUND = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (expression_statement
         (assignment_expression
@@ -593,7 +593,7 @@ _QUERY_EXPANDED_COMPOUND = _LazyQuery(
 )
 
 _QUERY_DEMORGAN_NOT_AND = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (unary_expression
         operator: "!"
@@ -609,7 +609,7 @@ _QUERY_DEMORGAN_NOT_AND = _LazyQuery(
 )
 
 _QUERY_DEMORGAN_NOT_OR = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (unary_expression
         operator: "!"
@@ -625,21 +625,21 @@ _QUERY_DEMORGAN_NOT_OR = _LazyQuery(
 )
 
 _QUERY_POST_INCREMENT = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (update_expression argument: (identifier) @var operator: "++") @expr
 """,
 )
 
 _QUERY_POST_DECREMENT = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (update_expression argument: (identifier) @var operator: "--") @expr
 """,
 )
 
 _QUERY_ASSIGN_ZERO = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (expression_statement
         (assignment_expression
@@ -653,7 +653,7 @@ _QUERY_ASSIGN_ZERO = _LazyQuery(
 )
 
 _QUERY_XOR_SELF = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (expression_statement
         (assignment_expression
@@ -667,7 +667,7 @@ _QUERY_XOR_SELF = _LazyQuery(
 )
 
 _QUERY_FOR_COUNT_UP = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (for_statement
         initializer: (assignment_expression
@@ -692,7 +692,7 @@ _QUERY_FOR_COUNT_UP = _LazyQuery(
 )
 
 _QUERY_IF_BODY_RETURN = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (if_statement
         condition: (parenthesized_expression) @cond
@@ -705,12 +705,12 @@ _QUERY_IF_BODY_RETURN = _LazyQuery(
 )
 
 
-_QUERY_IF_STMT = _LazyQuery(_C_LANGUAGE, "(if_statement) @if_stmt")
+_QUERY_IF_STMT = _LazyQuery(C_LANGUAGE, "(if_statement) @if_stmt")
 
 # --- Queries for new mutations ---
 
 _QUERY_BIN_COND_IF = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (if_statement
         condition: (parenthesized_expression (binary_expression
@@ -721,7 +721,7 @@ _QUERY_BIN_COND_IF = _LazyQuery(
 )
 
 _QUERY_WHILE_LOOP = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (while_statement
         condition: (parenthesized_expression) @cond
@@ -730,7 +730,7 @@ _QUERY_WHILE_LOOP = _LazyQuery(
 )
 
 _QUERY_DEREF_PTR_ADD = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (pointer_expression
         operator: "*"
@@ -742,7 +742,7 @@ _QUERY_DEREF_PTR_ADD = _LazyQuery(
 )
 
 _QUERY_SUBSCRIPT_SCALED = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (subscript_expression
         argument: (_) @arr
@@ -752,7 +752,7 @@ _QUERY_SUBSCRIPT_SCALED = _LazyQuery(
 )
 
 _QUERY_BYTE_TYPE_DECL = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (declaration
         type: (primitive_type) @type
@@ -766,7 +766,7 @@ _QUERY_BYTE_TYPE_DECL = _LazyQuery(
 )
 
 _QUERY_BYTE_CAST = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (cast_expression
         type: (type_descriptor) @type
@@ -777,7 +777,7 @@ _QUERY_BYTE_CAST = _LazyQuery(
 )
 
 _QUERY_REGISTER_DECL = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (declaration
         (storage_class_specifier) @sc
@@ -790,30 +790,30 @@ _QUERY_REGISTER_DECL = _LazyQuery(
 #: Shared tree-sitter query: a function's entire body block.
 _QUERY_BODY = "(function_definition body: (compound_statement) @body)"
 
-_QUERY_INJECT_DUMMY_VAR = _LazyQuery(_C_LANGUAGE, _QUERY_BODY)
-_QUERY_INJECT_DUMMY_ARRAY = _LazyQuery(_C_LANGUAGE, _QUERY_BODY)
+_QUERY_INJECT_DUMMY_VAR = _LazyQuery(C_LANGUAGE, _QUERY_BODY)
+_QUERY_INJECT_DUMMY_ARRAY = _LazyQuery(C_LANGUAGE, _QUERY_BODY)
 _QUERY_SCOPE_VARIABLE = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     "\n        (function_definition body: (compound_statement\n            (declaration type: (_) @type declarator: (_) @decl) @d1\n            .\n            (expression_statement) @next_stmt\n        ))\n    ",
 )
 _QUERY_ADD_VOLATILE_INTERMEDIATE = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     '\n        (expression_statement\n            (assignment_expression\n                left: (identifier) @var\n                operator: "="\n                right: (binary_expression) @rhs\n            )\n        ) @stmt\n    ',
 )
 
 
 _QUERY_TERNARY_ARG_TO_IF_ELSE_CALL = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     "\n        (expression_statement\n            (call_expression\n                function: (_) @fn\n                arguments: (argument_list\n                    (conditional_expression\n                        condition: (_) @cond\n                        consequence: (_) @val_true\n                        alternative: (_) @val_false) @ternary)\n            ) @call\n        ) @stmt\n    ",
 )
 _QUERY_SINK_COMMON_TAIL = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     "\n        (compound_statement\n            (if_statement\n                condition: (parenthesized_expression) @cond\n                consequence: (compound_statement) @if_body\n                alternative: (else_clause\n                    (compound_statement) @else_body)\n            ) @if_stmt\n            .\n            [\n                (expression_statement)\n                (return_statement)\n            ] @next_stmt\n        )\n    ",
 )
 
 
 _QUERY_LOCAL_DECL = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (declaration type: (_) @type declarator: (_) @decl) @stmt
 """,
@@ -823,45 +823,45 @@ _QUERY_LOCAL_DECL = _LazyQuery(
 #: Statements only: inserting `if (0) {}` ahead of a *declaration* puts a
 #: statement before the block's declarations, which C89 (and MSVC6) rejects.
 _QUERY_INSERT_NOOP_BLOCK = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     "(compound_statement [(expression_statement) (return_statement)] @stmt)",
 )
 _QUERY_INTRODUCE_LOCAL_ALIAS = _LazyQuery(
-    _C_LANGUAGE, "(expression_statement (assignment_expression right: (identifier) @var)) @stmt"
+    C_LANGUAGE, "(expression_statement (assignment_expression right: (identifier) @var)) @stmt"
 )
 
 
 _QUERY_REORDER_DECLARATIONS = _LazyQuery(
-    _C_LANGUAGE, "\n        (compound_statement (declaration) @d1 (declaration) @d2)\n    "
+    C_LANGUAGE, "\n        (compound_statement (declaration) @d1 (declaration) @d2)\n    "
 )
-_QUERY_HOIST_RETURN = _LazyQuery(_C_LANGUAGE, "(return_statement (_) @val) @stmt")
+_QUERY_HOIST_RETURN = _LazyQuery(C_LANGUAGE, "(return_statement (_) @val) @stmt")
 _QUERY_NEGATE_CONDITION = _LazyQuery(
-    _C_LANGUAGE, "(if_statement condition: (parenthesized_expression) @cond) @stmt"
+    C_LANGUAGE, "(if_statement condition: (parenthesized_expression) @cond) @stmt"
 )
 
 # --- Lever queries: C shapes a real 2002 MSVC6 build keys its codegen off ---
 
 #: Every conditional, so the caller can keep the equal-arm ones.  Narrowed in
 #: Python because "both arms are the same constant" is a text comparison.
-_QUERY_CONDITIONAL = _LazyQuery(_C_LANGUAGE, "(conditional_expression) @cond")
+_QUERY_CONDITIONAL = _LazyQuery(C_LANGUAGE, "(conditional_expression) @cond")
 
 #: A negated comparison, ``-(a != b)``: MSVC6 compiles it to the setne form
 #: where the ternary spelling gets the fused ``sbb`` (7 bytes shorter).
 _QUERY_NEGATED_COMPARISON = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     "(unary_expression argument: (parenthesized_expression (binary_expression) @cmp)) @un",
 )
 
 #: An initialized declaration, the shape a pointer walk into a local copy takes.
 _QUERY_INIT_DECLARATION = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     "(declaration (init_declarator declarator: (_) @declarator value: (_) @init) @decl) @stmt",
 )
 
 #: A byte-typed local (with or without an initializer): the value a dead
 #: parameter slot can home instead of spilling a fresh dword.
 _QUERY_BYTE_LOCAL_DECL = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (declaration
         type: [(primitive_type) (sized_type_specifier)] @type
@@ -879,6 +879,6 @@ _QUERY_BYTE_LOCAL_DECL = _LazyQuery(
 #: A call through a plain function name: the site whose caller-side prototype
 #: view a function-pointer cast can change.
 _QUERY_PLAIN_CALL = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     "(call_expression function: (identifier) @fn arguments: (argument_list) @args) @call",
 )

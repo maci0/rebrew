@@ -662,7 +662,7 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
     from rebrew.data_metadata import load_data_metadata, module_visible_to_target
 
     verified_spans: list[tuple[int, int]] = []
-    copied = _postlink_copied_ranges(cfg)
+    copied = postlink_copied_ranges(cfg)
     for (module, va), fields in load_data_metadata(cfg.metadata_dir).items():
         if not module_visible_to_target(module, cfg):
             continue
@@ -674,7 +674,7 @@ def collect_status(cfg: ProjectConfig) -> StatusReport:
             size = 0
         if size <= 0 and fields.get("type"):
             size = estimate_type_size(str(fields["type"]))
-        if _span_is_copied(va, size, copied):
+        if span_is_copied(va, size, copied):
             continue
         verdict = str(fields.get("status") or "UNCHECKED").upper()
         if verdict == "VERIFIED":
@@ -847,7 +847,7 @@ def _initialized_data_ranges(cfg: ProjectConfig) -> list[tuple[int, int]]:
     return ranges
 
 
-def _postlink_copied_ranges(cfg: ProjectConfig) -> list[tuple[int, int]]:
+def postlink_copied_ranges(cfg: ProjectConfig) -> list[tuple[int, int]]:
     """IAT, and the import directory through the end of ``.rdata``.
 
     ``postlink`` copies both from the reference. A raw-link difference there
@@ -879,7 +879,7 @@ def _postlink_copied_ranges(cfg: ProjectConfig) -> list[tuple[int, int]]:
     return copied
 
 
-def _span_is_copied(va: int, size: int, copied: list[tuple[int, int]]) -> bool:
+def span_is_copied(va: int, size: int, copied: list[tuple[int, int]]) -> bool:
     """True when ``[va, va + size)`` sits entirely inside a copied range."""
     if size <= 0:
         return False

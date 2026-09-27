@@ -12,7 +12,7 @@ import re
 from typing import Any
 
 from rebrew.matcher.ast_engine import (
-    _C_LANGUAGE,
+    C_LANGUAGE,
     decode_source,
     encode_source,
     parse_c_ast,
@@ -476,7 +476,7 @@ def mut_loop_to_memcpy(s: str, rng: random.Random) -> str | None:
 
 
 _QUERY_FLOAT_BINOP = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (binary_expression
         left: (_) @left
@@ -563,7 +563,7 @@ def mut_commute_float_operands(s: str, rng: random.Random) -> str | None:
 
 
 _QUERY_FUNC_PARAM = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (function_definition
         declarator: (function_declarator
@@ -632,7 +632,7 @@ def mut_unregister_param(s: str, rng: random.Random) -> str | None:
 
 
 _QUERY_BREAK_IN_LOOP = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     [
         (while_statement body: (compound_statement (break_statement) @brk))
@@ -643,7 +643,7 @@ _QUERY_BREAK_IN_LOOP = _LazyQuery(
 )
 
 _QUERY_LOOP_BODY = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     [
         (while_statement body: (compound_statement) @body)
@@ -715,7 +715,7 @@ def mut_add_loop_break(s: str, rng: random.Random) -> str | None:
 
 
 _QUERY_IF_ELSE_CALL = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (if_statement
         condition: (parenthesized_expression) @cond
@@ -862,7 +862,7 @@ def mut_ternary_arg_to_if_else_call(s: str, rng: random.Random) -> str | None:
 
 
 _QUERY_IF_ELSE_COMPOUND = _LazyQuery(
-    _C_LANGUAGE,
+    C_LANGUAGE,
     """
     (if_statement
         condition: (parenthesized_expression) @cond
