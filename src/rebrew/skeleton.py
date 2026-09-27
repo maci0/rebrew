@@ -20,6 +20,7 @@ from __future__ import annotations
 import contextlib
 import importlib
 import logging
+import re
 import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -64,6 +65,7 @@ from rebrew.utils import (
     atomic_write_text,
     read_source_text,
     rel_display_path,
+    source_newline,
 )
 
 logger = logging.getLogger(__name__)
@@ -1173,9 +1175,19 @@ def _run_append_mode(
     # the tolerant reader and write back in the file's own encoding so
     # legacy-encoded sources (cp1252/shift_jis) survive the append.
     existing_text, encoding = read_source_text(append_path)
-    separator = (
-        "" if existing_text.endswith("\n\n") else "\n" if existing_text.endswith("\n") else "\n\n"
-    )
+    # The block is built LF-only; a CRLF source must get the block in its own
+    # ending or the appended half of the file is mixed.
+    eol = source_newline(existing_text)
+    if eol == "\r\n":
+        # An embedded decompilation body may already carry CRLF; normalise
+        # every terminator instead of appending, so it gains no second \r.
+        block = re.sub(r"\r\n|\r|\n", eol, block)
+    if existing_text.endswith(eol * 2):
+        separator = ""
+    elif existing_text.endswith(eol):
+        separator = eol
+    else:
+        separator = eol * 2
     if dry_run:
         console.print(f"[dim]Would append[/dim] to {rel_display_path(append_path, root)}")
     else:

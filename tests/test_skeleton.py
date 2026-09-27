@@ -1152,3 +1152,76 @@ class TestRetArgCount:
         assert _ret_arg_count([insn], word_size=0) == 0
         assert _ret_arg_count([insn], word_size=-4) == 0
         assert _ret_arg_count([insn], word_size=4) == 2
+
+
+class TestAppendCrlfSource:
+    """--append splices the block in the target file's own line ending."""
+
+    def _cfg(self, tmp_path: Path) -> SimpleNamespace:
+        src = tmp_path / "src"
+        src.mkdir(exist_ok=True)
+        (tmp_path / "md").mkdir(exist_ok=True)
+        return SimpleNamespace(
+            root=tmp_path,
+            reversed_dir=src,
+            metadata_dir=tmp_path / "md",
+            marker="GAME",
+            source_ext=".c",
+            target_binary=tmp_path / "game.dll",
+            iat_thunks=set(),
+            dll_exports={},
+            library_modules=set(),
+            ignored_symbols=[],
+        )
+
+    def test_appends_crlf_block_to_crlf_file(self, tmp_path: Path) -> None:
+        from rebrew.skeleton import _run_append_mode
+
+        cfg = self._cfg(tmp_path)
+        target = cfg.reversed_dir / "already.c"
+        target.write_bytes(b"int keep(void) { return 1; }\r\n")
+
+        _run_append_mode(
+            cfg,
+            0x10001000,
+            16,
+            "fcn.10001000",
+            "GAME",
+            "already.c",
+            None,
+            True,
+            False,
+            "",
+            False,
+            "",
+            False,
+        )
+
+        raw = target.read_bytes()
+        assert b"\r\n" in raw
+        assert raw.replace(b"\r\n", b"").count(b"\n") == 0
+
+    def test_appends_lf_block_to_lf_file(self, tmp_path: Path) -> None:
+        from rebrew.skeleton import _run_append_mode
+
+        cfg = self._cfg(tmp_path)
+        target = cfg.reversed_dir / "already.c"
+        target.write_text("int keep(void) { return 1; }\n", encoding="utf-8")
+
+        _run_append_mode(
+            cfg,
+            0x10001000,
+            16,
+            "fcn.10001000",
+            "GAME",
+            "already.c",
+            None,
+            True,
+            False,
+            "",
+            False,
+            "",
+            False,
+        )
+
+        assert b"\r" not in target.read_bytes()

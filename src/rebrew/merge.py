@@ -42,6 +42,7 @@ from rebrew.utils import (
     preset_module_key,
     read_source_text,
     rel_display_path,
+    source_newline,
     strip_comment_blocks,
 )
 
@@ -525,6 +526,10 @@ def main(
     # comment bytes round-trip instead of being U+FFFD-corrupted.
     out_encoding = "utf-8"
     legacy_encodings: set[str] = set()
+    # Line ending the inputs use (the last one read wins; mixed-ending inputs
+    # are already inconsistent), so the output is not a mix of the CRLF
+    # inside each block and the LF of the joins between them.
+    input_eol = "\n"
 
     for file_path in input_files:
         # One read serves both the annotation parse and the section split —
@@ -549,6 +554,7 @@ def main(
 
         preamble, blocks = split_annotation_sections(text)
         preambles.append(preamble)
+        input_eol = source_newline(text)
         included_inputs.append(file_path)
 
         for block in blocks:
@@ -611,6 +617,10 @@ def main(
     ranked = sorted(blocks_with_va, key=lambda x: (_block_rank(x[1]), x[0]))
     sorted_blocks = [block for _, block in ranked]
     merged_text = merged_preamble + "\n\n".join(sorted_blocks) + "\n"
+    if input_eol == "\r\n":
+        # Blocks carry their own CRLF, the joins above an LF, and the \r that
+        # strip("\n") left at each block's tail; normalise all three.
+        merged_text = re.sub(r"\r\n|\r|\n", input_eol, merged_text)
     if consolidate:
         merged_text, extern_report = consolidate_declarations(merged_text)
         for dropped in extern_report.dropped:

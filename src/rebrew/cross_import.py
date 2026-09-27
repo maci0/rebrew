@@ -45,7 +45,13 @@ from rebrew.cli import (
 from rebrew.config import ProjectConfig, inventory_path_for
 from rebrew.similar import disasm_signature, similarity_score
 from rebrew.sources import iter_sources, target_marker
-from rebrew.utils import atomic_write_text, preset_module_key, read_source_text, rel_display_path
+from rebrew.utils import (
+    atomic_write_text,
+    preset_module_key,
+    read_source_text,
+    rel_display_path,
+    source_newline,
+)
 from rebrew.workspace.status import MATCHED_STATUSES
 
 if TYPE_CHECKING:
@@ -575,7 +581,7 @@ def _stack_marker(text: str, module: str, va: int, size: int) -> str:
         m = NEW_FUNC_CAPTURE_RE.match(line.strip())
         if m and m.group("module") == module and int(m.group("va"), 16) == va:
             return text
-    eol = "\r\n" if "\r\n" in text else "\n"
+    eol = source_newline(text)
     marker_idx = next(
         (i for i, line in enumerate(text.splitlines(keepends=True)) if _MARKER_RE.match(line)),
         None,
@@ -646,7 +652,7 @@ def stack_marker_on_block(
     from rebrew.annotation import split_annotation_sections
 
     preamble, blocks = split_annotation_sections(text)
-    eol = "\r\n" if "\r\n" in text else "\n"
+    eol = source_newline(text)
     marker = f"// FUNCTION: {module} 0x{va:x}{eol}// SIZE: {size}{eol}"
     out: list[str] = []
     inserted = False

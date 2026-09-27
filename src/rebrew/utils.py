@@ -463,6 +463,21 @@ def read_compile_source(filepath: Path) -> str:
     return filepath.read_text(encoding="utf-8", errors="surrogateescape")
 
 
+def source_newline(text: str) -> str:
+    """The line ending *text* uses, for text spliced into it.
+
+    The first terminator decides, so a file whose head is LF and tail is CRLF
+    (already mixed) is treated as the LF file it mostly is.  Written lines
+    must use the result: a hardcoded ``"\\n"`` separator leaves a CRLF source
+    with one LF-terminated line, and the next read/rewrite propagates the
+    mixture through the whole file.
+    """
+    idx = text.find("\n")
+    if idx > 0 and text[idx - 1] == "\r":
+        return "\r\n"
+    return "\n"
+
+
 def read_source_text(filepath: Path) -> tuple[str, str]:
     """Read *filepath* tolerantly, returning ``(text, detected_encoding)``.
 

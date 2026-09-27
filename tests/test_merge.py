@@ -640,3 +640,31 @@ class TestMergeDataFirst:
         assert result.exit_code == 0, result.output
         text = out.read_text(encoding="utf-8")
         assert text.index("// DATA:") < text.index("// FUNCTION:")
+
+
+class TestMergeCrlfInputs:
+    """CRLF inputs merge to a uniformly CRLF output, not a mix."""
+
+    def test_merged_output_has_no_bare_lf(self, tmp_path: Path, monkeypatch: Any) -> None:
+        a = tmp_path / "a.c"
+        b = tmp_path / "b.c"
+        a.write_bytes(
+            _single(0x10001000, "_a", preamble="#include <stdio.h>\n")
+            .encode()
+            .replace(b"\n", b"\r\n")
+        )
+        b.write_bytes(_single(0x10002000, "_b").encode().replace(b"\n", b"\r\n"))
+
+        result, out = _invoke(tmp_path, monkeypatch, str(a), str(b))
+        assert result.exit_code == 0
+        raw = out.read_bytes()
+        assert b"\r\n" in raw
+        assert raw.replace(b"\r\n", b"").count(b"\n") == 0
+
+    def test_lf_inputs_stay_lf(self, tmp_path: Path, monkeypatch: Any) -> None:
+        a = _write(tmp_path / "a.c", _single(0x10001000, "_a"))
+        b = _write(tmp_path / "b.c", _single(0x10002000, "_b"))
+
+        result, out = _invoke(tmp_path, monkeypatch, str(a), str(b))
+        assert result.exit_code == 0
+        assert b"\r" not in out.read_bytes()
