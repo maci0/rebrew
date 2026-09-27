@@ -20,6 +20,7 @@ __pycache__/
 
 # Agent scratch (throwaway probes, revert-check scripts, handoff notes)
 .scratch/
+.scratch_*.txt
 
 # Build artifacts
 *.egg-info/

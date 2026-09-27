@@ -69,7 +69,7 @@
   current schema stamp kept passing the gate: the file was never unlinked and
   the restore never ran. It now stamps `SCHEMA_TARGET`, and the assertions
   cover the verify metrics as well as the keys.
->### Added
+### Added
 - **Shell is linted too.** `tools/ci_clone_resembl.sh` is the one shell
   script both workflows run, and nothing looked at it: the gate was ruff,
   ruff format, and mypy, so a quoting or unset-variable regression in the
@@ -77,12 +77,14 @@
   depends on) would have merged unseen. A ShellCheck pre-commit hook covers
   every `*.sh`; the pre-commit job installs the binary first, because the
   hook exits 0 when ShellCheck is absent and a silent gate is not a gate.
+
 - **Three more test modules type-check under the strict gate.**
   `tests/test_span_contains.py`, `tests/test_core.py`, and
   `tests/test_catalog_models.py` join `files` in `[tool.mypy]`, so a
   regression in a test's own types fails `make mypy` instead of waiting for
   a runtime path to reach it. The rest of `tests/` is still unchecked and
   stays that way until a module comes clean.
+
 - **The coverage dashboard says so when its client fails to load.** A new
   same-origin `/boot-guard.js` runs deferred after `/app.js` and, when the
   client never set `__rebrewBooted` (aborted transfer, 5xx from a proxy, a
@@ -91,12 +93,14 @@
   the shell's CSP allows `script-src 'self'` with no inline script. Like the
   shell and `/app.js` it is precompressed at import and linked with a content
   hash, so it is served `immutable` and adds no per-request compression CPU.
+
 - **A documented import that no longer exists fails the test suite.** The
   README's Library usage block and the `rebrew` package docstring are the only
   map a library consumer has of the import surface, so
   `tests/test_sdk_surface.py` now walks every `from rebrew... import ...` they
   show and every `rebrew.<module>` they name, and fails when one does not
   resolve. A module move can no longer leave a broken quickstart behind.
+
 - **`rebrew cfg effective` prints the config in force.** `cfg show` echoes
   `rebrew-project.toml`, so an env override, a built-in default, and a value
   the loader rejected all read the same in the file. The new subcommand
@@ -107,6 +111,7 @@
   and a name alone is not a claim that the value was used (a set `[llm]`
   endpoint still wins over `REBREW_LLM_ENDPOINT`). `docs/CONFIG.md` and
   `docs/CLI.md` carry the command.
+
 - **`rebrew.errors` re-exports every public error type.** The 14 types that
   were not already listed (`CatalogScanError`, `ComponentError`,
   `Delphi16Error`, `DosboxError`, `LibraryOverrideError`, `Msvc16Error`,
@@ -119,6 +124,7 @@
   of the compile stack. `tests/test_errors.py` scans the package for a
   `RebrewError` subclass missing from that map, so the next added error
   cannot ship without its re-export.
+
 - **A CRLF source keeps CRLF in everything written back into it.**
   `split`, `skeleton --append`, and `merge` spliced a hardcoded `"\n"`
   separator (and an LF-only block, for the append) into the target file, so
@@ -128,18 +134,21 @@
   three now derive the ending from the file they write, through one
   `utils.source_newline` helper that `cross_import` had been re-deriving
   twice. New files still start LF; a CRLF project tree stays CRLF.
+
 - **A scoped `build-db --target` no longer keeps a dead `history` index.**
   `idx_history_target_va` was superseded by `idx_history_target_id` but only
   dropped on a full rebuild. `history` is never dropped, so a database that
   carried the v3-era index kept it, and paid its write cost on every history
   insert, for exactly the scoped builds that append the most rows. The drop
   moved out of the full-rebuild branch.
+
 - **The documented cell-state list matches the `cells.state` CHECK.**
   `docs/DB_FORMAT.md` omitted `extract_error`, `invalid_va`, `verified`,
   `drift`, and `unchecked` — five states the CHECK has accepted since the
   vocabulary was derived from `KNOWN_STATUSES`. The table now lists the full
   set with each state's `section_cell_stats` bucket, and a test compares it
   against `_KNOWN_CELL_STATES` so the two cannot drift.
+
 - **A dashboard 500 no longer hides the reason it happened.** An unexpected
   handler error logged its traceback at `DEBUG` with `exc_info`, which Python
   drops when no handler is configured, so a bug answered the client with a
@@ -150,111 +159,132 @@
   corrupt `function_stats` row, logs the request that produced it. One ERROR
   per failed request, no duplicates. The access line also reports handler
   time and stays on one line instead of wrapping into several.
+
 - **The init wizard asks every question before it asks for confirmation.**
   "Write shell completion scripts into completions/?" was asked *after*
   "Create project with these settings?", so the user confirmed a summary and
   was then asked about a setting the summary never showed. The prompt moved
   above the summary, the summary lists the completion choice, and the abort
   hint repeats it, so declining and re-running reproduces the same project.
+
 - **The init wizard's binary prompt defaults to a listed binary.** Enter at the
   numbered list used to pick the "enter a path/name manually" option and then
   ask the user to type the file that was just listed; it now takes the first
   candidate. The dashboard's "Show more" button also counts the rows a click
   adds ("Show 50 more functions") instead of a running total the hint above
   the table already carries.
+
 - **A failed `make sdist-check` no longer leaves untracked work.** The
   comparison wheel is built in `.sdist-check/`, which the target removed only
   on success, so the scratch tree survived a failure and showed up as
   untracked files (breaking `make release-check`'s clean-tree gate). It is
   now gitignored and removed by `make clean` alongside `.venv-pkg`.
+
 - **The `build` recipe's own comment is attached to it again.** The block
   explaining the pinned umask/locale/timezone, the egg-info cleanup, and the
   build backend hash check had drifted above `clean`, leaving `build`
   undocumented and `clean` documented as a build.
+
 - **The README quickstart passes the config once.** `iter_sources` accepts a
   `ProjectConfig` directly, so the snippet reads `iter_sources(cfg)` instead of
   passing `cfg.reversed_dir` and `cfg` for the same object.
+
 - **`make format-check` passes again.** Four test modules had drifted from
   the committed formatting (`tests/test_annotation.py`,
   `tests/test_link_tools.py`, `tests/test_match.py`, `tests/test_solutions.py`),
   so the CI lint job's blocking `ruff format --check` step failed on a clean
   tree.
+
 - **A typo'd container runtime fails where it is set.**
   `REBREW_CONTAINER_RUNTIME` accepted any charset-valid string, so
   `REBREW_CONTAINER_RUNTIME=dockre` produced a spawn failure from inside a
   compile. A bare name outside `docker`/`podman`/`nerdctl` now raises with the
   list of known runtimes; a value carrying a path separator still passes
   through as a path to a runtime binary.
+
 - **The LLM request ceiling is parsed in one place.**
   `load_config` and `rebrew.llm_seed` each parsed
   `REBREW_LLM_MAX_REQUESTS`; the loader's copy validated the value, threw the
   parsed result away, and did not apply the 10000 clamp. Both now call
   `config.llm_max_requests`, so startup validation and the per-call ceiling
   cannot disagree.
+
 - **`.env.example` no longer promises a `.env` loader.** Rebrew reads the
   process environment only; the template said to copy it to `.env`. It also
   omitted `REBREW_PROJECTS_ROOT`, `REBREW_COMPILER_RUNNER`, `REBREW_RUNNER`,
   and `_REBREW_COMPLETE`, which `docs/CONFIG.md` documents.
   `tests/test_env_docs.py` now fails when an env var the code reads is missing
   from either file, or when the template lists a var nothing reads.
+
 - **Provider-controlled text cannot forge LLM log lines.** A transport
   failure that echoes the response body (and a tree-sitter error quoting the
   snippet it rejected) reached `logging` verbatim, while every other
   provider-controlled value went through `_sanitize_log_value`. Both now do.
+
 - **A substituted LLM model is reported instead of assumed.** `[llm] model`
   pins a dated id, but a gateway may serve a different one, which changes
   both the cost and the seeds the GA receives; `llm_seed` now compares the
   response's `model` against the pin and warns on a mismatch. A completion
   cut off by the `max_tokens` cap (`finish_reason=length`) also warns at
   warning level: the seed set is incomplete and the request was still billed.
+
 - **The entry-asset wire budget now covers every entry asset.** The budget
   was a hardcoded 12 KB for the shell and `/app.js`; the three cold-load
   responses are held to the RFC 6928 14600-byte initial window less a
   measured 640-byte-per-response header reserve, so an added entry asset pays
   for its own headers. `docs/PERFORMANCE.md` carries the current measured
   shell, client, and guard sizes.
+
 - **A 4-column `afl` line with a 0x-prefixed size parses correctly.** The
   4-column layout was selected by `p[2].isdecimal()`, so a hex size fell
   through to the 3-column branch: the offset column was read as the size and
   the size column as the function name (`0x1000 0x2000 0x20 func_a` became
   `(0x1000, 0x2000, "0x20")`). The layout is now picked by whether `p[2]`
   parses as a number, in either radix.
+
 - **`rebrew skeleton --name` reports the symbol that was actually emitted.**
   The generated function name goes through `sanitize_name`, but the printed
   `Symbol:`, the `symbol` JSON field, and the suggested `rebrew test
   --symbol` used the raw `--name`, so `--name my-func` produced `--symbol
   _my-func`, which resolves to no symbol in the object. Both single-VA and
   append modes now report the sanitized spelling, as batch mode already did.
+
 - **`round-trip --fix-blocker` records a size mismatch as a delta.** The
   object buffer is clipped to the target length before the blocker delta is
   computed, so the length term was always zero and an over-long candidate
   whose prefix matched was written as `delta = 0`. The pre-clipping length is
   now threaded through, matching what `test` already does.
+
 - **`link.tsaware` sets or clears one bit of `dll_characteristics`.** It
   wrote the whole word: `tsaware = false` produced `0` and dropped
   `DYNAMIC_BASE`, `NX_COMPAT`, and `HIGH_ENTROPY_VA` from the rebuilt PE, and
   `tsaware = true` replaced the word with `0x8000`. The original binary's
   value is now the base and only `0x8000` is set or cleared.
+
 - **An NE binary is detected as 16-bit x86 even when a stronger backend
   already named the family.** `info.arch = "x86_16"` sat inside the
   `family == "unknown"` branch, so an NE Delphi binary identified by DIE or a
   PDB kept `arch = ""`; `profile_matches_detection` then accepted a 32-bit
   profile and `suggest_profile` offered one. The MZ branch already applied
   the arch unconditionally.
+
 - **Include search order survives the case-insensitive header fallback.**
   `_find_in_dirs` ran every exact match across all directories first and only
   then the case-folded scan, so a later `-I` directory's exact hit outranked
   an earlier one's case-folded hit and the header fingerprint tracked the file
   wine never reads. The fallback now runs per directory.
+
 - **`mutate_code` no longer prepends a blank line to a preamble-less
   source.** The reconstruction joined `preamble + "\n" + body` unconditionally
   while the scope offset guard already special-cased the empty preamble, so
   the returned source and the offset mutations were told about disagreed by
   one byte.
+
 - **`code_similarity` no longer scores two undecodable buffers as 100.0.**
   With neither side decoding to instructions the old ternary returned the
   perfect score; the byte-equality fast path above had already returned, so
   reaching that point proves the bytes differ.
+
 - **`gen-link-stubs` no longer throws away a calibrated BSS tail.**
   `calibrate-bss` tunes `g_bss_tail[<size>]` in the generated TU and leaves
   it there; regenerating the TU reset it to the `0x400000` placeholder, so
@@ -264,6 +294,7 @@
   hand-written `link_stubs.c` keeps its own tail, and two `.data` addresses
   sharing one name now emit a single stub instead of a TU that does not
   compile.
+
 - **Skill names survive a Windows save or a macOS checkout.**
   `SKILL.md` is read as `utf-8-sig` and normalized to NFC, and a skill's
   identity (frontmatter `name` or directory name) is compared in NFC. A
@@ -271,6 +302,7 @@
   unnamed; an NFD spelling of an accented name failed every equality
   comparison against the NFC one and the skill was listed twice or not found
   by `rebrew skills show` / `rebrew init` overlay.
+
 - **A 64-bit MIPS image is not detected as 32-bit.** `EM_MIPS` names both
   widths and LIEF has no `MIPS64` member, so a 64-bit ELF (N64, PS2) loaded
   as `mips32` and was disassembled in `CS_MODE_MIPS32`. The ELF ident
@@ -279,6 +311,7 @@
   `.eh_frame` reader sizes FDE pointers off the image rather than off an
   arch-name suffix, which is wrong for every machine the ELF header reports
   as `mips32`.
+
 - **Names, paths, and text read out of a target binary cannot forge a
   command or a file.** Four sinks took a string that a reviewed binary, a
   project file, or a remote service controls:
@@ -300,6 +333,7 @@
     no longer lands on the link's target.
   - `rebrew rename` and the BinSync overlay reject a name that is not a C
     identifier before it reaches a generated header or a file path.
+
 - **One rizin analysis per binary, and a bounded recompile client pool.**
   Concurrent callers of the same binary (batch `skeleton` and `name-decomp`
   both fan out over worker threads) each ran a full `aaa` and built a full
@@ -310,6 +344,7 @@
   bounded by the number of distinct `compile_timeout` values, and that is a
   project config value, so a long-lived process walking many project roots
   grew one keep-alive connection pool per root. The map is LRU-capped at 4.
+
 - **A solution is dropped once its source file has moved on.** A solution
   records the `cflags` and `mutations` that won against specific source
   bytes; seeding a later GA from a file that has since changed handed back a
@@ -324,11 +359,13 @@
   single arbitrary fingerprint per target. A metadata write also holds the
   `rebrew-functions.toml` lock across the STATUS update and the field write,
   so a promotion that clears blockers cannot be observed half-applied.
+
 - **A seed argument's internal name is out of the usage line.** `diff`,
   `match`, `rename`, `stack-cmp`, and `types` named the argument after the
   Python parameter, so `rebrew diff --help` printed `Usage: diff [OPTIONS]
   SEED_C`. It reads `source`, and the docstrings no longer name the
   parameter.
+
 - **A dashboard reload does not show the previous page's rows.** The busy
   veil is translucent, so a list that was not cleared before its fresh load
   read as the new page's data: filtering or paging left the old rows under
@@ -337,12 +374,14 @@
   title names the target and view (`server.dll - Functions - Rebrew
   coverage`) so a tab with one target per project still says which is on
   screen.
+
 - **A hex `SIZE` in a library header is that size.** `parse_library_header`
   parsed the marker with a decimal-only `int()`, so a `// SIZE: 0x1a4` line
   that lint's E008 blesses on a FUNCTION marker raised `ValueError`, was
   suppressed, and landed as `size 0`: a silent `MISSING_SIZE` for a function
   whose extent the header states. It parses base 0, like the FUNCTION-marker
   parser and W019's comparison.
+
 - **A snapshot is stale on a tie, and an empty GA generation is timed.**
   `build-db` compared `st_mtime` (whole seconds), so a source rewrite and the
   `data_*.json` regeneration landing in the same tick on a coarse clock (a
@@ -351,10 +390,12 @@
   nanosecond-based. A GA generation whose population scored empty cost a full
   generation of scheduling and dispatch but was not charged to `elapsed_sec`,
   under-reporting exactly the generation that produced nothing.
+
 - **`near-diag` reports zero bytes when nothing disassembles.** The divide
   guard `total = raw_total or 1` was also the reported `bytes` field, so a
   pair where neither side decoded read `bytes: 1`. The count and the
   percentage denominator are now separate values.
+
 - **Untrusted text no longer reaches the terminal as markup.** Import names,
   DLL names, symbol names, and decompiler output come from a target binary, a
   project file, or a remote service, and were interpolated into Rich output
@@ -365,6 +406,7 @@
   that print untrusted strings (imports, annotations, BinSync overlay, data
   annotations, FLIRT, decompme, decompiler output, GA, security and crypto
   scans, solutions DB, doctor) route through it.
+
 - **A planted symlink no longer redirects an atomic write.**
   `atomic_write_text` and `atomic_write_bytes` created the temp file with a
   plain write, which follows a symlink of the same name, so a name planted in
@@ -374,6 +416,7 @@
   whose base directory holds a quote or newline is refused with a `DosboxError`
   rather than written into the line-oriented conf, and the COFF relocation
   reader skips a record whose offset runs past the compiled bytes.
+
 - **A symbol name cannot escape its directory.** Annotation symbols are
   reverse-engineering text, and joining one into a path as-is let a `../../..`
   name write outside the run directory (or a leading `-` read as an option).
@@ -384,6 +427,7 @@
   `match-run`, `instruction-clones`, and the `identify-library` header writer
   use it; `merge-sweep` skips a stored source path that resolves outside the
   project root.
+
 - **A `file` value in the metadata TOML cannot become a compiler option.**
   A source name is a path from the annotation's `file` field, so one starting
   with `-` or `@` reached the toolchain argv as an option or a CL response
@@ -391,20 +435,7 @@
   a `file` that is absolute or contains a `..` segment instead of staging it
   outside the workdir and outside the container mount, and the NE segment
   table's raw `length` is clamped so a window cannot read before the section.
-- **`rebrew init --refresh-agents` converges instead of accumulating stale
-  skills.** The render wrote every packaged skill but never removed one the
-  package no longer ships, and `--check` only looked at the packaged set, so an
-  upgrade left a deleted `SKILL.md` on disk and reported no drift. Each render
-  now records the files it wrote (path plus digest) in
-  `.agents/skills/.rebrew-scaffold.json`; a later refresh prunes a file that
-  dropped out of the set, and `--check` reports it as `stale`. A stale file
-  edited since it was written is reported as `stale-modified` and kept.
-- **`rebrew build-db --force` keeps the history it cannot rebuild.** The force
-  path unlinked the database file, which discarded `history` and
-  `verify_results` even though the rest of the build treats both as persistent
-  (nothing else in the DB is their source). The rows of those two tables are
-  now read out before the delete and restored in the rebuild's transaction,
-  skipping rows already present, so a second `--force` run adds no duplicate.
+
 - **`rebrew match --seed-llm` reports what the run cost, and the per-request
   timeout is configurable.** A seeded GA run billed every completion against
   an operator who could not see the count, the token volume, or the latency;
@@ -416,11 +447,13 @@
   falling back to a default too short for the configured endpoint). A hosted
   chat API answers a capped completion in seconds, a local model on CPU takes
   minutes for the same payload.
+
 - **A GA replay artifact no longer depends on which thread finished first.**
   The per-function best-run records were appended as workers completed, so two
   runs over the same inputs could order the archive differently and a later
   replay read a different file. Records are keyed and sorted by their
   deterministic key before the artifact is written.
+
 - **Every status in the vocabulary has a mark in the report, the dashboard,
   and the call graph.** A machine verdict (`COMPILE_ERROR`, `MISSING_SIZE`,
   `INTERNAL_ERROR`, and the rest) with no entry in the shared palette rendered
@@ -497,6 +530,7 @@
   packaged names is unaffected.
 
 ## [2.13.1] - 2026-09-27
+
 ### Fixed
 - **A /O2 program linked to an /O1 LIBCMT is not a mixed compile.** The
   optimization fingerprint counts wrapper sites in the whole image, so

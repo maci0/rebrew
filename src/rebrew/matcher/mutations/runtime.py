@@ -21,7 +21,7 @@ from rebrew.matcher.ast_engine import (
     parse_c_ast,
     replace_node,
 )
-from rebrew.matcher.mutations.queries import _LazyQuery
+from rebrew.matcher.mutations.queries import _QUERY_ASSIGN_ZERO, _LazyQuery
 
 
 def _capture(match_or_captures: Any, name: str) -> Any:
@@ -150,6 +150,26 @@ def _cursor(query: ts.Query | _LazyQuery) -> ts.QueryCursor:
     if rng is not None:
         cursor.set_byte_range(*rng)
     return cursor
+
+
+def _assign_zero_targets(b_source: bytes, tree: ts.Tree) -> list[tuple[dict[str, ts.Node], bytes]]:
+    """``var = 0`` matches paired with their ``var`` text, ready to rewrite.
+
+    Skips an assignment that is a for-loop initializer, and any ``var`` that
+    is a member access or subscript (``a.b``, ``a->b``, ``a[i]``), so only
+    plain identifiers are returned.
+    """
+    targets: list[tuple[dict[str, ts.Node], bytes]] = []
+    for m in _cursor(_QUERY_ASSIGN_ZERO).matches(tree.root_node):
+        caps = _first_caps(m[1])
+        parent = caps["expr"].parent
+        if parent and parent.type == "for_statement":
+            continue
+        var = _cap_bytes(b_source, caps, "var")
+        if b"." in var or b"->" in var or b"[" in var:
+            continue
+        targets.append((caps, var))
+    return targets
 
 
 def _find_function_body_insert_pos(source: bytes, ref_byte: int) -> int | None:

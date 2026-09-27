@@ -20,12 +20,12 @@ from rebrew.matcher.ast_engine import (
 )
 from rebrew.matcher.mutations.queries import (
     _QUERY_ADJACENT_EXPR_STMTS,
-    _QUERY_ASSIGN_ZERO,
     _QUERY_BODY,
     _QUERY_LOCAL_DECL,
     _LazyQuery,
 )
 from rebrew.matcher.mutations.runtime import (
+    _assign_zero_targets,
     _capture,
     _commute_operands,
     _cursor,
@@ -302,16 +302,7 @@ def mut_zero_to_bitand(s: str, rng: random.Random) -> str | None:
     candidates: list[tuple[dict[str, ts.Node], bytes, str]] = []
 
     # Forward: var = 0 → var &= 0
-    zero_cursor = _cursor(_QUERY_ASSIGN_ZERO)
-    for m in zero_cursor.matches(tree.root_node):
-        caps = _first_caps(m[1])
-        # Skip if inside a for-loop initializer
-        parent = caps["expr"].parent
-        if parent and parent.type == "for_statement":
-            continue
-        var = b_source[caps["var"].start_byte : caps["var"].end_byte]
-        if b"." in var or b"->" in var or b"[" in var:
-            continue
+    for caps, var in _assign_zero_targets(b_source, tree):
         candidates.append((caps, var + b" &= 0;", "expr"))
 
     # Reverse: var &= 0 → var = 0
