@@ -101,6 +101,8 @@ def _patch_binary(
     info = SimpleNamespace(
         image_base=sections_va,
         text_raw_offset=0,
+        arch="x86_32",
+        endian="little",
         data=blob,
         sections={
             ".text": SimpleNamespace(
@@ -517,6 +519,8 @@ class TestSingleBinaryParse:
             return SimpleNamespace(
                 image_base=0x1000,
                 text_raw_offset=0,
+                arch="x86_32",
+                endian="little",
                 data=blob,
                 sections={
                     ".text": SimpleNamespace(va=0x1000, size=size, file_offset=0, raw_size=size)

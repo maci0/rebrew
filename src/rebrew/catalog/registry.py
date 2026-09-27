@@ -9,7 +9,7 @@ import struct
 from pathlib import Path
 from typing import Any, TypedDict
 
-from rebrew.config import ProjectConfig, arch_is_big_endian, arch_pointer_size
+from rebrew.config import ProjectConfig, arch_byte_order, arch_pointer_size
 from rebrew.sections import has_back_jumps, trim_trailing_padding
 
 logger = logging.getLogger(__name__)
@@ -57,7 +57,13 @@ def _new_registry_entry(
 # ---------------------------------------------------------------------------
 
 
-def is_jump_table(data: bytes, section_va: int, section_size: int, arch: str = "x86_32") -> bool:
+def is_jump_table(
+    data: bytes,
+    section_va: int,
+    section_size: int,
+    arch: str = "x86_32",
+    endian: str = "",
+) -> bool:
     """Check if *data* looks like a jump/switch table (array of .text pointers).
 
     Skips leading alignment bytes (NOP 0x90, INT3 0xCC, ``mov edi,edi`` 0x8BFF)
@@ -66,13 +72,18 @@ def is_jump_table(data: bytes, section_va: int, section_size: int, arch: str = "
     the target's pointer width and byte order, so a 64-bit table is not
     mis-strided and a big-endian one is not read byte-reversed.
 
+    *endian* is the image's own byte order (``BinaryInfo.endian``) and
+    overrides *arch*'s default, so a little-endian MIPS build is read
+    little-endian rather than as the arch's usual big-endian.  Leave it empty
+    when no image was parsed.
+
     The x86 alignment-prefix heuristics apply only to x86 arches; other
     arches (multi-arch P0) get the plain aligned-pointer-array check until
     their own jump-table conventions land (Phase 1).
     """
     is_x86 = arch.startswith("x86")
     ptr_size = arch_pointer_size(arch)
-    order = ">" if arch_is_big_endian(arch) else "<"
+    order = arch_byte_order(arch, endian)
     fmt = f"{order}{'H' if ptr_size == 2 else 'I' if ptr_size == 4 else 'Q'}"
     if len(data) < 2 * ptr_size:
         return False
@@ -119,11 +130,15 @@ def _resolve_canonical_size(
     text_data: bytes | None,
     text_va: int,
     text_size: int,
+    arch: str = "x86_32",
+    endian: str = "",
 ) -> tuple[int, str]:
     """Resolve canonical size when multiple sources disagree.
 
     Handles missing sources and, when list_size > ghidra_size, checks if
-    the extra bytes are jump table / padding.  Returns (canonical_size, reason_string).
+    the extra bytes are jump table / padding.  *arch* and *endian* are the
+    target's, so the jump-table probe reads pointer slots at the right width
+    and byte order.  Returns (canonical_size, reason_string).
     """
     ghidra_size = sizes.get("ghidra", 0)
     list_size = sizes.get("list", 0)
@@ -157,7 +172,7 @@ def _resolve_canonical_size(
     if trim_trailing_padding(extra) == 0:
         return list_size, "list (includes tail padding)"
 
-    if is_jump_table(extra, text_va, text_size):
+    if is_jump_table(extra, text_va, text_size, arch, endian):
         return list_size, "list (includes jump table)"
 
     # Out-of-line code: jmp/jcc in the extra bytes targeting func_start..ghidra_end
@@ -256,6 +271,11 @@ def build_function_registry(
     text_data: bytes | None = None
     text_va = 0
     text_size_val = 0
+    # Target identity for the jump-table probe.  The image header's own byte
+    # order wins over the arch default, so a little-endian MIPS build is not
+    # probed as big-endian.
+    target_arch = "x86_32"
+    target_endian = ""
     # is_file(), not exists(): an unset target_binary is the truthy ``Path(".")``
     # (see list_uncovered's function_list note), and handing a directory to
     # LIEF aborts the process with bad_alloc instead of returning None.
@@ -264,6 +284,8 @@ def build_function_registry(
             from rebrew.binary_loader import load_binary
 
             info = load_binary(bin_path)
+            target_arch = info.arch or target_arch
+            target_endian = info.endian
             if ".text" in info.sections:
                 sec = info.sections[".text"]
                 text_va = sec.va
@@ -276,7 +298,9 @@ def build_function_registry(
     # --- Resolve canonical size: smart resolution ---
     for va, entry in registry.items():
         sizes = entry["size_by_tool"]
-        canonical, reason = _resolve_canonical_size(sizes, va, text_data, text_va, text_size_val)
+        canonical, reason = _resolve_canonical_size(
+            sizes, va, text_data, text_va, text_size_val, target_arch, target_endian
+        )
         entry["canonical_size"] = canonical
         entry["size_reason"] = reason
 

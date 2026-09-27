@@ -218,8 +218,30 @@ def arch_pointer_size(arch: str) -> int:
 
 
 def arch_is_big_endian(arch: str) -> bool:
-    """True when *arch* stores data big-endian by default."""
+    """True when *arch* stores data big-endian by default.
+
+    A target that reverses the default (a little-endian MIPS build) does not
+    answer through this name alone; pass its image ``endian`` to
+    :func:`arch_byte_order` instead.
+    """
     return arch in _ARCH_BIG_ENDIAN
+
+
+def arch_byte_order(arch: str, endian: str = "") -> str:
+    """``struct`` byte-order prefix for *arch*'s data section.
+
+    *endian* is the image's own byte order (``BinaryInfo.endian``: ``"big"``,
+    ``"little"``, or ``""`` when the header does not say).  It wins whenever it
+    is set, so a little-endian MIPS build reads little-endian instead of
+    inheriting the arch default, exactly as
+    :func:`rebrew.binary_loader.endian_mode_bits` does for the instruction
+    stream.  An empty *endian* falls back to :func:`arch_is_big_endian`.
+    """
+    if endian == "big":
+        return ">"
+    if endian == "little":
+        return "<"
+    return ">" if arch_is_big_endian(arch) else "<"
 
 
 #: IMAGE_DLLCHARACTERISTICS_TERMINAL_SERVER_AWARE, the one bit ``link.tsaware``

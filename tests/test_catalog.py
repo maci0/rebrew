@@ -141,6 +141,8 @@ class TestGenerateDataJson:
         info = SimpleNamespace(
             image_base=0x10000000,
             text_raw_offset=0,
+            arch="x86_32",
+            endian="little",
             data=b"\x00" * 0x3000,
             sections={
                 ".text": SimpleNamespace(
@@ -279,6 +281,8 @@ class TestGenerateDataJson:
         info = SimpleNamespace(
             image_base=0x10000000,
             text_raw_offset=0,
+            arch="x86_32",
+            endian="little",
             data=b"\x00" * 0x3000,
             sections={
                 ".text": SimpleNamespace(
