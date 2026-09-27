@@ -805,6 +805,10 @@ class TestHandle:
         # A stuck client leaves the user a message, not a permanent spinner.
         assert 'getElementById("boot-status")' in guard
         assert "Reload to retry" in guard
+        # ...and a control that does what the message says, since the client
+        # that normally reveals the Reload button is what failed.
+        assert 'getElementById("reload")' in guard
+        assert "location.reload()" in guard
         # Same-origin asset, not an inline handler the CSP would block.
         assert "onerror" not in html
 
