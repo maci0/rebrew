@@ -77,7 +77,9 @@ def entry_fingerprint(cfg: ProjectConfig, entry: Any) -> EntryFingerprint | None
         defines=defines,
         size=getattr(entry, "size", 0) or 0,
         headers_fp=entry_headers_fp(cfg, filepath, cflags, source_bytes=source_bytes),
-        source_hash=hashlib.sha256(source_bytes).hexdigest(),
+        source_hash=_source_hash(
+            str(filepath.resolve()), st.st_mtime_ns, st.st_size, st.st_ino, source_bytes
+        ),
         mtime_ns=st.st_mtime_ns,
     )
 
@@ -310,13 +312,31 @@ def _source_bytes(path_str: str, _mtime_ns: int, _size: int, _ino: int) -> bytes
     return Path(path_str).read_bytes()
 
 
+@functools.lru_cache(maxsize=4096)
+def _source_hash(path_str: str, mtime_ns: int, size: int, ino: int, source_bytes: bytes) -> str:
+    """SHA-256 of a source's bytes, memoized on the same key as :func:`_source_bytes`.
+
+    Every entry of a multi-function file shares one read of the file, so the
+    digest was recomputed from those identical bytes once per entry (twice per
+    run: the hit check and the save each call :func:`entry_fingerprint`).
+    The stat identity and the bytes are both in the key, so an edit within
+    the process rehashes.
+    """
+    return hashlib.sha256(source_bytes).hexdigest()
+
+
 def source_hash(filepath: Path) -> str:
     # Callers already catch OSError.  A failed stat almost always means
     # read_bytes would fail too — do not pretend a fallback hash exists.
     st = filepath.stat()
-    return hashlib.sha256(
-        _source_bytes(str(filepath.resolve()), st.st_mtime_ns, st.st_size, st.st_ino)
-    ).hexdigest()
+    path_str = str(filepath.resolve())
+    return _source_hash(
+        path_str,
+        st.st_mtime_ns,
+        st.st_size,
+        st.st_ino,
+        _source_bytes(path_str, st.st_mtime_ns, st.st_size, st.st_ino),
+    )
 
 
 def entry_headers_fp(

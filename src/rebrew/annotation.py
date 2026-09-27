@@ -1192,6 +1192,53 @@ def parse_new_format_multi(lines: list[str]) -> list[Annotation]:
     return results
 
 
+#: Stored-metadata-path -> matching entries, keyed by the identity of the
+#: document :func:`rebrew.metadata.load_metadata` handed back.  A scan runs
+#: one lookup per marker-less file; without the index each lookup walks the
+#: whole entry table.
+_METADATA_FILE_INDEX: dict[int, dict[str, list[tuple[str, int, dict[str, Any]]]]] = {}
+_METADATA_FILE_INDEX_MAX = 4
+
+#: Pins each indexed document so a freed entry's ``id`` is never reused as a
+#: live cache key.
+_METADATA_FILE_INDEX_OWNER: dict[int, dict[tuple[str, int], dict[str, Any]]] = {}
+
+
+def _metadata_file_index(
+    entries_by_key: dict[tuple[str, int], dict[str, Any]],
+) -> dict[str, list[tuple[str, int, dict[str, Any]]]]:
+    """Index *entries_by_key* by its normalized ``file`` field.
+
+    Keyed on the identity of the cached document, so a metadata reload
+    invalidates the index and a fresh caller that mutated a deepcopy builds
+    its own.
+    """
+    key = id(entries_by_key)
+    if _METADATA_FILE_INDEX_OWNER.get(key) is entries_by_key:
+        return _METADATA_FILE_INDEX[key]
+    index: dict[str, list[tuple[str, int, dict[str, Any]]]] = {}
+    for (module, va), entry in entries_by_key.items():
+        stored = str(entry.get("file", "")).replace("\\", "/")
+        if stored:
+            index.setdefault(stored, []).append((module, va, entry))
+    if len(_METADATA_FILE_INDEX) >= _METADATA_FILE_INDEX_MAX:
+        _METADATA_FILE_INDEX.clear()
+        _METADATA_FILE_INDEX_OWNER.clear()
+    _METADATA_FILE_INDEX[key] = index
+    _METADATA_FILE_INDEX_OWNER[key] = entries_by_key
+    return index
+
+
+def _path_suffixes(rel_path: str) -> list[str]:
+    """Every distinct path suffix of *rel_path* that an entry may store.
+
+    ``"a/b/c.c"`` yields ``["a/b/c.c", "b/c.c", "c.c"]`` — the full relative
+    path plus each component-aligned suffix, which covers the bare filename.
+    """
+    parts = rel_path.split("/")
+    return ["/".join(parts[i:]) for i in range(len(parts))]
+
+
 def _annotations_from_metadata(
     filepath: Path,
     target_name: str | None,
@@ -1223,16 +1270,15 @@ def _annotations_from_metadata(
         return []
 
     rel_md = os.path.relpath(filepath, metadata_dir).replace(os.sep, "/")
-    name = filepath.name
     matches: list[tuple[str, int, dict[str, Any]]] = []
-    for (module, va), entry in entries_by_key.items():
-        stored = str(entry.get("file", "")).replace("\\", "/")
-        if not stored:
-            continue
-        # Exact relative path from the metadata root, the stored display
-        # path itself, or the stored path appearing as a trailing suffix of
-        # the real one (projects that moved the metadata root).
-        if stored in (rel_md, name) or rel_md.endswith("/" + stored):
+    # The stored `file` matches the exact relative path, the bare filename,
+    # or any trailing path suffix of it (projects that moved the metadata
+    # root).  A source tree scan runs this once per marker-less file, so
+    # resolve the match through an index over the stored paths instead of
+    # re-scanning every entry per file.
+    index = _metadata_file_index(entries_by_key)
+    for candidate in _path_suffixes(rel_md):
+        for module, va, entry in index.get(candidate, ()):
             matches.append((module, va, entry))
 
     rel = rel_display_path(filepath, base_dir)
