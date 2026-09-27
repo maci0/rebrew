@@ -71,7 +71,8 @@ _EPILOG = (
     "[bold]Exit codes:[/bold]\n\n"
     "  0   Match found (EXACT or RELOC)\n\n"
     "  1   No match found (structural diffs remain)\n\n"
-    "  2   Build or config error"
+    "  2   Build or config error (also a usage error: unknown flag, missing argument)\n\n"
+    "[dim]130 = interrupted (Ctrl+C), 141 = stdout closed early (piped into head).[/dim]"
 )
 
 app = typer.Typer(

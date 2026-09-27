@@ -190,7 +190,9 @@ _EPILOG = (
     "[bold]Exit codes:[/bold]\n\n"
     "  0   EXACT or RELOC match (bytes identical or match after relocation masking)\n\n"
     "  1   NEAR_MATCHING, STUB, or SIZE_MISMATCH (code needs improvement)\n\n"
-    "  2   Tooling error (compilation failed, target bytes unextractable, VA-map scan failed)\n\n"
+    "  2   Tooling error (compilation failed, target bytes unextractable, VA-map scan failed; "
+    "also a usage error: unknown flag, missing argument)\n\n"
+    "[dim]130 = interrupted (Ctrl+C), 141 = stdout closed early (piped into head).[/dim]\n\n"
     "[dim]Parameters are auto-detected from // FUNCTION markers in source, "
     "plus STATUS, SIZE, and CFLAGS from rebrew-functions.toml metadata.[/dim]"
 )

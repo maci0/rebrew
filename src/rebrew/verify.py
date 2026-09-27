@@ -360,6 +360,8 @@ app = typer.Typer(
         "[bold]Exit codes:[/bold]\n\n"
         "  0   All functions passed verification\n\n"
         "  1   Failures or regressions detected\n\n"
+        "  2   Build or config error (also a usage error: unknown flag, missing argument)\n\n"
+        "[dim]130 = interrupted (Ctrl+C), 141 = stdout closed early (piped into head).[/dim]\n\n"
         "[dim]Requires rebrew-project.toml with valid compiler and target binary paths.[/dim]"
     ),
 )
