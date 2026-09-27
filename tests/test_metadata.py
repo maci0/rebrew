@@ -1188,6 +1188,53 @@ class TestSetFieldsBatchTomlSafe:
         assert load_metadata(tmp_path)[("SERVER", 0x1000)]["note"] == "see[0m dump"
 
 
+class TestUpdateFieldTomlSafe:
+    """The single-field writers sanitize too, so the ``rebrew blocker`` /
+    ``rebrew note`` path cannot poison the file for every other entry."""
+
+    def test_update_field_strips_control_chars_and_still_parses(self, tmp_path: Path) -> None:
+        from rebrew.metadata import update_field
+
+        update_field(tmp_path, 0x1000, "blocker", "ring0\x1b[31m halt", module="SERVER")
+        entry = get_entry(tmp_path, 0x1000, "SERVER")
+        assert entry["blocker"] == "ring0[31m halt"
+        # Round-trip: a control char serialized by tomlkit would break the
+        # next parse of the whole metadata file, not just this entry.
+        assert load_metadata(tmp_path)[("SERVER", 0x1000)]["blocker"] == "ring0[31m halt"
+
+    def test_tab_and_newline_survive(self, tmp_path: Path) -> None:
+        from rebrew.metadata import update_field
+
+        update_field(tmp_path, 0x1000, "note", "line one\n\tline two", module="SERVER")
+        assert get_entry(tmp_path, 0x1000, "SERVER")["note"] == "line one\n\tline two"
+        assert load_metadata(tmp_path)[("SERVER", 0x1000)]["note"] == "line one\n\tline two"
+
+    def test_update_field_reports_a_hit_already_stored_clean(self, tmp_path: Path) -> None:
+        """The same-value short-circuit compares the sanitized value, so a
+        retry with the same dirty text does not rewrite the file."""
+        from rebrew.metadata import update_field
+
+        update_field(tmp_path, 0x1000, "note", "a\x07b", module="SERVER")
+        path = metadata_path(tmp_path)
+        before = path.stat().st_mtime_ns
+        update_field(tmp_path, 0x1000, "note", "a\x07b", module="SERVER")
+        assert path.stat().st_mtime_ns == before
+        # Control: the timestamp does move on a real rewrite, so the equality
+        # above is the short-circuit and not a filesystem with coarse mtime.
+        update_field(tmp_path, 0x1000, "note", "other", module="SERVER")
+        assert path.stat().st_mtime_ns != before
+
+    def test_save_metadata_strips_control_chars(self, tmp_path: Path) -> None:
+        """The bulk writer is the one path ``toml_safe`` was missing: a control
+        char there cost every entry in the file, since a failed parse reads
+        back as an empty store."""
+        save_metadata(
+            tmp_path,
+            {("SERVER", 0x1000): {"status": "STUB", "note": "see\x1b[0m dump"}},
+        )
+        assert load_metadata(tmp_path)[("SERVER", 0x1000)]["note"] == "see[0m dump"
+
+
 class TestSetFieldsValidation:
     """set_fields / set_fields_batch must enforce the same type gate as update_field."""
 

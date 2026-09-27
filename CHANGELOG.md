@@ -160,6 +160,15 @@
   dropped by `to_dict`, so a stored failure arrived with neither and the
   caller had to parse the message. Both classes extend `_STRUCTURED_FIELDS`
   with their own fields.
+- **`save_metadata` no longer writes a store it cannot read back.** The
+  granular writers (`update_field`, `set_fields`, `set_fields_batch`, the
+  data-metadata siblings) all pass string values through `toml_safe` first,
+  which drops C0/C1 controls; the bulk writer skipped it. A Ghidra note or
+  blocker carrying ESC reached `tomlkit`, which emitted it as `\e` — an
+  invalid TOML escape. The next `load_metadata` then failed to parse the
+  file and returned an empty store, so one control character in one field
+  erased every entry on the next load-modify-save. `save_metadata` now
+  sanitizes the same way.
 - **The dashboard OpenAPI spec matches what the server actually does.**
   Three contracts a client generates from `docs/dashboard-api.yaml` were
   wrong or missing:
