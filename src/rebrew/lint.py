@@ -42,6 +42,7 @@ from rebrew.cli import (
     TargetOption,
     all_targets_run,
     console,
+    error_exit,
     json_print,
     option_default,
 )
@@ -2019,13 +2020,15 @@ def main(
         ),
     ):
         return
-    # Intentionally use load_config (not require_config) — lint degrades
-    # gracefully when no config is present (e.g. linting standalone files).
+    # `load_config`, not `require_config`: naming files explicitly lints them
+    # without a project (config-aware rules off).  Bare `rebrew lint` has no
+    # such fallback — see the `reversed_dir` branch below.
     cfg = None
+    no_config = False
     try:
         cfg = load_config(target=target)
     except FileNotFoundError:
-        pass  # No config file — lint without config-aware rules
+        no_config = True
     except (KeyError, ValueError) as exc:
         console.print(
             f"[yellow]warning:[/yellow] config error ({exc}); config-aware rules disabled"
@@ -2041,6 +2044,17 @@ def main(
         c_files = [f for f in files if f.suffix.lower() in exts]
     elif reversed_dir:
         c_files = iter_sources(reversed_dir, cfg)
+    elif no_config:
+        # No project and no file list: the only thing left to guess is "every
+        # C file under the cwd", which lints vendored trees (.venv, build/)
+        # and reports their findings as the project's.  Exit 2 like every
+        # other command that cannot find a project, naming both ways out.
+        error_exit(
+            "no rebrew-project.toml found and no files given. "
+            "Run 'rebrew lint' from inside a project, or pass the files to "
+            "check explicitly (rebrew lint path/to/file.c).",
+            json_mode=json_output,
+        )
     else:
         c_files = sorted({p for ext in exts for p in Path.cwd().rglob(f"*{ext}")})
 
