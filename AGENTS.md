@@ -66,6 +66,7 @@ Single-command tools: `@app.callback(invoke_without_command=True)` + a `main_ent
 - **Shared helpers** come from `rebrew.cli`: `TargetOption`, `require_config()`, `error_exit(..., json_mode=json_output)`, `json_print`, `parse_va`, `EXIT_*`. `load_config` is in no `__all__` there even though the module imports it; import it from `rebrew.config`, and only for optional loads.
 - **Param order**: `--json` before `--target`, both last. The batch tools (`verify`/`test`/`lint`/`status`/`todo`) put `--all-targets` after `--target`, since it is mutually exclusive with it.
 - **Help strings are exact**: `--json` → `"Output results as JSON"`; `--dry-run` → `"Preview changes without writing"`.
+- **Shared options** `--version/-V`, `--verbose/-v`, `--quiet/-q` are injected by `add_global_options` into every command and console script, so they parse after the subcommand name too. A command that declares one itself keeps it (`lint --quiet` stays "errors only").
 - **Output** goes through `Console(stderr=True)`; raw `print()` only for piped data.
 - **`main_entry`** carries the docstring `"""Run the Typer CLI application."""` and a body of `run_standalone(main)` (single-command) or `run_cli(app)` (group), never a bare `app()`, which loses the 141/130/2 exit contract.
 

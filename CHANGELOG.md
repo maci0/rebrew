@@ -427,6 +427,16 @@
   said so comes later.
 
 ### Fixed
+- **`--verbose` and `--quiet` work after the subcommand, not only before it.**
+  The umbrella advertises both, but click parses a group's own options only
+  ahead of the subcommand name, so `rebrew diff -v` and the flat
+  `rebrew-diff -v` exited 2 with "No such option: --verbose" while
+  `rebrew -v diff` worked. `rebrew.cli.add_global_options` (was
+  `add_version_option`) now injects the whole shared set, and both spellings
+  record into one verbosity state, so `rebrew -vv diff` and `rebrew diff -vv`
+  agree. A command that declares a flag itself keeps its own meaning:
+  `rebrew lint --quiet` is still "errors only", and the injector only adds
+  `--verbose` there.
 - **A header that could not be read no longer vanishes from a cache key.**
   `verify_hash.headers_hash`, its stat fingerprint, and
   `compile_cache._header_key_entries` all skipped a header whose `read_bytes`

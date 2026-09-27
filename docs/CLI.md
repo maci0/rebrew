@@ -19,6 +19,14 @@ from the config.
 Run any tool with `--help` to see usage examples and context
 (typer `rich_markup_mode="rich"` with epilog text).
 
+`--version/-V`, `--verbose/-v` (repeatable) and `--quiet/-q` are shared options:
+`rebrew.cli.add_global_options` injects them into every command and every
+`rebrew-<cmd>` console script, so they parse after the subcommand name as well
+as before it (`rebrew -vv diff` and `rebrew diff -vv` agree).  A tool that
+declares one of these flags itself keeps its own meaning: `rebrew lint --quiet`
+still means "errors only", not "logs at warning".  `REBREW_LOG_LEVEL` sets the
+level when neither flag is given.
+
 New to rebrew?  Start with the [first-run walkthrough](ONBOARDING.md)
 (`rebrew init` → `rebrew intake` → `rebrew doctor` in ~5 minutes).
 
@@ -748,7 +756,7 @@ count the same rows.  `rebrew catalog` writes the same set into
 | `--dry-run` | Preview changes without writing |
 | `--quiet` | Suppress warnings, show errors only |
 | `--pedantic` | Warn on functions with default names (fcn, fn, fun, etc.) |
-| `--json` | Machine-readable JSON output |
+| `--json` | Output results as JSON |
 | `--summary` | Print status/origin breakdown table |
 | `FILE...` | Specific files to check (positional) instead of full scan |
 

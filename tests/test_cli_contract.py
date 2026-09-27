@@ -173,14 +173,14 @@ class TestVersionFlag:
         """
         import typer
 
-        from rebrew.cli import add_version_option
+        from rebrew.cli import add_global_options
 
         bad = []
         for comp in BUILTIN_COMPONENTS:
             app = getattr(importlib.import_module(comp.module), "app", None)
             if app is None:
                 continue
-            cmd = add_version_option(typer.main.get_command(app))
+            cmd = add_global_options(typer.main.get_command(app))
             names = {opt for param in cmd.params for opt in param.opts}
             if "--version" not in names:
                 bad.append(comp.name)
@@ -200,7 +200,7 @@ class TestVersionFlag:
         """`rebrew -V` answers the version, like `rebrew diff -V` does.
 
         The group declares its own ``--version`` option, so the shared
-        ``add_version_option`` injection skips it; before this was pinned the
+        ``add_global_options`` injection skips it; before this was pinned the
         group carried the long form only and every subcommand answered
         ``-V``, so the one spelling a script learned from a subcommand
         exited 2 on the group.
@@ -230,6 +230,82 @@ class TestVersionFlag:
         assert result.exit_code == 0, result.output
         assert "Missing argument" not in result.output
         assert __version__ in result.stdout
+
+
+class TestVerbosityFlags:
+    def test_every_command_offers_verbosity_flags(self) -> None:
+        """`-v` / `-q` work after the subcommand, not only before it.
+
+        The umbrella advertises both, but click parses a group's own options
+        only ahead of the subcommand name, so `rebrew diff -v` and the flat
+        `rebrew-diff -v` used to exit 2 with "No such option: --verbose".
+        """
+        import typer
+
+        from rebrew.cli import add_global_options
+
+        missing: dict[str, list[str]] = {}
+        for comp in BUILTIN_COMPONENTS:
+            app = getattr(importlib.import_module(comp.module), "app", None)
+            if app is None:
+                continue
+            cmd = add_global_options(typer.main.get_command(app))
+            names = {opt for param in cmd.params for opt in param.opts}
+            absent = [f for f in ("--verbose", "-v", "--quiet", "-q") if f not in names]
+            if absent:
+                missing[comp.name] = absent
+        assert not missing, f"commands missing verbosity flags: {missing}"
+
+    def test_command_declared_flag_wins_over_injection(self) -> None:
+        """`lint --quiet` stays "errors only"; the injector adds only --verbose.
+
+        The shared injection skips a spelling the command already declares, so
+        rebrew's own meaning for it survives the global options.
+        """
+        import typer
+
+        from rebrew.cli import add_global_options
+        from rebrew.lint import app as lint_app
+
+        cmd = add_global_options(typer.main.get_command(lint_app))
+        params = {param.name: param for param in cmd.params}
+        assert params["quiet"].help == "Only show errors, suppress warnings"
+        assert params["verbose"].help == "Increase output verbosity."
+
+    def test_subcommand_quiet_reaches_the_log_level(self) -> None:
+        """`rebrew diff -q` parses and pins logs at warning.
+
+        The injected callbacks share one recorded state with the umbrella's
+        own, so the flag lands wherever it is written.
+        """
+        import logging
+
+        from typer.testing import CliRunner
+
+        from rebrew import cli
+        from rebrew.main import app as umbrella
+
+        cli.reset_verbosity()
+        result = CliRunner().invoke(umbrella, ["diff", "-q", "nosuch.c"])
+        assert "No such option" not in result.output
+        assert cli.effective_log_level() == logging.WARNING
+
+    def test_group_verbose_survives_subcommand_default(self) -> None:
+        """`rebrew -vv diff` is not reset by the subcommand's own copy.
+
+        Both spellings record into one state, so the copy that was not
+        written on the command line cannot lower the level the group set.
+        """
+        import logging
+
+        from typer.testing import CliRunner
+
+        from rebrew import cli
+        from rebrew.main import app as umbrella
+
+        cli.reset_verbosity()
+        CliRunner().invoke(umbrella, ["-vv", "diff", "nosuch.c"])
+        assert cli.effective_log_level() == logging.DEBUG, cli.effective_log_level()
 
 
 class TestGroupHelpEpilog:

@@ -11,16 +11,11 @@ component's declared service dependencies decide activation order.
 
 from __future__ import annotations
 
-import logging
-import os
-import time
-
 import typer
 from rich.console import Console
 
 from rebrew.builtins import BUILTIN_COMPONENTS
-from rebrew.cli import VersionedGroup, console, run_cli
-from rebrew.config import DEFAULT_LOG_LEVEL, ConfigError, parse_env_log_level
+from rebrew.cli import QUIET_HELP, VERBOSE_HELP, VersionedGroup, configure_logging, console, run_cli
 from rebrew.plugin import (
     CLI_SERVICE,
     CONSOLE_SERVICE,
@@ -101,53 +96,18 @@ def _global_options(
         is_eager=True,
         help="Show version and exit.",
     ),
-    verbose: int = typer.Option(
-        0, "--verbose", "-v", count=True, help="Increase output verbosity."
-    ),
+    verbose: int = typer.Option(0, "--verbose", "-v", count=True, help=VERBOSE_HELP),
     # Logging only. Command tables stay; `lint --quiet` is a different flag.
     # The default level is already WARNING, so this exists to cancel --verbose.
     quiet: bool = typer.Option(
         False,
         "--quiet",
         "-q",
-        help="Cancel --verbose; leave logs at warning.",
+        help=QUIET_HELP,
     ),
 ) -> None:
     """Compiler-in-the-loop decompilation workbench."""
-    if quiet:
-        log_level = logging.WARNING
-    elif verbose >= 2:
-        log_level = logging.DEBUG
-    elif verbose == 1:
-        log_level = logging.INFO
-    else:
-        try:
-            log_level = parse_env_log_level(
-                os.environ.get("REBREW_LOG_LEVEL", ""), default=DEFAULT_LOG_LEVEL
-            )
-        except ConfigError as exc:
-            # Warn and keep the default rather than exit: `rebrew cfg effective`
-            # is the command that names the bad knob, and it is unusable while
-            # every run aborts on one.
-            console.print(f"[yellow]warning:[/yellow] {exc}")
-            log_level = DEFAULT_LOG_LEVEL
-    # Force UTC asctime: the default converter is localtime, so a host in
-    # Europe/Warsaw (or any DST zone) stamps verbose logs with a wall clock
-    # that jumps or repeats on transition nights and disagrees with CI
-    # (TZ=UTC).  Match status/verify metadata, which already label UTC.
-    logging.basicConfig(
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S UTC",
-        level=log_level,
-    )
-    # basicConfig is a no-op when root already has handlers; still force UTC
-    # on whatever formatter is installed so a prior localtime config cannot
-    # leak into -v output.
-    for handler in logging.root.handlers:
-        formatter = handler.formatter
-        if formatter is not None:
-            formatter.converter = time.gmtime
-            formatter.datefmt = "%Y-%m-%d %H:%M:%S UTC"
+    configure_logging(verbose, quiet=quiet)
 
 
 # ---------------------------------------------------------------------------

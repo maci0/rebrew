@@ -20,9 +20,11 @@ Usage in a tool::
 from __future__ import annotations
 
 import json
+import logging
 import os
 import stat
 import sys
+import time
 import unicodedata
 import warnings
 from collections.abc import Callable
@@ -39,9 +41,23 @@ from typer._click.core import Parameter as TyperParameter
 from typer.core import TyperGroup, TyperOption
 
 from rebrew.annotation import Annotation, parse_c_file_multi
-from rebrew.config import ConfigWarning, ProjectConfig, load_config
+from rebrew.config import (
+    DEFAULT_LOG_LEVEL,
+    ConfigError,
+    ConfigWarning,
+    ProjectConfig,
+    load_config,
+    parse_env_log_level,
+)
 from rebrew.sources import iter_sources, target_marker
 from rebrew.utils import parse_int_literal, strip_bidi_format
+
+#: Timestamp format shared by every log line.  UTC is forced in
+#: :func:`configure_logging`; the default converter is localtime, so a host in
+#: a DST zone stamps verbose logs with a wall clock that jumps or repeats and
+#: disagrees with CI.  Match status/verify metadata, which label UTC.
+LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s: %(message)s"
+LOG_DATE_FORMAT = "%Y-%m-%d %H:%M:%S UTC"
 
 # ---------------------------------------------------------------------------
 # Standardised exit codes
@@ -325,8 +341,10 @@ def _standalone_command_kwargs(main: Any) -> dict[str, Any]:
     }
 
 
-#: Help text for the option :func:`add_version_option` attaches everywhere.
+#: Help text for the options :func:`add_global_options` attaches everywhere.
 VERSION_HELP = "Show version and exit."
+VERBOSE_HELP = "Increase output verbosity."
+QUIET_HELP = "Cancel --verbose; leave logs at warning."
 
 
 def _print_version(ctx: TyperContext, param: TyperParameter, value: bool) -> None:
@@ -344,36 +362,147 @@ def _print_version(ctx: TyperContext, param: TyperParameter, value: bool) -> Non
     ctx.exit(EXIT_OK)
 
 
-def add_version_option(cmd: TyperBaseCommand) -> TyperBaseCommand:
-    """Give *cmd* a ``--version`` / ``-V`` flag unless it declares one.
+#: Verbosity flags recorded so far, keyed by flag.  The umbrella's own
+#: ``--verbose``/``--quiet`` and the injected per-command copies both land
+#: here before the level is computed, so the two spellings of one invocation
+#: (``rebrew -vv diff``, ``rebrew diff -vv``) agree and neither resets the
+#: other to its default.
+_verbosity: dict[str, int] = {"verbose": 0, "quiet": 0}
+_log_level: int = DEFAULT_LOG_LEVEL
 
-    The umbrella's ``rebrew --version`` covers the group, but each tool also
-    ships as its own console script (``rebrew-diff``, ``rebrew-test``, …), and
-    asking one of those for its version got click's ``No such option:
-    --version`` and exit 2.  Injected as an eager, ``expose_value=False``
-    Typer option so the tool callbacks keep their own signatures: no wrapper,
-    no re-annotated copy of every command.  Groups recurse, so
-    ``rebrew binsync push --version`` works like the flat form.
+
+def effective_log_level() -> int:
+    """The level the last :func:`configure_logging` call resolved to."""
+    return _log_level
+
+
+def reset_verbosity() -> None:
+    """Forget the verbosity flags recorded so far.
+
+    :func:`run_cli` calls this before each run so a long-lived process that
+    drives two commands in a row (an embedding app, a test) does not carry the
+    first command's ``-v`` into the second.
     """
-    if any("--version" in param.opts for param in cmd.params):
-        return cmd
-    cmd.params.append(
-        TyperOption(
-            param_decls=["--version", "-V"],
-            is_flag=True,
-            is_eager=True,
-            expose_value=False,
-            callback=_print_version,
-            help=VERSION_HELP,
+    global _log_level
+    _verbosity["verbose"] = 0
+    _verbosity["quiet"] = 0
+    _log_level = DEFAULT_LOG_LEVEL
+
+
+def configure_logging(verbose: int = 0, *, quiet: bool = False) -> None:
+    """Set the root log level from the verbosity flags, in UTC."""
+    global _log_level
+    if quiet:
+        _verbosity["quiet"] = 1
+    if verbose > 0:
+        _verbosity["verbose"] = verbose
+    if _verbosity["quiet"]:
+        level = logging.WARNING
+    elif _verbosity["verbose"] >= 2:
+        level = logging.DEBUG
+    elif _verbosity["verbose"] == 1:
+        level = logging.INFO
+    else:
+        try:
+            level = parse_env_log_level(
+                os.environ.get("REBREW_LOG_LEVEL", ""), default=DEFAULT_LOG_LEVEL
+            )
+        except ConfigError as exc:
+            # Warn and keep the default rather than exit: `rebrew cfg effective`
+            # is the command that names the bad knob, and it is unusable while
+            # every run aborts on one.
+            console.print(f"[yellow]warning:[/yellow] {exc}")
+            level = DEFAULT_LOG_LEVEL
+    _log_level = level
+    logging.basicConfig(format=LOG_FORMAT, datefmt=LOG_DATE_FORMAT, level=level)
+    # basicConfig is a no-op when root already has handlers; still force UTC
+    # on whatever formatter is installed so a prior localtime config cannot
+    # leak into -v output.
+    for handler in logging.root.handlers:
+        formatter = handler.formatter
+        if formatter is not None:
+            formatter.converter = time.gmtime
+            formatter.datefmt = LOG_DATE_FORMAT
+
+
+def _apply_verbose(ctx: TyperContext, param: TyperParameter, value: int) -> None:
+    """Eager ``--verbose`` callback: raise the log level before the body runs."""
+    if value and not ctx.resilient_parsing:
+        configure_logging(value)
+
+
+def _apply_quiet(ctx: TyperContext, param: TyperParameter, value: bool) -> None:
+    """Eager ``--quiet`` callback: pin logs at warning."""
+    if value and not ctx.resilient_parsing:
+        configure_logging(quiet=True)
+
+
+def _declares(cmd: TyperBaseCommand, *names: str) -> bool:
+    """True when *cmd* already declares any of *names* (long or short form)."""
+    return any(name in param.opts for param in cmd.params for name in names)
+
+
+def add_global_options(cmd: TyperBaseCommand) -> TyperBaseCommand:
+    """Give *cmd* the umbrella's ``--version``/``--verbose``/``--quiet`` flags.
+
+    ``rebrew --version`` covers the group, but each tool also ships as its own
+    console script (``rebrew-diff``, ``rebrew-test``, …) and each is a
+    subcommand of the umbrella, so asking one of those for its version or for
+    ``-v`` got click's ``No such option`` and exit 2.  Injected as eager,
+    ``expose_value=False`` Typer options so the tool callbacks keep their own
+    signatures: no wrapper, no re-annotated copy of every command.  Groups
+    recurse, so ``rebrew binsync push --version`` works like the flat form.
+
+    A command that declares a flag itself keeps it: ``lint --quiet`` means
+    "errors only", not "logs at warning", so the injector adds ``--verbose``
+    there and leaves ``--quiet`` alone.
+    """
+    if not _declares(cmd, "--version"):
+        cmd.params.append(
+            TyperOption(
+                param_decls=["--version", "-V"],
+                is_flag=True,
+                is_eager=True,
+                expose_value=False,
+                callback=_print_version,
+                help=VERSION_HELP,
+            )
         )
-    )
+    if not _declares(cmd, "--verbose", "-v"):
+        cmd.params.append(
+            TyperOption(
+                param_decls=["--verbose", "-v"],
+                count=True,
+                default=0,
+                # click renders a count option as `<int range>`; the umbrella
+                # spells it `<int>`, and one flag should look the same in both
+                # help screens.
+                metavar="<int>",
+                show_default=True,
+                is_eager=True,
+                expose_value=False,
+                callback=_apply_verbose,
+                help=VERBOSE_HELP,
+            )
+        )
+    if not _declares(cmd, "--quiet", "-q"):
+        cmd.params.append(
+            TyperOption(
+                param_decls=["--quiet", "-q"],
+                is_flag=True,
+                is_eager=True,
+                expose_value=False,
+                callback=_apply_quiet,
+                help=QUIET_HELP,
+            )
+        )
     for sub in getattr(cmd, "commands", {}).values():
-        add_version_option(sub)
+        add_global_options(sub)
     return cmd
 
 
 class VersionedGroup(TyperGroup):
-    """Umbrella group offering ``--version`` on every subcommand.
+    """Umbrella group offering the shared options on every subcommand.
 
     The umbrella registers its commands from the plugin component graph at
     startup, so ``run_cli``'s eager walk of ``cmd.commands`` runs before they
@@ -385,7 +514,7 @@ class VersionedGroup(TyperGroup):
     @override
     def get_command(self, ctx: TyperContext, name: str) -> TyperBaseCommand | None:
         cmd = super().get_command(ctx, name)
-        return None if cmd is None else add_version_option(cmd)
+        return None if cmd is None else add_global_options(cmd)
 
 
 def run_standalone(main: Any) -> None:
@@ -471,13 +600,15 @@ def run_cli(app: Callable[[], Any]) -> None:
 
     A :class:`typer.Typer` argument is converted to its click command first so
     every entry point — umbrella, flat tool, group subcommand — gets the
-    shared ``--version`` flag from :func:`add_version_option`.
+    shared ``--version``/``--verbose``/``--quiet`` flags from
+    :func:`add_global_options`.
     """
     warnings.simplefilter("ignore", ConfigWarning)
+    reset_verbosity()
 
     def entry() -> None:
         if isinstance(app, typer.Typer):
-            add_version_option(exit_130_on_interrupt(typer.main.get_command(app)))()
+            add_global_options(exit_130_on_interrupt(typer.main.get_command(app)))()
         else:
             app()
 
@@ -761,13 +892,17 @@ __all__ = [
     "EXIT_MISMATCH",
     "EXIT_OK",
     "EXIT_SIGPIPE",
+    "QUIET_HELP",
     "TargetOption",
+    "VERBOSE_HELP",
     "VERSION_HELP",
     "VersionedGroup",
-    "add_version_option",
+    "add_global_options",
     "all_targets_run",
     "confirm_abort",
+    "configure_logging",
     "console",
+    "effective_log_level",
     "error_exit",
     "exit_130_on_interrupt",
     "json_print",
@@ -778,6 +913,7 @@ __all__ = [
     "require_source_arg",
     "resolve_binary_arg",
     "resolve_source_arg",
+    "reset_verbosity",
     "run_cli",
     "run_for_each_target",
     "run_standalone",

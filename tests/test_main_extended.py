@@ -5,6 +5,7 @@ import typer
 from rich.console import Console
 from typer.testing import CliRunner
 
+import rebrew.cli as cli_mod
 import rebrew.main as main_mod
 from rebrew.cli import EXIT_ERROR
 from rebrew.plugin import make_stub_app, make_stub_command
@@ -19,7 +20,11 @@ class TestVerbosity:
             levels.append(level)
             kwargs_seen.append(kw)
 
-        main_mod.logging.basicConfig = _basicConfig
+        # The level is computed in rebrew.cli, which records the flags in
+        # process-wide state so a group's copy and a subcommand's agree; clear
+        # it so each assertion starts from the default.
+        cli_mod.reset_verbosity()
+        cli_mod.logging.basicConfig = _basicConfig
         try:
             result = CliRunner().invoke(main_mod.app, args)
             return result, levels, kwargs_seen
@@ -27,23 +32,23 @@ class TestVerbosity:
             # restore
             import logging
 
-            main_mod.logging.basicConfig = logging.basicConfig
+            cli_mod.logging.basicConfig = logging.basicConfig
 
     def test_default_warning(self) -> None:
         result, levels, _kwargs = self._invoke(["skills", "list"])
-        assert levels == [main_mod.logging.WARNING]
+        assert levels == [cli_mod.logging.WARNING]
 
     def test_quiet(self) -> None:
         result, levels, _kwargs = self._invoke(["-q", "skills", "list"])
-        assert levels == [main_mod.logging.WARNING]
+        assert levels == [cli_mod.logging.WARNING]
 
     def test_verbose_once(self) -> None:
         result, levels, _kwargs = self._invoke(["-v", "skills", "list"])
-        assert levels == [main_mod.logging.INFO]
+        assert levels == [cli_mod.logging.INFO]
 
     def test_verbose_twice(self) -> None:
         result, levels, _kwargs = self._invoke(["-vv", "skills", "list"])
-        assert levels == [main_mod.logging.DEBUG]
+        assert levels == [cli_mod.logging.DEBUG]
 
     def test_asctime_labeled_utc(self) -> None:
         _result, _levels, kwargs_seen = self._invoke(["skills", "list"])
