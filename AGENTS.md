@@ -60,7 +60,7 @@ Dockerfiles / wrappers / 16-bit media: sibling **rebrew-toolchains** (not vendor
 
 ## CLI Conventions
 
-Single-command tools: `@app.callback(invoke_without_command=True)` + a `main_entry()` in `[project.scripts]`. The five targets that are not single commands name their own attribute: the umbrella (`rebrew = "rebrew.main:main"`), `objdiff_build_entry`, and `tc_main` for the three `rebrew-cmake-*` bridges.
+Single-command tools: `@app.callback(invoke_without_command=True)` + a `main_entry()` in `[project.scripts]`. Every target names that `main_entry` except five, which name their own symbol: the umbrella (`rebrew = "rebrew.main:main"`), `objdiff_build_entry`, and `tc_main` for the three `rebrew-cmake-*` bridges. A `main_entry` is a single command or a group, per its body.
 
 - **Shared helpers** come from `rebrew.cli`: `TargetOption`, `require_config()`, `error_exit(..., json_mode=json_output)`, `json_print`, `parse_va`, `EXIT_*`. `load_config` is in no `__all__` there even though the module imports it; import it from `rebrew.config`, and only for optional loads.
 - **Param order**: `--json` before `--target`, both last. The batch tools (`verify`/`test`/`lint`/`status`/`todo`) put `--all-targets` after `--target`, since it is mutually exclusive with it.
