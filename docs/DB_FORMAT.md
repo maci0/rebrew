@@ -445,8 +445,9 @@ The `recovery` server exposes the following endpoints. All data endpoints return
 > `/app.js`, `/boot-guard.js`, `/api/targets`, and `/api/health`
 > (`{"status": "ok", "db": "<path>", "targets": <n>}` after one real read of
 > the target list, so an unreadable `coverage.db` answers 500
-> `database_error`; never ETagged, so a probe cannot be revalidated into a
-> stale "healthy")). Function, global, history, and section list rows are
+> `database_error`; served `no-store` with no `ETag`, so a probe cannot be
+> cached or revalidated into a stale "healthy"). Function, global, history, and
+> section list rows are
 > compact arrays under `cols`. List envelopes carry `count` (this page),
 > `total`, the applied `limit`/`offset`, and `paged` — `true` on
 > `/api/functions`, `/api/globals`, `/api/history`; `false` on
@@ -461,7 +462,8 @@ The `recovery` server exposes the following endpoints. All data endpoints return
 > `method_not_allowed`, `host_not_allowed`, `corrupt_function_stats`,
 > `database_error`, `internal_error`, plus `bad_request` / `uri_too_long` /
 > `header_fields_too_large` / `http_version_not_supported` for requests
-> rejected before routing). It does **not** implement
+> rejected before routing, and `request_error` for any other status raised
+> there). It does **not** implement
 > the path-style recovery endpoints above or `/api/regen`.
 > Its stderr log is one stream: every access line is
 > `HH:MM:SS INFO    <addr> r<N> "<request line>" <status> <bytes> <ms>`

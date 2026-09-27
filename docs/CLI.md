@@ -2549,7 +2549,8 @@ bind probe).
 
 Endpoints: `/`, `/app.js`, `/boot-guard.js`, `/api/bootstrap`, `/api/targets`,
 `/api/health` (liveness plus one real read of the target list, so an
-unreadable `coverage.db` answers 500 `database_error`; never ETagged),
+unreadable `coverage.db` answers 500 `database_error`; served `no-store`
+with no `ETag`),
 `/api/summary?target=`, `/api/functions?target=` (status/module/q/limit/offset;
 compact row arrays under `cols`), `/api/sections?target=` (compact row arrays
 under `cols`),
@@ -2571,7 +2572,8 @@ requests included; branch on `code` (`missing_target`, `unknown_target`,
 `invalid_status`, `not_found`, `method_not_allowed`, `host_not_allowed`,
 `corrupt_function_stats`, `database_error`, `internal_error`,
 `bad_request`, `uri_too_long`, `header_fields_too_large`,
-`http_version_not_supported`) and show `error` to the reader. List endpoints
+`http_version_not_supported`, and `request_error` for any other status raised
+before routing) and show `error` to the reader. List endpoints
 also carry `paged`: `true` on `/api/functions`, `/api/globals`, and
 `/api/history` (where `limit` is the page size), `false` on `/api/sections`,
 `/api/targets`, and `/api/bootstrap` (where `limit` is the row count).

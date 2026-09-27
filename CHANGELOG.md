@@ -18,6 +18,21 @@
   `tests/test_errors.py` pins it to the lazy tables so the two cannot drift.
 
 ### Fixed
+- **`GET /api/health` served a validator for a route that must not be
+  revalidated.** The probe reads the target list, but its 200 carried the
+  DB-mtime `ETag` and `Cache-Control: private, no-cache`. The server ignores
+  `If-None-Match` on that path (it is not in `_ROUTES`, so the 304
+  short-circuit never fires), yet a client or proxy holding the tag could
+  still replay it and keep reading "ok" after `coverage.db` went unreadable,
+  which is the failure the probe exists to catch. It now answers `no-store`
+  with no `ETag` (`_UNCACHEABLE_ROUTES`), matching what `docs/DB_FORMAT.md`
+  and `docs/CLI.md` already claimed. The module docstring also said the probe
+  does "no database read"; it has always done one indexed read.
+- **The `request_error` machine code was emitted but undocumented.** Every
+  other code in the dashboard's `{"error", "code"}` envelope is listed in the
+  module docstring, `docs/CLI.md`, and `docs/DB_FORMAT.md`; the fallback that
+  `send_error` uses for a pre-routing status outside 400/414/431/505 was in
+  none of them, so a client branching on `code` had no way to learn it.
 - **`rebrew analyze` disassembled every code section twice.** The string census
   and the reference profile each ran `scan_references` over the whole `.text`.
   The dossier now scans once and threads the result into both
