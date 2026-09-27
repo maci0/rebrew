@@ -1,11 +1,14 @@
 """Declared-package contract — the wheel METADATA must match the source.
 
-Two things break on a user's machine and nowhere else, so they need a gate
+Three things break on a user's machine and nowhere else, so they need a gate
 here rather than a report:
 
 * a third-party top-level import in ``src/rebrew`` that no
   ``[project].dependencies`` / optional-extra line claims — the wheel
   installs cleanly, then the command that imports it dies with ImportError;
+* a requirement nothing under ``src/rebrew`` imports, which installs on every
+  user's machine and is reachable by no code, so it only widens the
+  install-time and CVE surface until the import that justified it is dropped;
 * a ``[project.scripts]`` target that no longer resolves (renamed module,
   dropped ``main_entry``) — pip writes a console script that fails on first
   run, and the only test run of it would be on someone else's box.
@@ -38,6 +41,10 @@ _IMPORT_NAME_TO_DISTRIBUTION = {
     "tree_sitter_c": "tree-sitter-c",
 }
 
+# The same pairs read the other way, for the reverse check: which module name
+# a declared distribution has to appear under to count as used.
+_DISTRIBUTION_TO_IMPORT_NAME = {v: k for k, v in _IMPORT_NAME_TO_DISTRIBUTION.items()}
+
 # Imported by the shipped package but backed by no requirement of its own.
 # Each import site catches ImportError and degrades, so a wheel installed
 # without the providing extra stays usable.  A new entry needs a one-line
@@ -66,6 +73,17 @@ _OPTIONAL_IMPORTS = {
 _DYNAMIC_IMPORT_HELPERS = frozenset(
     {"__import__", "_optional_backend", "find_spec", "import_module"}
 )
+
+# Requirements the wheel METADATA pulls that no module in ``src/rebrew``
+# imports, each present to force a floor onto a transitive edge instead of to
+# be called.  A requirement whose import was dropped belongs here only with the
+# reason it is still installed for the user; a new entry needs that reason.
+_PIN_ONLY_REQUIREMENTS = {
+    "gitpython": "angr pulls it for its own VCS access; the floor carries the "
+    "RCE-class advisory fix (3.1.58+) that angr's own range does not",
+    "idna": "httpx pulls it for IDNA; the floor forces the Unicode-property DoS "
+    "fix (3.15+) through httpx's tree, which is left unpinned upstream",
+}
 
 # ``rebrew`` itself is the package under test, not a dependency of itself.
 _LOCAL_IMPORTS = {"rebrew"}
@@ -175,6 +193,33 @@ class TestDeclaredDependencies:
             "imported but not declared in [project].dependencies or an extra "
             f"(add a floor, or an entry in _OPTIONAL_IMPORTS with its reason): "
             f"{sorted(undeclared)}"
+        )
+
+    def test_every_declared_requirement_is_imported(self) -> None:
+        """A requirement nothing imports is installed on every user's machine
+        and reachable by nothing, so it widens the install-time and CVE surface
+        for no feature.  Its ``Requires-Dist`` line reads as a contract the code
+        keeps, so only the code failing reveals the rot.
+
+        Scoped to the requirements that reach the wheel METADATA (the runtime
+        list and the extras).  A dev group is never installed for a user, and
+        half of it is invoked as a tool rather than imported, so gating it
+        would encode the tool-versus-library split as an allowlist.
+        """
+        imported = _top_level_imports() | _dynamic_imports()
+        unused = []
+        for name in sorted(_declared_distributions()):
+            if name in _PIN_ONLY_REQUIREMENTS:
+                continue
+            import_name = _DISTRIBUTION_TO_IMPORT_NAME.get(name, name)
+            if import_name in imported or import_name.replace("_", "-") in imported:
+                continue
+            unused.append(name)
+        assert not unused, (
+            "declared in [project].dependencies or an extra but imported "
+            f"nowhere under src/rebrew: {unused} (remove the requirement, or "
+            "give it an entry in _PIN_ONLY_REQUIREMENTS with the reason it "
+            "still ships)"
         )
 
     def test_dependency_floors_are_present(self) -> None:

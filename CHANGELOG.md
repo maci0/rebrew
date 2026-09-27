@@ -1,6 +1,22 @@
 ## [Unreleased]
 
 ### Added
+- **A gate for the dependency this project cannot see going stale.** The
+  manifest was already gated in one direction: an import with no
+  `Requires-Dist` line fails at the user's first run. The other direction, a
+  `Requires-Dist` line with no import, had no gate, so a requirement kept
+  after the module that used it was renamed or deleted kept installing on
+  every user's machine, reachable by no code, and appeared in the SBOM as a
+  component the project does not use.
+  `tests/test_package_metadata.py::TestDeclaredDependencies` now walks the
+  runtime list and the extras and fails on a distribution nothing under
+  `src/rebrew` imports, resolving the import name through the same
+  distribution-to-module pairs the forward check uses. The two requirements
+  that are deliberately there to carry a floor onto a transitive edge
+  (`idna` under `httpx`, `gitpython` under `angr`) are listed in
+  `_PIN_ONLY_REQUIREMENTS` with the advisory each one forces through. A dev
+  group stays out of scope: it never installs for a user, and half of it is
+  invoked as a tool rather than imported.
 - **`make build-repro` runs the package job's reproducibility check.** The
   wheel/sdist byte-reproducibility gate was an inline bash step in
   `.github/workflows/ci.yml`, so a non-reproducible artifact surfaced only
@@ -167,6 +183,152 @@
   test modules. The loop bodies behind `PLC0206` read their dict value
   through the key, and three `for` loops that only filled a dict became
   comprehensions.
+
+- **Breaking:** **coverage.db schema version `11`: `cells` is stored
+  `WITHOUT ROWID`.** The `cells` table carried an auto-increment `id` nothing
+  selected and a `UNIQUE (target, section_name, start)` index to enforce cell
+  identity, so every cell insert maintained a rowid b-tree and a second index
+  over the same key, and a binary with a few hundred thousand cells paid for
+  both on every rebuild. The unique key is now the `PRIMARY KEY` and the table
+  is `WITHOUT ROWID`, so the clustered storage is the index the readers seek
+  and one b-tree is maintained per insert. `history` and `verify_results` are
+  read out and restored across the delete as usual. Migration is `rebrew
+  build-db --force`, the existing convention for a schema bump; readers see no
+  difference either way.
+- **Breaking:** **`HttpClient.post` / `.get` return a named reply, not `Any`.**
+  In `rebrew.recompile_client` and `rebrew.decompme`, the two methods now
+  return the `HttpResponse` protocol those modules export instead of `Any`, so
+  a stand-in's reply is checked against the members the transport actually
+  reads. Nothing changes at runtime for a reply that already carries them (an
+  `httpx.Response` always does), but a fake whose reply lacks `content`
+  (recompile) or `close()` (decomp.me) now fails a type check instead of
+  surfacing as a wrong `RecompileResult.obj_bytes` or an `AttributeError` on
+  the first upload.
+- **Breaking:** **`rebrew cache stats --json` reports `volume_mib` and
+  `size_limit_mib`.** The compile cache sizes were always binary (every figure
+  is `bytes / 1024 / 1024`), but the keys and the two printed lines said
+  `volume_mb` / `size_limit_mb` / `MB`. The fields are renamed, not added: a
+  consumer reading `volume_mb` gets a missing key now, so read `volume_mib`.
+  `volume_bytes` is unchanged and is the figure to prefer where the unit does
+  not matter.
+- **Breaking:** **Ctrl+C exits 130, not 1.** Click's standalone handler turns
+  `KeyboardInterrupt` into `Abort` and calls `sys.exit(1)`, the same code a
+  byte mismatch returns, so a script could not tell a cancelled run from a
+  failed one. `rebrew.cli.run_cli` now wraps every command it resolves, so
+  the umbrella, the flat tool, and the group subcommand all report
+  `EXIT_INTERRUPTED` (130), the code `rebrew.cli` already documents for an
+  interrupted run.
+- **Breaking:** **Every requirement now carries a ceiling at its next breaking
+  major.** Each entry in `[project.dependencies]` and in every extra read
+  `>=floor,<major` where it read `>=floor` before, so `Requires-Dist` states
+  both ends of the range instead of only the floor. A resolver always takes
+  the newest admissible version, so an uncapped floor let the next major of
+  `lief`, `httpx` or `typer` land in an environment the day it published, with
+  no audit in between. The other direction is a user-visible cost: an
+  environment that already holds a newer major of one of these, or another
+  package that requires it, is now a resolver error at install rather than an
+  import-time failure later.
+  `tests/test_package_metadata.py::TestDeclaredDependencies` keeps a ceiling on
+  every runtime requirement, extra, and dependency group, exempting only a
+  `[tool.uv.sources]` entry, which pins the artifact itself.
+- **Four more test modules are type-checked.** `tests/test_binsync_state.py`,
+  `tests/test_lint_cflags.py`, `tests/test_probe.py` and
+  `tests/test_public_surface.py` pass `mypy --strict` today, so they join the
+  checked list in `[tool.mypy] files`. The rest of `tests/` is still
+  unchecked; the list grows as modules come clean.
+- **Breaking:** **The parsed-binary types and the project-layout constants
+  moved down a layer.** `BinaryInfo` and `SectionInfo` lived in
+  `rebrew.binary_loader`, the dispatcher that selects a format loader, so
+  `rebrew.ne_loader` had to import the module that imports it and the import
+  graph held a cycle between the two. They now live in `rebrew.binary_model`
+  (with the lazy `data` read and its size cap), and
+  `rebrew.binary_loader` imports them: `from rebrew.binary_model import
+  BinaryInfo, SectionInfo`. Separately, `rebrew.config` owns the project
+  layout and environment every module already imports, so it no longer
+  reaches up for three string literals: `METADATA_FILENAME` moved from
+  `rebrew.metadata` (still importable there, since it is that module's
+  metadata filename), `TOOLCHAIN_OVERLAY_ENV` moved from `rebrew.toolchain`,
+  and `REBREW_SKILLS_DIR_ENV` moved from `rebrew.skills`; all three are
+  `from rebrew.config import <NAME>` now.
+- **Breaking:** **A dashboard request for a path the server does not serve
+  answers 404, not 405.** `Dashboard.handle` checked the method before the
+  path, so a `POST` to an endpoint that does not exist came back `405` with
+  `Allow: GET, HEAD`, advertising a resource the server has no route for. The
+  method check now runs only for a served path: anything outside the route set
+  is `404` with code `not_found` on every method, which is what the same path
+  already answered to a `GET`. A client branching on `code` sees
+  `method_not_allowed` become `not_found`, and a probe that read 405 as "wrong
+  method, retry as GET" no longer does.
+- **Breaking:** **A `/api/history` row's `old_status` / `new_status` are `""`,
+  never `null`.** A VA's first recorded transition has no previous status, and
+  the row went out as a JSON `null` in the middle of otherwise-string `cols` —
+  a client that null-checked `/api/functions` and read the history rows
+  positionally got a `TypeError` or a silent blank on one route and not the
+  next. Both columns are now `""`, like every other text column on the
+  functions, globals, and sections routes. The column positions and the
+  `cols` array shape are unchanged.
+- **Breaking:** **`resolve_msvc_toolchain` and `toolchain_link_candidates`
+  moved from `rebrew.utils` to `rebrew.toolchain`.** Both names were public
+  module-level functions of `rebrew.utils`; `rebrew init` and
+  `rebrew.config.load_config` now import them from `rebrew.toolchain`, which
+  owns the MSVC layout tables they read, and the old names are gone rather than
+  aliased. `from rebrew.utils import resolve_msvc_toolchain` raises
+  `ImportError` on upgrade; import it from `rebrew.toolchain` instead.
+  Resolution behavior is unchanged.
+- **Breaking:** **`REBREW_LLM_ALLOW_PROJECT_ENDPOINT` is parsed strictly.** The
+  opt-in that lets a `rebrew-project.toml` `[llm] endpoint` receive
+  `REBREW_LLM_API_KEY` read any non-empty value other than `0` as consent, so
+  `REBREW_LLM_ALLOW_PROJECT_ENDPOINT=y` granted the key and
+  `REBREW_LLM_ALLOW_PROJECT_ENDPOINT=off` granted it too. It now goes through
+  the shared `rebrew.config.parse_env_bool`: `1`/`true`/`yes`/`on` consent,
+  `0`/`false`/`no`/`off` refuse, empty or unset keeps the refusal, and any other
+  value raises `ConfigError` instead of reading as consent. An environment
+  already setting a value outside those spellings fails the run rather than
+  silently sending the key. The var also now appears by name in
+  `rebrew config`'s `env_overrides` list.
+- **The suite now gates the files the wheel ships.** A
+  `[tool.setuptools.package-data]` glob that stops matching (a moved skill
+  directory, a renamed template) dropped `AGENTS.md.template`, `PRINCIPLES.md`
+  and the `agent-skills/` tree from the artifact while `make test` stayed
+  green, because the suite runs from the source tree; the failure then landed
+  on a user's first `rebrew skills list` or `rebrew init`.
+  `tests/test_package_metadata.py` matches every non-`.py` file under
+  `src/rebrew` against the declared patterns, pins the three assets `rebrew
+  init` copies, and keeps `exclude-package-data` scoped to the subpackage
+  `AGENTS.md`. `rebrew init` now raises on a missing packaged asset instead of
+  rendering a project with no instructions and no skills.
+- **`rebrew match --seed-llm` no longer re-bills a prompt it already sent.**
+  `--watch` re-runs the whole match on every save, and a save that touches a
+  different function leaves the function under match byte-identical, so the
+  prompt was byte-identical too: each such rerun spent real tokens on an
+  answer already in hand. Identical prompts (endpoint, model, prompt version,
+  seed count, sanitized source) are now answered from a bounded in-process
+  cache, which costs no request slot and records no usage because nothing
+  was billed. Only non-empty answers are cached, so a refusal, a truncated
+  completion, or an endpoint that was down is asked again rather than
+  remembered.
+
+- **The README's library-usage section shows how to inject an HTTP client.**
+  `rebrew.recompile_client.compile_source` and `rebrew.decompme`'s upload
+  helpers take a `client=`, and `HttpClient` is the two-method shape they
+  call, so a consumer can test its own code against a fake instead of a live
+  compile service. That escape hatch was documented only in the two module
+  docstrings, and the two `HttpClient` protocols have the same name with
+  different signatures, so a consumer had no way to learn that one stand-in
+  taking `**kwargs` satisfies both. The quickstart now carries the fake, the
+  fields on `RecompileError`, and the `retries=` / `timeout=` knobs.
+
+- **`dist/rebrew.buildinfo` names the artifacts it ships beside, and the lock
+  they were cut with.** The manifest recorded the build-backend pin, the
+  environment knobs, and the commit, but neither `uv.lock` (the input
+  `make sbom` inventories and `make smoke-wheel` installs from) nor the sha256
+  of the wheel and sdist, so nothing bound the provenance to those exact
+  bytes. `uv-lock-sha256=`, `wheel-sha256=` and `sdist-sha256=` are recorded
+  after `tools/normalize_sdist.py` rewrites both archives, and the package job
+  asserts the lines on the artifact it uploads. `make build` also warns when
+  the tree has uncommitted changes: the artifacts are valid but match no
+  commit, and `make build-repro` rebuilds `HEAD`, so the gate that would have
+  said so comes later.
 
 ### Fixed
 - **`logging.error` inside an `except` now keeps the traceback.** Three
@@ -740,153 +902,6 @@
   same call; a keyword carrying a different value and a widened *return* both
   still read as breaks, and
   `tests/test_public_surface.py::TestBreakClassification` pins each side.
-
-### Changed
-- **Breaking:** **coverage.db schema version `11`: `cells` is stored
-  `WITHOUT ROWID`.** The `cells` table carried an auto-increment `id` nothing
-  selected and a `UNIQUE (target, section_name, start)` index to enforce cell
-  identity, so every cell insert maintained a rowid b-tree and a second index
-  over the same key, and a binary with a few hundred thousand cells paid for
-  both on every rebuild. The unique key is now the `PRIMARY KEY` and the table
-  is `WITHOUT ROWID`, so the clustered storage is the index the readers seek
-  and one b-tree is maintained per insert. `history` and `verify_results` are
-  read out and restored across the delete as usual. Migration is `rebrew
-  build-db --force`, the existing convention for a schema bump; readers see no
-  difference either way.
-- **Breaking:** **`HttpClient.post` / `.get` return a named reply, not `Any`.**
-  In `rebrew.recompile_client` and `rebrew.decompme`, the two methods now
-  return the `HttpResponse` protocol those modules export instead of `Any`, so
-  a stand-in's reply is checked against the members the transport actually
-  reads. Nothing changes at runtime for a reply that already carries them (an
-  `httpx.Response` always does), but a fake whose reply lacks `content`
-  (recompile) or `close()` (decomp.me) now fails a type check instead of
-  surfacing as a wrong `RecompileResult.obj_bytes` or an `AttributeError` on
-  the first upload.
-- **Breaking:** **`rebrew cache stats --json` reports `volume_mib` and
-  `size_limit_mib`.** The compile cache sizes were always binary (every figure
-  is `bytes / 1024 / 1024`), but the keys and the two printed lines said
-  `volume_mb` / `size_limit_mb` / `MB`. The fields are renamed, not added: a
-  consumer reading `volume_mb` gets a missing key now, so read `volume_mib`.
-  `volume_bytes` is unchanged and is the figure to prefer where the unit does
-  not matter.
-- **Breaking:** **Ctrl+C exits 130, not 1.** Click's standalone handler turns
-  `KeyboardInterrupt` into `Abort` and calls `sys.exit(1)`, the same code a
-  byte mismatch returns, so a script could not tell a cancelled run from a
-  failed one. `rebrew.cli.run_cli` now wraps every command it resolves, so
-  the umbrella, the flat tool, and the group subcommand all report
-  `EXIT_INTERRUPTED` (130), the code `rebrew.cli` already documents for an
-  interrupted run.
-- **Breaking:** **Every requirement now carries a ceiling at its next breaking
-  major.** Each entry in `[project.dependencies]` and in every extra read
-  `>=floor,<major` where it read `>=floor` before, so `Requires-Dist` states
-  both ends of the range instead of only the floor. A resolver always takes
-  the newest admissible version, so an uncapped floor let the next major of
-  `lief`, `httpx` or `typer` land in an environment the day it published, with
-  no audit in between. The other direction is a user-visible cost: an
-  environment that already holds a newer major of one of these, or another
-  package that requires it, is now a resolver error at install rather than an
-  import-time failure later.
-  `tests/test_package_metadata.py::TestDeclaredDependencies` keeps a ceiling on
-  every runtime requirement, extra, and dependency group, exempting only a
-  `[tool.uv.sources]` entry, which pins the artifact itself.
-- **Four more test modules are type-checked.** `tests/test_binsync_state.py`,
-  `tests/test_lint_cflags.py`, `tests/test_probe.py` and
-  `tests/test_public_surface.py` pass `mypy --strict` today, so they join the
-  checked list in `[tool.mypy] files`. The rest of `tests/` is still
-  unchecked; the list grows as modules come clean.
-- **Breaking:** **The parsed-binary types and the project-layout constants
-  moved down a layer.** `BinaryInfo` and `SectionInfo` lived in
-  `rebrew.binary_loader`, the dispatcher that selects a format loader, so
-  `rebrew.ne_loader` had to import the module that imports it and the import
-  graph held a cycle between the two. They now live in `rebrew.binary_model`
-  (with the lazy `data` read and its size cap), and
-  `rebrew.binary_loader` imports them: `from rebrew.binary_model import
-  BinaryInfo, SectionInfo`. Separately, `rebrew.config` owns the project
-  layout and environment every module already imports, so it no longer
-  reaches up for three string literals: `METADATA_FILENAME` moved from
-  `rebrew.metadata` (still importable there, since it is that module's
-  metadata filename), `TOOLCHAIN_OVERLAY_ENV` moved from `rebrew.toolchain`,
-  and `REBREW_SKILLS_DIR_ENV` moved from `rebrew.skills`; all three are
-  `from rebrew.config import <NAME>` now.
-- **Breaking:** **A dashboard request for a path the server does not serve
-  answers 404, not 405.** `Dashboard.handle` checked the method before the
-  path, so a `POST` to an endpoint that does not exist came back `405` with
-  `Allow: GET, HEAD`, advertising a resource the server has no route for. The
-  method check now runs only for a served path: anything outside the route set
-  is `404` with code `not_found` on every method, which is what the same path
-  already answered to a `GET`. A client branching on `code` sees
-  `method_not_allowed` become `not_found`, and a probe that read 405 as "wrong
-  method, retry as GET" no longer does.
-- **Breaking:** **A `/api/history` row's `old_status` / `new_status` are `""`,
-  never `null`.** A VA's first recorded transition has no previous status, and
-  the row went out as a JSON `null` in the middle of otherwise-string `cols` —
-  a client that null-checked `/api/functions` and read the history rows
-  positionally got a `TypeError` or a silent blank on one route and not the
-  next. Both columns are now `""`, like every other text column on the
-  functions, globals, and sections routes. The column positions and the
-  `cols` array shape are unchanged.
-- **Breaking:** **`resolve_msvc_toolchain` and `toolchain_link_candidates`
-  moved from `rebrew.utils` to `rebrew.toolchain`.** Both names were public
-  module-level functions of `rebrew.utils`; `rebrew init` and
-  `rebrew.config.load_config` now import them from `rebrew.toolchain`, which
-  owns the MSVC layout tables they read, and the old names are gone rather than
-  aliased. `from rebrew.utils import resolve_msvc_toolchain` raises
-  `ImportError` on upgrade; import it from `rebrew.toolchain` instead.
-  Resolution behavior is unchanged.
-- **Breaking:** **`REBREW_LLM_ALLOW_PROJECT_ENDPOINT` is parsed strictly.** The
-  opt-in that lets a `rebrew-project.toml` `[llm] endpoint` receive
-  `REBREW_LLM_API_KEY` read any non-empty value other than `0` as consent, so
-  `REBREW_LLM_ALLOW_PROJECT_ENDPOINT=y` granted the key and
-  `REBREW_LLM_ALLOW_PROJECT_ENDPOINT=off` granted it too. It now goes through
-  the shared `rebrew.config.parse_env_bool`: `1`/`true`/`yes`/`on` consent,
-  `0`/`false`/`no`/`off` refuse, empty or unset keeps the refusal, and any other
-  value raises `ConfigError` instead of reading as consent. An environment
-  already setting a value outside those spellings fails the run rather than
-  silently sending the key. The var also now appears by name in
-  `rebrew config`'s `env_overrides` list.
-- **The suite now gates the files the wheel ships.** A
-  `[tool.setuptools.package-data]` glob that stops matching (a moved skill
-  directory, a renamed template) dropped `AGENTS.md.template`, `PRINCIPLES.md`
-  and the `agent-skills/` tree from the artifact while `make test` stayed
-  green, because the suite runs from the source tree; the failure then landed
-  on a user's first `rebrew skills list` or `rebrew init`.
-  `tests/test_package_metadata.py` matches every non-`.py` file under
-  `src/rebrew` against the declared patterns, pins the three assets `rebrew
-  init` copies, and keeps `exclude-package-data` scoped to the subpackage
-  `AGENTS.md`. `rebrew init` now raises on a missing packaged asset instead of
-  rendering a project with no instructions and no skills.
-- **`rebrew match --seed-llm` no longer re-bills a prompt it already sent.**
-  `--watch` re-runs the whole match on every save, and a save that touches a
-  different function leaves the function under match byte-identical, so the
-  prompt was byte-identical too: each such rerun spent real tokens on an
-  answer already in hand. Identical prompts (endpoint, model, prompt version,
-  seed count, sanitized source) are now answered from a bounded in-process
-  cache, which costs no request slot and records no usage because nothing
-  was billed. Only non-empty answers are cached, so a refusal, a truncated
-  completion, or an endpoint that was down is asked again rather than
-  remembered.
-
-- **The README's library-usage section shows how to inject an HTTP client.**
-  `rebrew.recompile_client.compile_source` and `rebrew.decompme`'s upload
-  helpers take a `client=`, and `HttpClient` is the two-method shape they
-  call, so a consumer can test its own code against a fake instead of a live
-  compile service. That escape hatch was documented only in the two module
-  docstrings, and the two `HttpClient` protocols have the same name with
-  different signatures, so a consumer had no way to learn that one stand-in
-  taking `**kwargs` satisfies both. The quickstart now carries the fake, the
-  fields on `RecompileError`, and the `retries=` / `timeout=` knobs.
-
-- **`dist/rebrew.buildinfo` names the artifacts it ships beside, and the lock
-  they were cut with.** The manifest recorded the build-backend pin, the
-  environment knobs, and the commit, but neither `uv.lock` (the input
-  `make sbom` inventories and `make smoke-wheel` installs from) nor the sha256
-  of the wheel and sdist, so nothing bound the provenance to those exact
-  bytes. `uv-lock-sha256=`, `wheel-sha256=` and `sdist-sha256=` are recorded
-  after `tools/normalize_sdist.py` rewrites both archives, and the package job
-  asserts the lines on the artifact it uploads. `make build` also warns when
-  the tree has uncommitted changes: the artifacts are valid but match no
-  commit, and `make build-repro` rebuilds `HEAD`, so the gate that would have
-  said so comes later.
 
 ## [2.14.0] - 2026-09-27
 
