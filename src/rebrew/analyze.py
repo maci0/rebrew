@@ -101,14 +101,20 @@ def _collect_toolchain(binary: Path) -> dict[str, Any] | None:
     }
 
 
-def _collect_strings(info: Any, min_len: int, top_n: int) -> dict[str, Any]:
-    """String census: count + the most-referenced strings."""
+def _collect_strings(
+    info: Any, min_len: int, top_n: int, all_refs: list[Any] | None = None
+) -> dict[str, Any]:
+    """String census: count + the most-referenced strings.
+
+    *all_refs* is the dossier's already-computed ``scan_references`` result;
+    passing it keeps this section from re-disassembling every code section.
+    """
     from rebrew.analysis import iter_strings, string_refs
 
     strings = iter_strings(info, min_len=min_len)
     if not strings:
         return {"count": 0, "top": []}
-    refs = string_refs(info, strings)
+    refs = string_refs(info, strings, all_refs)
     ref_counts = {s.va: len(refs.get(s.va, [])) for s in strings}
     top = sorted(strings, key=lambda s: (ref_counts.get(s.va, 0), s.size), reverse=True)[:top_n]
     return {
@@ -177,12 +183,12 @@ def _collect_imports(binary: Path) -> dict[str, Any]:
     }
 
 
-def _collect_references(info: Any) -> dict[str, Any]:
+def _collect_references(info: Any, all_refs: list[Any] | None = None) -> dict[str, Any]:
     """Code-reference profile: total references broken down by kind."""
     from rebrew.analysis import scan_references
 
     try:
-        refs = scan_references(info)
+        refs = all_refs if all_refs is not None else scan_references(info)
     except Exception:  # disassembly is best-effort
         logger.debug("reference scan failed for %s", getattr(info, "path", "?"), exc_info=True)
         return {"total": 0, "by_kind": {}}
@@ -357,14 +363,18 @@ def _collect_flirt(cfg: Any, info: Any) -> dict[str, Any] | None:
     import flirt
 
     from rebrew.binary_loader import load_binary
-    from rebrew.flirt import load_signatures, match_text
+    from rebrew.flirt import ARCH_FAMILIES, load_signatures_for, match_text
 
     try:
-        sigs = load_signatures(str(sig_dir))
+        info = load_binary(cfg.target_binary)
+        # Filter to the target's architecture family first: python-flirt builds
+        # one matcher for everything loaded, so loading a mixed-arch flirt_sigs/
+        # is the documented out-of-memory case and probes far slower.
+        arch = ARCH_FAMILIES.get(getattr(info, "arch", "") or "", "")
+        sigs = load_signatures_for([sig_dir], arch)
         if not sigs:
             return None
         matcher = flirt.compile(sigs)
-        info = load_binary(cfg.target_binary)
         text_sec = info.sections.get(".text") or info.sections.get("__text")
         if text_sec is None:
             return None
@@ -487,13 +497,22 @@ def build_dossier(
     from rebrew.binary_loader import load_binary
 
     info = load_binary(binary)
+    # One full code-section disassembly feeds both the string census and the
+    # reference profile; scanned twice, it doubled the dossier's slowest step.
+    try:
+        from rebrew.analysis import scan_references
+
+        all_refs: list[Any] | None = scan_references(info)
+    except Exception:  # disassembly is best-effort; sections degrade to empty
+        logger.debug("reference scan failed for %s", binary, exc_info=True)
+        all_refs = None
     dossier: dict[str, Any] = {
         "binary": str(binary),
         "meta": _collect_binary_meta(info),
         "toolchain": _collect_toolchain(binary),
-        "strings": _collect_strings(info, min_len, top_n),
+        "strings": _collect_strings(info, min_len, top_n, all_refs),
         "imports": _collect_imports(binary),
-        "references": _collect_references(info),
+        "references": _collect_references(info, all_refs),
         "far_calls": _collect_far_calls(binary),
         "functions": _collect_functions(cfg),
         "near_match": _collect_near_match(cfg),

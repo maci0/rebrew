@@ -21,6 +21,43 @@ from rebrew.utils import preset_module_key
 # ---------------------------------------------------------------------------
 
 
+# Decoded structure-JSON payloads, keyed by path.  The file is multi-MB on a
+# real target and several commands (cross-import, binsync overlay, similarity)
+# build a registry more than once per run, so the read + ``json.loads`` is
+# repeated for identical bytes.  Value is ``(mtime_size_fp, data)``; a rewrite
+# replaces the same slot instead of orphaning a key per edit.  Callers get
+# fresh ``FunctionEntry`` objects, so nothing here is mutable-shared.
+_structure_json_cache: dict[str, tuple[str, list[Any]]] = {}
+_STRUCTURE_JSON_CACHE_MAX = 32
+_structure_json_cache_lock = threading.Lock()
+
+
+def _structure_json(path: Path) -> list[Any]:
+    """Decoded ``function_structure.json`` payload for *path*, once per revision.
+
+    Raises ``ValueError`` if the file is corrupt, ``OSError`` on I/O failure.
+    """
+    key = str(path)
+    fp = _inventory_fingerprint(key)
+    with _structure_json_cache_lock:
+        cached = _structure_json_cache.get(key)
+    if cached is not None and cached[0] == fp:
+        return cached[1]
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, list):
+        raise ValueError(
+            f"Corrupt structure JSON at {path.name}: Expected a JSON array, got {type(data).__name__}"
+        )
+    with _structure_json_cache_lock:
+        if (
+            len(_structure_json_cache) >= _STRUCTURE_JSON_CACHE_MAX
+            and key not in _structure_json_cache
+        ):
+            _structure_json_cache.pop(next(iter(_structure_json_cache)), None)
+        _structure_json_cache[key] = (fp, data)
+    return data
+
+
 def load_function_structure(path: Path) -> list[FunctionEntry]:
     """Load the function structure cache (``function_structure.json``).
 
@@ -31,11 +68,7 @@ def load_function_structure(path: Path) -> list[FunctionEntry]:
         return []
 
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-        if not isinstance(data, list):
-            raise ValueError(
-                f"Corrupt structure JSON at {path.name}: Expected a JSON array, got {type(data).__name__}"
-            )
+        data = _structure_json(path)
         # Entries stamped `_generated_by: "rebrew catalog"` are the catalog's
         # OWN compatibility export — consuming them as Ghidra evidence on the
         # next run would inflate detection stats with our own output.

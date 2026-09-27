@@ -195,8 +195,9 @@ def load_signatures(sig_dir: str) -> list[Any]:
     return _parse_sig_files(_sig_files([sig_path]))
 
 
-#: BinaryInfo.arch -> the signature index's architecture vocabulary.
-_ARCH_FAMILIES: dict[str, str] = {
+#: BinaryInfo.arch -> the signature index's architecture vocabulary.  Public: `analyze`
+#: filters the dossier's FLIRT scan the same way `rebrew flirt` does.
+ARCH_FAMILIES: dict[str, str] = {
     "x86_16": "x86",
     "x86_32": "x86",
     "x86_64": "x64",
@@ -423,14 +424,20 @@ def match_text(
         if not hits:
             continue
         names: list[str] = []
+        seen_names: set[str] = set()
+        ambiguous = False
         for m in hits:
             for n in m.names:
                 label = n[0] if isinstance(n, tuple) else str(n)
-                if label and label not in names:
+                if label and label not in seen_names:
+                    seen_names.add(label)
                     names.append(label)
-        if not names:
-            continue
-        if len(names) > max_ambiguous:
+                    if len(names) > max_ambiguous:
+                        ambiguous = True
+                        break
+            if ambiguous:
+                break
+        if not names or ambiguous:
             continue  # ambiguous — never guess
         va = base_va + offset
         if va in seen_vas:
@@ -519,7 +526,7 @@ def main(
     # arch ("mips32") and the file's byte order.
     native_arch = getattr(info, "arch", "") or ""
     native_endian = getattr(info, "endian", "") or ""
-    arch = _ARCH_FAMILIES.get(native_arch, "")
+    arch = ARCH_FAMILIES.get(native_arch, "")
 
     # 2. Load FLIRT signatures: an explicit dir, else the project flirt_sigs/
     # merged with the rebrew-flirt-sigs checkout (standard library sigs).
