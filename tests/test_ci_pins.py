@@ -767,6 +767,50 @@ class TestCiPins:
         assert pr_check is not None
         assert "build-repro" in pr_check.group("deps").split()
 
+    def test_no_recipe_comment_swallows_the_rest_of_its_line(self) -> None:
+        """A `#` line inside a backslash-continued recipe eats the code after it.
+
+        Make hands the joined recipe to one shell, so a recipe line beginning
+        with `#` comments out everything up to the newline of the last physical
+        line it was continued into.  `release-check` carried its "notes split
+        across the two headings" comment there, so the `UNREL=$$(awk ...)`
+        assignment and the `[ -n "$$UNREL" ]` check built on it were skipped
+        and the target died on an unbound variable instead of naming the
+        changelog problem.  Keep recipe prose in a comment above the target.
+        """
+        offenders = [
+            f"{i}: {line.strip()}"
+            for i, line in enumerate(MAKEFILE.read_text(encoding="utf-8").splitlines(), 1)
+            if line.startswith("\t#")
+        ]
+        assert not offenders, (
+            "comment inside a continued recipe; move it above the target: " + "; ".join(offenders)
+        )
+
+    def test_buildinfo_version_matches_the_artifacts_it_sits_beside(self) -> None:
+        """The manifest must not name a version dist/ does not carry.
+
+        ``dist/rebrew.buildinfo`` is the record a third party rebuilds from, and
+        every dist/ consumer (``sdist-check``, ``smoke-wheel``, the CI upload)
+        locates the artifacts by name.  The recipe parsed ``__version__`` for
+        the ``version=`` line without checking it against what the build left
+        in dist/, so a stale build cache or egg-info shipped
+        ``rebrew-<old>-*.whl`` next to a manifest claiming the new version and
+        every gate stayed green on the wrong pair.
+        """
+        build = MAKEFILE.read_text(encoding="utf-8")
+        build = build.split("\nbuild: warn-uv-version\n", 1)[1].split("\n# Prove the wheel", 1)[0]
+        version_line = next(
+            line for line in build.splitlines() if line.strip().startswith("ver=$$(")
+        )
+        assert "src/rebrew/__init__.py" in version_line
+        after = build.split(version_line, 1)[1]
+        assert "set -- dist/rebrew-$$ver-*.whl" in after
+        assert '[ -f "dist/rebrew-$$ver.tar.gz" ]' in after
+        # Both checks must precede the redirect that writes the manifest, so a
+        # mismatch fails the build instead of recording it.
+        assert after.index("dist/rebrew-$$ver.tar.gz") < after.index("> dist/rebrew.buildinfo")
+
     def test_makefile_build_writes_buildinfo_and_cleans_residue(self) -> None:
         text = MAKEFILE.read_text(encoding="utf-8")
         assert "dist/rebrew.buildinfo" in text
