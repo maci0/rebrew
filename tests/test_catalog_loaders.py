@@ -139,6 +139,29 @@ class TestLoadGhidraDataLabels:
         labels = load_ghidra_data_labels(tmp_path)
         assert list(labels) == [0x10001000]
 
+    def test_non_string_label_does_not_crash(self, tmp_path: Path) -> None:
+        (tmp_path / "ghidra_data_labels.json").write_text(
+            json.dumps([{"va": 0x10001000, "size": 4, "label": {"name": "x"}}]),
+            encoding="utf-8",
+        )
+        labels = load_ghidra_data_labels(tmp_path)
+        assert labels[0x10001000].label == ""
+
+    def test_non_positive_size_or_va_dropped(self, tmp_path: Path) -> None:
+        # grid.py ends a gap at label_va + size, so a negative size would
+        # shrink the gap backwards.
+        (tmp_path / "ghidra_data_labels.json").write_text(
+            json.dumps(
+                [
+                    {"va": 0x10001000, "size": -1, "label": "a"},
+                    {"va": -4, "size": 4, "label": "b"},
+                    {"va": 0x10002000, "size": 0, "label": "c"},
+                ]
+            ),
+            encoding="utf-8",
+        )
+        assert load_ghidra_data_labels(tmp_path) == {}
+
 
 class TestLoadGhidraDataLabelsMore:
     def test_non_list_entries_warns(self, tmp_path: Path) -> None:

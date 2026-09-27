@@ -138,8 +138,10 @@ def load_ghidra_data_labels(src_dir: Path | None) -> dict[int, GhidraDataLabel]:
         gdl = GhidraDataLabel.from_dict(entry)
         if gdl.label:
             gdl.state = _classify_ghidra_label(gdl.label)
-        # VA 0 is reserved/null — skip duplicates
-        if gdl.va and gdl.size and gdl.va != 0 and gdl.va not in result:
+        # VA 0 is reserved/null, and a negative size (or VA) is corrupt
+        # export JSON: grid.py derives a gap's end from label_va + size, so a
+        # negative one would shrink the gap backwards. Skip duplicates too.
+        if gdl.va > 0 and gdl.size > 0 and gdl.va not in result:
             result[gdl.va] = gdl
     return result
 

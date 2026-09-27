@@ -10,6 +10,17 @@ from dataclasses import dataclass
 from typing import Any
 
 
+def _coerce_str(value: Any, default: str) -> str:
+    """*value* when it is a string, else *default*.
+
+    Ghidra export JSON is untrusted: a non-string ``label``/``state`` is
+    corrupt input, and letting it through gives callers a dict or int
+    where they promise ``str`` (``_classify_ghidra_label`` then raises
+    ``AttributeError`` on ``.lower()``).
+    """
+    return value if isinstance(value, str) else default
+
+
 def _parse_int(value: Any) -> int:
     """Parse an integer from various formats (int, hex string, decimal string).
 
@@ -89,6 +100,6 @@ class GhidraDataLabel:
         return cls(
             va=va,
             size=size,
-            label=d.get("label", ""),
-            state=d.get("state", "data"),
+            label=_coerce_str(d.get("label"), ""),
+            state=_coerce_str(d.get("state"), "data"),
         )
