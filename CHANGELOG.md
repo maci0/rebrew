@@ -1,5 +1,25 @@
 ## [Unreleased]
 
+### Changed
+- **`rebrew match --seed-llm` no longer re-bills a prompt it already sent.**
+  `--watch` re-runs the whole match on every save, and a save that touches a
+  different function leaves the function under match byte-identical, so the
+  prompt was byte-identical too: each such rerun spent real tokens on an
+  answer already in hand. Identical prompts (endpoint, model, prompt version,
+  seed count, sanitized source) are now answered from a bounded in-process
+  cache, which costs no request slot and records no usage because nothing
+  was billed. Only non-empty answers are cached, so a refusal, a truncated
+  completion, or an endpoint that was down is asked again rather than
+  remembered.
+
+### Fixed
+- **A `REBREW_LLM_API_KEY` can no longer reach an LLM seeding log line.** httpx
+  quotes an illegal header value verbatim when it rejects one, so a key with
+  an interior CR (a CRLF-terminated key file, a spliced paste) came back
+  inside the exception text and `request_seeds` logged that text as-is: a
+  secret in the environment was written to a log with weaker protection. The
+  failure message is now sanitized with the bearer key redacted.
+
 ### Docs
 - **The README's library-usage section shows how to inject an HTTP client.**
   `rebrew.recompile_client.compile_source` and `rebrew.decompme`'s upload
