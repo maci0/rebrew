@@ -566,6 +566,22 @@ class TestUploadLedger:
         assert entry["slug"] == "abc"
         assert entry["claim_token"] == "tok"
 
+    def test_ledger_is_owner_only(self, tmp_path: Path) -> None:
+        """The ledger stores claim tokens, so it must not be group/world readable."""
+        digest = decompme.scratch_digest(self._payload(), "https://decomp.me")
+        decompme.record_upload(tmp_path, digest, "abc", "tok", "https://decomp.me")
+        mode = (tmp_path / ".rebrew" / "decompme-uploads.json").stat().st_mode
+        assert mode & 0o077 == 0
+
+    def test_ledger_mode_is_tightened_on_rewrite(self, tmp_path: Path) -> None:
+        """A ledger written world-readable by an older rebrew is chmod'ed on rewrite."""
+        digest = decompme.scratch_digest(self._payload(), "https://decomp.me")
+        decompme.record_upload(tmp_path, digest, "abc", "tok", "https://decomp.me")
+        path = tmp_path / ".rebrew" / "decompme-uploads.json"
+        path.chmod(0o644)
+        decompme.record_upload(tmp_path, "other", "def", "tok2", "https://decomp.me")
+        assert path.stat().st_mode & 0o077 == 0
+
     def test_entry_does_not_match_another_api(self, tmp_path: Path) -> None:
         digest = decompme.scratch_digest(self._payload(), "https://decomp.me")
         decompme.record_upload(tmp_path, digest, "abc", "tok", "https://decomp.me")

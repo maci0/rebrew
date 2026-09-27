@@ -354,6 +354,9 @@ _UPLOADS_RETENTION_SECONDS = 90 * 24 * 3600
 #: Hard cap on ledger size, applied after the age prune.
 _UPLOADS_MAX_ENTRIES = 500
 
+#: Mode of the ledger file: it stores claim tokens, so no group/other access.
+_UPLOADS_FILE_MODE = 0o600
+
 
 def scratch_digest(payload: dict[str, Any], api: str) -> str:
     """Content digest of a scratch payload, the ledger's idempotency key.
@@ -428,6 +431,12 @@ def recorded_upload(root: Path, digest: str, api: str) -> dict[str, str] | None:
 def record_upload(root: Path, digest: str, slug: str, claim_token: str, api: str) -> None:
     """Remember the scratch created for *digest*, pruning aged-out entries.
 
+    The ledger holds a decomp.me claim token, which is the credential that
+    owns the uploaded scratch, so the file is written owner-only (0600) rather
+    than the 0644 :func:`atomic_write_text` default.  The chmod runs on every
+    write, not just the first, so a ledger created before this mode existed is
+    tightened on the next run.
+
     Best-effort: a ledger that cannot be written (read-only project, full
     disk) must not turn a successful upload into a command failure, so the
     scratch is still created and only the dedup is lost.
@@ -444,6 +453,7 @@ def record_upload(root: Path, digest: str, slug: str, claim_token: str, api: str
                 fresh = dict(ordered[-_UPLOADS_MAX_ENTRIES:])
             path.parent.mkdir(parents=True, exist_ok=True)
             atomic_write_text(path, json.dumps(fresh, indent=2, sort_keys=True) + "\n")
+            path.chmod(_UPLOADS_FILE_MODE)
     except OSError as exc:
         logging.warning(
             "decomp.me upload ledger not written (%s); the next run will upload again",
