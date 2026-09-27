@@ -634,8 +634,11 @@ def _stale_size_note(cfg: ProjectConfig, va: int, size: int) -> str | None:
         raw = extract_raw_bytes(cfg.target_binary, va, min(size, 512))
         if raw:
             import capstone
+            from capstone import CS_ARCH_X86, CS_MODE_32
 
-            md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_32)
+            from rebrew.analysis import capstone_handle
+
+            md = capstone_handle(CS_ARCH_X86, CS_MODE_32)
             insns = list(md.disasm(raw, va))
             # A ret that is the target of a conditional jump is an early
             # return (if/switch exit), NOT a function end — counting every
@@ -840,14 +843,15 @@ def _is_thunk(cfg: ProjectConfig, va: int) -> bool:
     if getattr(cfg, "arch", "") != "x86_32":
         return False
     try:
-        import capstone
-
+        from rebrew.analysis import capstone_handle
         from rebrew.binary_loader import extract_raw_bytes
 
         raw = extract_raw_bytes(cfg.target_binary, va, 16)
         if len(raw) < 2:
             return False
-        md = capstone.Cs(capstone.CS_ARCH_X86, capstone.CS_MODE_32)
+        from capstone import CS_ARCH_X86, CS_MODE_32
+
+        md = capstone_handle(CS_ARCH_X86, CS_MODE_32)
         insns = list(md.disasm(raw, va, count=3))
         if not insns:
             return False

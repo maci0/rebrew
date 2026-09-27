@@ -33,6 +33,7 @@ Usage:
 
 from __future__ import annotations
 
+import bisect
 import functools
 import logging
 import re
@@ -526,7 +527,9 @@ def disassembled_extent_window(cfg: ProjectConfig, va: int) -> tuple[list[Any], 
         if not raw:
             return [], None
         mode = capstone.CS_MODE_32 if arch == "x86_32" else capstone.CS_MODE_16
-        md = capstone.Cs(capstone.CS_ARCH_X86, mode)
+        from rebrew.analysis import capstone_handle
+
+        md = capstone_handle(capstone.CS_ARCH_X86, mode)
         return list(md.disasm(raw, va)), kind
     except Exception:  # best-effort inference
         logger.debug("instruction window read failed at 0x%08x", va, exc_info=True)
@@ -539,16 +542,14 @@ def next_function_va(cfg: ProjectConfig, va: int) -> int | None:
     Lets ``calling_convention`` trim a disassembly window that bleeds past
     the function's end into its neighbor.
     """
-    from rebrew.catalog import cached_function_list
+    from rebrew.catalog import cached_sorted_function_vas
 
     try:
-        vas = sorted(int(f["va"]) for f in cached_function_list(cfg))
+        vas = cached_sorted_function_vas(cfg)
     except (OSError, ValueError, KeyError):
         return None
-    for cand in vas:
-        if cand > va:
-            return cand
-    return None
+    idx = bisect.bisect_right(vas, va)
+    return vas[idx] if idx < len(vas) else None
 
 
 def calling_convention_at(cfg: ProjectConfig, va: int) -> str:

@@ -159,6 +159,25 @@ def build_symbol_resolver(
     return resolve
 
 
+# Mask set per (binary identity, configured thunks).  The batch paths ask
+# for it once per function and the answer is a whole-run constant; keying on
+# the binary's stat fingerprint keeps a rebuilt binary from reading a stale
+# entry.  Bounded, and eviction is a multi-step next(iter)+pop on a shared
+# dict, so lookup and replacement share the lock.
+_iat_region_cache: dict[tuple[Any, ...], frozenset[int]] = {}
+_IAT_REGION_CACHE_MAX = 16
+_iat_region_lock = threading.Lock()
+
+
+def _binary_fingerprint(binary: str | Path) -> str:
+    """``mtime_ns:size:ino`` for *binary*, or ``""`` when unreadable."""
+    try:
+        st = Path(binary).stat()
+    except OSError:
+        return ""
+    return f"{st.st_mtime_ns}:{st.st_size}:{st.st_ino}"
+
+
 def build_iat_region(cfg: ProjectConfig) -> set[int]:
     """Return the set of import-related slot VAs to mask in comparisons.
 
@@ -174,21 +193,42 @@ def build_iat_region(cfg: ProjectConfig) -> set[int]:
     import names, common for ws2_32) must not demote a RELOC match into a
     byte mismatch.  Returns ``{}`` when the binary can't be loaded or has
     no import table.
+
+    The result depends only on the target binary's identity and the
+    configured thunks, both fixed for a run; the batch paths call this once
+    per function, so the union is memoized and copied out.  Invalidation
+    keys on the binary's stat fingerprint, matching
+    :func:`rebrew.binary_loader.iat_slot_vas`, so an ``iat_thunks`` edit
+    still takes effect immediately.
     """
     binary = getattr(cfg, "target_binary", None)
-    if not binary or not Path(binary).exists():
+    if not binary:
         return set()
+    thunks = tuple(
+        (va & 0xFFFFFFFF)
+        for va in (getattr(cfg, "iat_thunks", None) or [])
+        if isinstance(va, int) and va
+    )
+    key = (str(binary), thunks, _binary_fingerprint(binary))
+    with _iat_region_lock:
+        cached = _iat_region_cache.get(key)
+        if cached is not None:
+            _iat_region_cache[key] = _iat_region_cache.pop(key)
+            return set(cached)
     region: set[int] = set()
-    # Configured jmp-stub trampolines first (works even without LIEF).
-    for va in getattr(cfg, "iat_thunks", None) or []:
-        if isinstance(va, int) and va:
-            region.add(va & 0xFFFFFFFF)
-    # The raw import-address table (shared LIEF scan with the catalog
-    # registry — see rebrew.binary_loader.iat_slot_vas).
-    from rebrew.binary_loader import iat_slot_vas
+    if Path(binary).exists():
+        # Configured jmp-stub trampolines first (works even without LIEF).
+        region.update(thunks)
+        # The raw import-address table (shared LIEF scan with the catalog
+        # registry — see rebrew.binary_loader.iat_slot_vas).
+        from rebrew.binary_loader import iat_slot_vas
 
-    region |= iat_slot_vas(binary)
-    return region
+        region |= iat_slot_vas(binary)
+    with _iat_region_lock:
+        if len(_iat_region_cache) >= _IAT_REGION_CACHE_MAX:
+            _iat_region_cache.pop(next(iter(_iat_region_cache)), None)
+        _iat_region_cache[key] = frozenset(region)
+    return set(region)
 
 
 def build_name_to_va(
