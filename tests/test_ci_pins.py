@@ -283,6 +283,28 @@ class TestCiPins:
             wf = path.read_text(encoding="utf-8")
             assert "git clone --depth 1 --branch" not in wf, path.name
 
+    def test_env_installs_assert_the_lock_is_current(self) -> None:
+        """``uv sync --frozen`` never compares ``uv.lock`` to ``pyproject.toml``.
+
+        It only skips the lock update, so a dependency edited without
+        ``uv lock`` installs the previous set and every gate in the job then
+        runs against an environment the manifest does not describe.  Every
+        install that can read the sibling checkout syncs with ``--locked``.
+        The one frozen sync left is the ``smoke-wheel`` overlay: re-resolving
+        reads ``[tool.uv.sources]``, and running without ``../resembl`` is
+        that target's whole point.
+        """
+        workflows = CI_YML.read_text(encoding="utf-8") + SYNC_YML.read_text(encoding="utf-8")
+        installs = re.findall(r"(?m)^\s*run: (uv sync .*)$", workflows)
+        assert installs, "no uv sync install step found in the workflows"
+        assert [step for step in installs if "--locked" not in step] == []
+
+        makefile = MAKEFILE.read_text(encoding="utf-8")
+        assert "UV_SYNC_FLAGS ?= --locked --all-extras --group similarity" in makefile
+        overlays = re.findall(r"(?m)^\s*(UV_PROJECT_ENVIRONMENT=\.venv-pkg uv sync .*)$", makefile)
+        assert len(overlays) == 1, overlays
+        assert "--frozen" in overlays[0] and "--no-install-project" in overlays[0]
+
     def test_main_push_is_not_cancelled(self) -> None:
         """PR updates cancel the previous run; a main push must finish.
 
@@ -408,6 +430,23 @@ class TestCiPins:
             "and breaks make on stock Debian/Ubuntu where /bin/sh is dash"
         )
         assert "set -eu" in text
+
+    def test_buildinfo_rule_rebuilds_on_a_source_edit(self) -> None:
+        """A stale dist/ must not pass `sdist-check` / `smoke-wheel`.
+
+        Both depend on `dist/rebrew.buildinfo` instead of the phony `build`
+        (see test_sdist_check_does_not_rebuild_over_the_sbom), which leaves
+        make free to accept a buildinfo older than the tree it describes: a
+        contributor edits a source file, runs `make sdist-check` on its own,
+        and the gate compares a previous wheel against a previous sdist.  The
+        file rule therefore carries the build's inputs, minus the __pycache__
+        and egg-info a test run or a bare `uv build` writes on every pass.
+        """
+        text = MAKEFILE.read_text(encoding="utf-8")
+        assert "BUILD_INPUTS :=" in text
+        assert "-not -path '*/__pycache__/*'" in text
+        assert "-not -path '*.egg-info/*'" in text
+        assert "dist/rebrew.buildinfo: $(BUILD_INPUTS)" in text
 
     def test_sdist_check_does_not_rebuild_over_the_sbom(self) -> None:
         """`sdist-check` must not re-run `build` and wipe dist/.

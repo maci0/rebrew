@@ -53,7 +53,7 @@ jobs:
         # reports phantom unused-ignore / Any-subclass errors).
         # --group similarity installs the sibling resembl path dep (not a
         # PyPI extra — see pyproject.toml [dependency-groups]).
-        run: uv sync --frozen --all-extras --group similarity
+        run: uv sync --locked --all-extras --group similarity
       # Gates call the Makefile targets so local `make all` and CI run the
       # same command lines (the audit ignore list lives only there).
       - name: Ruff lint
@@ -96,7 +96,7 @@ jobs:
           python-version: ${{ matrix.python-version }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Install dependencies
-        run: uv sync --frozen --all-extras --group similarity
+        run: uv sync --locked --all-extras --group similarity
       - name: Install nasm (NASM round-trip verification in asm tests)
         # apt mirrors flake under load; the helper retries update and install
         # (same posture as the resembl clone) instead of failing the job.
@@ -139,7 +139,7 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Install dependencies
-        run: uv sync --frozen --all-extras --group similarity
+        run: uv sync --locked --all-extras --group similarity
       - name: Cache pre-commit hook environments
         # Remote hook repos (pre-commit-hooks) are cloned and installed on
         # first use; the key changes whenever a `rev:` pin does.
@@ -300,7 +300,7 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Install package
-        run: uv sync --frozen
+        run: uv sync --locked
       - name: CLI contract (round-trip / verify flags)
         # The Makefile target owns the greps so local `make all` and CI agree.
         run: make cli-contract
