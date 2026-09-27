@@ -348,10 +348,10 @@ def run_single_flag_sweep(
 ) -> None:
     """Run compiler flag sweep on one function and report results.
 
-    ``timeout_min`` bounds the sweep itself.  It used to be accepted by the CLI
-    and applied only around the GA run, so ``--flag-sweep-only`` ignored it
-    entirely: a thorough tier is 258k combos, and on guild-rebrew a
-    ``--timeout-min 2`` run was still going after 7 minutes with no output.
+    ``timeout_min`` bounds the sweep itself: the budget is checked as combos
+    are fed to the pool, so in-flight compiles drain and 0 (no bound) runs the
+    whole tier.  A thorough tier is 258k combos, so the caller's own deadline
+    is the only guard when 0 is passed.
     """
     import time as _time
 
