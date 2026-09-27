@@ -186,6 +186,17 @@
   first one's seeds, gated against a name and prototype that were never its
   own. The key now carries the signature the response was checked against,
   and a hit runs the same `valid_c_source` gate a live response does.
+- **A missing source file is named, not inferred from a later failure.**
+  `rebrew test nosuch.c` reported `Could not derive symbol from C function
+  definition or CLI args`, `rebrew near-diag` reported `No annotations found`,
+  and the same condition read `Source not found`, `Source file not found` or
+  `no such source` depending on the tool. `rebrew.cli.require_source_arg`
+  resolves the positional (path, symbol or VA) and exits 2 with one message;
+  `test`, `prove`, `near-diag`, `diagnose`, `match_sweep` and
+  `cli.select_annotation` all go through it.
+- **`--force` says when it skips a confirmation.** `rebrew merge --force` and
+  `rebrew split --force` also bypass the `--delete` / `--va` prompt, which only
+  the abort hint revealed.
 - **The data section summary agrees with the coverage-floor rule.**
   `rebrew data` reports byte coverage through `floor_pct`, so 4 annotated
   bytes of a 256-byte `.data` reads 1.5% in the table and the progress bar.

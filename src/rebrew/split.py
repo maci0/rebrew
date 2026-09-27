@@ -139,7 +139,11 @@ def main(
     ),
     output_dir: str | None = typer.Option(None, "--out-dir", help="Output directory"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Preview changes without writing"),
-    force: bool = typer.Option(False, "--force", help="Overwrite existing output files"),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help="Overwrite existing output files; also skips the --va extraction prompt",
+    ),
     json_output: bool = typer.Option(False, "--json", help="Output results as JSON"),
     target: str | None = TargetOption,
 ) -> None:

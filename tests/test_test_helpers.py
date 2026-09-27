@@ -1405,3 +1405,42 @@ class TestSizeMismatchMatchPercentNone:
         _print_compare_result(cmp, b"\x90\x90\x90\x90")
         out = capsys.readouterr().err
         assert "all common bytes match; the SIZE annotation is off" in out
+
+
+class TestMissingSourceArgument:
+    """An unresolvable positional names the missing file, not a downstream symptom."""
+
+    def _project(self, tmp_path: Path, monkeypatch: Any) -> Path:
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "rebrew-project.toml").write_text(
+            '[project]\ndefault_target = "x"\n'
+            '[targets.x]\nbinary = "x.exe"\n'
+            '[compiler]\nprofile = "msvc-6.0"\n',
+            encoding="utf-8",
+        )
+        (tmp_path / "x.exe").write_bytes(b"MZ")
+        return tmp_path
+
+    def test_human_output(self, tmp_path: Path, monkeypatch: Any) -> None:
+        from typer.testing import CliRunner
+
+        from rebrew.main import app as umbrella
+
+        self._project(tmp_path, monkeypatch)
+        result = CliRunner().invoke(umbrella, ["test", "nope.c"])
+        assert result.exit_code == 2, result.output
+        assert "Source file not found: nope.c" in result.output
+
+    def test_json_envelope(self, tmp_path: Path, monkeypatch: Any) -> None:
+        import json
+
+        from typer.testing import CliRunner
+
+        from rebrew.main import app as umbrella
+
+        self._project(tmp_path, monkeypatch)
+        result = CliRunner().invoke(umbrella, ["test", "nope.c", "--json"])
+        assert result.exit_code == 2, result.output
+        payload = json.loads(result.stdout)
+        assert payload["code"] == 2
+        assert "Source file not found" in payload["error"]

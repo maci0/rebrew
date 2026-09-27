@@ -635,6 +635,20 @@ def resolve_source_arg(cfg: ProjectConfig, source_arg: str) -> Path:
     return p
 
 
+def require_source_arg(cfg: ProjectConfig, source_arg: str, *, json_mode: bool = False) -> Path:
+    """Resolve *source_arg* to an existing source file, exiting when it is missing.
+
+    :func:`resolve_source_arg` returns the argument unchanged when nothing
+    matches, so every caller that forgets the existence check reports a
+    downstream symptom instead (``Could not derive symbol…``, ``No annotations
+    found in …``).  One wording and one exit code for the condition.
+    """
+    path = Path(resolve_source_arg(cfg, source_arg))
+    if not path.is_file():
+        error_exit(f"Source file not found: {path}", json_mode=json_mode, code=EXIT_ERROR)
+    return path
+
+
 def select_annotation(
     cfg: ProjectConfig, source_arg: str, va: str | None, *, json_mode: bool = False
 ) -> tuple[Path, Annotation, int | None]:
@@ -644,9 +658,7 @@ def select_annotation(
     (else the file's first), and *va* parsed when given, else the
     annotation's own VA (``None`` when it has none).
     """
-    path = resolve_source_arg(cfg, source_arg)
-    if not path.is_file():
-        error_exit(f"Source file not found: {path}", json_mode=json_mode)
+    path = require_source_arg(cfg, source_arg, json_mode=json_mode)
 
     annos = parse_c_file_multi(path, target_name=target_marker(cfg), metadata_dir=cfg.metadata_dir)
     if not annos:
@@ -684,6 +696,7 @@ __all__ = [
     "option_default",
     "parse_va",
     "require_config",
+    "require_source_arg",
     "resolve_binary_arg",
     "resolve_source_arg",
     "run_cli",
