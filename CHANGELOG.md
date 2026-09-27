@@ -1,5 +1,14 @@
 ## [Unreleased]
 
+### Changed
+- **The idempotency write sweep covers five more mutating commands.**
+  `tools/check_idempotency.py` only ran `migrate-markers`,
+  `document-unmatched` and `gen-link-stubs` twice, so the other mutating
+  commands had no re-execution proof at all. `skeleton`, `catalog`,
+  `symbol-addrs`, `inline-strings` and `cmake-toolchain` now join the sweep;
+  each runs twice against its own fresh fixture and the project tree must
+  match byte for byte.
+
 ### Added
 - **`apply_commands_via_mcp` returns a named count pair.** The return was a
   bare `tuple[int, int]` of two same-typed values, so a transposition was

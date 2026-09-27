@@ -281,6 +281,16 @@ WRITE_COMMANDS = [
     "document-unmatched",
     # Regenerates the link_stubs.c BSS placeholder TU from rebrew-data.toml.
     "gen-link-stubs",
+    # Writes one skeleton .c + metadata row per uncovered function.
+    "skeleton",
+    # Regenerates db/data_<target>.json and the reccmp CSV from the sources.
+    "catalog",
+    # Rewrites the splat-style symbol_addrs file from the annotations.
+    "symbol-addrs",
+    # Inlines s_<hint>_<ADDR> string globals into the reversed sources.
+    "inline-strings",
+    # Renders the CMake toolchain file driving the docker bridge scripts.
+    "cmake-toolchain",
 ]
 
 #: One ``.data`` symbol, so the gen-link-stubs sweep has metadata to generate
