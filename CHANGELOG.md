@@ -418,6 +418,20 @@
   `test_unreleased_uses_each_changelog_group_once` failed on the tree. Its
   bullets are now under the one `Added` heading, the group a reader of the
   next release notes sees.
+- **`rebrew match --seed-llm` validated every fenced block in a response.**
+  Only the requested `count` seeds are ever used, but a response packed with
+  blocks paid one tree-sitter parse each before the list was truncated.
+  `_request` now stops at `count`.
+- **A provider-reported token count could be printed as a negative spend.**
+  `SeedUsage` carries provider `usage` fields into the `match --seed-llm`
+  cost summary, and `_count` accepted any int, so a buggy or hostile endpoint
+  could report `total_tokens: -6` and have it read as what the request cost.
+  Non-negative ints only; anything else is recorded as unreported.
+- **The LLM response `Content-Length` cap sniffed its own error message.**
+  `_load_response_json` raised a `ValueError` for an oversized header inside
+  the `try` that caught `ValueError` from `int()`, then re-raised it by
+  matching the substring `exceeds` in the message. The check is now a plain
+  `try/except/else` with no string matching.
 - **`GET /api/health` served a validator for a route that must not be
   revalidated.** The probe reads the target list, but its 200 carried the
   DB-mtime `ETag` and `Cache-Control: private, no-cache`. The server ignores

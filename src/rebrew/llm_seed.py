@@ -21,7 +21,9 @@ preprocessor directives, pragma operators, or inline asm (including forms that
 appear only after trigraph replacement or backslash-newline splicing), and
 size caps.  Request cost is bounded by source
 truncation, ``max_tokens``, ``n=1``, an HTTP body ceiling before JSON parse,
-and a process-wide request budget (``REBREW_LLM_MAX_REQUESTS``, default 32;
+a stop at the requested seed count (so a response stuffed with fenced blocks
+cannot buy one tree-sitter parse each), and a process-wide request budget
+(``REBREW_LLM_MAX_REQUESTS``, default 32;
 ``0`` disables further calls; a set-but-invalid value raises ``ValueError``)
 so ``--seed-llm --watch`` cannot bill unboundedly.  Rate limits / overload
 (429/503/529) are never retried, so the GA continues with empty seeds.  A
@@ -705,9 +707,16 @@ def _log_usage(data: Any, model: str, *, duration_s: float | None = None) -> See
 
 
 def _count(usage: dict[str, Any], field: str) -> int | None:
-    """One provider token count, or None when it is absent or not an int."""
+    """One provider token count, or None when the value is not a count.
+
+    The field is provider-controlled and the value reaches the run summary
+    the operator budgets against, so a negative or boolean one is treated as
+    unreported rather than printed as what the request cost.
+    """
     value = usage.get(field)
-    return value if isinstance(value, int) and not isinstance(value, bool) else None
+    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+        return None
+    return value
 
 
 def _record_usage(record: SeedUsage) -> None:
@@ -773,14 +782,15 @@ def _load_response_json(resp: Any) -> Any:
         cl_raw = headers.get("content-length") or headers.get("Content-Length")
     if cl_raw is not None:
         try:
-            if int(cl_raw) > _MAX_HTTP_BODY_BYTES:
+            declared = int(cl_raw)
+        except (TypeError, ValueError):
+            # Non-numeric Content-Length: fall through to the body check.
+            pass
+        else:
+            if declared > _MAX_HTTP_BODY_BYTES:
                 raise ValueError(
                     f"LLM response Content-Length {cl_raw} exceeds {_MAX_HTTP_BODY_BYTES} bytes"
                 )
-        except (TypeError, ValueError) as exc:
-            if "exceeds" in str(exc):
-                raise
-            # Non-numeric Content-Length: fall through to body check.
 
     content = bytearray()
     for chunk in resp.iter_bytes():
@@ -850,6 +860,11 @@ def _request(
     seeds: list[str] = []
     blocks = extract_seeds(text)
     for s in blocks:
+        # Only count seeds are ever returned, so stop once they are found: a
+        # response packed with hundreds of tiny fenced blocks would otherwise
+        # cost one tree-sitter parse each to be discarded.
+        if len(seeds) >= count:
+            break
         key = " ".join(s.split())
         if key in seen or not valid_c_source(s, expect_name=expect_name, expect_proto=expect_proto):
             continue
@@ -865,7 +880,7 @@ def _request(
             len(blocks),
             expect_name,
         )
-    return seeds[:count]
+    return seeds
 
 
 def request_seeds(
