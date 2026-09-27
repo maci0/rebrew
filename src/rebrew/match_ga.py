@@ -438,6 +438,8 @@ class BinaryMatchingGA:
         # Content-addressed keys already present in collect_pairs_path (lazy).
         # Re-runs skip duplicates so the JSONL does not accumulate copies.
         self._pair_keys: set[str] | None = None
+        # Appends since the last corpus-memo publish (see _refresh_pair_keys_memo).
+        self._pair_keys_dirty = False
         # Lazily hexed target bytes — every pair record repeats them, and
         # re-hexing per candidate dominated --collect-pairs overhead.
         self._target_hex: str | None = None
@@ -846,21 +848,34 @@ class BinaryMatchingGA:
                 f.write(json.dumps(record) + "\n")
             self._pair_keys.add(key)
             self._pairs_count += 1
-            # Keep the corpus memo in step with our own append so the next
-            # stub in this process reuses it instead of re-parsing the file
-            # it just grew.
-            try:
-                st = self.collect_pairs_path.stat()
-            except OSError:
-                return
-            _memo_pair_keys(
-                str(self.collect_pairs_path),
-                (
-                    st.st_mtime_ns,
-                    st.st_size,
-                    frozenset(self._pair_keys),
-                ),
-            )
+            self._pair_keys_dirty = True
+
+    def _refresh_pair_keys_memo(self) -> None:
+        """Republish this run's corpus keys once the run is over.
+
+        Snapshotting per appended record copies every key written so far,
+        which is quadratic over a run.  The memo is only read to skip a
+        corpus re-parse for the next stub, and it is revalidated against
+        the file's mtime/size, so one refresh per run carries the same
+        information.
+        """
+        path = self.collect_pairs_path
+        keys = self._pair_keys
+        self._pair_keys_dirty = False
+        if path is None or keys is None:
+            return
+        try:
+            st = path.stat()
+        except OSError:
+            return
+        _memo_pair_keys(
+            str(path),
+            (
+                st.st_mtime_ns,
+                st.st_size,
+                frozenset(keys),
+            ),
+        )
 
     def run(
         self,
@@ -1035,6 +1050,9 @@ class BinaryMatchingGA:
         # stagnant, deadline, or completed) so resume sees final state.
         if last_generation > self._start_generation:
             self._save_checkpoint(last_generation)
+
+        if self._pair_keys_dirty:
+            self._refresh_pair_keys_memo()
 
         self.generation = last_generation
         return self.best_source, self.best_score
