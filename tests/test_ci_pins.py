@@ -477,6 +477,30 @@ class TestCiPins:
             package_job,
         )
 
+    def test_repro_tree_is_removed_on_every_exit_path(self) -> None:
+        """A failed reproducibility check must not leave the second tree behind.
+
+        A hash mismatch exits non-zero and ends the step, so a trailing
+        ``rm -rf`` never runs and ``../rebrew-repro`` (a full source copy
+        sitting in the parent of the workspace) outlives it. An EXIT trap
+        covers the build failure, the mismatch, and the happy path alike.
+        """
+        package_job = (
+            CI_YML.read_text(encoding="utf-8")
+            .split("\n  package:\n", 1)[1]
+            .split("\n  cli-contract:\n", 1)[0]
+        )
+        step = next(
+            block
+            for block in package_job.split("\n      - name: ")
+            if "make -C ../rebrew-repro" in block
+        )
+        assert "trap 'rm -rf -- \"${repro}\"' EXIT" in step
+        # The trap is armed before the tree is created, and the literal
+        # trailing rm is gone (the trap replaced it).
+        assert step.index("trap ") < step.index("mkdir ../rebrew-repro")
+        assert step.count("rm -rf") == 1
+
     def test_makefile_build_writes_buildinfo_and_cleans_residue(self) -> None:
         text = MAKEFILE.read_text(encoding="utf-8")
         assert "dist/rebrew.buildinfo" in text
