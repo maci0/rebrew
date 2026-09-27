@@ -83,7 +83,8 @@ gzip-precompressed at import time (gzip ``mtime=0``, so a restart serves the
 same bytes) so entry assets skip per-request compression CPU.  Their combined
 wire size stays inside the RFC 6928 initial congestion window minus a
 per-response header reserve, so a cold connection paints without an extra
-round trip; a test pins that budget.  The shell
+round trip; a test pins that budget, and a change that does not fit pays for
+itself in the client's own comment prose rather than in the budget.  The shell
 ``<head>`` preloads ``/api/bootstrap`` (``as=fetch`` + ``crossorigin`` +
 ``fetchpriority=high``) and ``/app.js`` (``as=script``); the deferred client
 fetches with the default ``same-origin`` credentials, the mode ``crossorigin``
@@ -93,7 +94,13 @@ chrome before the script finishes downloading.
 reached its first statement, so an aborted transfer or a parse error leaves a
 message and a reload prompt instead of a permanent "Loading coverage…".  The
 shell carries no inline script (the CSP allows ``script-src 'self'`` only), so
-that guard is a same-origin asset rather than an ``onerror`` attribute.  JSON
+that guard is a same-origin asset rather than an ``onerror`` attribute.  A
+permanent Reload control re-runs the bootstrap in place, so an analyst picks up
+a fresh ``build-db`` without a browser reload; the empty states name that
+control instead of telling the reader to reload the page.  A status mark is one
+quoted ``class`` attribute holding ``st`` plus the per-status class: unquoted,
+the value would end at the space and every status in the tables would render in
+the default ink.  JSON
 uses compact separators; function/global/history/section rows are arrays under
 ``cols``.  Every text column in those rows is a JSON string: a NULL in the
 database (a history row's ``old_status``/``new_status`` for a VA's first
@@ -342,9 +349,8 @@ function esc(s) {
 }
 function formatWhen(value) {
   if (!value) return "";
-  // Rebrew stores UTC instants.  A zone-less date-time reads as local wall time
-  // under Date.parse (any of "T"/"t"/space), so pin it with Z; a string that
-  // already carries an offset is left alone.
+  // Rebrew stores UTC instants; a zone-less date-time reads as local wall
+  // time under Date.parse, so pin it with Z.
   let raw = String(value).trim();
   if (/^\\d{4}-\\d{2}-\\d{2}[Tt ]\\d{2}:\\d{2}(:\\d{2}(\\.\\d+)?)?$/.test(raw)) {
     raw += "Z";
@@ -377,7 +383,7 @@ function setFunctionsEmptyMessage() {
     const btn = $("empty-clear-fn");
     if (btn) btn.onclick = () => $("clear-filters").click();
   } else {
-    el.innerHTML = "No functions for this target yet. Match work, run <code>rebrew build-db</code>, then reload.";
+    el.innerHTML = "No functions for this target yet. Match work, run <code>rebrew build-db</code>, then choose Reload.";
   }
 }
 function setGlobalsEmptyMessage() {
@@ -387,7 +393,7 @@ function setGlobalsEmptyMessage() {
     const btn = $("empty-clear-gq");
     if (btn) btn.onclick = () => $("clear-filters").click();
   } else {
-    el.innerHTML = "No globals recorded for this target. Annotate globals, run <code>rebrew build-db</code>, then reload.";
+    el.innerHTML = "No globals recorded for this target. Annotate globals, run <code>rebrew build-db</code>, then choose Reload.";
   }
 }
 function syncError() {
@@ -411,8 +417,8 @@ function syncError() {
   else if (currentView === "history") $("retry-view").textContent = "Retry history";
   else $("retry-view").textContent = "Retry";
 }
-// A control that hides or disables itself on activation drops keyboard focus to
-// <body> (WCAG 2.4.3). Move it to the first usable id. No-op when focus is held.
+// A control that hides or disables itself on activation drops focus to <body>
+// (WCAG 2.4.3); move it to the first usable id. No-op when focus is held.
 function restoreFocus(ids) {
   const active = document.activeElement;
   if (active && active !== document.body) return;
@@ -452,8 +458,7 @@ function filtersActive() {
   return !!($("status").value || moduleState.blank || moduleState.value || $("q").value.trim());
 }
 function updateFilterActions() {
-  // Keep the control mounted on filterable views so enabling Clear does not
-  // shove the tablist down when the first filter is applied.
+  // Keep the control mounted so enabling Clear does not shove the tablist down.
   const canFilter = currentView === "functions" || currentView === "globals";
   $("filter-actions").hidden = !canFilter;
   $("clear-filters").disabled = !filtersActive();
@@ -539,8 +544,8 @@ function setListPageMessage(opts) {
   const hint = $(hintId);
   const more = moreWrapId ? $(moreWrapId) : null;  // null: sections is unpaged
   if (!total) {
-    // Nothing on screen, so say whether rows were wanted at all: "No
-    // functions match" is a claim about the filters, not about the target.
+    // Say whether rows were wanted: "No functions match" is a claim about
+    // the filters, not about the target.
     $("results-status").textContent = "No " + noun + (filtersActive() ? " match" : " yet");
     hint.hidden = true;
     hint.textContent = "";
@@ -566,8 +571,8 @@ function setListPageMessage(opts) {
     if (more) more.hidden = true;
   }
 }
-// Drop a list's rows, count hint, and Show more bar before a fresh (non-append)
-// load: the busy veil is translucent, so stale rows read as the new page's data.
+// Drop rows, count hint, and Show more before a fresh (non-append) load: the
+// busy veil is translucent, so stale rows would read as the new page's data.
 function resetList(tableId, hintId, moreWrapId) {
   $(tableId).querySelector("tbody").innerHTML = "";
   $(hintId).hidden = true;
@@ -592,7 +597,7 @@ function statusMark(s) {
 function statusText(s) {
   const text = esc(s || "");
   const mark = statusMark(s);
-  return mark ? "<span class=" + mark + ">" + text + "</span>" : text;
+  return mark ? "<span class='" + mark + "'>" + text + "</span>" : text;
 }
 // Rows are positional arrays named by the response's ``cols``; the server
 // sends no other shape, so the renderers index them directly.
@@ -696,9 +701,8 @@ function renderSummary(s) {
   ];
   // Same order as the Status select.
   for (const k of Object.keys(byStatus).sort()) cards.push([k, byStatus[k], k, "Filter by " + k]);
-  // A div cannot be named, so its title text rides in a visually-hidden span
-  // after the visible text (WCAG 2.5.3). A button already exposes title as its
-  // description; a span there too would announce the hint twice.
+  // A div cannot be named, so title rides in a visually-hidden span after the
+  // visible text (WCAG 2.5.3); a button already exposes title as a description.
   $("cards").innerHTML = cards.map(([k, v, status, title]) => {
     const mark = status ? statusMark(status) : "";
     const label = mark ? "<span class='label " + mark + "'>" : "<span class=label>";
@@ -1071,6 +1075,17 @@ function bindControls() {
     loadFunctions();
     restoreFocus(["q", "main"]);
   };
+  $("reload").onclick = async () => {
+    $("reload").disabled = true;
+    $("reload").textContent = "Reloading…";
+    try {
+      await start();
+    } finally {
+      $("reload").disabled = false;
+      $("reload").textContent = "Reload";
+    }
+    restoreFocus(["target", "main"]);
+  };
   $("retry-summary").onclick = async () => {
     await loadSummary();
     restoreFocus(["retry-summary", "main"]);
@@ -1156,6 +1171,12 @@ function bindControls() {
 async function init() {
   const boot = await get("/api/bootstrap");
   $("boot-status").hidden = true;
+  // A reload re-reads coverage.db, so nothing already painted counts as loaded.
+  viewLoaded.functions = false;
+  viewLoaded.sections = false;
+  viewLoaded.globals = false;
+  viewLoaded.history = false;
+  $("reload").hidden = false;
   targets = boot.targets || [];
   if (!targets.length) {
     $("no-targets").hidden = false;
@@ -1207,6 +1228,7 @@ async function init() {
 function start() {
   return init().catch(error => {
     $("boot-status").hidden = true;
+    $("reload").hidden = true;
     $("retry-summary").textContent = "Reload dashboard";
     setLoadError("summary", "Dashboard failed to load" + reason(error)
       + ". Use Reload dashboard to try again.");
@@ -1221,8 +1243,8 @@ function start() {
     $("retry-summary").focus();
   });
 }
-// Set before start() so the deferred boot guard sees a client that ran.  It
-// must be synchronous: /boot-guard.js executes immediately after this file.
+// Set before start() so the deferred boot guard sees a client that ran; it must
+// be synchronous, as /boot-guard.js executes immediately after this file.
 globalThis.__rebrewBooted = true;
 start();
 """
@@ -1349,7 +1371,7 @@ __STATUS_FORCED__
 <noscript><p id="no-script">The dashboard needs JavaScript to load coverage data.
   Enable it for this page, then reload.</p></noscript>
 <p id="no-targets" hidden>No targets found in coverage.db. Run
-  <code>rebrew build-db</code> for this project, then reload.</p>
+  <code>rebrew build-db</code> for this project, then choose Reload.</p>
 <div id="controls" class="filters" hidden role="group" aria-label="Coverage filters">
 <div>
 <label for="target">Target</label>
@@ -1391,7 +1413,8 @@ __STATUS_FORCED__
 </section>
 <p class="visually-hidden" id="results-status" role="status" aria-live="polite"></p>
 <p id="dashboard-error" role="alert" hidden></p>
-<div id="retry-bar" role="group" aria-label="Retry failed loads">
+<div id="retry-bar" role="group" aria-label="Reload and retry">
+<button type="button" class="btn" id="reload" hidden>Reload</button>
 <button type="button" class="btn" id="retry-summary" hidden>Retry summary</button>
 <button type="button" class="btn" id="retry-functions" hidden>Retry functions</button>
 <button type="button" class="btn" id="retry-view" hidden>Retry</button>
@@ -1414,7 +1437,7 @@ __STATUS_FORCED__
 <div id="view-sections" class="view-panel" role="tabpanel" tabindex="0" aria-labelledby="tab-sections" hidden>
 <p id="sections-hint" hidden></p>
 <p id="sections-empty" hidden>No section stats for this target. Run
-  <code>rebrew build-db</code> for this project, then reload.</p>
+  <code>rebrew build-db</code> for this project, then choose Reload.</p>
 <div id="sections-results" class="table-scroll" tabindex="0" role="region"
   aria-label="Section results" aria-busy="false" hidden>
 <table id="sections-rows"><caption class="visually-hidden">Per-section cell stats</caption><thead><tr>

@@ -268,8 +268,10 @@ renderHistory({ total: 3, history: [
   ["0x14", "g", "STUB", "RELOC", "2026-03-04T05:06:00Z"],
   ["0x18", "h", "STUB", "EXACT", "not a date"],
 ] });
-assert.match(element("history-rows").innerHTML, /<span class=st status-STUB>STUB<\/span>/);
-assert.match(element("history-rows").innerHTML, /<span class=st status-EXACT>EXACT<\/span>/);
-assert.match(element("history-rows").innerHTML, /<span class=st status-RELOC>RELOC<\/span>/);
+// The class attribute is quoted: the marks carry a space ("st status-X"), and
+// an unquoted value would truncate at it and drop the colour class.
+assert.match(element("history-rows").innerHTML, /<span class='st status-STUB'>STUB<\/span>/);
+assert.match(element("history-rows").innerHTML, /<span class='st status-EXACT'>EXACT<\/span>/);
+assert.match(element("history-rows").innerHTML, /<span class='st status-RELOC'>RELOC<\/span>/);
 const stamps = [...element("history-rows").innerHTML.matchAll(/<td>([^<]*)<\/td><\/tr>/g)].map(m => m[1]);
 assert.deepEqual(stamps, [when("2026-01-02T03:04:05Z"), when("2026-03-04T05:06:00Z"), "not a date"]);

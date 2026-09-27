@@ -2605,7 +2605,10 @@ transition) arrives as `""`, never `null`.
 A request that carries a body gets its response with `Connection: close`.
 The page keeps the selected target, view, and filters in the URL hash
 (`#target=…&view=globals&status=EXACT&q=…`), so a reload after
-`rebrew build-db` or a shared link opens the same view.
+`rebrew build-db` or a shared link opens the same view. A `Reload` control
+re-runs the bootstrap in place (dropping the per-view loaded flags, so a view
+already visited comes back with fresh rows), which is how a `rebrew build-db`
+run from another terminal is picked up without reloading the tab.
 
 Its stderr is one log stream: each access line reads
 `HH:MM:SS INFO    <addr> r<N> "<request line>" <status> <bytes> <ms>` and
