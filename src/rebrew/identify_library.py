@@ -29,7 +29,7 @@ from typing import Any
 import typer
 
 from rebrew.cli import TargetOption, console, error_exit, json_print, require_config
-from rebrew.utils import atomic_write_text, filename_component
+from rebrew.utils import atomic_write_text, filename_component, read_source_text
 
 app = typer.Typer(
     help="Identify library functions (FLIRT + imports + CRT) into library_*.h.",
@@ -380,8 +380,12 @@ def _append_entry(header: Path, cand: LibCandidate) -> None:
     # Rewrite atomically rather than appending: a crash or a full disk
     # mid-append would leave a half-written ``// LIBRARY:`` block in a header
     # the next run's dedup then skips forever.
-    previous = header.read_text(encoding="utf-8") if header.is_file() else ""
-    atomic_write_text(header, previous + prefix + block)
+    # Read tolerantly, not as utf-8: the header lives beside the .c sources,
+    # which may be Shift-JIS or CP1252, and a legacy byte in a comment would
+    # otherwise raise UnicodeDecodeError out of the whole command.  Writing
+    # back in the detected encoding keeps the untouched bytes intact.
+    previous, encoding = read_source_text(header) if header.is_file() else ("", "utf-8")
+    atomic_write_text(header, previous + prefix + block, encoding=encoding)
 
 
 def write_candidates(cfg: Any, candidates: list[LibCandidate], existing: set[int]) -> int:

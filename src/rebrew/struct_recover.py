@@ -66,7 +66,7 @@ from rebrew.cli import (
     require_config,
 )
 from rebrew.errors import RebrewError
-from rebrew.utils import atomic_write_text, fold_ident, parse_int_literal
+from rebrew.utils import atomic_write_text, fold_ident, parse_int_literal, read_source_text
 
 # ---------------------------------------------------------------------------
 # Evidence parsing
@@ -686,8 +686,11 @@ def recover_project_structs(
             # Rewrite atomically: a crash or a full disk mid-append would leave
             # a half-written typedef, and the dedup belt above would then skip
             # that name forever because it already registers as present.
-            previous = apply.read_text(encoding="utf-8") if apply.is_file() else ""
-            atomic_write_text(apply, previous + "\n" + block)
+            # Detected encoding, not utf-8: the apply target is a source file
+            # that may be Shift-JIS or CP1252, and a legacy byte in a comment
+            # would raise UnicodeDecodeError instead of appending one typedef.
+            previous, encoding = read_source_text(apply) if apply.is_file() else ("", "utf-8")
+            atomic_write_text(apply, previous + "\n" + block, encoding=encoding)
             console.print(f"[green]Appended {len(to_write)} struct(s) to {apply}[/green]")
             applied = str(apply)
         else:

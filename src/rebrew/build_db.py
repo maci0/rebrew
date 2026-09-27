@@ -9,6 +9,7 @@ import json
 import logging
 import math
 import sqlite3
+import unicodedata
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -955,6 +956,16 @@ def _nonneg_metric_sql(column: str) -> str:
     )
 
 
+def _json_target_name(json_path: Path) -> str:
+    """The target a ``data_<target>.json`` file names, in NFC.
+
+    The stem comes off the filesystem, which may store it decomposed; the
+    ``target`` column every other tool queries has to match it by identity,
+    not by byte spelling.
+    """
+    return unicodedata.normalize("NFC", json_path.stem.removeprefix("data_"))
+
+
 def _load_coverage_datasets(
     root_dir: Path,
     db_path: Path,
@@ -992,14 +1003,22 @@ def _load_coverage_datasets(
                 error_exit(f"Config error for target {tgt!r}: {exc}", json_mode=json_output)
             _reject_reserved_target(tgt, json_output=json_output)
             console.print(f"Processing {tgt}...")
-            datasets.append((tgt, build_catalog_data(tgt_cfg)["data"]))
+            datasets.append(
+                (unicodedata.normalize("NFC", tgt), build_catalog_data(tgt_cfg)["data"])
+            )
         return datasets
 
     # Sorted: the loop below inserts one coverage row set per file, so
     # directory order would decide row order in the written database.
     json_files = sorted(db_path.parent.glob("data_*.json"))
+    # A target name is an identity and config normalizes it to NFC, but a file
+    # written to a decomposing volume (macOS HFS+, some SMB/NFS mounts) reads
+    # back NFD, and an --target copied off such a filename arrives NFD too.
+    # Compare and store NFC on both sides, or the rows land under a spelling
+    # no dashboard or `rebrew test` query ever asks for.
     if target:
-        json_files = [f for f in json_files if f.stem.removeprefix("data_") == target]
+        wanted = unicodedata.normalize("NFC", target)
+        json_files = [f for f in json_files if _json_target_name(f) == wanted]
     if not json_files:
         error_exit(
             f"No data_*.json files found in {db_path.parent}. "
@@ -1009,7 +1028,7 @@ def _load_coverage_datasets(
         )
     inputs = _snapshot_inputs(root_dir)
     for json_path in json_files:
-        target_name = json_path.stem.removeprefix("data_")
+        target_name = _json_target_name(json_path)
         console.print(f"Processing {target_name}...")
         # Nanosecond mtimes: a float st_mtime ties when a source rewrite and
         # the data_*.json regen land in the same filesystem tick (coarse

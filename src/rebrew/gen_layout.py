@@ -60,7 +60,7 @@ from rebrew.config import module_marker
 from rebrew.layout_meta import LayoutMetadata, extract_layout, write_package
 from rebrew.pe_headers import pe_image_base, pe_layout
 from rebrew.pe_image import PeImport, derive_link_options, parse_pe
-from rebrew.utils import atomic_write_text, container_runtime, pe_name_token
+from rebrew.utils import atomic_write_text, container_runtime, fold_ident, pe_name_token
 
 app = typer.Typer(
     help="Generate linker-script scaffolding (def, layout manifest, IAT seed, data restore)."
@@ -478,8 +478,12 @@ def main(
         stem = Path(dll).stem
         lib: Path | None = None
         if libs_dir.is_dir():
-            by_name = {p.name.casefold(): p for p in libs_dir.iterdir() if p.is_file()}
-            lib = by_name.get(f"{stem}.lib".casefold()) or by_name.get(dll.casefold())
+            # NFC then casefold, as compile_cache's include search does: a
+            # lib shipped as NFD "Café.lib" would otherwise never match the
+            # cp1252-decoded NFC name the import table carries, and the
+            # fallback silently drops every stdcall decoration.
+            by_name = {fold_ident(p.name): p for p in libs_dir.iterdir() if p.is_file()}
+            lib = by_name.get(fold_ident(f"{stem}.lib")) or by_name.get(fold_ident(dll))
         if lib is not None:
             lib_symbols |= _import_lib_symbols(lib)
         else:

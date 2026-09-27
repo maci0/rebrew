@@ -640,3 +640,19 @@ class TestAppendEntryNewline:
         assert write_candidates(cfg, cands, existing=set()) == 1
         text = header.read_text(encoding="utf-8")
         assert text.startswith("// existing tail\n// LIBRARY: MSVCRT 0x00001000\n")
+
+    def test_append_preserves_legacy_encoded_header(self, tmp_path: Path) -> None:
+        """A Shift-JIS comment in an existing header must survive the append
+        byte-for-byte; reading it as utf-8 raised UnicodeDecodeError."""
+        cfg = _cfg(tmp_path)
+        cfg.reversed_dir.mkdir()
+        header = cfg.reversed_dir / "library_msvcrt.h"
+        original = "/* 内部 */\n".encode("shift_jis")
+        header.write_bytes(original)
+        cands = [
+            LibCandidate(va=0x1000, name="_malloc", module="MSVCRT", kind="crt", confidence=0.9)
+        ]
+        assert write_candidates(cfg, cands, existing=set()) == 1
+        raw = header.read_bytes()
+        assert raw.startswith(original)
+        assert "// LIBRARY: MSVCRT 0x00001000\n" in raw.decode("shift_jis")

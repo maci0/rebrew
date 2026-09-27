@@ -119,6 +119,16 @@ def test_filename_component_is_one_safe_component() -> None:
     assert len(filename_component("a" * 500)) <= 200
 
 
+def test_filename_component_folds_nfc_and_nfd_to_one_name() -> None:
+    # The same DLL named from a PE import table (cp1252, NFC) and from a .pat
+    # file on a decomposing volume (NFD) must not land in two headers.
+    assert filename_component("CAFÉ") == filename_component("CAFE\u0301")
+
+
+def test_filename_component_keeps_distinct_names_distinct() -> None:
+    assert filename_component("Café") != filename_component("Cafe")
+
+
 def test_atomic_write_text_overwrite(tmp_path: Path) -> None:
     f = tmp_path / "test.txt"
     f.write_text("old")

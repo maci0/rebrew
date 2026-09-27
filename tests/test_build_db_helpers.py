@@ -15,6 +15,7 @@ from rebrew.build_db import (
     _clamp_verify_similarity,
     _dedupe_cell_rows,
     _function_stats,
+    _json_target_name,
     _normalize_cell_row,
     _parse_int,
     resolve_db_dir,
@@ -660,3 +661,14 @@ class TestBuildDbEdgeData:
         assert "edge:" in err
         assert "skipped 1" in err
         assert "data_edge.json" not in err
+
+
+class TestJsonTargetName:
+    def test_nfd_filename_folds_to_nfc(self) -> None:
+        # A decomposing volume stores the file NFD while config names the
+        # target NFC; the target column must hold the NFC spelling.
+        assert _json_target_name(Path("data_Café.json")) == "Café"
+        assert _json_target_name(Path("data_Café.json")) == "Café"
+
+    def test_plain_and_prefixless_stems_are_unchanged(self) -> None:
+        assert _json_target_name(Path("data_edge.json")) == "edge"

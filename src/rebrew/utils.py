@@ -559,7 +559,13 @@ def filename_component(name: str) -> str:
     read as an option).  Everything outside ``[A-Za-z0-9._@-]`` becomes ``_``,
     leading dots and dashes are stripped, and a name that sanitizes to nothing
     falls back to a stable digest of the original.
+
+    NFC first: the substitution below deletes non-ASCII either way, but it
+    deletes a *different* amount for each spelling of one name, so without it
+    ``"CAFÉ"`` and ``"CAFE\\u0301"`` (the same DLL named from a PE import table
+    and from a ``.pat`` file on a decomposing volume) land in two headers.
     """
+    name = unicodedata.normalize("NFC", name)
     cleaned = _FILENAME_COMPONENT_RE.sub("_", name).lstrip(".-")
     cleaned = cleaned[:_FILENAME_COMPONENT_MAX_CHARS].rstrip("._-")
     if not cleaned:
