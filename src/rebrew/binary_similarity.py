@@ -230,9 +230,11 @@ def _load_side(
     )
     out: list[dict[str, Any]] = []
     for f in funcs:
-        va = int(f.get("va", 0))
+        va = f.get("va")
         size = int(f.get("size", 0) or 0)
-        if va <= 0 or size <= 0:
+        # VA 0 is a real address on 16-bit targets; only a missing or negative
+        # VA means the row is unusable.
+        if not isinstance(va, int) or va < 0 or size <= 0:
             continue
         try:
             code = extract_raw_bytes(binary, va, size)

@@ -28,6 +28,7 @@ from typing import Any, ClassVar, Final
 
 from rebrew.c_parser import extract_function_name_from_line
 from rebrew.utils import atomic_write_text, preset_module_key, read_source_text, rel_display_path
+from rebrew.workspace.status import MATCHED_STATUSES
 
 logger = logging.getLogger(__name__)
 
@@ -1214,8 +1215,13 @@ def _metadata_file_index(
     its own.
     """
     key = id(entries_by_key)
+    # ``rebrew match --all -j N`` runs this from pool threads: the eviction
+    # below clears both dicts, so a hit on the owner map can lose its index
+    # between the two reads.  Fall through to a rebuild instead of raising.
     if _METADATA_FILE_INDEX_OWNER.get(key) is entries_by_key:
-        return _METADATA_FILE_INDEX[key]
+        cached = _METADATA_FILE_INDEX.get(key)
+        if cached is not None:
+            return cached
     index: dict[str, list[tuple[str, int, dict[str, Any]]]] = {}
     for (module, va), entry in entries_by_key.items():
         stored = str(entry.get("file", "")).replace("\\", "/")
@@ -1595,7 +1601,7 @@ def update_annotation_key(
                 canon,
                 module,
                 va,
-                clear_blockers=canon in ("EXACT", "RELOC"),
+                clear_blockers=canon in MATCHED_STATUSES,
             )
         else:
             # Typed, validated write via the metadata facade: key case is

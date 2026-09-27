@@ -39,7 +39,7 @@ from rebrew.metadata import (
     update_source_status,
 )
 from rebrew.utils import metadata_write_lock
-from rebrew.workspace.status import KNOWN_STATUSES
+from rebrew.workspace.status import KNOWN_STATUSES, MATCHED_STATUSES
 
 # Field names (lower-case TOML keys) with a single canonical Python type.
 _INT_FIELDS = frozenset({"size", "blocker_delta"})
@@ -241,8 +241,7 @@ class MetadataEntry:
                     self.module,
                     self.va,
                     force=force,
-                    # EXACT/RELOC only; PROVEN is not a byte match.
-                    clear_blockers=canon in ("EXACT", "RELOC"),
+                    clear_blockers=canon in MATCHED_STATUSES,
                 )
             if coerced:
                 set_fields(directory, self.va, coerced, module=self.module)

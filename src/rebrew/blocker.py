@@ -26,6 +26,7 @@ from typing import Any
 
 import typer
 
+from rebrew.annotation import min_valid_va_for
 from rebrew.cli import TargetOption, console, error_exit, json_print, parse_va, require_config
 from rebrew.config import module_marker
 
@@ -77,8 +78,12 @@ def resolve_function(
                 "Cannot determine module for bare VA — pass a file path or set a marker",
                 json_mode=json_mode,
             )
-        if va_int == 0:
-            error_exit("VA must be non-zero", json_mode=json_mode)
+        # The floor is per-target: 16-bit targets address code from segment 0,
+        # so VA 0 names a real function there.
+        if va_int < min_valid_va_for(cfg):
+            error_exit(
+                f"VA must be at least 0x{min_valid_va_for(cfg):x}", json_mode=json_mode
+            )
         return module, va_int
 
     resolved = str(resolve_source_arg(cfg, raw))
@@ -128,8 +133,10 @@ def resolve_function(
         # purpose: the file's compile settings still apply, but the VA is the
         # requested target (covers stub files whose annotation VA differs).
 
-    if va_int == 0:
-        error_exit("VA must be non-zero", json_mode=json_mode)
+    if va_int is not None and va_int < min_valid_va_for(cfg):
+        error_exit(
+            f"VA must be at least 0x{min_valid_va_for(cfg):x}", json_mode=json_mode
+        )
 
     if va_from_flag and va_int is not None:
         # Use the explicit VA as target; keep module from matched ann if any,

@@ -311,7 +311,10 @@ class CompareResult:
 
 #: Compare statuses that mean the compiled bytes equal the target (after
 #: reloc masking).  PROVEN is not a byte match and never sets ``matched``.
-_BYTE_MATCH_STATUSES: frozenset[CompareStatus] = frozenset({"EXACT", "RELOC"})
+#: Derived from the shared vocabulary so the two never drift.
+_BYTE_MATCH_STATUSES: frozenset[CompareStatus] = frozenset(
+    status for status in get_args(CompareStatus) if status in MATCHED_STATUSES
+)
 
 #: Match-quality threshold for NEAR_MATCHING vs STUB classification.
 #: A function that matches >= 60 % of bytes is NEAR_MATCHING; below is STUB.

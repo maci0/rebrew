@@ -1561,8 +1561,13 @@ def _data_section_names_for(entries: dict[tuple[str, int], dict[str, Any]]) -> f
     every ``rebrew-data.toml`` entry for every file in the tree.
     """
     key = id(entries)
+    # The eviction below clears both dicts, so a concurrent clear between the
+    # owner check and the index read loses the entry: rebuild instead of a
+    # KeyError.
     if _DATA_SECTION_NAMES_OWNER.get(key) is entries:
-        return _DATA_SECTION_NAMES[key]
+        cached = _DATA_SECTION_NAMES.get(key)
+        if cached is not None:
+            return cached
     names = frozenset(
         str(entry["name"])
         for entry in entries.values()
@@ -2385,7 +2390,7 @@ def main(
                                 module,
                                 va,
                                 force=True,
-                                clear_blockers=canon in ("EXACT", "RELOC"),
+                                clear_blockers=canon in MATCHED_STATUSES,
                                 updated_by="lint",
                             )
                         else:
