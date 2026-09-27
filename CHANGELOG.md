@@ -10,12 +10,18 @@
   match byte for byte.
 
 ### Added
-- **`apply_commands_via_mcp` returns a named count pair.** The return was a
+
+- **Breaking:** **`apply_commands_via_mcp` returns a named count pair.** The
+  return was a
   bare `tuple[int, int]` of two same-typed values, so a transposition was
   invisible at the call site and destructuring gave the counts no names. It is
   now `McpApplyResult(success, errors)`, a `NamedTuple`: `result.success` and
   `result.errors` read by name, and existing `success, errors = ...` unpacking
-  keeps working. Exported from `rebrew.ghidra` alongside the other MCP types.
+  keeps working. A consumer that annotated the result as `tuple[int, int]`
+  must annotate `McpApplyResult`; a subscript, an `isinstance(result, tuple)`
+  check, and the two-element unpack are unaffected. Exported from
+  `rebrew.ghidra` alongside the other MCP types.
+
 - **`SimilarityUnavailable` and `CompareResultError` carry the shared error
   base.** `code_similarity` raised a bare `RuntimeError` when the optional
   `resembl` extra was missing, and `CompareResult.__post_init__` raised a bare
@@ -25,6 +31,7 @@
   now raises its own type (re-exported from `rebrew.errors`) carrying the
   offending fields; both keep their original `RuntimeError` / `ValueError`
   base, so existing handlers are unaffected.
+
 - **Shell is linted too.** `tools/ci_clone_resembl.sh` is the one shell
   script both workflows run, and nothing looked at it: the gate was ruff,
   ruff format, and mypy, so a quoting or unset-variable regression in the
@@ -32,12 +39,14 @@
   depends on) would have merged unseen. A ShellCheck pre-commit hook covers
   every `*.sh`; the pre-commit job installs the binary first, because the
   hook exits 0 when ShellCheck is absent and a silent gate is not a gate.
+
 - **Three more test modules type-check under the strict gate.**
   `tests/test_span_contains.py`, `tests/test_core.py`, and
   `tests/test_catalog_models.py` join `files` in `[tool.mypy]`, so a
   regression in a test's own types fails `make mypy` instead of waiting for
   a runtime path to reach it. The rest of `tests/` is still unchecked and
   stays that way until a module comes clean.
+
 - **The coverage dashboard says so when its client fails to load.** A new
   same-origin `/boot-guard.js` runs deferred after `/app.js` and, when the
   client never set `__rebrewBooted` (aborted transfer, 5xx from a proxy, a
@@ -46,12 +55,14 @@
   the shell's CSP allows `script-src 'self'` with no inline script. Like the
   shell and `/app.js` it is precompressed at import and linked with a content
   hash, so it is served `immutable` and adds no per-request compression CPU.
+
 - **A documented import that no longer exists fails the test suite.** The
   README's Library usage block and the `rebrew` package docstring are the only
   map a library consumer has of the import surface, so
   `tests/test_sdk_surface.py` now walks every `from rebrew... import ...` they
   show and every `rebrew.<module>` they name, and fails when one does not
   resolve. A module move can no longer leave a broken quickstart behind.
+
 - **`rebrew cfg effective` prints the config in force.** `cfg show` echoes
   `rebrew-project.toml`, so an env override, a built-in default, and a value
   the loader rejected all read the same in the file. The new subcommand
@@ -62,6 +73,7 @@
   and a name alone is not a claim that the value was used (a set `[llm]`
   endpoint still wins over `REBREW_LLM_ENDPOINT`). `docs/CONFIG.md` and
   `docs/CLI.md` carry the command.
+
 - **`rebrew.errors` re-exports every public error type.** The 14 types that
   were not already listed (`CatalogScanError`, `ComponentError`,
   `Delphi16Error`, `DosboxError`, `LibraryOverrideError`, `Msvc16Error`,
@@ -74,6 +86,7 @@
   of the compile stack. `tests/test_errors.py` scans the package for a
   `RebrewError` subclass missing from that map, so the next added error
   cannot ship without its re-export.
+
 - **A CRLF source keeps CRLF in everything written back into it.**
   `split`, `skeleton --append`, and `merge` spliced a hardcoded `"\n"`
   separator (and an LF-only block, for the append) into the target file, so
@@ -83,18 +96,21 @@
   three now derive the ending from the file they write, through one
   `utils.source_newline` helper that `cross_import` had been re-deriving
   twice. New files still start LF; a CRLF project tree stays CRLF.
+
 - **A scoped `build-db --target` no longer keeps a dead `history` index.**
   `idx_history_target_va` was superseded by `idx_history_target_id` but only
   dropped on a full rebuild. `history` is never dropped, so a database that
   carried the v3-era index kept it, and paid its write cost on every history
   insert, for exactly the scoped builds that append the most rows. The drop
   moved out of the full-rebuild branch.
+
 - **The documented cell-state list matches the `cells.state` CHECK.**
   `docs/DB_FORMAT.md` omitted `extract_error`, `invalid_va`, `verified`,
   `drift`, and `unchecked` — five states the CHECK has accepted since the
   vocabulary was derived from `KNOWN_STATUSES`. The table now lists the full
   set with each state's `section_cell_stats` bucket, and a test compares it
   against `_KNOWN_CELL_STATES` so the two cannot drift.
+
 - **A dashboard 500 no longer hides the reason it happened.** An unexpected
   handler error logged its traceback at `DEBUG` with `exc_info`, which Python
   drops when no handler is configured, so a bug answered the client with a
@@ -105,111 +121,132 @@
   corrupt `function_stats` row, logs the request that produced it. One ERROR
   per failed request, no duplicates. The access line also reports handler
   time and stays on one line instead of wrapping into several.
+
 - **The init wizard asks every question before it asks for confirmation.**
   "Write shell completion scripts into completions/?" was asked *after*
   "Create project with these settings?", so the user confirmed a summary and
   was then asked about a setting the summary never showed. The prompt moved
   above the summary, the summary lists the completion choice, and the abort
   hint repeats it, so declining and re-running reproduces the same project.
+
 - **The init wizard's binary prompt defaults to a listed binary.** Enter at the
   numbered list used to pick the "enter a path/name manually" option and then
   ask the user to type the file that was just listed; it now takes the first
   candidate. The dashboard's "Show more" button also counts the rows a click
   adds ("Show 50 more functions") instead of a running total the hint above
   the table already carries.
+
 - **A failed `make sdist-check` no longer leaves untracked work.** The
   comparison wheel is built in `.sdist-check/`, which the target removed only
   on success, so the scratch tree survived a failure and showed up as
   untracked files (breaking `make release-check`'s clean-tree gate). It is
   now gitignored and removed by `make clean` alongside `.venv-pkg`.
+
 - **The `build` recipe's own comment is attached to it again.** The block
   explaining the pinned umask/locale/timezone, the egg-info cleanup, and the
   build backend hash check had drifted above `clean`, leaving `build`
   undocumented and `clean` documented as a build.
+
 - **The README quickstart passes the config once.** `iter_sources` accepts a
   `ProjectConfig` directly, so the snippet reads `iter_sources(cfg)` instead of
   passing `cfg.reversed_dir` and `cfg` for the same object.
+
 - **`make format-check` passes again.** Four test modules had drifted from
   the committed formatting (`tests/test_annotation.py`,
   `tests/test_link_tools.py`, `tests/test_match.py`, `tests/test_solutions.py`),
   so the CI lint job's blocking `ruff format --check` step failed on a clean
   tree.
+
 - **A typo'd container runtime fails where it is set.**
   `REBREW_CONTAINER_RUNTIME` accepted any charset-valid string, so
   `REBREW_CONTAINER_RUNTIME=dockre` produced a spawn failure from inside a
   compile. A bare name outside `docker`/`podman`/`nerdctl` now raises with the
   list of known runtimes; a value carrying a path separator still passes
   through as a path to a runtime binary.
+
 - **The LLM request ceiling is parsed in one place.**
   `load_config` and `rebrew.llm_seed` each parsed
   `REBREW_LLM_MAX_REQUESTS`; the loader's copy validated the value, threw the
   parsed result away, and did not apply the 10000 clamp. Both now call
   `config.llm_max_requests`, so startup validation and the per-call ceiling
   cannot disagree.
+
 - **`.env.example` no longer promises a `.env` loader.** Rebrew reads the
   process environment only; the template said to copy it to `.env`. It also
   omitted `REBREW_PROJECTS_ROOT`, `REBREW_COMPILER_RUNNER`, `REBREW_RUNNER`,
   and `_REBREW_COMPLETE`, which `docs/CONFIG.md` documents.
   `tests/test_env_docs.py` now fails when an env var the code reads is missing
   from either file, or when the template lists a var nothing reads.
+
 - **Provider-controlled text cannot forge LLM log lines.** A transport
   failure that echoes the response body (and a tree-sitter error quoting the
   snippet it rejected) reached `logging` verbatim, while every other
   provider-controlled value went through `_sanitize_log_value`. Both now do.
+
 - **A substituted LLM model is reported instead of assumed.** `[llm] model`
   pins a dated id, but a gateway may serve a different one, which changes
   both the cost and the seeds the GA receives; `llm_seed` now compares the
   response's `model` against the pin and warns on a mismatch. A completion
   cut off by the `max_tokens` cap (`finish_reason=length`) also warns at
   warning level: the seed set is incomplete and the request was still billed.
+
 - **The entry-asset wire budget now covers every entry asset.** The budget
   was a hardcoded 12 KB for the shell and `/app.js`; the three cold-load
   responses are held to the RFC 6928 14600-byte initial window less a
   measured 640-byte-per-response header reserve, so an added entry asset pays
   for its own headers. `docs/PERFORMANCE.md` carries the current measured
   shell, client, and guard sizes.
+
 - **A 4-column `afl` line with a 0x-prefixed size parses correctly.** The
   4-column layout was selected by `p[2].isdecimal()`, so a hex size fell
   through to the 3-column branch: the offset column was read as the size and
   the size column as the function name (`0x1000 0x2000 0x20 func_a` became
   `(0x1000, 0x2000, "0x20")`). The layout is now picked by whether `p[2]`
   parses as a number, in either radix.
+
 - **`rebrew skeleton --name` reports the symbol that was actually emitted.**
   The generated function name goes through `sanitize_name`, but the printed
   `Symbol:`, the `symbol` JSON field, and the suggested `rebrew test
   --symbol` used the raw `--name`, so `--name my-func` produced `--symbol
   _my-func`, which resolves to no symbol in the object. Both single-VA and
   append modes now report the sanitized spelling, as batch mode already did.
+
 - **`round-trip --fix-blocker` records a size mismatch as a delta.** The
   object buffer is clipped to the target length before the blocker delta is
   computed, so the length term was always zero and an over-long candidate
   whose prefix matched was written as `delta = 0`. The pre-clipping length is
   now threaded through, matching what `test` already does.
+
 - **`link.tsaware` sets or clears one bit of `dll_characteristics`.** It
   wrote the whole word: `tsaware = false` produced `0` and dropped
   `DYNAMIC_BASE`, `NX_COMPAT`, and `HIGH_ENTROPY_VA` from the rebuilt PE, and
   `tsaware = true` replaced the word with `0x8000`. The original binary's
   value is now the base and only `0x8000` is set or cleared.
+
 - **An NE binary is detected as 16-bit x86 even when a stronger backend
   already named the family.** `info.arch = "x86_16"` sat inside the
   `family == "unknown"` branch, so an NE Delphi binary identified by DIE or a
   PDB kept `arch = ""`; `profile_matches_detection` then accepted a 32-bit
   profile and `suggest_profile` offered one. The MZ branch already applied
   the arch unconditionally.
+
 - **Include search order survives the case-insensitive header fallback.**
   `_find_in_dirs` ran every exact match across all directories first and only
   then the case-folded scan, so a later `-I` directory's exact hit outranked
   an earlier one's case-folded hit and the header fingerprint tracked the file
   wine never reads. The fallback now runs per directory.
+
 - **`mutate_code` no longer prepends a blank line to a preamble-less
   source.** The reconstruction joined `preamble + "\n" + body` unconditionally
   while the scope offset guard already special-cased the empty preamble, so
   the returned source and the offset mutations were told about disagreed by
   one byte.
+
 - **`code_similarity` no longer scores two undecodable buffers as 100.0.**
   With neither side decoding to instructions the old ternary returned the
   perfect score; the byte-equality fast path above had already returned, so
   reaching that point proves the bytes differ.
+
 - **`gen-link-stubs` no longer throws away a calibrated BSS tail.**
   `calibrate-bss` tunes `g_bss_tail[<size>]` in the generated TU and leaves
   it there; regenerating the TU reset it to the `0x400000` placeholder, so
@@ -219,6 +256,7 @@
   hand-written `link_stubs.c` keeps its own tail, and two `.data` addresses
   sharing one name now emit a single stub instead of a TU that does not
   compile.
+
 - **Skill names survive a Windows save or a macOS checkout.**
   `SKILL.md` is read as `utf-8-sig` and normalized to NFC, and a skill's
   identity (frontmatter `name` or directory name) is compared in NFC. A
@@ -226,6 +264,7 @@
   unnamed; an NFD spelling of an accented name failed every equality
   comparison against the NFC one and the skill was listed twice or not found
   by `rebrew skills show` / `rebrew init` overlay.
+
 - **A 64-bit MIPS image is not detected as 32-bit.** `EM_MIPS` names both
   widths and LIEF has no `MIPS64` member, so a 64-bit ELF (N64, PS2) loaded
   as `mips32` and was disassembled in `CS_MODE_MIPS32`. The ELF ident
@@ -234,6 +273,7 @@
   `.eh_frame` reader sizes FDE pointers off the image rather than off an
   arch-name suffix, which is wrong for every machine the ELF header reports
   as `mips32`.
+
 - **Names, paths, and text read out of a target binary cannot forge a
   command or a file.** Four sinks took a string that a reviewed binary, a
   project file, or a remote service controls:
@@ -255,6 +295,7 @@
     no longer lands on the link's target.
   - `rebrew rename` and the BinSync overlay reject a name that is not a C
     identifier before it reaches a generated header or a file path.
+
 - **One rizin analysis per binary, and a bounded recompile client pool.**
   Concurrent callers of the same binary (batch `skeleton` and `name-decomp`
   both fan out over worker threads) each ran a full `aaa` and built a full
@@ -265,6 +306,7 @@
   bounded by the number of distinct `compile_timeout` values, and that is a
   project config value, so a long-lived process walking many project roots
   grew one keep-alive connection pool per root. The map is LRU-capped at 4.
+
 - **A solution is dropped once its source file has moved on.** A solution
   records the `cflags` and `mutations` that won against specific source
   bytes; seeding a later GA from a file that has since changed handed back a
@@ -279,11 +321,13 @@
   single arbitrary fingerprint per target. A metadata write also holds the
   `rebrew-functions.toml` lock across the STATUS update and the field write,
   so a promotion that clears blockers cannot be observed half-applied.
+
 - **A seed argument's internal name is out of the usage line.** `diff`,
   `match`, `rename`, `stack-cmp`, and `types` named the argument after the
   Python parameter, so `rebrew diff --help` printed `Usage: diff [OPTIONS]
   SEED_C`. It reads `source`, and the docstrings no longer name the
   parameter.
+
 - **A dashboard reload does not show the previous page's rows.** The busy
   veil is translucent, so a list that was not cleared before its fresh load
   read as the new page's data: filtering or paging left the old rows under
@@ -292,12 +336,14 @@
   title names the target and view (`server.dll - Functions - Rebrew
   coverage`) so a tab with one target per project still says which is on
   screen.
+
 - **A hex `SIZE` in a library header is that size.** `parse_library_header`
   parsed the marker with a decimal-only `int()`, so a `// SIZE: 0x1a4` line
   that lint's E008 blesses on a FUNCTION marker raised `ValueError`, was
   suppressed, and landed as `size 0`: a silent `MISSING_SIZE` for a function
   whose extent the header states. It parses base 0, like the FUNCTION-marker
   parser and W019's comparison.
+
 - **A snapshot is stale on a tie, and an empty GA generation is timed.**
   `build-db` compared `st_mtime` (whole seconds), so a source rewrite and the
   `data_*.json` regeneration landing in the same tick on a coarse clock (a
@@ -306,10 +352,12 @@
   nanosecond-based. A GA generation whose population scored empty cost a full
   generation of scheduling and dispatch but was not charged to `elapsed_sec`,
   under-reporting exactly the generation that produced nothing.
+
 - **`near-diag` reports zero bytes when nothing disassembles.** The divide
   guard `total = raw_total or 1` was also the reported `bytes` field, so a
   pair where neither side decoded read `bytes: 1`. The count and the
   percentage denominator are now separate values.
+
 - **Untrusted text no longer reaches the terminal as markup.** Import names,
   DLL names, symbol names, and decompiler output come from a target binary, a
   project file, or a remote service, and were interpolated into Rich output
@@ -320,6 +368,7 @@
   that print untrusted strings (imports, annotations, BinSync overlay, data
   annotations, FLIRT, decompme, decompiler output, GA, security and crypto
   scans, solutions DB, doctor) route through it.
+
 - **A planted symlink no longer redirects an atomic write.**
   `atomic_write_text` and `atomic_write_bytes` created the temp file with a
   plain write, which follows a symlink of the same name, so a name planted in
@@ -329,6 +378,7 @@
   whose base directory holds a quote or newline is refused with a `DosboxError`
   rather than written into the line-oriented conf, and the COFF relocation
   reader skips a record whose offset runs past the compiled bytes.
+
 - **A symbol name cannot escape its directory.** Annotation symbols are
   reverse-engineering text, and joining one into a path as-is let a `../../..`
   name write outside the run directory (or a leading `-` read as an option).
@@ -339,6 +389,7 @@
   `match-run`, `instruction-clones`, and the `identify-library` header writer
   use it; `merge-sweep` skips a stored source path that resolves outside the
   project root.
+
 - **A `file` value in the metadata TOML cannot become a compiler option.**
   A source name is a path from the annotation's `file` field, so one starting
   with `-` or `@` reached the toolchain argv as an option or a CL response
@@ -346,6 +397,7 @@
   a `file` that is absolute or contains a `..` segment instead of staging it
   outside the workdir and outside the container mount, and the NE segment
   table's raw `length` is clamped so a window cannot read before the section.
+
 - **`rebrew match --seed-llm` reports what the run cost, and the per-request
   timeout is configurable.** A seeded GA run billed every completion against
   an operator who could not see the count, the token volume, or the latency;
@@ -357,11 +409,13 @@
   falling back to a default too short for the configured endpoint). A hosted
   chat API answers a capped completion in seconds, a local model on CPU takes
   minutes for the same payload.
+
 - **A GA replay artifact no longer depends on which thread finished first.**
   The per-function best-run records were appended as workers completed, so two
   runs over the same inputs could order the archive differently and a later
   replay read a different file. Records are keyed and sorted by their
   deterministic key before the artifact is written.
+
 - **Every status in the vocabulary has a mark in the report, the dashboard,
   and the call graph.** A machine verdict (`COMPILE_ERROR`, `MISSING_SIZE`,
   `INTERNAL_ERROR`, and the rest) with no entry in the shared palette rendered
@@ -370,30 +424,17 @@
   dashboard shell, and the forced-colors override all iterate it, and a status
   added to `KNOWN_STATUS` without a mark fails the test that compares the two.
 
-### Fixed
-- **A CRLF checkout shipped CRLF bytes in the sdist and wheel.**
-  `.gitattributes` said `* text=auto`, which normalizes the index but leaves
-  the working tree to `core.autocrlf`. The byte-for-byte second build CI
-  proves (`make build` from a `git archive` copy under a different path,
-  umask, TZ, and locale) varied everything except line endings, so a
-  contributor on a CRLF checkout produced artifacts CI would have rejected.
-  The rule is now `* text=auto eol=lf`: the project ships POSIX/Linux only, and
-  the checkout no longer feeds the host's line-ending policy into the archive.
-
-### Removed
-- **`ProjectConfig.to_dict()`.** It was a one-line alias for
-  `ProjectConfig.as_dict()` kept "for API consistency across SDK models", and
-  the only caller in the tree was a test asserting the alias equalled the
-  method it aliased. `as_dict()` is the one name; use it.
-- **`ARCH_PRESETS[...]["symbol_prefix"]`.** The key was written for all ten
-  arch presets and read by nothing, so every arch declared a symbol-mangling
-  convention that no disassembler, matcher, or exporter ever applied. A
-  consumer that needs one reads the target's own symbol table, not a guess
-  keyed off the architecture.
-- **`llm_seed._key_safe_endpoint()`.** A private one-line wrapper around
-  `config.is_key_safe_endpoint` with a single caller in the same module.
+- **`GET /api/health` answers a liveness probe.** It answers
+  `{"status": "ok", "db": "<coverage.db path>", "targets": N}` without the
+  `target` parameter every other route requires, so a supervisor or a
+  container health check can probe the dashboard without naming a target. The
+  read is one indexed row fetch, not the full query chain: a coverage database
+  that was moved, truncated, or replaced by something unreadable answers 500
+  rather than a cheerful 200 over an empty page. It is read-only like the
+  rest; `docs/CLI.md` and `docs/DB_FORMAT.md` carry it.
 
 ### Changed
+
 - **`dist/rebrew.buildinfo` names the artifact it describes.** The manifest a
   rebuild is attempted from recorded toolchain versions and the epoch knobs
   but not which release those were, and nothing tied the build to the
@@ -401,29 +442,48 @@
   `version` (read from `src/rebrew/__init__.py`, the single source of truth) and
   the sha256 of `build-constraints.txt`, so a rebuild knows both the version
   being reproduced and the backend pins that produced it.
-- **The BinSync git helpers moved out of the `binsync-init` command.**
-  `git_argv` / `run_git` / `one_line` lived in `binsync/init.py`, a Typer
-  command, and `binsync/serial.py` imported them from there, so a library
-  module reached up into a command. They are now `binsync/git.py`, below
-  every caller.
-- **Two command modules took the names their siblings already use.**
-  `drift_cmd.py` is `drift_cli.py` (alongside `toolchain_cli.py`,
+
+- **Breaking:** **The BinSync git helpers moved out of the `binsync-init`
+  command.** `git_argv` / `run_git` / `one_line` lived in `binsync/init.py`, a
+  Typer command, and `binsync/serial.py` imported them from there, so a
+  library module reached up into a command. They are now `binsync/git.py`,
+  below every caller: `from rebrew.binsync.git import run_git`, not
+  `from rebrew.binsync.init import run_git`.
+
+- **Breaking:** **Two command modules took the names their siblings already
+  use.** `drift_cmd.py` is `drift_cli.py` (alongside `toolchain_cli.py`,
   `types_cli.py`, `lzexe_cli.py`), and `exports.py`, which implements
   `rebrew verify-exports`, is `verify_exports.py` (alongside `verify_cache.py`,
   `verify_hash.py`, `verify_placement.py`). The standalone script for the
   `rebrew cache` group is `rebrew-cache`, not `rebrew-cache-cli`.
-- **`/api/sections` rows ship as arrays under `cols`.** It was the one list
-  route still sending a keyed object per row, so every section repeated 14
-  field names ahead of its numbers: a 2000-section payload was 346 KB where it
-  is now 88 KB. The section size now comes from one join on the `(target,
-  name)` primary key instead of a second query and a lookup dict, and the
-  column order is the query layer's tuple, not a second list in the client.
+
+- **Breaking:** **`/api/sections` rows ship as arrays under `cols`.** It was
+  the one list route still sending a keyed object per row, so every section
+  repeated 14 field names ahead of its numbers: a 2000-section payload was
+  346 KB where it is now 88 KB. A client reading `row["name"]` reads
+  `cols[cols.index("name")]` of `row[i]`; the keyed object is gone, not
+  deprecated. The section size now comes from one join on the `(target, name)`
+  primary key instead of a second query and a lookup dict, and the column order
+  is the query layer's tuple, not a second list in the client.
+
+- **Breaking:** **Every `/api/*` error body carries a machine-readable `code`,
+  and an unknown `status` filter is a 400.** The body was `{"error": ...}`;
+  it is now `{"error": ..., "code": ...}` with `missing_target`,
+  `unknown_target`, `invalid_status`, `corrupt_function_stats`,
+  `database_error`, `internal_error`, or a routing code. `error` is unchanged,
+  so a client that only shows the reason keeps working. `?status=<unknown>`
+  used to answer 200 with an empty `functions` list, which read as "this
+  target has no functions in that status"; it now answers 400
+  `invalid_status` and names the valid statuses, so a client that pages until
+  it sees an empty list has to branch on the code instead.
+
 - **`rebrew.matcher`'s lazy exports are typed for consumers.** The package
   resolves its public names through `__getattr__`, which type checkers read as
   `Any`, so `from rebrew.matcher import build_candidate` lost every signature
   in a package that ships `py.typed`. An `if TYPE_CHECKING` mirror of
   `_LAZY_EXPORTS` now carries the real types, with a test failing when the two
   lists drift.
+
 - **Five more test modules join the strict mypy gate.** `test_elf_fixture`,
   `test_env_docs`, `test_flirt_sigs`, `test_resource`, and `test_startup_blas`
   type-check clean under `--strict`, so they move into `[tool.mypy] files`
@@ -431,43 +491,20 @@
   clean too but stays out: `tests` is on `mypy_path`, so its stem collides
   with `tools/check_sdist_wheel.py` and mypy aborts the run at the duplicate
   module name instead of checking anything after it.
+
 - **The strict mypy gate now covers 65 of the 286 test modules.** Ten were
   listed; a full `mypy tests/` sweep found 55 more that already pass
   `--strict` clean, and they join `[tool.mypy] files`. The allowlist is still
   a ratchet rather than a relaxation, and `test_check_sdist_wheel` stays out
   for the duplicate-module-name collision the config comment records.
+
 - **`make lint` runs `ruff check .`, not a hardcoded path list.** The explicit
   `src/ tests/ tools/` left a new top-level Python script outside the CI gate
   while the local pre-commit `ruff-check` hook still flagged it. `format` and
   `format-check` keep the explicit paths on purpose: `ruff format .` also
   rewrites Python snippets inside `docs/*.md`, which the hook
   (`types: [python]`) never sees.
-- **`rebrew.matcher`'s lazy exports are typed for consumers.** The package
-  resolves its public names through `__getattr__`, which type checkers read as
-  `Any`, so `from rebrew.matcher import build_candidate` lost every signature
-  in a package that ships `py.typed`. An `if TYPE_CHECKING` mirror of
-  `_LAZY_EXPORTS` now carries the real types, with a test failing when the two
-  lists drift.
-- **Five more test modules join the strict mypy gate.** `test_elf_fixture`,
-  `test_env_docs`, `test_flirt_sigs`, `test_resource`, and `test_startup_blas`
-  type-check clean under `--strict`, so they move into `[tool.mypy] files`
-  alongside the three that were already listed. `test_check_sdist_wheel` is
-  clean too but stays out: `tests` is on `mypy_path`, so its stem collides
-  with `tools/check_sdist_wheel.py` and mypy aborts the run at the duplicate
-  module name instead of checking anything after it.
-- **`rebrew.matcher`'s lazy exports are typed for consumers.** The package
-  resolves its public names through `__getattr__`, which type checkers read as
-  `Any`, so `from rebrew.matcher import build_candidate` lost every signature
-  in a package that ships `py.typed`. An `if TYPE_CHECKING` mirror of
-  `_LAZY_EXPORTS` now carries the real types, with a test failing when the two
-  lists drift.
-- **Five more test modules join the strict mypy gate.** `test_elf_fixture`,
-  `test_env_docs`, `test_flirt_sigs`, `test_resource`, and `test_startup_blas`
-  type-check clean under `--strict`, so they move into `[tool.mypy] files`
-  alongside the three that were already listed. `test_check_sdist_wheel` is
-  clean too but stays out: `tests` is on `mypy_path`, so its stem collides
-  with `tools/check_sdist_wheel.py` and mypy aborts the run at the duplicate
-  module name instead of checking anything after it.
+
 - **The released SBOM names a license for every component.** `make sbom`
   emitted a `licenses` field only for the three copyleft entries, so 109 of
   112 components reached a downstream scanner blank, which reads as
@@ -479,6 +516,7 @@
   fails on the same disagreement, so a `uv lock --upgrade` lands with its
   grant recorded. `NOTICE` gains the `binsync` extra's `declib`
   (BSD-2-Clause) and names the table.
+
 - **The threat model names the CI boundary instead of denying it.**
   `docs/THREAT_MODEL.md` claimed the surface had no scheduled jobs. CI does
   have one: `.github/workflows/toolchain-sync.yml` runs
@@ -490,18 +528,21 @@
   attributes a nightly run to the repository owner rather than a committer.
   `[Unreleased]` also lost a stray duplicate `### Fixed` heading
   that made `tests/test_packaging.py` red.
+
 - **The two non-`test_` modules under `tests/` are type-checked.**
   `tests/pytest_ansi_env.py` (the plugin every run loads through
   `addopts`) and `tests/bin_util.py` (the COFF builders the fixture
   generator imports) join `mypy`'s `files`; both already pass strict, and a
   typing regression in either would otherwise surface only at runtime. The
   rest of `tests/` stays out until it is clean.
+
 - **The report pages and the coverage dashboard share one chrome token
   set.** Colors, radii, font stacks, and type sizes live in `rebrew.theme`;
   each stylesheet resolves them at build time, so the palette and the scale
   change in one file and the two surfaces cannot drift. The dashboard gains
   the same heading scale the report uses (page title, card value, table
   text, captions) instead of the browser default sizes.
+
 - **Breaking:** **`rebrew.verify_cache.canonical_va_key` is gone; import it
   from `rebrew.utils`, where it lives.** `rebrew.verify_cache` re-exported it
   and three modules reached through that alias, so a helper in `utils` looked
@@ -511,9 +552,11 @@
   The `rebrew_globals.h` / Ghidra data-header regenerators shared a private
   copy of the `Generated:`-line stripper; it is now
   `rebrew.utils.strip_generated_timestamp`.
+
 - **`instruction_clones.normalize_operands` passes a `SimpleNamespace`**
   instead of a private one-method class that held a single `op_str`; the
   stripper it feeds is already typed on the `_OperandCarrier` protocol.
+
 - **Breaking:** **A `[targets]` key that is not a plain file name now fails the
   config load.** A target name becomes a path component (`src/<target>`,
   `bin/<target>`, `db/data_<target>.json`, `layout/<target>/`) and a TOML table
@@ -524,6 +567,7 @@
   on the command line. Real targets are module stems (`SERVER.DLL`,
   `client_exe`); a project that names a target with a separator has to rename
   it and update the paths that referenced the old name.
+
 - **Breaking:** **A toolchain name, family, or image tag from a plugin or an
   overlay directory is rejected when it is not a plain name.** All three become
   directories: the wine prefix under `XDG_CACHE_HOME`, the generated
@@ -534,7 +578,48 @@
   This affects only third-party toolchain plugins, and a plugin that keeps
   packaged names is unaffected.
 
+- **Breaking:** **An `[llm] endpoint` from `rebrew-project.toml` no longer
+  receives `REBREW_LLM_API_KEY`.** The project file outranks
+  `REBREW_LLM_ENDPOINT` when the endpoint resolves, so a checked-out project
+  could name any host and collect the operator's bearer key. `llm_config` now
+  raises `ValueError` for an environment key plus a non-loopback
+  `[llm] endpoint`, naming the two ways to keep seeding: point
+  `REBREW_LLM_ENDPOINT` at the same host, or export
+  `REBREW_LLM_ALLOW_PROJECT_ENDPOINT=1` to accept the endpoint the project
+  names. A loopback endpoint (local ollama / vllm) needs no opt-in, and a key
+  written in the project file itself is unaffected. A project that relied on
+  the pair fails at config resolve with the message, not silently.
+
+### Removed
+
+- **Breaking:** **`ProjectConfig.to_dict()` is gone; call
+  `ProjectConfig.as_dict()`.** It was a one-line alias for
+  `ProjectConfig.as_dict()` kept "for API consistency across SDK models", and
+  the only caller in the tree was a test asserting the alias equalled the
+  method it aliased. `as_dict()` is the one name; a consumer calling
+  `to_dict()` now raises `AttributeError`.
+
+- **Breaking:** **`ARCH_PRESETS[...]["symbol_prefix"]`.** The key was written
+  for all ten
+  arch presets and read by nothing, so every arch declared a symbol-mangling
+  convention that no disassembler, matcher, or exporter ever applied. A
+  consumer that needs one reads the target's own symbol table, not a guess
+  keyed off the architecture.
+
+- **`llm_seed._key_safe_endpoint()`.** A private one-line wrapper around
+  `config.is_key_safe_endpoint` with a single caller in the same module.
+
 ### Fixed
+
+- **A CRLF checkout shipped CRLF bytes in the sdist and wheel.**
+  `.gitattributes` said `* text=auto`, which normalizes the index but leaves
+  the working tree to `core.autocrlf`. The byte-for-byte second build CI
+  proves (`make build` from a `git archive` copy under a different path,
+  umask, TZ, and locale) varied everything except line endings, so a
+  contributor on a CRLF checkout produced artifacts CI would have rejected.
+  The rule is now `* text=auto eol=lf`: the project ships POSIX/Linux only, and
+  the checkout no longer feeds the host's line-ending policy into the archive.
+
 - **The wheel install gate never checked the PEP 561 markers.** The wheel
   declares `Typing :: Typed`, and `py.typed` reaches it through the
   `**/py.typed` package-data glob, but `tools/smoke_wheel_install.py` only
@@ -542,11 +627,13 @@
   glob that stopped matching would install a wheel that runs fine and leaves
   every consumer's type-checker reading rebrew as untyped; both markers are
   now asserted against the installed package.
+
 - **`status --json` emitted a verify timestamp no ISO parser accepts.**
   `last_verify.timestamp` was rendered as `2026-09-27 08:08 UTC`: the trailing
   ` UTC` makes `datetime.fromisoformat` raise, and the minute truncation
   reports one instant for two runs a second apart. It is now the same
   `isoformat()` UTC instant every other emitted timestamp uses.
+
 - **An annotation note containing "Generated:" froze the generated globals
   header.** The idempotency gate dropped any line containing that word from
   both sides of the comparison, so a declaration whose note said
@@ -554,10 +641,12 @@
   editing the note regenerated as "unchanged" and the header kept the stale
   text with no warning. Only the header's own `* Generated:` stamp line is
   stripped now.
+
 - **`--timeout-min` granted a flat extra minute on the GA path.** The flag
   budget was `timeout_min * 60 + 60` in `_run_one_stub_ga` and exactly
   `timeout_min * 60` in the two sibling call sites, so `--timeout-min 1` ran
   for two minutes through the GA and one through the flag sweep.
+
 - **A declined or unanswerable confirmation prompt exited 1, not 2.** The six
   destructive commands that ask before writing (`cfg remove-target`,
   `cfg remove-module`, `merge --delete`, `split --va`, `cache clear`,
@@ -567,10 +656,12 @@
   ran with stdin closed) could not tell a declined prompt from a function that
   failed to match. They now go through `rebrew.cli.confirm_abort`, which exits
   2 and, when stdin was not a terminal, names the flag that skips the prompt.
+
 - **`rebrew-objdiff-build` read an unknown flag as a target name.** The shim
   takes two positionals and nothing else, so `-o` was passed to the config
   loader and surfaced as a config error. A leading `-` now reports
   `unknown option '<flag>'` with the usage line.
+
 - **Public docstrings described code that does not run.** `iter_sources`
   credited `rglob` for the scan that `os.walk` performs (and named no skip
   list, where `_EXCLUDE_DIRS` is applied at every level); `print_diff_summary`
@@ -579,6 +670,7 @@
   `CompareResult.to_dict` did not say the two byte payloads are dropped, so a
   documented round trip through `from_dict` looked lossless to a consumer
   deciding `--fix-sizes` from it.
+
 - **`rebrew init` no longer strands a half-built project.** `rebrew-project.toml`
   is the "already initialized" guard, and the code deliberately wrote it after
   every fallible step so a failed init could be rerun to completion. Two steps
@@ -590,6 +682,7 @@
   rewrite works on the TOML content about to be written
   (`_rewrite_compiler_paths` takes and returns text), so the guard really is
   the last thing init does.
+
 - **`make sdist-check` no longer deletes the release artifacts.** The target
   took the phony `build` as a prerequisite, and `build` opens by removing
   `dist/*.whl`, `dist/*.tar.gz`, `dist/*.buildinfo` and `dist/*.cdx.json`.
@@ -597,22 +690,26 @@
   package job invokes `make sdist-check` on its own, so it rebuilt from
   scratch and dropped the SBOM and buildinfo the upload step requires. It now
   depends on `dist/rebrew.buildinfo` and builds only when `dist/` is empty.
+
 - **`make gen-skills` is deterministic and fails on drift.** The target was a
   `cp -r` plus `sed -i` pipeline: it needed GNU sed, depended on `find`'s
   traversal order, and nothing checked that the copy or the substitution
   actually succeeded. `tools/render_skills.py` now walks the packaged tree in
   sorted order, substitutes only in text assets, and `--check` (wired into
   `make gen-skills-check`) names every file that drifted.
+
 - **`SOURCE_DATE_EPOCH` no longer re-runs git for every reference.** The
   fallback chain left the variable recursively expanded, so each use in the
   build recipes shelled out again; it is now a simple variable with the
   non-git-tree case collapsing to 0 in one step.
+
 - **`make format-check` passes on a clean checkout again.**
   `src/rebrew/import_table.py`, `tests/test_check_idempotency.py`, and
   `tools/check_idempotency.py` were checked in unformatted, so the blocking
   `Ruff format check` CI step and `make pr-check` failed on `main` while the
   pre-commit `ruff-format` hook quietly rewrote them into the working tree
   instead of failing.
+
 - **Bidi and zero-width controls no longer reach a display surface.** A symbol
   name, module, blocker, or status arriving from a target binary, BinSync
   state, or an import table could carry U+202A-U+202E, U+2066-U+2069, the
@@ -623,13 +720,16 @@
   that prints untrusted strings, `error_exit` included) now drops them, and
   the dashboard scrubs the whole JSON payload on the way out, before it reaches
   the DOM.
+
 - **The sibling project name was misspelled across the tree.** `rebrew`'s
   coverage-database consumer is `recoverage`; source comments, docstrings, the
   `rebrew catalog` and `rebrew build-db` help epilogs, the docs, and the
   drawio map all spelled it `recoverage`, so a reader grepping for the
   sibling repo found nothing.
+
 - **`rebrew lint`'s code inventory was understated.** The README counted 19
   W-codes; W030 (markers out of VA order) had shipped since, making 20.
+
 - **`docs/FLAG_SWEEP_TIERS.md` named an axis that does not exist.** The `full`
   tier table listed `msvc_compile_cpp`; the flag set calls it
   `msvc_source_language`, so the row could not be found in `flag_data.py`.
@@ -637,8 +737,10 @@
   `MSVC_SWEEP_TIERS` map, where `normal` and `thorough` additionally name
   `msvc_fp` — an id `MSVC6_FLAGS` does not carry, so it contributes nothing
   on the MSVC6 path the page documents.
+
 - **`docs/README.md` capped the linter codes at W029** while the reference
   page documents through W030.
+
 - **Docstrings on six public callables omitted parameters they take.**
   `rebrew.prove.prove_equivalence` (no `stub_thunks`), `rebrew.test.main`
   (eight flags, including every `--all-targets` interaction),
@@ -650,6 +752,7 @@
   `version`). A caller reading only the docstring could not tell that
   `--stub-thunks` stubs non-import DIR32 thunks, that `--timeout-min` bounds
   the flag sweep, or that `obj_name` must be a plain filename.
+
 - **`rebrew init --refresh-agents` converges instead of accumulating stale
   skills.** The render wrote every packaged skill but never removed one the
   package no longer ships, and `--check` only looked at the packaged set, so an
@@ -658,12 +761,14 @@
   `.agents/skills/.rebrew-scaffold.json`; a later refresh prunes a file that
   dropped out of the set, and `--check` reports it as `stale`. A stale file
   edited since it was written is reported as `stale-modified` and kept.
+
 - **`rebrew build-db --force` keeps the history it cannot rebuild.** The force
   path unlinked the database file, which discarded `history` and
   `verify_results` even though the rest of the build treats both as persistent
   (nothing else in the DB is their source). The rows of those two tables are
   now read out before the delete and restored in the rebuild's transaction,
   skipping rows already present, so a second `--force` run adds no duplicate.
+
 - **`rebrew build-db --force` no longer drops the rows it just saved.** The
   salvage path read only `(target, va)` out of `verify_results` and re-inserted
   only those two columns; `verified_at` is `NOT NULL`, so `INSERT OR IGNORE`
@@ -676,144 +781,24 @@
   the `IS`-based dedupe still treats two NULL statuses as one transition). A
   table from an older build that lacks a column is projected down to the
   columns it has and padded back to full width.
+
 - **The `--force` regression test exercised nothing.** `_write_stale_db`
   stamped the version under a target the version gate never reads first
   (`_schema` rather than `__schema__`), so a real database already carrying a
   current schema stamp kept passing the gate: the file was never unlinked and
   the restore never ran. It now stamps `SCHEMA_TARGET`, and the assertions
   cover the verify metrics as well as the keys.
+
 - **`make format-check` was red at HEAD.** `src/rebrew/data_layout.py` was
   missing a blank line before `_find_dlead_pad` and `tests/test_utils.py` had
   a signature split that fits on one line, so the formatter gate failed on a
   clean checkout. Both are formatter output, applied.
+
 - **`[Unreleased]` repeated its Added/Changed/Fixed headings.** Three of the
   six headings were duplicates, so `test_unreleased_uses_each_changelog_group_once`
   failed and the later entries rendered under a second heading. The groups are
   now one each, newest first.
-- **A declined or unanswerable confirmation prompt exited 1, not 2.** The six
-  destructive commands that ask before writing (`cfg remove-target`,
-  `cfg remove-module`, `merge --delete`, `split --va`, `cache clear`,
-  `catalog --fix-sizes`) used `typer.confirm(abort=True)`. Click turns the
-  resulting abort into `Aborted.` with exit 1, the code `rebrew --help`
-  reserves for "mismatch or test failure", so a script that answered "no" (or
-  ran with stdin closed) could not tell a declined prompt from a function that
-  failed to match. They now go through `rebrew.cli.confirm_abort`, which exits
-  2 and, when stdin was not a terminal, names the flag that skips the prompt.
-- **`rebrew-objdiff-build` read an unknown flag as a target name.** The shim
-  takes two positionals and nothing else, so `-o` was passed to the config
-  loader and surfaced as a config error. A leading `-` now reports
-  `unknown option '<flag>'` with the usage line.
-- **Public docstrings described code that does not run.** `iter_sources`
-  credited `rglob` for the scan that `os.walk` performs (and named no skip
-  list, where `_EXCLUDE_DIRS` is applied at every level); `print_diff_summary`
-  claimed the payload carried no `invalid` count and printed from a stored
-  split that the function does not keep, when `diff_functions` emits that key.
-  `CompareResult.to_dict` did not say the two byte payloads are dropped, so a
-  documented round trip through `from_dict` looked lossless to a consumer
-  deciding `--fix-sizes` from it.
-- **`rebrew init` no longer strands a half-built project.** `rebrew-project.toml`
-  is the "already initialized" guard, and the code deliberately wrote it after
-  every fallible step so a failed init could be rerun to completion. Two steps
-  had drifted past it: `--install-completions` rendered its shell scripts after
-  the guard, and `--link-tools-from` re-resolved the toolchain layout by
-  rewriting the already-written TOML. A failure in either left a directory the
-  next run refuses with "A rebrew-project.toml already exists" and no way to
-  finish. Completions now render before the guard, and the compiler-path
-  rewrite works on the TOML content about to be written
-  (`_rewrite_compiler_paths` takes and returns text), so the guard really is
-  the last thing init does.
-- **`make sdist-check` no longer deletes the release artifacts.** The target
-  took the phony `build` as a prerequisite, and `build` opens by removing
-  `dist/*.whl`, `dist/*.tar.gz`, `dist/*.buildinfo` and `dist/*.cdx.json`.
-  Within one `make pr-check` run make skips the second `build`, but the CI
-  package job invokes `make sdist-check` on its own, so it rebuilt from
-  scratch and dropped the SBOM and buildinfo the upload step requires. It now
-  depends on `dist/rebrew.buildinfo` and builds only when `dist/` is empty.
-- **`make gen-skills` is deterministic and fails on drift.** The target was a
-  `cp -r` plus `sed -i` pipeline: it needed GNU sed, depended on `find`'s
-  traversal order, and nothing checked that the copy or the substitution
-  actually succeeded. `tools/render_skills.py` now walks the packaged tree in
-  sorted order, substitutes only in text assets, and `--check` (wired into
-  `make gen-skills-check`) names every file that drifted.
-- **`SOURCE_DATE_EPOCH` no longer re-runs git for every reference.** The
-  fallback chain left the variable recursively expanded, so each use in the
-  build recipes shelled out again; it is now a simple variable with the
-  non-git-tree case collapsing to 0 in one step.
-- **`make format-check` passes on a clean checkout again.**
-  `src/rebrew/import_table.py`, `tests/test_check_idempotency.py`, and
-  `tools/check_idempotency.py` were checked in unformatted, so the blocking
-  `Ruff format check` CI step and `make pr-check` failed on `main` while the
-  pre-commit `ruff-format` hook quietly rewrote them into the working tree
-  instead of failing.
-- **Bidi and zero-width controls no longer reach a display surface.** A symbol
-  name, module, blocker, or status arriving from a target binary, BinSync
-  state, or an import table could carry U+202A-U+202E, U+2066-U+2069, the
-  directional marks, zero-width characters, or a BOM. Those render as nothing
-  while reordering or hiding the text around them, so `sub_A‮txt` reads as
-  `sub_txt_A` and a status cell next to a hostile name could be made to look
-  like a different function or verdict. `untrusted_text` (every CLI surface
-  that prints untrusted strings, `error_exit` included) now drops them, and
-  the dashboard scrubs the whole JSON payload on the way out, before it reaches
-  the DOM.
-- **The sibling project name was misspelled across the tree.** `rebrew`'s
-  coverage-database consumer is `recoverage`; source comments, docstrings, the
-  `rebrew catalog` and `rebrew build-db` help epilogs, the docs, and the
-  drawio map all spelled it `recoverage`, so a reader grepping for the
-  sibling repo found nothing.
-- **`rebrew lint`'s code inventory was understated.** The README counted 19
-  W-codes; W030 (markers out of VA order) had shipped since, making 20.
-- **`docs/FLAG_SWEEP_TIERS.md` named an axis that does not exist.** The `full`
-  tier table listed `msvc_compile_cpp`; the flag set calls it
-  `msvc_source_language`, so the row could not be found in `flag_data.py`.
-  The same file's per-tier axis counts also described the shared
-  `MSVC_SWEEP_TIERS` map, where `normal` and `thorough` additionally name
-  `msvc_fp` — an id `MSVC6_FLAGS` does not carry, so it contributes nothing
-  on the MSVC6 path the page documents.
-- **`docs/README.md` capped the linter codes at W029** while the reference
-  page documents through W030.
-- **Docstrings on six public callables omitted parameters they take.**
-  `rebrew.prove.prove_equivalence` (no `stub_thunks`), `rebrew.test.main`
-  (eight flags, including every `--all-targets` interaction),
-  `rebrew.matcher.compiler.flag_sweep` (no `extra_include_dirs`,
-  `posix_style`, `deadline`), `rebrew.coff_reloc.smart_reloc_compare` (no
-  `reloc_table`), `rebrew.compile.classify_compare_result` /
-  `compile_to_obj` / `compile_and_compare`,
-  `rebrew.lint.lint_file` (no `pedantic`), and `rebrew.tc16.compile_c` (no
-  `version`). A caller reading only the docstring could not tell that
-  `--stub-thunks` stubs non-import DIR32 thunks, that `--timeout-min` bounds
-  the flag sweep, or that `obj_name` must be a plain filename.
-- **`rebrew init --refresh-agents` converges instead of accumulating stale
-  skills.** The render wrote every packaged skill but never removed one the
-  package no longer ships, and `--check` only looked at the packaged set, so an
-  upgrade left a deleted `SKILL.md` on disk and reported no drift. Each render
-  now records the files it wrote (path plus digest) in
-  `.agents/skills/.rebrew-scaffold.json`; a later refresh prunes a file that
-  dropped out of the set, and `--check` reports it as `stale`. A stale file
-  edited since it was written is reported as `stale-modified` and kept.
-- **`rebrew build-db --force` keeps the history it cannot rebuild.** The force
-  path unlinked the database file, which discarded `history` and
-  `verify_results` even though the rest of the build treats both as persistent
-  (nothing else in the DB is their source). The rows of those two tables are
-  now read out before the delete and restored in the rebuild's transaction,
-  skipping rows already present, so a second `--force` run adds no duplicate.
-- **`rebrew build-db --force` no longer drops the rows it just saved.** The
-  salvage path read only `(target, va)` out of `verify_results` and re-inserted
-  only those two columns; `verified_at` is `NOT NULL`, so `INSERT OR IGNORE`
-  rejected every row without raising and the force rebuild lost all of them.
-  The `history` restore was worse: its duplicate check compared the six values
-  it was inserting against six bound parameters the statement never received,
-  so any database carrying history rows failed the rebuild outright with
-  `Incorrect number of bindings supplied`. Both tables now round-trip every
-  column, and each history row is bound twice (once inserted, once compared, so
-  the `IS`-based dedupe still treats two NULL statuses as one transition). A
-  table from an older build that lacks a column is projected down to the
-  columns it has and padded back to full width.
-- **The `--force` regression test exercised nothing.** `_write_stale_db`
-  stamped the version under a target the version gate never reads first
-  (`_schema` rather than `__schema__`), so a real database already carrying a
-  current schema stamp kept passing the gate: the file was never unlinked and
-  the restore never ran. It now stamps `SCHEMA_TARGET`, and the assertions
-  cover the verify metrics as well as the keys.
+
 - **The pr-check SBOM-ordering test still forbade the order the sdist fix made
   safe.** `test_pr_check_orders_sbom_before_sdist_check` demanded `sbom` before
   `sdist-check` because `sdist-check` used to depend on the phony `build` and
@@ -823,6 +808,7 @@
   protects the BOM (`build` before both `sdist-check` and `sbom`), and the
   three places that repeated the stale reason (`CONTRIBUTING.md`,
   `docs/CI.md`, the package job comment) name `build` alone.
+
 - **The 2.1.0 and 2.3.0 notes did not mark their removals as breaking.**
   `CONTRIBUTING.md` puts a removed command or flag and a removed config key
   under `**Breaking:**`, and both releases took one without the prefix:
@@ -832,12 +818,14 @@
   saw an unflagged removal where a script passing the flag or key now fails.
   Both sections now carry the prefix and name the failing call; no code
   changed, since the removals themselves are what shipped.
+
 - **The `[Unreleased]` block repeated two of its groups.** A second
   `### Added` and a second `### Changed` had accumulated mid-block (the same
   drift `test_unreleased_uses_each_changelog_group_once` was written for, and
   it failed on the tree), scattering the staged `**Breaking:**` entries across
   a second copy of each heading. The entries are unchanged, merged under one
   `Added` / `Changed` / `Fixed` each.
+
 - **User-facing text pointed at a `docs/` tree the install does not carry.**
   `docs/` is pruned from the sdist and never enters the wheel, so `rebrew
   init`'s "Next steps", `rebrew intake`'s family notes, `rebrew toolchain`'s
@@ -847,117 +835,7 @@
   have (a scaffolded project has no `docs/` either). Each now reads "the
   rebrew repo's docs/…", the wording the packaged agent skills already use,
   and `tests/test_packaging.py` fails on any new unqualified pointer.
-- **Public docstrings described code that does not run.** `iter_sources`
-  credited `rglob` for the scan that `os.walk` performs (and named no skip
-  list, where `_EXCLUDE_DIRS` is applied at every level); `print_diff_summary`
-  claimed the payload carried no `invalid` count and printed from a stored
-  split that the function does not keep, when `diff_functions` emits that key.
-  `CompareResult.to_dict` did not say the two byte payloads are dropped, so a
-  documented round trip through `from_dict` looked lossless to a consumer
-  deciding `--fix-sizes` from it.
-- **`rebrew init` no longer strands a half-built project.** `rebrew-project.toml`
-  is the "already initialized" guard, and the code deliberately wrote it after
-  every fallible step so a failed init could be rerun to completion. Two steps
-  had drifted past it: `--install-completions` rendered its shell scripts after
-  the guard, and `--link-tools-from` re-resolved the toolchain layout by
-  rewriting the already-written TOML. A failure in either left a directory the
-  next run refuses with "A rebrew-project.toml already exists" and no way to
-  finish. Completions now render before the guard, and the compiler-path
-  rewrite works on the TOML content about to be written
-  (`_rewrite_compiler_paths` takes and returns text), so the guard really is
-  the last thing init does.
-- **`make sdist-check` no longer deletes the release artifacts.** The target
-  took the phony `build` as a prerequisite, and `build` opens by removing
-  `dist/*.whl`, `dist/*.tar.gz`, `dist/*.buildinfo` and `dist/*.cdx.json`.
-  Within one `make pr-check` run make skips the second `build`, but the CI
-  package job invokes `make sdist-check` on its own, so it rebuilt from
-  scratch and dropped the SBOM and buildinfo the upload step requires. It now
-  depends on `dist/rebrew.buildinfo` and builds only when `dist/` is empty.
-- **`make gen-skills` is deterministic and fails on drift.** The target was a
-  `cp -r` plus `sed -i` pipeline: it needed GNU sed, depended on `find`'s
-  traversal order, and nothing checked that the copy or the substitution
-  actually succeeded. `tools/render_skills.py` now walks the packaged tree in
-  sorted order, substitutes only in text assets, and `--check` (wired into
-  `make gen-skills-check`) names every file that drifted.
-- **`SOURCE_DATE_EPOCH` no longer re-runs git for every reference.** The
-  fallback chain left the variable recursively expanded, so each use in the
-  build recipes shelled out again; it is now a simple variable with the
-  non-git-tree case collapsing to 0 in one step.
-- **`make format-check` passes on a clean checkout again.**
-  `src/rebrew/import_table.py`, `tests/test_check_idempotency.py`, and
-  `tools/check_idempotency.py` were checked in unformatted, so the blocking
-  `Ruff format check` CI step and `make pr-check` failed on `main` while the
-  pre-commit `ruff-format` hook quietly rewrote them into the working tree
-  instead of failing.
-- **Bidi and zero-width controls no longer reach a display surface.** A symbol
-  name, module, blocker, or status arriving from a target binary, BinSync
-  state, or an import table could carry U+202A-U+202E, U+2066-U+2069, the
-  directional marks, zero-width characters, or a BOM. Those render as nothing
-  while reordering or hiding the text around them, so `sub_A‮txt` reads as
-  `sub_txt_A` and a status cell next to a hostile name could be made to look
-  like a different function or verdict. `untrusted_text` (every CLI surface
-  that prints untrusted strings, `error_exit` included) now drops them, and
-  the dashboard scrubs the whole JSON payload on the way out, before it reaches
-  the DOM.
-- **The sibling project name was misspelled across the tree.** `rebrew`'s
-  coverage-database consumer is `recoverage`; source comments, docstrings, the
-  `rebrew catalog` and `rebrew build-db` help epilogs, the docs, and the
-  drawio map all spelled it `recoverage`, so a reader grepping for the
-  sibling repo found nothing.
-- **`rebrew lint`'s code inventory was understated.** The README counted 19
-  W-codes; W030 (markers out of VA order) had shipped since, making 20.
-- **`docs/FLAG_SWEEP_TIERS.md` named an axis that does not exist.** The `full`
-  tier table listed `msvc_compile_cpp`; the flag set calls it
-  `msvc_source_language`, so the row could not be found in `flag_data.py`.
-  The same file's per-tier axis counts also described the shared
-  `MSVC_SWEEP_TIERS` map, where `normal` and `thorough` additionally name
-  `msvc_fp` — an id `MSVC6_FLAGS` does not carry, so it contributes nothing
-  on the MSVC6 path the page documents.
-- **`docs/README.md` capped the linter codes at W029** while the reference
-  page documents through W030.
-- **Docstrings on six public callables omitted parameters they take.**
-  `rebrew.prove.prove_equivalence` (no `stub_thunks`), `rebrew.test.main`
-  (eight flags, including every `--all-targets` interaction),
-  `rebrew.matcher.compiler.flag_sweep` (no `extra_include_dirs`,
-  `posix_style`, `deadline`), `rebrew.coff_reloc.smart_reloc_compare` (no
-  `reloc_table`), `rebrew.compile.classify_compare_result` /
-  `compile_to_obj` / `compile_and_compare`,
-  `rebrew.lint.lint_file` (no `pedantic`), and `rebrew.tc16.compile_c` (no
-  `version`). A caller reading only the docstring could not tell that
-  `--stub-thunks` stubs non-import DIR32 thunks, that `--timeout-min` bounds
-  the flag sweep, or that `obj_name` must be a plain filename.
-- **`rebrew init --refresh-agents` converges instead of accumulating stale
-  skills.** The render wrote every packaged skill but never removed one the
-  package no longer ships, and `--check` only looked at the packaged set, so an
-  upgrade left a deleted `SKILL.md` on disk and reported no drift. Each render
-  now records the files it wrote (path plus digest) in
-  `.agents/skills/.rebrew-scaffold.json`; a later refresh prunes a file that
-  dropped out of the set, and `--check` reports it as `stale`. A stale file
-  edited since it was written is reported as `stale-modified` and kept.
-- **`rebrew build-db --force` keeps the history it cannot rebuild.** The force
-  path unlinked the database file, which discarded `history` and
-  `verify_results` even though the rest of the build treats both as persistent
-  (nothing else in the DB is their source). The rows of those two tables are
-  now read out before the delete and restored in the rebuild's transaction,
-  skipping rows already present, so a second `--force` run adds no duplicate.
-- **`rebrew build-db --force` no longer drops the rows it just saved.** The
-  salvage path read only `(target, va)` out of `verify_results` and re-inserted
-  only those two columns; `verified_at` is `NOT NULL`, so `INSERT OR IGNORE`
-  rejected every row without raising and the force rebuild lost all of them.
-  The `history` restore was worse: its duplicate check compared the six values
-  it was inserting against six bound parameters the statement never received,
-  so any database carrying history rows failed the rebuild outright with
-  `Incorrect number of bindings supplied`. Both tables now round-trip every
-  column, and each history row is bound twice (once inserted, once compared, so
-  the `IS`-based dedupe still treats two NULL statuses as one transition). A
-  table from an older build that lacks a column is projected down to the
-  columns it has and padded back to full width.
-- **The `--force` regression test exercised nothing.** `_write_stale_db`
-  stamped the version under a target the version gate never reads first
-  (`_schema` rather than `__schema__`), so a real database already carrying a
-  current schema stamp kept passing the gate: the file was never unlinked and
-  the restore never ran. It now stamps `SCHEMA_TARGET`, and the assertions
-  cover the verify metrics as well as the keys.
+
 - **`rebrew fix` and `rebrew migrate-markers` re-encoded legacy sources as
   UTF-8.** Both read through `read_source_text`, which detects the file's
   encoding, then discarded the detected value and wrote the result with the
@@ -966,6 +844,7 @@
   loop measures changed on every run. Both now pass the detected encoding to
   `atomic_write_text`, the convention every other annotation/edit path
   follows.
+
 - **`rebrew.workspace.config.target_marker` returned an unnormalized marker.**
   An explicit `marker` went back out as written, while
   `rebrew.config.module_marker` and the loader both normalize to NFC. A config

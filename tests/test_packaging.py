@@ -134,6 +134,20 @@ class TestPackagingMetadata:
         bad += [f"repeated {h}" for h in set(heads) if heads.count(h) > 1]
         assert bad == [], bad
 
+    def test_unreleased_repeats_no_entry(self) -> None:
+        """``[Unreleased]`` lists every change exactly once.
+
+        A merge of two release-prep branches landed 38 copies of the same
+        bullets in the section, so a reader counted one change several times
+        and the next release note was roughly twice the work it described.
+        The first line of an entry is its identity: two entries that open the
+        same way describe the same change.
+        """
+        text = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+        unreleased = text.split("## [Unreleased]", 1)[1].split("\n## [", 1)[0]
+        opens = re.findall(r"^- (.*)$", unreleased, flags=re.M)
+        assert len(opens) == len(set(opens)), sorted({o for o in opens if opens.count(o) > 1})
+
     def test_notes_added_after_the_tag_stay_unreleased(self) -> None:
         """A bullet written after the tag must not land in that tag's section.
 
