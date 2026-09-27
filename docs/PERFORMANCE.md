@@ -103,18 +103,23 @@ precompressed at both codecs at import. Measured 500-row functions JSON:
 gzip-5 4728 → zstd-5 2912 bytes. Gates: `TestEncodingNegotiation`,
 `test_handler_serves_precompressed_static`.
 
-Shell HTML (zstd-19): 3341 bytes on the wire (was ~8.2 KB with inlined JS).
-All three entry assets total 11981 bytes zstd / 12567 gzip, inside the RFC 6928
+Shell HTML (zstd-19): 3398 bytes on the wire (was ~8.2 KB with inlined JS).
+All three entry assets total 12069 bytes zstd / 12673 gzip, inside the RFC 6928
 14600-byte initial window less a 640-byte-per-response header reserve
 (`_ENTRY_WIRE_BUDGET_BYTES`, 12680), so the loading chrome paints before
-`/app.js` (8497 zstd) and `/boot-guard.js` (143 zstd) finish. Gate:
+`/app.js` (8528 zstd) and `/boot-guard.js` (143 zstd) finish. Gate:
 `test_entry_assets_fit_initial_congestion_window`.
+
+The gzip path is the binding one: 12673 of 12680 budgeted bytes, 7 to spare
+(zstd has 611). With the measured 1728 bytes of response headers the cold
+flight is 14401 of the 14600-byte window. Any shell or client growth has to
+come out of those 7 gzip bytes, so trim copy before adding an asset.
 
 Two per-response costs came off that same window. `send_response` is overridden
 to send the status line and `Date` only, dropping the stdlib
 `Server: BaseHTTP/0.6 Python/<patch>` banner: measured header blocks 592 → 555
-(shell), 624 → 587 (`/app.js`), 623 → 586 (`/boot-guard.js`), 13515 bytes for
-the three responses with bodies instead of 13842. `disable_nagle_algorithm`
+(shell), 624 → 587 (`/app.js`), 623 → 586 (`/boot-guard.js`), 13797 bytes for
+the three responses with bodies instead of 14070. `disable_nagle_algorithm`
 is set because headers and body leave as two writes on an unbuffered socket,
 so Nagle would hold the body's first segment until the header block is
 acknowledged. Gates: `TestResponseFraming`.
@@ -147,7 +152,7 @@ functions, `/api/functions` CPU / 100: 500 rows 0.059 s / 32 KB → 100 rows
 Remaining: 100-row HTML join. Table virtualization and cross-request pooling
 were not measured.
 
-Dashboard shell gzip is 3428 bytes, `/app.js` gzip is 8981 bytes, and
+Dashboard shell gzip is 3485 bytes, `/app.js` gzip is 9030 bytes, and
 `/boot-guard.js` gzip is 158 (same
 lengths as a timestamped header; the mtime field is 4 bytes either way).
 `mtime=0` makes those bytes a function of the content, so a restart does

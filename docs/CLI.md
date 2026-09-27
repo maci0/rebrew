@@ -2384,6 +2384,12 @@ A Mermaid call graph larger than 32 KB is written to `callgraph.mmd`;
 also gets `.gz` and `.zst` sidecars when those are smaller. Regenerating
 the site deletes pages and sidecars the new report does not write.
 
+The sidecars only pay off when the server sends them directly, so serve the
+site with precompressed-asset support rather than on-demand compression
+(nginx `gzip_static on;` picks up the `.gz`; a server that maps `.zst` to
+`Content-Encoding: zstd` picks up the smaller one). Without it every load
+re-compresses the same bytes.
+
 `--decomp-dev <path>` instead emits an objdiff-format progress report
 (`report.proto` v2, JSON-serialized) for decomp.dev ingestion: per-unit
 function lists with `fuzzy_match_percent` (EXACT/RELOC → 100,
