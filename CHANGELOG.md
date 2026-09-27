@@ -1,5 +1,152 @@
 ## [Unreleased]
 
+### Changed
+- **`/api/sections` rows ship as arrays under `cols`.** It was the one list
+  route still sending a keyed object per row, so every section repeated 14
+  field names ahead of its numbers: a 2000-section payload was 346 KB where it
+  is now 88 KB. The section size now comes from one join on the `(target,
+  name)` primary key instead of a second query and a lookup dict, and the
+  column order is the query layer's tuple, not a second list in the client.
+- **`rebrew.matcher`'s lazy exports are typed for consumers.** The package
+  resolves its public names through `__getattr__`, which type checkers read as
+  `Any`, so `from rebrew.matcher import build_candidate` lost every signature
+  in a package that ships `py.typed`. An `if TYPE_CHECKING` mirror of
+  `_LAZY_EXPORTS` now carries the real types, with a test failing when the two
+  lists drift.
+- **Five more test modules join the strict mypy gate.** `test_elf_fixture`,
+  `test_env_docs`, `test_flirt_sigs`, `test_resource`, and `test_startup_blas`
+  type-check clean under `--strict`, so they move into `[tool.mypy] files`
+  alongside the three that were already listed. `test_check_sdist_wheel` is
+  clean too but stays out: `tests` is on `mypy_path`, so its stem collides
+  with `tools/check_sdist_wheel.py` and mypy aborts the run at the duplicate
+  module name instead of checking anything after it.
+
+### Fixed
+- **A declined or unanswerable confirmation prompt exited 1, not 2.** The six
+  destructive commands that ask before writing (`cfg remove-target`,
+  `cfg remove-module`, `merge --delete`, `split --va`, `cache clear`,
+  `catalog --fix-sizes`) used `typer.confirm(abort=True)`. Click turns the
+  resulting abort into `Aborted.` with exit 1, the code `rebrew --help`
+  reserves for "mismatch or test failure", so a script that answered "no" (or
+  ran with stdin closed) could not tell a declined prompt from a function that
+  failed to match. They now go through `rebrew.cli.confirm_abort`, which exits
+  2 and, when stdin was not a terminal, names the flag that skips the prompt.
+- **`rebrew-objdiff-build` read an unknown flag as a target name.** The shim
+  takes two positionals and nothing else, so `-o` was passed to the config
+  loader and surfaced as a config error. A leading `-` now reports
+  `unknown option '<flag>'` with the usage line.
+- **Public docstrings described code that does not run.** `iter_sources`
+  credited `rglob` for the scan that `os.walk` performs (and named no skip
+  list, where `_EXCLUDE_DIRS` is applied at every level); `print_diff_summary`
+  claimed the payload carried no `invalid` count and printed from a stored
+  split that the function does not keep, when `diff_functions` emits that key.
+  `CompareResult.to_dict` did not say the two byte payloads are dropped, so a
+  documented round trip through `from_dict` looked lossless to a consumer
+  deciding `--fix-sizes` from it.
+- **`rebrew init` no longer strands a half-built project.** `rebrew-project.toml`
+  is the "already initialized" guard, and the code deliberately wrote it after
+  every fallible step so a failed init could be rerun to completion. Two steps
+  had drifted past it: `--install-completions` rendered its shell scripts after
+  the guard, and `--link-tools-from` re-resolved the toolchain layout by
+  rewriting the already-written TOML. A failure in either left a directory the
+  next run refuses with "A rebrew-project.toml already exists" and no way to
+  finish. Completions now render before the guard, and the compiler-path
+  rewrite works on the TOML content about to be written
+  (`_rewrite_compiler_paths` takes and returns text), so the guard really is
+  the last thing init does.
+- **`make sdist-check` no longer deletes the release artifacts.** The target
+  took the phony `build` as a prerequisite, and `build` opens by removing
+  `dist/*.whl`, `dist/*.tar.gz`, `dist/*.buildinfo` and `dist/*.cdx.json`.
+  Within one `make pr-check` run make skips the second `build`, but the CI
+  package job invokes `make sdist-check` on its own, so it rebuilt from
+  scratch and dropped the SBOM and buildinfo the upload step requires. It now
+  depends on `dist/rebrew.buildinfo` and builds only when `dist/` is empty.
+- **`make gen-skills` is deterministic and fails on drift.** The target was a
+  `cp -r` plus `sed -i` pipeline: it needed GNU sed, depended on `find`'s
+  traversal order, and nothing checked that the copy or the substitution
+  actually succeeded. `tools/render_skills.py` now walks the packaged tree in
+  sorted order, substitutes only in text assets, and `--check` (wired into
+  `make gen-skills-check`) names every file that drifted.
+- **`SOURCE_DATE_EPOCH` no longer re-runs git for every reference.** The
+  fallback chain left the variable recursively expanded, so each use in the
+  build recipes shelled out again; it is now a simple variable with the
+  non-git-tree case collapsing to 0 in one step.
+- **`make format-check` passes on a clean checkout again.**
+  `src/rebrew/import_table.py`, `tests/test_check_idempotency.py`, and
+  `tools/check_idempotency.py` were checked in unformatted, so the blocking
+  `Ruff format check` CI step and `make pr-check` failed on `main` while the
+  pre-commit `ruff-format` hook quietly rewrote them into the working tree
+  instead of failing.
+- **Bidi and zero-width controls no longer reach a display surface.** A symbol
+  name, module, blocker, or status arriving from a target binary, BinSync
+  state, or an import table could carry U+202A-U+202E, U+2066-U+2069, the
+  directional marks, zero-width characters, or a BOM. Those render as nothing
+  while reordering or hiding the text around them, so `sub_A‮txt` reads as
+  `sub_txt_A` and a status cell next to a hostile name could be made to look
+  like a different function or verdict. `untrusted_text` (every CLI surface
+  that prints untrusted strings, `error_exit` included) now drops them, and
+  the dashboard scrubs the whole JSON payload on the way out, before it reaches
+  the DOM.
+- **The sibling project name was misspelled across the tree.** `rebrew`'s
+  coverage-database consumer is `recoverage`; source comments, docstrings, the
+  `rebrew catalog` and `rebrew build-db` help epilogs, the docs, and the
+  drawio map all spelled it `recoverage`, so a reader grepping for the
+  sibling repo found nothing.
+- **`rebrew lint`'s code inventory was understated.** The README counted 19
+  W-codes; W030 (markers out of VA order) had shipped since, making 20.
+- **`docs/FLAG_SWEEP_TIERS.md` named an axis that does not exist.** The `full`
+  tier table listed `msvc_compile_cpp`; the flag set calls it
+  `msvc_source_language`, so the row could not be found in `flag_data.py`.
+  The same file's per-tier axis counts also described the shared
+  `MSVC_SWEEP_TIERS` map, where `normal` and `thorough` additionally name
+  `msvc_fp` — an id `MSVC6_FLAGS` does not carry, so it contributes nothing
+  on the MSVC6 path the page documents.
+- **`docs/README.md` capped the linter codes at W029** while the reference
+  page documents through W030.
+- **Docstrings on six public callables omitted parameters they take.**
+  `rebrew.prove.prove_equivalence` (no `stub_thunks`), `rebrew.test.main`
+  (eight flags, including every `--all-targets` interaction),
+  `rebrew.matcher.compiler.flag_sweep` (no `extra_include_dirs`,
+  `posix_style`, `deadline`), `rebrew.coff_reloc.smart_reloc_compare` (no
+  `reloc_table`), `rebrew.compile.classify_compare_result` /
+  `compile_to_obj` / `compile_and_compare`,
+  `rebrew.lint.lint_file` (no `pedantic`), and `rebrew.tc16.compile_c` (no
+  `version`). A caller reading only the docstring could not tell that
+  `--stub-thunks` stubs non-import DIR32 thunks, that `--timeout-min` bounds
+  the flag sweep, or that `obj_name` must be a plain filename.
+- **`rebrew init --refresh-agents` converges instead of accumulating stale
+  skills.** The render wrote every packaged skill but never removed one the
+  package no longer ships, and `--check` only looked at the packaged set, so an
+  upgrade left a deleted `SKILL.md` on disk and reported no drift. Each render
+  now records the files it wrote (path plus digest) in
+  `.agents/skills/.rebrew-scaffold.json`; a later refresh prunes a file that
+  dropped out of the set, and `--check` reports it as `stale`. A stale file
+  edited since it was written is reported as `stale-modified` and kept.
+- **`rebrew build-db --force` keeps the history it cannot rebuild.** The force
+  path unlinked the database file, which discarded `history` and
+  `verify_results` even though the rest of the build treats both as persistent
+  (nothing else in the DB is their source). The rows of those two tables are
+  now read out before the delete and restored in the rebuild's transaction,
+  skipping rows already present, so a second `--force` run adds no duplicate.
+- **`rebrew build-db --force` no longer drops the rows it just saved.** The
+  salvage path read only `(target, va)` out of `verify_results` and re-inserted
+  only those two columns; `verified_at` is `NOT NULL`, so `INSERT OR IGNORE`
+  rejected every row without raising and the force rebuild lost all of them.
+  The `history` restore was worse: its duplicate check compared the six values
+  it was inserting against six bound parameters the statement never received,
+  so any database carrying history rows failed the rebuild outright with
+  `Incorrect number of bindings supplied`. Both tables now round-trip every
+  column, and each history row is bound twice (once inserted, once compared, so
+  the `IS`-based dedupe still treats two NULL statuses as one transition). A
+  table from an older build that lacks a column is projected down to the
+  columns it has and padded back to full width.
+- **The `--force` regression test exercised nothing.** `_write_stale_db`
+  stamped the version under a target the version gate never reads first
+  (`_schema` rather than `__schema__`), so a real database already carrying a
+  current schema stamp kept passing the gate: the file was never unlinked and
+  the restore never ran. It now stamps `SCHEMA_TARGET`, and the assertions
+  cover the verify metrics as well as the keys.
+
 ### Added
 
 - **`apply_commands_via_mcp` returns a named count pair.** The return was a
@@ -17,7 +164,6 @@
   now raises its own type (re-exported from `rebrew.errors`) carrying the
   offending fields; both keep their original `RuntimeError` / `ValueError`
   base, so existing handlers are unaffected.
-
 - **Shell is linted too.** `tools/ci_clone_resembl.sh` is the one shell
   script both workflows run, and nothing looked at it: the gate was ruff,
   ruff format, and mypy, so a quoting or unset-variable regression in the

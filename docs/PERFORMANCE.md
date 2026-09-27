@@ -97,6 +97,11 @@ dicts. 500-row JSON 58 915 → 31 978 bytes (0.54×). `json.dumps` CPU / 200:
 globals JSON 8053 → 4597 bytes (0.57×); gzip-5 872 → 821. Gate:
 `test_functions_omit_unused_marker_type` (cols lists).
 
+`/api/sections` moved to it too, on the 14-column rows. 2000-section JSON
+346 091 → 88 229 bytes (0.25×); the size now comes from a join on the
+`(target, name)` primary key instead of a second query plus a lookup dict.
+Gates: `test_sections`, `test_api_sections_includes_count_total`.
+
 Wire encoding: responses negotiate `zstd` then `gzip` from `Accept-Encoding`
 (q-values; zstd wins ties). HTML shell, `/app.js`, and `/boot-guard.js` are
 precompressed at both codecs at import. Measured 500-row functions JSON:
