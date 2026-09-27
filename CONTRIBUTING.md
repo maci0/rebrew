@@ -83,7 +83,7 @@ make cli-contract             # high-value --help greps (CI cli-contract job)
 make all                      # local mirror of CI lint+test+cli-contract gates
 make pr-check                 # full local CI verification (all + check + build + sdist-check + smoke-wheel + build-repro + sbom)
 make sdist-check              # build a wheel from the sdist, diff it against dist/*.whl
-make build-repro              # rebuild HEAD under .scratch/ at another path/mode/TZ/locale, diff the hashes
+make build-repro              # rebuild HEAD under .scratch/ at another path/mode/TZ/locale, diff the hashes (clean tree)
 make smoke-wheel              # install dist/*.whl into .venv-pkg and smoke-import it
 make gen-fixtures             # regenerate tests/fixtures/ after editing tools/gen_fixtures.py
 make gen-fixtures-check       # fixtures still match the generator
@@ -181,7 +181,9 @@ no `**Breaking:**` entry naming it.
    missing package-data fails here rather than on a user's install), and its
    byte-reproducibility check (`make build-repro`: rebuild `HEAD` from a
    `git archive` copy under `.scratch/` at another path, file mode, timezone
-   and locale, and compare the two hashes; commit first, it builds `HEAD`).
+   and locale, and compare the two hashes; commit first, it builds `HEAD` and
+   refuses a tree with uncommitted changes, whose dist/ and `HEAD` copy would
+   differ by construction).
    `make sbom` goes after `make build`:
    `build` clears `dist/*.cdx.json`, so a BOM generated before it is deleted
    before you can ship it. `make sdist-check` does not clear it (it depends on

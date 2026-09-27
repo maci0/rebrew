@@ -552,6 +552,10 @@ class TestCiPins:
         build_inputs = text.split("BUILD_INPUTS :=", 1)[1].split("\n\n", 1)[0]
         assert "tools/normalize_sdist.py" in build_inputs
         assert ".python-version" in build_inputs
+        # The manifest records uv-lock-sha256 and the SBOM inventories the same
+        # lock, so a lock edit changes what dist/ claims even though the
+        # archives themselves come from build-constraints.txt.
+        assert "uv.lock" in build_inputs
         # The sdist ships the top-level docs and license files, and the wheel
         # ships the license files under dist-info, so editing one changes the
         # artifacts.  None lives under src/, so the find() above cannot see it.
@@ -738,6 +742,32 @@ class TestCiPins:
         # The second build has no .git of its own, so the epoch travels in
         # the environment; a different path, TZ and locale come with it.
         assert "SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) TZ=Asia/Tokyo LC_ALL=C.UTF-8" in body
+
+    def test_repro_refuses_a_dirty_tree(self) -> None:
+        """A dirty tree makes the hash diff report a failure that is not one.
+
+        The second source tree is a `git archive HEAD` copy, so with
+        uncommitted edits dist/ and the copy are built from different sources:
+        the archives differ by definition and the recipe printed
+        "ERROR: .whl is not reproducible", naming a build defect where the
+        only fault is the working tree. The guard runs before the copy is
+        extracted, and before `build` can drop the existing dist/.
+        """
+        text = MAKEFILE.read_text(encoding="utf-8")
+        recipe = re.search(
+            r"(?m)^build-repro:.*?^\t@set -eu; \\$(?P<body>.*?)(?=\n\n)",
+            text,
+            re.S,
+        )
+        assert recipe is not None, "build-repro target not found"
+        body = recipe.group("body")
+        guard = 'if git rev-parse --git-dir >/dev/null 2>&1 && [ -n "$$(git status --porcelain)" ]'
+        assert guard in body
+        assert body.index(guard) < body.index("git archive HEAD")
+        # The offending paths are named, or the contributor cannot tell what
+        # to commit.
+        assert "git status --porcelain >&2" in body
+        assert "exit 1" in body[body.index(guard) : body.index("trap ")]
 
     def test_repro_check_runs_from_the_makefile(self) -> None:
         """CI calls the target: an inline recipe is a gate no contributor can run.

@@ -83,6 +83,11 @@ BUILD_REPRO_DIR ?= .scratch/rebuild
 # in the wheel's dist-info, so editing one changes what ships while every
 # listed prerequisite stayed untouched.
 #
+# uv.lock is here for the manifest, not for the bytes: the archives come from
+# build-constraints.txt, but dist/rebrew.buildinfo records uv-lock-sha256 (and
+# `make sbom` inventories that same lock), so a lock edit left a provenance
+# record naming the lock the artifacts were not built beside.
+#
 # The directories are prerequisites too.  `find src -type f` only sees the files
 # that exist when make expands this list, and make rebuilds a target when a
 # prerequisite is *newer*, not when one disappears: adding or deleting a source
@@ -94,7 +99,7 @@ BUILD_REPRO_DIR ?= .scratch/rebuild
 # and none of it changes a byte of the package.
 BUILD_INPUT_DIRS := $(shell find src -type d \
 	-not -path '*/__pycache__*' -not -path '*.egg-info*')
-BUILD_INPUTS := Makefile pyproject.toml build-constraints.txt MANIFEST.in \
+BUILD_INPUTS := Makefile pyproject.toml build-constraints.txt MANIFEST.in uv.lock \
 	.python-version tools/normalize_sdist.py \
 	README.md CHANGELOG.md SECURITY.md LICENSE NOTICE \
 	$(shell find src -type f -not -path '*/__pycache__/*' -not -path '*.egg-info/*')
@@ -131,7 +136,7 @@ help:
 		'  make build              # reproducible sdist+wheel + dist/rebrew.buildinfo' \
 		'  make sbom               # CycloneDX 1.5 JSON from uv.lock (offline)' \
 		'  make sdist-check        # build a wheel from the sdist and diff it against dist/*.whl' \
-		'  make build-repro        # rebuild HEAD under .scratch/ at another path/mode/TZ/locale and diff the hashes' \
+		'  make build-repro        # rebuild HEAD under .scratch/ at another path/mode/TZ/locale and diff the hashes (clean tree)' \
 		'  make smoke-wheel        # install dist/*.whl into .venv-pkg and smoke-import it (CI package job)' \
 		'  make all                # local mirror of CI lint+test(+coverage floor)+cli-contract gates' \
 		'  make pr-check           # full local CI verification (all + check + build + sdist-check + smoke-wheel + build-repro + sbom)' \
@@ -460,6 +465,11 @@ build: warn-uv-version
 #
 # The copy comes from HEAD, so this describes the committed tree, not the
 # working one: run it after committing, as CI does on the pushed commit.
+# A dirty tree is refused before anything is extracted, because the two sides
+# then describe different sources: dist/ carries the edits, the copy carries
+# HEAD, and the hash diff reports a reproducibility failure that says nothing
+# about the build. `make build` only warns about this; here it is the whole
+# question, so it stops.
 #
 # A build failure or a hash mismatch exits non-zero and ends the recipe, so a
 # trailing `rm -rf` never runs and the extracted copy would outlive it; the
@@ -469,6 +479,14 @@ build: warn-uv-version
 build-repro: dist/rebrew.buildinfo
 	@set -eu; \
 	repro="$(BUILD_REPRO_DIR)"; \
+	if git rev-parse --git-dir >/dev/null 2>&1 && [ -n "$$(git status --porcelain)" ]; then \
+	  echo "ERROR: build-repro rebuilds HEAD, so an uncommitted tree cannot be compared." >&2; \
+	  echo "dist/ would carry your edits and $(BUILD_REPRO_DIR) the commit: the hash diff" >&2; \
+	  echo "then reports a reproducibility failure that says nothing about the build." >&2; \
+	  echo "Commit first (CI runs this on the pushed commit), or stash and re-run." >&2; \
+	  git status --porcelain >&2; \
+	  exit 1; \
+	fi; \
 	trap 'rm -rf -- "$$repro"' EXIT; \
 	umask 077; \
 	rm -rf "$$repro"; \
@@ -487,7 +505,7 @@ build-repro: dist/rebrew.buildinfo
 		first=$$(sha dist/*.$$ext); \
 		second=$$(sha "$$repro"/dist/*.$$ext); \
 		if [ "$$first" != "$$second" ]; then \
-			echo "ERROR: .$$ext is not reproducible (first=$$first second=$$second)" >&2; \
+			echo "ERROR: .$$ext is not reproducible (dist/=$$first $(BUILD_REPRO_DIR)/dist/=$$second)" >&2; \
 			exit 1; \
 		fi; \
 		echo ".$$ext reproducible: $$first"; \
