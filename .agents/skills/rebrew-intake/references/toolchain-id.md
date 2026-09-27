@@ -28,7 +28,7 @@ libcmt signatures). SP-level profiles matter (`msvc-6.0` vs `msvc-6.0-sp6` vs
 ## DOS MZ
 
 `file` shows "MS-DOS executable, MZ". **Check packing first** —
-`rebrew toolchain detect` reports `packed: lzexe 0.91` or `packed: pklite`.
+`rebrew toolchain detect <binary>` reports `packed: lzexe 0.91` or `packed: pklite`.
 For LZEXE run `rebrew unpack-lzexe <binary>` first; PKLITE has no built-in unpacker.
 Profiles: `borland-3.1` (Turbo C++ 3.1), `borland-2.0` (Turbo C 2.0, C89-strict
 `/* */` markers), `watcom-2.0-win16`. `rebrew discover-functions` runs the packaged
