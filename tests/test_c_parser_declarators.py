@@ -4,7 +4,7 @@ from rebrew.c_parser import (
     _count_pointer_depth,
     _extract_array_suffix,
     _find_declarator_name,
-    _find_function_name,
+    find_function_name_in_node,
 )
 
 
@@ -26,22 +26,22 @@ def _ident(name: str, offset: int = 0) -> Node:
 class TestFindFunctionName:
     def test_identifier_direct(self) -> None:
         node = _ident("foo")
-        assert _find_function_name(node, b"foo") == "foo"
+        assert find_function_name_in_node(node, b"foo") == "foo"
 
     def test_pointer_declarator_walk(self) -> None:
         node = Node("pointer_declarator", children=[Node("*"), _ident("handler", offset=1)])
-        assert _find_function_name(node, b"*handler") == "handler"
+        assert find_function_name_in_node(node, b"*handler") == "handler"
 
     def test_parenthesized_walk(self) -> None:
         node = Node(
             "parenthesized_declarator",
             children=[Node("("), _ident("cb", offset=1), Node(")", start=3)],
         )
-        assert _find_function_name(node, b"(cb)") == "cb"
+        assert find_function_name_in_node(node, b"(cb)") == "cb"
 
     def test_unknown_type_recursion(self) -> None:
         node = Node("weird", children=[_ident("inner")])
-        assert _find_function_name(node, b"inner") == "inner"
+        assert find_function_name_in_node(node, b"inner") == "inner"
 
 
 class TestFindDeclaratorName:

@@ -35,47 +35,47 @@ def _make_ga(tmp_path: Path, **kwargs) -> BinaryMatchingGA:
 
 
 class TestCompileCflags:
-    """_compile_cflags is the ONE shared flag-glue definition for the
+    """compile_cflags is the ONE shared flag-glue definition for the
     single-function, flag-sweep, and batch-GA paths — a divergent copy in the
     sweep path silently dropped base_cflags (e.g. /MT), so a sweep-reported
     exact demoted on the next test/verify.  Every branch needs a test."""
 
     def test_posix_style_prepends_base(self) -> None:
-        from rebrew.match_sweep import _compile_cflags
+        from rebrew.match_sweep import compile_cflags
 
-        assert _compile_cflags("/O2", "-O2", posix_style=True) == "-O2 /O2"
+        assert compile_cflags("/O2", "-O2", posix_style=True) == "-O2 /O2"
 
     def test_posix_style_no_base(self) -> None:
-        from rebrew.match_sweep import _compile_cflags
+        from rebrew.match_sweep import compile_cflags
 
-        assert _compile_cflags("/O2", "", posix_style=True) == "/O2"
+        assert compile_cflags("/O2", "", posix_style=True) == "/O2"
 
     def test_msvc_base_with_c_glue(self) -> None:
         """base_cf carries /c → base first, no /nologo /c insertion."""
-        from rebrew.match_sweep import _compile_cflags
+        from rebrew.match_sweep import compile_cflags
 
-        assert _compile_cflags("/O2 /Gd", "/nologo /c /MT") == "/nologo /c /MT /O2 /Gd"
+        assert compile_cflags("/O2 /Gd", "/nologo /c /MT") == "/nologo /c /MT /O2 /Gd"
 
     def test_msvc_base_without_c_inserts_glue(self) -> None:
         """base_cf lacks /c and cflags lacks it → the /nologo /c glue is
         inserted (the watcom E1139 regression class)."""
-        from rebrew.match_sweep import _compile_cflags
+        from rebrew.match_sweep import compile_cflags
 
-        assert _compile_cflags("/O2", "/MT") == "/nologo /c /MT /O2"
+        assert compile_cflags("/O2", "/MT") == "/nologo /c /MT /O2"
 
     def test_cflags_already_has_c(self) -> None:
         """cflags already carries /c → passed through verbatim."""
-        from rebrew.match_sweep import _compile_cflags
+        from rebrew.match_sweep import compile_cflags
 
-        assert _compile_cflags("/nologo /c /O1", "") == "/nologo /c /O1"
+        assert compile_cflags("/nologo /c /O1", "") == "/nologo /c /O1"
 
     def test_cflags_has_c_base_without_it_is_kept(self) -> None:
         """cflags carries /c but base_cf (bare /MT) must still be prepended —
         it used to be dropped, compiling a different runtime than the metadata
         declares."""
-        from rebrew.match_sweep import _compile_cflags
+        from rebrew.match_sweep import compile_cflags
 
-        assert _compile_cflags("/c /O2", "/MT") == "/MT /c /O2"
+        assert compile_cflags("/c /O2", "/MT") == "/MT /c /O2"
 
 
 class TestFlagSweepBaseCflags:
@@ -529,7 +529,7 @@ class TestGAStagnationRestart:
 
 
 # ---------------------------------------------------------------------------
-# Batch orchestration (_run_all): discovery, filtering, dry-run, execution
+# Batch orchestration (run_all): discovery, filtering, dry-run, execution
 # ---------------------------------------------------------------------------
 
 
@@ -577,9 +577,9 @@ class TestRunAllBatch:
         sweep_then_ga: bool = False,
         flag_sweep: bool = False,
     ) -> tuple[int, int]:
-        from rebrew.match import _run_all
+        from rebrew.match import run_all
 
-        return _run_all(
+        return run_all(
             cfg,
             jobs=jobs,
             generations=5,
@@ -1123,7 +1123,7 @@ class TestFindSizeMismatch:
         assert [s.va for s in stubs] == ["0x10001000"]
 
     def test_run_all_size_mismatch_mode(self, tmp_path: Path, monkeypatch: Any) -> None:
-        from rebrew.match import _run_all
+        from rebrew.match import run_all
         from rebrew.match_batch import find_size_mismatch
 
         real_find = find_size_mismatch
@@ -1144,7 +1144,7 @@ class TestFindSizeMismatch:
         monkeypatch.setattr("rebrew.matcher.record_ga_run", lambda *a, **k: None)
 
         cfg = self._cfg(tmp_path)
-        _run_all(
+        run_all(
             cfg,
             jobs=1,
             generations=1,
@@ -1339,45 +1339,45 @@ class TestMutationFocusWeights:
     category (register / equivalent / structural), or auto via the blocker."""
 
     def test_explicit_category_weights_its_operators(self) -> None:
-        from rebrew.match import _mutation_focus_weights
+        from rebrew.match import mutation_focus_weights
 
-        weights = _mutation_focus_weights("register")
+        weights = mutation_focus_weights("register")
         assert weights
         # All register-category suggestions get the focus weight.
         assert all(w == 6.0 for w in weights.values())
         assert len(weights) >= 5
 
     def test_reloc_returns_none(self) -> None:
-        from rebrew.match import _mutation_focus_weights
+        from rebrew.match import mutation_focus_weights
 
-        assert _mutation_focus_weights("reloc") is None
+        assert mutation_focus_weights("reloc") is None
 
     def test_none_focus_returns_none(self) -> None:
-        from rebrew.match import _mutation_focus_weights
+        from rebrew.match import mutation_focus_weights
 
-        assert _mutation_focus_weights(None) is None
+        assert mutation_focus_weights(None) is None
 
     def test_auto_with_blocker(self) -> None:
-        from rebrew.match import _mutation_focus_weights
+        from rebrew.match import mutation_focus_weights
 
-        weights = _mutation_focus_weights(
+        weights = mutation_focus_weights(
             "auto", "NEAR_MATCHING — STRUCTURAL (100% of delta) — try: mut_swap_if_else"
         )
         assert weights
         assert "mut_swap_if_else" in weights
 
     def test_auto_without_blocker(self) -> None:
-        from rebrew.match import _mutation_focus_weights
+        from rebrew.match import mutation_focus_weights
 
-        assert _mutation_focus_weights("auto", None) is None
-        assert _mutation_focus_weights("auto", "plain blocker text") is None
+        assert mutation_focus_weights("auto", None) is None
+        assert mutation_focus_weights("auto", "plain blocker text") is None
 
     def test_weights_match_mutator_names(self) -> None:
         """Every weighted operator must exist in mutator.ALL_MUTATIONS."""
-        from rebrew.match import _mutation_focus_weights
+        from rebrew.match import mutation_focus_weights
         from rebrew.matcher.mutator import ALL_MUTATIONS
 
-        weights = _mutation_focus_weights("equivalent")
+        weights = mutation_focus_weights("equivalent")
         defined = {fn.__name__ for fn in ALL_MUTATIONS}
         for op in weights:
             assert op in defined, f"{op} not in ALL_MUTATIONS"
@@ -1634,7 +1634,7 @@ class TestLiveMutationFocus:
         return BuildResult(ok=ok, obj_bytes=obj, reloc_offsets={0x2: "sym"})
 
     def test_weights_from_live_verdict(self, tmp_path: Path, monkeypatch: Any) -> None:
-        from rebrew.match import _live_mutation_weights
+        from rebrew.match import live_mutation_weights
 
         monkeypatch.setattr(
             "rebrew.matcher.build_candidate_obj_only",
@@ -1644,30 +1644,30 @@ class TestLiveMutationFocus:
             "rebrew.near_diag.analyze",
             lambda *a, **k: {"mutations": ["mut_reorder_register_vars", "mut_inject_dummy_var"]},
         )
-        weights = _live_mutation_weights(self._params(tmp_path))
+        weights = live_mutation_weights(self._params(tmp_path))
         assert weights == {
             "mut_reorder_register_vars": 6.0,
             "mut_inject_dummy_var": 6.0,
         }
 
     def test_no_mutations_returns_none(self, tmp_path: Path, monkeypatch: Any) -> None:
-        from rebrew.match import _live_mutation_weights
+        from rebrew.match import live_mutation_weights
 
         monkeypatch.setattr(
             "rebrew.matcher.build_candidate_obj_only",
             lambda *a, **k: self._fake_build(b"\x55\x8b\xec"),
         )
         monkeypatch.setattr("rebrew.near_diag.analyze", lambda *a, **k: {"mutations": []})
-        assert _live_mutation_weights(self._params(tmp_path)) is None
+        assert live_mutation_weights(self._params(tmp_path)) is None
 
     def test_compile_failure_returns_none(self, tmp_path: Path, monkeypatch: Any) -> None:
-        from rebrew.match import _live_mutation_weights
+        from rebrew.match import live_mutation_weights
 
         monkeypatch.setattr(
             "rebrew.matcher.build_candidate_obj_only",
             lambda *a, **k: self._fake_build(None, ok=False),
         )
-        assert _live_mutation_weights(self._params(tmp_path)) is None
+        assert live_mutation_weights(self._params(tmp_path)) is None
 
 
 def _increment_counter_child(lock_dir: str, n: int) -> None:
@@ -1760,14 +1760,14 @@ class TestFlagSweepDeadline:
         """
         import inspect
 
-        from rebrew.match_sweep import _run_single_flag_sweep, run_flag_sweep
+        from rebrew.match_sweep import run_flag_sweep, run_single_flag_sweep
         from rebrew.matcher.compiler import flag_sweep
 
         # The whole chain must be able to carry a deadline, or the CLI flag is
         # silently inert somewhere along it.
         assert "deadline" in inspect.signature(flag_sweep).parameters
         assert "deadline" in inspect.signature(run_flag_sweep).parameters
-        assert "timeout_min" in inspect.signature(_run_single_flag_sweep).parameters
+        assert "timeout_min" in inspect.signature(run_single_flag_sweep).parameters
 
     def test_cli_passes_timeout_min_to_the_single_sweep(self) -> None:
         """The single-function path must forward the flag, not drop it."""
@@ -1777,7 +1777,7 @@ class TestFlagSweepDeadline:
 
         src = inspect.getsource(match_mod)
         assert (
-            "_run_single_flag_sweep(params, tier, jobs, json_output, timeout_min=timeout_min)"
+            "run_single_flag_sweep(params, tier, jobs, json_output, timeout_min=timeout_min)"
             in src
         )
 

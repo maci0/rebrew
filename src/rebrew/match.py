@@ -35,20 +35,20 @@ from rebrew.cli import (
     resolve_source_arg,
 )
 from rebrew.match_ga import (
-    _MUTATION_FOCUS_WEIGHT,
-    _live_mutation_weights,
-    _mutation_focus_weights,
+    MUTATION_FOCUS_WEIGHT,
+    live_mutation_weights,
+    mutation_focus_weights,
 )
 from rebrew.match_run import (
-    _run_all,
-    _run_single_ga,
-    _show_ga_history,
+    run_all,
+    run_single_ga,
+    show_ga_history,
 )
 from rebrew.match_sweep import (
-    _run_single_flag_sweep,
-    _run_single_toolchain_flag_sweep,
-    _run_single_toolchain_sweep,
     resolve_build_params,
+    run_single_flag_sweep,
+    run_single_toolchain_flag_sweep,
+    run_single_toolchain_sweep,
 )
 from rebrew.utils import preset_module_key
 
@@ -373,7 +373,7 @@ def main(
     cfg = require_config(target=target, json_mode=json_output)
 
     if ga_history:
-        _show_ga_history(cfg, json_output, target=getattr(cfg, "target_name", ""))
+        show_ga_history(cfg, json_output, target=getattr(cfg, "target_name", ""))
         return
 
     if jobs is None:
@@ -413,7 +413,7 @@ def main(
             json_mode=json_output,
         )
     batch_mutation_weights = (
-        _mutation_focus_weights(mutation_focus) if (all_mode or all_targets) else None
+        mutation_focus_weights(mutation_focus) if (all_mode or all_targets) else None
     )
     if (
         batch_mutation_weights is None
@@ -427,8 +427,8 @@ def main(
         )
 
     # Batch knobs shared by --all and --all-targets; callers supply cfg, jobs, json_output.
-    run_all = functools.partial(
-        _run_all,
+    run_all_batch = functools.partial(
+        run_all,
         generations=generations,
         pop_size=pop_size,
         timeout_min=timeout_min,
@@ -455,7 +455,7 @@ def main(
     )
 
     if all_mode:
-        matched, failed = run_all(cfg=cfg, jobs=jobs, json_output=json_output)
+        matched, failed = run_all_batch(cfg=cfg, jobs=jobs, json_output=json_output)
         # Documented exit contract (epilog): 1 = no match found.  A batch
         # with any failed stub is not a success for CI gates — mirror
         # `rebrew test --all`'s failed>0 → EXIT_MISMATCH.
@@ -485,7 +485,7 @@ def main(
                     console.print(f"\n[bold cyan]=== Target {name} ===[/]")
                 # Per-target detail stays on stderr (console); stdout gets one
                 # aggregate JSON document when --json is active.
-                return run_all(cfg=target_cfg, jobs=per_target_jobs, json_output=False)
+                return run_all_batch(cfg=target_cfg, jobs=per_target_jobs, json_output=False)
             except Exception as exc:
                 log.warning("Target %s failed — counted as failed", name, exc_info=True)
                 console.print(
@@ -576,7 +576,7 @@ def main(
     # "auto" reads the function's BLOCKER metadata (written by
     # near-diag --fix-blocker) to derive the category; with no verdict blocker
     # it falls back to classifying the CURRENT implementation live (see
-    # _live_mutation_weights).
+    # live_mutation_weights).
     mutation_weights: dict[str, float] | None = None
     if mutation_focus:
         blocker_text = ""
@@ -594,13 +594,13 @@ def main(
                     continue
                 blocker_text = entry["blocker"]
                 break
-        mutation_weights = _mutation_focus_weights(mutation_focus, blocker_text)
+        mutation_weights = mutation_focus_weights(mutation_focus, blocker_text)
         if mutation_weights is None and mutation_focus == "auto" and not blocker_text:
-            mutation_weights = _live_mutation_weights(params)
+            mutation_weights = live_mutation_weights(params)
         if mutation_weights and not json_output:
             console.print(
                 f"[dim]mutation focus:[/dim] {len(mutation_weights)} operator(s) "
-                f"weighted {_MUTATION_FOCUS_WEIGHT}x"
+                f"weighted {MUTATION_FOCUS_WEIGHT}x"
             )
         elif mutation_weights is None and not json_output:
             # An explicit focus that yields no operators (e.g. "reloc" — its
@@ -678,20 +678,20 @@ def main(
 
     if flag_sweep_only and flag_sweep_toolchains:
         # Both dimensions at once: flag-sweep with each vendored MSVC version.
-        _run_single_toolchain_flag_sweep(
+        run_single_toolchain_flag_sweep(
             params, tier, jobs, json_output, sweep_toolchains, sweep_exclude_toolchains
         )
         return
 
     if flag_sweep_only:
-        _run_single_flag_sweep(params, tier, jobs, json_output, timeout_min=timeout_min)
+        run_single_flag_sweep(params, tier, jobs, json_output, timeout_min=timeout_min)
         return
 
     if flag_sweep_toolchains:
-        _run_single_toolchain_sweep(params, json_output, sweep_toolchains, sweep_exclude_toolchains)
+        run_single_toolchain_sweep(params, json_output, sweep_toolchains, sweep_exclude_toolchains)
         return
 
-    _run_single_ga(
+    run_single_ga(
         params,
         out_dir,
         generations,

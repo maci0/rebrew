@@ -348,11 +348,11 @@ class TestParsePreservesLegacyBytes:
         assert raw[spans[0][0] : spans[0][1]] == b'"keep"'
 
     def test_legacy_bytes_roundtrip_through_proto(self) -> None:
-        from rebrew.c_parser import _node_text, _parse
+        from rebrew.c_parser import node_text, parse_c_source
 
         # Source with cp1252 byte decoded via surrogateescape
         src = b'char *s = "Caf\xe9";\n'.decode("utf-8", errors="surrogateescape")
-        tree, src_bytes = _parse(src)
+        tree, src_bytes = parse_c_source(src)
 
         def find_lit(n):
             if n.type == "string_literal":
@@ -365,7 +365,7 @@ class TestParsePreservesLegacyBytes:
 
         lit = find_lit(tree.root_node)
         assert lit is not None
-        txt = _node_text(lit, src_bytes)
+        txt = node_text(lit, src_bytes)
         assert txt == '"Caf\udce9"'
         # Must re-encode to the original raw bytes, not U+FFFD replacement
         assert txt.encode("utf-8", errors="surrogateescape") == b'"Caf\xe9"'

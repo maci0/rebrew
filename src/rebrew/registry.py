@@ -337,12 +337,7 @@ def refresh_all() -> dict[str, int]:
     counts["mutations"] = len(mutator.refresh_mutations())
     counts["flag_sets"] = len(compiler.refresh_flag_sets()[0])
     counts["library_presets"] = len(metadata.refresh_library_presets())
-    toolchain_detect.refresh_detection_tables()
-    counts["binary_detectors"] = len(toolchain_detect._PLUGIN_DETECTORS)
-    counts["toolchain_detectors"] = len(toolchain_detect._PROFILE_COMPAT_ALL)
-    counts["msvc_versions"] = len(toolchain_detect._RICH_BUILD_PROFILES_ALL) + len(
-        toolchain_detect._LINKER_ERA_PROFILES_ALL
-    )
+    counts.update(toolchain_detect.refresh_detection_tables())
     counts["binary_loaders"] = len(binary_loader.refresh_loaders())
     counts["cache_backends"] = len(compile_cache.refresh_cache_backends())
     counts["discoverers"] = len(discover.refresh_discoverers())

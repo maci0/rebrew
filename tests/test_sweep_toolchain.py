@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
-from rebrew.match_sweep import _run_single_toolchain_sweep
+from rebrew.match_sweep import run_single_toolchain_sweep
 
 
 class _FakeRes:
@@ -134,7 +134,7 @@ def test_toolchain_sweep_orders_best_first(monkeypatch, capsys) -> None:
         ),
     )
 
-    _run_single_toolchain_sweep(_make_params(), json_output=True)
+    run_single_toolchain_sweep(_make_params(), json_output=True)
     out = json.loads(capsys.readouterr().out)
     assert out["sweep"] == "toolchain"
     assert out["best"] == "good"
@@ -148,7 +148,7 @@ def test_toolchain_flag_sweep_reports_per_toolchain(monkeypatch, capsys) -> None
     toolchain gets its own flag sweep and the best flags are reported."""
     import json
 
-    from rebrew.match_sweep import _run_single_toolchain_flag_sweep
+    from rebrew.match_sweep import run_single_toolchain_flag_sweep
 
     monkeypatch.setattr(
         "rebrew.match_sweep._vendored_msvc_toolchains",
@@ -162,7 +162,7 @@ def test_toolchain_flag_sweep_reports_per_toolchain(monkeypatch, capsys) -> None
 
     monkeypatch.setattr("rebrew.match_sweep.flag_sweep", _fake_flag_sweep)
 
-    _run_single_toolchain_flag_sweep(_make_params(), tier="quick", jobs=2, json_output=True)
+    run_single_toolchain_flag_sweep(_make_params(), tier="quick", jobs=2, json_output=True)
     out = json.loads(capsys.readouterr().out)
     assert out["sweep"] == "toolchain+flags"
     assert out["best"] == "good"

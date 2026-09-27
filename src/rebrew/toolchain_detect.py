@@ -426,19 +426,26 @@ def _discover_binary_detectors() -> list[tuple[str, Any]]:
 _PLUGIN_DETECTORS: list[tuple[str, Any]] = _discover_binary_detectors()
 
 
-def refresh_detection_tables() -> None:
+def refresh_detection_tables() -> dict[str, int]:
     """Re-run discovery and refresh the detection registries.
 
     Refreshes :data:`_PROFILE_COMPAT_ALL`, the MSVC version-exact tables
     (:data:`_RICH_BUILD_PROFILES_ALL` / :data:`_LINKER_ERA_PROFILES_ALL`),
     and :data:`_PLUGIN_DETECTORS` — long-lived processes can pick up
-    detection plugins installed after startup without a restart."""
+    detection plugins installed after startup without a restart.  Returns
+    the resulting entry counts keyed by entry-point group, for
+    :func:`rebrew.registry.refresh_all`."""
     global _PROFILE_COMPAT_ALL, _RICH_BUILD_PROFILES_ALL
     global _LINKER_ERA_PROFILES_ALL, _PLUGIN_DETECTORS
 
     _PROFILE_COMPAT_ALL = _merged_profile_compat()
     _RICH_BUILD_PROFILES_ALL, _LINKER_ERA_PROFILES_ALL = _merged_msvc_version_tables()
     _PLUGIN_DETECTORS = _discover_binary_detectors()
+    return {
+        "binary_detectors": len(_PLUGIN_DETECTORS),
+        "toolchain_detectors": len(_PROFILE_COMPAT_ALL),
+        "msvc_versions": len(_RICH_BUILD_PROFILES_ALL) + len(_LINKER_ERA_PROFILES_ALL),
+    }
 
 
 # ---------------------------------------------------------------------------

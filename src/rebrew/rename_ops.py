@@ -49,7 +49,7 @@ def substitute_name(pattern: re.Pattern[str], replacement: str, text: str) -> st
     if not spans:
         return pattern.sub(replacement, text)
 
-    # Same encoding and handler as c_parser._parse, so the spans line up.
+    # Same encoding and handler as c_parser.parse_c_source, so the spans line up.
     data = text.encode("utf-8", errors="surrogateescape")
 
     def _str(chunk: bytes) -> str:

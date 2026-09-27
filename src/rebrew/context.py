@@ -63,7 +63,7 @@ app = typer.Typer(
 )
 
 
-def _collect_context(cfg: Any, include_headers: bool = True) -> tuple[list[str], int]:
+def collect_context(cfg: Any, include_headers: bool = True) -> tuple[list[str], int]:
     """Collect deduplicated declaration blocks from headers (and sources).
 
     Returns ``(blocks, file_count)`` — *blocks* are source snippets (struct
@@ -112,7 +112,7 @@ def main(
 ) -> None:
     """Write the deduplicated context to *output*."""
     cfg = require_config(target=target, json_mode=json_output)
-    blocks, file_count = _collect_context(cfg, include_headers=not sources_only)
+    blocks, file_count = collect_context(cfg, include_headers=not sources_only)
     text = render_context_text(blocks)
     atomic_write_text(output, text, encoding="utf-8")
 

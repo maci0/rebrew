@@ -28,7 +28,7 @@ import tree_sitter as ts
 import typer
 from rich.table import Table
 
-from rebrew.c_parser import _find_function_name, _node_text, _parse, get_ts_parser
+from rebrew.c_parser import find_function_name_in_node, get_ts_parser, node_text, parse_c_source
 from rebrew.cli import EXIT_ERROR, TargetOption, console, error_exit, json_print, require_config
 from rebrew.sources import iter_sources
 from rebrew.utils import rel_display_path
@@ -260,7 +260,7 @@ def _enclosing_function(call: ts.Node, source_bytes: bytes) -> str:
             declarator = node.child_by_field_name("declarator")
             if declarator is None:
                 return ""
-            return _find_function_name(declarator, source_bytes) or ""
+            return find_function_name_in_node(declarator, source_bytes) or ""
         node = node.parent
     return ""
 
@@ -310,7 +310,7 @@ def scan_source(text: str, *, file: str) -> list[dict[str, Any]]:
     if parsed is None:
         return []
     try:
-        tree, source_bytes = _parse(text)
+        tree, source_bytes = parse_c_source(text)
     except ImportError:
         return []
     _, language = parsed
@@ -324,7 +324,7 @@ def scan_source(text: str, *, file: str) -> list[dict[str, Any]]:
         args_node = _first_node(captures, "args")
         if call is None or callee_node is None or args_node is None:
             continue
-        callee = _node_text(callee_node, source_bytes)
+        callee = node_text(callee_node, source_bytes)
         entries = _RULE_INDEX.get(callee)
         if not entries:
             continue
