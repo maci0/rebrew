@@ -110,7 +110,10 @@ def make_sandbox_dir(prefix: str) -> Path:
 
     DOSBox breaks on tmpfs mounts and the docker runner mounts the workdir at
     /work, so the user cache dir is preferred when writable; read-only homes
-    (sandboxed / CI) fall back to the workspace ``.cache`` and TMPDIR.
+    (sandboxed / CI) fall back to the workspace ``.cache`` and TMPDIR.  A
+    candidate that turns out to be tmpfs is rejected outright
+    (``require_real_disk=True``) rather than preferred, since XDG_CACHE_HOME
+    and the system temp dir are both commonly tmpfs.
 
     Repeated calls with the same *prefix* on the **same thread** reuse the
     same directory (stale ``.OBJ``/``.EXE`` cleanup in the 16-bit compilers
@@ -141,7 +144,7 @@ def make_sandbox_dir(prefix: str) -> Path:
         return existing_hit
 
     try:
-        sandbox = writable_temp_dir(prefix)
+        sandbox = writable_temp_dir(prefix, require_real_disk=True)
     except OSError as exc:
         raise DosboxError(str(exc)) from exc
     # The path is spliced into the DOSBox conf as ``mount c "<sandbox>"``, and
