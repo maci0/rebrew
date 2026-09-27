@@ -27,10 +27,11 @@ def make_pe(
     image_base: int = 0x400000,
     text_va: int = 0x1000,
     imports: list[tuple[str, list[str]]] | None = None,
+    pe32_plus: bool = False,
 ) -> bytes:
     """Build a minimal PE with one real ``.text`` section containing *code*.
 
-    Layout: DOS header + "PE\0\0" + COFF header + PE32 optional header +
+    Layout: DOS header + "PE\0\0" + COFF header + optional header +
     one section table entry + raw section data at 0x200.  LIEF parses this
     into a ``BinaryInfo`` with ``.text`` at ``image_base + text_va`` whose
     raw file offset is 0x200.
@@ -39,11 +40,19 @@ def make_pe(
     directory is appended after *code* inside the same section and wired into
     optional-header data directory 1, so ``lief.PE.parse`` recovers the
     import table (IAT slot RVAs via ``ImportEntry.iat_address``).
+
+    With *pe32_plus*, the image is a 64-bit one: AMD64 COFF machine, magic
+    0x20B, an 8-byte ImageBase at optional-header offset 24, 8-byte
+    stack/heap sizes, and 8-byte INT/IAT thunk entries.
     """
     sec_align, file_align, sizeof_headers = 0x1000, 0x200, 0x200
+    thunk_size = 8 if pe32_plus else 4
+    opt_size = 0xF0 if pe32_plus else 0xE0
+    machine = 0x8664 if pe32_plus else 0x14C
+    dir_offset = 0x78 if pe32_plus else 0x68
 
     import_blob, import_dir_rva, import_dir_size = _build_import_directory(
-        text_va, len(code), imports
+        text_va, len(code), imports, thunk_size
     )
     section_data = code + import_blob
     raw_size = ((len(section_data) + file_align - 1) // file_align) * file_align
@@ -54,17 +63,18 @@ def make_pe(
     dos[0:2] = b"MZ"
     struct.pack_into("<I", dos, 0x3C, 0x80)
 
-    coff = struct.pack("<HHIIIHH", 0x14C, 1, 0, 0, 0, 0xE0, 0x0102)
+    coff = struct.pack("<HHIIIHH", machine, 1, 0, 0, 0, opt_size, 0x0122 if pe32_plus else 0x0102)
 
-    opt = bytearray(struct.pack("<H", 0x10B))  # Magic PE32
+    opt = bytearray(struct.pack("<H", 0x20B if pe32_plus else 0x10B))
     opt += struct.pack("<BB", 8, 0)  # linker versions
     opt += struct.pack("<I", len(code))  # SizeOfCode
     opt += struct.pack("<I", 0)  # SizeOfInitializedData
     opt += struct.pack("<I", 0)  # SizeOfUninitializedData
     opt += struct.pack("<I", text_va)  # AddressOfEntryPoint
     opt += struct.pack("<I", text_va)  # BaseOfCode
-    opt += struct.pack("<I", 0)  # BaseOfData
-    opt += struct.pack("<I", image_base)  # ImageBase
+    # PE32 has BaseOfData (4) then ImageBase (4); PE32+ has no BaseOfData
+    # and an 8-byte ImageBase in its place.
+    opt += struct.pack("<Q", image_base) if pe32_plus else struct.pack("<II", 0, image_base)
     opt += struct.pack("<I", sec_align)  # SectionAlignment
     opt += struct.pack("<I", file_align)  # FileAlignment
     opt += struct.pack("<HH", 6, 0)  # OS version
@@ -76,17 +86,18 @@ def make_pe(
     opt += struct.pack("<I", 0)  # CheckSum
     opt += struct.pack("<H", 3)  # Subsystem (console)
     opt += struct.pack("<H", 0)  # DllCharacteristics
-    opt += struct.pack("<I", 0x100000)  # SizeOfStackReserve
-    opt += struct.pack("<I", 0x1000)  # SizeOfStackCommit
-    opt += struct.pack("<I", 0x100000)  # SizeOfHeapReserve
-    opt += struct.pack("<I", 0x1000)  # SizeOfHeapCommit
+    if pe32_plus:
+        opt += struct.pack("<QQQQ", 0x100000, 0x1000, 0x100000, 0x1000)
+    else:
+        opt += struct.pack("<IIII", 0x100000, 0x1000, 0x100000, 0x1000)
     opt += struct.pack("<I", 0)  # LoaderFlags
     opt += struct.pack("<I", 16)  # NumberOfRvaAndSizes
     opt += b"\x00" * (16 * 8)  # data directories
     if imports:
-        # Data directory 1 = import table (RVA, size) at offset 0x68 in opt.
-        struct.pack_into("<II", opt, 0x68, import_dir_rva, import_dir_size)
-    assert len(opt) == 0xE0
+        # Data directory 1 = import table (RVA, size); its offset shifts by
+        # the extra ImageBase word in the PE32+ header.
+        struct.pack_into("<II", opt, dir_offset, import_dir_rva, import_dir_size)
+    assert len(opt) == opt_size
 
     sec = struct.pack(
         "<8sIIIIIIHHI",
@@ -113,16 +124,19 @@ def _build_import_directory(
     text_va: int,
     code_len: int,
     imports: list[tuple[str, list[str]]] | None,
+    thunk_size: int = 4,
 ) -> tuple[bytes, int, int]:
     """Build the import directory blob; returns (blob, dir_rva, dir_size).
 
     Blob layout (all RVAs relative to ``text_va + code_len``):
     import descriptors (20B each + terminator), then per library:
     INT array, IAT array, hint/name entries, DLL name string.
+    *thunk_size* is the INT/IAT entry width (8 for PE32+, else 4).
     """
     if not imports:
         return b"", 0, 0
 
+    entry_fmt = "<Q" if thunk_size == 8 else "<I"
     base = text_va + code_len
     blob = bytearray()
     # Descriptor area first: one 20-byte descriptor per library + terminator.
@@ -131,9 +145,9 @@ def _build_import_directory(
     blob += b"\x00" * (20 * len(imports) + 20)
     for dll_name, apis in imports:
         int_rva = base + len(blob)
-        blob += b"\x00" * (4 * (len(apis) + 1))
+        blob += b"\x00" * (thunk_size * (len(apis) + 1))
         iat_rva = base + len(blob)
-        blob += b"\x00" * (4 * (len(apis) + 1))
+        blob += b"\x00" * (thunk_size * (len(apis) + 1))
         hint_rvas: list[int] = []
         for api in apis:
             hint_rva = base + len(blob)
@@ -146,8 +160,8 @@ def _build_import_directory(
         blob += dll_name.encode("ascii") + b"\x00"
         # Fill the INT and IAT arrays.
         for i, rva in enumerate(hint_rvas):
-            struct.pack_into("<I", blob, int_rva - base + 4 * i, rva)
-            struct.pack_into("<I", blob, iat_rva - base + 4 * i, rva)
+            struct.pack_into(entry_fmt, blob, int_rva - base + thunk_size * i, rva)
+            struct.pack_into(entry_fmt, blob, iat_rva - base + thunk_size * i, rva)
         desc_entries.append((int_rva, name_rva, iat_rva))
 
     # Fill the descriptor table.

@@ -48,7 +48,6 @@ from __future__ import annotations
 
 import logging
 import re
-import struct
 import subprocess
 import uuid
 from pathlib import Path
@@ -58,7 +57,7 @@ import typer
 
 from rebrew.cli import TargetOption, console, error_exit, json_print, require_config
 from rebrew.layout_meta import LayoutMetadata, extract_layout, write_package
-from rebrew.pe_headers import pe_layout
+from rebrew.pe_headers import pe_image_base, pe_layout
 from rebrew.pe_image import PeImport, derive_link_options, parse_pe
 from rebrew.utils import atomic_write_text, container_runtime
 
@@ -400,10 +399,9 @@ def gen_data_restore(data: bytes, marker: str, raw_start: int) -> str:
     data_va = section.virtual_address
     data_raw = section.size_of_raw_data
     data_ro = section.pointer_to_raw_data
-    image_off = layout.optional_header_offset + 28
-    if image_off + 4 > len(data):
-        raise ValueError("truncated optional header")
-    image_base = struct.unpack_from("<I", data, image_off)[0]
+    image_base = pe_image_base(data)
+    if image_base is None:
+        raise ValueError("truncated or unsupported optional header")
     if not 0 <= raw_start < data_raw:
         raise ValueError(f"raw-size {raw_start:#x} outside [0, {data_raw:#x})")
     blob = data[data_ro + raw_start : data_ro + data_raw]
