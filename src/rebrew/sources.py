@@ -58,7 +58,7 @@ def target_marker(cfg: ProjectConfig | None) -> str | None:
     return cfg.marker if cfg is not None else None
 
 
-#: Directories rglob must not descend into when scanning for sources.
+#: Directories the source walk must not descend into (see :func:`_files_matching`).
 _EXCLUDE_DIRS = {
     ".git",
     ".hg",
@@ -170,9 +170,11 @@ def iter_sources(
     :class:`ProjectConfig` instance (which defaults *directory* to
     ``cfg.reversed_dir``).
 
-    Uses :func:`source_exts` to determine the file extensions and ``rglob``
-    to descend into nested subdirectories.  Extension matching is
-    case-insensitive (``FOO.C`` counts as ``.c``), uniformly for single- and
+    Uses :func:`source_exts` to determine the file extensions and an
+    ``os.walk`` to descend into nested subdirectories, skipping
+    :data:`_EXCLUDE_DIRS` (``.git``, ``.venv``, ``build``, …) at every
+    level.  Extension matching is case-insensitive (``FOO.C`` counts as
+    ``.c``), uniformly for single- and
     multi-extension configs (e.g. ``source_ext = ".c,.cpp"``).  This is the
     single entry point for discovering reversed source files — using it
     everywhere ensures consistent support for both flat and nested directory

@@ -74,6 +74,7 @@ from rebrew.compile_cache import (
 )
 from rebrew.compile_context import CONTEXT_UNIT_NAME, CompileContext
 from rebrew.config import DEFAULT_COMPILE_TIMEOUT, ConfigError, ProjectConfig, validate_http_url
+from rebrew.errors import RebrewError
 from rebrew.headless import _XVFB_RUN_SERVER_ARGS, ensure_xvfb
 from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
 from rebrew.metadata import canonical_status
@@ -111,6 +112,29 @@ CompareStatus = Literal[
     "INVALID_VA",
     "INTERNAL_ERROR",
 ]
+
+
+class CompareResultError(RebrewError, ValueError):
+    """A :class:`CompareResult` was built with self-contradictory fields.
+
+    Only :meth:`CompareResult.__post_init__` raises it: ``matched=True``
+    alongside a status that is not a byte match (or the reverse) is a
+    programming error in whoever constructed the result.  Carries both
+    offending fields so a caller can branch on the data instead of parsing
+    the message.  It keeps the ``ValueError`` base, so a pre-existing
+    ``except ValueError`` around result construction still works.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        matched: bool = False,
+        status: CompareStatus = "INTERNAL_ERROR",
+    ) -> None:
+        super().__init__(message)
+        self.matched = matched
+        self.status = status
 
 
 @dataclass
@@ -209,12 +233,19 @@ class CompareResult:
     def __post_init__(self) -> None:
         """Reject a ``matched`` flag that contradicts ``status``."""
         if self.matched != (self.status in _BYTE_MATCH_STATUSES):
-            raise ValueError(
-                f"CompareResult matched={self.matched} contradicts status={self.status!r}"
+            raise CompareResultError(
+                f"CompareResult matched={self.matched} contradicts status={self.status!r}",
+                matched=self.matched,
+                status=self.status,
             )
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialize comparison result to a JSON-safe dictionary."""
+        """Serialize comparison result to a JSON-safe dictionary.
+
+        The two byte payloads (``obj_bytes``, ``full_obj_bytes``) are not
+        serialized — they are raw bytes, not JSON values — so
+        :meth:`from_dict` cannot restore them.  Every other field round-trips.
+        """
         return {
             "matched": self.matched,
             "status": self.status,
@@ -234,7 +265,14 @@ class CompareResult:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Self:
-        """Construct a :class:`CompareResult` from a dictionary (e.g. from :meth:`to_dict`)."""
+        """Construct a :class:`CompareResult` from a dictionary (e.g. from :meth:`to_dict`).
+
+        Byte payloads are not part of the serialized form (see :meth:`to_dict`),
+        so a round-tripped result carries ``obj_bytes=None`` and
+        ``full_obj_bytes=None``.  Report and dashboard on it; do not make a
+        ``--fix-sizes``-style decision from it, which needs the untruncated
+        bytes.  Unknown keys are ignored.
+        """
         import dataclasses
 
         valid_fields = {f.name for f in dataclasses.fields(cls)}

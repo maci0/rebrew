@@ -1,5 +1,28 @@
 ## [Unreleased]
+### Added
+- **`apply_commands_via_mcp` returns a named count pair.** The return was a
+  bare `tuple[int, int]` of two same-typed values, so a transposition was
+  invisible at the call site and destructuring gave the counts no names. It is
+  now `McpApplyResult(success, errors)`, a `NamedTuple`: `result.success` and
+  `result.errors` read by name, and existing `success, errors = ...` unpacking
+  keeps working. Exported from `rebrew.ghidra` alongside the other MCP types.
+- **`SimilarityUnavailable` and `CompareResultError` carry the shared error
+  base.** `code_similarity` raised a bare `RuntimeError` when the optional
+  `resembl` extra was missing, and `CompareResult.__post_init__` raised a bare
+  `ValueError` for a `matched`/`status` contradiction. Both escaped the
+  `except RebrewError` clause the README documents, so an embedding program
+  could only catch them with a broad `except` or by matching the message. Each
+  now raises its own type (re-exported from `rebrew.errors`) carrying the
+  offending fields; both keep their original `RuntimeError` / `ValueError`
+  base, so existing handlers are unaffected.
+
 ### Changed
+- **`rebrew.matcher`'s lazy exports are typed for consumers.** The package
+  resolves its public names through `__getattr__`, which type checkers read as
+  `Any`, so `from rebrew.matcher import build_candidate` lost every signature
+  in a package that ships `py.typed`. An `if TYPE_CHECKING` mirror of
+  `_LAZY_EXPORTS` now carries the real types, with a test failing when the two
+  lists drift.
 - **Five more test modules join the strict mypy gate.** `test_elf_fixture`,
   `test_env_docs`, `test_flirt_sigs`, `test_resource`, and `test_startup_blas`
   type-check clean under `--strict`, so they move into `[tool.mypy] files`
@@ -9,6 +32,14 @@
   module name instead of checking anything after it.
 
 ### Fixed
+- **Public docstrings described code that does not run.** `iter_sources`
+  credited `rglob` for the scan that `os.walk` performs (and named no skip
+  list, where `_EXCLUDE_DIRS` is applied at every level); `print_diff_summary`
+  claimed the payload carried no `invalid` count and printed from a stored
+  split that the function does not keep, when `diff_functions` emits that key.
+  `CompareResult.to_dict` did not say the two byte payloads are dropped, so a
+  documented round trip through `from_dict` looked lossless to a consumer
+  deciding `--fix-sizes` from it.
 - **`make format-check` passes on a clean checkout again.**
   `src/rebrew/import_table.py`, `tests/test_check_idempotency.py`, and
   `tools/check_idempotency.py` were checked in unformatted, so the blocking

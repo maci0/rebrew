@@ -43,6 +43,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from rebrew.coff_reloc import CatalogScanError as CatalogScanError
     from rebrew.coff_reloc import UnresolvedSymbolError as UnresolvedSymbolError
+    from rebrew.compile import CompareResultError as CompareResultError
     from rebrew.config import ConfigError as ConfigError
     from rebrew.config import ConfigKeyError as ConfigKeyError
     from rebrew.config import ConfigNotFoundError as ConfigNotFoundError
@@ -52,6 +53,7 @@ if TYPE_CHECKING:
     from rebrew.ghidra.client import McpApplyAborted as McpApplyAborted
     from rebrew.ghidra.client import McpError as McpError
     from rebrew.lzexe import NotLzexeError as NotLzexeError
+    from rebrew.matcher.scoring import SimilarityUnavailable as SimilarityUnavailable
     from rebrew.metadata import LibraryOverrideError as LibraryOverrideError
     from rebrew.metadata_model import MetadataValidationError as MetadataValidationError
     from rebrew.msvc16 import Msvc16Error as Msvc16Error
@@ -87,6 +89,7 @@ class RebrewError(Exception):
 _LAZY_ERRORS: dict[str, tuple[str, str]] = {
     "CatalogScanError": ("rebrew.coff_reloc", "CatalogScanError"),
     "ComponentError": ("rebrew.plugin", "ComponentError"),
+    "CompareResultError": ("rebrew.compile", "CompareResultError"),
     "ConfigError": ("rebrew.config", "ConfigError"),
     "ConfigKeyError": ("rebrew.config", "ConfigKeyError"),
     "ConfigNotFoundError": ("rebrew.config", "ConfigNotFoundError"),
@@ -105,6 +108,7 @@ _LAZY_ERRORS: dict[str, tuple[str, str]] = {
     "OrphanInventoryError": ("rebrew.orphans", "OrphanInventoryError"),
     "RecompileError": ("rebrew.recompile_client", "RecompileError"),
     "RegistryError": ("rebrew.registry", "RegistryError"),
+    "SimilarityUnavailable": ("rebrew.matcher.scoring", "SimilarityUnavailable"),
     "Tc16Error": ("rebrew.tc16", "Tc16Error"),
     "ToolchainError": ("rebrew.toolchain", "ToolchainError"),
     "UnresolvedSymbolError": ("rebrew.coff_reloc", "UnresolvedSymbolError"),
