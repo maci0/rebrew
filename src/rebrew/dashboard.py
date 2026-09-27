@@ -74,7 +74,9 @@ no-cache`` so browsers can 304 without serving a stale body after ``build-db``;
 the shell links ``/app.js?v=<content hash>`` and ``/boot-guard.js?v=<version>``,
 each of which is ``immutable``.
 ``/api/health`` is the exception: it reads the database, so it answers
-``no-store`` with no ``ETag`` at all (see ``_UNCACHEABLE_ROUTES``).
+``no-store`` with no ``ETag`` at all (see ``_UNCACHEABLE_ROUTES``).  It
+also reports the running request, 5xx, and worst-latency totals, so a
+probe can watch the error rate while the server is up.
 An inline ``data:,`` icon stops the per-load ``/favicon.ico`` 404.
 A matching ``If-None-Match`` on a routed path is answered 304 only when a GET
 would answer 200 (target-scoped ones need a known ``target``; ``/api/summary``
@@ -135,7 +137,7 @@ import sys
 import threading
 import time
 import traceback
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from http import HTTPStatus
@@ -1734,8 +1736,11 @@ def _text_or_va(q: str, *columns: str) -> tuple[str, list[Any]]:
 class Dashboard:
     """Read-only query layer over a ``coverage.db`` file."""
 
-    def __init__(self, db_path: Path) -> None:
+    def __init__(self, db_path: Path, served: Callable[[], dict[str, Any]] | None = None) -> None:
         self.db_path = Path(db_path)
+        #: Running server totals the probe reports; ``None`` off the HTTP
+        #: server (tests, direct queries), where no request has been served.
+        self.served = served
 
     @contextmanager
     def _conn(self) -> Iterator[sqlite3.Connection]:
@@ -2120,10 +2125,18 @@ class Dashboard:
             # coverage.db has been moved, truncated, or replaced by something
             # unreadable must report 500, not a cheerful 200 over an empty
             # page.  The read is one indexed row fetch, not the full query
-            # chain, so a slow route cannot make the probe flap.
-            return self._json(
-                200, {"status": "ok", "db": str(self.db_path), "targets": len(self.targets())}
-            )
+            # chain, so a slow route cannot make the probe flap.  The running
+            # request and 5xx totals ride along: otherwise the only error count
+            # the server has is the one it prints when it stops, so a run that
+            # fails every query still probes "ok" for its whole life.
+            payload: dict[str, Any] = {
+                "status": "ok",
+                "db": str(self.db_path),
+                "targets": len(self.targets()),
+            }
+            if self.served is not None:
+                payload.update(self.served())
+            return self._json(200, payload)
         if parsed.path == "/api/targets":
             targets = self.targets()
             return self._json(
@@ -2457,6 +2470,25 @@ def _escape_log_text(text: str) -> str:
     return strip_bidi_format(text).translate(_LOG_CONTROL_CHARS)
 
 
+def _stamped(level: str, message: str) -> str:
+    """The leading stamp every line on the server's console stream carries.
+
+    Access lines, error records, and the lifecycle lines around a run all
+    start with it, so one timestamp column orders the whole stream and one
+    grep finds a request by id.
+    """
+    return f"{time.strftime(_LOG_TIME_FORMAT, time.gmtime())} {level:<8} {message}"
+
+
+def _server_notice(level: str, message: str) -> None:
+    """Write one lifecycle line (bind, warning, shutdown) to the log stream.
+
+    ``message`` is Rich markup; the surrounding text is local (host, port,
+    resolved path), never request-derived.
+    """
+    console.print(_stamped(level, message), soft_wrap=True)
+
+
 def _attach_server_log_handler() -> None:
     """Send this module's ERROR/WARNING lines to the same console as the access log.
 
@@ -2524,6 +2556,14 @@ class _Handler(BaseHTTPRequestHandler):
     _requests: ClassVar[int] = 0
     _server_errors: ClassVar[int] = 0
     _slowest_ms: ClassVar[float] = 0.0
+
+    @classmethod
+    def reset_served_totals(cls) -> None:
+        """Zero the lifetime totals, so a run reports its own requests only."""
+        with cls._stats_lock:
+            cls._requests = 0
+            cls._server_errors = 0
+            cls._slowest_ms = 0.0
 
     def _respond(self, method: str) -> None:
         # getattr: requestline is set by parse_request, and a handler built
@@ -2765,8 +2805,19 @@ class _Handler(BaseHTTPRequestHandler):
             self._respond(self.command)
             return
         _stamp_request(self._request_id, getattr(self, "requestline", ""))
-        self.log_error("code %d, message %s", code, message)
         status = HTTPStatus(code)
+        # Rejected before routing, so there is no route to log the failure:
+        # the record carries the id of the request whose access line is in the
+        # stream, at the level the status deserves (a malformed request is the
+        # client's, a 5xx is ours), instead of a bare INFO line with no id.
+        log.log(
+            logging.ERROR if code >= 500 else logging.WARNING,
+            "%s rejected %s: code %d, message %s",
+            self._request_id,
+            _escape_log_text(getattr(self, "requestline", "")) or "-",
+            code,
+            _escape_log_text(message or status.phrase),
+        )
         # Scrub like every routed body (``Dashboard._json``): http.server's own
         # messages quote the request line, so an RLO in a crafted request would
         # otherwise reach the client as unscrubbed formatting text.
@@ -2795,10 +2846,7 @@ class _Handler(BaseHTTPRequestHandler):
         # stamp and level match the ``log`` records, so the access line and the
         # error line for one request sort and read as one stream.
         console.print(
-            _escape_log_text(
-                f"{time.strftime(_LOG_TIME_FORMAT, time.gmtime())} {'INFO':<8} "
-                f"{self.address_string()} {fmt % args}"
-            ),
+            _escape_log_text(_stamped("INFO", f"{self.address_string()} {fmt % args}")),
             markup=False,
             soft_wrap=True,
         )
@@ -2840,6 +2888,20 @@ class _Handler(BaseHTTPRequestHandler):
             str(size),
             elapsed_ms,
         )
+
+
+def served_totals() -> dict[str, Any]:
+    """Running request, 5xx, and worst-latency totals for ``/api/health``.
+
+    Read under the same lock that ``log_request`` updates, so the probe never
+    reports a total from a torn read.
+    """
+    with _Handler._stats_lock:
+        return {
+            "requests": _Handler._requests,
+            "server_errors": _Handler._server_errors,
+            "slowest_ms": round(_Handler._slowest_ms, 1),
+        }
 
 
 class _DashboardServer(ThreadingHTTPServer):
@@ -2944,9 +3006,10 @@ def main(
     # Non-loopback binds expose the read-only coverage API with no auth
     # (SECURITY.md).  Warn once at startup so ``--host 0.0.0.0`` is never silent.
     if host not in ("127.0.0.1", "localhost", "::1"):
-        console.print(
-            f"[yellow]warning:[/] dashboard bound to {host}:{port} with no authentication "
-            "— any client that can reach this host can read coverage.db"
+        _server_notice(
+            "WARNING",
+            f"[yellow]warning:[/] dashboard bound to {escape(host)}:{port} with no "
+            "authentication — any client that can reach this host can read coverage.db",
         )
 
     try:
@@ -2963,25 +3026,30 @@ def main(
     # server_close() waited on every in-flight (or stuck) client until the
     # OS closed the socket.  Daemon threads die with the main thread.
     server.daemon_threads = True
-    _Handler.dashboard = Dashboard(db_path)
+    _Handler.dashboard = Dashboard(db_path, served=served_totals)
     _Handler.allowed_hosts = allowed_hosts_for(host, port)
-    console.print(
-        f"[green]Rebrew dashboard on http://{host}:{port}[/] — "
-        f"[dim]serving {db_path} (Ctrl+C to stop)[/dim]"
+    _Handler.reset_served_totals()
+    _server_notice(
+        "INFO",
+        f"[green]Rebrew dashboard on http://{escape(host)}:{port}[/] — "
+        f"[dim]serving {escape(str(db_path))} (Ctrl+C to stop)[/dim]",
     )
     _attach_server_log_handler()
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        console.print("[dim]Dashboard stopped.[/dim]")
+        _server_notice("INFO", "[dim]Dashboard stopped.[/dim]")
     finally:
         server.server_close()
         # Lifetime totals: the per-request access line says how one request
         # went, this says how the run went (volume, 5xx count, worst latency).
-        console.print(
-            f"[dim]served {_Handler._requests} requests, "
-            f"{_Handler._server_errors} server errors, "
-            f"slowest {_Handler._slowest_ms:.1f}ms[/dim]"
+        # /api/health carries the same numbers while the run is still going.
+        totals = served_totals()
+        _server_notice(
+            "INFO",
+            f"[dim]served {totals['requests']} requests, "
+            f"{totals['server_errors']} server errors, "
+            f"slowest {totals['slowest_ms']:.1f}ms[/dim]",
         )
 
 

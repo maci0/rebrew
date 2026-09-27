@@ -2578,7 +2578,9 @@ bind probe).
 
 Endpoints: `/`, `/app.js`, `/boot-guard.js`, `/api/bootstrap`, `/api/targets`,
 `/api/health` (liveness plus one real read of the target list, so an
-unreadable `coverage.db` answers 500 `database_error`; served `no-store`
+unreadable `coverage.db` answers 500 `database_error`; also reports the
+running `requests`, `server_errors`, and `slowest_ms` totals, so a probe can
+watch the error rate while the server is up; served `no-store`
 with no `ETag`),
 `/api/summary?target=`, `/api/functions?target=` (status/module/q/limit/offset;
 compact row arrays under `cols`), `/api/sections?target=` (compact row arrays

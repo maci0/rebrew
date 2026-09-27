@@ -4,6 +4,7 @@ import gzip
 import json
 import logging
 import os
+import re
 import shutil
 import sqlite3
 import subprocess
@@ -25,6 +26,7 @@ from rebrew.dashboard import (
     Dashboard,
     _DashboardServer,
     _files_display,
+    _Handler,
 )
 
 
@@ -2811,6 +2813,108 @@ class TestAccessLog:
         assert handler._request_id != first
 
 
+class TestParseRejectionLog:
+    """A request rejected before routing still has to name itself in the log."""
+
+    @staticmethod
+    def _handler() -> _Handler:
+        handler = _Handler.__new__(_Handler)  # bypass __init__: no socket needed
+        handler.command = "GET"
+        handler.requestline = "GET /x\x1b HTTP/1.1"
+        handler._request_id = "r51"
+        handler.send_response = lambda *a, **k: None  # type: ignore[method-assign]
+        handler.send_header = lambda *a, **k: None  # type: ignore[method-assign]
+        handler.end_headers = lambda *a, **k: None  # type: ignore[method-assign]
+        handler.wfile = _NullWFile()
+        return handler
+
+    def test_rejected_request_logs_at_warning_with_its_id(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        from rebrew.dashboard import _Handler
+
+        with caplog.at_level(logging.WARNING, logger="rebrew.dashboard"):
+            self._handler().send_error(400, "Bad request syntax")
+        assert [(r.levelname, r.getMessage()) for r in caplog.records] == [
+            (
+                "WARNING",
+                "r51 rejected GET /x\\x1b HTTP/1.1: code 400, message Bad request syntax",
+            )
+        ]
+        assert _Handler is not None
+
+    def test_server_side_rejection_logs_at_error(self, caplog: pytest.LogCaptureFixture) -> None:
+
+        with caplog.at_level(logging.WARNING, logger="rebrew.dashboard"):
+            self._handler().send_error(500, "Internal error")
+        assert [r.levelname for r in caplog.records] == ["ERROR"]
+
+    def test_control_chars_in_the_message_are_escaped(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        from rebrew.dashboard import _Handler
+
+        with caplog.at_level(logging.WARNING, logger="rebrew.dashboard"):
+            self._handler().send_error(400, "Bad request syntax\x1b")
+        assert "\x1b" not in caplog.records[0].getMessage()
+        assert _Handler is not None
+
+
+class TestLifecycleLines:
+    """Bind, warning, and shutdown lines share the access log's stamp."""
+
+    def test_notice_carries_the_stamp_and_level(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from io import StringIO
+
+        from rich.console import Console
+
+        from rebrew.dashboard import _server_notice
+
+        output = StringIO()
+        monkeypatch.setattr(
+            "rebrew.dashboard.console", Console(file=output, width=200, color_system=None)
+        )
+        _server_notice("WARNING", "bound wide open")
+        rendered = output.getvalue()
+        assert re.search(r"\d\d:\d\d:\d\d UTC WARNING  bound wide open", rendered)
+
+    def test_server_side_rejection_warns_once_at_bind(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        import socket
+        from io import StringIO
+
+        from rich.console import Console
+
+        from rebrew.dashboard import app
+
+        db_dir = tmp_path / "db"
+        db_dir.mkdir()
+        with sqlite3.connect(db_dir / "coverage.db") as conn:
+            conn.execute("CREATE TABLE metadata (target TEXT, key TEXT, value TEXT)")
+        output = StringIO()
+        monkeypatch.setattr(
+            "rebrew.dashboard.console", Console(file=output, width=200, color_system=None)
+        )
+
+        def _stop(self: object) -> None:
+            raise KeyboardInterrupt
+
+        monkeypatch.setattr("rebrew.dashboard._DashboardServer.serve_forever", _stop)
+        with socket.socket() as probe:
+            probe.bind(("127.0.0.1", 0))
+            port = probe.getsockname()[1]
+        result = CliRunner().invoke(
+            app, ["--root", str(tmp_path), "--host", "0.0.0.0", "--port", str(port)]
+        )
+        assert result.exit_code == 0, result.output
+        rendered = output.getvalue()
+        assert "WARNING  warning:" in rendered
+        assert f"INFO     Rebrew dashboard on http://0.0.0.0:{port}" in rendered
+        assert "INFO     Dashboard stopped." in rendered
+        assert "INFO     served 0 requests, 0 server errors" in rendered
+
+
 class TestServedCounters:
     """The access log also feeds the lifetime totals printed on shutdown."""
 
@@ -2957,6 +3061,26 @@ class TestHealthRoute:
         assert payload["status"] == "ok"
         assert payload["db"] == str(dashboard.db_path)
         assert payload["targets"] == len(dashboard.targets())
+
+    def test_health_reports_the_running_totals(
+        self, dashboard: Dashboard, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A run that fails queries must not probe "ok" with no error count."""
+        from rebrew.dashboard import Dashboard, _Handler, served_totals
+
+        monkeypatch.setattr(_Handler, "_requests", 12)
+        monkeypatch.setattr(_Handler, "_server_errors", 3)
+        monkeypatch.setattr(_Handler, "_slowest_ms", 41.26)
+        served = Dashboard(dashboard.db_path, served=served_totals)
+        payload = json.loads(served.handle("GET", "/api/health", {})[2])
+        assert payload["requests"] == 12
+        assert payload["server_errors"] == 3
+        assert payload["slowest_ms"] == 41.3
+
+    def test_health_omits_totals_off_the_server(self, dashboard: Dashboard) -> None:
+        """A query-layer Dashboard serves no request, so it has no totals."""
+        payload = json.loads(dashboard.handle("GET", "/api/health", {})[2])
+        assert "requests" not in payload
 
     def test_health_is_not_an_etag_route(self) -> None:
         """A 304 on the probe would report a stale 'healthy' for a dead db."""
