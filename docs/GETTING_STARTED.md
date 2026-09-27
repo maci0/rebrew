@@ -3,7 +3,7 @@
 This guide is for humans. It assumes you can read C and have poked at a
 disassembler before, but have never used rebrew. In ~15 minutes you will go
 from a bare binary to your first byte-matched function, and understand the
-loop you will repeat for the other 542.
+loop you will repeat for every other function in the binary.
 
 **What rebrew is, in one paragraph:** you write C; rebrew compiles it with
 the *same compiler that built the original binary* (running inside a docker
@@ -82,7 +82,9 @@ skeleton for each one. You will see something like:
 Intake complete: game (msvc-8.0)
   detected family: msvc (MSVC 8.0)
   functions: 259, documented: 259
+  toolchain: msvc-8.0 runs through docker image rebrew/msvc:8.0-win32 — run 'rebrew toolchain build msvc-8.0' if the image is missing
   next: rebrew doctor && rebrew status --json
+  first run? see the rebrew repo's docs/ONBOARDING.md for the walkthrough
 ```
 
 Two things to notice: the **detected profile** (`msvc-8.0`) — that is the
@@ -118,8 +120,8 @@ rebrew todo          # what to do next, ranked by ROI
 ```
 
 `todo` is your work queue for the entire project. Start at the top: the
-smallest, easiest functions. Do not start with the 2,685-byte monster —
-start with the 40-byte leaf.
+smallest, easiest functions. Do not start with the largest blob it lists —
+start with the smallest leaf.
 
 ### 5. Rule out library code first
 

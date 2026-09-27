@@ -147,6 +147,13 @@ def orphan_dicts(
     fn_orphans: list[tuple[str, int, str]],
     data_orphans: list[tuple[str, int, str]],
 ) -> list[dict[str, Any]]:
+    """Render orphan tuples as ``{module, va, store, status}`` dicts.
+
+    *store* names the metadata file the VA would be deleted from, and
+    *status* is looked up in that store (empty string when the block carries
+    none), so a caller can hold back earned statuses without re-reading the
+    metadata itself.
+    """
     from rebrew.data_metadata import load_data_metadata
     from rebrew.metadata import load_metadata
 

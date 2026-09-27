@@ -196,6 +196,15 @@ def _compare_logic_hash() -> str:
 
 
 def compiler_config_hash(cfg: ProjectConfig) -> str:
+    """Digest of the compile configuration shared by every cache entry.
+
+    Deliberately excludes the per-entry inputs (resolved cflags, defines,
+    header closure, source body) and the target binary's stat: those are
+    compared individually so one changed source does not invalidate the
+    whole cache.  What belongs here is a change that invalidates *every*
+    entry at once, including the compare/extraction logic hash, so a fix to
+    the comparison code re-measures results it would otherwise keep serving.
+    """
     # Do NOT inline target binary mtime/size here — compiler config is an
     # input to the cache predicate, not a per-call probe of the binary.  The
     # binary identity is guarded separately via VerifyCache.binary_id and
@@ -421,8 +430,11 @@ def _source_body(path_str: str, mtime_ns: int, size: int, ino: int) -> tuple[byt
 
 
 def source_hash(filepath: Path) -> str:
-    # Callers already catch OSError.  A failed stat almost always means
-    # read_bytes would fail too — do not pretend a fallback hash exists.
+    """SHA-256 of a source file's body, memoized on (path, mtime, size, inode).
+
+    Callers already catch OSError.  A failed stat almost always means
+    read_bytes would fail too — do not pretend a fallback hash exists.
+    """
     st = filepath.stat()
     return _source_body(str(filepath.resolve()), st.st_mtime_ns, st.st_size, st.st_ino)[1]
 

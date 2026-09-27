@@ -1,8 +1,13 @@
 """Helpers for locating and downloading wibo runner binaries.
 
-Wibo is a lightweight Win32 PE loader used as a faster alternative to Wine for
-running MSVC toolchain binaries. This module finds an existing wibo binary or
-downloads and verifies the latest release asset from GitHub.
+Wibo is a lightweight Win32 PE loader.  Every shipped toolchain is docker-only
+(ADR 008) and runs wine inside its image, so wibo is not a compile path for
+them: ``init --install-wibo`` drops the flag for an image-backed profile, and
+``doctor --install-wibo`` downloads it but leaves the docker-backed config
+untouched.  What survives is the legacy host-runner case — a toolchain
+registered without an ``image`` whose ``compiler.command`` names a wibo binary.
+This module finds such a binary (``find_wibo``) or downloads and verifies the
+latest release asset from GitHub (``download_wibo``).
 """
 
 from __future__ import annotations

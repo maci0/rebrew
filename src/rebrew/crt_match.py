@@ -451,6 +451,7 @@ def _match_to_dict(match: CrtMatch) -> dict[str, Any]:
 
 
 def source_ref(entry: CrtSourceEntry) -> str:
+    """``FILE:LINE`` for a located definition, bare ``FILE`` for asm or unknown line."""
     if entry.is_asm or entry.line <= 0:
         return entry.file
     return f"{entry.file}:{entry.line}"

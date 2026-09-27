@@ -560,6 +560,15 @@ def patch_verify_cache_entries(cfg: ProjectConfig, patches: list[dict[str, Any]]
 
 
 def load_verify_cache(cache_path: Path, cfg: ProjectConfig) -> VerifyCache | None:
+    """Read and identity-check the verify cache at *cache_path*.
+
+    ``None`` means "treat this as a cold start" and covers three distinct
+    cases a caller must not confuse: the file is absent, it is unreadable or
+    corrupt (a warning is logged — a corrupt cache must not silently look like
+    a clean slate), or the document's identity (target binary, compiler
+    config) no longer matches *cfg*.  Per-entry staleness is not resolved
+    here; that happens at serve time in ``prepare_entries``.
+    """
     # The canonical path goes through the memoized raw loader: status/todo call
     # it in the same process before report/verify ask here, and re-reading +
     # JSON-decoding the whole document a second time was a full redundant pass
@@ -601,6 +610,13 @@ def save_verify_cache(
     entries: list[Annotation],
     preserve_keys: set[str] | None = None,
 ) -> None:
+    """Rewrite *cache_path* from this run's *results*.
+
+    The file is replaced wholesale, not merged, so a filtered run must pass
+    the VAs it did not measure in *preserve_keys* or they are lost.
+    ``INTERNAL_ERROR`` rows are dropped rather than stored, and an
+    unreadable prior cache aborts the write instead of being overwritten.
+    """
     filepath_info: dict[str, tuple[int, str]] = {}
     fp_by_va: dict[str, Any] = {}
     for entry in entries:

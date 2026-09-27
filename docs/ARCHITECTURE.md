@@ -99,7 +99,7 @@ flowchart LR
 | `rebrew/near_diag.py` | NEAR_MATCHING delta classification (register/encoding/reloc/structural buckets) |
 | `rebrew/headless.py` | Persistent per-process Xvfb for headless wine compiles (no window, no DISPLAY needed) |
 | `rebrew/toolchain_detect.py` | Layered compiler-family detector: Detect It Easy (diec) → PDB → codegen heuristics; feeds init's CRT/opt seeding and doctor's alignment check |
-| `rebrew/wibo.py` | Auto-download + SHA256-verify the wibo runner (fast headless wine alternative) |
+| `rebrew/wibo.py` | Locate + SHA256-verify the wibo runner (`doctor --install-wibo`); a legacy host-runner fallback for toolchains registered without an `image`, not a shipped compile path (ADR 008) |
 | `rebrew/binsync/` (`export.py` / `importer.py` / `diff.py` / `git.py` / `init.py` / `overlay.py`, plus `serial.py`, `cli.py`, `state.py`) | BinSync state export/import/diff/init/overlay, the `rebrew binsync` umbrella (git automation), and the shared state readers; artifact TOML serialized with declib (the `binsync` extra) |
 | `rebrew/crypto_scan.py` | Cryptography detection: data-section constant tables (AES S-boxes, SHA-256 K/H, SHA-1, MD5 T) plus imported-API and project-name matching |
 | `rebrew/fingerprints.py` | Content fingerprint bundle for a binary: streamed MD5/SHA1/SHA256/SHA512/SHA3 digests and CRC32, Mandiant imphash, PE export hash, MSVC Rich-header hash, per-section entropy, optional TLSH/ssdeep |

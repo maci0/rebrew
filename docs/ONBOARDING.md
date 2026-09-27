@@ -87,7 +87,7 @@ Intake complete: server (msvc-8.0)
   functions: 259, documented: 259
   toolchain: msvc-8.0 runs through docker image rebrew/msvc:8.0-win32 — run 'rebrew toolchain build msvc-8.0' if the image is missing
   next: rebrew doctor && rebrew status --json
-  first run? see docs/ONBOARDING.md for the walkthrough
+  first run? see the rebrew repo's docs/ONBOARDING.md for the walkthrough
 ```
 
 ### 3. Health check
