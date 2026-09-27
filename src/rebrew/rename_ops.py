@@ -9,10 +9,12 @@ logic — no CLI or output concerns.
 
 import logging
 import re
+from collections.abc import Sequence
 from pathlib import Path
 
 from rebrew.annotation import parse_c_file_multi
 from rebrew.config import ProjectConfig
+from rebrew.errors import RebrewError
 from rebrew.sources import iter_sources_and_headers
 from rebrew.utils import atomic_write_text, is_safe_c_ident, read_source_text
 
@@ -20,6 +22,20 @@ logger = logging.getLogger(__name__)
 
 # MSVC stdcall decoration (`foo@8`) — strip once per rename, not recompile.
 _AT_DECORATION_RE = re.compile(r"@\d+$")
+
+
+class RenameError(RebrewError, RuntimeError):
+    """A cross-reference rename applied the definition but not every call site.
+
+    The definition file was rewritten (and possibly renamed) but one or more
+    other sources could not be, so they still call the old symbol and the
+    tree no longer compiles.  ``files`` carries the paths that kept the old
+    name, so the caller can name them instead of only logging.
+    """
+
+    def __init__(self, message: str, *, files: Sequence[Path]) -> None:
+        super().__init__(message)
+        self.files = list(files)
 
 
 def substitute_name(pattern: re.Pattern[str], replacement: str, text: str) -> str:
@@ -93,7 +109,12 @@ def rename_function_everywhere(
     new_filename: str | None = None,
     dry_run: bool = False,
 ) -> int:
-    """Perform a full cross-reference rename. Returns number of files modified."""
+    """Perform a full cross-reference rename. Returns number of files modified.
+
+    Raises :class:`RenameError` when a source that referenced the old name
+    could not be rewritten; the definition rename is left in place, so the
+    caller must surface the failure rather than report success.
+    """
     # Strip exactly ONE leading underscore: MSVC decorates a cdecl name with
     # one (`_foo` for foo), so a function genuinely named `_foo` carries the
     # symbol `__foo` — `lstrip("_")` turned that into `foo` and renamed an
@@ -194,6 +215,7 @@ def rename_function_everywhere(
         raise
 
     # Find and update externs across all files
+    stale: list[Path] = []
     for src_file in iter_sources_and_headers(cfg.reversed_dir, cfg):
         if src_file == filepath:
             continue
@@ -210,6 +232,7 @@ def rename_function_everywhere(
                 src_file,
                 exc,
             )
+            stale.append(src_file)
 
     # Rename file if needed — skip when file has multiple annotations
     #    (renaming would disassociate the other functions from their file).
@@ -219,5 +242,17 @@ def rename_function_everywhere(
         except OSError as exc:
             logger.error("Failed to rename %s -> %s: %s", filepath, rename_target, exc)
             raise
+
+    # The definition now carries the new name, so a call site left on the old
+    # one is a compile error the caller must hear about: a warning plus exit 0
+    # reports a rename that broke the tree as a rename that succeeded.
+    if stale:
+        listed = ", ".join(str(p) for p in stale)
+        raise RenameError(
+            f"renamed {actual_old_name} to {target_func}, but these files still "
+            f"reference the old name: {listed}. Fix them by hand (permissions or "
+            f"encoding) and re-run.",
+            files=stale,
+        )
 
     return updated_files

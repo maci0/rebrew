@@ -248,20 +248,48 @@ def _ensure_wine_env(env: dict[str, str] | None, cmd: list[str]) -> dict[str, st
 
 
 #: Profiles whose compiler runs ONLY through its docker image.  Derived from
-#: the toolchain registry at import time (all specs with an image); the raw
-#: subprocess path is reserved for a registered toolchain with no image (a
-#: plugin/overlay native compiler).
-def _docker_backed_profiles() -> frozenset[str]:
-    try:
-        from rebrew.toolchain import TOOLCHAINS
-
-        return frozenset(n for n, s in TOOLCHAINS.items() if s.image is not None)
-    except Exception as exc:
-        logging.getLogger(__name__).debug("docker profile probe failed: %s", exc)
-        return frozenset()
+#: the toolchain registry (all specs with an image); the raw subprocess path
+#: is reserved for a registered toolchain with no image (a plugin/overlay
+#: native compiler).  ``None`` means "not resolved yet": see
+#: :func:`docker_backed_profiles`.
+_DOCKER_BACKED_PROFILES: frozenset[str] | None = frozenset()
 
 
-_DOCKER_BACKED_PROFILES = _docker_backed_profiles()
+def docker_backed_profiles() -> frozenset[str]:
+    """The image-backed toolchain profiles, resolved from the registry.
+
+    A failed probe is never cached: the initial resolution runs while
+    ``rebrew.toolchain`` may still be initializing, and pinning the empty set
+    from a transient failure would route every shipped ``msvc-*`` profile to a
+    host ``cl.exe`` subprocess for the rest of the process.  Only a successful
+    resolution is memoized, and :func:`refresh_docker_backed_profiles` drops
+    the memo when the toolchain registry is rebuilt.
+    """
+    global _DOCKER_BACKED_PROFILES
+    if _DOCKER_BACKED_PROFILES is not None:
+        return _DOCKER_BACKED_PROFILES
+    from rebrew.toolchain import TOOLCHAINS
+
+    _DOCKER_BACKED_PROFILES = frozenset(n for n, s in TOOLCHAINS.items() if s.image is not None)
+    return _DOCKER_BACKED_PROFILES
+
+
+def refresh_docker_backed_profiles() -> frozenset[str]:
+    """Re-derive the set after the toolchain registry is refreshed.
+
+    Paired with :func:`rebrew.toolchain.refresh_toolchain_registry` in
+    :func:`rebrew.registry.refresh_all`, so a toolchain plugin installed into a
+    long-lived process routes through its image instead of the host path.
+    """
+    global _DOCKER_BACKED_PROFILES
+    _DOCKER_BACKED_PROFILES = None
+    return docker_backed_profiles()
+
+
+try:
+    _DOCKER_BACKED_PROFILES = docker_backed_profiles()
+except Exception as exc:  # import cycle or a plugin that raises: resolve on first use
+    logging.getLogger(__name__).debug("docker profile probe deferred to first use: %s", exc)
 
 
 def _compiler_cmd_parts(cl_cmd: str, env: dict[str, str] | None) -> list[str]:
@@ -465,7 +493,7 @@ def build_candidate_obj_only(
     registered toolchain with no ``image`` (a plugin/overlay native
     compiler).
     """
-    if profile in _DOCKER_BACKED_PROFILES:
+    if profile in docker_backed_profiles():
         if cfg is None:
             from types import SimpleNamespace
 

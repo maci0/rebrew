@@ -6,6 +6,7 @@ from typing import Any
 
 import pytest
 
+from rebrew import rename_ops
 from rebrew.rename_ops import rename_function_everywhere
 
 
@@ -151,19 +152,33 @@ class TestRenameEdgeCases:
             rename_function_everywhere(cfg, src / "missing.c", "old_fn", "_old_fn", "new_fn")
         assert "old_fn" in sibling.read_text(encoding="utf-8")
 
-    def test_extern_oserror_skipped(self, tmp_path: Path, monkeypatch: Any) -> None:
-        from rebrew.rename_ops import rename_function_everywhere
+    def test_extern_oserror_raises(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        from rebrew.rename_ops import RenameError, rename_function_everywhere
 
         src = tmp_path / "src"
         src.mkdir()
         primary = src / "f.c"
         primary.write_text("int old_fn(void) { return 0; }\n", encoding="utf-8")
-        (src / "bad.c").mkdir()  # extern scan hits OSError → skipped
+        bad = src / "bad.c"
+        bad.write_text("extern int old_fn(void);\n", encoding="utf-8")
         (src / "e.c").write_text("extern int old_fn(void);\n", encoding="utf-8")
+        real_read = rename_ops.read_source_text
+
+        def _read(path: Path) -> tuple[str, str]:
+            if path == bad:
+                raise PermissionError(f"cannot read {path}")
+            return real_read(path)
+
+        monkeypatch.setattr(rename_ops, "read_source_text", _read)
         cfg = SimpleNamespace(reversed_dir=src, source_ext=".c")
-        result = rename_function_everywhere(cfg, primary, "old_fn", "_old_fn", "new_fn")
-        assert result == 2  # primary + extern file
+        # The definition was renamed, so a call site left behind breaks the
+        # build: the rename must fail loudly instead of reporting success.
+        with pytest.raises(RenameError) as excinfo:
+            rename_function_everywhere(cfg, primary, "old_fn", "_old_fn", "new_fn")
+        assert excinfo.value.files == [bad]
+        assert "new_fn" in primary.read_text(encoding="utf-8")
         assert "new_fn" in (src / "e.c").read_text(encoding="utf-8")
+        assert "old_fn" in bad.read_text(encoding="utf-8")
 
     def test_new_filename_absolute_path(self, tmp_path: Path, monkeypatch: Any) -> None:
         from rebrew.rename_ops import rename_function_everywhere

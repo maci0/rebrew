@@ -11,7 +11,6 @@ import math
 import threading
 import time
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, NamedTuple
 
@@ -55,6 +54,7 @@ from rebrew.utils import (
     atomic_write_text,
     filename_component,
     floor_pct,
+    interruptible_pool,
     metadata_write_lock,
     read_compile_source,
 )
@@ -1308,7 +1308,7 @@ def run_all(
         return stub, matched, output_summary, record
 
     if jobs > 1 and len(stubs) > 1:
-        with ThreadPoolExecutor(max_workers=jobs) as executor:
+        with interruptible_pool(jobs) as executor:
             outcomes = list(
                 executor.map(
                     _run_stub, stubs, stub_seeds, stub_seed_cflags, stub_seed_mutations

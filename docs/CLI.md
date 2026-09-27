@@ -468,6 +468,9 @@ Behavior:
 - Updates the C function definition name
 - Replaces `extern` cross-references across all `.c` files
 - Renames the file itself if the stem matches the old name
+- A file that cannot be read or written fails the whole rename with a
+  non-zero exit and names the files that still hold the old symbol; the
+  definition rename is left in place, so the tree needs a manual fix
 
 ### `rebrew types`
 

@@ -2,6 +2,7 @@
 
 import re
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -182,3 +183,41 @@ class TestBuildCandidateMap:
         )
         assert result.ok, result.error_msg
         assert result.obj_bytes == b"\x55\x8b\xec"
+
+
+class TestDockerBackedProfiles:
+    """A failed registry probe must not pin the image-backed profile set."""
+
+    def test_deferred_probe_resolves_on_first_use(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from rebrew.matcher import compiler as compiler_mod
+
+        monkeypatch.setattr(compiler_mod, "_DOCKER_BACKED_PROFILES", None)
+
+        with monkeypatch.context() as ctx:
+            import rebrew.toolchain as toolchain_mod
+
+            ctx.setattr(toolchain_mod, "TOOLCHAINS", {"msvc-6.0": SimpleNamespace(image="x:1")})
+            assert "msvc-6.0" in compiler_mod.docker_backed_profiles()
+
+    def test_successful_probe_is_memoized(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from rebrew.matcher import compiler as compiler_mod
+
+        first = compiler_mod.refresh_docker_backed_profiles()
+        assert compiler_mod.docker_backed_profiles() is first
+
+    def test_registry_refresh_rederives_after_a_plugin_registration(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import rebrew.toolchain as toolchain_mod
+        from rebrew.matcher import compiler as compiler_mod
+        from rebrew.registry import refresh_all
+
+        real = dict(toolchain_mod.TOOLCHAINS)
+        toolchain_mod.TOOLCHAINS["plugin-native"] = SimpleNamespace(image=None)
+        try:
+            refresh_all()
+            assert "plugin-native" not in compiler_mod.docker_backed_profiles()
+        finally:
+            toolchain_mod.TOOLCHAINS.clear()
+            toolchain_mod.TOOLCHAINS.update(real)
+            refresh_all()

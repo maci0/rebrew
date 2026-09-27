@@ -10,9 +10,12 @@ Library layer under the ``rebrew imports`` command
 
 from __future__ import annotations
 
+import logging
 import struct
 from pathlib import Path
 from typing import Any
+
+log = logging.getLogger(__name__)
 
 #: IMAGE_NT_OPTIONAL_HDR64_MAGIC — a PE32+ optional header, whose ``FF 25``
 #: stub operand is RIP-relative rather than an absolute slot VA.
@@ -93,7 +96,17 @@ def parse_imports(binary_path: Path) -> list[dict[str, Any]]:
                         "ordinal": ordinal or None,
                     }
                 )
-    except Exception:
+    except Exception as exc:
+        # Mid-table: the records collected so far are real, but the IAT is
+        # truncated.  Callers read this as a complete table, so name the
+        # shortfall instead of returning a silently partial answer.
+        log.warning(
+            "PE import enumeration of %s failed after %d record(s): %s: %s",
+            binary_path,
+            len(out),
+            type(exc).__name__,
+            exc,
+        )
         return out
     return out
 

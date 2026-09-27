@@ -235,7 +235,21 @@ def main(
             tempfile.TemporaryDirectory(dir=sweep_root, prefix=f"{sym_file}-") as rnd_dir,
             cf.ThreadPoolExecutor(max_workers=max(1, jobs)) as ex,
         ):
-            results = list(ex.map(lambda c: submit(c, Path(rnd_dir)), cands))
+            # Submit futures and collect them one at a time: a candidate that
+            # raises (a write error, an unexpected toolchain failure) must not
+            # abort the round, and every future must be drained so a failed
+            # worker's exception is not reported as "never retrieved" at exit.
+            futures = {ex.submit(submit, c, Path(rnd_dir)): c for c in cands}
+            results = []
+            for fut in cf.as_completed(futures):
+                cand = futures[fut]
+                try:
+                    results.append(fut.result())
+                except Exception as exc:
+                    console.print(
+                        f"  candidate {cand[0]} ({cand[1]}) failed, scoring it as no improvement: {exc}"
+                    )
+                    results.append((cand, (0.0, 0)))
 
         best, best_c = base, None
         for (_k, _lab, _new), sc in results:

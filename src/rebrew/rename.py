@@ -22,6 +22,7 @@ from rebrew.cli import (
     require_config,
 )
 from rebrew.rename_ops import (
+    RenameError,
     collect_matching_files,
     rename_function_everywhere,
     substitute_name,
@@ -254,6 +255,10 @@ def main(
     except FileExistsError as exc:
         error_exit(str(exc), json_mode=json_output)
     except ValueError as exc:
+        error_exit(str(exc), json_mode=json_output)
+    except RenameError as exc:
+        # The definition was renamed but call sites were not: the tree does not
+        # compile, so this is a failure, not a partial success to report.
         error_exit(str(exc), json_mode=json_output)
 
     if json_output:

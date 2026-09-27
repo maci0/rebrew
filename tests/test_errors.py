@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -245,6 +246,7 @@ class TestSerializationRoundTrip:
 
 
 #: Constructor keywords for the error classes that require more than a message.
-_REQUIRED_KEYWORDS: dict[str, dict[str, int]] = {
+_REQUIRED_KEYWORDS: dict[str, dict[str, Any]] = {
     "McpApplyAborted": {"applied": 0, "errors": 0},
+    "RenameError": {"files": []},
 }

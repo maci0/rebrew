@@ -207,9 +207,11 @@ def apply_binsync_func_name(cfg: Any, local: Any, bs_name: str, local_filepath: 
     """Rename the local function *local* to the BinSync name, everywhere.
 
     Returns False (nothing written) when the source file is missing or the
-    BinSync name is not a valid identifier.
+    BinSync name is not a valid identifier, and also when the rename landed
+    on the definition but left a call site behind: reporting True there would
+    tell the drift report the name is in sync while the tree no longer builds.
     """
-    from rebrew.rename_ops import rename_function_everywhere
+    from rebrew.rename_ops import RenameError, rename_function_everywhere
 
     if not local_filepath:
         return False
@@ -222,15 +224,19 @@ def apply_binsync_func_name(cfg: Any, local: Any, bs_name: str, local_filepath: 
     old_sym = getattr(local, "symbol", "") or old_name
     if not is_safe_c_ident(bs_name):
         return False
-    rename_function_everywhere(
-        cfg=cfg,
-        filepath=fp,
-        old_name=old_name,
-        old_sym=old_sym,
-        target_func=bs_name,
-        rename_file=True,
-        dry_run=False,
-    )
+    try:
+        rename_function_everywhere(
+            cfg=cfg,
+            filepath=fp,
+            old_name=old_name,
+            old_sym=old_sym,
+            target_func=bs_name,
+            rename_file=True,
+            dry_run=False,
+        )
+    except RenameError as exc:
+        log.error("binsync rename of %s left stale call sites: %s", local_filepath, exc)
+        return False
     return True
 
 

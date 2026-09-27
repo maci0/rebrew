@@ -452,7 +452,9 @@ def update_stub_to_matched(
 
     STATUS promotion happens only after the body splice succeeded AND the
     post-write parse validation passed — a failed splice or a validation
-    error must not claim RELOC on a file whose body is still a stub.
+    error must not claim RELOC on a file whose body is still a stub.  A
+    STATUS write that then fails restores the stub body and re-raises, so
+    the file and its status never disagree.
 
     The ``.c.bak`` is written only when absent: a second splice (retry after
     a STATUS promotion failure, or another stub in the same file) must not
@@ -541,7 +543,18 @@ def update_stub_to_matched(
     atomic_write_text(filepath, updated, encoding=encoding)
 
     meta_root = metadata_dir or filepath.parent
-    update_source_status(meta_root, "RELOC", module, va_int, updated_by="match")
+    try:
+        update_source_status(meta_root, "RELOC", module, va_int, updated_by="match")
+    except (OSError, ValueError) as exc:
+        # The .c now holds a matched body under a STUB status.  The next
+        # test/verify would demote it back and blame the source, so put the
+        # stub back: the pair (body, STATUS) moves together or not at all.
+        atomic_write_text(filepath, original, encoding=encoding)
+        raise RuntimeError(
+            f"promoted {filepath} to RELOC but the STATUS write failed ({exc}); "
+            f"the source was restored to its stub — fix the metadata store "
+            f"({meta_root}) and re-run"
+        ) from exc
 
     from rebrew.utils import rel_display_path
 

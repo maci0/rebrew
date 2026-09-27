@@ -41,6 +41,7 @@ module that owns that concept (``toolchain``, ``metadata``, ``workspace``,
 
 import bisect
 import codecs
+import concurrent.futures
 import contextlib
 import copy
 import hashlib
@@ -1406,6 +1407,32 @@ def run_process_group(
             _stop_process_tree(proc)
             raise
     return subprocess.CompletedProcess(proc.args, proc.returncode, stdout, stderr)
+
+
+@contextlib.contextmanager
+def interruptible_pool(max_workers: int) -> Iterator["concurrent.futures.ThreadPoolExecutor"]:
+    """A worker pool whose exit does not block on a BaseException.
+
+    ``ThreadPoolExecutor.__exit__`` calls ``shutdown(wait=True)``, so a
+    ``KeyboardInterrupt`` (or a ``typer.Exit``) raised while consuming
+    ``executor.map`` surfaces only after *every other* worker has run to
+    completion.  Each worker here is a GA or a container compile bounded by
+    ``--timeout-min``, so Ctrl+C appears to hang for minutes per in-flight
+    item, and the ``exit_130_on_interrupt`` contract in :mod:`rebrew.cli`
+    never gets its turn.
+
+    On an exception the queued-but-unstarted work is cancelled and the
+    in-flight workers are left to finish on their own (the interpreter
+    joins them at exit); the pool is still shut down on a clean exit.
+    """
+    executor = concurrent.futures.ThreadPoolExecutor(max_workers=max_workers)
+    try:
+        yield executor
+    except BaseException:
+        executor.shutdown(wait=False, cancel_futures=True)
+        raise
+    else:
+        executor.shutdown(wait=True)
 
 
 def watch_files(

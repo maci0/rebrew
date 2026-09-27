@@ -51,7 +51,7 @@ from rebrew.match_sweep import (
     run_single_toolchain_sweep,
 )
 from rebrew.skeleton import NO_MAX_SIZE
-from rebrew.utils import preset_module_key
+from rebrew.utils import interruptible_pool, preset_module_key
 
 log = logging.getLogger(__name__)
 
@@ -516,9 +516,7 @@ def main(
         n_parallel = min(len(names), jobs) if parallel else 1
         per_target_jobs = max(1, jobs // n_parallel) if parallel else jobs
         if parallel:
-            from concurrent.futures import ThreadPoolExecutor
-
-            with ThreadPoolExecutor(max_workers=n_parallel) as executor:
+            with interruptible_pool(n_parallel) as executor:
                 for m, f in executor.map(_run_target, names):  # order preserved
                     total_matched += m
                     total_failed += f

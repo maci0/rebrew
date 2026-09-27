@@ -337,6 +337,7 @@ def refresh_all() -> dict[str, int]:
     counts["decompiler_backends"] = len(decompiler.refresh_backends())
     counts["mutations"] = len(mutator.refresh_mutations())
     counts["flag_sets"] = len(compiler.refresh_flag_sets()[0])
+    compiler.refresh_docker_backed_profiles()
     counts["library_presets"] = len(metadata.refresh_library_presets())
     counts.update(toolchain_detect.refresh_detection_tables())
     counts["binary_loaders"] = len(binary_loader.refresh_loaders())

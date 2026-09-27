@@ -1635,3 +1635,33 @@ class TestStripBidiFormat:
     def test_keeps_ordinary_unicode(self) -> None:
         """Scrubbing targets invisible formatting, not every non-ASCII char."""
         assert strip_bidi_format("café") == "café"
+
+
+class TestInterruptiblePool:
+    """A Ctrl+C must not wait for the other workers to finish their run."""
+
+    def test_base_exception_does_not_block_on_running_workers(self) -> None:
+        import threading
+
+        from rebrew.utils import interruptible_pool
+
+        started = threading.Event()
+        release = threading.Event()
+
+        def _slow(_i: int) -> None:
+            started.set()
+            release.wait(timeout=5)
+
+        with pytest.raises(KeyboardInterrupt), interruptible_pool(2) as ex:
+            for i in range(2):
+                ex.submit(_slow, i)
+            assert started.wait(timeout=5)
+            raise KeyboardInterrupt
+        # Reached without waiting out the 5 s the workers were told to hold.
+        release.set()
+
+    def test_clean_exit_waits_and_collects_results(self) -> None:
+        from rebrew.utils import interruptible_pool
+
+        with interruptible_pool(3) as ex:
+            assert sorted(ex.map(lambda i: i * 2, range(4))) == [0, 2, 4, 6]

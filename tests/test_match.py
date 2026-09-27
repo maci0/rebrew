@@ -922,6 +922,26 @@ class TestUpdateStubToMatched:
         )
         assert sorted(p.name for p in tmp_path.glob("*.c")) == ["stub.c"]
 
+    def test_failed_status_write_restores_the_stub(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A matched body under a STUB status is a demotion waiting to happen."""
+        from rebrew.match_batch import update_stub_to_matched
+
+        source = tmp_path / "stub.c"
+        original = "// FUNCTION: SERVER 0x10002000\nint second(void) { return 2; }\n"
+        source.write_text(original, encoding="utf-8")
+
+        def _fail(*_a: Any, **_kw: Any) -> None:
+            raise PermissionError("rebrew-functions.toml is read-only")
+
+        monkeypatch.setattr("rebrew.match_batch.update_source_status", _fail)
+        with pytest.raises(RuntimeError, match="restored to its stub"):
+            update_stub_to_matched(
+                source, "int second(void) { return 42; }\n", self._stub("0x10002000")
+            )
+        assert source.read_text(encoding="utf-8") == original
+
     def test_failed_temp_write_leaves_no_source_file(self, tmp_path: Path) -> None:
         from rebrew.match_batch import update_stub_to_matched
 
