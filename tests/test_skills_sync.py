@@ -201,9 +201,64 @@ class TestPrinciplesSync:
 
 
 class TestSkillFacts:
+    """A skill that quotes a closed value set is stale the moment the code moves.
+
+    ``validate_skill_commands.py`` proves every documented *flag* still
+    resolves, but a flag's accepted values are invisible to a ``--help``
+    probe: renamed a tier or a decompiler backend, every flag still checks
+    out and the skill sends the agent a value the CLI rejects. These pin the
+    sets the skills spell out.
+    """
+
     def test_workflow_lists_every_metadata_field(self) -> None:
         from rebrew.metadata import METADATA_FIELDS
 
         text = (_SRC / "rebrew-workflow" / "SKILL.md").read_text(encoding="utf-8")
         missing = sorted(f for f in METADATA_FIELDS if f not in text)
         assert missing == [], f"rebrew-workflow SKILL.md metadata key list lacks {missing}"
+
+    def test_workflow_lists_every_todo_category(self) -> None:
+        from rebrew.todo import _CATEGORY_COLORS
+
+        text = (_SRC / "rebrew-workflow" / "SKILL.md").read_text(encoding="utf-8")
+        missing = sorted(c for c in _CATEGORY_COLORS if c not in text)
+        assert missing == [], f"rebrew-workflow SKILL.md 'todo -c' list lacks {missing}"
+
+    def test_intake_lists_every_decompiler_backend(self) -> None:
+        from rebrew.decompiler import BACKENDS
+
+        text = (_SRC / "rebrew-intake" / "SKILL.md").read_text(encoding="utf-8")
+        missing = sorted(b for b in (*BACKENDS, "ghidra", "auto") if b not in text)
+        assert missing == [], f"rebrew-intake SKILL.md --decomp-backend list lacks {missing}"
+
+    def test_flag_sweep_table_matches_the_engine(self) -> None:
+        """The reference quotes a combination count per tier; recompute them.
+
+        A tier's count is the product of the flag axes it selects, so a flag
+        added to or dropped from an axis silently changes the cost the skill
+        tells the agent it is about to pay.
+        """
+        import math
+        import re
+
+        import rebrew.matcher.compiler as compiler
+        from rebrew.matcher import MSVC_SWEEP_TIERS
+
+        text = (_SRC / "rebrew-matching/references/flag-sweep.md").read_text(encoding="utf-8")
+        documented = {
+            tier: int(count.replace(",", ""))
+            for tier, count in re.findall(r"^\| `(\w+)` \| ([\d,]+) \|", text, re.M)
+        }
+
+        profile = "msvc-6.0"
+        flags, tiers = compiler.refresh_flag_sets()
+        # A profile without a plugin sweep set takes the packaged default,
+        # the same fallback generate_flag_combinations applies.
+        actual = {
+            tier: math.prod(len(axis) for axis in compiler._flags_to_axes(flags[profile], ids))
+            for tier, ids in tiers.get(profile, MSVC_SWEEP_TIERS).items()
+        }
+
+        assert documented == actual, (
+            f"flag-sweep.md tier table {documented} no longer matches the engine {actual}"
+        )

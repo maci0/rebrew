@@ -5,7 +5,9 @@ description: >-
   dispatch tables/vtables, XX relocations or missing_globals hints in a diff,
   or cross-TU type conflicts. Triggers on 'global', 'global variable',
   'data section', 'BSS', 'vtable', 'dispatch table', 'bss gap', 'bss padding',
-  'fix bss', 'extern', 'type conflict', 'rebrew data', 'data-drift',
+  'fix bss', 'bss_padding.c', 'extern', 'missing extern', 'type conflict',
+  'rebrew data', 'rebrew data --bss', 'rebrew data --fix-bss',
+  'rebrew data --gen-header', 'data-drift',
   'start-data', 'fill-data', 'layout-audit', 'set-type', 'set-section', 'W016',
   'data placement', or 'rebrew_globals.h'. Not for function bodies
   (rebrew-workflow/matching) or Ghidra data pulls (rebrew-ghidra-sync --pull-data).

@@ -5,6 +5,8 @@ description: >-
   the byte diff — structural diff, flag sweep, GA, climb/qual-sweep, or
   symbolic prove to reach EXACT/RELOC or PROVEN. Triggers on 'stuck',
   'stuck matching', 'almost matches', 'almost matching', 'byte match',
+  'mismatch', 'mismatched', 'does not match', "doesn't match", 'off by N bytes',
+  'wrong bytes', 'offset', 'unmatched', 'size mismatch', 'SIZE_MISMATCH',
   'close diff', 'drift', 'flag tuning', 'register allocation', 'GA',
   'genetic algorithm', 'flag sweep', 'near-diag', 'near-miss', 'prove',
   'angr', 'symbolic equivalence', 'objdiff', 'gap-trace', 'climb',
