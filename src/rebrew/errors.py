@@ -26,7 +26,8 @@ consumer never has to know which submodule defines which error.  The
 (``ToolchainErrorKind`` and friends) come from the same place, because
 annotating an ``exc.kind`` branch needs the alias too.  The classes
 load on first attribute access, keeping ``import rebrew.errors`` free of the
-compile stack.
+compile stack.  ``__all__`` names every one of them, so a star-import or a
+docs generator sees the same set this module documents.
 
 ``retryable`` is the one field the base carries, because "may I try this
 again?" is the question every caller asks and the answer must not depend on
@@ -165,9 +166,36 @@ def __dir__() -> list[str]:
 
 
 __all__ = [
+    "CatalogScanError",
+    "CompareResultError",
+    "ComponentError",
+    "ConfigError",
+    "ConfigKeyError",
+    "ConfigNotFoundError",
+    "DecompmeError",
     "DecompmeErrorKind",
+    "Delphi16Error",
+    "DosboxError",
+    "FingerprintError",
+    "LibraryOverrideError",
+    "McpApplyAborted",
+    "McpError",
     "McpErrorKind",
+    "MetadataValidationError",
+    "Msvc16Error",
+    "NeParseError",
+    "NoDecompilationError",
+    "NotLzexeError",
+    "Omf16Error",
+    "OrphanInventoryError",
     "RebrewError",
+    "RecompileError",
     "RecompileErrorKind",
+    "RegistryError",
+    "SimilarityUnavailable",
+    "Tc16Error",
+    "ToolchainError",
     "ToolchainErrorKind",
+    "UnresolvedSymbolError",
+    "WorkspaceNotFound",
 ]

@@ -191,6 +191,10 @@ class CompareResult:
         context_hash: SHA-256 of the supplied compile context, or ``None``
             when no context was used.  Pins the verdict to the declarations
             it was earned under.
+        error: The structured backend failure behind a ``COMPILE_ERROR`` /
+            ``EXTRACT_ERROR`` verdict, or ``None`` when the compile failed on
+            the source itself.  Branch on ``error.kind`` /
+            ``error.retryable`` instead of matching ``message``.
 
     """
 
@@ -234,6 +238,14 @@ class CompareResult:
     #: compile input, so a result recorded under one digest says nothing
     #: about a build under another.
     context_hash: str | None = None
+    #: The structured backend failure behind a ``COMPILE_ERROR`` /
+    #: ``EXTRACT_ERROR`` verdict, or ``None`` when the compile ran and failed
+    #: on the source itself.  Only the remote recompile backend produces one
+    #: today (a :class:`rebrew.recompile_client.RecompileError` carrying
+    #: ``kind`` / ``status_code`` / ``retryable``); without this field a
+    #: consumer could not tell "the compile service was unreachable" from
+    #: "your C does not build" except by matching ``message`` substrings.
+    error: RebrewError | None = None
 
     def __post_init__(self) -> None:
         """Reject a ``matched`` flag that contradicts ``status``."""
@@ -436,6 +448,7 @@ def classify_compare_result(
     full_obj_size: int | None = None,
     full_obj_bytes: bytes | None = None,
     full_target_size: int | None = None,
+    error: RebrewError | None = None,
 ) -> CompareResult:
     """Classify a raw compile-and-compare outcome into a :class:`CompareResult`.
 
@@ -472,6 +485,10 @@ def classify_compare_result(
             truncated ``target_bytes`` for comparison — the STUB "minimal body
             against a much larger target" test measures against this, not the
             truncated slice.
+        error: The structured backend failure behind a ``COMPILE_ERROR`` /
+            ``EXTRACT_ERROR`` verdict, carried on the result so a consumer
+            branches on ``error.kind`` / ``error.retryable`` instead of
+            matching ``msg`` substrings.
 
     Returns:
         A fully-populated :class:`CompareResult`.
@@ -509,6 +526,7 @@ def classify_compare_result(
             reloc_offsets=None,
             message=msg,
             match_count=0,
+            error=error,
         )
 
     if "COMPILE_ERROR" in msg or obj_bytes is None:
@@ -521,6 +539,7 @@ def classify_compare_result(
             reloc_offsets=None,
             message=msg,
             match_count=0,
+            error=error,
         )
 
     if "MISSING" in msg:
@@ -1243,6 +1262,7 @@ def _compile_via_recompile(
     profile: str,
     emit_assembly: bool,
     source_text: str | None = None,
+    backend_errors: list[RebrewError] | None = None,
 ) -> tuple[str | None, str]:
     """Compile one source through the recompile HTTP service.
 
@@ -1256,6 +1276,12 @@ def _compile_via_recompile(
     *source_text* overrides the file's own content: the caller passes the
     merged context+source compile unit, so the service compiles exactly what
     the local backend would.
+
+    A :class:`rebrew.recompile_client.RecompileError` is also appended to
+    *backend_errors* when given, so a caller that returns the result to a
+    library consumer (``compile_and_compare``) can attach the structured
+    fields — ``kind``, ``status_code``, ``retryable`` — to the
+    :class:`CompareResult` instead of leaving a message string behind.
     """
     from rebrew.recompile_client import RecompileError, compile_source
 
@@ -1287,6 +1313,8 @@ def _compile_via_recompile(
             retries=2,
         )
     except RecompileError as exc:
+        if backend_errors is not None:
+            backend_errors.append(exc)
         return None, f"recompile service error: {exc}"
     finally:
         _recompile_release(client)
@@ -1437,6 +1465,7 @@ def compile_to_obj(
     toolchain: str | None = None,
     extra_include_dirs: list[str] | None = None,
     context: CompileContext | None = None,
+    backend_errors: list[RebrewError] | None = None,
 ) -> tuple[str | None, str]:
     """Compile a .c file to .obj through the toolchain's docker image.
 
@@ -1480,6 +1509,12 @@ def compile_to_obj(
             compile unit under ``#line`` directives, so the compiler reads the
             merged text (not the bare source) and the compile-cache key hashes
             that same text.  ``None`` compiles the source alone.
+        backend_errors: Optional sink for structured backend failures.  The
+            remote recompile backend appends its
+            :class:`rebrew.recompile_client.RecompileError` here, so a caller
+            that returns a :class:`CompareResult` can hand the consumer the
+            ``kind`` / ``status_code`` / ``retryable`` fields the error
+            message string does not carry.
 
     Returns:
         (obj_path, error_msg) - obj_path is ``None`` on failure;
@@ -1592,6 +1627,7 @@ def compile_to_obj(
             active,
             emit_assembly=bool(getattr(cfg, "recompile_emit_assembly", False)),
             source_text=compile_text if context is not None else None,
+            backend_errors=backend_errors,
         )
 
     if spec is not None and (spec.image is not None or spec.runtime == "native"):
@@ -2280,7 +2316,9 @@ def compile_and_compare(
             per-call workdir.  Ignored when the path is not an existing file.
 
     Returns:
-        :class:`CompareResult` with status, metrics, and byte data.
+        :class:`CompareResult` with status, metrics, and byte data.  A failed
+        remote compile leaves the structured :class:`rebrew.errors.RebrewError`
+        on ``result.error`` (see the ``error`` attribute).
 
     """
     target_bytes = bytes(target_bytes)
@@ -2292,6 +2330,7 @@ def compile_and_compare(
         return result
 
     workdir: Path | None = None
+    backend_errors: list[RebrewError] = []
     try:
         obj_path: str | None
         if _precompiled_obj is not None and Path(_precompiled_obj).is_file():
@@ -2315,11 +2354,17 @@ def compile_and_compare(
                 use_cache=use_cache,
                 toolchain=toolchain,
                 context=context,
+                backend_errors=backend_errors,
             )
         if obj_path is None:
             return _pin(
                 classify_compare_result(
-                    False, f"COMPILE_ERROR: {err[:200]}", target_bytes, None, None
+                    False,
+                    f"COMPILE_ERROR: {err[:200]}",
+                    target_bytes,
+                    None,
+                    None,
+                    error=backend_errors[0] if backend_errors else None,
                 )
             )
 
