@@ -1116,6 +1116,32 @@ class TestVerifyCacheHelpers:
         statuses = load_verify_statuses(self._cfg(tmp_path))
         assert statuses == {0x1000: "EXACT"}
 
+    def test_verify_readers_follow_cache_version(self, tmp_path: Path, monkeypatch) -> None:
+        """Both readers validate against CACHE_VERSION, not a baked-in literal."""
+        import rebrew.verify_cache as vc
+        from rebrew.status import _load_verify_info, load_verify_details
+
+        monkeypatch.setattr(vc, "CACHE_VERSION", 99)
+        self._write_cache(
+            tmp_path,
+            {"version": 99, "target": "T", "entries": {"0x1": {"status": "EXACT", "passed": True}}},
+        )
+        assert _load_verify_info(self._cfg(tmp_path)) is not None
+        assert load_verify_details(self._cfg(tmp_path)) == {0x1: ("EXACT", False)}
+
+    def test_verify_readers_share_one_validated_read(self, tmp_path: Path) -> None:
+        """A caller-supplied document feeds both readers without re-reading."""
+        from rebrew.status import _load_cache_raw, _load_verify_info, load_verify_details
+
+        self._write_cache(
+            tmp_path,
+            {"version": 2, "target": "T", "entries": {"0x1": {"status": "EXACT", "passed": True}}},
+        )
+        raw = _load_cache_raw(self._cfg(tmp_path))
+        assert raw is not None
+        assert load_verify_details(self._cfg(tmp_path), raw) == {0x1: ("EXACT", False)}
+        assert _load_verify_info(self._cfg(tmp_path), frozenset(), raw) is not None
+
     def test_verify_info_wrong_target_ignored(self, tmp_path: Path) -> None:
         """A cache written for another target must not be presented as ours."""
         from rebrew.status import _load_verify_info

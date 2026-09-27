@@ -123,6 +123,7 @@ from rebrew.utils import (
 )
 from rebrew.workspace.status import KNOWN_STATUSES as KNOWN_STATUSES
 from rebrew.workspace.status import MATCHED_STATUSES as MATCHED_STATUSES
+from rebrew.workspace.status import STUB_PLACEHOLDER_STATUSES
 
 if TYPE_CHECKING:
     from rebrew.annotation import Annotation
@@ -936,7 +937,7 @@ def should_promote_status(current_status: str, new_status: str) -> bool:
     new = canonical_status(new_status)
     if is_status_parked(current):
         return False
-    if current == "STUB" and new in ("SIZE_MISMATCH", "MISSING_SIZE"):
+    if current == "STUB" and new in STUB_PLACEHOLDER_STATUSES:
         # A documented STUB (typically blocker-documented) must not be
         # demoted by a placeholder size-mismatch or a missing-size
         # evaluation — that would erase the user's classification.
