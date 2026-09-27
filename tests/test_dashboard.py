@@ -2242,3 +2242,52 @@ class TestKeepAliveTimeout:
             server.shutdown()
             server.server_close()
             serve.join(timeout=5)
+
+
+class TestResponseFraming:
+    """The cold-load response is one segment, with no interpreter banner.
+
+    Headers and body are written separately, so Nagle would hold the body's
+    first segment until the header block is acknowledged.  The stdlib
+    ``Server`` banner adds 38 bytes to every response against the
+    per-response header reserve and names the interpreter patch level.
+    """
+
+    def test_nagle_is_disabled(self) -> None:
+        from rebrew.dashboard import _Handler
+
+        assert _Handler.disable_nagle_algorithm is True
+
+    def test_no_server_banner(self, dashboard: Dashboard) -> None:
+        import socket
+        import threading
+        from http.server import ThreadingHTTPServer
+
+        from rebrew.dashboard import _Handler, allowed_hosts_for
+
+        class Bound(_Handler):
+            allowed_hosts: frozenset[str] = frozenset()
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Bound)
+        server.daemon_threads = True
+        Bound.dashboard = dashboard
+        Bound.allowed_hosts = allowed_hosts_for("127.0.0.1", server.server_address[1])
+        serve = threading.Thread(target=server.serve_forever, daemon=True)
+        serve.start()
+        try:
+            with socket.create_connection(server.server_address[:2], timeout=5) as client:
+                client.sendall(
+                    b"GET / HTTP/1.1\r\nHost: 127.0.0.1:%d\r\n"
+                    b"Accept-Encoding: gzip\r\nConnection: close\r\n\r\n" % server.server_address[1]
+                )
+                chunks = []
+                while chunk := client.recv(65536):
+                    chunks.append(chunk)
+        finally:
+            server.shutdown()
+            server.server_close()
+            serve.join(timeout=5)
+        head = b"".join(chunks).partition(b"\r\n\r\n")[0].decode()
+        assert "Server:" not in head
+        assert head.startswith("HTTP/1.1 200 OK")
+        assert "Date:" in head

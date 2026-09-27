@@ -110,6 +110,15 @@ All three entry assets total 11981 bytes zstd / 12567 gzip, inside the RFC 6928
 `/app.js` (8497 zstd) and `/boot-guard.js` (143 zstd) finish. Gate:
 `test_entry_assets_fit_initial_congestion_window`.
 
+Two per-response costs came off that same window. `send_response` is overridden
+to send the status line and `Date` only, dropping the stdlib
+`Server: BaseHTTP/0.6 Python/<patch>` banner: measured header blocks 592 → 555
+(shell), 624 → 587 (`/app.js`), 623 → 586 (`/boot-guard.js`), 13515 bytes for
+the three responses with bodies instead of 13842. `disable_nagle_algorithm`
+is set because headers and body leave as two writes on an unbuffered socket,
+so Nagle would hold the body's first segment until the header block is
+acknowledged. Gates: `TestResponseFraming`.
+
 `<link rel="preload" href="/api/bootstrap" as="fetch"
 crossorigin fetchpriority="high">` plus `/app.js` script preload lets
 bootstrap overlap the deferred client download. The client `fetch()` keeps

@@ -138,6 +138,7 @@ Concrete blast radius of a dashboard leak: function names, virtual addresses, ma
 - **I** Unauthenticated read of coverage APIs when bound beyond loopback, including `/api/history` (prior status and `changed_at`) and `/api/sections`.
 - **D** Large `limit` (capped at 5000, `_MAX_LIMIT`) still amplifies DB read cost. `offset` is not capped at the page size; `_MAX_OFFSET` is `2**63-1` ([`dashboard.py`](../src/rebrew/dashboard.py) `_offset_param`), so a huge skip still reaches SQLite.
 - **T** Clickjacking / MIME confusion of the HTML shell: mitigated by `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, and CSP `script-src 'self'` on every response including early 403s (`_write_security_headers`). There is still no authentication.
+- **I** Interpreter fingerprinting from the stdlib response banner: `send_response` is overridden to send the status line and `Date` only, so no `Server: BaseHTTP/0.6 Python/<patch>` header names the running interpreter.
 
 ### App → MCP / LLM / decomp.me / ghidra-cli
 
