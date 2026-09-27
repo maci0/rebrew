@@ -198,7 +198,7 @@ DEFAULT_CONTAINER_RUNTIME = "docker"
 CONTAINER_RUNTIMES = ("docker", "podman", "nerdctl")
 
 
-def container_runtime() -> str:
+def container_runtime(runtime: str | None = None) -> str:
     """The container runtime used for docker-shipped tools.
 
     Configurable via ``REBREW_CONTAINER_RUNTIME`` so podman (crun-backed,
@@ -207,11 +207,16 @@ def container_runtime() -> str:
     are treated as unset (``os.environ.get`` alone would return ``""`` and
     break every ``docker``/``podman`` invocation).  A bare name outside
     :data:`CONTAINER_RUNTIMES` raises here rather than at exec time.
+
+    Pass *runtime* to validate a candidate value without reading (or writing)
+    the process environment; ``rebrew.config.env_knob_errors`` uses that to
+    report a mistyped variable through ``rebrew config effective``.
     """
-    runtime = (
-        os.environ.get("REBREW_CONTAINER_RUNTIME", DEFAULT_CONTAINER_RUNTIME).strip()
-        or DEFAULT_CONTAINER_RUNTIME
-    )
+    if runtime is None:
+        runtime = (
+            os.environ.get("REBREW_CONTAINER_RUNTIME", DEFAULT_CONTAINER_RUNTIME).strip()
+            or DEFAULT_CONTAINER_RUNTIME
+        )
     if not _CONTAINER_RUNTIME_RE.fullmatch(runtime):
         raise ValueError(f"REBREW_CONTAINER_RUNTIME={runtime!r} contains invalid characters")
     if "/" not in runtime and runtime not in CONTAINER_RUNTIMES:
