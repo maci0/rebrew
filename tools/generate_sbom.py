@@ -67,8 +67,8 @@ def _license_field(source_kind: str, name: str, version: str) -> dict[str, Any]:
 
 
 # Copyleft dependencies pinned in uv.lock.  Expressions were read from the
-# locked artifacts: resembl 2.0.0 ``License: GPLv3`` with no later-version
-# clause, m2c aa869da ``License-Expression: GPL-3.0-only``, pyvex 9.3.4
+# locked artifacts: resembl 3.0.0 ``License: GPL-3.0-only``, m2c aa869da
+# ``License-Expression: GPL-3.0-only``, pyvex 9.3.4
 # ``License-Expression: BSD-2-Clause AND GPL-2.0-or-later``, and the MPL-2.0
 # packages below.  certifi 2026.7.22 and hypothesis 6.168.0 declare
 # ``MPL-2.0`` and every resolve pulls them in; tqdm 4.70.1 declares
