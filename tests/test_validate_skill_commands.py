@@ -37,8 +37,8 @@ class TestExtractCommands:
         md = _md("```bash\nrebrew cache stats --json\n```\n", tmp_path)
         results = vsc._extract_commands(md)
         # "cache" is a multi-command group: the subsubcommand is absorbed,
-        # and --json is in _SKIP_FLAGS.
-        assert ("cache stats", []) in results
+        # and --json is validated like any other flag.
+        assert ("cache stats", ["--json"]) in results
 
     def test_skips_placeholders_and_comments(self, tmp_path: Path) -> None:
         md = _md(
@@ -57,7 +57,9 @@ class TestExtractCommands:
     def test_skip_flags_filtered(self, tmp_path: Path) -> None:
         md = _md("```bash\nrebrew status --json --target x --help\n```\n", tmp_path)
         results = vsc._extract_commands(md)
-        assert results == [("status", [])]
+        # Only the two flags every command carries are dropped; --json and
+        # --target are the ones the skills cite most, so they are checked.
+        assert results == [("status", ["--json", "--target"])]
 
 
 class TestRunHelp:

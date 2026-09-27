@@ -2,8 +2,8 @@
 name: rebrew-matching
 description: >-
   Use when a function is stuck at NEAR_MATCHING and C edits no longer close
-  the byte diff — structural diff, flag sweep, GA, climb/qual-sweep, or
-  symbolic prove to reach EXACT/RELOC or PROVEN. Triggers on 'stuck',
+  the byte diff (structural diff, flag sweep, GA, climb/qual-sweep, or
+  symbolic prove to reach EXACT/RELOC or PROVEN). Triggers on 'stuck',
   'stuck matching', 'almost matches', 'almost matching', 'byte match',
   'mismatch', 'mismatched', 'does not match', "doesn't match", 'off by N bytes',
   'wrong bytes', 'offset', 'unmatched', 'size mismatch', 'SIZE_MISMATCH',

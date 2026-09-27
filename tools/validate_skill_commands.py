@@ -48,14 +48,15 @@ _FLAG_RE = re.compile(r"(--[a-z][a-z0-9-]+)")
 # ``_FLAG_RE``.  Strip the styling before parsing the help text.
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 
-# Flags that are generic/pass-through or tested elsewhere — skip to avoid
-# false positives from injected placeholders like ``--target`` that some
-# subcommands don't surface.
+# Flags every Typer command carries regardless of what a skill writes, so
+# citing one proves nothing.  ``--json`` and ``--target`` are deliberately NOT
+# here: they are the two flags the skills cite most, and a blanket exemption
+# meant the one pair a skill is most likely to get wrong went unchecked.  Both
+# are validated like any other flag, so a skill citing ``--target`` on a
+# command that does not surface it now fails the gate.
 _SKIP_FLAGS: frozenset[str] = frozenset(
     {
         "--help",
-        "--json",  # present on most commands but not all
-        "--target",  # skip: optional on many commands
         "--version",
     }
 )

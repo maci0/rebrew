@@ -2,13 +2,16 @@
 name: rebrew-workflow
 description: >-
   Use for day-to-day reversing on an onboarded target: matching C against
-  target functions — pick work (`todo`), skeleton, edit, `test`/`diff`, verify,
-  lint, round-trip, progress. Triggers on 'reverse', 'reversing',
+  target functions (pick work with `todo`, skeleton, edit, `test`/`diff`,
+  verify, lint, round-trip, progress) and for reorganizing the source tree
+  (split, merge, rename, call graph). Triggers on 'reverse', 'reversing',
   'reverse function', 'reverse engineer', 'match function',
   'implement function', 'decompile',
   'skeleton', 'test function', 'verify', 'lint', 'next function', 'workflow',
   'todo', 'diff', 'asm', 'status', 'coverage', 'progress', 'blocker',
-  'rebrew test', 'rebrew verify', 'rebrew skeleton', 'rebrew todo',
+  'rebrew test', 'rebrew verify',
+  'split file', 'merge files', 'one function per file', 'multi-function file',
+  'rename function', 'call graph', 'rebrew probe', 'rebrew similar',
   'naked reconstruction', 'SOURCE: naked', 'rebrew doctor', 'doctor fails',
   'health check', 'round-trip', 'round trip', 'splice'. Hand off near-miss
   GA/prove to rebrew-matching; new binaries to rebrew-intake; globals/BSS to
@@ -61,7 +64,8 @@ rebrew similar 0x10001000 --json        # Find structurally similar functions (s
 ```
 
 **Default to `rebrew todo --json`.** Each item has a ready `command` — run it.
-ROI tiers: compile/extract errors → near-misses → stubs → new starts → prove/data.
+The categories above are interleaved by one continuous ROI score, not a fixed
+tier ladder; `documented` is audit-only and hidden from the default list.
 `extract-error` = symbol missing from `.obj`; fix the marker/definition before GA.
 `naked-reconstruction` (`// SOURCE: naked`) is byte-exact asm and stays listed until real C matches. Any other `-c` value errors. BLOCKER text is the item's `blocker` field — there is no `blocked` category.
 `coverage` in JSON is the progress source of truth; `status --json` is cheap recon.
