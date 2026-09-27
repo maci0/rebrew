@@ -635,6 +635,29 @@ class TestRequestSeeds:
         )
         assert request_seeds(_cfg("https://llm/v1"), source, client=client) == [alt]
 
+    def test_validation_stops_at_the_requested_count(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A response stuffed with blocks must not buy a parse per block.
+
+        Only *count* seeds are ever returned, so a bounded number of
+        tree-sitter parses is the cap; the rest of the response is unread.
+        """
+        source = "int f(void) { return 0; }"
+        blocks = [f"int f(void) {{ int r = {i}; return r; }}" for i in range(1, 9)]
+        client = _FakeClient(
+            {"choices": [{"message": {"content": "\n".join(f"```c\n{b}\n```" for b in blocks)}}]}
+        )
+        real = rebrew.llm_seed.valid_c_source
+        calls: list[str] = []
+
+        def counting(src: str, **kwargs: object) -> bool:
+            calls.append(src)
+            return real(src, **kwargs)
+
+        monkeypatch.setattr(rebrew.llm_seed, "valid_c_source", counting)
+        seeds = request_seeds(_cfg("https://llm/v1"), source, count=2, client=client)
+        assert seeds == blocks[:2]
+        assert calls == blocks[:2]
+
     @pytest.mark.parametrize("finish_reason", ["length", "content_filter", "tool_calls", "error"])
     def test_incomplete_completion_dropped(
         self, finish_reason: str, caplog: pytest.LogCaptureFixture
@@ -1002,6 +1025,24 @@ class TestSeedUsage:
         assert usage.prompt_tokens is None
         assert usage.total_tokens is None
 
+    def test_negative_usage_fields_do_not_reach_the_record(self) -> None:
+        """A provider cannot report a negative spend the summary then prints."""
+        client = _FakeClient(
+            {
+                "choices": [{"message": {"content": "nothing"}}],
+                "usage": {"prompt_tokens": -1, "completion_tokens": -5, "total_tokens": -6},
+            }
+        )
+        request_seeds(_cfg("https://llm/v1"), "int f(void){return 0;}", client=client)
+        usage = seed_usage_total()
+        assert usage is not None
+        assert (usage.prompt_tokens, usage.completion_tokens, usage.total_tokens) == (
+            None,
+            None,
+            None,
+        )
+        assert "token usage unreported" in usage.describe()
+
     def test_no_request_leaves_no_record(self) -> None:
         assert seed_usage_total() is None
         assert request_seeds(_cfg(), "int f(void){return 0;}", client=_FakeClient({})) == []
@@ -1247,6 +1288,12 @@ class TestLoadResponseJson:
     def test_parses_within_cap(self) -> None:
         payload = {"choices": [{"message": {"content": "ok"}}]}
         resp = _FakeResponse(payload)
+        assert _load_response_json(resp) == payload
+
+    def test_unparsable_content_length_falls_through_to_the_body(self) -> None:
+        """A non-numeric header is not a rejection: the body check still runs."""
+        payload = {"choices": [{"message": {"content": "ok"}}]}
+        resp = _FakeResponse(payload, headers={"content-length": "not-a-number"})
         assert _load_response_json(resp) == payload
 
 
