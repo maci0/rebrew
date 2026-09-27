@@ -98,6 +98,26 @@ class TestPackagingMetadata:
         missing = [t for t in tags if f"## [{t.lstrip('v')}]" not in text]
         assert missing == [], f"CHANGELOG.md missing sections for tags: {missing}"
 
+    def test_patch_release_never_ships_a_breaking_entry(self) -> None:
+        """A patch carries fixes; a behavior change needs at least a minor.
+
+        ``CONTRIBUTING.md`` lets the library import surface break in a minor
+        with a ``**Breaking:**`` entry, never in a patch, where a consumer
+        pinning ``~=2.13.1`` would take the break without a version signal.
+        No patch in the tag history carries one, so this is a real invariant
+        rather than a new rule: it fails when a patch release edits behavior
+        its ``x.y.z`` patch number promises it did not.
+        """
+        text = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
+        offenders = [
+            m.group(1)
+            for m in re.finditer(
+                r"^## \[(\d+\.\d+\.\d+)\][^\n]*$(.*?)(?=^## \[|\Z)", text, flags=re.M | re.S
+            )
+            if int(m.group(1).rsplit(".", 1)[1]) != 0 and "**Breaking:**" in m.group(2)
+        ]
+        assert offenders == [], f"patch release(s) carry a **Breaking:** entry: {offenders}"
+
     def test_unreleased_uses_each_changelog_group_once(self) -> None:
         """``[Unreleased]`` has at most one Added/Changed/Removed/Fixed group.
 

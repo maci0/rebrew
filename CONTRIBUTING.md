@@ -126,6 +126,22 @@ import rebrew as a library.
   `[Unreleased]`, even when the gap in the earlier section is obvious.
   `tests/test_packaging.py::test_notes_added_after_the_tag_stay_unreleased`
   fails the build when a tagged section grows.
+- **Cut the release in this order.**  Bump `__version__`, date the
+  `[<version>]` section, empty `[Unreleased]`, then `make release-check` and
+  commit.  Tag that commit (`git tag v<version>`) and push the tag; the tag is
+  the only record of which `__version__` shipped, and the packaging tests read
+  it (`test_every_git_tag_has_a_changelog_section`,
+  `test_notes_added_after_the_tag_stay_unreleased`).  Nothing publishes
+  automatically, so the upload is a manual step from the release commit:
+  `make build` then `make sdist-check` then `make sbom` (that order, see
+  `pr-check`), and upload `dist/rebrew-*.tar.gz` and `dist/rebrew-*.whl`
+  together.  A version already on PyPI is immutable: if a release is wrong,
+  cut the next patch rather than re-uploading.
+- **Verify the artifact, not just the tree.**  Before uploading, install the
+  built wheel into a throwaway environment and run `rebrew --version` plus
+  one real command against a project; `make sdist-check` proves the sdist
+  reproduces the wheel, but nothing here proves the uploaded file is the one
+  that was checked.
 - **Preflight before tagging with `make release-check`**: verifies
   `__version__` is bumped past the last tag, the tree is clean, the
   changelog has a dated `[<version>]` section, that section has at least
@@ -144,9 +160,10 @@ import rebrew as a library.
    lint+test+cli-contract gates, the pre-commit job, the package job's
    `make build` (sdist/wheel + `dist/rebrew.buildinfo`), and its
    sdist-completeness check (a wheel built from the sdist must carry the same
-   files as the shipped wheel). `make sbom` goes last: `make build` clears
-   `dist/*.cdx.json` and `make sdist-check` rebuilds through it, so an earlier
-   SBOM is deleted before you can ship it.
+   files as the shipped wheel). `make sbom` goes after `make build`:
+   `build` clears `dist/*.cdx.json`, so a BOM generated before it is deleted
+   before you can ship it. `make sdist-check` does not clear it (it depends on
+   `dist/rebrew.buildinfo` and builds only when `dist/` is empty).
 2. Keep changes minimal and scoped; match the surrounding style.
 3. Add tests for new behavior — the suite sits at ~86% line coverage
    (`make coverage`), and new pure logic is expected to keep it there.

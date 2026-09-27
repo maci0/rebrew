@@ -430,13 +430,21 @@ class TestCiPins:
         build = text.split("\nbuild: warn-uv-version\n", 1)[1].split("\n# CycloneDX", 1)[0]
         assert "dist/*.cdx.json" in build
 
-    def test_pr_check_orders_sbom_before_sdist_check(self) -> None:
-        """`pr-check` runs the targets itself, so the order is its own doing."""
+    def test_pr_check_builds_before_both_dist_consumers(self) -> None:
+        """`pr-check` runs the targets itself, so the order is its own doing.
+
+        `build` clears `dist/`, so it has to come first; `sdist-check` and
+        `sbom` both read what it leaves there and neither rebuilds.  The old
+        rule put `sbom` before `sdist-check` because `sdist-check` used to
+        depend on the phony `build` and so deleted `dist/*.cdx.json`; it now
+        depends on `dist/rebrew.buildinfo` and builds only when `dist/` is
+        empty, so `sbom` last survives the run.
+        """
         text = MAKEFILE.read_text(encoding="utf-8")
         match = re.search(r"(?m)^pr-check:(?P<deps>[^\n]*)$", text)
         assert match is not None
         deps = match.group("deps").split()
-        assert deps.index("sbom") < deps.index("sdist-check")
+        assert deps.index("build") < deps.index("sdist-check")
         assert deps.index("build") < deps.index("sbom")
 
     def test_package_smoke_honors_lockfile(self) -> None:
