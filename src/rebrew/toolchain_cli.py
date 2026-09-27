@@ -81,7 +81,7 @@ app = typer.Typer(
         "  rebrew toolchain build msvc-6.0 · · · · Build the image from source\n\n"
         "[dim]Every shipped toolchain runs in docker: there is no host wine/wibo/\n"
         "dosbox fallback, and a missing image is a hard error. Image tags and pins\n"
-        "are documented in docs/TOOLCHAIN.md.[/dim]"
+        "are documented in the rebrew repo's docs/TOOLCHAIN.md.[/dim]"
     ),
 )
 

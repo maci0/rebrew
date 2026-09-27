@@ -77,6 +77,23 @@ _AGENTS_MD_TEMPLATE = Path(__file__).parent / "AGENTS.md.template"
 _AGENT_SKILLS_SRC = Path(__file__).parent / "agent-skills"
 _PRINCIPLES_SRC = Path(__file__).parent / "PRINCIPLES.md"
 
+
+def _require_packaged_asset(path: Path) -> Path:
+    """*path* when the install carries it, else a failure naming the gap.
+
+    ``package-data`` is the only thing that puts these files in the wheel, so a
+    glob that stops matching leaves an install that imports fine and then
+    renders a project with no principles and no skills.  Skipping quietly
+    would report success on an incomplete artifact.
+    """
+    if not path.exists():
+        raise FileNotFoundError(
+            f"packaged asset missing: {path.name} (expected at {path}); "
+            "the rebrew install is incomplete"
+        )
+    return path
+
+
 # Records which files rebrew rendered into a project's .agents/skills, and the
 # digest of the bytes it wrote, so a later refresh can drop a file the packaged
 # tree no longer ships instead of leaving a stale skill on disk forever.
@@ -209,9 +226,8 @@ def _agent_skill_files(target_name: str) -> dict[str, bytes]:
     then the ``<target>`` substitution over ``.md`` files.  One source of truth
     for the initial copy and a later refresh/check."""
     files: dict[str, bytes] = {}
-    if _AGENT_SKILLS_SRC.is_dir():
-        for src in _iter_skill_tree_files(_AGENT_SKILLS_SRC):
-            files[src.relative_to(_AGENT_SKILLS_SRC).as_posix()] = src.read_bytes()
+    for src in _iter_skill_tree_files(_require_packaged_asset(_AGENT_SKILLS_SRC)):
+        files[src.relative_to(_AGENT_SKILLS_SRC).as_posix()] = src.read_bytes()
 
     from rebrew.skills import parse_frontmatter, read_skill_md, safe_skill_name, user_skills_dir
 
@@ -820,8 +836,7 @@ def _refresh_agents(cwd: Path, toml_path: Path, *, json_output: bool, check: boo
     )
 
     expected: dict[str, bytes] = {"AGENTS.md": content.encode("utf-8")}
-    if _PRINCIPLES_SRC.is_file():
-        expected["PRINCIPLES.md"] = _PRINCIPLES_SRC.read_bytes()
+    expected["PRINCIPLES.md"] = _require_packaged_asset(_PRINCIPLES_SRC).read_bytes()
     for rel, data_bytes in _agent_skill_files(target_name).items():
         expected[f".agents/skills/{rel}"] = data_bytes
 
@@ -1251,11 +1266,11 @@ def main(
     _copy_agent_skills(cwd, target_name)
 
     # 7. Copy PRINCIPLES.md to project root
-    if _PRINCIPLES_SRC.is_file():
-        principles_dest = cwd / "PRINCIPLES.md"
-        if not principles_dest.exists():
-            shutil.copy2(_PRINCIPLES_SRC, principles_dest)
-            console.print("[green]Created PRINCIPLES.md[/] (Project design principles)")
+    principles_src = _require_packaged_asset(_PRINCIPLES_SRC)
+    principles_dest = cwd / "PRINCIPLES.md"
+    if not principles_dest.exists():
+        shutil.copy2(principles_src, principles_dest)
+        console.print("[green]Created PRINCIPLES.md[/] (Project design principles)")
 
     # 8. Optionally download wibo runner
     if install_wibo:

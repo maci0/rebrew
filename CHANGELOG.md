@@ -1,6 +1,17 @@
 ## [Unreleased]
 
 ### Changed
+- **The suite now gates the files the wheel ships.** A
+  `[tool.setuptools.package-data]` glob that stops matching (a moved skill
+  directory, a renamed template) dropped `AGENTS.md.template`, `PRINCIPLES.md`
+  and the `agent-skills/` tree from the artifact while `make test` stayed
+  green, because the suite runs from the source tree; the failure then landed
+  on a user's first `rebrew skills list` or `rebrew init`.
+  `tests/test_package_metadata.py` matches every non-`.py` file under
+  `src/rebrew` against the declared patterns, pins the three assets `rebrew
+  init` copies, and keeps `exclude-package-data` scoped to the subpackage
+  `AGENTS.md`. `rebrew init` now raises on a missing packaged asset instead of
+  rendering a project with no instructions and no skills.
 - **`rebrew match --seed-llm` no longer re-bills a prompt it already sent.**
   `--watch` re-runs the whole match on every save, and a save that touches a
   different function leaves the function under match byte-identical, so the
@@ -12,15 +23,6 @@
   completion, or an endpoint that was down is asked again rather than
   remembered.
 
-### Fixed
-- **A `REBREW_LLM_API_KEY` can no longer reach an LLM seeding log line.** httpx
-  quotes an illegal header value verbatim when it rejects one, so a key with
-  an interior CR (a CRLF-terminated key file, a spliced paste) came back
-  inside the exception text and `request_seeds` logged that text as-is: a
-  secret in the environment was written to a log with weaker protection. The
-  failure message is now sanitized with the bearer key redacted.
-
-### Docs
 - **The README's library-usage section shows how to inject an HTTP client.**
   `rebrew.recompile_client.compile_source` and `rebrew.decompme`'s upload
   helpers take a `client=`, and `HttpClient` is the two-method shape they
@@ -32,6 +34,12 @@
   fields on `RecompileError`, and the `retries=` / `timeout=` knobs.
 
 ### Fixed
+- **A `REBREW_LLM_API_KEY` can no longer reach an LLM seeding log line.** httpx
+  quotes an illegal header value verbatim when it rejects one, so a key with
+  an interior CR (a CRLF-terminated key file, a spliced paste) came back
+  inside the exception text and `request_seeds` logged that text as-is: a
+  secret in the environment was written to a log with weaker protection. The
+  failure message is now sanitized with the bearer key redacted.
 - **`rebrew decompme` no longer piles up duplicate scratches.** Every run
   POSTed a fresh scratch to decomp.me and printed its claim URL, so
   re-running the command on an unchanged function left another public
