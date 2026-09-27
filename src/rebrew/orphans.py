@@ -32,6 +32,17 @@ class OrphanInventoryError(RebrewError, RuntimeError):
 app = typer.Typer(
     help="List or prune orphaned metadata blocks (no source marker).",
     rich_markup_mode="rich",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew orphans · · · · · · · · List orphaned metadata blocks\n\n"
+        "  rebrew orphans --dry-run · · · · Preview what --prune would delete\n\n"
+        "  rebrew orphans --prune · · · · · Delete every orphaned block\n\n"
+        "  rebrew orphans drop 0x10009310 · Delete one VA's block\n\n"
+        "[dim]A block is an orphan when no // FUNCTION: / // DATA: / // GLOBAL: marker "
+        "claims its (module, VA): left behind by a deleted or re-discovered function. "
+        "A VA present in the target's function list is never an orphan, and --prune "
+        "holds back EXACT / RELOC / PROVEN blocks unless --include-matched.[/dim]"
+    ),
 )
 
 

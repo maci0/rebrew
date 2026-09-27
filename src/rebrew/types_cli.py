@@ -11,6 +11,16 @@ from rebrew.cli import TargetOption, console, error_exit, json_print, require_co
 app = typer.Typer(
     help="Check declared struct layouts; apply types to C signatures.",
     rich_markup_mode="rich",
+    epilog=(
+        "[bold]Examples:[/bold]\n\n"
+        "  rebrew types · · · · · · · · · Check declared structs against decompiler evidence\n\n"
+        "  rebrew types --json · · · · · · Same check, machine-readable\n\n"
+        "  rebrew types apply-type src/f.c --param 2 --type MAT4 · Rewrite one parameter type\n\n"
+        "  rebrew types apply-type 0x10009310 --param 0 --type VEC3 --dry-run · Preview the edit\n\n"
+        "[dim]A bare invocation reports every declared struct whose field widths disagree "
+        "with the majority width seen in decompiler output. apply-type writes the spelling "
+        "into the C source, so a recovered type actually reaches the compiler.[/dim]"
+    ),
 )
 
 

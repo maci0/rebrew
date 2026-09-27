@@ -8,7 +8,9 @@ commands inherit all of this from `TargetOption`/`AllTargetsOption` and
 `rebrew.cli.run_standalone` — a drift here is a grep-level regression.
 `--va` help belongs to one of three semantic families (disambiguation,
 direct VA selection, kept-distinct scoping), enumerated literally in
-`VA_HELP_ALLOWED`.
+`VA_HELP_ALLOWED`.  A group's help is a landing page with no place else to
+show a workflow, so every group app carries an `epilog` with an
+`Examples:` section.
 
 The rules bind *options* only: positionals (e.g. a function reference as
 a C file, symbol, or hex VA) are a different concept and legitimately
@@ -152,6 +154,33 @@ class TestEntryPointDocstrings:
             except RuntimeError as exc:
                 bad.append((comp.name, str(exc)))
         assert not bad, f"standalone app not runnable: {bad}"
+
+
+class TestGroupHelpEpilog:
+    def test_every_group_help_shows_examples(self) -> None:
+        """A group's `--help` is a landing page: it names the common invocations.
+
+        Single-command tools carry their examples in the command help; a group
+        has no such place, so the epilog is the only place a reader learns the
+        workflow.  An unset `epilog` leaves the group help as a bare command
+        list.
+        """
+        from typer.models import DefaultPlaceholder
+
+        bad = []
+        for comp in BUILTIN_COMPONENTS:
+            if not comp.is_group:
+                continue
+            app = getattr(importlib.import_module(comp.module), "app", None)
+            if app is None:
+                continue
+            epilog = getattr(app.info, "epilog", None)
+            if epilog is None or isinstance(epilog, DefaultPlaceholder):
+                bad.append(comp.name)
+                continue
+            if "Examples:" not in epilog:
+                bad.append(f"{comp.name} (epilog without an Examples section)")
+        assert not bad, f"group help without usage examples: {bad}"
 
 
 class TestGroupWithoutSubcommand:
