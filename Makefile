@@ -68,6 +68,18 @@ COV_FLOOR ?= 85
 # both archives after the build, and .python-version because it selects the
 # interpreter uv builds with: neither lives under src/, and omitting them let
 # an edit to either leave dist/ describing the previous tree.
+#
+# The directories are prerequisites too.  `find src -type f` only sees the files
+# that exist when make expands this list, and make rebuilds a target when a
+# prerequisite is *newer*, not when one disappears: adding or deleting a source
+# file leaves every listed file untouched, so dist/ stayed "up to date" and
+# sdist-check / smoke-wheel verified the previous tree's artifacts.  A
+# directory's mtime moves exactly when an entry inside it is created, removed,
+# or renamed, which is the event being tracked.  The same __pycache__ /
+# egg-info exclusions apply: a test run rewrites those directories constantly
+# and none of it changes a byte of the package.
+BUILD_INPUT_DIRS := $(shell find src -type d \
+	-not -path '*/__pycache__*' -not -path '*.egg-info*')
 BUILD_INPUTS := Makefile pyproject.toml build-constraints.txt MANIFEST.in \
 	.python-version tools/normalize_sdist.py \
 	$(shell find src -type f -not -path '*/__pycache__/*' -not -path '*.egg-info/*')
@@ -407,10 +419,10 @@ sbom: warn-uv-version
 # dist/*.cdx.json, so a `make sdist-check` of its own (the CI package job runs
 # it as a separate invocation, and so does anyone following the help text)
 # would wipe the SBOM and buildinfo `make build` / `make sbom` had just
-# produced.  The file rule below builds only when dist/ is empty or an input
-# is newer, and it carries the ordering under `make -j`, where a bare
-# prerequisite list would not.
-dist/rebrew.buildinfo: $(BUILD_INPUTS)
+# produced.  The file rule below builds only when dist/ is empty or a build
+# input (file or directory) is newer, and it carries the ordering under
+# `make -j`, where a bare prerequisite list would not.
+dist/rebrew.buildinfo: $(BUILD_INPUTS) $(BUILD_INPUT_DIRS)
 	@$(MAKE) --no-print-directory build
 
 sdist-check: dist/rebrew.buildinfo

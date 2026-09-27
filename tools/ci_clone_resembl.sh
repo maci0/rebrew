@@ -26,6 +26,13 @@ ref="${RESEMBL_REF:?RESEMBL_REF is required (e.g. v3.0.0)}"
 want_sha="${RESEMBL_SHA:?RESEMBL_SHA is required (the commit RESEMBL_REF must resolve to)}"
 dest="${1:-../resembl}"
 
+# Same policy as tools/ci_apt_install.sh, which states the same two values.
+# A job that dies on the first transient codeload error retries nothing, and
+# the apt helper's docstring points here for the mirror, so the two must not
+# drift apart silently.
+MAX_ATTEMPTS=3
+RETRY_BASE_DELAY_SECONDS=5
+
 # Refuse callers that would rm -rf something other than a resembl checkout
 # (e.g. dest=/ or dest=.).
 if [[ "$(basename "${dest}")" != "resembl" ]]; then
@@ -90,7 +97,7 @@ if [[ -n "${token}" ]]; then
 fi
 unset token
 
-for attempt in 1 2 3; do
+for ((attempt = 1; attempt <= MAX_ATTEMPTS; attempt++)); do
   rm -rf -- "${dest}"
   if git "${git_safe[@]}" clone --depth 1 --branch "${ref}" -- \
       https://github.com/maci0/resembl.git "${dest}"; then
@@ -101,9 +108,9 @@ for attempt in 1 2 3; do
     fi
     exit 0
   fi
-  if [[ "${attempt}" -eq 3 ]]; then
+  if [[ "${attempt}" -eq "${MAX_ATTEMPTS}" ]]; then
     echo "git clone resembl (${ref} -> ${dest}) failed after ${attempt} attempts" >&2
     exit 1
   fi
-  sleep $((attempt * 5))
+  sleep $((attempt * RETRY_BASE_DELAY_SECONDS))
 done

@@ -181,8 +181,9 @@ no `**Breaking:**` entry naming it.
    `make sbom` goes after `make build`:
    `build` clears `dist/*.cdx.json`, so a BOM generated before it is deleted
    before you can ship it. `make sdist-check` does not clear it (it depends on
-   `dist/rebrew.buildinfo`, which builds only when `dist/` is empty or an input is
-   newer than it).
+   `dist/rebrew.buildinfo`, which builds only when `dist/` is empty or a build
+   input is newer than it, input list covering the `src/` directories so an
+   added or deleted module rebuilds too).
 2. Keep changes minimal and scoped; match the surrounding style.
 3. Add tests for new behavior — the suite sits at ~86% line coverage
    (`make coverage`), and new pure logic is expected to keep it there.

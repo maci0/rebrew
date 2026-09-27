@@ -151,6 +151,15 @@
   though nothing about the result had. Both paths now serialize through
   `verify_cache.order_result_row`, which emits `RESULT_FIELDS` order. Reported
   values are unchanged.
+- **Adding or deleting a source file rebuilds dist/.** `BUILD_INPUTS` listed
+  only the files `find src` saw when make expanded it, and make rebuilds a
+  target when a prerequisite is *newer*, not when one disappears, so a new or
+  removed module left every listed input untouched and `dist/rebrew.buildinfo`
+  looked current: `make sdist-check` and `make smoke-wheel` then verified the
+  previous tree's artifacts. The `src/` directories are build inputs too, and a
+  directory's mtime moves exactly when an entry inside it is created, removed,
+  or renamed. The `__pycache__` and egg-info exclusions carry over, so a test
+  run or a bare `uv build` still does not put the rule into a rebuild loop.
 - **A headless X display is authenticated, and an unauthenticated one is no
   longer adopted.** rebrew reuses an Xvfb left running by an earlier invocation
   (or one named by `REBREW_XVFB_DISPLAY`), which was reachable by any process
