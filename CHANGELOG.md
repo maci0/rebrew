@@ -163,6 +163,19 @@
   compared with equality (the LIKE-escaping note was meaningless), and
   `status` accepts the legacy `NEAR_MATCH` alias, which the enum did not
   show.
+- **A UTF-8 BOM no longer makes a JSON file unreadable.** Every TOML read
+  went through the BOM-tolerant `read_toml_text`, but the JSON reads decoded
+  with plain `utf-8`, so `EF BB BF` left a U+FEFF that `json.loads` rejects
+  with `Unexpected UTF-8 BOM`. A Ghidra `function_structure.json` or
+  `ghidra_data_labels.json` saved from a Windows editor failed the load, and
+  the inventory, verify, doctor, FLIRT-index, and `compile_commands.json`
+  paths reported it as corrupt and dropped the data silently. The new
+  `read_json_text` mirrors `read_toml_text` and all thirteen JSON reads use it.
+- **`lint` and `cmake-toolchain` split source on `\n`, not on NEL.**
+  Both parsed `read_source_text` output with `str.splitlines`, which also
+  breaks on U+0085. A source that falls back to Latin-1 decodes byte `0x85`
+  as NEL, so the parser saw a line that is not one. They use
+  `split_source_lines`, the pair `join_source_lines` is written against.
 - **The data section summary agrees with the coverage-floor rule.**
   `rebrew data` reports byte coverage through `floor_pct`, so 4 annotated
   bytes of a 256-byte `.data` reads 1.5% in the table and the progress bar.

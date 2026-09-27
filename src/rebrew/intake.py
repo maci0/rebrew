@@ -41,7 +41,7 @@ from rebrew.cli import EXIT_OK, console, error_exit, json_print
 from rebrew.config import ConfigError, validate_target_name
 from rebrew.skeleton import C89_STRICT_PROFILES
 from rebrew.sources import iter_sources
-from rebrew.utils import SOURCE_CHECKOUT, atomic_write_text
+from rebrew.utils import SOURCE_CHECKOUT, atomic_write_text, read_json_text
 
 app = typer.Typer(help="One-shot binary onboarding: init + detect + functions + document.")
 
@@ -327,7 +327,7 @@ def _read_prior_inventory(src_dir: Path) -> list[Any] | None:
     """The function inventory written by the previous intake run, or None."""
     path = src_dir / "function_structure.json"
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
+        data = json.loads(read_json_text(path))
     except FileNotFoundError:
         return None
     except (OSError, ValueError) as exc:

@@ -66,7 +66,7 @@ from rebrew.cli import (
 )
 from rebrew.config import module_marker
 from rebrew.gen_flirt_pat import parse_archive, parse_coff_obj
-from rebrew.utils import container_runtime
+from rebrew.utils import container_runtime, read_json_text
 from rebrew.workspace.config import config_path
 
 MIN_BYTES = 8
@@ -251,7 +251,7 @@ def vendored_objects(
     an entry with no ``/Fo`` output.
     """
     try:
-        entries = json.loads(compile_commands.read_text(encoding="utf-8"))
+        entries = json.loads(read_json_text(compile_commands))
     except FileNotFoundError:
         return []
     except (OSError, ValueError) as exc:

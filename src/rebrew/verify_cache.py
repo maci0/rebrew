@@ -22,7 +22,7 @@ from dataclasses import asdict, dataclass, fields
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from rebrew.utils import atomic_write_text, file_lock
+from rebrew.utils import atomic_write_text, file_lock, read_json_text
 from rebrew.verify_hash import (
     compiler_config_hash,
     entry_fingerprint,
@@ -68,7 +68,7 @@ def _read_cache_document(cache_path: Path) -> dict[str, Any]:
     Raises ``OSError`` or ``ValueError``; the latter covers malformed JSON,
     non-UTF-8 bytes (``UnicodeDecodeError``), and a non-object document.
     """
-    raw = json.loads(cache_path.read_text(encoding="utf-8"))
+    raw = json.loads(read_json_text(cache_path))
     if not isinstance(raw, dict):
         raise ValueError(f"not a JSON object: {type(raw).__name__}")
     return raw
@@ -642,7 +642,7 @@ def save_verify_cache(
     with _verify_cache_write_lock(cache_path):
         if preserve_keys and cache_path.exists():
             try:
-                previous = json.loads(cache_path.read_text(encoding="utf-8"))
+                previous = json.loads(read_json_text(cache_path))
             except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
                 logging.warning(
                     "Could not read verify cache %s to preserve %d excluded "
@@ -699,7 +699,7 @@ def load_baseline(cfg: ProjectConfig) -> tuple[dict[str, Any] | None, str | None
     if not path.exists():
         return None, f"No previous verify baseline at {path}; skipping diff"
     try:
-        loaded = json.loads(path.read_text(encoding="utf-8"))
+        loaded = json.loads(read_json_text(path))
     except (OSError, json.JSONDecodeError) as exc:
         return None, f"Could not read verify baseline at {path}: {exc}"
     if not isinstance(loaded, dict):

@@ -32,7 +32,12 @@ from rebrew.cli import (
 )
 from rebrew.config import ProjectConfig
 from rebrew.sources import iter_sources, target_marker
-from rebrew.utils import atomic_write_text, preset_module_key, read_source_text
+from rebrew.utils import (
+    atomic_write_text,
+    preset_module_key,
+    read_source_text,
+    split_source_lines,
+)
 
 app = typer.Typer(add_completion=False, help=__doc__)
 
@@ -70,7 +75,7 @@ def collect(cfg: ProjectConfig, marker: str) -> tuple[list[Path], list[Path]]:
                 # with the locale encoding, so under LANG=C a cp1252 or
                 # Shift-JIS TU loses its SUPPORT line to U+FFFD and the file
                 # silently lands in the wrong target's source list.
-                support = support_declaration(read_source_text(src)[0].splitlines())
+                support = support_declaration(split_source_lines(read_source_text(src)[0]))
             except OSError:
                 support = None
             if support is not None and preset_module_key(support[1]) == preset_module_key(marker):

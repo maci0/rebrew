@@ -14,7 +14,7 @@ from rebrew.annotation import Annotation, parse_c_file_multi, parse_library_head
 from rebrew.catalog.models import FunctionEntry, GhidraDataLabel
 from rebrew.config import ProjectConfig, inventory_path_for, module_marker
 from rebrew.sources import iter_library_headers, iter_sources, target_marker
-from rebrew.utils import preset_module_key
+from rebrew.utils import preset_module_key, read_json_text
 
 # ---------------------------------------------------------------------------
 # Ghidra function loader
@@ -43,7 +43,7 @@ def _structure_json(path: Path) -> list[Any]:
         cached = _structure_json_cache.get(key)
     if cached is not None and cached[0] == fp:
         return cached[1]
-    data = json.loads(path.read_text(encoding="utf-8"))
+    data = json.loads(read_json_text(path))
     if not isinstance(data, list):
         raise ValueError(
             f"Corrupt structure JSON at {path.name}: Expected a JSON array, got {type(data).__name__}"
@@ -117,7 +117,7 @@ def load_ghidra_data_labels(src_dir: Path | None) -> dict[int, GhidraDataLabel]:
         return {}
 
     try:
-        entries = json.loads(path.read_text(encoding="utf-8"))
+        entries = json.loads(read_json_text(path))
         if not isinstance(entries, list):
             warnings.warn(
                 f"Ignoring corrupt Ghidra data labels at {path}: expected JSON array, got {type(entries).__name__}",

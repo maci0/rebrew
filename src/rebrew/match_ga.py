@@ -32,7 +32,12 @@ from rebrew.matcher.mutator import (
     quick_validate,
 )
 from rebrew.matcher.scoring import score_candidate
-from rebrew.utils import atomic_write_text, file_lock, filename_component
+from rebrew.utils import (
+    atomic_write_text,
+    file_lock,
+    filename_component,
+    read_json_text,
+)
 
 if TYPE_CHECKING:
     from rebrew.match_sweep import BuildParams
@@ -1205,7 +1210,7 @@ def read_ga_checkpoint(out_dir: Path, symbol: str) -> GACheckpoint | None:
     if not ckpt.is_file():
         return None
     try:
-        data = json.loads(ckpt.read_text(encoding="utf-8"))
+        data = json.loads(read_json_text(ckpt))
         return GACheckpoint.from_dict(data)
     except (OSError, ValueError, TypeError, KeyError):
         log.warning(
