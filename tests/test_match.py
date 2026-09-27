@@ -820,6 +820,19 @@ class TestUpdateStubToMatched:
         assert "return 3;" in text  # sibling AFTER the target survives
         assert "0x10003000" in text
 
+    def test_promotion_leaves_no_scratch_source_file(self, tmp_path: Path) -> None:
+        """The post-write validation .c is staged in the source dir and removed."""
+        from rebrew.match_batch import update_stub_to_matched
+
+        source = tmp_path / "stub.c"
+        source.write_text(
+            "// FUNCTION: SERVER 0x10002000\nint second(void) { return 2; }\n", encoding="utf-8"
+        )
+        assert update_stub_to_matched(
+            source, "int second(void) { return 42; }\n", self._stub("0x10002000")
+        )
+        assert sorted(p.name for p in tmp_path.glob("*.c")) == ["stub.c"]
+
     def test_failed_temp_write_leaves_no_source_file(self, tmp_path: Path) -> None:
         from rebrew.match_batch import update_stub_to_matched
 
