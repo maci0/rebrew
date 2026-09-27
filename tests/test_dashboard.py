@@ -446,6 +446,26 @@ class TestQueryLayer:
             ["0x10002000", "func_b", "STUB", "EXACT", "2026-01-01T00:00:00Z"],
         ]
 
+    def test_history_null_status_is_an_empty_string(self, tmp_path: Path) -> None:
+        """A VA's first recorded transition has NULL old_status.
+
+        Every text column in a row under ``cols`` is a string, so a client
+        reading rows never has to null-check this route and not the others.
+        """
+        import sqlite3
+
+        _write_data(tmp_path / "db")
+        build_db(tmp_path)
+        db_path = tmp_path / "db" / "coverage.db"
+        with sqlite3.connect(db_path) as conn:
+            conn.execute(
+                "INSERT INTO history (target, va, old_status, new_status, changed_at) "
+                "VALUES ('server_dll', 0x10001000, NULL, 'EXACT', '2026-01-01T00:00:00Z')"
+            )
+            conn.commit()
+        rows = Dashboard(db_path).history("server_dll")["history"]
+        assert rows == [["0x10001000", "func_a", "", "EXACT", "2026-01-01T00:00:00Z"]]
+
     def test_functions_list_uses_partial_index(
         self, dashboard: Dashboard, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -1248,6 +1268,21 @@ class TestHandle:
         assert status == 405
         assert "application/json" in content_type
         assert "method not allowed" in json.loads(body)["error"]
+
+    def test_unserved_path_is_404_for_every_method(self, dashboard: Dashboard) -> None:
+        """405 is about a resource's methods; an unserved path has no resource.
+
+        ``Allow: GET, HEAD`` on a 405 for ``/api/nope`` would advertise a
+        resource that does not exist, and a GET of that same path already
+        answers 404.
+        """
+        for method in ("GET", "HEAD", "POST", "PUT", "DELETE", "OPTIONS"):
+            status, _, body = dashboard.handle(method, "/api/nope", {})
+            assert status == 404, method
+            assert json.loads(body) == {
+                "error": "no such endpoint '/api/nope'",
+                "code": "not_found",
+            }
 
     def test_every_response_carries_the_log_request_id(self, dashboard: Dashboard) -> None:
         """``X-Request-Id`` is the id the access and error log lines carry.
