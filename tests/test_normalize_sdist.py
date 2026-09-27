@@ -171,3 +171,34 @@ class TestNormalizeWheel:
 
         assert result.returncode != 0
         assert "expected a .tar.gz sdist or a .whl" in result.stderr
+
+
+class TestArchiveOnDiskMode:
+    """The rewritten archive itself, not just the modes recorded inside it.
+
+    Both normalizers write through a sibling mkstemp file and rename it over
+    the artifact.  mkstemp creates 0600 and the rename carries that onto the
+    result, so the wheel used to ship 0600 while the sdist followed the
+    caller's umask, contradicting the umask 022 ``make build`` pins and the
+    umask=022 line in dist/rebrew.buildinfo.
+    """
+
+    @staticmethod
+    def _mode(path: Path) -> int:
+        return stat.S_IMODE(path.stat().st_mode)
+
+    def test_wheel_is_readable_after_normalize(self, tmp_path: Path) -> None:
+        wheel = tmp_path / "pkg.whl"
+        _write_wheel(wheel, mode=0o644, date=(2020, 1, 2, 3, 4, 6), reverse=False)
+
+        assert _run(wheel).returncode == 0
+
+        assert self._mode(wheel) == 0o644
+
+    def test_sdist_is_readable_after_normalize(self, tmp_path: Path) -> None:
+        sdist = tmp_path / "pkg.tar.gz"
+        _write_sdist(sdist, mode=0o644, uid=0, mtime=1, reverse=False)
+
+        assert _run(sdist).returncode == 0
+
+        assert self._mode(sdist) == 0o644

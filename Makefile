@@ -368,6 +368,9 @@ clean:
 # record a buildinfo manifest (project version, toolchain, SOURCE_DATE_EPOCH,
 # the sha256 of build-constraints.txt, source commit) next to the
 # artifacts so a rebuild can be attempted with the same environment knobs.
+# The recipe below refuses to record a version dist/ does not actually carry:
+# a stale build cache would otherwise ship rebrew-<old>-*.whl beside a
+# manifest naming the new one, and every dist/ consumer finds files by name.
 # Toolchain lines record versions, never host paths (the manifest ships).
 # The build backend is hash-verified against build-constraints.txt, whose
 # setuptools version must equal the pyproject.toml [build-system] pin.
@@ -399,6 +402,9 @@ build: warn-uv-version
 	st=$$(sed -n 's/^requires = \["setuptools==\([0-9.][0-9.]*\)"\]/\1/p' pyproject.toml | head -n 1); \
 	ver=$$(sed -n 's/^__version__ = "\([^"]*\)".*/\1/p' src/rebrew/__init__.py | head -n 1); \
 	[ -n "$$ver" ] || { echo "ERROR: no __version__ in src/rebrew/__init__.py"; exit 1; }; \
+	set -- dist/rebrew-$$ver-*.whl; \
+	[ -f "$$1" ] || { echo "ERROR: no dist/rebrew-$$ver-*.whl in dist/ (found: $$(ls -1 dist))"; exit 1; }; \
+	[ -f "dist/rebrew-$$ver.tar.gz" ] || { echo "ERROR: no dist/rebrew-$$ver.tar.gz in dist/ (found: $$(ls -1 dist))"; exit 1; }; \
 	if command -v sha256sum >/dev/null 2>&1; then \
 	  bsum=$$(sha256sum build-constraints.txt | cut -d' ' -f1); \
 	elif command -v shasum >/dev/null 2>&1; then \
@@ -598,6 +604,15 @@ audit: ensure-uv
 # Manual gate by design (CONTRIBUTING.md): wiring it into CI would fail every
 # push except the release commit, since __version__ stays equal to the last
 # tag during normal development. Run `make release-check` before tagging.
+# Notes split across the two headings ship half the release undocumented: the
+# [Unreleased] block ends at the next "## " heading, so anything but blank
+# lines under it belongs in the dated [version] section below.
+#
+# No `#` comment line may sit inside a recipe below.  Make hands a
+# backslash-continued recipe to one shell, so such a line comments out the rest
+# of the joined line: the notes-split check carried its comment there, which
+# swallowed the UNREL assignment and made this target die on an unbound
+# variable instead of naming the changelog problem it exists to report.
 release-check: ensure-uv
 	@set -eu; \
 	V=$$(uv run --frozen python -c "from rebrew import __version__; print(__version__)"); \
@@ -613,9 +628,6 @@ release-check: ensure-uv
 	if ! grep -Eq "^## \[$$V\] - [0-9]{4}-[0-9]{2}-[0-9]{2}$$" CHANGELOG.md; then \
 	  echo "ERROR: CHANGELOG.md has no dated [$$V] - YYYY-MM-DD section (date the [Unreleased] block)"; exit 1; \
 	fi; \
-	# Notes split across the two headings ship half the release undocumented. \
-	# The [Unreleased] block ends at the next "## " heading, so anything but \
-	# blank lines under it belongs in the [$$V] section below. \
 	UNREL=$$(awk '/^## \[Unreleased\]$$/{f=1; next} f && /^## /{exit} f && NF{print}' CHANGELOG.md); \
 	if [ -n "$$UNREL" ]; then \
 	  echo "ERROR: CHANGELOG.md [Unreleased] still has entries; move them into [$$V]"; exit 1; \

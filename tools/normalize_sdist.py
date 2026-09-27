@@ -4,7 +4,9 @@ setuptools copies each file's mtime, mode, and owner into the sdist tar, and
 copies each source file's mode into the wheel zip.  Git stores only the
 executable bit, so the other bits follow the checkout umask: umask 002 yields
 0664 wheel entries and umask 022 yields 0644.  ``RECORD`` is hardcoded to
-0664.  This rewrites both archives in place.  File contents are untouched.
+0664.  This rewrites both archives in place, through a sibling temp file each,
+and leaves both on disk 0644 whatever the caller's umask.  File contents are
+untouched.
 
 Sdists: entries sorted by name, mtime set to ``SOURCE_DATE_EPOCH``, owner
 ``0:0`` with no names, mode ``0644`` (``0755`` for directories), and a gzip
@@ -32,6 +34,7 @@ import tarfile
 import tempfile
 import time
 import zipfile
+from collections.abc import Callable
 from pathlib import Path
 
 _EXEC_MODE = 0o755
@@ -42,6 +45,28 @@ _ZIP_COMPRESS_LEVEL = 6
 # create_system 3 marks external_attr as a Unix mode.  Pin it so the bytes
 # do not depend on whether the normalizer itself ran on Windows.
 _ZIP_CREATE_UNIX = 3
+
+
+def _replace_atomically(path: Path, write: Callable[[Path], None]) -> None:
+    """Write the rewritten archive to a sibling temp file, then put it at *path*.
+
+    mkstemp: a predictable "<name>.norm" would be followed when it already
+    exists as a symlink, truncating whatever it points at.
+
+    The result is chmod-ed to _FILE_MODE because mkstemp creates 0600 and
+    replace() carries that mode onto the artifact.  Left alone the wheel
+    shipped 0600 while the sdist followed the caller's umask, contradicting the
+    umask 022 `make build` pins and the umask=022 line in dist/rebrew.buildinfo.
+    """
+    fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".norm")
+    os.close(fd)
+    tmp = Path(tmp_name)
+    try:
+        write(tmp)
+        os.chmod(tmp, _FILE_MODE)
+        tmp.replace(path)
+    finally:
+        tmp.unlink(missing_ok=True)
 
 
 def normalize(path: Path, epoch: int) -> None:
@@ -60,8 +85,15 @@ def normalize(path: Path, epoch: int) -> None:
             member.mode = _EXEC_MODE if member.isdir() else _FILE_MODE
             member.pax_headers = {}
             dst.addfile(member, io.BytesIO(data) if data is not None else None)
-    with path.open("wb") as raw, gzip.GzipFile(filename="", fileobj=raw, mode="wb", mtime=0) as gz:
-        gz.write(buf.getvalue())
+
+    def _write(tmp: Path) -> None:
+        with (
+            tmp.open("wb") as raw,
+            gzip.GzipFile(filename="", fileobj=raw, mode="wb", mtime=0) as gz,
+        ):
+            gz.write(buf.getvalue())
+
+    _replace_atomically(path, _write)
 
 
 def _zip_date(epoch: int) -> tuple[int, int, int, int, int, int]:
@@ -82,12 +114,8 @@ def normalize_wheel(path: Path, epoch: int) -> None:
         entries = [(info.filename, src.read(info.filename)) for info in src.infolist()]
     entries.sort(key=lambda item: item[0])
     date_time = _zip_date(epoch)
-    # mkstemp: a predictable "<name>.norm" would be followed when it already
-    # exists as a symlink, truncating whatever it points at.
-    fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.", suffix=".norm")
-    os.close(fd)
-    tmp = Path(tmp_name)
-    try:
+
+    def _write(tmp: Path) -> None:
         with zipfile.ZipFile(
             tmp,
             "w",
@@ -109,9 +137,8 @@ def normalize_wheel(path: Path, epoch: int) -> None:
                     compress_type=zipfile.ZIP_DEFLATED,
                     compresslevel=_ZIP_COMPRESS_LEVEL,
                 )
-        tmp.replace(path)
-    finally:
-        tmp.unlink(missing_ok=True)
+
+    _replace_atomically(path, _write)
 
 
 def main() -> None:
