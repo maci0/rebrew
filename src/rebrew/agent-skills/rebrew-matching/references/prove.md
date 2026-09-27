@@ -35,7 +35,8 @@ LoopSeer-bounded exec → Z3 compare EAX (optional EDX).
 Requirements: STATUS NEAR_MATCHING or SIZE_MISMATCH and the `[prove]` extra (angr). If `rebrew prove`
 fails to import angr, stop and ask the user to install it (network download):
 `uv tool install --reinstall 'rebrew[prove] @ git+https://github.com/maci0/rebrew.git'`
-(in-repo: `uv sync --extra prove`).
+From a checkout, install the extra into that same tool environment:
+`uv tool install --reinstall --editable '/path/to/rebrew[prove]'`.
 
 Limitations: float-heavy may not prove; raise `--timeout` / `--loop-bound` for
 loops; never false-positive. `--watch-va` is **decimal unless `0x`-prefixed**

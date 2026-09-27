@@ -1,5 +1,26 @@
 ## [Unreleased]
 
+### Fixed
+- **A /O2 program linked to an /O1 LIBCMT is not a mixed compile.** The
+  optimization fingerprint counts wrapper sites in the whole image, so
+  static CRT bodies (built at the CRT's own /O) made `rebrew doctor` warn
+  that the project flag could match only one half. Sites inside stock
+  LIBCMT are set aside. Declared `external_ranges` were already ignored
+  for the code-generator family and are now ignored for this fingerprint
+  too. The program's own remaining style is the one compared to `cflags`.
+- **`gen-flirt-pat` and `identify-library --build-sigs` no longer leave a
+  `---`-only `.pat` when a library has no signable code.** Import libraries
+  parse as COFF archives and contribute zero patterns. Those files were what
+  `rebrew doctor` reported as FLIRT problems, and regenerating them wrote
+  the same empty file. An existing empty output is removed. JSON output
+  gains `written` (false when no pattern file is produced). Doctor's fix
+  text now says to delete zero-signature files and to regenerate only files
+  that fail to parse.
+- **The prove-extra install hint targets the environment doctor imports.**
+  `uv sync --extra prove` fills the checkout `.venv`. `rebrew` on `PATH` is
+  the uv tool environment, so the checkout form is
+  `uv tool install --reinstall --editable '/path/to/rebrew[prove]'`.
+
 ## [2.13.0] - 2026-09-26
 ### Changed
 - **`status` draws a data bar in the same shape as the `.text` bar.** It is

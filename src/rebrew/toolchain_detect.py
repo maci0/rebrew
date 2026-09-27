@@ -357,6 +357,10 @@ class ToolchainInfo:
     crt_linkage: str = ""  # "dynamic" | "static" | "" (unknown)
     base_cflags: str = ""  # suggested base_cflags: "/MD" or "/MT" for MSVC-family binaries
     opt_level: str = ""  # suggested optimization: "/O1" or "/O2" (MSVC codegen fingerprint)
+    # Wrapper-call sites that produced opt_level, already outside exclude_ranges.
+    # Doctor uses them to set aside a statically linked CRT built at the other level.
+    o2_wrapper_sites: list[int] = field(default_factory=list)
+    o1_wrapper_sites: list[int] = field(default_factory=list)
     msvc_version: str = ""  # exact compiler version, e.g. "12.00.8168" (PE metadata)
     suggested_profiles: list[str] = field(default_factory=list)  # version-exact rebrew profiles
     packed: str = ""  # packer name/version when the binary is packed ("lzexe 0.91")
@@ -836,6 +840,78 @@ class CodegenSignals:
     @property
     def rep_string_ops(self) -> int:
         return self.rep_stosd + self.rep_movsd + self.rep_stosb + self.rep_movsb
+
+
+# MSVC /O2 loads a wrapper argument, then pushes the register.
+# MSVC /O1 pushes the stack slot directly. advance-by-length matches bytes.count.
+_O2_WRAPPERS: tuple[bytes, ...] = (
+    bytes.fromhex("8b 44 24 04 50 e8"),
+    bytes.fromhex("8b 44 24 08 8b 4c 24 04"),
+)
+_O1_WRAPPERS: tuple[bytes, ...] = (
+    bytes.fromhex("ff 74 24 04 e8"),
+    bytes.fromhex("ff 74 24 08 ff 74 24 04"),
+)
+_OPT_MIN_SITES = 3
+
+
+def _pattern_vas(
+    text: bytes, base_va: int, patterns: tuple[bytes, ...], exclude: list[tuple[int, int]]
+) -> list[int]:
+    """VAs of non-overlapping *patterns* in *text* that fall outside *exclude*."""
+    found: list[int] = []
+    for pattern in patterns:
+        start = 0
+        while True:
+            index = text.find(pattern, start)
+            if index < 0:
+                break
+            va = base_va + index
+            if not any(lo <= va <= hi for lo, hi in exclude):
+                found.append(va)
+            start = index + len(pattern)
+    return found
+
+
+def opt_level_from_counts(o2: int, o1: int) -> str:
+    """``/O2``, ``/O1``, ``mixed (/O1 + /O2)``, or empty when the counts are thin.
+
+    One style has to show up at least three times and at least twice as often
+    as the other. Both styles clearing that bar is a per-file mix.
+    """
+    if o2 >= _OPT_MIN_SITES and o2 >= o1 * 2:
+        return "/O2"
+    if o1 >= _OPT_MIN_SITES and o1 >= o2 * 2:
+        return "/O1"
+    if o2 >= _OPT_MIN_SITES and o1 >= _OPT_MIN_SITES:
+        return "mixed (/O1 + /O2)"
+    return ""
+
+
+def opt_level_without_library(o2: int, o1: int, lib_o2: int, lib_o1: int) -> str | None:
+    """Program opt level after static-library wrapper sites are removed.
+
+    ``None`` means the library split did not explain the mix (no library
+    sites, or the counts are impossible). An empty string means every
+    counted site belongs to the library, so the program itself has no
+    wrapper evidence.
+    A single style left in the program is that style even below three
+    sites: the other style was the library's, not a second compile of the
+    program.
+    """
+    if lib_o2 < 0 or lib_o1 < 0 or lib_o2 > o2 or lib_o1 > o1:
+        return None
+    if lib_o2 == 0 and lib_o1 == 0:
+        return None
+    game_o2 = o2 - lib_o2
+    game_o1 = o1 - lib_o1
+    if game_o2 == 0 and game_o1 == 0:
+        return ""
+    if game_o1 == 0:
+        return "/O2"
+    if game_o2 == 0:
+        return "/O1"
+    return opt_level_from_counts(game_o2, game_o1) or "mixed (/O1 + /O2)"
 
 
 def _count_masked(
@@ -1530,12 +1606,14 @@ def _detect_toolchain_core(
             bytes.fromhex("89 04 24")
         )
         old_push_calls = text_bytes.count(bytes.fromhex("6a"))
-        # Load-first wrapper call signatures (1- and 2-arg).
-        o2_wrappers += text_bytes.count(bytes.fromhex("8b 44 24 04 50 e8"))
-        o2_wrappers += text_bytes.count(bytes.fromhex("8b 44 24 08 8b 4c 24 04"))
-        # push-[mem] wrapper call signatures (1- and 2-arg).
-        o1_wrappers += text_bytes.count(bytes.fromhex("ff 74 24 04 e8"))
-        o1_wrappers += text_bytes.count(bytes.fromhex("ff 74 24 08 ff 74 24 04"))
+        # Wrapper sites outside linked-library bands. Those objects keep
+        # the /O they were built with and must not decide the program's level.
+        text_base = binfo.text_va if binfo.text_size else 0
+        excluded = exclude_ranges or []
+        info.o2_wrapper_sites = _pattern_vas(text_bytes, text_base, _O2_WRAPPERS, excluded)
+        info.o1_wrapper_sites = _pattern_vas(text_bytes, text_base, _O1_WRAPPERS, excluded)
+        o2_wrappers = len(info.o2_wrapper_sites)
+        o1_wrappers = len(info.o1_wrapper_sites)
         const_hoists = _count_const_hoists(text_bytes)
         signals = _count_codegen_signals(
             text_bytes, binfo.text_va if binfo.text_size else 0, exclude_ranges
@@ -1554,16 +1632,14 @@ def _detect_toolchain_core(
     # Only asserted for the MSVC family (the byte patterns are MSVC-specific
     # argument-passing idioms, not GCC's stack layout).
     if info.family == "msvc" and (o2_wrappers or o1_wrappers):
-        if o2_wrappers >= 3 and o2_wrappers >= o1_wrappers * 2:
-            info.opt_level = "/O2"
+        info.opt_level = opt_level_from_counts(o2_wrappers, o1_wrappers)
+        if info.opt_level == "/O2":
             info.add(
                 f"{o2_wrappers} load-first wrapper calls (`mov eax,[esp+4]; push eax`) → /O2-style"
             )
-        elif o1_wrappers >= 3 and o1_wrappers >= o2_wrappers * 2:
-            info.opt_level = "/O1"
+        elif info.opt_level == "/O1":
             info.add(f"{o1_wrappers} push-[mem] wrapper calls (`push dword [esp+4]`) → /O1-style")
-        elif o2_wrappers >= 3 and o1_wrappers >= 3:
-            info.opt_level = "mixed (/O1 + /O2)"
+        elif info.opt_level.startswith("mixed"):
             info.add(
                 f"both wrapper styles present ({o1_wrappers} push-[mem], "
                 f"{o2_wrappers} load-first) — per-file mixed optimization; "

@@ -476,6 +476,7 @@ class TestCheckFlirtSigs:
         assert result.status == _WARN
         assert "problem file(s)" in result.message
         assert "broken.pat" in result.fix
+        assert "gen-flirt-pat" in result.fix
 
     def test_non_utf8_pat_warns(self, tmp_path: Path) -> None:
         from rebrew.doctor import check_flirt_sigs
@@ -499,6 +500,8 @@ class TestCheckFlirtSigs:
         assert result.status == _WARN
         assert "0 sigs" in result.message
         assert "0 signatures" in result.fix
+        assert "Remove signature files" in result.fix
+        assert "gen-flirt-pat" not in result.fix
 
     def test_missing_python_flirt_skips(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -546,6 +549,8 @@ class TestCheckOptionalToolsClaripy:
         result = check_optional_tools()
         assert result.status == _WARN
         assert "claripy" in result.message
+        assert "--editable '/path/to/rebrew[prove]'" in (result.fix or "")
+        assert "uv sync --extra prove" not in (result.fix or "")
 
     def test_claripy_without_angr_warns(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -784,6 +789,28 @@ class TestOptLevel:
         res = self.check(cfg)
         assert res.status == _WARN
         assert "flag-sweep" in (res.fix or "")
+
+    def test_static_libcmt_does_not_make_an_o2_program_mixed(
+        self, tmp_path: Path, monkeypatch: object
+    ) -> None:
+        import rebrew.doctor as doctor_mod
+        import rebrew.toolchain_detect as td
+
+        info = SimpleNamespace(
+            opt_level="mixed (/O1 + /O2)",
+            crt="LIBCMT",
+            crt_linkage="static",
+            o2_wrapper_sites=[1, 2, 3],
+            o1_wrapper_sites=[4, 5, 6, 7],
+        )
+        monkeypatch.setattr(td, "detect_toolchain", lambda *a, **k: info)
+        monkeypatch.setattr("rebrew.toolchain_cli._external_ranges", lambda cfg: [], raising=False)
+        monkeypatch.setattr(doctor_mod, "_library_site_counts", lambda cfg, found: (1, 4))
+        cfg = self._cfg(tmp_path, cflags="/O2 /Gd")
+        res = self.check(cfg)
+        assert res.status == _PASS
+        assert "/O2" in res.message
+        assert "LIBCMT" in res.message
 
     def test_inconclusive_skips(self, tmp_path: Path, monkeypatch: object) -> None:
         import rebrew.toolchain_detect as td

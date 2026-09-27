@@ -336,6 +336,8 @@ class TestPackagingMetadata:
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
         assert "uv tool install git+https://github.com/maci0/rebrew.git" in readme
         assert f"uv tool install --reinstall 'rebrew[prove] {git}" in _ANGR_MISSING_MSG
+        assert "--editable '/path/to/rebrew[prove]'" in _ANGR_MISSING_MSG
+        assert "uv sync --extra prove" not in _ANGR_MISSING_MSG
         assert f"uv tool install --reinstall 'rebrew[binsync] {git}" in _DECLIB_MISSING_MSG
         assert f"'rebrew[prove] {git}" in readme
         for text in (_ANGR_MISSING_MSG, _DECLIB_MISSING_MSG, readme):

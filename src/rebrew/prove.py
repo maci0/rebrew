@@ -73,9 +73,17 @@ log = logging.getLogger(__name__)
 # Guarded angr import
 # ---------------------------------------------------------------------------
 
+# These commands install the extra into the uv tool environment that
+# ``rebrew doctor`` and ``rebrew prove`` import.
+PROVE_TOOL_INSTALL = (
+    "uv tool install --reinstall 'rebrew[prove] @ git+https://github.com/maci0/rebrew.git'"
+)
+PROVE_CHECKOUT_INSTALL = "uv tool install --reinstall --editable '/path/to/rebrew[prove]'"
 _ANGR_MISSING_MSG = (
     "angr is required for 'rebrew prove'.  Install it with:\n"
-    "  uv tool install --reinstall 'rebrew[prove] @ git+https://github.com/maci0/rebrew.git'   (or from a checkout: uv sync --extra prove)"
+    f"  {PROVE_TOOL_INSTALL}\n"
+    "  From a checkout, install the extra into that same tool environment:\n"
+    f"  {PROVE_CHECKOUT_INSTALL}"
 )
 
 

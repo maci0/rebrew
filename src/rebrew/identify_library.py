@@ -485,21 +485,29 @@ def build_flirt_sigs(cfg: Any, lib_dir: Path | None = None) -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     written = 0
     skipped = 0
+    empty = 0
     for lib in _iter_libs(libs_dir):
         out_path = out_dir / f"{lib.stem.lower()}_vc6.pat"
         try:
             stats = generate_pat(lib, out_path)
         except (ValueError, OSError) as exc:
-            # One corrupt/non-COFF .lib (e.g. an import library) must not
-            # abort sig generation for the other 200+.
+            # One unparseable .lib must not abort sig generation for the rest.
             skipped += 1
             console.print(f"[yellow]warning:[/yellow] skipped {lib.name}: {exc}")
+            continue
+        if stats["signatures"] == 0:
+            # Import libraries are valid COFF archives with no function
+            # bodies. generate_pat leaves no file; count them apart from
+            # the archives that actually produced patterns.
+            empty += 1
             continue
         written += 1
         console.print(
             f"[green]{out_path.name}[/green]: {stats['signatures']} signatures "
             f"({stats['skipped_weak']} weak skipped)"
         )
+    if empty:
+        console.print(f"[dim]{empty} .lib file(s) had no signable code; no .pat file kept[/dim]")
     if skipped:
         console.print(f"[dim]{skipped} unparseable .lib file(s) skipped[/dim]")
     return written

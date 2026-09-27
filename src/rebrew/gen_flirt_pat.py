@@ -453,14 +453,20 @@ def _is_weak_signature(line: str) -> bool:
     return int(parts[1], 16) < 8
 
 
-def generate_pat(lib_file: Path, out_path: Path) -> dict[str, int]:
+def generate_pat(lib_file: Path, out_path: Path) -> dict[str, int | bool]:
     """Generate a FLIRT .pat file from one COFF .lib or ELF .a archive.
 
     Members are dispatched by their magic: ELF objects (``\\x7fELF``) go
     through :func:`parse_elf_obj` (IDO/MWCC console archives), everything
     else through :func:`parse_coff_obj` (MSVC .lib).
 
-    Returns ``{"signatures": n, "skipped_members": n, "skipped_weak": n}``.
+    Returns ``{"signatures": n, "skipped_members": n, "skipped_weak": n,
+    "written": bool}``. A library with no signable code (an import library,
+    or one whose members were all skipped) does not leave a ``---``-only
+    ``.pat`` behind: ``rebrew doctor`` treats that file as a problem, and
+    writing it again does not create signatures. An existing file at
+    *out_path* is removed in that case.
+
     Shared by ``rebrew gen-flirt-pat`` and ``rebrew identify-library
     --build-sigs`` (batch over a toolchain Lib dir).
     """
@@ -506,13 +512,17 @@ def generate_pat(lib_file: Path, out_path: Path) -> dict[str, int]:
         except (OSError, KeyError, ValueError, struct.error):
             skipped += 1
 
-    atomic_write_text(
-        out_path, "".join(line + "\n" for line in pat_lines) + "---\n", encoding="utf-8"
-    )
+    if pat_lines:
+        atomic_write_text(
+            out_path, "".join(line + "\n" for line in pat_lines) + "---\n", encoding="utf-8"
+        )
+    elif out_path.exists():
+        out_path.unlink()
     return {
         "signatures": len(pat_lines),
         "skipped_members": skipped,
         "skipped_weak": weak_skipped,
+        "written": bool(pat_lines),
     }
 
 
@@ -538,6 +548,7 @@ def main(
             {
                 "output": str(out_path),
                 "signatures": stats["signatures"],
+                "written": stats["written"],
                 "source": str(lib_file),
                 "skipped_members": skipped,
                 "skipped_weak": weak_skipped,
@@ -545,7 +556,10 @@ def main(
         )
         return
 
-    msg = f"Generated {out_path}: {stats['signatures']} signatures from {lib_file}"
+    if stats["signatures"] == 0:
+        msg = f"{lib_file}: 0 signatures, no pattern file written"
+    else:
+        msg = f"Generated {out_path}: {stats['signatures']} signatures from {lib_file}"
     if skipped:
         msg += f" ({skipped} corrupt members skipped)"
     if weak_skipped:

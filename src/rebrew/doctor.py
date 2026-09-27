@@ -1303,6 +1303,18 @@ def main_entry() -> None:
     run_standalone(main)
 
 
+def _prove_install_fix(*, optional: bool) -> str:
+    """Install hint for the environment ``rebrew doctor`` actually imports."""
+    from rebrew.prove import PROVE_CHECKOUT_INSTALL, PROVE_TOOL_INSTALL
+
+    prefix = "Optional: " if optional else "Install the prove extra: "
+    return (
+        f"{prefix}{PROVE_TOOL_INSTALL}. "
+        f"From a checkout: {PROVE_CHECKOUT_INSTALL}. "
+        "Doctor probes the environment of the rebrew command."
+    )
+
+
 def check_optional_tools() -> CheckResult:
     """Check availability of optional symbolic-proving tools (angr + claripy).
 
@@ -1331,25 +1343,43 @@ def check_optional_tools() -> CheckResult:
             name="Optional tools",
             status=_WARN,
             message="angr installed but claripy is missing — prove will crash",
-            fix="Install the prove extra: uv tool install --reinstall 'rebrew[prove] @ git+https://github.com/maci0/rebrew.git' "
-            "(or from a checkout: uv sync --extra prove).",
+            fix=_prove_install_fix(optional=False),
         )
     if claripy_available:
         return CheckResult(
             name="Optional tools",
             status=_WARN,
             message="claripy installed but angr is missing — prove needs both",
-            fix="Install the prove extra: uv tool install --reinstall 'rebrew[prove] @ git+https://github.com/maci0/rebrew.git' "
-            "(or from a checkout: uv sync --extra prove).",
+            fix=_prove_install_fix(optional=False),
         )
     return CheckResult(
         name="Optional tools",
         status=_WARN,
         message="angr + claripy missing (for 'rebrew prove')",
-        fix="Optional: uv tool install --reinstall 'rebrew[prove] @ git+https://github.com/maci0/rebrew.git' "
-        "(or from a checkout: uv sync --extra prove). "
-        "Doctor probes rebrew's env, not the project's.",
+        fix=_prove_install_fix(optional=True),
     )
+
+
+def _flirt_problem_fix(problems: list[str]) -> str:
+    """Tell empty pattern files apart from files that fail to parse.
+
+    A ``---``-only ``.pat`` has no patterns. Import libraries produce that
+    result, and deleting the file is the repair. A parse error is the file
+    to regenerate.
+    """
+    empty = [item for item in problems if "(0 signatures)" in item]
+    corrupt = [item for item in problems if item not in empty]
+    parts: list[str] = []
+    if empty:
+        parts.append(
+            "Remove signature files with 0 signatures "
+            "(import libraries have no code to sign): " + "; ".join(empty)
+        )
+    if corrupt:
+        parts.append(
+            "Regenerate corrupt .pat files with 'rebrew gen-flirt-pat': " + "; ".join(corrupt)
+        )
+    return " ".join(parts)
 
 
 def check_flirt_sigs(cfg: ProjectConfig) -> CheckResult:
@@ -1415,7 +1445,7 @@ def check_flirt_sigs(cfg: ProjectConfig) -> CheckResult:
             name="FLIRT signatures",
             status=_WARN,
             message=f"{len(sig_files)} file(s), {total} sigs load; {len(problems)} problem file(s)",
-            fix="Regenerate corrupt .pat files with 'rebrew gen-flirt-pat': " + "; ".join(problems),
+            fix=_flirt_problem_fix(problems),
         )
     return CheckResult(
         name="FLIRT signatures",
@@ -1631,6 +1661,111 @@ def check_crt_linkage(cfg: ProjectConfig) -> CheckResult:
     )
 
 
+def _inventory_spans(cfg: Any) -> list[tuple[int, int]]:
+    """``(va, size)`` rows from the target inventory, or none when it is absent."""
+    import json
+
+    from rebrew.config import inventory_path_for
+
+    reversed_dir = getattr(cfg, "reversed_dir", "") or ""
+    path = inventory_path_for(reversed_dir, cfg) if reversed_dir else Path()
+    if not path.is_file():
+        raw = str(getattr(cfg, "inventory_file", "") or "").strip()
+        root = getattr(cfg, "root", None)
+        if raw and root:
+            path = Path(root) / raw
+    if not path.is_file():
+        return []
+    try:
+        rows = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    spans: list[tuple[int, int]] = []
+    if not isinstance(rows, list):
+        return []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        try:
+            start = int(row["va"])
+            size = int(row["size"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if size > 0:
+            spans.append((start, size))
+    spans.sort()
+    return spans
+
+
+def _span_at(spans: list[tuple[int, int]], va: int) -> tuple[int, int] | None:
+    for start, size in spans:
+        if start <= va < start + size:
+            return start, size
+        if start > va:
+            break
+    return None
+
+
+def _libcmt_index(cfg: Any) -> Any:
+    """Indexed stock LIBCMT, or None when the archive cannot be read."""
+    from rebrew.lib_match import ensure_stock_lib, index_library, stock_lib_cache
+
+    name = "LIBCMT.LIB"
+    cached = stock_lib_cache(Path(cfg.root), name)
+    profile = str(getattr(cfg, "compiler_profile", "") or "")
+    try:
+        if not profile or not ensure_stock_lib(cached, profile=profile, name=name):
+            return None
+        return index_library(cached)
+    except (OSError, ValueError, typer.Exit):
+        return None
+
+
+def _library_site_counts(cfg: Any, info: Any) -> tuple[int, int] | None:
+    """How many of *info*'s wrapper sites sit in a stock LIBCMT body.
+
+    None when the archive or the inventory is unavailable, so the caller
+    keeps the whole-image reading.
+    """
+    from rebrew.binary_loader import extract_raw_bytes
+    from rebrew.lib_match import PREFIX_BYTES, match_bytes, match_leading_body
+
+    spans = _inventory_spans(cfg)
+    sites = list(getattr(info, "o2_wrapper_sites", ()) or ()) + list(
+        getattr(info, "o1_wrapper_sites", ()) or ()
+    )
+    if not spans or not sites:
+        return None
+    index = _libcmt_index(cfg)
+    if not index:
+        return None
+    binary = Path(cfg.target_binary)
+    matched: dict[int, bool] = {}
+
+    def in_library(va: int) -> bool:
+        span = _span_at(spans, va)
+        if span is None:
+            return False
+        start, size = span
+        if start not in matched:
+            try:
+                data = extract_raw_bytes(binary, start, size)
+            except OSError:
+                matched[start] = False
+            else:
+                hit = match_bytes(index, data)
+                if hit is None and size > PREFIX_BYTES:
+                    hit = match_bytes(index, extract_raw_bytes(binary, start, PREFIX_BYTES))
+                if hit is None:
+                    hit = match_leading_body(index, data)
+                matched[start] = hit is not None
+        return matched[start]
+
+    lib_o2 = sum(1 for va in info.o2_wrapper_sites if in_library(va))
+    lib_o1 = sum(1 for va in info.o1_wrapper_sites if in_library(va))
+    return lib_o2, lib_o1
+
+
 def check_opt_level(cfg: ProjectConfig) -> CheckResult:
     """Check the project's optimization flag against the binary's detected one.
 
@@ -1641,6 +1776,10 @@ def check_opt_level(cfg: ProjectConfig) -> CheckResult:
     dominant level — or "mixed" when the binary was built with per-file /O
     overrides, in which case a project-wide flag cannot be right and the
     user should flag-sweep per function.
+
+    A statically linked LIBCMT keeps the /O it was built with. Those sites
+    are removed before the project flag is judged, so a /O2 program linked
+    to an /O1 CRT is not reported as a mixed compile.
     """
     binary = getattr(cfg, "target_binary", None)
     if binary is None or not Path(binary).exists():
@@ -1649,19 +1788,37 @@ def check_opt_level(cfg: ProjectConfig) -> CheckResult:
     if not profile.startswith("msvc"):
         return CheckResult(name="Optimization level", status=_SKIP, message="non-msvc profile")
 
-    from rebrew.toolchain_detect import detect_toolchain
+    from rebrew.toolchain_cli import _external_ranges
+    from rebrew.toolchain_detect import detect_toolchain, opt_level_without_library
 
     try:
-        info = detect_toolchain(binary)
+        info = detect_toolchain(binary, exclude_ranges=_external_ranges(cfg))
     except Exception as exc:  # a broken detector must not kill the doctor
         return CheckResult(
             name="Optimization level", status=_SKIP, message=f"detection failed: {exc}"
         )
+    crt_note = ""
+    if (
+        info.opt_level.startswith("mixed")
+        and getattr(info, "crt", "") == "LIBCMT"
+        and getattr(info, "crt_linkage", "") == "static"
+    ):
+        counts = _library_site_counts(cfg, info)
+        if counts is not None:
+            refined = opt_level_without_library(
+                len(info.o2_wrapper_sites), len(info.o1_wrapper_sites), counts[0], counts[1]
+            )
+            if refined is not None and not refined.startswith("mixed"):
+                info.opt_level = refined
+                crt_note = f" (static {info.crt} carries the other wrapper style)"
     if not info.opt_level:
+        message = "codegen fingerprint inconclusive (no wrapper-style evidence)"
+        if crt_note:
+            message = f"no program wrapper sites{crt_note}"
         return CheckResult(
             name="Optimization level",
             status=_SKIP,
-            message="codegen fingerprint inconclusive (no wrapper-style evidence)",
+            message=message,
         )
 
     cflags = getattr(cfg, "cflags", "") or ""
@@ -1688,7 +1845,7 @@ def check_opt_level(cfg: ProjectConfig) -> CheckResult:
         return CheckResult(
             name="Optimization level",
             status=_PASS,
-            message=f"binary fingerprint shows {detected} — cflags matches",
+            message=f"binary fingerprint shows {detected}{crt_note} — cflags matches",
         )
     return CheckResult(
         name="Optimization level",

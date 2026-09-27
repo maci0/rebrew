@@ -2207,7 +2207,9 @@ rebrew drift --va 0x10002770 --size 2115 --json src/…/CrashDump.c
 `rebrew gen-flirt-pat [OPTIONS] LIB_PATH`
 
 Generate FLIRT `.pat` files from a compiler `.lib` archive (e.g. MSVC6's
-`msvcrt.lib`) — the input for `rebrew flirt`.
+`msvcrt.lib`), the input for `rebrew flirt`. A library with no signable
+code writes no `.pat`. JSON includes `written: false`, and an existing
+output path is removed.
 
 ### `rebrew identify-library`
 
