@@ -553,13 +553,17 @@ def _unlink_db(db_path: Path) -> dict[str, list[tuple[Any, ...]]]:
     Deleting the file is how a stale schema is replaced, but ``history`` and
     ``verify_results`` are never re-derived: dropping them silently discards
     every status change and every verify result, and a second ``--force`` run
-    compounds the loss.  Returns an empty mapping when the tables are absent
-    or unreadable, in which case there is nothing worth restoring.
+    compounds the loss.  Returns an empty mapping when the tables are absent,
+    in which case there is nothing worth restoring.
 
     A pre-CHECK table from an older build may lack a column this build knows
     about, so the projection is intersected with the table's actual columns
     and the result padded back to the declared width; the restore then binds
     NULL for whatever the old table never had.
+
+    Raises :exc:`sqlite3.OperationalError` when the tables cannot be read, so
+    the unlink below never runs on a database whose persistent rows are
+    merely unknown.  The caller reports it and preserves the file.
     """
     saved: dict[str, list[tuple[Any, ...]]] = {}
     try:
@@ -584,8 +588,13 @@ def _unlink_db(db_path: Path) -> dict[str, list[tuple[Any, ...]]]:
                     for slot, value in zip(indexes, row, strict=True):
                         values[slot] = value
                     saved.setdefault(table, []).append(tuple(values))
-    except sqlite3.Error:
-        saved = {}
+    except sqlite3.Error as exc:
+        # A read failure is not the same as "no persistent rows": continuing
+        # would unlink a database whose history and verify_results are merely
+        # unreadable, and the rebuild would then start from an empty mapping.
+        raise sqlite3.OperationalError(
+            f"cannot read the persistent tables of '{db_path}' before deleting it: {exc}"
+        ) from exc
     db_path.unlink()
     for suffix in _SQLITE_SIDECAR_SUFFIXES:
         db_path.with_name(db_path.name + suffix).unlink(missing_ok=True)
@@ -691,12 +700,28 @@ def _check_db_version(
             code=EXIT_ERROR,
         )
 
+    def _unlink_or_exit() -> dict[str, list[tuple[Any, ...]]]:
+        """Delete the database, or exit with the file preserved.
+
+        The delete is the point of no return for ``history`` and
+        ``verify_results`` (nothing re-derives them), so a save that fails is
+        reported the same way an unreadable schema is: the database stays.
+        """
+        try:
+            return _unlink_db(db_path)
+        except sqlite3.Error as exc:
+            error_exit(
+                f"{exc}. The existing database has been preserved.",
+                json_mode=json_output,
+                code=EXIT_ERROR,
+            )
+
     if empty_schema:
         console.print(
             "[yellow]warning:[/yellow] existing database has no schema (likely a "
             "failed build); deleting and rebuilding."
         )
-        return _unlink_db(db_path)
+        return _unlink_or_exit()
 
     if stored_version == _CURRENT_DB_VERSION:
         # The version string alone is not proof of shape: a DB stamped
@@ -729,7 +754,7 @@ def _check_db_version(
             f"[yellow]warning:[/yellow] schema mismatch (stored={stored_version!r}, "
             f"required={_CURRENT_DB_VERSION!r}); deleting '{db_path}' and rebuilding (--force)."
         )
-        return _unlink_db(db_path)
+        return _unlink_or_exit()
     return {}
 
 

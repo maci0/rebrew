@@ -2460,3 +2460,15 @@ class TestPersistentRowSalvage:
         assert saved["verify_results"] == [
             ("alpha", 4096, "2026-01-01T00:00:00+00:00", 3, 7, 0.9, 2, None)
         ]
+
+    def test_unreadable_db_raises_and_keeps_the_file(self, tmp_path: Path) -> None:
+        """A database that cannot be read must not be deleted: history and
+        verify_results have no other source, so an empty save would drop them."""
+        db_path = tmp_path / "coverage.db"
+        db_path.write_bytes(b"not a sqlite database at all")
+
+        with pytest.raises(sqlite3.Error) as excinfo:
+            _unlink_db(db_path)
+
+        assert str(db_path) in str(excinfo.value)
+        assert db_path.exists()
