@@ -144,6 +144,25 @@
   reset each request. No `/api/*` JSON changed.
 
 ### Fixed
+- **The dashboard OpenAPI spec matches what the server actually does.**
+  Three contracts a client generates from `docs/dashboard-api.yaml` were
+  wrong or missing:
+  - The `va` column pattern was pinned to exactly eight hex digits, but the
+    query layer formats with `:08x` (a minimum) and `VA_MAX` is the int64
+    range, so a 64-bit target's rows serialized to nine-plus digits and the
+    pattern rejected a valid response. Widened to `{8,16}`.
+  - Only `/api/health` and `/api/summary` declared a 500. The handler guard
+    wraps every route, so any of them can answer `database_error` or
+    `internal_error`; a generated client had no branch for it. Every route
+    now declares one, and the two response descriptions say which codes each
+    carries.
+  - The JSON routes' `ETag`, `Cache-Control`, `Vary`, and `Server-Timing`
+    were undocumented, so conditional-GET support was invisible to a client
+    reading the spec.
+  Also corrected two descriptions that did not match the code: `module` is
+  compared with equality (the LIKE-escaping note was meaningless), and
+  `status` accepts the legacy `NEAR_MATCH` alias, which the enum did not
+  show.
 - **The data section summary agrees with the coverage-floor rule.**
   `rebrew data` reports byte coverage through `floor_pct`, so 4 annotated
   bytes of a 256-byte `.data` reads 1.5% in the table and the progress bar.
