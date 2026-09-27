@@ -34,7 +34,7 @@ from typing import Any
 
 import capstone
 
-from rebrew.analysis import capstone_handle
+from rebrew.analysis import capstone_handle, instruction_text
 
 #: Terminators that end a basic block.
 _BLOCK_END_MNEMONICS = frozenset(
@@ -241,15 +241,10 @@ def _seal(cur: list[Any], base_va: int, start_idx: int) -> dict[str, Any]:
         "byte_size": last.address + last.size - first.address,
         "insn_count": len(cur),
         "mnems": [insn.mnemonic for insn in cur],
-        "first": _insn_text(first),
-        "last": _insn_text(last),
+        "first": instruction_text(first),
+        "last": instruction_text(last),
         "start_idx": start_idx,
     }
-
-
-def _insn_text(insn: Any) -> str:
-    """One capstone instruction as ``"mnemonic operands"`` text."""
-    return f"{insn.mnemonic} {insn.op_str}".strip()
 
 
 def _jump_target_off(insn: Any, base_va: int) -> int | None:
