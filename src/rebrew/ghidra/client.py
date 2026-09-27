@@ -11,10 +11,8 @@ import json
 import logging
 import re
 import time
-from typing import TYPE_CHECKING, Any, Literal, NamedTuple
-
-if TYPE_CHECKING:
-    import httpx
+from collections.abc import Mapping
+from typing import Any, Literal, NamedTuple, Protocol, runtime_checkable
 
 from rich.console import Console
 
@@ -83,6 +81,59 @@ class McpApplyAborted(RebrewError, RuntimeError):
         self.errors = errors
 
 
+class McpResponse(Protocol):
+    """The response fields rebrew reads off an :class:`McpHttpClient` reply.
+
+    An ``httpx.Response`` satisfies this structurally, and so does a plain
+    stand-in with those five members.  ``close()`` is absent on purpose:
+    :func:`rebrew.utils.close_response` probes for it, so a stand-in that has
+    no connection to release is still a valid reply.
+    """
+
+    @property
+    def status_code(self) -> int: ...
+
+    @property
+    def headers(self) -> Mapping[str, str]: ...
+
+    @property
+    def text(self) -> str: ...
+
+    def json(self) -> Any: ...
+
+    def raise_for_status(self) -> Any: ...
+
+
+@runtime_checkable
+class McpHttpClient(Protocol):
+    """The HTTP surface the MCP functions below actually call.
+
+    ``httpx.Client`` satisfies this, and so does any stand-in with ``post``
+    and ``delete`` taking ``**kwargs``.  The keywords below are the ones
+    these functions pass (the JSON-RPC ``json=`` body, the ``headers``
+    session id, the per-call ``timeout``), so a stand-in is type-checked
+    against the calls the implementation really makes.  Every ``client=``
+    parameter in this package is typed against it.
+    """
+
+    def post(
+        self,
+        url: str,
+        *,
+        json: Any = None,
+        headers: Mapping[str, str] | None = None,
+        timeout: float | None = None,
+    ) -> McpResponse: ...
+
+    def delete(
+        self,
+        url: str,
+        *,
+        headers: Mapping[str, str] | None = None,
+        timeout: float | None = None,
+    ) -> McpResponse: ...
+
+
 #: Transient HTTP statuses that are safe to retry after a backoff.
 _RETRYABLE_HTTP = frozenset({408, 425, 429, 500, 502, 503, 504})
 
@@ -121,7 +172,7 @@ def _parse_sse_response(text: str) -> JsonRpcResponse | None:
 
 
 def _call_mcp_tool(
-    client: httpx.Client,
+    client: McpHttpClient,
     endpoint: str,
     tool_name: str,
     arguments: dict[str, Any],
@@ -224,7 +275,7 @@ def _call_mcp_tool(
 
 
 def fetch_mcp_tool(
-    client: httpx.Client,
+    client: McpHttpClient,
     endpoint: str,
     tool_name: str,
     arguments: dict[str, Any],
@@ -276,7 +327,7 @@ def fetch_mcp_tool(
 
 
 def fetch_mcp_tool_raw(
-    client: httpx.Client,
+    client: McpHttpClient,
     endpoint: str,
     tool_name: str,
     arguments: dict[str, Any],
@@ -321,7 +372,7 @@ def fetch_mcp_tool_raw(
     return objects if objects else None
 
 
-def init_mcp_session(client: httpx.Client, endpoint: str) -> str:
+def init_mcp_session(client: McpHttpClient, endpoint: str) -> str:
     """Initialize an MCP session and return the session ID.
 
     Transport failures and non-2xx replies raise :class:`McpError`
@@ -366,7 +417,7 @@ def init_mcp_session(client: httpx.Client, endpoint: str) -> str:
         close_response(resp)
 
 
-def end_mcp_session(client: httpx.Client, endpoint: str, session_id: str) -> None:
+def end_mcp_session(client: McpHttpClient, endpoint: str, session_id: str) -> None:
     """Terminate *session_id* with an MCP ``DELETE`` so the server frees it.
 
     Every :func:`init_mcp_session` caller pairs it with this call on all exit
@@ -393,7 +444,7 @@ def end_mcp_session(client: httpx.Client, endpoint: str, session_id: str) -> Non
 
 
 def _paginate_mcp_list(
-    client: httpx.Client,
+    client: McpHttpClient,
     endpoint: str,
     tool_name: str,
     program_path: str,
@@ -485,7 +536,7 @@ def _paginate_mcp_list(
 
 
 def fetch_all_symbols(
-    client: httpx.Client,
+    client: McpHttpClient,
     endpoint: str,
     program_path: str,
     session_id: str,
@@ -509,7 +560,7 @@ def fetch_all_symbols(
 
 
 def fetch_all_functions(
-    client: httpx.Client,
+    client: McpHttpClient,
     endpoint: str,
     program_path: str,
     session_id: str,
@@ -668,7 +719,7 @@ def apply_commands_via_mcp(
     commands: list[dict[str, Any]],
     endpoint: str = "http://localhost:8080/mcp/message",
     *,
-    client: httpx.Client | None = None,
+    client: McpHttpClient | None = None,
     timeout: float = MCP_REQUEST_TIMEOUT_S,
 ) -> McpApplyResult:
     """Apply sync commands to Ghidra via ReVa MCP Streamable HTTP.
@@ -676,8 +727,9 @@ def apply_commands_via_mcp(
     Returns :class:`McpApplyResult` with ``success`` and ``errors`` counts
     (a 2-tuple, so ``success, errors = ...`` still works).
 
-    *client*, when given, must be an ``httpx.Client`` (or compatible stand-in).
-    The caller owns its lifetime; the function does not close it.
+    *client*, when given, must satisfy :class:`McpHttpClient` — an
+    ``httpx.Client`` or a stand-in with ``post`` / ``delete``.  The caller owns
+    its lifetime; the function does not close it.
     """
     import httpx  # deferred: ~46 ms of startup for non-Ghidra commands
 
@@ -891,6 +943,8 @@ __all__ = [
     "McpApplyResult",
     "McpError",
     "McpErrorKind",
+    "McpHttpClient",
+    "McpResponse",
     "apply_commands_via_mcp",
     "end_mcp_session",
     "fetch_all_functions",

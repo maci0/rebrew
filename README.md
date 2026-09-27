@@ -196,10 +196,9 @@ in that handler instead of escaping it.
 
 The clients that talk to a service take the HTTP client as an argument, so
 your tests never need a live one. `HttpClient` (from `rebrew.recompile_client`
-or `rebrew.decompme`) is the two-method shape rebrew calls: `.post` and
+or `rebrew.decompme`) is the two-method shape those clients call: `.post` and
 `.get`. A stand-in that takes `**kwargs` satisfies both, so one fake covers
-every rebrew client:
-
+both of them:
 ```python
 from rebrew.recompile_client import compile_source
 
@@ -226,6 +225,12 @@ result.ok / result.obj_bytes / result.log / result.compiler_version
 # exponential backoff; `RecompileError.kind` is "network" / "http" /
 # "validation" / "protocol" and `status_code` is set for the "http" ones.
 ```
+
+The ReVa MCP client (`rebrew.ghidra.client`, the transport behind
+`rebrew sync`) takes `McpHttpClient` instead: `post` plus `delete`, because it
+terminates its session on every exit path. The same `**kwargs` stand-in
+satisfies it once `delete` is added, and the reply only has to carry
+`status_code`, `headers`, `text`, `json()` and `raise_for_status()`.
 
 The CLI commands, flags, and the `rebrew-project.toml` schema are frozen for
 the 2.x line. The Python import surface and the dashboard `/api/*` JSON are

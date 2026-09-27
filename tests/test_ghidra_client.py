@@ -22,6 +22,8 @@ def test_ghidra_client_public_all() -> None:
         "McpApplyResult",
         "McpError",
         "McpErrorKind",
+        "McpHttpClient",
+        "McpResponse",
         "apply_commands_via_mcp",
         "end_mcp_session",
         "fetch_all_functions",

@@ -25,6 +25,27 @@
   validate a candidate without reading the process environment.
 
 ### Added
+- **The ReVa MCP client takes a protocol, not `httpx.Client`.**
+  `rebrew.ghidra.client` and `rebrew.ghidra.commands` typed every `client=`
+  parameter as the concrete `httpx.Client`, so a consumer injecting a
+  stand-in (which the parameter and the README both invite) got no check on
+  the stand-in at all, and the only two HTTP clients in rebrew that agreed on
+  how to be faked were the recompile and decomp.me ones.  `McpHttpClient`
+  (with `McpResponse`) is the shape those functions call: `post` / `delete`,
+  and a reply carrying `status_code`, `headers`, `text`, `json()` and
+  `raise_for_status()`.  It is `runtime_checkable` like the other two
+  protocols, and an `httpx.Client` still satisfies it, so no caller changes.
+- **`ResidueError` is importable from `rebrew.errors`.** Every other public
+  error was re-exported from the one module a consumer is told to import
+  from; `ResidueError` needed a `rebrew.residue` import, which is what
+  `test_errors.py::test_every_public_error_is_importable_from_rebrew_errors`
+  had been failing on.
+
+### Fixed
+- **`REBREW_XVFB_AUTH` is documented.** The Xvfb cookie path rebrew writes
+  next to `REBREW_XVFB_DISPLAY` was read by `rebrew.headless` and named in
+  neither `docs/CONFIG.md` nor `.env.example`, so the env-doc gate failed.
+
 - **A moved public helper cannot reach a release unflagged.** The import
   surface is unfrozen by policy, so a removal, move, or signature change there
   ships in a minor with a `**Breaking:**` entry naming the old and new import

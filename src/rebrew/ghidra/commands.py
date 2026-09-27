@@ -14,8 +14,6 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    import httpx
-
     from rebrew.catalog import RegistryEntry
 
 from rich.console import Console
@@ -26,6 +24,7 @@ from rebrew.ghidra.client import (
     MAX_MCP_PAGES,
     MCP_REQUEST_TIMEOUT_S,
     McpError,
+    McpHttpClient,
     end_mcp_session,
     fetch_mcp_tool_raw,
     init_mcp_session,
@@ -94,7 +93,7 @@ def resolve_program_path(cfg: ProjectConfig) -> str:
 
 
 def validate_program_path(
-    client: httpx.Client,
+    client: McpHttpClient,
     endpoint: str,
     program_path: str,
     session_id: str,

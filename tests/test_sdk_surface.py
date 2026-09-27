@@ -5,6 +5,7 @@ from __future__ import annotations
 import ast
 import importlib
 import importlib.util
+import json
 import re
 import sys
 from pathlib import Path
@@ -127,6 +128,7 @@ class TestErrorsLazyExports:
             "OrphanInventoryError",
             "RecompileError",
             "RegistryError",
+            "ResidueError",
             "SimilarityUnavailable",
             "Tc16Error",
             "ToolchainError",
@@ -175,6 +177,7 @@ class TestErrorsLazyExports:
             "RecompileError",
             "RecompileErrorKind",
             "RegistryError",
+            "ResidueError",
             "SimilarityUnavailable",
             "Tc16Error",
             "ToolchainError",
@@ -592,32 +595,43 @@ class TestMetadataConvenience:
 
 class TestGhidraClientInjection:
     def test_apply_commands_via_mcp_accepts_client(self) -> None:
-        from rebrew.ghidra.client import apply_commands_via_mcp
+        from rebrew.ghidra.client import McpResponse, apply_commands_via_mcp
+
+        ok_body = '{"jsonrpc": "2.0", "result": {"content": [{"type": "text", "text": "ok"}]}}'
+
+        class FakeResponse:
+            """A reply shaped like the five fields rebrew reads off a response."""
+
+            def __init__(self, body: str) -> None:
+                self.status_code = 200
+                self.headers = {"content-type": "application/json", "mcp-session-id": "sess-1"}
+                self.text = body
+
+            def json(self) -> object:
+                return json.loads(self.text)
+
+            def raise_for_status(self) -> None:
+                return None
+
+            def close(self) -> None:
+                return None
 
         class FakeMcpClient:
             def __init__(self) -> None:
                 self.calls: list[str] = []
 
-            def post(self, url: str, **kwargs: object) -> object:
+            def post(self, url: str, **kwargs: object) -> McpResponse:
                 self.calls.append(url)
-                return SimpleNamespace(
-                    status_code=200,
-                    headers={"content-type": "application/json", "mcp-session-id": "sess-1"},
-                    json=lambda: {
-                        "jsonrpc": "2.0",
-                        "result": {"content": [{"type": "text", "text": "ok"}]},
-                    },
-                    text='{"jsonrpc": "2.0", "result": {"content": [{"type": "text", "text": "ok"}]}}',
-                    raise_for_status=lambda: None,
-                    close=lambda: None,
-                )
+                return FakeResponse(ok_body)
 
-            def delete(self, url: str, **kwargs: object) -> object:
-                return SimpleNamespace(status_code=200, close=lambda: None)
+            def delete(self, url: str, **kwargs: object) -> McpResponse:
+                return FakeResponse("")
 
         fake = FakeMcpClient()
         cmd = {"tool": "create-function", "args": {"address": "0x1000"}}
-        result = apply_commands_via_mcp([cmd], client=fake)  # type: ignore[arg-type]
+        # No ``# type: ignore``: the stand-in is typed against the same
+        # protocol the implementation calls, so the injection point checks.
+        result = apply_commands_via_mcp([cmd], client=fake)
         # Both counts are ints: a named record keeps a transposition visible,
         # and the 2-tuple form above still destructures.
         success, errors = result
@@ -823,3 +837,38 @@ class TestDocumentedTransportInjection:
         )
         assert result.ok is True
         assert result.obj_bytes == b"\x90" * 8
+
+    def test_kwargs_fake_satisfies_the_mcp_client_protocol(self) -> None:
+        """The same stand-in shape also drives the ReVa MCP client.
+
+        The README says one ``**kwargs`` fake covers rebrew's HTTP clients.
+        The MCP one also terminates its session with ``DELETE``, so the
+        stand-in needs that method too — a consumer reading the quickstart
+        should not have to discover it from a traceback.
+        """
+        from rebrew.ghidra.client import McpHttpClient
+
+        class _McpFake:
+            def post(self, url: str, **kwargs: object) -> object:
+                return SimpleNamespace(
+                    status_code=200,
+                    headers={"content-type": "application/json", "mcp-session-id": "sess-1"},
+                    text='{"jsonrpc": "2.0", "result": {"content": []}}',
+                    json=lambda: {"jsonrpc": "2.0", "result": {"content": []}},
+                    raise_for_status=lambda: None,
+                    close=lambda: None,
+                )
+
+            def delete(self, url: str, **kwargs: object) -> object:
+                return SimpleNamespace(status_code=200, close=lambda: None)
+
+        assert isinstance(_McpFake(), McpHttpClient)
+
+        # A stand-in with only post/get is not an MCP client; the protocol
+        # says so before a session teardown raises AttributeError.
+        class _RecompileFake:
+            def post(self, url: str, **kwargs: object) -> object: ...
+
+            def get(self, url: str, **kwargs: object) -> object: ...
+
+        assert not isinstance(_RecompileFake(), McpHttpClient)
