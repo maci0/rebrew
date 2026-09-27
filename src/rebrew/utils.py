@@ -94,6 +94,12 @@ _SOURCE_TEXT_MEMO_LOCK = threading.Lock()
 
 
 _CONTAINER_RUNTIME_RE = re.compile(r"^[a-zA-Z0-9_\-\./]+$")
+DEFAULT_CONTAINER_RUNTIME = "docker"
+#: Bare runtime names rebrew knows how to drive.  Anything else is a typo
+#: (``dockre``, ``Podmam``) that would otherwise surface as a spawn failure
+#: from deep inside a compile; a value carrying a path separator is passed
+#: through as a path to a runtime binary instead of being name-checked.
+CONTAINER_RUNTIMES = ("docker", "podman", "nerdctl")
 
 
 def container_runtime() -> str:
@@ -103,11 +109,20 @@ def container_runtime() -> str:
     daemonless) or nerdctl can be used instead of dockerd — same knob the Go
     port honors.  Defaults to ``docker``.  Empty / whitespace-only values
     are treated as unset (``os.environ.get`` alone would return ``""`` and
-    break every ``docker``/``podman`` invocation).
+    break every ``docker``/``podman`` invocation).  A bare name outside
+    :data:`CONTAINER_RUNTIMES` raises here rather than at exec time.
     """
-    runtime = os.environ.get("REBREW_CONTAINER_RUNTIME", "docker").strip() or "docker"
+    runtime = (
+        os.environ.get("REBREW_CONTAINER_RUNTIME", DEFAULT_CONTAINER_RUNTIME).strip()
+        or DEFAULT_CONTAINER_RUNTIME
+    )
     if not _CONTAINER_RUNTIME_RE.fullmatch(runtime):
         raise ValueError(f"REBREW_CONTAINER_RUNTIME={runtime!r} contains invalid characters")
+    if "/" not in runtime and runtime not in CONTAINER_RUNTIMES:
+        raise ValueError(
+            f"REBREW_CONTAINER_RUNTIME={runtime!r} is not a known container runtime "
+            f"({', '.join(CONTAINER_RUNTIMES)}); set a path to the binary to use another one"
+        )
     return runtime
 
 

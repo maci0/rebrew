@@ -7,14 +7,18 @@ import pytest
 # Import from the rebrew package
 from rebrew.config import (
     _ARCH_PRESETS,
+    DEFAULT_LLM_MAX_REQUESTS,
+    MAX_LLM_MAX_REQUESTS,
     ConfigError,
     ConfigKeyError,
     ConfigNotFoundError,
+    ConfigWarning,
     ProjectConfig,
     _detect_binary_layout,
     _resolve,
     find_root,
     inventory_path_for,
+    llm_max_requests,
     load_config,
 )
 from rebrew.errors import RebrewError
@@ -1967,6 +1971,13 @@ profile = "msvc-6.0"
         monkeypatch.setenv("REBREW_LLM_MAX_REQUESTS", "-5")
         with pytest.raises(ConfigError, match=r"REBREW_LLM_MAX_REQUESTS='-5' must be >= 0"):
             load_config(root)
+
+    def test_llm_max_requests_clamps_and_defaults(self) -> None:
+        assert llm_max_requests("") == DEFAULT_LLM_MAX_REQUESTS
+        assert llm_max_requests("  ") == DEFAULT_LLM_MAX_REQUESTS
+        assert llm_max_requests("0") == 0
+        with pytest.warns(ConfigWarning, match="clamping to 10000"):
+            assert llm_max_requests("99999") == MAX_LLM_MAX_REQUESTS
 
     def test_project_config_repr_redacts_api_key(self, tmp_path: Path) -> None:
         root = _make_project(tmp_path, self.BASE_TOML)

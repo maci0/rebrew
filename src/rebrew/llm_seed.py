@@ -41,7 +41,12 @@ import threading
 import time
 from typing import Any
 
-from rebrew.config import is_key_safe_endpoint, validate_http_url, validate_llm_model
+from rebrew.config import (
+    is_key_safe_endpoint,
+    llm_max_requests,
+    validate_http_url,
+    validate_llm_model,
+)
 
 # Cost / injection caps at the single LLM call site.
 _MAX_SOURCE_CHARS = 16_000  # ~4k tokens of C; larger functions truncate
@@ -51,7 +56,6 @@ _MAX_HTTP_BODY_BYTES = 256_000  # reject before json.loads blows memory/budget
 _DEFAULT_MAX_TOKENS = 2_048
 _DEFAULT_COUNT = 3
 _DEFAULT_MODEL = "gpt-4o-mini-2024-07-18"  # dated snapshot; bare alias floats
-_DEFAULT_MAX_REQUESTS = 32  # process-wide; override via REBREW_LLM_MAX_REQUESTS
 _UNPINNED_MODELS = frozenset({"latest", "auto", "default"})
 # Model ids flow into the provider JSON; reject shells/newlines/path traversal.
 _MODEL_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$")
@@ -216,29 +220,8 @@ def _key_safe_endpoint(endpoint: str) -> bool:
 
 
 def _max_requests() -> int:
-    """Process-wide LLM call ceiling (env override, clamped at 10_000).
-
-    Unset / empty keeps the default.  A set-but-invalid or negative value
-    raises ``ValueError`` so a typo cannot silently restore the default and
-    burn through a paid endpoint (or disable seeding via an accidental ``0``
-    without the operator noticing a parse failure).
-    """
-    raw = os.environ.get("REBREW_LLM_MAX_REQUESTS", "").strip()
-    if not raw:
-        return _DEFAULT_MAX_REQUESTS
-    try:
-        value = int(raw)
-    except ValueError as exc:
-        raise ValueError(f"REBREW_LLM_MAX_REQUESTS={raw!r} is not an int") from exc
-    if value < 0:
-        raise ValueError(f"REBREW_LLM_MAX_REQUESTS={raw!r} must be >= 0")
-    if value > 10_000:
-        logging.warning(
-            "REBREW_LLM_MAX_REQUESTS=%r exceeds 10000; clamping to 10000",
-            raw,
-        )
-        return 10_000
-    return value
+    """Process-wide LLM call ceiling (env override, clamped at 10_000)."""
+    return llm_max_requests(os.environ.get("REBREW_LLM_MAX_REQUESTS", ""))
 
 
 def _consume_request_slot() -> bool:

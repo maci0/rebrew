@@ -110,6 +110,10 @@ DEFAULT_COMPILE_TIMEOUT = 60
 #: source for ``ProjectConfig.lint_max_line_length``, the
 #: ``[project.lint] max_line_length`` fallback, and ``rebrew.lint``.
 DEFAULT_LINT_MAX_LINE_LENGTH = 200
+#: ``REBREW_LLM_MAX_REQUESTS`` process ceiling: the default budget, and the
+#: highest value honored before clamping.
+DEFAULT_LLM_MAX_REQUESTS = 32
+MAX_LLM_MAX_REQUESTS = 10_000
 # ---------------------------------------------------------------------------
 # Architecture presets
 # ---------------------------------------------------------------------------
@@ -1065,6 +1069,34 @@ def validate_llm_model(model: str) -> str:
     return model
 
 
+def llm_max_requests(raw: str) -> int:
+    """Parse the ``REBREW_LLM_MAX_REQUESTS`` ceiling, the process LLM call budget.
+
+    Empty / unset keeps :data:`DEFAULT_LLM_MAX_REQUESTS`; ``0`` is an
+    intentional kill switch.  A non-integer or negative value raises
+    ``ConfigError`` so a typo cannot silently restore the default and bill a
+    paid endpoint.  Above :data:`MAX_LLM_MAX_REQUESTS` the value clamps with a
+    warning.  Single source for ``load_config`` (fail fast at startup) and
+    ``rebrew.llm_seed`` (per-call ceiling).
+    """
+    value = raw.strip()
+    if not value:
+        return DEFAULT_LLM_MAX_REQUESTS
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise ConfigError(f"REBREW_LLM_MAX_REQUESTS={value!r} is not an int") from exc
+    if parsed < 0:
+        raise ConfigError(f"REBREW_LLM_MAX_REQUESTS={value!r} must be >= 0")
+    if parsed > MAX_LLM_MAX_REQUESTS:
+        _config_warn(
+            f"REBREW_LLM_MAX_REQUESTS={value!r} exceeds {MAX_LLM_MAX_REQUESTS}; "
+            f"clamping to {MAX_LLM_MAX_REQUESTS}"
+        )
+        return MAX_LLM_MAX_REQUESTS
+    return parsed
+
+
 def _as_bool(value: Any, default: bool, field_name: str) -> bool:
     """Return a bool config value, warning and using *default* on bad types.
 
@@ -1910,16 +1942,7 @@ def load_config(
             )
 
     if "REBREW_LLM_MAX_REQUESTS" in os.environ:
-        raw_max = os.environ["REBREW_LLM_MAX_REQUESTS"].strip()
-        if raw_max:
-            try:
-                val = int(raw_max)
-                if val < 0:
-                    raise ConfigError(f"REBREW_LLM_MAX_REQUESTS={raw_max!r} must be >= 0")
-            except ValueError as exc:
-                if not isinstance(exc, ConfigError):
-                    raise ConfigError(f"REBREW_LLM_MAX_REQUESTS={raw_max!r} is not an int") from exc
-                raise
+        llm_max_requests(os.environ["REBREW_LLM_MAX_REQUESTS"])
 
     # --- [cache] section: compile-cache backend selection ---
     # The store is a pluggable component (rebrew.cache_backends entry-point

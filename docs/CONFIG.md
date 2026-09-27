@@ -309,6 +309,10 @@ Project settings live in ``rebrew-project.toml``. Environment variables are
 namespaced ``REBREW_*`` and act as per-run overrides or secret carriers —
 they do **not** all share one global precedence over the TOML.
 
+Only the process environment is read: rebrew never loads a ``.env`` file.
+``.env.example`` lists every variable with its valid values; export them from
+the shell (or let direnv load a private, gitignored ``.env``).
+
 **Per-setting precedence (when both TOML and env apply):**
 
 | Setting | Winner |
@@ -356,7 +360,10 @@ by the CLI layer and win for that invocation.
   directory fails `rebrew flirt` instead of scanning without library sigs.
 - `REBREW_SKILLS_DIR` — user/community Agent Skills directory (overrides
   packaged skills of the same name).
-- `REBREW_CONTAINER_RUNTIME` — container CLI (`docker` default, or `podman`).
+- `REBREW_CONTAINER_RUNTIME` — container CLI (`docker` default; `podman` or
+  `nerdctl` also accepted). A bare name outside that set raises, so a typo
+  fails at load rather than at exec; set a path to the binary to use another
+  runtime.
 
 ### Host-wine / cmake (dormant under docker-only profiles)
 

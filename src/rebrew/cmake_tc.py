@@ -412,7 +412,7 @@ def _tc_dispatch() -> None:
             pinned = a.split(":", 1)[1]
             del argv[i]
             break
-    name = pinned or os.environ.get("REBREW_TOOLCHAIN") or _load_profile(root)
+    name = pinned or os.environ.get("REBREW_TOOLCHAIN", "").strip() or _load_profile(root)
     spec = _resolve_spec(name)
     try:
         rc = _docker_run(spec, mode, argv)

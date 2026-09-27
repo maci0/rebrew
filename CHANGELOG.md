@@ -15,6 +15,24 @@
   `tests/test_link_tools.py`, `tests/test_match.py`, `tests/test_solutions.py`),
   so the CI lint job's blocking `ruff format --check` step failed on a clean
   tree.
+- **A typo'd container runtime fails where it is set.**
+  `REBREW_CONTAINER_RUNTIME` accepted any charset-valid string, so
+  `REBREW_CONTAINER_RUNTIME=dockre` produced a spawn failure from inside a
+  compile. A bare name outside `docker`/`podman`/`nerdctl` now raises with the
+  list of known runtimes; a value carrying a path separator still passes
+  through as a path to a runtime binary.
+- **The LLM request ceiling is parsed in one place.**
+  `load_config` and `rebrew.llm_seed` each parsed
+  `REBREW_LLM_MAX_REQUESTS`; the loader's copy validated the value, threw the
+  parsed result away, and did not apply the 10000 clamp. Both now call
+  `config.llm_max_requests`, so startup validation and the per-call ceiling
+  cannot disagree.
+- **`.env.example` no longer promises a `.env` loader.** Rebrew reads the
+  process environment only; the template said to copy it to `.env`. It also
+  omitted `REBREW_PROJECTS_ROOT`, `REBREW_COMPILER_RUNNER`, `REBREW_RUNNER`,
+  and `_REBREW_COMPLETE`, which `docs/CONFIG.md` documents.
+  `tests/test_env_docs.py` now fails when an env var the code reads is missing
+  from either file, or when the template lists a var nothing reads.
 - **Provider-controlled text cannot forge LLM log lines.** A transport
   failure that echoes the response body (and a tree-sitter error quoting the
   snippet it rejected) reached `logging` verbatim, while every other

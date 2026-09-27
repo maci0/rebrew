@@ -56,6 +56,17 @@ def test_container_runtime_invalid_chars_raises(monkeypatch: pytest.MonkeyPatch)
         container_runtime()
 
 
+def test_container_runtime_unknown_name_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("REBREW_CONTAINER_RUNTIME", "dockre")
+    with pytest.raises(ValueError, match="is not a known container runtime"):
+        container_runtime()
+
+
+def test_container_runtime_accepts_binary_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("REBREW_CONTAINER_RUNTIME", "/opt/bin/ctr-runc")
+    assert container_runtime() == "/opt/bin/ctr-runc"
+
+
 def test_atomic_write_text_success(tmp_path: Path) -> None:
     f = tmp_path / "test.txt"
     atomic_write_text(f, "hello world")
