@@ -143,7 +143,7 @@ body { font-family: var(--rb-sans);
 .skip-link:focus { left: 1rem; top: 1rem; }
 header { background: var(--rb-ink); color: var(--rb-surface); padding: 0.75rem 1.5rem;
          display: flex; flex-wrap: wrap; align-items: baseline; gap: 1rem 2rem; }
-header h1 { font-size: 1.05rem; margin: 0; }
+header h1 { font-size: var(--rb-size-bar); margin: 0; }
 header nav { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; }
 header nav a { color: var(--rb-nav); text-decoration: underline; min-height: 2.75rem; padding: 0.5rem 0.35rem;
         display: inline-flex; align-items: center; }
@@ -197,7 +197,7 @@ __STATUS_FORCED__ { color: CanvasText; font-weight: 700; }
 pre.mermaid { background: var(--rb-surface); border: 1px solid var(--rb-line);
         border-radius: var(--rb-radius); padding: 1rem; overflow-x: auto;
         font-family: var(--rb-mono);
-        font-size: 0.8rem; line-height: 1.4; }
+        font-size: var(--rb-size-code); line-height: 1.4; }
 @media (max-width: 40rem) {
   header, main { padding-left: 1rem; padding-right: 1rem; }
   .card { min-width: 0; flex: 1 1 100%; }

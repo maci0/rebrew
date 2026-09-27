@@ -672,3 +672,25 @@ class TestChromeTokens:
         both = _CSS + _INDEX_HTML
         for value in TOKENS.values():
             assert value in both, f"{value} is declared but never rendered"
+
+    def test_no_colour_or_size_literal_outside_the_token_set(self) -> None:
+        """A surface may not hardcode a colour or a font size.
+
+        The token set is the only place chrome values are chosen, so a
+        literal in either surface is a surface that has drifted from it.
+        Status marks are the one exception: they come from
+        ``cli.STATUS_HEX``, which the CLI and both surfaces share.
+        """
+        import re
+
+        from rebrew.cli import STATUS_HEX
+        from rebrew.dashboard import _INDEX_HTML
+        from rebrew.report import _CSS
+        from rebrew.theme import TOKENS
+
+        allowed = set(TOKENS.values()) | set(STATUS_HEX.values())
+        for name, shell in (("report", _CSS), ("dashboard", _INDEX_HTML)):
+            literals = set(re.findall(r"#[0-9a-fA-F]{3,8}\b", shell)) | set(
+                re.findall(r"font-size: ([0-9][0-9a-z.]*)", shell)
+            )
+            assert not literals - allowed, f"{name}: {sorted(literals - allowed)}"

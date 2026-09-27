@@ -43,6 +43,8 @@ TOKENS: dict[str, str] = {
     "mono": 'ui-monospace, "Cascadia Code", Consolas, monospace',
     "size-title": "1.5rem",
     "size-heading": "1.25rem",
+    "size-bar": "1.05rem",
+    "size-code": "0.8rem",
     "size-value": "1.5rem",
     "size-cell": "0.85rem",
     "size-note": "0.9rem",
