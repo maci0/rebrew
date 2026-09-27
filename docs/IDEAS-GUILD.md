@@ -357,4 +357,4 @@ Status `open` unless noted. Promote to ROADMAP when scoped.
   means `-s` or `-ox`, not `-os` versus `-ot`; ReC98's Borland rules apply only once the compiler
   is Turbo C++ 4.0J; an IDO loop that did not unroll is not a lower `-O`. The verdict stays per
   function, and two styles clearing the bar stays `mixed`.
-  Evidence: [Compiler opt level heuristics](../reports/Compiler%20opt%20level%20heuristics.md).
+  Evidence: the guild-rebrew "Compiler opt level heuristics" report (not in this repo).
