@@ -2542,6 +2542,8 @@ triaging large binaries. GET/HEAD only; bind defaults to `127.0.0.1`.
 bind probe).
 
 Endpoints: `/`, `/app.js`, `/boot-guard.js`, `/api/bootstrap`, `/api/targets`,
+`/api/health` (liveness plus one real read of the target list, so an
+unreadable `coverage.db` answers 500 `database_error`; never ETagged),
 `/api/summary?target=`, `/api/functions?target=` (status/module/q/limit/offset;
 compact row arrays under `cols`), `/api/sections?target=`,
 `/api/globals?target=` (module/q/limit/offset; compact arrays under `cols`),
@@ -2570,6 +2572,13 @@ A request that carries a body gets its response with `Connection: close`.
 The page keeps the selected target, view, and filters in the URL hash
 (`#target=…&view=globals&status=EXACT&q=…`), so a reload after
 `rebrew build-db` or a shared link opens the same view.
+
+Its stderr is one log stream: each access line reads
+`HH:MM:SS INFO    <addr> r<N> "<request line>" <status> <bytes> <ms>` and
+each error line `HH:MM:SS ERROR   rebrew.dashboard r<N> <reason> <path>` plus
+an escaped single-line traceback, so grepping `r<N>` pivots from a 500 to the
+request behind it. Totals (requests served, server errors, slowest request)
+print once when the server stops.
 
 ## Examples
 
