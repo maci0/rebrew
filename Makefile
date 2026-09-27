@@ -287,15 +287,19 @@ coverage: ensure-nasm ensure-uv
 lint: ensure-uv
 	uv run --frozen ruff check .
 
-# Run formatting.  Scoped to the Python trees: `ruff format .` also rewrites
-# Python snippets inside docs/*.md, which the pre-commit ruff-format hook
-# (types: [python]) never sees, so the local hook and CI would disagree.
+# Run formatting.  Same scope as `lint` (`.`), minus docs/: `ruff format .`
+# also reformats the Python snippets inside docs/*.md, which the pre-commit
+# ruff-format hook (types: [python]) never sees, so a docs snippet would be
+# rewritten locally and only fail the gate here.  Excluding docs/ from the
+# path, rather than listing src/ tests/ tools/, keeps the gate over every other
+# Python file, so a new top-level script is formatted and checked by the same
+# commands the local hook runs.
 format: ensure-uv
-	uv run --frozen ruff format src/ tests/ tools/
+	uv run --frozen ruff format . --exclude docs
 
 # Verify formatting without mutating the source tree
 format-check: ensure-uv
-	uv run --frozen ruff format --check src/ tests/ tools/
+	uv run --frozen ruff format --check . --exclude docs
 
 # Run pre-commit checks on all files.  Match CI workflow env so Rich/typer
 # ANSI cannot split option names when GITHUB_ACTIONS/FORCE_COLOR is set.

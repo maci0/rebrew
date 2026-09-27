@@ -76,6 +76,16 @@
   than four seeds earned `finish_reason=length`, which the completion gate
   drops whole: the request was billed and every seed lost. The cap is now
   `count * _TOKENS_PER_SEED` under a 4096 ceiling.
+- **`make format-check` sees the same Python files `make lint` does.** The
+  format gate ran over `src/ tests/ tools/` while the lint gate and the
+  pre-commit `ruff-format` hook cover every `.py` file, so a Python file
+  outside those three directories was formatted by the local hook and never
+  checked by CI. Both format recipes now use `ruff format . --exclude docs`:
+  the same scope as `lint`, still without docs/, whose Python snippets the
+  `types: [python]` hook never sees.
+- **`tests/test_docs_links.py` joins the mypy gate.** It passes `--strict`
+  clean, so it is listed in `[tool.mypy] files` with the other checked test
+  modules; `make mypy` now checks 302 files instead of 301.
 - **`make -j` no longer races the build against the targets that read
   dist/.** Prerequisites are ordered only by dependency, not by their position
   on the line, so `make -j pr-check` ran `build`, `sdist-check` and `sbom`
