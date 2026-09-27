@@ -12,7 +12,10 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Any, NamedTuple
+from typing import TYPE_CHECKING, Any, NamedTuple
+
+if TYPE_CHECKING:
+    from datetime import datetime
 
 import typer
 
@@ -845,15 +848,19 @@ def _filter_recently_run(
     cfg: ProjectConfig,
     hours: int,
     json_output: bool,
+    *,
+    now: datetime | None = None,
 ) -> list[StubInfo]:
     """Drop stubs that already have a GA run record within the last *hours*.
 
     Lets long batch runs resume without re-attempting recently-processed
-    stubs (see ``--skip-recent``).
+    stubs (see ``--skip-recent``).  *now* is the window's end: passing it
+    makes the kept set a function of the run log alone, so a batch replayed
+    from a seed skips the stubs it skipped the first time.
     """
     from datetime import UTC, datetime, timedelta
 
-    cutoff = datetime.now(UTC) - timedelta(hours=hours)
+    cutoff = (now if now is not None else datetime.now(UTC)) - timedelta(hours=hours)
     records = load_ga_runs(cfg.root, target=getattr(cfg, "target_name", ""), limit=100000)
     recent_vas: set[str] = set()
     for rec in records:
