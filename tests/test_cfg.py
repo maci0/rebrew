@@ -1621,6 +1621,23 @@ class TestCLIEffective:
         assert "REBREW_LLM_API_KEY" in payload["env_overrides"]
         assert "REBREW_LLM_MODEL" not in payload["env_overrides"]
 
+    def test_every_env_var_reaches_effective(self) -> None:
+        """Every env knob `load_config` reads is named by `cfg effective`.
+
+        Without this, a new env-wins setting is added and an operator
+        debugging it sees no trace of the variable that overrode the file.
+        """
+        import re
+
+        from rebrew import config as rebrew_config
+        from rebrew.cfg import _ENV_OVERRIDE_VARS
+
+        source = Path(rebrew_config.__file__).read_text(encoding="utf-8")
+        read_by_load = set(re.findall(r'os\.environ\["(REBREW_[A-Z0-9_]+)"\]', source))
+        assert read_by_load, "no env reads found in config.py — the regex needs updating"
+        missing = sorted(read_by_load - set(_ENV_OVERRIDE_VARS))
+        assert not missing, f"env vars read by load_config but not reported: {missing}"
+
     def test_toml_value_used_without_env(self, tmp_path: Path, monkeypatch) -> None:
         monkeypatch.delenv("REBREW_LLM_ENDPOINT", raising=False)
         monkeypatch.delenv("REBREW_LLM_API_KEY", raising=False)

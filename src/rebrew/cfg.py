@@ -407,13 +407,16 @@ def show(
         print(str(_display_config_value(key, current)))
 
 
-#: Env vars that override a TOML value; listed by name only, never by value.
+#: Env vars that shape a resolved value (``load_config`` reads each one);
+#: listed by name only, never by value.  ``test_every_env_var_reaches_effective``
+#: fails when a new env knob is read without landing here.
 _ENV_OVERRIDE_VARS = (
     "REBREW_RECOMPILE_URL",
     "REBREW_LLM_ENDPOINT",
     "REBREW_LLM_API_KEY",
     "REBREW_LLM_MODEL",
     "REBREW_LLM_MAX_REQUESTS",
+    "REBREW_LLM_TIMEOUT",
 )
 
 
