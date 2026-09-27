@@ -143,26 +143,27 @@ def _real_end(seq: list[tuple[int, bytes, str, str]]) -> str:
     return hex(off + len(raw))
 
 
-def _obj_text_sections(obj_path: str) -> list[tuple[bytes, set[int]]]:
-    """(.text body, reloc-offset set) per section, via lief."""
+def _obj_text(obj_path: str) -> tuple[bytes, set[int]]:
+    """(``.text`` body, reloc-offset set) of the first ``.text*`` section, via lief.
+
+    Multi-function TUs are not scoped per symbol yet; the comparison is a
+    single annotated function, so only the leading section is decoded.
+    """
     import lief
 
-    out: list[tuple[bytes, set[int]]] = []
     binary = lief.parse(obj_path)
     if binary is None:
-        return out
+        return b"", set()
     for section in binary.sections:
         name = section.name
         name = name.decode("utf-8", errors="replace") if isinstance(name, bytes) else str(name)
         if not name.startswith(".text"):
             continue
         rels: set[int] = set()
-        if hasattr(section, "relocations"):
-            for r in section.relocations:
-                for k in range(r.address, r.address + 4):
-                    rels.add(k)
-        out.append((bytes(section.content), rels))
-    return out
+        for r in getattr(section, "relocations", ()):
+            rels.update(range(r.address, r.address + 4))
+        return bytes(section.content), rels
+    return b"", set()
 
 
 @app.callback(invoke_without_command=True)
@@ -221,19 +222,18 @@ def main(
 
     md = _capstone(info)
     obj_seq: list[tuple[int, bytes, str, str]] = []
-    for body, rels in _obj_text_sections(obj_path):
-        for insn in md.disasm(body, va_int):
-            off = insn.address - va_int
-            local_rels = {r - 0 for r in rels if 0 <= r - 0 < len(body)}
-            obj_seq.append(
-                (
-                    off,
-                    _masked_key(insn.bytes, off in local_rels, insn.mnemonic),
-                    insn.mnemonic,
-                    insn.op_str,
-                )
+    body, rels = _obj_text(obj_path)
+    local_rels = {r for r in rels if r < len(body)}
+    for insn in md.disasm(body, va_int):
+        off = insn.address - va_int
+        obj_seq.append(
+            (
+                off,
+                _masked_key(insn.bytes, off in local_rels, insn.mnemonic),
+                insn.mnemonic,
+                insn.op_str,
             )
-        break  # first .text section only; multi-function TUs need --symbol scoping later
+        )
 
     events = trace_gaps(ref_seq, obj_seq)
     payload = {
