@@ -121,12 +121,14 @@ Defines binary sections (e.g., `.text`, `.data`, `.rdata`, `.bss`).
 ### `cells` Table
 Represents chunks (cells) of memory to be rendered in the UI coverage map.
 
+Stored `WITHOUT ROWID`: the primary key is the table's own b-tree, so there is
+no surrogate `id` column and no separate index to maintain on every cell insert.
+
 | Column | Type | Description |
 |---|---|---|
-| `id` | `INTEGER` | Auto-increment primary key. |
-| `target` | `TEXT` | The binary target. |
-| `section_name` | `TEXT` | The section this cell belongs to. Leftmost-but-one column of the `UNIQUE (target, section_name, start)` constraint that indexes it. |
-| `start` | `INTEGER` | Start offset of the cell (relative to section start). |
+| `target` | `TEXT` | The binary target. Leftmost column of the `(target, section_name, start)` primary key. |
+| `section_name` | `TEXT` | The section this cell belongs to. |
+| `start` | `INTEGER` | Start offset of the cell (relative to section start). Completes the primary key. |
 | `end` | `INTEGER` | End offset of the cell (relative to section start). |
 | `span` | `INTEGER` | Width of the cell in grid units. |
 | `state` | `TEXT` | Match state (see table below). CHECK-constrained to the known cell-state set; insert path coerces unknowns to `unknown`. |
@@ -135,9 +137,11 @@ Represents chunks (cells) of memory to be rendered in the UI coverage map.
 | `parent_function` | `TEXT` | Optional name of the parent function (for data / thunk cells that immediately follow a function). |
 
 **Indexes**:
-- `UNIQUE (target, section_name, start)` serves the `(target, section_name)`
-  prefix used by `section_cell_stats` and per-section queries — no separate
-  `idx_cells_section` is created.
+- `PRIMARY KEY (target, section_name, start)` on a `WITHOUT ROWID` table, so
+  the clustered storage *is* the index: it serves the `(target, section_name)`
+  prefix used by `section_cell_stats` and per-section queries, and holds rows
+  in the order the cell JSON is emitted. No separate `idx_cells_section` is
+  created.
 
 #### Cell States
 
@@ -188,7 +192,7 @@ leftmost-`target` primary key.
 | `summary` | JSON object with coverage statistics (totalFunctions, matchedFunctions, exactMatches, etc.) |
 | `function_stats` | JSON object with coverage stats for the dashboard headline (`total`, `covered_bytes`, `matched_bytes`, `total_bytes`, `by_status`, `by_module_counts`). `by_module_counts` keys are the stored `functions.module` strings, `""` when the function has none. Byte counts are non-negative integers; a boolean, float, or negative is unreadable and `/api/summary` returns 500. |
 | `paths` | JSON object with file paths (originalDll, sourceRoot) |
-| `db_version` | Schema version string (current: `"10"`) |
+| `db_version` | Schema version string (current: `"11"`) |
 
 `target = "__schema__"` (`rebrew.workspace.SCHEMA_TARGET`) is reserved for
 database-level rows and is not a binary name. `build-db` rejects a
@@ -211,6 +215,7 @@ gap is reported as a version mismatch, so it takes the same `--force` path.
 
 | Version | Change |
 |---|---|
+| `"11"` | `cells` is `WITHOUT ROWID` with `PRIMARY KEY (target, section_name, start)`; the unused auto-increment `id` and the `UNIQUE` index it required are gone, so a cell insert maintains one b-tree instead of two. Migration is `--force` (DROP+rebuild); the table is re-derived from `db/data_*.json` on every build, so nothing else is lost. |
 | `"10"` | `cells.state` known set is derived from `KNOWN_STATUSES` (lowercased) ∪ gap/data states, so `extract_error` / `invalid_va` (and any future annotation STATUS) stay CHECK-valid instead of coercing to `unknown`. Migration is `--force` (DROP+rebuild). |
 | `"9"` | `cells.state` CHECK-constrained to the known cell-state set; insert path coerces unknowns to `unknown`. `idx_metadata_key` on `metadata(key, target)` for key-first lookups (targets list, legacy `db_version`). Migration is `--force` (DROP+rebuild), same as prior schema bumps. |
 | `"8"` | `functions.status` CHECK-constrained to `KNOWN_STATUSES` ∪ `{UNKNOWN}`; insert path canonicalizes (case / `NEAR_MATCH` alias) and coerces unknowns to `UNKNOWN`. Migration is `--force` (DROP+rebuild), same as prior schema bumps. |

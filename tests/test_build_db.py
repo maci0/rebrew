@@ -641,8 +641,30 @@ binary = "test.exe"
         finally:
             conn.close()
 
+    def test_cells_clustered_on_its_natural_key(self, project_root: Path) -> None:
+        """cells carries no surrogate key: the (target, section_name, start)
+        primary key IS the clustered storage, so one b-tree is maintained per
+        insert instead of a rowid table plus a second index over that key."""
+        build_db(project_root)
+        conn = sqlite3.connect(project_root / "db" / "coverage.db")
+        c = conn.cursor()
+        c.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='cells'")
+        ddl = c.fetchone()[0]
+        assert "WITHOUT ROWID" in ddl
+        assert "PRIMARY KEY (target, section_name, start)" in ddl
+        c.execute("PRAGMA table_info(cells)")
+        assert "id" not in {row[1] for row in c.fetchall()}
+        # Clustered, so a per-section read is a range scan of the key, not a
+        # lookup through a second index.
+        c.execute(
+            "EXPLAIN QUERY PLAN SELECT start FROM cells WHERE target = 'testbin' "
+            "AND section_name = '.text'"
+        )
+        assert "USING INDEX" not in " ".join(row[3] for row in c.fetchall())
+        conn.close()
+
     def test_redundant_cells_section_index_absent(self, project_root: Path) -> None:
-        """The UNIQUE (target, section_name, start) constraint already serves
+        """The (target, section_name, start) primary key already serves
         the (target, section_name) prefix — the old idx_cells_section was a
         redundant second index paid for on every cell insert."""
         build_db(project_root)

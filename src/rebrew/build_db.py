@@ -45,7 +45,7 @@ from rebrew.workspace import (
 )
 from rebrew.workspace.status import COVERAGE_DB_STATUSES, KNOWN_STATUSES, MATCHED_STATUSES
 
-_CURRENT_DB_VERSION = "10"
+_CURRENT_DB_VERSION = "11"
 
 #: ``functions.markerType`` vocabulary, from the annotation parser's set so the
 #: CHECK and the insert-time sanitizer cannot drift from what sources may carry.
@@ -442,11 +442,11 @@ def _dedupe_cell_rows(
 ) -> list[_CellRow]:
     """Collapse rows that share ``start`` after normalization.
 
-    ``cells`` has ``UNIQUE (target, section_name, start)``.  Hand-edited JSON
-    (or a negative ``start`` clamped to 0 next to a real ``start: 0`` cell)
-    would otherwise abort the whole rebuild.  Last row wins so a later real
-    cell overrides a clamped collision; results are sorted by ``start`` for
-    stable inserts.
+    ``cells`` is keyed ``PRIMARY KEY (target, section_name, start)``.  Hand-
+    edited JSON (or a negative ``start`` clamped to 0 next to a real
+    ``start: 0`` cell) would otherwise abort the whole rebuild.  Last row wins
+    so a later real cell overrides a clamped collision; results are sorted by
+    ``start`` for stable inserts.
     """
     if len(rows) < 2:
         return rows
@@ -1220,9 +1220,19 @@ def _create_schema(c: sqlite3.Cursor, target: str | None) -> None:
         )
     """)
 
+    # WITHOUT ROWID with the same (target, section_name, start) key the UNIQUE
+    # constraint carried: nothing in this repo selects `cells.id`, so a
+    # surrogate key bought nothing but a rowid to store and a second b-tree
+    # (the autoindex) to maintain on every insert.  As a clustered table the
+    # rows are stored in key order, which is also the order the two whole-table
+    # readers want: the GROUP BY behind section_cell_stats /
+    # section_cells_json and the per-section fallbacks both walk the key prefix
+    # (target, section_name), so the index they used to seek is now the table.
+    # Inserts arrive section by section, sorted by start within one
+    # (_dedupe_cell_rows), so the key is filled in near-order rather than at
+    # random.  Same argument as SECTION_CELLS_TABLE below.
     c.execute(f"""
         CREATE TABLE IF NOT EXISTS cells (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
             target TEXT NOT NULL,
             section_name TEXT NOT NULL,
             start INTEGER NOT NULL CHECK (start >= 0),
@@ -1233,11 +1243,11 @@ def _create_schema(c: sqlite3.Cursor, target: str | None) -> None:
             functions TEXT NOT NULL DEFAULT '[]',
             label TEXT,
             parent_function TEXT,
-            UNIQUE (target, section_name, start),
+            PRIMARY KEY (target, section_name, start),
             FOREIGN KEY (target, section_name)
                 REFERENCES sections(target, name)
                 ON DELETE CASCADE
-        )
+        ) WITHOUT ROWID
     """)
 
     c.execute("""
@@ -1316,7 +1326,7 @@ def _create_schema(c: sqlite3.Cursor, target: str | None) -> None:
     c.execute("DROP INDEX IF EXISTS idx_globals_module")
     c.execute("CREATE INDEX IF NOT EXISTS idx_globals_module_va ON globals(target, module, va)")
     # idx_cells_section is deliberately NOT created: the
-    # UNIQUE (target, section_name, start) constraint already serves the
+    # (target, section_name, start) primary key already serves the
     # same leftmost prefix (target, section_name) for the view's
     # GROUP BY and any WHERE target=? AND section_name=? query — a second
     # index would be paid for on every cell insert and never be the only

@@ -742,6 +742,17 @@
   `tests/test_public_surface.py::TestBreakClassification` pins each side.
 
 ### Changed
+- **Breaking:** **coverage.db schema version `11`: `cells` is stored
+  `WITHOUT ROWID`.** The `cells` table carried an auto-increment `id` nothing
+  selected and a `UNIQUE (target, section_name, start)` index to enforce cell
+  identity, so every cell insert maintained a rowid b-tree and a second index
+  over the same key, and a binary with a few hundred thousand cells paid for
+  both on every rebuild. The unique key is now the `PRIMARY KEY` and the table
+  is `WITHOUT ROWID`, so the clustered storage is the index the readers seek
+  and one b-tree is maintained per insert. `history` and `verify_results` are
+  read out and restored across the delete as usual. Migration is `rebrew
+  build-db --force`, the existing convention for a schema bump; readers see no
+  difference either way.
 - **Breaking:** **`HttpClient.post` / `.get` return a named reply, not `Any`.**
   In `rebrew.recompile_client` and `rebrew.decompme`, the two methods now
   return the `HttpResponse` protocol those modules export instead of `Any`, so

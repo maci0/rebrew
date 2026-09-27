@@ -79,8 +79,8 @@ CELLS_JSON_OBJECT_SQL = (
 #: ``build_db`` (materializes into :data:`SECTION_CELLS_TABLE`) and every
 #: live ``cells`` fallback so the grid never depends on rowid/insertion
 #: order.  Without ``ORDER BY start``, ``json_group_array`` follows the
-#: plan's row order — which is *usually* the UNIQUE
-#: ``(target, section_name, start)`` index, but is not a contract.
+#: plan's row order — which is *usually* the
+#: ``(target, section_name, start)`` primary key, but is not a contract.
 SECTION_CELLS_AGG_SQL = f"json_group_array({CELLS_JSON_OBJECT_SQL} ORDER BY start)"
 
 #: zstd level for :data:`SECTION_CELLS_TABLE` blobs.  Measured over a database
