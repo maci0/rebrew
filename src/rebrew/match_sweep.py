@@ -63,7 +63,7 @@ def print_structural_similarity(sim: Any) -> None:
     )
 
 
-def _compile_cflags(cflags: str, base_cf: str, posix_style: bool = False) -> str:
+def compile_cflags(cflags: str, base_cf: str, posix_style: bool = False) -> str:
     """Build the effective compile flags: base_cflags first (when it carries
     ``/c``), else the ``/nologo /c`` glue.  ONE definition shared by the
     single-function, flag-sweep, and batch-GA paths — a divergent copy in the
@@ -114,7 +114,7 @@ class BuildParams:
     module: str = ""
 
 
-def _select_annotation(annos: list[Annotation], symbol: str | None) -> Annotation | None:
+def select_annotation(annos: list[Annotation], symbol: str | None) -> Annotation | None:
     """Pick the annotation whose symbol or name matches *symbol*.
 
     ``rebrew match`` on a multi-function file with ``--symbol`` must target
@@ -157,7 +157,7 @@ def resolve_build_params(
     # invoked as `rebrew diff 0x<va>` on a multi-function file must target
     # THAT function — the old first-annotation fallback silently diffed a
     # different function and reported a false match).
-    anno = _select_annotation(annos, symbol)
+    anno = select_annotation(annos, symbol)
     if anno is None and target_va:
         # target_va is validated by the parse below before bytes are
         # extracted, so it is safe to parse here for the VA match.
@@ -276,7 +276,7 @@ def resolve_build_params(
         # "/O2 /Gd" (shared with verify/test/prove so every tool compiles
         # the same function with the same flags).
         cflags = _lib_cflags
-    cflags = _compile_cflags(
+    cflags = compile_cflags(
         cflags,
         getattr(compile_cfg, "base_cflags", "") or "",
         posix_style=bool(getattr(compile_cfg, "posix_style", False)),
@@ -339,7 +339,7 @@ def resolve_build_params(
 # ---------------------------------------------------------------------------
 
 
-def _run_single_flag_sweep(
+def run_single_flag_sweep(
     p: BuildParams,
     tier: str,
     jobs: int,
@@ -488,7 +488,7 @@ def run_flag_sweep(
 
     # Unconditional, like the single-function and batch-GA paths: a resolved
     # CFLAGS that already contains /c must not skip base_cflags (/MT etc.).
-    cflags = _compile_cflags(
+    cflags = compile_cflags(
         cflags,
         getattr(cfg, "base_cflags", "") or "",
         posix_style=bool(getattr(cfg, "posix_style", False)),
@@ -596,7 +596,7 @@ def _vendored_msvc_toolchains(
     return out
 
 
-def _run_single_toolchain_sweep(
+def run_single_toolchain_sweep(
     p: BuildParams, json_output: bool, only: str = "", exclude: str = ""
 ) -> None:
     """Compile the seed with each vendored MSVC toolchain and report the best."""
@@ -679,7 +679,7 @@ def _run_single_toolchain_sweep(
             )
 
 
-def _run_single_toolchain_flag_sweep(
+def run_single_toolchain_flag_sweep(
     p: BuildParams,
     tier: str,
     jobs: int,

@@ -31,16 +31,16 @@ from rebrew.match_batch import (
     update_stub_to_matched,
 )
 from rebrew.match_ga import (
-    _MUTATION_FOCUS_WEIGHT,
+    MUTATION_FOCUS_WEIGHT,
     BinaryMatchingGA,
-    _ga_runs_dir,
+    ga_runs_dir,
     read_ga_checkpoint,
 )
 from rebrew.match_sweep import (
     BuildParams,
-    _compile_cflags,
-    _select_annotation,
+    compile_cflags,
     run_flag_sweep,
+    select_annotation,
 )
 from rebrew.matcher import GACheckpoint, SolutionEntry, load_ga_runs
 from rebrew.matcher.core import EXACT_SCORE_THRESHOLD
@@ -52,7 +52,7 @@ log = logging.getLogger(__name__)
 _SOLUTIONS_COLLECT_LOCK = threading.Lock()
 
 
-def _run_single_ga(
+def run_single_ga(
     p: BuildParams,
     out_dir: str,
     generations: int,
@@ -196,7 +196,7 @@ def _run_single_ga(
             except Exception as exc:
                 log.debug("ceiling annotation parse failed for %s: %s", p.seed_c, exc)
                 annos = []
-            ann = _select_annotation(annos, p.symbol) or (annos[0] if annos else None)
+            ann = select_annotation(annos, p.symbol) or (annos[0] if annos else None)
             module = ann.module if ann is not None else ""
             if module:
                 ceiling_blocker = _maybe_document_ga_ceiling(
@@ -355,7 +355,7 @@ def _run_one_stub_ga(
         rel = filepath.relative_to(cfg.root)
     except ValueError:
         rel = Path(filepath.stem)
-    out_dir = _ga_runs_dir(cfg, rel)
+    out_dir = ga_runs_dir(cfg, rel)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     va_int = int(stub.va, 16)
@@ -379,7 +379,7 @@ def _run_one_stub_ga(
         cflags_override if cflags_override is not None else (stub.cflags or None),
         getattr(stub, "module", ""),
     )
-    cflags = _compile_cflags(
+    cflags = compile_cflags(
         resolved_cflags,
         getattr(cfg, "base_cflags", "") or "",
         posix_style=bool(getattr(cfg, "posix_style", False)),
@@ -460,7 +460,7 @@ def _run_one_stub_ga(
 
                 n2v = build_name_to_va(cfg)
                 if n2v and best_c.exists():
-                    # The GA ran with _compile_cflags(resolved_cflags, base);
+                    # The GA ran with compile_cflags(resolved_cflags, base);
                     # pass the raw resolved user-facing flags
                     # (compile_and_compare prepends base itself) and the same
                     # toolchain, or the confirmation validates a different
@@ -737,7 +737,7 @@ def _maybe_document_ga_ceiling(
 # ---------------------------------------------------------------------------
 
 
-def _show_ga_history(cfg: ProjectConfig, json_output: bool, *, target: str = "") -> None:
+def show_ga_history(cfg: ProjectConfig, json_output: bool, *, target: str = "") -> None:
     """Summarize past GA runs (``.rebrew/ga_runs.jsonl``) for at-a-glance
     effectiveness triage: how many attempts, how many converged, score trends.
     """
@@ -814,7 +814,7 @@ def _filter_recently_run(
     return kept
 
 
-def _run_all(
+def run_all(
     cfg: ProjectConfig,
     jobs: int,
     generations: int,
@@ -965,7 +965,7 @@ def _run_all(
         )
         return matched, failed
 
-    _ga_runs_dir(cfg).mkdir(parents=True, exist_ok=True)
+    ga_runs_dir(cfg).mkdir(parents=True, exist_ok=True)
 
     matched_count = 0
     failed_count = 0
@@ -1086,7 +1086,7 @@ def _run_all(
         # this GA the same way a verdict blocker would.
         stub_weights: dict[str, float] | None = mutation_weights
         if stub_weights is None and seed_mutations:
-            stub_weights = dict.fromkeys(seed_mutations, _MUTATION_FOCUS_WEIGHT)
+            stub_weights = dict.fromkeys(seed_mutations, MUTATION_FOCUS_WEIGHT)
         # Deterministic per-stub sub-seed: same --seed + same VA ⇒ same GA.
         # (VA collisions are impossible within one batch; across batches the
         # VA is stable, so runs stay reproducible.)
@@ -1120,7 +1120,7 @@ def _run_all(
                 rel = stub.filepath.relative_to(cfg.root)
             except ValueError:
                 rel = Path(stub.filepath.stem)
-            stub_out_dir = _ga_runs_dir(cfg, rel)
+            stub_out_dir = ga_runs_dir(cfg, rel)
             resume_from = read_ga_checkpoint(stub_out_dir, stub.symbol)
             if resume_from is not None and not json_output:
                 console.print(

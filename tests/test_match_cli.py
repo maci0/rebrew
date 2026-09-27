@@ -56,7 +56,7 @@ class TestMatchCliWatch:
 
         seen: dict = {}
         monkeypatch.setattr(
-            "rebrew.match._run_single_ga",
+            "rebrew.match.run_single_ga",
             lambda *a, **k: seen.update(called=True),
         )
         captured: dict = {}
@@ -118,7 +118,7 @@ class TestMatchAllTargets:
             seen["n"] += 1
             return (1, 0) if seen["n"] == 1 else (0, 1)
 
-        monkeypatch.setattr("rebrew.match._run_all", _fake_run_all)
+        monkeypatch.setattr("rebrew.match.run_all", _fake_run_all)
         result = CliRunner().invoke(app, ["--all-targets", "--json"])
         # Documented exit contract: 1 = no match found — a batch with any
         # failed stub is not a success (previously always exited 0, a false
@@ -174,7 +174,7 @@ class TestMatchAllTargets:
             calls.append(getattr(cfg, "target_name", "?"))
             return 2, 0
 
-        monkeypatch.setattr("rebrew.match._run_all", _fake_run_all)
+        monkeypatch.setattr("rebrew.match.run_all", _fake_run_all)
         result = CliRunner().invoke(app, ["--all-targets", "--json"])
         # The broken target counts as failed → documented exit contract (1),
         # and the healthy target still runs and aggregates (its GA was not
@@ -455,7 +455,7 @@ class TestMatchCliDryRun:
         assert result.exit_code == 2
         assert "batch mode only" in result.output
         # The GA must not run for a single function under --dry-run.
-        assert "_run_single_ga" not in result.output
+        assert "run_single_ga" not in result.output
 
 
 class TestAllTargetsParallel:
@@ -499,7 +499,7 @@ class TestAllTargetsParallel:
             job_args.append(int(kwargs.get("jobs", 0)))
             return (1, 0)
 
-        monkeypatch.setattr("rebrew.match._run_all", _fake_run_all)
+        monkeypatch.setattr("rebrew.match.run_all", _fake_run_all)
         result = CliRunner().invoke(app, ["--all-targets", "--json"])
         assert result.exit_code == 0
         # 4 jobs over 2 targets → 2 each; total wine concurrency stays ~4.
@@ -517,7 +517,7 @@ class TestAllTargetsParallel:
             job_args.append(int(kwargs.get("jobs", 0)))
             return (1, 0)
 
-        monkeypatch.setattr("rebrew.match._run_all", _fake_run_all)
+        monkeypatch.setattr("rebrew.match.run_all", _fake_run_all)
         result = CliRunner().invoke(app, ["--all-targets", "--json"])
         assert result.exit_code == 0
         assert job_args == [4]  # no split needed
@@ -558,7 +558,7 @@ class TestAllTargetsParallel:
                 pool_sizes.append(int(kwargs.get("max_workers") or args[0]))
                 super().__init__(*args, **kwargs)
 
-        monkeypatch.setattr("rebrew.match._run_all", _fake_run_all)
+        monkeypatch.setattr("rebrew.match.run_all", _fake_run_all)
         # Patch where match imports it (inside the parallel branch).
         import concurrent.futures as cf
 
@@ -598,7 +598,7 @@ class TestMatchCliLink:
         )
         captured: dict = {}
         monkeypatch.setattr(
-            "rebrew.match._run_single_ga",
+            "rebrew.match.run_single_ga",
             lambda *a, **k: captured.update(args=a, kwargs=k),
         )
         result = CliRunner().invoke(
@@ -677,7 +677,7 @@ class TestKunaSeed:
         with pytest.raises(typer.Exit):
             # best_score 50.0 → the no-match exit contract (EXIT_MISMATCH);
             # the seeding assertion below is what this test checks.
-            match_mod._run_single_ga(
+            match_mod.run_single_ga(
                 p,
                 out_dir=str(tmp_path / "out"),
                 pop_size=4,
@@ -717,7 +717,7 @@ class TestKunaSeed:
             seed_src="x",
             va_int=0x401000,
         )
-        match_mod._run_single_ga(
+        match_mod.run_single_ga(
             p,
             out_dir=str(tmp_path / "out"),
             pop_size=4,

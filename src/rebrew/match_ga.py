@@ -48,7 +48,7 @@ log = logging.getLogger(__name__)
 _COLLECT_PAIRS_LOCK = threading.Lock()
 
 
-def _ga_runs_dir(cfg: ProjectConfig, rel: Path | None = None) -> Path:
+def ga_runs_dir(cfg: ProjectConfig, rel: Path | None = None) -> Path:
     """Resolve the GA run output directory, honoring ``[project].output_dir``.
 
     ``cfg.output_dir`` defaults to ``output`` (config.py), so the default
@@ -64,7 +64,7 @@ def _ga_runs_dir(cfg: ProjectConfig, rel: Path | None = None) -> Path:
 
 
 _MUTATION_FOCUS_CATEGORIES = ("register", "equivalent", "structural")
-_MUTATION_FOCUS_WEIGHT = 6.0
+MUTATION_FOCUS_WEIGHT = 6.0
 
 #: Generations between full-population checkpoint writes (an interrupted run
 #: redoes at most this many generations of deterministic work).
@@ -111,7 +111,7 @@ _DRAWN_SEED_BITS = 63
 #: Default floor (bytes) for a function considered by a batch GA/sweep run.
 
 
-def _mutation_focus_weights(
+def mutation_focus_weights(
     focus: str | None, blocker: str | None = None
 ) -> dict[str, float] | None:
     """GA mutation selection weights biased toward a near-diag category.
@@ -121,7 +121,7 @@ def _mutation_focus_weights(
     BLOCKER metadata written by ``near-diag --fix-blocker`` (verdict text like
     ``NEAR_MATCHING — REGISTER (57% of delta) — try: ...``).  The category's
     suggested operators (``rebrew.near_diag.MUTATION_SUGGESTIONS``) get
-    ``_MUTATION_FOCUS_WEIGHT``; unlisted operators keep weight 1.0.
+    ``MUTATION_FOCUS_WEIGHT``; unlisted operators keep weight 1.0.
 
     Returns None when there is nothing to bias (no focus, ``reloc`` — whose
     delta is relocation-masked, or ``auto`` with no derivable verdict) — the
@@ -139,10 +139,10 @@ def _mutation_focus_weights(
     ops = MUTATION_SUGGESTIONS.get(focus) or []
     if not ops:
         return None
-    return dict.fromkeys(ops, _MUTATION_FOCUS_WEIGHT)
+    return dict.fromkeys(ops, MUTATION_FOCUS_WEIGHT)
 
 
-def _live_mutation_weights(params: BuildParams) -> dict[str, float] | None:
+def live_mutation_weights(params: BuildParams) -> dict[str, float] | None:
     """Near-diag category of the CURRENT implementation, for auto focus.
 
     ``--mutation-focus auto`` normally derives its category from a verdict
@@ -183,7 +183,7 @@ def _live_mutation_weights(params: BuildParams) -> dict[str, float] | None:
         mutations = diag.get("mutations") or []
         if not mutations:
             return None
-        return dict.fromkeys(mutations, _MUTATION_FOCUS_WEIGHT)
+        return dict.fromkeys(mutations, MUTATION_FOCUS_WEIGHT)
     except Exception:
         # Best-effort: a live classification failure degrades to uniform.
         log.debug("mutation-focus classification failed; using uniform weights", exc_info=True)

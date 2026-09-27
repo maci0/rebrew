@@ -135,9 +135,9 @@ def parse_structs(source_text: str) -> dict[str, StructDef]:
     C forbids embedding cycles, so the pass count is bounded by the number
     of structs.
     """
-    from rebrew.c_parser import _parse
+    from rebrew.c_parser import parse_c_source
 
-    tree, source = _parse(source_text)
+    tree, source = parse_c_source(source_text)
     bodies: dict[str, Any] = {}
 
     def collect(node: Any) -> None:
@@ -280,9 +280,9 @@ def rewrite_param_type(
     is not found.  Only the type spelling of the indexed parameter is
     replaced (0-based); name, calling convention, and body are untouched.
     """
-    from rebrew.c_parser import _parse
+    from rebrew.c_parser import parse_c_source
 
-    tree, source = _parse(source_text)
+    tree, source = parse_c_source(source_text)
 
     target: Any = None
 
@@ -331,7 +331,7 @@ def rewrite_param_type(
     type_start = children[0].start_byte
     if cut <= type_start:
         return None
-    # Inverse of _parse's surrogateescape encode: "replace" would turn every
+    # Inverse of parse_c_source's surrogateescape encode: "replace" would turn every
     # legacy (cp1252/Shift-JIS) byte in the rewritten file into U+FFFD.
     before: str = source[:type_start].decode("utf-8", errors="surrogateescape")
     after: str = source[cut:].decode("utf-8", errors="surrogateescape")

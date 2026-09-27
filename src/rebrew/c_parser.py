@@ -103,7 +103,7 @@ def get_ts_parser() -> tuple[Any, Any] | None:
         return None
 
 
-def _parse(source: str | bytes) -> Any:
+def parse_c_source(source: str | bytes) -> Any:
     """Parse C source and return (tree, source_bytes) as a tuple."""
     parser, _ = _get_parser()
     if isinstance(source, str):
@@ -122,7 +122,7 @@ def _parse(source: str | bytes) -> Any:
 # ---------------------------------------------------------------------------
 
 
-def _node_text(node: Any, source_bytes: bytes) -> str:
+def node_text(node: Any, source_bytes: bytes) -> str:
     """Return the source text for a tree-sitter node."""
     return source_bytes[node.start_byte : node.end_byte].decode("utf-8", errors="surrogateescape")
 
@@ -141,7 +141,7 @@ def protected_spans(source: str | bytes) -> list[tuple[int, int]]:
 
     :raises ImportError: tree-sitter is unavailable.
     """
-    tree, data = _parse(source)
+    tree, data = parse_c_source(source)
     spans: list[tuple[int, int]] = []
 
     def _walk(node: Any) -> None:
@@ -175,15 +175,15 @@ def _find_child(node: Any, *types: str) -> Any | None:
     return None
 
 
-def _find_function_name(declarator: Any, source_bytes: bytes) -> str | None:
+def find_function_name_in_node(declarator: Any, source_bytes: bytes) -> str | None:
     """Recursively walk a declarator to find the function name identifier."""
     if declarator.type == "function_declarator":
         for child in declarator.children:
             if child.type == "identifier":
-                return _node_text(child, source_bytes)
+                return node_text(child, source_bytes)
             # Parenthesised declarator: int (*name)(...)
             if child.type == "parenthesized_declarator":
-                name = _find_function_name(child, source_bytes)
+                name = find_function_name_in_node(child, source_bytes)
                 if name:
                     return name
     elif declarator.type in ("pointer_declarator", "parenthesized_declarator"):
@@ -193,18 +193,18 @@ def _find_function_name(declarator: Any, source_bytes: bytes) -> str | None:
         # keywords) are not mistaken for the name.
         for child in declarator.children:
             if child.type == "function_declarator":
-                name = _find_function_name(child, source_bytes)
+                name = find_function_name_in_node(child, source_bytes)
                 if name:
                     return name
         for child in declarator.children:
-            name = _find_function_name(child, source_bytes)
+            name = find_function_name_in_node(child, source_bytes)
             if name:
                 return name
     elif declarator.type == "identifier":
-        return _node_text(declarator, source_bytes)
+        return node_text(declarator, source_bytes)
     else:
         for child in declarator.children:
-            name = _find_function_name(child, source_bytes)
+            name = find_function_name_in_node(child, source_bytes)
             if name:
                 return name
     return None
@@ -213,12 +213,12 @@ def _find_function_name(declarator: Any, source_bytes: bytes) -> str | None:
 def _find_declarator_name(declarator: Any, source_bytes: bytes) -> str | None:
     """Recursively walk a declarator to find the variable/function name identifier."""
     if declarator.type == "identifier":
-        return _node_text(declarator, source_bytes)
+        return node_text(declarator, source_bytes)
     if declarator.type == "array_declarator":
         # int foo[10] — name is an identifier child of the array_declarator
         for child in declarator.children:
             if child.type == "identifier":
-                return _node_text(child, source_bytes)
+                return node_text(child, source_bytes)
             if child.type in ("pointer_declarator", "array_declarator"):
                 name = _find_declarator_name(child, source_bytes)
                 if name:
@@ -307,7 +307,7 @@ def iter_function_name_and_proto(source: str) -> list[tuple[str, str]]:
     per-function rewrites in ``ghidra/params.py``.
     """
     try:
-        tree, src_bytes = _parse(source)
+        tree, src_bytes = parse_c_source(source)
     except ImportError:
         return []
 
@@ -323,16 +323,16 @@ def iter_function_name_and_proto(source: str) -> list[tuple[str, str]]:
                 # stable regardless of the source file's line endings.
                 proto = proto.replace("\r\n", "\n").replace("\r", "\n")
             else:
-                proto = _node_text(node, src_bytes)
+                proto = node_text(node, src_bytes)
 
             declarator = _find_child(node, "function_declarator", "pointer_declarator")
             name: str | None = None
             if declarator is not None:
-                name = _find_function_name(declarator, src_bytes)
+                name = find_function_name_in_node(declarator, src_bytes)
             else:
                 # Try deeper: sometimes the declarator is nested
                 for child in node.children:
-                    name = _find_function_name(child, src_bytes)
+                    name = find_function_name_in_node(child, src_bytes)
                     if name:
                         break
             if name:
@@ -397,7 +397,7 @@ def find_c_function_definitions(source: str) -> list[tuple[str, int]]:
     if not source or not source.strip():
         return []
     try:
-        tree, src_bytes = _parse(_strip_cc(source))
+        tree, src_bytes = parse_c_source(_strip_cc(source))
     except ImportError:
         return []
 
@@ -408,7 +408,7 @@ def find_c_function_definitions(source: str) -> list[tuple[str, int]]:
             # The declarator field only: an unknown macro before the name
             # (``int ZEXPORT deflate(...)``) is an ERROR identifier child.
             declarator = node.child_by_field_name("declarator")
-            name = _find_function_name(declarator, src_bytes) if declarator else None
+            name = find_function_name_in_node(declarator, src_bytes) if declarator else None
             if name:
                 results.append((name, node.start_point[0] + 1))  # 1-based line
         else:
@@ -424,7 +424,7 @@ def find_extern_function_names(source: str) -> list[str]:
     if not source or not source.strip():
         return []
     try:
-        tree, src_bytes = _parse(_strip_cc(source))
+        tree, src_bytes = parse_c_source(_strip_cc(source))
     except ImportError:
         return []
 
@@ -436,7 +436,7 @@ def find_extern_function_names(source: str) -> list[str]:
             for child in node.children:
                 if (
                     child.type == "storage_class_specifier"
-                    and _node_text(child, src_bytes) == "extern"
+                    and node_text(child, src_bytes) == "extern"
                 ):
                     has_extern = True
                     break
@@ -444,7 +444,7 @@ def find_extern_function_names(source: str) -> list[str]:
             if has_extern:
                 for child in node.children:
                     if _has_function_declarator(child):
-                        name = _find_function_name(child, src_bytes)
+                        name = find_function_name_in_node(child, src_bytes)
                         if name:
                             results.append(name)
                         break
@@ -489,7 +489,7 @@ def find_extern_variables(source: str, *, include_definitions: bool = False) -> 
     if not source or not source.strip():
         return []
     try:
-        tree, src_bytes = _parse(_strip_cc(source))
+        tree, src_bytes = parse_c_source(_strip_cc(source))
     except ImportError:
         return []
 
@@ -512,10 +512,10 @@ def find_extern_variables(source: str, *, include_definitions: bool = False) -> 
             for child in node.children:
                 if (
                     child.type == "storage_class_specifier"
-                    and _node_text(child, src_bytes) == "extern"
+                    and node_text(child, src_bytes) == "extern"
                 ):
                     has_extern = True
-                text = _node_text(child, src_bytes)
+                text = node_text(child, src_bytes)
                 if "dllimport" in text:
                     has_dllimport = True
 
@@ -533,7 +533,7 @@ def find_extern_variables(source: str, *, include_definitions: bool = False) -> 
                     return
 
             type_parts: list[str] = [
-                _node_text(child, src_bytes)
+                node_text(child, src_bytes)
                 for child in node.children
                 if child.type
                 in (

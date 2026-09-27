@@ -694,7 +694,7 @@ class TestRunAllParallel:
     def test_parallel_batch_processes_all_in_order(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
     ) -> None:
-        from rebrew.match import _run_all
+        from rebrew.match import run_all
         from rebrew.match_batch import StubInfo
 
         stubs = [
@@ -732,7 +732,7 @@ class TestRunAllParallel:
 
         monkeypatch.setattr("rebrew.match_run._run_one_stub_ga", _fake_run)
         cfg = self._cfg(tmp_path)
-        _run_all(
+        run_all(
             cfg,
             jobs=2,
             generations=1,
@@ -878,7 +878,7 @@ class TestRunAllParallel:
     ) -> None:
         """--collect-pairs is documented for batch mode: every stub's GA must
         receive the JSONL path (it was ignored under --all)."""
-        from rebrew.match import _run_all
+        from rebrew.match import run_all
         from rebrew.match_batch import StubInfo
 
         stub = StubInfo(
@@ -899,7 +899,7 @@ class TestRunAllParallel:
 
         monkeypatch.setattr("rebrew.match_run._run_one_stub_ga", _fake_run)
         pairs_path = tmp_path / "pairs.jsonl"
-        _run_all(
+        run_all(
             self._cfg(tmp_path),
             jobs=1,
             generations=1,
@@ -925,7 +925,7 @@ class TestRunAllParallel:
     def test_serial_batch_keeps_intra_jobs(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        from rebrew.match import _run_all
+        from rebrew.match import run_all
         from rebrew.match_batch import StubInfo
 
         stubs = [
@@ -961,7 +961,7 @@ class TestRunAllParallel:
             return False, "best_score=5.00", 5.0, 3, None
 
         monkeypatch.setattr("rebrew.match_run._run_one_stub_ga", _fake_run)
-        _run_all(
+        run_all(
             self._cfg(tmp_path),
             jobs=1,
             generations=1,
@@ -1120,7 +1120,7 @@ class TestFlagSweepIncludeDirs:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """The single-function CLI path resolves the seed file's directory."""
-        from rebrew.match_sweep import _run_single_flag_sweep
+        from rebrew.match_sweep import run_single_flag_sweep
 
         seen: dict = {}
 
@@ -1145,7 +1145,7 @@ class TestFlagSweepIncludeDirs:
             cc=None,
             cfg=SimpleNamespace(compile_timeout=60),
         )
-        _run_single_flag_sweep(p, "quick", 1, False)
+        run_single_flag_sweep(p, "quick", 1, False)
         assert seen.get("extra_include_dirs") == [str((tmp_path / "src").resolve())]
 
 
@@ -1169,7 +1169,7 @@ class TestSweepThenGa:
         sweep_seconds: float,
     ) -> None:
         """GA receives the sweep's best flags; a failed sweep falls back to stub.cflags."""
-        from rebrew.match import _run_all
+        from rebrew.match import run_all
         from rebrew.match_batch import StubInfo
 
         stubs = [
@@ -1235,7 +1235,7 @@ class TestSweepThenGa:
             root=tmp_path,
             target_binary=tmp_path / "x.dll",
         )
-        _run_all(
+        run_all(
             cfg,
             jobs=1,
             generations=1,
@@ -1447,7 +1447,7 @@ class TestOutDirRejection:
             seen.append(kw)
             return (0, 0)
 
-        monkeypatch.setattr("rebrew.match._run_all", _fake_run_all)
+        monkeypatch.setattr("rebrew.match.run_all", _fake_run_all)
         result = CliRunner().invoke(app, ["--all"])
         assert result.exit_code == 0, result.output
         # A silent success that never starts the batch still exits 0.
@@ -1543,7 +1543,7 @@ class TestFlagSweepJsonShape:
     def test_sweep_items_include_exact(self, tmp_path: Path, monkeypatch, capsys) -> None:
         import json
 
-        from rebrew.match_sweep import _run_single_flag_sweep
+        from rebrew.match_sweep import run_single_flag_sweep
 
         monkeypatch.setattr(
             "rebrew.match_sweep.flag_sweep",
@@ -1565,7 +1565,7 @@ class TestFlagSweepJsonShape:
             cc=None,
             cfg=SimpleNamespace(compile_timeout=60),
         )
-        _run_single_flag_sweep(p, "quick", 1, True)  # json_output=True
+        run_single_flag_sweep(p, "quick", 1, True)  # json_output=True
         out = capsys.readouterr().out
         data = json.loads(out)
         assert data["mode"] == "flag_sweep"
@@ -2170,7 +2170,7 @@ class TestCrossProjectSeeding:
         *,
         local_solutions: list[Any] | None = None,
     ) -> dict[str, Any]:
-        from rebrew.match import _run_all
+        from rebrew.match import run_all
         from rebrew.matcher.solutions import SolutionEntry
 
         # Local solutions: default to a solved entry whose source file does
@@ -2212,7 +2212,7 @@ class TestCrossProjectSeeding:
             return False, "best_score=5.00", 5.0, 3, None
 
         monkeypatch.setattr("rebrew.match_run._run_one_stub_ga", _fake_run)
-        _run_all(
+        run_all(
             cfg,
             jobs=1,
             generations=1,
@@ -2272,7 +2272,7 @@ class TestCrossProjectSeeding:
 
     def test_extra_solutions_deduped_on_merge(self, tmp_path: Path, monkeypatch) -> None:
         """(target, symbol) duplicates across local+extra merge to one entry."""
-        from rebrew.match import _run_all
+        from rebrew.match import run_all
         from rebrew.matcher.solutions import SolutionEntry
 
         cfg = self._cfg(tmp_path)
@@ -2308,7 +2308,7 @@ class TestCrossProjectSeeding:
             "rebrew.match_run._run_one_stub_ga",
             lambda *a, **k: (False, "best_score=5.00"),
         )
-        _run_all(
+        run_all(
             cfg,
             jobs=1,
             generations=1,

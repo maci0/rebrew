@@ -314,7 +314,7 @@ class TestCli:
             lambda cfg, d, a, b, c: ("msvc-6.0", "/O1"),
         )
         monkeypatch.setattr(
-            "rebrew.context._collect_context", lambda cfg: (["struct Vec { int x; };"], 1)
+            "rebrew.context.collect_context", lambda cfg: (["struct Vec { int x; };"], 1)
         )
         return cfg, src
 

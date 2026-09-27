@@ -921,7 +921,7 @@ class TestMatchGlue:
             va_int=0x1000,
             target_size=5,
         )
-        match_mod._run_single_ga(
+        match_mod.run_single_ga(
             p,
             str(tmp_path / "out"),
             1,
@@ -979,7 +979,7 @@ class TestMatchGlue:
             va_int=0x1000,
             target_size=5,
         )
-        match_mod._run_single_ga(
+        match_mod.run_single_ga(
             p,
             str(tmp_path / "out"),
             1,
@@ -1050,7 +1050,7 @@ class TestLlmSeedDryRun:
             va_int=0x1000,
             target_size=5,
         )
-        match_mod._run_single_ga(
+        match_mod.run_single_ga(
             p,
             str(tmp_path / "out"),
             1,
