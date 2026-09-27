@@ -686,13 +686,6 @@ def main(
             )
     flags_str = flags or ""
 
-    # Friendly registry check: catch a wrong compiler id before the upload
-    # (best-effort — degrades to a warning when the registry is unreachable).
-    try:
-        verify_compiler(compiler, api=api)
-    except RuntimeError as exc:
-        error_exit(str(exc), json_mode=json_output)
-
     context_text = _build_context(cfg, context, no_context)
     # UTF-8 bytes, not code points: the field is posted as form data, so that
     # is what decomp.me receives.  A context with a non-ASCII comment (a `é`
@@ -738,6 +731,14 @@ def main(
         console.print(f"  context:     {context_bytes} bytes")
         console.print(f"  target_obj:  {len(payload['files']['target_obj'][1])} bytes (COFF)")
         return
+
+    # Friendly registry check: catch a wrong compiler id before the upload
+    # (best-effort — degrades to a warning when the registry is unreachable).
+    # A dry run never uploads, so it makes no network call.
+    try:
+        verify_compiler(compiler, api=api)
+    except RuntimeError as exc:
+        error_exit(str(exc), json_mode=json_output)
 
     root = Path(getattr(cfg, "root", ".") or ".")
     digest = scratch_digest(payload, api)

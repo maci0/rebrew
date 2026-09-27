@@ -1275,6 +1275,7 @@ def main(
                 max_delta=max_delta,
                 timeout=timeout,
                 loop_bound=loop_bound,
+                stub_thunks=stub_thunks,
                 start_offset=start_offset,
                 end_offset=end_offset,
                 check_edx=check_edx,
