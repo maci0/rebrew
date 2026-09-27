@@ -13,6 +13,7 @@ from rebrew.compile import (
     resolve_cl_command,
 )
 from rebrew.config import ConfigError, ProjectConfig
+from rebrew.headless import XVFB_DISPLAY_ENV
 
 # ---------------------------------------------------------------------------
 # resolve_cl_command
@@ -668,6 +669,26 @@ class TestMaybeHeadlessWine:
         cmd, env = maybe_headless_wine(["/usr/bin/wine", "/opt/CL.EXE"], None)
         assert cmd == ["/usr/bin/wine", "/opt/CL.EXE"]
         assert env["DISPLAY"] == ":99"
+
+    def test_xauthority_travels_with_the_selected_display(self, monkeypatch) -> None:
+        """The cookie for the Xvfb ensure_xvfb picked reaches wine.
+
+        An unauthenticated X server lets any local client read the windows
+        wine draws, so the child's XAUTHORITY must be the one that
+        authenticates to *this* display — never an unrelated value already in
+        the environment.
+        """
+        monkeypatch.setattr("rebrew.compile.ensure_xvfb", lambda: ":99")
+        monkeypatch.setenv(XVFB_DISPLAY_ENV, ":99")
+        monkeypatch.setenv("XAUTHORITY", "/run/user/1000/rebrew-xvfb-cookie")
+        _, env = maybe_headless_wine(["wine", "CL.EXE"], {"WINEDEBUG": "-all"})
+        assert env is not None
+        assert env["XAUTHORITY"] == "/run/user/1000/rebrew-xvfb-cookie"
+
+        monkeypatch.setenv(XVFB_DISPLAY_ENV, ":77")  # cookie is for another server
+        _, env = maybe_headless_wine(["wine", "CL.EXE"], {"WINEDEBUG": "-all"})
+        assert env is not None
+        assert "XAUTHORITY" not in env
 
     def test_wibo_not_touched(self, monkeypatch) -> None:
         """wibo is already headless — left untouched."""

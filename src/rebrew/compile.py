@@ -80,7 +80,7 @@ from rebrew.config import (
     validate_http_url,
 )
 from rebrew.errors import RebrewError
-from rebrew.headless import XVFB_RUN_SERVER_ARGS, ensure_xvfb
+from rebrew.headless import XVFB_DISPLAY_ENV, XVFB_RUN_SERVER_ARGS, ensure_xvfb
 from rebrew.matcher.parsers import parse_obj_symbol_and_relocs
 from rebrew.metadata import canonical_status
 from rebrew.msvc_env import msvc_env_from_config, resolve_runner_path
@@ -728,6 +728,14 @@ def maybe_headless_wine(
     if display is not None:
         env = dict(env) if env is not None else {**os.environ}
         env["DISPLAY"] = display
+        # ensure_xvfb authenticates to the server it picked with a cookie;
+        # wine needs it too, and a caller-supplied env does not inherit this
+        # process's environment the way the os.environ copy above does.  The
+        # cookie travels only with the display ensure_xvfb recorded it for, so
+        # an unrelated XAUTHORITY in the ambient environment is not forwarded.
+        cookie = os.environ.get("XAUTHORITY", "")
+        if cookie and not env.get("XAUTHORITY") and os.environ.get(XVFB_DISPLAY_ENV) == display:
+            env["XAUTHORITY"] = cookie
         return cmd, env
     if shutil.which("xvfb-run") is not None:
         return ["xvfb-run", "-a", "-s", XVFB_RUN_SERVER_ARGS, *cmd], env

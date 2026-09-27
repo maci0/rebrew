@@ -48,15 +48,48 @@ class TestPickFreeDisplay:
 
 
 class TestEnsureXvfb:
-    def test_reuses_env_display_when_alive(self, monkeypatch) -> None:
+    def test_reuses_env_display_when_alive(self, tmp_path: Path, monkeypatch) -> None:
         from rebrew import headless
 
         # A stale REBREW_XVFB_DISPLAY (socket present, no live Xvfb process)
         # must NOT be reused — only a process-backed display qualifies.
         monkeypatch.setattr(headless, "_display_alive", lambda d: d == ":99")
         monkeypatch.setattr(headless, "_running_xvfb_displays", lambda: {":99": 1234})
+        monkeypatch.setattr(headless, "_server_cookie", lambda pid: tmp_path / "cookie")
         monkeypatch.setenv("REBREW_XVFB_DISPLAY", ":99")
         assert ensure_xvfb() == ":99"
+        assert os.environ["XAUTHORITY"] == str(tmp_path / "cookie")
+
+    def test_ignores_unauthenticated_live_xvfb(self, tmp_path: Path, monkeypatch) -> None:
+        """A live Xvfb nobody can authenticate to is never adopted.
+
+        Its socket is world-reachable, so reusing it hands the compile to a
+        server another local user can read and inject into; rebrew starts
+        its own cookie-authenticated one instead.
+        """
+        from rebrew import headless
+
+        monkeypatch.delenv("REBREW_XVFB_DISPLAY", raising=False)
+        monkeypatch.setenv("DISPLAY", "")
+        monkeypatch.delenv("XAUTHORITY", raising=False)
+        monkeypatch.setattr(headless, "_running_xvfb_displays", lambda: {":99": 1})
+        monkeypatch.setattr(headless, "_server_cookie", lambda pid: None)
+        monkeypatch.setattr(
+            headless.shutil, "which", lambda name: "/usr/bin/Xvfb" if name == "Xvfb" else None
+        )
+        monkeypatch.setattr(headless, "_wait_for_socket", lambda d, timeout=3.0, proc=None: True)
+
+        class _FakeProc:
+            def terminate(self) -> None:
+                pass
+
+            def wait(self, timeout: float | None = None) -> int:
+                return 0
+
+        monkeypatch.setattr(headless.subprocess, "Popen", lambda *a, **k: _FakeProc())
+        result = ensure_xvfb()
+        assert result is not None and result != ":99"
+        assert Path(os.environ["XAUTHORITY"]).is_file()
 
     def test_env_display_stale_process_ignored(self, monkeypatch) -> None:
         """Socket exists but no Xvfb process owns it → not reused."""
@@ -71,21 +104,23 @@ class TestEnsureXvfb:
         monkeypatch.setattr(headless.shutil, "which", lambda name: None)
         assert ensure_xvfb() is None
 
-    def test_reuses_current_display_when_xvfb(self, monkeypatch) -> None:
+    def test_reuses_current_display_when_xvfb(self, tmp_path: Path, monkeypatch) -> None:
         """DISPLAY owned by an Xvfb (already headless) is reused as-is."""
         from rebrew import headless
 
         monkeypatch.delenv("REBREW_XVFB_DISPLAY", raising=False)
         monkeypatch.setattr(headless, "_running_xvfb_displays", lambda: {":77": 1234})
+        monkeypatch.setattr(headless, "_server_cookie", lambda pid: tmp_path / "cookie")
         monkeypatch.setenv("DISPLAY", ":77")
         assert ensure_xvfb() == ":77"
 
-    def test_reuses_orphan_xvfb(self, monkeypatch) -> None:
+    def test_reuses_orphan_xvfb(self, tmp_path: Path, monkeypatch) -> None:
         """A live Xvfb left by a prior run is reused (lowest display)."""
         from rebrew import headless
 
         monkeypatch.delenv("REBREW_XVFB_DISPLAY", raising=False)
         monkeypatch.setattr(headless, "_running_xvfb_displays", lambda: {":99": 1, ":77": 2})
+        monkeypatch.setattr(headless, "_server_cookie", lambda pid: tmp_path / "cookie")
         monkeypatch.delenv("DISPLAY", raising=False)
         assert ensure_xvfb() == ":77"
         assert os.environ.get("REBREW_XVFB_DISPLAY") == ":77"
@@ -118,18 +153,19 @@ class TestEnsureXvfb:
         result = ensure_xvfb()
         assert result is not None and result.startswith(":")
         assert spawned and spawned[0][0] == "Xvfb"
-        assert spawned[0][2:] == [
+        assert spawned[0][2:6] == [
             "-screen",
             "0",
             "1280x1024x24",
             "-nolisten",
-            "tcp",
         ]  # screen geometry as separate argv tokens — a single joined
         # "-screen 0 1280x1024x24" string makes Xvfb fail to start and
         # silently degrades every wine compile to the 3 s xvfb-run wrapper.
         # The display is not pinned: in the full suite the process may
         # already own a server on :90, so the spawn lands on the next free.
         assert spawned[0][1] == result
+        assert spawned[0][6:] == ["tcp", "-auth", os.environ["XAUTHORITY"]]
+        assert Path(os.environ["XAUTHORITY"]).is_file()
         assert os.environ.get("REBREW_XVFB_DISPLAY") == result
 
     def test_no_xvfb_binary_returns_none(self, monkeypatch) -> None:
@@ -211,7 +247,7 @@ class TestEnsureXvfb:
         _shutdown_xvfb(_StubbornProc())  # must not raise
         assert calls == ["terminate", "kill", "wait:2"]
 
-    def test_concurrent_callers_spawn_one_server(self, monkeypatch) -> None:
+    def test_concurrent_callers_spawn_one_server(self, tmp_path: Path, monkeypatch) -> None:
         """Parallel compile workers calling ensure_xvfb must not double-spawn.
 
         Without the init lock, two threads can both pass the env/orphan
@@ -233,6 +269,9 @@ class TestEnsureXvfb:
 
         monkeypatch.setattr(headless, "_running_xvfb_displays", _fake_running)
         monkeypatch.setattr(headless, "_display_alive", lambda d: True)
+        # The spawned server is adopted by the losing workers through the
+        # cookie this process exported, exactly as a real orphan would be.
+        monkeypatch.setattr(headless, "_server_cookie", lambda pid: None)
         monkeypatch.setattr(
             headless.shutil, "which", lambda name: "/usr/bin/Xvfb" if name == "Xvfb" else None
         )
