@@ -963,7 +963,11 @@ def own_data_globals(
         dim = 0
         if decl_n is None:
             # scalar placeholder (TYPE name = 0;); pointers read their full
-            # 4-byte value, not the pointee's size.
+            # 4-byte value, not the pointee's size.  A slot narrower than the
+            # declared type would read the next symbol's bytes, so skip it.
+            if cap < elemsize:
+                skipped.append(name)
+                continue
             size = elemsize
             value = _scalar_literal(orig[off : off + size], base, size, byte_order)
             if value is None:
@@ -1156,6 +1160,9 @@ def fix_ownership(
     )
 
     all_syms = sorted(toml.keys(), key=lambda n: toml[n][0])
+    next_va: dict[str, int] = {
+        name: toml[all_syms[i + 1]][0] for i, name in enumerate(all_syms[:-1])
+    }
     new_owner: dict[str, Path] = {}
     if len(data_tus) > 1:
         gaps = []
@@ -1178,8 +1185,11 @@ def fix_ownership(
         if addr < raw_end:
             elemsize = c_type_size(typ)
             off = addr - data_base
-            end = orig.find(b"\x00", off, off + 0x200)
-            size = end - off + 1 if elemsize == 1 and 0 <= end < raw_end - data_base else elemsize
+            cap = min(next_va.get(name, raw_end), raw_end) - addr
+            if cap < elemsize:
+                continue  # slot narrower than the declared type
+            end = orig.find(b"\x00", off, off + cap)
+            size = end - off + 1 if elemsize == 1 and end >= 0 else elemsize
             data = orig[off : off + size]
             try:
                 init, count = typed_array_literal(typ, data, byte_order)
