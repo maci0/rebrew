@@ -173,6 +173,16 @@
   reset each request. No `/api/*` JSON changed.
 
 ### Changed
+- **Breaking:** **`parse_size_mismatch_all` is gone from
+  `rebrew.match_batch`.** It
+  was the last of the three `parse_*_info` helpers over the shared
+  `_parse_annotations` and the only caller of its `SIZE_MISMATCH` status
+  filter, so it went when that dead path was deleted; nothing in the package
+  called it. A consumer enumerating `SIZE_MISMATCH` annotations over its own
+  source list calls `rebrew.annotation.iter_annotations` (the shared batch
+  loader) and filters `Annotation.status` itself. The other two helpers
+  (`parse_stub_info`, `parse_matching_info`, `parse_matching_all`) are
+  unchanged.
 - **The ruff ratchet takes its next batch.** `TRY400`, `PLC0206`, `PERF402`,
   `PERF403`, `FURB136`, `FURB171`, `PLR1711`, `PLR1714` and `PLR5501` join
   the `select` list in `pyproject.toml`, after their 19 findings were fixed

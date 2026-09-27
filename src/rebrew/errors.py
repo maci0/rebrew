@@ -33,9 +33,14 @@ docs generator sees the same set this module documents.
 again?" is the question every caller asks and the answer must not depend on
 which subclass arrived.  It defaults to ``False`` (not retryable); the
 subclasses that can tell transient from permanent (``ToolchainError``,
-``RecompileError``, ``McpError``) set it per instance.  Domain fields
-(``kind``, ``name``, ``status_code``, ``group``) stay on the subclass that
-can actually fill them.
+``RecompileError``, ``McpError``) set it per instance.  The domain fields
+(``kind``, ``name``, ``status_code``, ``group``) default to ``None`` here and
+are filled by the subclass that can: a consumer branching on ``exc.kind``
+under one ``except RebrewError`` reads a field that is always present, and
+reads ``None`` when this error carries no domain data (a
+:class:`CompareResultError`, a rebuilt error of a type this build does not
+know).  :meth:`RebrewError.to_dict` omits a field whose value is ``None``, so
+the defaults do not add empty keys to a serialized error.
 """
 
 from __future__ import annotations
@@ -113,6 +118,16 @@ class RebrewError(Exception):
     #: a subclass that cannot distinguish transient from permanent leaves it
     #: ``False`` rather than inviting a retry loop that cannot terminate.
     retryable: bool = False
+
+    #: Domain fields, declared here so ``exc.kind`` and friends are readable
+    #: on any :class:`RebrewError` and type-check without a ``getattr``
+    #: default.  ``None`` means "this error carries no value for it"; only
+    #: the subclasses that can fill a field do, and :meth:`to_dict` omits
+    #: the ones left at ``None``.
+    kind: str | None = None
+    name: str | None = None
+    status_code: int | None = None
+    group: str | None = None
 
     #: Structured attributes a subclass may set, serialized by
     #: :meth:`to_dict`.  Every one is optional: an error that cannot fill a

@@ -118,6 +118,28 @@ class TestRebrewErrorBase:
         assert RegistryError("dup").retryable is False
         assert ToolchainError("blip", kind="docker", retryable=True).retryable is True
 
+    def test_domain_fields_read_off_the_base_without_getattr(self) -> None:
+        """``except RebrewError`` then ``exc.kind`` reaches a field, not AttributeError.
+
+        A consumer cannot know which subclass arrived, so every documented
+        structured field has to exist on the base; ``None`` says this error
+        carries no value for it.
+        """
+        exc = RebrewError("bare")
+        assert (exc.kind, exc.name, exc.status_code, exc.group) == (None, None, None, None)
+        registry = RegistryError("dup", group="rebrew.toolchains", name="x")
+        assert (registry.kind, registry.name, registry.group) == (None, "x", "rebrew.toolchains")
+
+    def test_unset_domain_fields_stay_out_of_to_dict(self) -> None:
+        """The ``None`` defaults must not add empty keys to a stored error."""
+        assert set(RebrewError("bare").to_dict()) == {"type", "message", "retryable"}
+        payload = RecompileError("nope", kind="network", status_code=503, retryable=True).to_dict()
+        assert (payload["kind"], payload["status_code"], payload["retryable"]) == (
+            "network",
+            503,
+            True,
+        )
+
 
 class TestHierarchyCoverage:
     """Every public error type in the package inherits the shared base.

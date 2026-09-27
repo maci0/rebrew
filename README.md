@@ -198,7 +198,10 @@ gains the same `to_dict()` / `from_dict()` pair for any other error you store.
 
 Every rebrew error type inherits `RebrewError` alongside its original
 `RuntimeError`/`ValueError` base, so a new error type in a later release lands
-in that handler instead of escaping it.
+in that handler instead of escaping it. The structured fields `kind`, `name`,
+`status_code` and `group` are declared on that base too, so one `except
+RebrewError` can read them without `getattr`; a field the arriving error does
+not fill is `None`, and a serialized error leaves it out.
 
 The clients that talk to a service take the HTTP client as an argument, so
 your tests never need a live one. `HttpClient` (from `rebrew.recompile_client`
@@ -257,10 +260,15 @@ result.ok / result.obj_bytes / result.log / result.compiler_version
 ```
 
 The ReVa MCP client (`rebrew.ghidra.client`, the transport behind
-`rebrew sync`) takes `McpHttpClient` instead: `post` plus `delete`, because it
-terminates its session on every exit path. The same `**kwargs` stand-in
-satisfies it once `delete` is added, and the reply (`McpResponse`) only has to
-carry `status_code`, `headers`, `text`, `json()` and `raise_for_status()`.
+`rebrew sync`) injects `McpHttpClient` instead: `post` and `delete`, because it
+opens a session and terminates it on every exit path. Both take a `url` plus
+`**kwargs` (the JSON-RPC `json=` body, the `headers` session id, the per-call
+`timeout`), so a stand-in carrying those two methods satisfies it. The reply is
+typed as `McpResponse` and has to carry `status_code`, `headers`, `text`,
+`json()` and `raise_for_status()`. That is the `FakeService` above with `delete`
+added, over a `_Reply` that also carries `headers` and `raise_for_status()`.
+`close()` is optional on both reply protocols, so a stand-in holding no
+connection to release is still a valid answer.
 
 The CLI commands, flags, and the `rebrew-project.toml` schema are frozen for
 the 2.x line. The Python import surface and the dashboard `/api/*` JSON are
