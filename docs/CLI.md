@@ -2466,7 +2466,7 @@ resolution as `rebrew test`/`verify`.
 
 ### `rebrew decompme`
 
-`rebrew decompme SOURCE.c [--va HEX] [--size N] [--compiler ID] [--platform ID] [--flags "..."] [--context FILE] [--no-context] [--api URL] [--dry-run] [--json]`
+`rebrew decompme SOURCE.c [--va HEX] [--size N] [--compiler ID] [--platform ID] [--flags "..."] [--context FILE] [--no-context] [--api URL] [--reupload] [--dry-run] [--json]`
 
 Upload a function to decomp.me as a collaborative scratch: the target
 function's bytes synthesized into a COFF object (`target_obj`), the
@@ -2478,6 +2478,14 @@ for anything else (console targets, mingw-16.2.0).  Anonymous create (like
 objdiff's integration): the printed claim URL
 (`/scratch/<slug>/claim?token=...`) keeps the scratch.  `--dry-run` prints
 the payload without uploading.
+
+decomp.me has no idempotency key, so a re-run with an unchanged payload
+would leave a second identical scratch on the service.  The created slug
+goes to `.rebrew/decompme-uploads.json` keyed by a digest of the payload
+(form data plus the uploaded object bytes, per `--api`), and a repeat
+prints the same claim URL and reports `"reused": true` under `--json`.
+Entries older than 90 days are dropped on write, and the file is capped at
+500 entries.  `--reupload` uploads anyway.
 
 ### `rebrew switch`
 
