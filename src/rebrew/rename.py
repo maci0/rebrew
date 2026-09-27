@@ -89,7 +89,9 @@ app = typer.Typer(
 
 @app.callback(invoke_without_command=True)
 def main(
-    target_ident: str = typer.Argument(..., help="Old function name, file path, or VA"),
+    target_ident: str = typer.Argument(
+        ..., metavar="old_name", help="Old function name, file path, or VA"
+    ),
     new_name: str = typer.Argument(..., help="New function name"),
     new_file: str | None = typer.Option(None, "--file", help="New filename"),
     data: bool = typer.Option(
