@@ -767,30 +767,43 @@ _METADATA_WRITE_DEPTH = threading.local()
 
 @contextlib.contextmanager
 def file_handle_lock(lock_fh: IO[str], *, shared: bool = False) -> Iterator[None]:
-    """Hold an advisory ``flock`` on an open file handle."""
+    """Hold an advisory ``flock`` on an open file handle.
+
+    On Windows the lock is taken with ``msvcrt.locking``, which raises once
+    its built-in retry window expires.  That failure propagates: running the
+    body unlocked lets a second process interleave its read-modify-write of
+    the metadata store and silently drop this one's STATUS promotion, which
+    is exactly the loss the lock exists to prevent.
+    """
     if fcntl is not None:
         fcntl.flock(lock_fh, fcntl.LOCK_SH if shared else fcntl.LOCK_EX)
     else:
-        try:
-            import msvcrt
+        import msvcrt
 
-            lock_fh.seek(0)
+        lock_fh.seek(0)
+        try:
             msvcrt.locking(lock_fh.fileno(), msvcrt.LK_LOCK, 1)
-        except (ImportError, OSError):
-            pass
+        except OSError as exc:
+            raise OSError(
+                f"could not lock {getattr(lock_fh, 'name', '<handle>')}: {exc}; "
+                "another rebrew process is holding the write lock"
+            ) from exc
     try:
         yield
     finally:
         if fcntl is not None:
             fcntl.flock(lock_fh, fcntl.LOCK_UN)
         else:
-            try:
-                import msvcrt
+            import msvcrt
 
-                lock_fh.seek(0)
+            lock_fh.seek(0)
+            try:
                 msvcrt.locking(lock_fh.fileno(), msvcrt.LK_UNLCK, 1)
-            except (ImportError, OSError):
-                pass
+            except OSError as exc:
+                # The lock is released when the descriptor closes either way;
+                # surfacing this in the caller's finally would mask the
+                # exception that made the body unwind.
+                logger.debug("unlock failed on %s: %s", getattr(lock_fh, "name", "<handle>"), exc)
 
 
 @contextlib.contextmanager

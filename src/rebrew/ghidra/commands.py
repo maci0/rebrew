@@ -399,6 +399,7 @@ def pull_data(
             return
 
         rows: list[dict[str, Any]] = []
+        failed = 0
         for sym in data_symbols:
             sym_addr = str(sym.get("address", "")).strip()
             if not sym_addr:
@@ -417,6 +418,7 @@ def pull_data(
                     session_id=session_id,
                 )
             except httpx.HTTPError as e:
+                failed += 1
                 console.print(f"[yellow]warning:[/yellow] get-data failed at {sym_addr}: {e}")
                 continue
 
@@ -550,4 +552,11 @@ def pull_data(
             return
 
     atomic_write_text(out_file, header_text, encoding="utf-8")
+    if failed:
+        # The header is what the data layout and the compiler read, so a
+        # subset is a real loss, not a cosmetic one.
+        console.print(
+            f"[yellow]warning:[/yellow] {failed} symbol(s) failed to pull; "
+            f"{out_file.name} holds {len(rows)} of {len(rows) + failed} data labels"
+        )
     console.print(f"Pulled {len(rows)} data labels from Ghidra, wrote {out_file.name}")

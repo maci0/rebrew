@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import filecmp
 import json
+import logging
 import re
 import shutil
 from dataclasses import dataclass, field
@@ -43,6 +44,8 @@ from rebrew.sources import iter_sources
 from rebrew.utils import SOURCE_CHECKOUT, atomic_write_text
 
 app = typer.Typer(help="One-shot binary onboarding: init + detect + functions + document.")
+
+logger = logging.getLogger(__name__)
 
 
 def _link_names_for(profile: str) -> tuple[str, str] | None:
@@ -257,6 +260,7 @@ def prune_stale_stubs(
     marker: str,
     funcs: list[tuple[int, int, str]],
     metadata_dir: Path | None = None,
+    prior_inventory: list[Any] | None = None,
 ) -> int:
     """Remove auto-generated STUB files + metadata for functions absent from
     the (re-discovered) function list.
@@ -269,24 +273,69 @@ def prune_stale_stubs(
     is removed only together with its stub file, so progressed functions
     (renamed/edited sources) are never dropped.  Returns the number of
     stale stubs removed.
+
+    A discovery that came back *shorter* than the inventory it would prune
+    against is treated as degraded (a provider that timed out or errored
+    contributes zero rows, see :func:`rebrew.discover.run_providers`), and
+    nothing is deleted: a short list is indistinguishable from a real
+    removal, and the caller has already overwritten the previous inventory.
+
+    *prior_inventory* is the list the previous run wrote, read by the caller
+    before replacing it; when omitted it is read from *src_dir* instead.
     """
     from rebrew.metadata import delete_metadata_entry
+
+    previous = _read_prior_inventory(src_dir) if prior_inventory is None else prior_inventory
+    if previous is not None and len(funcs) < len(previous):
+        logger.warning(
+            "discovery returned %d function(s) but the previous inventory had %d; "
+            "skipping the stale-stub prune so a degraded discovery cannot delete live stubs",
+            len(funcs),
+            len(previous),
+        )
+        return 0
 
     valid_vas = {va for va, _size, _name in funcs}
     meta_base = metadata_dir if metadata_dir is not None else project / "src"
     removed = 0
     for path in sorted(src_dir.glob("fcn_*.c")):
-        text = path.read_text(encoding="utf-8", errors="replace")
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError as exc:
+            # A stub that cannot be read cannot be classified.  Skip it
+            # rather than aborting after earlier stubs were already unlinked,
+            # which leaves a partial prune with no report.
+            logger.warning("skipping unreadable stub %s during prune: %s", path, exc)
+            continue
         m = _AUTO_STUB_RE.match(text)
         if m is None or m.group(1) != marker:
             continue
         va = int(m.group(2), 16)
         if va in valid_vas:
             continue
-        path.unlink()
+        try:
+            path.unlink()
+        except OSError as exc:
+            logger.warning("could not remove stale stub %s: %s", path, exc)
+            continue
         delete_metadata_entry(meta_base, va, marker)
         removed += 1
     return removed
+
+
+def _read_prior_inventory(src_dir: Path) -> list[Any] | None:
+    """The function inventory written by the previous intake run, or None."""
+    path = src_dir / "function_structure.json"
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError) as exc:
+        # An unreadable prior inventory means the degraded-discovery guard
+        # above cannot compare; say so rather than pruning blind.
+        logger.warning("could not read %s for the stale-stub prune guard: %s", path, exc)
+        return None
+    return data if isinstance(data, list) else None
 
 
 def _native_format_and_arch(bin_path: Path) -> tuple[str, str] | None:
@@ -539,6 +588,9 @@ def main(
 
     src_dir = project / "src" / target_name
     src_dir.mkdir(parents=True, exist_ok=True)
+    # Read the previous inventory before the write: prune_stale_stubs uses it
+    # to tell a real removal apart from a discovery that came back degraded.
+    prior_inventory = _read_prior_inventory(src_dir) if project_existed else None
     atomic_write_text(
         src_dir / "function_structure.json",
         json.dumps([{"va": va, "size": size, "name": name} for va, size, name in funcs], indent=2)
@@ -550,7 +602,7 @@ def main(
     # 6. prune auto-stubs orphaned by a changed function list (re-discovery
     #    only — a fresh onboarding has nothing stale).
     if project_existed:
-        pruned = prune_stale_stubs(project, src_dir, marker, funcs)
+        pruned = prune_stale_stubs(project, src_dir, marker, funcs, prior_inventory=prior_inventory)
         if pruned:
             notes.append(f"pruned {pruned} stale auto-stub(s) from the previous discovery")
 

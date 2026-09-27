@@ -744,8 +744,11 @@ def _run_build(
 
     try:
         if exclude_file is not None and exclude_file.exists():
-            renamed = (exclude_file, exclude_file.with_suffix(_EXCLUDED_SUFFIX))
-            exclude_file.rename(renamed[1])
+            excluded = exclude_file.with_suffix(_EXCLUDED_SUFFIX)
+            exclude_file.rename(excluded)
+            # Recorded only after the rename lands, so the ``finally`` restore
+            # never chases a file that was never created.
+            renamed = (exclude_file, excluded)
 
         if cmake_stub_var and original_cmake is not None:
             patched = re.sub(
@@ -756,11 +759,14 @@ def _run_build(
                 flags=re.M,
             )
             if patched != original_cmake:
-                patched_cmake = patched
                 # Backup first: a kill before the ``finally`` restore leaves
                 # it for the next run to put back.
                 atomic_write_text(cmake_backup, original_cmake, encoding="utf-8")
                 atomic_write_text(cmake_path, patched, encoding="utf-8")
+                # Recorded only once both writes are on disk; a failed
+                # backup write must not turn the restore into a
+                # FileNotFoundError that hides the real failure.
+                patched_cmake = patched
             else:
                 error_exit(
                     f"--cmake-stub-var {cmake_stub_var}: no 'set({cmake_stub_var} \"...\")' "

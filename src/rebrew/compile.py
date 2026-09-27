@@ -1993,7 +1993,7 @@ def precompile_batch(
             # targets are unreadable inside, so the tree is copied.  A few
             # hundred small files — negligible next to a container spawn.)
             rev = Path(cfg.reversed_dir)
-            with contextlib.suppress(OSError):
+            try:
                 for child in sorted(rev.rglob("*")):
                     if child.is_dir() or child.is_symlink():
                         continue
@@ -2001,6 +2001,14 @@ def precompile_batch(
                     if not link.exists():
                         link.parent.mkdir(parents=True, exist_ok=True)
                         shutil.copyfile(child, link)
+            except OSError as exc:
+                # A hole in the staged tree is worse than no compile: a
+                # header reached only through a conditional #ifdef produces
+                # a successful but wrong .obj, which would then be promoted
+                # as the function's verification result.
+                raise CompareResultError(
+                    f"failed to stage the source tree {rev} into {workdir}: {exc}"
+                ) from exc
             for e in members:
                 source = Path(cfg.reversed_dir) / e.filepath
                 # Mirror the source tree (foo/bar.c → workdir/foo/bar.c):
@@ -2020,14 +2028,23 @@ def precompile_batch(
                 if rel_s in staged:
                     staged[rel_s].append(e)
                 else:
-                    with contextlib.suppress(OSError):
+                    try:
                         target.parent.mkdir(parents=True, exist_ok=True)
                         # Unlink first: target may be a tree copy from above and
                         # write_bytes must replace it, not merge.
                         if target.is_symlink() or target.exists():
                             target.unlink()
                         target.write_bytes(source.read_bytes())
-                        staged[rel_s] = [e]
+                    except OSError as exc:
+                        # A failed stage would leave the tree copy of this
+                        # path unlinked: its siblings then compile against a
+                        # tree missing a member.  Drop the member and say so
+                        # rather than reporting a wrong object.
+                        _logging.getLogger(__name__).warning(
+                            "could not stage %s into %s: %s", source, workdir, exc
+                        )
+                        continue
+                    staged[rel_s] = [e]
                 # Collect this member's own /I flags for the union below.
                 _, own_cflags = resolve_compile_overrides(
                     cfg,
