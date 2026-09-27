@@ -1862,11 +1862,26 @@ class Dashboard:
             # list, negative) is the same unreadable row as corrupt JSON.
             log.warning("Ignoring function_stats with bad byte count for %r: %s", target, exc)
             return "corrupt", None
+        # A byte count past the .text size (stale SIZE fields, a function span
+        # outside .text) divides to 102.4%, and the coverage cards would render
+        # that as a broken number.  The share is capped at a full section and
+        # the excess is logged rather than shown.
+        for name, value in (("matched_bytes", covered), ("covered_bytes", identified)):
+            if total_b and value > total_b:
+                log.warning(
+                    "function_stats for %r: %s is %d, past the %d-byte .text; capping",
+                    target,
+                    name,
+                    value,
+                    total_b,
+                )
         return "ok", {
             "target": target,
             "function_stats": stats,
-            "coverage_pct": floor_pct(covered, total_b),
-            "identified_pct": floor_pct(identified, total_b),
+            "coverage_pct": floor_pct(min(covered, total_b) if total_b else covered, total_b),
+            "identified_pct": floor_pct(
+                min(identified, total_b) if total_b else identified, total_b
+            ),
         }
 
     def summary(self, target: str) -> dict[str, Any] | None:

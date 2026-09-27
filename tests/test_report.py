@@ -693,8 +693,13 @@ class TestSummaryCards:
     def test_byte_coverage_within_text_size_is_a_plain_percentage(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """A .text larger than the annotated sizes keeps the plain percentage."""
-        _write_project(tmp_path, pe_bytes=make_pe(b"\x90" * 4096))
+        """Accounted bytes inside .text keep the plain percentage.
+
+        The image base puts the fixtures' 0x10001000/0x10002000 spans inside
+        .text, and 0xC3 filler is code no function covers rather than the
+        0x90 alignment fill that would fill the section on its own.
+        """
+        _write_project(tmp_path, pe_bytes=make_pe(b"\xc3" * 8192, image_base=0x10000000))
         monkeypatch.chdir(tmp_path)
         site = tmp_path / "site"
         result = runner.invoke(app, ["--output", str(site)])
@@ -702,7 +707,26 @@ class TestSummaryCards:
         page = (site / "index.html").read_text(encoding="utf-8")
         assert "100%+" not in page
         assert "byte coverage is shown as 100%+" not in page
-        assert "<dd class='value'>2.4%</dd>" in page  # func_a's 100 of 4096, floored
+        assert "<dd class='value'>1.2%</dd>" in page  # func_a's 100 of 8192, floored
+
+    def test_alignment_fill_past_text_size_reads_as_capped(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Fill counted beside the matched bytes still caps at "100%+".
+
+        The annotated spans sit outside this image's .text, so their bytes are
+        never subtracted from the 0x90 fill: 100 + 4096 over a 4096-byte .text
+        is 102.4%, which reads as a broken number.
+        """
+        _write_project(tmp_path, pe_bytes=make_pe(b"\x90" * 4096))
+        monkeypatch.chdir(tmp_path)
+        site = tmp_path / "site"
+        result = runner.invoke(app, ["--output", str(site)])
+        assert result.exit_code == 0, result.output
+        page = (site / "index.html").read_text(encoding="utf-8")
+        assert "<dd class='value'>100%+</dd>" in page
+        assert "102.4%" not in page
+        assert "more than the 4096-byte .text section" in page
 
 
 class TestChromeTokens:

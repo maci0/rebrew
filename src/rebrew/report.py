@@ -574,15 +574,19 @@ def _render_index(
     over_text_html = ""
     if report.total_text_bytes > 0:
         matched_card = f"{report.matched_functions}/{report.total_functions}"
-        if report.matched_bytes > report.total_text_bytes:
-            # The annotated SIZE fields sum past the measured .text (overlapping
-            # or stale sizes), so the ratio reads as e.g. 312.5% and reads as a
-            # broken number.  "100%+" states the figure is at least a full
-            # section without inventing one; the note gives the byte counts.
+        # The percentage's numerator is the accounted bytes (matched plus
+        # alignment fill), so that is what has to fit the measured .text.  A
+        # span outside .text leaves its bytes in both sums and the ratio reads
+        # as e.g. 102.4%, which reads as a broken number.  "100%+" states the
+        # figure is at least a full section without inventing one; the note
+        # gives the byte counts.
+        if report.accounted_text_bytes > report.total_text_bytes:
+            counted = f"{report.matched_bytes} bytes of byte-matched functions"
+            if report.padding_bytes:
+                counted += f" plus {report.padding_bytes} bytes of alignment fill"
             text_card = "100%+"
             over_text_html = (
-                "<p class='note'>The byte-matched functions annotate "
-                f"{report.matched_bytes} bytes, more than the "
+                f"<p class='note'>Byte coverage counts {counted}, more than the "
                 f"{report.total_text_bytes}-byte .text section, so byte coverage "
                 "is shown as 100%+. Re-run <code>rebrew build-db</code> if the "
                 "SIZE fields are stale.</p>"
