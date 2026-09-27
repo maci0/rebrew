@@ -326,7 +326,6 @@ let loadedHistoryCount = 0;
 let retryAppend = false;
 let retryGlobalsAppend = false;
 let retryHistoryAppend = false;
-let pageLimit = 100;
 let currentView = "functions";
 // Filters restored from the URL hash before their options exist.
 let pendingStatus = "";
@@ -449,10 +448,8 @@ function syncError() {
   $("retry-functions").hidden = !(loadErrors.functions && currentView === "functions");
   const showViewRetry = !!(loadErrors.view && currentView !== "functions");
   $("retry-view").hidden = !showViewRetry;
-  if (currentView === "sections") $("retry-view").textContent = "Retry sections";
-  else if (currentView === "globals") $("retry-view").textContent = "Retry globals";
-  else if (currentView === "history") $("retry-view").textContent = "Retry history";
-  else $("retry-view").textContent = "Retry";
+  // The one view whose load reports through its own button never shows this.
+  $("retry-view").textContent = "Retry" + (currentView === "functions" ? "" : " " + currentView);
 }
 // Hiding or disabling the focused control drops focus to <body> (WCAG 2.4.3),
 // so move it to the first usable id.  No-op when focus is held.
@@ -616,7 +613,6 @@ function resetList(tableId, hintId, moreWrapId) {
   if (moreWrapId) $(moreWrapId).hidden = true;
 }
 function resetPaging() {
-  pageLimit = 100;
   loadedCount = 0;
   retryAppend = false;
 }
@@ -680,7 +676,7 @@ async function loadFunctions(options) {
   const offset = grow ? loadedCount : 0;
   const params = new URLSearchParams({
     target: t,
-    limit: String(grow ? PAGE_STEP : pageLimit),
+    limit: String(grow ? PAGE_STEP : 100),
     offset: String(offset),
   });
   if ($("status").value) params.set("status", $("status").value);
@@ -1328,7 +1324,8 @@ _INDEX_HTML = """<!doctype html>
     background: var(--rb-surface); color: inherit; }
   :focus-visible { outline: 3px solid var(--rb-accent); outline-offset: 2px; }
   h1 { font-size: var(--rb-size-title); margin-bottom: .25rem; }
-  .cards { display: flex; gap: 1rem; flex-wrap: wrap; margin: 1rem 0; }
+  .cards { display: flex; gap: 1rem; flex-wrap: wrap; margin: 1rem 0;
+    min-height: 4.3rem; }
   .card { border: 1px solid var(--rb-line); border-radius: var(--rb-radius);
     padding: .6rem 1rem; min-width: 110px; background: var(--rb-surface); }
   button.card { font: inherit; color: inherit; text-align: left; cursor: pointer; }
@@ -1381,7 +1378,7 @@ __STATUS_CSS__
     body { margin: 1rem; }
     select, input { min-width: 0; width: 100%; }
     .filters > div { flex: 1 1 100%; }
-    .card { min-width: 0; flex: 1 1 calc(50% - 1rem); }
+    .card { min-width: 0; flex: 1 1 6rem; padding: .4rem .6rem; }
     .views .btn { flex: 1 1 auto; text-align: center; }
   }
   @media (forced-colors: active) {
