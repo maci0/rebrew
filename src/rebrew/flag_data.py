@@ -74,7 +74,7 @@ MSVC6_FLAGS: Flags = [
 # normal:   adds codegen, inline, callconv (~moderate)
 # thorough: adds alignment + key toggles (~heavy)
 # full:     all axes (use with sampling for large spaces)
-MSVC_SWEEP_TIERS = {
+MSVC_SWEEP_TIERS: dict[str, list[str] | None] = {
     "quick": ["msvc_opt_level", "msvc_callconv", "msvc_codegen"],
     "targeted": [
         "msvc_opt_level",

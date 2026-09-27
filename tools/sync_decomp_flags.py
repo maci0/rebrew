@@ -189,7 +189,7 @@ from rebrew.flags import Checkbox, Flags, FlagSet
     tiers_lines.append("# normal:   adds codegen, inline, callconv (~moderate)")
     tiers_lines.append("# thorough: adds alignment + key toggles (~heavy)")
     tiers_lines.append("# full:     all axes (use with sampling for large spaces)")
-    tiers_lines.append("MSVC_SWEEP_TIERS = {")
+    tiers_lines.append("MSVC_SWEEP_TIERS: dict[str, list[str] | None] = {")
     for tier_name, tier_ids in MSVC_SWEEP_TIERS.items():
         tiers_lines.append(f"    {tier_name!r}: {tier_ids!r},")
     tiers_lines.append("}")

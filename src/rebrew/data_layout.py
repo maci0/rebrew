@@ -645,24 +645,36 @@ def fill_data(
         )
         if owner is None:
             continue
-        if bss_only and addr < raw_end:
-            continue
         if addr >= raw_end:
             # BSS region: anonymous zero-init pad (named symbols keep their
             # scalar/field identity; the array region is the gap itself)
             if insert_definition(owner, f"_dpad_{addr:x}", "unsigned char", gap, None, dry_run):
                 n_bss += 1
-        else:
-            # initialized region: byte-exact run from the original
-            start = addr - data_base
-            end = min(nxt_addr, raw_end) - data_base
-            if end > start:
-                data = orig[start:end]
+        elif raw_end < nxt_addr:
+            # The gap straddles raw_end: the byte-exact run stops there and the
+            # remainder past it is a zero-init pad, which --bss-only still wants.
+            if not bss_only:
+                start = addr - data_base
+                data = orig[start : raw_end - data_base]
                 init = hex_list(data)
                 if insert_definition(
-                    owner, f"_dpad_{addr:x}", "unsigned char", end - start, init, dry_run
+                    owner, f"_dpad_{addr:x}", "unsigned char", raw_end - addr, init, dry_run
                 ):
                     n_pad += 1
+            if insert_definition(
+                owner, f"_dpad_{raw_end:x}", "unsigned char", nxt_addr - raw_end, None, dry_run
+            ):
+                n_bss += 1
+        elif not bss_only:
+            # initialized region: byte-exact run from the original
+            start = addr - data_base
+            end = nxt_addr - data_base
+            data = orig[start:end]
+            init = hex_list(data)
+            if insert_definition(
+                owner, f"_dpad_{addr:x}", "unsigned char", end - start, init, dry_run
+            ):
+                n_pad += 1
     return {"init_pads": n_pad, "bss_pads": n_bss}
 
 
