@@ -21,8 +21,6 @@ import functools
 import json
 import logging
 import math
-import threading
-from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -60,6 +58,7 @@ from rebrew.cli import (
 from rebrew.compile import (
     clears_blocker,
 )
+from rebrew.compile_overrides import resolve_compile_overrides_cached
 from rebrew.config import ProjectConfig, inventory_path_for, module_marker
 from rebrew.match_semantics import EFFECTIVE_MATCH_NOTE, is_effective_match
 from rebrew.metadata import should_promote_status
@@ -98,74 +97,6 @@ def _failed_result(status: "CompareStatus", message: str = "") -> "CompareResult
         message=message or status,
         match_count=0,
     )
-
-
-#: Bounded memo for :func:`rebrew.compile_overrides.resolve_compile_overrides`,
-#: which walks ``rebrew-libraries.toml`` parents (a stat per level) on every
-#: call.  ``verify_entry`` runs once per function, so a large project pays
-#: the same walk thousands of times.  Keyed by the resolution's full input
-#: set, including the source directory, since a nearer toml can win.
-_OVERRIDE_MEMO_MAX = 512
-_override_memo: OrderedDict[tuple[Any, ...], tuple[str | None, str]] = OrderedDict()
-_override_memo_lock = threading.Lock()
-
-
-def _override_memo_key(
-    cfg: Any, source_dir: Path, toolchain: str, cflags: str, module: str
-) -> tuple[Any, ...]:
-    """Cache key carrying every input ``resolve_compile_overrides`` reads.
-
-    The resolution falls back per-function metadata → nearest
-    ``rebrew-libraries.toml`` → per-module preset → project defaults, so the
-    key must span all four levels:
-
-    * the target and the project-default flags (``cflags``,
-      ``cflags_explicit``, ``posix_style``, ``compiler_profile``, the module
-      preset) — ``verify --all-targets`` builds one config per target in a
-      single process, and without them a shared source resolves against the
-      FIRST target's flags for every later target.
-    * the stat fingerprint of the nearest library file — a ``rebrew library
-      set`` write (or a hand edit during ``verify --watch``) otherwise leaves
-      the pre-write toolchain/CFLAGS in force for the process lifetime.
-    """
-    from rebrew.metadata import library_override_fingerprint
-    from rebrew.utils import preset_module_key
-
-    return (
-        str(getattr(cfg, "root", "")),
-        str(getattr(cfg, "target_name", "")),
-        str(source_dir),
-        toolchain,
-        cflags,
-        module,
-        str(getattr(cfg, "compiler_profile", "")),
-        str(getattr(cfg, "cflags", "")),
-        bool(getattr(cfg, "cflags_explicit", False)),
-        bool(getattr(cfg, "posix_style", False)),
-        str(getattr(cfg, "cflags_presets", {}).get(preset_module_key(module), "")),
-        library_override_fingerprint(source_dir, getattr(cfg, "root", None)),
-    )
-
-
-def _resolved_overrides(
-    cfg: Any, source_dir: Path, toolchain: str, cflags: str, module: str
-) -> tuple[str | None, str]:
-    """``resolve_compile_overrides`` behind a bounded memo."""
-    from rebrew.compile_overrides import resolve_compile_overrides
-
-    key = _override_memo_key(cfg, source_dir, toolchain, cflags, module)
-    with _override_memo_lock:
-        hit = _override_memo.get(key)
-        if hit is not None:
-            _override_memo.move_to_end(key)
-            return hit
-    resolved = resolve_compile_overrides(cfg, source_dir, toolchain, cflags, module)
-    with _override_memo_lock:
-        _override_memo[key] = resolved
-        _override_memo.move_to_end(key)
-        while len(_override_memo) > _OVERRIDE_MEMO_MAX:
-            _override_memo.popitem(last=False)
-    return resolved
 
 
 @functools.lru_cache(maxsize=256)
@@ -274,7 +205,7 @@ def verify_entry(
     # rebrew-libraries.toml → preset → compiler.cflags) so verify compiles
     # every function of a library with the same toolchain + flags as
     # match/diff/test.
-    toolchain, cflags = _resolved_overrides(
+    toolchain, cflags = resolve_compile_overrides_cached(
         cfg,
         cfile.parent,
         getattr(entry, "toolchain", ""),
