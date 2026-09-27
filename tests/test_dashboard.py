@@ -946,7 +946,7 @@ class TestHandle:
         assert payload["code"] == "invalid_status"
         assert "STTUB" in payload["error"]
         # Every real status still filters (case- and alias-folded).
-        for known in ("STUB", "stub", "exact", "NEAR_MATCHING"):
+        for known in ("STUB", "stub", "exact", "NEAR_MATCHING", "UNKNOWN"):
             status, _, _ = dashboard.handle(
                 "GET", "/api/functions", {"target": ["server_dll"], "status": [known]}
             )
@@ -3073,10 +3073,12 @@ class TestOpenApiSpec:
             assert item["get"].get("parameters") == item["head"].get("parameters"), path
 
     def test_status_vocabulary_matches(self) -> None:
-        from rebrew.workspace import KNOWN_STATUSES
+        """The documented filter set is the DB column's own vocabulary, so a
+        status the summary renders as a card can always be filtered on."""
+        from rebrew.workspace.status import COVERAGE_DB_STATUSES
 
         declared = _spec()["components"]["parameters"]["Status"]["schema"]["enum"]
-        assert sorted(declared) == sorted(KNOWN_STATUSES)
+        assert sorted(declared) == sorted(COVERAGE_DB_STATUSES)
 
     def test_error_codes_are_all_reachable(self) -> None:
         """A documented code the server can never emit is a lie to branch on."""

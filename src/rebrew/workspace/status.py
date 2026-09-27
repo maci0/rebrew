@@ -34,6 +34,13 @@ KNOWN_STATUSES: frozenset[str] = frozenset(
     }
 )
 
+#: Statuses allowed in ``coverage.db`` ``functions.status``: ``KNOWN_STATUSES``
+#: plus ``UNKNOWN``, the column DEFAULT for a catalog row with no STATUS.  The
+#: schema CHECK, the insert-time sanitizer, and the dashboard status filter
+#: read this, so a value the database can hold can never be rejected as
+#: unknown by a reader of that same database.
+COVERAGE_DB_STATUSES: frozenset[str] = frozenset({*KNOWN_STATUSES, "UNKNOWN"})
+
 # Statuses whose compiled bytes equal the target (RELOC after relocation
 # masking), in canonical display order.  PROVEN is semantic equivalence
 # with differing bytes and is deliberately absent.

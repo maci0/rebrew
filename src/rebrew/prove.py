@@ -1379,13 +1379,9 @@ def main(
             check_edx=check_edx,
         )
     except _AlreadyMatched as m:
-        from rebrew.metadata import update_source_status
-
         new_status = m.new_status
         if not dry_run:
-            update_source_status(
-                cfg.metadata_dir, new_status, ann.module, ann.va, updated_by="prove"
-            )
+            _promote_already_matched(cfg, ann, new_status)
         early: dict[str, Any] = {
             "schema_version": 1,
             "source": str(source_path),
@@ -1585,6 +1581,25 @@ class _AlreadyMatched(Exception):
         self.new_status = new_status
 
 
+def _promote_already_matched(cfg: Any, ann: Any, new_status: str) -> None:
+    """Record an ALREADY_MATCHED verdict in metadata AND the verify cache.
+
+    Both holders must move together: ``status.effective_status`` lets a
+    cached verdict outrank the metadata STATUS, so a metadata-only promotion
+    to EXACT/RELOC would leave ``rebrew status`` reporting the stale
+    pre-prove verdict until the next full verify.  A byte match needs no
+    match_count/total, so the percent goes in directly.
+    """
+    from rebrew.metadata import update_source_status
+    from rebrew.verify_cache import patch_verify_cache_entries
+
+    update_source_status(cfg.metadata_dir, new_status, ann.module, ann.va, updated_by="prove")
+    patch_verify_cache_entries(
+        cfg,
+        [{"va": ann.va, "status": new_status, "match_percent": 100.0, "delta": 0}],
+    )
+
+
 @dataclass
 class _ProveInputs:
     """Prepared inputs shared by the single-file CLI path and batch mode."""
@@ -1765,11 +1780,7 @@ def _prove_single(
     except _AlreadyMatched as m:
         # Bytes already match → promote to RELOC/EXACT instead of PROVEN.
         if not dry_run:
-            from rebrew.metadata import update_source_status
-
-            update_source_status(
-                cfg.metadata_dir, m.new_status, ann.module, ann.va, updated_by="prove"
-            )
+            _promote_already_matched(cfg, ann, m.new_status)
             _clear_prove_counterexample(cfg, ann)
         # Sentinel prefix so batch mode can count this separately from failures.
         return False, f"ALREADY_MATCHED:{m.new_status}"

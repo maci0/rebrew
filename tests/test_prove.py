@@ -1607,3 +1607,79 @@ class TestAngrAvailable:
         monkeypatch.setitem(sys.modules, "angr", None)
         with pytest.raises(ImportError, match="rebrew prove"):
             _require_angr()
+
+
+class TestPromoteAlreadyMatched:
+    """An ALREADY_MATCHED prove is a byte match, so it must land in both
+    status holders.  `status.effective_status` lets the verify-cache verdict
+    outrank the metadata STATUS, so a metadata-only promotion left
+    `rebrew status` reporting the stale pre-prove result until a full verify."""
+
+    def _make_cfg(self, tmp_path: Path) -> Any:
+        from rebrew.config import ProjectConfig
+
+        reversed_dir = tmp_path / "src"
+        reversed_dir.mkdir(parents=True, exist_ok=True)
+        target_binary = tmp_path / "target.exe"
+        target_binary.write_bytes(b"MZ")
+        return ProjectConfig(
+            root=tmp_path,
+            target_name="GAME",
+            target_binary=target_binary,
+            reversed_dir=reversed_dir,
+            compiler_command="wine CL.EXE",
+            base_cflags="/nologo /c /MT",
+            compiler_includes=tmp_path / "include",
+            compiler_libs=tmp_path / "lib",
+        )
+
+    def test_updates_metadata_and_verify_cache(self, tmp_path: Path) -> None:
+        import json
+
+        from rebrew.prove import _promote_already_matched
+        from rebrew.verify_hash import compiler_config_hash, headers_hash
+
+        cfg = self._make_cfg(tmp_path)
+        va = 0x1000
+        (tmp_path / "rebrew-functions.toml").write_text(
+            f'["GAME.0x{va:08x}"]\nstatus = "NEAR_MATCHING"\nsize = 8\n', encoding="utf-8"
+        )
+        cache_path = tmp_path / ".rebrew" / "verify_cache.json"
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path.write_text(
+            json.dumps(
+                {
+                    "version": 2,
+                    "compiler_hash": compiler_config_hash(cfg),
+                    "headers_hash": headers_hash(cfg),
+                    "target": "GAME",
+                    "entries": {
+                        f"0x{va:08x}": {
+                            "source_hash": "abc",
+                            "mtime_ns": 1,
+                            "status": "NEAR_MATCHING",
+                            "va": f"0x{va:08x}",
+                            "filepath": "func_a.c",
+                            "name": "func_a",
+                            "match_percent": 96.0,
+                            "delta": 2,
+                            "passed": False,
+                            "message": "",
+                        }
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        ann = SimpleNamespace(va=va, module="GAME")
+        _promote_already_matched(cfg, ann, "EXACT")
+
+        from rebrew.metadata import load_metadata
+
+        assert load_metadata(tmp_path)[("GAME", va)]["status"] == "EXACT"
+        entry = json.loads(cache_path.read_text(encoding="utf-8"))["entries"][f"0x{va:08x}"]
+        assert entry["status"] == "EXACT"
+        assert entry["passed"] is True
+        assert entry["match_percent"] == 100.0
+        assert entry["delta"] == 0

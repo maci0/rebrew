@@ -169,6 +169,28 @@
   file and returned an empty store, so one control character in one field
   erased every entry on the next load-modify-save. `save_metadata` now
   sanitizes the same way.
+- **Clicking the dashboard's `UNKNOWN` card no longer 400s.** `UNKNOWN` is
+  the `functions.status` column DEFAULT and a CHECK-allowed value, and the
+  summary renders it as a filterable status card, but `/api/functions`
+  validated `status` against `KNOWN_STATUSES`, which the DB column is a
+  strict superset of, so the card's own link was rejected as an unknown
+  status. The filter now validates against `COVERAGE_DB_STATUSES` (the
+  column's vocabulary, owned by `workspace.status` and shared with the
+  schema CHECK and the insert-time sanitizer), and the OpenAPI enum
+  documents it.
+- **`rebrew prove` on already-matching bytes updates the verify cache too.**
+  An `ALREADY_MATCHED` prove writes `EXACT`/`RELOC` to
+  `rebrew-functions.toml` but never patched `.rebrew/verify_cache.json`, and
+  `status.effective_status` lets a cached verdict outrank the metadata
+  STATUS, so `rebrew status` kept counting the function as failed with the
+  stale pre-prove verdict until the next full verify. Both prove write sites
+  now share `_promote_already_matched`, which records the verdict in metadata
+  and patches the cache entry, like every other promotion site.
+- **A STATUS promotion no longer zeroes a cached match percent.**
+  `patch_verify_cache_entries` recomputed `match_percent` from
+  `match_count / total` and fell back to `0.0` when a caller supplied neither,
+  overwriting the last real measurement; `delta` already kept the cached value
+  in that case. Both fields now fall back the same way.
 - **The dashboard OpenAPI spec matches what the server actually does.**
   Three contracts a client generates from `docs/dashboard-api.yaml` were
   wrong or missing:
