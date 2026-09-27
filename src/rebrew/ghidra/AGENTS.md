@@ -1,0 +1,21 @@
+# AGENTS.md: ghidra/
+
+Sync rebrew annotations with Ghidra. Field-level sync (names, comments, prototypes, structs, globals) is BinSync-primary and lives in `rebrew.binsync`; the ReVa MCP surface here covers the structural ops BinSync cannot express: function creation, bookmarks, and data pulls.
+
+## Modules
+
+| Module | Role |
+|--------|------|
+| `models.py` | `JsonRpcResponse`, `McpToolResult` — the wire shapes |
+| `client.py` | ReVa MCP HTTP client: session init, JSON-RPC tool invocation, `McpError` / `McpApplyAborted` |
+| `commands.py` | MCP command builders (`build_new_function_commands`, `build_bookmark_commands`) + apply orchestration |
+| `cli_backend.py` | `ghidra-cli` subprocess backend, the alternative transport to MCP |
+| `cli.py` | `rebrew ghidra-*` Typer entry points |
+
+Externals (the only packages this one may import): `binary_loader`, `binsync.export`, `binsync.importer`, `catalog`, `cli`, `config`, `errors`, `sources`, `utils`. The `binsync.*` imports are the read side of the sync; a field write still goes out through `rebrew.binsync`.
+
+## Contracts
+
+- **Two transports, one command list.** `commands.py` builds the operation list; `client.py` (MCP) or `cli_backend.py` (`ghidra-cli`) executes it. Adding an op means adding a builder, not a transport branch.
+- **`cli.py` is the only Typer surface here.** Library modules stay transport-free so a host other than the CLI can drive the sync.
+- **`models.py` holds the wire types.** A response field is added there, never re-declared at the call site.
