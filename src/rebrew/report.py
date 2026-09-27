@@ -566,9 +566,24 @@ def _render_index(
     # One percentage. With a known .text size it is the byte share; the
     # function figures stay counts. Without a size, the function share is
     # the percentage and the byte card says the size was not measured.
+    over_text_html = ""
     if report.total_text_bytes > 0:
         matched_card = f"{report.matched_functions}/{report.total_functions}"
-        text_card = f"{report.byte_coverage_pct}%"
+        if report.matched_bytes > report.total_text_bytes:
+            # The annotated SIZE fields sum past the measured .text (overlapping
+            # or stale sizes), so the ratio reads as e.g. 312.5% and reads as a
+            # broken number.  "100%+" states the figure is at least a full
+            # section without inventing one; the note gives the byte counts.
+            text_card = "100%+"
+            over_text_html = (
+                "<p class='note'>The byte-matched functions annotate "
+                f"{report.matched_bytes} bytes, more than the "
+                f"{report.total_text_bytes}-byte .text section, so byte coverage "
+                "is shown as 100%+. Re-run <code>rebrew build-db</code> if the "
+                "SIZE fields are stale.</p>"
+            )
+        else:
+            text_card = f"{report.byte_coverage_pct}%"
     else:
         matched_card = (
             f"{report.matched_functions}/{report.total_functions} ({report.matched_pct}%)"
@@ -612,7 +627,7 @@ def _render_index(
             "<p class='note'>No reversed functions found. Add annotated sources under "
             "the project's reversed directory, then regenerate this report.</p>"
         )
-        body = f"<h2>Function index</h2>{card_html}{ne_html}{table}"
+        body = f"<h2>Function index</h2>{card_html}{over_text_html}{ne_html}{table}"
         return [("index.html", _page("Function index", target, "index.html", body))]
 
     total = len(functions)
@@ -638,7 +653,10 @@ def _render_index(
             span=span,
         )
         if page_num == 1:
-            body = f"<h2>Function index</h2>{card_html}{ne_html}{pager}{table}{pager_end}"
+            body = (
+                f"<h2>Function index</h2>{card_html}{over_text_html}{ne_html}"
+                f"{pager}{table}{pager_end}"
+            )
             title = "Function index"
         else:
             body = f"<h2>Function index (continued)</h2>{pager}{table}{pager_end}"
