@@ -1,6 +1,7 @@
 """Tests for batch GA and flag sweep logic in rebrew.match."""
 
 import json
+import time
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -2054,6 +2055,37 @@ class TestRunOneStubGaPersistsFlags:
         matched, *_ = M._run_one_stub_ga(stub, self._cfg(tmp_path), 1, 4, 1, 5)
         assert matched
         assert validated == [champion]
+
+    def test_zero_timeout_leaves_the_ga_unbounded(self, tmp_path: Path, monkeypatch: Any) -> None:
+        """``--timeout-min 0`` means unbounded (the flag sweep's convention).
+
+        The GA used to turn it into a 60 s budget from the slack term, so the
+        run stopped between generations a minute in.
+        """
+        import rebrew.match_run as M
+
+        stub = self._stub(tmp_path, "int s(void) { return 1; }\n")
+        seen: list[float | None] = []
+        fake_ga = _fake_ga("int s(void) { return 1; }")
+        inner_run = fake_ga.run
+
+        def _run(self: Any, deadline: Any = None) -> tuple[str, float]:
+            seen.append(deadline)
+            return inner_run(self, deadline)
+
+        fake_ga.run = _run  # type: ignore[method-assign]
+        monkeypatch.setattr(M, "BinaryMatchingGA", fake_ga)
+        monkeypatch.setattr(M, "extract_raw_bytes", lambda *a, **k: b"\xc3" * 16)
+        monkeypatch.setattr(M, "resolve_compiler_env", lambda cfg: ("cl", "", {}, None))
+        monkeypatch.setattr(M, "_save_solution", lambda *a, **k: None)
+
+        M._run_one_stub_ga(stub, self._cfg(tmp_path), 1, 4, 1, 0)
+        assert seen == [None]
+
+        M._run_one_stub_ga(stub, self._cfg(tmp_path), 1, 4, 1, 5)
+        assert seen[1] is not None
+        # time.monotonic() now, plus 5 min of budget and the 60 s slack.
+        assert seen[1] > time.monotonic() + 300
 
     def test_splice_failure_does_not_claim_match(self, tmp_path: Path, monkeypatch: Any) -> None:
         import rebrew.match_run as M

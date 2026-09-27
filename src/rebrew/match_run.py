@@ -476,7 +476,10 @@ def _run_one_stub_ga(
     # thread and would break parallel batch runs).  Compile subprocesses
     # are individually bounded by compile_timeout, so the worst-case
     # overshoot past the deadline is one in-flight compile.
-    deadline = time.monotonic() + timeout_min * 60 + 60
+    # timeout_min == 0 means unbounded, the convention the flag sweep uses
+    # (run_single_flag_sweep); without this the GA silently stopped after
+    # the 60 s slack.
+    deadline = time.monotonic() + timeout_min * 60 + 60 if timeout_min > 0 else None
     try:
         best_src, best_score = ga.run(deadline=deadline)
         matched = best_score < EXACT_SCORE_THRESHOLD
