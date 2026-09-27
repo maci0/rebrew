@@ -275,6 +275,13 @@ DEFAULT_COMMANDS = [
 #: fixture; the tree must be identical after both runs.  Offline only — no
 #: command here compiles anything or needs a toolchain image.
 WRITE_COMMANDS = [
+    # ``verify`` is deliberately absent: it compiles (a toolchain round trip)
+    # and its report carries a by-design wall-clock ``timestamp``, so a
+    # byte-exact tree compare can never pass for it.  The property that
+    # matters there — a re-run does not re-serialize an unchanged verdict — is
+    # pinned by tests/test_verify_incremental.py
+    # ::TestIncrementalVerify::test_cache_hit_reports_the_same_row_bytes_as_a_fresh_run.
+    #
     # Strips inline markers into rebrew-functions.toml (ADR 023).
     "migrate-markers",
     # Writes a STUB .c + BLOCKER + STATUS for every undocumented function.
