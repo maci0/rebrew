@@ -89,7 +89,9 @@ same bytes) so entry assets skip per-request compression CPU.  Their combined
 wire size stays inside the RFC 6928 initial congestion window minus a
 per-response header reserve, so a cold connection paints without an extra
 round trip; a test pins that budget, and a change that does not fit pays for
-itself in the client's own comment prose rather than in the budget.  Remaining
+itself in the client's own comment prose rather than in the budget.  As
+measured: 12100 B zstd and 12671 B gzip against a 12680 B budget, so gzip has
+9 B of room and zstd 580 B — a client-side edit budgets against gzip.  Remaining
 JSON compresses per request at mid effort, except ``/api/bootstrap``: the cold
 start needs it to paint, a client sends it once per load and 304s after that,
 so it takes the same max effort the static blobs do.  The shell
@@ -1026,6 +1028,8 @@ function loadCurrentView(force) {
 function setView(name) {
   if (!VIEWS.includes(name)) return;
   currentView = name;
+  if (currentView !== "functions") clearTimeout(searchTimer);
+  if (currentView !== "globals") clearTimeout(globalsSearchTimer);
   setLoadError("view", "");
   syncViewChrome();
   loadCurrentView(false);

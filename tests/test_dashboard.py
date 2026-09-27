@@ -637,6 +637,11 @@ class TestListReset:
         _run_script("dashboard_list_reset.mjs")
 
 
+class TestViewSwitch:
+    def test_pending_search_debounce_does_not_load_the_view_left_behind(self) -> None:
+        _run_script("dashboard_view_switch.mjs")
+
+
 class TestLoadErrors:
     def test_error_messages_carry_the_server_reason(self) -> None:
         _run_script("dashboard_errors.mjs")
