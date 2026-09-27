@@ -78,8 +78,8 @@ def find_root(start: Path | str | None = None) -> Path:
     *start* the walk begins at the current working directory.
 
     Raises :class:`WorkspaceNotFound` when no ancestor carries the marker.
-    Unlike rebrew's ``find_root``, a bare directory is not passed through
-    unchanged: this function either finds a workspace or raises.
+    Unlike ``rebrew.config.find_root``, which treats an explicit *start* as
+    the project root verbatim, this one checks the marker and walks up.
     """
     origin = Path.cwd() if start is None else Path(start).resolve()
     if start is not None and (origin / CONFIG_NAME).is_file():

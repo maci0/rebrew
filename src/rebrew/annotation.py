@@ -890,7 +890,8 @@ def _kv_to_annotation(
 
     Volatile metadata that is *not* read from inline comments (STATUS,
     BLOCKER, NOTE, GHIDRA, …) lives only in rebrew-functions.toml and is
-    overlaid by merge_into_annotation; any inline copies are migration debt
+    overlaid during the parse (``apply_metadata_entry``); any inline copies
+    are migration debt
     (lint W019 + ``lint --fix``).  Still parsed from the ``.c``:
 
     - reccmp-native contract keys (SIZE, CFLAGS) — TOML is an override;
@@ -1394,9 +1395,9 @@ def _finalize_entries(
     if metadata_dir is not None:
         from rebrew.metadata import apply_metadata_entry, load_metadata
 
-        # Load the metadata ONCE per file and apply per annotation —
-        # merge_into_annotation re-loaded it per function (the
-        # whole-tree parse hot path: 1000 functions = 1000 TOML loads).
+        # Load the metadata ONCE per file and apply per annotation; loading
+        # it per function made the whole-tree parse hot path do 1000 TOML
+        # loads for 1000 functions.
         # deepcopy=False: apply_metadata_entry only reads and copies
         # mutable field values onto the Annotation; cloning the whole
         # table per source file dominated catalog/verify scans.
