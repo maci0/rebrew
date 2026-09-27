@@ -1130,6 +1130,35 @@ class TestFlagSweepIncludeDirs:
         assert done == sorted(combos, reverse=True)
         assert [flags for _score, flags in results] == sorted(combos)
 
+    def test_n_jobs_zero_clamps_to_one(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The CLI -j flag skips config's _positive_int check, so `match
+        --flag-sweep-only -j 0` reached ThreadPoolExecutor(max_workers=0)
+        and aborted the sweep with ValueError. n_jobs<1 must run serially."""
+        from rebrew.matcher.compiler import flag_sweep
+
+        built: list[str] = []
+
+        def _fake_build(src: str, cl_cmd: str, inc: str, flags: str, sym: str, **k: Any):
+            built.append(flags)
+            return SimpleNamespace(ok=True, obj_bytes=b"\x55\x8b\xec\x5d\xc3", reloc_offsets=None)
+
+        monkeypatch.setattr("rebrew.matcher.compiler.build_candidate_obj_only", _fake_build)
+        results = flag_sweep(
+            "int f(void){return 0;}",
+            b"\x55\x8b\xec\x5d\xc3",
+            "cl",
+            "",
+            "/O2",
+            "_f",
+            n_jobs=0,
+            tier="quick",
+        )
+        # Every combo still got evaluated, on one worker.
+        assert built
+        assert len(results) == len(built)
+
     def test_sweep_scoring_params_from_config(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

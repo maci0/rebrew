@@ -145,6 +145,10 @@ class CompileCache:
     through :class:`NoPickleDisk` so a poisoned cache cannot RCE on read
     (GHSA-w8v5-vhqr-4h9v defense in depth; chmod 0o700 remains).
 
+    The instance outlives any single call: a GA holds one for a whole run
+    while another thread can close it.  ``close()`` is therefore serialized
+    against store use, so a concurrent caller never reads a torn-down store.
+
     In-process hit/miss counters (``hits``, ``misses``) are incremented on
     every ``get`` call so that ``rebrew cache stats`` can report a per-session
     hit rate without any extra disk I/O.  Counters reset when the process exits.
@@ -168,6 +172,17 @@ class CompileCache:
         # ``+= 1`` is not atomic across the GIL — protect the increments so
         # stats are not silently undercounted under contention.
         self._counter_lock = threading.Lock()
+        # diskcache is thread-safe, but ``close()`` is not: it tears down the
+        # SQLite handle and nulls ``self._cache`` while a worker on another
+        # target may be mid-``get()`` on the same instance.  The LRU eviction in
+        # ``get_compile_cache`` reaches it once _CACHES_MAX project roots are
+        # open, which ``match --all-targets`` does: each target compiles under
+        # its own pool thread and calls get_compile_cache per compile, so one
+        # target's eviction lands inside another's lookup.  Serialize store use
+        # against close so the handle is never used after it is torn down.
+        # Held only around a single SQLite call, never across a compile, so it
+        # cannot order against any other lock.
+        self._store_lock = threading.Lock()
         # None when the store could not be opened (corrupt SQLite file,
         # unwritable directory): the cache runs disabled instead of raising,
         # so callers keep compiling at full subprocess cost.
@@ -191,7 +206,9 @@ class CompileCache:
         """
         if self._cache is not None:
             try:
-                result = self._cache.get(key, default=None)
+                with self._store_lock:
+                    store = self._cache
+                    result = store.get(key, default=None) if store is not None else None
             except Exception as exc:  # degrade to miss, never break compiles
                 _warn_cache_failure("lookup", exc)
                 result = None
@@ -208,7 +225,10 @@ class CompileCache:
         if self._cache is None:
             return
         try:
-            self._cache.set(key, obj_bytes)
+            with self._store_lock:
+                store = self._cache
+                if store is not None:
+                    store.set(key, obj_bytes)
         except Exception as exc:  # a failed write only costs future hits
             _warn_cache_failure("store", exc)
 
@@ -216,7 +236,9 @@ class CompileCache:
     def volume(self) -> int:
         """Total bytes used by the cache on disk."""
         try:
-            return int(self._cache.volume()) if self._cache is not None else 0
+            with self._store_lock:
+                store = self._cache
+                return int(store.volume()) if store is not None else 0
         except Exception as exc:
             logging.getLogger(__name__).debug("cache volume failed: %s", exc)
             return 0
@@ -225,24 +247,35 @@ class CompileCache:
     def count(self) -> int:
         """Number of entries in the cache."""
         try:
-            return len(self._cache) if self._cache is not None else 0
+            with self._store_lock:
+                store = self._cache
+                return len(store) if store is not None else 0
         except Exception as exc:
             logging.getLogger(__name__).debug("cache count failed: %s", exc)
             return 0
 
     def clear(self) -> None:
         """Remove all cached entries."""
-        if self._cache is not None:
-            try:
-                self._cache.clear()
-            except Exception as exc:
-                _warn_cache_failure("clear", exc)
+        try:
+            with self._store_lock:
+                store = self._cache
+                if store is not None:
+                    store.clear()
+        except Exception as exc:
+            _warn_cache_failure("clear", exc)
 
     def close(self) -> None:
-        """Close the underlying diskcache store."""
-        if self._cache is not None:
+        """Close the underlying diskcache store.
+
+        Waits for an in-flight ``get``/``put`` on another thread to finish
+        first, so the SQLite handle is never torn down under a live lookup.
+        """
+        with self._store_lock:
+            store = self._cache
+            if store is None:
+                return
             try:
-                self._cache.close()
+                store.close()
             except Exception as exc:
                 _warn_cache_failure("close", exc)
             finally:
@@ -260,7 +293,9 @@ class CompileCache:
             misses = self.misses
         total_lookups = hits + misses
         hit_rate = round(100.0 * hits / total_lookups, 1) if total_lookups > 0 else 0.0
-        size_limit = self._cache.size_limit if self._cache is not None else 0
+        with self._store_lock:
+            store = self._cache
+            size_limit = store.size_limit if store is not None else 0
         return {
             "entries": self.count,
             "volume_bytes": self.volume,

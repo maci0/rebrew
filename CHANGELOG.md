@@ -6,6 +6,50 @@
   name nor an ordinal, so `gen-layout` wrote an import record that names no API
   and shifts the IAT order it attaches VAs to by position. The slot is skipped,
   which is what `layout_meta.extract_layout` already does on the same walk.
+- **`close()` could tear the compile cache down under a live lookup.**
+  `CompileCache` is shared by every GA and sweep worker for the length of a
+  run, but its `diskcache` store was used with no lock while `close()` ran
+  from the other side. The LRU eviction in `get_compile_cache` reaches it once
+  more than eight project roots are open, which `match --all-targets` does:
+  each target compiles under its own pool thread and calls `get_compile_cache`
+  per compile, so one target's eviction lands inside another target's lookup.
+  The worker then read a closed SQLite handle, and because a failed lookup
+  degrades to a miss by design, it showed up as a silent loss of cache hits
+  rather than a traceback. Store use is now serialized against `close()` by a
+  leaf `_store_lock` held across one SQLite call and no compile, so a close
+  waits for the in-flight lookup instead of racing it.
+- **`-j 0` crashed the match pools.** The `-j` flag skips the config
+  `_positive_int` validation, so `rebrew match f.c -j 0` and
+  `--flag-sweep-only -j 0` passed `0` to `ThreadPoolExecutor`, which raises
+  `ValueError: max_workers must be greater than 0`. `rebrew match` now clamps
+  the value once, so every pool it drives (the GA, the flag sweep, the
+  per-stub batch, `--all-targets`) inherits the bound, and `flag_sweep` and the
+  qualifier sweep clamp their own argument for direct callers.
+- **`test_function_span` imported a name that had been renamed.** The helper
+  became public `function_span` when it grew a `rebrew.climb` delegate, and
+  the test kept importing the old private name, so `tests/test_new_commands.py`
+  failed at import.
+- **A CRLF checkout shipped CRLF bytes in the sdist and wheel.**
+  `.gitattributes` said `* text=auto`, which normalizes the index but leaves
+  the working tree to `core.autocrlf`. The byte-for-byte second build CI
+  proves (`make build` from a `git archive` copy under a different path,
+  umask, TZ, and locale) varied everything except line endings, so a
+  contributor on a CRLF checkout produced artifacts CI would have rejected.
+  The rule is now `* text=auto eol=lf`: the project ships POSIX/Linux only, and
+  the checkout no longer feeds the host's line-ending policy into the archive.
+
+### Removed
+- **`ProjectConfig.to_dict()`.** It was a one-line alias for
+  `ProjectConfig.as_dict()` kept "for API consistency across SDK models", and
+  the only caller in the tree was a test asserting the alias equalled the
+  method it aliased. `as_dict()` is the one name; use it.
+- **`ARCH_PRESETS[...]["symbol_prefix"]`.** The key was written for all ten
+  arch presets and read by nothing, so every arch declared a symbol-mangling
+  convention that no disassembler, matcher, or exporter ever applied. A
+  consumer that needs one reads the target's own symbol table, not a guess
+  keyed off the architecture.
+- **`llm_seed._key_safe_endpoint()`.** A private one-line wrapper around
+  `config.is_key_safe_endpoint` with a single caller in the same module.
 
 ### Changed
 - **The PE walker and the float-constant scanner have property-based fuzz

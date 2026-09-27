@@ -381,6 +381,11 @@ def main(
 
     if jobs is None:
         jobs = int(getattr(cfg, "default_jobs", 4))
+    # The -j flag bypasses config's _positive_int validation, so `-j 0` (or a
+    # negative) reached ThreadPoolExecutor(max_workers=...) verbatim and raised
+    # ValueError. Clamp once here: every pool this command drives (the GA, the
+    # flag sweep, the per-stub batch, --all-targets) inherits the bound.
+    jobs = max(1, jobs)
 
     # Validate --tier up front: generate_flag_combinations raises a bare
     # ValueError that would otherwise escape as a traceback mid-sweep.

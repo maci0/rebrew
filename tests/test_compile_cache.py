@@ -81,6 +81,60 @@ class TestCompileCache:
         assert c2._cache is not None
         c2.close()
 
+    def test_close_waits_for_inflight_lookup(self, tmp_path: Path) -> None:
+        """close() must not tear the SQLite handle down under a live get().
+
+        One CompileCache is shared by every GA and sweep worker for the length
+        of a run, and the LRU eviction in get_compile_cache closes the oldest
+        backend once _CACHES_MAX project roots are open. With one root per
+        target (``match --all-targets``) that eviction lands inside another
+        target's lookup. Without the store lock the worker reads a closed
+        connection, and a failed lookup degrades to a miss by design, so the
+        hit is silently lost.
+        """
+        import threading
+
+        cache = CompileCache(tmp_path / "cc")
+        cache.put("k", b"\x55\x8b\xec")
+        store = cache._cache
+        assert store is not None
+
+        in_get = threading.Event()
+        release = threading.Event()
+        real_get = store.get
+
+        def _blocking_get(key: str, default: object = None) -> object:
+            in_get.set()
+            assert release.wait(10.0), "test thread never released the lookup"
+            return real_get(key, default=default)
+
+        store.get = _blocking_get  # type: ignore[method-assign]
+        got: list[bytes | None] = []
+        reader = threading.Thread(target=lambda: got.append(cache.get("k")))
+        reader.start()
+        assert in_get.wait(10.0), "get() never entered the store"
+
+        closed = threading.Event()
+
+        def _close() -> None:
+            cache.close()
+            closed.set()
+
+        closer = threading.Thread(target=_close)
+        closer.start()
+        # close() must block until the in-flight lookup is done.
+        assert not closed.wait(0.2), "close() tore down the store under a live get()"
+
+        release.set()
+        reader.join(10.0)
+        closer.join(10.0)
+        assert not reader.is_alive()
+        assert not closer.is_alive()
+        # The lookup still saw its entry, and the close still took effect.
+        assert got == [b"\x55\x8b\xec"]
+        assert closed.is_set()
+        assert cache._cache is None
+
 
 class TestCompileCacheKey:
     @pytest.mark.parametrize(

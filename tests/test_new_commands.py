@@ -30,10 +30,10 @@ class TestQualSweepVariants:
         assert not _is_decl("int f(void) { return 1; }")
 
     def test_function_span(self) -> None:
-        from rebrew.qual_sweep import _function_span
+        from rebrew.qual_sweep import function_span
 
         lines = ["int f(void) {", "  return 1;", "}", "int g(void) {", "}"]
-        assert _function_span(lines, "f") == (0, 3)
+        assert function_span(lines, "f") == (0, 3)
 
 
 class TestQualSweepCandidateFiles:
