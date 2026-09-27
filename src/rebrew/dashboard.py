@@ -2638,13 +2638,9 @@ class _Handler(BaseHTTPRequestHandler):
                 status, content_type, body = self.dashboard.handle(method, self.path, query)
         except sqlite3.Error as exc:
             # A vanished/corrupt database must answer 500 JSON instead of
-            # killing the handler thread with no response at all.  Keep the
-            # sqlite detail on stderr only — LAN clients must not learn paths
-            # or schema strings from the wire body.
-            console.print(
-                f"[red]dashboard query failed:[/red] "
-                f"{escape(_escape_log_text(self.path))}: {escape(_escape_log_text(str(exc)))}"
-            )
+            # killing the handler thread with no response at all.  The sqlite
+            # detail stays on the log stream only — LAN clients must not learn
+            # paths or schema strings from the wire body.
             _log_failed_request("dashboard query failed", self.path, exc, self._request_id)
             logged_error = True
             status, content_type, body = self.dashboard._error(
@@ -2654,12 +2650,6 @@ class _Handler(BaseHTTPRequestHandler):
             # Any other unexpected error (a bug in a route, an OSError on a
             # sidecar read) gets the same treatment: without this the thread
             # dies and the client sees a connection reset instead of a 500.
-            # escape(): self.path is remote-controlled and must not be
-            # interpreted as Rich markup (terminal escape / log injection).
-            console.print(
-                f"[red]dashboard handler failed:[/red] "
-                f"{escape(_escape_log_text(self.path))}: {escape(_escape_log_text(repr(exc)))}"
-            )
             _log_failed_request("dashboard handler failed", self.path, exc, self._request_id)
             logged_error = True
             status, content_type, body = self.dashboard._error(

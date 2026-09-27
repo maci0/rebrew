@@ -2697,7 +2697,7 @@ class TestHostValidation:
         body = b"".join(written)
         assert b"internal server error" in body
 
-    def test_handler_sqlite_error_hides_details(self, capsys: pytest.CaptureFixture[str]) -> None:
+    def test_handler_sqlite_error_hides_details(self, caplog: pytest.LogCaptureFixture) -> None:
         """SQLite failures answer a generic 500 — no schema/path leak on the wire."""
         import sqlite3
 
@@ -2723,16 +2723,17 @@ class TestHostValidation:
                 return len(data)
 
         handler.wfile = _FakeWFile()
-        handler._respond("GET")
+        with caplog.at_level(logging.ERROR, logger="rebrew.dashboard"):
+            handler._respond("GET")
         assert [v for k, v in sent if k == "status"] == [500]
         body = b"".join(written)
         assert b'"database error"' in body
         assert b"no such table" not in body
         assert b"secrets" not in body
-        stderr = capsys.readouterr().err
-        assert "\x1b" not in stderr
-        assert "/api/targets\\x1b" in stderr
-        assert "secrets\\x1b" in stderr
+        reported = caplog.records[-1].getMessage()
+        assert "\x1b" not in reported
+        assert "/api/targets\\x1b" in reported
+        assert "secrets\\x1b" in reported
 
     def test_handler_revalidation_sqlite_error_answers_500(self) -> None:
         """A DB failure during the 304 target probe is a 500 JSON, not a reset."""
@@ -2818,6 +2819,55 @@ class TestHostValidation:
         assert "RuntimeError: boom" in text
         assert "Traceback" in text
         assert text.split()[0] == handler._request_id
+
+    def test_handler_unexpected_error_is_reported_once(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """One failure, one line on the server stream.
+
+        The access log and the log handler share the console's file, so a
+        second print of the same exception puts two lines about one request on
+        the stream, and only the log one carries the correlation id and stamp.
+        """
+        from io import StringIO
+
+        from rich.console import Console
+
+        from rebrew.dashboard import (
+            Dashboard,
+            _attach_server_log_handler,
+            _Handler,
+            allowed_hosts_for,
+        )
+
+        output = StringIO()
+        monkeypatch.setattr(
+            "rebrew.dashboard.console",
+            Console(file=output, width=200, color_system=None, highlight=False),
+        )
+        handler = _Handler.__new__(_Handler)  # bypass __init__: no socket needed
+        handler.headers = {"Host": "127.0.0.1:8000"}
+        handler.path = "/api/targets"
+        handler.allowed_hosts = allowed_hosts_for("127.0.0.1", 8000)
+        handler.dashboard = Dashboard(Path("/nonexistent/coverage.db"))
+        handler.dashboard.handle = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom"))  # type: ignore[method-assign]
+        handler._request_id = "r7"
+        handler.send_response = lambda status: None  # type: ignore[method-assign]
+        handler.send_header = lambda name, value: None  # type: ignore[method-assign]
+        handler.end_headers = lambda: None  # type: ignore[method-assign]
+        handler.wfile = _NullWFile()
+
+        server_log = logging.getLogger("rebrew.dashboard")
+        _attach_server_log_handler()
+        try:
+            handler._respond("GET")
+        finally:
+            for attached in list(server_log.handlers):
+                server_log.removeHandler(attached)
+
+        rendered = output.getvalue()
+        assert rendered.count("dashboard handler failed") == 1
+        assert "r7 dashboard handler failed" in rendered
 
     def test_route_level_500_is_logged_with_the_request(
         self, dashboard: Dashboard, caplog: pytest.LogCaptureFixture

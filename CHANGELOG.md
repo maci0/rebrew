@@ -427,6 +427,14 @@
   said so comes later.
 
 ### Fixed
+- **A failed dashboard request is reported once, not twice.** The sqlite and
+  last-resort handler guards printed the exception to the console *and* logged
+  it through `_log_failed_request`, and the log handler writes to that same
+  stream, so every 500 put two lines about one request on the operator's
+  output. Only the logged one carries the timestamp stamp, the level, and the
+  `r<N>` correlation id, so the printed copy was the one an operator could not
+  pivot from. The console print is gone; the stamped ERROR line with the
+  scrubbed traceback is the whole report.
 - **`--verbose` and `--quiet` work after the subcommand, not only before it.**
   The umbrella advertises both, but click parses a group's own options only
   ahead of the subcommand name, so `rebrew diff -v` and the flat
