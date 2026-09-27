@@ -679,13 +679,20 @@ def _scan_utf16(raw: bytes, va: int, section: str, min_len: int) -> list[StringE
     return out
 
 
-def string_refs(info: BinaryInfo, strings: list[StringEntry]) -> dict[int, list[Xref]]:
-    """Map string VA -> references, using *strings* as the target set."""
+def string_refs(
+    info: BinaryInfo, strings: list[StringEntry], all_refs: list[Xref] | None = None
+) -> dict[int, list[Xref]]:
+    """Map string VA -> references, using *strings* as the target set.
+
+    *all_refs* is an already-computed unfiltered :func:`scan_references`
+    result; passing it avoids a second full disassembly of every code
+    section, which on a multi-megabyte ``.text`` costs seconds.
+    """
     if not strings:
         return {}
     targets = {s.va for s in strings}
     refs: dict[int, list[Xref]] = {}
-    for xref in scan_references(info):
+    for xref in all_refs if all_refs is not None else scan_references(info):
         if xref.to_va in targets:
             refs.setdefault(xref.to_va, []).append(xref)
     for key in refs:

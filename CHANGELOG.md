@@ -1,6 +1,27 @@
 ## [Unreleased]
 
 ### Fixed
+- **`rebrew analyze` disassembled every code section twice.** The string census
+  and the reference profile each ran `scan_references` over the whole `.text`.
+  The dossier now scans once and threads the result into both
+  (`_collect_strings(..., all_refs=)`, `string_refs(..., all_refs=)`), matching
+  what `rebrew describe` already did. The dossier's FLIRT section also loaded
+  an unfiltered `flirt_sigs/`; it now filters by the target's architecture
+  family first, the same way `rebrew flirt` does, instead of building one
+  matcher over a mixed-arch set (the documented out-of-memory case).
+- **`load_function_structure` re-read and re-parsed `function_structure.json` on
+  every call.** Commands that build a registry more than once per run
+  (`cross-import`, `binsync overlay`, `binary-similarity`) paid the multi-MB
+  read plus `json.loads` each time. The decoded payload is now memoized per
+  path against an `mtime_ns:size:ino` fingerprint, bounded at 32 paths like
+  `cached_function_list`. Callers still get fresh `FunctionEntry` objects, so
+  nothing mutable is shared.
+- **FLIRT hit-name dedup was quadratic in the candidate count at one offset.**
+  `match_text` tested `label not in names` against a list and applied the
+  `max_ambiguous` cap only after collecting every candidate, so a broad prologue
+  matching thousands of patterns cost O(k^2) at that offset. Membership now
+  runs against a set and collection stops as soon as the cap is exceeded, which
+  is the same result the post-hoc check discarded.
 - **MCP list pagination had no memory bound and could stop after one page.**
   `_paginate_mcp_list` recognized a page's metadata row only by `totalCount`
   and read a missing one as `0`, which both discarded the row and made

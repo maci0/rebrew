@@ -1,5 +1,6 @@
 """Tests for catalog/loaders.py — Ghidra JSON, function lists, data labels, bytes."""
 
+import itertools
 import json
 import warnings
 from pathlib import Path
@@ -37,6 +38,49 @@ class TestLoadFunctionStructure:
         p.write_text("{not json", encoding="utf-8")
         with pytest.raises(ValueError, match="Corrupt structure JSON"):
             load_function_structure(p)
+
+    def test_repeat_load_does_not_reread(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The decoded payload is memoized: a second load reads the file once total."""
+        p = tmp_path / "function_structure.json"
+        p.write_text(json.dumps([{"va": "0x10001000", "size": 64, "name": "a"}]), encoding="utf-8")
+        real_read = Path.read_text
+        reads: list[Path] = []
+
+        def counting_read(self: Path, *a: Any, **kw: Any) -> str:
+            reads.append(self)
+            return real_read(self, *a, **kw)
+
+        monkeypatch.setattr(Path, "read_text", counting_read)
+        assert len(load_function_structure(p)) == 1
+        assert len(load_function_structure(p)) == 1
+        assert reads == [p]
+
+    def test_rewrite_invalidates(self, tmp_path: Path) -> None:
+        """A rewritten file is re-read, never served from the stale memo."""
+        p = tmp_path / "function_structure.json"
+        p.write_text(json.dumps([{"va": "0x10001000", "size": 64, "name": "a"}]), encoding="utf-8")
+        assert len(load_function_structure(p)) == 1
+        p.write_text(
+            json.dumps(
+                [
+                    {"va": "0x10001000", "size": 64, "name": "a"},
+                    {"va": "0x10001100", "size": 32, "name": "b"},
+                ]
+            ),
+            encoding="utf-8",
+        )
+        entries = load_function_structure(p)
+        assert [e.name for e in entries] == ["a", "b"]
+
+    def test_entries_are_not_shared_between_calls(self, tmp_path: Path) -> None:
+        """Callers get fresh FunctionEntry objects, not the memoized ones."""
+        p = tmp_path / "function_structure.json"
+        p.write_text(json.dumps([{"va": "0x10001000", "size": 64, "name": "a"}]), encoding="utf-8")
+        first = load_function_structure(p)[0]
+        first.name = "mutated"
+        assert load_function_structure(p)[0].name == "a"
 
 
 class TestClassifyGhidraLabel:
@@ -362,8 +406,11 @@ class TestCachedFunctionList:
             json.dumps([{"va": "0x1000", "size": 8, "name": "a"}]),
             encoding="utf-8",
         )
-        # Each stat sees a newer fingerprint, as if another process rewrote the file.
-        stamps = iter(["1:1", "2:1"])
-        monkeypatch.setattr(loaders_mod, "_inventory_fingerprint", lambda _p: next(stamps))
+        # Every stat sees a newer fingerprint, as if another process rewrote the
+        # file.  Counting rather than a fixed pair: the structure-JSON memo takes
+        # its own stat, so the number of fingerprints per call is an
+        # implementation detail, not part of the behaviour under test.
+        counter = itertools.count(1)
+        monkeypatch.setattr(loaders_mod, "_inventory_fingerprint", lambda _p: f"{next(counter)}:1")
         cfg = SimpleNamespace(reversed_dir=str(tmp_path))
         assert loaders_mod.cached_function_vas(cfg) == frozenset({0x1000})
