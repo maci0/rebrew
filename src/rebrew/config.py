@@ -1155,6 +1155,30 @@ def validate_llm_model(model: str) -> str:
     return model
 
 
+#: Accepted spellings of a boolean environment variable (lowercased, stripped).
+ENV_TRUE = frozenset({"1", "true", "yes", "on"})
+ENV_FALSE = frozenset({"0", "false", "no", "off"})
+
+
+def parse_env_bool(name: str, raw: str, *, default: bool) -> bool:
+    """Parse a boolean environment variable strictly, or raise ``ConfigError``.
+
+    Single source for every ``REBREW_*`` boolean knob, so a typo
+    (``REBREW_X=flase``) or a negated spelling (``REBREW_X=false``) can never be
+    read as "on": an opt-in gate that treats anything non-empty as true turns
+    one mistyped value into a wrong security decision.  Empty or unset keeps
+    *default*.
+    """
+    value = raw.strip().lower()
+    if not value:
+        return default
+    if value in ENV_TRUE:
+        return True
+    if value in ENV_FALSE:
+        return False
+    raise ConfigError(f"{name}={raw!r} is not a boolean (use 1/true/yes/on or 0/false/no/off)")
+
+
 def llm_max_requests(raw: str) -> int:
     """Parse the ``REBREW_LLM_MAX_REQUESTS`` ceiling, the process LLM call budget.
 
@@ -2106,6 +2130,7 @@ __all__ = [
     "is_key_safe_endpoint",
     "load_config",
     "module_marker",
+    "parse_env_bool",
     "profile_flags_style",
     "validate_http_url",
     "validate_llm_model",

@@ -62,6 +62,7 @@ from rebrew.config import (
     is_key_safe_endpoint,
     llm_max_requests,
     llm_timeout,
+    parse_env_bool,
     validate_http_url,
     validate_llm_model,
 )
@@ -367,9 +368,10 @@ def _project_endpoint_allowed(endpoint: str) -> bool:
 
     Loopback needs no opt-in: the destination is on this machine, so it is a
     local inference server, not an off-host collector. Everything else needs
-    :data:`_TRUST_ENV_VAR`, which an operator sets knowingly.
+    :data:`_TRUST_ENV_VAR`, parsed strictly by :func:`rebrew.config.parse_env_bool`
+    so ``false``/``no``/``off`` stay off and a typo raises instead of granting.
     """
-    if _TRUST_ENV_VAR in os.environ and os.environ[_TRUST_ENV_VAR].strip() not in ("", "0"):
+    if parse_env_bool(_TRUST_ENV_VAR, os.environ.get(_TRUST_ENV_VAR, ""), default=False):
         return True
     return urlparse(endpoint).hostname == "localhost" or _is_loopback_host(endpoint)
 
