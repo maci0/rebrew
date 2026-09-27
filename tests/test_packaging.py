@@ -605,6 +605,12 @@ class TestWheelSmokeScript:
         assert entries["agent-skills"] == "dir"
         assert entries["AGENTS.md.template"] == "file"
         assert entries["PRINCIPLES.md"] == "file"
+        assert entries["py.typed"] == "file"
+        assert entries["workspace/py.typed"] == "file"
+        # The install gate has to cover the marker the METADATA claims, or a
+        # wheel that dropped it still passes and every consumer's type-checker
+        # sees an untyped rebrew.
+        assert "Typing :: Typed" in _project()["classifiers"]
         # The script must assert exactly what the source tree ships, or the
         # wheel gate quietly stops covering a packaged runtime file.
         package = ROOT / "src" / "rebrew"
