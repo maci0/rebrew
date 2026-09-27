@@ -190,6 +190,82 @@ class TestCallMcpToolBranches:
         assert _call_mcp_tool(client, "http://x", "t", {}, 1, "") is None
 
 
+class TestMcpRequestEnvelope:
+    """The bytes rebrew puts on the wire against a ReVa MCP server.
+
+    Every other MCP test returns a canned response, so a typo in the
+    outgoing tool name, the JSON-RPC method, or the argument keys would
+    pass the whole suite and fail only against a live Ghidra.
+    """
+
+    @staticmethod
+    def _recording_client() -> tuple[Any, list[tuple[Any, ...]], list[dict[str, Any]]]:
+        """A client that records every ``post`` (args, kwargs) it receives."""
+        payload = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {"content": [{"type": "text", "text": "x"}]},
+        }
+        resp = SimpleNamespace(
+            status_code=200,
+            text=json.dumps(payload),
+            headers={"content-type": "application/json"},
+            json=lambda: payload,
+            closed=False,
+        )
+        resp.close = lambda: None
+        calls: list[tuple[Any, ...]] = []
+        sent: list[dict[str, Any]] = []
+
+        def _post(*args: Any, **kwargs: Any) -> Any:
+            calls.append((args, kwargs))
+            sent.append(kwargs["json"])
+            return resp
+
+        return SimpleNamespace(post=_post), calls, sent
+
+    def test_envelope_carries_tool_name_arguments_and_id(self) -> None:
+        from rebrew.ghidra.client import MCP_REQUEST_TIMEOUT_S
+
+        client, calls, sent = self._recording_client()
+        _call_mcp_tool(
+            client,
+            "http://g:8080/mcp/message",
+            "get-decompilation",
+            {"programPath": "/t.exe", "functionNameOrAddress": "0x00001000"},
+            7,
+            "",
+        )
+        assert len(calls) == 1
+        (args, kwargs) = calls[0]
+        assert args == ("http://g:8080/mcp/message",)
+        assert sent == [
+            {
+                "jsonrpc": "2.0",
+                "id": 7,
+                "method": "tools/call",
+                "params": {
+                    "name": "get-decompilation",
+                    "arguments": {
+                        "programPath": "/t.exe",
+                        "functionNameOrAddress": "0x00001000",
+                    },
+                },
+            }
+        ]
+        assert kwargs["timeout"] == MCP_REQUEST_TIMEOUT_S
+        assert kwargs["headers"]["Accept"] == "application/json, text/event-stream"
+        assert kwargs["headers"]["Content-Type"] == "application/json"
+
+    def test_session_id_header_present_only_when_given(self) -> None:
+        client, calls, _ = self._recording_client()
+        _call_mcp_tool(client, "http://x", "t", {}, 1, "sess-1")
+        _call_mcp_tool(client, "http://x", "t", {}, 2, "")
+        with_session, without_session = (kwargs["headers"] for _, kwargs in calls)
+        assert with_session["Mcp-Session-Id"] == "sess-1"
+        assert "Mcp-Session-Id" not in without_session
+
+
 class TestFetchMcpTool:
     """fetch_mcp_tool shape handling: single/multi text items, JSON failures."""
 
