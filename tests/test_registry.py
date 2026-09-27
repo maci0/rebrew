@@ -10,13 +10,12 @@ from __future__ import annotations
 import json
 import random
 import sys
+import threading
 import tomllib
 import types
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
-
-import threading
 
 import pytest
 import typer

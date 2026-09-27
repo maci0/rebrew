@@ -626,8 +626,8 @@ class TestCheckToolchainAlignment:
 
 class TestCheckToolchainBacked:
     def test_skipped_for_imageless_plugin_profile(self, monkeypatch) -> None:
-        from rebrew.doctor import _SKIP, check_toolchain_backed
         from rebrew import toolchain as toolchain_mod
+        from rebrew.doctor import _SKIP, check_toolchain_backed
         from rebrew.toolchain import TOOLCHAINS
         from rebrew.toolchain_spec import ToolchainSpec
 

@@ -3510,9 +3510,7 @@ class TestOpenApiSpec:
                     == "#/components/schemas/Error"
                 ), (path, method, name)
 
-    def test_documented_4xx_name_every_code_the_route_answers(
-        self, dashboard: Dashboard
-    ) -> None:
+    def test_documented_4xx_name_every_code_the_route_answers(self, dashboard: Dashboard) -> None:
         """A status the server answers two ways must document both codes.
 
         ``/api/functions`` answers 400 for a missing ``target`` and for a
@@ -3530,7 +3528,12 @@ class TestOpenApiSpec:
 
         for path, query, status, code in (
             ("/api/functions", {}, 400, "missing_target"),
-            ("/api/functions", {"target": ["server_dll"], "status": ["NOPE"]}, 400, "invalid_status"),
+            (
+                "/api/functions",
+                {"target": ["server_dll"], "status": ["NOPE"]},
+                400,
+                "invalid_status",
+            ),
             ("/api/globals", {}, 400, "missing_target"),
             ("/api/globals", {"target": ["nope"]}, 404, "unknown_target"),
         ):

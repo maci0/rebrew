@@ -537,8 +537,8 @@ class TestCli:
     def test_pull_host_only_errors(self, monkeypatch) -> None:
         from typer.testing import CliRunner
 
-        from rebrew.main import app as umbrella
         from rebrew import toolchain as toolchain_mod
+        from rebrew.main import app as umbrella
         from rebrew.toolchain import TOOLCHAINS
         from rebrew.toolchain_spec import ToolchainSpec
 
@@ -638,8 +638,8 @@ class TestCli:
     def test_build_host_only_errors(self, monkeypatch) -> None:
         from typer.testing import CliRunner
 
-        from rebrew.main import app as umbrella
         from rebrew import toolchain as toolchain_mod
+        from rebrew.main import app as umbrella
         from rebrew.toolchain import TOOLCHAINS
         from rebrew.toolchain_spec import ToolchainSpec
 
@@ -750,7 +750,6 @@ class TestPullToolchain:
         image is wine-driven too but holds a single gcc, no CL/LINK/LIB
         tools, so it declares no tool_root — the bridge refuses it, see
         tests/test_cmake_tc.py.)"""
-        from rebrew import toolchain as toolchain_mod
         from rebrew.toolchain import TOOLCHAINS
 
         missing = [
@@ -1213,7 +1212,6 @@ class TestDockerfileSanity:
         rebrew-toolchains checkout — a fresh clone must be able to rebuild
         the image (borland-3.1/borland-2.0 images were built from UNTRACKED Dockerfiles,
         silently unreproducible)."""
-        from rebrew import toolchain as toolchain_mod
         from rebrew.toolchain import TOOLCHAINS
 
         repo = self._repo()
@@ -1240,7 +1238,6 @@ class TestDockerfileSanity:
         image can never drift."""
         import re
 
-        from rebrew import toolchain as toolchain_mod
         from rebrew.toolchain import TOOLCHAINS
 
         repo = self._repo()
