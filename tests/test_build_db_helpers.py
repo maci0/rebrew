@@ -245,9 +245,10 @@ class TestCheckDbVersion:
         db.parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(db)
         if version is not None:
-            # The shape check (round-4) verifies required objects AND the
-            # query-critical columns — a version-matched DB must carry the
-            # real schema, not just table names.
+            # The shape check (round-4) verifies required objects, the
+            # query-critical columns, AND the indexes the shipped queries
+            # depend on — a version-matched DB must carry the real schema, not
+            # just table names.
             conn.executescript(
                 """
                 CREATE TABLE metadata (target TEXT, key TEXT, value TEXT);
@@ -293,6 +294,17 @@ class TestCheckDbVersion:
                     target TEXT, section_name TEXT, cells_zstd BLOB,
                     PRIMARY KEY (target, section_name)
                 );
+                CREATE INDEX idx_metadata_key ON metadata(key, target);
+                CREATE INDEX idx_functions_status_va
+                    ON functions(target, status, va);
+                CREATE INDEX idx_functions_module_va
+                    ON functions(target, module, va);
+                CREATE INDEX idx_functions_list
+                    ON functions(target, va)
+                    WHERE markerType IN ('FUNCTION', 'LIBRARY', 'STUB');
+                CREATE INDEX idx_globals_module_va
+                    ON globals(target, module, va);
+                CREATE INDEX idx_history_target_id ON history(target, id);
                 """
             )
             conn.execute(

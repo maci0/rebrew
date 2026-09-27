@@ -30,7 +30,7 @@ from rebrew.data_metadata import (
     DATA_STATUS_UNCHECKED,
     DATA_STATUS_VERIFIED,
 )
-from rebrew.metadata import canonical_status
+from rebrew.metadata import METADATA_FILENAME, canonical_status
 from rebrew.utils import clip_span
 from rebrew.workspace import (
     SCHEMA_TARGET,
@@ -498,7 +498,7 @@ def _snapshot_inputs(root_dir: Path) -> list[Path]:
     """Files a data_*.json snapshot does not reflect until it is regenerated."""
     inputs = [root_dir / ".rebrew" / "verify_cache.json"]
     if (root_dir / "rebrew-project.toml").exists():
-        inputs.append(load_config(root_dir).metadata_dir / "rebrew-functions.toml")
+        inputs.append(load_config(root_dir).metadata_dir / METADATA_FILENAME)
     return [p for p in inputs if p.is_file()]
 
 
@@ -770,6 +770,10 @@ def _missing_required_objects(db_path: Path) -> set[str]:
     ``section_cell_stats`` is missing a counted bucket) passes a name-only gate
     and then 500s at query time.  Missing columns are reported as
     ``table.column``.
+
+    Also checks the indexes the shipped queries filter, join, and sort on: a
+    DB without them answers every dashboard request from a full scan of the
+    target's rows instead of an index seek.
     """
     required = {
         "metadata",
@@ -858,6 +862,23 @@ def _missing_required_objects(db_path: Path) -> set[str]:
         },
         SECTION_CELLS_TABLE: {"target", "section_name", SECTION_CELLS_COLUMN},
     }
+    # Every index a shipped query depends on, by name.  The column check above
+    # already refuses a hand-made database that would 500 at query time; a
+    # database missing these is the same class of failure one level down: the
+    # queries run, but each falls back to a full scan of the target's rows on
+    # every dashboard request.  Names, not definitions: the served leading
+    # column prefix and the ORDER BY are what matter, and both are covered by
+    # the DDL each build creates.
+    required_indexes: frozenset[str] = frozenset(
+        {
+            "idx_metadata_key",
+            "idx_functions_status_va",
+            "idx_functions_module_va",
+            "idx_functions_list",
+            "idx_globals_module_va",
+            "idx_history_target_id",
+        }
+    )
     with contextlib.closing(open_sqlite_ro(db_path)) as conn:
         c = conn.cursor()
         c.execute(
@@ -873,6 +894,9 @@ def _missing_required_objects(db_path: Path) -> set[str]:
             actual = {row[1] for row in c.fetchall()}
             for col in cols - actual:
                 missing.add(f"{obj}.{col}")
+        c.execute("SELECT name FROM sqlite_master WHERE type = 'index'")
+        indexed = {row[0] for row in c.fetchall()}
+        missing |= required_indexes - indexed
         return missing
 
 
@@ -933,6 +957,7 @@ def _load_coverage_datasets(
                 tgt_cfg = load_config(root_dir, target=tgt)
             except (FileNotFoundError, KeyError, ValueError, TypeError) as exc:
                 error_exit(f"Config error for target {tgt!r}: {exc}", json_mode=json_output)
+            _reject_reserved_target(tgt, json_output=json_output)
             console.print(f"Processing {tgt}...")
             datasets.append((tgt, build_catalog_data(tgt_cfg)["data"]))
         return datasets
@@ -982,8 +1007,34 @@ def _load_coverage_datasets(
                     json_mode=json_output,
                     code=EXIT_ERROR,
                 )
+        _reject_reserved_target(target_name, json_output=json_output)
         datasets.append((target_name, data))
     return datasets
+
+
+def _reject_reserved_target(target_name: str, *, json_output: bool) -> None:
+    """Refuse a target whose name is the schema-level ``metadata`` sentinel.
+
+    ``metadata`` is keyed ``(target, key)``, and :data:`SCHEMA_TARGET` is the
+    reserved ``target`` holding database-level rows rather than a binary's.
+    A target literally named ``__schema__`` would therefore share that
+    namespace: its ``function_stats`` row makes it show up in the dashboard
+    target list, and its per-target ``db_version`` write
+    (``INSERT OR REPLACE``) overwrites the schema stamp that
+    ``read_db_version`` and the version gate read.  The name is derived from a
+    ``data_<target>.json`` filename, so nothing upstream rejects it.
+
+    Fail loud, before the write transaction opens, rather than quietly
+    sharing the sentinel's rows.
+    """
+    if target_name == SCHEMA_TARGET:
+        error_exit(
+            f"Target name {SCHEMA_TARGET!r} is reserved for database-level "
+            "metadata rows and cannot name a binary. Rename the target (and "
+            f"its data_{SCHEMA_TARGET}.json snapshot).",
+            json_mode=json_output,
+            code=EXIT_ERROR,
+        )
 
 
 def build_db(
