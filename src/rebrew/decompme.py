@@ -57,7 +57,13 @@ from rebrew.cli import (
 )
 from rebrew.config import validate_http_url
 from rebrew.errors import RebrewError
-from rebrew.utils import RETRYABLE_HTTP_STATUS, atomic_write_text, file_lock, read_source_text
+from rebrew.utils import (
+    RETRYABLE_HTTP_STATUS,
+    atomic_write_text,
+    close_response,
+    file_lock,
+    read_source_text,
+)
 
 app = typer.Typer(
     help="Upload a function to decomp.me as a collaborative scratch.",
@@ -203,16 +209,39 @@ DecompmeErrorKind = Literal["network", "http", "validation", "protocol"]
 
 
 @runtime_checkable
+class HttpResponse(Protocol):
+    """Reply members :func:`upload_scratch` / :func:`verify_compiler` read.
+
+    An ``httpx.Response`` satisfies it.  ``close()`` is part of the contract
+    here (the module-``httpx`` calls go through the top-level ``httpx.post``
+    / ``httpx.get``, whose reply owns the connection); it is released
+    through :func:`rebrew.utils.close_response`, which swallows a close
+    failure so it cannot mask the request's own result.
+    """
+
+    @property
+    def status_code(self) -> int: ...
+
+    @property
+    def text(self) -> str: ...
+
+    def json(self) -> Any: ...
+
+    def close(self) -> None: ...
+
+
+@runtime_checkable
 class HttpClient(Protocol):
     """Minimal HTTP surface :func:`upload_scratch` / :func:`verify_compiler` use.
 
     Matches an ``httpx.Client`` and any stand-in exposing ``.post`` / ``.get``,
     so a consumer test injects a fake instead of reaching the live service.
+    Its replies must satisfy :class:`HttpResponse`.
     """
 
-    def post(self, url: str, **kwargs: Any) -> Any: ...
+    def post(self, url: str, **kwargs: Any) -> HttpResponse: ...
 
-    def get(self, url: str, **kwargs: Any) -> Any: ...
+    def get(self, url: str, **kwargs: Any) -> HttpResponse: ...
 
 
 class DecompmeError(RebrewError, RuntimeError):
@@ -300,7 +329,7 @@ def upload_scratch(
                 )
         return data
     finally:
-        resp.close()
+        close_response(resp)
 
 
 def scratch_url(slug: str, claim_token: str, api: str = _DEFAULT_API) -> str:
@@ -484,7 +513,7 @@ def verify_compiler(
             kind="validation",
         )
     finally:
-        resp.close()
+        close_response(resp)
 
 
 def _resolve_annotation(
@@ -726,6 +755,7 @@ __all__ = [
     "build_scratch_payload",
     "extract_function_text",
     "HttpClient",
+    "HttpResponse",
     "map_compiler",
     "map_platform",
     "read_uploads",

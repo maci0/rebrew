@@ -20,6 +20,7 @@ def test_recompile_client_public_all() -> None:
 
     assert rc.__all__ == [
         "HttpClient",
+        "HttpResponse",
         "RecompileError",
         "RecompileErrorKind",
         "RecompileResult",
@@ -55,6 +56,43 @@ class _Resp:
 
     def close(self) -> None:
         self.closed = True
+
+
+class TestHttpProtocols:
+    """The reply contract a consumer's test double has to satisfy."""
+
+    def test_httpx_response_satisfies_http_response(self) -> None:
+        from rebrew.recompile_client import HttpResponse
+
+        assert isinstance(httpx.Response(200, content=b"\x90"), HttpResponse)
+
+    def test_existing_stand_in_satisfies_http_response(self) -> None:
+        from rebrew.recompile_client import HttpResponse
+
+        assert isinstance(_Resp(200, json_body={"status": "ok"}), HttpResponse)
+
+    def test_reply_without_content_is_rejected(self) -> None:
+        """``obj_bytes`` comes off ``.content``; a stand-in without it is a bug.
+
+        Typing the reply is what surfaces this at check time instead of
+        handing a consumer a ``RecompileResult.obj_bytes`` holding whatever
+        stand-in attribute happened to share the name.
+        """
+        from rebrew.recompile_client import HttpResponse
+
+        class _NoContent:
+            status_code = 200
+            text = ""
+
+            def json(self) -> Any:
+                return {"status": "ok"}
+
+        assert not isinstance(_NoContent(), HttpResponse)
+
+    def test_httpx_client_satisfies_http_client(self) -> None:
+        from rebrew.recompile_client import HttpClient
+
+        assert isinstance(httpx.Client(), HttpClient)
 
 
 class _FakeClient:

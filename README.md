@@ -204,17 +204,39 @@ The clients that talk to a service take the HTTP client as an argument, so
 your tests never need a live one. `HttpClient` (from `rebrew.recompile_client`
 or `rebrew.decompme`) is the two-method shape those clients call: `.post` and
 `.get`. A stand-in that takes `**kwargs` satisfies both, so one fake covers
-both of them:
+both of them. What it returns is a reply, and that is typed too: `HttpResponse`
+names the members each transport reads. `rebrew.recompile_client` needs
+`status_code`, `text`, `json()` and `content` (the artifact bytes);
+`rebrew.decompme` needs the same minus `content` plus `close()`, because the
+module-level `httpx.post` / `httpx.get` reply owns a connection. An
+`httpx.Response` satisfies both, and a stand-in missing a member is a type
+error rather than a wrong value at the far end:
+
 ```python
 from rebrew.recompile_client import compile_source
 
 
+class _Reply:
+    """Satisfies rebrew.recompile_client.HttpResponse."""
+
+    def __init__(self, status_code, *, json_body=None, content=b"", text=""):
+        self.status_code = status_code
+        self._json = json_body
+        self.content = content
+        self.text = text
+
+    def json(self):
+        if self._json is None:
+            raise ValueError("not json")
+        return self._json
+
+
 class FakeService:
     def post(self, url, **kwargs):
-        return _Response(200, {"status": "ok", "artifact_url": "/api/v1/artifacts/1.obj"})
+        return _Reply(200, json_body={"status": "ok", "artifact_url": "/api/v1/artifacts/1.obj"})
 
     def get(self, url, **kwargs):
-        return _Response(200, b"\x90" * 8)
+        return _Reply(200, content=b"\x90" * 8)
 
 
 result = compile_source(
@@ -237,8 +259,8 @@ result.ok / result.obj_bytes / result.log / result.compiler_version
 The ReVa MCP client (`rebrew.ghidra.client`, the transport behind
 `rebrew sync`) takes `McpHttpClient` instead: `post` plus `delete`, because it
 terminates its session on every exit path. The same `**kwargs` stand-in
-satisfies it once `delete` is added, and the reply only has to carry
-`status_code`, `headers`, `text`, `json()` and `raise_for_status()`.
+satisfies it once `delete` is added, and the reply (`McpResponse`) only has to
+carry `status_code`, `headers`, `text`, `json()` and `raise_for_status()`.
 
 The CLI commands, flags, and the `rebrew-project.toml` schema are frozen for
 the 2.x line. The Python import surface and the dashboard `/api/*` JSON are

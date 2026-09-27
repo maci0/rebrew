@@ -61,16 +61,41 @@ _RETRY_BACKOFF_CAP = 8.0
 
 
 @runtime_checkable
+class HttpResponse(Protocol):
+    """Reply members :func:`compile_source` reads off an :class:`HttpClient`.
+
+    An ``httpx.Response`` satisfies it.  A consumer test double has to
+    supply these four members (and nothing else): the transport reads the
+    status, the body text for the error message, the decoded JSON body, and
+    the artifact bytes.  ``close()`` is absent on purpose —
+    :func:`rebrew.utils.close_response` probes for it, so a stand-in holding
+    no connection is still a valid reply.
+    """
+
+    @property
+    def status_code(self) -> int: ...
+
+    @property
+    def text(self) -> str: ...
+
+    @property
+    def content(self) -> bytes: ...
+
+    def json(self) -> Any: ...
+
+
+@runtime_checkable
 class HttpClient(Protocol):
     """Minimal HTTP client surface used by :func:`compile_source`.
 
     Matches ``httpx.Client`` (``.post`` / ``.get``).  Inject a fake that
-    implements this protocol in consumer tests — no live service required.
+    implements this protocol in consumer tests — no live service required;
+    its replies must satisfy :class:`HttpResponse`.
     """
 
-    def post(self, url: str, *, json: Any = None) -> Any: ...
+    def post(self, url: str, *, json: Any = None) -> HttpResponse: ...
 
-    def get(self, url: str) -> Any: ...
+    def get(self, url: str) -> HttpResponse: ...
 
 
 @dataclass(frozen=True)
@@ -182,7 +207,7 @@ def _same_origin_artifact_url(base_url: str, artifact_url: str) -> str:
 
 
 def _download_artifact(
-    http: Any, base_url: str, body: dict[str, Any], artifact_url: str
+    http: HttpClient, base_url: str, body: dict[str, Any], artifact_url: str
 ) -> RecompileResult:
     """Fetch the artifact for an ``status == "ok"`` reply and build the result."""
     resolved = _same_origin_artifact_url(base_url, artifact_url)
@@ -377,6 +402,7 @@ def compile_source(
 
 __all__ = [
     "HttpClient",
+    "HttpResponse",
     "RecompileError",
     "RecompileErrorKind",
     "RecompileResult",

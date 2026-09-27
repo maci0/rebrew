@@ -13,6 +13,37 @@ import rebrew.decompme as decompme
 runner = CliRunner()
 
 
+class TestHttpProtocols:
+    """The reply contract a consumer's test double has to satisfy."""
+
+    def test_httpx_response_satisfies_http_response(self) -> None:
+        import httpx
+
+        assert isinstance(httpx.Response(200, content=b"{}"), decompme.HttpResponse)
+
+    def test_reply_without_close_is_rejected(self) -> None:
+        """The module-``httpx`` reply owns a connection the transport releases.
+
+        Typing the reply is what surfaces a stand-in missing ``close()`` at
+        check time instead of as an ``AttributeError`` on the first upload.
+        """
+        from typing import Any
+
+        class _NoClose:
+            status_code = 200
+            text = "{}"
+
+            def json(self) -> Any:
+                return {}
+
+        assert not isinstance(_NoClose(), decompme.HttpResponse)
+
+    def test_httpx_client_satisfies_http_client(self) -> None:
+        import httpx
+
+        assert isinstance(httpx.Client(), decompme.HttpClient)
+
+
 def _ann(va: int = 0x401000, size: int = 16, name: str = "func_a", symbol: str = "_func_a"):
     from rebrew.annotation import Annotation
 

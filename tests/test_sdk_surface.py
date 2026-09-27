@@ -948,6 +948,44 @@ class TestDocumentedTransportInjection:
         assert result.ok is True
         assert result.obj_bytes == b"\x90" * 8
 
+    def test_one_reply_satisfies_both_response_protocols(self) -> None:
+        """The same reply covers both HTTP transports, as the README says.
+
+        ``rebrew.recompile_client`` additionally reads ``content`` (the
+        artifact bytes); ``rebrew.decompme`` does not, but its module-level
+        ``httpx`` calls hand back a reply that owns a connection, so it
+        releases ``close()``.  A reply carrying all five members serves both.
+        """
+        from rebrew.decompme import HttpResponse as DecompmeHttpResponse
+        from rebrew.recompile_client import HttpResponse
+
+        class _Response:
+            status_code = 200
+            text = ""
+            content = b"\x90" * 8
+
+            def json(self) -> object:
+                return {"status": "ok"}
+
+            def close(self) -> None:
+                return None
+
+        assert isinstance(_Response(), HttpResponse)
+        assert isinstance(_Response(), DecompmeHttpResponse)
+
+        # A reply without ``content`` is not a recompile reply: obj_bytes
+        # would come back holding whatever the stand-in had in its place.
+        # One without ``close()`` is not a decomp.me reply either.
+        class _NoContent:
+            status_code = 200
+            text = ""
+
+            def json(self) -> object:
+                return {"status": "ok"}
+
+        assert not isinstance(_NoContent(), HttpResponse)
+        assert not isinstance(_NoContent(), DecompmeHttpResponse)
+
     def test_kwargs_fake_satisfies_the_mcp_client_protocol(self) -> None:
         """The same stand-in shape also drives the ReVa MCP client.
 

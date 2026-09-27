@@ -58,6 +58,19 @@
   re-runs the bootstrap in place (it also drops the per-view loaded flags, so a
   view already visited comes back with fresh rows instead of the ones it was
   painted with), and the empty states now name it.
+- **The recompile and decomp.me clients name the reply they read.**
+  `HttpClient` in `rebrew.recompile_client` and `rebrew.decompme` typed its
+  `post` / `get` return as `Any`, so nothing checked a consumer's stand-in on
+  the way back: a fake whose reply carried a `content` that was not `bytes`
+  reached `RecompileResult.obj_bytes` unchecked, and a decomp.me stand-in
+  missing `close()` failed at the first upload instead of at the type
+  checker. Each module now exports the `HttpResponse` protocol naming the
+  members its transport reads (`status_code`, `text`, `json()` and `content`
+  for the artifact download; the same minus `content`, plus `close()`, for the
+  module-level `httpx` calls that hand back a connection to release), matching
+  how `rebrew.ghidra.client` already typed `McpResponse`. An `httpx.Response`
+  satisfies both, and the reply a consumer's `**kwargs` fake returns has to
+  carry `content` and `close()` to serve both.
 - **The ReVa MCP client takes a protocol, not `httpx.Client`.**
   `rebrew.ghidra.client` and `rebrew.ghidra.commands` typed every `client=`
   parameter as the concrete `httpx.Client`, so a consumer injecting a
@@ -154,6 +167,10 @@
   `UnicodeEncodeError` on a tree the rest of the run handles (the same files
   already use `surrogateescape` a few lines away). They encode with it now,
   so the digest covers the raw bytes instead of killing the run.
+- **The SDK surface gate's error snapshot names `RenameError`.** The two
+  literals in `tests/test_sdk_surface.py` mirroring `rebrew.errors.__all__`
+  were not updated when `RenameError` joined it, so the gate reported a
+  removed public error on a clean tree.
 - **A transient GitHub API failure no longer reddens the nightly drift gate.**
   `rebrew toolchain check-updates` calls `_live_commit_sha` once per codeload
   source, and any exception there became a `check failed` row, which is one of
@@ -688,6 +705,15 @@
   `tests/test_public_surface.py::TestBreakClassification` pins each side.
 
 ### Changed
+- **Breaking:** **`HttpClient.post` / `.get` return a named reply, not `Any`.**
+  In `rebrew.recompile_client` and `rebrew.decompme`, the two methods now
+  return the `HttpResponse` protocol those modules export instead of `Any`, so
+  a stand-in's reply is checked against the members the transport actually
+  reads. Nothing changes at runtime for a reply that already carries them (an
+  `httpx.Response` always does), but a fake whose reply lacks `content`
+  (recompile) or `close()` (decomp.me) now fails a type check instead of
+  surfacing as a wrong `RecompileResult.obj_bytes` or an `AttributeError` on
+  the first upload.
 - **Breaking:** **`rebrew cache stats --json` reports `volume_mib` and
   `size_limit_mib`.** The compile cache sizes were always binary (every figure
   is `bytes / 1024 / 1024`), but the keys and the two printed lines said
