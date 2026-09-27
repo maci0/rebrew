@@ -255,11 +255,11 @@ jobs:
         # that reads as clean.
         #
         # Last build-touching step on purpose: `make build` clears dist/*.cdx.json
-        # so a bumped version cannot leave a stale BOM, and `make sdist-check`
-        # rebuilds through `make build`.  Generating the SBOM before either one
-        # deleted it again, and the upload below then shipped a wheel, sdist and
-        # buildinfo with no BOM while `if-no-files-found: error` stayed green
-        # (the other three patterns matched).  `test -s` is the guard for that.
+        # so a bumped version cannot leave a stale BOM.  Generating the SBOM
+        # before it deleted it again, and the upload below then shipped a
+        # wheel, sdist and buildinfo with no BOM while
+        # `if-no-files-found: error` stayed green (the other three patterns
+        # matched).  `test -s` is the guard for that.
         run: |
           set -euo pipefail
           make sbom
