@@ -740,6 +740,16 @@ def _load_coverage_datasets(
 
         base_cfg = load_config(root_dir)
         regen_targets = [target] if target else (base_cfg.all_targets or [base_cfg.target_name])
+        # A target repeated in all_targets would be built twice, and the
+        # second pass aborts the whole rebuild on the (target, key) and
+        # (target, name) primary keys.  Build it once, in first-seen order,
+        # rather than losing every target to one repeat.
+        if len(set(regen_targets)) != len(regen_targets):
+            logging.warning(
+                "build_db: duplicate target(s) in all_targets: %s; building each once",
+                ", ".join(sorted(set(regen_targets))),
+            )
+            regen_targets = list(dict.fromkeys(regen_targets))
         for tgt in regen_targets:
             try:
                 tgt_cfg = load_config(root_dir, target=tgt)
@@ -1237,10 +1247,17 @@ def _build_coverage_db(
         # in history).
         c.execute("BEGIN IMMEDIATE")
 
-        # Snapshot existing function statuses for history tracking
+        # Snapshot existing function statuses for history tracking.  A scoped
+        # rebuild only ever looks up the target it rebuilds, so filter by it:
+        # the unscoped read pulls every sibling target's rows into memory on
+        # a database that keeps all of them.  A full rebuild still needs the
+        # whole table, because _create_schema drops it below.
         old_statuses: dict[tuple[str, int], str] = {}
         with contextlib.suppress(sqlite3.OperationalError):
-            c.execute("SELECT target, va, status FROM functions")
+            if target:
+                c.execute("SELECT target, va, status FROM functions WHERE target = ?", (target,))
+            else:
+                c.execute("SELECT target, va, status FROM functions")
             for row in c.fetchall():
                 old_statuses[(row[0], row[1])] = row[2]
 
@@ -1544,7 +1561,7 @@ def _build_coverage_db(
 
             c.execute(
                 """
-                INSERT INTO metadata VALUES (?, 'function_stats', ?)
+                INSERT INTO metadata (target, key, value) VALUES (?, 'function_stats', ?)
             """.strip(),
                 (
                     target_name,
@@ -1569,14 +1586,14 @@ def _build_coverage_db(
             )
 
             c.execute(
-                "INSERT INTO metadata VALUES (?, ?, ?)",
+                "INSERT INTO metadata (target, key, value) VALUES (?, ?, ?)",
                 (target_name, "summary", json.dumps(summary_data, allow_nan=False)),
             )
 
             # Store paths (from JSON data produced by grid.py)
             paths_data = data.get("paths", {})
             c.execute(
-                "INSERT INTO metadata VALUES (?, ?, ?)",
+                "INSERT INTO metadata (target, key, value) VALUES (?, ?, ?)",
                 (target_name, "paths", json.dumps(paths_data)),
             )
 
@@ -1706,12 +1723,12 @@ def _build_coverage_db(
             # readers never depend on an arbitrary target's stamp (a scoped
             # --target rebuild leaves other targets at their older version).
             c.execute(
-                "INSERT OR REPLACE INTO metadata VALUES (?, ?, ?)",
+                "INSERT OR REPLACE INTO metadata (target, key, value) VALUES (?, ?, ?)",
                 (SCHEMA_TARGET, "db_version", json.dumps(_CURRENT_DB_VERSION)),
             )
             # Keep the legacy per-target stamp for older dashboard versions.
             c.execute(
-                "INSERT OR REPLACE INTO metadata VALUES (?, ?, ?)",
+                "INSERT OR REPLACE INTO metadata (target, key, value) VALUES (?, ?, ?)",
                 (target_name, "db_version", json.dumps(_CURRENT_DB_VERSION)),
             )
 
