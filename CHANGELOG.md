@@ -1,4 +1,4 @@
-## [Unreleased]
+## [2.14.0] - 2026-09-27
 
 ### Added
 - **`CompareResult.error` carries the structured compile-backend failure.** A
