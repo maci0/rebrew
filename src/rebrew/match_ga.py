@@ -870,6 +870,11 @@ class BinaryMatchingGA:
 
                 scored_pop.sort()
                 if not scored_pop:
+                    # An empty population still cost a full generation's
+                    # scheduling and dispatch; charging it keeps elapsed_sec
+                    # a true total instead of under-reporting exactly the
+                    # generation that produced nothing.
+                    self.elapsed_sec += time.monotonic() - gen_start
                     continue
                 best_score, best_src = scored_pop[0]
                 diversity = compute_population_diversity(self.population)

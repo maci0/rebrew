@@ -763,7 +763,12 @@ def _load_coverage_datasets(
     for json_path in json_files:
         target_name = json_path.stem.removeprefix("data_")
         console.print(f"Processing {target_name}...")
-        newer = [p.name for p in inputs if p.stat().st_mtime > json_path.stat().st_mtime]
+        # Nanosecond mtimes: a float st_mtime ties when a source rewrite and
+        # the data_*.json regen land in the same filesystem tick (coarse
+        # Docker volume clocks, `cp -p` then mv, git checkout), so the
+        # staleness warning would be silently skipped.
+        json_mtime_ns = json_path.stat().st_mtime_ns
+        newer = [p.name for p in inputs if p.stat().st_mtime_ns > json_mtime_ns]
         if newer:
             console.print(
                 f"[yellow]warning:[/yellow] {json_path.name} is older than "
