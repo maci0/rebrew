@@ -26,15 +26,20 @@ prefix, also matches that virtual address exactly. ``0x401000`` and
 
 A present empty ``module=`` on ``/api/functions`` and ``/api/globals`` matches
 rows whose module is blank. Omitting ``module`` does not filter. Summary
-``by_module_counts`` keys are those stored strings (``""`` when unset).
+``by_module_counts`` keys are those stored strings (``""`` when unset).  A
+repeated parameter takes its first value, and an unrecognised one is ignored.
 Target-scoped endpoints return 400 when ``target`` is missing/empty and 404 when
 the target is unknown.  ``GET /api/summary`` returns 500 when the target's
 ``function_stats`` metadata row exists but is unreadable (corrupt JSON, a
 non-object, or a byte count that is not a non-negative integer: text, a
 float, a boolean, a list, or a negative), so clients are not told the target
-is missing.  Non-GET/HEAD
-methods (including ones http.server does not know) return 405 with
-``Allow: GET, HEAD``.  Every error body is
+is missing.  ``/api/bootstrap`` embeds the first target and degrades instead of
+failing: its ``summary`` and ``functions`` are ``null`` when that target has
+unreadable stats, so one broken target does not cost the target list.
+Non-GET/HEAD methods on a served path (including ones http.server does not
+know) return 405 with ``Allow: GET, HEAD``; a path the server does not serve
+returns 404 ``not_found`` whatever method it was asked for, since there is no
+resource to list methods for.  Every error body is
 ``{"error": "<message>", "code": "<machine-readable code>"}``; branch on
 ``code`` (``missing_target``, ``unknown_target``, ``invalid_status``,
 ``not_found``, ``method_not_allowed``, ``host_not_allowed``,
@@ -88,8 +93,12 @@ message and a reload prompt instead of a permanent "Loading coverage…".  The
 shell carries no inline script (the CSP allows ``script-src 'self'`` only), so
 that guard is a same-origin asset rather than an ``onerror`` attribute.  JSON
 uses compact separators; function/global/history/section rows are arrays under
-``cols``.  The handler speaks HTTP/1.1 so browsers reuse one TCP connection for
-the shell, ``/app.js``, bootstrap payload, and later filter fetches.
+``cols``.  Every text column in those rows is a JSON string: a NULL in the
+database (a history row's ``old_status``/``new_status`` for a VA's first
+recorded transition, a function with no module) is sent as ``""``, so a client
+never has to null-check one route and not the next.  The handler speaks
+HTTP/1.1 so browsers reuse one TCP connection for the shell, ``/app.js``,
+bootstrap payload, and later filter fetches.
 Every non-entry 200 carries ``Server-Timing: route;dur=<ms>`` so the browser's
 Network panel separates query time from transfer time; the three entry assets
 omit it, since their cold flight is budgeted against the initial congestion
@@ -215,6 +224,10 @@ _ROUTES = (
 #: short-circuit, while this stops the ``ETag`` a client could otherwise hold
 #: and revalidate by hand.
 _UNCACHEABLE_ROUTES = frozenset({"/api/health"})
+#: Every path ``Dashboard.handle`` serves.  Membership is the 404-vs-405
+#: decision: a path outside this set has no resource to carry an ``Allow``
+#: header, so it answers ``not_found`` whatever method it was asked for.
+_KNOWN_ROUTES = _ROUTES | _UNCACHEABLE_ROUTES
 #: ``code`` for the errors http.server raises before routing (400/414/431/505);
 #: any other parse error falls back to ``request_error``.
 _HTTP_ERROR_CODES: dict[int, str] = {
@@ -1955,8 +1968,12 @@ class Dashboard:
                 [
                     f"0x{r[0]:08x}" if r[0] is not None else "???",
                     r[1] or "",
-                    r[2],
-                    r[3],
+                    # old_status/new_status are NULL for a VA's first recorded
+                    # transition.  Sent as "" like every other text column
+                    # here, so a client reading rows under `cols` never has to
+                    # null-check one route and not the others.
+                    r[2] or "",
+                    r[3] or "",
                     r[4],
                 ]
                 for r in rows
@@ -2000,11 +2017,17 @@ class Dashboard:
 
     def handle(self, method: str, path: str, query: dict[str, list[str]]) -> tuple[int, str, str]:
         """Route a request.  Returns (status, content-type, body)."""
+        parsed = urlparse(path)
+        # 404 before 405: a path this server does not serve has no resource to
+        # list methods for, and ``Allow: GET, HEAD`` on a 405 for an unknown
+        # path advertises a resource that does not exist.  A GET of the same
+        # unknown path already answers ``not_found``.
+        if parsed.path not in _KNOWN_ROUTES:
+            return self._error(404, "not_found", f"no such endpoint {parsed.path!r}")
         if method not in ("GET", "HEAD"):
             return self._error(
                 405, "method_not_allowed", "method not allowed (read-only; GET, HEAD only)"
             )
-        parsed = urlparse(path)
         if parsed.path == "/":
             return 200, "text/html; charset=utf-8", _INDEX_HTML
         if parsed.path == "/app.js":
@@ -2036,72 +2059,69 @@ class Dashboard:
                 },
             )
 
-        # All remaining endpoints require ?target=
-        if parsed.path in _TARGET_ROUTES:
-            target = _opt_query(query, "target") or ""
-            if not target:
-                return self._error(
-                    400, "missing_target", "missing required query parameter 'target'"
-                )
-            with self._conn():
-                if parsed.path == "/api/summary":
-                    # Single stats-row read: missing → 404, corrupt → 500 (not
-                    # "unknown"), ok → 200.  Avoids a second target_known probe
-                    # on the happy path while keeping status codes accurate.
-                    kind, result = self._summary_lookup(target)
-                    if kind == "missing":
-                        return self._error(404, "unknown_target", f"unknown target {target!r}")
-                    if kind == "corrupt" or result is None:
-                        return self._error(
-                            500, "corrupt_function_stats", "corrupt function_stats metadata"
-                        )
-                    return self._json(200, result)
-                if not self.target_known(target):
+        # Every path above answered; the rest are the target-scoped routes,
+        # which all require ?target=.
+        target = _opt_query(query, "target") or ""
+        if not target:
+            return self._error(400, "missing_target", "missing required query parameter 'target'")
+        with self._conn():
+            if parsed.path == "/api/summary":
+                # Single stats-row read: missing → 404, corrupt → 500 (not
+                # "unknown"), ok → 200.  Avoids a second target_known probe
+                # on the happy path while keeping status codes accurate.
+                kind, result = self._summary_lookup(target)
+                if kind == "missing":
                     return self._error(404, "unknown_target", f"unknown target {target!r}")
-                if parsed.path == "/api/functions":
-                    status = _opt_query(query, "status")
-                    if status is not None and canonical_status(status) not in KNOWN_STATUSES:
-                        # An unknown status is a client mistake, not an empty
-                        # page: matching nothing reads as "this target has no
-                        # STTUB functions", which is a wrong answer.
-                        return self._error(
-                            400,
-                            "invalid_status",
-                            f"unknown status {status!r} (expected one of {sorted(KNOWN_STATUSES)})",
-                        )
-                    return self._json(
-                        200,
-                        self.functions(
-                            target,
-                            status=status,
-                            module=_module_query(query),
-                            q=_opt_query(query, "q"),
-                            limit=_int_param(query, "limit", _DEFAULT_LIMIT),
-                            offset=_offset_param(query, "offset", 0),
-                        ),
+                if kind == "corrupt" or result is None:
+                    return self._error(
+                        500, "corrupt_function_stats", "corrupt function_stats metadata"
                     )
-                if parsed.path == "/api/sections":
-                    return self._json(200, self.sections(target))
-                if parsed.path == "/api/globals":
-                    return self._json(
-                        200,
-                        self.globals(
-                            target,
-                            module=_module_query(query),
-                            q=_opt_query(query, "q"),
-                            limit=_int_param(query, "limit", _DEFAULT_LIMIT),
-                            offset=_offset_param(query, "offset", 0),
-                        ),
+                return self._json(200, result)
+            if not self.target_known(target):
+                return self._error(404, "unknown_target", f"unknown target {target!r}")
+            if parsed.path == "/api/functions":
+                status = _opt_query(query, "status")
+                if status is not None and canonical_status(status) not in KNOWN_STATUSES:
+                    # An unknown status is a client mistake, not an empty
+                    # page: matching nothing reads as "this target has no
+                    # STTUB functions", which is a wrong answer.
+                    return self._error(
+                        400,
+                        "invalid_status",
+                        f"unknown status {status!r} (expected one of {sorted(KNOWN_STATUSES)})",
                     )
                 return self._json(
                     200,
-                    self.history(
+                    self.functions(
                         target,
+                        status=status,
+                        module=_module_query(query),
+                        q=_opt_query(query, "q"),
                         limit=_int_param(query, "limit", _DEFAULT_LIMIT),
                         offset=_offset_param(query, "offset", 0),
                     ),
                 )
-        return self._error(404, "not_found", f"no such endpoint {parsed.path!r}")
+            if parsed.path == "/api/sections":
+                return self._json(200, self.sections(target))
+            if parsed.path == "/api/globals":
+                return self._json(
+                    200,
+                    self.globals(
+                        target,
+                        module=_module_query(query),
+                        q=_opt_query(query, "q"),
+                        limit=_int_param(query, "limit", _DEFAULT_LIMIT),
+                        offset=_offset_param(query, "offset", 0),
+                    ),
+                )
+            return self._json(
+                200,
+                self.history(
+                    target,
+                    limit=_int_param(query, "limit", _DEFAULT_LIMIT),
+                    offset=_offset_param(query, "offset", 0),
+                ),
+            )
 
     @staticmethod
     def _json(status: int, payload: dict[str, Any]) -> tuple[int, str, str]:
@@ -2780,7 +2800,9 @@ app = typer.Typer(
         "(400 if missing, 404 if unknown; /api/summary → 500 if function_stats "
         "is corrupt, including a non-integer byte count; an unknown status= is "
         "400, not an empty page). A present empty "
-        "module= matches a blank module. Non-GET/HEAD → 405. Error bodies are "
+        "module= matches a blank module. Non-GET/HEAD on a served route → 405 "
+        "with Allow: GET, HEAD; a path the server does not serve → 404 whatever "
+        "the method. Error bodies are "
         '{"error": "<message>", "code": "<code>"}; branch on code.[/dim]'
     ),
 )

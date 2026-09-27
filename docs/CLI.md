@@ -2581,8 +2581,12 @@ non-negative integer. A present empty `module=` on `/api/functions` and
 `q` matches a name or symbol substring on functions and a name substring
 on globals. Four or more hex digits, with an optional `0x` prefix, also
 match that virtual address (`0x401000` and `00401000` are the same address).
-`by_module_counts` uses those same stored strings (`""` when unset). Any
-other method → 405 with `Allow: GET, HEAD`.
+`by_module_counts` uses those same stored strings (`""` when unset). A repeated
+query parameter takes its first value; an unrecognised one is ignored.
+`/api/bootstrap` always answers 200: when its first target has unreadable
+stats, `summary` and `functions` are `null` so one broken target still returns
+the target list. Any other method on a served path → 405 with `Allow: GET,
+HEAD`; a path the server does not serve → 404 `not_found` whatever the method.
 Every error body is `{"error": "<message>", "code": "<code>"}`, malformed
 requests included; branch on `code` (`missing_target`, `unknown_target`,
 `invalid_status`, `not_found`, `method_not_allowed`, `host_not_allowed`,
@@ -2594,7 +2598,10 @@ included, carries `X-Request-Id: r<N>`, the same id the access and error log
 lines carry, so a reported failure is one grep away. List endpoints
 also carry `paged`: `true` on `/api/functions`, `/api/globals`, and
 `/api/history` (where `limit` is the page size), `false` on `/api/sections`,
-`/api/targets`, and `/api/bootstrap` (where `limit` is the row count).
+`/api/targets`, and `/api/bootstrap` (where `limit` is the row count). Rows
+under `cols` are arrays, and every text column in them is a string: a NULL
+status (a history row's `old_status`/`new_status` for a VA's first recorded
+transition) arrives as `""`, never `null`.
 A request that carries a body gets its response with `Connection: close`.
 The page keeps the selected target, view, and filters in the URL hash
 (`#target=…&view=globals&status=EXACT&q=…`), so a reload after
