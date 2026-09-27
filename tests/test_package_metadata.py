@@ -22,7 +22,7 @@ import re
 import sys
 import tomllib
 from importlib.metadata import distribution
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import pytest
 
@@ -184,6 +184,70 @@ class TestDeclaredDependencies:
             spec for spec in specs if " @ git+" in spec and not re.search(r"@[0-9a-f]{40}$", spec)
         ]
         assert not floating, f"git requirements not pinned to a commit: {floating}"
+
+
+class TestPackagedDataFiles:
+    """Every non-``.py`` file under ``src/rebrew`` must reach the wheel.
+
+    A ``package-data`` glob that stops matching (a moved skill directory, a
+    renamed template) drops the file silently: the wheel installs, the suite
+    stays green because it runs from the source tree, and the command that
+    reads the asset — ``rebrew skills list``, ``rebrew init`` — fails on the
+    user's machine.  ``tools/check_sdist_wheel.py`` catches this, but only in
+    ``make sdist-check`` against a built artifact.
+    """
+
+    @staticmethod
+    def _data_files() -> list[PurePosixPath]:
+        """Every non-``.py`` file under ``src/rebrew``, relative to the
+        package directory: setuptools matches ``package-data`` globs there,
+        not from the distribution root."""
+        return [
+            PurePosixPath(path.relative_to(SRC).as_posix())
+            for path in sorted(SRC.rglob("*"))
+            if path.is_file() and path.suffix != ".py" and "__pycache__" not in path.parts
+        ]
+
+    @staticmethod
+    def _excluded(files: list[PurePosixPath]) -> list[PurePosixPath]:
+        patterns = _pyproject()["tool"]["setuptools"]["exclude-package-data"]["rebrew"]
+        return [f for f in files if any(f.full_match(p) for p in patterns)]
+
+    def test_every_data_file_is_matched_by_package_data(self) -> None:
+        """A file no pattern matches, and no exclusion claims, is dropped
+        from the wheel."""
+        patterns = _pyproject()["tool"]["setuptools"]["package-data"]["rebrew"]
+        files = self._data_files()
+        excluded = {str(f) for f in self._excluded(files)}
+        dropped = [str(f) for f in files if not any(f.full_match(p) for p in patterns)]
+        dropped = [f for f in dropped if f not in excluded]
+        assert not dropped, (
+            "in src/rebrew, no [tool.setuptools.package-data] pattern matches "
+            f"(add a glob, or list it under exclude-package-data): {dropped}"
+        )
+
+    def test_packaged_assets_are_present(self) -> None:
+        """The three assets ``rebrew init`` copies out of the installed
+        package, pinned by name: they are the whole reason the data files
+        ship, and each one is read through a ``.is_dir()``/``.is_file()``
+        guard that would otherwise skip a broken install quietly."""
+        shipped = {str(f) for f in self._data_files()} - {
+            str(f) for f in self._excluded(self._data_files())
+        }
+        for required in (
+            "AGENTS.md.template",
+            "PRINCIPLES.md",
+            "agent-skills/rebrew-workflow/SKILL.md",
+        ):
+            assert required in shipped, f"{required} would not ship in the wheel"
+
+    def test_exclusions_cover_the_subpackage_agents_docs_only(self) -> None:
+        """``exclude-package-data`` must stay scoped to the contributor-only
+        ``AGENTS.md``; a wider pattern would drop a runtime asset with no
+        failing test until a user's command misses it."""
+        excluded = {str(f) for f in self._excluded(self._data_files())}
+        expected = {str(f) for f in self._data_files() if f.name == "AGENTS.md"}
+        assert excluded == expected
 
 
 class TestDeclaredScripts:
