@@ -344,6 +344,11 @@ def save_metadata(
 ) -> None:
     """Atomically write *data* to ``rebrew-functions.toml`` in *directory*.
 
+    String values pass through :func:`toml_safe` first, the same gate the
+    granular writers apply: a control character reaching tomlkit would
+    serialize as an invalid escape and cost every entry in the file, not
+    just the one carrying it.
+
     Args:
         directory: The directory to write into (Path, str, or ProjectConfig).
         data: Mapping of ``{(module, va_int): {field: value}}``.
@@ -354,7 +359,8 @@ def save_metadata(
     """
     dir_path = resolve_metadata_dir(directory)
     path = (dir_path / METADATA_FILENAME).resolve()
-    doc = build_metadata_doc(data, _CANONICAL_ORDER)
+    safe = {key: {f: toml_safe(v) for f, v in entry.items()} for key, entry in data.items()}
+    doc = build_metadata_doc(safe, _CANONICAL_ORDER)
     with metadata_write_lock(dir_path, METADATA_FILENAME):
         # load_metadata reads an unparseable store as empty, so a caller's
         # load-modify-save would otherwise replace every entry it never saw.

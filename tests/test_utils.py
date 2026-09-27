@@ -16,6 +16,7 @@ from rebrew.utils import (
     atomic_write_bytes,
     atomic_write_text,
     clear_source_text_memo,
+    clip_span,
     container_runtime,
     detect_source_encoding,
     filename_component,
@@ -1515,6 +1516,35 @@ class TestFloorPct:
 
     def test_zero_whole(self) -> None:
         assert floor_pct(5, 0) == 0.0
+
+
+class TestClipSpan:
+    def test_last_start_is_never_clipped(self) -> None:
+        # Nothing follows the last known start, so its size is taken as given.
+        assert clip_span([0x1000, 0x2000], 0x2000, 0x40) == 0x40
+
+    def test_run_past_the_next_start_is_cut_at_it(self) -> None:
+        # A discoverer that missed a start: 0x1000 must not run through 0x1100.
+        assert clip_span([0x1000, 0x1100], 0x1000, 0x200) == 0x100
+
+    def test_size_ending_inside_the_gap_is_untouched(self) -> None:
+        assert clip_span([0x1000, 0x1100], 0x1000, 0x20) == 0x20
+
+    def test_a_function_never_clips_against_its_own_start(self) -> None:
+        # The va itself is in the list; clipping must look strictly forward.
+        assert clip_span([0x1000, 0x1000, 0x1100], 0x1000, 0x200) == 0x100
+
+    def test_no_starts_leaves_the_size_alone(self) -> None:
+        assert clip_span([], 0x1000, 0x200) == 0x200
+
+    def test_clipped_sizes_never_double_count_the_neighbour(self) -> None:
+        """The invariant clip_span exists for: a size that overruns the next
+        start would make the summed coverage exceed the real extent."""
+        starts = [0x1000, 0x1010, 0x1040]
+        raw = [(0x1000, 0x40), (0x1010, 0x80)]  # the second overruns 0x1040
+        clipped = [(va, clip_span(starts, va, size)) for va, size in raw]
+        assert clipped == [(0x1000, 0x10), (0x1010, 0x30)]
+        assert sum(size for _, size in clipped) == starts[-1] - starts[0]
 
 
 class TestMergedSpanBytes:
