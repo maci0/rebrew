@@ -142,7 +142,10 @@ would be a second answer to that question. See
 ## The compile → compare → STATUS/BLOCKER loop
 
 1. `parse_c_file_multi()` reads the marker line plus inline keys still
-   used from the `.c`: co-read `SIZE`/`CFLAGS` (reccmp contract),
+   used from the `.c`. A migrated, marker-less file (ADR 023) has no
+   block to read: `_annotations_from_metadata` synthesizes the same
+   Annotations from the TOML entries whose `file` field matches. Inline
+   keys still read on an unmigrated file: co-read `SIZE`/`CFLAGS` (reccmp contract),
    `TOOLCHAIN`/`SOURCE` (until migrated — metadata wins on merge),
    `// SOURCE: naked` (file-borne), and structural `STRUCT`/`CALLERS`
    (`SECTION` on DATA/GLOBAL is data-metadata-owned). Inline `STATUS`
@@ -170,7 +173,8 @@ would be a second answer to that question. See
   CFLAGS gets the same disagreement-only check when the metadata has a value,
   and otherwise the deprecation W019; `// SOURCE: naked` is file-borne and
   exempt.
-- **file-only**: MARKER, VA, MODULE, SYMBOL — live in the `.c` block.
+- **file-only**: MARKER, VA, MODULE, SYMBOL — in the `.c` block, or in the
+  TOML entry's `file`/`marker_type`/`symbol`/`name` on a migrated file (ADR 023).
 - **legacy**: ORIGIN (derived from module) — inline → W019, never stored in function metadata.
 - **data-owned**: SECTION (owned by `rebrew-data.toml` for DATA/GLOBAL
   entries) — deliberately absent from function `METADATA_FIELDS`.
