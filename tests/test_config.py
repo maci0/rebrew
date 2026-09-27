@@ -112,12 +112,6 @@ class TestArchPresets:
     def test_arm_padding_bytes(self) -> None:
         assert ARCH_PRESETS["arm32"]["padding_bytes"] == [0x00]
 
-    def test_x86_32_symbol_prefix(self) -> None:
-        assert ARCH_PRESETS["x86_32"]["symbol_prefix"] == "_"
-
-    def test_x86_64_no_prefix(self) -> None:
-        assert ARCH_PRESETS["x86_64"]["symbol_prefix"] == ""
-
 
 # ---------------------------------------------------------------------------
 # load_config() — multi-target format

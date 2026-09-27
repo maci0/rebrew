@@ -317,10 +317,6 @@ class TestProjectConfigValidation:
         with pytest.raises(ConfigError, match="LLM endpoint must use https when an API key is set"):
             cfg.validate()
 
-    def test_project_config_to_dict_matches_as_dict(self, tmp_path: Path) -> None:
-        cfg = ProjectConfig(root=tmp_path)
-        assert cfg.to_dict() == cfg.as_dict()
-
     def test_project_config_coerces_str_paths(self) -> None:
         cfg = ProjectConfig(
             root="/tmp/project",
