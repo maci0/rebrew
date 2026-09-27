@@ -1,6 +1,8 @@
 .PHONY: help setup clean test test-one lint format format-check check build sbom all pr-check \
 	gen-fixtures gen-fixtures-check gen-skills gen-skills-check cycles-check idempotency-check mypy audit \
 	cli-contract release-check coverage ensure-uv ensure-resembl ensure-nasm warn-nasm warn-shellcheck \
+	ensure-bash \
+	smoke-wheel \
 	ensure-extras \
 	sdist-check \
 	clone-resembl warn-uv-version
@@ -73,8 +75,9 @@ help:
 		'  make build              # reproducible sdist+wheel + dist/rebrew.buildinfo' \
 		'  make sbom               # CycloneDX 1.5 JSON from uv.lock (offline)' \
 		'  make sdist-check        # build a wheel from the sdist and diff it against dist/*.whl' \
+		'  make smoke-wheel        # install dist/*.whl into .venv-pkg and smoke-import it (CI package job)' \
 		'  make all                # local mirror of CI lint+test(+coverage floor)+cli-contract gates' \
-		'  make pr-check           # full local CI verification (all + check + build + sdist-check + sbom)' \
+		'  make pr-check           # full local CI verification (all + check + build + sdist-check + smoke-wheel + sbom)' \
 		'  make gen-fixtures       # regenerate tests/fixtures/ from tools/gen_fixtures.py' \
 		'  make gen-fixtures-check # tools/gen_fixtures.py --check' \
 		'  make gen-skills         # regenerate .agents/skills/ from src/rebrew/agent-skills/' \
@@ -85,7 +88,8 @@ help:
 		'' \
 		'Bootstrap (clean clone):' \
 		'  1. Install uv $(UV_VERSION)+ (CI pin), Python 3.13+ (.python-version), nasm on PATH' \
-		'     (shellcheck too: the pre-commit shell hook skips itself without it, CI runs it)' \
+		'     (shellcheck too: the pre-commit shell hook skips itself without it, CI runs it;' \
+		'     bash for step 2: tools/ci_clone_resembl.sh runs under it)' \
 		'  2. Clone sibling resembl at $(RESEMBL_REF) into ../resembl' \
 		'     git clone --depth 1 --branch $(RESEMBL_REF) https://github.com/maci0/resembl.git ../resembl' \
 		'     setup fails unless that checkout HEAD is $(RESEMBL_SHA) (CI resembl-sha)' \
@@ -178,8 +182,19 @@ warn-shellcheck:
 	  echo "  apt install shellcheck / pacman -S shellcheck / dnf install shellcheck"; \
 	fi
 
+# tools/ci_clone_resembl.sh is bash (it needs ${var:?} and bash-only options).
+# A minimal host without it would read "bash: not found" as a clone failure.
+ensure-bash:
+	@set -eu; \
+	if ! command -v bash >/dev/null 2>&1; then \
+	  echo "ERROR: bash not on PATH (make clone-resembl runs tools/ci_clone_resembl.sh with it)."; \
+	  echo "Install it: e.g. apk add bash / apt install bash / dnf install bash"; \
+	  echo "Or clone the sibling resembl pin by hand (command below), then re-run make setup."; \
+	  exit 1; \
+	fi
+
 # Clone sibling resembl pin matching CI and uv.lock into ../resembl
-clone-resembl:
+clone-resembl: ensure-bash
 	@set -eu; \
 	RESEMBL_REF=$(RESEMBL_REF) RESEMBL_SHA=$(RESEMBL_SHA) bash tools/ci_clone_resembl.sh "$(RESEMBL_DIR)"
 
@@ -355,11 +370,11 @@ dist/rebrew.buildinfo:
 sdist-check: dist/rebrew.buildinfo
 	@set -eu; \
 	for f in dist/*.tar.gz; do set -- "$$@" "$$f"; done; \
-	[ $$# -eq 1 ] || { echo "ERROR: expected exactly one sdist in dist/ (run 'make build')"; exit 1; }; \
+	[ $$# -eq 1 ] && [ -f "$$1" ] || { echo "ERROR: expected exactly one sdist in dist/ (run 'make build')"; exit 1; }; \
 	sdist=$$1; \
 	set --; \
 	for f in dist/*.whl; do set -- "$$@" "$$f"; done; \
-	[ $$# -eq 1 ] || { echo "ERROR: expected exactly one wheel in dist/ (run 'make build')"; exit 1; }; \
+	[ $$# -eq 1 ] && [ -f "$$1" ] || { echo "ERROR: expected exactly one wheel in dist/ (run 'make build')"; exit 1; }; \
 	wheel=$$1; \
 	rm -rf .sdist-check; mkdir .sdist-check; \
 	umask 022 && SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) TZ=UTC LC_ALL=C PYTHONHASHSEED=0 \
@@ -367,6 +382,28 @@ sdist-check: dist/rebrew.buildinfo
 	  --require-hashes "$$sdist"; \
 	uv run --no-project --offline python tools/check_sdist_wheel.py "$$wheel" .sdist-check/*.whl; \
 	rm -rf .sdist-check
+
+# Install the built wheel into a throwaway venv and smoke-import it (CI
+# package job).  This is the only gate that proves the artifact a user
+# installs is complete: `import rebrew` and the console script read nothing
+# that package-data drops, so a wheel missing agent-skills/ or py.typed runs
+# fine here and fails on the user's first `rebrew skills list`.
+# Runtime deps come from the lock with --no-default-groups
+# --no-install-project (no ../resembl needed); the wheel is then overlaid with
+# --no-deps so a live PyPI resolve cannot drift past the audited lock.
+# The CI package job runs the same four commands inline; keep the two in step.
+# `make clean` removes .venv-pkg.
+smoke-wheel: dist/rebrew.buildinfo ensure-uv
+	@set -eu; \
+	for f in dist/*.whl; do set -- "$$@" "$$f"; done; \
+	[ $$# -eq 1 ] && [ -f "$$1" ] || { echo "ERROR: expected exactly one wheel in dist/ (run 'make build')"; exit 1; }; \
+	wheel=$$1; \
+	rm -rf .venv-pkg; \
+	uv venv .venv-pkg; \
+	UV_PROJECT_ENVIRONMENT=.venv-pkg uv sync --frozen --no-dev --no-default-groups --no-install-project; \
+	uv pip install --python .venv-pkg --no-deps "$$wheel"; \
+	.venv-pkg/bin/python tools/smoke_wheel_install.py; \
+	.venv-pkg/bin/rebrew --help >/dev/null
 
 # Run all non-mutating verification gates (mirrors CI lint + test +
 # cli-contract jobs: ruff, mypy, uv audit, pytest under the COV_FLOOR gate
@@ -377,11 +414,13 @@ sdist-check: dist/rebrew.buildinfo
 all: format-check lint mypy audit coverage gen-fixtures-check cycles-check idempotency-check cli-contract
 
 # Full local verification: single runnable step mirroring every CI gate
-# (all non-mutating gates + pre-commit hook parity + reproducible build + SBOM).
-# ``sbom`` runs last on purpose: ``make build`` clears dist/*.cdx.json, and
-# ``sdist-check`` depends on ``build``, so an earlier sbom leaves dist/ with no
-# BOM for the same reason CI had to move its step.
-pr-check: all check build sdist-check sbom
+# (all non-mutating gates + pre-commit hook parity + reproducible build +
+# wheel smoke install + SBOM).  ``sbom`` runs last on purpose: ``make build``
+# clears dist/*.cdx.json, and ``sdist-check`` depends on ``build``, so an
+# earlier sbom leaves dist/ with no BOM for the same reason CI had to move its
+# step.  ``smoke-wheel`` runs after ``sdist-check`` so it installs the same
+# wheel the sdist comparison already accepted.
+pr-check: all check build sdist-check smoke-wheel sbom
 
 # Regenerate checked-in binary fixtures (run after editing tools/gen_fixtures.py).
 gen-fixtures: ensure-uv
