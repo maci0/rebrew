@@ -63,7 +63,13 @@ from rebrew.config import ProjectConfig, inventory_path_for, module_marker
 from rebrew.match_semantics import EFFECTIVE_MATCH_NOTE, is_effective_match
 from rebrew.metadata import should_promote_status
 from rebrew.status_style import STATUS_COLORS
-from rebrew.utils import atomic_write_text, canonical_va_key, floor_pct, preset_module_key
+from rebrew.utils import (
+    atomic_write_text,
+    canonical_va_key,
+    floor_pct,
+    preset_module_key,
+    read_json_text,
+)
 from rebrew.verify_cache import (
     VerifyCacheEntry,
     load_verify_cache,
@@ -1894,7 +1900,7 @@ def _inventory_count(cfg: ProjectConfig, reversed_dir: Path) -> int:
 
     path = inventory_path_for(reversed_dir, cfg)
     try:
-        data = _json.loads(path.read_text(encoding="utf-8"))
+        data = _json.loads(read_json_text(path))
         return len(data) if isinstance(data, list) else 0
     except (OSError, _json.JSONDecodeError, ValueError):
         return 0

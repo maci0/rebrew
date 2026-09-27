@@ -37,7 +37,7 @@ from rebrew.cli import (
 )
 from rebrew.errors import RebrewError
 from rebrew.pe_headers import pe_layout
-from rebrew.utils import atomic_write_text
+from rebrew.utils import atomic_write_text, read_json_text
 
 #: Width of the function-name column in the residue table.
 _NAME_COLUMN = 40
@@ -298,7 +298,7 @@ def main(
         atomic_write_text(Path(new_baseline), json.dumps(summary, indent=2), encoding="utf-8")
         console.print(f"baseline written ({new_baseline})")
     if baseline:
-        old = json.loads(Path(baseline).read_text(encoding="utf-8"))
+        old = json.loads(read_json_text(Path(baseline)))
         old_map = {f["name"]: f["bytes"] for f in old.get("functions", [])}
         new_map = {f["name"]: f["bytes"] for f in summary["functions"]}
         delta_rows = [

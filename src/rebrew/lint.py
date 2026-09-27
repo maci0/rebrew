@@ -76,6 +76,7 @@ from rebrew.utils import (
     preset_module_key,
     read_source_text,
     rel_display_path,
+    split_source_lines,
 )
 from rebrew.workspace.status import EARNED_STATUSES, KNOWN_STATUSES, MATCHED_STATUSES
 
@@ -319,7 +320,7 @@ def count_migratable_files(src_dir: Path, cfg: Any) -> int:
     count = 0
     for src in iter_sources(src_dir, cfg):
         try:
-            lines = read_source_text(src)[0].splitlines()
+            lines = split_source_lines(read_source_text(src)[0])
         except OSError:
             continue
         for found_keys, _flags in _parse_multi_headers(lines):

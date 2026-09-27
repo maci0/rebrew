@@ -40,7 +40,7 @@ from rebrew.config import (
     inventory_path_for,
     load_config,
 )
-from rebrew.utils import md5_file
+from rebrew.utils import md5_file, read_json_text
 
 logger = logging.getLogger(__name__)
 
@@ -1679,7 +1679,7 @@ def _inventory_spans(cfg: Any) -> list[tuple[int, int]]:
     if not path.is_file():
         return []
     try:
-        rows = json.loads(path.read_text(encoding="utf-8"))
+        rows = json.loads(read_json_text(path))
     except (OSError, ValueError):
         return []
     spans: list[tuple[int, int]] = []

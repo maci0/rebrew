@@ -13,7 +13,7 @@ it belongs to rather than starting a sixth.
 - **Source and config reading**: ``read_source_text`` / ``read_compile_source``
   (with the LRU memo and its ``clear_source_text_memo`` reset),
   ``detect_source_encoding``, ``read_toml_text``, ``load_tomllib``,
-  ``load_toml_for_write``
+  ``load_toml_for_write``, ``read_json_text``
 - **Atomic and locked writes**: ``atomic_write_text`` / ``atomic_write_bytes``,
   ``atomic_write_locked``, ``file_lock`` / ``file_handle_lock``,
   ``metadata_write_lock``, ``preserve_corrupt``
@@ -450,6 +450,20 @@ def load_tomllib(path: Path) -> Any:
     still fails on Notepad-saved configs.
     """
     return tomllib.loads(read_toml_text(path))
+
+
+def read_json_text(path: Path) -> str:
+    """Read a JSON file as text, tolerating a leading UTF-8 BOM.
+
+    The JSON counterpart of :func:`read_toml_text`.  ``json.loads`` rejects a
+    string whose first character is U+FEFF (``Unexpected UTF-8 BOM``), and
+    several of the files read this way come from outside rebrew: a Ghidra
+    export, ``compile_commands.json`` from an external build tool, a
+    hand-kept residue baseline.  A Windows editor that adds ``EF BB BF`` to
+    one of them turns a readable file into a parse error, which several
+    callers report as "corrupt" and drop.
+    """
+    return path.read_text(encoding="utf-8-sig")
 
 
 def _fsync_path(path: Path) -> None:

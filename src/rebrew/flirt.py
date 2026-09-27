@@ -19,7 +19,7 @@ import typer
 
 from rebrew.binary_loader import load_binary
 from rebrew.cli import TargetOption, console, error_exit, json_print, parse_va, require_config
-from rebrew.utils import atomic_write_bytes
+from rebrew.utils import atomic_write_bytes, read_json_text
 
 _MAX_FUNC_SCAN = 4096
 _MIN_MATCH_WINDOW = 32
@@ -224,7 +224,7 @@ def _arch_index(dirs: list[Path]) -> dict[str, str]:
             if not candidate.is_file():
                 continue
             try:
-                data = json.loads(candidate.read_text(encoding="utf-8"))
+                data = json.loads(read_json_text(candidate))
             except (OSError, ValueError):
                 continue
             for name, meta in data.get("files", {}).items():

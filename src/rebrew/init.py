@@ -38,7 +38,7 @@ if TYPE_CHECKING:
     from rebrew.toolchain_detect import ToolchainInfo
 from rebrew.cli import console
 from rebrew.toolchain import toolchain_link_candidates
-from rebrew.utils import ascii_slug, atomic_write_text
+from rebrew.utils import ascii_slug, atomic_write_text, read_json_text
 
 logger = logging.getLogger(__name__)
 
@@ -273,7 +273,7 @@ def _load_scaffold_manifest(cwd: Path) -> dict[str, str]:
     file on disk untouched rather than guessing what rebrew owns.
     """
     try:
-        data = json.loads((cwd / _SCAFFOLD_MANIFEST).read_text(encoding="utf-8"))
+        data = json.loads(read_json_text(cwd / _SCAFFOLD_MANIFEST))
     except (OSError, ValueError):
         return {}
     files = data.get("files") if isinstance(data, dict) else None

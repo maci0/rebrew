@@ -27,6 +27,16 @@ class TestLoadFunctionStructure:
         assert entries[0].va == 0x10001000
         assert entries[0].size == 64
 
+    def test_utf8_bom_is_stripped(self, tmp_path: Path) -> None:
+        """A BOM-prefixed export parses: json.loads rejects a leading U+FEFF."""
+        p = tmp_path / "function_structure.json"
+        p.write_text(
+            json.dumps([{"va": "0x10001000", "size": 64, "name": "a"}]), encoding="utf-8-sig"
+        )
+        entries = load_function_structure(p)
+        assert len(entries) == 1
+        assert entries[0].va == 0x10001000
+
     def test_non_list_raises(self, tmp_path: Path) -> None:
         p = tmp_path / "function_structure.json"
         p.write_text(json.dumps({"va": 1}), encoding="utf-8")
@@ -112,6 +122,14 @@ class TestLoadGhidraDataLabels:
         labels = load_ghidra_data_labels(tmp_path)
         assert labels[0x10002000].state == "data"
         assert labels[0x10003000].state == "thunk"
+
+    def test_utf8_bom_is_stripped(self, tmp_path: Path) -> None:
+        """A BOM-prefixed export yields labels instead of a "corrupt" warning."""
+        (tmp_path / "ghidra_data_labels.json").write_text(
+            json.dumps([{"va": 0x10002000, "size": 4, "label": "g_thing"}]),
+            encoding="utf-8-sig",
+        )
+        assert load_ghidra_data_labels(tmp_path)[0x10002000].label == "g_thing"
 
     def test_legacy_fallback(self, tmp_path: Path) -> None:
         (tmp_path / "ghidra_switchdata.json").write_text(
