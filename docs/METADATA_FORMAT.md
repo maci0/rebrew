@@ -14,9 +14,6 @@
 > `rebrew.data_metadata` (locked + atomic), or the CLI gates
 > (`rebrew blocker`, `rebrew test`/`verify`/`prove`, `rebrew library`, `rebrew data`).
 
-This document describes the two-layer metadata system used by rebrew to track
-function and data metadata.
-
 ## Layer 1: Inline reccmp Markers (in `.c` files)
 
 Only **one kind** of marker line remains inside source files — the

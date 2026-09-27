@@ -1614,10 +1614,7 @@ def _module_query(params: dict[str, list[str]]) -> str | None:
     if "module" not in params:
         return None
     values = params["module"]
-    raw = values[0] if values else ""
-    if raw is None:
-        return ""
-    return raw.strip()
+    return (values[0] if values else "").strip()
 
 
 def _byte_count(value: Any) -> int:

@@ -304,6 +304,28 @@ def _flags_to_axes(flags: Flags, tier_ids: list[str] | None = None) -> list[list
     return axes
 
 
+def _run_compiler(
+    cmd: list[str], workdir: Path, env: dict[str, str] | None, timeout: int, stage: str
+) -> subprocess.CompletedProcess[bytes] | BuildResult:
+    """Run *cmd* in *workdir*; a BuildResult carries the failure to return."""
+    try:
+        return run_process_group(cmd, capture_output=True, cwd=workdir, env=env, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return BuildResult(ok=False, error_msg=f"{stage} timed out after {timeout}s")
+    except FileNotFoundError as e:
+        return BuildResult(ok=False, error_msg=f"Compiler not found: {e}")
+    except OSError as e:
+        return BuildResult(ok=False, error_msg=f"Failed to run compiler: {e}")
+
+
+def _obj_result(obj_path: Path | str, symbol: str) -> BuildResult:
+    """BuildResult carrying *symbol*'s bytes from the .obj at *obj_path*."""
+    code, relocs = parse_obj_symbol_bytes(str(obj_path), symbol)
+    if code is None:
+        return BuildResult(ok=False, error_msg=f"Symbol {symbol} not found in .obj")
+    return BuildResult(ok=True, obj_bytes=code, reloc_offsets=relocs)
+
+
 def _get_pe_symbol_size(exe_path: Path, symbol: str) -> int | None:
     """Get function size from PE symbol table via LIEF.
 
@@ -497,10 +519,7 @@ def build_candidate_obj_only(
             )
             if obj_file is None:
                 return BuildResult(ok=False, error_msg=f"Compile failed: {err}")
-            code, relocs = parse_obj_symbol_bytes(str(obj_file), symbol)
-            if code is None:
-                return BuildResult(ok=False, error_msg=f"Symbol {symbol} not found in .obj")
-            return BuildResult(ok=True, obj_bytes=code, reloc_offsets=relocs)
+            return _obj_result(obj_file, symbol)
         finally:
             from rebrew.utils import remove_temp_dir
 
@@ -570,10 +589,7 @@ def build_candidate_obj_only(
             with tempfile.TemporaryDirectory(prefix="matcher_hit_") as _td:
                 obj_path = Path(_td) / "cand.obj"
                 obj_path.write_bytes(cached_obj)
-                code, relocs = parse_obj_symbol_bytes(str(obj_path), symbol)
-                if code is None:
-                    return BuildResult(ok=False, error_msg=f"Symbol {symbol} not found in .obj")
-                return BuildResult(ok=True, obj_bytes=code, reloc_offsets=relocs)
+                return _obj_result(obj_path, symbol)
 
     with tempfile.TemporaryDirectory(prefix="matcher_") as _td:
         workdir = Path(_td)
@@ -598,14 +614,9 @@ def build_candidate_obj_only(
         env = _ensure_wine_env(env, cmd)
         cmd, env = _maybe_headless_wine(cmd, env)
 
-        try:
-            r = run_process_group(cmd, capture_output=True, cwd=workdir, env=env, timeout=timeout)
-        except subprocess.TimeoutExpired:
-            return BuildResult(ok=False, error_msg=f"Compile timed out after {timeout}s")
-        except FileNotFoundError as e:
-            return BuildResult(ok=False, error_msg=f"Compiler not found: {e}")
-        except OSError as e:
-            return BuildResult(ok=False, error_msg=f"Failed to run compiler: {e}")
+        r = _run_compiler(cmd, workdir, env, timeout, "Compile")
+        if isinstance(r, BuildResult):
+            return r
 
         obj_path = workdir / obj_name
 
@@ -635,11 +646,7 @@ def build_candidate_obj_only(
                     ),
                 )
 
-        code, relocs = parse_obj_symbol_bytes(str(obj_path), symbol)
-        if code is None:
-            return BuildResult(ok=False, error_msg=f"Symbol {symbol} not found in .obj")
-
-        return BuildResult(ok=True, obj_bytes=code, reloc_offsets=relocs)
+        return _obj_result(obj_path, symbol)
 
 
 def build_candidate(
@@ -684,14 +691,9 @@ def build_candidate(
 
         env = _ensure_wine_env(env, cmd)
         cmd, env = _maybe_headless_wine(cmd, env)
-        try:
-            r = run_process_group(cmd, capture_output=True, cwd=workdir, env=env, timeout=timeout)
-        except subprocess.TimeoutExpired:
-            return BuildResult(ok=False, error_msg=f"Compile+link timed out after {timeout}s")
-        except FileNotFoundError as e:
-            return BuildResult(ok=False, error_msg=f"Compiler not found: {e}")
-        except OSError as e:
-            return BuildResult(ok=False, error_msg=f"Failed to run compiler: {e}")
+        r = _run_compiler(cmd, workdir, env, timeout, "Compile+link")
+        if isinstance(r, BuildResult):
+            return r
 
         exe_path = workdir / exe_name
         map_path = workdir / map_name

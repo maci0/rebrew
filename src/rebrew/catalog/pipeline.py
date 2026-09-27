@@ -43,21 +43,18 @@ def build_catalog_data(cfg: Any, *, with_data: bool = True) -> dict[str, Any]:
     # Load the discovery inventory
     funcs = cached_function_list(cfg)
 
-    # The .text size drives the coverage percentage.  A missing binary used
-    # to fall back to a fabricated 0x24000 (92160B) section — coverage was
-    # then reported against a made-up denominator, indistinguishable from a
-    # real measurement and ingested as truth by build-db/dashboards.
-    # Use 0 instead (coverage_pct → 0.0) and say so.
-    text_size = 0
+    # The .text size drives the coverage percentage.  With no binary there
+    # is no real denominator, so report 0 (coverage_pct -> 0.0) and say so.
     binary_missing = bin_path is None or not bin_path.exists()
-    if not binary_missing:
-        text_size = get_text_section_size(bin_path)
     if binary_missing:
         console.print(
             f"[yellow]warning:[/yellow] target binary missing ({bin_path}) — "
             "text_size=0, identified bytes reported as 0%",
             style="dim",
         )
+        text_size = 0
+    else:
+        text_size = get_text_section_size(bin_path)
 
     try:
         registry = build_function_registry(funcs, cfg, ghidra_json_path, bin_path)

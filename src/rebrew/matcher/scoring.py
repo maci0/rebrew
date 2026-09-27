@@ -848,15 +848,11 @@ def diff_functions(
                 "total": max_insns,
             },
         }
-        if summary_only:
-            # structural_similarity needs the mnemonics too — collected during
-            # the same pass, so it avoids re-disassembling both sides.
-            payload["mnemonics"] = {"target": target_mnems, "candidate": cand_mnems}
-        else:
+        if not summary_only:
             payload["instructions"] = insn_data
-            # Same mnemonics the rows were built from — lets structural_similarity
-            # reuse a display summary instead of re-running the whole diff.
-            payload["mnemonics"] = {"target": target_mnems, "candidate": cand_mnems}
+        # Collected in the same pass, so structural_similarity needs no second
+        # disassembly of either side.
+        payload["mnemonics"] = {"target": target_mnems, "candidate": cand_mnems}
         return payload
 
     print(f"\nTarget ({len(target_bytes)}B) vs Candidate ({len(candidate_bytes)}B)")

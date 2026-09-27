@@ -278,13 +278,8 @@ def _find_function_range(source: str, symbol: str) -> tuple[int, int] | None:
             if declarator is None:
                 continue
             name_node: Any = declarator
-            # function_declarator -> declarator -> identifier (guard against cycles)
-            visited: set[int] = set()
+            # function_declarator -> declarator -> identifier
             while name_node is not None and name_node.type != "identifier":
-                nid = id(name_node)
-                if nid in visited:
-                    break
-                visited.add(nid)
                 name_node = name_node.child_by_field_name("declarator") or name_node.named_child(0)
             if (
                 name_node is not None

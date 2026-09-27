@@ -189,9 +189,8 @@ def cached_function_list(cfg: ProjectConfig) -> list[dict[str, Any]]:
     reversed_dir = getattr(cfg, "reversed_dir", "")
     path = str(inventory_path_for(reversed_dir, cfg)) if reversed_dir else ""
     fp = _inventory_fingerprint(path)
-    cache_key = path if path else ""
     with _function_list_cache_lock:
-        cached = _function_list_cache.get(cache_key)
+        cached = _function_list_cache.get(path)
         if cached is not None and cached[0] == fp:
             return [dict(f) for f in cached[1]]
     funcs: list[dict[str, Any]] = []
@@ -213,13 +212,13 @@ def cached_function_list(cfg: ProjectConfig) -> list[dict[str, Any]]:
     with _function_list_cache_lock:
         if (
             len(_function_list_cache) >= _FUNCTION_LIST_CACHE_MAX
-            and cache_key not in _function_list_cache
+            and path not in _function_list_cache
         ):
             oldest = next(iter(_function_list_cache))
             _function_list_cache.pop(oldest, None)
             _function_vas_cache.pop(oldest, None)
-        _function_list_cache[cache_key] = (fp, funcs)
-        _function_vas_cache[cache_key] = (
+        _function_list_cache[path] = (fp, funcs)
+        _function_vas_cache[path] = (
             fp,
             frozenset(va for f in funcs if isinstance((va := f.get("va")), int)),
         )
@@ -235,15 +234,14 @@ def cached_function_vas(cfg: ProjectConfig) -> frozenset[int]:
     reversed_dir = getattr(cfg, "reversed_dir", "")
     path = str(inventory_path_for(reversed_dir, cfg)) if reversed_dir else ""
     fp = _inventory_fingerprint(path)
-    cache_key = path if path else ""
     with _function_list_cache_lock:
-        cached = _function_vas_cache.get(cache_key)
+        cached = _function_vas_cache.get(path)
         if cached is not None and cached[0] == fp:
             return cached[1]
-        list_cached = _function_list_cache.get(cache_key)
+        list_cached = _function_list_cache.get(path)
         if list_cached is not None and list_cached[0] == fp:
             vas = frozenset(va for f in list_cached[1] if isinstance((va := f.get("va")), int))
-            _function_vas_cache[cache_key] = (fp, vas)
+            _function_vas_cache[path] = (fp, vas)
             return vas
     # Derive from the list the loader returns, not a re-read of the cache: a
     # concurrent rewrite between the stat above and the reload changes the
