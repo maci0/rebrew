@@ -1194,7 +1194,9 @@ def run_all(
         sweep_flags: str | None = None
         if flag_sweep_then_ga:
             try:
-                _s, best_flags, _all = run_flag_sweep(stub, cfg, tier=tier, jobs=intra_jobs)
+                _s, best_flags, _all = run_flag_sweep(
+                    stub, cfg, tier=tier, jobs=intra_jobs, clock=clock
+                )
                 if best_flags and math.isfinite(_s):
                     sweep_flags = best_flags
                     if not json_output:

@@ -1540,6 +1540,7 @@ class TestRunVerification:
         assert (passed, failed) == (0, 3)
         assert [d[0].va for d in deferred] == [0x1000, 0x2000, 0x3000]
         assert [d[0].va for d in fail_details] == [0x1000, 0x2000, 0x3000]
+        assert [int(r["va"], 16) for r in results] == [0x1000, 0x2000, 0x3000]
 
     def test_failures_recorded(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         from rebrew.verify import run_verification
