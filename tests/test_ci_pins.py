@@ -637,6 +637,43 @@ class TestCiPins:
         assert "warn-nasm" in _makefile_prereqs("test-one")
         assert "ensure-nasm" in _makefile_prereqs("test")
 
+    def test_pr_check_installs_the_built_wheel(self) -> None:
+        """The wheel smoke install is a CI gate; pr-check has to run it locally.
+
+        ``import rebrew`` and the console script read none of the files
+        package-data carries, so a wheel missing ``agent-skills/`` or
+        ``py.typed`` installs and runs fine and only fails for the user.
+        """
+        text = MAKEFILE.read_text(encoding="utf-8")
+        match = re.search(r"(?m)^pr-check:(?P<deps>[^\n]*)$", text)
+        assert match is not None
+        deps = match.group("deps").split()
+        assert "smoke-wheel" in deps
+        # After build (which clears dist/) and after sdist-check, so the
+        # installed wheel is the one the sdist comparison accepted.
+        assert deps.index("build") < deps.index("smoke-wheel")
+        assert deps.index("sdist-check") < deps.index("smoke-wheel")
+        recipe = text.split("\nsmoke-wheel:", 1)[1].split("\n#", 1)[0]
+        # Locked runtime deps, then the wheel overlaid with --no-deps: a live
+        # PyPI resolve must not drift past the audited lock.
+        assert "uv sync --frozen --no-dev --no-default-groups --no-install-project" in recipe
+        assert "uv pip install --python .venv-pkg --no-deps" in recipe
+        assert "tools/smoke_wheel_install.py" in recipe
+        assert ".venv-pkg/bin/rebrew --help" in recipe
+        # A missing artifact must be named, not globbed literally into uv.
+        assert '[ -f "$$1" ]' in recipe
+
+    def test_clone_resembl_preflights_bash(self) -> None:
+        """``tools/ci_clone_resembl.sh`` is bash; the target says so, the shell does not."""
+        text = MAKEFILE.read_text(encoding="utf-8")
+        assert "ensure-bash" in _makefile_prereqs("clone-resembl")
+        assert "command -v bash" in text
+        assert (
+            (ROOT / "tools" / "ci_clone_resembl.sh")
+            .read_text(encoding="utf-8")
+            .startswith("#!/usr/bin/env bash")
+        )
+
     @pytest.mark.parametrize(
         "target",
         [

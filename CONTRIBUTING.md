@@ -19,7 +19,9 @@ pinned docker image).
 
 Needs **uv** (CI pins `uv-version` in `.github/actions/uv-env/action.yml`,
 currently `0.12.14`), **Python 3.13+** (see `.python-version`), and **nasm** on `PATH`
-(CI installs nasm for asm round-trip tests).  **shellcheck** is optional locally
+(CI installs nasm for asm round-trip tests).  `make clone-resembl` also needs
+**bash**: it runs `tools/ci_clone_resembl.sh`, and the target says so instead of
+printing `bash: not found`.  **shellcheck** is optional locally
 but not in CI: the pre-commit shell hook exits 0 without the binary, so
 `make check` on a host without it can pass where CI's pre-commit job (which
 installs shellcheck) fails; `make check` warns when it is missing.  `uv sync` also
@@ -76,10 +78,16 @@ make build                    # reproducible sdist+wheel + dist/rebrew.buildinfo
 make sbom                     # CycloneDX 1.5 JSON from uv.lock (offline)
 make cli-contract             # high-value --help greps (CI cli-contract job)
 make all                      # local mirror of CI lint+test+cli-contract gates
-make pr-check                 # full local CI verification (all + check + build + sdist-check + sbom)
+make pr-check                 # full local CI verification (all + check + build + sdist-check + smoke-wheel + sbom)
 make sdist-check              # build a wheel from the sdist, diff it against dist/*.whl
+make smoke-wheel              # install dist/*.whl into .venv-pkg and smoke-import it
 make gen-fixtures             # regenerate tests/fixtures/ after editing tools/gen_fixtures.py
+make gen-fixtures-check       # fixtures still match the generator
 make gen-skills               # regenerate .agents/skills/ after editing src/rebrew/agent-skills/
+make gen-skills-check         # rendered .agents/skills/ match the packaged source
+make cycles-check             # module-level import cycles (also runs in make check)
+make idempotency-check        # every --json command run twice (CI test job)
+make release-check            # version/changelog/tag preflight before tagging
 ```
 
 ## What to work on
@@ -155,12 +163,15 @@ import rebrew as a library.
    `ci/`, `chore/`) and open the pull request against `main`; do not commit
    straight to `main`.  Every CI job runs on the pull request, so a green local
    `make pr-check` plus a green `pre-commit` job is what review expects.
-1. `make pr-check` (or `make all && make check && make build && make sdist-check && make sbom`)
+1. `make pr-check` (or `make all && make check && make build && make sdist-check && make smoke-wheel && make sbom`)
    — mirrors CI
    lint+test+cli-contract gates, the pre-commit job, the package job's
-   `make build` (sdist/wheel + `dist/rebrew.buildinfo`), and its
+   `make build` (sdist/wheel + `dist/rebrew.buildinfo`), its
    sdist-completeness check (a wheel built from the sdist must carry the same
-   files as the shipped wheel). `make sbom` goes after `make build`:
+   files as the shipped wheel), and its wheel smoke install
+   (`make smoke-wheel`: the built wheel into a throwaway `.venv-pkg`, so
+   missing package-data fails here rather than on a user's install).
+   `make sbom` goes after `make build`:
    `build` clears `dist/*.cdx.json`, so a BOM generated before it is deleted
    before you can ship it. `make sdist-check` does not clear it (it depends on
    `dist/rebrew.buildinfo` and builds only when `dist/` is empty).
