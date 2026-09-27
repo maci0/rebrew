@@ -768,6 +768,42 @@ class TestInitCompletions:
         assert "#compdef rebrew" in zsh.read_text(encoding="utf-8")
         assert "--command rebrew" in fish.read_text(encoding="utf-8")
 
+    def test_failed_completion_render_leaves_rerunnable_project(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A completion-render failure must not strand a half-built project.
+
+        rebrew-project.toml is the "already initialized" guard, so a step that
+        fails after it is written leaves a directory init can never finish: the
+        rerun refuses with "already exists". Completions are written ahead of
+        the guard for exactly that reason.
+        """
+        import rebrew.init as init_mod
+
+        real_write = init_mod._write_completion_scripts
+
+        def boom(project_root: Path) -> list[Path]:
+            raise OSError("completion render failed")
+
+        monkeypatch.chdir(tmp_path)
+        kwargs: dict[str, Any] = {
+            "target_name": "t",
+            "binary_name": "t.exe",
+            "compiler_profile": "msvc-6.0",
+            "install_wibo": False,
+            "json_output": False,
+            "install_completions": True,
+        }
+        monkeypatch.setattr(init_mod, "_write_completion_scripts", boom)
+        with pytest.raises(OSError):
+            main(**kwargs)
+        assert not (tmp_path / "rebrew-project.toml").exists()
+
+        monkeypatch.setattr(init_mod, "_write_completion_scripts", real_write)
+        main(**kwargs)
+        assert (tmp_path / "rebrew-project.toml").is_file()
+        assert (tmp_path / "completions" / "rebrew.bash").is_file()
+
     def test_no_completions_without_flag(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

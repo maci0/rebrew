@@ -40,6 +40,17 @@
   `CompareResult.to_dict` did not say the two byte payloads are dropped, so a
   documented round trip through `from_dict` looked lossless to a consumer
   deciding `--fix-sizes` from it.
+- **`rebrew init` no longer strands a half-built project.** `rebrew-project.toml`
+  is the "already initialized" guard, and the code deliberately wrote it after
+  every fallible step so a failed init could be rerun to completion. Two steps
+  had drifted past it: `--install-completions` rendered its shell scripts after
+  the guard, and `--link-tools-from` re-resolved the toolchain layout by
+  rewriting the already-written TOML. A failure in either left a directory the
+  next run refuses with "A rebrew-project.toml already exists" and no way to
+  finish. Completions now render before the guard, and the compiler-path
+  rewrite works on the TOML content about to be written
+  (`_rewrite_compiler_paths` takes and returns text), so the guard really is
+  the last thing init does.
 - **`make format-check` passes on a clean checkout again.**
   `src/rebrew/import_table.py`, `tests/test_check_idempotency.py`, and
   `tools/check_idempotency.py` were checked in unformatted, so the blocking
