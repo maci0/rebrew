@@ -522,6 +522,34 @@ class TestHeaderDependencyHash:
         int(d, 16)  # hex
         assert header_dependency_hash("int g(void){return 2;}", None, ["/inc"]) == d
 
+    def test_unreadable_reached_header_changes_key(self, tmp_path: Path) -> None:
+        """A reached header that cannot be stat'ed must still move the key.
+
+        Dropping it made the closure identical to one without that header, so
+        the cached .obj was served against a different include set.
+        """
+        from rebrew.compile_cache import _header_key_entries
+
+        inc = tmp_path / "inc"
+        inc.mkdir()
+        header = inc / "a.h"
+        header.write_text("typedef int A;\n")
+        good = _header_key_entries((str(header),), None, [str(inc)])
+        assert good == [(0, "a.h", header.stat().st_size, header.stat().st_mtime_ns)]
+
+        real_stat = Path.stat
+
+        def _fail(self: Path) -> os.stat_result:
+            if self.name == "a.h":
+                raise OSError("simulated stat failure")
+            return real_stat(self)
+
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr(Path, "stat", _fail)
+            unreadable = _header_key_entries((str(header),), None, [str(inc)])
+        assert unreadable == [(0, "a.h", -1, -1)]
+        assert unreadable != good
+
     def test_unreached_header_edit_keeps_key(self, tmp_path: Path) -> None:
         """THE precision win: only reached headers shape the key."""
         inc = tmp_path / "inc"

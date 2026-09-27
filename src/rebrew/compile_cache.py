@@ -541,6 +541,11 @@ def include_fingerprint(include_dir: str) -> str:
         try:
             rel = path.relative_to(root).as_posix()
         except ValueError:
+            # A real include that resolved outside the project root (a
+            # system or toolchain header).  Dropping it would alias this
+            # closure onto a smaller one, so it gets the same identity
+            # treatment as the unreadable branch above.
+            h.update(f"\0outside-root\0{p_str}\0".encode("utf-8", errors="surrogateescape"))
             continue
         h.update(
             f"{rel}\0{st.st_size}\0{st.st_mtime_ns}\0".encode("utf-8", errors="surrogateescape")
@@ -912,6 +917,10 @@ def _header_key_entries(
         try:
             st = p.stat()
         except OSError:
+            # Omitting the header makes this key identical to one where the
+            # file does not exist, so a .obj compiled before the read failure
+            # is served from cache.  -1 is not a reachable size or mtime_ns.
+            entries.append((anchor_idx, rel, -1, -1))
             continue
         entries.append((anchor_idx, rel, st.st_size, st.st_mtime_ns))
     return sorted(entries)

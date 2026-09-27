@@ -13,6 +13,7 @@ Usage:
 from __future__ import annotations
 
 import contextlib
+import logging
 import re
 import threading
 from dataclasses import dataclass
@@ -38,6 +39,8 @@ from rebrew.sources import (
     iter_sources,
 )
 from rebrew.utils import fold_ident, preset_module_key
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -385,7 +388,11 @@ def _canonical_size(cfg: ProjectConfig, va: int) -> int:
     if sizes is None:
         try:
             sizes = {f["va"]: int(f["size"]) for f in cached_function_list(cfg)}
-        except (OSError, ValueError, KeyError, TypeError):
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            # 0 is the caller's "size unknown", so a broken inventory read
+            # would read as a function whose extent is genuinely 0 rather
+            # than as the failed lookup it is.
+            log.warning("canonical size inventory unreadable (%s: %s); reporting size 0", path, exc)
             return 0
         if not sizes:
             # Empty is also what a failed inventory load returns; never pin it.

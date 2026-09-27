@@ -26,6 +26,7 @@ Usage::
 
 from __future__ import annotations
 
+import logging
 import re
 import shutil
 import subprocess
@@ -37,6 +38,8 @@ import typer
 from rich.markup import escape
 
 from rebrew.cli import console, error_exit, json_print
+
+log = logging.getLogger(__name__)
 
 app = typer.Typer(help="Extract compiler version, flags, and function names from a PDB.")
 
@@ -92,7 +95,11 @@ def _run_pdbutil(args: list[str], pdb: Path, timeout: int = 30) -> str:
             errors="replace",
             timeout=timeout,
         )
-    except (OSError, subprocess.TimeoutExpired):
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        # '' parses as "no records", so a tool that is missing or hung would
+        # otherwise be indistinguishable from a PDB carrying no compile record
+        # and toolchain detection would proceed on the partial evidence.
+        log.warning("llvm-pdbutil %s failed on %s: %s", " ".join(args), pdb, exc)
         return ""
     return (r.stdout or "") + (r.stderr or "")
 

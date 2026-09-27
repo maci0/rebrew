@@ -494,9 +494,17 @@ def _run_diec(path: Path, diec: Path | None = None) -> list[dict[str, object]] |
             timeout=60,
             env=_diec_env(diec),
         )
-    except (OSError, subprocess.TimeoutExpired):
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        # None is also "diec ran and recognised nothing", so a detector that
+        # could not start is logged: without it the era/PDB heuristics below
+        # pin a profile on partial evidence with no record the primary
+        # detector was skipped.
+        logger.warning("diec failed on %s (%s); falling back to the other detectors", path, exc)
         return None
     if r.returncode != 0:
+        logger.warning(
+            "diec exited %d on %s: %s", r.returncode, path, (r.stderr or "").strip()[:200]
+        )
         return None
     raw = (r.stdout or "") + (r.stderr or "")
     start = raw.find("{")
@@ -1037,7 +1045,8 @@ def _pdb_compile_record(path: Path) -> dict[str, str] | None:
             errors="replace",
             timeout=30,
         )
-    except (OSError, subprocess.TimeoutExpired):
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        logger.warning("llvm-pdbutil dump -symbols failed on %s (%s)", pdb, exc)
         return None
     text = r.stdout + r.stderr
     m = re.search(r"S_COMPILE3.*?(?=\n\s*S_|\Z)", text, re.S)
@@ -1070,7 +1079,8 @@ def _pdb_zig_modules(pdb: Path) -> dict[str, str] | None:
             errors="replace",
             timeout=30,
         )
-    except (OSError, subprocess.TimeoutExpired):
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        logger.warning("llvm-pdbutil dump -modules failed on %s (%s)", pdb, exc)
         return None
     if ".zig-cache" in (r.stdout + r.stderr):
         return {"zig": "1"}

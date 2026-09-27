@@ -1165,8 +1165,20 @@ def apply_metadata_entry(ann: Annotation, entry: dict[str, Any]) -> None:
     re-loading the TOML for every annotation — the per-function hot path.
     """
     if "size" in entry:
-        with contextlib.suppress(ValueError, TypeError):
+        try:
             ann.size = as_metadata_int(entry["size"])
+        except (ValueError, TypeError) as exc:
+            # Leaving ann.size at 0 makes every later size comparison read the
+            # extent as genuinely unknown, and the run classifies the function
+            # MISSING_SIZE with nothing saying a value was dropped.
+            logger.warning(
+                "rebrew-functions.toml size for %s[0x%x] is not an integer (%r: %s); "
+                "leaving the annotation's own size",
+                getattr(ann, "module", None) or getattr(ann, "symbol", None) or "?",
+                getattr(ann, "va", 0) or 0,
+                entry["size"],
+                exc,
+            )
 
     if "cflags" in entry:
         ann.cflags = str(entry["cflags"])

@@ -307,6 +307,12 @@ def headers_hash(cfg: ProjectConfig) -> str:
     for hfile in sorted(src_dir.rglob("*.h")):
         try:
             rel = hfile.relative_to(src_dir).as_posix()
+        except ValueError:
+            # rglob only yields paths under src_dir, so this is unreachable
+            # in practice; fall through to the sentinel rather than dropping
+            # the header, which would alias this tree onto a smaller one.
+            rel = hfile.as_posix()
+        try:
             # surrogateescape: a header filename is not required to be valid
             # UTF-8 (a cp1252 name is legal on Linux), and it arrives here as
             # a lone surrogate that a strict encode cannot hash.
@@ -314,8 +320,14 @@ def headers_hash(cfg: ProjectConfig) -> str:
             h.update(b"\x00")  # separator to prevent path/content collision
             h.update(hfile.read_bytes())
             h.update(b"\x01")  # entry separator
-        except OSError:
-            continue
+        except OSError as exc:
+            # Skipping an unreadable header makes this digest identical to a
+            # tree that never contained it, so an edit behind the failed read
+            # stays a cache hit.  An unreadable marker keeps the key distinct
+            # (same convention as compile_cache.include_fingerprint).
+            log.warning("headers_hash: cannot read %s (%s); digesting it as unreadable", rel, exc)
+            h.update(b"\x00unreadable\x00")
+            h.update(b"\x01")
     h.update(ext_digest.encode("utf-8"))
     h.update(b"\x03")
     digest = h.hexdigest()
@@ -374,7 +386,11 @@ def _headers_stat_fingerprint(src_dir: Path) -> tuple[tuple[str, int, int], ...]
             rel = hfile.relative_to(src_dir).as_posix()
             entries.append((rel, st.st_mtime_ns, st.st_size))
         except OSError:
-            continue
+            # A header that cannot be stat'ed must still change the key, or
+            # the memo serves a digest taken while it was unreadable.  -1 is
+            # not a reachable mtime_ns or size, so the marker cannot collide
+            # with a real entry.
+            entries.append((hfile.as_posix(), -1, -1))
     return tuple(sorted(entries))
 
 

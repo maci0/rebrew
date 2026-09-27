@@ -636,7 +636,16 @@ def load_verify_entries(cfg: ProjectConfig) -> dict[str, "VerifyCacheEntry"]:
         from rebrew.verify_cache import VerifyCache
 
         data = VerifyCache.from_dict(raw)
-    except (ValueError, AttributeError, ImportError, TypeError):
+    except (ValueError, AttributeError, ImportError, TypeError) as exc:
+        # An unreadable cache is not the same verdict as an empty one: every
+        # category below is derived from these entries, so returning {} here
+        # makes "your cache does not parse" print as "nothing to do".
+        log.warning(
+            "verify cache at %s is unreadable (%s: %s); todo is reporting against an empty cache",
+            cfg.reversed_dir,
+            type(exc).__name__,
+            exc,
+        )
         return {}
     # One shared identity guard: version, target, compiler config, and binary.
     # Re-deriving it here is how todo came to accept a cache the compile path

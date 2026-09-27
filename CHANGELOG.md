@@ -404,6 +404,35 @@
   said so comes later.
 
 ### Fixed
+- **A header that could not be read no longer vanishes from a cache key.**
+  `verify_hash.headers_hash`, its stat fingerprint, and
+  `compile_cache._header_key_entries` all skipped a header whose `read_bytes`
+  or `stat` raised `OSError`, which makes the resulting digest or key
+  identical to a tree that never contained it: a cached verify verdict
+  survived an edit the failed read hid, and the .obj cache served bytes
+  compiled against a different include closure. Each now records the path
+  with a sentinel in place of the missing content, the convention
+  `compile_cache.include_fingerprint` already used, so an unreadable header
+  is a state of its own and restoring readability returns to the original
+  digest. The same function also logs the header it could not read.
+- **A status snapshot that failed to load is no longer read as an empty
+  one.** `_build_coverage_db` wrapped the pre-rebuild `SELECT` of existing
+  function statuses in `contextlib.suppress(sqlite3.OperationalError)`. Only
+  a database predating the `functions` table is that case; a locked file or
+  an I/O error is not, and suppressing either left `old_statuses` empty, so
+  every history row was written with no previous status and the transition
+  log was flattened while the rebuild still reported success. Any other
+  `OperationalError` now propagates.
+- **Four loaders that fail open now say so.** A `llvm-pdbutil` that cannot
+  start or times out, a `diec` probe that fails or exits non-zero, a
+  catalog inventory that will not parse, and a verify cache that will not
+  parse all returned the same value as "nothing found", so toolchain
+  detection, `crt-match`'s canonical sizes, and `rebrew todo` proceeded on
+  partial evidence with no record of it. Each logs a warning naming the
+  failed input and the underlying cause. A `size` in `rebrew-functions.toml`
+  that does not coerce to an integer now logs too: it used to leave the
+  annotation at size 0, which every later comparison read as an extent that
+  is genuinely unknown.
 - **A malformed `rebrew-project.toml` no longer reads as an empty
   workspace.** `rebrew.workspace.config.read_config` returned `{}` for a
   missing *and* for an unparseable file, so a syntax error made `db_dir`

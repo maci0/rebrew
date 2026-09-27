@@ -1642,13 +1642,23 @@ def _build_coverage_db(
         # a database that keeps all of them.  A full rebuild still needs the
         # whole table, because _create_schema drops it below.
         old_statuses: dict[tuple[str, int], str] = {}
-        with contextlib.suppress(sqlite3.OperationalError):
+        try:
             if target:
                 c.execute("SELECT target, va, status FROM functions WHERE target = ?", (target,))
             else:
                 c.execute("SELECT target, va, status FROM functions")
             for row in c.fetchall():
                 old_statuses[(row[0], row[1])] = row[2]
+        except sqlite3.OperationalError as exc:
+            # A database predating the `functions` table has no history to
+            # snapshot.  Every other OperationalError (locked file, I/O
+            # error) is not that: swallowing it leaves old_statuses empty, so
+            # the history pass below records no previous status for any
+            # function and the transition log is flattened while the rebuild
+            # still reports success.
+            if "no such table" not in str(exc):
+                raise
+            logging.debug("build-db: no functions table to snapshot (%s)", exc)
 
         _create_schema(c, target)
         _restore_persistent_rows(c, preserved_rows)

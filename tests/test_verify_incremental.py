@@ -1498,6 +1498,55 @@ class TestHeadersHash:
 
         assert hash_with != hash_changed
 
+    def test_unreadable_header_is_not_dropped(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A header whose read fails must still move the digest.
+
+        Skipping it made the tree hash the same as one that never contained
+        the header, so a cached PASS survived an edit the failed read hid.
+        """
+        import rebrew.verify_hash as vh
+
+        cfg = _make_cfg(tmp_path)
+        header = cfg.reversed_dir / "types.h"
+        header.write_text("typedef int BOOL;\n", encoding="utf-8")
+        vh._HEADERS_HASH_CACHE.clear()
+        with_reads = headers_hash(cfg)
+
+        real_read = Path.read_bytes
+
+        def _fail_on_types(self: Path) -> bytes:
+            if self.name == "types.h":
+                raise OSError("simulated read failure")
+            return real_read(self)
+
+        monkeypatch.setattr(Path, "read_bytes", _fail_on_types)
+        vh._HEADERS_HASH_CACHE.clear()
+        unreadable = headers_hash(cfg)
+        monkeypatch.undo()
+
+        assert unreadable != with_reads
+        # And restoring readability returns to the original digest, so the
+        # unreadable marker is a distinct state rather than a ratchet.
+        vh._HEADERS_HASH_CACHE.clear()
+        assert headers_hash(cfg) == with_reads
+
+    def test_unreadable_header_changes_the_stat_fingerprint(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The memo key must not alias a run that could not stat the header."""
+        import rebrew.verify_hash as vh
+
+        cfg = _make_cfg(tmp_path)
+        (cfg.reversed_dir / "types.h").write_text("typedef int BOOL;\n", encoding="utf-8")
+        before = vh._headers_stat_fingerprint(cfg.reversed_dir)
+        assert len(before) == 1
+
+        monkeypatch.setattr(Path, "stat", lambda self: (_ for _ in ()).throw(OSError("boom")))
+        during = vh._headers_stat_fingerprint(cfg.reversed_dir)
+        assert during == ((str(cfg.reversed_dir / "types.h"), -1, -1),)
+
 
 class TestHeadersHashCacheInvalidation:
     def test_load_ignores_headers_hash(self, tmp_path: Path) -> None:
