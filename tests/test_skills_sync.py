@@ -12,6 +12,7 @@ Fix on failure (from repo root)::
     cp src/rebrew/PRINCIPLES.md PRINCIPLES.md   # only if the principles drift
 """
 
+import re
 from pathlib import Path
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -25,6 +26,10 @@ RENDER_TARGET = "bench"
 #: PRD 08 success metric: a SKILL.md must load in one agent fetch.
 MAX_SKILL_LINES = 250
 
+#: Hosts index a skill's description in full; past this the trigger tail is
+#: invisible at selection time, which is the only time a description is read.
+MAX_DESCRIPTION_CHARS = 1024
+
 
 def _render(text: str) -> str:
     """Mirror the placeholder substitution in rebrew.init._copy_agent_skills."""
@@ -33,6 +38,53 @@ def _render(text: str) -> str:
 
 def _files(root: Path) -> dict[str, Path]:
     return {p.relative_to(root).as_posix(): p for p in root.rglob("*") if p.is_file()}
+
+
+def _skills() -> dict[str, str]:
+    """Every packaged SKILL.md, keyed by its skill name (its directory)."""
+    return {
+        rel.split("/")[0]: path.read_text(encoding="utf-8")
+        for rel, path in _files(_SRC).items()
+        if rel.endswith("/SKILL.md")
+    }
+
+
+def _frontmatter() -> dict[str, str]:
+    """Frontmatter block of every packaged SKILL.md, keyed by skill name."""
+    return {name: text.split("---", 2)[1] for name, text in _skills().items()}
+
+
+def _name(frontmatter: str) -> str:
+    match = re.search(r"^name:\s*(\S+)", frontmatter, re.M)
+    return match.group(1) if match else ""
+
+
+def _flattened_description(frontmatter: str) -> str:
+    """Collapse a folded (``>-``) or plain description to the string a host sees."""
+    lines: list[str] = []
+    capture = False
+    for line in frontmatter.splitlines():
+        if line.startswith("description:"):
+            capture = True
+            lines.append(line.split(":", 1)[1])
+        elif capture and re.match(r"^\s+\S", line):
+            lines.append(line)
+        else:
+            capture = False
+    return re.sub(r"\s+", " ", " ".join(lines)).strip()
+
+
+def _referenced(skill: str, text: str) -> set[str]:
+    """Reference paths a SKILL.md body points an agent at.
+
+    A bare ``references/x.md`` belongs to the referring skill; an explicit
+    ``<other-skill>/references/x.md`` is a cross-skill pointer, and is what
+    makes a handoff to a sibling's reference unambiguous.
+    """
+    return {
+        f"{prefix.rstrip('/') or skill}/references/{m}"
+        for prefix, m in re.findall(r"((?:rebrew-[a-z-]+/)?)references/([a-z0-9-]+\.md)", text)
+    }
 
 
 class TestSkillsSync:
@@ -67,6 +119,64 @@ class TestSkillsSync:
         assert oversized == {}, (
             f"{oversized} exceed the {MAX_SKILL_LINES}-line budget from docs/prd/08-agent-skills.md"
         )
+
+
+class TestSkillFrontmatter:
+    """Frontmatter is what the host indexes, so its shape is load-bearing.
+
+    A missing ``name``/``description`` silently drops a skill from discovery,
+    a ``name`` that disagrees with its directory splits one skill across two
+    identities, and a description past the index cap is a trigger list whose
+    tail the host never sees.
+    """
+
+    def test_every_skill_declares_name_and_description(self) -> None:
+        incomplete = {
+            rel: text.split("---", 2)[1]
+            for rel, text in _frontmatter().items()
+            if not re.search(r"^name:\s*\S", text, re.M)
+            or not re.search(r"^description:\s*\S", text, re.M)
+        }
+        assert incomplete == {}, f"{sorted(incomplete)} lack a frontmatter name or description"
+
+    def test_name_matches_its_directory(self) -> None:
+        mismatched = {
+            rel: _name(text)
+            for rel, text in _frontmatter().items()
+            if _name(text) != rel.split("/")[0]
+        }
+        assert mismatched == {}, f"{mismatched} declare a name that differs from their directory"
+
+    def test_descriptions_fit_the_index(self) -> None:
+        oversized = {rel: len(_flattened_description(text)) for rel, text in _frontmatter().items()}
+        oversized = {rel: n for rel, n in oversized.items() if n > MAX_DESCRIPTION_CHARS}
+        assert oversized == {}, (
+            f"{oversized} exceed the {MAX_DESCRIPTION_CHARS}-char description budget; "
+            "the trigger vocabulary past the cap is never indexed"
+        )
+
+
+class TestSkillLinks:
+    """Progressive disclosure is a promise: a dangling reference file is a
+    section the agent is told to read and cannot."""
+
+    def test_referenced_files_exist(self) -> None:
+        dangling = {
+            rel: sorted(_referenced(rel, text) - set(_files(_SRC)))
+            for rel, text in _skills().items()
+        }
+        dangling = {rel: missing for rel, missing in dangling.items() if missing}
+        assert dangling == {}, f"{dangling} point at reference files the package does not ship"
+
+    def test_reference_files_are_referenced(self) -> None:
+        skills = _skills()
+        orphaned = sorted(
+            rel
+            for rel in _files(_SRC)
+            if "/references/" in rel
+            and not _referenced(rel.split("/")[0], skills[rel.split("/")[0]])
+        )
+        assert orphaned == [], f"{orphaned} are shipped but no SKILL.md points at them"
 
 
 class TestPrinciplesSync:
