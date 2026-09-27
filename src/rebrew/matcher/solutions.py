@@ -348,13 +348,18 @@ def save_solutions(project_root: Path, entries: list[SolutionEntry]) -> None:
     Same record as :func:`save_solution`; the log is append-only so a batch
     costs N line-appends, never a whole-file read-modify-write.
 
-    Entries append in (target, symbol) order, not caller order: parallel
+    Entries append in entry-identity order, not caller order: parallel
     batch workers fill the list in completion order, and
     :func:`find_similar` breaks ties by file order.
     """
-    # Stable sort: a duplicate (target, symbol) keeps its caller order, so
-    # the later entry still wins.
-    for entry in sorted(entries, key=lambda e: (e.target, e.symbol)):
+    # The key is total over the entry, so two wins recorded for one
+    # (target, symbol) land in the same order whichever thread finished
+    # first.  Sorting on (target, symbol) alone left the duplicate pair in
+    # caller order, and the log keeps the later of the pair — so under -j N
+    # thread timing, not the seed, decided which win was kept.
+    for entry in sorted(
+        entries, key=lambda e: (e.target, e.symbol, e.source_file, e.score, e.source_sha)
+    ):
         save_solution(project_root, entry)
 
 

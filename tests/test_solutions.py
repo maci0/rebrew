@@ -161,6 +161,36 @@ class TestLoadSave:
         assert [e.symbol for e in load_solutions(project_root)] == ["_a", "_b", "_c"]
         assert [e.symbol for e in find_similar(project_root, size=64, top_k=1)] == ["_a"]
 
+    def test_duplicate_symbol_order_is_entry_identity_not_caller(self, tmp_path: Path) -> None:
+        """Two wins for one (target, symbol) must land the same way whichever
+        order the batch workers finished in: load_solutions keeps the last one
+        in the log, so a key that tied on (target, symbol) alone would let
+        thread timing pick the survivor."""
+        first = SolutionEntry(
+            symbol="_a", cflags="/O2", size=64, source_file="mod_a/_a.c", score=12.5
+        )
+        second = SolutionEntry(
+            symbol="_a", cflags="/O1", size=64, source_file="mod_b/_a.c", score=3.0
+        )
+        roots = []
+        for name, entries in (("fwd", [first, second]), ("rev", [second, first])):
+            root = tmp_path / name
+            (root / ".rebrew").mkdir(parents=True)
+            save_solutions(root, entries)
+            roots.append(root)
+        logs = [(r / ".rebrew" / "ga_runs.jsonl").read_text(encoding="utf-8") for r in roots]
+        # "ts" is a wall-clock stamp on every line, so compare the record
+        # bodies; the order of the two lines is what this pins.
+        bodies = [
+            [{k: v for k, v in json.loads(line).items() if k != "ts"} for line in log.splitlines()]
+            for log in logs
+        ]
+        assert bodies[0] == bodies[1]
+        # load_solutions keeps the last record per (target, symbol): mod_b,
+        # whichever order the two workers finished in.
+        assert [e.source_file for e in load_solutions(roots[0])] == ["mod_b/_a.c"]
+        assert [e.source_file for e in load_solutions(roots[1])] == ["mod_b/_a.c"]
+
     def test_batch_save_empty_noop(self, project_root: Path) -> None:
         save_solutions(project_root, [])
         assert load_solutions(project_root) == []
