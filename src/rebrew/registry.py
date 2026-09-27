@@ -317,8 +317,9 @@ def refresh_all() -> dict[str, int]:
     this to pick it up without a restart.  Returns ``{group: entry
     count}``, keyed by entry-point group without the ``rebrew.`` prefix
     (``toolchains``, ``binary_detectors``, ...).  CLI command groups are not
-    refreshed: the umbrella app mounts them once.  Each module also exposes a single-registry ``refresh_*``
-    (e.g. :func:`rebrew.toolchain.refresh_toolchain_registry`).
+    refreshed: the umbrella app mounts them once.  Each module also exposes a
+    single-registry ``refresh_*`` (e.g.
+    :func:`rebrew.toolchain.refresh_toolchain_registry`).
     """
     from rebrew import (
         binary_loader,
