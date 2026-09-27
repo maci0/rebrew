@@ -23,6 +23,22 @@
   directory is present. The directory lookup also moves from a hand-rolled
   PE32 header parse to LIEF, so a PE32+ image reports its IAT instead of
   silently skipping the cut.
+- **Environment installs assert the lock is current.** `uv sync --frozen`
+  only skips the lock update; it never checks that `uv.lock` still matches
+  `pyproject.toml`, so a dependency edited without `uv lock` installed the
+  previous set and every gate then ran against an environment the manifest
+  does not describe. `make setup` and the `lint`, `test`, `pre-commit`,
+  `cli-contract` and `toolchain-sync` jobs sync with `--locked`. The
+  `smoke-wheel` overlay stays `--frozen`: re-resolving reads
+  `[tool.uv.sources]` and that target exists to run without a `../resembl`
+  checkout.
+- **A source edit rebuilds `dist/` before the artifact gates run.**
+  `sdist-check` and `smoke-wheel` depend on `dist/rebrew.buildinfo` rather
+  than the phony `build`, so a buildinfo older than the tree it describes
+  satisfied make: edit a source file, run `make sdist-check` on its own, and
+  the gate compared a previous wheel against a previous sdist. The file rule
+  now carries the build's inputs, with `__pycache__` and egg-info excluded so
+  a test run does not force a rebuild on every pass.
 - **`CHANGELOG.md` opens with `[Unreleased]` again.** The 2.14.0 release
   renamed the open heading into the dated section without opening the next
   one, so the file began with `## [2.14.0]` and the three release gates that

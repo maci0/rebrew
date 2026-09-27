@@ -62,8 +62,8 @@ bumped version cannot leave a stale BOM. An SBOM generated before it is deleted
 again, and the upload's `if-no-files-found: error` still passes on the wheel,
 sdist and buildinfo patterns, so the artifact would ship with no BOM.
 `make sdist-check` no longer contributes to that (it depends on
-`dist/rebrew.buildinfo` and builds only when `dist/` is empty, rather than on
-the phony `build`). The step asserts
+`dist/rebrew.buildinfo`, which builds only when `dist/` is empty or an input is
+newer than it, rather than on the phony `build`). The step asserts
 `test -s dist/rebrew.cdx.json`; `tests/test_ci_pins.py` pins the order.
 The lint job also runs
 `make audit` (`uv audit --locked`; diskcache's unfixed pickle advisory is
@@ -92,7 +92,7 @@ and hooks / fsmonitor / LFS smudge disabled before the SHA check — so
 lint/test steps never see the token):
 `pyproject.toml`'s `[tool.uv.sources]` resolves
 the `similarity` group's `resembl` from `../resembl`, so a default
-`uv sync --frozen` fails to build the installation plan when that checkout is
+`uv sync --locked` fails to build the installation plan when that checkout is
 absent. Keep `resembl-ref` in step with the `resembl` version in `uv.lock`,
 and `resembl-sha` with the commit that tag resolves to: the clone fails when
 the tag points anywhere else.  `make setup` checks the same commit
@@ -112,7 +112,7 @@ before the
 artifact (`rebrew-dist-<sha>`, 14-day retention). The test job checks out with `fetch-depth: 0` and `fetch-tags: true`.
 `git describe` walks from HEAD to the last release tag, so the commits
 between them have to be in the clone. Tag refs alone are not enough.
-Dev installs use `uv sync --frozen --all-extras --group similarity` (Makefile
+Dev installs use `uv sync --locked --all-extras --group similarity` (Makefile
 `make setup`); the `m2c` git dep is a separate `--group m2c` opt-in.
 
 The workflow runs three distinct sync shapes, so the environment a gate sees
@@ -120,9 +120,9 @@ is not the same everywhere:
 
 | Job | Sync | Why |
 |-----|------|-----|
-| `lint`, `test`, `pre-commit` | `uv sync --frozen --all-extras --group similarity` | the contributor env: extras on, so mypy sees the `prove` stubs and the `resembl` path dep resolves |
-| `package` | `UV_PROJECT_ENVIRONMENT=.venv-pkg uv sync --frozen --no-dev --no-default-groups --no-install-project`, then `uv pip install --no-deps dist/*.whl` | runtime deps from the lock, then the built wheel layered on top; nothing from `src/` |
-| `cli-contract`, `toolchain-sync` | `uv sync --frozen` | default groups only: the CLI surface being grepped and the toolchain drift check need no extra |
+| `lint`, `test`, `pre-commit` | `uv sync --locked --all-extras --group similarity` | the contributor env: extras on, so mypy sees the `prove` stubs and the `resembl` path dep resolves; `--locked` fails a `pyproject.toml` edit that never reached `uv.lock` |
+| `package` | `UV_PROJECT_ENVIRONMENT=.venv-pkg uv sync --frozen --no-dev --no-default-groups --no-install-project`, then `uv pip install --no-deps dist/*.whl` | runtime deps from the lock, then the built wheel layered on top; nothing from `src/`; `--frozen` rather than `--locked` because re-resolving reads `[tool.uv.sources]` and this job has no `../resembl` |
+| `cli-contract`, `toolchain-sync` | `uv sync --locked` | default groups only: the CLI surface being grepped and the toolchain drift check need no extra |
 
 The workflow sets `_TYPER_FORCE_DISABLE_TERMINAL`, typer's switch for the
 forced-ANSI mode it enables whenever `GITHUB_ACTIONS` is set. Without it the
@@ -139,7 +139,7 @@ developer shell cannot break CliRunner assertions that `make test`
 would have passed.  `make all` includes `cli-contract`.
 
 The nightly `toolchain-sync.yml` drift check installs through the same pinned
-uv flow (`uv sync --frozen`) and the same `.github/actions/uv-env` pins,
+uv flow (`uv sync --locked`) and the same `.github/actions/uv-env` pins,
 so scheduled runs can never silently resolve newer dependency versions than
 the audited lockfile. It checks sources once, prints that JSON result, and
 fails on drift, failed checks, unpinned sources, or an empty source inventory.

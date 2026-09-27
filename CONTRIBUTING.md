@@ -41,7 +41,7 @@ commit cannot be checked.
 git clone https://github.com/maci0/rebrew.git
 cd rebrew
 make clone-resembl            # clones sibling resembl pin (tag v3.0.0) into ../resembl
-make setup                    # uv sync --frozen --all-extras --group similarity + pre-commit/pre-push hooks
+make setup                    # uv sync --locked --all-extras --group similarity + pre-commit/pre-push hooks
 make test-one T=tests/test_annotation.py   # smoke the edit-test loop
 ```
 
@@ -177,7 +177,8 @@ import rebrew as a library.
    `make sbom` goes after `make build`:
    `build` clears `dist/*.cdx.json`, so a BOM generated before it is deleted
    before you can ship it. `make sdist-check` does not clear it (it depends on
-   `dist/rebrew.buildinfo` and builds only when `dist/` is empty).
+   `dist/rebrew.buildinfo`, which builds only when `dist/` is empty or an input is
+   newer than it).
 2. Keep changes minimal and scoped; match the surrounding style.
 3. Add tests for new behavior — the suite sits at ~86% line coverage
    (`make coverage`), and new pure logic is expected to keep it there.

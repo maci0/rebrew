@@ -373,7 +373,7 @@ Run the following from the directory that will hold both checkouts:
 git clone https://github.com/maci0/rebrew.git
 cd rebrew/
 make clone-resembl         # clone sibling resembl pin (tag v3.0.0) into ../resembl
-make setup                 # uv sync --frozen --all-extras --group similarity + pre-commit hooks
+make setup                 # uv sync --locked --all-extras --group similarity + pre-commit hooks
 make test-one T=tests/test_annotation.py   # single-file edit-test loop
 make test                  # full suite (needs nasm)
 make lint                  # ruff check (same as CI)

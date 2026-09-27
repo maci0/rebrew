@@ -43,7 +43,7 @@ jobs:
         # --frozen installs exactly the audited uv.lock versions; a raw
         # `pip install -e .` here would resolve fresh from PyPI nightly,
         # bypassing review.
-        run: uv sync --frozen
+        run: uv sync --locked
       - name: Check toolchain source drift
         shell: bash
         env:

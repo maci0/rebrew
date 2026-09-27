@@ -15,9 +15,13 @@ SHELL := /bin/sh
 .DEFAULT_GOAL := help
 
 # Prefer lockfile-pinned deps. Override with `make setup UV_SYNC_FLAGS=` if needed.
+# --locked, not --frozen: --frozen only skips the lock update, it never checks
+# that uv.lock still matches pyproject.toml, so a dependency edited without
+# `uv lock` installs the previous set and every gate below then runs against an
+# environment the manifest does not describe.  --locked fails that instead.
 # --group similarity pulls the sibling resembl path dep (not a PyPI extra);
 # --group m2c is opt-in (git-only decompiler) — add it when exercising fetch_m2c.
-UV_SYNC_FLAGS ?= --frozen --all-extras --group similarity
+UV_SYNC_FLAGS ?= --locked --all-extras --group similarity
 
 # Keep in step with the `resembl-ref` / `resembl-sha` / `uv-version` input
 # defaults in .github/actions/uv-env/action.yml (CI's single pin site) and the
@@ -43,6 +47,15 @@ FLAGS ?=
 # fail_under in pyproject.toml.
 COV_FLOOR ?= 85
 
+# Everything `make build` reads that can change what ships, minus build
+# residue.  `dist/rebrew.buildinfo` depends on this list, so editing a source
+# file rebuilds dist/ instead of leaving `sdist-check` / `smoke-wheel` to
+# verify the artifacts of an earlier tree.  __pycache__ and egg-info are
+# excluded: a test run or a bare `uv build` writes them and neither changes a
+# byte of the package.
+BUILD_INPUTS := Makefile pyproject.toml build-constraints.txt MANIFEST.in \
+	$(shell find src -type f -not -path '*/__pycache__/*' -not -path '*.egg-info/*')
+
 # Reproducible package builds: honor SOURCE_DATE_EPOCH when set; otherwise use
 # the committer timestamp (or 0 for a non-git tree). `make build` rewrites the
 # sdist and the wheel with tools/normalize_sdist.py (sorted entries, fixed
@@ -59,7 +72,7 @@ override SOURCE_DATE_EPOCH := $(or $(SOURCE_DATE_EPOCH),0)
 help:
 	@printf '%s\n' \
 		'Contributor targets:' \
-		'  make setup              # uv sync (frozen + extras + similarity) + pre-commit/pre-push hooks' \
+		'  make setup              # uv sync (locked + extras + similarity) + pre-commit/pre-push hooks' \
 		'  make clone-resembl      # clone sibling resembl pin into ../resembl (required for uv sync)' \
 		'  make clean              # remove build/dist artifacts and caches' \
 		'  make test               # full pytest suite (needs nasm on PATH)' \
@@ -218,7 +231,7 @@ ensure-extras:
 	if ! uv run --frozen --no-sync python -c 'import angr, claripy' >/dev/null 2>&1; then \
 	  echo "ERROR: the 'prove' extra (angr, claripy) is not installed in .venv."; \
 	  echo "mypy reports phantom type errors without it (CI's lint job syncs --all-extras)."; \
-	  echo "Run 'make setup', or 'uv sync --frozen --all-extras --group similarity', then re-run."; \
+	  echo "Run 'make setup', or 'uv sync --locked --all-extras --group similarity', then re-run."; \
 	  exit 1; \
 	fi; \
 	if ! uv run --frozen --no-sync python -c 'import rapidfuzz, resembl' >/dev/null 2>&1; then \
@@ -374,10 +387,10 @@ sbom: warn-uv-version
 # dist/*.cdx.json, so a `make sdist-check` of its own (the CI package job runs
 # it as a separate invocation, and so does anyone following the help text)
 # would wipe the SBOM and buildinfo `make build` / `make sbom` had just
-# produced.  Depending on the file builds only when dist/ is empty, and it
-# carries the ordering under `make -j`, where a bare prerequisite list would
-# not.
-dist/rebrew.buildinfo:
+# produced.  The file rule below builds only when dist/ is empty or an input
+# is newer, and it carries the ordering under `make -j`, where a bare
+# prerequisite list would not.
+dist/rebrew.buildinfo: $(BUILD_INPUTS)
 	@$(MAKE) --no-print-directory build
 
 sdist-check: dist/rebrew.buildinfo
@@ -404,6 +417,9 @@ sdist-check: dist/rebrew.buildinfo
 # Runtime deps come from the lock with --no-default-groups
 # --no-install-project (no ../resembl needed); the wheel is then overlaid with
 # --no-deps so a live PyPI resolve cannot drift past the audited lock.
+# --frozen here, not the --locked the other installs use: re-resolving to prove
+# the lock is current reads [tool.uv.sources] and needs the sibling checkout,
+# and the point of this target is that it runs without one.
 # The CI package job runs this target; do not re-inline the recipe here.
 # `make clean` removes .venv-pkg.
 smoke-wheel: dist/rebrew.buildinfo ensure-uv
