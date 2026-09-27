@@ -33,6 +33,7 @@ Usage:
 
 from __future__ import annotations
 
+import functools
 import logging
 import re
 import shutil
@@ -1394,9 +1395,16 @@ def _run_nasm(source: str, *, tmpdir: Path | None = None) -> bytes | None:
         return _assemble(Path(td))
 
 
+@functools.lru_cache(maxsize=1)
+def _nasm_on_path() -> bool:
+    """Whether nasm resolves on ``PATH``; the answer is process-invariant and
+    ``--all`` calls this once per function."""
+    return shutil.which("nasm") is not None
+
+
 def verify_roundtrip(nasm_source: str, original_bytes: bytes) -> tuple[bool, str]:
     """Assemble NASM source and verify it matches original bytes exactly."""
-    if shutil.which("nasm") is None:
+    if not _nasm_on_path():
         return False, "nasm not on PATH (install nasm; required for round-trip verification)"
     result = _run_nasm(nasm_source)
     if result is None:

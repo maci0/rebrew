@@ -26,9 +26,10 @@ import math
 import re
 import struct
 import subprocess
-from collections import defaultdict
+from collections import OrderedDict, defaultdict
 from collections.abc import Iterator, Sequence
 from pathlib import Path
+from threading import Lock
 from typing import Any
 
 from rebrew.binary_loader import load_binary
@@ -80,6 +81,15 @@ def _def_patterns(name: str) -> tuple[re.Pattern[str], re.Pattern[str]]:
 #: Wall-clock cap for one objdump invocation.
 _OBJDUMP_TIMEOUT_S = 60
 
+#: Bounded ``(path, mtime_ns, size, ino, flag) -> stdout`` memo.  Every
+#: accessor over a linked object spawns objdump, and callers
+#: (``text_audit``, ``verify_placement``) walk the whole link order, so a
+#: 200-TU project pays hundreds of processes per run.  Keyed by stat
+#: fingerprint so a rebuilt object is never served stale.
+_OBJDUMP_CACHE_MAX = 256
+_OBJDUMP_CACHE: OrderedDict[tuple[str, int, int, int, str], str] = OrderedDict()
+_OBJDUMP_CACHE_LOCK = Lock()
+
 
 def _run_objdump(obj: Path, flag: str) -> str:
     """Run ``objdump <flag> <obj>`` and return stdout.
@@ -88,6 +98,29 @@ def _run_objdump(obj: Path, flag: str) -> str:
     times out — an unchecked run would silently yield zero sizes and an
     empty symbol set, turning every downstream audit row into garbage.
     """
+    key: tuple[str, int, int, int, str] | None = None
+    try:
+        st = obj.stat()
+        key = (str(obj), st.st_mtime_ns, st.st_size, st.st_ino, flag)
+    except OSError:
+        key = None
+    if key is not None:
+        with _OBJDUMP_CACHE_LOCK:
+            hit = _OBJDUMP_CACHE.get(key)
+            if hit is not None:
+                _OBJDUMP_CACHE.move_to_end(key)
+                return hit
+    out = _run_objdump_uncached(obj, flag)
+    if key is not None:
+        with _OBJDUMP_CACHE_LOCK:
+            _OBJDUMP_CACHE[key] = out
+            _OBJDUMP_CACHE.move_to_end(key)
+            while len(_OBJDUMP_CACHE) > _OBJDUMP_CACHE_MAX:
+                _OBJDUMP_CACHE.popitem(last=False)
+    return out
+
+
+def _run_objdump_uncached(obj: Path, flag: str) -> str:
     try:
         r = subprocess.run(
             ["objdump", flag, str(obj)],

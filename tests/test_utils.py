@@ -15,6 +15,7 @@ import pytest
 from rebrew.utils import (
     atomic_write_bytes,
     atomic_write_text,
+    clear_source_text_memo,
     container_runtime,
     detect_source_encoding,
     filename_component,
@@ -790,6 +791,36 @@ class TestSourceEncoding:
             text, encoding = read_source_text(f)
             assert encoding in {"utf-8", "shift_jis", "cp1252", "latin-1"}
             assert text == raw.decode(encoding, errors="replace")
+
+
+class TestSourceTextMemo:
+    """A cached source must never be served after the file changed, whether
+    the change went through :func:`atomic_write_text` or a rebuild that
+    pushed the evicted entry out of the LRU."""
+
+    def test_write_invalidates_memo(self, tmp_path: Path) -> None:
+        f = tmp_path / "a.c"
+        f.write_text("// one\n", encoding="utf-8")
+        assert read_source_text(f)[0] == "// one\n"
+        atomic_write_text(f, "// two\n", encoding="utf-8")
+        assert read_source_text(f)[0] == "// two\n"
+
+    def test_repeated_reads_are_stable(self, tmp_path: Path) -> None:
+        f = tmp_path / "b.c"
+        f.write_text("// body\n", encoding="utf-8")
+        for _ in range(3):
+            assert read_source_text(f)[0] == "// body\n"
+        clear_source_text_memo()
+        assert read_source_text(f)[0] == "// body\n"
+
+    def test_out_of_band_edit_is_not_served_stale(self, tmp_path: Path) -> None:
+        f = tmp_path / "c.c"
+        f.write_text("// old\n", encoding="utf-8")
+        assert read_source_text(f)[0] == "// old\n"
+        # A rebuild bumps inode/size, so the stat fingerprint misses the cache.
+        f.unlink()
+        f.write_text("// new and longer\n", encoding="utf-8")
+        assert read_source_text(f)[0] == "// new and longer\n"
 
 
 class TestWritableTempDir:

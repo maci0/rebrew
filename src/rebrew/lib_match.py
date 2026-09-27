@@ -45,7 +45,6 @@ from __future__ import annotations
 import json
 import logging
 import re
-import shutil
 import subprocess
 import uuid
 from pathlib import Path
@@ -311,12 +310,12 @@ def ensure_stock_lib(dest: Path, *, profile: str, name: str) -> bool:
     that fails with the runtime present is an error rather than a skip: it
     means the image does not carry the archive where its spec says it does.
     """
-    from rebrew.toolchain import ToolchainError
+    from rebrew.toolchain import ToolchainError, runtime_on_path
 
     if dest.is_file():
         return True
     runtime = container_runtime()
-    if shutil.which(runtime) is None:
+    if not runtime_on_path():
         return False
     image, source = stock_lib_source(profile, name)
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -376,8 +375,10 @@ def assert_library_is_stock(
     files is an error rather than a silent pass.  An unavailable runtime
     skips, matching ``ensure_stock_lib``.
     """
+    from rebrew.toolchain import runtime_on_path
+
     runtime = container_runtime()
-    if shutil.which(runtime) is None:
+    if not runtime_on_path():
         return
     image, source = stock_lib_source(profile, name)
     from rebrew.toolchain import kill_container
