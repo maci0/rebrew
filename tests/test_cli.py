@@ -694,3 +694,24 @@ class TestStandaloneHelpParity:
 
         main.__module__ = module.__name__
         assert _standalone_command_kwargs(main) == {}
+
+
+class TestUntrustedTextBidi:
+    """Bidi and zero-width controls reorder or hide the text beside them."""
+
+    def test_reordering_controls_dropped(self) -> None:
+        from rebrew.cli import untrusted_text
+
+        # U+202E RIGHT-TO-LEFT OVERRIDE renders as nothing and flips the rest.
+        assert untrusted_text("sub_A\u202etxt_b") == "sub_Atxt_b"
+
+    def test_embeddings_marks_and_isolates_dropped(self) -> None:
+        from rebrew.cli import untrusted_text
+
+        raw = "a\u202ab\u202cc\u2066d\u2069e\ufefff\u200bg"
+        assert untrusted_text(raw) == "abcdefg"
+
+    def test_plain_text_untouched(self) -> None:
+        from rebrew.cli import untrusted_text
+
+        assert untrusted_text("sub_401000 [dim]") == r"sub_401000 \[dim]"

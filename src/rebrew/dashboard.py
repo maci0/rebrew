@@ -119,7 +119,7 @@ from rebrew.build_db import FUNCTION_ROWS_SQL, resolve_db_dir
 from rebrew.cli import console, error_exit, json_print
 from rebrew.metadata import canonical_status
 from rebrew.status_style import status_mark_groups
-from rebrew.utils import floor_pct
+from rebrew.utils import floor_pct, strip_bidi_format
 from rebrew.workspace import KNOWN_STATUSES, VA_MAX, coverage_db_lock, open_sqlite_ro
 
 log = logging.getLogger(__name__)
@@ -253,8 +253,8 @@ async function whileBusy(id, operation) {
 }
 function esc(s) {
   return String(s).replace(/[&<>"']/g, c => ({
-    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
-  })[c]);
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+    })[c]);
 }
 function formatWhen(value) {
   if (!value) return "";
@@ -2059,7 +2059,7 @@ class Dashboard:
         return (
             status,
             "application/json; charset=utf-8",
-            json.dumps(payload, separators=(",", ":")),
+            json.dumps(_scrub_invisible(payload), separators=(",", ":")),
         )
 
     @staticmethod
@@ -2070,6 +2070,24 @@ class Dashboard:
         dashboard's own error line and for anyone reading the response.
         """
         return Dashboard._json(status, {"error": message, "code": code})
+
+
+def _scrub_invisible(value: Any) -> Any:
+    """*value* with invisible bidi and zero-width formatting characters removed.
+
+    Row text reaches a response from a target binary, BinSync state, or an
+    import table.  Those characters render as nothing while reordering or
+    hiding the text around them, so a name or status cell can be made to read
+    as something else.  Scrubbed once on the way out rather than in the
+    client, which keeps the entry assets inside the cold-load wire budget.
+    """
+    if isinstance(value, str):
+        return strip_bidi_format(value)
+    if isinstance(value, list):
+        return [_scrub_invisible(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _scrub_invisible(item) for key, item in value.items()}
+    return value
 
 
 def _load_list(raw: str | None) -> list[str]:
@@ -2264,7 +2282,7 @@ def _success_cache_control(path: str, query: dict[str, list[str]]) -> str:
 
 
 def _escape_log_text(text: str) -> str:
-    return text.translate(_LOG_CONTROL_CHARS)
+    return strip_bidi_format(text).translate(_LOG_CONTROL_CHARS)
 
 
 def _log_failed_request(reason: str, path: str, exc: BaseException) -> None:

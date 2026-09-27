@@ -2494,3 +2494,33 @@ class TestResponseFraming:
         assert "Server:" not in head
         assert head.startswith("HTTP/1.1 200 OK")
         assert "Date:" in head
+
+
+class TestInvisibleControlScrub:
+    """API text must not carry bidi or zero-width controls into the DOM."""
+
+    def test_nested_payload_scrubbed(self) -> None:
+        from rebrew.dashboard import _scrub_invisible
+
+        payload = {
+            "target": "server\u202e_dll",
+            "functions": [["0x1", "sub_A\u202etxt", None, 12, "EXACT", "", None]],
+            "total": 1,
+        }
+        assert _scrub_invisible(payload) == {
+            "target": "server_dll",
+            "functions": [["0x1", "sub_Atxt", None, 12, "EXACT", "", None]],
+            "total": 1,
+        }
+
+    def test_api_response_is_scrubbed(self, dashboard: Dashboard) -> None:
+        import json
+        from urllib.parse import parse_qs
+
+        from rebrew.utils import _BIDI_FORMAT_CHARS
+
+        _, _, body = dashboard.handle(
+            "GET", "/api/functions", parse_qs("target=server_dll&limit=1")
+        )
+        assert not _BIDI_FORMAT_CHARS.intersection(body)
+        assert json.loads(body)["functions"]

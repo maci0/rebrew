@@ -36,7 +36,7 @@ from rich.markup import escape
 from rebrew.annotation import Annotation, parse_c_file_multi
 from rebrew.config import ConfigWarning, ProjectConfig, load_config
 from rebrew.sources import iter_sources, target_marker
-from rebrew.utils import parse_int_literal
+from rebrew.utils import parse_int_literal, strip_bidi_format
 
 # ---------------------------------------------------------------------------
 # Standardised exit codes
@@ -203,13 +203,15 @@ _TERMINAL_CONTROL_CHARS = {
 def untrusted_text(value: object) -> str:
     """*value* as literal terminal text.
 
-    Rich markup is escaped and C0/C1 controls other than tab/newline are
-    rendered as ``\\xNN``.  Use for any string derived from a target binary, a
-    project file, or a remote service: ``[bold]`` in an import name would
-    otherwise restyle the table and a raw ESC would drive the terminal (OSC
-    title/clipboard writes, screen clears).
+    Rich markup is escaped, invisible bidi and zero-width formatting characters
+    are dropped, and C0/C1 controls other than tab/newline are rendered as
+    ``\\xNN``.  Use for any string derived from a target binary, a project file,
+    or a remote service: ``[bold]`` in an import name would otherwise restyle
+    the table, a raw ESC would drive the terminal (OSC title/clipboard writes,
+    screen clears), and a right-to-left override would reorder a neighbouring
+    column to read as a different name or status.
     """
-    return escape(str(value).translate(_TERMINAL_CONTROL_CHARS))
+    return escape(strip_bidi_format(str(value)).translate(_TERMINAL_CONTROL_CHARS))
 
 
 def error_exit(msg: str, *, json_mode: bool = False, code: int = EXIT_ERROR) -> NoReturn:
