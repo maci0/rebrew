@@ -648,3 +648,49 @@ class TestCliAllExports:
 
         expected = {"AllTargetsOption", "all_targets_run", "run_for_each_target", "console"}
         assert expected.issubset(set(cli_mod.__all__))
+
+
+class TestStandaloneHelpParity:
+    """``rebrew <cmd> --help`` and ``rebrew-<cmd> --help`` print the same page."""
+
+    def test_help_and_epilog_come_from_the_module_app(self, monkeypatch) -> None:
+        import sys
+        import types
+
+        import typer
+
+        module = types.ModuleType("rebrew._standalone_help_probe")
+        module.app = typer.Typer(
+            help="Probe summary line.", epilog="Probe epilog.", rich_markup_mode="rich"
+        )
+
+        def main(value: str = typer.Argument(...)) -> None:
+            """Docstring line that the app help replaces."""
+
+        main.__module__ = module.__name__
+        monkeypatch.setitem(sys.modules, module.__name__, module)
+
+        from rebrew.cli import run_standalone
+
+        built: list[typer.Typer] = []
+        monkeypatch.setattr("rebrew.cli.run_cli", lambda app: built.append(app))
+
+        run_standalone(main)
+        command = typer.main.get_command(built[0])
+        assert command.help == "Probe summary line."
+        assert command.epilog == "Probe epilog."
+
+    def test_module_without_app_still_runs(self) -> None:
+        import types
+
+        import typer
+
+        from rebrew.cli import _standalone_command_kwargs
+
+        module = types.ModuleType("rebrew._standalone_bare_probe")
+
+        def main(value: str = typer.Argument(...)) -> None:
+            """No app object in this module."""
+
+        main.__module__ = module.__name__
+        assert _standalone_command_kwargs(main) == {}

@@ -27,7 +27,7 @@ import unicodedata
 import warnings
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, NoReturn
+from typing import Any, Literal, NoReturn
 
 import typer
 from rich.console import Console
@@ -239,6 +239,31 @@ def json_print(data: dict[str, Any] | list[Any]) -> None:
     print(json.dumps(data, indent=2))
 
 
+def _standalone_command_kwargs(main: Any) -> dict[str, Any]:
+    """Help-facing Typer settings copied from the calling module's ``app``.
+
+    ``rebrew diff --help`` and ``rebrew-diff --help`` are the same command,
+    so they must print the same help, examples, and exit codes.  Building a
+    bare ``typer.Typer()`` dropped the module's ``help=`` / ``epilog=``,
+    leaving the console script with a bare option list.  Typer reads them
+    from the *command* registration, not the app, for a single-command app.
+    Unset fields hold a ``DefaultPlaceholder``, which the constructor would
+    not accept, so only plain values are copied.
+    """
+    from typer.models import DefaultPlaceholder
+
+    module = sys.modules.get(getattr(main, "__module__", None) or "")
+    source = getattr(module, "app", None)
+    info = getattr(source, "info", None)
+    if info is None:
+        return {}
+    return {
+        name: value
+        for name in ("help", "epilog", "short_help", "context_settings", "options_metavar")
+        if not isinstance(value := getattr(info, name, None), DefaultPlaceholder)
+    }
+
+
 def run_standalone(main: Any) -> None:
     """Run a module's ``main`` callback as a plain command on a fresh app.
 
@@ -247,8 +272,12 @@ def run_standalone(main: Any) -> None:
     treats the positional as a command name), while the umbrella's command
     registration parses both orderings.
     """
-    _standalone = typer.Typer()
-    _standalone.command()(main)
+    module = sys.modules.get(getattr(main, "__module__", None) or "")
+    markup: Literal["markdown", "rich"] | None = getattr(
+        getattr(module, "app", None), "rich_markup_mode", "rich"
+    )
+    _standalone = typer.Typer(rich_markup_mode=markup)
+    _standalone.command(**_standalone_command_kwargs(main))(main)
     run_cli(_standalone)
 
 
