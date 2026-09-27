@@ -38,6 +38,8 @@ Packaged `mut_*` ops under `mutations/` → `ALL_MUTATIONS` in `mutator.py`. New
 
 ## Consumers
 
+Package-root modules, not modules of this package:
+
 - `match_ga.py`: primary GA loop (`build_candidate_obj_only`)
 - `match_sweep.py`: flag sweep
 - `diff.py`, `stack_cmp.py`: compile-for-compare helpers
