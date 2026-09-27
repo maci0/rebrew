@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 import tomlkit
+from bin_util import make_pe_stub
 from typer import Exit as TyperExit
 
 from rebrew.cfg import (
@@ -330,26 +331,11 @@ class TestCommentsPreserved:
         assert "# Per-target cflags" in text
 
 
-def _make_pe_stub(path: Path, machine: int = 0x14C) -> Path:
-    """Build a minimal PE file that LIEF recognises (MZ + PE signature)."""
-    import struct
-
-    buf = bytearray(256)
-    buf[0:2] = b"MZ"
-    struct.pack_into("<I", buf, 60, 128)  # e_lfanew
-    buf[128:132] = b"PE\x00\x00"
-    struct.pack_into("<H", buf, 132, machine)
-    struct.pack_into("<H", buf, 148, 96)  # SizeOfOptionalHeader
-    struct.pack_into("<H", buf, 152, 0x10B)  # PE32
-    path.write_bytes(bytes(buf))
-    return path
-
-
 class TestDetectFormat:
     """Test format detection via _detect_format_and_arch (format component)."""
 
     def test_pe(self, tmp_path: Path) -> None:
-        f = _make_pe_stub(tmp_path / "test.dll")
+        f = make_pe_stub(tmp_path / "test.dll")
         fmt, _ = _detect_format_and_arch(f)
         assert fmt == "pe"
 
@@ -454,13 +440,13 @@ class TestDetectFormatAndArch:
         assert arch == "arm64"
 
     def test_pe_x86(self, tmp_path: Path) -> None:
-        f = _make_pe_stub(tmp_path / "test.exe", machine=0x14C)
+        f = make_pe_stub(tmp_path / "test.exe", machine=0x14C)
         fmt, arch = _detect_format_and_arch(f)
         assert fmt == "pe"
         assert arch == "x86_32"
 
     def test_pe_amd64(self, tmp_path: Path) -> None:
-        f = _make_pe_stub(tmp_path / "test.exe", machine=0x8664)
+        f = make_pe_stub(tmp_path / "test.exe", machine=0x8664)
         fmt, arch = _detect_format_and_arch(f)
         assert fmt == "pe"
         assert arch == "x86_64"

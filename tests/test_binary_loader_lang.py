@@ -4,23 +4,9 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from bin_util import make_pe_stub
 
 import rebrew.binary_loader as bl
-
-
-def _make_pe_stub(path: Path, machine: int = 0x14C) -> Path:
-    """Build a minimal PE file that LIEF recognises (MZ + PE signature)."""
-    import struct
-
-    buf = bytearray(256)
-    buf[0:2] = b"MZ"
-    struct.pack_into("<I", buf, 60, 128)  # e_lfanew
-    buf[128:132] = b"PE\x00\x00"
-    struct.pack_into("<H", buf, 132, machine)
-    struct.pack_into("<H", buf, 148, 96)  # SizeOfOptionalHeader
-    struct.pack_into("<H", buf, 152, 0x10B)  # PE32
-    path.write_bytes(bytes(buf))
-    return path
 
 
 class TestLoadMacho:
@@ -80,7 +66,7 @@ class TestLoadBinaryFmtDispatch:
         bl._iat_slot_cache.clear()
 
     def test_fmt_pe(self, tmp_path: Path) -> None:
-        f = _make_pe_stub(tmp_path / "x.exe")
+        f = make_pe_stub(tmp_path / "x.exe")
         info = bl.load_binary(f, fmt="pe")
         assert info.format == "pe"
 

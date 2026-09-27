@@ -20,3 +20,32 @@ export function installDom(make, extras = {}) {
   };
   return elements;
 }
+
+/** An inert element stub: the members the dashboard reads, with no real DOM behind them. */
+export function stubElement(id, { hidden = id !== "main" } = {}) {
+  return {
+    id,
+    value: "",
+    innerHTML: "",
+    textContent: "",
+    hidden,
+    disabled: false,
+    setAttribute(name, value) { this.attributes[name] = value; },
+    attributes: {},
+    classList: { toggle() {} },
+    insertAdjacentHTML(_where, html) { this.innerHTML += html; },
+    querySelector() { return this; },
+    querySelectorAll() { return []; },
+    closest() { return null; },
+    focus() { document.activeElement = this; },
+  };
+}
+
+/** installDom of stubElement, plus the `location` and `history` globals the dashboard reads at boot. */
+export function installStubDom({ hash = "", hidden, history, ...extras } = {}) {
+  const body = { id: "body" };
+  const elements = installDom((id) => stubElement(id, { hidden }), { body, activeElement: body, ...extras });
+  globalThis.location = { hash };
+  globalThis.history = history || { replaceState() {} };
+  return elements;
+}

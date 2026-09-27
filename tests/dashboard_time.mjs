@@ -1,24 +1,8 @@
 import assert from "node:assert/strict";
 
-import { installDom, loadApp } from "./dashboard_dom.mjs";
+import { installStubDom, loadApp } from "./dashboard_dom.mjs";
 
-const body = { id: "body" };
-installDom(
-  (id) => ({
-    id,
-    value: "",
-    innerHTML: "",
-    textContent: "",
-    hidden: id !== "main",
-    disabled: false,
-    setAttribute() {},
-    closest() { return null; },
-    focus() { document.activeElement = this; },
-  }),
-  { body, activeElement: body },
-);
-globalThis.location = { hash: "" };
-globalThis.history = { replaceState() {} };
+installStubDom();
 globalThis.fetch = async () => ({
   ok: false,
   status: 500,

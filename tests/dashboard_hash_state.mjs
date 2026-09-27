@@ -1,23 +1,13 @@
 import assert from "node:assert/strict";
 
-import { installDom, loadApp } from "./dashboard_dom.mjs";
+import { installStubDom, loadApp } from "./dashboard_dom.mjs";
 
-installDom(() => ({
-  value: "",
-  innerHTML: "",
-  textContent: "",
-  hidden: true,
-  attributes: {},
-  classList: { toggle() {} },
-  setAttribute(name, value) { this.attributes[name] = value; },
-  querySelector() { return this; },
-  querySelectorAll() { return []; },
-  insertAdjacentHTML(position, html) { this.innerHTML += html; },
-  focus() {},
-}));
-globalThis.location = { hash: "#target=b&view=globals&status=EXACT&module=GAME&q=Win&gq=g_" };
 const hashes = [];
-globalThis.history = { replaceState(state, title, url) { hashes.push(url); } };
+installStubDom({
+  hash: "#target=b&view=globals&status=EXACT&module=GAME&q=Win&gq=g_",
+  hidden: true,
+  history: { replaceState(state, title, url) { hashes.push(url); } },
+});
 const paths = [];
 const summary = { function_stats: { total: 1, by_status: { EXACT: 1 }, by_module_counts: { GAME: 1 } } };
 globalThis.fetch = async (path) => {

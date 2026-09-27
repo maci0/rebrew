@@ -1,23 +1,9 @@
 import assert from "node:assert/strict";
 
-import { installDom, loadApp } from "./dashboard_dom.mjs";
+import { installStubDom, loadApp } from "./dashboard_dom.mjs";
 
-installDom(() => ({
-  value: "",
-  innerHTML: "",
-  textContent: "",
-  hidden: true,
-  attributes: {},
-  classList: { toggle() {} },
-  setAttribute(name, value) { this.attributes[name] = value; },
-  querySelector() { return this; },
-  querySelectorAll() { return []; },
-  insertAdjacentHTML(position, html) { this.innerHTML += html; },
-  focus() {},
-}));
 // Non-first target without Status/Module: the bootstrap payload does not fit.
-globalThis.location = { hash: "#target=b&view=globals&q=Win" };
-globalThis.history = { replaceState() {} };
+installStubDom({ hash: "#target=b&view=globals&q=Win", hidden: true });
 const summary = { function_stats: { total: 1, by_status: { EXACT: 1 }, by_module_counts: {} } };
 const paths = [];
 const held = [];

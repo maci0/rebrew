@@ -21,6 +21,24 @@ _EXTERNAL = 2  # IMAGE_SYM_CLASS_EXTERNAL
 _STATIC = 3  # IMAGE_SYM_CLASS_STATIC
 
 
+def make_pe_stub(path: Path, machine: int = 0x14C) -> Path:
+    """Write a header-only PE (*machine*) that LIEF recognises; returns *path*.
+
+    Enough for format and machine detection (MZ + PE signature + COFF and
+    optional headers), with no sections: use :func:`make_pe` when the test
+    needs a real image.
+    """
+    buf = bytearray(256)
+    buf[0:2] = b"MZ"
+    struct.pack_into("<I", buf, 60, 128)  # e_lfanew
+    buf[128:132] = b"PE\x00\x00"
+    struct.pack_into("<H", buf, 132, machine)
+    struct.pack_into("<H", buf, 148, 96)  # SizeOfOptionalHeader
+    struct.pack_into("<H", buf, 152, 0x10B)  # PE32
+    path.write_bytes(bytes(buf))
+    return path
+
+
 def make_pe(
     code: bytes,
     *,

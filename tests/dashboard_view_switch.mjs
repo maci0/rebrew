@@ -1,29 +1,8 @@
 import assert from "node:assert/strict";
 
-import { installDom, loadApp } from "./dashboard_dom.mjs";
+import { installStubDom, loadApp } from "./dashboard_dom.mjs";
 
-installDom(
-  (id) => ({
-    id,
-    value: "",
-    innerHTML: "",
-    textContent: "",
-    hidden: false,
-    disabled: false,
-    setAttribute() {},
-    insertAdjacentHTML(_where, html) { this.innerHTML += html; },
-    querySelector() { return this; },
-    closest() { return null; },
-    focus() { document.activeElement = this; },
-  }),
-  {
-    body: { id: "body" },
-    activeElement: { id: "body" },
-    title: "Rebrew coverage dashboard",
-  },
-);
-globalThis.location = { hash: "" };
-globalThis.history = { replaceState() {} };
+installStubDom({ hidden: false, title: "Rebrew coverage dashboard" });
 
 const summary = {
   function_stats: { total: 1, by_status: { EXACT: 1 }, by_module_counts: { game: 1 } },

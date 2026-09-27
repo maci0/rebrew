@@ -3,6 +3,7 @@
 from pathlib import Path
 
 import pytest
+from bin_util import make_pe_stub
 
 from rebrew.binary_loader import (
     detect_format_and_arch,
@@ -235,24 +236,9 @@ class TestVaToFileOffset:
 # -------------------------------------------------------------------------
 
 
-def _make_pe_stub(path: Path, machine: int = 0x14C) -> Path:
-    """Build a minimal PE file that LIEF recognises (MZ + PE signature)."""
-    import struct
-
-    buf = bytearray(256)
-    buf[0:2] = b"MZ"
-    struct.pack_into("<I", buf, 60, 128)  # e_lfanew
-    buf[128:132] = b"PE\x00\x00"
-    struct.pack_into("<H", buf, 132, machine)
-    struct.pack_into("<H", buf, 148, 96)  # SizeOfOptionalHeader
-    struct.pack_into("<H", buf, 152, 0x10B)  # PE32
-    path.write_bytes(bytes(buf))
-    return path
-
-
 class TestDetectFormat:
     def test_pe(self, tmp_path: Path) -> None:
-        f = _make_pe_stub(tmp_path / "test.exe")
+        f = make_pe_stub(tmp_path / "test.exe")
         fmt, arch = detect_format_and_arch(f)
         assert fmt == "pe"
 
@@ -290,7 +276,7 @@ class TestLoadBinaryCache:
     def test_cache_hit(self, tmp_path: Path) -> None:
         from rebrew.binary_loader import load_binary
 
-        f = _make_pe_stub(tmp_path / "test.exe")
+        f = make_pe_stub(tmp_path / "test.exe")
         info1 = load_binary(f)
         info2 = load_binary(f)
         assert info1 is info2
@@ -298,7 +284,7 @@ class TestLoadBinaryCache:
     def test_cache_stores_entry(self, tmp_path: Path) -> None:
         from rebrew.binary_loader import _load_binary_cache, load_binary
 
-        f = _make_pe_stub(tmp_path / "test.exe")
+        f = make_pe_stub(tmp_path / "test.exe")
         load_binary(f)
         assert len(_load_binary_cache) == 1
 
@@ -307,11 +293,11 @@ class TestLoadBinaryCache:
 
         paths = []
         for i in range(_LOAD_BINARY_CACHE_MAX):
-            p = _make_pe_stub(tmp_path / f"test_{i}.exe")
+            p = make_pe_stub(tmp_path / f"test_{i}.exe")
             paths.append(p)
             load_binary(p)
         assert len(_load_binary_cache) == _LOAD_BINARY_CACHE_MAX
-        overflow = _make_pe_stub(tmp_path / "overflow.exe")
+        overflow = make_pe_stub(tmp_path / "overflow.exe")
         load_binary(overflow)
         assert len(_load_binary_cache) == _LOAD_BINARY_CACHE_MAX
         first_key = (str(paths[0].resolve()), "auto")
@@ -330,7 +316,7 @@ class TestLoadBinaryCache:
 
         from rebrew.binary_loader import load_binary
 
-        f = _make_pe_stub(tmp_path / "test.exe")
+        f = make_pe_stub(tmp_path / "test.exe")
         info1 = load_binary(f)
         old = info1.data
         st = f.stat()
@@ -359,9 +345,9 @@ class TestLoadBinaryCache:
         """
         from rebrew.binary_loader import _load_binary_cache, load_binary
 
-        f = _make_pe_stub(tmp_path / "test.exe")
+        f = make_pe_stub(tmp_path / "test.exe")
         st = f.stat()
-        foreign = load_binary(_make_pe_stub(tmp_path / "other.exe"))
+        foreign = load_binary(make_pe_stub(tmp_path / "other.exe"))
         foreign._cache_mtime_ns = st.st_mtime_ns - 1
         foreign._cache_fsize = st.st_size
         foreign._cache_ino = st.st_ino
@@ -381,7 +367,7 @@ class TestLoadBinaryCache:
         """
         from rebrew.binary_loader import iat_slot_vas
 
-        f = _make_pe_stub(tmp_path / "test.exe")
+        f = make_pe_stub(tmp_path / "test.exe")
         first = iat_slot_vas(f)
         first.add(0xDEAD)
         assert iat_slot_vas(f) == set()
@@ -392,7 +378,7 @@ class TestLoadBinaryCache:
 
         from rebrew.binary_loader import _iat_slot_cache, iat_slot_vas
 
-        f = _make_pe_stub(tmp_path / "test.exe")
+        f = make_pe_stub(tmp_path / "test.exe")
         assert iat_slot_vas(f) == set()
         assert len(_iat_slot_cache) == 1
         old_key = next(iter(_iat_slot_cache))

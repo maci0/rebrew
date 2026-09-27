@@ -1,28 +1,8 @@
 import assert from "node:assert/strict";
 
-import { installDom, loadApp } from "./dashboard_dom.mjs";
+import { installStubDom, loadApp } from "./dashboard_dom.mjs";
 
-installDom(
-  (id) => ({
-    id,
-    value: "",
-    innerHTML: "",
-    textContent: "",
-    hidden: false,
-    disabled: false,
-    setAttribute() {},
-    querySelector() { return this; },
-    closest() { return null; },
-    focus() { document.activeElement = this; },
-  }),
-  {
-    body: { id: "body" },
-    activeElement: { id: "body" },
-    title: "Rebrew coverage dashboard",
-  },
-);
-globalThis.location = { hash: "" };
-globalThis.history = { replaceState() {} };
+installStubDom({ hidden: false, title: "Rebrew coverage dashboard" });
 
 const summary = {
   function_stats: { total: 2, by_status: { EXACT: 1, STUB: 1 }, by_module_counts: { game: 2 } },
@@ -34,7 +14,8 @@ const page = (va, name) => ({
   total: 1,
   functions: [[va, name, name, 16, "EXACT", "game", "game/foo.c"]],
 });
-globalThis.fetch = async (path) => {  const url = new URL(path, "http://127.0.0.1:8000");
+globalThis.fetch = async (path) => {
+  const url = new URL(path, "http://127.0.0.1:8000");
   const body = url.pathname === "/api/bootstrap"
     ? { targets: ["a.exe", "b.exe"], summary, functions: page("0x00401000", "WinMain") }
     : url.pathname === "/api/summary" ? summary

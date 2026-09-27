@@ -20,6 +20,23 @@ def _patch_cfg(monkeypatch: pytest.MonkeyPatch, root: Path) -> None:
     )
 
 
+def _clearable_cache(
+    monkeypatch: pytest.MonkeyPatch, root: Path, count: int, cleared: list[str]
+) -> None:
+    """Point the CLI at a populated cache whose clears are recorded in *cleared*."""
+    (root / ".rebrew" / "compile_cache").mkdir(parents=True)
+    _patch_cfg(monkeypatch, root)
+    monkeypatch.setattr(
+        cache_cli,
+        "get_compile_cache",
+        lambda _root, backend="diskcache", size_limit=0: SimpleNamespace(
+            count=count,
+            clear=lambda: cleared.append("clear"),
+            close=lambda: None,
+        ),
+    )
+
+
 class TestStats:
     def test_no_cache_dir_json(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         _patch_cfg(monkeypatch, tmp_path)
@@ -82,20 +99,8 @@ class TestClear:
     def test_force_clears_without_prompt(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        (tmp_path / ".rebrew" / "compile_cache").mkdir(parents=True)
-        _patch_cfg(monkeypatch, tmp_path)
         cleared: list[str] = []
-
-        def fake_cache(
-            _root: Path, backend: str = "diskcache", size_limit: int = 0
-        ) -> SimpleNamespace:
-            return SimpleNamespace(
-                count=4,
-                clear=lambda: cleared.append("clear"),
-                close=lambda: None,
-            )
-
-        monkeypatch.setattr(cache_cli, "get_compile_cache", fake_cache)
+        _clearable_cache(monkeypatch, tmp_path, 4, cleared)
         r = runner.invoke(cache_cli.app, ["clear", "--force"])
         assert r.exit_code == 0
         assert cleared == ["clear"]
@@ -103,20 +108,8 @@ class TestClear:
     def test_confirmation_prompt_clears(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        (tmp_path / ".rebrew" / "compile_cache").mkdir(parents=True)
-        _patch_cfg(monkeypatch, tmp_path)
         cleared: list[str] = []
-
-        def fake_cache(
-            _root: Path, backend: str = "diskcache", size_limit: int = 0
-        ) -> SimpleNamespace:
-            return SimpleNamespace(
-                count=2,
-                clear=lambda: cleared.append("clear"),
-                close=lambda: None,
-            )
-
-        monkeypatch.setattr(cache_cli, "get_compile_cache", fake_cache)
+        _clearable_cache(monkeypatch, tmp_path, 2, cleared)
         r = runner.invoke(cache_cli.app, ["clear"], input="y\n")
         assert r.exit_code == 0
         assert cleared == ["clear"]
@@ -128,20 +121,8 @@ class TestClear:
     def test_declined_confirmation_clears_nothing(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        (tmp_path / ".rebrew" / "compile_cache").mkdir(parents=True)
-        _patch_cfg(monkeypatch, tmp_path)
         cleared: list[str] = []
-
-        def fake_cache(
-            _root: Path, backend: str = "diskcache", size_limit: int = 0
-        ) -> SimpleNamespace:
-            return SimpleNamespace(
-                count=2,
-                clear=lambda: cleared.append("clear"),
-                close=lambda: None,
-            )
-
-        monkeypatch.setattr(cache_cli, "get_compile_cache", fake_cache)
+        _clearable_cache(monkeypatch, tmp_path, 2, cleared)
         r = runner.invoke(cache_cli.app, ["clear"], input="n\n")
         assert r.exit_code != 0
         assert cleared == []
