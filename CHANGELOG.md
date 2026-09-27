@@ -9,6 +9,146 @@
   each runs twice against its own fresh fixture and the project tree must
   match byte for byte.
 
+- **`dist/rebrew.buildinfo` names the artifact it describes.** The manifest a
+  rebuild is attempted from recorded toolchain versions and the epoch knobs
+  but not which release those were, and nothing tied the build to the
+  hash-pinned backend constraints it verified. It now carries `name` and
+  `version` (read from `src/rebrew/__init__.py`, the single source of truth) and
+  the sha256 of `build-constraints.txt`, so a rebuild knows both the version
+  being reproduced and the backend pins that produced it.
+- **The BinSync git helpers moved out of the `binsync-init` command.**
+  `git_argv` / `run_git` / `one_line` lived in `binsync/init.py`, a Typer
+  command, and `binsync/serial.py` imported them from there, so a library
+  module reached up into a command. They are now `binsync/git.py`, below
+  every caller.
+- **Two command modules took the names their siblings already use.**
+  `drift_cmd.py` is `drift_cli.py` (alongside `toolchain_cli.py`,
+  `types_cli.py`, `lzexe_cli.py`), and `exports.py`, which implements
+  `rebrew verify-exports`, is `verify_exports.py` (alongside `verify_cache.py`,
+  `verify_hash.py`, `verify_placement.py`). The standalone script for the
+  `rebrew cache` group is `rebrew-cache`, not `rebrew-cache-cli`.
+- **`/api/sections` rows ship as arrays under `cols`.** It was the one list
+  route still sending a keyed object per row, so every section repeated 14
+  field names ahead of its numbers: a 2000-section payload was 346 KB where it
+  is now 88 KB. The section size now comes from one join on the `(target,
+  name)` primary key instead of a second query and a lookup dict, and the
+  column order is the query layer's tuple, not a second list in the client.
+- **`rebrew.matcher`'s lazy exports are typed for consumers.** The package
+  resolves its public names through `__getattr__`, which type checkers read as
+  `Any`, so `from rebrew.matcher import build_candidate` lost every signature
+  in a package that ships `py.typed`. An `if TYPE_CHECKING` mirror of
+  `_LAZY_EXPORTS` now carries the real types, with a test failing when the two
+  lists drift.
+- **Five more test modules join the strict mypy gate.** `test_elf_fixture`,
+  `test_env_docs`, `test_flirt_sigs`, `test_resource`, and `test_startup_blas`
+  type-check clean under `--strict`, so they move into `[tool.mypy] files`
+  alongside the three that were already listed. `test_check_sdist_wheel` is
+  clean too but stays out: `tests` is on `mypy_path`, so its stem collides
+  with `tools/check_sdist_wheel.py` and mypy aborts the run at the duplicate
+  module name instead of checking anything after it.
+- **The strict mypy gate now covers 65 of the 286 test modules.** Ten were
+  listed; a full `mypy tests/` sweep found 55 more that already pass
+  `--strict` clean, and they join `[tool.mypy] files`. The allowlist is still
+  a ratchet rather than a relaxation, and `test_check_sdist_wheel` stays out
+  for the duplicate-module-name collision the config comment records.
+- **`make lint` runs `ruff check .`, not a hardcoded path list.** The explicit
+  `src/ tests/ tools/` left a new top-level Python script outside the CI gate
+  while the local pre-commit `ruff-check` hook still flagged it. `format` and
+  `format-check` keep the explicit paths on purpose: `ruff format .` also
+  rewrites Python snippets inside `docs/*.md`, which the hook
+  (`types: [python]`) never sees.
+- **`rebrew.matcher`'s lazy exports are typed for consumers.** The package
+  resolves its public names through `__getattr__`, which type checkers read as
+  `Any`, so `from rebrew.matcher import build_candidate` lost every signature
+  in a package that ships `py.typed`. An `if TYPE_CHECKING` mirror of
+  `_LAZY_EXPORTS` now carries the real types, with a test failing when the two
+  lists drift.
+- **Five more test modules join the strict mypy gate.** `test_elf_fixture`,
+  `test_env_docs`, `test_flirt_sigs`, `test_resource`, and `test_startup_blas`
+  type-check clean under `--strict`, so they move into `[tool.mypy] files`
+  alongside the three that were already listed. `test_check_sdist_wheel` is
+  clean too but stays out: `tests` is on `mypy_path`, so its stem collides
+  with `tools/check_sdist_wheel.py` and mypy aborts the run at the duplicate
+  module name instead of checking anything after it.
+- **`rebrew.matcher`'s lazy exports are typed for consumers.** The package
+  resolves its public names through `__getattr__`, which type checkers read as
+  `Any`, so `from rebrew.matcher import build_candidate` lost every signature
+  in a package that ships `py.typed`. An `if TYPE_CHECKING` mirror of
+  `_LAZY_EXPORTS` now carries the real types, with a test failing when the two
+  lists drift.
+- **Five more test modules join the strict mypy gate.** `test_elf_fixture`,
+  `test_env_docs`, `test_flirt_sigs`, `test_resource`, and `test_startup_blas`
+  type-check clean under `--strict`, so they move into `[tool.mypy] files`
+  alongside the three that were already listed. `test_check_sdist_wheel` is
+  clean too but stays out: `tests` is on `mypy_path`, so its stem collides
+  with `tools/check_sdist_wheel.py` and mypy aborts the run at the duplicate
+  module name instead of checking anything after it.
+- **The released SBOM names a license for every component.** `make sbom`
+  emitted a `licenses` field only for the three copyleft entries, so 109 of
+  112 components reached a downstream scanner blank, which reads as
+  public domain. Each pinned artifact's own declared string now lives in
+  `tools/licenses.py` and is emitted per component; the declared text is
+  recorded verbatim rather than rewritten into an SPDX id the upstream never
+  wrote, so a trove classifier stays recognizable as one. `make sbom` refuses
+  to run when the lock and the table disagree, and `tests/test_packaging.py`
+  fails on the same disagreement, so a `uv lock --upgrade` lands with its
+  grant recorded. `NOTICE` gains the `binsync` extra's `declib`
+  (BSD-2-Clause) and names the table.
+- **The threat model names the CI boundary instead of denying it.**
+  `docs/THREAT_MODEL.md` claimed the surface had no scheduled jobs. CI does
+  have one: `.github/workflows/toolchain-sync.yml` runs
+  `rebrew toolchain check-updates` on a nightly `cron` and on
+  `workflow_dispatch`. The model now carries the three CI trust boundaries
+  (fork PR into the runner, the schedule into the pin-check, artifacts out to
+  operators) with the controls that back them, plus the gaps that survive
+  them: no publish step, no artifact signing, and a `schedule` trigger that
+  attributes a nightly run to the repository owner rather than a committer.
+  `[Unreleased]` also lost a stray duplicate `### Fixed` heading
+  that made `tests/test_packaging.py` red.
+- **The two non-`test_` modules under `tests/` are type-checked.**
+  `tests/pytest_ansi_env.py` (the plugin every run loads through
+  `addopts`) and `tests/bin_util.py` (the COFF builders the fixture
+  generator imports) join `mypy`'s `files`; both already pass strict, and a
+  typing regression in either would otherwise surface only at runtime. The
+  rest of `tests/` stays out until it is clean.
+- **The report pages and the coverage dashboard share one chrome token
+  set.** Colors, radii, font stacks, and type sizes live in `rebrew.theme`;
+  each stylesheet resolves them at build time, so the palette and the scale
+  change in one file and the two surfaces cannot drift. The dashboard gains
+  the same heading scale the report uses (page title, card value, table
+  text, captions) instead of the browser default sizes.
+- **Breaking:** **`rebrew.verify_cache.canonical_va_key` is gone; import it
+  from `rebrew.utils`, where it lives.** `rebrew.verify_cache` re-exported it
+  and three modules reached through that alias, so a helper in `utils` looked
+  like a verify-cache API. A library consumer's
+  `from rebrew.verify_cache import canonical_va_key` now raises
+  `ImportError`; `from rebrew.utils import canonical_va_key` is the import.
+  The `rebrew_globals.h` / Ghidra data-header regenerators shared a private
+  copy of the `Generated:`-line stripper; it is now
+  `rebrew.utils.strip_generated_timestamp`.
+- **`instruction_clones.normalize_operands` passes a `SimpleNamespace`**
+  instead of a private one-method class that held a single `op_str`; the
+  stripper it feeds is already typed on the `_OperandCarrier` protocol.
+- **Breaking:** **A `[targets]` key that is not a plain file name now fails the
+  config load.** A target name becomes a path component (`src/<target>`,
+  `bin/<target>`, `db/data_<target>.json`, `layout/<target>/`) and a TOML table
+  key, so a name carrying `/`, `\`, a `..` segment, a control character, or
+  surrounding whitespace placed files outside the project on the next command.
+  The loader now rejects it with a `ConfigError` naming the key, and `rebrew
+  init`, `rebrew intake`, and `rebrew cfg` apply the same rule to a name given
+  on the command line. Real targets are module stems (`SERVER.DLL`,
+  `client_exe`); a project that names a target with a separator has to rename
+  it and update the paths that referenced the old name.
+- **Breaking:** **A toolchain name, family, or image tag from a plugin or an
+  overlay directory is rejected when it is not a plain name.** All three become
+  directories: the wine prefix under `XDG_CACHE_HOME`, the generated
+  `toolchain-<name>-docker.cmake`, and the docker build context inside the
+  toolchains repo, so a separator or a dot segment built from outside that
+  repo. `_assemble_toolchain_registry` now raises `RegistryError` for a bad
+  toolchain name and `rebrew toolchain` errors on a bad family or image tag.
+  This affects only third-party toolchain plugins, and a plugin that keeps
+  packaged names is unaffected.
+
 ### Added
 
 - **Breaking:** **`apply_commands_via_mcp` returns a named count pair.** The
@@ -423,6 +563,15 @@
   in `rebrew.cli` is now the single source: the report stylesheet, the
   dashboard shell, and the forced-colors override all iterate it, and a status
   added to `KNOWN_STATUS` without a mark fails the test that compares the two.
+- **The extras and dev groups are floored like the runtime list.** Only
+  `[project].dependencies` was checked for a version specifier, so a bare name
+  in the `prove` / `binsync` extras or in a `[dependency-groups]` entry could
+  ship without one: the extras reach the user's environment through the wheel
+  METADATA, and a group is resolved by `uv sync` on every contributor machine
+  and in CI. `tests/test_package_metadata.py` now floors every requirement list
+  in the manifest, exempting only the two that `[tool.uv.sources]` pins by
+  artifact, and a git requirement must end in a full commit rather than a
+  branch or tag, which is the one dependency a lock can silently re-point.
 
 - **`GET /api/health` answers a liveness probe.** It answers
   `{"status": "ok", "db": "<coverage.db path>", "targets": N}` without the
@@ -850,6 +999,19 @@
   `rebrew.config.module_marker` and the loader both normalize to NFC. A config
   spelled NFD and a source spelled NFC therefore named two different
   `MODULE.0xVA` metadata keys. The explicit branch now normalizes too.
+
+### Removed
+- **`ProjectConfig.to_dict()`.** It was a one-line alias for
+  `ProjectConfig.as_dict()` kept "for API consistency across SDK models", and
+  the only caller in the tree was a test asserting the alias equalled the
+  method it aliased. `as_dict()` is the one name; use it.
+- **`ARCH_PRESETS[...]["symbol_prefix"]`.** The key was written for all ten
+  arch presets and read by nothing, so every arch declared a symbol-mangling
+  convention that no disassembler, matcher, or exporter ever applied. A
+  consumer that needs one reads the target's own symbol table, not a guess
+  keyed off the architecture.
+- **`llm_seed._key_safe_endpoint()`.** A private one-line wrapper around
+  `config.is_key_safe_endpoint` with a single caller in the same module.
 
 ## [2.13.1] - 2026-09-27
 
