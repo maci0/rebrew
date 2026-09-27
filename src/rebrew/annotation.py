@@ -21,6 +21,7 @@ import re
 import threading
 import unicodedata
 import warnings
+from collections import OrderedDict
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field, fields
 from pathlib import Path
@@ -73,6 +74,7 @@ __all__ = [
     "parse_c_file_multi",
     "parse_c_file_text",
     "parse_library_header",
+    "clear_parse_memo",
     "parse_new_format",
     "parse_new_format_multi",
     "parse_source_metadata",
@@ -192,9 +194,31 @@ _DECLSPEC_STRIP_RE = re.compile(r"__declspec\s*\([^)]*\)")
 # Process-lifetime memo for metadata-free parses (see parse_c_file_multi).
 # Guarded: ``rebrew verify -j N`` parses the same sources from worker threads,
 # and the eviction path is a multi-step check-then-act on a shared dict.
-_PARSE_MEMO: dict[bytes, list[Annotation]] = {}
-_PARSE_MEMO_MAX = 512
+#
+# The bound is on retained SOURCE BYTES, not entries, the same discipline as
+# ``matcher.ast_engine._PARSE_TREE_MEMO`` and ``gen_stubs._STRIPPED_SOURCE_MEMO``:
+# one entry is a whole file's parse, so an entry-count cap let a 512-file tree
+# of large sources pin the whole working set and make the real limit the heap.
+# The value carries its own cost so the running total survives the lock-free
+# read path; LRU order (pop + reinsert, so a plain dict works when a test
+# injects one) keeps the files a scan revisits.
+_PARSE_MEMO: OrderedDict[bytes, tuple[int, list[Annotation]]] = OrderedDict()
+_PARSE_MEMO_MAX_BYTES = 32 * 1024 * 1024
+_PARSE_MEMO_BYTES = 0
 _PARSE_MEMO_LOCK = threading.Lock()
+
+
+def clear_parse_memo() -> None:
+    """Drop every memoized structural parse and its retained-byte total.
+
+    The byte total is module state, so a caller that empties
+    :data:`_PARSE_MEMO` directly must reset it through this; the eviction
+    loop is written to stay correct either way.
+    """
+    global _PARSE_MEMO_BYTES
+    with _PARSE_MEMO_LOCK:
+        _PARSE_MEMO.clear()
+        _PARSE_MEMO_BYTES = 0
 
 
 @functools.lru_cache(maxsize=64)
@@ -1416,23 +1440,36 @@ def parse_c_file_multi(
     # an earlier stat would otherwise file the old parse under the new
     # file's stat key, and every later reader of that path would see stale
     # annotations until the next edit.
-    memo_key = hashlib.sha256(text.encode("utf-8", errors="surrogateescape")).digest()
+    memo_key_source = text.encode("utf-8", errors="surrogateescape")
+    memo_key = hashlib.sha256(memo_key_source).digest()
     with _PARSE_MEMO_LOCK:
-        structural = _PARSE_MEMO.get(memo_key)
+        cached_entry = _PARSE_MEMO.pop(memo_key, None)
+        if cached_entry is not None:
+            _PARSE_MEMO[memo_key] = cached_entry  # refresh LRU order
+            structural: list[Annotation] | None = cached_entry[1]
+        else:
+            structural = None
     if structural is None:
         structural = _parse_structural_entries(text)
+        global _PARSE_MEMO_BYTES
         with _PARSE_MEMO_LOCK:
             # Re-check: another worker may have filled it while we parsed.
-            cached = _PARSE_MEMO.get(memo_key)
-            if cached is not None:
-                structural = cached
+            cached_entry = _PARSE_MEMO.get(memo_key)
+            if cached_entry is not None:
+                structural = cached_entry[1]
             else:
-                if len(_PARSE_MEMO) >= _PARSE_MEMO_MAX:
-                    # Evict the oldest entry, not the whole cache — clearing
-                    # everything re-parses the entire tree on big projects.
-                    oldest = next(iter(_PARSE_MEMO))
-                    _PARSE_MEMO.pop(oldest, None)
-                _PARSE_MEMO[memo_key] = structural
+                stale = _PARSE_MEMO.pop(memo_key, None)
+                if stale is not None:
+                    _PARSE_MEMO_BYTES -= stale[0]
+                _PARSE_MEMO[memo_key] = (len(memo_key_source), structural)
+                _PARSE_MEMO_BYTES += len(memo_key_source)
+                # Evict from the cold end until the budget fits, never
+                # clearing everything: a full flush re-parses the whole tree
+                # on a big project.  The newest entry always survives, so a
+                # single source larger than the budget is still served.
+                while len(_PARSE_MEMO) > 1 and _PARSE_MEMO_BYTES > _PARSE_MEMO_MAX_BYTES:
+                    oldest_key = next(iter(_PARSE_MEMO))
+                    _PARSE_MEMO_BYTES -= _PARSE_MEMO.pop(oldest_key)[0]
     if not structural and metadata_dir is not None:
         # ADR 023: a migrated (marker-less, pure C) file synthesizes its
         # Annotations from rebrew-functions.toml entries tagged with a

@@ -1855,11 +1855,11 @@ class TestStdcallParamSizeDeclspec:
 
 class TestParseMemo:
     def test_parse_is_memoized_for_unchanged_file(self, tmp_path: Path) -> None:
-        from rebrew.annotation import _PARSE_MEMO, parse_c_file_multi
+        from rebrew.annotation import _PARSE_MEMO, clear_parse_memo, parse_c_file_multi
 
         f = tmp_path / "f.c"
         f.write_text("// FUNCTION: GAME 0x1000\nint f(void) { return 0; }\n", encoding="utf-8")
-        _PARSE_MEMO.clear()
+        clear_parse_memo()
         a1 = parse_c_file_multi(f)
         a2 = parse_c_file_multi(f)
         assert a1 == a2
@@ -1873,11 +1873,11 @@ class TestParseMemo:
         """verify -j N workers must not corrupt the shared parse memo."""
         import threading
 
-        from rebrew.annotation import _PARSE_MEMO, parse_c_file_multi
+        from rebrew.annotation import _PARSE_MEMO, clear_parse_memo, parse_c_file_multi
 
         f = tmp_path / "f.c"
         f.write_text("// FUNCTION: GAME 0x1000\nint f(void) { return 0; }\n", encoding="utf-8")
-        _PARSE_MEMO.clear()
+        clear_parse_memo()
         n = 16
         barrier = threading.Barrier(n)
         results: list[list] = [[] for _ in range(n)]
@@ -1915,6 +1915,7 @@ class TestParseMemo:
         source = tmp_path / "f.c"
         atomic_write_text(source, "// FUNCTION: GAME 0x1000\nint f(void) { return 0; }\n")
         monkeypatch.setattr(annotation, "_PARSE_MEMO", {})
+        monkeypatch.setattr(annotation, "_PARSE_MEMO_BYTES", 0)
         read_finished = Event()
         resume = Event()
         read_source = annotation.read_source_text
@@ -1942,11 +1943,11 @@ class TestParseMemo:
     def test_memo_invalidated_by_content_change(self, tmp_path: Path) -> None:
         import os
 
-        from rebrew.annotation import _PARSE_MEMO, parse_c_file_multi
+        from rebrew.annotation import clear_parse_memo, parse_c_file_multi
 
         f = tmp_path / "f.c"
         f.write_text("// FUNCTION: GAME 0x1000\nint f(void) { return 0; }\n", encoding="utf-8")
-        _PARSE_MEMO.clear()
+        clear_parse_memo()
         parse_c_file_multi(f)
         # Same byte length (VA 0x1000 → 0x1001), so cache invalidation must
         # come from the mtime in the memo key — set it explicitly instead of
@@ -1958,14 +1959,14 @@ class TestParseMemo:
         assert a2[0].va == 0x1001  # re-parsed, not a stale memo hit
 
     def test_metadata_overlay_applied_per_call(self, tmp_path: Path) -> None:
-        from rebrew.annotation import _PARSE_MEMO, parse_c_file_multi
+        from rebrew.annotation import _PARSE_MEMO, clear_parse_memo, parse_c_file_multi
         from rebrew.metadata import clear_metadata_cache, save_metadata
 
         f = tmp_path / "f.c"
         f.write_text("// FUNCTION: GAME 0x1000\nint f(void) { return 0; }\n", encoding="utf-8")
         save_metadata(tmp_path, {("GAME", 0x1000): {"status": "EXACT"}})
         clear_metadata_cache()
-        _PARSE_MEMO.clear()
+        clear_parse_memo()
 
         # With metadata: volatile fields come from the TOML overlay...
         anns_meta = parse_c_file_multi(f, metadata_dir=tmp_path)
@@ -1977,6 +1978,48 @@ class TestParseMemo:
         anns_raw = parse_c_file_multi(f)
         assert len(_PARSE_MEMO) == 1
         assert anns_raw[0].status != "EXACT"
+
+    def test_memo_evicts_by_retained_bytes_not_entry_count(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The bound is source bytes: a few large files must not all stay resident."""
+        import rebrew.annotation as annotation
+
+        clear_parse_memo = annotation.clear_parse_memo
+        parse_c_file_multi = annotation.parse_c_file_multi
+        monkeypatch.setattr(annotation, "_PARSE_MEMO_MAX_BYTES", 4096)
+        clear_parse_memo()
+        # Four ~1.5 KiB sources: well under any plausible entry cap, over the
+        # byte budget once three are resident.
+        for i in range(4):
+            f = tmp_path / f"f{i}.c"
+            f.write_text(
+                f"// FUNCTION: GAME 0x{i}000\nint f{i}(void) {{ return {i}; }}\n"
+                + ("/* pad */\n" * 200),
+                encoding="utf-8",
+            )
+            parse_c_file_multi(f)
+            assert annotation.parse_c_file_multi(f)[0].va == i * 0x1000
+        assert annotation._PARSE_MEMO_BYTES <= 4096
+        # The newest parse is still memoized, so a repeat read is served from
+        # the memo rather than re-parsed.
+        assert len(annotation._PARSE_MEMO) < 4
+
+    def test_memo_survives_a_source_larger_than_the_budget(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Eviction never empties the memo: an oversized source is still cached."""
+        import rebrew.annotation as annotation
+
+        monkeypatch.setattr(annotation, "_PARSE_MEMO_MAX_BYTES", 16)
+        annotation.clear_parse_memo()
+        f = tmp_path / "big.c"
+        f.write_text(
+            "// FUNCTION: GAME 0x1000\n" + "int pad(void) { return 0; }\n" * 50, encoding="utf-8"
+        )
+        assert annotation.parse_c_file_multi(f)[0].va == 0x1000
+        assert len(annotation._PARSE_MEMO) == 1
+        assert annotation.parse_c_file_multi(f)[0].va == 0x1000
 
 
 class TestMarkerConsistencyStub:

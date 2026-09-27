@@ -140,6 +140,26 @@ class TestCompileCache:
 
 
 class TestCompileCacheKey:
+    def test_source_digest_memo_evicts_by_retained_bytes(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The digest memo is bounded by source bytes, not entry count.
+
+        One entry pins a whole source body, so a full-tree run would keep
+        every source it ever keyed resident.
+        """
+        import rebrew.compile_cache as cc
+
+        monkeypatch.setattr(cc, "_SOURCE_DIGEST_MAX_BYTES", 4096)
+        cc.clear_source_digest_memo()
+        for i in range(6):
+            assert len(cc.source_digest(f"int f{i}(void){{return {i};}}" + "/* x */" * 200)) == 64
+        assert cc._SOURCE_DIGEST_BYTES <= 4096
+        # The newest source is still memoized (one repeat read is free).
+        assert len(cc._source_digest_memo) < 6
+        cc.clear_source_digest_memo()
+        assert cc._source_digest_memo == {}
+
     @pytest.mark.parametrize(
         "field", ["source_filename", "source_ext", "cflags", "include_dirs", "toolchain_id"]
     )

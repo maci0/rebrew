@@ -90,8 +90,13 @@ _OBJDUMP_TIMEOUT_S = 60
 #: (``text_audit``, ``verify_placement``) walk the whole link order, so a
 #: 200-TU project pays hundreds of processes per run.  Keyed by stat
 #: fingerprint so a rebuilt object is never served stale.
-_OBJDUMP_CACHE_MAX = 256
+#:
+#: The bound is on retained stdout CHARACTERS, not entries: one ``objdump -t``
+#: over a large object runs to megabytes, so an entry cap made the real limit
+#: the heap.  Same discipline as ``verify_hash._SOURCE_MEMO``.
+_OBJDUMP_CACHE_MAX_CHARS = 32 * 1024 * 1024
 _OBJDUMP_CACHE: OrderedDict[tuple[str, int, int, int, str], str] = OrderedDict()
+_OBJDUMP_CACHE_CHARS = 0
 _OBJDUMP_CACHE_LOCK = Lock()
 
 
@@ -116,11 +121,18 @@ def _run_objdump(obj: Path, flag: str) -> str:
                 return hit
     out = _run_objdump_uncached(obj, flag)
     if key is not None:
+        global _OBJDUMP_CACHE_CHARS
         with _OBJDUMP_CACHE_LOCK:
+            stale = _OBJDUMP_CACHE.pop(key, None)
+            if stale is not None:
+                _OBJDUMP_CACHE_CHARS -= len(stale)
             _OBJDUMP_CACHE[key] = out
             _OBJDUMP_CACHE.move_to_end(key)
-            while len(_OBJDUMP_CACHE) > _OBJDUMP_CACHE_MAX:
-                _OBJDUMP_CACHE.popitem(last=False)
+            _OBJDUMP_CACHE_CHARS += len(out)
+            # Keep at least the newest entry: an objdump larger than the
+            # budget would otherwise be evicted the moment it is stored.
+            while _OBJDUMP_CACHE_CHARS > _OBJDUMP_CACHE_MAX_CHARS and len(_OBJDUMP_CACHE) > 1:
+                _OBJDUMP_CACHE_CHARS -= len(_OBJDUMP_CACHE.popitem(last=False)[1])
     return out
 
 

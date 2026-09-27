@@ -465,6 +465,20 @@
   `CompileCache._store_lock`, the one place that read the handle without the
   lock `close()` takes. The probe is now `CompileCache.is_open()`, part of
   the `CacheBackend` contract, so a plugin backend answers it too.
+- **Three source memos were bounded by entry count, so the real bound was the
+  heap.** `annotation._PARSE_MEMO` capped whole-file parses at 512 entries,
+  `compile_cache.source_digest` capped whole-source digests at 1024, and
+  `data_layout._OBJDUMP_CACHE` capped objdump stdout at 256, and each entry
+  pins a whole payload: a full-tree verify or GA run could hold every source
+  it had ever keyed resident until the process exited, and one `objdump -t`
+  over a large object is megabytes on its own. All three are now LRU memos
+  bounded by retained bytes (32 MiB, 64 MiB and 32 MiB), matching the
+  discipline already used by `verify_hash._SOURCE_MEMO`,
+  `gen_stubs._STRIPPED_SOURCE_MEMO` and `matcher.ast_engine._PARSE_TREE_MEMO`.
+  A payload larger than the budget is still cached, the newest entry is never
+  evicted, and `annotation.clear_parse_memo` /
+  `compile_cache.clear_source_digest_memo` reset the byte total along with the
+  entries.
 - **`--verbose` and `--quiet` work after the subcommand, not only before it.**
   The umbrella advertises both, but click parses a group's own options only
   ahead of the subcommand name, so `rebrew diff -v` and the flat

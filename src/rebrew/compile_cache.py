@@ -55,6 +55,7 @@ import logging
 import re
 import threading
 import unicodedata
+from collections import OrderedDict
 from collections.abc import Callable, Iterator, Sequence
 from functools import lru_cache
 from pathlib import Path
@@ -573,15 +574,34 @@ def include_fingerprint(include_dir: str) -> str:
 include_fingerprint.cache_clear = _clear_include_fingerprint_cache  # type: ignore[attr-defined]
 
 
-@lru_cache(maxsize=1024)
+#: Retained source text for :func:`source_digest`, bounded by BYTES.  One
+#: entry pins a whole source body, so an entry-count cap made the real limit
+#: the heap: a full-tree verify keys every compile in the tree, and 1024
+#: multi-hundred-KB sources stayed resident until exit.  Same discipline as
+#: ``verify_hash._SOURCE_MEMO``.  The value carries its own byte cost so
+#: eviction never re-encodes the key it is dropping.
+_SOURCE_DIGEST_MAX_BYTES = 64 * 1024 * 1024
+_SOURCE_DIGEST_LOCK = threading.Lock()
+_source_digest_memo: OrderedDict[str, tuple[int, str]] = OrderedDict()
+_SOURCE_DIGEST_BYTES = 0
+
+
+def clear_source_digest_memo() -> None:
+    """Drop every memoized source digest and its retained-byte total."""
+    global _SOURCE_DIGEST_BYTES
+    with _SOURCE_DIGEST_LOCK:
+        _source_digest_memo.clear()
+        _SOURCE_DIGEST_BYTES = 0
+
+
 def source_digest(source_content: str) -> str:
     """SHA-256 hex of C source text, memoized per unique string.
 
     Flag sweeps / GA runs call :func:`compile_cache_key` once per combo with
     the *same* source text; re-hashing the full source each time was pure CPU
-    on a warm cache (1-8s per 258k-combo sweep).  Python
-    strings cache their own ``hash()`` after the first call, so the
-    lru_cache lookup is cheap once a source string has been seen.
+    on a warm cache (1-8s per 258k-combo sweep).  Python strings cache their
+    own ``hash()`` after the first call, so the memo lookup is cheap once a
+    source string has been seen.
 
     Encodes with ``errors="surrogateescape"``: compile/GA paths read sources
     via ``decode("utf-8", errors="surrogateescape")`` /
@@ -591,7 +611,26 @@ def source_digest(source_content: str) -> str:
     ``compile_and_compare`` then mislabeled as a COMPILE_ERROR, making
     legacy-encoded files permanently untestable.
     """
-    return hashlib.sha256(source_content.encode("utf-8", errors="surrogateescape")).hexdigest()
+    with _SOURCE_DIGEST_LOCK:
+        hit = _source_digest_memo.get(source_content)
+        if hit is not None:
+            _source_digest_memo.move_to_end(source_content)
+            return hit[1]
+    raw = source_content.encode("utf-8", errors="surrogateescape")
+    digest = hashlib.sha256(raw).hexdigest()
+    global _SOURCE_DIGEST_BYTES
+    with _SOURCE_DIGEST_LOCK:
+        raced = _source_digest_memo.get(source_content)
+        if raced is not None:  # another thread hashed the same source
+            _source_digest_memo.move_to_end(source_content)
+            return raced[1]
+        _source_digest_memo[source_content] = (len(raw), digest)
+        _SOURCE_DIGEST_BYTES += len(raw)
+        # Keep at least the newest entry: a source larger than the budget
+        # would otherwise be evicted the moment it is stored.
+        while _SOURCE_DIGEST_BYTES > _SOURCE_DIGEST_MAX_BYTES and len(_source_digest_memo) > 1:
+            _SOURCE_DIGEST_BYTES -= _source_digest_memo.popitem(last=False)[1][0]
+    return digest
 
 
 # ---------------------------------------------------------------------------

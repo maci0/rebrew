@@ -755,6 +755,43 @@ class TestObjSectionSymbols:
         assert obj_data_symbols(tmp_path / "f.obj") == (0x10, 0x04, {"g_data"}, set())
 
 
+class TestObjdumpMemoBound:
+    """The objdump memo is bounded by retained stdout, not by entry count."""
+
+    def test_evicts_by_retained_chars(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        import rebrew.data_layout as dl
+
+        calls: list[str] = []
+
+        def fake_uncached(obj: Path, flag: str) -> str:
+            calls.append(str(obj))
+            return "x" * 2048
+
+        monkeypatch.setattr(dl, "_run_objdump_uncached", fake_uncached)
+        monkeypatch.setattr(dl, "_OBJDUMP_CACHE_MAX_CHARS", 4096)
+        with dl._OBJDUMP_CACHE_LOCK:
+            dl._OBJDUMP_CACHE.clear()
+            dl._OBJDUMP_CACHE_CHARS = 0
+        try:
+            for i in range(4):
+                obj = tmp_path / f"o{i}.obj"
+                obj.write_bytes(b"obj")
+                assert dl._run_objdump(obj, "-t") == "x" * 2048
+            assert dl._OBJDUMP_CACHE_CHARS <= 4096
+            assert len(dl._OBJDUMP_CACHE) < 4
+            # A repeat read of the newest object is served from the memo.
+            newest = tmp_path / "o3.obj"
+            before = len(calls)
+            assert dl._run_objdump(newest, "-t") == "x" * 2048
+            assert len(calls) == before
+        finally:
+            with dl._OBJDUMP_CACHE_LOCK:
+                dl._OBJDUMP_CACHE.clear()
+                dl._OBJDUMP_CACHE_CHARS = 0
+
+
 class TestObjdumpHexSpellings:
     """objdump emits uppercase and variable-width hex; the parsers must take
     every spelling (8-digit lowercase is just one)."""
