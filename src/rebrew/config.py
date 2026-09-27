@@ -1802,7 +1802,7 @@ def load_config(
             raise ConfigError(f"rebrew-project.toml compiler.{key} must be a path string")
         return raw is not None and not raw.strip()
 
-    from rebrew.utils import resolve_msvc_toolchain
+    from rebrew.toolchain import resolve_msvc_toolchain
 
     msvc_layout = resolve_msvc_toolchain(root, profile_val)
     if _explicit_empty("includes"):

@@ -1750,11 +1750,11 @@ command = "wine toolchain/msvc/6.0-win32/VC98/Bin/CL.EXE"
         libs: str | None,
         detected: bool,
     ) -> None:
-        from rebrew import utils as rebrew_utils
+        from rebrew import toolchain as rebrew_toolchain
 
         layout = ("compiler", "detected/include", "detected/lib") if detected else None
-        monkeypatch.setattr(rebrew_utils, "resolve_msvc_toolchain", lambda *_: layout)
-        monkeypatch.setattr(rebrew_utils, "find_install_tool", lambda _: None)
+        monkeypatch.setattr(rebrew_toolchain, "resolve_msvc_toolchain", lambda *_: layout)
+        monkeypatch.setattr(rebrew_toolchain, "find_install_tool", lambda _: None)
         toml = self.TOML + f"includes = {includes}\n"
         if libs is not None:
             toml += f"libs = {libs}\n"

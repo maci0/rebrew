@@ -37,7 +37,8 @@ from rebrew.init_profiles import (
 if TYPE_CHECKING:
     from rebrew.toolchain_detect import ToolchainInfo
 from rebrew.cli import console
-from rebrew.utils import atomic_write_text, toolchain_link_candidates
+from rebrew.toolchain import toolchain_link_candidates
+from rebrew.utils import atomic_write_text
 
 logger = logging.getLogger(__name__)
 
@@ -1091,7 +1092,7 @@ def main(
         # get a broken path — resolve the best layout actually present
         # (project tools/ first, then the rebrew install's own vendored
         # tree) and write those paths into the generated config.
-        from rebrew.utils import resolve_msvc_toolchain
+        from rebrew.toolchain import resolve_msvc_toolchain
 
         layout = resolve_msvc_toolchain(cwd, compiler_profile)
         if layout is not None:
@@ -1286,7 +1287,7 @@ def main(
         # The link may have just created a better layout than the pre-write
         # resolution saw (e.g. a master toolchain/msvc/6.0-win32) — re-resolve
         # and point the content being written at it.
-        from rebrew.utils import resolve_msvc_toolchain
+        from rebrew.toolchain import resolve_msvc_toolchain
 
         layout = resolve_msvc_toolchain(cwd, compiler_profile)
         if layout is not None:
