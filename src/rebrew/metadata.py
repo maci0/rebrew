@@ -229,6 +229,7 @@ __all__ = [
     "get_entry",
     "is_metadata_key",
     "is_status_parked",
+    "library_override_fingerprint",
     "is_table_field",
     "load_metadata",
     "merge_into_annotation",
@@ -1506,6 +1507,49 @@ def clear_library_override_cache() -> None:
         _LIBRARY_META_CACHE.clear()
 
 
+def nearest_library_metadata_path(
+    start_dir: str | Path, root: str | Path | None = None
+) -> Path | None:
+    """Nearest ``rebrew-libraries.toml`` at or above *start_dir*, or ``None``.
+
+    Stops at *root* (project root — ``cfg.root``) inclusive.
+    """
+    cur = Path(start_dir).resolve()
+    root_p = Path(root).resolve() if root is not None else None
+
+    walk = cur
+    while True:
+        candidate = walk / LIBRARY_METADATA_FILE
+        if candidate.exists():
+            return candidate
+        if root_p is not None and walk == root_p:
+            break
+        if walk.parent == walk:
+            break
+        walk = walk.parent
+    return None
+
+
+def library_override_fingerprint(
+    start_dir: str | Path, root: str | Path | None = None
+) -> tuple[str, int, int, int] | None:
+    """``(path, mtime_ns, size, inode)`` of the nearest library override file.
+
+    The cache key for a memoized override resolution: the walk plus one stat,
+    no parse, so a caller that memoizes the resolution still notices a
+    ``rebrew library set`` write (new mtime/inode) without re-reading the
+    TOML on every function.  ``None`` when no file applies.
+    """
+    found = nearest_library_metadata_path(start_dir, root)
+    if found is None:
+        return None
+    try:
+        st = found.stat()
+    except OSError:
+        return None
+    return (str(found), st.st_mtime_ns, st.st_size, st.st_ino)
+
+
 def find_library_override(
     start_dir: str | Path, root: str | Path | None = None
 ) -> LibraryOverride | None:
@@ -1520,21 +1564,7 @@ def find_library_override(
     library file created mid-process must take over), which is the walk
     itself.  Field values go through :func:`parse_library_metadata`, whose
     mtime/size memo skips re-parsing unchanged files."""
-    cur = Path(start_dir).resolve()
-    root_p = Path(root).resolve() if root is not None else None
-
-    found: Path | None = None
-    walk = cur
-    while True:
-        candidate = walk / LIBRARY_METADATA_FILE
-        if candidate.exists():
-            found = candidate
-            break
-        if root_p is not None and walk == root_p:
-            break
-        if walk.parent == walk:
-            break
-        walk = walk.parent
+    found = nearest_library_metadata_path(start_dir, root)
 
     if found is None:
         return None

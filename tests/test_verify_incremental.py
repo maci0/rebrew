@@ -108,6 +108,43 @@ class TestCompilerConfigHash:
         )
 
 
+class TestResolvedOverridesMemo:
+    """The override-resolution memo must key every input the resolution reads."""
+
+    def test_per_target_flags_do_not_leak_across_targets(self, tmp_path: Path) -> None:
+        from rebrew.verify import _resolved_overrides
+
+        source_dir = _make_cfg(tmp_path).reversed_dir
+        cfg_a = _make_cfg(tmp_path)
+        cfg_a.target_name = "SERVER"
+        cfg_a.cflags = "/O1"
+        cfg_b = _make_cfg(tmp_path)
+        cfg_b.target_name = "CLIENT"
+        cfg_b.cflags = "/O2"
+
+        assert _resolved_overrides(cfg_a, source_dir, "", "", "") == (None, "/O1")
+        assert _resolved_overrides(cfg_b, source_dir, "", "", "") == (None, "/O2")
+
+    def test_library_override_write_is_seen(self, tmp_path: Path) -> None:
+        from rebrew.verify import _resolved_overrides
+
+        cfg = _make_cfg(tmp_path)
+        library = tmp_path / "rebrew-libraries.toml"
+        library.write_text('cflags = "/DOLD"\n', encoding="utf-8")
+        assert _resolved_overrides(cfg, cfg.reversed_dir, "", "", "") == (None, "/DOLD")
+
+        library.write_text('cflags = "/DNEW"\n', encoding="utf-8")
+        assert _resolved_overrides(cfg, cfg.reversed_dir, "", "", "") == (None, "/DNEW")
+
+    def test_module_preset_is_part_of_the_key(self, tmp_path: Path) -> None:
+        from rebrew.verify import _resolved_overrides
+
+        cfg = _make_cfg(tmp_path)
+        cfg.cflags_presets = {"GAME": "/DGAME"}
+        assert _resolved_overrides(cfg, cfg.reversed_dir, "", "", "GAME") == (None, "/DGAME")
+        assert _resolved_overrides(cfg, cfg.reversed_dir, "", "", "SDL") != (None, "/DGAME")
+
+
 class TestSourceHash:
     def test_hash_changes_with_file_content(self, tmp_path: Path) -> None:
         path = tmp_path / "func.c"
