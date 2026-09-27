@@ -34,8 +34,8 @@ wheel into a clean venv for a smoke import — runtime deps come from
 live in `tools/smoke_wheel_install.py`, run with that venv's interpreter so
 the import resolves to the wheel's site-packages rather than `src/`: it
 reports the installed version and path and exits non-zero naming any of
-`agent-skills/`, `AGENTS.md.template`, or `PRINCIPLES.md` the wheel failed to
-ship. A `cli-contract`
+`agent-skills/`, `AGENTS.md.template`, `PRINCIPLES.md`, `py.typed`, or
+`workspace/py.typed` the wheel failed to ship. A `cli-contract`
 job that greps the high-value `--help` surfaces. No pipeline step inlines
 Python in a `run:` block: each check is a `tools/` script or a Makefile
 target, so a failure names a file and a line instead of an anonymous exit
