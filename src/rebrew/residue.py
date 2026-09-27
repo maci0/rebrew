@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any
 
 import typer
+from rich.cells import cell_len
 
 from rebrew.cli import (
     TargetOption,
@@ -38,9 +39,27 @@ from rebrew.errors import RebrewError
 from rebrew.pe_headers import pe_layout
 from rebrew.utils import atomic_write_text
 
+#: Width of the function-name column in the residue table.
+_NAME_COLUMN = 40
+
 
 class ResidueError(RebrewError, ValueError):
     """Raised when an input image is not a PE that residue can measure."""
+
+
+def _name_column(name: str, width: int = _NAME_COLUMN) -> str:
+    """*name* truncated and padded to *width* terminal columns.
+
+    ``f"{name:40s}"`` counts code points, but a terminal lays out CJK,
+    emoji, and combining marks in two or zero columns, so a Japanese symbol
+    name pushed every figure to its right out of alignment.  Truncation uses
+    the same unit as the padding: cutting by code points would let a long CJK
+    name overflow the column instead of fitting it.
+    """
+    out = name
+    while cell_len(out) > width:
+        out = out[:-1]
+    return out + " " * (width - cell_len(out))
 
 
 app = typer.Typer(
@@ -316,13 +335,13 @@ def main(
     console.print(f"\n{'function':40s} {'bytes':>6s} {'1st diff':>10s}")
     for f in summary["functions"]:
         if f["bytes"] > 8 or f["name"].startswith("<"):
-            console.print(f"{f['name'][:40]:40s} {f['bytes']:6d} {f['first_diff_va']:>10s}")
+            console.print(f"{_name_column(f['name'])} {f['bytes']:6d} {f['first_diff_va']:>10s}")
     if "delta_vs_baseline" in summary:
         d = summary["delta_vs_baseline"]
         console.print(f"\n.text {d['text_before']} -> {d['text_after']} ({d['text_delta']:+d})")
         for row in d["functions"]:
             console.print(
-                f"  {row['name'][:40]:40s} {row['before']:6d} -> {row['after']:6d} ({row['delta']:+d})"
+                f"  {_name_column(row['name'])} {row['before']:6d} -> {row['after']:6d} ({row['delta']:+d})"
             )
 
 

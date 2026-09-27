@@ -356,6 +356,18 @@ class TestSectionSymbolBytesBounds:
         assert sizes == {0x2010: 4, 0x1000: 4}
 
 
+def test_uncovered_zero_fill_compares_as_zeros() -> None:
+    from rebrew.data_verify import fill_uncovered_zero_fill
+
+    ref_bytes = {0x10: b"\x00\x00\x00\x00"}
+    ref_sizes = {0x10: 4}
+    built_bytes: dict[int, bytes] = {}
+    built_sizes: dict[int, int] = {}
+    fill_uncovered_zero_fill(ref_bytes, ref_sizes, built_bytes, built_sizes, {0x10})
+    assert built_bytes[0x10] == b"\x00\x00\x00\x00"
+    assert ref_sizes[0x10] == 4
+
+
 def test_size_falls_back_to_declared_type(tmp_path: Path, monkeypatch) -> None:
     """`size` is optional metadata; the declared type must size the symbol.
 

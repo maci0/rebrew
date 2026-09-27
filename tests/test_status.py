@@ -75,6 +75,15 @@ class TestStatusReport:
         )
         assert report.byte_coverage_pct == 25.0
 
+    def test_byte_coverage_counts_alignment_fill(self) -> None:
+        report = StatusReport(
+            matched_bytes=1000,
+            padding_bytes=500,
+            total_text_bytes=2000,
+        )
+        assert report.accounted_text_bytes == 1500
+        assert report.byte_coverage_pct == 75.0
+
     def test_byte_coverage_zero_text(self) -> None:
         report = StatusReport(matched_bytes=1000, total_text_bytes=0)
         assert report.byte_coverage_pct == 0.0
@@ -1692,6 +1701,27 @@ class TestDataVerdicts:
         assert report.data_verified == 1
         assert report.data_drift == 1
         assert report.data_unchecked == 0
+
+    def test_postlink_copied_row_is_not_counted(self, tmp_path: Path, monkeypatch) -> None:
+        from rebrew.data_metadata import set_data_field
+        from rebrew.status import collect_status
+
+        cfg = _make_cfg(tmp_path)
+        set_data_field(tmp_path, 0x1000, "name", "g_game", "TEST")
+        set_data_field(tmp_path, 0x1000, "status", "VERIFIED", "TEST")
+        set_data_field(tmp_path, 0x1000, "section", ".data", "TEST")
+        set_data_field(tmp_path, 0x1000, "size", "4", "TEST")
+        set_data_field(tmp_path, 0x2000, "name", "g_iat", "TEST")
+        set_data_field(tmp_path, 0x2000, "status", "DRIFT", "TEST")
+        set_data_field(tmp_path, 0x2000, "section", ".idata", "TEST")
+        set_data_field(tmp_path, 0x2000, "size", "4", "TEST")
+        monkeypatch.setattr(
+            "rebrew.status._postlink_copied_ranges", lambda _cfg: [(0x2000, 0x2010)]
+        )
+        report = collect_status(cfg)
+        assert report.data_verified == 1
+        assert report.data_drift == 0
+        assert ".idata" not in report.data_sections
 
 
 class TestEffectiveMatches:
