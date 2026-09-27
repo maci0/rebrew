@@ -248,6 +248,14 @@ Tracks function status changes over time.
 | `changed_at` | `TEXT` | ISO 8601 timestamp of the change. CHECK non-empty. |
 | `updated_by` | `TEXT` | Provenance tag of the write that caused the change. |
 
+**Indexes**:
+- `idx_history_target_id` on `(target, id)`: serves the dashboard page
+  (`WHERE target = ? ORDER BY id DESC`) and the per-target retention delete
+  without a sort.
+- `idx_history_restore` on `(target, va, changed_at, old_status, new_status,
+  updated_by)`: serves the `--force` restore dedupe, which probes one full
+  transition per saved row.  Both are created on every build.
+
 > [!NOTE]
 > This table is persistent — never dropped on rebuild, but retention-capped:
 > only the newest 10,000 rows of each rebuilt target survive
