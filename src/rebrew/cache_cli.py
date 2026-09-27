@@ -2,7 +2,14 @@
 
 import typer
 
-from rebrew.cli import TargetOption, console, error_exit, json_print, require_config
+from rebrew.cli import (
+    TargetOption,
+    confirm_abort,
+    console,
+    error_exit,
+    json_print,
+    require_config,
+)
 from rebrew.compile_cache import DEFAULT_CACHE_BACKEND, get_compile_cache
 
 app = typer.Typer(
@@ -93,7 +100,7 @@ def clear(
             console.print(f"About to delete {count} cached entries from {cache_dir}")
             # Prompt on stderr. stdout is the pipe; a prompt there disappears
             # when stdout is redirected and the command still blocks on stdin.
-            typer.confirm(f"Delete {count} cached compile results?", abort=True, err=True)
+            confirm_abort(f"Delete {count} cached compile results?")
         cache.clear()
         if json_output:
             json_print({"cleared": count, "cache_dir": str(cache_dir), "backend": backend})

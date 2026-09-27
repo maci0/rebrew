@@ -24,6 +24,7 @@ from rebrew.catalog.grid import covered_bytes
 from rebrew.catalog.pipeline import build_catalog_data
 from rebrew.cli import (
     TargetOption,
+    confirm_abort,
     console,
     error_exit,
     json_print,
@@ -295,10 +296,8 @@ def main(
             )
         if not force:
             # Prompt on stderr so a redirected stdout still shows the question.
-            typer.confirm(
-                "--fix-sizes will modify rebrew-functions.toml metadata files in-place. Continue?",
-                abort=True,
-                err=True,
+            confirm_abort(
+                "--fix-sizes will modify rebrew-functions.toml metadata files in-place. Continue?"
             )
 
     if export_ghidra:

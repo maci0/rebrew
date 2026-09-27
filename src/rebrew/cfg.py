@@ -32,7 +32,14 @@ from typing import Any
 import tomlkit
 import typer
 
-from rebrew.cli import EXIT_ERROR, TargetOption, console, error_exit, json_print
+from rebrew.cli import (
+    EXIT_ERROR,
+    TargetOption,
+    confirm_abort,
+    console,
+    error_exit,
+    json_print,
+)
 from rebrew.config import (
     KNOWN_PROJECT_KEYS,
     KNOWN_TARGET_KEYS,
@@ -723,7 +730,7 @@ def remove_target(
                 "(no interactive confirm)",
                 json_mode=True,
             )
-        typer.confirm(f"Remove target '{name}' from rebrew-project.toml?", abort=True, err=True)
+        confirm_abort(f"Remove target '{name}' from rebrew-project.toml?")
     del targets[name]
     save_toml(doc, toml_path, json_mode=json_output)
     if json_output:
@@ -983,9 +990,7 @@ def remove_module(
                 "(no interactive confirm)",
                 json_mode=True,
             )
-        typer.confirm(
-            f"Remove module '{module_upper}' from target '{target}'?", abort=True, err=True
-        )
+        confirm_abort(f"Remove module '{module_upper}' from target '{target}'?")
     for item in [o for o in list(origins) if preset_module_key(str(o)) == module_upper]:
         origins.remove(item)
     save_toml(doc, toml_path, json_mode=json_output)

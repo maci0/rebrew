@@ -324,6 +324,11 @@ def _objdiff_build() -> None:
         return
     if len(sys.argv) < 3:
         error_exit(_OBJDIFF_BUILD_USAGE)
+    if sys.argv[1].startswith("-"):
+        # This shim takes two positionals and nothing else, so a flag here is
+        # a typo. Say so instead of reading it as a target name and failing
+        # later with a config error.
+        error_exit(f"unknown option '{sys.argv[1]}'; {_OBJDIFF_BUILD_USAGE}")
     target_name = sys.argv[1]
     base_object = Path(sys.argv[2])
     cfg = require_config(target=target_name)

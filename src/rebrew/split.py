@@ -25,6 +25,7 @@ from rebrew.annotation import (
 from rebrew.c_parser import extract_function_name_from_line
 from rebrew.cli import (
     TargetOption,
+    confirm_abort,
     console,
     error_exit,
     json_print,
@@ -242,10 +243,8 @@ def main(
                     "Pass --force to apply it in --json mode, or use --dry-run to preview.",
                     json_mode=True,
                 )
-            typer.confirm(
-                f"Extract will remove 0x{target_va:08x} from {source_path.name}. Continue?",
-                abort=True,
-                err=True,
+            confirm_abort(
+                f"Extract will remove 0x{target_va:08x} from {source_path.name}. Continue?"
             )
 
         if not dry_run:
