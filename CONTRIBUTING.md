@@ -43,6 +43,15 @@ make test-one T=tests/test_annotation.py   # smoke the edit-test loop
 pull the copyleft components named in [`NOTICE`](NOTICE) (`pyvex`/LibVEX and
 GPLv3 `resembl`). Rebrew's own source stays under [`LICENSE`](LICENSE).
 
+`make setup` is what puts the `prove` extra in `.venv`, and that is what
+`make mypy` type-checks against: a bare `uv sync` never installs optional
+extras, and without angr every `angr`/`claripy` reference collapses to `Any`
+(unknown `SimProcedure` base, `import-not-found`, unused `type: ignore`).
+`make mypy` checks for that first and names the fix instead of printing the
+cascade; the same check runs in the pre-commit `mypy` hook. Every target that
+shells out to `uv run` likewise fails with `ERROR: uv not on PATH` rather than
+a bare `uv: not found`.
+
 ## Quick commands
 
 ```bash

@@ -1,6 +1,7 @@
 .PHONY: help setup clean test test-one lint format format-check check build sbom all pr-check \
 	gen-fixtures gen-fixtures-check gen-skills gen-skills-check cycles-check idempotency-check mypy audit \
-	cli-contract release-check coverage ensure-uv ensure-resembl ensure-nasm warn-nasm clone-resembl
+	cli-contract release-check coverage ensure-uv ensure-resembl ensure-nasm warn-nasm ensure-extras \
+	clone-resembl warn-uv-version
 
 # Force POSIX sh for recipes (ignore a caller-exported SHELL=bash).  Recipes
 # below use only POSIX constructs so Alpine/busybox ash and Debian dash work.
@@ -88,13 +89,22 @@ help:
 		'  3. make setup && make test-one T=tests/test_annotation.py' \
 		'  Before a PR: make all && make check && make build (or make pr-check)'
 
+# Every recipe below shells out to ``uv run``; without this preflight a
+# contributor who has not run ``make setup`` yet gets ``uv: not found`` from
+# the shell with no pointer at the missing prerequisite.
 ensure-uv:
 	@set -eu; \
 	if ! command -v uv >/dev/null 2>&1; then \
 	  echo "ERROR: uv not on PATH (required for setup/test/lint; CI pins UV_VERSION=$(UV_VERSION))."; \
 	  echo "Install from https://docs.astral.sh/uv/ then re-run make setup."; \
 	  exit 1; \
-	fi; \
+	fi
+
+# Version drift only matters where uv resolves the environment (setup, build);
+# the day-to-day gates run against an already-synced .venv, so they do not
+# re-warn.  Split from ensure-uv to keep that one cheap enough for every target.
+warn-uv-version: ensure-uv
+	@set -eu; \
 	uv_out=$$(uv --version); \
 	uv_ver=$$(printf '%s\n' "$$uv_out" | awk '{print $$2}'); \
 	lowest=$$(printf '%s\n%s\n' "$$uv_ver" "$(UV_VERSION)" | sort -t. -k1,1n -k2,2n -k3,3n | head -n 1); \
@@ -161,52 +171,65 @@ clone-resembl:
 	RESEMBL_REF=$(RESEMBL_REF) RESEMBL_SHA=$(RESEMBL_SHA) bash tools/ci_clone_resembl.sh "$(RESEMBL_DIR)"
 
 # Setup the development environment
-setup: ensure-resembl warn-nasm
+setup: ensure-resembl warn-nasm warn-uv-version
 	uv sync $(UV_SYNC_FLAGS)
 	uv run --frozen pre-commit install
+
+# `uv run` syncs the default groups, never the optional extras, so a venv made
+# by a bare `uv sync` has no angr.  mypy then reports a wall of phantom errors
+# (unknown SimProcedure, import-not-found, unused-ignore) whose real cause is
+# the missing extra.  Name it before the run instead of after.
+ensure-extras:
+	@set -eu; \
+	if ! uv run --frozen --no-sync python -c 'import angr, claripy' >/dev/null 2>&1; then \
+	  echo "ERROR: the 'prove' extra (angr, claripy) is not installed in .venv."; \
+	  echo "mypy reports phantom type errors without it (CI's lint job syncs --all-extras)."; \
+	  echo "Run 'make setup', or 'uv sync --frozen --all-extras --group similarity', then re-run."; \
+	  exit 1; \
+	fi
 
 # Run tests.  Match CI: a TTY / FORCE_COLOR / GITHUB_ACTIONS makes Rich/typer
 # emit ANSI, which splits numbers and option names and breaks assertions on
 # help/status text.  The pytest plugin ``pytest_ansi_env`` sets the same
 # trio for bare ``uv run pytest``; export here too so the recipe stays
 # self-documenting and covers any non-pytest child processes.
-test: ensure-nasm
+test: ensure-nasm ensure-uv
 	NO_COLOR=1 TERM=dumb _TYPER_FORCE_DISABLE_TERMINAL=1 \
 		uv run --frozen pytest tests/ -v --tb=short
 
 # Fast edit-test loop: one file or pytest node id.  Only warns about nasm:
 # the nasm round-trip tests skip without it, so unrelated files still run.
-test-one: warn-nasm
+test-one: warn-nasm ensure-uv
 	NO_COLOR=1 TERM=dumb _TYPER_FORCE_DISABLE_TERMINAL=1 \
 		uv run --frozen pytest $(T) $(FLAGS) -v --tb=short
 
 # Coverage floor (AGENTS.md: ratchet up, never down).  slipcover ignores
 # [tool.slipcover] fail_under, so the floor is passed on the command line.
-coverage: ensure-nasm
+coverage: ensure-nasm ensure-uv
 	NO_COLOR=1 TERM=dumb _TYPER_FORCE_DISABLE_TERMINAL=1 \
 		uv run --frozen python -m slipcover --fail-under $(COV_FLOOR) -m pytest tests/ -q --tb=short
 
 # Run linting
-lint:
+lint: ensure-uv
 	uv run --frozen ruff check src/ tests/ tools/
 
 # Run formatting
-format:
+format: ensure-uv
 	uv run --frozen ruff format src/ tests/ tools/
 
 # Verify formatting without mutating the source tree
-format-check:
+format-check: ensure-uv
 	uv run --frozen ruff format --check src/ tests/ tools/
 
 # Run pre-commit checks on all files.  Match CI workflow env so Rich/typer
 # ANSI cannot split option names when GITHUB_ACTIONS/FORCE_COLOR is set.
-check:
+check: ensure-uv
 	NO_COLOR=1 TERM=dumb _TYPER_FORCE_DISABLE_TERMINAL=1 \
 		uv run --frozen pre-commit run --all-files
 
 # High-value CLI --help contract (CI cli-contract job).  Same ANSI guards as
 # make test so a local TTY / GITHUB_ACTIONS export cannot break the greps.
-cli-contract:
+cli-contract: ensure-uv
 	@set -eu; \
 	help=$$(NO_COLOR=1 TERM=dumb _TYPER_FORCE_DISABLE_TERMINAL=1 \
 		uv run --frozen rebrew round-trip --help); \
@@ -239,7 +262,7 @@ clean:
 	rm -rf dist build rebrew.egg-info src/rebrew.egg-info .coverage htmlcov .coverage.* .pytest_cache .ruff_cache .mypy_cache .scratch/rebrew-idem .venv-pkg .hypothesis
 	find src tests tools -type d -name __pycache__ -prune -exec rm -rf {} +
 
-build: ensure-uv
+build: warn-uv-version
 	@mkdir -p dist
 	@rm -f dist/*.whl dist/*.tar.gz dist/*.buildinfo dist/*.cdx.json
 	@rm -rf build rebrew.egg-info src/rebrew.egg-info
@@ -273,7 +296,7 @@ build: ensure-uv
 # dist/rebrew.cdx.json so package CI / release consumers share one inventory.
 # generate_sbom.py is stdlib-only: --no-project skips the project sync (and
 # its ../resembl path dep), --offline keeps the no-network promise.
-sbom: ensure-uv
+sbom: warn-uv-version
 	@mkdir -p dist
 	uv run --no-project --offline python tools/generate_sbom.py -o dist/rebrew.cdx.json
 
@@ -290,11 +313,11 @@ all: format-check lint mypy audit coverage gen-fixtures-check cycles-check idemp
 pr-check: all check build sbom
 
 # Regenerate checked-in binary fixtures (run after editing tools/gen_fixtures.py).
-gen-fixtures:
+gen-fixtures: ensure-uv
 	uv run --frozen python tools/gen_fixtures.py
 
 # Fixture freshness: checked-in fixtures match the generator (CI test job).
-gen-fixtures-check:
+gen-fixtures-check: ensure-uv
 	uv run --frozen python tools/gen_fixtures.py --check
 
 # Regenerate rendered agent skills from src/rebrew/agent-skills/ (target bench).
@@ -304,24 +327,24 @@ gen-skills:
 	find .agents/skills -name '*.md' -exec sed -i 's/<target>/bench/g' {} +
 
 # Verify rendered agent skills match packaged source (same as tests/test_skills_sync.py).
-gen-skills-check:
+gen-skills-check: ensure-uv
 	NO_COLOR=1 TERM=dumb _TYPER_FORCE_DISABLE_TERMINAL=1 \
 		uv run --frozen pytest tests/test_skills_sync.py -v --tb=short
 
 # Module-level import cycles (pre-commit import-cycles hook / CI pre-commit job).
-cycles-check:
+cycles-check: ensure-uv
 	uv run --frozen python tools/detect_cycles.py
 
 # Idempotency sweep: every --json command, run twice (CI test job).
-idempotency-check:
+idempotency-check: ensure-uv
 	uv run --frozen python tools/check_idempotency.py --fixture-dir .scratch/rebrew-idem
 
 # Type check (CI lint job).
-mypy:
+mypy: ensure-extras ensure-uv
 	uv run --frozen mypy
 
 # Dependency advisory gate (CI lint job).
-audit:
+audit: ensure-uv
 	uv audit --locked --ignore-until-fixed GHSA-w8v5-vhqr-4h9v
 
 # Release preflight (release-review): verify the version/changelog/tag contract

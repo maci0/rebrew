@@ -117,7 +117,9 @@ def test_gen_link_stubs_json_still_writes(tmp_path: Path, monkeypatch: pytest.Mo
     assert "char g_a[1] = {0};" in out.read_text(encoding="utf-8")
 
 
-def test_gen_link_stubs_keeps_calibrated_tail(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_gen_link_stubs_keeps_calibrated_tail(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Re-running after calibrate-bss must not reset the pad it measured.
 
     calibrate-bss tunes ``g_bss_tail`` in the generated TU and leaves it

@@ -35,6 +35,14 @@ _USES_RE = re.compile(r"(?m)^\s+uses:\s+(?P<uses>\S+)\s*(?:#.*)?$")
 _SHA_REF_RE = re.compile(r"^[0-9a-f]{40}$")
 
 
+def _makefile_prereqs(target: str) -> set[str]:
+    """Prerequisites of a Makefile target (order-independent, no recipe lines)."""
+    text = MAKEFILE.read_text(encoding="utf-8")
+    match = re.search(rf"(?m)^{re.escape(target)}:(?P<deps>[^\n]*)$", text)
+    assert match is not None, f"no {target} target in the Makefile"
+    return set(match.group("deps").split())
+
+
 def _workflow_env(path: Path) -> dict[str, str]:
     text = path.read_text(encoding="utf-8")
     # Only the top-level workflow ``env:`` block (before ``jobs:``).
@@ -514,14 +522,47 @@ class TestCiPins:
         """Bootstrap should name the nasm host dep before the first test failure."""
         text = MAKEFILE.read_text(encoding="utf-8")
         assert "warn-nasm" in text
-        assert re.search(r"(?m)^setup:\s*ensure-resembl\s+warn-nasm\s*$", text)
+        assert {"ensure-resembl", "warn-nasm"} <= _makefile_prereqs("setup")
         assert "Before a PR: make all && make check && make build" in text
 
     def test_makefile_test_one_runs_without_nasm(self) -> None:
         """Single-file loop must not hard-fail on nasm; the nasm tests skip on their own."""
-        text = MAKEFILE.read_text(encoding="utf-8")
-        assert re.search(r"(?m)^test-one:\s*warn-nasm\s*$", text)
-        assert re.search(r"(?m)^test:\s*ensure-nasm\s*$", text)
+        assert "warn-nasm" in _makefile_prereqs("test-one")
+        assert "ensure-nasm" in _makefile_prereqs("test")
+
+    @pytest.mark.parametrize(
+        "target",
+        [
+            "test",
+            "test-one",
+            "coverage",
+            "lint",
+            "format",
+            "format-check",
+            "check",
+            "cli-contract",
+            "mypy",
+            "audit",
+            "gen-fixtures",
+            "gen-fixtures-check",
+            "cycles-check",
+            "idempotency-check",
+        ],
+    )
+    def test_uv_targets_preflight_uv(self, target: str) -> None:
+        """A missing uv must be a named error, not a bare ``uv: not found`` from the recipe."""
+        assert "ensure-uv" in _makefile_prereqs(target), f"make {target} runs uv without ensure-uv"
+
+    def test_mypy_preflights_the_prove_extra(self) -> None:
+        """Without the extra every angr reference is Any: 39 phantom mypy errors, no cause."""
+        assert "ensure-extras" in _makefile_prereqs("mypy")
+        hook = (
+            (ROOT / ".pre-commit-config.yaml")
+            .read_text(encoding="utf-8")
+            .split("- id: mypy\n", 1)[1]
+            .split("- id:", 1)[0]
+        )
+        assert re.search(r"(?m)^\s*entry: make --no-print-directory mypy\s*$", hook)
 
     def test_pre_push_pytest_hook_runs_make_test(self) -> None:
         """Pre-push must hit ``ensure-nasm``; a bare pytest skips asm tests CI runs."""
