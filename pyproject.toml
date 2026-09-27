@@ -333,7 +333,7 @@ dev = [
 # scoring core + rapidfuzz.  Path-pinned via [tool.uv.sources] — never an
 # extra, so wheel METADATA cannot point pip at the unrelated PyPI `resembl`.
 # Install: `uv sync --group similarity` (needs ../resembl checked out).
-# resembl 2.0.0 declares License: GPLv3 (GPL-3.0-only). See NOTICE.
+# resembl 3.0.0 declares License: GPL-3.0-only. See NOTICE.
 similarity = [
     "resembl",
     "rapidfuzz>=3.14.6",  # direct import in matcher/scoring.py code_similarity

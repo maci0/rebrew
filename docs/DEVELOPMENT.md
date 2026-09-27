@@ -95,7 +95,7 @@ see [`AGENTS.md`](../AGENTS.md); for the CLI surface see [`CLI.md`](CLI.md).
 ## Validation commands
 
 System deps for a green local suite: **nasm** on `PATH` (asm round-trip tests;
-CI installs it).  Bootstrap also needs sibling `../resembl` at tag `v2.0.0`
+CI installs it).  Bootstrap also needs sibling `../resembl` at tag `v3.0.0`
 whose `HEAD` is the `RESEMBL_SHA` commit (CI `resembl-sha`) — `make setup`
 checks both and prints the clone or checkout line when either is wrong.  `make help`
 lists every contributor target.

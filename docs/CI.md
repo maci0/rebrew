@@ -83,7 +83,7 @@ require a target binary or MSVC toolchain.
 
 Every job that runs `uv sync` first clones the sibling `resembl` repo
 (`maci0/resembl`, tag from the action's `resembl-ref` input, currently
-`v2.0.0`) into the
+`v3.0.0`) into the
 directory above the workspace via `tools/ci_clone_resembl.sh` (retries on
 network flake; the job passes `secrets.GITHUB_TOKEN` as the action's
 `github-token` input, which reaches only the clone step — header auth in a

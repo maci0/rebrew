@@ -1,6 +1,12 @@
 ## [Unreleased]
 
 ### Fixed
+- **The sibling `resembl` pin is back in step with `uv.lock`.** The lock records
+  `resembl` 3.0.0 while `RESEMBL_REF` / the `uv-env` action still named
+  `v2.0.0`, so `make clone-resembl` and the CI clone step fetched a checkout
+  `uv sync --frozen` could not resolve: bootstrap and every syncing CI job
+  failed on the path dependency. `RESEMBL_REF` and `RESEMBL_SHA` (Makefile and
+  the composite action) now name `v3.0.0` and its commit.
 - **`CHANGELOG.md` opens with `[Unreleased]` again.** The 2.14.0 release
   renamed the open heading into the dated section without opening the next
   one, so the file began with `## [2.14.0]` and the three release gates that

@@ -22,7 +22,7 @@
 # tree being verified.
 set -euo pipefail
 
-ref="${RESEMBL_REF:?RESEMBL_REF is required (e.g. v2.0.0)}"
+ref="${RESEMBL_REF:?RESEMBL_REF is required (e.g. v3.0.0)}"
 want_sha="${RESEMBL_SHA:?RESEMBL_SHA is required (the commit RESEMBL_REF must resolve to)}"
 dest="${1:-../resembl}"
 
